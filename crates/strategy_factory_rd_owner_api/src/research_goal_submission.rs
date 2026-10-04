@@ -34,7 +34,7 @@ use vibe_strategy_factory::{
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
 };
 
-use super::{
+use crate::server::{
     authorized, maybe_delay, owner_error_v2, product_edge_error, rejection_v2, unresolved_result_v2,
 };
 

@@ -73,7 +73,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   随 `B1` 一并解除，且该写入者可从 R&D 事务触达。
 - **`B3` Deployment Store Admission 处于关闭。** `DEPLOYMENT_STORE_ADMISSION_MODE` 在
   `product/rd-workbench/.env.example` 与 `product/rd-workbench/docker-compose.yml` 中为 `disabled`，因此每个密封读口
-  都解析为 `None`，而 `crates/strategy_factory_rd_owner_api/src/main.rs` 把 resolver 留在从不读取的字段
+  都解析为 `None`，而 `crates/strategy_factory_rd_owner_api/src/server.rs` 把 resolver 留在从不读取的字段
   `_market_data_research_pit` 里。`docs/guide/architecture-rules.md` 点名的生产端口现已存在，并组成 `required` 那条缝。
   解除条件：某个部署按 `product/rd-workbench/README.md` 的步骤开启 `required`，外加一个真正读取该读口的消费者。
   验收链路覆盖 Store Admission 之后的那一段，不覆盖 Admission 本身。在启用 `sealed-strategy-input-acceptance` 的构建中（没有任何

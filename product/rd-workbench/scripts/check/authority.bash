@@ -124,7 +124,7 @@ if grep -Eq '(policy_canonical_bytes|ReplayExecutionPolicyV2|generate.*policy|de
   echo "Catalog bootstrap composition must not synthesize policy" >&2
   exit 1
 fi
-grep -Fq 'materialize_schema(&database_url)' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
+grep -Fq 'materialize_schema(&database_url)' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/server.rs"
 grep -Fq 'ALTER TABLE operator_authorization_private.operator_authorization_issuances_v1 OWNER TO operator_authorization_owner' "$database_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER DATABASE %I OWNER TO rd_database_owner' "$database_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER SCHEMA public OWNER TO rd_database_owner' "$database_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -401,7 +401,7 @@ if grep -rEq 'GRANT [A-Z, ]+ ON FUNCTION rd_owner_api\.(peek|lock)_research_for_
   echo 'the at-View Research artifact functions must grant EXECUTE to nobody' >&2
   exit 1
 fi
-grep -Fq '.admit_artifact_build_request(' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
+grep -Fq '.admit_artifact_build_request(' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/server.rs"
 grep -Fq '|| hinted_admission.request.operation != ARTIFACT_BUILD_OPERATION_V1' "$package_dir/../../crates/product_edge/src/postgres.rs"
 if grep -Fq 'ProductEdgeCurrentOwnerEvidence' "$package_dir/../../crates/product_edge/src/lib.rs"; then
   echo "artifact transport must expose no caller-constructible freshness evidence" >&2

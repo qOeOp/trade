@@ -4,7 +4,7 @@ package_dir=$(CDPATH='' cd -- "$check_dir/../.." && pwd)
 compose_file="$package_dir/docker-compose.yml"
 env_example="$package_dir/.env.example"
 readme="$package_dir/README.md"
-rd_owner_api="$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
+rd_owner_api="$package_dir/../../crates/strategy_factory_rd_owner_api/src/server.rs"
 store_admission="$package_dir/../../crates/data/src/owner/store_admission/mod.rs"
 database_dir=$(CDPATH='' cd -- "$package_dir/../../database" && pwd)
 

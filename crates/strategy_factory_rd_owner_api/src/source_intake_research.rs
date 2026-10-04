@@ -125,8 +125,8 @@ async fn run_v2(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if !super::authorized(&headers, &state.token_digest) {
-        return super::rejection_v2(
+    if !crate::server::authorized(&headers, &state.token_digest) {
+        return crate::server::rejection_v2(
             StatusCode::FORBIDDEN,
             "UNAUTHORIZED_PRODUCT_EDGE",
             "unbound",
@@ -135,7 +135,7 @@ async fn run_v2(
     let operation: SourceIntakeResearchOperationV2 = match serde_json::from_slice(&body) {
         Ok(operation) => operation,
         Err(_) => {
-            return super::rejection_v2(
+            return crate::server::rejection_v2(
                 StatusCode::BAD_REQUEST,
                 "MALFORMED_TYPED_REQUEST",
                 "unbound",
@@ -150,8 +150,8 @@ async fn run_v3(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if !super::authorized(&headers, &state.token_digest) {
-        return super::rejection_v2(
+    if !crate::server::authorized(&headers, &state.token_digest) {
+        return crate::server::rejection_v2(
             StatusCode::FORBIDDEN,
             "UNAUTHORIZED_PRODUCT_EDGE",
             "unbound",
@@ -160,7 +160,7 @@ async fn run_v3(
     let operation: SourceIntakeResearchOperationV3 = match serde_json::from_slice(&body) {
         Ok(operation) => operation,
         Err(_) => {
-            return super::rejection_v2(
+            return crate::server::rejection_v2(
                 StatusCode::BAD_REQUEST,
                 "MALFORMED_TYPED_REQUEST",
                 "unbound",
@@ -199,8 +199,8 @@ async fn resolve(
 ) -> Response {
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     {
-        if !super::authorized(&headers, &state.token_digest) {
-            return super::rejection_v2(
+        if !crate::server::authorized(&headers, &state.token_digest) {
+            return crate::server::rejection_v2(
                 StatusCode::FORBIDDEN,
                 "UNAUTHORIZED_PRODUCT_EDGE",
                 &request_identity,
@@ -208,7 +208,7 @@ async fn resolve(
         }
 
         if !body.is_empty() {
-            return super::rejection_v2(
+            return crate::server::rejection_v2(
                 StatusCode::BAD_REQUEST,
                 "MALFORMED_TYPED_REQUEST",
                 &request_identity,
@@ -354,7 +354,7 @@ async fn admit_research_proposal<T: Serialize>(
         .admit_request(ProductEdgeAdmissionRequestV1 {
             request_identity: request_identity.to_owned(),
             typed_payload: serde_json::to_value(proposal).map_err(|_| {
-                super::rejection_v2(
+                crate::server::rejection_v2(
                     StatusCode::BAD_REQUEST,
                     "MALFORMED_TYPED_REQUEST",
                     request_identity,
@@ -397,8 +397,8 @@ fn parse_operation(
     path_request_identity: Option<&str>,
     body: &[u8],
 ) -> Result<(String, SourceIntakeResearchOperationV1), Box<Response>> {
-    if !super::authorized(headers, &state.token_digest) {
-        return Err(Box::new(super::rejection_v2(
+    if !crate::server::authorized(headers, &state.token_digest) {
+        return Err(Box::new(crate::server::rejection_v2(
             StatusCode::FORBIDDEN,
             "UNAUTHORIZED_PRODUCT_EDGE",
             path_request_identity.unwrap_or("unbound"),
@@ -407,7 +407,7 @@ fn parse_operation(
 
     let operation: SourceIntakeResearchOperationV1 =
         serde_json::from_slice(body).map_err(|_| {
-            Box::new(super::rejection_v2(
+            Box::new(crate::server::rejection_v2(
                 StatusCode::BAD_REQUEST,
                 "MALFORMED_TYPED_REQUEST",
                 path_request_identity.unwrap_or("unbound"),
@@ -422,7 +422,10 @@ fn parse_operation(
             Json(identity_conflict_result_v2(&request_identity)),
         )
             .into_response();
-        super::insert_rejection_code(&mut response, "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY");
+        crate::server::insert_rejection_code(
+            &mut response,
+            "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY",
+        );
         return Err(Box::new(response));
     }
 
@@ -474,7 +477,7 @@ fn admitted_proposal_v3(
 }
 
 fn source_research_owner_error(error: &ResearchGoalOwnerError, request_identity: &str) -> Response {
-    let response = super::owner_error_v2(error, request_identity);
+    let response = crate::server::owner_error_v2(error, request_identity);
     #[cfg(feature = "sealed-source-intake-acceptance")]
     let mut response = response;
     #[cfg(feature = "sealed-source-intake-acceptance")]
@@ -523,7 +526,7 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
             StatusCode::SERVICE_UNAVAILABLE
         }
     };
-    super::rejection_v2(
+    crate::server::rejection_v2(
         status,
         "PRODUCT_EDGE_ADMISSION_UNAVAILABLE",
         request_identity,
@@ -795,7 +798,7 @@ mod tests {
 
     #[rstest]
     fn conflicting_replay_uses_the_existing_canonical_v2_projection() {
-        let response = super::super::owner_error_v2(
+        let response = crate::server::owner_error_v2(
             &ResearchGoalOwnerError::ConflictingReplay,
             "research-request-1",
         );

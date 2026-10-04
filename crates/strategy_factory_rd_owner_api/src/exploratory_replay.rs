@@ -69,7 +69,7 @@ use vibe_strategy_factory::{
     native_replay_execution_preparation_resolver_v2::PostgresNativeReplayExecutionPreparationResolverV2,
 };
 
-use super::{ApiState, authorized, hex_digest, insert_rejection_code};
+use crate::server::{ApiState, authorized, hex_digest, insert_rejection_code};
 
 #[derive(Clone)]
 struct ExploratoryReplayResultApiState {
@@ -465,11 +465,11 @@ async fn resolve_execution_input_binding(
 
 #[cfg(feature = "composer-replay-issuance")]
 pub(super) async fn issue_execution_input_binding(
-    State(state): State<super::ApiState>,
+    State(state): State<crate::server::ApiState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if !super::authorized(&headers, &state.token_digest) {
+    if !crate::server::authorized(&headers, &state.token_digest) {
         return rejection(
             StatusCode::FORBIDDEN,
             "UNAUTHORIZED_PRODUCT_EDGE",

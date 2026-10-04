@@ -141,7 +141,3 @@ name = "deployment-store-publication-publish"
 path = "src/bin/deployment_store_publication_publish.rs"
 doc = false
 test = false
-
-[[test]]
-name = "rd_owner_api_main"
-path = "src/main.rs"

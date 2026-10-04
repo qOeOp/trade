@@ -104,11 +104,17 @@ def image_features(dockerfile: str, cargo_toml: str) -> set[str]:
 
 def run_body(main_rs: str) -> tuple[list[str], int, int]:
     """
-    Return main.rs's lines and the first and last line index of `async fn run()`.
+    Return server.rs's lines and the first and last line index of `run()`, the
+    composition's entry, written `pub async fn run()` there and `async fn run()` in this
+    check's own fixture.
     """
     lines = main_rs.split("\n")
     try:
-        start = next(i for i, line in enumerate(lines) if line.startswith("async fn run()"))
+        start = next(
+            i
+            for i, line in enumerate(lines)
+            if line.startswith(("pub async fn run()", "async fn run()"))
+        )
     except StopIteration:
         raise SystemExit(
             "owner-api-environment: `async fn run()` not found; the check cannot run",

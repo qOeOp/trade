@@ -197,7 +197,7 @@ fi
 # 2. The images, from this checkout. Inputs that are committed, clean and already built are not
 # rebuilt; the key is what the Owner image copies in, so a commit elsewhere does not rebuild it.
 build_inputs=(Cargo.toml Cargo.lock crates patches examples/tutorials product/rd-workbench/Dockerfile.owner
-  product/rd-workbench/Dockerfile.sandbox product/rd-workbench/postgres-init)
+  product/rd-workbench/Dockerfile.sandbox database/postgres-init)
 tree=$(git -C "$repo_root" ls-tree HEAD -- "${build_inputs[@]}" | shasum -a 256 | cut -d' ' -f1)
 dirty=$(git -C "$repo_root" status --porcelain -- "${build_inputs[@]}")
 if [ -z "$dirty" ] && [ "$(cat "$state_dir/steps/build" 2> /dev/null)" = "$tree" ] &&
@@ -362,8 +362,8 @@ else
 fi
 once postgres-tls-install "$volume_created $(shasum -a 256 "$tls_dir/server.crt" | cut -d' ' -f1)" \
   compose run --rm postgres-tls-install
-provision_digest=$(shasum -a 256 "$package_dir/postgres-init/20-deployment-store-custody.sh" \
-  "$package_dir/postgres-init/25-market-data-admitted-reader.sh" | shasum -a 256 | cut -d' ' -f1)
+provision_digest=$(shasum -a 256 "$repo_root/database/postgres-init/20-deployment-store-custody.sh" \
+  "$repo_root/database/postgres-init/25-market-data-admitted-reader.sh" | shasum -a 256 | cut -d' ' -f1)
 once deployment-store-provision "$volume_created $provision_digest" compose run --rm deployment-store-provision
 
 printf 'postgres://market_data_admitted_reader:%s@postgres:5432/rd_owner\n' "$(env_value MARKET_DATA_ADMITTED_READER_DB_PASSWORD)" \
@@ -388,7 +388,7 @@ esac
 
 # 7 and 8. The custody migration and the authority schema. Both are idempotent; each is skipped
 # once it has run on this volume with this script and this image.
-migrate_digest=$(shasum -a 256 "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d' ' -f1)
+migrate_digest=$(shasum -a 256 "$repo_root/database/postgres-init/10-migrate-authority-custody.sh" | cut -d' ' -f1)
 once authority-custody-migrate "$volume_created $migrate_digest $image_id" \
   compose run --rm --no-deps authority-custody-migrate
 once authority-schema-materialize "$volume_created $image_id" \
@@ -453,10 +453,34 @@ run_deployment_store_grant_boot() {
 manifest_history=$ds_dir/manifest-history
 last_authoring=$ds_admin/authoring.last-published.json
 current_head=$(env_value DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY)
-if [ -n "$current_head" ] && [ -f "$manifest_history" ] && [ -f "$last_authoring" ]; then
+if [ -n "$current_head" ]; then
   already_published=1
 else
   already_published=
+fi
+# A deployment published before this script tracked its own history (or one whose state
+# directory was lost) has a head in the env file but no `manifest_history` of its own. Seed it
+# with that head's own manifest identity, read from the store the custodian already holds it in,
+# so the next draft's `prior_manifest_identities` names it rather than starting over from an empty
+# list the custodian's publish_v1 would then refuse as a second genesis (HEAD_MISMATCH).
+if [ -n "$already_published" ] && [ ! -s "$manifest_history" ]; then
+  seeded_manifest_identity=$(psql_scalar "
+    SELECT h.manifest_identity
+    FROM deployment_store_custody_private.current_heads_v1 c
+    JOIN deployment_store_custody_private.heads_v1 h
+      ON h.environment_identity = c.environment_identity AND h.deployment_identity = c.deployment_identity
+     AND h.consumer_owner = c.consumer_owner AND h.consumer_identity = c.consumer_identity
+     AND h.backend = c.backend AND h.head_identity = c.head_identity
+    WHERE c.environment_identity = '$(env_value DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY)'
+      AND c.deployment_identity = '$(env_value DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY)'
+      AND c.consumer_owner = 'MARKET_DATA_OWNER_V1' AND c.consumer_identity = 'STRATEGY_FACTORY_RD_OWNER_API_V1'
+      AND c.backend = 'POSTGRESQL_V1' AND c.head_identity = '$current_head'")
+  if [ -z "$seeded_manifest_identity" ]; then
+    log "deployment-store-publish: the published head $current_head names no manifest the custody store holds"
+    exit 1
+  fi
+  printf '%s\n' "$seeded_manifest_identity" > "$manifest_history"
+  rm -f "$last_authoring"
 fi
 write_deployment_store_draft() {
   rm -f "$ds_admin/draft.json"
@@ -504,7 +528,7 @@ fi
 # `last_authoring`), so comparing the two with those two fields removed is exactly "did the store
 # change" and nothing else.
 measurement_changed=1
-if [ -n "$already_published" ] && python3 - "$ds_admin/authoring.json" "$last_authoring" << 'EOF'; then
+if [ -n "$already_published" ] && [ -f "$last_authoring" ] && python3 - "$ds_admin/authoring.json" "$last_authoring" << 'EOF'; then
 import json, sys
 varying = {"prior_manifest_identities", "expected_previous_head_identity"}
 documents = []

@@ -28,7 +28,7 @@ use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::{
 };
 use vibe_strategy_factory::strategy_design_v2::StrategyDesignV2;
 
-use super::{authorized, insert_rejection_code};
+use crate::server::{authorized, insert_rejection_code};
 
 #[async_trait::async_trait]
 trait ResearchBoundedFeatureProgramPort: Send + Sync {

@@ -64,7 +64,7 @@ use vibe_data::owner::{
     universe_selection_admission_v1::UniverseSelectionAdmissionV1,
 };
 
-use super::authorized;
+use crate::server::authorized;
 
 #[derive(Clone)]
 pub(super) struct BinanceBackfillJobApiState {
