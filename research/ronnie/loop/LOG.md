@@ -2383,6 +2383,29 @@ the 2R-from-fill variants. CSCV PBO over the five primary fractions 0.43: which 
 - **Decision (registered criterion met):** f = 0.5 (the zone's middle, the plateau's centre) joins the forward record as
   a paired variant R-1m; R-1u is unchanged. Development data only (survivor coins, 2018-2022); the holdout is not read.
 
+## Loop S-1: choosing among R-1 orders (registered 2026-10-04, before running; the user's question)
+
+- **Question:** the user notes that return comes from several choices together (where in the zone, which of several
+  signals, how much size), and that Ronnie's videos rank orders ("recommended", "optional"). When more orders are on
+  offer than an account can hold, does a score known when the order is placed pick better trades than taking every
+  fill in order?
+- **Units:** every R-1 order that fills (one per broken pivot, trend agreeing), at f = 0 (wick) and f = 0.5 (zone
+  middle, R-1m), each walked on its own (no coin slot) on 1h bars with fill hours and two-sided hours resolved on 1m,
+  stop slippage 0.05%. 53 coins, 2018-2022 (development only).
+- **Features, fixed before running, all known at the arming close:** side; zone height / ATR; breakout body / 20-day
+  median body; distance run past the limit / ATR; room = distance from the limit to the nearest unbroken opposing
+  pivot / risk, capped at 6 (Ronnie declines plans with under about 1.3R of room, `tv_frame_plans.py`); stop as % of
+  price; BTC trend agreeing; log bars since the trend turned; 50-day MA slope over 10 bars / ATR, signed by side; log
+  pivot age; stacked levels = other order-3 pivots of the last 700 bars inside the zone +/- 0.25 ATR (confluence);
+  ATR / price percentile over 365 days.
+- **Score:** ridge regression of R on the standardised features, walk-forward by year: fit on all earlier years, score
+  the next (test years 2020, 2021, 2022). Univariate terciles on 2018-2019 are reported for reading only.
+- **Primary test (per f):** on the pooled test years, avg R of the top score tercile minus the bottom tercile, with a
+  week-clustered 95% interval; a score counts if the interval excludes 0 and the top tercile beats all trades by at
+  least 0.10R (SESOI). Secondary: an account taking at most 5 open trades and one per coin, in fill order, comparing
+  "every order" with "only orders scoring above the training median" and with a random filter of the same pass rate
+  (100 draws): total R, weekly Sharpe, max drawdown over 2020-2022.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R
