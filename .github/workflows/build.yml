@@ -843,7 +843,7 @@ jobs:
       - name: Install Vibe CLI
         env:
           VIBE_CLI_FORCE_SOURCE: "1"
-        run: bash scripts/ci/install-nautilus-cli.sh
+        run: bash scripts/ci/install-vibe-cli.sh
 
       - name: Init postgres schema
         run: vibe database init --schema ${{ github.workspace }}/schema/sql
