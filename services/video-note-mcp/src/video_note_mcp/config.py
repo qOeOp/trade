@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from importlib.resources import files
 from typing import Literal
 
-from video_note_mcp.domain.refs import raw_ref
-
 
 @dataclass(frozen=True, slots=True)
 class ModelProfile:
@@ -61,8 +59,3 @@ def load_model_profile(
         enable_thinking=value["enable_thinking"],
         response_format=value["response_format"],
     )
-
-
-def model_profile_material_ref() -> str:
-    resource = files("video_note_mcp").joinpath("profiles/v1/deepseek.json")
-    return raw_ref(resource.read_bytes())

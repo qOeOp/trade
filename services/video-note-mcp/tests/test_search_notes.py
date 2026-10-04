@@ -109,7 +109,7 @@ class ControlledCreate:
             await self.releases.setdefault(url, asyncio.Event()).wait()
             if progress is not None:
                 await progress.report(
-                    ProgressUpdateV1(ProgressStageV1.ANALYSIS_READY, 75, 100, f"done {url}")
+                    ProgressUpdateV1(ProgressStageV1.NOTE_VALIDATED, 89, 100, f"done {url}")
                 )
             if url in self.unexpected:
                 raise RuntimeError("unexpected controlled failure")

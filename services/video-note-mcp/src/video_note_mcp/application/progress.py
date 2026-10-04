@@ -20,7 +20,6 @@ class ProgressStageV1(StrEnum):
     TRANSCRIPT_READY = "transcript_ready"
     HD_FRAMES_READY = "hd_frames_ready"
     VISUAL_ANALYSIS_ACTIVE = "visual_analysis_active"
-    ANALYSIS_READY = "analysis_ready"
     NOTE_VALIDATED = "note_validated"
 
 
@@ -44,9 +43,6 @@ _UPDATES = {
     ),
     ProgressStageV1.HD_FRAMES_READY: ProgressUpdateV1(
         ProgressStageV1.HD_FRAMES_READY, 65, 100, "已按语音意图定位并提取相关视频截图"
-    ),
-    ProgressStageV1.ANALYSIS_READY: ProgressUpdateV1(
-        ProgressStageV1.ANALYSIS_READY, 75, 100, "音频与画面联合分析已完成，正在组织章节内容"
     ),
     ProgressStageV1.NOTE_VALIDATED: ProgressUpdateV1(
         ProgressStageV1.NOTE_VALIDATED, 89, 100, "图文笔记已校验，正在保存并返回"

@@ -105,35 +105,47 @@ async def test_no_subtitle_review_limits_and_audio_coverage(tmp_path, draft):
     assert normalized("3%") != normalized("3")
 
 
-async def test_reviewer_uses_different_asr_and_preserves_raw(tmp_path, draft, monkeypatch):
+@pytest.mark.parametrize(
+    "primary,expected_model",
+    [
+        ("mlx:test", "Qwen/Qwen3-ASR-1.7B"),
+        ("siliconflow:Qwen/Qwen3-ASR-1.7B", "XingChenAGI/XingChenASR-V3.2-Ultra"),
+    ],
+)
+async def test_reviewer_uses_siliconflow_wire_and_preserves_raw(
+    tmp_path, draft, monkeypatch, primary, expected_model
+):
+    import httpx
+
+    from bilibili_note_mcp.adapters import asr_siliconflow, audio_review
+
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "siliconflow-test-only")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-only")
     source = await MemorySource(draft).acquire(FIXTURE_URL, tmp_path, NullProgressReporter())
     source = replace(
-        source,
-        transcript=replace(
-            source.transcript, method="asr", provider_ref="siliconflow:Qwen/Qwen3-ASR-1.7B"
-        ),
+        source, transcript=replace(source.transcript, method="asr", provider_ref=primary)
     )
-    models = []
+    requests = []
 
-    class Engine:
-        def __init__(self, profile):
-            models.append(profile.asr_model)
+    def respond(request):
+        requests.append(request)
+        assert str(request.url) == "https://api.siliconflow.cn/v1/audio/transcriptions"
+        assert request.headers["Authorization"] == "Bearer siliconflow-test-only"
+        assert expected_model.encode() in request.content
+        return httpx.Response(200, json={"text": "另一种结果"})
 
-        async def transcribe(self, media, duration, workspace, progress):
-            return TranscriptResult(
-                "asr",
-                "siliconflow:" + models[-1],
-                "zh",
-                (TranscriptSegment("E001", 0, duration, "另一种结果"),),
-            )
+    def engine(profile):
+        return asr_siliconflow.SiliconFlowAsr(profile, httpx.MockTransport(respond))
 
-    async def extract(*args, **kwargs):
-        pass
+    async def extract(_source, target, **_kwargs):
+        target.write_bytes(b"audio")
 
-    monkeypatch.setattr("video_note_mcp.adapters.audio_review.SiliconFlowAsr", Engine)
-    monkeypatch.setattr("video_note_mcp.adapters.audio_review._extract_audio", extract)
+    monkeypatch.setattr(audio_review, "SiliconFlowAsr", engine)
+    monkeypatch.setattr(audio_review, "_extract_audio", extract)
+    monkeypatch.setattr(asr_siliconflow, "_extract_audio", extract)
     result = await AudioReviewer().review(source, "precise", tmp_path)
-    assert models == ["XingChenAGI/XingChenASR-V3.2-Ultra"]
+    assert len(requests) == 1
+    assert result[0].provider_ref == "siliconflow:" + expected_model
     assert result[0].differs
     assert result[0].primary_text == " ".join(s.text for s in source.transcript.segments)
     assert source.transcript.segments == draft.transcript
