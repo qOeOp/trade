@@ -188,13 +188,15 @@ The maturity boundary is explicit:
 - **TARGET / NOT_ADMITTED:** Paper and Live consume the same plan, Artifact, event ordering, checkpoint schema,
   kernel and semantic-trace contract only after their Owner adapters exist and are separately admitted. No current
   Paper or Live equivalence, application, external write, or trading capability is claimed here.
-- **TARGET / NOT_ADMITTED - ARC Complex D Bounded Feature Program V1:** frozen Research may supply the bounded,
+- **CURRENT/PARTIAL - ARC Complex D Bounded Feature Program V1:** frozen Research may supply the bounded,
   typed feature/state program defined below. R&D's Develop capability deterministically lowers that canonical program with
   first-party sources into one existing bounded plugin, then continues only through `PluginManifestV2`,
-  `StrategyPlanV2`, `StrategyArtifactV2`, `ProgramHostV2`, and the shared lifecycle kernel. This repository has no
-  executable `BoundedFeatureProgramV1`, V3 producer or durable V3 readback today. This contract does not claim an
-  executable D-loop, Native Replay, first-party acceptance, stable profitability, Paper, Live, production, or trading
-  authority.
+  `StrategyPlanV2`, `StrategyArtifactV2`, `ProgramHostV2`, and the shared lifecycle kernel; the production Composer
+  route freezes, lowers, builds and composes it (R&D's Develop compilation section states the route). **TARGET:**
+  the [host interpretation of the Bounded Feature
+  Program](#target-host-interpretation-of-the-bounded-feature-program) replaces lowering, the Wasm build and the
+  Wasm runtime with one host interpreter. This contract does not claim an executable D-loop, Native Replay,
+  first-party acceptance, stable profitability, Paper, Live, production, or trading authority.
 
 `StrategyDesignV2` is a typed, versioned, content-addressed description of input roles, joins, parameters,
 features, state, lifecycle reactions, portfolio targets, protection policy, and optional custom-plugin calls. It
@@ -254,14 +256,18 @@ response-loss cases.
 
 `BoundedFeatureProgramV1` (BFP V1) is the only admitted general Complex D representation. R&D/Develop freezes its
 canonical meaning together with the Research Intent and `StrategyDesignV2`; R&D's Develop capability verifies and lowers
-it but cannot invent Research meaning. Its sole forward path is:
+it but cannot invent Research meaning. Until retirement slice R2 lands, its sole forward path is:
 
 `Frozen Research -> canonical BoundedFeatureProgramV1 typed DAG -> deterministic first-party source lowering ->`
 `versioned V3 build capsule/receipt -> existing PluginManifestV2/Composer/StrategyArtifactV2 ->`
 `existing ProgramHostV2 -> shared lifecycle kernel -> Backtest`.
 
-The BFP is a build input for exactly one bounded plugin declared by the Design, not a Host graph extension, Host
-feature opcode, interpreter, runtime, strategy template, raw-order program, or new Owner. An LLM or caller may
+The BFP is the meaning of exactly one bounded plugin declared by the Design, not a Host graph extension, Host
+feature opcode, strategy template, raw-order program, or new Owner. Until slice R2 it is a build input to the
+lowerer; the user-authorized TARGET (2026-10-04) makes it the input of the one host interpreter instead, which
+replaces lowering, the Wasm build and the Wasm runtime rather than adding a second runtime beside them - see
+[Host interpretation of the Bounded Feature Program](#target-host-interpretation-of-the-bounded-feature-program).
+The lowering rules in this paragraph apply until slice R3 deletes the lowerer. An LLM or caller may
 propose Research meaning, but it cannot author Rust, Wasm, a dependency, ABI, formula implementation, build
 command, clock, Owner receipt, or executable fallback. Only the frozen canonical BFP enters the first-party
 lowerer. The lowerer is deterministic and dependency-closed; it may emit only source assembled from its pinned
@@ -279,7 +285,8 @@ The canonical BFP schema must bind all of the following, with unknown fields and
 - the primitive-catalog semantic version and content digest, first-party SDK/source digest, lifecycle-output
   semantic IDs, and the complete typed DAG in canonical topological order;
 - finite bounds for nodes, edges, depth, ports, constants, lag and rolling windows, state cells and bytes, source
-  bytes, Wasm bytes, fuel, linear memory, and invocations per event; and
+  bytes, Wasm bytes, fuel, linear memory, and invocations per event (under the TARGET host interpretation the
+  source, Wasm, fuel and linear-memory bounds retire, and a derived evaluation-cost bound replaces fuel); and
 - domain-separated canonical bytes and digest covering every field above, all constants and frozen rounding modes.
 
 Node IDs and port IDs are unique stable strings; edges reference only earlier typed outputs; every output is
@@ -950,6 +957,9 @@ identities; fixed command/configuration; complete source-file set and digest; an
 memory, import, export, ABI, port, state and invocation bounds. Two fresh private builds must finish successfully
 and produce byte-identical source and Wasm. The existing ABI/resource verifier then rejects every undeclared
 import/export, start function, `memory.grow`, floating-point opcode, ABI/manifest mismatch, or resource excess.
+This capsule and its two-build seal hold until retirement slice R2; the TARGET Artifact binds the canonical BFP
+bytes and the interpreter identity instead, and slice R3 deletes the capsule producer (see the
+[retirement plan](#bfp-host-interpretation-retirement-plan)).
 
 `PluginImplementationReceiptV2` may continue to bind the resulting module and an opaque
 `verified_build_receipt_digest`; it does not interpret or mint V3 authority. Composer durable custody must store
@@ -959,8 +969,9 @@ digests remain byte-for-byte authoritative and readable; migration cannot rewrit
 silently promote them to V3. A missing tag, unknown version, cross-tag replay, V2 bytes under a V3 tag, changed BFP
 under the same build identity, or partial V3 coverage fails closed with no Plan or Artifact.
 
-After the new corpus proves the sole BFP-to-Wasm path equivalent where legacy behavior is still admitted,
-`complex_strategy_ir`, `complex_strategy_program`, their interpreter/compiler path, and the hand-written V1
+After the new corpus proves the sole BFP execution path (the Wasm path, and after slice R1 the host interpreter)
+equivalent where legacy behavior is still admitted, `complex_strategy_ir`, `complex_strategy_program`, their
+interpreter/compiler path, and the hand-written V1
 complex programs must be deleted or retired as non-authoritative. Their floating-point semantics and raw
 `Action::Submit` plumbing must not be translated, wrapped, or retained as BFP, SDK, primitive, Host, or migration
 authority.
@@ -987,7 +998,8 @@ and tagged V3 receipt, pass Composer into the same `StrategyArtifactV2`, and exe
 `ProgramHostV2`/Backtest shared-kernel path. Complete repeated runs must produce byte-identical BFP, source, Wasm,
 build receipt, Plan/Artifact identities, ordered semantic trace, checkpoint, fill, position, protection, cost, and
 canonical Backtest result. Restoring a checkpoint at every declared state frontier must reproduce a byte-identical
-suffix.
+suffix. From retirement slice R2 the source, Wasm and build clauses are replaced by the interpreted Artifact
+identity, and every other clause applies unchanged to the interpreted path.
 
 Byte identity holds within one fixed-point precision mode. The product runs at `FIXED_PRECISION` 16:
 `vibe-strategy-factory` declares `high-precision` on its `vibe-model` dependency, so local, CI, Owner-chain and
@@ -1052,8 +1064,11 @@ point remains separately available and retains its existing behavior.
 built Wasm module for each plugin declared by that Plan. Modules cannot be shared between plugin declarations.
 There is no generated outer or root strategy Wasm module: generic `ProgramHostV2` interprets the Plan graph,
 invokes its plugin modules, and passes the resulting typed values to the shared lifecycle kernel, which alone owns
-state transitions. This is the sole V2 execution path. V1 remains only a migration and equivalence baseline, never
-an alternate V2 runtime.
+state transitions. Until retirement slice R2 this is the sole V2 execution path; the user-authorized TARGET
+replaces each plugin's Wasm module with its canonical BFP bytes, evaluated by the host interpreter, which is then
+the sole V2 execution path ([Host interpretation of the Bounded Feature
+Program](#target-host-interpretation-of-the-bounded-feature-program)). V1 remains only a migration and equivalence
+baseline, never an alternate V2 runtime.
 
 For the exact two-member vertical, the selected instruments come only from an actual Market Data Owner-sealed
 `StrategyInputUniverseSelectionReceipt` carried by the closed, non-fabricable sealed acceptance adapter; two otherwise valid singular input-binding receipts never create shared
@@ -1086,6 +1101,7 @@ array and commits a prepared value only when its in-process instance token and c
 Execution/Paper/Live routing, external account truth, broader currency conversion, inverse/quanto instruments,
 and cold-engine restoration remain unavailable.
 
+The module ABI below holds until retirement slice R3 deletes the Wasm runtime.
 Each plugin invocation uses a fresh or reset module instance. Guest memory and guest state are never retained
 between invocations; plugin state is explicit, bounded, host-owned bytes carried in the canonical frames. A V2
 plugin module has no imports or start function, cannot execute `memory.grow`, and exports exactly these six items
@@ -1444,6 +1460,176 @@ authority.
 
 <a id="strategy-shape-envelope"></a>
 
+<a id="target-host-interpretation-of-the-bounded-feature-program"></a>
+
+## TARGET - Host interpretation of the Bounded Feature Program
+
+**Authorization.** On 2026-10-04 the user authorized this change, choosing (translated) "authorize option two":
+keep the Bounded Feature Program, retire everything between it and execution - first-party source lowering, the
+cargo build to Wasm, and the Composer's build custody - and let the generic `ProgramHostV2` interpret the frozen
+program directly, after research T0 is reproduced on the current path. The authorization moves the stated
+refusals and seals this section names; it moves nothing else, and it admits no Paper, Live, production write or
+trading path.
+
+**Why, as measured on `main` at `4c3d181fe`.**
+
+- *The untrusted-code premise no longer holds.* The Composer runs in production only from a frozen Bounded Feature
+  Program; no caller, proposer or LLM can author Rust, Wasm or a dependency. Every Wasm module is first-party
+  lowerer output that calls the same `vibe-indicators-kernel` sources the host already links - the lowerer embeds
+  them byte for byte. Wasm isolation guards code this repository generates, from a program whose cost the static
+  bounds already limit. The build sandbox is not OS confinement either: it is `env_clear` plus
+  `cargo --offline --locked`.
+- *A build is cheap; running is not.* One release build of a lowered guest takes 1.5-1.8 s on an Apple-silicon
+  host, so the required pair costs 3-4 s per plugin. A research T0 frame, by contrast, costs 1.59 ms of guest
+  execution on a cached wasmi instance. The guest is 40.9 KB of Wasm, and its 46.6 KB state crosses the guest
+  boundary in both directions on every call. The production call adds 0.63 ms: it re-validates the module
+  (0.46 ms), compiles it and instantiates it on every invocation. That totals about 2.2 ms per frame per plugin.
+- *The research workload does not fit.* Research R-1u covers 53 perpetuals over 5 years of 1-hour frames, up to
+  2.32 million frames. On the current path that is about 85 minutes on one core, against about one minute for the
+  research loop that found it. Research T0, on daily frames, costs seconds and is
+  unaffected.
+- *Every operator is written three times.* A new primitive needs a `vibe-indicators-kernel` function, its lowerer
+  emission and its guest SDK/catalog wiring. Under interpretation it needs the function and one dispatch arm.
+- *The chain carries about 13-15 thousand non-test lines that exist only for the Wasm path.* These are the
+  lowerer, the V2/V3 build producers and sandbox, the guest SDK wire, the wasmi runtime, the guest-stack rule and
+  the Composer's build custody.
+
+**What is kept unchanged.** The canonical `BoundedFeatureProgramV1` schema, its domain-separated bytes and digest,
+the R&D joint freeze, the pinned primitive catalog with its versioning and golden vectors, the description and
+resource bounds, readiness (`READY`/`WARMING`), fixed-I128 arithmetic with its frozen rounding, the absence of
+floating point, `NUMERIC_FAILURE_NO_STATE_CHANGE`, `StrategyDesignV2`, `StrategyPlanV2`, and the shared
+lifecycle kernel's sole authority over state transitions. Determinism never came from Wasm: it comes from the
+fixed-I128 kernel, which host and guest share source for source.
+
+**The TARGET forward path:**
+
+`Frozen Research -> canonical BoundedFeatureProgramV1 -> StrategyPlanV2 binding each plugin's BFP digest ->`
+`StrategyArtifactV2 package carrying the Plan and each plugin's canonical BFP bytes -> ProgramHostV2 interpreting`
+`each BFP through vibe-indicators-kernel -> shared lifecycle kernel -> Backtest`.
+
+The interpreter is one first-party module of `ProgramHostV2`. It accepts only canonical BFP bytes whose digest the
+Plan binds, re-derives that digest before its first evaluation, and evaluates nodes in canonical topological order
+by calling the catalog function each node's semantic ID names. It is the sole BFP runtime, not a second one beside
+Wasm: the Wasm runtime is retired in the same plan. Strategy meaning stays BFP. The interpreter adds no opcode, no
+node kind, and no host feature beyond the published catalog. A semantic ID the running catalog does not publish is
+refused, as today. The Artifact's identity binds the Plan, the BFP bytes, and the interpreter identity: the catalog
+semantic version and digest plus the interpreter semantic version. A program therefore re-identifies whenever the
+code that gives it meaning changes. The build receipt that bound the toolchain played this role before.
+
+**Isolation, relocated onto the program's static bounds.** Each property the Wasm boundary enforced at run time is
+enforced by a bound the canonical program already declares. That bound is checked before the Plan is issued, and
+checked again when the host is constructed:
+
+- **Fuel per invocation** is replaced by the **evaluation-cost bound**: the sum over nodes of each primitive's
+  catalog cost, where a windowed primitive costs its declared window and lag, times invocations per event. It is
+  derived from the description bounds (nodes, edges, depth, fan-out, decision branches) and the resource bounds
+  (window, lag, invocations per event). At freeze and at Plan issuance, a program whose derived cost exceeds the
+  catalog's per-event cost cap is `UNSUPPORTED`. At run time the interpreter performs exactly the derived work.
+  Nothing data-dependent can extend it, because the DAG has no loop and no unbounded window.
+- **Linear memory, the guest stack and `memory.grow`** are replaced by the **state bound**: state cells and state
+  bytes, plus window and lag. The host allocates each plugin's state once, at construction and at the declared
+  size, and never during evaluation. A state write beyond its cell, or a window beyond its declared length, is
+  refused before any state changes.
+- **No imports, no start function and no ambient effect** are replaced by the **closed catalog namespace**. A
+  program can name only published semantic IDs, and no catalog function performs I/O, reads a clock, or allocates
+  outside its state.
+- **A fresh instance per invocation with no retained guest memory** becomes host-owned state crossing each
+  evaluation as explicit bytes. This is unchanged in effect: state persists only in the canonical state the
+  checkpoint already carries.
+- **Forbidden floating-point opcodes** are replaced by the fixed-I128 catalog, unchanged.
+
+The source-byte, Wasm-byte, fuel and linear-memory bounds retire with the Wasm path. A program that declares
+them is still read back, and the interpreter ignores those four fields. The derived evaluation-cost bound
+replaces them. The catalog publishes its cost cap and each primitive's cost under the same versioning as its
+golden vectors.
+
+**Stated refusals and seals this moves.** Each is rewritten where it is stated, marked as applying until the
+retirement slice named below lands:
+
+- "not a ... interpreter, runtime" and the Wasm forward path, under the Bounded Feature Program section above;
+- "two byte-identical builds", under the V3 build capsule and the first executable corpus above;
+- "This is the sole V2 execution path", under the Wasm Artifact and its ABI below;
+- R&D's "may not ... create another interpreter or runtime", "No ... second interpreter/runtime" and "two
+  byte-identical builds";
+- Runtime's "content-addressed Wasm Artifact".
+
+These statements are relocated, not removed: the property each protected - one runtime, a reproducible
+executable identity, bounded execution cost and memory - is restated above and stays provable.
+
+**Status.** This section is TARGET. Until slice R2 lands, the Wasm path stays the CURRENT/PARTIAL path; nothing
+here is claimed as implemented.
+
+<a id="bfp-host-interpretation-retirement-plan"></a>
+
+### Retirement plan
+
+**Prerequisites.**
+
+1. *Research T0 is reproduced on the current path.* `backtest.run` reaches the Composer and the Wasm host, and
+   the T0 acceptance passes. The run this produces is the oracle for slice R1.
+2. *Backtest has one seam.* Backtest's `backtest.run` obtains its executable through exactly one function: a
+   frozen Plan maps to an executable Artifact. Under the current path it is the Composer: lower, build twice,
+   issue the Artifact. Slice R2 replaces that function's body and nothing else in the run.
+3. *Three research prerequisites, scheduled by R&D lane coordination, gate R-1u acceptance only.* They do not
+   gate R1-R3:
+   - R-1u's reference trades are re-exported with entry, stop and target prices and fill and exit times;
+   - its unbounded pivot list is bounded to the last K pivots, with research showing the bound changes no trade;
+   - the reference is regenerated on perpetual data. The user decided on 2026-10-04 that the product stays
+     perpetual and adds no spot.
+
+**Slices, in order:**
+
+- **R1 - interpreter beside Wasm.**
+  - *Adds:* the interpreter in `ProgramHostV2`, behind the same per-plugin invocation the Wasm runtime serves. It
+    takes the canonical BFP, the frame's typed inputs and the prior state, and returns the outputs, availability
+    and post-state that `PluginFrameV2` carries today. It also adds the evaluation-cost bound and the catalog's
+    per-primitive costs.
+  - *Deletes:* nothing.
+  - *Ordered chain:* unchanged. An equivalence proof is added: every authored corpus program (T0, `d1`, `w1`, `w2`,
+    the rebalance program and the rest of the authored corpus) runs both ways over the same frames. Every
+    frame's outputs, availability and post-state bytes must be identical.
+- **R2 - the Artifact carries the program.**
+  - *Adds:* a Strategy Artifact package version whose per-plugin entry is the canonical BFP bytes and the
+    interpreter identity, not a Wasm module. Composer becomes "freeze the Plan and its BFP package", with no
+    lowering and no build, and the seam from prerequisite 2 calls it.
+  - *Deletes:* lowering and building on the production Composer route.
+  - *Ordered chain:* these entries are replaced:
+    - `product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact`;
+    - `tests::the_authored_frozen_program_runs_the_production_composer`;
+    - F's H5 step in `tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported`;
+    - `tests::backtest_run_reaches_the_replay_step_over_a_catalogued_strategy`, once it runs past the replay step.
+
+    Their dependents in `scripts/ci/rd-owner-chain-needs.tsv` are re-measured, never estimated.
+- **R3 - delete the Wasm path.**
+  - *Deletes:*
+    - `bounded_feature_program_lowerer_v1` and its tests;
+    - `develop_plugin_build_v3`, and the V2 build producer and its sandbox;
+    - `lowered_guest_build_for_test`;
+    - `program_runtime_v2` and the wasmi dependency;
+    - the guest-stack rule and the guest SDK's BFP wire;
+    - the pinned toolchain and sysroot digests;
+    - the `strategy-factory-linux-a0` and `strategy-program-seal` workflows;
+    - the dead `complex_strategy_ir`/`complex_strategy_program` interpreter and compiler. Their retirement
+      condition becomes equivalence through the host interpreter.
+  - *Build-receipt tables:* they stop receiving rows. Their existing rows stay readable, because storage stays
+    append-only and content-addressed. A Wasm-backed Artifact remains a readable record and is no longer
+    executable.
+  - *Ordered chain:* entries whose only subject was the build or the lowerer leave the chain. Every other entry
+    keeps its position.
+- **R4 - the documentation states CURRENT.** The CURRENT statements of this page and of R&D's Develop compilation
+  section describe the interpreted path, and each rewritten Wasm statement listed above is removed.
+
+**Acceptance of the retirement.**
+
+- *T0, trade by trade.* Research T0 runs on the interpreted path to a Backtest report whose every trade (member,
+  side, entry and exit frame, fill price and quantity) and whose canonical result equal those of the accepted run
+  on the Wasm path.
+- *Performance, measured.* The per-frame evaluation time of T0 is recorded on the same host profile as the
+  2.2 ms baseline, with a target of at most 100 µs. If the measurement misses that target, the target is
+  restated with the measurement, not reread.
+- *Repeatability.* Repeated runs and every checkpoint restore stay byte-identical, as the first executable corpus
+  requires today.
+
 ## TARGET - Strategy shape envelope
 
 The user set this target on 2026-09-27, in these words (translated): "Increase the design's expressive power: let
@@ -1759,11 +1945,119 @@ including on inputs with ties.
 
   The unit of a protective price lands with them: the Host would read it at Market Data's value scale and round it
   away from the market onto the Replay's price grid, under a new protection semantic ID. Today it is ticks at the
-  instrument's precision, and that precision is the data's grid since a Replay widens it. Until all three land:
+  instrument's precision, and that precision is the data's grid since a Replay widens it. [Resting entries, OCO
+  exits and the intrabar path](#target-resting-entries-oco-exits-and-the-intrabar-path) is the design that closes
+  all three. Until all three land:
   - the authoring language's first slice refuses a protection proposal at compile time as
     `PROTECTION_NOT_SUPPORTED_IN_SLICE_1`;
   - a stop is judged in the program at the frame's close and filled on the next frame
     (`AT_BAR_CLOSE_FILLED_NEXT_FRAME`), which is how research T0's ATR stop is reproduced.
+
+<a id="target-resting-entries-oco-exits-and-the-intrabar-path"></a>
+
+### TARGET - Resting entries, OCO exits and the intrabar path
+
+The orders below are in the shape the [host interpretation of the Bounded Feature
+Program](#target-host-interpretation-of-the-bounded-feature-program) leaves, so they add no Wasm ABI or guest
+SDK change. A program reaches them only through new lifecycle-output semantic IDs, appended under catalog
+versioning like the position flip. The shared lifecycle kernel owns every order's state; the target-set Host
+translates that state into native `BacktestEngine` orders; and the engine alone fills them.
+
+The first consumer is research R-1u (role-reversal retest), the only research rule in its forward stage. Its
+acceptance is a trade-by-trade reproduction of its perpetual reference trades, which needs the three research
+prerequisites listed in the [retirement plan](#bfp-host-interpretation-retirement-plan). R-1u itself has no
+partial exit and no breakeven move. Those belong to its variant R-1s and are covered by A2 below, not added
+here.
+
+**What the product lacks today:**
+
+- every entry is a GTC limit at the frame price;
+- the Host places at most one stop;
+- a take-profit leg is held in protection state but never placed;
+- each gap between frames carries one fill quote;
+- each member has one bar type.
+
+The generic engine already supports GTD expiry, OCO/OUO order lists, reduce-only quantity, modify, and bar
+execution. Closing the gap therefore means exposing what the engine already has, not adding a simulator.
+
+**1. Resting entries (limit, GTD, several at once).**
+
+- *Arming.* A program arms an entry by emitting `kernel.entry.arm.v1` with these fields:
+  - side;
+  - limit price, at Market Data's value scale. The Host rounds it onto the instrument's price grid away from
+    the market: down for a buy, up for a sell;
+  - expiry, as a whole number of execution-timeframe intervals counted from the decision cut `d_k`;
+  - protective stop price and take-profit price, absolute, at the same scale;
+  - quantity, as today's target units or weight.
+- *Bounds.* A member holds at most `max_resting_entries` armed entries. That is a manifest bound, part of the
+  state bound. R-1u needs as many as one break per daily bar over a 10-day validity. Arming beyond the bound is
+  refused by name as `RestingEntriesExhausted`.
+- *Expiry.* Entries expire deterministically in the kernel at `d_k + n · interval`. The Host mirrors the same
+  instant as the native order's GTD `expire_time`, and an engine expiry that disagrees with the kernel is refused
+  by name.
+- *While the member is flat.* Every armed entry is live in the engine as one contingent order list with
+  one-cancels-others semantics, submitted in arming order. The first entry to fill opens the position.
+- *While the member holds a position.* The other entries are *suspended*, not cancelled:
+  - an entry whose price the fill path touches while the position is open becomes `VOID`;
+  - once the position closes, every unexpired entry that is not `VOID` is resubmitted as a new list.
+
+  This is R-1u's "one slot per coin" rule: an order first touched while the slot is busy is void.
+- *Ties.* When one fill-path bar reaches two entries, the earlier-armed entry fills. The policy below makes that
+  ordering explicit rather than leaving it to the engine's iteration order.
+
+**2. OCO exits.**
+
+- When an entry fills, the kernel arms its protection, and the Host submits a reduce-only stop-market leg and a
+  reduce-only limit leg as one OCO list.
+- This is A2 ("take-profit as reduce-only limit orders"). It reuses D1's protective-fill reconciliation unchanged:
+  each FILL names the leg it advances, and a fill of either leg closes the position and clears the protection.
+- A leg may carry a quantity below the position. That is how R-1s's half at 2R would be expressed later; an OUO
+  list then resizes the sibling leg.
+- A1's `LifecycleContext` (fill-based entry price, bars held) makes the fill visible to the program. That closes
+  the first blocker under intrabar protection, so a program never proposes an exit for a member a protective fill
+  already flattened.
+
+**3. The intrabar path.** The gap between frame `k` and frame `k+1` is executed on that gap's bars, not on one
+quote. Market Data's PIT window custody already holds them: the fill timeframe, exactly one minute.
+
+- *Execution policy.* A new Replay execution-policy row, `INTRABAR_EXECUTION_BAR_WITH_MINUTE_TIE_BREAK_V1`, makes
+  the engine first run each gap as the execution-timeframe bar.
+- *Descending to minutes.* That bar's OHLC can reach more than one live order whose relative order would change
+  the outcome: an entry and its stop, a stop and a target, or two entries. In that case the Host replays the gap
+  from its one-minute fill bars instead.
+- *Within one minute, the adverse leg first.* A minute that reaches both a stop and a target fills the stop. A
+  minute that fills an entry may also fill that entry's stop at the stop price, but never its target; the target
+  is first checked on the next minute. These are R-1u's rules, and they are named in the policy row rather than
+  inherited from the engine's open-high-low-close or adaptive ordering.
+- *Gap prices.* A limit or target crossed at the open fills at the open when that is better than its price. A stop
+  crossed at the open fills at the open when that is worse than its price.
+
+The cost stays bounded. Most gaps run as one bar. Only an ambiguous gap reads its minutes, which is how research
+walks R-1u (1-hour bars, with minutes only for ties).
+
+**4. Timeframes.**
+
+- R-1u's zone, trend and arming are daily, while its execution is hourly.
+- Until slice T2 admits a second role timeframe, the program derives its daily values from the hourly frames.
+  `DecisionTime` from A1 marks the UTC day boundary, and the existing count and latch states accumulate the day's
+  open, high, low and close. Arming happens only on the frame that closes a UTC day.
+- When T2 lands, the daily role replaces that derivation without changing the order mechanics.
+- R-1u's 60-day time exit is the existing `Exit` intent, proposed when the bars held since the fill (A1) reach
+  60 × 24.
+
+**5. Members.** R-1u's coins never interact. Each runs as its own one-member Replay, within
+`TARGET_SET_MAX_MEMBER_COUNT`.
+
+**Estimated size, in Rust lines before tests:**
+
+- the kernel resting-entry book (arm, expiry, suspend, void, resubmit) and its checkpoint codec: 600 to 1,000;
+- the Host OCO exit list: 200 to 350;
+- the intrabar execution policy (engine bar execution, descent to minutes): 100 to 300, plus validation;
+- lifecycle-output semantic IDs and catalog rows: about 200;
+- authoring-language constructs: 300 to 550.
+
+**Refusals stay in force until each piece lands.** The authoring language keeps refusing protection as
+`PROTECTION_NOT_SUPPORTED_IN_SLICE_1`, and stops stay judged at the frame close and filled on the next frame.
 
 ### Coverage corpus
 
