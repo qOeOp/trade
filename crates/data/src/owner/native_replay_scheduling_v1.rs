@@ -917,6 +917,44 @@ pub trait NativeReplaySchedulingResolverV1: resolver_seal::Sealed + Send + Sync 
         &self,
         request: &NativeReplayInitialMarketRequestV1,
     ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1>;
+
+    /// The window's settled funding for exactly `members`, complete or not stated at all.
+    ///
+    /// `Ok(None)` when at least one member has no backfilled coverage reaching the whole window:
+    /// the caller sees exactly what it sees today, before this read existed. A window with
+    /// coverage but a genuine missing settlement inside it is
+    /// [`ReplayFundingScheduleResolutionErrorV1::SettlementGap`] instead, never silently `None` -
+    /// completeness is this read's to prove, and a read that found a gap must say so rather than
+    /// let a caller mistake "unavailable" for "nothing settled here".
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReplayFundingScheduleResolutionErrorV1::ReadbackUnavailable`] when the store
+    /// cannot be reached, and [`ReplayFundingScheduleResolutionErrorV1::SettlementGap`] for a
+    /// window covered but missing a settlement inside it.
+    async fn resolve_replay_funding_schedule_v1(
+        &self,
+        members: &[String],
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<
+        Option<crate::owner::replay_funding_schedule_v1::ReplayFundingScheduleV1>,
+        ReplayFundingScheduleResolutionErrorV1,
+    >;
+}
+
+/// Why a window's settled funding could not be resolved.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum ReplayFundingScheduleResolutionErrorV1 {
+    /// The store could not be reached.
+    #[error("the funding schedule read is unavailable")]
+    ReadbackUnavailable,
+    /// The window has recorded coverage, but a settlement inside it is missing: the gap between
+    /// two present settlements (or between a window edge and its nearest settlement) does not
+    /// match the interval the venue itself stated for that stretch, allowing for the small real
+    /// jitter a venue's own `calc_time` can carry.
+    #[error("a settlement is missing inside a window Market Data has recorded coverage for")]
+    SettlementGap,
 }
 
 pub(crate) fn issue_native_replay_initial_market_readback_v1(

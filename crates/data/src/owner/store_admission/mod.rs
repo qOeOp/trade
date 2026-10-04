@@ -768,6 +768,39 @@ impl AdmittedMarketDataSnapshotPort {
         Ok(bar_schedule_candidate_evidence_v1(raw))
     }
 
+    /// Reads one instrument's settled funding rows inside one window, and every committed
+    /// coverage range of that instrument, after admission before and after.
+    pub(super) async fn resolve_funding_settlements_v1(
+        &self,
+        instrument: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawFundingSettlementSnapshotV1, DeploymentStoreAdmissionError> {
+        let before = self
+            .readmit_covering(&postgres::FUNDING_SETTLEMENT_FLOOR_V1, None)
+            .await?;
+        let raw = postgres::read_funding_settlement_snapshot_v1(
+            &before.credential_lease,
+            &before.store_transport,
+            instrument,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        self.readmit_covering(
+            &postgres::FUNDING_SETTLEMENT_FLOOR_V1,
+            Some(&before.receipt),
+        )
+        .await?;
+        Ok(raw)
+    }
+
     /// Reads one PIT window custody chain after admission before and after.
     pub(super) async fn resolve_pit_window_chain_v1(
         &self,
@@ -1304,6 +1337,15 @@ pub(super) trait NativeReplaySchedulingReadPortV1: Send + Sync {
         canonical_instrument: &str,
     ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError>;
 
+    /// One instrument's settled funding rows inside one window, and every committed coverage
+    /// range of that instrument.
+    async fn resolve_funding_settlements_v1(
+        &self,
+        instrument: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawFundingSettlementSnapshotV1, DeploymentStoreAdmissionError>;
+
     /// One frame's quote cut census and the bound its next frame sets.
     async fn resolve_native_replay_quote_cut_census_v2(
         &self,
@@ -1329,6 +1371,21 @@ impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
         canonical_instrument: &str,
     ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
         Self::resolve_bar_schedule_candidates_v1(self, canonical_instrument).await
+    }
+
+    async fn resolve_funding_settlements_v1(
+        &self,
+        instrument: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawFundingSettlementSnapshotV1, DeploymentStoreAdmissionError> {
+        Self::resolve_funding_settlements_v1(
+            self,
+            instrument,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )
+        .await
     }
 
     async fn resolve_native_replay_quote_cut_census_v2(
@@ -1506,6 +1563,23 @@ impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
         .await
         .map_err(|_| self.unavailable())?;
         Ok(bar_schedule_candidate_evidence_v1(raw))
+    }
+
+    async fn resolve_funding_settlements_v1(
+        &self,
+        instrument: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawFundingSettlementSnapshotV1, DeploymentStoreAdmissionError> {
+        postgres::read_funding_settlement_snapshot_v1(
+            &self.lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            instrument,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+        .map_err(|_| self.unavailable())
     }
 
     async fn resolve_native_replay_quote_cut_census_v2(
@@ -4977,6 +5051,10 @@ mod tests {
                 "read_bar_schedule_snapshot_v1",
                 "read_bar_schedule_candidate_snapshots_v1",
             ],
+        ),
+        (
+            &postgres::FUNDING_SETTLEMENT_FLOOR_V1,
+            &["read_funding_settlement_snapshot_v1"],
         ),
         (
             &postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2,

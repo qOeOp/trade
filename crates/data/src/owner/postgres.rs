@@ -8738,6 +8738,24 @@ impl NativeReplaySchedulingResolverV1 for SealedAcceptanceNativeReplayScheduling
         request.custody_frame()?;
         Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
     }
+
+    async fn resolve_replay_funding_schedule_v1(
+        &self,
+        members: &[String],
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<
+        Option<crate::owner::replay_funding_schedule_v1::ReplayFundingScheduleV1>,
+        crate::owner::native_replay_scheduling_v1::ReplayFundingScheduleResolutionErrorV1,
+    > {
+        funding_settlement_v1::resolve_replay_funding_schedule_through_port_v1(
+            &self.port,
+            members,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+    }
 }
 
 /// Reads one frame's initial Market Data inputs through a scheduling read port, in the required
@@ -9166,6 +9184,38 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
                 &self.admitted_port,
                 request,
                 native_replay_custody_frame_v1::resolve_custody_quote_cut_v1,
+            )
+            .await
+        }
+    }
+
+    /// The window's settled funding: through the admitted port, or, in a test build, on the pool.
+    async fn resolve_replay_funding_schedule_v1(
+        &self,
+        members: &[String],
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<
+        Option<crate::owner::replay_funding_schedule_v1::ReplayFundingScheduleV1>,
+        crate::owner::native_replay_scheduling_v1::ReplayFundingScheduleResolutionErrorV1,
+    > {
+        #[cfg(test)]
+        {
+            funding_settlement_v1::resolve_replay_funding_schedule_from_pool_v1(
+                &self.pool,
+                members,
+                window_start_ns,
+                window_end_ns_exclusive,
+            )
+            .await
+        }
+        #[cfg(not(test))]
+        {
+            funding_settlement_v1::resolve_replay_funding_schedule_through_port_v1(
+                &self.admitted_port,
+                members,
+                window_start_ns,
+                window_end_ns_exclusive,
             )
             .await
         }
