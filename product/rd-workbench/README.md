@@ -105,6 +105,40 @@ this host as a child process of Claude Code and reaches the local deployment's A
    `docs/owners/rd.md`, using the server's `validate`, `create`, `get`, `list`, `revise` and
    `archive` tools. They need no market data.
 
+   Recorded below is one full run through the real `strategy-authoring-mcp` binary over stdio, on a
+   fresh deployment of `main` at 2e209d3a7 under its own project (`RD_LOCAL_PROJECT=trade-rd-lane4
+   RD_LOCAL_API_PORT=18084 make rd-workbench-up`, then `make mcp-strategy-authoring` with the same
+   project, both after removing that project's volumes and state directory). The single-threshold
+   statement is a daily close above `100` on `BTCUSDT-PERP.BINANCE`, with `stop_loss_fraction` `0.02`
+   and `max_holding_bars` `5`:
+
+   1. `validate` - `{"result":"VALID","strategy_id":"sha256:fa009d57..."}`.
+   2. `get` that id - refused `STRATEGY_UNKNOWN`: validate wrote nothing.
+   3. `create` - the same `strategy_id` and the stored `spec`; `create` again - byte-identical answer.
+   4. `get` - the `spec` bytes, hashed under `strategy.catalog.single-threshold-statement.v1\0`, give
+      the `strategy_id`.
+   5. `revise` with `max_holding_bars` `7` - a new id, `sha256:42945831...`, naming the first as
+      `predecessor_id`.
+   6. `revise` the first into its own statement - refused `STRATEGY_REVISION_UNCHANGED`; the second into
+      the first's - refused `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE`.
+   7. `list` - both; `archive` the first, `list` - only the second; `list(include_archived=true)` - both,
+      the first with `archived_at_epoch_ms`.
+   8. `revise` the archived one - refused `STRATEGY_ARCHIVED`; `get` it - still readable.
+   9. `validate` with `max_holding_bars: 0` - refused `SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO`; with
+      `stop_loss_fraction: "0.020"` - refused `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`.
+   10. `validate` research T0's authoring-language document
+       (`crates/strategy_factory/test_data/strategy_authoring_v1/t0-daily-trend.json`) -
+       `{"result":"VALID","strategy_id":"sha256:dae7fb40..."}`.
+   11. `create` it, then `get` - the stored document, its inputs, definitions and states sorted by name,
+       whose bytes hashed under `strategy.catalog.authored-document.v1\0` give the `strategy_id`.
+   12. `revise` it with the 50-close windows at 55 - a new id, `sha256:336b1024...`.
+   13. `validate` it with a `stop_loss` on `enter_long` - refused
+       `PROTECTION_NOT_SUPPORTED_IN_SLICE_1 at rules.enter_long.action.stop_loss`.
+   14. `list` - each of the three live strategies, its `spec` bytes hashing to its own `strategy_id`.
+       An earlier run on 3ee88cc87 found `list` serving each `spec` with its keys sorted, so that none
+       of the four listed then hashed to its identity; `list` has carried the stored bytes since #1333,
+       as `get` does.
+
 ### Market data from Claude Code
 
 The `market-data` MCP server (`docs/owners/market-data.md`) runs on this host as a child process of

@@ -417,18 +417,22 @@ fi
 log "check replay-policy-catalog-owner-readback"
 compose run --rm --no-deps replay-policy-catalog-owner-readback > /dev/null
 
-# 10a. Publish the Deployment Store, now that Product Edge and the Catalog exist to let a full
-# rd-owner-api start grant the admitted reader its wrappers (README steps 3, 7-8). Skipped once a
-# head is already pinned and expected; a stack change needing a true re-publication is a manual
-# operation (README, "Turning on `required`", steps 6-9), not something this script redoes.
-if [ -f "$ds_files/signer-public-key.hex" ] && [ -n "$(env_value DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY)" ]; then
-  skip deployment-store-publish "$ds_files/signer-public-key.hex and the expected head are already set"
-else
-  run deployment-store-publish
+# 10a. Publish the Deployment Store, now that Product Edge and the Catalog exist, re-measuring it
+# every run so a later floor (a new admitted-read wrapper a rebuilt image adds) is republished
+# without a manual step. The grant boot - a one-shot disabled-mode rd-owner-api, so Market Data's
+# own migration grants the admitted reader its wrappers - runs only as a fallback, when measuring
+# fails: a wrapper a new image adds does not exist in market_data_admitted_read, nor is it granted
+# to the admitted reader, until some binary boots that image and runs that migration, and the
+# measurement below reads through the admitted reader. Running it on every invocation instead (this
+# script's first cut) boots a second full rd-owner-api beside the one already running and was
+# measured to make authoring fail with a connection-pool timeout under that contention - a cost with
+# no benefit on the steady-state run, where nothing is ungranted and authoring already succeeds.
+log "check deployment-store-publish"
+run_deployment_store_grant_boot() {
   grant_name=$project-deployment-store-grant
   dock rm -f "$grant_name" > /dev/null 2>&1 || true
   compose run -d --no-deps --name "$grant_name" deployment-store-grant > /dev/null
-  grant_ready=
+  local grant_ready=
   for _ in $(seq 1 90); do
     if dock logs "$grant_name" 2>&1 | grep -q "R&D Owner API ready"; then
       grant_ready=1
@@ -444,18 +448,34 @@ else
     exit 1
   fi
   dock rm -f "$grant_name" > /dev/null 2>&1
+}
 
-  rm -f "$ds_admin/draft.json" "$ds_admin/authoring.json" "$ds_admin/sealed.json"
+manifest_history=$ds_dir/manifest-history
+last_authoring=$ds_admin/authoring.last-published.json
+current_head=$(env_value DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY)
+if [ -n "$current_head" ] && [ -f "$manifest_history" ] && [ -f "$last_authoring" ]; then
+  already_published=1
+else
+  already_published=
+fi
+write_deployment_store_draft() {
+  rm -f "$ds_admin/draft.json"
   python3 - "$ds_admin/draft.json" "$(env_value DEPLOYMENT_STORE_SIGNER_IDENTITY)" \
-    "$(env_value DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY)" "$(env_value DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY)" << 'EOF'
+    "$(env_value DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY)" "$(env_value DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY)" \
+    "${already_published:+$manifest_history}" "${already_published:+$current_head}" << 'EOF'
 import json, sys
-target, signer, environment, deployment = sys.argv[1:5]
+target, signer, environment, deployment, history_path, previous_head = sys.argv[1:7]
+prior = (
+    [line for line in open(history_path).read().splitlines() if line]
+    if history_path
+    else []
+)
 draft = {
     "signer_identity": signer,
     "environment_identity": environment,
     "deployment_identity": deployment,
-    "prior_manifest_identities": [],
-    "expected_previous_head_identity": None,
+    "prior_manifest_identities": prior,
+    "expected_previous_head_identity": previous_head or None,
     "valid_from_epoch_ms": 0,
     "valid_through_epoch_ms": 4102444800000,
     "recovery": {
@@ -468,22 +488,57 @@ draft = {
 }
 open(target, "w").write(json.dumps(draft))
 EOF
+}
+write_deployment_store_draft
+rm -f "$ds_admin/authoring.json" "$ds_admin/sealed.json"
+if ! compose run --rm --no-deps --user "$(id -u):$(id -g)" deployment-store-publication-author; then
+  run_deployment_store_grant_boot
+  write_deployment_store_draft
+  rm -f "$ds_admin/authoring.json"
   compose run --rm --no-deps --user "$(id -u):$(id -g)" deployment-store-publication-author
+fi
+
+# Measures the deployment's store afresh every run; a publication differs from the last one
+# published only in what it measures, never in its draft fields (those are this script's own
+# fixed constants, or the prior-history/previous-head pair the draft above already matches to
+# `last_authoring`), so comparing the two with those two fields removed is exactly "did the store
+# change" and nothing else.
+measurement_changed=1
+if [ -n "$already_published" ] && python3 - "$ds_admin/authoring.json" "$last_authoring" << 'EOF'; then
+import json, sys
+varying = {"prior_manifest_identities", "expected_previous_head_identity"}
+documents = []
+for path in sys.argv[1:3]:
+    document = json.load(open(path))
+    for key in varying:
+        document.pop(key, None)
+    documents.append(document)
+sys.exit(0 if documents[0] == documents[1] else 1)
+EOF
+  measurement_changed=
+fi
+if [ -z "$measurement_changed" ]; then
+  skip deployment-store-publish "the measured store matches the last publication"
+  rm -f "$ds_admin/draft.json" "$ds_admin/authoring.json"
+else
+  run deployment-store-publish
   dock run --rm --network none --user "$(id -u):$(id -g)" \
     -v "$ds_admin:/work/admin" -v "$ds_dir/signing-key.hex:/work/signing-key.hex:ro" \
     -e DEPLOYMENT_STORE_PUBLICATION_AUTHORING_PATH=/work/admin/authoring.json \
     -e DEPLOYMENT_STORE_SIGNING_KEY_PATH=/work/signing-key.hex \
     -e DEPLOYMENT_STORE_SEALED_PUBLICATION_OUTPUT_PATH=/work/admin/sealed.json \
     --entrypoint /usr/local/bin/deployment-store-publication-seal "$owner_image" > "$state_dir/steps/deployment-store-seal.json"
-  head_identity=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["head_identity"])' \
-    "$state_dir/steps/deployment-store-seal.json")
-  signer_hex=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["signer_public_key_hex"])' \
-    "$state_dir/steps/deployment-store-seal.json")
+  summary=$state_dir/steps/deployment-store-seal.json
+  head_identity=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["head_identity"])' "$summary")
+  manifest_identity=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["manifest_identity"])' "$summary")
+  signer_hex=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["signer_public_key_hex"])' "$summary")
   # Only PUBLISHED or REPLAYED exits zero; a head mismatch or a conflict exits non-zero, naming
   # which it was, and needs the manual re-publication the README describes ("Turning on required",
   # steps 6-9) rather than a retry of this script.
   compose run --rm --no-deps --user "$(id -u):$(id -g)" deployment-store-publication-publish
   printf '%s\n' "$signer_hex" > "$ds_files/signer-public-key.hex"
+  printf '%s\n' "$manifest_identity" >> "$manifest_history"
+  cp "$ds_admin/authoring.json" "$last_authoring"
   env_set_value() { # key value
     python3 - "$env_file" "$1" "$2" << 'EOF'
 import sys

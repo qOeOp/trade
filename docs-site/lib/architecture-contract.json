@@ -3127,6 +3127,20 @@
         "noAuthorityBasis": "Code presence and static tests cannot make this path CURRENT and the adapter cannot construct positive results own facts open another transaction or acquire Backtest write authority"
       },
       {
+        "inventoryId": "backtest-statistics",
+        "memberPaths": [
+          "crates/backtest_statistics"
+        ],
+        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
+        "destinationIds": [
+          "backtest"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Compute the exploratory matched-entry control and its ISO-week-clustered interval as one pure function over values the report assembler supplies",
+        "noAuthorityBasis": "The member depends on no Owner reads no database or clock and returns values only so it cannot own a fact or acquire Backtest authority"
+      },
+      {
         "inventoryId": "backtest-engine",
         "memberPaths": [
           "crates/backtest"
@@ -3316,6 +3330,21 @@
         "providerMemberPortEvidence": [],
         "adoptionRule": "Keep CLI and extension mechanisms behind explicit request consumers and Agent Operation Manifest admission",
         "noAuthorityBasis": "CLI or plugin presence proves no Dashboard or MCP client product integration business authority or external effect permission"
+      },
+      {
+        "inventoryId": "domain-mcp-services",
+        "memberPaths": [
+          "services/market-data-mcp",
+          "services/strategy-authoring-mcp"
+        ],
+        "disposition": "NON_AUTHORITATIVE_ACCESS_BOUNDARY",
+        "destinationIds": [
+          "strategy-factory-rd-owner-api-composition"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Each server is a stateless stdio process over one of rd-owner-api's own HTTP route sets, depending on no Owner crate; every rule it answers by name lives behind that route",
+        "noAuthorityBasis": "A domain MCP server decides nothing itself: it sends one request per tool call and passes the route's answer or refusal through unchanged"
       },
       {
         "inventoryId": "verification-and-reference",

@@ -2778,6 +2778,11 @@ closure states each gap's Quotes, which the custody quote cut seal still checks 
 custody view, and a gap it states nothing for is `QuoteCutMissing` as in production. T0-6's derivation replaces it,
 and a result produced with it is not U1 evidence until it is re-run on that derivation.
 
+Built so far (T0-5d): a build with `sealed-strategy-input-acceptance` also opens
+`commit_sealed_acceptance_custody_chain_v1`, which commits a synthetic custody chain only through the production Source
+Binding, Instrument Master V1, Universe Selection and custody intakes, so its output is production code run on
+synthetic inputs and never U1 evidence. Its spec's fill timeframe must be exactly one minute, as every custody's is.
+
 Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
 at read time from the `SampleFactV2` rows its view was sealed from and never stores, so a Plan with coordinate rows can
 read a custody frame through the host's unchanged projection check. The derivation is stated under "universe-frame
@@ -2807,12 +2812,13 @@ frames through this port, and no Backtest consumes a frame yet.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
-  chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
-  cut, member set, and availability rule digest - and a changed basis is a new root custody, never a successor, so one
-  chain never mixes two bases. The correction unit is a cross-section - every row of one source, timeframe, and
-  event-effective instant - with a correction sequence, predecessor, and publication instant, because a frame's rows
-  must share their time and correction coordinates. Two versions naming one predecessor, a repeated sequence, or a
-  publication that does not increase with the sequence is an ambiguous branch. Custody has two layers: a cross-section
+  chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Universe Selection
+  record, Instrument Master cut, member set, and availability rule digest - and a changed basis is a new root custody,
+  never a successor, so one chain never mixes two bases. The correction unit is a cross-section - every row of one
+  source, timeframe, and event-effective instant - with a correction sequence, predecessor, and publication instant,
+  because a frame's rows must share their time and correction coordinates. Two versions naming one predecessor, a
+  repeated sequence, or a publication that does not increase with the sequence is an ambiguous branch. Custody has two
+  layers: a cross-section
   version record carrying the lineage, branch refusal, and head rules `SampleFactV1` already states, and immutable row
   facts that are members of one version under a successor sample fact schema. That schema replaces the source snapshot
   fields with the cross-section version identity and row digest, and its root slot hashes the series and
@@ -2908,7 +2914,9 @@ frames through this port, and no Backtest consumes a frame yet.
     never a caller-stated retrieval, and a row retrieved after that cut is refused as `RETRIEVAL_AFTER_MINTING_CUT`.
   - A run names a custody chain by its root, as an untrusted claim the Owner resolves to the chain's head, and states
     its own window inside the custody's. Its frames come back as coordinates - ordinal, `e_k` and `d_k`, where `d_k` is
-    the derived availability of frame `k`'s execution cross-section - read from the head it names. Each frame's inputs
+    the derived availability of frame `k`'s execution cross-section - read from the head it names, together with the
+    chain's basis, read in the same transaction at the same head. R&D takes a custody run's universe, Instrument Master
+    cut and Market Semantics from the run's frames readback, never from its own evaluation. Each frame's inputs
     and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
     the derived view slice. That source names the chain root, the head the frames were read from and `e_k`, so a
     correction committed between enumeration and the per-frame reads cannot mix two heads into one run; a head that is
@@ -3399,13 +3407,15 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   line over the same function serves an operator. U1's acceptance runs it once each for BTC, ETH and SOL in the
   deployment image, then reads each member's coverage.
 
-### TARGET market-data MCP server
+### CURRENT market-data MCP server
 
 The `market-data` server of the [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface)
-is served by Market Data. It is a stateless stdio process that holds the Market Data API token in its own environment
-and reaches Market Data's routes only. Every rule lives in Market Data behind a route; a tool sends one request,
-passes its answer or refusal through by name, and sequences nothing. The same functions are a command line with the
-same names.
+is `market-data-mcp`, a stateless stdio process built from its own `services/market-data-mcp` crate, which depends on
+no Owner crate - only an HTTP client, serde and the stdio loop. It holds the Market Data API token in its own
+environment and reaches Market Data's routes only. Every rule lives in Market Data behind a route; a tool sends one
+request, passes its answer or refusal through by name, and sequences nothing. The same functions are a command line
+with the same names. `get_bars` and `get_funding` are `TARGET`: they wait on T0-5 and the funding schedule read
+below, and the server does not list them as tools until their routes exist.
 
 | Tool                                     | Route                                                   | Refusals by name                                                                 |
 | ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -3424,7 +3434,7 @@ same names.
   economic-terms version admitted for it. A value the venue does not state is named (`UNBOUNDED`, `NOT_APPLICABLE` or
   `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
   Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
-  the perpetual F admits over HTTP. The MCP server over these routes is not built yet.
+  the perpetual F admits over HTTP.
 - **CURRENT: per-symbol admission is one Market Data operation, over five steps.**
   `POST /v1/market-data/binance-perpetual-admissions` takes a Binance USD-M symbol. Market Data fetches the symbol's
   public `exchangeInfo` entry once and commits, in order, five of the six facts the first `COMPOSER_V3` Replay's

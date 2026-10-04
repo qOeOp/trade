@@ -26,6 +26,8 @@ pub(crate) const SUB: &str =
     "bfp.fixed-i128.sub.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
 pub(crate) const MUL: &str =
     "bfp.fixed-i128.mul.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
+pub(crate) const DIV: &str =
+    "bfp.fixed-i128.div.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
 
 pub(crate) fn node_value(node_id: &str) -> BoundedFeatureValueRefV1 {
     BoundedFeatureValueRefV1::NodeOutput {
@@ -177,6 +179,27 @@ impl Graph {
             },
             fixed_type(unit, scale),
         )
+    }
+
+    /// As [`Self::arithmetic`], with each input requiring readiness when its source is a warming
+    /// value, which is the binding `prepare` requires of a warming source.
+    pub(crate) fn arithmetic_over(
+        &mut self,
+        node_id: &str,
+        primitive: &str,
+        (a, a_warming): (BoundedFeatureValueRefV1, bool),
+        (b, b_warming): (BoundedFeatureValueRefV1, bool),
+        unit: &str,
+        scale: u8,
+    ) -> BoundedFeatureValueRefV1 {
+        let output = self.arithmetic(node_id, primitive, a, b, unit, scale);
+
+        if let Some(node) = self.nodes.iter_mut().find(|node| node.node_id == node_id) {
+            for (binding, warming) in node.input_bindings.iter_mut().zip([a_warming, b_warming]) {
+                binding.require_ready = warming;
+            }
+        }
+        output
     }
 
     /// A strategy state cell holding one fixed-point value, written by `writer` on every event.

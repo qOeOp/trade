@@ -21,7 +21,6 @@ pub mod instrument_master_v2;
 pub mod instrument_master_v2_postgres;
 pub mod live_market_fact_v1;
 pub mod live_market_stream_v1;
-pub mod market_data_mcp_v1;
 pub mod market_semantics_admission_v1;
 pub mod native_replay_scheduling_v1;
 pub mod native_replay_scheduling_v2;
@@ -646,15 +645,8 @@ where
     let invalid = || NativeReplaySchedulingBootstrapErrorV1 {
         failure: ResearchPitTerminalBootstrapFailure::InvalidIdentity,
     };
-    let options = owner_url
-        .parse::<sqlx::postgres::PgConnectOptions>()
-        .map_err(|_| invalid())?;
-    let loopback = matches!(options.get_host(), "127.0.0.1" | "localhost" | "::1");
-    let disposable = options
-        .get_database()
-        .is_some_and(|database| database.starts_with("vibe_test_"));
 
-    if !loopback || !disposable || owner_url.contains("hostaddr") {
+    if !sealed_acceptance_disposable_owner_url_v1(owner_url) {
         return Err(invalid());
     }
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -666,6 +658,21 @@ where
             quote,
         },
     ))
+}
+
+/// Whether `owner_url` names a disposable loopback `vibe_test_` database with no `hostaddr`
+/// override: the only store a sealed acceptance entry that writes or reads Owner custody directly
+/// may open.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(crate) fn sealed_acceptance_disposable_owner_url_v1(owner_url: &str) -> bool {
+    let Ok(options) = owner_url.parse::<sqlx::postgres::PgConnectOptions>() else {
+        return false;
+    };
+    let loopback = matches!(options.get_host(), "127.0.0.1" | "localhost" | "::1");
+    let disposable = options
+        .get_database()
+        .is_some_and(|database| database.starts_with("vibe_test_"));
+    loopback && disposable && !owner_url.contains("hostaddr")
 }
 
 /// Why the sealed acceptance principal could not be granted or revoked its reads.

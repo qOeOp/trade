@@ -57,6 +57,10 @@ mod pit_initial_intake_correlation_tests;
 pub(in crate::owner) mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
 pub(in crate::owner) mod pit_window_custody_v1;
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(in crate::owner) mod sealed_acceptance_custody_chain_v1;
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+mod sealed_acceptance_custody_chain_v1_tests;
 pub(in crate::owner) use pit_window_custody_v1::pit_window_custody_commit_from_environment_v1;
 #[cfg(test)]
 mod pit_window_custody_v1_tests;
@@ -5242,52 +5246,69 @@ async fn load_durable_instrument_readback_for_rd_replay(
     .transpose()
 }
 
-fn decode_durable_instrument_readback_row(
-    row: &sqlx::postgres::PgRow,
+/// A stored row a verification reads by column name: a pool row, or the JSON row an admitted read
+/// returned, so the two reads share one verification.
+pub(in crate::owner) trait StoredColumnsV1 {
+    /// A `BYTEA` column; `None` when it is absent, `NULL` or not bytes.
+    fn column_bytes(&self, column: &str) -> Option<Vec<u8>>;
+    /// A `BIGINT` column; `None` when it is absent, `NULL` or not an integer.
+    fn column_i64(&self, column: &str) -> Option<i64>;
+}
+
+impl StoredColumnsV1 for sqlx::postgres::PgRow {
+    fn column_bytes(&self, column: &str) -> Option<Vec<u8>> {
+        self.try_get(column).ok()
+    }
+
+    fn column_i64(&self, column: &str) -> Option<i64> {
+        self.try_get(column).ok()
+    }
+}
+
+impl StoredColumnsV1 for serde_json::Value {
+    fn column_bytes(&self, column: &str) -> Option<Vec<u8>> {
+        pit_window_custody_v1::json_bytes(self.get(column)?)
+    }
+
+    fn column_i64(&self, column: &str) -> Option<i64> {
+        self.get(column)?.as_i64()
+    }
+}
+
+/// The Instrument Master readback a row of the durable readback query states under
+/// `request_identity`, verified; an admitted read's JSON row of the same columns verifies exactly as
+/// the pool's row does.
+pub(in crate::owner) fn decode_durable_instrument_readback_row(
+    row: &(impl StoredColumnsV1 + ?Sized),
     request_identity: InstrumentMasterIdentity,
 ) -> Result<InstrumentMasterReadbackV1, InstrumentMasterError> {
+    let row_bytes = |column: &'static str| -> Result<Vec<u8>, InstrumentMasterError> {
+        row.column_bytes(column)
+            .ok_or(InstrumentMasterError::StoreUntrusted)
+    };
     let row_digest =
         |column: &'static str| -> Result<InstrumentMasterIdentity, InstrumentMasterError> {
-            let bytes: Vec<u8> = row
-                .try_get(column)
-                .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-            digest_from_bytes(&bytes).map_err(|_| InstrumentMasterError::StoreUntrusted)
+            digest_from_bytes(&row_bytes(column)?)
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)
         };
-    let receipt_bytes: Vec<u8> = row
-        .try_get("receipt_bytes")
-        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-    let outbox_bytes: Vec<u8> = row
-        .try_get("outbox_receipt_bytes")
-        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-    let cut_bytes: Vec<u8> = row
-        .try_get("cut_bytes")
-        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let row_number = |column: &'static str| -> Result<i64, InstrumentMasterError> {
+        row.column_i64(column)
+            .ok_or(InstrumentMasterError::StoreUntrusted)
+    };
+    let receipt_bytes = row_bytes("receipt_bytes")?;
+    let outbox_bytes = row_bytes("outbox_receipt_bytes")?;
+    let cut_bytes = row_bytes("cut_bytes")?;
     let receipt = decode_instrument_receipt(&receipt_bytes)?;
-    let append_sequence = positive_u64(
-        row.try_get("append_sequence")
-            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
-    )
-    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-    let state_append_sequence = nonnegative_u64(
-        row.try_get("state_append_sequence")
-            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
-    )
-    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-    let cut_count = nonnegative_u64(
-        row.try_get("cut_count")
-            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
-    )
-    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-    let receipt_count = nonnegative_u64(
-        row.try_get("receipt_count")
-            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
-    )
-    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-    let outbox_count = nonnegative_u64(
-        row.try_get("outbox_count")
-            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
-    )
-    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let append_sequence = positive_u64(row_number("append_sequence")?)
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let state_append_sequence = nonnegative_u64(row_number("state_append_sequence")?)
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let cut_count = nonnegative_u64(row_number("cut_count")?)
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let receipt_count = nonnegative_u64(row_number("receipt_count")?)
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let outbox_count = nonnegative_u64(row_number("outbox_count")?)
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
 
     if row_digest("request_identity")? != request_identity
         || receipt.request_identity != request_identity

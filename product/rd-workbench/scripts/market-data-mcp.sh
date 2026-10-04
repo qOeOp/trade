@@ -27,7 +27,7 @@ if [ "${1:-}" = install ]; then
     exit 1
   fi
   cargo build --locked --release --manifest-path "$repo_root/Cargo.toml" \
-    -p vibe-strategy-factory-rd-owner-api --bin market-data-mcp
+    -p vibe-market-data-mcp
   target_dir=$(cargo metadata --format-version 1 --no-deps --manifest-path "$repo_root/Cargo.toml" |
     python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
   mkdir -p "$state_dir/bin"

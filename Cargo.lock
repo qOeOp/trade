@@ -9690,6 +9690,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-backtest-statistics"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "vibe-betfair"
 version = "0.62.0"
 dependencies = [
@@ -10697,6 +10708,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-market-data-mcp"
+version = "0.62.0"
+dependencies = [
+ "anyhow",
+ "reqwest 0.13.4",
+ "rstest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "vibe-market-data-repair-custody"
 version = "0.62.0"
 dependencies = [
@@ -11364,6 +11386,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-strategy-authoring-mcp"
+version = "0.62.0"
+dependencies = [
+ "anyhow",
+ "reqwest 0.13.4",
+ "rstest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "vibe-strategy-factory"
 version = "0.62.0"
 dependencies = [
@@ -11425,7 +11458,6 @@ dependencies = [
  "async-trait",
  "axum",
  "ed25519-dalek",
- "reqwest 0.13.4",
  "rstest",
  "rust_decimal",
  "serde",

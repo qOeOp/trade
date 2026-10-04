@@ -28,6 +28,7 @@ members = [
   "crates/backtest_owner",
   "crates/backtest_owner_contracts",
   "crates/backtest_result_custody",
+  "crates/backtest_statistics",
   "crates/cli",
   "crates/common",
   "crates/core",
@@ -76,6 +77,8 @@ members = [
   "crates/testkit",
   "crates/trading",
   "examples/tutorials",
+  "services/market-data-mcp",
+  "services/strategy-authoring-mcp",
 ]
 
 [workspace.package]

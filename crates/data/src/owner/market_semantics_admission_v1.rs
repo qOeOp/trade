@@ -24,11 +24,13 @@ use serde::{Deserialize, Serialize};
 use super::{
     market_semantics::{
         MarketSemanticsErrorV1, MarketSemanticsPriceAdjustmentV1, MarketSemanticsTimestampBasisV1,
-        MarketSemanticsValueV1,
     },
     pit_snapshot::UntrustedPitSnapshotLocator,
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
 };
+
+/// The typed Market Semantics value a chain basis carries, read-only outside this crate.
+pub use super::market_semantics::MarketSemanticsValueV1;
 
 /// The closed typed value Operations states, with its two tags by canonical word.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
