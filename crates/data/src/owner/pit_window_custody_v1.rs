@@ -268,6 +268,12 @@ pub enum PitWindowCustodyRefusalV1 {
     /// fixed scale every custody series is stated at; it is never rounded.
     #[error("a value is finer than the custody series scale")]
     ValueFinerThanSeriesScale,
+    /// `PIT_WINDOW_BAR_OHLC_INCONSISTENT`: one member's bar, at the series scale, whose prices
+    /// cannot be a bar - a low above its open or close, a high below them, a low above the high,
+    /// a negative volume, or a non-positive low for a class whose prices are positive. Nothing is
+    /// rewritten.
+    #[error("a bar's open, high, low, close and volume are inconsistent")]
+    BarOhlcInconsistent,
     /// `MARKET_SEMANTICS_SCOPE_VALUE_CONFLICT`: the claimed Market Semantics value differs from
     /// the value a head of its compatibility scope - a snapshot's or another chain's - states.
     #[error("the Market Semantics value differs from its scope's")]

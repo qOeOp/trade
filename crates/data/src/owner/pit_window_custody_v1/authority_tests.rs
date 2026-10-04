@@ -197,22 +197,28 @@ fn membership(member: &str) -> CustodyMembershipV1 {
     }
 }
 
-/// One row per member and BAR field, each value `base` plus its field position.
+/// One row per member and BAR field, each value `base` plus its field's offset: the low lowest and
+/// the high highest, so every member's bar is one the custody intake admits.
 fn rows(base: i128, retrieval_ns: u64) -> Vec<UntrustedCustodyRowV1> {
     [BTC, ETH]
         .into_iter()
         .flat_map(|member| {
-            ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
-                .into_iter()
-                .zip(0..)
-                .map(move |(field, offset)| UntrustedCustodyRowV1 {
-                    instrument: member.to_owned(),
-                    field: field.to_owned(),
-                    value_mantissa: base + offset,
-                    value_scale: 2,
-                    retrieval_ns,
-                    retrieval_route: "data.binance.vision/daily-klines".to_owned(),
-                })
+            [
+                ("OPEN", 0),
+                ("HIGH", 5),
+                ("LOW", -1),
+                ("CLOSE", 3),
+                ("VOLUME", 4),
+            ]
+            .into_iter()
+            .map(move |(field, offset)| UntrustedCustodyRowV1 {
+                instrument: member.to_owned(),
+                field: field.to_owned(),
+                value_mantissa: base + offset,
+                value_scale: 2,
+                retrieval_ns,
+                retrieval_route: "data.binance.vision/daily-klines".to_owned(),
+            })
         })
         .collect()
 }
@@ -1122,14 +1128,26 @@ fn the_custody_digest_binds_the_minting_clock() {
 /// `request()` with its first daily bar's BTC CLOSE stated as `mantissa * 10^-scale`.
 fn close_stated_as(mantissa: i128, scale: u8) -> UntrustedPitWindowCustodyRequestV1 {
     let mut request = request();
-    let close = &mut request.cross_sections[0].rows[3];
     assert_eq!(
-        (close.instrument.as_str(), close.field.as_str()),
+        (
+            request.cross_sections[0].rows[3].instrument.as_str(),
+            request.cross_sections[0].rows[3].field.as_str()
+        ),
         (BTC, "CLOSE")
     );
-    close.value_mantissa = mantissa;
-    close.value_scale = scale;
+    btc_prices_stated_as(&mut request.cross_sections[0], mantissa, scale);
     request
+}
+
+/// `version` with BTC's open, high, low and close all `mantissa` at `scale`: a bar whose prices
+/// are one value, which the custody intake admits whatever that value is.
+fn btc_prices_stated_as(version: &mut UntrustedCrossSectionVersionV1, mantissa: i128, scale: u8) {
+    for row in &mut version.rows {
+        if row.instrument == BTC && row.field != "VOLUME" {
+            row.value_mantissa = mantissa;
+            row.value_scale = scale;
+        }
+    }
 }
 
 /// 45000.1 and 45000.12 on two bars of one series are stated at the fixed value scale, so the
@@ -1141,18 +1159,8 @@ fn values_written_at_different_scales_land_in_one_series() {
     };
 
     let mut request = request();
-    let close_of = |version: usize| {
-        request.cross_sections[version]
-            .rows
-            .iter()
-            .position(|row| row.instrument == BTC && row.field == "CLOSE")
-            .unwrap()
-    };
-    let (first, second) = (close_of(0), close_of(1));
-    request.cross_sections[0].rows[first].value_mantissa = 450_001;
-    request.cross_sections[0].rows[first].value_scale = 1;
-    request.cross_sections[1].rows[second].value_mantissa = 4_500_012;
-    request.cross_sections[1].rows[second].value_scale = 2;
+    btc_prices_stated_as(&mut request.cross_sections[0], 450_001, 1);
+    btc_prices_stated_as(&mut request.cross_sections[1], 4_500_012, 2);
     let derived = Basis::new(false).derive(&request).unwrap();
     let resolved = derived.resolve_at_minting_cut(RETRIEVED, None).unwrap();
     let series = (0..2)
@@ -1241,6 +1249,128 @@ fn a_value_the_series_scale_cannot_state_exactly_is_refused(
             .derive(&close_stated_as(mantissa, scale))
             .map(|_| ()),
         Err(refused)
+    );
+}
+
+/// `request` with BTC's first daily bar stating `bar` as (open, high, low, close, volume), each a
+/// mantissa at the scale beside it.
+fn btc_bar_stated_as(bar: [(i128, u8); 5]) -> UntrustedPitWindowCustodyRequestV1 {
+    let mut request = request();
+
+    for row in &mut request.cross_sections[0].rows {
+        let position = ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
+            .iter()
+            .position(|field| *field == row.field)
+            .unwrap();
+
+        if row.instrument == BTC {
+            (row.value_mantissa, row.value_scale) = bar[position];
+        }
+    }
+    request
+}
+
+/// Five values at two places, as (open, high, low, close, volume).
+const fn cents(open: i128, high: i128, low: i128, close: i128, volume: i128) -> [(i128, u8); 5] {
+    [(open, 2), (high, 2), (low, 2), (close, 2), (volume, 2)]
+}
+
+/// T0-8: each term of the rule refuses a bar by name, and nothing is derived for it.
+#[rstest]
+#[case::low_above_open(cents(10_000, 12_000, 10_001, 11_000, 5))]
+#[case::low_above_close(cents(11_000, 12_000, 10_001, 10_000, 5))]
+#[case::high_below_open(cents(11_000, 10_500, 10_000, 10_400, 5))]
+#[case::high_below_close(cents(10_400, 10_500, 10_000, 11_000, 5))]
+// A low above the high is also above the open or the close: the term is implied by those two,
+// and stated because the rule states it.
+#[case::low_above_high(cents(10_000, 10_000, 10_001, 10_000, 5))]
+#[case::negative_volume(cents(10_000, 11_000, 9_000, 10_500, -1))]
+#[case::zero_low(cents(10_000, 11_000, 0, 10_500, 5))]
+#[case::negative_low(cents(0, 11_000, -1, 10_500, 5))]
+// Compared at the series scale: a low of 100.2 written at one place is above an open of 100.15
+// written at two, though as written 1_002 < 10_015.
+#[case::compared_after_the_rescale([(10_015, 2), (10_030, 2), (1_002, 1), (10_020, 2), (5, 0)])]
+fn an_inconsistent_bar_is_refused_by_name(#[case] bar: [(i128, u8); 5]) {
+    assert_eq!(
+        Basis::new(false)
+            .derive(&btc_bar_stated_as(bar))
+            .map(|_| ()),
+        Err(Refused::BarOhlcInconsistent)
+    );
+}
+
+/// The boundary passes: one price for open, high, low and close, and no volume; and the rule
+/// compares values at the series scale, never as written.
+#[rstest]
+#[case::one_price_and_no_volume(cents(10_000, 10_000, 10_000, 10_000, 0))]
+#[case::the_smallest_positive_low(cents(1, 1, 1, 1, 0))]
+// 100.1 at one place and 100.05 at two: as written, 10_005 > 1_001; at the series scale the low
+// is below the open.
+#[case::compared_after_the_rescale([(1_001, 1), (10_020, 2), (10_005, 2), (1_001, 1), (5, 0)])]
+fn a_consistent_bar_at_the_boundary_is_admitted(#[case] bar: [(i128, u8); 5]) {
+    assert!(Basis::new(false).derive(&btc_bar_stated_as(bar)).is_ok());
+}
+
+/// The positive-low term is a crypto perpetual's: a class whose prices can be zero or negative
+/// takes every other term only.
+#[rstest]
+fn only_a_class_with_positive_prices_takes_the_positive_low_term() {
+    assert!(class_prices_are_positive_v1(
+        InstrumentClass::CryptoPerpetual
+    ));
+
+    for class in [
+        InstrumentClass::Future,
+        InstrumentClass::Option,
+        InstrumentClass::Synthetic,
+    ] {
+        assert!(!class_prices_are_positive_v1(class));
+    }
+    let negative = CustodyBarV1 {
+        open: -5,
+        high: 1,
+        low: -10,
+        close: 0,
+        volume: 0,
+    };
+    assert!(bar_is_consistent_v1(&negative, false));
+    assert!(!bar_is_consistent_v1(&negative, true));
+    assert!(!bar_is_consistent_v1(
+        &CustodyBarV1 {
+            high: -11,
+            ..negative
+        },
+        false
+    ));
+}
+
+/// A bar is every BAR field exactly once.
+#[rstest]
+fn a_bar_is_read_from_every_field_exactly_once() {
+    use MarketDataFieldSemantic::{
+        BarClosePrice, BarHighPrice, BarLowPrice, BarOpenPrice, BarVolumeQuantity,
+    };
+    let fields = [
+        (BarOpenPrice, 1),
+        (BarHighPrice, 2),
+        (BarLowPrice, 3),
+        (BarClosePrice, 4),
+        (BarVolumeQuantity, 5),
+    ];
+    assert_eq!(
+        CustodyBarV1::from_fields(fields),
+        Some(CustodyBarV1 {
+            open: 1,
+            high: 2,
+            low: 3,
+            close: 4,
+            volume: 5
+        })
+    );
+    assert_eq!(CustodyBarV1::from_fields(fields.into_iter().take(4)), None);
+    assert_eq!(
+        CustodyBarV1::from_fields(fields.into_iter().chain([(BarLowPrice, 3)])),
+        None
     );
 }
 
@@ -1385,10 +1515,10 @@ mod chain_records {
     }
 
     const PINNED_R0_RECORD: &str =
-        "7046f34ef298be53e9b7a335176cf14e6ea2013fb7f25b6965eaa6f99488b67e";
-    const PINNED_R0_CUT: &str = "f6fd201adf3d6de6b14962ce86910648240041e6529e25068cb0912954b76194";
+        "1da5f683b18d328ee5adda8e3c8023d61f95da93ca23bb57da98ec823688470a";
+    const PINNED_R0_CUT: &str = "8d4f0ed8c3260ff9f0cebff27f0902a7f878bb052e1cabc2b502ce9dfeba01c5";
     const PINNED_MARKET_SEMANTICS_FACT: &str =
-        "6be6b58caf9f6f79f4b2adff76d9fba2155b53af76f3c94827be2b40eefefec4";
+        "0600772f41b73cb20fc26855a2818cb926bf7b4e370e47f0592cdb9a2733155e";
 
     #[rstest]
     fn stored_chain_records_decode_only_to_what_they_state() {

@@ -69,6 +69,89 @@ const BAR_FIELDS_V1: [MarketDataFieldSemantic; 5] = [
     MarketDataFieldSemantic::BarVolumeQuantity,
 ];
 
+/// One member's BAR cross-section, every value at the Market Data value scale.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CustodyBarV1 {
+    pub(crate) open: i128,
+    pub(crate) high: i128,
+    pub(crate) low: i128,
+    pub(crate) close: i128,
+    pub(crate) volume: i128,
+}
+
+impl CustodyBarV1 {
+    /// The bar one member's rows state, each named by its semantic; `None` unless every BAR
+    /// field is stated exactly once.
+    pub(crate) fn from_fields(
+        fields: impl IntoIterator<Item = (MarketDataFieldSemantic, i128)>,
+    ) -> Option<Self> {
+        let mut values = [None; BAR_FIELDS_V1.len()];
+
+        for (semantic, value) in fields {
+            let position = BAR_FIELDS_V1.iter().position(|bar| *bar == semantic)?;
+
+            if values[position].replace(value).is_some() {
+                return None;
+            }
+        }
+        let [Some(open), Some(high), Some(low), Some(close), Some(volume)] = values else {
+            return None;
+        };
+        Some(Self {
+            open,
+            high,
+            low,
+            close,
+            volume,
+        })
+    }
+}
+
+/// Whether a class's prices are positive, so its bar's low must be. A crypto perpetual's is; a
+/// future's, an option's or a synthetic's can be zero or negative, so no other class takes the
+/// term. Every custody member today is a crypto perpetual.
+pub(crate) const fn class_prices_are_positive_v1(class: InstrumentClass) -> bool {
+    matches!(class, InstrumentClass::CryptoPerpetual)
+}
+
+/// Whether `bar` can be a bar: the T0-8 rule the custody intake refuses a new bar by, and the
+/// Operations listing reads a stored one by. Every value is an integer at one scale.
+///
+/// `low <= high` follows from the two terms before it; it is stated as the rule states it.
+pub(crate) const fn bar_is_consistent_v1(bar: &CustodyBarV1, positive_prices: bool) -> bool {
+    bar.low <= bar.open
+        && bar.low <= bar.close
+        && bar.high >= bar.open
+        && bar.high >= bar.close
+        && bar.low <= bar.high
+        && bar.volume >= 0
+        && (!positive_prices || bar.low > 0)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only: lets this thread commit a bar the rule refuses, as a custody committed before
+    /// the rule existed did, so the Operations listing has a legacy bar to find.
+    pub(crate) static ADMIT_INCONSISTENT_BARS_FOR_TEST_V1: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+/// Refuses one member's derived rows unless they are a consistent bar.
+fn check_bar_v1(rows: &[DerivedRowV1], class: InstrumentClass) -> Result<(), Refused> {
+    #[cfg(test)]
+    if ADMIT_INCONSISTENT_BARS_FOR_TEST_V1.with(std::cell::Cell::get) {
+        return Ok(());
+    }
+    let bar = CustodyBarV1::from_fields(rows.iter().map(|row| (row.semantic, row.value_mantissa)))
+        .ok_or(Refused::InvalidRequest)?;
+
+    if bar_is_consistent_v1(&bar, class_prices_are_positive_v1(class)) {
+        Ok(())
+    } else {
+        Err(Refused::BarOhlcInconsistent)
+    }
+}
+
 /// Channel and data-kind codes a custody row carries, as `SampleFactV1` encodes them.
 const MARKET_CHANNEL_CODE: u8 = 0x01;
 const BAR_DATA_KIND_CODE: u8 = 0x01;
@@ -714,6 +797,8 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
         let mut rows = Vec::with_capacity(version.rows.len());
 
         for (ordinal, member) in request.members.iter().enumerate() {
+            let first = rows.len();
+
             for semantic in BAR_FIELDS_V1 {
                 let Some(row) = version
                     .rows
@@ -752,6 +837,11 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
                     retrieval_ns: row.retrieval_ns,
                     retrieval_route: row.retrieval_route.clone(),
                 });
+            }
+
+            // A withdrawal holds no rows, so it states no bar to check.
+            if rows.len() > first {
+                check_bar_v1(&rows[first..], facts[ordinal].class)?;
             }
         }
         let mut bytes = Vec::new();

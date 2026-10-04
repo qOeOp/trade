@@ -298,24 +298,44 @@ pub(super) fn rows_of(
 }
 
 /// One row per member and BAR field, values from `base`, all retrieved at `retrieval_ns`: prices at
-/// two places, volumes as integers. Custody states each at the fixed value scale.
+/// two places, volumes as integers. Custody states each at the fixed value scale. The low is the
+/// lowest price and the high the highest, so every member's bar is one the custody intake admits.
 pub(super) fn rows(base: i128, retrieval_ns: u64) -> Vec<UntrustedCustodyRowV1> {
     [BTC, ETH]
         .into_iter()
         .flat_map(|member| {
-            ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
-                .into_iter()
-                .zip(0..)
-                .map(move |(field, offset)| UntrustedCustodyRowV1 {
-                    instrument: member.to_owned(),
-                    field: field.to_owned(),
-                    value_mantissa: base + offset,
-                    value_scale: if field == "VOLUME" { 0 } else { 2 },
-                    retrieval_ns,
-                    retrieval_route: "data.binance.vision/daily-klines".to_owned(),
-                })
+            [
+                ("OPEN", 0),
+                ("HIGH", 5),
+                ("LOW", -1),
+                ("CLOSE", 3),
+                ("VOLUME", 4),
+            ]
+            .into_iter()
+            .map(move |(field, offset)| UntrustedCustodyRowV1 {
+                instrument: member.to_owned(),
+                field: field.to_owned(),
+                value_mantissa: base + offset,
+                value_scale: if field == "VOLUME" { 0 } else { 2 },
+                retrieval_ns,
+                retrieval_route: "data.binance.vision/daily-klines".to_owned(),
+            })
         })
         .collect()
+}
+
+/// `version` with BTC's open, high, low and close stated as `prices`, each at two places.
+fn state_btc_bar(version: &mut UntrustedCrossSectionVersionV1, prices: [i128; 4]) {
+    for row in &mut version.rows {
+        let price = ["OPEN", "HIGH", "LOW", "CLOSE"]
+            .iter()
+            .position(|field| *field == row.field);
+
+        if let (true, Some(position)) = (row.instrument == BTC, price) {
+            row.value_mantissa = prices[position];
+            row.value_scale = 2;
+        }
+    }
 }
 
 pub(super) fn original(timeframe: &str, event: u64) -> UntrustedCrossSectionVersionV1 {
@@ -1180,6 +1200,14 @@ async fn postgres_every_custody_refusal_writes_nothing() {
         Refused::CrossSectionBranch,
     )
     .await;
+    // T0-8: a bar whose low is above its high is refused by name, before any write.
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| state_btc_bar(&mut r.cross_sections[0], [10_000, 10_000, 10_001, 10_000])),
+        Refused::BarOhlcInconsistent,
+    )
+    .await;
     assert_eq!(count(&owner, "pit_window_custodies_v1").await, 0);
     assert_eq!(
         count(&owner, "pit_window_schedule_facts_v1").await,
@@ -1703,4 +1731,74 @@ async fn postgres_a_snapshot_after_a_custody_of_its_scope_states_the_scope_value
         .await,
         Ok(())
     );
+}
+
+/// The Operations read for legacy rows (T0-8) finds a bar committed before the rule existed - here
+/// through the authority's test-only seam, which admits it as the intake did then - and only that
+/// bar, without writing; the same request is refused by name now, and a consistent custody beside
+/// it is never listed.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_the_legacy_listing_finds_an_inconsistent_stored_bar_and_writes_nothing() {
+    use crate::owner::{
+        pit_window_custody_v1::authority::ADMIT_INCONSISTENT_BARS_FOR_TEST_V1,
+        postgres::pit_window_custody_v1::list_inconsistent_custody_bars_v1,
+    };
+
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
+    admit_members(&owner, &binding).await;
+    let consistent_universe = universe(&owner, &binding, 10, None).await;
+    let legacy_universe = universe(&owner, &binding, 11, None).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let list = || async {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let listed = list_inconsistent_custody_bars_v1(&mut transaction)
+            .await
+            .expect("the stored bars read back");
+        transaction.rollback().await.unwrap();
+        listed
+    };
+
+    let consistent = commit(&intake, request(&binding, consistent_universe))
+        .await
+        .expect("a consistent custody commits");
+    assert_eq!(
+        list().await,
+        Vec::new(),
+        "a consistent custody is never listed"
+    );
+
+    let mut legacy = request(&binding, legacy_universe);
+    state_btc_bar(
+        &mut legacy.cross_sections[1],
+        [10_000, 10_000, 10_001, 10_000],
+    );
+    ADMIT_INCONSISTENT_BARS_FOR_TEST_V1.with(|admit| admit.set(true));
+    let stored = commit(&intake, legacy.clone()).await;
+    ADMIT_INCONSISTENT_BARS_FOR_TEST_V1.with(|admit| admit.set(false));
+    let stored = stored.expect("the bar commits as it did before the rule existed");
+    assert_ne!(stored.chain_root(), consistent.chain_root());
+
+    let before = owner_store_v1(owner.pool()).await;
+    let event = WINDOW_START + 2 * DAY;
+    assert_eq!(
+        list().await,
+        vec![(
+            stored.chain_root(),
+            stored.custody_identity(),
+            version_at(&owner, stored.custody_identity(), event).await,
+            BTC.to_owned(),
+            event,
+        )],
+        "exactly the legacy bar: one member of one version"
+    );
+    assert_eq!(
+        owner_store_v1(owner.pool()).await,
+        before,
+        "the listing reads only"
+    );
+
+    // The rule now refuses the same request by name rather than rejoining it, and writes nothing.
+    refused(&owner, &intake, legacy, Refused::BarOhlcInconsistent).await;
 }
