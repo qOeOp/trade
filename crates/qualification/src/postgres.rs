@@ -6503,9 +6503,7 @@ mod basis_lock_version_probe_tests {
             ),
             (
                 "10-migrate-authority-custody.sh",
-                include_str!(
-                    "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
-                ),
+                include_str!("../../../database/postgres-init/10-migrate-authority-custody.sh"),
             ),
         ] {
             let function = source

@@ -26,7 +26,7 @@ services:
       - RD_SCHEMA_MIGRATOR_DB_PASSWORD
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
+      - ../../database/postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d trade_rd"]
       interval: 5s
@@ -231,7 +231,7 @@ services:
         ${RD_SCHEMA_MIGRATOR_DB_PASSWORD:?set RD_SCHEMA_MIGRATOR_DB_PASSWORD}
     entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
     volumes:
-      - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
+      - ../../database/postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
     depends_on:
       schema-materialize:
         condition: service_completed_successfully
@@ -409,7 +409,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     entrypoint: ["/bin/sh", "/opt/trade/30-enable-postgres-tls.sh"]
     volumes:
-      - ./postgres-init/30-enable-postgres-tls.sh:/opt/trade/30-enable-postgres-tls.sh:ro
+      - ../../database/postgres-init/30-enable-postgres-tls.sh:/opt/trade/30-enable-postgres-tls.sh:ro
       - postgres-data:/var/lib/postgresql/data
       - ${POSTGRES_TLS_DIRECTORY:-postgres-tls}:/run/postgres-tls:ro
     depends_on:
@@ -433,8 +433,8 @@ services:
       - -c
       - sh /opt/trade/20-deployment-store-custody.sh && sh /opt/trade/25-market-data-admitted-reader.sh
     volumes:
-      - ./postgres-init/20-deployment-store-custody.sh:/opt/trade/20-deployment-store-custody.sh:ro
-      - ./postgres-init/25-market-data-admitted-reader.sh:/opt/trade/25-market-data-admitted-reader.sh:ro
+      - ../../database/postgres-init/20-deployment-store-custody.sh:/opt/trade/20-deployment-store-custody.sh:ro
+      - ../../database/postgres-init/25-market-data-admitted-reader.sh:/opt/trade/25-market-data-admitted-reader.sh:ro
     depends_on:
       postgres:
         condition: service_healthy

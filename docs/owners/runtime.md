@@ -70,7 +70,7 @@ widening the admitted set requires changing this document first.
   database role, while a role is the narrowest thing either a predicate or a `GRANT` can name. Both are therefore
   too coarse for what is admitted, and that is a question about caller identity for Market Data to settle, not a
   grant this Owner is waiting on. The role pair and its schemas are then a shared-surface change
-  under `product/rd-workbench/postgres-init/`, and once the read path exists Market Data must grant the Runtime
+  under `database/postgres-init/`, and once the read path exists Market Data must grant the Runtime
   role execute on it.
   Admission is permission to build and verify this one read. It authorizes no Runtime effect, no Paper or Live
   adapter binding, and no real trading.

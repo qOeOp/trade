@@ -14,7 +14,7 @@
 //!
 //! The migration grants them to one role: `market_data_admitted_reader`, the principal a Store
 //! Admission leases, when the deployment has provisioned it
-//! (`product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh`). It gains `USAGE` on
+//! (`database/postgres-init/25-market-data-admitted-reader.sh`). It gains `USAGE` on
 //! this schema and `EXECUTE` on every function in it. That is exactly what the admitted reads and
 //! the measurement call, because every wrapper is on an admitted read's floor or is the
 //! measurement's ledger read, which `every_wrapper_serves_an_admitted_read_or_the_measurement` in

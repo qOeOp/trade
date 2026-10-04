@@ -219,7 +219,7 @@
 - **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 是本仓库唯一一个把执行权授予
   多于一个消费方 Owner 角色的 schema：`product_edge_owner`、`qualification_writer`、`backtest_owner`、
   `market_data_owner` 与 `market_data_reader`，`rd_owner` 是该 schema 自己的角色。这些 schema、
-  它们的函数与每一条授权，都由 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`
+  它们的函数与每一条授权，都由 `database/postgres-init/10-migrate-authority-custody.sh`
   所运行的 Owner 迁移确立；该脚本连同它调用的那些迁移，才是任一截面上"存在什么"的权威。
   本行刻意不写函数个数。个数在任何一个 Owner 添一个函数的那天就过期，而且它即使正确也高估这个面：
   一个住在 `_api` schema 里的函数，只有在某个角色持有它的 `EXECUTE` 时才可触达，而本 schema 两类都有：

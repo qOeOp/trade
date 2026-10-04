@@ -4622,9 +4622,8 @@ mod tests {
             super::COMMIT_QUERY_V3
         );
         assert!(super::versioned_composer_commit_query_v2(4, None).is_err());
-        let migration = include_str!(
-            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
-        );
+        let migration =
+            include_str!("../../../database/postgres-init/10-migrate-authority-custody.sh");
         let v3_source = migration
             .split_once("$composer_commit_v3$")
             .expect("V3 commit source")
@@ -4647,9 +4646,8 @@ mod tests {
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[rstest::rstest]
     fn acceptance_write_boundaries_are_closed_and_in_persistence_order() {
-        let migration = include_str!(
-            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
-        );
+        let migration =
+            include_str!("../../../database/postgres-init/10-migrate-authority-custody.sh");
         let installed_source = migration
             .split_once("SET search_path = pg_catalog, pg_temp AS $composer_acceptance_commit$")
             .expect("installed Composer acceptance commit source")

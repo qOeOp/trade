@@ -4823,7 +4823,7 @@ pub(crate) mod tests {
 
         let runtime = body(include_str!("product_edge_postgres.rs"));
         let cutover = body(include_str!(
-            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+            "../../../database/postgres-init/10-migrate-authority-custody.sh"
         ));
         assert_eq!(runtime, cutover);
         assert_eq!(runtime.matches("transaction_isolation").count(), 1);

@@ -6,6 +6,7 @@ env_example="$package_dir/.env.example"
 readme="$package_dir/README.md"
 rd_owner_api="$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
 store_admission="$package_dir/../../crates/data/src/owner/store_admission/mod.rs"
+database_dir=$(CDPATH='' cd -- "$package_dir/../../database" && pwd)
 
 # Every assertion in these checks is a bare `grep -Fq`, which prints nothing when it
 # fails. Under `set -eu` the script then exits non-zero with no output at all, and CI

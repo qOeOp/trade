@@ -234,9 +234,8 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     let source = include_str!("../postgres/replay_market_facts_v2.rs");
     let v4_source = include_str!("../postgres/sample_projection_v4.rs");
     let role_set = include_str!("../strategy_design_role_set.rs");
-    let migration = include_str!(
-        "../../../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
-    );
+    let migration =
+        include_str!("../../../../../database/postgres-init/10-migrate-authority-custody.sh");
     assert!(source.contains("replay_composition_issuances_v1"));
     assert!(source.contains("request_identity BYTEA PRIMARY KEY"));
     assert!(source.contains("request_meaning_digest BYTEA NOT NULL UNIQUE"));

@@ -340,7 +340,7 @@ provision_database() {
     --env POSTGRES_DATABASE="$database" \
     --env DEPLOYMENT_STORE_PUBLISHER_DB_PASSWORD="$custody_publisher_password" \
     --env DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD="$custody_custodian_password" \
-    "$container" sh -s < "$repository_root/product/rd-workbench/postgres-init/20-deployment-store-custody.sh" > /dev/null
+    "$container" sh -s < "$repository_root/database/postgres-init/20-deployment-store-custody.sh" > /dev/null
 
   # The admitted reader, from the deployment's own init script: the principal Store Admission
   # leases. The Owner's migration grants it the admitted read wrappers once a proof migrates.
@@ -349,7 +349,7 @@ provision_database() {
     --env POSTGRES_HOST=127.0.0.1 \
     --env POSTGRES_DATABASE="$database" \
     --env MARKET_DATA_ADMITTED_READER_DB_PASSWORD="$admitted_reader_password" \
-    "$container" sh -s < "$repository_root/product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh" > /dev/null
+    "$container" sh -s < "$repository_root/database/postgres-init/25-market-data-admitted-reader.sh" > /dev/null
 
   export MARKET_DATA_ADMIN_TEST_DATABASE_URL="postgres://postgres:$admin_password@127.0.0.1:$port/$database"
   export DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL="postgres://deployment_store_publisher:$custody_publisher_password@127.0.0.1:$port/$database"

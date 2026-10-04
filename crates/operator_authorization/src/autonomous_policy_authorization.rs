@@ -201,7 +201,7 @@ impl GrantContentV1 for AutonomousPolicyAuthorizationContentV1 {
     const SCHEMA_VERSION: u32 = AUTONOMOUS_POLICY_AUTHORIZATION_SCHEMA_V1;
     // Strategy Governance is the intended reader of this kind, and the
     // deployment topology now defines its role:
-    // `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`
+    // `database/postgres-init/10-migrate-authority-custody.sh`
     // creates `governance_writer`, gives it LOGIN and its password, and grants
     // it `governance_owner`. Reading is all it gets here - minting and revoking
     // stay with the issuer, and the engine revokes this function from PUBLIC,

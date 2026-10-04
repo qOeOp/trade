@@ -5437,9 +5437,8 @@ mod source_tests {
         HistoricalExploratoryReplayChannelV1, HistoricalExploratoryReplayRejectionSelectorV1,
     };
 
-    const AUTHORITY_MIGRATION: &str = include_str!(
-        "../../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
-    );
+    const AUTHORITY_MIGRATION: &str =
+        include_str!("../../../../database/postgres-init/10-migrate-authority-custody.sh");
 
     /// A sealed Replay read is decoded by the verifier that answered it: an envelope with no kind is
     /// the legacy verifier's, `COMPOSER_V3` is the Composer one's, and any other kind is refused by

@@ -60,7 +60,7 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
   已准入的切片会拒绝 Owner 所发订阅之外的标的，所以它的准入单位比一个数据库角色更窄，而角色已经是
   谓词或 `GRANT` 能点名的最窄的东西。两者因此对已准入的内容都太粗，这是一个关于调用者身份的问题，
   要由 Market Data 裁决，而不是本 Owner 在等的一条授权。随后角色对
-  与其 schema 属于 `product/rd-workbench/postgres-init/` 下的共享面变更；读路径建成之后，Market Data 必须把
+  与其 schema 属于 `database/postgres-init/` 下的共享面变更；读路径建成之后，Market Data 必须把
   它的执行权授予该 Runtime 角色。准入是建造并验证这一条读取的许可，它不授权任何 Runtime 效果 任何 Paper 或 Live adapter binding
   或真实交易。
 - **CURRENT_PARTIAL - 失败关闭的 foundation：** `crates/runtime/src/lib.rs` 暴露 `RuntimeFoundation`，其唯一状态是
