@@ -1,5 +1,6 @@
 //! The production Source Binding admission refuses an impossible bar timeframe by name, unwritten,
-//! and its dataset anchor admits a dataset exactly once no matter how many times it is called.
+//! and its dataset anchor admits a dataset exactly once no matter how many times it is called and
+//! refuses a request whose meaning moved away from the anchored binding.
 
 use std::env;
 
@@ -15,6 +16,7 @@ use crate::owner::{
     source_binding_admission_v1::{
         ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1, SourceBindingAdmissionErrorV1,
         SourceBindingAdmissionRequestV1, SourceBindingAdmissionV1,
+        SourceBindingDatasetAnchorErrorV1,
     },
 };
 
@@ -105,4 +107,21 @@ async fn postgres_a_dataset_anchor_admits_exactly_one_binding_across_two_calls()
         second.market_semantics_identity(),
         first.market_semantics_identity()
     );
+
+    let mut moved = request();
+    moved.proposal.semantics.normalization.push_str("/moved");
+    assert!(
+        matches!(
+            admission.admit_dataset_anchor(dataset_key, moved).await,
+            Err(SourceBindingDatasetAnchorErrorV1::AnchorSemanticsMoved)
+        ),
+        "a request whose meaning moved is refused, never answered with the old binding"
+    );
+    let binding_count_after_moved: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM market_data_private.source_binding_facts_v1",
+    )
+    .fetch_one(admission.owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(binding_count_after_moved, 1, "the refusal admits nothing");
 }

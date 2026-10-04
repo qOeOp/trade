@@ -310,6 +310,9 @@ pub trait SourceBindingAdmissionV1: Send + Sync + sealed::Sealed {
 pub enum SourceBindingDatasetAnchorErrorV1 {
     /// The dataset's anchored binding no longer resolves to the content it was admitted with.
     AnchorStale,
+    /// The request's market semantics differ from those the dataset's anchored binding was
+    /// admitted with; the anchor never re-admits a changed proposal.
+    AnchorSemanticsMoved,
     /// The underlying admission was refused or errored; carries its own category.
     Admission(SourceBindingAdmissionErrorV1),
     /// The Owner store is unreachable or refused the request.
@@ -321,6 +324,9 @@ impl Display for SourceBindingDatasetAnchorErrorV1 {
         match self {
             Self::AnchorStale => formatter.write_str(
                 "the dataset's anchored binding no longer resolves to the content it was admitted with",
+            ),
+            Self::AnchorSemanticsMoved => formatter.write_str(
+                "the request's market semantics differ from the dataset's anchored binding",
             ),
             Self::Admission(error) => Display::fmt(error, formatter),
             Self::StoreUnavailable => formatter.write_str("the Market Data store is unavailable"),

@@ -58,6 +58,7 @@ use vibe_data::owner::{
         ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1,
         SourceBindingAdmissionDispositionV1, SourceBindingAdmissionErrorV1,
         SourceBindingAdmissionRequestV1, SourceBindingAdmissionV1,
+        SourceBindingDatasetAnchorErrorV1,
     },
     strategy_design_role_set::StrategyDesignRoleSetLocatorV1,
     strategy_input_binding_admission_v1::{
@@ -655,21 +656,26 @@ async fn admit_binance_perpetual(
         .into_response()
 }
 
-/// Admits one of the route's two Source Bindings, mapping a non-`Admitted` disposition to a named
-/// refusal, since an `Unavailable`, `Unlicensed` or `Incompatible` binding never backs a snapshot.
+/// Reads back one of the route's two Source Bindings through its dataset anchor - admitting it on
+/// the dataset's first call only, so every symbol cites the one binding the backfill job's custody
+/// and universe selection also cite - and maps a non-`Admitted` disposition to a named refusal,
+/// since an `Unavailable`, `Unlicensed` or `Incompatible` binding never backs a snapshot.
 async fn admit_binance_perpetual_binding(
     admission: &Arc<dyn SourceBindingAdmissionV1>,
     dataset: BinancePerpetualDatasetV1,
 ) -> Result<UntrustedSourceBindingLocator, Response> {
     let proposal = binance_perpetual_source_proposal(dataset);
     let terminal = admission
-        .admit(SourceBindingAdmissionRequestV1 {
-            proposal,
-            rights: ProviderRightsEvidenceV1::Granted,
-            reachability: ProviderReachabilityEvidenceV1::Reachable,
-        })
+        .admit_dataset_anchor(
+            dataset.dataset_anchor_key(),
+            SourceBindingAdmissionRequestV1 {
+                proposal,
+                rights: ProviderRightsEvidenceV1::Granted,
+                reachability: ProviderReachabilityEvidenceV1::Reachable,
+            },
+        )
         .await
-        .map_err(admission_error)?;
+        .map_err(dataset_anchor_error)?;
 
     if terminal.disposition() != SourceBindingAdmissionDispositionV1::Admitted {
         return Err(rejection(
@@ -1480,6 +1486,23 @@ fn admission_error(error: SourceBindingAdmissionErrorV1) -> Response {
         ),
     };
     rejection(status, code)
+}
+
+fn dataset_anchor_error(error: SourceBindingDatasetAnchorErrorV1) -> Response {
+    match error {
+        SourceBindingDatasetAnchorErrorV1::Admission(error) => admission_error(error),
+        SourceBindingDatasetAnchorErrorV1::AnchorStale => {
+            rejection(StatusCode::CONFLICT, "SOURCE_BINDING_ANCHOR_STALE")
+        }
+        SourceBindingDatasetAnchorErrorV1::AnchorSemanticsMoved => rejection(
+            StatusCode::CONFLICT,
+            "SOURCE_BINDING_ANCHOR_SEMANTICS_MOVED",
+        ),
+        SourceBindingDatasetAnchorErrorV1::StoreUnavailable => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_OWNER_UNAVAILABLE",
+        ),
+    }
 }
 
 fn rejection(status: StatusCode, code: &str) -> Response {

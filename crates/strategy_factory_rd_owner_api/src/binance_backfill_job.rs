@@ -38,9 +38,9 @@ use vibe_binance::{
     common::enums::BinanceKlineInterval,
     futures::http::client::BinanceFuturesHttpClient,
     perpetual_admission_v1::{
-        BINANCE_PERPETUAL_KLINE_DATASET_KEY_V1, BINANCE_PERPETUAL_U1_MEMBERS_V1,
-        BinancePerpetualDatasetV1, binance_perpetual_canonical_identity_v1,
-        binance_perpetual_correction_frontier_digest_v1, binance_perpetual_eligible_frontier_v1,
+        BINANCE_PERPETUAL_U1_MEMBERS_V1, BinancePerpetualDatasetV1,
+        binance_perpetual_canonical_identity_v1, binance_perpetual_correction_frontier_digest_v1,
+        binance_perpetual_eligible_frontier_v1,
         binance_perpetual_eligible_set_admission_request_v1,
         binance_perpetual_market_semantics_value_v1, binance_perpetual_source_proposal,
     },
@@ -323,7 +323,7 @@ async fn kline_binding_locator(
     let proposal = binance_perpetual_source_proposal(BinancePerpetualDatasetV1::DailyKlines);
     let terminal = admission
         .admit_dataset_anchor(
-            BINANCE_PERPETUAL_KLINE_DATASET_KEY_V1,
+            BinancePerpetualDatasetV1::DailyKlines.dataset_anchor_key(),
             SourceBindingAdmissionRequestV1 {
                 proposal,
                 rights: ProviderRightsEvidenceV1::Granted,
@@ -357,7 +357,7 @@ const BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1: u64 = 4_102_444_800_
 ///
 /// Admits the U1 set's historical membership inline, every call, before evaluating, keyed by
 /// `source_binding_lineage_root` - the kline dataset's own anchored lineage root
-/// (`BINANCE_PERPETUAL_KLINE_DATASET_KEY_V1`'s anchor, read back by `kline_binding_locator`, never
+/// (`BinancePerpetualDatasetV1::DailyKlines`'s dataset anchor, read back by `kline_binding_locator`, never
 /// re-derived here), so every call submits byte-identical content and genuinely rejoins rather
 /// than conflicting (`UniverseSelectionAdmissionV1::admit_membership`'s own "a frontier is
 /// admitted whole or not at all" is this route's only attempt at it - there is no separate

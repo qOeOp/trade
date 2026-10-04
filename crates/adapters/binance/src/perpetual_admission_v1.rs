@@ -60,6 +60,17 @@ pub enum BinancePerpetualDatasetV1 {
 }
 
 impl BinancePerpetualDatasetV1 {
+    /// The stable name this dataset's one durable Source Binding anchor is keyed by
+    /// (`SourceBindingAdmissionV1::admit_dataset_anchor`). The anchor store is generic across every
+    /// dataset Market Data anchors, so the key carries the venue.
+    #[must_use]
+    pub const fn dataset_anchor_key(self) -> &'static str {
+        match self {
+            Self::DailyKlines => "binance/usdm/klines/1d",
+            Self::ExchangeInfo => "binance/usdm/exchangeInfo",
+        }
+    }
+
     const fn mapping(self) -> &'static str {
         match self {
             Self::DailyKlines => "usdm/klines/1d",
@@ -221,18 +232,12 @@ pub fn binance_perpetual_correction_frontier_digest_v1() -> BindingDigest {
     binance_perpetual_admission_digest_v1("correction-frontier")
 }
 
-/// The stable name the kline dataset's one durable Source Binding anchor is keyed by
-/// (`SourceBindingAdmissionV1::admit_dataset_anchor`), never an exchange- or adapter-specific
-/// table of its own - the anchor store is generic across every dataset Market Data ever anchors
-/// this way.
-pub const BINANCE_PERPETUAL_KLINE_DATASET_KEY_V1: &str = "binance/usdm-perpetual/klines";
-
 /// The one-time, complete historical-membership admission for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`],
 /// to send through the generic `POST /v1/market-data/historical-memberships` route before any
 /// symbol's own Instrument Master submission. Re-sending it rejoins the same frontier.
 ///
 /// `source_binding_lineage_root` must be the kline dataset's own anchored lineage root
-/// (`BINANCE_PERPETUAL_KLINE_DATASET_KEY_V1`'s anchor), not a value this function derives itself:
+/// (`BinancePerpetualDatasetV1::DailyKlines`'s dataset anchor), not a value this function derives itself:
 /// `admit()` is not idempotent (see `source_binding_dataset_anchor_v1`'s module doc), so there is
 /// no fixed value this function could compute that would ever equal a real kline fact's lineage
 /// root once a caller checks the two against each other.

@@ -12848,6 +12848,8 @@ impl SourceBindingAdmissionPostgresV1 {
     ) -> Result<SourceBindingAdmissionTerminalV1, SourceBindingDatasetAnchorErrorV1> {
         use SourceBindingDatasetAnchorErrorV1 as Refused;
 
+        let requested_semantics =
+            derive_market_semantics_compatibility_identity_v1(&request.proposal.semantics);
         let anchor = sqlx::query(
             "SELECT binding_id, fact_digest, lineage_root, lineage_version FROM market_data_private.source_binding_dataset_anchors_v1 WHERE dataset_key=$1",
         )
@@ -12922,6 +12924,13 @@ impl SourceBindingAdmissionPostgresV1 {
             || fact.lineage_version() != lineage_version
         {
             return Err(Refused::AnchorStale);
+        }
+        // The anchor never re-admits, so a proposal whose meaning moved (a new adapter release)
+        // would otherwise be answered silently with the binding admitted under the old meaning.
+        if derive_market_semantics_compatibility_identity_v1(&fact.proposal().semantics)
+            != requested_semantics
+        {
+            return Err(Refused::AnchorSemanticsMoved);
         }
 
         Ok(SourceBindingAdmissionTerminalV1::seal(
