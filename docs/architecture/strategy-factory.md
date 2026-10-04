@@ -1630,6 +1630,21 @@ reproducible anchor the single-frame path already gives F - not a second, parall
   `resolve_pit_window_frames_v1(run)` and records the `head_identity` the returned
   `PitWindowRunFramesV1` names. The binding pins that head; it is never advanced to a later one by
   the binding itself.
+- **Per-member `InstrumentEconomicTermsFactV1`/receipt locators and the public Instrument Master
+  cut stay shared between both data paths**, unchanged from the single-frame binding, verified and
+  stored at issuance exactly as today - not deferred to the consumer. They are per-instrument, not
+  per-data-path: a custody run needs the same fee/margin-tier terms a snapshot run does, and the
+  Result's reproducibility requires knowing which version of them was in force at issuance, not
+  only at read time. `ReplayCustodyRunBindingV1` therefore carries no economic-terms or
+  Instrument-Master field of its own - it stays exactly the four fields above. Only
+  `universe_frame_receipt` and each member's BAR-schedule cut/receipt are snapshot-specific and
+  move to that branch; everything else, including the member identity and economic-terms
+  locators, stays in the binding's shared part for both paths. The custody chain's own basis
+  declares an Instrument Master cut of its own; issuance checks the binding's cut equals it, and
+  the consumer checks the same equality again independently, refusing by name on mismatch. The
+  consumer's `public_terms` input must be read from the binding's own stored, verified locators,
+  never re-resolved independently; a test asserts that a `public_terms` value differing from the
+  binding's is refused by name, not silently preferred.
 - **The consumer side is "T1, the custody run's consumer" below** - re-resolution, the pinned-head
   check (`CUSTODY_HEAD_MOVED_SINCE_BINDING`), per-frame reads and `census().custody()` all live
   there, kept in one place so the two sides cannot drift into disagreeing descriptions.
