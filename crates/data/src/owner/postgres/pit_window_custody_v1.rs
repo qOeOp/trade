@@ -54,9 +54,10 @@ use crate::owner::{
     },
     pit_snapshot::custody_view::{FillBarRowV1, StoredViewRowV1, verify_fill_bar_rows_v1},
     pit_window_custody_v1::{
-        ChainBasisPartsV1, PitWindowChainBasisV1, PitWindowCustodyCommitV1,
-        PitWindowCustodyReceiptV1, PitWindowCustodyRefusalV1, PitWindowFrameCoordinateV1,
-        PitWindowRunFramesV1, PitWindowRunRefusalV1, UntrustedPitWindowCustodyFrameV1,
+        ChainBasisPartsV1, PitWindowChainBasisV1, PitWindowCoverageRefusalV1,
+        PitWindowCustodyCommitV1, PitWindowCustodyReceiptV1, PitWindowCustodyRefusalV1,
+        PitWindowFrameCoordinateV1, PitWindowRunFramesV1, PitWindowRunRefusalV1,
+        UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowCustodyFrameV1,
         UntrustedPitWindowCustodyRequestV1, UntrustedPitWindowRunV1,
         authority::{
             ChainPositionV1, CustodyBarV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
@@ -159,6 +160,11 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     // without its receipt or outbox event comes back with those columns NULL and is refused.
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_window_universe_selection_v1(p_request_identity BYTEA) RETURNS TABLE(request_identity BYTEA, request_meaning_digest BYTEA, selection_identity BYTEA, record_bytes BYTEA, receipt_identity BYTEA, receipt_bytes BYTEA, outbox_identity BYTEA, outbox_receipt_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT r.request_identity, r.request_meaning_digest, r.selection_identity, r.record_bytes, c.receipt_identity, c.receipt_bytes, o.outbox_identity, o.receipt_bytes FROM market_data_private.universe_selection_records_v1 AS r LEFT JOIN market_data_private.universe_selection_receipts_v1 AS c ON c.request_identity = r.request_identity LEFT JOIN market_data_private.universe_selection_outbox_v1 AS o ON o.request_identity = r.request_identity WHERE r.request_identity = p_request_identity $function$",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_window_universe_selection_v1(BYTEA) FROM PUBLIC",
+    // Every chain holding a window schedule for one instrument, for the coverage lookup: its
+    // root and current head, the schedule's interval, window and minting cut, and how many members
+    // the chain holds. A chain's verification is the frames read's, at the head this names.
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_window_chains_for_instrument_v1(p_instrument TEXT) RETURNS TABLE(chain_root BYTEA, head_identity BYTEA, interval_ns BIGINT, window_start_ns BIGINT, window_end_ns_exclusive BIGINT, cut_ns BIGINT, member_count BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT s.chain_root, h.head_identity, s.interval_ns, s.window_start_ns, s.window_end_ns_exclusive, s.cut_ns, (SELECT pg_catalog.count(*) FROM market_data_private.pit_window_schedule_facts_v1 AS m WHERE m.chain_root = s.chain_root) FROM market_data_private.pit_window_schedule_facts_v1 AS s JOIN market_data_private.pit_window_custody_heads_v1 AS h ON h.chain_root = s.chain_root WHERE s.instrument = p_instrument ORDER BY s.chain_root $function$",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_window_chains_for_instrument_v1(TEXT) FROM PUBLIC",
 ];
 
 #[track_caller]
@@ -2700,6 +2706,207 @@ where
     })
 }
 
+/// One chain holding a window schedule for an instrument: its root and current head, the
+/// schedule's interval, window and minting cut, and how many members the chain holds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PitWindowChainCandidateV1 {
+    pub(crate) chain_root: BindingDigest,
+    pub(crate) head_identity: BindingDigest,
+    pub(crate) interval_ns: u64,
+    pub(crate) window_start_ns: u64,
+    pub(crate) window_end_ns_exclusive: u64,
+    pub(crate) cut_ns: u64,
+    pub(crate) member_count: u64,
+}
+
+impl PitWindowChainCandidateV1 {
+    /// A candidate from the coverage function's columns; `None` for a column no commit writes.
+    fn from_columns(
+        (
+            chain_root,
+            head_identity,
+            interval_ns,
+            window_start_ns,
+            window_end_ns_exclusive,
+            cut_ns,
+            member_count,
+        ): (&[u8], &[u8], i64, i64, i64, i64, i64),
+    ) -> Option<Self> {
+        let digest = |bytes: &[u8]| {
+            <[u8; 32]>::try_from(bytes)
+                .ok()
+                .map(BindingDigest::from_untrusted_bytes)
+        };
+        let number = |value: i64| u64::try_from(value).ok();
+        Some(Self {
+            chain_root: digest(chain_root)?,
+            head_identity: digest(head_identity)?,
+            interval_ns: number(interval_ns)?,
+            window_start_ns: number(window_start_ns)?,
+            window_end_ns_exclusive: number(window_end_ns_exclusive)?,
+            cut_ns: number(cut_ns)?,
+            member_count: number(member_count)?,
+        })
+    }
+}
+
+/// The run over `[start, end)` of the chain that holds the instrument alone at
+/// `execution_timeframe` and covers the whole window, with its head pinned (see
+/// `PitWindowCustodyFramesV1::resolve_pit_window_run_for_window_v1` for the rule between
+/// several).
+pub(crate) fn select_covering_chain_v1(
+    candidates: &[PitWindowChainCandidateV1],
+    execution_timeframe: &str,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<UntrustedPitWindowRunV1, PitWindowCoverageRefusalV1> {
+    use PitWindowCoverageRefusalV1 as Refused;
+
+    let interval_ns =
+        crate::owner::bar_schedule::execution_timeframe_interval_ns_v1(execution_timeframe)
+            .ok_or(Refused::InvalidRequest)?;
+
+    if window_start_ns >= window_end_ns_exclusive {
+        return Err(Refused::InvalidRequest);
+    }
+    let matching: Vec<&PitWindowChainCandidateV1> = candidates
+        .iter()
+        .filter(|candidate| candidate.member_count == 1 && candidate.interval_ns == interval_ns)
+        .collect();
+
+    if matching.is_empty() {
+        return Err(Refused::CustodyNotFound);
+    }
+    let chosen = matching
+        .iter()
+        .filter(|candidate| {
+            candidate.window_start_ns <= window_start_ns
+                && window_end_ns_exclusive <= candidate.window_end_ns_exclusive
+        })
+        .max_by(|left, right| {
+            left.cut_ns
+                .cmp(&right.cut_ns)
+                .then_with(|| right.chain_root.as_bytes().cmp(left.chain_root.as_bytes()))
+        });
+
+    if let Some(chosen) = chosen {
+        return Ok(UntrustedPitWindowRunV1 {
+            custody: UntrustedPitWindowCustodyClaimV1 {
+                chain_root: chosen.chain_root,
+            },
+            run_start_ns: window_start_ns,
+            run_end_ns_exclusive: window_end_ns_exclusive,
+            head_identity: Some(chosen.head_identity),
+        });
+    }
+    let mut covered: Vec<(u64, u64)> = matching
+        .iter()
+        .map(|candidate| (candidate.window_start_ns, candidate.window_end_ns_exclusive))
+        .collect();
+    covered.sort_unstable();
+    let mut missing = Vec::new();
+    let mut cursor = window_start_ns;
+
+    for (start, end) in covered {
+        if end <= cursor {
+            continue;
+        }
+
+        if start >= window_end_ns_exclusive {
+            break;
+        }
+
+        if start > cursor {
+            missing.push((cursor, start));
+        }
+        cursor = end;
+
+        if cursor >= window_end_ns_exclusive {
+            break;
+        }
+    }
+
+    if cursor < window_end_ns_exclusive {
+        missing.push((cursor, window_end_ns_exclusive));
+    }
+
+    if missing.is_empty() {
+        Err(Refused::CoveredOnlyAcrossChains)
+    } else {
+        Err(Refused::WindowNotCovered { missing })
+    }
+}
+
+/// The run [`select_covering_chain_v1`] names, from the Owner store's own coverage function.
+pub(in crate::owner) async fn resolve_pit_window_run_for_window_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    instrument: &str,
+    execution_timeframe: &str,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<UntrustedPitWindowRunV1, PitWindowCoverageRefusalV1> {
+    let rows: Vec<crate::owner::store_admission::PitWindowChainCandidateColumnsV1> = sqlx::query_as(
+        "SELECT chain_root, head_identity, interval_ns, window_start_ns, window_end_ns_exclusive, cut_ns, member_count FROM market_data_private.resolve_pit_window_chains_for_instrument_v1($1)",
+    )
+    .bind(instrument)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| PitWindowCoverageRefusalV1::StoreUnavailable)?;
+    let candidates = rows
+        .iter()
+        .map(|row| {
+            PitWindowChainCandidateV1::from_columns((
+                &row.0, &row.1, row.2, row.3, row.4, row.5, row.6,
+            ))
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(PitWindowCoverageRefusalV1::StoreUnavailable)?;
+    select_covering_chain_v1(
+        &candidates,
+        execution_timeframe,
+        window_start_ns,
+        window_end_ns_exclusive,
+    )
+}
+
+/// The run [`select_covering_chain_v1`] names, read through an admitted custody port.
+pub(in crate::owner) async fn resolve_pit_window_run_for_window_through_port_v1<P>(
+    port: &P,
+    instrument: &str,
+    execution_timeframe: &str,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<UntrustedPitWindowRunV1, PitWindowCoverageRefusalV1>
+where
+    P: crate::owner::store_admission::PitWindowCustodyReadPortV1 + ?Sized,
+{
+    let raw = port
+        .resolve_pit_window_chains_for_instrument_v1(instrument)
+        .await
+        .map_err(|_| PitWindowCoverageRefusalV1::StoreUnavailable)?;
+    let candidates = raw
+        .iter()
+        .map(|row| {
+            PitWindowChainCandidateV1::from_columns((
+                &row.chain_root,
+                &row.head_identity,
+                row.interval_ns,
+                row.window_start_ns,
+                row.window_end_ns_exclusive,
+                row.cut_ns,
+                row.member_count,
+            ))
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(PitWindowCoverageRefusalV1::StoreUnavailable)?;
+    select_covering_chain_v1(
+        &candidates,
+        execution_timeframe,
+        window_start_ns,
+        window_end_ns_exclusive,
+    )
+}
+
 /// The frames port over this Owner store, for its own proofs; the deployment's is the admitted
 /// read store's.
 #[cfg(test)]
@@ -2728,6 +2935,33 @@ impl PitWindowCustodyFramesV1 for PitWindowCustodyFramesPostgresV1 {
             .await
             .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
         frames
+    }
+
+    async fn resolve_pit_window_run_for_window_v1(
+        &self,
+        instrument: &str,
+        execution_timeframe: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<UntrustedPitWindowRunV1, PitWindowCoverageRefusalV1> {
+        let mut transaction = self
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| PitWindowCoverageRefusalV1::StoreUnavailable)?;
+        let run = resolve_pit_window_run_for_window_in_transaction_v1(
+            &mut transaction,
+            instrument,
+            execution_timeframe,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )
+        .await;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PitWindowCoverageRefusalV1::StoreUnavailable)?;
+        run
     }
 }
 

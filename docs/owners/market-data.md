@@ -2871,6 +2871,23 @@ Built so far (T0-9): the H6 checks a custody run needs and the accessors T1 cons
   and each frame's R0 is the one the same rule gives at its own `e_k`. The admitted custody read therefore needs no
   read of the Source Binding's declarations. A frame with no R0 is a store no commit wrote, so the run answers
   `StoreUnavailable`.
+- **A dataset names its custody, not the caller (coverage lookup).**
+  `PitWindowCustodyFramesV1::resolve_pit_window_run_for_window_v1(instrument, execution_timeframe, start, end)`
+  returns the `UntrustedPitWindowRunV1` over `[start, end)` of the one custody chain that holds that instrument alone
+  at that execution timeframe and covers the whole window, with the chain's current head pinned. A consumer names a
+  plain dataset, `(instrument, timeframe, window)`, and never a chain root.
+  - **Candidates.** They come from the window schedule facts, read through the admitted custody port
+    (`resolve_pit_window_chains_for_instrument_v1`, inside the custody floor). A candidate matches when it holds one
+    member and its execution interval is the timeframe's (`execution_timeframe_interval_ns_v1`).
+  - **More than one covering chain.** The one whose root was minted last is named, which is the latest backfill of
+    that window. Between roots minted at the same cut, the lowest chain root is named. The choice is never arbitrary.
+  - **Refusals, each by name:**
+    - `CustodyNotFound`: no matching chain;
+    - `WindowNotCovered { missing }`: the window has parts no chain covers, and `missing` lists them in order;
+    - `CoveredOnlyAcrossChains`: chains together cover the window but no single chain does, and a run reads one;
+    - `InvalidRequest`: an empty window or an unsupported timeframe.
+  - **Verification.** The returned run is verified by `resolve_pit_window_frames_v1`, exactly as a run a caller
+    names itself.
 - **Availability rule (H7).** `PitWindowChainBasisV1::availability_rule_digest()` returns the root custody record's
   rule digest, which the read has already checked against the chain R0 record's.
 - **Pinned-head run read.** `UntrustedPitWindowRunV1` takes an optional `head_identity` (serde-defaulted, omitted when

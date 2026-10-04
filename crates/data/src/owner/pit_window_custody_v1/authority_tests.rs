@@ -1693,3 +1693,82 @@ mod chain_records {
         assert_eq!(frame(3 * DAY), None, "outside the window");
     }
 }
+
+mod covering_chain_selection {
+    use rstest::rstest;
+
+    use crate::owner::{
+        pit_window_custody_v1::PitWindowCoverageRefusalV1,
+        postgres::pit_window_custody_v1::{PitWindowChainCandidateV1, select_covering_chain_v1},
+        source_binding::BindingDigest,
+    };
+
+    const DAY: u64 = 86_400_000_000_000;
+
+    fn chain(
+        root: u8,
+        window: (u64, u64),
+        cut_ns: u64,
+        member_count: u64,
+    ) -> PitWindowChainCandidateV1 {
+        PitWindowChainCandidateV1 {
+            chain_root: BindingDigest::from_untrusted_bytes([root; 32]),
+            head_identity: BindingDigest::from_untrusted_bytes([root + 100; 32]),
+            interval_ns: DAY,
+            window_start_ns: window.0 * DAY,
+            window_end_ns_exclusive: window.1 * DAY,
+            cut_ns,
+            member_count,
+        }
+    }
+
+    fn named(
+        candidates: &[PitWindowChainCandidateV1],
+        window: (u64, u64),
+    ) -> Result<u8, PitWindowCoverageRefusalV1> {
+        select_covering_chain_v1(candidates, "1d", window.0 * DAY, window.1 * DAY)
+            .map(|run| run.custody.chain_root.as_bytes()[0])
+    }
+
+    /// Between covering chains, the one minted last; between equal cuts, the lowest root.
+    #[rstest]
+    fn the_latest_minted_covering_chain_is_named_and_the_lowest_root_breaks_a_tie() {
+        let older = chain(1, (0, 10), 5, 1);
+        let newer = chain(2, (0, 10), 9, 1);
+        assert_eq!(named(&[newer, older], (2, 8)), Ok(2));
+        let tied = chain(3, (0, 10), 9, 1);
+        assert_eq!(named(&[tied, newer], (2, 8)), Ok(2));
+        assert_eq!(
+            named(&[chain(4, (0, 10), 99, 2), older], (2, 8)),
+            Ok(1),
+            "a two-member chain is never named, however recent"
+        );
+    }
+
+    /// A window no one chain covers is refused with exactly the parts no chain covers, or as
+    /// covered only across chains when together they cover it.
+    #[rstest]
+    fn an_uncovered_window_names_what_it_lacks() {
+        let early = chain(1, (0, 4), 1, 1);
+        let late = chain(2, (6, 10), 1, 1);
+        assert_eq!(
+            named(&[early, late], (2, 12)),
+            Err(PitWindowCoverageRefusalV1::WindowNotCovered {
+                missing: vec![(4 * DAY, 6 * DAY), (10 * DAY, 12 * DAY)]
+            })
+        );
+        let middle = chain(3, (3, 7), 1, 1);
+        assert_eq!(
+            named(&[early, middle, late], (2, 8)),
+            Err(PitWindowCoverageRefusalV1::CoveredOnlyAcrossChains)
+        );
+        assert_eq!(
+            named(&[], (2, 8)),
+            Err(PitWindowCoverageRefusalV1::CustodyNotFound)
+        );
+        assert_eq!(
+            named(&[early], (3, 3)),
+            Err(PitWindowCoverageRefusalV1::InvalidRequest)
+        );
+    }
+}
