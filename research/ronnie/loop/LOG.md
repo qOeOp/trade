@@ -2549,6 +2549,27 @@ shorten the drawdown. Alone, the dollar gauge was the worst place to trade in de
 best in validation (+0.419 vs +0.063); credit stress was the reverse. The stress episodes of 2023-2026 were short, and
 crypto bought them; none of these gauges sorts R-1 trades stably. Nothing is adopted.
 
+## Loop M-2: crypto-native stress gauges for R-1 (registered 2026-10-04, before running; the user approved)
+
+- **Question:** M-1's traditional-market gauges did not sort R-1 trades. Do gauges measured inside crypto (leverage
+  crowding, stablecoin flows and pegs, US spot demand) mark periods when R-1 longs or shorts do badly?
+- **Data (public, no keys):** Binance USD-M BTCUSDT funding rates (data.binance.vision, from 2020-01) and open
+  interest (daily metrics files, from about 2020-09); DefiLlama total stablecoin supply; Binance USDCUSDT daily
+  candles; Coinbase BTC-USD daily candles against Binance BTCUSDT. A fill day uses values up to the previous UTC day.
+  Percentile thresholds use a trailing 365-day window once 180 days exist.
+- **Gauges, thresholds fixed in advance:** funding_hot = 7-day mean funding above its trailing 95th percentile;
+  funding_cold = below its 5th; oi_build = open interest value up more than its trailing 90th percentile of 14-day
+  changes while BTC rose less than 2% over the same 14 days; stable_out = total stablecoin supply down over 30 days;
+  depeg = USDCUSDT closed more than 0.5% from 1 on any of the last 3 days; cb_weak = 7-day mean Coinbase premium
+  below its trailing 10th percentile.
+- **Rules (two tests, Holm at 95%, judged on the validation tier; development must agree in sign):** A, pause longs
+  when at least two of {funding_hot, oi_build, stable_out, depeg, cb_weak}; B, pause shorts when funding_cold (crowded
+  shorts). Effect = avg R of that side's trades outside the condition minus inside, week-clustered interval; counts if
+  Holm-significant and at least 0.10R. Secondary: weekly R sums with and without each pause against random pauses of
+  the same share, and each gauge alone by side, for reading.
+- **Trades:** the realistic R-1 trades of M-1 (f = 0), development 2020-07 to 2022-12 (gauge history limits it),
+  validation tier 2023-01 to 2026-08.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R
