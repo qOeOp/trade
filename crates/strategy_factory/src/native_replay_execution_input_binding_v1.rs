@@ -384,6 +384,9 @@ pub enum NativeReplayExecutionInputBindingCauseV1 {
     MoreThanOneRoleTimeframe,
     /// The frame's Source Binding declares no bar for the execution role's timeframe label.
     ExecutionTimeframeNotDeclared,
+    /// The frame's declared bar is a `CalendarMonth` cadence, which no window schedule can
+    /// enumerate as an execution timeframe yet.
+    CalendarMonthNotAnExecutionTimeframe,
     /// Market Data did not issue the initial frame's universe sample projection, for a reason
     /// other than the schedule ones above.
     SampleProjectionNotIssued,
@@ -614,6 +617,9 @@ impl NativeReplayExecutionInputBindingCauseV1 {
             Self::ExecutionRoleAmbiguous => "EXECUTION_ROLE_AMBIGUOUS",
             Self::MoreThanOneRoleTimeframe => "MORE_THAN_ONE_ROLE_TIMEFRAME",
             Self::ExecutionTimeframeNotDeclared => "EXECUTION_TIMEFRAME_NOT_DECLARED",
+            Self::CalendarMonthNotAnExecutionTimeframe => {
+                "CALENDAR_MONTH_NOT_AN_EXECUTION_TIMEFRAME"
+            }
             Self::SampleProjectionNotIssued => "SAMPLE_PROJECTION_NOT_ISSUED",
             Self::InstrumentMasterUnresolved => "INSTRUMENT_MASTER_UNRESOLVED",
             Self::InstrumentMasterCutForeign => "INSTRUMENT_MASTER_CUT_FOREIGN",
