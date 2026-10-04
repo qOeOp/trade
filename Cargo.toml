@@ -28,6 +28,7 @@ members = [
   "crates/backtest_owner",
   "crates/backtest_owner_contracts",
   "crates/backtest_result_custody",
+  "crates/backtest_statistics",
   "crates/cli",
   "crates/common",
   "crates/core",
