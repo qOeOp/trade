@@ -10,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::{
     InstrumentMasterAdmissionPostgresV1, MarketDataOwnerPostgres, SourceBindingAdmissionPostgresV1,
-    UniverseSelectionAdmissionPostgresV1,
+    UniverseSelectionAdmissionPostgresV1, load_instrument_facts,
     pit_window_custody_v1::{
         load_chain_evidence_v1, resolve_pit_window_frames_in_transaction_v1,
         verify_chain_evidence_v1,
@@ -18,6 +18,7 @@ use super::{
     universe_selection::recover_universe_selection_in_transaction_v1,
 };
 use crate::owner::{
+    instrument_master::InstrumentMasterFactV1,
     instrument_master_admission_v1::{
         InstrumentDecimalSubmissionV1, InstrumentMasterAdmissionV1,
         InstrumentMasterFactSubmissionV1, InstrumentVenueSourceMappingSubmissionV1,
@@ -213,7 +214,14 @@ impl<'a> ChainPlanV1<'a> {
         let end = last_close
             .checked_add(execution.interval_ns)
             .ok_or(Error::InvalidSpec)?;
-        let mut parts = vec![b"eligible-instrument-frontier".as_slice()];
+        // The window is named too, so two chains over the same members in one store are two
+        // memberships, each observed at its own head, rather than a conflicting restatement of one.
+        let (start_bytes, end_bytes) = (start.to_be_bytes(), end.to_be_bytes());
+        let mut parts = vec![
+            b"eligible-instrument-frontier".as_slice(),
+            start_bytes.as_slice(),
+            end_bytes.as_slice(),
+        ];
         parts.extend(spec.members.iter().map(String::as_bytes));
         let frontier = fixture_digest(&parts);
         Ok(Self {
@@ -465,6 +473,40 @@ impl<'a> ChainPlanV1<'a> {
     }
 }
 
+/// The latest fact the store holds for `member`, the one no other of its facts corrects, or `None`
+/// if it holds none. A member with two uncorrected facts has no single fact to keep and is refused.
+async fn held_instrument_fact_v1(
+    owner: &MarketDataOwnerPostgres,
+    member: &str,
+) -> Result<Option<BindingDigest>, Error> {
+    let mut transaction = owner
+        .pool
+        .begin()
+        .await
+        .map_err(|_| Error::StoreUnavailable)?;
+    let facts = load_instrument_facts(&mut transaction, &[member.to_owned()], false)
+        .await
+        .map_err(|_| Error::StoreUnavailable)?;
+    transaction
+        .rollback()
+        .await
+        .map_err(|_| Error::StoreUnavailable)?;
+    let mut heads = facts
+        .iter()
+        .map(InstrumentMasterFactV1::digest)
+        .filter(|digest| {
+            facts
+                .iter()
+                .all(|fact| fact.predecessor_fact_digest() != Some(*digest))
+        });
+
+    match (heads.next(), heads.next()) {
+        (None, _) => Ok(None),
+        (Some(head), None) => Ok(Some(head)),
+        (Some(_), Some(_)) => Err(Error::InvalidSpec),
+    }
+}
+
 /// Commits `spec` on the store at `owner_url` and reads the chain back. The caller has checked
 /// that `owner_url` is a disposable loopback `vibe_test_` database.
 pub(in crate::owner) async fn commit_sealed_acceptance_custody_chain_in_store_v1(
@@ -496,13 +538,21 @@ pub(in crate::owner) async fn commit_sealed_acceptance_custody_chain_in_store_v1
     }
     let locator = binding.locator();
 
-    // 2. Each member's Instrument Master fact.
+    // 2. Each member's Instrument Master fact. A member the store already holds a fact for keeps
+    // it: an ordered chain shares one store, and a second genesis fact for an instrument an earlier
+    // entry admitted is a rival the intake refuses, while naming that fact as a predecessor would
+    // correct the earlier entry's instrument underneath it. The custody binds whichever fact is in
+    // force at its window's start, so the spec's bars must then fit that fact's increments.
     let instruments = InstrumentMasterAdmissionPostgresV1 {
         owner: owner_over_pool(),
     };
     let mut instrument_fact_digests = Vec::with_capacity(spec.members.len());
 
     for member in &spec.members {
+        if let Some(held) = held_instrument_fact_v1(&owner, member).await? {
+            instrument_fact_digests.push(held);
+            continue;
+        }
         let admitted =
             Box::pin(instruments.admit_fact(plan.instrument_submission(member, locator)?))
                 .await

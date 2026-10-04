@@ -11,9 +11,11 @@
 //!    fill timeframes as continuous fixed intervals labelled at interval close. The admission mints
 //!    the Owner clock it is committed on.
 //! 2. The Instrument Master V1 admission admits one fact per member, in force from instant 1, on that
-//!    clock.
-//! 3. The Universe Selection intake admits the members' historical membership as one frontier, then
-//!    evaluates the fixed-member selection of exactly those members.
+//!    clock. A member the store already holds a fact for - an earlier entry of an ordered chain
+//!    admitted it - keeps that fact, and the spec's bars must fit its increments.
+//! 3. The Universe Selection intake admits the members' historical membership as one frontier, named
+//!    for the members and the window, then evaluates the fixed-member selection of exactly those
+//!    members.
 //! 4. The custody intake commits one root custody: one original cross-section per bar of both
 //!    timeframes, retrieved at the bar's availability, over the window from the first execution bar's
 //!    open to one execution interval after the last execution bar's close.
