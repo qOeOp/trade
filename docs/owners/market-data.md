@@ -2776,6 +2776,11 @@ closure states each gap's Quotes, which the custody quote cut seal still checks 
 custody view, and a gap it states nothing for is `QuoteCutMissing` as in production. T0-6's derivation replaces it,
 and a result produced with it is not U1 evidence until it is re-run on that derivation.
 
+Built so far (T0-5d): a build with `sealed-strategy-input-acceptance` also opens
+`commit_sealed_acceptance_custody_chain_v1`, which commits a synthetic custody chain only through the production Source
+Binding, Instrument Master V1, Universe Selection and custody intakes, so its output is production code run on
+synthetic inputs and never U1 evidence.
+
 Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
 at read time from the `SampleFactV2` rows its view was sealed from and never stores, so a Plan with coordinate rows can
 read a custody frame through the host's unchanged projection check. The derivation is stated under "universe-frame
@@ -2783,12 +2788,13 @@ sample projection" below.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
-  chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
-  cut, member set, and availability rule digest - and a changed basis is a new root custody, never a successor, so one
-  chain never mixes two bases. The correction unit is a cross-section - every row of one source, timeframe, and
-  event-effective instant - with a correction sequence, predecessor, and publication instant, because a frame's rows
-  must share their time and correction coordinates. Two versions naming one predecessor, a repeated sequence, or a
-  publication that does not increase with the sequence is an ambiguous branch. Custody has two layers: a cross-section
+  chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Universe Selection
+  record, Instrument Master cut, member set, and availability rule digest - and a changed basis is a new root custody,
+  never a successor, so one chain never mixes two bases. The correction unit is a cross-section - every row of one
+  source, timeframe, and event-effective instant - with a correction sequence, predecessor, and publication instant,
+  because a frame's rows must share their time and correction coordinates. Two versions naming one predecessor, a
+  repeated sequence, or a publication that does not increase with the sequence is an ambiguous branch. Custody has two
+  layers: a cross-section
   version record carrying the lineage, branch refusal, and head rules `SampleFactV1` already states, and immutable row
   facts that are members of one version under a successor sample fact schema. That schema replaces the source snapshot
   fields with the cross-section version identity and row digest, and its root slot hashes the series and

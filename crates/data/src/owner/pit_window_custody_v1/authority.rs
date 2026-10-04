@@ -857,6 +857,45 @@ pub(crate) fn custody_timeframe_identity_v1(member_identities: &[[u8; 32]]) -> B
     sha256(TIMEFRAME_DOMAIN, &bytes)
 }
 
+/// Everything a custody's basis binds but its timeframes.
+struct CustodyBasisV1<'a> {
+    lineage_root: BindingDigest,
+    rule_digest: BindingDigest,
+    market_semantics_identity: BindingDigest,
+    market_semantics_value: &'a MarketSemanticsValueV1,
+    universe: (BindingDigest, BindingDigest),
+    instrument_master_key: BindingDigest,
+    members: &'a [String],
+    window: (u64, u64),
+}
+
+/// The basis digest: the one encoding a derived custody binds at commit and a stored record is
+/// read back against, so the two cannot bind different fields. `timeframes` writes the
+/// timeframe identities with their labels.
+fn custody_basis_v1(
+    basis: &CustodyBasisV1<'_>,
+    timeframes: impl FnOnce(&mut Vec<u8>),
+) -> BindingDigest {
+    let mut bytes = Vec::new();
+    put_u16(&mut bytes, 1);
+    bytes.extend_from_slice(basis.lineage_root.as_bytes());
+    bytes.extend_from_slice(basis.rule_digest.as_bytes());
+    bytes.extend_from_slice(basis.market_semantics_identity.as_bytes());
+    put_market_semantics_value(&mut bytes, basis.market_semantics_value);
+    bytes.extend_from_slice(basis.universe.0.as_bytes());
+    bytes.extend_from_slice(basis.universe.1.as_bytes());
+    bytes.extend_from_slice(basis.instrument_master_key.as_bytes());
+    put_u64(&mut bytes, basis.members.len() as u64);
+
+    for member in basis.members {
+        put_var(&mut bytes, member.as_bytes());
+    }
+    put_u64(&mut bytes, basis.window.0);
+    put_u64(&mut bytes, basis.window.1);
+    timeframes(&mut bytes);
+    sha256(BASIS_DOMAIN, &bytes)
+}
+
 impl DerivedCustodyV1 {
     /// The last frame of the window: the latest close instant of the execution grid before its
     /// end. The derivation refuses a window that holds none.
@@ -896,20 +935,23 @@ impl DerivedCustodyV1 {
     }
 
     /// What a successor must restate exactly: the source lineage and its rule, Market Semantics,
-    /// Instrument Master, members, window and timeframes.
+    /// the Universe Selection record, Instrument Master, members, window and timeframes. The
+    /// universe is named by its locator pair, so a successor naming another record over the same
+    /// members is another basis.
     fn basis(&self) -> BindingDigest {
-        let mut bytes = Vec::new();
-        put_u16(&mut bytes, 1);
-        bytes.extend_from_slice(self.binding.lineage_root.as_bytes());
-        bytes.extend_from_slice(self.rule_digest.as_bytes());
-        bytes.extend_from_slice(self.market_semantics_identity.as_bytes());
-        put_market_semantics_value(&mut bytes, &self.market_semantics_value);
-        bytes.extend_from_slice(self.instrument_master_key.as_bytes());
-        self.members(&mut bytes);
-        put_u64(&mut bytes, self.window.0);
-        put_u64(&mut bytes, self.window.1);
-        self.timeframe_identities(&mut bytes);
-        sha256(BASIS_DOMAIN, &bytes)
+        custody_basis_v1(
+            &CustodyBasisV1 {
+                lineage_root: self.binding.lineage_root,
+                rule_digest: self.rule_digest,
+                market_semantics_identity: self.market_semantics_identity,
+                market_semantics_value: &self.market_semantics_value,
+                universe: self.universe,
+                instrument_master_key: self.instrument_master_key,
+                members: &self.members,
+                window: self.window,
+            },
+            |bytes| self.timeframe_identities(bytes),
+        )
     }
 
     /// The custody identity at `position`, with the canonical bytes it is the digest of.
@@ -1184,7 +1226,7 @@ pub(crate) struct RecordedTimeframeV1 {
 
 /// A stored custody record, read back from the canonical bytes its identity is the digest of.
 #[cfg_attr(
-    not(test),
+    not(any(test, feature = "sealed-strategy-input-acceptance")),
     expect(
         dead_code,
         reason = "read back by the derived view's chain verifier (T0-5 C6)"
@@ -1218,7 +1260,7 @@ pub(crate) struct CustodyRecordV1 {
 }
 
 #[cfg_attr(
-    not(test),
+    not(any(test, feature = "sealed-strategy-input-acceptance")),
     expect(
         dead_code,
         reason = "read back by the derived view's chain verifier (T0-5 C6)"
@@ -1236,33 +1278,32 @@ impl CustodyRecordV1 {
 
     /// The basis a successor restates, as [`DerivedCustodyV1`] binds it at commit.
     pub(crate) fn basis_digest(&self) -> BindingDigest {
-        let mut bytes = Vec::new();
-        put_u16(&mut bytes, 1);
-        bytes.extend_from_slice(self.lineage_root.as_bytes());
-        bytes.extend_from_slice(self.rule_digest.as_bytes());
-        bytes.extend_from_slice(self.market_semantics_identity.as_bytes());
-        put_market_semantics_value(&mut bytes, &self.market_semantics_value);
-        bytes.extend_from_slice(self.instrument_master_key.as_bytes());
-        put_u64(&mut bytes, self.members.len() as u64);
-
-        for member in &self.members {
-            put_var(&mut bytes, member.as_bytes());
-        }
-        put_u64(&mut bytes, self.window.0);
-        put_u64(&mut bytes, self.window.1);
-        put_timeframes(
-            &mut bytes,
-            (self.execution.identity, &self.execution.label),
-            &self
-                .inputs
-                .iter()
-                .map(|timeframe| (timeframe.identity, timeframe.label.as_str()))
-                .collect(),
-            self.fill
-                .as_ref()
-                .map(|fill| (fill.identity, fill.label.as_str())),
-        );
-        sha256(BASIS_DOMAIN, &bytes)
+        custody_basis_v1(
+            &CustodyBasisV1 {
+                lineage_root: self.lineage_root,
+                rule_digest: self.rule_digest,
+                market_semantics_identity: self.market_semantics_identity,
+                market_semantics_value: &self.market_semantics_value,
+                universe: self.universe,
+                instrument_master_key: self.instrument_master_key,
+                members: &self.members,
+                window: self.window,
+            },
+            |bytes| {
+                put_timeframes(
+                    bytes,
+                    (self.execution.identity, &self.execution.label),
+                    &self
+                        .inputs
+                        .iter()
+                        .map(|timeframe| (timeframe.identity, timeframe.label.as_str()))
+                        .collect(),
+                    self.fill
+                        .as_ref()
+                        .map(|fill| (fill.identity, fill.label.as_str())),
+                );
+            },
+        )
     }
 }
 
@@ -1271,7 +1312,7 @@ impl CustodyRecordV1 {
 /// strictly ascending with the execution timeframe among them and the fill never among them, and
 /// a chain position a commit can write.
 #[cfg_attr(
-    not(test),
+    not(any(test, feature = "sealed-strategy-input-acceptance")),
     expect(
         dead_code,
         reason = "read back by the derived view's chain verifier (T0-5 C6)"
@@ -1370,7 +1411,7 @@ pub(crate) fn decode_custody_record_v1(
 }
 
 #[cfg_attr(
-    not(test),
+    not(any(test, feature = "sealed-strategy-input-acceptance")),
     expect(
         dead_code,
         reason = "read back by the derived view's chain verifier (T0-5 C6)"
@@ -1381,7 +1422,7 @@ struct RecordReader<'a> {
 }
 
 #[cfg_attr(
-    not(test),
+    not(any(test, feature = "sealed-strategy-input-acceptance")),
     expect(
         dead_code,
         reason = "read back by the derived view's chain verifier (T0-5 C6)"

@@ -57,6 +57,10 @@ mod pit_initial_intake_correlation_tests;
 pub(in crate::owner) mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
 pub(in crate::owner) mod pit_window_custody_v1;
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(in crate::owner) mod sealed_acceptance_custody_chain_v1;
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+mod sealed_acceptance_custody_chain_v1_tests;
 pub(in crate::owner) use pit_window_custody_v1::pit_window_custody_commit_from_environment_v1;
 #[cfg(test)]
 mod pit_window_custody_v1_tests;
