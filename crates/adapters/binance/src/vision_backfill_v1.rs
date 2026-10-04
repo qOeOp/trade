@@ -248,14 +248,16 @@ impl VisionBackfillFetcherV1 {
             .collect())
     }
 
-    /// Every ordinary bar of every calendar month [`Self::execution_month`] could read that
-    /// overlaps `[window_start_ns, window_end_ns_exclusive)`, concatenated in month order.
+    /// Every ordinary bar whose interval-close instant lies in `[window_start_ns,
+    /// window_end_ns_exclusive)`, in ascending order: the window's bars by the rule the custody
+    /// request builder applies (`vision_backfill_custody_v1.rs::cross_section`) and the window
+    /// schedule enumerates frames by.
     ///
-    /// Fetches a superset, not an exact window: a month's bars that fall outside the window are
-    /// included too, because the custody request builder
-    /// (`crates/adapters/binance/src/vision_backfill_custody_v1.rs::cross_section`) already
-    /// filters every bar by its own close instant against the same window, so filtering here
-    /// first would be a second definition of the same rule.
+    /// The archive files a bar by its open, so the bar that closes exactly at the window's start
+    /// opens one interval earlier, often in the previous month. The months read therefore start one
+    /// interval before the window, or the window's first frame would have no cross-section and
+    /// every run starting at it would be refused as not covered. Filtering to the window here also
+    /// keeps the per-bar fill lookups to the window's own bars.
     ///
     /// # Errors
     ///
@@ -269,10 +271,21 @@ impl VisionBackfillFetcherV1 {
         window_end_ns_exclusive: u64,
     ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
         let mut bars = Vec::new();
+        let first_open_ns = window_start_ns.saturating_sub(longest_interval_ns(interval));
 
-        for (year, month) in calendar_months(window_start_ns, window_end_ns_exclusive)? {
+        for (year, month) in calendar_months(first_open_ns, window_end_ns_exclusive)? {
             bars.extend(self.execution_month(symbol, interval, year, month).await?);
         }
+        bars.retain(|bar| {
+            bar.kline
+                .close_time
+                .checked_add(1)
+                .and_then(|close_ms| u64::try_from(close_ms).ok())
+                .and_then(|close_ms| close_ms.checked_mul(1_000_000))
+                .is_some_and(|close_ns| {
+                    close_ns >= window_start_ns && close_ns < window_end_ns_exclusive
+                })
+        });
         Ok(bars)
     }
 
@@ -455,6 +468,30 @@ impl VisionBackfillFetcherV1 {
             return Err(VisionBackfillErrorV1::ArchiveUnavailable);
         }
         Ok(response.body.to_vec())
+    }
+}
+
+/// The longest one bar of `interval` can be: its fixed length, or 31 days for a calendar month.
+const fn longest_interval_ns(interval: BinanceKlineInterval) -> u64 {
+    const MINUTE: u64 = 60_000_000_000;
+
+    match interval {
+        BinanceKlineInterval::Second1 => 1_000_000_000,
+        BinanceKlineInterval::Minute1 => MINUTE,
+        BinanceKlineInterval::Minute3 => 3 * MINUTE,
+        BinanceKlineInterval::Minute5 => 5 * MINUTE,
+        BinanceKlineInterval::Minute15 => 15 * MINUTE,
+        BinanceKlineInterval::Minute30 => 30 * MINUTE,
+        BinanceKlineInterval::Hour1 => 60 * MINUTE,
+        BinanceKlineInterval::Hour2 => 120 * MINUTE,
+        BinanceKlineInterval::Hour4 => 240 * MINUTE,
+        BinanceKlineInterval::Hour6 => 360 * MINUTE,
+        BinanceKlineInterval::Hour8 => 480 * MINUTE,
+        BinanceKlineInterval::Hour12 => 720 * MINUTE,
+        BinanceKlineInterval::Day1 => 1_440 * MINUTE,
+        BinanceKlineInterval::Day3 => 3 * 1_440 * MINUTE,
+        BinanceKlineInterval::Week1 => 7 * 1_440 * MINUTE,
+        BinanceKlineInterval::Month1 => 31 * 1_440 * MINUTE,
     }
 }
 
@@ -865,6 +902,34 @@ mod tests {
             requests.load(Ordering::SeqCst),
             2,
             "a verified shard is not fetched again"
+        );
+    }
+
+    /// A window holds exactly the bars whose close lies in it: the bar closing at the window's
+    /// start is its first frame's cross-section and is held, the bar closing at its exclusive end
+    /// is not.
+    #[tokio::test]
+    async fn a_window_holds_the_bar_closing_at_its_start_and_not_the_one_closing_at_its_end() {
+        let shards = ShardDir::new();
+        let zip = zipped(&june_rows());
+        let fetcher = fetcher(archive(Some(zip.clone()), checksum(&zip)), shards.path()).await;
+        let nanos = |ms: i64| u64::try_from(ms).unwrap() * 1_000_000;
+
+        let bars = fetcher
+            .execution_window(
+                "BTCUSDT",
+                BinanceKlineInterval::Day1,
+                nanos(JUNE_2021_MS + DAY_MS),
+                nanos(JUNE_2021_MS + 2 * DAY_MS),
+            )
+            .await
+            .expect("the window's month is read");
+        assert_eq!(
+            bars.iter()
+                .map(|bar| bar.kline.open_time)
+                .collect::<Vec<_>>(),
+            [JUNE_2021_MS],
+            "the bar opening a day before the window closes at its start"
         );
     }
 
