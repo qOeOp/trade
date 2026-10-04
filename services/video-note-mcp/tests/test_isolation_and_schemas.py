@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FORBIDDEN_ROOTS = {"crates", "examples", "legacy", "trade", "vibe_trader"}
+FORBIDDEN_ROOTS = {"crates", "examples", "legacy", "trade", "vibe_trading"}
 FORBIDDEN_INTERNAL_DEPENDENCIES = {
     "domain": {"adapters", "application", "mcp_server", "presentation"},
     "application": {"adapters", "mcp_server", "presentation"},

@@ -30,7 +30,7 @@ AX Exchange 适配器包含多个组件，可根据用例组合使用或单独�
 ## AX Exchange 文档
 
 AX Exchange 为用户提供的文档位于 [Architect 文档站](https://docs.architect.exchange/)。
-建议结合 AX Exchange 文档和本 VibeTrader 集成指南使用。
+建议结合 AX Exchange 文档和本 VibeTrading 集成指南使用。
 
 ## 产品
 
@@ -75,7 +75,7 @@ AX 永续合约的特点：
 交易场所标识符为 `AX`。构建 Vibe `InstrumentId` 的方式如下：
 
 ```python
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import InstrumentId
 
 instrument_id = InstrumentId.from_str("EURUSD-PERP.AX")
 ```
@@ -369,7 +369,7 @@ AX Exchange 使用 Bearer token 身份验证：
 - **成交佣金**：来自 WebSocket 的实时成交事件不包含费用数据。流式成交的佣金报告为零。对账期间，REST `/fills` 端点会提供准确的费用信息。
 - **成交对账窗口**：`/fills` 端点要求有界时间范围，并将跨度限制为七天。对账请求最近七天的成交；更早的成交不会对账。
 - **成交订单标识**：AX 可以为大宗交易和最终结算成交省略 `order_id`。对于这些已分类记录，适配器会根据 `trade_id` 派生确定性对账订单 ID。对于具有有效 `order_id` 的普通成交，分类字段可选。适配器会拒绝既没有订单 ID，也没有明确特殊成交分类的行，并拒绝不一致的分类。
-- **未成交 IOC/FOK**：AX 将未成交的立即执行订单报告为过期；适配器将其映射到 `OrderCanceled`，以符合 VibeTrader 语义。
+- **未成交 IOC/FOK**：AX 将未成交的立即执行订单报告为过期；适配器将其映射到 `OrderCanceled`，以符合 VibeTrading 语义。
 
 ## 贡献
 

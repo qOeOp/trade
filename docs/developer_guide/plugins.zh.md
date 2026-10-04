@@ -1,6 +1,6 @@
 # 插件
 
-`vibe-plugin` crate 定义了 VibeTrader 插件的制品契约：插件是独立编译的 Rust `cdylib`，
+`vibe-plugin` crate 定义了 VibeTrading 插件的制品契约：插件是独立编译的 Rust `cdylib`，
 通过带版本的清单标识自身，并跨越 C ABI 边界交换值。该 crate 只涵盖制品身份和边界原语，
 不会加载、注册或运行插件；加载宿主属于 Vibe 内部部署细节，不在本仓库的范围内。
 

@@ -13,11 +13,11 @@ use crate::common::{enums::DeriveEnvironment, urls};
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.derive", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.derive", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.derive")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.derive")
 )]
 pub struct DeriveDataClientConfig {
     /// Override for the REST API base URL.
@@ -106,11 +106,11 @@ impl DeriveDataClientConfig {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.derive", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.derive", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.derive")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.derive")
 )]
 pub struct DeriveExecClientConfig {
     /// Derive Chain smart-contract wallet address (`X-LYRAWALLET`). Falls back

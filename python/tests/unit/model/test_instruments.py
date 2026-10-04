@@ -4,34 +4,34 @@ from decimal import Decimal
 import pytest
 from tests.providers import TestInstrumentProvider
 
-from vibe_trader.model import AssetClass
-from vibe_trader.model import BettingInstrument
-from vibe_trader.model import BinaryOption
-from vibe_trader.model import Cfd
-from vibe_trader.model import Commodity
-from vibe_trader.model import CryptoFuture
-from vibe_trader.model import CryptoFuturesSpread
-from vibe_trader.model import CryptoOption
-from vibe_trader.model import CryptoOptionSpread
-from vibe_trader.model import CryptoPerpetual
-from vibe_trader.model import Currency
-from vibe_trader.model import CurrencyPair
-from vibe_trader.model import Equity
-from vibe_trader.model import FuturesContract
-from vibe_trader.model import FuturesSpread
-from vibe_trader.model import IndexInstrument
-from vibe_trader.model import InstrumentClass
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OptionContract
-from vibe_trader.model import OptionKind
-from vibe_trader.model import OptionSpread
-from vibe_trader.model import PerpetualContract
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
-from vibe_trader.model import SyntheticInstrument
-from vibe_trader.model import TokenizedAsset
-from vibe_trader.model import Venue
+from vibe_trading.model import AssetClass
+from vibe_trading.model import BettingInstrument
+from vibe_trading.model import BinaryOption
+from vibe_trading.model import Cfd
+from vibe_trading.model import Commodity
+from vibe_trading.model import CryptoFuture
+from vibe_trading.model import CryptoFuturesSpread
+from vibe_trading.model import CryptoOption
+from vibe_trading.model import CryptoOptionSpread
+from vibe_trading.model import CryptoPerpetual
+from vibe_trading.model import Currency
+from vibe_trading.model import CurrencyPair
+from vibe_trading.model import Equity
+from vibe_trading.model import FuturesContract
+from vibe_trading.model import FuturesSpread
+from vibe_trading.model import IndexInstrument
+from vibe_trading.model import InstrumentClass
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OptionContract
+from vibe_trading.model import OptionKind
+from vibe_trading.model import OptionSpread
+from vibe_trading.model import PerpetualContract
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
+from vibe_trading.model import SyntheticInstrument
+from vibe_trading.model import TokenizedAsset
+from vibe_trading.model import Venue
 
 
 GENERIC_INSTRUMENT_TYPES = (

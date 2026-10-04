@@ -10,7 +10,7 @@ use vibe_model::enums::{
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -18,7 +18,7 @@ use vibe_model::enums::{
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbAction {
@@ -112,7 +112,7 @@ impl Display for IbAction {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -120,7 +120,7 @@ impl Display for IbAction {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbOrderStatus {
@@ -216,7 +216,7 @@ impl Display for IbOrderStatus {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -224,7 +224,7 @@ impl Display for IbOrderStatus {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbOrderType {
@@ -418,7 +418,7 @@ impl Display for IbOrderType {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -426,7 +426,7 @@ impl Display for IbOrderType {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbTimeInForce {
@@ -544,7 +544,7 @@ impl Display for IbTimeInForce {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -552,7 +552,7 @@ impl Display for IbTimeInForce {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbBuilderTimeInForce {
@@ -634,7 +634,7 @@ impl Display for IbBuilderTimeInForce {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -642,7 +642,7 @@ impl Display for IbBuilderTimeInForce {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbComboLegOpenClose {
@@ -692,7 +692,7 @@ impl From<ibapi::contracts::ComboLegOpenClose> for IbComboLegOpenClose {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -700,7 +700,7 @@ impl From<ibapi::contracts::ComboLegOpenClose> for IbComboLegOpenClose {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbConditionKind {
@@ -760,7 +760,7 @@ impl Display for IbConditionKind {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -768,7 +768,7 @@ impl Display for IbConditionKind {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbConditionConjunction {
@@ -818,7 +818,7 @@ impl Display for IbConditionConjunction {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -826,7 +826,7 @@ impl Display for IbConditionConjunction {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbTriggerMethod {
@@ -913,7 +913,7 @@ impl Display for IbTriggerMethod {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -921,7 +921,7 @@ impl Display for IbTriggerMethod {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbOcaType {
@@ -993,7 +993,7 @@ impl Display for IbOcaType {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -1001,7 +1001,7 @@ impl Display for IbOcaType {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum IbLiquidity {

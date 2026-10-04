@@ -1,6 +1,6 @@
 # Design evidence
 
-External evidence challenges this process. It does not prove that VibeTrader is profitable, production-ready, or
+External evidence challenges this process. It does not prove that VibeTrading is profitable, production-ready, or
 equivalent to another platform. Owner names, the permit-bound command protocol, the single Recovery Case closure
 writer, and the 14-group plus one channel / 5-module overview limit remain project design choices.
 
@@ -11,7 +11,7 @@ risk, execution, cache, and portfolio responsibilities. Its order path validates
 returns execution facts to strategies and portfolio state. [QuantConnect LEAN Algorithm Framework](https://www.quantconnect.com/docs/v2/writing-algorithms/algorithm-framework/overview)
 separates universe selection, signal production, portfolio construction, risk management, and execution through
 typed handoffs. These mature designs support explicit ownership and one observable trading path; they do not prove
-VibeTrader's exact Owner split or permit protocol.
+VibeTrading's exact Owner split or permit protocol.
 
 ## Research claims and protected qualification
 
@@ -35,7 +35,7 @@ backtest, paper, and live scenarios.
 [NautilusTrader live reconciliation](https://nautilustrader.io/docs/latest/concepts/live/) aligns internal order and
 position state with venue readback and persists execution events for recovery. This supports making Execution the
 owner of external effects and reconciliation, keeping uncertainty explicit, and requiring venue-derived evidence
-before recovery closure. VibeTrader's Recovery Case join and `KNOWN_CLOSED` remain its own fail-closed design.
+before recovery closure. VibeTrading's Recovery Case join and `KNOWN_CLOSED` remain its own fail-closed design.
 
 ## What future implementation must prove
 

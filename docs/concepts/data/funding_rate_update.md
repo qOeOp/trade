@@ -40,8 +40,8 @@ let funding = FundingRateUpdate::new(
 ```python tab="Python"
 from decimal import Decimal
 
-from vibe_trader.model import FundingRateUpdate
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import FundingRateUpdate
+from vibe_trading.model import InstrumentId
 
 funding = FundingRateUpdate(
     instrument_id=InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),

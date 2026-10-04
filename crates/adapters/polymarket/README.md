@@ -1,13 +1,13 @@
 # vibe-polymarket
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for the [Polymarket](https://polymarket.com) prediction market.
+[VibeTrading](https://github.com/qOeOp/trade) adapter for the [Polymarket](https://polymarket.com) prediction market.
 
 The `vibe-polymarket` crate provides client implementations (HTTP & WebSocket), data
 models and parsing for the **Polymarket CLOB API** for trading binary option contracts.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

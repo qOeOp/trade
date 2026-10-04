@@ -1,9 +1,9 @@
 # vibe-core
 
-Core foundational types and utilities for [VibeTrader](https://github.com/qOeOp/trade).
+Core foundational types and utilities for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-core` crate is designed to be lightweight, efficient, and to provide zero-cost abstractions
-wherever possible. It supplies the essential building blocks used across the VibeTrader
+wherever possible. It supplies the essential building blocks used across the VibeTrading
 ecosystem, including:
 
 - Time handling and atomic clock functionality.
@@ -14,9 +14,9 @@ ecosystem, including:
 - Cross-platform environment utilities.
 - Abstractions over common collections.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

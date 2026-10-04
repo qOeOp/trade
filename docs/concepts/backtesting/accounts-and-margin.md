@@ -39,12 +39,12 @@ Every backtest venue uses one of three `account_type` values: `CASH`, `MARGIN`, 
 The low-level API accepts model types directly:
 
 ```python
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Venue
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Venue
 
 engine = BacktestEngine(BacktestEngineConfig())
 engine.add_venue(
@@ -58,10 +58,10 @@ engine.add_venue(
 The high-level API accepts the same enum values but represents starting balances as strings:
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -79,11 +79,11 @@ simulation should reserve the instrument's fixed initial and maintenance margin 
 without reducing them by account leverage.
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
-from vibe_trader.model import StandardMarginModel
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
+from vibe_trading.model import StandardMarginModel
 
 venue = BacktestVenueConfig(
     name="SIM",

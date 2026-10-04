@@ -9,24 +9,24 @@ from pathlib import Path
 
 import pandas as pd
 
-from vibe_trader.adapters.bybit import BYBIT
-from vibe_trader.adapters.bybit import BybitDataClientConfig
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitProductType
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import StrategyConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.book import OrderBook
-from vibe_trader.model.data import OrderBookDeltas
-from vibe_trader.model.data import QuoteTick
-from vibe_trader.model.enums import BookType
-from vibe_trader.model.enums import InstrumentClass
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.instruments import Instrument
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.adapters.bybit import BYBIT
+from vibe_trading.adapters.bybit import BybitDataClientConfig
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitProductType
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import StrategyConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.book import OrderBook
+from vibe_trading.model.data import OrderBookDeltas
+from vibe_trading.model.data import QuoteTick
+from vibe_trading.model.enums import BookType
+from vibe_trading.model.enums import InstrumentClass
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.instruments import Instrument
+from vibe_trading.trading.strategy import Strategy
 
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -116,7 +116,7 @@ class BybitOptionsDataCollector(Strategy):
         """
         Set up file logging to save logs alongside data.
         """
-        # Skip custom file logging setup - use VibeTrader's built-in logging
+        # Skip custom file logging setup - use VibeTrading's built-in logging
         if not self.config.save_logs:
             return
 
@@ -124,9 +124,9 @@ class BybitOptionsDataCollector(Strategy):
         logs_dir = os.path.join(self.base_data_dir, "logs")
         os.makedirs(logs_dir, exist_ok=True)
 
-        # Log that file logging is handled by VibeTrader kernel
+        # Log that file logging is handled by VibeTrading kernel
         self.log.info(f"File logging directory: {logs_dir}")
-        self.log.info("File logging is handled by VibeTrader kernel configuration")
+        self.log.info("File logging is handled by VibeTrading kernel configuration")
 
     def _initialize_spot_data_storage(self) -> None:
         """
@@ -201,7 +201,7 @@ class BybitOptionsDataCollector(Strategy):
 
         for option in options:
             # Convert expiration_ns to a readable date format for grouping
-            from vibe_trader.core.datetime import unix_nanos_to_dt
+            from vibe_trading.core.datetime import unix_nanos_to_dt
 
             expiry_dt = unix_nanos_to_dt(option.expiration_ns)
             expiry = expiry_dt.strftime("%d%b%y").upper()  # e.g., "02AUG25"
@@ -829,7 +829,7 @@ def main():
     node.trader.add_strategy(strategy)
 
     # Register the data client factory
-    from vibe_trader.adapters.bybit import BybitLiveDataClientFactory
+    from vibe_trading.adapters.bybit import BybitLiveDataClientFactory
 
     node.add_data_client_factory(BYBIT, BybitLiveDataClientFactory)
 

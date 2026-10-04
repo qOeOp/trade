@@ -1,4 +1,4 @@
-//! Event store and authoritative log of state-affecting messages for [VibeTrader](https://github.com/qOeOp/trade).
+//! Event store and authoritative log of state-affecting messages for [VibeTrading](https://github.com/qOeOp/trade).
 //!
 //! The `vibe-event-store` crate provides an embedded, append-only event store that captures
 //! commands, events, venue reports, and correlations flowing across the message bus. Combined with
@@ -7,9 +7,9 @@
 //!
 //! See `README.md` for the high-level specification.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single

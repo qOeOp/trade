@@ -1,6 +1,6 @@
 # vibe-analysis
 
-Portfolio analysis and performance metrics for [VibeTrader](https://github.com/qOeOp/trade).
+Portfolio analysis and performance metrics for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-analysis` crate provides portfolio analysis tools and performance
 statistics for evaluating trading strategies and portfolios. This includes return-based metrics,
@@ -11,9 +11,9 @@ PnL-based statistics, and risk measurements commonly used in quantitative financ
 - Flexible statistic calculation framework supporting different data sources.
 - Support for multi-currency portfolios and unrealized PnL calculations.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

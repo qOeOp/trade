@@ -7,7 +7,7 @@ use pyo3::{prelude::*, wrap_pyfunction};
 
 use crate::{DataTesterConfig, ExecTesterConfig};
 
-/// Exposed through `vibe_trader.testkit`.
+/// Exposed through `vibe_trading.testkit`.
 ///
 /// # Errors
 ///

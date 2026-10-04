@@ -70,7 +70,7 @@ pub static COINBASE_WS_SUBSCRIPTION_KEYS: LazyLock<[Ustr; 1]> =
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.coinbase", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.coinbase", from_py_object)
 )]
 pub struct CoinbaseWebSocketClient {
     url: String,

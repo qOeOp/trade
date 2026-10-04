@@ -37,14 +37,14 @@ static NEW_YORK_TIMEZONE: LazyLock<TimeZone> =
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.trading",
+        module = "vibe_trading.trading",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.trading")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.trading")
 )]
 pub enum ForexSession {
     Sydney,

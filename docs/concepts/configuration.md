@@ -1,6 +1,6 @@
 # Configuration
 
-VibeTrader uses typed configuration structs throughout the platform.
+VibeTrading uses typed configuration structs throughout the platform.
 Each component (data clients, execution clients, engines, strategies) has a
 dedicated config struct that controls its behavior.
 
@@ -38,8 +38,8 @@ copy-paste mistakes before a node or client starts with the wrong settings.
 
 ## Python configs
 
-Import core config types from `vibe_trader.config`. Import adapter configs from the adapter's
-public module, such as `vibe_trader.adapters.bybit`.
+Import core config types from `vibe_trading.config`. Import adapter configs from the adapter's
+public module, such as `vibe_trading.adapters.bybit`.
 
 Most runtime config classes are PyO3 wrappers around Rust config structs. Constructor parameters use
 `None` either to resolve the Rust default or to preserve an optional value, depending on the field.
@@ -49,7 +49,7 @@ and `ExecutionAlgorithmConfig` accept extra fields for Python subclasses. Python
 configs retain their documented dataclass behavior.
 
 ```python
-from vibe_trader.adapters.bybit import BybitDataClientConfig
+from vibe_trading.adapters.bybit import BybitDataClientConfig
 
 # All defaults: 60s timeout, 3 retries, etc.
 config = BybitDataClientConfig()
@@ -115,7 +115,7 @@ pattern. Fields like `reconciliation`, `inflight_check_interval_ms`, and
 features use `Option<T>`:
 
 ```python
-from vibe_trader.config import LiveExecEngineConfig
+from vibe_trading.config import LiveExecEngineConfig
 
 config = LiveExecEngineConfig(
     reconciliation=True,

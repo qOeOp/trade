@@ -1,6 +1,6 @@
 # vibe-system
 
-System-level components and orchestration for [VibeTrader](https://github.com/qOeOp/trade).
+System-level components and orchestration for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-system` crate provides the core system architecture for orchestrating trading systems,
 including the kernel that manages all engines, configuration management,
@@ -10,9 +10,9 @@ and system-level factories for creating components:
 - `VibeKernelConfig` - Configuration for kernel initialization.
 - System builders and factories for component creation, including caller-supplied clock construction for live/sandbox systems.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

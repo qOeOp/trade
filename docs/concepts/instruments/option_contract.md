@@ -88,14 +88,14 @@ let aapl_call = OptionContract::builder()
 ```python tab="Python"
 import pandas as pd
 
-from vibe_trader.model import AssetClass
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OptionContract
-from vibe_trader.model import OptionKind
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import AssetClass
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OptionContract
+from vibe_trading.model import OptionKind
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 aapl_call = OptionContract(
     instrument_id=InstrumentId.from_str("AAPL211217C00150000.OPRA"),

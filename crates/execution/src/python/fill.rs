@@ -17,9 +17,9 @@ use crate::models::fill::{
     VolumeSensitiveFillModel,
 };
 
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")]
 #[pyclass(
-    module = "vibe_trader.execution",
+    module = "vibe_trading.execution",
     name = "FillModel",
     subclass,
     unsendable

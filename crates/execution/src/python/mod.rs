@@ -8,7 +8,7 @@ pub mod reconciliation;
 
 use pyo3::prelude::*;
 
-/// Exposed through `vibe_trader.execution`.
+/// Exposed through `vibe_trading.execution`.
 ///
 /// # Errors
 ///

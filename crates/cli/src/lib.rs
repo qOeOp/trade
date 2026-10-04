@@ -1,7 +1,7 @@
-//! Command-line interface and tools for [VibeTrader](https://github.com/qOeOp/trade).
+//! Command-line interface and tools for [VibeTrading](https://github.com/qOeOp/trade).
 //!
 //! The `vibe-cli` crate provides a command-line interface for managing and
-//! operating VibeTrader installations. It includes tools for database management,
+//! operating VibeTrading installations. It includes tools for database management,
 //! system configuration, and operational utilities:
 //!
 //! - Database initialization and management commands.
@@ -9,9 +9,9 @@
 //! - Configuration validation and setup utilities.
 //! - System administration and operational tools.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single

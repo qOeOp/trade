@@ -41,7 +41,7 @@
 要在策略中发现未认领的外部订单，请检查 `order.strategy_id.value == "EXTERNAL"`。这些订单与其他订单一样参与投资组合计算和持仓跟踪。
 :::
 
-全部实盘交易选项请参阅 `LiveExecEngineConfig` [API 参考](/docs/python-api-latest/config.html#vibe_trader.live.LiveExecEngineConfig)。
+全部实盘交易选项请参阅 `LiveExecEngineConfig` [API 参考](/docs/python-api-latest/config.html#vibe_trading.live.LiveExecEngineConfig)。
 
 ## 对账流程
 

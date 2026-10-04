@@ -35,7 +35,7 @@ use proc_macro::TokenStream;
 /// implement them manually.
 /// Use `#[custom_data(pyo3, no_arrow)]` for live-only custom data that does not need Arrow or
 /// catalog persistence.
-/// Use `stub_module = "vibe_trader.<module>"` with `pyo3` to emit pyo3-stub-gen metadata.
+/// Use `stub_module = "vibe_trading.<module>"` with `pyo3` to emit pyo3-stub-gen metadata.
 #[proc_macro_attribute]
 pub fn custom_data(attr: TokenStream, item: TokenStream) -> TokenStream {
     custom::expand_custom_data(attr.into(), item.into()).into()

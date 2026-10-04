@@ -34,7 +34,7 @@ const OKX_US_DEMO_WS_BUSINESS_URL: &str = "wss://wsuspap.okx.com:8443/ws/v5/busi
 #[cfg_attr(feature = "python", pyo3::pyclass(from_py_object))]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXEndpointType {
     Public,

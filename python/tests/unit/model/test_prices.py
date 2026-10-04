@@ -1,8 +1,8 @@
 import pickle
 
-from vibe_trader.model import IndexPriceUpdate
-from vibe_trader.model import MarkPriceUpdate
-from vibe_trader.model import Price
+from vibe_trading.model import IndexPriceUpdate
+from vibe_trading.model import MarkPriceUpdate
+from vibe_trading.model import Price
 
 
 def test_mark_price_update_construction(audusd_id):
@@ -56,7 +56,7 @@ def test_mark_price_update_to_dict_and_from_dict_roundtrip(audusd_id):
 
 
 def test_mark_price_update_fully_qualified_name():
-    assert MarkPriceUpdate.fully_qualified_name() == "vibe_trader.model:MarkPriceUpdate"
+    assert MarkPriceUpdate.fully_qualified_name() == "vibe_trading.model:MarkPriceUpdate"
 
 
 def test_mark_price_update_pickle_roundtrip(audusd_id):
@@ -151,7 +151,7 @@ def test_index_price_update_to_dict_and_from_dict_roundtrip(audusd_id):
 
 
 def test_index_price_update_fully_qualified_name():
-    assert IndexPriceUpdate.fully_qualified_name() == "vibe_trader.model:IndexPriceUpdate"
+    assert IndexPriceUpdate.fully_qualified_name() == "vibe_trading.model:IndexPriceUpdate"
 
 
 def test_index_price_update_pickle_roundtrip(audusd_id):

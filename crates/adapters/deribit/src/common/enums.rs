@@ -28,14 +28,14 @@ use vibe_model::enums::{MarketStatusAction, TimeInForce, TriggerType};
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.deribit",
+        module = "vibe_trading.adapters.deribit",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.deribit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.deribit")
 )]
 pub enum DeribitProductType {
     /// Future contract
@@ -63,14 +63,14 @@ pub enum DeribitProductType {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.deribit",
+        module = "vibe_trading.adapters.deribit",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.deribit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.deribit")
 )]
 pub enum DeribitCurrency {
     /// Bitcoin
@@ -246,14 +246,14 @@ impl TryFrom<TimeInForce> for DeribitTimeInForce {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.deribit",
+        module = "vibe_trading.adapters.deribit",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.deribit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.deribit")
 )]
 pub enum DeribitEnvironment {
     /// Live trading environment.

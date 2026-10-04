@@ -6,11 +6,11 @@
 #[derive(Clone, Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 pub struct BybitMarginBorrowResult {
     /// The coin that was borrowed.
@@ -31,11 +31,11 @@ pub struct BybitMarginBorrowResult {
 #[derive(Clone, Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 pub struct BybitMarginRepayResult {
     /// The coin that was repaid.
@@ -58,11 +58,11 @@ pub struct BybitMarginRepayResult {
 #[derive(Clone, Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 pub struct BybitMarginStatusResult {
     /// The coin being queried.

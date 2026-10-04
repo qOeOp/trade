@@ -13,30 +13,30 @@ from datetime import UTC
 from datetime import datetime
 from decimal import Decimal
 
-from vibe_trader.core import UUID4
-from vibe_trader.indicators import MovingAverageConvergenceDivergence
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import BookType
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import ContingencyType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import LimitOrder
-from vibe_trader.model import MarketOrder
-from vibe_trader.model import OrderBookDeltas
-from vibe_trader.model import OrderFilled
-from vibe_trader.model import OrderSide
-from vibe_trader.model import Price
-from vibe_trader.model import PriceType
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import StopMarketOrder
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TradeTick
-from vibe_trader.model import TrailingOffsetType
-from vibe_trader.model import TriggerType
-from vibe_trader.trading import Strategy
-from vibe_trader.trading import StrategyConfig
+from vibe_trading.core import UUID4
+from vibe_trading.indicators import MovingAverageConvergenceDivergence
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import BookType
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import ContingencyType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import LimitOrder
+from vibe_trading.model import MarketOrder
+from vibe_trading.model import OrderBookDeltas
+from vibe_trading.model import OrderFilled
+from vibe_trading.model import OrderSide
+from vibe_trading.model import Price
+from vibe_trading.model import PriceType
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import StopMarketOrder
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TradeTick
+from vibe_trading.model import TrailingOffsetType
+from vibe_trading.model import TriggerType
+from vibe_trading.trading import Strategy
+from vibe_trading.trading import StrategyConfig
 
 
 def _market_order(
@@ -148,7 +148,7 @@ class BarEntryExit(Strategy):
 
     def __init__(self, config: BarEntryExitConfig):
         super().__init__(config)
-        from vibe_trader.model import BarType
+        from vibe_trading.model import BarType
 
         self._instrument_id = InstrumentId.from_str(config.instrument_id)
         self._bar_type = BarType.from_str(config.bar_type)

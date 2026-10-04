@@ -15,7 +15,7 @@ requirements may change between releases.
 Vibe has three implementations. Understanding where each stands helps
 you choose the right one for your use case.
 
-- **v1 legacy**: Cython/Python classes under `vibe_trader/`. Fully
+- **v1 legacy**: Cython/Python classes under `vibe_trading/`. Fully
   featured with the broadest component coverage.
 - **v2 Rust**: Pure Rust under `crates/`. Runs without Python.
 - **v2 PyO3**: Python user-components (actors, strategies) running on
@@ -375,7 +375,7 @@ and tests. It is not a first-class extension path for adding native
 strategies. For custom native components, use pure Rust.
 
 ```python
-from vibe_trader.trading import GridMarketMakerConfig
+from vibe_trading.trading import GridMarketMakerConfig
 
 config = GridMarketMakerConfig(
     instrument_id=InstrumentId.from_str("BTC-USDT-SWAP.OKX"),

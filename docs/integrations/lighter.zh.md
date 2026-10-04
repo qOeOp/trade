@@ -3,7 +3,7 @@
 [Lighter](https://lighter.xyz) 是一家采用中央限价订单簿的去中心化交易所，支持现货和
 永续期货。该交易场所通过以太坊零知识汇总完成结算，而撮合和排序则在链下进行。
 
-VibeTrader 的 Lighter 适配器由 `vibe-lighter` crate 实现。它提供 Rust 数据客户端和执行客户端、
+VibeTrading 的 Lighter 适配器由 `vibe-lighter` crate 实现。它提供 Rust 数据客户端和执行客户端、
 带类型的 REST 与 WebSocket 模型，以及内置于源码树中的 L2 交易签名器，用于该交易场所的
 Schnorr / ECgFp5 签名流程。
 
@@ -111,7 +111,7 @@ Lighter 使用数字 `market_index` 标识市场。适配器先从 `GET /api/v1/
 
 ## 集成方归因
 
-创建和修改交易会在 `L2TxAttributes` 中携带 VibeTrader 集成方账户索引，用于衡量适配器使用情况。
+创建和修改交易会在 `L2TxAttributes` 中携带 VibeTrading 集成方账户索引，用于衡量适配器使用情况。
 挂单方和吃单方的集成方费用均为零。执行客户端启动时会提交所需的**零费用** `ApproveIntegrator` 授权。
 
 ### 撤销授权
@@ -132,8 +132,8 @@ cargo run -p vibe-lighter --bin lighter-integrator-revoke testnet   # testnet
 
 ```python
 # Python (PyO3 binding) - reads the same env vars as the Rust bin
-from vibe_trader.adapters.lighter import revoke_lighter_integrator
-from vibe_trader.adapters.lighter import LighterEnvironment
+from vibe_trading.adapters.lighter import revoke_lighter_integrator
+from vibe_trading.adapters.lighter import LighterEnvironment
 
 await revoke_lighter_integrator()  # mainnet (default)
 await revoke_lighter_integrator(LighterEnvironment.TESTNET)  # testnet

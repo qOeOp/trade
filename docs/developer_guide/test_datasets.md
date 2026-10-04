@@ -14,7 +14,7 @@ A SHA-256 checksum is recorded in `test_data/large/checksums.json`.
 The `ensure_test_data_exists()` helper downloads the file on first use and verifies integrity.
 
 **User-fetched data** is used when a vendor license, entitlement model, or access control does not
-allow VibeTrader to redistribute the data through the public repo or the public R2 bucket.
+allow VibeTrading to redistribute the data through the public repo or the public R2 bucket.
 In this model, the repo stores only a manifest, fetch instructions, and the transform code. Each
 user downloads the source data with their own vendor account and converts it locally.
 
@@ -115,13 +115,13 @@ For datasets requiring format conversion (e.g., binary ITCH to Parquet):
 
 1. Write a curation function in `crates/testkit/src/<source>/` gated behind
    `#[cfg(test)]` or an `#[ignore]` test.
-2. The function should: download, parse, filter, convert to VibeTrader types, write Parquet.
+2. The function should: download, parse, filter, convert to VibeTrading types, write Parquet.
 3. Output the Parquet file and `metadata.json` to a local directory.
 4. Upload to R2 manually, then add the checksum to `checksums.json`.
 
 ### User-fetched pipelines (restricted redistribution)
 
-For datasets that VibeTrader cannot redistribute:
+For datasets that VibeTrading cannot redistribute:
 
 1. Commit a manifest and `metadata.json`, but do not commit the real vendor data or derived
    Parquet output.

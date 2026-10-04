@@ -360,11 +360,11 @@ fn step_to_i64(step: NonZeroUsize) -> i64 {
 #[serde(try_from = "BarSpecificationFields")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 pub struct BarSpecification {
     /// The step for binning samples for bar aggregation.
@@ -596,11 +596,11 @@ impl Display for BarSpecification {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.model")
 )]
 pub enum BarType {
     Standard {
@@ -1000,11 +1000,11 @@ impl<'de> Deserialize<'de> for BarType {
 #[serde(tag = "type", try_from = "BarFields")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 pub struct Bar {
     /// The bar type for this bar.

@@ -2,7 +2,7 @@
 title: "加载外部数据"
 ---
 
-将 CSV 市场数据加载到 Parquet 数据目录，再使用 `BacktestNode` 运行回测。如果历史数据来自 VibeTrader 适配器尚未直接支持的外部供应商，通常可以采用这套工作流。
+将 CSV 市场数据加载到 Parquet 数据目录，再使用 `BacktestNode` 运行回测。如果历史数据来自 VibeTrading 适配器尚未直接支持的外部供应商，通常可以采用这套工作流。
 
 [在 GitHub 上查看源代码](https://github.com/qOeOp/trade/blob/main/docs/how_to/loading_external_data.py)。
 
@@ -14,19 +14,19 @@ from pathlib import Path
 
 import pandas as pd
 
-from vibe_trader.config import BacktestDataConfig
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.config import BacktestRunConfig
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.config import ImportableStrategyConfig
-from vibe_trader.core.datetime import dt_to_unix_nanos
-from vibe_trader.model import BarType
-from vibe_trader.model import QuoteTick
-from vibe_trader.persistence import ParquetDataCatalog
-from vibe_trader.persistence.wranglers import QuoteTickDataWrangler
-from vibe_trader.test_kit.providers import CSVTickDataLoader
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.config import BacktestDataConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.config import BacktestRunConfig
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.config import ImportableStrategyConfig
+from vibe_trading.core.datetime import dt_to_unix_nanos
+from vibe_trading.model import BarType
+from vibe_trading.model import QuoteTick
+from vibe_trading.persistence import ParquetDataCatalog
+from vibe_trading.persistence.wranglers import QuoteTickDataWrangler
+from vibe_trading.test_kit.providers import CSVTickDataLoader
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 ```
 
 ## 加载并整理数据
@@ -121,8 +121,8 @@ data_configs = [
 
 strategies = [
     ImportableStrategyConfig(
-        strategy_path="vibe_trader.examples.strategies.ema_cross:EMACross",
-        config_path="vibe_trader.examples.strategies.ema_cross:EMACrossConfig",
+        strategy_path="vibe_trading.examples.strategies.ema_cross:EMACross",
+        config_path="vibe_trading.examples.strategies.ema_cross:EMACrossConfig",
         config={
             "instrument_id": instrument.id,
             "bar_type": BarType.from_str(f"{instrument.id.value}-15-MINUTE-BID-INTERNAL"),

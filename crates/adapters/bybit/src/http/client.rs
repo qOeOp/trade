@@ -133,11 +133,11 @@ const BYBIT_NO_CONVERT_REPAY_ROUTE_KEY: &str = "bybit:/v5/account/no-convert-rep
 /// returning venue-specific response types. It does not parse to Vibe domain types.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 #[derive(Clone)]
 pub struct BybitRawHttpClient {
@@ -1507,11 +1507,11 @@ impl BybitRawHttpClient {
 /// Provides a HTTP client for connecting to the [Bybit](https://bybit.com) REST API.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 /// High-level HTTP client that wraps the raw client and provides Vibe domain types.
 ///

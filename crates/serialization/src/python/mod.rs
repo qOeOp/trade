@@ -10,7 +10,7 @@ pub mod arrow;
 
 use pyo3::prelude::*;
 
-/// Exposed through `vibe_trader.serialization`.
+/// Exposed through `vibe_trading.serialization`.
 ///
 /// # Errors
 ///

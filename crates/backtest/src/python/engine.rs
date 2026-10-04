@@ -66,8 +66,8 @@ use crate::{
 ///
 /// Exposes the backtest engine to Python as `BacktestEngine`.
 /// Uses `unsendable` because the inner engine holds `Rc<RefCell<...>>`.
-#[pyo3::pyclass(module = "vibe_trader.backtest", name = "BacktestEngine", unsendable)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")]
+#[pyo3::pyclass(module = "vibe_trading.backtest", name = "BacktestEngine", unsendable)]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")]
 #[derive(Debug)]
 pub struct PyBacktestEngine(BacktestEngine);
 
@@ -900,7 +900,7 @@ fn cache_bound<'py>(engine: &BacktestEngine, py: Python<'py>) -> PyResult<Bound<
 }
 
 fn report_provider(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
-    py.import("vibe_trader.analysis.reporter")?
+    py.import("vibe_trading.analysis.reporter")?
         .getattr("ReportProvider")
 }
 

@@ -2,9 +2,9 @@ import pickle
 
 import pytest
 
-from vibe_trader.model import FIXED_PRECISION
-from vibe_trader.model import Currency
-from vibe_trader.model import CurrencyType
+from vibe_trading.model import FIXED_PRECISION
+from vibe_trading.model import Currency
+from vibe_trading.model import CurrencyType
 
 
 def test_negative_precision_raises():

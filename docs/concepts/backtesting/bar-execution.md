@@ -7,7 +7,7 @@ Bar data records the open, high, low, close, and volume for an interval. It does
 each price occurred within that interval or whether the high preceded the low. Bar-based execution
 therefore simulates a plausible intrabar path rather than reconstructing the original trades.
 
-VibeTrader converts each execution bar into synthetic market updates for an L1 order book.
+VibeTrading converts each execution bar into synthetic market updates for an L1 order book.
 Resting orders match as those updates move through the bar.
 
 ## Bar timestamp convention
@@ -75,12 +75,12 @@ the first visited level determines which order can fill first.
 Configure adaptive ordering on the venue:
 
 ```python
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Venue
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Venue
 
 engine = BacktestEngine(BacktestEngineConfig())
 engine.add_venue(
@@ -103,7 +103,7 @@ so it sees that bar's close. Quote ticks, trade ticks, or timer-driven settlemen
 command earlier against the book state at that time.
 
 ```python
-from vibe_trader.execution import StaticLatencyModel
+from vibe_trading.execution import StaticLatencyModel
 
 engine.add_venue(
     venue=Venue("SIM"),
@@ -129,8 +129,8 @@ boundary. Data with the exact same timestamp may otherwise be processed after th
 Set `time_bars_build_delay` in `DataEngineConfig` to delay the timer:
 
 ```python
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import DataEngineConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import DataEngineConfig
 
 config = BacktestEngineConfig(
     data_engine=DataEngineConfig(

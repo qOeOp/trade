@@ -1,6 +1,6 @@
 # Cache Usage Example
 
-This example demonstrates how to use VibeTrader's **Cache** system for storing and managing trading data and state.
+This example demonstrates how to use VibeTrading's **Cache** system for storing and managing trading data and state.
 
 **The strategy shows how to use Cache for:**
 

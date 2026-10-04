@@ -1,6 +1,6 @@
 # Live Trading
 
-VibeTrader deploys backtested strategies to live markets with no code changes.
+VibeTrading deploys backtested strategies to live markets with no code changes.
 The same actors, strategies, and execution algorithms run against both the backtest
 engine and a live trading node.
 
@@ -134,7 +134,7 @@ awaits the post-stop delay, disconnects clients, and stops the engines. It does 
 the process.
 
 ```python
-from vibe_trader.config import LiveNodeConfig
+from vibe_trading.config import LiveNodeConfig
 
 config = LiveNodeConfig(shutdown_on_error=True)
 ```

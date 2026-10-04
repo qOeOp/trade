@@ -2,10 +2,10 @@ import pickle
 
 import pytest
 
-from vibe_trader.model import Price
-from vibe_trader.model import PriceType
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
+from vibe_trading.model import Price
+from vibe_trading.model import PriceType
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
 
 
 @pytest.fixture
@@ -22,8 +22,8 @@ def quote(audusd_id):
 
 
 def test_quote_fully_qualified_name():
-    assert QuoteTick.fully_qualified_name() == "vibe_trader.model:QuoteTick"
-    assert QuoteTick.__module__ == "vibe_trader.model"
+    assert QuoteTick.fully_qualified_name() == "vibe_trading.model:QuoteTick"
+    assert QuoteTick.__module__ == "vibe_trading.model"
 
 
 def test_quote_construction(quote, audusd_id):

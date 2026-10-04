@@ -3,31 +3,31 @@ from decimal import Decimal
 
 import pytest
 
-from vibe_trader.model import AggressorSide
-from vibe_trader.model import BookAction
-from vibe_trader.model import BookLevel
-from vibe_trader.model import BookOrder
-from vibe_trader.model import BookType
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OrderBook
-from vibe_trader.model import OrderBookDelta
-from vibe_trader.model import OrderBookDeltas
-from vibe_trader.model import OrderBookDepth10
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderStatus
-from vibe_trader.model import OrderType
-from vibe_trader.model import OwnBookOrder
-from vibe_trader.model import OwnOrderBook
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TradeId
-from vibe_trader.model import TraderId
-from vibe_trader.model import TradeTick
-from vibe_trader.model import update_book_with_quote_tick
-from vibe_trader.model import update_book_with_trade_tick
+from vibe_trading.model import AggressorSide
+from vibe_trading.model import BookAction
+from vibe_trading.model import BookLevel
+from vibe_trading.model import BookOrder
+from vibe_trading.model import BookType
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OrderBook
+from vibe_trading.model import OrderBookDelta
+from vibe_trading.model import OrderBookDeltas
+from vibe_trading.model import OrderBookDepth10
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderStatus
+from vibe_trading.model import OrderType
+from vibe_trading.model import OwnBookOrder
+from vibe_trading.model import OwnOrderBook
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TradeId
+from vibe_trading.model import TraderId
+from vibe_trading.model import TradeTick
+from vibe_trading.model import update_book_with_quote_tick
+from vibe_trading.model import update_book_with_trade_tick
 
 
 @pytest.fixture
@@ -376,7 +376,7 @@ def test_depth10_to_dict_and_from_dict_roundtrip(depth10):
 
 
 def test_depth10_fully_qualified_name():
-    assert OrderBookDepth10.fully_qualified_name() == "vibe_trader.model:OrderBookDepth10"
+    assert OrderBookDepth10.fully_qualified_name() == "vibe_trading.model:OrderBookDepth10"
 
 
 def test_depth10_json_roundtrip(depth10):

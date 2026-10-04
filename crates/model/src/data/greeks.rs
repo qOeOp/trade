@@ -29,11 +29,11 @@ const VEGA_PERCENT_FACTOR: f64 = 0.01;
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Default, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 pub struct OptionGreekValues {
     pub delta: f64,
@@ -105,11 +105,11 @@ fn norm_pdf(x: f64) -> f64 {
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 pub struct BlackScholesGreeksResult {
     pub price: f64,
@@ -280,11 +280,11 @@ pub fn refine_vol_and_greeks(
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 pub struct GreeksData {
     pub ts_init: UnixNanos,
@@ -483,11 +483,11 @@ impl HasTsInit for GreeksData {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 pub struct PortfolioGreeks {
     pub ts_init: UnixNanos,

@@ -24,37 +24,37 @@ import time
 import pandas as pd
 from ibapi.common import MarketDataTypeEnum as IBMarketDataTypeEnum
 
-from vibe_trader.adapters.interactive_brokers.common import IB
-from vibe_trader.adapters.interactive_brokers.common import IB_VENUE
-from vibe_trader.adapters.interactive_brokers.config import InteractiveBrokersDataClientConfig
-from vibe_trader.adapters.interactive_brokers.config import InteractiveBrokersExecClientConfig
-from vibe_trader.adapters.interactive_brokers.config import (
+from vibe_trading.adapters.interactive_brokers.common import IB
+from vibe_trading.adapters.interactive_brokers.common import IB_VENUE
+from vibe_trading.adapters.interactive_brokers.config import InteractiveBrokersDataClientConfig
+from vibe_trading.adapters.interactive_brokers.config import InteractiveBrokersExecClientConfig
+from vibe_trading.adapters.interactive_brokers.config import (
     InteractiveBrokersInstrumentProviderConfig,
 )
-from vibe_trader.adapters.interactive_brokers.config import SymbologyMethod
-from vibe_trader.adapters.interactive_brokers.factories import (
+from vibe_trading.adapters.interactive_brokers.config import SymbologyMethod
+from vibe_trading.adapters.interactive_brokers.factories import (
     InteractiveBrokersLiveDataClientFactory,
 )
-from vibe_trader.adapters.interactive_brokers.factories import (
+from vibe_trading.adapters.interactive_brokers.factories import (
     InteractiveBrokersLiveExecClientFactory,
 )
-from vibe_trader.common.enums import LogColor
-from vibe_trader.config import CacheConfig
-from vibe_trader.config import DatabaseConfig
-from vibe_trader.config import LiveDataEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import RoutingConfig
-from vibe_trader.config import StrategyConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.examples.interactive_brokers import resolve_ib_endpoint
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model.events import PositionOpened
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.common.enums import LogColor
+from vibe_trading.config import CacheConfig
+from vibe_trading.config import DatabaseConfig
+from vibe_trading.config import LiveDataEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import RoutingConfig
+from vibe_trading.config import StrategyConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.examples.interactive_brokers import resolve_ib_endpoint
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model.events import PositionOpened
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.trading.strategy import Strategy
 
 
 # %%

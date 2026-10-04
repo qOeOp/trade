@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Vibe Trader Development Environment ==="
+echo "=== Vibe Trading Development Environment ==="
 echo "Rust version: $(rustc --version)"
 echo "uv version: $(uv --version)"
 echo "Working directory: $(pwd)"
@@ -15,7 +15,7 @@ echo "Available checks:"
 echo "  make install-debug"
 echo "  make cargo-test"
 echo "  make pytest"
-echo "  uv run --project python python -c \"from vibe_trader.core import UUID4; print(UUID4())\""
+echo "  uv run --project python python -c \"from vibe_trading.core import UUID4; print(UUID4())\""
 echo
 
 if [ "$#" -eq 0 ]; then

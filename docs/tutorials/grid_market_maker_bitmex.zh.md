@@ -59,7 +59,7 @@ timeout = 60s -> refresh interval = timeout / 4 = 15s
 
 ## 先决条件
 
-- 本地 Vibe Trader 源码构建（`make build-debug`）。
+- 本地 Vibe Trading 源码构建（`make build-debug`）。
 - 用于实盘示例的 Rust 工具链（`cargo`），可从 [rustup.rs](https://rustup.rs/) 安装。
 - 一个 BitMEX 账户：在 [bitmex.com](https://www.bitmex.com/) 注册并生成具有订单管理权限的 API 密钥。首次运行请使用 [BitMEX 测试网](https://testnet.bitmex.com/)。
 
@@ -101,8 +101,8 @@ curl -L -o XBTUSD-trades.csv.gz \
 `TardisCSVDataLoader` 可直接解析 `.csv.gz` 文件：
 
 ```python
-from vibe_trader.adapters.tardis.loaders import TardisCSVDataLoader
-from vibe_trader.model.identifiers import InstrumentId
+from vibe_trading.adapters.tardis.loaders import TardisCSVDataLoader
+from vibe_trading.model.identifiers import InstrumentId
 
 instrument_id = InstrumentId.from_str("XBTUSD.BITMEX")
 
@@ -120,13 +120,13 @@ XBTUSD 是**反向永续合约**：价格以 USD 报价，但保证金和结算�
 ```python
 from decimal import Decimal
 
-from vibe_trader.model.currencies import BTC
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AssetClass
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.instruments import PerpetualContract
-from vibe_trader.model.objects import Price
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.currencies import BTC
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AssetClass
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.instruments import PerpetualContract
+from vibe_trading.model.objects import Price
+from vibe_trading.model.objects import Quantity
 
 XBTUSD = PerpetualContract(
     instrument_id=instrument_id,
@@ -159,15 +159,15 @@ XBTUSD = PerpetualContract(
 XBTUSD 以 BTC 为保证金，因此起始余额以 BTC 为单位：
 
 ```python
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import LoggerConfig
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.objects import Money
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import LoggerConfig
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.objects import Money
 
 engine = BacktestEngine(
     BacktestEngineConfig(
@@ -192,8 +192,8 @@ engine.add_data(quotes + trades)
 ### 策略配置
 
 ```python
-from vibe_trader.examples.strategies.grid_market_maker import GridMarketMaker
-from vibe_trader.examples.strategies.grid_market_maker import GridMarketMakerConfig
+from vibe_trading.examples.strategies.grid_market_maker import GridMarketMaker
+from vibe_trading.examples.strategies.grid_market_maker import GridMarketMakerConfig
 
 strategy = GridMarketMaker(
     GridMarketMakerConfig(

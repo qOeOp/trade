@@ -12,7 +12,7 @@
 SHA-256 校验和记录在 `test_data/large/checksums.json` 中。
 `ensure_test_data_exists()` 辅助函数会在首次使用时下载文件并验证完整性。
 
-当供应商许可证、授权模型或访问控制不允许 VibeTrader 通过公共仓库或公共 R2 bucket 重新分发数据时，
+当供应商许可证、授权模型或访问控制不允许 VibeTrading 通过公共仓库或公共 R2 bucket 重新分发数据时，
 使用**用户自行获取的数据**。在这种模式下，仓库只存储清单、获取说明和转换代码。每位用户使用自己的
 供应商账户下载源数据，并在本地转换。
 
@@ -107,13 +107,13 @@ scripts/curate-dataset.sh <slug> <filename> <download-url> <licence>
 对于需要格式转换的数据集（例如从二进制 ITCH 转换为 Parquet）：
 
 1. 在 `crates/testkit/src/<source>/` 中编写整理函数，并使用 `#[cfg(test)]` gate 或 `#[ignore]` 测试。
-2. 函数应完成：下载、解析、筛选、转换为 VibeTrader 类型、写入 Parquet。
+2. 函数应完成：下载、解析、筛选、转换为 VibeTrading 类型、写入 Parquet。
 3. 将 Parquet 文件和 `metadata.json` 输出到本地目录。
 4. 手动上传到 R2，再将校验和加入 `checksums.json`。
 
 ### 用户自行获取流水线（限制重新分发）
 
-对于 VibeTrader 无法重新分发的数据集：
+对于 VibeTrading 无法重新分发的数据集：
 
 1. 提交清单和 `metadata.json`，但不要提交真实供应商数据或派生的 Parquet 输出。
 2. 提供使用用户自己的供应商凭证、授权或已购买历史文件的本地获取命令或辅助工具。

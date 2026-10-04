@@ -6,7 +6,7 @@ state, order management, and execution updates.
 
 ## Installation
 
-Install VibeTrader using the [installation guide](../getting_started/installation.md). The
+Install VibeTrading using the [installation guide](../getting_started/installation.md). The
 Betfair adapter is included in the Python package; no adapter‑specific extra is required.
 
 ## Examples

@@ -6,7 +6,7 @@ K 线数据记录一个区间内的开盘价、最高价、最低价、收盘价
 价格在区间内出现的时间，也无法说明最高价是否先于最低价出现。因此，基于 K 线的
 执行是在模拟一条合理的区间内价格路径，而不是重建原始成交。
 
-VibeTrader 会把每根执行 K 线转换为 L1 订单簿的合成市场更新。随着这些更新依次经过
+VibeTrading 会把每根执行 K 线转换为 L1 订单簿的合成市场更新。随着这些更新依次经过
 K 线价格，簿中的挂单会参与撮合。
 
 ## K 线时间戳约定
@@ -72,12 +72,12 @@ K 线价格，簿中的挂单会参与撮合。
 在交易场所上配置自适应顺序：
 
 ```python
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Venue
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Venue
 
 engine = BacktestEngine(BacktestEngineConfig())
 engine.add_venue(
@@ -100,7 +100,7 @@ engine.add_venue(
 订单簿状态完成处理。
 
 ```python
-from vibe_trader.execution import StaticLatencyModel
+from vibe_trading.execution import StaticLatencyModel
 
 engine.add_venue(
     venue=Venue("SIM"),
@@ -126,8 +126,8 @@ K 线数据配合延迟时，订单通常会针对更晚的订单簿状态结算
 在 `DataEngineConfig` 中设置 `time_bars_build_delay`，可以延迟该定时器：
 
 ```python
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import DataEngineConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import DataEngineConfig
 
 config = BacktestEngineConfig(
     data_engine=DataEngineConfig(

@@ -1,6 +1,6 @@
 # vibe-serialization
 
-Data serialization and format conversion for [VibeTrader](https://github.com/qOeOp/trade).
+Data serialization and format conversion for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-serialization` crate provides data serialization capabilities for converting
 trading data between different formats including Apache Arrow, Parquet, and Cap'n Proto.
@@ -18,9 +18,9 @@ This enables efficient data storage, retrieval, and interoperability across diff
 >
 > SBE and Cap'n Proto schemas are not yet stable and may break between releases.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

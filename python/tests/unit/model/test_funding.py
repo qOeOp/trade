@@ -1,7 +1,7 @@
 import pickle
 from decimal import Decimal
 
-from vibe_trader.model import FundingRateUpdate
+from vibe_trading.model import FundingRateUpdate
 
 
 def test_funding_rate_update_construction(audusd_id):
@@ -71,7 +71,7 @@ def test_funding_rate_update_to_dict_and_from_dict_roundtrip(audusd_id):
 
 
 def test_funding_rate_update_fully_qualified_name():
-    assert FundingRateUpdate.fully_qualified_name() == "vibe_trader.model:FundingRateUpdate"
+    assert FundingRateUpdate.fully_qualified_name() == "vibe_trading.model:FundingRateUpdate"
 
 
 def test_funding_rate_update_pickle_roundtrip(audusd_id):

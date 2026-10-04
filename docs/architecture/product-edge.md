@@ -10,7 +10,7 @@ the Dashboard effect worker is the only executor path, and there is no productio
 
 ## Product surface and package
 
-The target distribution is one VibeTrader Docker Compose package, not one monolithic image. It composes the Trade
+The target distribution is one VibeTrading Docker Compose package, not one monolithic image. It composes the Trade
 Runtime and Owner APIs, the Dashboard, their required persistence and
 local ingress.
 

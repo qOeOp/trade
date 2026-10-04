@@ -1,9 +1,9 @@
 # vibe-infrastructure
 
-Database and messaging infrastructure for [VibeTrader](https://github.com/qOeOp/trade).
+Database and messaging infrastructure for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-infrastructure` crate provides backend database implementations and message bus adapters
-that enable VibeTrader to scale from development to production deployments. This includes
+that enable VibeTrading to scale from development to production deployments. This includes
 enterprise-grade data persistence and messaging capabilities:
 
 - **Redis integration**: Cache database and message bus implementations using Redis.
@@ -15,9 +15,9 @@ enterprise-grade data persistence and messaging capabilities:
 The crate supports multiple database backends through feature flags, allowing users to choose
 the appropriate infrastructure components for their specific deployment requirements and scale.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

@@ -498,8 +498,8 @@ fn py_decode_record_batch_to_custom_data(
 /// # Example
 ///
 /// ```python
-/// from vibe_trader.model.custom import customdataclass_pyo3
-/// from vibe_trader.model import register_custom_data_class
+/// from vibe_trading.model.custom import customdataclass_pyo3
+/// from vibe_trading.model import register_custom_data_class
 ///
 /// @customdataclass_pyo3()
 /// class MarketTickPython:
@@ -511,7 +511,7 @@ fn py_decode_record_batch_to_custom_data(
 /// ```
 #[cfg(feature = "python")]
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.model")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.model")]
 pub fn register_custom_data_class(data_class: &Bound<'_, PyAny>) -> PyResult<()> {
     use std::sync::Arc;
 

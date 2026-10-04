@@ -1,17 +1,17 @@
 import json
 
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import StrategyId
-from vibe_trader.model import custom_data_backend_kind
-from vibe_trader.model import register_custom_data_class
-from vibe_trader.persistence import ParquetDataCatalog
-from vibe_trader.persistence import RustTestCustomData
-from vibe_trader.trading import Strategy
-from vibe_trader.trading import StrategyConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import StrategyId
+from vibe_trading.model import custom_data_backend_kind
+from vibe_trading.model import register_custom_data_class
+from vibe_trading.persistence import ParquetDataCatalog
+from vibe_trading.persistence import RustTestCustomData
+from vibe_trading.trading import Strategy
+from vibe_trading.trading import StrategyConfig
 
 
 class _CustomDataStrategy(Strategy):

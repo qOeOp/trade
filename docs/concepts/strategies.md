@@ -62,7 +62,7 @@ A trading strategy inherits from `Strategy`, so you must define a constructor.
 At minimum, initialize the base class:
 
 ```python
-from vibe_trader.trading import Strategy
+from vibe_trading.trading import Strategy
 
 
 class MyStrategy(Strategy):
@@ -115,20 +115,20 @@ These handlers receive data updates, including built-in market data and custom u
 from collections.abc import Sequence
 from typing import Any
 
-from vibe_trader.common import Signal
-from vibe_trader.model import CustomData
-from vibe_trader.model import OrderBook
-from vibe_trader.model import OrderBookDelta
-from vibe_trader.model import Bar
-from vibe_trader.model import FundingRateUpdate
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import TradeTick
-from vibe_trader.model import OrderBookDeltas
-from vibe_trader.model import OrderBookDepth10
-from vibe_trader.model import InstrumentClose
-from vibe_trader.model import InstrumentStatus
-from vibe_trader.model import OptionChainSlice
-from vibe_trader.model import OptionGreeks
+from vibe_trading.common import Signal
+from vibe_trading.model import CustomData
+from vibe_trading.model import OrderBook
+from vibe_trading.model import OrderBookDelta
+from vibe_trading.model import Bar
+from vibe_trading.model import FundingRateUpdate
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import TradeTick
+from vibe_trading.model import OrderBookDeltas
+from vibe_trading.model import OrderBookDepth10
+from vibe_trading.model import InstrumentClose
+from vibe_trading.model import InstrumentStatus
+from vibe_trading.model import OptionChainSlice
+from vibe_trading.model import OptionGreeks
 def on_book_deltas(self, deltas: OrderBookDeltas) -> None:
 def on_book(self, order_book: OrderBook) -> None:
 def on_quote(self, tick: QuoteTick) -> None:
@@ -159,23 +159,23 @@ These handlers receive events related to orders.
 2. `on_order_event(...)`
 
 ```python
-from vibe_trader.model.events import OrderAccepted
-from vibe_trader.model.events import OrderCanceled
-from vibe_trader.model.events import OrderCancelRejected
-from vibe_trader.model.events import OrderDenied
-from vibe_trader.model.events import OrderEmulated
-from vibe_trader.model.events import OrderEvent
-from vibe_trader.model.events import OrderExpired
-from vibe_trader.model.events import OrderFilled
-from vibe_trader.model.events import OrderInitialized
-from vibe_trader.model.events import OrderModifyRejected
-from vibe_trader.model.events import OrderPendingCancel
-from vibe_trader.model.events import OrderPendingUpdate
-from vibe_trader.model.events import OrderRejected
-from vibe_trader.model.events import OrderReleased
-from vibe_trader.model.events import OrderSubmitted
-from vibe_trader.model.events import OrderTriggered
-from vibe_trader.model.events import OrderUpdated
+from vibe_trading.model.events import OrderAccepted
+from vibe_trading.model.events import OrderCanceled
+from vibe_trading.model.events import OrderCancelRejected
+from vibe_trading.model.events import OrderDenied
+from vibe_trading.model.events import OrderEmulated
+from vibe_trading.model.events import OrderEvent
+from vibe_trading.model.events import OrderExpired
+from vibe_trading.model.events import OrderFilled
+from vibe_trading.model.events import OrderInitialized
+from vibe_trading.model.events import OrderModifyRejected
+from vibe_trading.model.events import OrderPendingCancel
+from vibe_trading.model.events import OrderPendingUpdate
+from vibe_trading.model.events import OrderRejected
+from vibe_trading.model.events import OrderReleased
+from vibe_trading.model.events import OrderSubmitted
+from vibe_trading.model.events import OrderTriggered
+from vibe_trading.model.events import OrderUpdated
 
 def on_order_initialized(self, event: OrderInitialized) -> None:
 def on_order_denied(self, event: OrderDenied) -> None:
@@ -205,10 +205,10 @@ These handlers receive events related to positions.
 2. `on_position_event(...)`
 
 ```python
-from vibe_trader.model.events import PositionChanged
-from vibe_trader.model.events import PositionClosed
-from vibe_trader.model.events import PositionEvent
-from vibe_trader.model.events import PositionOpened
+from vibe_trading.model.events import PositionChanged
+from vibe_trading.model.events import PositionClosed
+from vibe_trading.model.events import PositionEvent
+from vibe_trading.model.events import PositionOpened
 
 def on_position_opened(self, event: PositionOpened) -> None:
 def on_position_changed(self, event: PositionChanged) -> None:
@@ -350,11 +350,11 @@ The following shows a general outline of available methods.
 ```python
 import decimal
 
-from vibe_trader.accounting.accounts.base import Account
-from vibe_trader.model import Venue
-from vibe_trader.model import Currency
-from vibe_trader.model import Money
-from vibe_trader.model import InstrumentId
+from vibe_trading.accounting.accounts.base import Account
+from vibe_trading.model import Venue
+from vibe_trading.model import Currency
+from vibe_trading.model import Money
+from vibe_trading.model import InstrumentId
 
 def account(self, venue: Venue) -> Account
 
@@ -404,9 +404,9 @@ The component a `SubmitOrder` or `SubmitOrderList` command will flow to for exec
 This example submits a `LIMIT` BUY order for emulation (see [Emulated Orders](orders/emulated.md)):
 
 ```python
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TriggerType
-from vibe_trader.model.orders import LimitOrder
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TriggerType
+from vibe_trading.model.orders import LimitOrder
 
 
 def buy(self) -> None:
@@ -432,9 +432,9 @@ first sent to the `OrderEmulator`, and upon release is then routed to the `Execu
 This example submits a `MARKET` BUY order to a TWAP execution algorithm:
 
 ```python
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model import ExecAlgorithmId
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model import ExecAlgorithmId
 
 
 def buy(self) -> None:
@@ -480,7 +480,7 @@ self.cancel_order(order.client_order_id)
 The following shows how to cancel a batch of orders:
 
 ```python
-from vibe_trader.model import ClientOrderId
+from vibe_trading.model import ClientOrderId
 
 
 client_order_ids: list[ClientOrderId] = [
@@ -520,7 +520,7 @@ Once an order is under the control of an execution algorithm, it cannot be direc
 The following shows how to modify the size of `LIMIT` BUY order currently *open* on a venue:
 
 ```python
-from vibe_trader.model import Quantity
+from vibe_trading.model import Quantity
 
 
 new_quantity: Quantity = Quantity.from_int(5)
@@ -606,11 +606,11 @@ Here is an example configuration:
 
 ```python
 from decimal import Decimal
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
-from vibe_trader.trading import Strategy
-from vibe_trader.config import StrategyConfig
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
+from vibe_trading.trading import Strategy
+from vibe_trading.config import StrategyConfig
 
 
 # Configuration definition

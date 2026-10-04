@@ -1,15 +1,15 @@
-from vibe_trader.model import AggressorSide
-from vibe_trader.model import Bar
-from vibe_trader.model import BarAggregation
-from vibe_trader.model import BarSpecification
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import PriceType
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import TradeId
-from vibe_trader.model import TradeTick
+from vibe_trading.model import AggressorSide
+from vibe_trading.model import Bar
+from vibe_trading.model import BarAggregation
+from vibe_trading.model import BarSpecification
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import PriceType
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import TradeId
+from vibe_trading.model import TradeTick
 
 
 class TestDataProviderPyo3:

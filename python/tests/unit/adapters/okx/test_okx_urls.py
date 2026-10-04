@@ -1,15 +1,15 @@
 import pytest
 
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXEnvironment
-from vibe_trader.adapters.okx import OKXExecClientConfig
-from vibe_trader.adapters.okx import OKXRegion
-from vibe_trader.adapters.okx import get_okx_http_base_url
-from vibe_trader.adapters.okx import get_okx_ws_url_business
-from vibe_trader.adapters.okx import get_okx_ws_url_private
-from vibe_trader.adapters.okx import get_okx_ws_url_public
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXEnvironment
+from vibe_trading.adapters.okx import OKXExecClientConfig
+from vibe_trading.adapters.okx import OKXRegion
+from vibe_trading.adapters.okx import get_okx_http_base_url
+from vibe_trading.adapters.okx import get_okx_ws_url_business
+from vibe_trading.adapters.okx import get_okx_ws_url_private
+from vibe_trading.adapters.okx import get_okx_ws_url_public
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 @pytest.mark.parametrize(

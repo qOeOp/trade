@@ -1,12 +1,12 @@
 # Rust
 
 Rust's strong type system, ownership model, and predictable performance make it a natural fit for
-the mission‑critical core of VibeTrader. Safe Rust prevents data races and many memory errors at
+the mission‑critical core of VibeTrading. Safe Rust prevents data races and many memory errors at
 compile time; `unsafe` code must make the invariants the compiler cannot check explicit.
 
 Use this reference when changing hand‑written Rust source, Cargo manifests, PyO3 bindings, or Rust
 tests. `rustfmt` and the workspace lints own general Rust style. This page documents
-VibeTrader‑specific choices that are easy to miss during review.
+VibeTrading‑specific choices that are easy to miss during review.
 
 ## Sources of truth
 
@@ -71,7 +71,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Example crate for VibeTrader"
+description = "Example crate for VibeTrading"
 repository.workspace = true
 ```
 
@@ -455,8 +455,8 @@ cannot import the item they document.
 - Prefix a Rust function renamed with `#[pyo3(name = "...")]` with `py_`.
 - When a binding needs a Rust‑only wrapper type, prefix it with `Py` and expose the Python name
   without that prefix.
-- Use `vibe_trader.adapters.<adapter_name>` for public adapter stub metadata. Runtime module
-  paths use `vibe_trader._libvibe.<adapter_name>`.
+- Use `vibe_trading.adapters.<adapter_name>` for public adapter stub metadata. Runtime module
+  paths use `vibe_trading._libvibe.<adapter_name>`.
 - Convert standard Python exceptions with `to_pyvalue_err`, `to_pytype_err`, `to_pyruntime_err`,
   `to_pykey_err`, `to_pyexception`, or `to_pynotimplemented_err` from
   `vibe_core::python`.
@@ -507,7 +507,7 @@ Every Python‑exposed type and function needs the matching `pyo3-stub-gen` anno
 
 ### Generated Python artifacts
 
-The Python surface commits generated `.pyi` files under `python/vibe_trader/` and generated
+The Python surface commits generated `.pyi` files under `python/vibe_trading/` and generated
 wrapper doc comments under `crates/**/src/python/`. Regenerate both with:
 
 ```bash

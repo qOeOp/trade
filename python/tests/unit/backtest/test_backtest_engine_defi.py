@@ -1,13 +1,13 @@
 from tests.unit.model.test_defi import _make_pool
 from tests.unit.model.test_defi import _make_pool_liquidity_update
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.common import DataActor
-from vibe_trader.common import DataActorConfig
-from vibe_trader.common import ImportableActorConfig
-from vibe_trader.model import Block
-from vibe_trader.model import Blockchain
-from vibe_trader.model import DefiData
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.common import DataActor
+from vibe_trading.common import DataActorConfig
+from vibe_trading.common import ImportableActorConfig
+from vibe_trading.model import Block
+from vibe_trading.model import Blockchain
+from vibe_trading.model import DefiData
 
 
 class DefiBlockActor(DataActor):
@@ -74,7 +74,7 @@ def test_backtest_engine_replays_defi_blocks_to_actor_subscription():
     engine.add_actor_from_config(
         ImportableActorConfig(
             actor_path="tests.unit.backtest.test_backtest_engine_defi:DefiBlockActor",
-            config_path="vibe_trader.common:DataActorConfig",
+            config_path="vibe_trading.common:DataActorConfig",
             config={"actor_id": "DEFI-BLOCK-ACTOR-001"},
         ),
     )

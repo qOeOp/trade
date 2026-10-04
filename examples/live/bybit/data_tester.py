@@ -11,16 +11,16 @@ from __future__ import annotations
 
 import argparse
 
-from vibe_trader.adapters.bybit import BybitDataClientConfig
-from vibe_trader.adapters.bybit import BybitDataClientFactory
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitProductType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import DataTesterConfig
+from vibe_trading.adapters.bybit import BybitDataClientConfig
+from vibe_trading.adapters.bybit import BybitDataClientFactory
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitProductType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import DataTesterConfig
 
 
 BYBIT = "BYBIT"

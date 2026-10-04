@@ -1,6 +1,6 @@
 # vibe-architect-ax
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for [AX Exchange](https://architect.exchange).
+[VibeTrading](https://github.com/qOeOp/trade) adapter for [AX Exchange](https://architect.exchange).
 
 ## Overview
 
@@ -10,9 +10,9 @@ equities, energy ETFs, metals, energy, treasuries, and compute. Its sandbox also
 futures. AX is licensed by the
 [Bermuda Monetary Authority (BMA)](https://www.bma.bm/).
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

@@ -80,9 +80,9 @@ You can provide this configuration either to a `BacktestEngine` or a `LiveNode`,
 Here's a basic example of configuring the `Cache`:
 
 ```python
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import CacheConfig
-from vibe_trader.config import LiveNodeConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import CacheConfig
+from vibe_trading.config import LiveNodeConfig
 
 # For backtesting
 engine_config = BacktestEngineConfig(
@@ -282,7 +282,7 @@ update_count = self.cache.book_update_count(instrument_id)  # Returns the number
 #### Price access
 
 ```python
-from vibe_trader.model import PriceType
+from vibe_trading.model import PriceType
 
 # Get current price by type; Returns Price or None.
 price = self.cache.price(
@@ -294,7 +294,7 @@ price = self.cache.price(
 #### Bar types
 
 ```python
-from vibe_trader.model import AggregationSource, PriceType
+from vibe_trading.model import AggregationSource, PriceType
 
 # Get all available bar types for an instrument; Returns list[BarType].
 bar_types = self.cache.bar_types(
@@ -563,7 +563,7 @@ the loop and the buffer or lookback to control how recent entries are protected.
 following defaults work well for most live sessions:
 
 ```python
-from vibe_trader.config import LiveExecEngineConfig
+from vibe_trading.config import LiveExecEngineConfig
 
 exec_engine = LiveExecEngineConfig(
     purge_closed_orders_interval_mins=15,
@@ -606,7 +606,7 @@ self.cache.add(key="my_key", value=b"some binary data")
 stored_data = self.cache.get("my_key")  # Returns bytes or None
 ```
 
-For more complex use cases, the `Cache` can store custom data objects that inherit from the `vibe_trader.core.Data` base class.
+For more complex use cases, the `Cache` can store custom data objects that inherit from the `vibe_trading.core.Data` base class.
 
 :::warning
 The `Cache` is not designed to be a full database replacement. For large datasets or complex querying needs, consider using a dedicated database system.
@@ -616,7 +616,7 @@ The `Cache` is not designed to be a full database replacement. For large dataset
 
 ### Cache vs. portfolio usage
 
-The `Cache` and `Portfolio` components serve different but complementary purposes in VibeTrader:
+The `Cache` and `Portfolio` components serve different but complementary purposes in VibeTrading:
 
 **Cache**:
 

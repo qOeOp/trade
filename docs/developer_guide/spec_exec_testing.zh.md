@@ -1,7 +1,7 @@
 # 执行测试规范
 
 本节定义一套严格的测试矩阵，用于通过 Rust `ExecTester` 策略验证适配器执行功能。
-Python 将其作为内置策略公开，并通过 `vibe_trader.testkit.ExecTesterConfig` 配置；
+Python 将其作为内置策略公开，并通过 `vibe_trading.testkit.ExecTesterConfig` 配置；
 Rust 代码则从 `vibe_testkit::testers` 导入。每个测试用例都由带前缀的 ID 标识
 （例如 TC-E01），并按功能分组。
 
@@ -30,17 +30,17 @@ Rust 代码则从 `vibe_testkit::testers` 导入。每个测试用例都由带�
 
 **Python 节点设置：**
 
-旧版示例仍使用 `vibe_trader.live.node.TradingNode`，但当前由 Rust 支持的 PyO3 适配器使用
-`vibe_trader.live.LiveNode`。需要在节点构建前注册适配器客户端工厂时，
+旧版示例仍使用 `vibe_trading.live.node.TradingNode`，但当前由 Rust 支持的 PyO3 适配器使用
+`vibe_trading.live.LiveNode`。需要在节点构建前注册适配器客户端工厂时，
 请使用 `LiveNode.builder(...)`。
 
 ```python
-from vibe_trader.common import Environment
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LiveRiskEngineConfig
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import ExecTesterConfig
+from vibe_trading.common import Environment
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LiveRiskEngineConfig
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import ExecTesterConfig
 
 node = (
     LiveNode.builder("TESTER-001", TraderId("TESTER-001"), Environment.SANDBOX)

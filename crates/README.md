@@ -1,6 +1,6 @@
-# vibe-trader
+# vibe-trading
 
-Container crate for [VibeTrader](https://github.com/qOeOp/trade).
+Container crate for [VibeTrading](https://github.com/qOeOp/trade).
 
 This crate re-exports the core, model, and common component crates as a small
 stable entry point. Use the individual `vibe-*` crates for adapter,
@@ -24,9 +24,9 @@ Use the other component crates that match your use case:
 
 Venue adapters publish as separate crates.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 Rust-native engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a

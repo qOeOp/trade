@@ -65,13 +65,13 @@ impl Debug for PyExecutionAlgorithmInner {
 /// Python-facing wrapper for execution algorithms.
 #[allow(non_camel_case_types)]
 #[pyo3::pyclass(
-    module = "vibe_trader.trading",
+    module = "vibe_trading.trading",
     name = "ExecutionAlgorithm",
     unsendable,
     subclass,
     skip_from_py_object
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.trading")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.trading")]
 #[derive(Clone)]
 pub struct PyExecutionAlgorithm {
     inner: Rc<UnsafeCell<PyExecutionAlgorithmInner>>,

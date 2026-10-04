@@ -1,12 +1,12 @@
 import types
 
-from vibe_trader.common.enums import LogColor
-from vibe_trader.config import StrategyConfig
-from vibe_trader.core.datetime import unix_nanos_to_dt
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.model.instruments import Instrument
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.common.enums import LogColor
+from vibe_trading.config import StrategyConfig
+from vibe_trading.core.datetime import unix_nanos_to_dt
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.model.instruments import Instrument
+from vibe_trading.trading.strategy import Strategy
 
 
 class DemoStrategyConfig(StrategyConfig, frozen=True):
@@ -24,7 +24,7 @@ class DemoStrategy(Strategy):
     """
     A demonstration strategy showing how to use Actor-Based Signal messaging.
 
-    This example demonstrates the simplest messaging approach in VibeTrader:
+    This example demonstrates the simplest messaging approach in VibeTrading:
     - Using signals for lightweight notifications (price extremes in this case)
     - Publishing signals with single string values
     - Subscribing to signals and handling them in on_signal

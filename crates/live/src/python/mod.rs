@@ -7,12 +7,12 @@ use pyo3::prelude::*;
 use vibe_portfolio::config::PortfolioConfig;
 
 pyo3_stub_gen::reexport_module_members!(
-    "vibe_trader.live",
-    "vibe_trader.portfolio",
+    "vibe_trading.live",
+    "vibe_trading.portfolio",
     "PortfolioConfig"
 );
 
-/// Exposed through `vibe_trader.live`.
+/// Exposed through `vibe_trading.live`.
 ///
 /// # Errors
 ///

@@ -37,11 +37,11 @@ impl ClientConfig for DeriveExecClientConfig {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.derive", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.derive", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.derive")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.derive")
 )]
 pub struct DeriveDataClientFactory;
 
@@ -96,11 +96,11 @@ impl DataClientFactory for DeriveDataClientFactory {
 #[derive(Clone, Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.derive", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.derive", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.derive")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.derive")
 )]
 pub struct DeriveExecFactoryConfig {
     /// The trader ID for the execution client.
@@ -128,11 +128,11 @@ impl ClientConfig for DeriveExecFactoryConfig {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.derive", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.derive", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.derive")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.derive")
 )]
 pub struct DeriveExecutionClientFactory;
 

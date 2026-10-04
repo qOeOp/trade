@@ -1,8 +1,8 @@
-from vibe_trader.model import AccountBalance
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import MarginBalance
-from vibe_trader.model import Money
+from vibe_trading.model import AccountBalance
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import MarginBalance
+from vibe_trading.model import Money
 
 
 USD = Currency.from_str("USD")

@@ -2,11 +2,11 @@
 
 Polymarket 成立于 2020 年，是一个去中心化预测市场平台，交易者可通过买卖结果代币对事件结果进行投机。
 
-VibeTrader 通过 Polymarket 中央限价订单簿（CLOB）API 提供数据和执行集成。
+VibeTrading 通过 Polymarket 中央限价订单簿（CLOB）API 提供数据和执行集成。
 
-适配器使用 Rust 实现，并通过 `vibe_trader.adapters.polymarket` 向 Python 公开；因此 Rust 和 Python 的数据、执行、签名及 WebSocket 操作行为一致。
+适配器使用 Rust 实现，并通过 `vibe_trading.adapters.polymarket` 向 Python 公开；因此 Rust 和 Python 的数据、执行、签名及 WebSocket 操作行为一致。
 
-VibeTrader 支持多种 Polymarket 订单签名类型，可灵活适配不同钱包配置，并由 VibeTrader 处理签名和订单准备。
+VibeTrading 支持多种 Polymarket 订单签名类型，可灵活适配不同钱包配置，并由 VibeTrading 处理签名和订单准备。
 
 ## 安装
 
@@ -15,7 +15,7 @@ Python 包已包含 Polymarket 适配器，无需安装适配器专用额外依�
 安装最新预发布构建：
 
 ```bash
-uv pip install --pre vibe_trader
+uv pip install --pre vibe_trading
 ```
 
 从源代码构建 Python 包时，在仓库根目录运行：
@@ -32,7 +32,7 @@ make build-debug
 
 ## 二元期权
 
-[二元期权](https://en.wikipedia.org/wiki/Binary_option)是一种金融奇异期权合约，交易者押注一个是非命题的结果。预测正确时，交易者获得固定收益；否则一无所获。VibeTrader 将 Polymarket 结果代币表示为 `BinaryOption` 金融工具。
+[二元期权](https://en.wikipedia.org/wiki/Binary_option)是一种金融奇异期权合约，交易者押注一个是非命题的结果。预测正确时，交易者获得固定收益；否则一无所获。VibeTrading 将 Polymarket 结果代币表示为 `BinaryOption` 金融工具。
 
 Polymarket 使用 **pUSD** 作为交易抵押代币，更多信息[见下文](#pusd)。
 
@@ -66,7 +66,7 @@ Polygon 上的代理合约地址为 [0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB]
 
 ## 钱包和账户
 
-要通过 VibeTrader 与 Polymarket 交互，需要一个兼容 **Polygon** 的钱包（例如 MetaMask）。
+要通过 VibeTrading 与 Polymarket 交互，需要一个兼容 **Polygon** 的钱包（例如 MetaMask）。
 
 ### 签名类型
 
@@ -83,7 +83,7 @@ Polymarket 支持多种订单签名和验证类型：
 Polymarket 对 2026 年 5 月 4 日及以后部署的账户钱包使用 Deposit Wallet。直接 EOA 交易要求 EOA 已获准。账户类型和设置流程请参阅 Polymarket [钱包和身份验证指南](https://docs.polymarket.com/trading/wallets-auth)。
 :::
 
-VibeTrader 默认使用签名类型 0（EOA），也可通过 `signature_type` 配置参数使用任一受支持签名类型。
+VibeTrading 默认使用签名类型 0（EOA），也可通过 `signature_type` 配置参数使用任一受支持签名类型。
 
 使用环境变量时，每个交易者实例支持一个钱包地址；也可通过多个执行客户端实例配置多个钱包。
 
@@ -127,7 +127,7 @@ cargo run -p vibe-polymarket --bin polymarket-create-api-key
 
 ## 配置
 
-设置 VibeTrader 使用 Polymarket 时，必须正确配置所需参数，尤其是私钥。
+设置 VibeTrading 使用 Polymarket 时，必须正确配置所需参数，尤其是私钥。
 
 **关键参数**：
 
@@ -202,7 +202,7 @@ strategy.submit_order(order)
 
 ### 有效期选项
 
-Polymarket 将 `POST /order` 字段称为 `orderType`。在 VibeTrader 中，该字段映射到 `TimeInForce`。有效组合取决于 Vibe 订单类型：
+Polymarket 将 `POST /order` 字段称为 `orderType`。在 VibeTrading 中，该字段映射到 `TimeInForce`。有效组合取决于 Vibe 订单类型：
 
 | Vibe TIF | Polymarket `orderType` | Vibe 订单范围       | 说明                                         |
 | -------- | ---------------------- | ------------------- | -------------------------------------------- |
@@ -212,7 +212,7 @@ Polymarket 将 `POST /order` 字段称为 `orderType`。在 VibeTrader 中，该
 | `IOC`    | `FAK`                  | `LIMIT` 或 `MARKET` | 立即成交可用数量，并取消剩余部分。           |
 
 :::note
-Polymarket 使用 `FAK`（Fill-And-Kill）表达 VibeTrader 所称的 `IOC`（Immediate or Cancel）语义。Polymarket 文档将 `FOK` 和 `FAK` 归类为市价订单类型，将 `GTC` 和 `GTD` 归类为限价订单类型。对于 Vibe `MARKET` 订单，适配器只接受 `IOC` 和 `FOK`；`GTC` 和 `GTD` 只适用于挂单的 `LIMIT` 订单。
+Polymarket 使用 `FAK`（Fill-And-Kill）表达 VibeTrading 所称的 `IOC`（Immediate or Cancel）语义。Polymarket 文档将 `FOK` 和 `FAK` 归类为市价订单类型，将 `GTC` 和 `GTD` 归类为限价订单类型。对于 Vibe `MARKET` 订单，适配器只接受 `IOC` 和 `FOK`；`GTC` 和 `GTD` 只适用于挂单的 `LIMIT` 订单。
 :::
 
 :::note
@@ -398,7 +398,7 @@ platform fee = shares * rate * (price * (1 - price)) ^ exponent
 当前指数为 `1` 的费用表应使用 `ProbabilityPriceFeeModel`。它从二元期权金融工具读取 maker 和 taker 费率，并应用相同的概率价格曲线：
 
 ```python
-from vibe_trader.execution import ProbabilityPriceFeeModel
+from vibe_trading.execution import ProbabilityPriceFeeModel
 
 fee_model = ProbabilityPriceFeeModel()
 ```
@@ -479,10 +479,10 @@ IOC 映射到交易场所 FAK。taker 成交确认后，`original_size` 与 `siz
 数据客户端还支持 Polymarket 实时数据（RTDS）的加密货币和股票主题。通过通用自定义数据订阅，并提供必填且非空的 `symbol` 元数据值：
 
 ```python
-from vibe_trader.adapters.polymarket import POLYMARKET_CLIENT_ID
-from vibe_trader.adapters.polymarket import PolymarketRtdsCryptoPrice
-from vibe_trader.adapters.polymarket import PolymarketRtdsEquityPrice
-from vibe_trader.model import DataType
+from vibe_trading.adapters.polymarket import POLYMARKET_CLIENT_ID
+from vibe_trading.adapters.polymarket import PolymarketRtdsCryptoPrice
+from vibe_trading.adapters.polymarket import PolymarketRtdsEquityPrice
+from vibe_trading.model import DataType
 
 crypto_type = DataType(
     PolymarketRtdsCryptoPrice.__name__,
@@ -794,8 +794,8 @@ SOCKS URL 和格式错误 URL 无法通过配置验证。`proxy_url` 为 `None` 
 使用该构建器可在不下载完整交易场所目录的情况下生成可预测的 Polymarket Up/Down 事件 slug。构建器为配置窗口内对齐的时间段生成 `{asset}-updown-{interval_mins}m-{unix_timestamp}` 格式的 slug。
 
 ```python
-from vibe_trader.adapters.polymarket import PolymarketInstrumentProviderConfig
-from vibe_trader.adapters.polymarket import PolymarketUpDownEventSlugConfig
+from vibe_trading.adapters.polymarket import PolymarketInstrumentProviderConfig
+from vibe_trading.adapters.polymarket import PolymarketUpDownEventSlugConfig
 
 instrument_config = PolymarketInstrumentProviderConfig(
     event_slug_builder=PolymarketUpDownEventSlugConfig(
@@ -816,7 +816,7 @@ Python 包导出 Rust 支持的 `PolymarketDataLoader`，用于公共发现、�
 所有网络方法都是异步的。使用市场 slug 构建加载器，并按索引选择其结果代币：
 
 ```python
-from vibe_trader.adapters.polymarket import PolymarketDataLoader
+from vibe_trading.adapters.polymarket import PolymarketDataLoader
 
 loader = await PolymarketDataLoader.from_market_slug(
     "will-jd-vance-win-the-2028-us-presidential-election",

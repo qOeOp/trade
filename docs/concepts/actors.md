@@ -21,11 +21,11 @@ Actors support configuration through a pattern similar to strategies.
 ```python
 from collections.abc import Sequence
 
-from vibe_trader.common import DataActor
-from vibe_trader.config import DataActorConfig
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
+from vibe_trading.common import DataActor
+from vibe_trading.config import DataActorConfig
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
 
 
 class MyActorConfig(DataActorConfig):
@@ -220,11 +220,11 @@ Different data operations map to these handlers:
 This example shows both historical and real-time data handling:
 
 ```python
-from vibe_trader.common import DataActor
-from vibe_trader.config import DataActorConfig
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
+from vibe_trading.common import DataActor
+from vibe_trading.config import DataActorConfig
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
 
 
 class MyActorConfig(DataActorConfig):

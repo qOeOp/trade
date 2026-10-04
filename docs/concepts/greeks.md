@@ -103,7 +103,7 @@ The core Rust implementation lives in `crates/model/src/data/greeks.rs`:
 Low-level pricing functions exposed to Python from `crates/model/src/data/greeks.rs`:
 
 ```python
-from vibe_trader.model import (
+from vibe_trading.model import (
     black_scholes_greeks,
     imply_vol,
     imply_vol_and_greeks,
@@ -136,15 +136,15 @@ The `BlackScholesGreeksResult` returned by these functions contains: `price`, `v
 
 ### GreeksCalculator
 
-The legacy Cython `GreeksCalculator` class in `vibe_trader/model/greeks.pyx` computes
+The legacy Cython `GreeksCalculator` class in `vibe_trading/model/greeks.pyx` computes
 Black‑Scholes Greeks from cached market data. The current PyO3 calculator is exposed from
-`vibe_trader.common.GreeksCalculator`.
+`vibe_trading.common.GreeksCalculator`.
 Both calculators use the cache and clock and are accessible from actors or strategies.
 
 ```python
-from vibe_trader.common import GreeksCalculator
+from vibe_trading.common import GreeksCalculator
 
-# Legacy Cython: from vibe_trader.model.greeks import GreeksCalculator
+# Legacy Cython: from vibe_trading.model.greeks import GreeksCalculator
 
 # Typically created in on_start()
 calculator = GreeksCalculator(cache=self.cache, clock=self.clock)

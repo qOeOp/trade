@@ -2,22 +2,22 @@ import re
 
 import pytest
 
-from vibe_trader.common import CacheConfig
-from vibe_trader.common import LoggerConfig
-from vibe_trader.common import MessageBusConfig
-from vibe_trader.core import UUID4
-from vibe_trader.live import InstrumentProviderConfig
-from vibe_trader.live import LiveDataClientConfig
-from vibe_trader.live import LiveDataEngineConfig
-from vibe_trader.live import LiveExecClientConfig
-from vibe_trader.live import LiveExecEngineConfig
-from vibe_trader.live import LiveNodeConfig
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.live import PluginConfig
-from vibe_trader.live import PortfolioConfig
-from vibe_trader.live import RoutingConfig
-from vibe_trader.model import BarIntervalType
-from vibe_trader.model import ClientId
+from vibe_trading.common import CacheConfig
+from vibe_trading.common import LoggerConfig
+from vibe_trading.common import MessageBusConfig
+from vibe_trading.core import UUID4
+from vibe_trading.live import InstrumentProviderConfig
+from vibe_trading.live import LiveDataClientConfig
+from vibe_trading.live import LiveDataEngineConfig
+from vibe_trading.live import LiveExecClientConfig
+from vibe_trading.live import LiveExecEngineConfig
+from vibe_trading.live import LiveNodeConfig
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.live import PluginConfig
+from vibe_trading.live import PortfolioConfig
+from vibe_trading.live import RoutingConfig
+from vibe_trading.model import BarIntervalType
+from vibe_trading.model import ClientId
 
 
 def test_instrument_provider_config_defaults():

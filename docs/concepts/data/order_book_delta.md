@@ -1,7 +1,7 @@
 # OrderBookDelta
 
 `OrderBookDelta` represents one change to an order book. It is the most granular built‑in book data
-type and supports the book types VibeTrader uses for incremental updates:
+type and supports the book types VibeTrading uses for incremental updates:
 
 - `L3_MBO`: Level 3 market‑by‑order (MBO) data.
 - `L2_MBP`: Level 2 market‑by‑price (MBP) data.
@@ -83,14 +83,14 @@ let delta = OrderBookDelta::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.data import BookOrder
-from vibe_trader.model.data import OrderBookDelta
-from vibe_trader.model.enums import BookAction
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import RecordFlag
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.data import BookOrder
+from vibe_trading.model.data import OrderBookDelta
+from vibe_trading.model.enums import BookAction
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import RecordFlag
 
 delta = OrderBookDelta(
     instrument_id=InstrumentId.from_str("ETHUSDT-PERP.BINANCE"),

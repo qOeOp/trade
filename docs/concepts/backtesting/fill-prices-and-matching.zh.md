@@ -81,10 +81,10 @@ K 线内价格变动。
 该交易品种最小价格变动单位的倍数：
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -112,10 +112,10 @@ venue = BacktestVenueConfig(
 模拟成交绝不会扣减历史订单簿。默认情况下，每次撮合迭代都可以使用记录的全部数量：
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",

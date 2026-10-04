@@ -1,14 +1,14 @@
 # 订单
 
 :::note[层次]
-这些页面描述继承引擎：`crates` 与 `python/vibe_trader` 今天实现的组件模型。
+这些页面描述继承引擎：`crates` 与 `python/vibe_trading` 今天实现的组件模型。
 它们对那一层的描述是准确的，为在该层工作的人保留。
 
 它们不是本平台的架构权威。当此处某页与 Owner 契约对同一问题给出不同答案时，以 Owner 契约为准。
 边界由 `docs/architecture/` 规定，每条业务事实及其唯一写入者由 `docs/owners/` 规定。
 :::
 
-VibeTrader 支持广泛的订单类型和执行指令，尽可能公开交易场所的功能。
+VibeTrading 支持广泛的订单类型和执行指令，尽可能公开交易场所的功能。
 交易者可以为任何交易策略中的订单执行与管理定义指令和或有关系。
 
 ## 概述
@@ -17,11 +17,11 @@ VibeTrader 支持广泛的订单类型和执行指令，尽可能公开交易场
 *Market* 订单按最佳可用价格立即执行，从而消耗流动性；*Limit* 订单则以指定价格挂在订单簿中，
 直到完成撮合，从而提供流动性。
 
-VibeTrader 支持九种订单类型（即 `OrderType` 枚举值）。[订单类型](#订单类型)一节汇总这些类型，
+VibeTrading 支持九种订单类型（即 `OrderType` 枚举值）。[订单类型](#订单类型)一节汇总这些类型，
 并为每种类型提供专门指南。
 
 :::info
-VibeTrader 为众多订单类型和执行指令提供统一 API，但并非所有交易场所都支持每个选项。
+VibeTrading 为众多订单类型和执行指令提供统一 API，但并非所有交易场所都支持每个选项。
 如果订单包含目标交易场所不支持的指令或选项，系统不会提交订单，而会记录清晰的解释性错误。
 :::
 
@@ -216,11 +216,11 @@ flowchart TB
 
 这样，工厂就能提供更简单的订单创建方法。所有示例都在 `Strategy` 上下文中使用 `OrderFactory`。
 
-更多详情请参阅 [`OrderFactory` API 参考](/docs/python-api-latest/common.html#vibe_trader.common.factories.OrderFactory)。
+更多详情请参阅 [`OrderFactory` API 参考](/docs/python-api-latest/common.html#vibe_trading.common.factories.OrderFactory)。
 
 ## 订单类型
 
-VibeTrader 支持以下订单类型。每种类型都链接到包含代码示例的专门指南；
+VibeTrading 支持以下订单类型。每种类型都链接到包含代码示例的专门指南；
 可选参数以显示默认值的注释标记。
 
 | 订单类型                                          | 类别       | 说明                                                     |
@@ -262,7 +262,7 @@ VibeTrader 支持以下订单类型。每种类型都链接到包含代码示例
 
 ## 模拟订单
 
-VibeTrader 可以在本地模拟交易场所不原生支持的订单类型，但在实际执行时只使用
+VibeTrading 可以在本地模拟交易场所不原生支持的订单类型，但在实际执行时只使用
 `MARKET` 和 `LIMIT` 订单。有关模拟生命周期、支持的类型、查询方式及最佳实践，
 请参阅[模拟订单](emulated.md)指南。
 

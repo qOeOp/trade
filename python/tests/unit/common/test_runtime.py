@@ -3,22 +3,22 @@ from decimal import Decimal
 
 import pytest
 
-from vibe_trader.common import BusMessage
-from vibe_trader.common import Cache
-from vibe_trader.common import Clock
-from vibe_trader.common import ComponentState
-from vibe_trader.common import ComponentTrigger
-from vibe_trader.common import CustomData
-from vibe_trader.common import Environment
-from vibe_trader.common import GreeksCalculator
-from vibe_trader.common import LogColor
-from vibe_trader.common import LogFormat
-from vibe_trader.common import LogLevel
-from vibe_trader.common import MessageBusListener
-from vibe_trader.common import Signal
-from vibe_trader.common import get_exchange_rate
-from vibe_trader.model import DataType
-from vibe_trader.model import PriceType
+from vibe_trading.common import BusMessage
+from vibe_trading.common import Cache
+from vibe_trading.common import Clock
+from vibe_trading.common import ComponentState
+from vibe_trading.common import ComponentTrigger
+from vibe_trading.common import CustomData
+from vibe_trading.common import Environment
+from vibe_trading.common import GreeksCalculator
+from vibe_trading.common import LogColor
+from vibe_trading.common import LogFormat
+from vibe_trading.common import LogLevel
+from vibe_trading.common import MessageBusListener
+from vibe_trading.common import Signal
+from vibe_trading.common import get_exchange_rate
+from vibe_trading.model import DataType
+from vibe_trading.model import PriceType
 
 
 @pytest.mark.parametrize(

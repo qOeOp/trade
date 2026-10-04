@@ -28,11 +28,11 @@ use crate::common::{
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 pub struct BybitOrderCursorList {
     /// Collection of orders returned by the endpoint.
@@ -83,11 +83,11 @@ impl BybitOrderCursorList {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 #[serde(rename_all = "camelCase")]
 pub struct BybitServerTime {
@@ -233,11 +233,11 @@ pub type BybitTickersOptionResponse = BybitListResponse<BybitTickerOption>;
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 pub struct BybitTickerData {
     pub symbol: Ustr,
@@ -704,11 +704,11 @@ pub type BybitInstrumentOptionResponse = BybitCursorListResponse<BybitInstrument
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 pub struct BybitFeeRate {
     pub symbol: Ustr,
@@ -854,11 +854,11 @@ pub type BybitAccountInfoResponse = BybitResponse<BybitAccountInfo>;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 #[serde(rename_all = "camelCase")]
 pub struct BybitOrder {
@@ -1415,11 +1415,11 @@ pub type BybitRepayResponse = BybitResponse<BybitRepayResult>;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 #[serde(rename_all = "PascalCase")]
 pub struct BybitApiKeyPermissions {
@@ -1472,11 +1472,11 @@ pub struct BybitApiKeyPermissions {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")
 )]
 #[serde(rename_all = "camelCase")]
 pub struct BybitAccountDetails {

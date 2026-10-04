@@ -6,19 +6,19 @@ import pandas as pd
 from tests.integration_tests.adapters.betfair.test_kit import BetfairDataProvider
 from tests.integration_tests.adapters.betfair.test_kit import betting_instrument
 
-from vibe_trader.adapters.betfair import BETFAIR_CLIENT_ID
-from vibe_trader.adapters.betfair import BETFAIR_VENUE
-from vibe_trader.adapters.betfair import BetfairParser
-from vibe_trader.backtest.engine import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalance
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
-from vibe_trader.model.currencies import GBP
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import BookType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.objects import Money
+from vibe_trading.adapters.betfair import BETFAIR_CLIENT_ID
+from vibe_trading.adapters.betfair import BETFAIR_VENUE
+from vibe_trading.adapters.betfair import BetfairParser
+from vibe_trading.backtest.engine import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalance
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
+from vibe_trading.model.currencies import GBP
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import BookType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.objects import Money
 
 
 if __name__ == "__main__":

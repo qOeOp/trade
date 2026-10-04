@@ -239,11 +239,11 @@ fn add_order(book: &mut OrderBook, side: OrderSide, price: Price, size: Quantity
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct DefaultFillModel {
     state: ProbabilisticFillState,
@@ -314,11 +314,11 @@ impl FillModel for DefaultFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct BestPriceFillModel {
     state: ProbabilisticFillState,
@@ -399,11 +399,11 @@ impl FillModel for BestPriceFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct OneTickSlippageFillModel {
     state: ProbabilisticFillState,
@@ -482,11 +482,11 @@ impl FillModel for OneTickSlippageFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct ProbabilisticFillModel {
     state: ProbabilisticFillState,
@@ -582,11 +582,11 @@ impl FillModel for ProbabilisticFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct TwoTierFillModel {
     state: ProbabilisticFillState,
@@ -679,11 +679,11 @@ impl FillModel for TwoTierFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct ThreeTierFillModel {
     state: ProbabilisticFillState,
@@ -791,11 +791,11 @@ impl FillModel for ThreeTierFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct LimitOrderPartialFillModel {
     state: ProbabilisticFillState,
@@ -889,11 +889,11 @@ impl FillModel for LimitOrderPartialFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct SizeAwareFillModel {
     state: ProbabilisticFillState,
@@ -983,11 +983,11 @@ impl FillModel for SizeAwareFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct CompetitionAwareFillModel {
     state: ProbabilisticFillState,
@@ -1068,11 +1068,11 @@ impl FillModel for CompetitionAwareFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct VolumeSensitiveFillModel {
     state: ProbabilisticFillState,
@@ -1168,11 +1168,11 @@ impl FillModel for VolumeSensitiveFillModel {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.execution", unsendable, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.execution", unsendable, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 pub struct MarketHoursFillModel {
     state: ProbabilisticFillState,

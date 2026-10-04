@@ -2,20 +2,20 @@ import subprocess
 import sys
 import textwrap
 
-from vibe_trader.common import LogColor
-from vibe_trader.common import Logger
-from vibe_trader.common import LogLevel
-from vibe_trader.common import init_tracing
-from vibe_trader.common import log_header
-from vibe_trader.common import log_sysinfo
-from vibe_trader.common import logger_flush
-from vibe_trader.common import logger_log
-from vibe_trader.common import logging_clock_set_realtime_mode
-from vibe_trader.common import logging_clock_set_static_mode
-from vibe_trader.common import logging_clock_set_static_time
-from vibe_trader.common import tracing_is_initialized
-from vibe_trader.core import UUID4
-from vibe_trader.model import TraderId
+from vibe_trading.common import LogColor
+from vibe_trading.common import Logger
+from vibe_trading.common import LogLevel
+from vibe_trading.common import init_tracing
+from vibe_trading.common import log_header
+from vibe_trading.common import log_sysinfo
+from vibe_trading.common import logger_flush
+from vibe_trading.common import logger_log
+from vibe_trading.common import logging_clock_set_realtime_mode
+from vibe_trading.common import logging_clock_set_static_mode
+from vibe_trading.common import logging_clock_set_static_time
+from vibe_trading.common import tracing_is_initialized
+from vibe_trading.core import UUID4
+from vibe_trading.model import TraderId
 
 
 def test_logger_methods_and_name():
@@ -59,11 +59,11 @@ def test_init_tracing_before_logging_succeeds_in_fresh_process():
         """
         import tempfile
 
-        from vibe_trader.common import LogLevel
-        from vibe_trader.common import init_logging
-        from vibe_trader.common import init_tracing
-        from vibe_trader.core import UUID4
-        from vibe_trader.model import TraderId
+        from vibe_trading.common import LogLevel
+        from vibe_trading.common import init_logging
+        from vibe_trading.common import init_tracing
+        from vibe_trading.core import UUID4
+        from vibe_trading.model import TraderId
 
         init_tracing()
 

@@ -19,7 +19,7 @@ use crate::{
 ///
 /// Returns an error if `secs` is non-finite or cannot be represented as `u64` nanoseconds.
 #[pyfunction(name = "secs_to_nanos")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_secs_to_nanos(secs: f64) -> PyResult<u64> {
     secs_to_nanos(secs).map_err(to_pyvalue_err)
 }
@@ -30,7 +30,7 @@ pub fn py_secs_to_nanos(secs: f64) -> PyResult<u64> {
 ///
 /// Returns an error if `secs` is non-finite or cannot be represented as `u64` milliseconds.
 #[pyfunction(name = "secs_to_millis")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_secs_to_millis(secs: f64) -> PyResult<u64> {
     secs_to_millis(secs).map_err(to_pyvalue_err)
 }
@@ -44,7 +44,7 @@ pub fn py_secs_to_millis(secs: f64) -> PyResult<u64> {
 ///
 /// Returns an error if `millis` is non-finite or cannot be represented as `u64` nanoseconds.
 #[pyfunction(name = "millis_to_nanos")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_millis_to_nanos(millis: f64) -> PyResult<u64> {
     millis_to_nanos(millis).map_err(to_pyvalue_err)
 }
@@ -58,7 +58,7 @@ pub fn py_millis_to_nanos(millis: f64) -> PyResult<u64> {
 ///
 /// Returns an error if `micros` is non-finite or cannot be represented as `u64` nanoseconds.
 #[pyfunction(name = "micros_to_nanos")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_micros_to_nanos(micros: f64) -> PyResult<u64> {
     micros_to_nanos(micros).map_err(to_pyvalue_err)
 }
@@ -69,7 +69,7 @@ pub fn py_micros_to_nanos(micros: f64) -> PyResult<u64> {
 /// but is acceptable when computing fractional seconds.
 #[must_use]
 #[pyfunction(name = "nanos_to_secs")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_nanos_to_secs(nanos: u64) -> f64 {
     nanos_to_secs(nanos)
 }
@@ -77,7 +77,7 @@ pub fn py_nanos_to_secs(nanos: u64) -> f64 {
 /// Converts nanoseconds (ns) to milliseconds (ms).
 #[must_use]
 #[pyfunction(name = "nanos_to_millis")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub const fn py_nanos_to_millis(nanos: u64) -> u64 {
     nanos_to_millis(nanos)
 }
@@ -85,7 +85,7 @@ pub const fn py_nanos_to_millis(nanos: u64) -> u64 {
 /// Converts nanoseconds (ns) to microseconds (μs).
 #[must_use]
 #[pyfunction(name = "nanos_to_micros")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub const fn py_nanos_to_micros(nanos: u64) -> u64 {
     nanos_to_micros(nanos)
 }
@@ -97,7 +97,7 @@ pub const fn py_nanos_to_micros(nanos: u64) -> u64 {
     name = "unix_nanos_to_iso8601",
     signature = (timestamp_ns, nanos_precision=Some(true))
 )]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_unix_nanos_to_iso8601(
     timestamp_ns: u64,
     nanos_precision: Option<bool>,
@@ -118,7 +118,7 @@ pub fn py_unix_nanos_to_iso8601(
 ///
 /// Returns an error if the date is invalid.
 #[pyfunction(name = "last_weekday_nanos")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_last_weekday_nanos(year: i32, month: u32, day: u32) -> PyResult<u64> {
     Ok(last_weekday_nanos(year, month, day)
         .map_err(to_pyvalue_err)?
@@ -131,7 +131,7 @@ pub fn py_last_weekday_nanos(year: i32, month: u32, day: u32) -> PyResult<u64> {
 ///
 /// Returns an error if the timestamp is invalid.
 #[pyfunction(name = "is_within_last_24_hours")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_is_within_last_24_hours(timestamp_ns: u64) -> PyResult<bool> {
     is_within_last_24_hours(UnixNanos::from(timestamp_ns)).map_err(to_pyvalue_err)
 }

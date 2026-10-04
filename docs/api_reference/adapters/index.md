@@ -1,7 +1,7 @@
 # Adapters
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters
+.. automodule:: vibe_trading.adapters
 ```
 
 ```{eval-rst}

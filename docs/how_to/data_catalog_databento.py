@@ -10,7 +10,7 @@
 # ## Prerequisites
 #
 # - Python 3.12+
-# - A local Vibe Trader source build (`make build-debug`)
+# - A local Vibe Trading source build (`make build-debug`)
 # - [databento](https://pypi.org/project/databento/) Python client library (`pip install databento`)
 # - [Databento](https://databento.com) account with API key set as `DATABENTO_API_KEY`
 
@@ -98,9 +98,9 @@ df
 import shutil
 from pathlib import Path
 
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.model import InstrumentId
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.model import InstrumentId
+from vibe_trading.persistence import ParquetDataCatalog
 
 
 # %%

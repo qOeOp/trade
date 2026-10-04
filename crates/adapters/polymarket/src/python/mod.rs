@@ -422,7 +422,7 @@ fn extract_polymarket_exec_config(
     }
 }
 
-/// Exposed through `vibe_trader.adapters.polymarket`.
+/// Exposed through `vibe_trading.adapters.polymarket`.
 #[pymodule]
 pub fn polymarket(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(stringify!(POLYMARKET), POLYMARKET)?;

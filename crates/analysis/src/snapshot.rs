@@ -8,11 +8,11 @@ use crate::Returns;
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.analysis", skip_from_py_object)
+    pyo3::pyclass(module = "vibe_trading.analysis", skip_from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.analysis")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.analysis")
 )]
 pub struct PortfolioStatistics {
     pub pnls: AHashMap<String, AHashMap<String, f64>>,

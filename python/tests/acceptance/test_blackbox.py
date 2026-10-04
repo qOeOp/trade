@@ -14,14 +14,14 @@ from __future__ import annotations
 
 from tests.providers import TestDataProvider
 from tests.providers import TestInstrumentProvider
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import Currency
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Venue
-from vibe_trader.trading import ImportableStrategyConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import Currency
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Venue
+from vibe_trading.trading import ImportableStrategyConfig
 
 
 MACD_STRATEGY = "strategies.acceptance:MACDTradeTickStrategy"

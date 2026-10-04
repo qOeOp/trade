@@ -3,7 +3,7 @@
 This page documents the existing engine. Where it differs from the target product architecture in
 `docs/architecture/event-rail.md`, that document is authoritative.
 
-Event sourcing gives VibeTrader a durable, ordered record of the messages that change engine
+Event sourcing gives VibeTrading a durable, ordered record of the messages that change engine
 state. The event store records those messages at the system boundary, then readers, replay tools,
 and verifiers use the same log to reconstruct what happened and to rebuild state.
 

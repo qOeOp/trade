@@ -70,7 +70,7 @@ impl InteractiveBrokersError {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -78,7 +78,7 @@ impl InteractiveBrokersError {
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum InteractiveBrokersErrorKind {
@@ -112,7 +112,7 @@ pub type InteractiveBrokersResult<T> = Result<T, InteractiveBrokersError>;
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -120,7 +120,7 @@ pub type InteractiveBrokersResult<T> = Result<T, InteractiveBrokersError>;
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum ErrorCategory {

@@ -1,9 +1,9 @@
 # vibe-derive
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for the
+[VibeTrading](https://github.com/qOeOp/trade) adapter for the
 [Derive](https://www.derive.xyz) decentralized derivatives exchange.
 
-The `vibe-derive` crate implements the Derive adapter for VibeTrader, including typed HTTP
+The `vibe-derive` crate implements the Derive adapter for VibeTrading, including typed HTTP
 and WebSocket clients, REST and stream models, venue parsing, data and execution client wiring, and
 EIP-712 signing for the official **Derive API**.
 
@@ -11,9 +11,9 @@ Derive offers European-style options, perpetual swaps, and spot markets on the D
 optimistic rollup that settles to Ethereum. Orders match off-chain and settle on-chain while users
 retain custody through per-user smart-contract wallets.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

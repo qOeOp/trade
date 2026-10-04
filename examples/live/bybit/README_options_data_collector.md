@@ -18,7 +18,7 @@ subscribes to their quote and orderbook data, and stores the data in parquet fil
 ## Requirements
 
 - Python 3.8+
-- VibeTrader
+- VibeTrading
 - Bybit API credentials (for live data access)
 
 ## Setup

@@ -85,13 +85,13 @@ let esz21 = FuturesContract::builder()
 ```python tab="Python"
 import pandas as pd
 
-from vibe_trader.model import AssetClass
-from vibe_trader.model import Currency
-from vibe_trader.model import FuturesContract
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import AssetClass
+from vibe_trading.model import Currency
+from vibe_trading.model import FuturesContract
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 esz21 = FuturesContract(
     instrument_id=InstrumentId.from_str("ESZ21.GLBX"),

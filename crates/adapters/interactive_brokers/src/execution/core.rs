@@ -102,7 +102,7 @@ use crate::{
 /// It manages order submission, modification, cancellation, and execution reporting.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.interactive_brokers", unsendable)
+    pyo3::pyclass(module = "vibe_trading.adapters.interactive_brokers", unsendable)
 )]
 pub struct InteractiveBrokersExecutionClient {
     /// Core execution client functionality.

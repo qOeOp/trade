@@ -2,7 +2,7 @@
 
 本页记载既有引擎。凡与 `docs/owners/portfolio.md` 的 Owner 契约不一致处，以 Owner 契约为准。
 
-本指南介绍 VibeTrader 中持仓的工作方式，包括持仓生命周期、如何根据订单成交聚合持仓、盈亏计算，以及净额 OMS 配置中的重要概念--持仓快照。
+本指南介绍 VibeTrading 中持仓的工作方式，包括持仓生命周期、如何根据订单成交聚合持仓、盈亏计算，以及净额 OMS 配置中的重要概念--持仓快照。
 
 ## 概述
 
@@ -122,7 +122,7 @@ signed_qty = 0  # Position FLAT (closed)
 
 ## OMS 类型与持仓管理
 
-VibeTrader 支持两种主要 OMS 类型，它们会从根本上影响持仓的跟踪和管理方式。此外还有 `OmsType.UNSPECIFIED` 选项，默认采用组件上下文中的设置。完整说明请参阅[执行指南](execution.md#order-management-system-oms)。
+VibeTrading 支持两种主要 OMS 类型，它们会从根本上影响持仓的跟踪和管理方式。此外还有 `OmsType.UNSPECIFIED` 选项，默认采用组件上下文中的设置。完整说明请参阅[执行指南](execution.md#order-management-system-oms)。
 
 ### `NETTING`
 
@@ -208,7 +208,7 @@ BUY 50 units at $52    # Position closes, PnL = $100
 
 ## 盈亏计算
 
-VibeTrader 提供的盈亏计算会考虑金融工具规格和市场惯例。
+VibeTrading 提供的盈亏计算会考虑金融工具规格和市场惯例。
 
 ### 已实现盈亏
 
@@ -337,7 +337,7 @@ notional = position.notional_value(current_price)
 - `last_trade_id`：最近的交易 ID。
 
 :::info
-完整类型信息和详细属性文档请参阅 Position [API 参考](/docs/python-api-latest/model/position.html#vibe_trader.model.position.Position)。
+完整类型信息和详细属性文档请参阅 Position [API 参考](/docs/python-api-latest/model/position.html#vibe_trading.model.position.Position)。
 :::
 
 ## 事件与跟踪

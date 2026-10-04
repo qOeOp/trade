@@ -1,7 +1,7 @@
 # Orders
 
 ```{eval-rst}
-.. automodule:: vibe_trader.model
+.. automodule:: vibe_trading.model
    :no-index:
    :show-inheritance:
    :members: ContingencyType, LimitIfTouchedOrder, LimitOrder, LiquiditySide, MarketIfTouchedOrder, MarketOrder, MarketToLimitOrder, OmsType, OrderList, OrderSide, OrderStatus, OrderType, OtoTriggerMode, StopLimitOrder, StopMarketOrder, TimeInForce, TrailingOffsetType, TrailingStopLimitOrder, TrailingStopMarketOrder, TriggerType

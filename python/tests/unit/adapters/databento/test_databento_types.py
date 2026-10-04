@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.adapters.databento import DatabentoImbalance
-from vibe_trader.adapters.databento import DatabentoStatistics
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.adapters.databento import DatabentoImbalance
+from vibe_trading.adapters.databento import DatabentoStatistics
+from vibe_trading.model import InstrumentId
 
 
 TEST_DATA_DIR = Path(__file__).resolve().parents[5] / "crates/adapters/databento/test_data"

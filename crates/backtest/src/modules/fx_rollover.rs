@@ -53,11 +53,11 @@ fn eastern_timezone() -> &'static TimeZone {
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.backtest", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.backtest", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")
 )]
 pub struct InterestRateRecord {
     /// OECD location code using ISO 3166 alpha-3 (e.g., "AUS", "USA") or "EA19".
@@ -186,11 +186,11 @@ impl RolloverInterestCalculator {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.backtest", unsendable, skip_from_py_object)
+    pyo3::pyclass(module = "vibe_trading.backtest", unsendable, skip_from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")
 )]
 pub struct FXRolloverInterestModule {
     calculator: RolloverInterestCalculator,

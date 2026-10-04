@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Adapters connect VibeTrader to venues and data providers. A good adapter does more than move
+Adapters connect VibeTrading to venues and data providers. A good adapter does more than move
 bytes: it preserves venue semantics, produces valid Vibe domain events, and makes uncertain
 outcomes explicit. The work is exacting, but the repository already provides strong contracts and
 useful examples.
@@ -83,7 +83,7 @@ crates/adapters/<adapter>/
 Python and documentation surfaces sit outside the crate:
 
 ```text
-python/vibe_trader/adapters/<adapter>/  # Public package and generated stubs
+python/vibe_trading/adapters/<adapter>/  # Public package and generated stubs
 examples/live/<adapter>/                    # Python data and execution testers
 python/tests/unit/adapters/<adapter>/       # Public Python package tests
 docs/integrations/<adapter>.md              # User-facing integration guide
@@ -105,7 +105,7 @@ Product‑specific splits are legitimate when product families have different pr
 client can also span distinct endpoints when request and state semantics remain common. Match the
 venue's real boundaries and keep shared behavior above those splits.
 
-Python package files live under `python/vibe_trader/adapters/<adapter>/`. In current Rust‑native
+Python package files live under `python/vibe_trading/adapters/<adapter>/`. In current Rust‑native
 adapters, the package usually re‑exports generated bindings. Change Rust binding metadata or other
 generator inputs, then run `make py-stubs`; do not edit generated `.pyi` files.
 
@@ -126,8 +126,8 @@ The [Vibe conventions hook](../../.pre-commit-hooks/check_vibe_conventions.sh) t
 PyO3 module list as a public API allowlist. The
 [PyO3 conventions hook](../../.pre-commit-hooks/check_pyo3_conventions.sh) also enforces:
 
-- Stub metadata uses `vibe_trader.adapters.<adapter>`.
-- Runtime extension imports use `vibe_trader._libvibe.<adapter>`.
+- Stub metadata uses `vibe_trading.adapters.<adapter>`.
+- Runtime extension imports use `vibe_trading._libvibe.<adapter>`.
 - A Rust function renamed with `#[pyo3(name = ...)]` has a `py_` Rust name.
 - Python exceptions use the project error conversion functions.
 

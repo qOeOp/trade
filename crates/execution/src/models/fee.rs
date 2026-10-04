@@ -212,12 +212,12 @@ impl Default for FeeModelAny {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.execution",
+        module = "vibe_trading.execution",
         extends = PyFeeModel,
         skip_from_py_object
     )
@@ -266,12 +266,12 @@ impl FeeModel for FixedFeeModel {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.execution",
+        module = "vibe_trading.execution",
         extends = PyFeeModel,
         skip_from_py_object
     )
@@ -356,12 +356,12 @@ fn spread_leg_ratio_parts(ratio: &str, symbol: &str) -> Option<i64> {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.execution",
+        module = "vibe_trading.execution",
         extends = PyFeeModel,
         skip_from_py_object
     )
@@ -402,12 +402,12 @@ impl FeeModel for MakerTakerFeeModel {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.execution",
+        module = "vibe_trading.execution",
         extends = PyFeeModel,
         skip_from_py_object
     )
@@ -450,12 +450,12 @@ impl FeeModel for ProbabilityPriceFeeModel {
 #[derive(Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.execution",
+        module = "vibe_trading.execution",
         extends = PyFeeModel,
         skip_from_py_object
     )
@@ -546,12 +546,12 @@ impl FeeModel for CappedOptionFeeModel {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.execution")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.execution")
 )]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.execution",
+        module = "vibe_trading.execution",
         extends = PyFeeModel,
         skip_from_py_object
     )

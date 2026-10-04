@@ -42,10 +42,10 @@ use crate::{
 /// capabilities, matching the interface of Python's `StreamingFeatherWriter`.
 #[pyclass(
     name = "StreamingFeatherWriter",
-    module = "vibe_trader.persistence",
+    module = "vibe_trading.persistence",
     unsendable
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.persistence")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.persistence")]
 pub struct PyStreamingFeatherWriter {
     writer: Rc<RefCell<FeatherWriter>>,
     handler: Option<ShareableMessageHandler>,

@@ -1,9 +1,9 @@
 # 文档风格
 
-本指南概述编写 VibeTrader 文档时应遵循的风格约定和最佳实践。
+本指南概述编写 VibeTrading 文档时应遵循的风格约定和最佳实践。
 
 [Markdown 风格](markdown_style.md)指南是 Markdown 语法和格式的共享基线，
-`.markdownlint.jsonc` 会强制执行其中的机械规则子集。本指南只说明 VibeTrader 文档特有的内容，
+`.markdownlint.jsonc` 会强制执行其中的机械规则子集。本指南只说明 VibeTrading 文档特有的内容，
 不重复该基线。
 
 ## 一般原则

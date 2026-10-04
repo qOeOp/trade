@@ -14,7 +14,7 @@ use vibe_model::enums::{MarketStatusAction, OrderSide, OrderType, TimeInForce};
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.binance",
+        module = "vibe_trading.adapters.binance",
         eq,
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
@@ -22,7 +22,7 @@ use vibe_model::enums::{MarketStatusAction, OrderSide, OrderType, TimeInForce};
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.binance")
 )]
 pub enum BinanceProductType {
     /// Spot trading (api.binance.com).
@@ -105,7 +105,7 @@ impl Display for BinanceProductType {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.binance",
+        module = "vibe_trading.adapters.binance",
         eq,
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
@@ -113,7 +113,7 @@ impl Display for BinanceProductType {
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.binance")
 )]
 pub enum BinanceEnvironment {
     /// Live exchange environment.
@@ -175,11 +175,11 @@ impl From<BinanceSide> for OrderSide {
 #[serde(rename_all = "UPPERCASE")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", eq, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", eq, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.binance")
 )]
 pub enum BinancePositionSide {
     /// Single position mode (both).
@@ -202,7 +202,7 @@ pub enum BinancePositionSide {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.binance",
+        module = "vibe_trading.adapters.binance",
         eq,
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
@@ -210,7 +210,7 @@ pub enum BinancePositionSide {
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.binance")
 )]
 pub enum BinanceMarginType {
     /// Cross margin.

@@ -60,7 +60,7 @@ fn extract_databento_data_config(
 
 /// Databento Python module.
 ///
-/// The module is exposed as `vibe_trader._libvibe.databento`.
+/// The module is exposed as `vibe_trading._libvibe.databento`.
 ///
 /// # Errors
 ///

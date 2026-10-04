@@ -100,11 +100,11 @@ pub enum DydxTimeInForce {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.dydx", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.dydx", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.dydx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.dydx")
 )]
 pub enum DydxOrderSide {
     /// Buy order.
@@ -164,11 +164,11 @@ impl From<DydxOrderSide> for OrderSide {
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.dydx", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.dydx", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.dydx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.dydx")
 )]
 pub enum DydxOrderType {
     /// Limit order with specified price.
@@ -598,7 +598,7 @@ pub enum DydxTradeType {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.dydx", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.dydx", eq, eq_int, from_py_object)
 )]
 pub enum DydxTransferType {
     /// Transfer into the account.
@@ -631,7 +631,7 @@ pub enum DydxTransferType {
 #[derive(Default)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.dydx", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.dydx", eq, eq_int, from_py_object)
 )]
 pub enum DydxCandleResolution {
     /// 1 minute candles.
@@ -716,14 +716,14 @@ impl DydxCandleResolution {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.dydx",
+        module = "vibe_trading.adapters.dydx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.dydx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.dydx")
 )]
 pub enum DydxNetwork {
     /// dYdX mainnet (dydx-mainnet-1).

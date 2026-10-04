@@ -11,20 +11,20 @@ from threading import Thread
 import pandas as pd
 import pytest
 
-import vibe_trader.adapters.binance as binance
-from vibe_trader.adapters.binance import BINANCE
-from vibe_trader.adapters.binance import BINANCE_CLIENT_ID
-from vibe_trader.adapters.binance import BINANCE_VENUE
-from vibe_trader.adapters.binance import BinanceDataClientConfig
-from vibe_trader.adapters.binance import BinanceInstrumentProviderConfig
-from vibe_trader.adapters.binance import BinanceProductType
-from vibe_trader.adapters.binance import BinanceSpotMarketDataMode
-from vibe_trader.adapters.binance import decode_binance_futures_client_order_id
-from vibe_trader.adapters.binance import decode_binance_spot_client_order_id
-from vibe_trader.adapters.binance import load_binance_instruments
-from vibe_trader.adapters.binance import load_binance_order_book_deltas
-from vibe_trader.model import ClientId
-from vibe_trader.model import Venue
+import vibe_trading.adapters.binance as binance
+from vibe_trading.adapters.binance import BINANCE
+from vibe_trading.adapters.binance import BINANCE_CLIENT_ID
+from vibe_trading.adapters.binance import BINANCE_VENUE
+from vibe_trading.adapters.binance import BinanceDataClientConfig
+from vibe_trading.adapters.binance import BinanceInstrumentProviderConfig
+from vibe_trading.adapters.binance import BinanceProductType
+from vibe_trading.adapters.binance import BinanceSpotMarketDataMode
+from vibe_trading.adapters.binance import decode_binance_futures_client_order_id
+from vibe_trading.adapters.binance import decode_binance_spot_client_order_id
+from vibe_trading.adapters.binance import load_binance_instruments
+from vibe_trading.adapters.binance import load_binance_order_book_deltas
+from vibe_trading.model import ClientId
+from vibe_trading.model import Venue
 
 
 WORKSPACE_ROOT = Path(__file__).parents[5]
@@ -67,7 +67,7 @@ def test_binance_migration_exports_runtime_names() -> None:
     assert ClientId.from_str("BINANCE") == BINANCE_CLIENT_ID
     assert Venue.from_str("BINANCE") == BINANCE_VENUE
     assert callable(load_binance_instruments)
-    assert load_binance_order_book_deltas.__module__ == "vibe_trader.adapters.binance"
+    assert load_binance_order_book_deltas.__module__ == "vibe_trading.adapters.binance"
     assert not hasattr(binance, "BinanceOrderBookDeltaDataLoader")
 
 

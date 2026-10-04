@@ -28,7 +28,7 @@ Bybit 成立于 2018 年，是按日交易量、加密资产及加密衍生品�
 ## Bybit 文档
 
 Bybit 为用户提供了丰富的文档，可在 [Bybit 帮助中心](https://www.bybit.com/en/help-center)查看。
-建议结合 Bybit 文档与本 VibeTrader 集成指南阅读。
+建议结合 Bybit 文档与本 VibeTrading 集成指南阅读。
 
 ## 产品
 
@@ -89,8 +89,8 @@ Bybit 提供三个交易环境。使用客户端配置上的 `environment` 枚�
 使用真实资金进行实盘交易的默认环境。
 
 ```python
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitExecClientConfig
 
 config = BybitExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -107,8 +107,8 @@ config = BybitExecClientConfig(
 [Bybit 演示交易页面](https://www.bybit.com/en/demo-trading)创建演示 API 密钥。
 
 ```python
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitExecClientConfig
 
 config = BybitExecClientConfig(
     api_key="YOUR_DEMO_API_KEY",
@@ -122,7 +122,7 @@ config = BybitExecClientConfig(
 :::warning
 **演示环境限制：**
 
-- 演示交易**不支持** WebSocket Trade API。演示模式下，VibeTrader 自动使用 HTTP REST API 执行订单操作。
+- 演示交易**不支持** WebSocket Trade API。演示模式下，VibeTrading 自动使用 HTTP REST API 执行订单操作。
 - 新订单上的原生 TP/SL 和期权参数（`order_iv`、`mmp`）可通过 HTTP 创建订单端点在演示环境使用。
 - 演示环境不支持自定义 TP/SL 触发价 `tp_trigger_price` 和 `sl_trigger_price`（设置这些参数的订单会被拒绝）；
   创建订单端点无法携带这些参数。
@@ -136,8 +136,8 @@ config = BybitExecClientConfig(
 用于开发和集成测试的独立测试网络。
 
 ```python
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitExecClientConfig
 
 config = BybitExecClientConfig(
     api_key="YOUR_TESTNET_API_KEY",
@@ -394,7 +394,7 @@ params 中没有 `is_leverage=True` 时，即使 Bybit 账户已启用自动借�
 
 ## 现货保证金借款与还款
 
-VibeTrader 提供自动现货保证金借款还款功能，防止关闭 Bybit 空头持仓后继续产生利息。
+VibeTrading 提供自动现货保证金借款还款功能，防止关闭 Bybit 空头持仓后继续产生利息。
 
 ### 背景
 
@@ -419,7 +419,7 @@ VibeTrader 提供自动现货保证金借款还款功能，防止关闭 Bybit �
 **示例：**
 
 ```python
-from vibe_trader.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitExecClientConfig
 
 config = BybitExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -482,11 +482,11 @@ self.query_account(
 结果会作为自定义数据发布到消息总线。在策略中订阅即可接收：
 
 ```python
-from vibe_trader.adapters.bybit import BybitMarginAction
-from vibe_trader.adapters.bybit import BybitMarginBorrowResult
-from vibe_trader.adapters.bybit import BybitMarginRepayResult
-from vibe_trader.adapters.bybit import BybitMarginStatusResult
-from vibe_trader.model import DataType
+from vibe_trading.adapters.bybit import BybitMarginAction
+from vibe_trading.adapters.bybit import BybitMarginBorrowResult
+from vibe_trading.adapters.bybit import BybitMarginRepayResult
+from vibe_trading.adapters.bybit import BybitMarginStatusResult
+from vibe_trading.model import DataType
 
 
 class MyStrategy(Strategy):
@@ -557,7 +557,7 @@ Bybit 上市以 USDT 或 USDC 结算的 BTC 和 ETH 欧式期权。适配器使�
 
 可以订阅逐金融工具 Greeks，也可以使用相对于 ATM 的行权价筛选，将其聚合为期权链快照。
 订阅模式请参阅[期权概念指南](../concepts/options.md)，分步操作请参阅
-[期权数据教程](../tutorials/options_data_bybit.md)。VibeTrader 会根据 Bybit 的逐合约期权市场数据，
+[期权数据教程](../tutorials/options_data_bybit.md)。VibeTrading 会根据 Bybit 的逐合约期权市场数据，
 在本地构建期权链视图。
 
 期权不提供 K 线数据。Bybit 不为此产品类型提供 K 线数据流。

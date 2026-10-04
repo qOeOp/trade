@@ -11,16 +11,16 @@ from __future__ import annotations
 
 import argparse
 
-from vibe_trader.adapters.deribit import DeribitDataClientConfig
-from vibe_trader.adapters.deribit import DeribitDataClientFactory
-from vibe_trader.adapters.deribit import DeribitEnvironment
-from vibe_trader.adapters.deribit import DeribitProductType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import DataTesterConfig
+from vibe_trading.adapters.deribit import DeribitDataClientConfig
+from vibe_trading.adapters.deribit import DeribitDataClientFactory
+from vibe_trading.adapters.deribit import DeribitEnvironment
+from vibe_trading.adapters.deribit import DeribitProductType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import DataTesterConfig
 
 
 DERIBIT = "DERIBIT"

@@ -14,7 +14,7 @@ pub static AX_VENUE: LazyLock<Venue> = LazyLock::new(|| Venue::new(Ustr::from(AX
 /// Static client ID instance.
 pub static AX_CLIENT_ID: LazyLock<ClientId> = LazyLock::new(|| ClientId::new(Ustr::from(AX)));
 
-/// Order tag identifying orders placed by VibeTrader.
+/// Order tag identifying orders placed by VibeTrading.
 pub const AX_VIBE_TAG: &str = "Vibe";
 
 // HTTP endpoints

@@ -881,11 +881,11 @@ for (const page of markdownPages) preparedMarkdownPages.push(await addFrontmatte
 await checkCanonicalContractComponents(preparedMarkdownPages);
 
 await writeJson(join(targetRoot, 'meta.json'), {
-  title: 'Vibe Trader Documentation',
+  title: 'Vibe Trading Documentation',
   pages: productSections,
 });
 await writeJson(join(targetRoot, 'meta.zh.json'), {
-  title: 'Vibe Trader 文档',
+  title: 'Vibe Trading 文档',
   pages: productSections,
 });
 await writeJson(join(targetRoot, 'guide', 'meta.json'), {

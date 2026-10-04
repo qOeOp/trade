@@ -3,17 +3,17 @@ from datetime import timedelta
 
 import pytest
 
-from vibe_trader.model import AggregationSource
-from vibe_trader.model import Bar
-from vibe_trader.model import BarAggregation
-from vibe_trader.model import BarSpecification
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import PriceType
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
-from vibe_trader.model import Venue
+from vibe_trading.model import AggregationSource
+from vibe_trading.model import Bar
+from vibe_trading.model import BarAggregation
+from vibe_trading.model import BarSpecification
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import PriceType
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
+from vibe_trading.model import Venue
 
 
 @pytest.fixture
@@ -271,8 +271,8 @@ def test_bar_type_composite():
 
 
 def test_bar_fully_qualified_name():
-    assert Bar.fully_qualified_name() == "vibe_trader.model:Bar"
-    assert Bar.__module__ == "vibe_trader.model"
+    assert Bar.fully_qualified_name() == "vibe_trading.model:Bar"
+    assert Bar.__module__ == "vibe_trading.model"
 
 
 def test_bar_construction(audusd_1_min_bid):

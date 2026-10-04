@@ -61,7 +61,7 @@ use crate::{
 ///
 /// Returns an error if the async runtime cannot be created.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.hyperliquid")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.hyperliquid")]
 #[pyo3(name = "builder_fee_approve")]
 fn py_builder_fee_approve() -> PyResult<bool> {
     std::thread::spawn(move || {
@@ -90,7 +90,7 @@ fn py_builder_fee_approve() -> PyResult<bool> {
 ///
 /// Returns an error if the async runtime cannot be created.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.hyperliquid")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.hyperliquid")]
 #[pyo3(name = "builder_fee_revoke")]
 fn py_builder_fee_revoke() -> PyResult<bool> {
     std::thread::spawn(move || {
@@ -110,7 +110,7 @@ fn py_builder_fee_revoke() -> PyResult<bool> {
 /// The CLOID is derived from a keccak256 hash of the client_order_id,
 /// truncated to 16 bytes, represented as a hex string with `0x` prefix.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.hyperliquid")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.hyperliquid")]
 #[pyo3(name = "hyperliquid_cloid_from_client_order_id")]
 fn py_hyperliquid_cloid_from_client_order_id(client_order_id: ClientOrderId) -> String {
     Cloid::from_client_order_id(client_order_id).to_hex()
@@ -122,7 +122,7 @@ fn py_hyperliquid_cloid_from_client_order_id(client_order_id: ClientOrderId) -> 
 ///
 /// Returns an error if the symbol does not contain a valid Hyperliquid product type suffix.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.hyperliquid")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.hyperliquid")]
 #[pyo3(name = "hyperliquid_product_type_from_symbol")]
 fn py_hyperliquid_product_type_from_symbol(symbol: &str) -> PyResult<HyperliquidProductType> {
     HyperliquidProductType::from_symbol(symbol).map_err(to_pyvalue_err)
@@ -134,7 +134,7 @@ fn py_hyperliquid_product_type_from_symbol(symbol: &str) -> PyResult<Hyperliquid
 ///
 /// Returns an error if the selected vault address or private key is invalid.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.hyperliquid")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.hyperliquid")]
 #[pyo3(name = "hyperliquid_resolve_execution_account_address", signature = (private_key=None, vault_address=None, account_address=None, environment=HyperliquidEnvironment::Mainnet))]
 fn py_hyperliquid_resolve_execution_account_address(
     private_key: Option<&str>,
@@ -198,7 +198,7 @@ fn extract_hyperliquid_exec_config(
     }
 }
 
-/// Exposed through `vibe_trader.adapters.hyperliquid`.
+/// Exposed through `vibe_trading.adapters.hyperliquid`.
 #[pymodule]
 pub fn hyperliquid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(stringify!(HYPERLIQUID), HYPERLIQUID)?;

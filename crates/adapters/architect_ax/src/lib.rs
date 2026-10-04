@@ -1,4 +1,4 @@
-//! [VibeTrader](https://github.com/qOeOp/trade) adapter for Ax's [AX Exchange](https://architect.exchange).
+//! [VibeTrading](https://github.com/qOeOp/trade) adapter for Ax's [AX Exchange](https://architect.exchange).
 //!
 //! [AX Exchange](https://architect.exchange) is the world's first centralized and regulated
 //! exchange for perpetual futures on traditional underlying asset classes (FX, rates, metals,
@@ -9,9 +9,9 @@
 //! The `vibe-architect-ax` crate provides client bindings (HTTP & WebSocket), data models, and
 //! helper utilities that wrap the official AX Exchange API.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single

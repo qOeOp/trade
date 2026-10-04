@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Custom build script for vibe-trader with automatic stub generation.
+Custom build script for vibe-trading with automatic stub generation.
 
 This script can be used as:
 1. A standalone stub generator: python generate_stubs.py
@@ -128,9 +128,9 @@ MODULE_FIXUPS: dict[str, StubFixup] = {
         imports=(
             "import builtins",
             "import typing",
-            "import vibe_trader",
-            "import vibe_trader.infrastructure",
-            "import vibe_trader.model",
+            "import vibe_trading",
+            "import vibe_trading.infrastructure",
+            "import vibe_trading.model",
         ),
     ),
     "model": StubFixup(
@@ -151,44 +151,44 @@ MODULE_FIXUPS: dict[str, StubFixup] = {
 # every regeneration; the redundant `as` alias marks them as explicit re-exports so
 # `from <module> import <symbol>` type-checks. Keyed by stub path suffix.
 EXTRA_REEXPORTS: dict[str, tuple[str, ...]] = {
-    "vibe_trader/analysis/__init__.pyi": (
-        "from vibe_trader.analysis.config import GridLayout as GridLayout",
-        "from vibe_trader.analysis.config import TearsheetBarsWithFillsChart as TearsheetBarsWithFillsChart",
-        "from vibe_trader.analysis.config import TearsheetChart as TearsheetChart",
-        "from vibe_trader.analysis.config import TearsheetConfig as TearsheetConfig",
-        "from vibe_trader.analysis.config import TearsheetCustomChart as TearsheetCustomChart",
-        "from vibe_trader.analysis.config import TearsheetDistributionChart as TearsheetDistributionChart",
-        "from vibe_trader.analysis.config import TearsheetDrawdownChart as TearsheetDrawdownChart",
-        "from vibe_trader.analysis.config import TearsheetEquityChart as TearsheetEquityChart",
-        "from vibe_trader.analysis.config import TearsheetMonthlyReturnsChart as TearsheetMonthlyReturnsChart",
-        "from vibe_trader.analysis.config import TearsheetRollingSharpeChart as TearsheetRollingSharpeChart",
-        "from vibe_trader.analysis.config import TearsheetRunInfoChart as TearsheetRunInfoChart",
-        "from vibe_trader.analysis.config import TearsheetStatsTableChart as TearsheetStatsTableChart",
-        "from vibe_trader.analysis.config import TearsheetYearlyReturnsChart as TearsheetYearlyReturnsChart",
-        "from vibe_trader.analysis.reporter import ReportProvider as ReportProvider",
-        "from vibe_trader.analysis.tearsheet import create_bars_with_fills as create_bars_with_fills",
-        "from vibe_trader.analysis.tearsheet import create_drawdown_chart as create_drawdown_chart",
-        "from vibe_trader.analysis.tearsheet import create_equity_curve as create_equity_curve",
-        "from vibe_trader.analysis.tearsheet import create_monthly_returns_heatmap as create_monthly_returns_heatmap",
-        "from vibe_trader.analysis.tearsheet import create_returns_distribution as create_returns_distribution",
-        "from vibe_trader.analysis.tearsheet import create_rolling_sharpe as create_rolling_sharpe",
-        "from vibe_trader.analysis.tearsheet import create_tearsheet as create_tearsheet",
-        "from vibe_trader.analysis.tearsheet import create_tearsheet_from_stats as create_tearsheet_from_stats",
-        "from vibe_trader.analysis.tearsheet import create_yearly_returns as create_yearly_returns",
-        "from vibe_trader.analysis.tearsheet import get_chart as get_chart",
-        "from vibe_trader.analysis.tearsheet import list_charts as list_charts",
-        "from vibe_trader.analysis.tearsheet import register_chart as register_chart",
-        "from vibe_trader.analysis.tearsheet import register_tearsheet_chart as register_tearsheet_chart",
-        "from vibe_trader.analysis.themes import get_theme as get_theme",
-        "from vibe_trader.analysis.themes import list_themes as list_themes",
-        "from vibe_trader.analysis.themes import register_theme as register_theme",
+    "vibe_trading/analysis/__init__.pyi": (
+        "from vibe_trading.analysis.config import GridLayout as GridLayout",
+        "from vibe_trading.analysis.config import TearsheetBarsWithFillsChart as TearsheetBarsWithFillsChart",
+        "from vibe_trading.analysis.config import TearsheetChart as TearsheetChart",
+        "from vibe_trading.analysis.config import TearsheetConfig as TearsheetConfig",
+        "from vibe_trading.analysis.config import TearsheetCustomChart as TearsheetCustomChart",
+        "from vibe_trading.analysis.config import TearsheetDistributionChart as TearsheetDistributionChart",
+        "from vibe_trading.analysis.config import TearsheetDrawdownChart as TearsheetDrawdownChart",
+        "from vibe_trading.analysis.config import TearsheetEquityChart as TearsheetEquityChart",
+        "from vibe_trading.analysis.config import TearsheetMonthlyReturnsChart as TearsheetMonthlyReturnsChart",
+        "from vibe_trading.analysis.config import TearsheetRollingSharpeChart as TearsheetRollingSharpeChart",
+        "from vibe_trading.analysis.config import TearsheetRunInfoChart as TearsheetRunInfoChart",
+        "from vibe_trading.analysis.config import TearsheetStatsTableChart as TearsheetStatsTableChart",
+        "from vibe_trading.analysis.config import TearsheetYearlyReturnsChart as TearsheetYearlyReturnsChart",
+        "from vibe_trading.analysis.reporter import ReportProvider as ReportProvider",
+        "from vibe_trading.analysis.tearsheet import create_bars_with_fills as create_bars_with_fills",
+        "from vibe_trading.analysis.tearsheet import create_drawdown_chart as create_drawdown_chart",
+        "from vibe_trading.analysis.tearsheet import create_equity_curve as create_equity_curve",
+        "from vibe_trading.analysis.tearsheet import create_monthly_returns_heatmap as create_monthly_returns_heatmap",
+        "from vibe_trading.analysis.tearsheet import create_returns_distribution as create_returns_distribution",
+        "from vibe_trading.analysis.tearsheet import create_rolling_sharpe as create_rolling_sharpe",
+        "from vibe_trading.analysis.tearsheet import create_tearsheet as create_tearsheet",
+        "from vibe_trading.analysis.tearsheet import create_tearsheet_from_stats as create_tearsheet_from_stats",
+        "from vibe_trading.analysis.tearsheet import create_yearly_returns as create_yearly_returns",
+        "from vibe_trading.analysis.tearsheet import get_chart as get_chart",
+        "from vibe_trading.analysis.tearsheet import list_charts as list_charts",
+        "from vibe_trading.analysis.tearsheet import register_chart as register_chart",
+        "from vibe_trading.analysis.tearsheet import register_tearsheet_chart as register_tearsheet_chart",
+        "from vibe_trading.analysis.themes import get_theme as get_theme",
+        "from vibe_trading.analysis.themes import list_themes as list_themes",
+        "from vibe_trading.analysis.themes import register_theme as register_theme",
     ),
-    "vibe_trader/adapters/binance/__init__.pyi": (
-        "from vibe_trader.adapters.binance.instruments import load_binance_instruments as load_binance_instruments",
+    "vibe_trading/adapters/binance/__init__.pyi": (
+        "from vibe_trading.adapters.binance.instruments import load_binance_instruments as load_binance_instruments",
     ),
-    "vibe_trader/core/__init__.pyi": (
-        "from vibe_trader.core.datetime import dt_to_unix_nanos as dt_to_unix_nanos",
-        "from vibe_trader.core.datetime import unix_nanos_to_dt as unix_nanos_to_dt",
+    "vibe_trading/core/__init__.pyi": (
+        "from vibe_trading.core.datetime import dt_to_unix_nanos as dt_to_unix_nanos",
+        "from vibe_trading.core.datetime import unix_nanos_to_dt as unix_nanos_to_dt",
     ),
 }
 
@@ -288,7 +288,7 @@ def generate_stubs() -> bool:
     module_name = pyproject.get("tool", {}).get("maturin", {}).get("module-name") or pyproject.get(
         "project",
         {},
-    ).get("name", "vibe_trader")
+    ).get("name", "vibe_trading")
     module_root = module_name.split(".")[0]
 
     maturin_features = pyproject.get("tool", {}).get("maturin", {}).get("features", [])
@@ -318,7 +318,7 @@ def generate_stubs() -> bool:
 
     # Post-process all stub files
     workspace_root = Path(__file__).parent.parent
-    root = dest_dir / "vibe_trader"
+    root = dest_dir / "vibe_trading"
     if root.exists():
         write_config_stub(root)
         post_process_stubs(root)
@@ -367,7 +367,7 @@ def write_config_stub(root: Path) -> None:
         if (
             isinstance(node, ast.ImportFrom)
             and node.module is not None
-            and node.module.startswith("vibe_trader.")
+            and node.module.startswith("vibe_trading.")
         ):
             for alias in node.names:
                 public_name = alias.asname or alias.name
@@ -2338,8 +2338,8 @@ def strip_docstrings(content: str) -> str:
 # Imports that pyo3-stub-gen extracts from doc comment code examples.
 # These reference modules outside the v2 package and should not appear in stubs.
 _DOCSTRING_IMPORTS: set[str] = {
-    "from vibe_trader.model.custom import customdataclass_pyo3",
-    "from vibe_trader.model import register_custom_data_class",
+    "from vibe_trading.model.custom import customdataclass_pyo3",
+    "from vibe_trading.model import register_custom_data_class",
 }
 
 
@@ -2714,7 +2714,7 @@ def add_missing_model_imports(content: str) -> str:
     """
     Import exported model symbols when generated annotations use them unqualified.
     """
-    model_import = "from vibe_trader import model"
+    model_import = "from vibe_trading import model"
     if model_import not in content:
         return content
 
@@ -2732,7 +2732,7 @@ def add_missing_model_imports(content: str) -> str:
     for name in sorted(MODEL_EXPORTS):
         if name in defined_names:
             continue
-        if f"from vibe_trader.model import {name}" in content:
+        if f"from vibe_trading.model import {name}" in content:
             continue
         if re.search(rf"(?<![.\w]){re.escape(name)}(?![\w])", content) is None:
             continue
@@ -2742,7 +2742,7 @@ def add_missing_model_imports(content: str) -> str:
         return content
 
     injected_imports = "\n".join(
-        f"from vibe_trader.model import {name}" for name in missing_imports
+        f"from vibe_trading.model import {name}" for name in missing_imports
     )
     return content.replace(model_import, f"{model_import}\n{injected_imports}", 1)
 
@@ -2871,11 +2871,11 @@ def normalize_stub_content(content: str) -> str:
     content = normalize_builtin_type_names(content)
 
     # Fix module references when using "from X import Y" style imports
-    # e.g. vibe_trader.model.X -> model.X
-    if "from vibe_trader import model" in content:
-        content = re.sub(r"\bvibe_trader\.model\.", "model.", content)
-    if "from vibe_trader import infrastructure" in content:
-        content = re.sub(r"\bvibe_trader\.infrastructure\.", "infrastructure.", content)
+    # e.g. vibe_trading.model.X -> model.X
+    if "from vibe_trading import model" in content:
+        content = re.sub(r"\bvibe_trading\.model\.", "model.", content)
+    if "from vibe_trading import infrastructure" in content:
+        content = re.sub(r"\bvibe_trading\.infrastructure\.", "infrastructure.", content)
 
     # Fix malformed defaults where module prefix is prepended to ellipsis
     # e.g. "model...." -> "..." (pyo3-stub-gen adds prefix to "..." repr)
@@ -3182,7 +3182,7 @@ def build_extension() -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="VibeTrader build script")
+    parser = argparse.ArgumentParser(description="VibeTrading build script")
     parser.add_argument(
         "action",
         nargs="?",
@@ -3193,7 +3193,7 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    print(f"Starting vibe-trader {args.action}...")
+    print(f"Starting vibe-trading {args.action}...")
 
     try:
         if args.action in ["stubs", "all"]:

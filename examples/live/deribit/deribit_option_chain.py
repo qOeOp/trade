@@ -11,20 +11,20 @@ On start, this actor:
 6. Logs received OptionChainSlice snapshots in the on_option_chain handler
 """
 
-from vibe_trader.adapters.deribit import DERIBIT
-from vibe_trader.adapters.deribit import DeribitDataClientConfig
-from vibe_trader.adapters.deribit import DeribitEnvironment
-from vibe_trader.adapters.deribit import DeribitLiveDataClientFactory
-from vibe_trader.common.actor import Actor
-from vibe_trader.config import ActorConfig
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model import OptionSeriesId
-from vibe_trader.model import StrikeRange
-from vibe_trader.model.identifiers import ClientId
-from vibe_trader.model.identifiers import TraderId
+from vibe_trading.adapters.deribit import DERIBIT
+from vibe_trading.adapters.deribit import DeribitDataClientConfig
+from vibe_trading.adapters.deribit import DeribitEnvironment
+from vibe_trading.adapters.deribit import DeribitLiveDataClientFactory
+from vibe_trading.common.actor import Actor
+from vibe_trading.config import ActorConfig
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model import OptionSeriesId
+from vibe_trading.model import StrikeRange
+from vibe_trading.model.identifiers import ClientId
+from vibe_trading.model.identifiers import TraderId
 
 
 class OptionChainTesterConfig(ActorConfig, frozen=True):

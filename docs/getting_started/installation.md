@@ -1,6 +1,6 @@
 # Installation
 
-Vibe Trader is installed from a source checkout; this repository does not define a public
+Vibe Trading is installed from a source checkout; this repository does not define a public
 distribution channel.
 
 ## Prerequisites
@@ -39,7 +39,7 @@ Use the optimized local build when required:
 make build
 ```
 
-The import package is `vibe_trader`; its compiled extension is `vibe_trader._libvibe`.
+The import package is `vibe_trading`; its compiled extension is `vibe_trading._libvibe`.
 
 ## Rust-only development
 

@@ -1,7 +1,7 @@
 # Persistence
 
 ```{eval-rst}
-.. automodule:: vibe_trader.persistence
+.. automodule:: vibe_trading.persistence
    :show-inheritance:
    :inherited-members:
    :members:

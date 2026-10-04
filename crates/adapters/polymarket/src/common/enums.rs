@@ -18,13 +18,13 @@ use vibe_model::enums::{AggressorSide, OrderSide, OrderStatus, TimeInForce};
         eq,
         eq_int,
         hash,
-        module = "vibe_trader.adapters.polymarket",
+        module = "vibe_trading.adapters.polymarket",
         from_py_object,
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.polymarket")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.polymarket")
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]

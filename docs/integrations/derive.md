@@ -483,16 +483,16 @@ and account identifiers with the underlying `DeriveExecClientConfig`.
 ```python
 from decimal import Decimal
 
-from vibe_trader.adapters.derive import DeriveDataClientConfig
-from vibe_trader.adapters.derive import DeriveDataClientFactory
-from vibe_trader.adapters.derive import DeriveEnvironment
-from vibe_trader.adapters.derive import DeriveExecClientConfig
-from vibe_trader.adapters.derive import DeriveExecFactoryConfig
-from vibe_trader.adapters.derive import DeriveExecutionClientFactory
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.derive import DeriveDataClientConfig
+from vibe_trading.adapters.derive import DeriveDataClientFactory
+from vibe_trading.adapters.derive import DeriveEnvironment
+from vibe_trading.adapters.derive import DeriveExecClientConfig
+from vibe_trading.adapters.derive import DeriveExecFactoryConfig
+from vibe_trading.adapters.derive import DeriveExecutionClientFactory
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 trader_id = TraderId("TESTER-001")
 

@@ -1,8 +1,8 @@
 # vibe-lighter
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for the [Lighter](https://lighter.xyz) decentralized spot and perpetuals exchange.
+[VibeTrading](https://github.com/qOeOp/trade) adapter for the [Lighter](https://lighter.xyz) decentralized spot and perpetuals exchange.
 
-The `vibe-lighter` crate implements the Lighter adapter for VibeTrader, including
+The `vibe-lighter` crate implements the Lighter adapter for VibeTrading, including
 typed HTTP and WebSocket clients, REST and stream models, venue parsing, data and execution
 client wiring, and an in-tree L2 signer for the official **Lighter API**.
 
@@ -14,9 +14,9 @@ to guarantee correctness of matching, fills, and liquidations.
 Trading is non-custodial: users hold their assets in Lighter's smart contracts
 and authorise trades with their own keys.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single
@@ -37,7 +37,7 @@ trait surface.
 
 ## Integrator attribution
 
-Submitted create and modify order transactions carry the VibeTrader integrator account index in
+Submitted create and modify order transactions carry the VibeTrading integrator account index in
 Lighter's `L2TxAttributes`. This helps us gauge real usage of the integration and prioritize
 ongoing maintenance. Maker and taker integrator fees are set to zero, so attribution adds no trading
 cost.

@@ -102,12 +102,12 @@ impl PortfolioConfig {
 
 /// Wrapper providing shared access to [`Portfolio`] from Python.
 #[pyo3::pyclass(
-    module = "vibe_trader.portfolio",
+    module = "vibe_trading.portfolio",
     name = "Portfolio",
     unsendable,
     from_py_object
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.portfolio")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.portfolio")]
 #[derive(Debug, Clone)]
 pub struct PyPortfolio(Rc<RefCell<Portfolio>>);
 
@@ -438,7 +438,7 @@ impl PyPortfolio {
     }
 }
 
-/// Exposed through `vibe_trader.portfolio`.
+/// Exposed through `vibe_trading.portfolio`.
 ///
 /// # Errors
 ///

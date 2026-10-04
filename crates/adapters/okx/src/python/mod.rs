@@ -97,7 +97,7 @@ fn extract_okx_exec_config(py: Python<'_>, config: Py<PyAny>) -> PyResult<Box<dy
     }
 }
 
-/// Exposed through `vibe_trader.adapters.okx`.
+/// Exposed through `vibe_trading.adapters.okx`.
 ///
 /// # Errors
 ///

@@ -14,7 +14,7 @@
 # %% [markdown]
 # ## Prerequisites
 # - Python 3.12+
-# - A local Vibe Trader source build (`make build-debug`)
+# - A local Vibe Trading source build (`make build-debug`)
 
 # %%
 import os
@@ -24,18 +24,18 @@ from pathlib import Path
 
 import pandas as pd
 
-from vibe_trader.config import BacktestDataConfig
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.config import BacktestRunConfig
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.config import ImportableStrategyConfig
-from vibe_trader.core.datetime import dt_to_unix_nanos
-from vibe_trader.model import QuoteTick
-from vibe_trader.persistence import ParquetDataCatalog
-from vibe_trader.persistence.wranglers import QuoteTickDataWrangler
-from vibe_trader.test_kit.providers import CSVTickDataLoader
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.config import BacktestDataConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.config import BacktestRunConfig
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.config import ImportableStrategyConfig
+from vibe_trading.core.datetime import dt_to_unix_nanos
+from vibe_trading.model import QuoteTick
+from vibe_trading.persistence import ParquetDataCatalog
+from vibe_trading.persistence.wranglers import QuoteTickDataWrangler
+from vibe_trading.test_kit.providers import CSVTickDataLoader
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 
 # %% [markdown]
@@ -201,8 +201,8 @@ data_configs = [
 # %%
 strategies = [
     ImportableStrategyConfig(
-        strategy_path="vibe_trader.examples.strategies.ema_cross:EMACross",
-        config_path="vibe_trader.examples.strategies.ema_cross:EMACrossConfig",
+        strategy_path="vibe_trading.examples.strategies.ema_cross:EMACross",
+        config_path="vibe_trading.examples.strategies.ema_cross:EMACrossConfig",
         config={
             "instrument_id": instrument.id,
             "bar_type": "EUR/USD.SIM-15-MINUTE-BID-INTERNAL",

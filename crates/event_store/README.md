@@ -1,7 +1,7 @@
 # vibe-event-store
 
 Embedded event store and authoritative log of state-affecting messages for
-[VibeTrader](https://github.com/qOeOp/trade).
+[VibeTrading](https://github.com/qOeOp/trade).
 
 > [!WARNING]
 > **Early alpha**. The API is not stable and may change between versions. Event-store capture,

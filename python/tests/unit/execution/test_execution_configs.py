@@ -1,8 +1,8 @@
 import pytest
 
-from vibe_trader.execution import ExecutionEngineConfig
-from vibe_trader.execution import OrderEmulatorConfig
-from vibe_trader.model import ClientId
+from vibe_trading.execution import ExecutionEngineConfig
+from vibe_trading.execution import OrderEmulatorConfig
+from vibe_trading.model import ClientId
 
 
 def test_execution_engine_config_defaults():

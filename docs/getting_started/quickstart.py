@@ -9,7 +9,7 @@
 # ## Prerequisites
 #
 # - Python 3.12+
-# - A local Vibe Trader source build (`make build-debug`)
+# - A local Vibe Trading source build (`make build-debug`)
 
 # %% [markdown]
 # ## Write a strategy
@@ -21,13 +21,13 @@
 # %%
 from decimal import Decimal
 
-from vibe_trader.config import StrategyConfig
-from vibe_trader.indicators import ExponentialMovingAverage
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OrderSide
-from vibe_trader.trading import Strategy
+from vibe_trading.config import StrategyConfig
+from vibe_trading.indicators import ExponentialMovingAverage
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OrderSide
+from vibe_trading.trading import Strategy
 
 
 class EMACrossConfig(StrategyConfig):
@@ -127,19 +127,19 @@ class EMACross(Strategy):
 import numpy as np
 import pandas as pd
 
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import LoggerConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import Currency
-from vibe_trader.model import CurrencyPair
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
-from vibe_trader.model import Venue
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import LoggerConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import Currency
+from vibe_trading.model import CurrencyPair
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
+from vibe_trading.model import Venue
 
 
 # Create a EUR/USD instrument on the SIM venue

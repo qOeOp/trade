@@ -276,7 +276,7 @@ impl TardisMachineClient {
 ///
 /// Returns a `PyErr` if reading the config file or replay execution fails.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(name = "run_tardis_machine_replay")]
 #[pyo3(signature = (config_filepath))]
 pub fn py_run_tardis_machine_replay(

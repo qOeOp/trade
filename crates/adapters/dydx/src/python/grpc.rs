@@ -11,7 +11,7 @@ use vibe_core::{
 use crate::grpc::DydxGrpcClient;
 
 #[pyclass(name = "DydxGrpcClient", from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.dydx")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.dydx")]
 #[derive(Debug, Clone)]
 pub struct PyDydxGrpcClient {
     pub(crate) inner: Arc<DydxGrpcClient>,

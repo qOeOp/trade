@@ -2,7 +2,7 @@ import pickle
 
 import pytest
 
-from vibe_trader.core import UUID4
+from vibe_trading.core import UUID4
 
 
 def test_new_uuid4_produces_valid_format():

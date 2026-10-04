@@ -5,7 +5,7 @@ rust-version.workspace = true
 publish = false
 version.workspace = true
 edition.workspace = true
-description = "Container crate for core VibeTrader APIs"
+description = "Container crate for core VibeTrading APIs"
 repository.workspace = true
 
 [lints]

@@ -2,7 +2,7 @@
 //!
 //! # Design Rationale
 //!
-//! VibeTrader uses a single global Tokio runtime because:
+//! VibeTrading uses a single global Tokio runtime because:
 //! - A single long-lived runtime avoids repeated startup/shutdown overhead.
 //! - The runtime is lazily initialized on first call to `get_runtime()` via `OnceLock`.
 //! - Worker thread count is configurable via the `VIBE_WORKER_THREADS` environment variable.

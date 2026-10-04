@@ -15,7 +15,7 @@ mod examples;
 
 use pyo3::{prelude::*, pymodule};
 
-/// Exposed through `vibe_trader.trading`.
+/// Exposed through `vibe_trading.trading`.
 ///
 /// # Errors
 ///

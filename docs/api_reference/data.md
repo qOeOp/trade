@@ -1,5 +1,5 @@
 # Data
 
 ```{eval-rst}
-.. automodule:: vibe_trader.data
+.. automodule:: vibe_trading.data
 ```

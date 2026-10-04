@@ -14,18 +14,18 @@ from _common import instrument_provider_config
 from _common import resolve_ib_endpoint
 from _common import schedule_node_stop
 
-from vibe_trader.adapters import interactive_brokers
-from vibe_trader.adapters.databento import DatabentoDataClientFactory
-from vibe_trader.adapters.databento import DatabentoLiveClientConfig
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
+from vibe_trading.adapters import interactive_brokers
+from vibe_trading.adapters.databento import DatabentoDataClientFactory
+from vibe_trading.adapters.databento import DatabentoLiveClientConfig
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
 
 
 def default_publishers_filepath() -> str:
     return str(
         Path(__file__).resolve().parents[3]
-        / "vibe_trader"
+        / "vibe_trading"
         / "adapters"
         / "databento"
         / "publishers.json",

@@ -1,7 +1,7 @@
 # Interactive Brokers
 
 Interactive Brokers（IB）提供股票、期权、期货、货币、债券、基金及其他资产类别的市场接入。
-VibeTrader 适配器通过 [TWS API](https://ibkrcampus.com/campus/ibkr-api-page/twsapi-doc/) 连接 Trader Workstation
+VibeTrading 适配器通过 [TWS API](https://ibkrcampus.com/campus/ibkr-api-page/twsapi-doc/) 连接 Trader Workstation
 （TWS）或 IB Gateway。
 
 该适配器通过同一套 Rust 实现及 Python 绑定，提供实盘数据、执行、历史数据、金融工具加载，
@@ -9,7 +9,7 @@ VibeTrader 适配器通过 [TWS API](https://ibkrcampus.com/campus/ibkr-api-page
 
 ## 安装
 
-请按照[安装指南](../getting_started/installation.md)安装 VibeTrader。Python 软件包已包含
+请按照[安装指南](../getting_started/installation.md)安装 VibeTrading。Python 软件包已包含
 Interactive Brokers 适配器和 Docker gateway 支持，无需安装适配器专用 extra。
 
 ## 示例
@@ -34,12 +34,12 @@ IB 对不同应用和交易模式使用不同的默认端口：
 
 ### 连接 TWS 或 IB Gateway
 
-从 `vibe_trader.adapters.interactive_brokers` 导入公开配置类型：
+从 `vibe_trading.adapters.interactive_brokers` 导入公开配置类型：
 
 ```python
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersExecClientConfig
-from vibe_trader.adapters.interactive_brokers import MarketDataType
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersExecClientConfig
+from vibe_trading.adapters.interactive_brokers import MarketDataType
 
 
 data_config = InteractiveBrokersDataClientConfig(
@@ -71,9 +71,9 @@ exec_config = InteractiveBrokersExecClientConfig(
 也可通过 `TWS_USERNAME` 和 `TWS_PASSWORD` 提供：
 
 ```python
-from vibe_trader.adapters.interactive_brokers import DockerizedIBGateway
-from vibe_trader.adapters.interactive_brokers import DockerizedIBGatewayConfig
-from vibe_trader.adapters.interactive_brokers import TradingMode
+from vibe_trading.adapters.interactive_brokers import DockerizedIBGateway
+from vibe_trading.adapters.interactive_brokers import DockerizedIBGatewayConfig
+from vibe_trading.adapters.interactive_brokers import TradingMode
 
 
 gateway = DockerizedIBGateway(
@@ -119,9 +119,9 @@ print(gateway.port)
 可通过 Vibe 金融工具 ID 或 IB 合约字典配置金融工具：
 
 ```python
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
-from vibe_trader.adapters.interactive_brokers import SymbologyMethod
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
+from vibe_trading.adapters.interactive_brokers import SymbologyMethod
+from vibe_trading.model import InstrumentId
 
 
 provider_config = InteractiveBrokersInstrumentProviderConfig(
@@ -165,7 +165,7 @@ ID 一致。
 `min_expiry_days` 和 `max_expiry_days` 会限制加载的合约：
 
 ```python
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
 
 
 provider_config = InteractiveBrokersInstrumentProviderConfig(
@@ -198,7 +198,7 @@ provider_config = InteractiveBrokersInstrumentProviderConfig(
 适配器还会根据 Vibe 价差金融工具 ID 解析 IB `BAG` 合约。订阅或交易价差组合前，先请求该金融工具：
 
 ```python
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import InstrumentId
 
 
 spread_id = InstrumentId.from_str("(1)SPY C400_((1))SPY C410.SMART")

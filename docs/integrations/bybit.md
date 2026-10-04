@@ -32,7 +32,7 @@ and won't need to necessarily work with these lower level components directly.
 ## Bybit documentation
 
 Bybit provides extensive documentation for users which can be found in the [Bybit help center](https://www.bybit.com/en/help-center).
-It's recommended you also refer to the Bybit documentation in conjunction with this VibeTrader integration guide.
+It's recommended you also refer to the Bybit documentation in conjunction with this VibeTrading integration guide.
 
 ## Products
 
@@ -98,8 +98,8 @@ environment with the `environment` enum on your client configuration.
 The default environment for live trading with real funds.
 
 ```python
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitExecClientConfig
 
 config = BybitExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -117,8 +117,8 @@ Create demo API keys from the
 [Bybit demo trading page](https://www.bybit.com/en/demo-trading).
 
 ```python
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitExecClientConfig
 
 config = BybitExecClientConfig(
     api_key="YOUR_DEMO_API_KEY",
@@ -132,7 +132,7 @@ Environment variables: `BYBIT_DEMO_API_KEY`, `BYBIT_DEMO_API_SECRET`
 :::warning
 **Demo environment limitations:**
 
-- The WebSocket Trade API is **not supported** for demo trading. VibeTrader automatically uses the HTTP REST API for order operations in demo mode.
+- The WebSocket Trade API is **not supported** for demo trading. VibeTrading automatically uses the HTTP REST API for order operations in demo mode.
 - Native TP/SL and option params (`order_iv`, `mmp`) on new orders work in demo via the HTTP create-order endpoint.
 - The custom TP/SL trigger prices `tp_trigger_price` and `sl_trigger_price` are not supported in demo (orders setting them are denied); the create-order endpoint cannot carry them.
 - Demo private streams use `wss://stream-demo.bybit.com`, but public market data uses Bybit's mainnet public stream `wss://stream.bybit.com`.
@@ -144,8 +144,8 @@ Environment variables: `BYBIT_DEMO_API_KEY`, `BYBIT_DEMO_API_SECRET`
 A separate test network for development and integration testing.
 
 ```python
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitExecClientConfig
 
 config = BybitExecClientConfig(
     api_key="YOUR_TESTNET_API_KEY",
@@ -422,7 +422,7 @@ For a complete example of using order parameters including `is_leverage`, see th
 
 ## Spot margin borrowing and repayment
 
-VibeTrader provides automated spot margin borrow repayment functionality to prevent interest accrual after closing short positions on Bybit.
+VibeTrading provides automated spot margin borrow repayment functionality to prevent interest accrual after closing short positions on Bybit.
 
 ### Background
 
@@ -452,7 +452,7 @@ on Spot instruments. This feature is disabled by default, so set
 **Example:**
 
 ```python
-from vibe_trader.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitExecClientConfig
 
 config = BybitExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -517,11 +517,11 @@ during strategy initialization via the config.
 Results are published as custom data on the message bus. Subscribe in your strategy to receive them:
 
 ```python
-from vibe_trader.adapters.bybit import BybitMarginAction
-from vibe_trader.adapters.bybit import BybitMarginBorrowResult
-from vibe_trader.adapters.bybit import BybitMarginRepayResult
-from vibe_trader.adapters.bybit import BybitMarginStatusResult
-from vibe_trader.model import DataType
+from vibe_trading.adapters.bybit import BybitMarginAction
+from vibe_trading.adapters.bybit import BybitMarginBorrowResult
+from vibe_trading.adapters.bybit import BybitMarginRepayResult
+from vibe_trading.adapters.bybit import BybitMarginStatusResult
+from vibe_trading.model import DataType
 
 
 class MyStrategy(Strategy):
@@ -599,7 +599,7 @@ Subscribe to per-instrument Greeks or aggregate them into option chain
 snapshots with ATM-relative strike filtering. See the
 [options concept guide](../concepts/options.md) for subscription patterns and
 the [options data tutorial](../tutorials/options_data_bybit.md) for a
-step-by-step walkthrough. VibeTrader builds the option chain view locally
+step-by-step walkthrough. VibeTrading builds the option chain view locally
 from Bybit's per-contract option market data.
 
 Bar (kline) data is not available for options. Bybit does not provide kline

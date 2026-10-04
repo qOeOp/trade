@@ -72,7 +72,7 @@ fn extract_bitmex_exec_config(
     }
 }
 
-/// Exposed through `vibe_trader.adapters.bitmex`.
+/// Exposed through `vibe_trading.adapters.bitmex`.
 ///
 /// # Errors
 ///

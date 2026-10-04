@@ -132,7 +132,7 @@ pub fn expiry_timestring_to_unix_nanos(
         }
     };
 
-    // Treat the parsed expiry timestamp as UTC. VibeTrader expects IB timestamps
+    // Treat the parsed expiry timestamp as UTC. VibeTrading expects IB timestamps
     // to be configured and interpreted in UTC.
     let offset_dt = dt.assume_utc();
     let nanos = offset_dt.unix_timestamp_nanos();

@@ -87,11 +87,11 @@ use crate::{
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.common", subclass, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.common", subclass, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")
 )]
 pub struct DataActorConfig {
     /// The custom identifier for the Actor.
@@ -117,11 +117,11 @@ impl Default for DataActorConfig {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.common", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.common", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")
 )]
 pub struct ImportableActorConfig {
     /// The fully qualified name of the Actor class.

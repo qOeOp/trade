@@ -50,7 +50,7 @@ pub type BatchModifyOrder = (
     Option<Price>,
 );
 
-/// Core trait for implementing trading strategies in VibeTrader.
+/// Core trait for implementing trading strategies in VibeTrading.
 ///
 /// Strategies are specialized [`DataActor`]s that combine data ingestion capabilities with
 /// order and position management functionality. By implementing this trait,

@@ -5,7 +5,7 @@
 
 ## 概述
 
-VibeTrader 中的 `ReportProvider` 类会根据交易数据生成结构化分析报告，
+VibeTrading 中的 `ReportProvider` 类会根据交易数据生成结构化分析报告，
 把原始订单、成交、持仓和账户状态转换为 pandas DataFrame，供分析与可视化使用。
 这些报告可帮助你评估策略表现、分析执行质量并验证盈亏核算。
 
@@ -31,7 +31,7 @@ VibeTrader 中的 `ReportProvider` 类会根据交易数据生成结构化分析
 orders_report = trader.generate_orders_report()
 
 # Or using ReportProvider directly
-from vibe_trader.analysis import ReportProvider
+from vibe_trading.analysis import ReportProvider
 
 orders = cache.orders()
 orders_report = ReportProvider.generate_orders_report(orders)
@@ -165,7 +165,7 @@ positions_report = ReportProvider.generate_positions_report(
 ```python
 # Using Trader helper method (recommended)
 # Requires venue parameter
-from vibe_trader.model.identifiers import Venue
+from vibe_trading.model.identifiers import Venue
 
 venue = Venue("BINANCE")
 account_report = trader.generate_account_report(venue)
@@ -238,7 +238,7 @@ for position in positions:
 对于 `NETTING` OMS：
 
 ```python
-from vibe_trader.model.objects import Money
+from vibe_trading.model.objects import Money
 
 # Include snapshots for complete PnL (per currency)
 pnl_by_currency = {}
@@ -312,10 +312,10 @@ stats_general = result.stats_general
 
 ### 可视化
 
-VibeTrader 通过 Plotly 提供交互式绩效报告和图表：
+VibeTrading 通过 Plotly 提供交互式绩效报告和图表：
 
 ```python
-from vibe_trader.analysis import create_tearsheet
+from vibe_trading.analysis import create_tearsheet
 
 # After backtest run
 engine.run()
@@ -337,7 +337,7 @@ create_tearsheet(engine, output_path="tearsheet.html")
 ```python
 import pandas as pd
 
-from vibe_trader.analysis import create_equity_curve
+from vibe_trading.analysis import create_equity_curve
 
 returns = pd.Series(
     [0.01, -0.005, 0.002],
@@ -351,7 +351,7 @@ fig.write_image("equity.png")  # Export to PNG (requires kaleido)
 安装可视化依赖：
 
 ```bash
-uv pip install "vibe_trader[visualization]"
+uv pip install "vibe_trading[visualization]"
 ```
 
 ## 报告生成模式
@@ -363,7 +363,7 @@ uv pip install "vibe_trader[visualization]"
 ```python
 import pandas as pd
 
-from vibe_trader.common import DataActor
+from vibe_trading.common import DataActor
 
 
 class ReportingActor(DataActor):

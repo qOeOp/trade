@@ -1,5 +1,5 @@
 # Execution
 
 ```{eval-rst}
-.. automodule:: vibe_trader.execution
+.. automodule:: vibe_trading.execution
 ```

@@ -31,7 +31,7 @@ use crate::reconciliation::{
 ///
 /// Returns an error if synthetic report creation fails.
 #[pyfunction(name = "process_mass_status_for_reconciliation")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.execution")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.execution")]
 #[pyo3(signature = (mass_status, instrument, tolerance=None))]
 pub fn py_process_mass_status_for_reconciliation(
     py: Python<'_>,
@@ -85,7 +85,7 @@ pub fn py_process_mass_status_for_reconciliation(
 /// 3. Position flip (sign change): `reconciliation_px` = `target_avg_px` (due to value reset in simulation)
 /// 4. Accumulation/reduction: weighted average formula
 #[pyfunction(name = "calculate_reconciliation_price")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.execution")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.execution")]
 #[pyo3(signature = (current_position_qty, current_position_avg_px, target_position_qty, target_position_avg_px))]
 pub fn py_calculate_reconciliation_price(
     current_position_qty: Decimal,
@@ -108,7 +108,7 @@ pub fn py_calculate_reconciliation_price(
 /// (venue-provided) differentiates successive reconciliation incidents with the same
 /// shape while keeping cross-restart replays deterministic.
 #[pyfunction(name = "create_inferred_reconciliation_trade_id")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.execution")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.execution")]
 #[pyo3(signature = (account_id, instrument_id, client_order_id, venue_order_id, order_side, order_type, filled_qty, last_qty, last_px, position_id, ts_last))]
 #[expect(clippy::too_many_arguments)]
 pub fn py_create_inferred_reconciliation_trade_id(
@@ -145,7 +145,7 @@ pub fn py_create_inferred_reconciliation_trade_id(
 /// successive reconciliation incidents with the same shape get distinct IDs, while the same
 /// logical event replayed after restart still hashes the same (venue re-reports identical ts).
 #[pyfunction(name = "create_position_reconciliation_venue_order_id")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.execution")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.execution")]
 #[pyo3(signature = (account_id, instrument_id, order_side, order_type, quantity, price=None, venue_position_id=None, ts_last=0, tag=None))]
 #[expect(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 pub fn py_create_position_reconciliation_venue_order_id(

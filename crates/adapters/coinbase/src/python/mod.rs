@@ -67,7 +67,7 @@ fn extract_coinbase_exec_config(
     }
 }
 
-/// Exposed through `vibe_trader.adapters.coinbase`.
+/// Exposed through `vibe_trading.adapters.coinbase`.
 ///
 /// # Errors
 ///

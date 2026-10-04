@@ -36,7 +36,7 @@ fn extract_sandbox_exec_config(
     }
 }
 
-/// Exposed through `vibe_trader.adapters.sandbox`.
+/// Exposed through `vibe_trading.adapters.sandbox`.
 ///
 /// # Errors
 ///

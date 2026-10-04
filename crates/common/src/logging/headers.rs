@@ -18,7 +18,7 @@ pub fn log_header(trader_id: TraderId, machine_id: &str, instance_id: UUID4, com
     let pid = std::process::id();
 
     header_sepr(c, "=================================================================");
-    header_sepr(c, " VIBE TRADER - Automated Algorithmic Trading Platform");
+    header_sepr(c, " VIBE TRADING - Automated Algorithmic Trading Platform");
     header_sepr(c, "=================================================================");
     header_sepr(c, " SYSTEM SPECIFICATION");
     header_sepr(c, "=================================================================");
@@ -56,7 +56,7 @@ pub fn log_header(trader_id: TraderId, machine_id: &str, instance_id: UUID4, com
 #[rustfmt::skip]
 fn log_rust_versioning(c: Ustr) {
     use vibe_core::consts::VIBE_VERSION;
-    header_line(c, &format!("vibe_trader: {VIBE_VERSION}"));
+    header_line(c, &format!("vibe_trading: {VIBE_VERSION}"));
 }
 
 #[cfg(feature = "python")]
@@ -66,7 +66,7 @@ fn log_python_versioning(c: Ustr) {
         return;
     }
 
-    let package = "vibe_trader";
+    let package = "vibe_trading";
     header_line(c, &format!("{package}: {}", python_package_version(package)));
     header_line(c, &format!("python: {}", python_version()));
 

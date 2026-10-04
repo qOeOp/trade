@@ -4,18 +4,18 @@ from decimal import Decimal
 import pytest
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.derive import DERIVE
-from vibe_trader.adapters.derive import DeriveDataClientConfig
-from vibe_trader.adapters.derive import DeriveDataClientFactory
-from vibe_trader.adapters.derive import DeriveEnvironment
-from vibe_trader.adapters.derive import DeriveExecClientConfig
-from vibe_trader.adapters.derive import DeriveExecFactoryConfig
-from vibe_trader.adapters.derive import DeriveExecutionClientFactory
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.derive import DERIVE
+from vibe_trading.adapters.derive import DeriveDataClientConfig
+from vibe_trading.adapters.derive import DeriveDataClientFactory
+from vibe_trading.adapters.derive import DeriveEnvironment
+from vibe_trading.adapters.derive import DeriveExecClientConfig
+from vibe_trading.adapters.derive import DeriveExecFactoryConfig
+from vibe_trading.adapters.derive import DeriveExecutionClientFactory
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 SMOKE_WALLET_ADDRESS = "0x0000000000000000000000000000000000000001"

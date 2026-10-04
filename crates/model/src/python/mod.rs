@@ -60,7 +60,7 @@ pub fn currency_lookup_error_to_pyvalue_err(e: CurrencyLookupError) -> PyErr {
     to_pyvalue_err(e)
 }
 
-/// Exposed through `vibe_trader.model`.
+/// Exposed through `vibe_trading.model`.
 ///
 /// # Errors
 ///

@@ -73,7 +73,7 @@ fn extract_interactive_brokers_exec_config(
     }
 }
 
-/// Exposed through `vibe_trader.adapters.interactive_brokers`.
+/// Exposed through `vibe_trading.adapters.interactive_brokers`.
 ///
 /// # Errors
 ///

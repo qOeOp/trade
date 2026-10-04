@@ -1,4 +1,4 @@
-//! [VibeTrader](https://github.com/qOeOp/trade) adapter for the
+//! [VibeTrading](https://github.com/qOeOp/trade) adapter for the
 //! [Binance](https://www.binance.com/) cryptocurrency exchange.
 //!
 //! The `vibe-binance` crate provides client bindings (HTTP & WebSocket), data
@@ -15,9 +15,9 @@
 //!
 //! The official Binance API reference can be found at <https://binance-docs.github.io/apidocs/>.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single

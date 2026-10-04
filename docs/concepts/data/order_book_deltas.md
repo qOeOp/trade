@@ -56,15 +56,15 @@ let deltas = OrderBookDeltas::new(instrument_id, vec![bid, ask]);
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.data import BookOrder
-from vibe_trader.model.data import OrderBookDelta
-from vibe_trader.model.data import OrderBookDeltas
-from vibe_trader.model.enums import BookAction
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import RecordFlag
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.data import BookOrder
+from vibe_trading.model.data import OrderBookDelta
+from vibe_trading.model.data import OrderBookDeltas
+from vibe_trading.model.enums import BookAction
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import RecordFlag
 
 instrument_id = InstrumentId.from_str("ETHUSDT-PERP.BINANCE")
 bid = OrderBookDelta(

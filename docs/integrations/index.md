@@ -2,13 +2,13 @@
 
 :::note[Scope]
 These pages cover the live repository: how to build, test, and extend what is in `crates` and
-`python/vibe_trader` today. They are current.
+`python/vibe_trading` today. They are current.
 
 They do not set admission or ownership policy. Where a question turns on which component may act,
 or which component owns a business fact, the Owner contracts under `docs/owners/` govern.
 :::
 
-VibeTrader uses modular *adapters* to connect to trading venues and data providers, translating raw APIs into a unified interface and normalized domain model.
+VibeTrading uses modular *adapters* to connect to trading venues and data providers, translating raw APIs into a unified interface and normalized domain model.
 
 :::note[Python API version]
 All Python code in these integration guides assumes the v2 Rust‑backed package. Legacy v1 Python
@@ -50,7 +50,7 @@ The following integrations are currently supported:
 
 ## Implementation goals
 
-The primary goal of VibeTrader is to provide a unified trading system for
+The primary goal of VibeTrading is to provide a unified trading system for
 use with a variety of integrations. To support the widest range of trading
 strategies, priority will be given to *standard* functionality:
 
@@ -64,9 +64,9 @@ strategies, priority will be given to *standard* functionality:
 The implementation of each integration aims to meet the following criteria:
 
 - Low-level client components should match the exchange API as closely as possible.
-- The full range of an exchange's functionality (where applicable to VibeTrader) should *eventually* be supported.
+- The full range of an exchange's functionality (where applicable to VibeTrading) should *eventually* be supported.
 - Exchange specific data types will be added to support the functionality and return types which are reasonably expected by a user.
-- Actions unsupported by an exchange or VibeTrader will be logged as a warning or error when invoked.
+- Actions unsupported by an exchange or VibeTrading will be logged as a warning or error when invoked.
 
 ::::warning[Trace logging and credentials]
 
@@ -77,7 +77,7 @@ some venues. Use TRACE only for local debugging, and redact TRACE logs before sh
 
 ## API unification
 
-All integrations must conform to VibeTrader's system API, requiring normalization and standardization:
+All integrations must conform to VibeTrading's system API, requiring normalization and standardization:
 
 - Symbols should use the venue's native symbol format unless disambiguation is required (e.g., Binance Spot vs. Binance Futures).
 - Timestamps must use UNIX epoch nanoseconds. If milliseconds are used, field/property names should explicitly end with `_ms`.

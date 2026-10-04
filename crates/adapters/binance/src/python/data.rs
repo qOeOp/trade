@@ -15,7 +15,7 @@ use vibe_model::enums::RecordFlag;
 ///
 /// Returns an error if the file cannot be read, a row cannot be parsed, or a side is invalid.
 #[pyfunction(name = "load_binance_order_book_deltas", signature = (file_path, nrows=None))]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.binance")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.binance")]
 #[gen_stub(override_return_type(type_repr = "pd.DataFrame", imports = ("pandas as pd",)))]
 #[expect(
     clippy::needless_pass_by_value,

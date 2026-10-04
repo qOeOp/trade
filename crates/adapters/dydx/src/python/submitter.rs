@@ -40,7 +40,7 @@ use crate::{
 /// submitter.submit_market_order(instrument_id, ...)  # no wallet param
 /// ```
 #[pyclass(name = "DydxOrderSubmitter")]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.dydx")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.dydx")]
 #[derive(Debug)]
 pub struct PyDydxOrderSubmitter {
     pub(crate) inner: Arc<OrderSubmitter>,

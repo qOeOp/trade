@@ -1,6 +1,6 @@
 # Example: Simple use of technical indicators
 
-This example demonstrates how to use technical indicators in a **VibeTrader** strategy.
+This example demonstrates how to use technical indicators in a **VibeTrading** strategy.
 
 The example shows how to set up and use a simple Exponential Moving Average (EMA) indicator within a trading strategy,
 demonstrating proper initialization, updating, and accessing latest / previous indicator values.

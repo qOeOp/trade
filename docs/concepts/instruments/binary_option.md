@@ -93,14 +93,14 @@ from decimal import Decimal
 
 import pandas as pd
 
-from vibe_trader.model import AssetClass
-from vibe_trader.model import BinaryOption
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
-from vibe_trader.model import Venue
+from vibe_trading.model import AssetClass
+from vibe_trading.model import BinaryOption
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
+from vibe_trading.model import Venue
 
 raw_symbol = Symbol(
     "0x12a0cb60174abc437bf1178367c72d11f069e1a3add20b148fb0ab4279b772b2-92544998123698303655208967887569360731013655782348975589292031774495159624905",

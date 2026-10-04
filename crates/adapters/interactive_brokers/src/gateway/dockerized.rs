@@ -33,7 +33,7 @@ use crate::config::DockerizedIBGatewayConfig;
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.interactive_brokers",
+        module = "vibe_trading.adapters.interactive_brokers",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
     )
@@ -41,7 +41,7 @@ use crate::config::DockerizedIBGatewayConfig;
 #[cfg_attr(
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass_enum(
-        module = "vibe_trader.adapters.interactive_brokers"
+        module = "vibe_trading.adapters.interactive_brokers"
     )
 )]
 pub enum ContainerStatus {
@@ -68,11 +68,11 @@ pub enum ContainerStatus {
 #[derive(Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.interactive_brokers", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.interactive_brokers", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.interactive_brokers")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.interactive_brokers")
 )]
 #[cfg(feature = "gateway")]
 pub struct DockerizedIBGateway {

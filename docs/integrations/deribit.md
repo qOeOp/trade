@@ -171,8 +171,8 @@ let expirations = client
 ```
 
 ```python tab="Python"
-from vibe_trader.adapters.deribit import DeribitCurrency
-from vibe_trader.adapters.deribit import DeribitHttpClient
+from vibe_trading.adapters.deribit import DeribitCurrency
+from vibe_trading.adapters.deribit import DeribitHttpClient
 
 client = DeribitHttpClient()
 expirations = await client.request_option_expirations(DeribitCurrency.BTC)
@@ -310,8 +310,8 @@ The data client chooses the order book interval as follows:
 3. Uses Deribit's public `100ms` grouped feed when the connection is not authenticated.
 
 ```python
-from vibe_trader.model import BookType
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import BookType
+from vibe_trading.model import InstrumentId
 
 instrument_id = InstrumentId.from_str("BTC-PERPETUAL.DERIBIT")
 
@@ -537,10 +537,10 @@ The actor or strategy receives the complete response through one `on_historical_
 Each item is a `CustomData` wrapper containing a `DeribitBookSummary` in its `data` field:
 
 ```python
-from vibe_trader.adapters.deribit import DERIBIT_CLIENT_ID
-from vibe_trader.adapters.deribit import DeribitBookSummary
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
+from vibe_trading.adapters.deribit import DERIBIT_CLIENT_ID
+from vibe_trading.adapters.deribit import DeribitBookSummary
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
 
 
 def on_start(self) -> None:
@@ -586,9 +586,9 @@ Subscribe from an actor or strategy with `DataType(DeribitVolatilityIndex.__name
 The `index_name` metadata key is required:
 
 ```python
-from vibe_trader.adapters.deribit import DeribitVolatilityIndex
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.deribit import DeribitVolatilityIndex
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(DeribitVolatilityIndex.__name__, metadata={"index_name": "btc_usd"}),
@@ -769,12 +769,12 @@ Deribit provides a testnet environment for testing strategies without real funds
 To use the testnet, set `environment=DeribitEnvironment.TESTNET` in your client configuration:
 
 ```python
-from vibe_trader.adapters.deribit import DeribitDataClientConfig
-from vibe_trader.adapters.deribit import DeribitEnvironment
-from vibe_trader.adapters.deribit import DeribitExecClientConfig
-from vibe_trader.adapters.deribit import DeribitProductType
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.deribit import DeribitDataClientConfig
+from vibe_trading.adapters.deribit import DeribitEnvironment
+from vibe_trading.adapters.deribit import DeribitExecClientConfig
+from vibe_trading.adapters.deribit import DeribitProductType
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 product_types = [DeribitProductType.FUTURE]
 trader_id = TraderId.from_str("TRADER-001")
@@ -841,7 +841,7 @@ HTTP failures are logged and the WebSocket subscribe is skipped.
 
 | Option                   | Default    | Description                                                        |
 | ------------------------ | ---------- | ------------------------------------------------------------------ |
-| `trader_id`              | Required   | Vibe trader ID for generated reports and events.                   |
+| `trader_id`              | Required   | Vibe Trading ID for generated reports and events.                  |
 | `account_id`             | Required   | Vibe account ID for generated reports and events.                  |
 | `api_key`                | `None`     | Deribit API key. Loads from environment variables when omitted.    |
 | `api_secret`             | `None`     | Deribit API secret. Loads from environment variables when omitted. |
@@ -864,16 +864,16 @@ the compiled default.
 Below is an example live node using Deribit data and execution clients:
 
 ```python
-from vibe_trader.adapters.deribit import DeribitDataClientConfig
-from vibe_trader.adapters.deribit import DeribitDataClientFactory
-from vibe_trader.adapters.deribit import DeribitEnvironment
-from vibe_trader.adapters.deribit import DeribitExecClientConfig
-from vibe_trader.adapters.deribit import DeribitExecutionClientFactory
-from vibe_trader.adapters.deribit import DeribitProductType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.deribit import DeribitDataClientConfig
+from vibe_trading.adapters.deribit import DeribitDataClientFactory
+from vibe_trading.adapters.deribit import DeribitEnvironment
+from vibe_trading.adapters.deribit import DeribitExecClientConfig
+from vibe_trading.adapters.deribit import DeribitExecutionClientFactory
+from vibe_trading.adapters.deribit import DeribitProductType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 product_types = [DeribitProductType.FUTURE]
 trader_id = TraderId.from_str("TRADER-001")
@@ -941,8 +941,8 @@ Available options via the `DeribitProductType` enum:
 Example loading multiple product types:
 
 ```python
-from vibe_trader.adapters.deribit import DeribitDataClientConfig
-from vibe_trader.adapters.deribit import DeribitProductType
+from vibe_trading.adapters.deribit import DeribitDataClientConfig
+from vibe_trading.adapters.deribit import DeribitProductType
 
 config = DeribitDataClientConfig(
     product_types=[

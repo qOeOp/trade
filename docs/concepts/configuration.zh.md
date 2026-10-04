@@ -1,6 +1,6 @@
 # 配置
 
-VibeTrader 在整个平台中使用强类型配置结构体。每个组件（数据客户端、执行客户端、引擎和策略）都有专用的配置结构体来控制其行为。
+VibeTrading 在整个平台中使用强类型配置结构体。每个组件（数据客户端、执行客户端、引擎和策略）都有专用的配置结构体来控制其行为。
 
 ## 设计原则
 
@@ -24,12 +24,12 @@ VibeTrader 在整个平台中使用强类型配置结构体。每个组件（数
 
 ## Python 配置
 
-从 `vibe_trader.config` 导入核心配置类型；从适配器的公共模块导入适配器配置，例如 `vibe_trader.adapters.bybit`。
+从 `vibe_trading.config` 导入核心配置类型；从适配器的公共模块导入适配器配置，例如 `vibe_trading.adapters.bybit`。
 
 大多数运行时配置类都是 Rust 配置结构体的 PyO3 包装器。构造函数参数中的 `None` 会根据字段含义解析为 Rust 默认值，或保留为可选值。只读属性公开已经解析且不含秘密信息的值。固定配置类收到不支持的关键字时会抛出 `TypeError`。`DataActorConfig`、`StrategyConfig` 和 `ExecutionAlgorithmConfig` 等可扩展组件配置允许 Python 子类添加额外字段。由 Python 实现的分析配置仍保持其文档所述的 dataclass 行为。
 
 ```python
-from vibe_trader.adapters.bybit import BybitDataClientConfig
+from vibe_trading.adapters.bybit import BybitDataClientConfig
 
 # All defaults: 60s timeout, 3 retries, etc.
 config = BybitDataClientConfig()
@@ -86,7 +86,7 @@ let config = BybitDataClientConfig::default();
 引擎配置（`LiveExecEngineConfig`、`DataEngineConfig` 等）遵循相同模式。`reconciliation`、`inflight_check_interval_ms` 和 `open_check_threshold_ms` 等字段使用带构建器默认值的普通类型。真正可选的功能则使用 `Option<T>`：
 
 ```python
-from vibe_trader.config import LiveExecEngineConfig
+from vibe_trading.config import LiveExecEngineConfig
 
 config = LiveExecEngineConfig(
     reconciliation=True,

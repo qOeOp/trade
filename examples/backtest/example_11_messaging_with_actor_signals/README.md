@@ -1,6 +1,6 @@
 # Actor-Based Signal Messaging Example
 
-This example demonstrates the simplest form of messaging in VibeTrader using *actor-based signals*.
+This example demonstrates the simplest form of messaging in VibeTrading using *actor-based signals*.
 It shows how to implement lightweight notifications between components using *string-based signals*.
 
 ## What You'll Learn

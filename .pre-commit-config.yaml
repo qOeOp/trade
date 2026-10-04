@@ -159,7 +159,7 @@ repos:
         files: >-
           (?x)^(
 
-            \.docker/(DockerfileUbuntu|vibe_trader\.dockerfile)|
+            \.docker/(DockerfileUbuntu|vibe_trading\.dockerfile)|
             python/pyproject\.toml|
             rust-toolchain\.toml|
             scripts/(uv-version|rust-toolchain)\.sh|

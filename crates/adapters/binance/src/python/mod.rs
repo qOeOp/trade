@@ -98,7 +98,7 @@ fn extract_binance_exec_config(
 ///
 /// Strings without the broker prefix are returned unchanged.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.binance")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.binance")]
 #[pyo3(name = "decode_binance_spot_client_order_id")]
 fn py_decode_binance_spot_client_order_id(encoded: &str) -> String {
     decode_broker_id(encoded, BINANCE_VIBE_SPOT_BROKER_ID)
@@ -112,7 +112,7 @@ fn py_decode_binance_spot_client_order_id(encoded: &str) -> String {
 ///
 /// Strings without the broker prefix are returned unchanged.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.binance")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.binance")]
 #[pyo3(name = "decode_binance_futures_client_order_id")]
 fn py_decode_binance_futures_client_order_id(encoded: &str) -> String {
     decode_broker_id(encoded, BINANCE_VIBE_FUTURES_BROKER_ID)
@@ -120,7 +120,7 @@ fn py_decode_binance_futures_client_order_id(encoded: &str) -> String {
 
 /// Binance adapter Python module.
 ///
-/// Exposed through `vibe_trader.adapters.binance`.
+/// Exposed through `vibe_trading.adapters.binance`.
 ///
 /// # Errors
 ///

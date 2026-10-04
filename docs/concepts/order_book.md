@@ -1,6 +1,6 @@
 # Order Book
 
-VibeTrader provides a high-performance order book implemented in Rust, capable of
+VibeTrading provides a high-performance order book implemented in Rust, capable of
 maintaining full book state for the supported public book types. The `OrderBook` is
 the primary component for tracking public market depth, while the `OwnOrderBook`
 tracks your own orders separately, enabling filtered views that show true available
@@ -8,8 +8,8 @@ liquidity.
 
 :::note
 This guide documents the Rust API. These types are also available from Python via
-the public model module (`vibe_trader.model.OrderBook` and
-`vibe_trader.model.OwnOrderBook`). Refer to the API reference for differences
+the public model module (`vibe_trading.model.OrderBook` and
+`vibe_trading.model.OwnOrderBook`). Refer to the API reference for differences
 between the Rust and Python interfaces.
 :::
 
@@ -38,7 +38,7 @@ Strategies and actors subscribe to order book updates through the following meth
 Subscriptions and handlers are part of the Python strategy/actor layer:
 
 ```python
-from vibe_trader.model import BookType
+from vibe_trading.model import BookType
 
 
 # Incremental book deltas

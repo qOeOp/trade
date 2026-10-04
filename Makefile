@@ -1,6 +1,6 @@
 # Variables
 # -----------------------------------------------------------------------------
-IMAGE?=vibe-trader
+IMAGE?=vibe-trading
 GIT_TAG:=$(shell git rev-parse --abbrev-ref HEAD)
 IMAGE_FULL?=$(IMAGE):$(GIT_TAG)
 
@@ -264,7 +264,7 @@ sync:  #-- Sync Python dependencies without building the package
 		exit 1; \
 	fi
 	$(info $(M) Syncing Python dependencies...)
-	$Q cd python && VIRTUAL_ENV= uv sync --all-groups --all-extras --no-install-package vibe-trader $(UV_SYNC_FLAGS)
+	$Q cd python && VIRTUAL_ENV= uv sync --all-groups --all-extras --no-install-package vibe-trading $(UV_SYNC_FLAGS)
 
 .PHONY: install
 install: build  #-- Install the package in release mode
@@ -1185,14 +1185,14 @@ cargo-ci-benches:  #-- Run Rust benches for the crates included in the CI perfor
 #== Docker
 
 .PHONY: docker-build
-docker-build: clean  #-- Build Docker image for VibeTrader
-	bash scripts/ci/docker-pull-retry.sh --from-dockerfile .docker/vibe_trader.dockerfile
-	docker build -f .docker/vibe_trader.dockerfile --platform linux/x86_64 -t $(IMAGE_FULL) .
+docker-build: clean  #-- Build Docker image for VibeTrading
+	bash scripts/ci/docker-pull-retry.sh --from-dockerfile .docker/vibe_trading.dockerfile
+	docker build -f .docker/vibe_trading.dockerfile --platform linux/x86_64 -t $(IMAGE_FULL) .
 
 .PHONY: docker-build-force
 docker-build-force:  #-- Force rebuild Docker image without cache
-	bash scripts/ci/docker-pull-retry.sh --from-dockerfile .docker/vibe_trader.dockerfile
-	docker build --no-cache -f .docker/vibe_trader.dockerfile -t $(IMAGE_FULL) .
+	bash scripts/ci/docker-pull-retry.sh --from-dockerfile .docker/vibe_trading.dockerfile
+	docker build --no-cache -f .docker/vibe_trading.dockerfile -t $(IMAGE_FULL) .
 
 .PHONY: init-services
 init-services:  #-- Initialize development services eg. for integration tests (start containers and setup database)
@@ -1314,7 +1314,7 @@ install-cli:  #-- Install Vibe CLI tool from source
 
 .PHONY: help
 help:  #-- Show this help message and exit
-	@printf "VibeTrader Makefile\n\n"
+	@printf "VibeTrading Makefile\n\n"
 	@printf "$(GRAY)Requires GNU Make. Windows users can install it via MSYS2 or WSL.$(RESET)\n\n"
 	@printf "$(GREEN)Usage:$(RESET) make $(CYAN)<target>$(RESET)\n\n"
 	@printf "$(GRAY)Tips: Use $(CYAN)make <target> V=1$(GRAY) for verbose output$(RESET)\n"

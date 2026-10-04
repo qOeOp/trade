@@ -49,9 +49,9 @@ let status = InstrumentStatus::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import InstrumentStatus
-from vibe_trader.model.enums import MarketStatusAction
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import InstrumentStatus
+from vibe_trading.model.enums import MarketStatusAction
 
 status = InstrumentStatus(
     instrument_id=InstrumentId.from_str("AAPL.XNAS"),

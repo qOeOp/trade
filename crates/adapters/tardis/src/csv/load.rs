@@ -1653,7 +1653,7 @@ hyperliquid,BTC,1640995201000000,1640995201100000,true,ask,49991.0,4.0";
         assert_eq!(deltas[0].action, BookAction::Clear);
     }
 
-    // Curates the large Tardis Deribit CSV.gz into VibeTrader Parquet format.
+    // Curates the large Tardis Deribit CSV.gz into VibeTrading Parquet format.
     // Run manually: `cargo test -p vibe-tardis test_curate_deribit_deltas -- --ignored --nocapture`
     #[rstest]
     #[ignore = "one-time dataset curation, not for routine CI"]

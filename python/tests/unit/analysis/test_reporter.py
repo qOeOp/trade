@@ -3,35 +3,35 @@ import math
 import pytest
 
 from tests.providers import TestInstrumentProvider
-from vibe_trader.analysis import ReportProvider
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.core import UUID4
-from vibe_trader.model import AccountId
-from vibe_trader.model import AccountType
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import ContingencyType
-from vibe_trader.model import Currency
-from vibe_trader.model import LiquiditySide
-from vibe_trader.model import MarketOrder
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import OrderFilled
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderSubmitted
-from vibe_trader.model import OrderType
-from vibe_trader.model import Position
-from vibe_trader.model import PositionId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TradeId
-from vibe_trader.model import TraderId
-from vibe_trader.model import Venue
-from vibe_trader.model import VenueOrderId
-from vibe_trader.trading import ImportableStrategyConfig
+from vibe_trading.analysis import ReportProvider
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.core import UUID4
+from vibe_trading.model import AccountId
+from vibe_trading.model import AccountType
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import ContingencyType
+from vibe_trading.model import Currency
+from vibe_trading.model import LiquiditySide
+from vibe_trading.model import MarketOrder
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import OrderFilled
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderSubmitted
+from vibe_trading.model import OrderType
+from vibe_trading.model import Position
+from vibe_trading.model import PositionId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TradeId
+from vibe_trading.model import TraderId
+from vibe_trading.model import Venue
+from vibe_trading.model import VenueOrderId
+from vibe_trading.trading import ImportableStrategyConfig
 
 
 pd = pytest.importorskip("pandas")

@@ -31,7 +31,7 @@
 //! - `no_display`: Do not generate `repr()` or `Display`; the user may implement them manually.
 //! - `no_arrow`: Do not generate Arrow schema or record batch encode/decode methods. Use this for
 //!   live-only custom data that does not need catalog persistence.
-//! - `stub_module = "vibe_trader.<module>"`: Generate pyo3-stub-gen metadata for the
+//! - `stub_module = "vibe_trading.<module>"`: Generate pyo3-stub-gen metadata for the
 //!   given module. Requires `pyo3`.
 //! - `#[custom_data_field(serde)]` on a field: Stores the field as a Serde JSON-backed
 //!   Arrow `Utf8` column. The field type must implement Serde `Serialize` and `Deserialize`.
@@ -1534,20 +1534,20 @@ mod tests {
     #[rstest]
     fn parse_options_accepts_no_arrow_stub_module_with_pyo3() {
         let options =
-            parse_options(&quote! { pyo3, no_arrow, stub_module = "vibe_trader.persistence" })
+            parse_options(&quote! { pyo3, no_arrow, stub_module = "vibe_trading.persistence" })
                 .expect("parse options");
 
         assert!(options.pyo3);
         assert!(options.no_arrow);
         assert_eq!(
             options.stub_module.as_ref().map(LitStr::value).as_deref(),
-            Some("vibe_trader.persistence"),
+            Some("vibe_trading.persistence"),
         );
     }
 
     #[rstest]
     fn parse_options_rejects_stub_module_without_pyo3() {
-        let err = parse_options_error(&quote! { stub_module = "vibe_trader.persistence" });
+        let err = parse_options_error(&quote! { stub_module = "vibe_trading.persistence" });
 
         assert_eq!(err.to_string(), "`stub_module` requires `pyo3`");
     }
@@ -1596,7 +1596,7 @@ mod tests {
 
     #[rstest]
     fn expand_emits_stub_attributes_before_pyo3_attributes() {
-        let attr = quote! { pyo3, no_arrow, stub_module = "vibe_trader.test" };
+        let attr = quote! { pyo3, no_arrow, stub_module = "vibe_trading.test" };
         let item = quote! {
             pub struct TestData {
                 pub value: f64,
@@ -1632,7 +1632,7 @@ mod tests {
 
     #[rstest]
     fn expand_emits_referenced_bound_for_classmethod_receivers() {
-        let attr = quote! { pyo3, stub_module = "vibe_trader.test" };
+        let attr = quote! { pyo3, stub_module = "vibe_trading.test" };
         let item = quote! {
             pub struct TestData {
                 pub value: f64,

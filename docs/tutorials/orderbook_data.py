@@ -2,7 +2,7 @@
 # # Order Book Data
 #
 # Load Bybit order book archives and convert normalized venue rows into
-# VibeTrader order book deltas for the Binance and Bybit backtest tutorials.
+# VibeTrading order book deltas for the Binance and Bybit backtest tutorials.
 
 # %%
 from __future__ import annotations
@@ -15,7 +15,7 @@ from os import PathLike
 from zipfile import ZipFile, is_zipfile
 
 import pandas as pd
-from vibe_trader.model import (
+from vibe_trading.model import (
     BookAction,
     BookOrder,
     CryptoPerpetual,

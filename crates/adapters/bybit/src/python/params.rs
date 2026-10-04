@@ -16,7 +16,7 @@ use crate::{
 
 /// Parameters for placing an order via WebSocket.
 #[pyclass(from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")]
 #[derive(Clone, Debug)]
 pub struct BybitWsPlaceOrderParams {
     #[pyo3(get, set)]
@@ -569,7 +569,7 @@ mod tests {
 
 /// Parameters for amending an order via WebSocket.
 #[pyclass(from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")]
 #[derive(Clone, Debug)]
 pub struct BybitWsAmendOrderParams {
     #[pyo3(get, set)]
@@ -708,7 +708,7 @@ impl From<messages::BybitWsAmendOrderParams> for BybitWsAmendOrderParams {
 
 /// Parameters for canceling an order via WebSocket.
 #[pyclass(from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")]
 #[derive(Clone, Debug)]
 pub struct BybitWsCancelOrderParams {
     #[pyo3(get, set)]
@@ -767,7 +767,7 @@ impl From<messages::BybitWsCancelOrderParams> for BybitWsCancelOrderParams {
 
 /// Parameters for fetching tickers via HTTP API.
 #[pyclass(from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")]
 #[derive(Clone, Debug)]
 pub struct BybitTickersParams {
     #[pyo3(get, set)]
@@ -821,7 +821,7 @@ impl From<BybitTickersParams> for crate::http::query::BybitTickersParams {
 /// Enum-typed fields are accepted as strings (matching the existing [`BybitWsPlaceOrderParams`]
 /// surface) and parsed at the binding boundary.
 #[pyclass(from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bybit")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bybit")]
 #[derive(Debug, Clone, Default)]
 pub struct BybitNativeTpSlParams {
     #[pyo3(get, set)]

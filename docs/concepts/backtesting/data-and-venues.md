@@ -10,7 +10,7 @@ callbacks. The venue's `book_type` determines which data can update the matching
 configuration must match the available data.
 
 Order book data exposes more execution detail than quotes, trades, or bars, but even a recorded
-book cannot show how a simulated order would have changed the market. VibeTrader supports the
+book cannot show how a simulated order would have changed the market. VibeTrading supports the
 following data in descending order of detail:
 
 ```mermaid

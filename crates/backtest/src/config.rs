@@ -82,11 +82,11 @@ impl FromStr for VibeDataType {
 /// Configuration for ``BacktestEngine`` instances.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.backtest", from_py_object, unsendable)
+    pyo3::pyclass(module = "vibe_trading.backtest", from_py_object, unsendable)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")
 )]
 #[expect(
     clippy::struct_excessive_bools,
@@ -408,11 +408,11 @@ impl SimulatedVenueConfig {
 /// Represents a venue configuration for one specific backtest engine.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.backtest", from_py_object, unsendable)
+    pyo3::pyclass(module = "vibe_trading.backtest", from_py_object, unsendable)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")
 )]
 #[expect(
     clippy::struct_excessive_bools,
@@ -774,11 +774,11 @@ impl BacktestVenueConfig {
 #[builder(finish_fn(name = build_inner, vis = ""))]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.backtest", from_py_object, unsendable)
+    pyo3::pyclass(module = "vibe_trading.backtest", from_py_object, unsendable)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")
 )]
 pub struct BacktestDataConfig {
     /// The type of data to query from the catalog.
@@ -1026,11 +1026,11 @@ impl BacktestDataConfig {
 #[builder(finish_fn(name = build_inner, vis = ""))]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.backtest", from_py_object, unsendable)
+    pyo3::pyclass(module = "vibe_trading.backtest", from_py_object, unsendable)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")
 )]
 pub struct BacktestRunConfig {
     /// The unique identifier for this run configuration.

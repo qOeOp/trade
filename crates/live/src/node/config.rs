@@ -58,11 +58,11 @@ pub(crate) fn validate_live_environment(environment: Environment) -> anyhow::Res
 /// Configuration for live data engines.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[expect(
     clippy::struct_excessive_bools,
@@ -158,11 +158,11 @@ impl From<LiveDataEngineConfig> for DataEngineConfig {
 /// Configuration for live risk engines.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
 #[serde(default, deny_unknown_fields)]
@@ -361,11 +361,11 @@ pub(crate) fn duration_from_secs_f64(field: &str, value: f64) -> ConfigResult<Du
 /// Configuration for live execution engines.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[expect(
     clippy::struct_excessive_bools,
@@ -587,11 +587,11 @@ impl From<&LiveExecEngineConfig> for ExecutionManagerConfig {
 /// Configuration for live client message routing.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, bon::Builder)]
 #[serde(default, deny_unknown_fields)]
@@ -606,11 +606,11 @@ pub struct RoutingConfig {
 /// Configuration for instrument providers.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, bon::Builder)]
 #[serde(default, deny_unknown_fields)]
@@ -639,11 +639,11 @@ impl Default for InstrumentProviderConfig {
 /// Configuration for live data clients.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, bon::Builder)]
 #[serde(default, deny_unknown_fields)]
@@ -662,11 +662,11 @@ pub struct LiveDataClientConfig {
 /// Configuration for live execution clients.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, bon::Builder)]
 #[serde(default, deny_unknown_fields)]
@@ -682,11 +682,11 @@ pub struct LiveExecClientConfig {
 /// Configuration for one Rust-native plug-in instance loaded by a live node.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, bon::Builder)]
 #[serde(default, deny_unknown_fields)]
@@ -714,11 +714,11 @@ impl Default for PluginConfig {
 /// Configuration for live Vibe system nodes.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.live", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")
 )]
 #[expect(
     clippy::struct_excessive_bools,

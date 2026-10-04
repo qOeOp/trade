@@ -5,23 +5,23 @@ from unit.adapters.example_modules import capture_data_tester_main
 from unit.adapters.example_modules import capture_exec_tester_main
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.architect_ax import AX
-from vibe_trader.adapters.architect_ax import AxDataClientConfig
-from vibe_trader.adapters.architect_ax import AxDataClientFactory
-from vibe_trader.adapters.architect_ax import AxEnvironment
-from vibe_trader.adapters.architect_ax import AxExecClientConfig
-from vibe_trader.adapters.architect_ax import AxExecutionClientFactory
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import BarType
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Quantity
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.architect_ax import AX
+from vibe_trading.adapters.architect_ax import AxDataClientConfig
+from vibe_trading.adapters.architect_ax import AxDataClientFactory
+from vibe_trading.adapters.architect_ax import AxEnvironment
+from vibe_trading.adapters.architect_ax import AxExecClientConfig
+from vibe_trading.adapters.architect_ax import AxExecutionClientFactory
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import BarType
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Quantity
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TraderId
 
 
 SMOKE_API_KEY = "test_key"

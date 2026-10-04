@@ -65,7 +65,7 @@ Databento's
 ## Prerequisites
 
 - Python 3.12+
-- A local Vibe Trader source build (`make build-debug`).
+- A local Vibe Trading source build (`make build-debug`).
 - A Databento API key:
 
 ```bash
@@ -106,8 +106,8 @@ emits `QuoteTick` objects. The `instrument_id` argument overrides the
 Databento symbology so every tick appears to come from `XAU-PERP.AX`.
 
 ```python
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.model.identifiers import InstrumentId
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.model.identifiers import InstrumentId
 
 instrument_id = InstrumentId.from_str("XAU-PERP.AX")
 
@@ -127,12 +127,12 @@ conditions.
 ```python
 from decimal import Decimal
 
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AssetClass
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.instruments import PerpetualContract
-from vibe_trader.model.objects import Price
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AssetClass
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.instruments import PerpetualContract
+from vibe_trading.model.objects import Price
+from vibe_trading.model.objects import Quantity
 
 XAU_PERP = PerpetualContract(
     instrument_id=instrument_id,
@@ -176,8 +176,8 @@ subscribing to L2 deltas.
 | `use_quote_ticks`              | `True`   | Drive the strategy from quote ticks.         |
 
 ```python
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalance
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalance
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
 
 strategy = OrderBookImbalance(
     OrderBookImbalanceConfig(
@@ -195,15 +195,15 @@ strategy = OrderBookImbalance(
 ## Backtest setup
 
 ```python
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import LoggerConfig
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.objects import Money
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import LoggerConfig
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.objects import Money
 
 engine = BacktestEngine(
     BacktestEngineConfig(

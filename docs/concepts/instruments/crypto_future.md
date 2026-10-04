@@ -90,13 +90,13 @@ let btcusdt_future = CryptoFuture::builder()
 ```python tab="Python"
 import pandas as pd
 
-from vibe_trader.model import CryptoFuture
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Money
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import CryptoFuture
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Money
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 BTC = Currency.from_str("BTC")
 USDT = Currency.from_str("USDT")

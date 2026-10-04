@@ -15,11 +15,11 @@ use crate::common::{
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bitmex", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bitmex", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bitmex")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bitmex")
 )]
 pub struct BitmexDataClientConfig {
     /// Optional API key used for authenticated REST/WebSocket requests.
@@ -155,11 +155,11 @@ impl BitmexDataClientConfig {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bitmex", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bitmex", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bitmex")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bitmex")
 )]
 pub struct BitmexExecClientConfig {
     /// API key used for authenticated requests.

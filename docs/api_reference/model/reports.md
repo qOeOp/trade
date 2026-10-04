@@ -1,7 +1,7 @@
 # Reports
 
 ```{eval-rst}
-.. automodule:: vibe_trader.model
+.. automodule:: vibe_trading.model
    :no-index:
    :show-inheritance:
    :members: ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport

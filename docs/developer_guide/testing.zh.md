@@ -213,7 +213,7 @@ make cargo-test-crate-vibe-serialization FEATURES="capnp"
 - 共享设置（交易工具、引擎实例、数据）使用 `@pytest.fixture`。需要 teardown 时优先使用 `yield`
   fixture（例如 `engine.dispose()`）。
 - 使用 `@pytest.mark.parametrize` 覆盖多种输入，避免重复测试主体。
-- 从 `vibe_trader.model` 导入模型类型，不要从 `vibe_trader._libvibe` 导入。
+- 从 `vibe_trading.model` 导入模型类型，不要从 `vibe_trading._libvibe` 导入。
 - 测试 provider 位于 `python/tests/providers.py`。常用交易工具和数据使用 `TestInstrumentProvider`
   和 `TestDataProvider`。
 - 依赖未完成功能的测试使用 `@pytest.mark.skip(reason="WIP: <description>")` 标记，不要删除。

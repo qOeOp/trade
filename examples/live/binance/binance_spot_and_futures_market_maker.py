@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 from decimal import Decimal
 
-from vibe_trader.adapters.binance import BinanceAccountType
-from vibe_trader.adapters.binance import BinanceDataClientConfig
-from vibe_trader.adapters.binance import BinanceExecClientConfig
-from vibe_trader.adapters.binance import BinanceLiveDataClientFactory
-from vibe_trader.adapters.binance import BinanceLiveExecClientFactory
-from vibe_trader.adapters.binance.common.enums import BinanceEnvironment
-from vibe_trader.config import CacheConfig
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.examples.strategies.volatility_market_maker import VolatilityMarketMaker
-from vibe_trader.examples.strategies.volatility_market_maker import VolatilityMarketMakerConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.data import BarType
-from vibe_trader.model.identifiers import ClientId
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.venues import Venue
+from vibe_trading.adapters.binance import BinanceAccountType
+from vibe_trading.adapters.binance import BinanceDataClientConfig
+from vibe_trading.adapters.binance import BinanceExecClientConfig
+from vibe_trading.adapters.binance import BinanceLiveDataClientFactory
+from vibe_trading.adapters.binance import BinanceLiveExecClientFactory
+from vibe_trading.adapters.binance.common.enums import BinanceEnvironment
+from vibe_trading.config import CacheConfig
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.examples.strategies.volatility_market_maker import VolatilityMarketMaker
+from vibe_trading.examples.strategies.volatility_market_maker import VolatilityMarketMakerConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.data import BarType
+from vibe_trading.model.identifiers import ClientId
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.venues import Venue
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

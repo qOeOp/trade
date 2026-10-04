@@ -8,10 +8,10 @@
 设置 `trade_execution=False`，可以把成交用作策略数据，而不让它触发撮合：
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",

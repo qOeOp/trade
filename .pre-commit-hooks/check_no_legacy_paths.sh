@@ -28,7 +28,7 @@ if matches=$(
 fi
 
 if matches=$(
-  rg -n 'vibe_trader\.core\.vibe_pyo3|vibe_pyo3\.' crates \
+  rg -n 'vibe_trading\.core\.vibe_pyo3|vibe_pyo3\.' crates \
     --glob '*.rs' \
     2> /dev/null
 ); then

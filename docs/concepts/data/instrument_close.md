@@ -40,10 +40,10 @@ let close = InstrumentClose::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentClose
-from vibe_trader.model import InstrumentCloseType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
+from vibe_trading.model import InstrumentClose
+from vibe_trading.model import InstrumentCloseType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
 
 close = InstrumentClose(
     instrument_id=InstrumentId.from_str("ESM4.XCME"),

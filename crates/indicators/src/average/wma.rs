@@ -14,10 +14,10 @@ const MAX_PERIOD: usize = 8_192;
 /// An indicator which calculates a weighted moving average across a rolling window.
 #[repr(C)]
 #[derive(Debug)]
-#[cfg_attr(feature = "python", pyo3::pyclass(module = "vibe_trader.indicators"))]
+#[cfg_attr(feature = "python", pyo3::pyclass(module = "vibe_trading.indicators"))]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.indicators")
 )]
 pub struct WeightedMovingAverage {
     /// The rolling window period for the indicator (> 0).

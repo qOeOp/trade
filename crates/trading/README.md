@@ -1,14 +1,14 @@
 # vibe-trading
 
-Trading strategy machinery and orchestration for [VibeTrader](https://github.com/qOeOp/trade).
+Trading strategy machinery and orchestration for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-trading` crate provides core trading capabilities including:
 
 - **Forex sessions**: Market session time calculations and timezone handling.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

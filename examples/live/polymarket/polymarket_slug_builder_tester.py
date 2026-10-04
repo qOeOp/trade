@@ -26,15 +26,15 @@ To get Polymarket API credentials:
 
 """
 
-from vibe_trader.adapters.polymarket import POLYMARKET
-from vibe_trader.adapters.polymarket import PolymarketDataClientConfig
-from vibe_trader.adapters.polymarket import PolymarketLiveDataClientFactory
-from vibe_trader.adapters.polymarket.providers import PolymarketInstrumentProviderConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.identifiers import TraderId
+from vibe_trading.adapters.polymarket import POLYMARKET
+from vibe_trading.adapters.polymarket import PolymarketDataClientConfig
+from vibe_trading.adapters.polymarket import PolymarketLiveDataClientFactory
+from vibe_trading.adapters.polymarket.providers import PolymarketInstrumentProviderConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.identifiers import TraderId
 
 
 # Configure the instrument provider with event_slug_builder

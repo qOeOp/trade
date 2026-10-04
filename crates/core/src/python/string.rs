@@ -14,7 +14,7 @@ use pyo3_stub_gen::derive::gen_stub_pyfunction;
 /// assert_eq!(mask_api_key("short"), "*****");
 /// ```
 #[pyfunction(name = "mask_api_key")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 #[must_use]
 #[expect(
     clippy::needless_pass_by_value,

@@ -1,7 +1,7 @@
 # Bar
 
 `Bar` represents OHLCV price and volume data for a specific `BarType`. A venue or data provider
-can supply bars, or VibeTrader can aggregate them from quote ticks, trade ticks, or smaller bars.
+can supply bars, or VibeTrading can aggregate them from quote ticks, trade ticks, or smaller bars.
 
 ## Fields
 
@@ -45,10 +45,10 @@ let bar = Bar::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
 
 bar = Bar(
     bar_type=BarType.from_str("AUD/USD.SIM-1-MINUTE-LAST-EXTERNAL"),

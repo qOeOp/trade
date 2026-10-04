@@ -240,8 +240,8 @@ Use **pytest-style free functions and fixtures**. Do not use test classes.
   Prefer `yield` fixtures when teardown is needed (e.g., `engine.dispose()`).
 - Use `@pytest.mark.parametrize` to cover multiple inputs without duplicating
   test bodies.
-- Import model types from `vibe_trader.model`, not from
-  `vibe_trader._libvibe`.
+- Import model types from `vibe_trading.model`, not from
+  `vibe_trading._libvibe`.
 - Test providers live in `python/tests/providers.py`. Use `TestInstrumentProvider`
   and `TestDataProvider` for common instruments and data.
 - Mark tests that depend on unfinished features with

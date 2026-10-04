@@ -1,7 +1,7 @@
 import pytest
 
 from tests.stubs import TestDataProviderPyo3
-from vibe_trader.indicators import RelativeStrengthIndex
+from vibe_trading.indicators import RelativeStrengthIndex
 
 
 @pytest.fixture

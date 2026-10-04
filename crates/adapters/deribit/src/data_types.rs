@@ -15,11 +15,11 @@ use crate::{common::consts::DERIBIT_VENUE, http::models::DeribitBookSummaryRaw};
 /// Emitted from the `deribit_volatility_index.{index_name}` WebSocket channel.
 #[cfg_attr(
     feature = "arrow",
-    custom_data(pyo3, stub_module = "vibe_trader.adapters.deribit")
+    custom_data(pyo3, stub_module = "vibe_trading.adapters.deribit")
 )]
 #[cfg_attr(
     not(feature = "arrow"),
-    custom_data(pyo3, no_arrow, stub_module = "vibe_trader.adapters.deribit")
+    custom_data(pyo3, no_arrow, stub_module = "vibe_trading.adapters.deribit")
 )]
 pub struct DeribitVolatilityIndex {
     /// The index identifier (for example `"btc_usd"` or `"eth_usd"`).
@@ -39,11 +39,11 @@ pub struct DeribitVolatilityIndex {
 /// Convert from the wire DTO via [`DeribitBookSummary::from_raw`].
 #[cfg_attr(
     feature = "arrow",
-    custom_data(pyo3, stub_module = "vibe_trader.adapters.deribit")
+    custom_data(pyo3, stub_module = "vibe_trading.adapters.deribit")
 )]
 #[cfg_attr(
     not(feature = "arrow"),
-    custom_data(pyo3, no_arrow, stub_module = "vibe_trader.adapters.deribit")
+    custom_data(pyo3, no_arrow, stub_module = "vibe_trading.adapters.deribit")
 )]
 pub struct DeribitBookSummary {
     /// Vibe instrument identifier (venue-qualified).

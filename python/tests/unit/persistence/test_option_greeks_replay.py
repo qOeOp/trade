@@ -2,13 +2,13 @@ import os
 
 import pytest
 
-from vibe_trader.common import DataActor
-from vibe_trader.common import DataActorConfig
-from vibe_trader.model import ActorId
-from vibe_trader.model import GreeksConvention
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OptionGreeks
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.common import DataActor
+from vibe_trading.common import DataActorConfig
+from vibe_trading.model import ActorId
+from vibe_trading.model import GreeksConvention
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OptionGreeks
+from vibe_trading.persistence import ParquetDataCatalog
 
 
 _INSTRUMENT_ID = InstrumentId.from_str("BTC-20240329-50000-C.DERIBIT")

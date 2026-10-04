@@ -5,21 +5,21 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from vibe_trader.model import AggressorSide
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import CryptoPerpetual
-from vibe_trader.model import Currency
-from vibe_trader.model import CurrencyPair
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Money
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import Symbol
-from vibe_trader.model import TradeId
-from vibe_trader.model import TradeTick
-from vibe_trader.model import Venue
+from vibe_trading.model import AggressorSide
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import CryptoPerpetual
+from vibe_trading.model import Currency
+from vibe_trading.model import CurrencyPair
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Money
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import Symbol
+from vibe_trading.model import TradeId
+from vibe_trading.model import TradeTick
+from vibe_trading.model import Venue
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent

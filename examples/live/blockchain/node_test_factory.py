@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import os
 
-from vibe_trader.common import Environment
-from vibe_trader.config import ImportableActorConfig
-from vibe_trader.infrastructure import PostgresConnectOptions
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
+from vibe_trading.common import Environment
+from vibe_trading.config import ImportableActorConfig
+from vibe_trading.infrastructure import PostgresConnectOptions
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
 
 
 def test_factory_approach():

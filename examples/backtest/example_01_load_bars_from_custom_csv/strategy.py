@@ -1,9 +1,9 @@
 import datetime as dt
 
-from vibe_trader.common.enums import LogColor
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.common.enums import LogColor
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.trading.strategy import Strategy
 
 
 # This is a trivial demo strategy that simply counts all processed 1-minute bars.

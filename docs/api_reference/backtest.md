@@ -1,7 +1,7 @@
 # Backtest
 
 ```{eval-rst}
-.. automodule:: vibe_trader.backtest
+.. automodule:: vibe_trading.backtest
    :show-inheritance:
    :inherited-members:
    :members:

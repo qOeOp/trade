@@ -25,28 +25,28 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from vibe_trader.adapters.binance import load_binance_order_book_deltas
-from vibe_trader.analysis.tearsheet import _write_figure
-from vibe_trader.analysis.themes import get_theme
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.common import DataActor
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import DataActorConfig
-from vibe_trader.config import LoggerConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import Currency
-from vibe_trader.model import CurrencyPair
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import OrderBookDeltas
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
-from vibe_trader.model import TraderId
-from vibe_trader.model import Venue
+from vibe_trading.adapters.binance import load_binance_order_book_deltas
+from vibe_trading.analysis.tearsheet import _write_figure
+from vibe_trading.analysis.themes import get_theme
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.common import DataActor
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import DataActorConfig
+from vibe_trading.config import LoggerConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import Currency
+from vibe_trading.model import CurrencyPair
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import OrderBookDeltas
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
+from vibe_trading.model import TraderId
+from vibe_trading.model import Venue
 
 
 TUTORIAL_DIR = Path(__file__).resolve().parents[2]

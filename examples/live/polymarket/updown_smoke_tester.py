@@ -20,24 +20,24 @@ import urllib.request
 from decimal import Decimal
 from typing import Any
 
-from vibe_trader.adapters.polymarket import PolymarketDataClientConfig
-from vibe_trader.adapters.polymarket import PolymarketDataClientFactory
-from vibe_trader.adapters.polymarket import PolymarketExecClientConfig
-from vibe_trader.adapters.polymarket import PolymarketExecutionClientFactory
-from vibe_trader.adapters.polymarket import PolymarketInstrumentProviderConfig
-from vibe_trader.adapters.polymarket import PolymarketUpDownEventSlugConfig
-from vibe_trader.adapters.polymarket import SignatureType
-from vibe_trader.common import Environment
-from vibe_trader.config import LiveRiskEngineConfig
-from vibe_trader.live import LiveNode
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Quantity
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import DataTesterConfig
-from vibe_trader.testkit import ExecTesterConfig
+from vibe_trading.adapters.polymarket import PolymarketDataClientConfig
+from vibe_trading.adapters.polymarket import PolymarketDataClientFactory
+from vibe_trading.adapters.polymarket import PolymarketExecClientConfig
+from vibe_trading.adapters.polymarket import PolymarketExecutionClientFactory
+from vibe_trading.adapters.polymarket import PolymarketInstrumentProviderConfig
+from vibe_trading.adapters.polymarket import PolymarketUpDownEventSlugConfig
+from vibe_trading.adapters.polymarket import SignatureType
+from vibe_trading.common import Environment
+from vibe_trading.config import LiveRiskEngineConfig
+from vibe_trading.live import LiveNode
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Quantity
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import DataTesterConfig
+from vibe_trading.testkit import ExecTesterConfig
 
 
 POLYMARKET = "POLYMARKET"
@@ -281,7 +281,7 @@ def request_gamma_events_by_slug(
 
     query = urllib.parse.urlencode({"slug": slug})
     url = f"{base_url_gamma.rstrip('/')}/events?{query}"
-    request = urllib.request.Request(url, headers={"User-Agent": "vibe-trader"})  # noqa: S310
+    request = urllib.request.Request(url, headers={"User-Agent": "vibe-trading"})  # noqa: S310
 
     try:
         with urllib.request.urlopen(request, timeout=timeout_secs) as response:  # noqa: S310

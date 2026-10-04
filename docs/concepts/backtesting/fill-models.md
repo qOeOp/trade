@@ -4,7 +4,7 @@ This page documents the existing engine. Where it differs from the Owner contrac
 `docs/owners/backtest.md`, the Owner contract is authoritative.
 
 Historical data cannot show how a simulated order would have interacted with other market
-participants. A fill model controls the assumptions VibeTrader makes about limit-order
+participants. A fill model controls the assumptions VibeTrading makes about limit-order
 eligibility, one-tick slippage, and optional synthetic liquidity.
 
 ## Behavior by book type
@@ -66,11 +66,11 @@ and normal-liquidity mode.
 Pass a built-in model object directly to `BacktestVenueConfig`:
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.execution import DefaultFillModel
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.execution import DefaultFillModel
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -89,7 +89,7 @@ venue = BacktestVenueConfig(
 Synthetic book models use the same constructor parameters:
 
 ```python
-from vibe_trader.execution import ThreeTierFillModel
+from vibe_trading.execution import ThreeTierFillModel
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -119,7 +119,7 @@ It may also implement:
 - `fill_limit_inside_spread() -> bool`
 - `get_orderbook_for_fill_simulation(instrument, order, best_bid, best_ask) -> OrderBook | None`
 
-Subclassing `vibe_trader.execution.FillModel` supplies default implementations for these
+Subclassing `vibe_trading.execution.FillModel` supplies default implementations for these
 methods. This custom-object protocol applies to the low-level engine only.
 
 ## Probabilistic parameters

@@ -1,7 +1,7 @@
 # Position
 
 ```{eval-rst}
-.. automodule:: vibe_trader.model
+.. automodule:: vibe_trading.model
    :no-index:
    :show-inheritance:
    :members: Position, PositionAdjustmentType, PositionSide, PositionSideSpecified

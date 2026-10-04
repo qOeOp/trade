@@ -58,7 +58,7 @@
 # ## Prerequisites
 #
 # - Python 3.12+
-# - A local Vibe Trader source build (`make build-debug`)
+# - A local Vibe Trading source build (`make build-debug`)
 # - The sibling [`orderbook_data.py`](./orderbook_data.py) and
 #   [`orderbook_imbalance.py`](./orderbook_imbalance.py) files. Keep them next
 #   to this tutorial when downloading or converting it with Jupytext.
@@ -73,10 +73,10 @@ import shutil
 from pathlib import Path
 
 import pandas as pd
-from vibe_trader.adapters.binance import load_binance_order_book_deltas
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.common import LogLevel
-from vibe_trader.config import (
+from vibe_trading.adapters.binance import load_binance_order_book_deltas
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.common import LogLevel
+from vibe_trading.config import (
     BacktestDataConfig,
     BacktestEngineConfig,
     BacktestRunConfig,
@@ -84,8 +84,8 @@ from vibe_trader.config import (
     ImportableStrategyConfig,
     LoggerConfig,
 )
-from vibe_trader.core.datetime import dt_to_unix_nanos
-from vibe_trader.model import (
+from vibe_trading.core.datetime import dt_to_unix_nanos
+from vibe_trading.model import (
     AccountType,
     BookType,
     Currency,
@@ -97,7 +97,7 @@ from vibe_trader.model import (
     Symbol,
     Venue,
 )
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 from orderbook_data import deltas_from_frame
 
@@ -105,7 +105,7 @@ from orderbook_data import deltas_from_frame
 # ## Loading data
 #
 # Each row of `_depth_snap.csv` and `_depth_update.csv` is a single L2 level
-# event. The Binance loader maps them to VibeTrader `OrderBookDelta`
+# event. The Binance loader maps them to VibeTrading `OrderBookDelta`
 # objects with `update_type="snap"` for snapshots and `set` / `delete` for
 # updates. The full update file for BTCUSDT 2022-11-01 is ~12 GB
 # (~110 million rows), so the tutorial caps the read at 1,000,000 rows.
