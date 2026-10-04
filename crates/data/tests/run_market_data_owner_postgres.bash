@@ -80,6 +80,7 @@ readonly market_data_owner_postgres_tests=(
 # that is where the production branch of what they relax is the branch compiled and proven.
 readonly market_data_owner_postgres_sealed_acceptance_tests=(
   owner::store_admission::tests::the_sealed_acceptance_resolver_reads_under_exactly_its_grants
+  owner::postgres::native_replay_custody_frame_v1_tests::postgres_the_sealed_acceptance_custody_resolver_reads_a_frame_with_its_stated_quotes
 )
 
 # Proofs in an integration-test binary, as `<binary>::<test>`. They reach what exists only in a build

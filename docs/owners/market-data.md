@@ -2765,7 +2765,13 @@ Replay resolver gains a custody frame method beside the snapshot one, and each r
 quote cut is the T0-6 hook: until T0-6 derives the quote cut and the run-level `QuoteCutMissing` check, every gap is
 refused as `QuoteCutMissing`, so a custody frame fails closed as `EventOrderUnavailable` and no Quote is invented. The
 frames port does not check the gap yet. No production caller reaches any of this yet: its unit tests and PostgreSQL
-proofs drive it, the N=1 and two-frame parity proofs with a quote cut injected through the resolver.
+proofs drive it, the N=1 and two-frame parity proofs with a quote cut injected through the resolver. Until T0-6,
+a build with `sealed-strategy-input-acceptance` also opens an acceptance-only custody frame resolver,
+`native_replay_custody_frame_resolver_for_sealed_acceptance_v1`, so a consumer can be driven over several custody
+frames: it reads each frame through the same pool read, seal and frame issuance, and only its quote source differs - a
+closure states each gap's Quotes, which the custody quote cut seal still checks against the gap, the members and the
+custody view, and a gap it states nothing for is `QuoteCutMissing` as in production. T0-6's derivation replaces it,
+and a result produced with it is not U1 evidence until it is re-run on that derivation.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the

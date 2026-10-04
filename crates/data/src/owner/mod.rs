@@ -605,6 +605,69 @@ pub fn native_replay_scheduling_resolver_for_sealed_acceptance_v1(
     ))
 }
 
+/// Opens the custody frame resolver sealed acceptance composes before slice T0-6 derives a custody
+/// gap's quote cut.
+///
+/// **Acceptance only.** It reads custody frames on the Market Data Owner store at `owner_url`
+/// through the same view read, seal and frame issuance the pool and admitted custody paths use;
+/// only the quote source differs. `quote` states each gap's Quotes where production refuses every
+/// gap, and its rows are sealed by the custody quote cut seal, so the gap check
+/// (`d_k < instant < bound`), one complete quote per member in member order and the custody-view
+/// source all apply; a gap it answers with `None` is refused as `QuoteCutMissing`, which a frame
+/// reads as `EventOrderUnavailable`, exactly as production refuses it. T0-6's real fill-bar
+/// derivation replaces it, and any end-to-end result produced with it must be re-run on the real
+/// derivation before it counts as U1 evidence. It reads no snapshot frame, and it exists only in a
+/// build that enables `sealed-strategy-input-acceptance`, which no deployed binary does.
+///
+/// It must be called inside a Tokio runtime: its pool opens lazily, so the store is first reached
+/// at the first read.
+///
+/// # Errors
+///
+/// `InvalidIdentity` when `owner_url` does not parse or is not a disposable loopback `vibe_test_`
+/// database.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub fn native_replay_custody_frame_resolver_for_sealed_acceptance_v1<F>(
+    owner_url: &str,
+    quote: F,
+) -> Result<
+    std::sync::Arc<dyn native_replay_scheduling_v1::NativeReplaySchedulingResolverV1>,
+    NativeReplaySchedulingBootstrapErrorV1,
+>
+where
+    F: Fn(
+            &pit_window_custody_v1::sealed_acceptance::SealedAcceptanceCustodyQuoteGapV1,
+        )
+            -> Option<pit_window_custody_v1::sealed_acceptance::SealedAcceptanceCustodyQuoteCutV1>
+        + Send
+        + Sync
+        + 'static,
+{
+    let invalid = || NativeReplaySchedulingBootstrapErrorV1 {
+        failure: ResearchPitTerminalBootstrapFailure::InvalidIdentity,
+    };
+    let options = owner_url
+        .parse::<sqlx::postgres::PgConnectOptions>()
+        .map_err(|_| invalid())?;
+    let loopback = matches!(options.get_host(), "127.0.0.1" | "localhost" | "::1");
+    let disposable = options
+        .get_database()
+        .is_some_and(|database| database.starts_with("vibe_test_"));
+
+    if !loopback || !disposable || owner_url.contains("hostaddr") {
+        return Err(invalid());
+    }
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy_url(owner_url, PostgresTls::Disabled)
+        .map_err(|_| invalid())?;
+    Ok(std::sync::Arc::new(
+        postgres::native_replay_custody_frame_v1::SealedAcceptanceCustodyFrameResolverV1 {
+            pool,
+            quote,
+        },
+    ))
+}
+
 /// Why the sealed acceptance principal could not be granted or revoked its reads.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]

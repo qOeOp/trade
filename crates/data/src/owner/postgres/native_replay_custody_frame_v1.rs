@@ -142,8 +142,9 @@ where
     )
 }
 
-/// One custody frame read on the pool, for the build where the read store holds one.
-#[cfg(test)]
+/// One custody frame read on the pool, for the build where the read store holds one and for the
+/// sealed acceptance custody frame resolver.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub(in crate::owner) async fn resolve_native_replay_custody_frame_from_pool_v1<Q>(
     pool: &sqlx::PgPool,
     request: &NativeReplayInitialMarketRequestV1,
@@ -193,6 +194,67 @@ where
     let frame = request.custody_frame()?;
     let view = resolve_pit_window_view_through_port_v1(port, &frame).await;
     custody_frame_readback_from_view_v1(view, request, quote_cut)
+}
+
+/// The custody frame resolver sealed acceptance composes before slice T0-6 derives quote cuts.
+///
+/// **Acceptance only.** It reads a custody frame on the Owner pool through
+/// [`resolve_native_replay_custody_frame_from_pool_v1`], the read the pool and admitted paths share
+/// through [`custody_frame_readback_from_view_v1`]; only the quote source differs: `quote` states
+/// each gap's Quotes where production's [`resolve_custody_quote_cut_v1`] refuses every gap, and the
+/// stated rows are sealed by the custody quote cut seal, so the gap, member and source checks all
+/// apply. T0-6's real fill-bar derivation replaces it, and any end-to-end result produced with it
+/// must be re-run on the real derivation before it counts as U1 evidence. A snapshot frame is never
+/// read here.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(crate) struct SealedAcceptanceCustodyFrameResolverV1<F> {
+    pub(crate) pool: sqlx::PgPool,
+    pub(crate) quote: F,
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl<F> crate::owner::native_replay_scheduling_v1::resolver_seal::Sealed
+    for SealedAcceptanceCustodyFrameResolverV1<F>
+{
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[async_trait::async_trait]
+impl<F> crate::owner::native_replay_scheduling_v1::NativeReplaySchedulingResolverV1
+    for SealedAcceptanceCustodyFrameResolverV1<F>
+where
+    F: Fn(
+            &crate::owner::pit_window_custody_v1::sealed_acceptance::SealedAcceptanceCustodyQuoteGapV1,
+        ) -> Option<
+            crate::owner::pit_window_custody_v1::sealed_acceptance::SealedAcceptanceCustodyQuoteCutV1,
+        > + Send
+        + Sync,
+{
+    /// A custody frame resolver reads no snapshot frame.
+    async fn resolve_native_replay_initial_market_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<
+        crate::owner::native_replay_scheduling_v1::NativeReplayInitialMarketReadbackV1,
+        NativeReplaySchedulingErrorV1,
+    > {
+        request.snapshot_source()?;
+        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+    }
+
+    async fn resolve_native_replay_custody_frame_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+        resolve_native_replay_custody_frame_from_pool_v1(&self.pool, request, |view, gap| {
+            crate::owner::pit_window_custody_v1::sealed_acceptance::sealed_acceptance_custody_quote_cut_v1(
+                view,
+                gap,
+                &self.quote,
+            )
+        })
+        .await
+    }
 }
 
 #[cfg(test)]
