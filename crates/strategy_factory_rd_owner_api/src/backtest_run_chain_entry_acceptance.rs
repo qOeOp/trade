@@ -10,11 +10,18 @@
 //! The custody chain itself is committed fresh by this entry
 //! (`commit_sealed_acceptance_custody_chain_v1`, #1348), over the SAME canonical instrument F
 //! already admitted, and named implicitly: `run_backtest_v1` resolves it itself from the
-//! dataset_ref's instrument, execution timeframe and window (`resolve_custody_run_v1`, #1400) -
-//! whether that chain's own Universe Selection turns out to be the same record the Design's
-//! role-binding (H4) resolves is exactly the open question this entry answers empirically: if it
-//! is not, `run_backtest_v1` refuses by name (`CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN`), and the
-//! right answer is Lane 3's ruling, not a softer assertion here.
+//! dataset_ref's instrument, execution timeframe and window (`resolve_custody_run_v1`, #1400).
+//!
+//! The chain this entry mints its own Instrument Master V1 fact and Universe Selection for every
+//! run, so its own basis is structurally never the SAME record the Design's role-binding (H4)
+//! resolves from the initial PIT snapshot - `run_backtest_v1` refuses by name
+//! (`CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN`), and that is the one correct outcome today, not a
+//! softer assertion. **This is Lane 3's ruling** (10-05, cross-session): a custody run's Design
+//! universe binding should instead come from the chain's own basis selection, passed down by
+//! value through H2/H4, rather than the initial PIT snapshot's - once that lands, this entry's
+//! assertion flips to `custody_binding.is_some()`. Not done yet; see `docs/architecture/
+//! strategy-factory.md`'s custody-run section once it exists, or `lane5_handoff.md`'s memory for
+//! the current state of that slice.
 
 use std::sync::Arc;
 
@@ -40,6 +47,7 @@ use vibe_product_edge::deployment_acceptance::{
     ensure_product_edge_deployment_acceptance_fixture_v1,
 };
 use vibe_strategy_factory::{
+    NativeReplayExecutionInputBindingCauseV1, NativeReplayExecutionInputBindingErrorV1,
     backtest_run_dataset_ref_v1::BacktestRunDatasetRefV1,
     bounded_feature_program_v1::BoundedFeaturePredicateV1,
     product_edge::{RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3, RESEARCH_OWNER_V1},
@@ -92,18 +100,25 @@ fn chain_entry_bar(open_ns: u64) -> SealedAcceptanceBarV1 {
     }
 }
 
-/// The first UTC day boundary at or after `effective_ns` - F's own perpetual admits its economic
-/// terms at Market Data's current decision cut (that instant), so the chain's own window must
-/// start no earlier than it, and the sealed Replay policy window (`[1, 2^63)`) separately refuses
-/// a start of zero outright. Starting the chain itself a day after this boundary, with the run
-/// window then starting a further day in (`chain_entry_run_window`), keeps every bar's open and
-/// close inside both.
-const fn chain_entry_start(effective_ns: u64) -> u64 {
-    (effective_ns / DAY_NS + 1) * DAY_NS
-}
+/// A fixed, far-past UTC day boundary this entry's custody chain anchors at - the same constant
+/// Market Data's own disposable-database tests use
+/// (`crates/data/src/owner/postgres/sealed_acceptance_custody_chain_v1_tests.rs`, `schedule_tests.rs`,
+/// `pit_window_custody_v1_tests.rs`, `venue_bar_store_v1_tests.rs`). F's own economic terms are
+/// admitted with `effective_from: 1`, valid through `2100` (`instrument_economic_terms_intake_v1.rs`
+/// resolves a V2 fact's `valid_from` from its baseline `effective_from_ns`;
+/// `first_composer_v3_replay_acceptance.rs` posts `effective_from: 1`), so they cover this window
+/// too - a past anchor was wrongly assumed to need "now" as a floor; it does not, since F's terms
+/// were never time-bound to "now" in the first place. The sealed Replay policy window (`[1,
+/// 2^63)`) separately refuses a start of zero outright, which is why this is day 19_700, not day
+/// 0. Anchoring in the past (rather than at or after Market Data's current wall-clock decision
+/// cut, as an earlier version of this entry did) also keeps every bar's own availability strictly
+/// before the Owner clock's minting cut, avoiding `RetrievalAfterMintingCut`
+/// (`pit_window_custody_v1.rs:264`) - a bar minted "in the future" relative to that clock is
+/// refused outright, which a wall-clock anchor cannot avoid no matter how it is computed.
+const CHAIN_ENTRY_START_NS: u64 = 19_700 * DAY_NS;
 
 /// The custody chain's own window, `[start, end)` in nanoseconds - `CUSTODY_FRAMES` daily bars
-/// from [`chain_entry_start`], plus its warm-up day.
+/// from [`CHAIN_ENTRY_START_NS`], plus its warm-up day.
 const fn chain_entry_window(start: u64) -> (u64, u64) {
     (start, start + (CUSTODY_FRAMES + 1) * DAY_NS)
 }
@@ -115,7 +130,7 @@ const fn chain_entry_run_window(start: u64) -> (u64, u64) {
 }
 
 /// A real sealed-acceptance custody chain over the same perpetual F already admitted, anchored at
-/// `start` (see [`chain_entry_start`]): `CUSTODY_FRAMES` daily execution bars, with a one-minute
+/// `start` (see [`CHAIN_ENTRY_START_NS`]): `CUSTODY_FRAMES` daily execution bars, with a one-minute
 /// fill timeframe and a two-minute lag, matching the custody intake's own requirements.
 fn chain_entry_spec_v1(start: u64) -> SealedAcceptanceCustodyChainSpecV1 {
     let fill_open = |event_ns: u64| event_ns + CUSTODY_LAG_NS + MINUTE_NS;
@@ -174,26 +189,15 @@ fn backtest_run_chain_entry_spec_v1() -> SingleThresholdStrategySpecV1 {
     }
 }
 
-/// Runs `backtest.run`'s orchestration from a fresh catalog entry through to the replay step, and
-/// asserts it stops there by exactly the one name the missing T0-5 dependency carries.
+/// Runs `backtest.run`'s orchestration from a fresh catalog entry, over a real custody chain this
+/// entry commits, through to H8 - today this always refuses by name as
+/// `CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN`, see the module doc.
 pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
 ) {
     crate::tests::composed_market_data_binding_admission(test_database).await;
 
-    // F admits the perpetual's economic terms at Market Data's current decision cut; the
-    // custody chain's own window must start no earlier than that instant, so this entry anchors
-    // it on the next UTC day boundary after it.
-    let effective_ns =
-        pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberDailyBarsV1))
-            .await
-            .expect("Market Data's PIT intake opens")
-            .current_decision_cut()
-            .await
-            .expect("Market Data states its decision cut")
-            .decision_cut
-            .as_epoch_nanos();
-    let chain_start_ns = chain_entry_start(effective_ns);
+    let chain_start_ns = CHAIN_ENTRY_START_NS;
 
     let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
     let product_edge_url = test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
@@ -328,11 +332,6 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
         "the committed chain's own window is the one this entry anchored it at"
     );
     let (window_start_ns, window_end_ns_exclusive) = chain_entry_run_window(chain_start_ns);
-    assert!(
-        window_start_ns >= effective_ns,
-        "the run window starts no earlier than the terms' own effective instant: {window_start_ns} \
-         < {effective_ns}"
-    );
 
     // Both statement families run through the one orchestration: each is authored by its own
     // family into the Design the freeze takes.
@@ -414,10 +413,33 @@ async fn assert_run_reaches_the_replay_step_v1(
             );
             // This entire file compiles only under `sealed-source-intake-composer-acceptance`,
             // which requires `composer-v3-replay` - `custody_binding` always exists here.
+            //
+            // This entry mints its own Instrument Master V1 fact and Universe Selection fresh on
+            // every run (see the module doc), so the chain's own basis can never be the SAME
+            // record the Design's role-binding (H4) resolves from the initial PIT snapshot - H8
+            // refuses by name every time, today. That is the correct outcome, not a stand-in for
+            // one: Lane 3's ruling (10-05) moves the Design's custody-run universe binding onto
+            // the chain's own basis instead, at which point this flips to `is_some()`.
             assert!(
-                reached.custody_binding.is_some(),
-                "backtest.run {run_id} must issue a real custody-run execution-input binding \
-                 (H8) over a committed custody chain naming the Design's own instrument: {:?}",
+                reached.custody_binding.is_none(),
+                "backtest.run {run_id} was expected to refuse H8 by name \
+                 (CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN) over this entry's own fresh custody \
+                 chain, but issued a binding instead - either the binding is now live against a \
+                 chain basis the Design never agreed to, or the universe cross-check regressed: \
+                 {:?}",
+                describe_replay_reason(&reached.reason),
+            );
+            assert!(
+                matches!(
+                    &reached.reason,
+                    BacktestRunReplayUnavailableV1::CustodyIssuanceFailed(
+                        NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                            NativeReplayExecutionInputBindingCauseV1::CustodyRunUniverseDiffersFromDesign
+                        )
+                    )
+                ),
+                "backtest.run {run_id} must refuse H8 by exactly this name, not some other stop: \
+                 {}",
                 describe_replay_reason(&reached.reason),
             );
         }
