@@ -551,6 +551,9 @@ fn describe_replay_reason(reason: &BacktestRunReplayUnavailableV1) -> String {
 
 fn describe_error(error: &BacktestRunErrorV1) -> String {
     match error {
+        BacktestRunErrorV1::ExecutionTimeframeUndeclared => {
+            "execution timeframe undeclared".to_owned()
+        }
         BacktestRunErrorV1::StrategyUnknown => "strategy unknown".to_owned(),
         BacktestRunErrorV1::StrategyArchived => "strategy archived".to_owned(),
         BacktestRunErrorV1::CatalogUnavailable(e) => format!("catalog unavailable: {e}"),
