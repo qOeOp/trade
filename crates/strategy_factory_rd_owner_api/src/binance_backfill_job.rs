@@ -37,8 +37,8 @@ use vibe_binance::{
         binance_perpetual_canonical_identity_v1, binance_perpetual_correction_frontier_digest_v1,
         binance_perpetual_eligible_frontier_v1,
         binance_perpetual_eligible_set_admission_request_v1,
-        binance_perpetual_market_semantics_value_v1, binance_perpetual_membership_lineage_anchor_v1,
-        binance_perpetual_source_proposal,
+        binance_perpetual_market_semantics_value_v1,
+        binance_perpetual_membership_lineage_anchor_v1, binance_perpetual_source_proposal,
     },
     vision_backfill_custody_v1::{
         BackfillCustodyBasisV1, BackfillTimeframeBarsV1, custody_request_v1,
