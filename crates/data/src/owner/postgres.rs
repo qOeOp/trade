@@ -23,6 +23,10 @@ pub mod bar_schedule_acceptance_v1;
 #[cfg(test)]
 mod bar_schedule_acceptance_v1_tests;
 mod source_binding_dataset_anchor_v1;
+mod venue_bar_store_v1;
+pub(in crate::owner) use venue_bar_store_v1::venue_bar_store_from_environment_v1;
+#[cfg(test)]
+mod venue_bar_store_v1_tests;
 // Test and sealed acceptance fixtures only; no production build reaches it.
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 mod acceptance_fixture_v1;
@@ -1075,6 +1079,7 @@ impl MarketDataOwnerPostgres {
             .chain(pit_window_custody_v1::SCHEMA_V1)
             .chain(backfill_job_v1::SCHEMA_V1)
             .chain(source_binding_dataset_anchor_v1::SCHEMA_V1)
+            .chain(venue_bar_store_v1::SCHEMA_V1)
             .chain(funding_settlement_v1::SCHEMA_V1)
         {
             sqlx::query(*statement)
