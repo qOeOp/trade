@@ -836,6 +836,9 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     );
 }
 
+/// An in-memory edit of a chain readback, made after every record's own readback accepted it.
+type ReadbackEdit = fn(&mut super::pit_window_custody_v1::ChainBasisReadbackV1, BindingDigest);
+
 /// A run whose chain holds no basis record, whose root's Universe Selection the read does not hold
 /// or holds another one, a basis record edited behind its identity, or a Market
 /// Semantics fact forged consistently - restated under another value, with its registry entry and
@@ -915,6 +918,51 @@ async fn postgres_a_run_without_its_verified_chain_basis_is_refused() {
         Err(PitWindowRunRefusalV1::StoreUnavailable),
         "a selection the root's locator does not name is refused"
     );
+
+    // Records that each verify on their own but disagree with each other: the universe evaluated
+    // over another lineage than the R0 record's binding (the Market Semantics fact moved with it,
+    // so only the universe check sees it), and a Market Semantics fact naming another R0 record,
+    // R0 cut, Instrument Master cut, binding or frontier than the chain's.
+    let other_digest = BindingDigest::from_untrusted_bytes([0xEE; 32]);
+    let edits: [(&str, ReadbackEdit); 8] = [
+        ("universe lineage", |r, d| {
+            r.1.0.source_binding_lineage_root = d;
+            r.3.0.source_binding_lineage_root = d;
+        }),
+        ("universe correction frontier", |r, d| {
+            r.1.0.correction_frontier.digest = d;
+            r.3.0.correction_frontier_digest = d;
+        }),
+        ("Market Semantics R0 record", |r, d| {
+            r.3.0.r0_record_identity = d;
+        }),
+        ("Market Semantics R0 cut", |r, d| {
+            r.3.0.r0_cut_identity = d;
+        }),
+        ("Market Semantics Instrument Master cut", |r, d| {
+            r.3.0.instrument_master_cut_identity = d;
+        }),
+        ("Market Semantics binding", |r, d| {
+            r.3.0.source_binding_identity = d;
+        }),
+        ("Market Semantics binding fact", |r, d| {
+            r.3.0.source_binding_fact_digest = d;
+        }),
+        ("Market Semantics source frontier", |r, d| {
+            r.3.0.source_frontier_digest = d;
+        }),
+    ];
+
+    for (name, edit) in edits {
+        let (evidence, readback, selection) = read(universe.request_identity()).await;
+        let mut readback = readback.expect("the chain holds its basis");
+        edit(&mut readback, other_digest);
+        assert_eq!(
+            frames_from_evidence_v1(covered, evidence, Some(readback), selection).map(|_| ()),
+            Err(PitWindowRunRefusalV1::StoreUnavailable),
+            "a basis whose {name} disagrees is refused"
+        );
+    }
 
     // A basis record edited behind its identity.
     let mut transaction = owner.pool().begin().await.unwrap();

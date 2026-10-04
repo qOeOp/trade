@@ -207,8 +207,8 @@ pub const fn refusal_disposition_v1(
         FillTimeframeNotOneMinute, IdentityConflict, InvalidRequest, MarketSemanticsMismatch,
         MarketSemanticsScopeValueConflict, RetrievalAfterMintingCut, RowRetrievedBeforeBarClose,
         SourceBindingDeclaresNoAvailabilityRule, SourceBindingUnavailable, StoreUnavailable,
-        SuccessorBasisChanged, ValueFinerThanSeriesScale, VersionNotAvailableAtMintingCut,
-        WindowMemberNotValidThroughout,
+        SuccessorBasisChanged, UniverseSelectionLineageMismatch, ValueFinerThanSeriesScale,
+        VersionNotAvailableAtMintingCut, WindowMemberNotValidThroughout,
     };
 
     match refusal {
@@ -231,6 +231,7 @@ pub const fn refusal_disposition_v1(
         SourceBindingUnavailable
         | SourceBindingDeclaresNoAvailabilityRule
         | MarketSemanticsMismatch
+        | UniverseSelectionLineageMismatch
         | WindowMemberNotValidThroughout
         | ExecutionTimeframeNotFixedInterval
         | AvailabilityLagNotBelowBarInterval

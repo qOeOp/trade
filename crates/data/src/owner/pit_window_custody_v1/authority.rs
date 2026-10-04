@@ -217,6 +217,14 @@ pub(crate) struct CustodyMembershipV1 {
     pub(crate) effective_until_ns: Option<i128>,
 }
 
+/// The Source Binding lineage and correction frontier the Universe Selection record a request names
+/// was evaluated under.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CustodyUniverseLineageV1 {
+    pub(crate) source_binding_lineage_root: BindingDigest,
+    pub(crate) correction_frontier_digest: BindingDigest,
+}
+
 /// Everything a custody is derived from: the request and what the Owner loaded for it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CustodyInputsV1<'a> {
@@ -226,6 +234,7 @@ pub(crate) struct CustodyInputsV1<'a> {
     /// One entry per member, in member order.
     pub(crate) instruments: &'a [CustodyInstrumentV1],
     pub(crate) membership: &'a [CustodyMembershipV1],
+    pub(crate) universe_lineage: CustodyUniverseLineageV1,
 }
 
 /// One stored cross-section version of the chain a successor extends.
@@ -524,6 +533,17 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
         .availability_rule
         .as_ref()
         .ok_or(Refused::SourceBindingDeclaresNoAvailabilityRule)?;
+
+    // The universe was evaluated over this binding's lineage and correction frontier, as the
+    // snapshot path's universe member composition basis requires of its Instrument Master fact.
+    if inputs.universe_lineage
+        != (CustodyUniverseLineageV1 {
+            source_binding_lineage_root: binding.lineage_root,
+            correction_frontier_digest: binding.correction_frontier_digest,
+        })
+    {
+        return Err(Refused::UniverseSelectionLineageMismatch);
+    }
 
     if request.market_semantics_identity != binding.market_semantics_identity {
         return Err(Refused::MarketSemanticsMismatch);
