@@ -2338,6 +2338,22 @@ and from 0.25 ATR on returns fall fast. With the stop fixed at the zone, a deepe
 fees stop more trades out (win rate 41% to 25%), and the strongest breakouts never come back that far. The edge over
 random entries rises only because the matched controls, with the same tiny stops, lose even more. Nothing changes.
 
+## Loop Z-1: R-1 limit at a fraction of the zone (registered 2026-10-04, before running; the user's question)
+
+(Labelled Z-1 because E-1/E-2 already name range-family loops; the deeper-ATR loop above reused "E-1".)
+
+- **Question:** the R-1 zone is a rectangle (from the broken pivot's wick to its body edge, capped at 1 ATR). Is the
+  limit better at the edge price reaches first (the current rule), at the far edge (bottom for longs, top for shorts),
+  in the middle, or at a fixed fraction? E-1 moved the limit by ATR; Z-1 scales the move by each zone's own height.
+- **Variants:** limit = wick - f x (wick - far edge), f in {0, 0.25, 0.5, 0.75, 1.0}; stop fixed at the zone stop
+  (0.25 ATR beyond the far edge), target 2R from the fill, one slot per coin by first fill, 10-day validity, 60-day
+  hold. Secondary, exploratory: the same fills with the target held at the f = 0 order's 2R price. Development, 53
+  coins, 2018-2022, fees 0.06% a side.
+- **Reported:** trades, avg R, edge against matched random entries (week-clustered), total R and weekly Sharpe, on
+  daily bars and with the same trades re-walked on 1h bars (fill hour, then stop and target in hourly order); CSCV PBO
+  over the five primary fractions. A fraction joins the forward record as a paired variant only if it beats f = 0 on
+  both total R and Sharpe across its neighbours (a plateau); nothing changes R-1u.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R
