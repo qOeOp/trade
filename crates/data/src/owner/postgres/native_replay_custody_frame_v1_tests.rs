@@ -334,9 +334,10 @@ async fn postgres_a_one_member_custody_frame_equals_its_snapshot_frame() {
         .expect("the snapshot frame over the same rows issues");
     assert_same_frame(custody, snapshot, &[BTC]);
 
-    // The view states each value canonically, and the native bar holds one precision for its four
-    // prices: a bar whose prices state different ones is refused by name on both paths alike,
-    // never rounded onto one.
+    // The view states each value canonically, so one field's trailing zero can canonicalize away
+    // where another's does not: the native bar widens every price to the bar's own finest
+    // precision before projection (appending a fractional zero only, never rounding), on both
+    // paths alike, so a real bar of this shape still seals identically through either.
     let mixed = commit(
         &intake,
         stating_bar(one_member(second), MIXED_PRECISION_BAR),
@@ -353,14 +354,7 @@ async fn postgres_a_one_member_custody_frame_equals_its_snapshot_frame() {
     let snapshot = custody
         .snapshot_twin_for_test(&request)
         .expect("the snapshot frame over the same rows issues");
-    assert_eq!(
-        custody.into_execution_parts().map(|_| ()),
-        Err(NativeReplaySchedulingErrorV1::NativeRepresentation)
-    );
-    assert_eq!(
-        snapshot.into_execution_parts().map(|_| ()),
-        Err(NativeReplaySchedulingErrorV1::NativeRepresentation)
-    );
+    assert_same_frame(custody, snapshot, &[BTC]);
 }
 
 /// Both frames of a two-member, single-timeframe custody are the snapshot frames over their rows.
