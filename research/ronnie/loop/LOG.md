@@ -2453,6 +2453,12 @@ on 2018-2019 show no stable feature, Ronnie's room-to-target included. In the 5-
 did no better than a random filter with the same pass rate (f = 0: total R 167 vs 174 [110, 236]; f = 0.5: 263 vs 286
 [205, 350]), and both did worse than taking every order. Exploratory, not registered: in that account f = 0.5 beat
 f = 0 (every order: total R 398 vs 153, Sharpe 2.28 vs 1.13, 2020-2022).
+- **Score bands (2026-10-04, reading for the user):** the test-year score as a percentile of its training scores
+  ("0-100 points"), avg R per band, f = 0: 0-10 -0.004, 10-20 +0.035, 20-30 +0.050, 30-40 +0.186, 40-50 +0.219, 50-60
+  +0.180, 60-70 +0.099, 70-80 +0.137, 80-90 +0.104, 90-100 -0.053 (f = 0.5 similar: 90-100 +0.003, 70-80 +0.177). Not
+  monotone: both tails are worst, and the top band is good only in 2021 (+0.54; 2020 -0.13, 2022 -0.11). A linear
+  score's extremes are extreme feature values (overextended breakouts); "avoid both tails" is a lead seen after the
+  fact, so it needs its own registered test.
 
 ### Loop S-2 result (2026-10-04; `loop/r1_level_pick.txt`)
 
