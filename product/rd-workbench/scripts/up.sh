@@ -4,25 +4,29 @@
 # Every credential, signing seed and sealed command is generated on this machine into a private
 # state directory (default product/rd-workbench/.local, ignored by Git) and never printed. Each step
 # first measures whether it has already happened and, if so, says "skip <step>: <reason>" instead
-# of running again. The compose project and its volumes are trade-rd-local, separate from any other
-# deployment of this package; nothing here reads or touches another project's volume.
+# of running again. The compose project and its volumes are trade-rd-local unless RD_LOCAL_PROJECT
+# names another, separate from any other deployment of this package; nothing here reads or touches
+# another project's volume or state directory (scripts/local-deployment.bash).
 #
 # Docker runs with an empty environment plus the state directory's env file, so no API key from the
 # calling shell (DATABENTO_API_KEY, DEEPSEEK_API_KEY, ...) can reach a container. Exchange
 # credentials are never read.
 #
 # Optional:
+#   RD_LOCAL_PROJECT            compose project (default: trade-rd-local); another project gets its
+#                               own volumes and state directory, product/rd-workbench/.local-<project>
 #   RD_LOCAL_STATE_DIR          state directory (default: product/rd-workbench/.local)
-#   RD_LOCAL_API_PORT           loopback port for rd-owner-api (default: 18080)
+#   RD_LOCAL_API_PORT           loopback port for rd-owner-api (default: the port this project last
+#                               published, or 18080)
 #   RD_LOCAL_ACCEPTANCE_SCRIPT  a script run last as `<script> probe http://127.0.0.1:<port>`, with
 #                               RD_OWNER_API_TOKEN exported from the env file
 set -euo pipefail
 
 package_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 repo_root=$(CDPATH='' cd -- "$package_dir/../.." && pwd)
-state_dir=${RD_LOCAL_STATE_DIR:-$package_dir/.local}
-api_port=${RD_LOCAL_API_PORT:-18080}
-project=trade-rd-local
+# shellcheck source=product/rd-workbench/scripts/local-deployment.bash
+source "$package_dir/scripts/local-deployment.bash"
+project=$local_project
 env_file=$state_dir/.env
 catalog_dir=$state_dir/catalog
 owner_image=$project-rd-owner-api
@@ -36,6 +40,7 @@ run() { log "run  $1"; }
 
 umask 077
 mkdir -p "$state_dir" "$catalog_dir" "$state_dir/steps"
+printf '%s\n' "$api_port" > "$state_dir/api-port"
 
 # Docker Desktop's credential helper can hang every registry resolution, and the build then dies
 # silently. A private Docker config without the helper avoids it and leaves the user's untouched.

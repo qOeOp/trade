@@ -57,6 +57,21 @@ docker compose --project-name trade-rd-local --env-file product/rd-workbench/.lo
 rm -rf product/rd-workbench/.local
 ```
 
+A second deployment runs beside the first under its own compose project. `RD_LOCAL_PROJECT` names it, and
+`RD_LOCAL_API_PORT` names its loopback port. That project gets its own volumes and its own state directory,
+`product/rd-workbench/.local-<project>`, so it never shares an env file, a token or a database with
+`trade-rd-local`, whose directory stays `.local`. `up.sh` records the port in that directory, so the MCP
+scripts need only the project. Use this for an acceptance run while another deployment is in use:
+
+```bash
+RD_LOCAL_PROJECT=trade-rd-lane4 RD_LOCAL_API_PORT=18084 make rd-workbench-up
+RD_LOCAL_PROJECT=trade-rd-lane4 make mcp-strategy-authoring
+```
+
+`make mcp-strategy-authoring` and `make mcp-market-data` print the registration with
+`-e RD_LOCAL_PROJECT=<project>`. Start such a deployment over as above, with its project name and its
+directory in place of `trade-rd-local` and `.local`.
+
 A store that is already cut over cannot gain an R&D table a newer build adds: the Owner creates
 its public relations only before the custody cutover, and at startup it requires every one to
 exist. After pulling a change that adds one, `rd-owner-api` stays unhealthy and its log names the
