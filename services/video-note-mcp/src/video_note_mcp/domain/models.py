@@ -22,8 +22,6 @@ FailureCode = Literal[
     "OUTPUT_INVALID",
     "CANCELLED",
     "DEADLINE_EXCEEDED",
-    "SEARCH_EMPTY",
-    "SEARCH_TARGET_UNMET",
     "INTERNAL",
 ]
 TRANSCRIPT_WINDOW_MS = 45_000
@@ -50,32 +48,6 @@ Quality = Literal["fast", "standard", "precise"]
 class CreateNoteInputV1(StrictModel):
     quality: Quality = "standard"
     url: str = Field(min_length=1, max_length=2048)
-
-
-class SearchAndCreateInputV1(StrictModel):
-    platform: Literal["bilibili", "youtube"] = "bilibili"
-    quality: Quality = "standard"
-    query: NaturalText = Field(min_length=2, max_length=200)
-    max_videos: int = Field(default=2, ge=1, le=3)
-
-
-class SearchCandidateV1(StrictModel):
-    video_id: str = Field(pattern=r"^(?:BV[0-9A-Za-z]{10}|[A-Za-z0-9_-]{11})$")
-    title: NaturalText = Field(min_length=1, max_length=500)
-    canonical_url: str = Field(min_length=1, max_length=2048)
-    author_name: NaturalText | None = Field(default=None, min_length=1, max_length=200)
-    published_at: int | None = Field(default=None, gt=0)
-
-    @model_validator(mode="after")
-    def identity_matches_url(self) -> SearchCandidateV1:
-        expected = (
-            f"https://www.bilibili.com/video/{self.video_id}?p=1"
-            if len(self.video_id) == 12
-            else f"https://www.youtube.com/watch?v={self.video_id}"
-        )
-        if self.canonical_url != expected:
-            raise ValueError("search candidate identity does not match canonical URL")
-        return self
 
 
 class SourceV1(StrictModel):
@@ -146,14 +118,6 @@ class VideoNote(StrictModel):
 class PublicBilibiliNoteResultV4(StrictModel):
     schema_id: Literal["bilibili-note.result/v4"] = Field(alias="schema")
     rendered_markdown: str = Field(min_length=1, max_length=262144)
-    note_path: str
-    html_path: str
-    images: tuple[str, ...]
-
-
-class PublicBilibiliSearchResultV2(StrictModel):
-    schema_id: Literal["bilibili-note.search-result/v2"] = Field(alias="schema")
-    rendered_markdown: str = Field(min_length=1, max_length=786432)
     note_path: str
     html_path: str
     images: tuple[str, ...]

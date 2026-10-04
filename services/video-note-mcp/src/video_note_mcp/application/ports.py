@@ -27,7 +27,6 @@ from video_note_mcp.domain.artifacts import (
 )
 from video_note_mcp.domain.models import (
     Quality,
-    SearchCandidateV1,
     VideoNote,
 )
 
@@ -52,10 +51,6 @@ class SourceMediaPort(Protocol):
         canonical_url: str,
         workspace: Path,
     ) -> SourceMediaArtifact: ...
-
-
-class SearchPort(Protocol):
-    async def search(self, query: str, limit: int) -> tuple[SearchCandidateV1, ...]: ...
 
 
 class TranscriptPort(Protocol):

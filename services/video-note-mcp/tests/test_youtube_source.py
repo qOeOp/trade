@@ -14,12 +14,10 @@ from video_note_mcp.adapters.source_acquisition import SourceAcquisition
 from video_note_mcp.adapters.video_source import VideoSource
 from video_note_mcp.adapters.youtube_source import (
     YoutubeExtractor,
-    YoutubeSearch,
     source_metadata,
 )
 from video_note_mcp.application.errors import BilibiliNoteFailure
 from video_note_mcp.application.progress import NullProgressReporter
-from video_note_mcp.domain.models import SearchCandidateV1
 from video_note_mcp.domain.url_policy import InvalidBilibiliUrl
 from video_note_mcp.domain.video_url import validate_video_url
 from video_note_mcp.domain.youtube_url import validate_youtube_url
@@ -79,12 +77,6 @@ def test_identity_is_bound_to_platform_and_canonical_url():
     assert value.platform == "youtube" and value.canonical_url == URL
     with pytest.raises(BilibiliNoteFailure):
         source_metadata({**META, "id": "AAAAAAAAAAA"}, URL)
-    with pytest.raises(ValueError):
-        SearchCandidateV1(
-            video_id="EtIAqiguRHs",
-            title="title",
-            canonical_url="https://www.bilibili.com/video/EtIAqiguRHs?p=1",
-        )
 
 
 @pytest.mark.parametrize(
@@ -146,17 +138,6 @@ async def test_source_router_keeps_platforms_separate(tmp_path):
     await router.acquire(URL, tmp_path, NullProgressReporter())
     youtube.acquire.assert_awaited_once()
     bili.acquire.assert_not_called()
-
-
-async def test_youtube_search_rejects_forged_canonical_urls():
-    extractor = AsyncMock(spec=YoutubeExtractor)
-    extractor.request.return_value = {
-        "candidates": [
-            {"video_id": "EtIAqiguRHs", "title": "title", "canonical_url": "https://evil.example/"}
-        ]
-    }
-    with pytest.raises(BilibiliNoteFailure):
-        await YoutubeSearch(extractor).search("explanation", 1)
 
 
 @pytest.mark.parametrize("delta", [-10000, 10000])

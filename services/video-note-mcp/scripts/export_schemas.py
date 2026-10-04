@@ -8,19 +8,14 @@ from video_note_mcp.domain.models import (
     CreateNoteInputV1,
     ErrorV1,
     PublicBilibiliNoteResultV4,
-    PublicBilibiliSearchResultV2,
-    SearchAndCreateInputV1,
 )
-from video_note_mcp.presentation.schemas import search_tool_output_schema, tool_output_schema
+from video_note_mcp.presentation.schemas import tool_output_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = {
     "create-input-v1.schema.json": CreateNoteInputV1.model_json_schema(by_alias=True),
-    "search-input-v1.schema.json": SearchAndCreateInputV1.model_json_schema(by_alias=True),
     "error-v1.schema.json": ErrorV1.model_json_schema(by_alias=True),
     "result-v4.schema.json": PublicBilibiliNoteResultV4.model_json_schema(by_alias=True),
-    "search-result-v2.schema.json": PublicBilibiliSearchResultV2.model_json_schema(by_alias=True),
-    "search-tool-output-v2.schema.json": search_tool_output_schema(),
     "tool-output-v4.schema.json": tool_output_schema(),
 }
 

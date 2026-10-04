@@ -15,21 +15,18 @@ from video_note_mcp.adapters.asr_mlx import MLX_IDENTITY, MlxAsr
 from video_note_mcp.adapters.asr_siliconflow import SiliconFlowAsr
 from video_note_mcp.adapters.audio_review import AudioReviewer
 from video_note_mcp.adapters.bilibili_media_ytdlp import YtDlpBilibiliMedia
-from video_note_mcp.adapters.bilibili_search import BilibiliSearch
 from video_note_mcp.adapters.bilibili_source import BilibiliSource
 from video_note_mcp.adapters.direct_notes import DirectDistiller
 from video_note_mcp.adapters.fixture_distiller import DeterministicDistiller
-from video_note_mcp.adapters.fixture_search import FixtureSearch
 from video_note_mcp.adapters.fixture_source import FixtureSource
 from video_note_mcp.adapters.generic_source import GenericSource
 from video_note_mcp.adapters.media_ffmpeg import FfmpegMedia
 from video_note_mcp.adapters.note_publisher import LocalNotePublisher
 from video_note_mcp.adapters.source_cache import SourceCache
 from video_note_mcp.adapters.video_source import VideoSource
-from video_note_mcp.adapters.youtube_source import YoutubeSearch, YoutubeSource
+from video_note_mcp.adapters.youtube_source import YoutubeSource
 from video_note_mcp.application.create_note import CreateBilibiliNote
 from video_note_mcp.application.errors import BilibiliNoteFailure
-from video_note_mcp.application.search_notes import SearchAndCreateBilibiliNotes
 from video_note_mcp.fixture import FIXTURE_URL, generate_fixture
 from video_note_mcp.mcp_server import build_server
 from video_note_mcp.stdio_admission import strict_mcp_stdio_admission
@@ -59,14 +56,6 @@ def _use_case(fixture_root: Path | None, deterministic: bool) -> CreateBilibiliN
         publisher=LocalNotePublisher(),
         reviewer=None if deterministic else AudioReviewer(),
     )
-
-
-def _search_use_case(
-    fixture_root: Path | None,
-    create_note: CreateBilibiliNote,
-) -> SearchAndCreateBilibiliNotes:
-    search = FixtureSearch() if fixture_root else BilibiliSearch()
-    return SearchAndCreateBilibiliNotes(search, create_note, LocalNotePublisher())
 
 
 def _receipt(payload: object) -> dict[str, object]:
@@ -105,13 +94,7 @@ async def _run_once(use_case: CreateBilibiliNote, url: str, quality: str = "fast
 
 async def _serve(fixture_root: Path | None, deterministic: bool) -> int:
     create_note = _use_case(fixture_root, deterministic)
-    server = build_server(
-        create_note,
-        _search_use_case(fixture_root, create_note),
-        None
-        if fixture_root
-        else SearchAndCreateBilibiliNotes(YoutubeSearch(), create_note, LocalNotePublisher()),
-    )
+    server = build_server(create_note)
     with strict_mcp_stdio_admission():
         async with stdio_server() as (read_stream, write_stream):
             await server.run(read_stream, write_stream, server.create_initialization_options())

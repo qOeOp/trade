@@ -14,19 +14,15 @@ from video_note_mcp.application.owned_tasks import finish_owned_task
 from video_note_mcp.application.progress import (
     ProgressUpdateV1,
 )
-from video_note_mcp.application.search_notes import SearchAndCreateBilibiliNotes
 from video_note_mcp.domain.models import (
     CreateNoteInputV1,
     ErrorV1,
     FailureCode,
     PublicBilibiliNoteResultV4,
-    PublicBilibiliSearchResultV2,
-    SearchAndCreateInputV1,
 )
-from video_note_mcp.presentation.schemas import search_tool_output_schema, tool_output_schema
+from video_note_mcp.presentation.schemas import tool_output_schema
 
 TOOL_NAME = "video_note.create"
-SEARCH_TOOL_NAME = "video_note.search_and_create"
 _USER_ANNOTATIONS = types.Annotations(audience=["user"])
 
 
@@ -64,11 +60,7 @@ def _error(code: FailureCode, reason: str) -> types.CallToolResult:
     )
 
 
-def build_server(
-    use_case: CreateBilibiliNote,
-    search_use_case: SearchAndCreateBilibiliNotes,
-    youtube_search_use_case: SearchAndCreateBilibiliNotes | None = None,
-) -> Server:
+def build_server(use_case: CreateBilibiliNote) -> Server:
     async def list_tools(
         _context: ServerRequestContext[None],
         _params: types.PaginatedRequestParams | None,
@@ -99,63 +91,22 @@ def build_server(
                         open_world_hint=True,
                     ),
                 ),
-                types.Tool(
-                    name=SEARCH_TOOL_NAME,
-                    title="Search and create illustrated video notes",
-                    description=(
-                        "Search the selected platform (Bilibili or YouTube) by a topic or "
-                        "creator name and produce a collection of "
-                        "1–3 verified illustrated notes with separate source attribution and "
-                        "content-derived chapters. "
-                        "At most two videos process concurrently; exact requested success count "
-                        "is required. "
-                        "Returns local Markdown, HTML and screenshot paths on the server "
-                        "filesystem."
-                    ),
-                    input_schema=SearchAndCreateInputV1.model_json_schema(by_alias=True),
-                    output_schema=search_tool_output_schema(),
-                    annotations=types.ToolAnnotations(
-                        read_only_hint=False,
-                        destructive_hint=False,
-                        idempotent_hint=False,
-                        open_world_hint=True,
-                    ),
-                ),
             ]
         )
 
     async def _call_tool_result(
-        context: ServerRequestContext[None], request: CreateNoteInputV1 | SearchAndCreateInputV1
+        context: ServerRequestContext[None], request: CreateNoteInputV1
     ) -> types.CallToolResult:
         progress = _McpProgressReporter(context)
         try:
-            if isinstance(request, SearchAndCreateInputV1):
-                selected = (
-                    youtube_search_use_case if request.platform == "youtube" else search_use_case
-                )
-                if selected is None:
-                    return _error("SOURCE_UNAVAILABLE", "search_platform_not_configured")
-                payload = await selected.execute(
-                    request.query, request.max_videos, progress, quality=request.quality
-                )
-                result: PublicBilibiliSearchResultV2 | PublicBilibiliNoteResultV4 = (
-                    PublicBilibiliSearchResultV2(
-                        schema="bilibili-note.search-result/v2",
-                        rendered_markdown=payload.rendered_markdown,
-                        note_path=payload.note_path,
-                        html_path=payload.html_path,
-                        images=payload.images,
-                    )
-                )
-            else:
-                payload = await use_case.execute(request.url, progress, quality=request.quality)
-                result = PublicBilibiliNoteResultV4(
-                    schema="bilibili-note.result/v4",
-                    rendered_markdown=payload.rendered_markdown,
-                    note_path=payload.note_path,
-                    html_path=payload.html_path,
-                    images=payload.images,
-                )
+            payload = await use_case.execute(request.url, progress, quality=request.quality)
+            result = PublicBilibiliNoteResultV4(
+                schema="bilibili-note.result/v4",
+                rendered_markdown=payload.rendered_markdown,
+                note_path=payload.note_path,
+                html_path=payload.html_path,
+                images=payload.images,
+            )
         except asyncio.CancelledError:
             return _error("CANCELLED", "request_cancelled")
         except BilibiliNoteFailure as e:
@@ -176,22 +127,12 @@ def build_server(
     async def call_tool(
         context: ServerRequestContext[None], params: types.CallToolRequestParams
     ) -> types.CallToolResult:
-        name = {
-            "bilibili_note.create": TOOL_NAME,
-            "bilibili_note.search_and_create": SEARCH_TOOL_NAME,
-        }.get(params.name, params.name)
-        if name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
+        name = {"bilibili_note.create": TOOL_NAME}.get(params.name, params.name)
+        if name != TOOL_NAME:
             return _error("OUTPUT_INVALID", "tool_name_invalid")
         try:
-            if name == SEARCH_TOOL_NAME:
-                admitted: CreateNoteInputV1 | SearchAndCreateInputV1 = (
-                    SearchAndCreateInputV1.model_validate(params.arguments or {})
-                )
-            else:
-                admitted = CreateNoteInputV1.model_validate(params.arguments or {})
+            admitted = CreateNoteInputV1.model_validate(params.arguments or {})
         except ValidationError:
-            if name == SEARCH_TOOL_NAME:
-                return _error("OUTPUT_INVALID", "tool_arguments_invalid")
             return _error("INVALID_URL", "tool_arguments_invalid")
         request_identity = {
             "tool": params.name,

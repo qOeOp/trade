@@ -79,24 +79,16 @@ def test_generated_public_schemas_have_no_drift() -> None:
     assert result.returncode == 0, result.stderr
     expected_names = (
         "result-v4.schema.json",
-        "search-result-v2.schema.json",
         "error-v1.schema.json",
         "tool-output-v4.schema.json",
-        "search-tool-output-v2.schema.json",
         "create-input-v1.schema.json",
-        "search-input-v1.schema.json",
     )
     assert {path.name for path in (ROOT / "schemas").glob("*.json")} == set(expected_names)
     for name in expected_names:
         schema = json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
         if "oneOf" in schema:
-            expected_success = (
-                "bilibili-note.search-result/v2"
-                if name == "search-tool-output-v2.schema.json"
-                else "bilibili-note.result/v4"
-            )
             assert [branch["properties"]["schema"]["const"] for branch in schema["oneOf"]] == [
-                expected_success,
+                "bilibili-note.result/v4",
                 "bilibili-note.error/v1",
             ]
         elif name == "error-v1.schema.json":

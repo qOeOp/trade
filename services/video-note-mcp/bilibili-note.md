@@ -101,14 +101,12 @@ atomic entries expire for reuse after 24 hours. Cache writes stop when the 8 GiB
 misses still process normally. Cache errors never become fabricated source evidence. An explicit host
 cache directory owns retained media; no provider key is cached. No automatic deletion of user files.
 
-Search keeps at most nine candidates and at most two active source jobs, exact requested success count
-(1–3), stable candidate order and cancellation/reaping. Each selected note retains its own source and
-chapters in one collection. Do not collapse different sources into unsupported agreement. Candidate
-processing creates no durable outputs; only the completed terminal collection is published.
+Search, selection and multi-video orchestration belong to the calling agent.
+Each create request processes and publishes one source independently.
 
 ## YouTube source adapter
 
-YouTube direct links and explicitly selected keyword search use the official yt-dlp extractor with
+YouTube direct links use the official yt-dlp extractor with
 its matching packaged EJS dependency and a supported local JavaScript runtime. Accept finite public
 videos only, with platform-bound video identity and canonical URLs. Playlist, channel and live
 resources are rejected. No browser cookies are read automatically. The isolated worker uses bounded
@@ -132,16 +130,15 @@ binding, author and publication owners are unchanged. URL hash identifies the ge
 SHA-256 binds its snapshot. No generic cache is used: unchanged URL/metadata cannot prove unchanged
 media. Missing author/date are explicit unknowns. Generic time links return to the canonical source
 without inventing platform seek parameters. Platform adapters and their errors never downgrade to the
-generic path; keyword search remains platform-specific. No TradingView-specific parser or prompt.
+generic path. No TradingView-specific parser or prompt.
 
 ## Public contract and artifacts
 
-Expose `video_note.create({url,quality?})` and
-`video_note.search_and_create({query,platform?,max_videos,quality?})`; platform defaults to `bilibili`
-and can be `youtube`. Retain the old `bilibili_note.*` names as compatibility aliases.
-Both public tools default to `standard`; quality is `fast`, `standard` or `precise`.
+Expose `video_note.create({url,quality?})`, with `bilibili_note.create` as its compatibility alias.
+Remove both `search_and_create` names and their search contracts; the agent supplies the selected URL.
+The tool defaults to `standard`; quality is `fast`, `standard` or `precise`.
 Existing internal application calls retain their explicit single-pass default `fast`.
-Success versions are `bilibili-note.result/v4` and `bilibili-note.search-result/v2`. Each returns
+Success uses `bilibili-note.result/v4` and returns
 `rendered_markdown`, absolute `note_path`, `html_path`, and host-owned `images` paths. Markdown includes
 source links and timestamp links. Tool text uses absolute image paths for local clients; `note.md` uses
 relative `images/` paths so the whole bundle can be moved. `note.html` is a static escaped preview,
@@ -175,12 +172,12 @@ Use content from multiple unrelated subjects, including a real non-financial vis
 Verify detail fidelity and actual screenshot readability, chronological navigation, MCP success, and
 Markdown/HTML reopening after temporary cleanup. Preserve negative source/SSRF/strict-JSON/provider,
 process lifecycle, cancellation and bounds tests. Exercise atomic publication failure and traversal,
-forged references, source-injected markup and exact search-count behavior. Fixture-only deterministic
+forged references, source-injected markup and refusal of retired search tool names. Fixture-only deterministic
 mode remains explicit and cannot replace live validation.
 
 ## Transcription quality (user-authorized extension)
 
-Both entrypoints use one application-owned review stage after full source acquisition and before
+The create entrypoint uses one application-owned review stage after full source acquisition and before
 notes. `fast` preserves complete single-engine ASR and host note/image binding checks. `standard`
 adds a second ASR for at most three sentence-boundary windows selected by generic risk signals
 (unintelligible markers, repetition, letters and numbers); ties favor source order. This heuristic

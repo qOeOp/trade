@@ -12,7 +12,7 @@ from video_note_mcp.application.create_note import CreateBilibiliNote
 from video_note_mcp.application.errors import BilibiliNoteFailure
 from video_note_mcp.application.progress import NullProgressReporter
 from video_note_mcp.domain.artifacts import AudioReview, TranscriptResult, TranscriptSegment
-from video_note_mcp.domain.models import CreateNoteInputV1, SearchAndCreateInputV1
+from video_note_mcp.domain.models import CreateNoteInputV1
 from video_note_mcp.fixture import FIXTURE_URL
 
 
@@ -71,15 +71,10 @@ async def test_required_review_failure_never_publishes(tmp_path, draft):
     assert not list(tmp_path.glob("note-*"))
 
 
-def test_both_public_inputs_default_standard_and_reject_unknown():
+def test_public_input_default_standard_and_reject_unknown():
     assert CreateNoteInputV1(url=FIXTURE_URL).quality == "standard"
-    assert SearchAndCreateInputV1(query="折纸").quality == "standard"
-    for cls, args in [
-        (CreateNoteInputV1, {"url": FIXTURE_URL}),
-        (SearchAndCreateInputV1, {"query": "折纸"}),
-    ]:
-        with pytest.raises(ValidationError):
-            cls.model_validate({**args, "quality": "maximum"})
+    with pytest.raises(ValidationError):
+        CreateNoteInputV1.model_validate({"url": FIXTURE_URL, "quality": "maximum"})
 
 
 async def test_no_subtitle_review_limits_and_audio_coverage(tmp_path, draft):
@@ -117,7 +112,7 @@ async def test_reviewer_uses_siliconflow_wire_and_preserves_raw(
 ):
     import httpx
 
-    from bilibili_note_mcp.adapters import asr_siliconflow, audio_review
+    from video_note_mcp.adapters import asr_siliconflow, audio_review
 
     monkeypatch.setenv("SILICONFLOW_API_KEY", "siliconflow-test-only")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-only")
@@ -151,14 +146,11 @@ async def test_reviewer_uses_siliconflow_wire_and_preserves_raw(
     assert source.transcript.segments == draft.transcript
 
 
-@pytest.mark.parametrize("search", [False, True])
 @pytest.mark.parametrize("quality", ["fast", "standard", "precise"])
-async def test_mcp_routes_quality_for_both_entrypoints(tmp_path, draft, search, quality):
+async def test_mcp_routes_quality(tmp_path, draft, quality):
     from mcp import Client
 
-    from video_note_mcp.adapters.fixture_search import FixtureSearch
-    from video_note_mcp.application.search_notes import SearchAndCreateBilibiliNotes
-    from video_note_mcp.mcp_server import SEARCH_TOOL_NAME, TOOL_NAME, build_server
+    from video_note_mcp.mcp_server import TOOL_NAME, build_server
 
     reviewer = Reviewer()
     publisher = LocalNotePublisher(tmp_path)
@@ -169,12 +161,10 @@ async def test_mcp_routes_quality_for_both_entrypoints(tmp_path, draft, search, 
         publisher,
         reviewer,
     )
-    server = build_server(app, SearchAndCreateBilibiliNotes(FixtureSearch(), app, publisher))
-    arguments = {"query": "纸飞机", "max_videos": 1} if search else {"url": FIXTURE_URL}
+    server = build_server(app)
+    arguments = {"url": FIXTURE_URL}
     async with Client(server) as client:
-        result = await client.call_tool(
-            SEARCH_TOOL_NAME if search else TOOL_NAME, {**arguments, "quality": quality}
-        )
+        result = await client.call_tool(TOOL_NAME, {**arguments, "quality": quality})
     assert not result.is_error
     if quality == "fast":
         assert reviewer.qualities == []
