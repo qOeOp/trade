@@ -199,12 +199,12 @@ impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
                     ("VOLUME", 98_765, 0),
                 ]
                 .map(|(field, value_mantissa, value_scale)| VendorObservationV1 {
-                    symbolic_key: format!("{member}.{field}.1D"),
+                    symbolic_key: format!("{member}.{field}.24H"),
                     member_key: member.clone(),
                     instrument: member.clone(),
                     channel: "MARKET".into(),
                     data_kind: "BAR".into(),
-                    timeframe: "1D".into(),
+                    timeframe: "24H".into(),
                     field: field.into(),
                     value_mantissa,
                     value_scale,
@@ -323,7 +323,8 @@ impl Drop for SchedulingGrantsGuardV1 {
 /// The datasets the perpetual's Source Bindings name.
 #[derive(Clone, Copy)]
 enum PerpetualDatasetV1 {
-    /// Daily klines: the BAR rows the PIT intake answers with, labelled "1D" by the source.
+    /// Daily klines: the BAR rows the PIT intake answers with, labelled "24H" as Market Data
+    /// declares a perpetual's daily bar (`execution_timeframe_bar_label_v1`).
     DailyKlines,
     /// The venue's `exchangeInfo`, which the Instrument Master V2 intake reads.
     ExchangeInfo,
@@ -366,7 +367,7 @@ impl PerpetualDatasetV1 {
         }
     }
 
-    /// The "1D" rows are fixed 24-hour UTC bars on the Unix epoch grid, labelled at their close,
+    /// The "24H" rows are fixed 24-hour UTC bars on the Unix epoch grid, labelled at their close,
     /// complete only: a perpetual never closes, so its day is not an exchange session day. The
     /// "4H" rows are the same on a four-hour step.
     fn bar_timeframes(self) -> Vec<UntrustedSourceBarTimeframeV1> {
@@ -383,7 +384,7 @@ impl PerpetualDatasetV1 {
         };
 
         match self {
-            Self::DailyKlines => vec![continuous("1D", 24)],
+            Self::DailyKlines => vec![continuous("24H", 24)],
             Self::FourHourKlines => vec![continuous("4H", 4)],
             Self::ExchangeInfo => Vec::new(),
         }
@@ -1130,6 +1131,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             research_request_identity: facts.research_request_identity,
             intent_identity: facts.intent_identity,
             intent_digest: facts.intent_digest,
+            universe_timeframe: Some("24H".to_owned()),
             channel: SingleThresholdChannelV1::UniverseMember {
                 close_role_semantic_id: CLOSE_ROLE.to_owned(),
                 open_role_semantic_id: OPEN_ROLE.to_owned(),

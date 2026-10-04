@@ -481,6 +481,11 @@ async fn get_backtest_run_report(
 
 fn backtest_run_error_response(error: &BacktestRunErrorV1, request_identity: &str) -> Response {
     let (status, code, detail): (_, _, String) = match error {
+        BacktestRunErrorV1::ExecutionTimeframeUndeclared => (
+            StatusCode::BAD_REQUEST,
+            "DATASET_REF_INVALID",
+            String::new(),
+        ),
         BacktestRunErrorV1::StrategyUnknown => {
             (StatusCode::NOT_FOUND, "STRATEGY_UNKNOWN", String::new())
         }

@@ -329,7 +329,8 @@ struct Compiler<'a> {
 /// Compiles a document for one Research request and Intent into the `design` and `meaning` pair.
 ///
 /// The document is read over the one member of the Research scope's universe: each input becomes a
-/// universe-member role reading that BAR field. The pair is derived and prepared against the newest
+/// universe-member role reading that BAR field at `timeframe`, the bar label Market Data declares
+/// for the run's execution timeframe. The pair is derived and prepared against the newest
 /// published catalog before it is returned.
 ///
 /// # Errors
@@ -340,6 +341,7 @@ pub fn author_strategy_document_v1(
     research_request_identity: BindingDigest,
     intent_identity: BindingDigest,
     intent_digest: BindingDigest,
+    timeframe: &str,
 ) -> Result<(StrategyDesignV2, BoundedFeatureProgramMeaningV1), StrategyAuthoringErrorV1> {
     if document.language != STRATEGY_AUTHORING_LANGUAGE_V1 {
         return refuse("AUTHORING_LANGUAGE_UNKNOWN", "language");
@@ -348,7 +350,7 @@ pub fn author_strategy_document_v1(
     if document.falsifier.trim().is_empty() || document.falsifier.trim() != document.falsifier {
         return refuse("NAME_UNKNOWN", "falsifier");
     }
-    let mut compiler = Compiler::new(document)?;
+    let mut compiler = Compiler::new(document, timeframe)?;
     let table = compiler.compile_rules()?;
     compiler.emit_writers()?;
     compiler.check_used()?;
@@ -460,7 +462,10 @@ fn valid_name(name: &str) -> bool {
 }
 
 impl<'a> Compiler<'a> {
-    fn new(document: &'a StrategyAuthoringDocumentV1) -> Result<Self, StrategyAuthoringErrorV1> {
+    fn new(
+        document: &'a StrategyAuthoringDocumentV1,
+        timeframe: &str,
+    ) -> Result<Self, StrategyAuthoringErrorV1> {
         let mut names = BTreeMap::new();
         let mut roles = BTreeMap::new();
         let mut fields = BTreeMap::new();
@@ -487,7 +492,11 @@ impl<'a> Compiler<'a> {
             }
             roles.insert(
                 input.name.as_str(),
-                universe_member_role_v2(&role_id(&input.name), input.field.field_semantic_id()),
+                universe_member_role_v2(
+                    &role_id(&input.name),
+                    input.field.field_semantic_id(),
+                    timeframe,
+                ),
             );
         }
 
@@ -1670,7 +1679,7 @@ mod tests {
         document: &StrategyAuthoringDocumentV1,
     ) -> Result<(StrategyDesignV2, BoundedFeatureProgramMeaningV1), StrategyAuthoringErrorV1> {
         let digest = BindingDigest::from_untrusted_bytes([7; 32]);
-        author_strategy_document_v1(document, digest, digest, digest)
+        author_strategy_document_v1(document, digest, digest, digest, "1D")
     }
 
     /// One change to T0, by the definition or state it names.

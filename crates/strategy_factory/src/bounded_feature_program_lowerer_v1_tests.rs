@@ -1881,7 +1881,7 @@ fn authored_guest(
 
     let document: StrategyAuthoringDocumentV1 = serde_json::from_str(document).unwrap();
     let digest = BindingDigest::from_untrusted_bytes([7; 32]);
-    let (design, meaning) = author_strategy_document_v1(&document, digest, digest, digest)
+    let (design, meaning) = author_strategy_document_v1(&document, digest, digest, digest, "1D")
         .unwrap_or_else(|e| panic!("{label} compiles: {e}"));
     let receipts = design
         .inputs

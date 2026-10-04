@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use sqlx::PgPool;
 use vibe_data::owner::{
+    bar_schedule::execution_timeframe_bar_label_v1,
     market_semantics_admission_v1::{
         MarketSemanticsAdmissionErrorV1, MarketSemanticsAdmissionV1,
         MarketSemanticsFactSubmissionV1, MarketSemanticsValueSubmissionV1,
@@ -183,6 +184,9 @@ pub(crate) enum BacktestRunReplayUnavailableV1 {
 /// Why `run_backtest_v1` did not reach the replay step.
 #[derive(Debug)]
 pub(crate) enum BacktestRunErrorV1 {
+    /// The dataset_ref's execution timeframe has no bar label Market Data declares, so no input
+    /// role can be stated over it.
+    ExecutionTimeframeUndeclared,
     /// The catalog has no strategy under this identity.
     StrategyUnknown,
     /// The strategy is archived.
@@ -246,6 +250,8 @@ pub(crate) async fn run_backtest_v1(
     owners: &BacktestRunOwnersV1,
     request: BacktestRunRequestV1,
 ) -> Result<BacktestRunReachedReplayV1, BacktestRunErrorV1> {
+    let timeframe = execution_timeframe_bar_label_v1(request.dataset_ref.execution_timeframe())
+        .ok_or(BacktestRunErrorV1::ExecutionTimeframeUndeclared)?;
     let statement = fetch_strategy_statement_v1(&owners.catalog, request.strategy_id).await?;
     let research_request_identity = format!("backtest-run:{}", request.run_id);
     let accepted = submit_backtest_research_goal_v1(
@@ -289,6 +295,7 @@ pub(crate) async fn run_backtest_v1(
             facts.research_request_identity,
             facts.intent_identity,
             facts.intent_digest,
+            timeframe,
         )
         .map_err(BacktestRunErrorV1::AuthoringFailed)?;
 
