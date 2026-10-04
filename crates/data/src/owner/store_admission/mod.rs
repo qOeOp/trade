@@ -1646,6 +1646,66 @@ impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
     }
 }
 
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[async_trait]
+impl PitWindowCustodyReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
+    async fn resolve_pit_window_chain_v1(
+        &self,
+        chain_root: [u8; 32],
+    ) -> Result<postgres::RawPitWindowChainV1, DeploymentStoreAdmissionError> {
+        postgres::read_pit_window_chain_snapshot_v1(
+            &self.lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            &chain_root,
+        )
+        .await
+        .map_err(|_| self.unavailable())
+    }
+
+    async fn resolve_pit_window_run_chain_v1(
+        &self,
+        chain_root: [u8; 32],
+        universe_request_of: PitWindowUniverseRequestOfV1,
+    ) -> Result<postgres::RawPitWindowRunChainV1, DeploymentStoreAdmissionError> {
+        postgres::read_pit_window_run_chain_snapshot_v1(
+            &self.lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            &chain_root,
+            universe_request_of,
+        )
+        .await
+        .map_err(|_| self.unavailable())
+    }
+
+    async fn resolve_pit_window_rows_v1(
+        &self,
+        chain_root: [u8; 32],
+        versions: &[[u8; 32]],
+    ) -> Result<Vec<postgres::RawPitWindowRowV1>, DeploymentStoreAdmissionError> {
+        postgres::read_pit_window_rows_snapshot_v1(
+            &self.lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            &chain_root,
+            versions,
+        )
+        .await
+        .map_err(|_| self.unavailable())
+    }
+
+    async fn resolve_pit_window_chains_for_instrument_v1(
+        &self,
+        instrument: &str,
+    ) -> Result<Vec<postgres::RawPitWindowChainCandidateV1>, DeploymentStoreAdmissionError> {
+        postgres::read_pit_window_chains_for_instrument_snapshot_v1(
+            &self.lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            instrument,
+        )
+        .await
+        .map_err(|_| self.unavailable())
+    }
+}
+
 /// One privilege the sealed acceptance principal is granted.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1753,12 +1813,52 @@ pub(super) async fn apply_native_replay_scheduling_acceptance_grants_v1(
     role: &str,
     statement_of: fn(AcceptanceGrantV1, &str) -> String,
 ) -> Result<(), sqlx::Error> {
+    apply_acceptance_grants_v1(
+        owner,
+        role,
+        NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1,
+        statement_of,
+    )
+    .await
+}
+
+/// Exactly what the PIT window custody frames port's raw reads need of the principal they connect
+/// as: `USAGE` on the admitted read schema and `EXECUTE` on the four admitted wrappers a run's
+/// frames and the coverage lookup call - the chain, its basis, the Universe Selection the root
+/// names, and the chains of an instrument. The custody floor's fifth wrapper, the rows read, serves
+/// one frame's view, which this port does not read. Nothing on `market_data_private`: each wrapper
+/// reaches its private namesake as its definer.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) const PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1: &[AcceptanceGrantV1] = &[
+    AcceptanceGrantV1::SchemaUsage("market_data_admitted_read"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_pit_window_chain_basis_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_pit_window_chain_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_pit_window_chains_for_instrument_v1(text)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_pit_window_universe_selection_v1(bytea)",
+    ),
+];
+
+/// Applies `statement_of` to each of `grants` for `role`, as the owner.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) async fn apply_acceptance_grants_v1(
+    owner: &sqlx::PgPool,
+    role: &str,
+    grants: &[AcceptanceGrantV1],
+    statement_of: fn(AcceptanceGrantV1, &str) -> String,
+) -> Result<(), sqlx::Error> {
     let quoted: String = sqlx::query_scalar("SELECT pg_catalog.quote_ident($1)")
         .bind(role)
         .fetch_one(owner)
         .await?;
 
-    for grant in NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1 {
+    for grant in grants {
         sqlx::query(sqlx::AssertSqlSafe(statement_of(*grant, &quoted)))
             .execute(owner)
             .await?;
@@ -7269,6 +7369,164 @@ mod tests {
             refused.insert(SchedulingReadV1::Funding);
         }
         refused
+    }
+
+    /// The sealed acceptance custody frames port reads, as the least-privilege harness reader,
+    /// exactly what the Owner's own reads answer: a run's frames and the coverage lookup. With
+    /// nothing granted both are refused. With exactly `PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1`
+    /// both answer as the pool does, and the reader still cannot call a private function. Each
+    /// grant revoked alone refuses exactly the read that needs it, so the list is neither short nor
+    /// padded. A URL that is not a disposable loopback `vibe_test_` database opens no port.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_sealed_acceptance_custody_frames_read_under_exactly_their_grants() {
+        std::thread::Builder::new()
+            .name("market-data-sealed-custody-frames".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_sealed_custody_frames_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn run_sealed_custody_frames_scenario() {
+        use crate::owner::{
+            pit_window_custody_v1::{PitWindowCoverageRefusalV1, PitWindowRunRefusalV1},
+            postgres::pit_window_custody_v1 as custody,
+        };
+
+        const READER: &str = "vibe_test_role_market_data_reader";
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let reader_url = std::env::var("MARKET_DATA_READER_TEST_DATABASE_URL")
+            .expect("explicit disposable reader URL");
+        assert!(
+            reader_url.contains(READER),
+            "the proof's principal is the harness reader"
+        );
+        assert!(
+            crate::owner::pit_window_custody_frames_for_sealed_acceptance_v1(
+                "postgres://reader@db.example.com/vibe_test_x"
+            )
+            .is_err(),
+            "a store that is not a disposable loopback database opens no port"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let (_, _, run) =
+            crate::owner::postgres::pit_window_view_v1_tests::corrected_custody_chain_fixture_v1(
+                &owner,
+            )
+            .await;
+        let frames = crate::owner::pit_window_custody_frames_for_sealed_acceptance_v1(&reader_url)
+            .expect("a disposable reader URL opens the port");
+        let lookup = || {
+            frames.resolve_pit_window_run_for_window_v1(
+                "BTCUSDT-PERP.BINANCE",
+                "1d",
+                run.run_start_ns,
+                run.run_end_ns_exclusive,
+            )
+        };
+        let pooled = {
+            let mut transaction = owner.pool().begin().await.unwrap();
+            let frames =
+                custody::resolve_pit_window_frames_in_transaction_v1(&mut transaction, run).await;
+            let coverage = custody::resolve_pit_window_run_for_window_in_transaction_v1(
+                &mut transaction,
+                "BTCUSDT-PERP.BINANCE",
+                "1d",
+                run.run_start_ns,
+                run.run_end_ns_exclusive,
+            )
+            .await;
+            transaction.rollback().await.unwrap();
+            (frames, coverage)
+        };
+        assert!(pooled.0.is_ok(), "the fixture's run is covered");
+
+        assert_eq!(
+            frames.resolve_pit_window_frames_v1(run).await,
+            Err(PitWindowRunRefusalV1::StoreUnavailable),
+            "an ungranted principal reads no frames"
+        );
+        assert_eq!(
+            lookup().await,
+            Err(PitWindowCoverageRefusalV1::StoreUnavailable)
+        );
+
+        let grant = |grants: &'static [AcceptanceGrantV1],
+                     statement: fn(AcceptanceGrantV1, &str) -> String| {
+            let pool = owner.pool().clone();
+            async move {
+                apply_acceptance_grants_v1(&pool, READER, grants, statement)
+                    .await
+                    .unwrap();
+            }
+        };
+        grant(
+            PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1,
+            AcceptanceGrantV1::grant_to,
+        )
+        .await;
+        assert_eq!(frames.resolve_pit_window_frames_v1(run).await, pooled.0);
+        assert_eq!(lookup().await, pooled.1, "the lookup answers as the pool's");
+        assert_eq!(
+            pooled.1,
+            Err(PitWindowCoverageRefusalV1::CustodyNotFound),
+            "the fixture's chain holds two members, so the read itself answers, by name"
+        );
+        let reader = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&reader_url, PostgresTls::Disabled)
+            .await
+            .expect("the reader connects");
+        assert!(
+            sqlx::query("SELECT * FROM market_data_private.resolve_pit_window_chain_v1($1)")
+                .bind(run.custody.chain_root.as_bytes().as_slice())
+                .fetch_all(&reader)
+                .await
+                .is_err(),
+            "the private function stays the owner's"
+        );
+
+        for (index, revoked) in PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1.iter().enumerate() {
+            let alone: &'static [AcceptanceGrantV1] =
+                &PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1[index..=index];
+            grant(alone, AcceptanceGrantV1::revoke_from).await;
+            let frames_refused = frames.resolve_pit_window_frames_v1(run).await
+                == Err(PitWindowRunRefusalV1::StoreUnavailable);
+            let lookup_refused =
+                lookup().await == Err(PitWindowCoverageRefusalV1::StoreUnavailable);
+            let expected = match revoked {
+                AcceptanceGrantV1::SchemaUsage(_) => (true, true),
+                AcceptanceGrantV1::FunctionExecute(function)
+                    if function.contains("chains_for_instrument") =>
+                {
+                    (false, true)
+                }
+                AcceptanceGrantV1::FunctionExecute(_) => (true, false),
+            };
+            assert_eq!(
+                (frames_refused, lookup_refused),
+                expected,
+                "revoking {revoked:?} alone refuses exactly the read that needs it"
+            );
+            grant(alone, AcceptanceGrantV1::grant_to).await;
+        }
+        grant(
+            PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1,
+            AcceptanceGrantV1::revoke_from,
+        )
+        .await;
     }
 
     /// The sealed acceptance resolver reads under exactly the grants it declares, as a

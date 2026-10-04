@@ -2888,6 +2888,15 @@ Built so far (T0-9): the H6 checks a custody run needs and the accessors T1 cons
     - `InvalidRequest`: an empty window or an unsupported timeframe.
   - **Verification.** The returned run is verified by `resolve_pit_window_frames_v1`, exactly as a run a caller
     names itself.
+- **The sealed acceptance custody frames port.** A build with `sealed-strategy-input-acceptance` also opens
+  `pit_window_custody_frames_for_sealed_acceptance_v1(reader_url)`. It is the same `PitWindowCustodyFramesV1` (a run's
+  frames and the coverage lookup), with the same raw reads, verification and selection as the admitted port, but no
+  Store Admission before or after a read, so it proves the segment after admission; the admission itself is `B3`.
+  - **Store.** It opens only on a disposable loopback `vibe_test_` database.
+  - **Grants.** The principal holds exactly `grant_pit_window_custody_acceptance_reads_v1`: `USAGE` on
+    `market_data_admitted_read` and `EXECUTE` on the chain, chain basis, Universe Selection and
+    chains-for-instrument wrappers, with nothing on `market_data_private`. Its proof revokes each grant alone and
+    requires exactly the read that needs it to be refused.
 - **Availability rule (H7).** `PitWindowChainBasisV1::availability_rule_digest()` returns the root custody record's
   rule digest, which the read has already checked against the chain R0 record's.
 - **Pinned-head run read.** `UntrustedPitWindowRunV1` takes an optional `head_identity` (serde-defaulted, omitted when

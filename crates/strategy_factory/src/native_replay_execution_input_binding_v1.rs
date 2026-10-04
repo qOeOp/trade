@@ -31,7 +31,9 @@ use crate::{
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
     native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
     replay_execution_profile_binding_v1::OwnerIssuedReplayExecutionProfileBindingV1,
-    strategy_plan_v2::StrategyPlanV2,
+    strategy_plan_v2::{
+        StrategyPlanV2, UniverseMemberProjectionV2, VerifiedStrategyInputBindingsV2,
+    },
     target_set_members::{BoundedMembers, is_admitted_member_count},
 };
 
@@ -569,6 +571,23 @@ pub enum NativeReplayExecutionInputBindingCauseV1 {
     /// The custody chain's own declared members (`PitWindowChainBasisV1::members`) are not the
     /// same instrument set, in the same order, as the Universe Selection record's.
     CustodyMembersNotTheChains,
+    /// The Design's own role-binding custody (reread, independent of data path) names a
+    /// Universe Selection, Instrument Master cut, Market Semantics fact, or member set that the
+    /// custody chain's own basis does not. This is custody's own version of the snapshot path's
+    /// live re-check that nothing has drifted since the Design was bound - if the chain basis
+    /// held another set of members, this run would execute the Plan against data it was never
+    /// checked against.
+    CustodyRunUniverseDiffersFromDesign,
+    /// The custody frames port could not resolve the binding's pinned run.
+    CustodyRunFramesUnresolved,
+    /// The custody frames port resolved a different chain or head than the binding names.
+    CustodyRunFramesNameAnotherChainOrHead,
+    /// The Design's own role-binding custody could not be reread.
+    DesignRoleBindingUnresolved,
+    /// The custody chain's Universe Selection record members could not be resolved.
+    CustodyMembersUnresolved,
+    /// A custody member's linked V2 Instrument Master fact could not be resolved by digest.
+    CustodyPublicTermFactUnresolved,
     /// A custody member's linked V2 Instrument Master fact disagrees with the custody chain's own
     /// V1 fact for that member: canonical identity, a currency, an increment or the contract
     /// multiplier differs, or the chain's structural projection could not be derived at all.
@@ -737,6 +756,14 @@ impl NativeReplayExecutionInputBindingCauseV1 {
             Self::BindingCustodyRunHeadIdentityZero => "BINDING_CUSTODY_RUN_HEAD_IDENTITY_ZERO",
             Self::BindingCustodyRunWindowInvalid => "BINDING_CUSTODY_RUN_WINDOW_INVALID",
             Self::CustodyMembersNotTheChains => "CUSTODY_MEMBERS_NOT_THE_CHAINS",
+            Self::CustodyRunUniverseDiffersFromDesign => "CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN",
+            Self::CustodyRunFramesUnresolved => "CUSTODY_RUN_FRAMES_UNRESOLVED",
+            Self::CustodyRunFramesNameAnotherChainOrHead => {
+                "CUSTODY_RUN_FRAMES_NAME_ANOTHER_CHAIN_OR_HEAD"
+            }
+            Self::DesignRoleBindingUnresolved => "DESIGN_ROLE_BINDING_UNRESOLVED",
+            Self::CustodyMembersUnresolved => "CUSTODY_MEMBERS_UNRESOLVED",
+            Self::CustodyPublicTermFactUnresolved => "CUSTODY_PUBLIC_TERM_FACT_UNRESOLVED",
             Self::CustodyPublicTermsDisagreeWithChainInstrumentMaster => {
                 "CUSTODY_PUBLIC_TERMS_DISAGREE_WITH_CHAIN_INSTRUMENT_MASTER"
             }
@@ -869,6 +896,50 @@ fn refuse_invalid_custody_run(
 
     if run.run_start_ns >= run.run_end_ns_exclusive {
         return Err(unavailable(Cause::BindingCustodyRunWindowInvalid));
+    }
+    Ok(())
+}
+
+/// Checks that the Design's own role-binding custody (reread independently of data path, via
+/// [`crate::design_input_custody_v1::reread_design_input_custody_v1`]) and this run's custody
+/// chain basis name the SAME Universe Selection record, Instrument Master cut, Market Semantics
+/// fact and member set.
+///
+/// This is custody's own version of the snapshot path's live re-check that nothing has drifted
+/// since the Design was bound (`resolve_native_replay_initial_owner_inputs_v1`, which custody has
+/// no equivalent of - it has no scheduling resolver to call instead): without it, a Design frozen
+/// against one set of members could run this chain's own, different set with nothing refusing it
+/// by name before execution.
+///
+/// # Errors
+///
+/// [`Cause::CustodyRunUniverseDiffersFromDesign`] when the reread names no Universe Selection at
+/// all (an exact-instrument Design has no custody-run equivalent either), or when any of the
+/// Universe Selection record identity/digest, the Instrument Master key, the Market Semantics
+/// identity, or the member set differ from the basis's own.
+pub(crate) fn verify_custody_run_universe_matches_role_binding_v1(
+    bindings: &VerifiedStrategyInputBindingsV2,
+    basis: &PitWindowChainBasisV1,
+) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
+    let unavailable = NativeReplayExecutionInputBindingErrorV1::Unavailable;
+    let Some(selection) = bindings.universe_selection() else {
+        return Err(unavailable(Cause::CustodyRunUniverseDiffersFromDesign));
+    };
+    let (selection_identity, selection_digest) = basis.universe_selection_record();
+    let basis_members: BTreeSet<&str> = basis.members().iter().map(String::as_str).collect();
+    let bound_members: BTreeSet<&str> = selection
+        .members()
+        .iter()
+        .map(UniverseMemberProjectionV2::instrument)
+        .collect();
+
+    if selection.selection_identity() != selection_identity
+        || selection.selection_digest() != selection_digest
+        || selection.instrument_master_digest() != basis.instrument_master_key()
+        || selection.market_semantics_identity() != basis.market_semantics_identity()
+        || bound_members != basis_members
+    {
+        return Err(unavailable(Cause::CustodyRunUniverseDiffersFromDesign));
     }
     Ok(())
 }

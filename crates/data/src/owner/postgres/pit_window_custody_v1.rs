@@ -2907,6 +2907,50 @@ where
     )
 }
 
+/// The frames port sealed acceptance composes in place of the admitted one: the same raw reads,
+/// verification and selection through the unadmitted acceptance port, with no Store Admission
+/// before or after a read.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(crate) struct SealedAcceptancePitWindowCustodyFramesV1 {
+    pub(crate) port: crate::owner::store_admission::UnadmittedAcceptanceSnapshotPortV1,
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use crate::owner::pit_window_custody_v1::{
+    PitWindowCustodyFramesV1 as SealedFramesPortV1, sealed::Sealed as SealedFramesV1,
+};
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl SealedFramesV1 for SealedAcceptancePitWindowCustodyFramesV1 {}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[async_trait::async_trait]
+impl SealedFramesPortV1 for SealedAcceptancePitWindowCustodyFramesV1 {
+    async fn resolve_pit_window_frames_v1(
+        &self,
+        run: UntrustedPitWindowRunV1,
+    ) -> Result<PitWindowRunFramesV1, PitWindowRunRefusalV1> {
+        resolve_pit_window_frames_through_port_v1(&self.port, run).await
+    }
+
+    async fn resolve_pit_window_run_for_window_v1(
+        &self,
+        instrument: &str,
+        execution_timeframe: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<UntrustedPitWindowRunV1, PitWindowCoverageRefusalV1> {
+        resolve_pit_window_run_for_window_through_port_v1(
+            &self.port,
+            instrument,
+            execution_timeframe,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+    }
+}
+
 /// The frames port over this Owner store, for its own proofs; the deployment's is the admitted
 /// read store's.
 #[cfg(test)]
