@@ -2,29 +2,27 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
+from conftest import MemoryTranscript, make_draft, primitive_dependencies
 from mcp import Client
 
 from video_note_mcp import __main__ as cli_module
 from video_note_mcp.adapters.fixture_distiller import DeterministicDistiller
-from video_note_mcp.adapters.fixture_search import FixtureSearch
 from video_note_mcp.adapters.media_ffmpeg import FfmpegMedia
 from video_note_mcp.adapters.note_publisher import LocalNotePublisher
 from video_note_mcp.application.create_note import CreateBilibiliNote
-from video_note_mcp.application.ports import AcquiredSource
+from video_note_mcp.application.ports import DownloadedSource
 from video_note_mcp.application.progress import ProgressReporter
-from video_note_mcp.application.search_notes import SearchAndCreateBilibiliNotes
 from video_note_mcp.fixture import FIXTURE_URL
-from video_note_mcp.mcp_server import SEARCH_TOOL_NAME, TOOL_NAME, build_server
+from video_note_mcp.mcp_server import TOOL_NAME, build_server
 
 
 def _server(use_case):
-    return build_server(
-        use_case, SearchAndCreateBilibiliNotes(FixtureSearch(), use_case, use_case._publisher)
-    )
+    return build_server(use_case)
 
 
 class BlockingSource:
@@ -32,9 +30,9 @@ class BlockingSource:
         self.started = asyncio.Event()
         self.cancelled = asyncio.Event()
 
-    async def acquire(
+    async def download(
         self, url: str, workspace: Path, progress: ProgressReporter
-    ) -> AcquiredSource:
+    ) -> DownloadedSource:
         self.started.set()
         try:
             await asyncio.Event().wait()
@@ -50,9 +48,9 @@ class SlowCleanupSource:
         self.allow_cleanup = asyncio.Event()
         self.cleanup_terminal = asyncio.Event()
 
-    async def acquire(
+    async def download(
         self, url: str, workspace: Path, progress: ProgressReporter
-    ) -> AcquiredSource:
+    ) -> DownloadedSource:
         del url, workspace, progress
         self.started.set()
         try:
@@ -73,6 +71,7 @@ async def test_mcp_client_cancellation_reaches_active_source_before_return() -> 
         media=FfmpegMedia(),
         distiller=DeterministicDistiller(),
         publisher=LocalNotePublisher(),
+        **primitive_dependencies(MemoryTranscript(make_draft())),
     )
     async with Client(_server(use_case)) as client:
         call = asyncio.create_task(
@@ -103,6 +102,7 @@ async def test_repeated_mcp_cancellation_waits_for_cleanup_and_emits_one_termina
         media=FfmpegMedia(),
         distiller=DeterministicDistiller(),
         publisher=LocalNotePublisher(),
+        **primitive_dependencies(MemoryTranscript(make_draft())),
     )
     monkeypatch.setattr("video_note_mcp.application.operator_events.os.write", write)
     async with Client(_server(use_case)) as client:
@@ -143,14 +143,12 @@ async def test_public_cli_rejects_deterministic_mode_without_fixture_before_serv
     assert called is False
 
 
-@pytest.mark.parametrize("search", [False, True])
 @pytest.mark.parametrize("legacy", [False, True])
-async def test_transport_success_has_durable_illustrated_contract(tmp_path, draft, search, legacy):
+async def test_transport_success_has_durable_illustrated_contract(tmp_path, draft, legacy):
     from test_note_contract import use_case
 
     from video_note_mcp.domain.models import (
         PublicBilibiliNoteResultV4,
-        PublicBilibiliSearchResultV2,
     )
 
     app = use_case(draft, tmp_path)
@@ -162,26 +160,28 @@ async def test_transport_success_has_durable_illustrated_contract(tmp_path, draf
 
     async with Client(_server(app)) as client:
         listed = await client.list_tools()
-        name = SEARCH_TOOL_NAME if search else TOOL_NAME
+        name = TOOL_NAME
         if legacy:
             name = name.replace("video_note.", "bilibili_note.")
         result = await client.call_tool(
             name,
-            {"query": "纸飞机折叠", "max_videos": 1, "quality": "fast"}
-            if search
-            else {"url": FIXTURE_URL, "quality": "fast"},
+            {"url": FIXTURE_URL, "quality": "fast"},
             progress_callback=capture,
         )
     assert not result.is_error
-    schema = PublicBilibiliSearchResultV2 if search else PublicBilibiliNoteResultV4
-    validated = schema.model_validate_json(json.dumps(result.structured_content))
+    validated = PublicBilibiliNoteResultV4.model_validate_json(
+        json.dumps(result.structured_content)
+    )
     assert len(validated.images) == 2
     assert len(result.content) == 1
     assert result.content[0].text == validated.rendered_markdown
     assert observed == sorted(observed)
     assert observed[0] == 5
     assert 100 not in observed
-    assert {t.name for t in listed.tools} == {TOOL_NAME, SEARCH_TOOL_NAME}
+    assert {t.name for t in listed.tools} == {
+        "video_note." + name
+        for name in ("create", "download", "import", "transcribe", "frames", "render")
+    }
     assert not app._source.workspace.exists()
     assert all(
         path.is_file()
@@ -189,8 +189,7 @@ async def test_transport_success_has_durable_illustrated_contract(tmp_path, draf
     )
 
 
-@pytest.mark.parametrize("search", [False, True])
-async def test_author_failure_is_typed_and_never_publishes(tmp_path, draft, search):
+async def test_author_failure_is_typed_and_never_publishes(tmp_path, draft):
     from test_note_contract import use_case
 
     from video_note_mcp.application.errors import BilibiliNoteFailure
@@ -207,17 +206,13 @@ async def test_author_failure_is_typed_and_never_publishes(tmp_path, draft, sear
 
     async with Client(_server(app)) as client:
         result = await client.call_tool(
-            SEARCH_TOOL_NAME if search else TOOL_NAME,
-            {"query": "纸飞机折叠", "max_videos": 1, "quality": "fast"}
-            if search
-            else {"url": FIXTURE_URL, "quality": "fast"},
+            TOOL_NAME,
+            {"url": FIXTURE_URL, "quality": "fast"},
             progress_callback=capture,
         )
     assert result.is_error
     assert result.structured_content["schema"] == "bilibili-note.error/v1"
-    assert result.structured_content["code"] == (
-        "SEARCH_TARGET_UNMET" if search else "DISTILLATION_FAILED"
-    )
+    assert result.structured_content["code"] == "DISTILLATION_FAILED"
     assert "rendered_markdown" not in result.structured_content
     assert 89 not in observed
     assert 100 not in observed
@@ -236,15 +231,15 @@ async def test_stdio_fixture_success_and_transcript_gap(tmp_path):
         command=sys.executable,
         args=["-m", "video_note_mcp", "--fixture-root", str(fixture), "--deterministic"],
         cwd=Path.cwd(),
-        env={"BILIBILI_NOTE_OUTPUT_DIR": str(output)},
+        env={
+            "BILIBILI_NOTE_OUTPUT_DIR": str(output),
+            "BILIBILI_NOTE_ARTIFACT_DIR": os.environ["BILIBILI_NOTE_ARTIFACT_DIR"],
+        },
     )
     async with stdio_client(parameters) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             success = await session.call_tool(TOOL_NAME, {"url": FIXTURE_URL, "quality": "fast"})
-            searched = await session.call_tool(
-                SEARCH_TOOL_NAME, {"query": "操作演示", "max_videos": 1, "quality": "fast"}
-            )
             subtitle = fixture / "subtitles.vtt"
             subtitle.write_text(
                 "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nfirst\n\n"
@@ -260,11 +255,9 @@ async def test_stdio_fixture_success_and_transcript_gap(tmp_path):
                 TOOL_NAME, {"url": FIXTURE_URL, "quality": "fast"}, progress_callback=capture
             )
     assert not success.is_error
-    assert not searched.is_error
     assert success.structured_content["schema"] == "bilibili-note.result/v4"
-    assert searched.structured_content["schema"] == "bilibili-note.search-result/v2"
     assert len(success.structured_content["images"]) >= 2
-    assert len(list(output.glob("note-*"))) == 2
+    assert len(list(output.glob("note-*"))) == 1
     assert gap.is_error
     assert gap.structured_content["code"] == "TRANSCRIPT_INCOMPLETE"
     assert observed == [5, 25]
@@ -277,27 +270,24 @@ def test_live_runtime_uses_direct_author():
     assert isinstance(app._distiller, DirectDistiller)
 
 
-@pytest.mark.parametrize("platform", [None, "bilibili", "youtube"])
-async def test_search_platform_routes_to_selected_adapter(tmp_path, draft, platform):
-    from unittest.mock import AsyncMock
-
-    from test_note_contract import use_case
-
-    from video_note_mcp.application.errors import BilibiliNoteFailure
-
-    app = use_case(draft, tmp_path)
-    bili, youtube = AsyncMock(), AsyncMock()
-    bili.execute.side_effect = BilibiliNoteFailure("SEARCH_EMPTY", "bili_empty")
-    youtube.execute.side_effect = BilibiliNoteFailure("SEARCH_EMPTY", "youtube_empty")
-    args = {"query": "paper airplane", "max_videos": 1, "quality": "fast"}
-    if platform is not None:
-        args["platform"] = platform
-    async with Client(build_server(app, bili, youtube)) as client:
-        result = await client.call_tool(SEARCH_TOOL_NAME, args)
-    selected, unused = (youtube, bili) if platform == "youtube" else (bili, youtube)
-    selected.execute.assert_awaited_once()
-    unused.execute.assert_not_awaited()
-    assert result.is_error
-    assert result.structured_content["reason"] == (
-        "youtube_empty" if platform == "youtube" else "bili_empty"
+@pytest.mark.parametrize(
+    "name", ["video_note.search_and_create", "bilibili_note.search_and_create"]
+)
+async def test_retired_search_names_never_start_processing(name):
+    source = BlockingSource()
+    app = CreateBilibiliNote(
+        source,
+        FfmpegMedia(),
+        DeterministicDistiller(),
+        LocalNotePublisher(),
+        **primitive_dependencies(MemoryTranscript(make_draft())),
     )
+    async with Client(build_server(app)) as client:
+        assert {tool.name for tool in (await client.list_tools()).tools} == {
+            "video_note." + name
+            for name in ("create", "download", "import", "transcribe", "frames", "render")
+        }
+        result = await client.call_tool(name, {"query": "paper airplane"})
+    assert result.is_error
+    assert result.structured_content["reason"] == "tool_name_invalid"
+    assert not source.started.is_set()

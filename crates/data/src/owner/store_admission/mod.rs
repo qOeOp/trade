@@ -25,7 +25,10 @@ mod witness;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
-pub(super) use postgres::{RawPitWindowChainBasisV1, RawPitWindowChainV1};
+pub(super) use postgres::{
+    PitWindowUniverseRequestOfV1, RawPitWindowChainBasisV1, RawPitWindowChainV1,
+    RawUniverseSelectionAggregateV1,
+};
 #[cfg(unix)]
 pub use publication::author_deployment_store_publication_v1;
 pub use publication::{
@@ -793,11 +796,12 @@ impl AdmittedMarketDataSnapshotPort {
         Ok(raw)
     }
 
-    /// Reads one PIT window custody chain and its basis, in one snapshot, after admission before
-    /// and after.
+    /// Reads one PIT window custody chain, its basis and the Universe Selection its root names, in
+    /// one snapshot, after admission before and after.
     pub(super) async fn resolve_pit_window_run_chain_v1(
         &self,
         chain_root: [u8; 32],
+        universe_request_of: PitWindowUniverseRequestOfV1,
     ) -> Result<postgres::RawPitWindowRunChainV1, DeploymentStoreAdmissionError> {
         let before = self
             .readmit_covering(&postgres::PIT_WINDOW_CUSTODY_FLOOR_V1, None)
@@ -806,6 +810,7 @@ impl AdmittedMarketDataSnapshotPort {
             &before.credential_lease,
             &before.store_transport,
             &chain_root,
+            universe_request_of,
         )
         .await
         .map_err(|_| {
@@ -1346,10 +1351,10 @@ impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
     }
 }
 
-/// The reads of a PIT window custody chain (slices T0-5 and T0-5c): the chain at its head, the
-/// chain with its basis in one snapshot, and the row facts of one frame's view. Only the admitted
-/// port implements them; what `vibe-data` does with the evidence is the same verification the
-/// Owner store's own read makes.
+/// The reads of a PIT window custody chain (slices T0-5, T0-5c and T0-5e): the chain at its head,
+/// the chain with its basis and Universe Selection in one snapshot, and the row facts of one
+/// frame's view. Only the admitted port implements them; what `vibe-data` does with the evidence
+/// is the same verification the Owner store's own read makes.
 #[async_trait]
 pub(super) trait PitWindowCustodyReadPortV1: Send + Sync {
     /// The chain rooted at `chain_root`, as the store holds it.
@@ -1358,10 +1363,13 @@ pub(super) trait PitWindowCustodyReadPortV1: Send + Sync {
         chain_root: [u8; 32],
     ) -> Result<postgres::RawPitWindowChainV1, DeploymentStoreAdmissionError>;
 
-    /// The chain rooted at `chain_root` and its basis, as the store held both in one snapshot.
+    /// The chain rooted at `chain_root`, its basis and the Universe Selection whose request
+    /// identity `universe_request_of` decodes from that chain, as the store held all three in one
+    /// snapshot.
     async fn resolve_pit_window_run_chain_v1(
         &self,
         chain_root: [u8; 32],
+        universe_request_of: PitWindowUniverseRequestOfV1,
     ) -> Result<postgres::RawPitWindowRunChainV1, DeploymentStoreAdmissionError>;
 
     /// The row facts of `versions` of the chain rooted at `chain_root`.
@@ -1384,8 +1392,9 @@ impl PitWindowCustodyReadPortV1 for AdmittedMarketDataSnapshotPort {
     async fn resolve_pit_window_run_chain_v1(
         &self,
         chain_root: [u8; 32],
+        universe_request_of: PitWindowUniverseRequestOfV1,
     ) -> Result<postgres::RawPitWindowRunChainV1, DeploymentStoreAdmissionError> {
-        Self::resolve_pit_window_run_chain_v1(self, chain_root).await
+        Self::resolve_pit_window_run_chain_v1(self, chain_root, universe_request_of).await
     }
 
     async fn resolve_pit_window_rows_v1(
@@ -6581,7 +6590,7 @@ mod tests {
     }
 
     /// The admitted custody port, answering a run's chain read without the basis entries of kind
-    /// `dropped`.
+    /// `dropped`, or, for kind 6, without the Universe Selection the root names.
     struct WithoutBasisEntryV1<'a> {
         port: &'a AdmittedMarketDataSnapshotPort,
         dropped: i16,
@@ -6599,12 +6608,18 @@ mod tests {
         async fn resolve_pit_window_run_chain_v1(
             &self,
             chain_root: [u8; 32],
+            universe_request_of: PitWindowUniverseRequestOfV1,
         ) -> Result<postgres::RawPitWindowRunChainV1, DeploymentStoreAdmissionError> {
             let mut raw = self
                 .port
-                .resolve_pit_window_run_chain_v1(chain_root)
+                .resolve_pit_window_run_chain_v1(chain_root, universe_request_of)
                 .await?;
             raw.basis.entries.retain(|(kind, _)| *kind != self.dropped);
+
+            // Kind 6 is the Universe Selection the root's locator names.
+            if self.dropped == 6 {
+                raw.universe_selection = None;
+            }
             Ok(raw)
         }
 
@@ -6688,6 +6703,11 @@ mod tests {
             pooled.basis(),
             "the port reads the basis custody reads"
         );
+        assert_eq!(
+            through_port.basis().universe_selection_record(),
+            pooled.basis().universe_selection_record(),
+            "the port resolves the Universe Selection record custody resolves"
+        );
         assert_eq!(through_port.basis().chain_root(), root.chain_root());
         assert_eq!(
             through_port.basis().head_identity(),
@@ -6696,9 +6716,9 @@ mod tests {
         );
 
         // A store that answers the chain without any one of its basis entries - the basis record
-        // itself, as a chain the T0-4c commit did not complete holds none - is refused through the
-        // port, never answered in part.
-        for dropped in 1..=5 {
+        // itself, as a chain the T0-4c commit did not complete holds none - or without the
+        // Universe Selection its root names, is refused through the port, never answered in part.
+        for dropped in 1..=6 {
             assert_eq!(
                 custody::resolve_pit_window_frames_through_port_v1(
                     &WithoutBasisEntryV1 {
@@ -6781,8 +6801,8 @@ mod tests {
             Err(custody::PitWindowViewRefusalV1::HeadNotInChain)
         );
 
-        // A custody frame reads through the port exactly as it reads on the pool, and with the
-        // production quote cut resolver it is refused there too, for want of a quote cut.
+        // A custody frame reads through the port exactly as it reads on the pool, with an injected
+        // quote cut and with the production one derived from the gap's fill bar alike.
         let frame = UntrustedPitWindowCustodyFrameV1 {
             custody: UntrustedPitWindowCustodyClaimV1 {
                 chain_root: root.chain_root(),
@@ -6813,15 +6833,28 @@ mod tests {
             owned.universe_frame().digest()
         );
         assert_eq!(admitted.window_schedules(), owned.window_schedules());
+        let admitted = custody_frame::resolve_native_replay_custody_frame_through_port_v1(
+            &port,
+            &request,
+            custody_frame::resolve_custody_quote_cut_v1,
+        )
+        .await
+        .expect("the port derives the gap's quote cut");
+        let owned = custody_frame::resolve_native_replay_custody_frame_from_pool_v1(
+            owner.pool(),
+            &request,
+            custody_frame::resolve_custody_quote_cut_v1,
+        )
+        .await
+        .expect("custody derives the gap's quote cut");
+        assert_eq!(admitted.source(), owned.source());
         assert_eq!(
-            custody_frame::resolve_native_replay_custody_frame_through_port_v1(
-                &port,
-                &request,
-                custody_frame::resolve_custody_quote_cut_v1,
-            )
-            .await
-            .map(|_| ()),
-            Err(crate::owner::native_replay_scheduling_v1::NativeReplaySchedulingErrorV1::EventOrderUnavailable)
+            admitted.quote_cut_for_test().source(),
+            owned.quote_cut_for_test().source()
+        );
+        assert_eq!(
+            admitted.quote_cut_for_test().digest(),
+            owned.quote_cut_for_test().digest()
         );
     }
 

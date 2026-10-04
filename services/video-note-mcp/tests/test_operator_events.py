@@ -50,16 +50,7 @@ def test_operator_event_rejects_open_or_private_fields() -> None:
     with pytest.raises(ValueError, match="fields are invalid"):
         run.emit("request_completed", transcript="private")
     with pytest.raises(ValueError, match="fields are invalid"):
-        run.emit("candidate_failed", candidate_index=1, stage="x", progress=1)
-    with pytest.raises(ValueError, match="fields are invalid"):
-        run.emit(
-            "batch_completed",
-            attempted=3,
-            succeeded=2,
-            failed=0,
-            cancelled=0,
-            max_active=2,
-        )
+        run.emit("request_failed", code="INTERNAL")
     with pytest.raises(ValueError, match="fields are invalid"):
         run.emit(
             "media_failed",

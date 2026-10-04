@@ -107,7 +107,15 @@ async fn postgres_a_run_reads_dense_frames_from_its_chain_head() {
     admit_members(&owner, &binding).await;
     let universe = universe(&owner, &binding, 10, None).await;
     let intake = owner.pit_window_custody_commit_v1();
-    let receipt = commit(&intake, request(&binding, universe)).await.unwrap();
+    let receipt = commit(
+        &intake,
+        with_gap_fill_bars(
+            request(&binding, universe),
+            &[WINDOW_START + DAY, WINDOW_START + 2 * DAY],
+        ),
+    )
+    .await
+    .unwrap();
     let frames = owner.pit_window_custody_frames_v1();
 
     let read = frames
@@ -264,14 +272,53 @@ async fn postgres_an_availability_rule_at_the_minting_instant_hides_every_frame(
     }
 }
 
-/// Daily execution bars at days 1 to 3 and two-day input bars at days 0 and 2, over four days.
+/// `request` with its minute fill bars replaced by one closing five minutes after each of
+/// `events`: it opens at `e_k + 4 minutes`, strictly after the `after_close` rule's `d_k`, so each
+/// frame at those events has a quote for its gap. Cross-sections stay in canonical order.
+pub(in crate::owner) fn with_gap_fill_bars(
+    mut request: UntrustedPitWindowCustodyRequestV1,
+    events: &[u64],
+) -> UntrustedPitWindowCustodyRequestV1 {
+    request.fill_timeframe = Some("1M".to_owned());
+    request
+        .cross_sections
+        .retain(|version| version.timeframe != "1M");
+    request.cross_sections.extend(
+        events
+            .iter()
+            .map(|event| original("1M", event + 5 * MINUTE)),
+    );
+    in_canonical_order(request)
+}
+
+/// `request` with its cross-sections in the canonical order a commit requires: by timeframe label,
+/// event and sequence.
+pub(in crate::owner) fn in_canonical_order(
+    mut request: UntrustedPitWindowCustodyRequestV1,
+) -> UntrustedPitWindowCustodyRequestV1 {
+    request.cross_sections.sort_by(|left, right| {
+        (
+            &left.timeframe,
+            left.event_effective_ns,
+            left.correction_sequence,
+        )
+            .cmp(&(
+                &right.timeframe,
+                right.event_effective_ns,
+                right.correction_sequence,
+            ))
+    });
+    request
+}
+
+/// Daily execution bars at days 1 to 3, two-day input bars at days 0 and 2, and a fill bar in
+/// each daily frame's gap, over four days.
 pub(super) fn two_timeframe_request(
     template: UntrustedPitWindowCustodyRequestV1,
 ) -> UntrustedPitWindowCustodyRequestV1 {
     let mut request = template;
     request.window_end_ns_exclusive = WINDOW_START + 4 * DAY;
     request.input_timeframes = vec!["1D".to_owned(), "2D".to_owned()];
-    request.fill_timeframe = None;
     request.cross_sections = vec![
         original("1D", WINDOW_START + DAY),
         original("1D", WINDOW_START + 2 * DAY),
@@ -279,7 +326,85 @@ pub(super) fn two_timeframe_request(
         original("2D", WINDOW_START),
         original("2D", WINDOW_START + 2 * DAY),
     ];
-    request
+    with_gap_fill_bars(
+        request,
+        &[
+            WINDOW_START + DAY,
+            WINDOW_START + 2 * DAY,
+            WINDOW_START + 3 * DAY,
+        ],
+    )
+}
+
+/// The run-level half of T0-5 ruling Q1: a run whose middle frame's gap holds no fill bar is
+/// refused as `QuoteCutMissing` by the frames port itself, before any frame is read, by the
+/// predicate each frame's quote cut applies. Runs of frame 1 or frame 3 alone, each gap bounded by
+/// the next frame or the run's end, and the same run over a custody with that gap's fill bar, read
+/// their frames, so the refusal is that gap's alone.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_run_with_a_gap_without_a_quote_is_refused_before_any_frame_is_read() {
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
+    admit_members(&owner, &binding).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let frames = owner.pit_window_custody_frames_v1();
+    let days = [
+        WINDOW_START + DAY,
+        WINDOW_START + 2 * DAY,
+        WINDOW_START + 3 * DAY,
+    ];
+    let mut missing_middle = two_timeframe_request(request(
+        &binding,
+        universe(&owner, &binding, 10, None).await,
+    ));
+    missing_middle = with_gap_fill_bars(missing_middle, &[days[0], days[2]]);
+    let gapped = commit(&intake, missing_middle).await.expect("the custody");
+    let complete = commit(
+        &intake,
+        two_timeframe_request(request(
+            &binding,
+            universe(&owner, &binding, 11, None).await,
+        )),
+    )
+    .await
+    .expect("the custody with every gap's fill bar");
+    let read = |root, start, end| {
+        let frames = frames.clone();
+        async move {
+            frames
+                .resolve_pit_window_frames_v1(run(root, start, end))
+                .await
+                .map(|read| read.frames().len())
+        }
+    };
+    let run_end = WINDOW_START + 4 * DAY;
+
+    assert_eq!(
+        read(gapped.chain_root(), days[0], run_end).await,
+        Err(PitWindowRunRefusalV1::QuoteCutMissing),
+        "frame 2's gap has no quote, so the run is refused"
+    );
+    assert_eq!(
+        read(gapped.chain_root(), days[1], days[2]).await,
+        Err(PitWindowRunRefusalV1::QuoteCutMissing),
+        "a run of frame 2 alone is refused for the same gap"
+    );
+    assert_eq!(
+        read(gapped.chain_root(), days[0], days[1]).await,
+        Ok(1),
+        "a run of frame 1 alone has its quote"
+    );
+    assert_eq!(
+        read(gapped.chain_root(), days[2], run_end).await,
+        Ok(1),
+        "and so does a run of frame 3 alone"
+    );
+    assert_eq!(
+        read(complete.chain_root(), days[0], run_end).await,
+        Ok(3),
+        "the same run over a custody holding frame 2's fill bar reads all three frames"
+    );
 }
 
 /// A correction of the two-day bar of day 2, published at `publication_ns`.
@@ -549,8 +674,7 @@ async fn postgres_a_tampered_custody_row_refuses_the_view() {
 /// A run's frames carry the basis their chain's records hold: the root custody's Universe
 /// Selection, its Instrument Master cut and its Market Semantics fact and value, its members and
 /// window. The basis is pinned to the head the frames were read from, and it is the root's: a
-/// successor that names another Universe Selection record over the same members moves the head
-/// and leaves the basis the root committed.
+/// successor, which restates that basis, moves the head and leaves the basis the root committed.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
@@ -605,20 +729,77 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     assert_eq!(basis.members(), [BTC, ETH]);
     assert_eq!(basis.window(), (WINDOW_START, WINDOW_START + 4 * DAY));
 
-    // A successor naming another Universe Selection record over the same members.
-    let universe_b = universe(&owner, &binding, 11, None).await;
-    assert_ne!(universe_b, universe_a);
+    // The basis's Instrument Master key is the root record's, the chain link's, and the digest
+    // every frame's view batch carries.
+    assert_eq!(basis.instrument_master_key(), link.instrument_master_key);
+    assert!(!at_root.frames().is_empty());
+
+    for coordinate in at_root.frames() {
+        let view = owner
+            .resolve_pit_window_view_v1(&frame(
+                &root,
+                root.custody_identity(),
+                coordinate.event_ns(),
+            ))
+            .await
+            .expect("each frame's view resolves");
+        let batch = seal(&view).expect("each frame's view seals");
+        assert_eq!(
+            batch.instrument_master_digest(),
+            basis.instrument_master_key(),
+            "frame {} carries the basis's Instrument Master key",
+            coordinate.ordinal()
+        );
+    }
+
+    // The root's locator resolves to the record the universe intake stored for it, and R&D's read
+    // by that record returns exactly the custody's members.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let stored = super::universe_selection::recover_universe_selection_in_transaction_v1(
+        &mut transaction,
+        &universe_a,
+    )
+    .await
+    .expect("the universe intake stored the root's selection");
+    transaction.rollback().await.unwrap();
+    assert_eq!(
+        basis.universe_selection_record(),
+        (stored.record().identity(), stored.record().digest()),
+        "the basis names the universe intake's record"
+    );
+    let (record_identity, record_digest) = basis.universe_selection_record();
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let members = crate::owner::read_universe_selection_members_for_rd_v1(
+        &mut transaction,
+        record_identity,
+        record_digest,
+    )
+    .await
+    .expect("R&D reads the custody's members by the basis's record");
+    transaction.rollback().await.unwrap();
+    assert_eq!(
+        members
+            .members()
+            .iter()
+            .map(crate::owner::universe_selection::UniverseSelectionMemberForRdV1::instrument)
+            .collect::<Vec<_>>(),
+        basis.members(),
+        "the record's members are exactly the custody's"
+    );
+
+    // A successor restating its root's basis, the same Universe Selection record included.
     let two_day_bar = WINDOW_START + 2 * DAY;
     let corrected = version_at_timeframe(&owner, root.custody_identity(), two_day_bar).await;
-    let mut restated = successor(
-        &root,
-        &template,
-        vec![two_day_correction(corrected, two_day_bar + DAY / 2)],
-    );
-    restated.universe_selection = universe_b;
-    let head = commit(&intake, restated)
-        .await
-        .expect("a successor restates its root's basis, which names no Universe Selection");
+    let head = commit(
+        &intake,
+        successor(
+            &root,
+            &template,
+            vec![two_day_correction(corrected, two_day_bar + DAY / 2)],
+        ),
+    )
+    .await
+    .expect("a successor restating its root's basis extends the chain");
     let at_head = read(run(
         root.chain_root(),
         WINDOW_START + 2 * DAY,
@@ -628,10 +809,14 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     .expect("the run reads at the head");
     assert_eq!(at_head.head_identity(), head.custody_identity());
     assert_eq!(at_head.basis().head_identity(), head.custody_identity());
+    assert_eq!(at_head.basis().universe_selection(), universe_a);
     assert_eq!(
-        at_head.basis().universe_selection(),
-        universe_a,
-        "the basis is the root's Universe Selection, not the head's"
+        at_head.basis().universe_selection_record(),
+        basis.universe_selection_record()
+    );
+    assert_eq!(
+        at_head.basis().instrument_master_key(),
+        basis.instrument_master_key()
     );
     assert_eq!(at_head.basis().chain_root(), basis.chain_root());
     assert_eq!(
@@ -651,7 +836,8 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     );
 }
 
-/// A run whose chain holds no basis record, a basis record edited behind its identity, or a Market
+/// A run whose chain holds no basis record, whose root's Universe Selection the read does not hold
+/// or holds another one, a basis record edited behind its identity, or a Market
 /// Semantics fact forged consistently - restated under another value, with its registry entry and
 /// basis record re-sealed so every record's own readback accepts it - is refused rather than
 /// answered in part: the forged value differs from the one the root custody's record binds. Every
@@ -659,9 +845,12 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_a_run_without_its_verified_chain_basis_is_refused() {
-    use super::pit_window_custody_v1::{
-        frames_from_evidence_v1, load_chain_evidence_v1, read_pit_window_chain_basis_v1,
-        resolve_pit_window_frames_in_transaction_v1,
+    use super::{
+        pit_window_custody_v1::{
+            frames_from_evidence_v1, load_chain_evidence_v1, read_pit_window_chain_basis_v1,
+            resolve_pit_window_frames_in_transaction_v1,
+        },
+        universe_selection::read_universe_selection_by_request_v1,
     };
     use crate::owner::pit_window_custody_v1::chain_records::{
         issue_chain_basis_record_v1, issue_market_semantics_chain_registry_entry_v1,
@@ -673,27 +862,58 @@ async fn postgres_a_run_without_its_verified_chain_basis_is_refused() {
     admit_members(&owner, &binding).await;
     let universe = universe(&owner, &binding, 10, None).await;
     let intake = owner.pit_window_custody_commit_v1();
-    let template = request(&binding, universe);
+    // Both frames' gaps hold a fill bar, so the run is answered unless its basis is not verified.
+    let template = with_gap_fill_bars(
+        request(&binding, universe),
+        &[WINDOW_START + DAY, WINDOW_START + 2 * DAY],
+    );
     let receipt = commit(&intake, template.clone()).await.unwrap();
     let chain_root = receipt.chain_root();
     let covered = run(chain_root, WINDOW_START + DAY, WINDOW_START + 3 * DAY);
     let root = chain_root.as_bytes().as_slice();
 
     // A chain holding no basis record - one the T0-4c commit did not complete - is refused, where
-    // the same evidence with its basis is answered.
-    let mut transaction = owner.pool().begin().await.unwrap();
-    let evidence = load_chain_evidence_v1(&mut transaction, chain_root)
-        .await
-        .unwrap();
-    let readback = read_pit_window_chain_basis_v1(&mut transaction, chain_root)
-        .await
-        .unwrap();
-    transaction.rollback().await.unwrap();
-    assert!(frames_from_evidence_v1(covered, evidence.clone(), readback).is_ok());
+    // the same evidence with its basis is answered; so is a chain whose root's Universe Selection
+    // the read does not hold, or whose read holds a selection the root's locator does not name.
+    let read = |request_identity| {
+        let pool = owner.pool().clone();
+        async move {
+            let mut transaction = pool.begin().await.unwrap();
+            let evidence = load_chain_evidence_v1(&mut transaction, chain_root)
+                .await
+                .unwrap();
+            let readback = read_pit_window_chain_basis_v1(&mut transaction, chain_root)
+                .await
+                .unwrap();
+            let selection =
+                read_universe_selection_by_request_v1(&mut transaction, request_identity)
+                    .await
+                    .unwrap();
+            transaction.rollback().await.unwrap();
+            (evidence, readback, selection)
+        }
+    };
+    let (evidence, readback, selection) = read(universe.request_identity()).await;
+    assert!(frames_from_evidence_v1(covered, evidence, readback, selection).is_ok());
+    let (evidence, _, selection) = read(universe.request_identity()).await;
     assert_eq!(
-        frames_from_evidence_v1(covered, evidence, None).map(|_| ()),
+        frames_from_evidence_v1(covered, evidence, None, selection).map(|_| ()),
         Err(PitWindowRunRefusalV1::StoreUnavailable),
         "a chain without a basis gets no partial answer"
+    );
+    let (evidence, readback, _) = read(universe.request_identity()).await;
+    assert_eq!(
+        frames_from_evidence_v1(covered, evidence, readback, None).map(|_| ()),
+        Err(PitWindowRunRefusalV1::StoreUnavailable),
+        "a root whose selection record is missing is refused"
+    );
+    let other = super::pit_window_custody_v1_tests::universe(&owner, &binding, 20, None).await;
+    let (evidence, readback, foreign) = read(other.request_identity()).await;
+    assert!(foreign.is_some(), "the other selection is stored");
+    assert_eq!(
+        frames_from_evidence_v1(covered, evidence, readback, foreign).map(|_| ()),
+        Err(PitWindowRunRefusalV1::StoreUnavailable),
+        "a selection the root's locator does not name is refused"
     );
 
     // A basis record edited behind its identity.

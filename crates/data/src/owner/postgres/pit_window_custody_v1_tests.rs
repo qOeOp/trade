@@ -464,6 +464,43 @@ pub(super) async fn version_at(
     BindingDigest::from_untrusted_bytes(bytes.try_into().unwrap())
 }
 
+/// A successor naming another Universe Selection record over the same members restates another
+/// basis, so it is refused as `SuccessorBasisChanged` and writes nothing: a chain never changes the
+/// universe record its frames' basis names.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_successor_naming_another_universe_record_is_refused() {
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "synthetic/corrections", 1, Some(after_close(true))).await;
+    admit_members(&owner, &binding).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let universe_a = universe(&owner, &binding, 10, None).await;
+    let template = request(&binding, universe_a);
+    let root = commit(&intake, template.clone()).await.expect("the root");
+    let bar = WINDOW_START + DAY;
+    let original_version = version_at(&owner, root.custody_identity(), bar).await;
+    let correcting = || {
+        successor(
+            &root,
+            &template,
+            vec![correction(bar, original_version, 2, bar + 3 * MINUTE)],
+        )
+    };
+
+    // The same members under another record, evaluated by the Owner at its head.
+    let universe_b = universe(&owner, &binding, 11, None).await;
+    assert_ne!(universe_b, universe_a);
+    let mut renamed = correcting();
+    renamed.universe_selection = universe_b;
+    refused(&owner, &intake, renamed, Refused::SuccessorBasisChanged).await;
+
+    // The control: the same correction under the root's own record extends the chain.
+    let head = commit(&intake, correcting())
+        .await
+        .expect("the same successor under the root's record");
+    assert_eq!(head.chain_root(), root.chain_root());
+}
+
 /// The BTC CLOSE row fact of `version`, decoded and verified from its stored bytes.
 async fn close_fact(owner: &MarketDataOwnerPostgres, version: BindingDigest) -> SampleFactV2 {
     let row = sqlx::query(
@@ -1077,6 +1114,20 @@ async fn postgres_every_custody_refusal_writes_nothing() {
             r.cross_sections.pop();
         }),
         Refused::FillTimeframeNotFinerThanExecution,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
+            // A fill finer than its execution bar, but a day long: its open would be quoted a
+            // minute before its close.
+            r.execution_timeframe = "2D".to_owned();
+            r.input_timeframes = vec!["2D".to_owned()];
+            r.fill_timeframe = Some("1D".to_owned());
+            r.cross_sections = vec![original("2D", WINDOW_START + 2 * DAY)];
+        }),
+        Refused::FillTimeframeNotOneMinute,
     )
     .await;
     refused(

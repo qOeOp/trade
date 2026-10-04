@@ -133,6 +133,7 @@ impl Basis {
                 bar_timeframes: vec![
                     continuous("1D", 24, UntrustedSourceBarUnitV1::Hour),
                     continuous("1M", 1, UntrustedSourceBarUnitV1::Minute),
+                    continuous("1H", 1, UntrustedSourceBarUnitV1::Hour),
                     continuous("24H", 24, UntrustedSourceBarUnitV1::Hour),
                     continuous("2D", 48, UntrustedSourceBarUnitV1::Hour),
                     // A second label for the minute bar: the same timeframe by another name.
@@ -538,6 +539,10 @@ const fn e(edit: Edit) -> Edit {
     r.fill_timeframe = Some("24H".into());
     r.cross_sections.pop();
 }), Refused::FillTimeframeNotFinerThanExecution)]
+#[case::fill_of_one_hour(e(|r, _| {
+    r.fill_timeframe = Some("1H".into());
+    r.cross_sections.pop();
+}), Refused::FillTimeframeNotOneMinute)]
 #[case::fill_is_input(e(|r, _| {
     r.fill_timeframe = Some("1D".into());
     r.cross_sections.pop();
@@ -1380,10 +1385,10 @@ mod chain_records {
     }
 
     const PINNED_R0_RECORD: &str =
-        "8204cabe308a164eafddea2f371abc6107a20d9ec38e45e0a757d6f5bbf1afca";
-    const PINNED_R0_CUT: &str = "adf7d5d078500cb23d3e6684d244e854a5145b0dfa47dc420a8a59b8678f5e02";
+        "7046f34ef298be53e9b7a335176cf14e6ea2013fb7f25b6965eaa6f99488b67e";
+    const PINNED_R0_CUT: &str = "f6fd201adf3d6de6b14962ce86910648240041e6529e25068cb0912954b76194";
     const PINNED_MARKET_SEMANTICS_FACT: &str =
-        "a6ea5e9f5b61bd8cc3ab574819610871483c35a515cc8f2df1109ec5070667a6";
+        "6be6b58caf9f6f79f4b2adff76d9fba2155b53af76f3c94827be2b40eefefec4";
 
     #[rstest]
     fn stored_chain_records_decode_only_to_what_they_state() {

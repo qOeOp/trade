@@ -91,42 +91,15 @@ pub(crate) async fn migrate(
     Ok(())
 }
 
-/// Lets a store that has already cut over gain these same two tables, when a build adds them
-/// after that store's cutover: creates each one only if it is purely absent, refusing by name
-/// (and touching nothing) if a same-named relation exists and is not already this exact shape.
-///
-/// `owner_database_url` must authenticate as `rd_owner`; `migrator_database_url` as
-/// `rd_schema_migrator`, which holds nothing beyond `EXECUTE` on the two SECURITY DEFINER
-/// functions that open and close the one window `rd_owner` needs
-/// (`product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`'s
-/// `rd_schema_migration_api` schema). The window is closed even when creating a table inside it
-/// fails, since a lingering grant on `rd_owner` is the worse outcome to leave unreported; if
-/// closing it also fails, that failure is what this function returns.
+/// Gives a store that has already cut over the catalog's two tables, inside the window the caller
+/// opened as `rd_schema_migrator` (`crate::rd_additive_public_tables`): creates each one only if
+/// it is purely absent, refusing by name (and touching nothing) if a same-named relation exists
+/// and is not already this exact shape.
 ///
 /// # Errors
 ///
-/// Returns an error when either connection cannot be opened, when opening or closing the window
-/// is refused (the wrong role, or run before cutover), or when a same-named relation already
-/// exists and does not match the manifest exactly - that refusal names the relation and leaves it
-/// untouched.
-pub async fn migrate_additively(
-    owner_database_url: &str,
-    migrator_database_url: &str,
-) -> Result<(), sqlx::Error> {
-    let owner_pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_url(owner_database_url, PostgresTls::Disabled)
-        .await?;
-    let migrator_pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_url(migrator_database_url, PostgresTls::Disabled)
-        .await?;
-    crate::schema_materialization::open_additive_table_create_window(&migrator_pool).await?;
-    let migration = migrate_both(&owner_pool).await;
-    crate::schema_materialization::close_additive_table_create_window(&migrator_pool)
-        .await
-        .and(migration)
-}
-
-async fn migrate_both(owner_pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+/// Returns that refusal, or the storage failure.
+pub(crate) async fn migrate_additive(owner_pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     crate::schema_materialization::migrate_additive_public_table(
         owner_pool,
         &TABLES[0],

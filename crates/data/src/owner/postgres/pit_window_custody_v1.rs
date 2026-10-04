@@ -40,7 +40,10 @@ use super::{
         load_scope_heads,
     },
     next_owner_clock_admission_v1,
-    universe_selection::recover_universe_selection_in_transaction_v1,
+    universe_selection::{
+        read_universe_selection_by_request_v1, recover_universe_selection_in_transaction_v1,
+        universe_selection_from_raw_v1,
+    },
 };
 use crate::owner::{
     instrument_master::{
@@ -50,11 +53,10 @@ use crate::owner::{
     },
     pit_snapshot::custody_view::{FillBarRowV1, StoredViewRowV1, verify_fill_bar_rows_v1},
     pit_window_custody_v1::{
-        ChainBasisPartsV1, CrossSectionVersionKindV1, PitWindowChainBasisV1,
-        PitWindowCustodyCommitV1, PitWindowCustodyReceiptV1, PitWindowCustodyRefusalV1,
-        PitWindowFrameCoordinateV1, PitWindowRunFramesV1, PitWindowRunRefusalV1,
-        UntrustedPitWindowCustodyFrameV1, UntrustedPitWindowCustodyRequestV1,
-        UntrustedPitWindowRunV1,
+        ChainBasisPartsV1, PitWindowChainBasisV1, PitWindowCustodyCommitV1,
+        PitWindowCustodyReceiptV1, PitWindowCustodyRefusalV1, PitWindowFrameCoordinateV1,
+        PitWindowRunFramesV1, PitWindowRunRefusalV1, UntrustedPitWindowCustodyFrameV1,
+        UntrustedPitWindowCustodyRequestV1, UntrustedPitWindowRunV1,
         authority::{
             ChainPositionV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
             CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, CustodyMintingClockV1,
@@ -74,7 +76,9 @@ use crate::owner::{
             issue_instrument_master_chain_link_v1, issue_market_semantics_chain_fact_v1,
             issue_market_semantics_chain_registry_entry_v1, issue_r0_chain_record_v1,
         },
-        quote_cut::FILL_BAR_INTERVAL_NS_V1,
+        quote_cut::{
+            FILL_BAR_INTERVAL_NS_V1, custody_quote_cut_bound_v1, gap_fill_bar_position_v1,
+        },
         schedule::{
             PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1,
             window_schedule_admits_frame_v1,
@@ -82,7 +86,7 @@ use crate::owner::{
         sealed,
         view::{
             ChainVersionV1, CrossSectionsV1, ViewRefusalV1, ViewSelectionV1, ViewTimeframesV1,
-            cross_sections_v1, enumerate_run_frames_v1, select_view_v1,
+            cross_sections_v1, enumerate_run_frames_v1, select_fill_candidates_v1, select_view_v1,
         },
     },
     sample_fact::v2::{
@@ -93,7 +97,9 @@ use crate::owner::{
         BindingDigest, SourceBindingOwnerReadback, UntrustedSourceBindingLocator,
         authority::derive_market_semantics_compatibility_identity_v1,
     },
-    universe_selection::{UniverseSelectionErrorV1, UntrustedUniverseSelectionLocatorV1},
+    universe_selection::{
+        UniverseSelectionErrorV1, UniverseSelectionReadbackV1, UntrustedUniverseSelectionLocatorV1,
+    },
 };
 
 #[cfg(test)]
@@ -144,6 +150,12 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     // columns the Owner store's own read verifies.
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_window_chain_basis_v1(p_chain_root BYTEA) RETURNS TABLE(entry_kind SMALLINT, payload JSONB) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT 1::SMALLINT, pg_catalog.to_jsonb(b) FROM market_data_private.pit_window_chain_basis_records_v1 AS b WHERE b.chain_root = p_chain_root UNION ALL SELECT 2::SMALLINT, pg_catalog.to_jsonb(r) FROM market_data_private.pit_window_r0_chain_records_v1 AS r WHERE r.chain_root = p_chain_root UNION ALL SELECT 3::SMALLINT, pg_catalog.to_jsonb(l) FROM market_data_private.pit_window_instrument_master_chains_v1 AS l WHERE l.chain_root = p_chain_root UNION ALL SELECT 4::SMALLINT, pg_catalog.to_jsonb(m) FROM (SELECT h.compatibility_scope_identity AS head_scope, f.fact_identity, f.compatibility_scope_identity, f.chain_root, f.registry_record_identity, f.fact_bytes, g.record_bytes FROM market_data_private.market_semantics_chain_heads_v1 AS h JOIN market_data_private.market_semantics_chain_facts_v1 AS f ON f.fact_identity = h.fact_identity JOIN market_data_private.market_semantics_chain_registry_v1 AS g ON g.record_identity = f.registry_record_identity WHERE h.chain_root = p_chain_root) AS m UNION ALL SELECT 5::SMALLINT, pg_catalog.to_jsonb(i) FROM (SELECT r.request_identity, r.request_meaning_digest, r.receipt_identity, r.receipt_bytes, r.append_sequence, c.cut_identity, c.cut_bytes, o.outbox_identity, o.receipt_bytes AS outbox_receipt_bytes, s.store_generation_identity, s.append_sequence AS state_append_sequence, (SELECT pg_catalog.count(*) FROM market_data_private.instrument_master_cuts_v1) AS cut_count, (SELECT pg_catalog.count(*) FROM market_data_private.instrument_master_receipts_v1) AS receipt_count, (SELECT pg_catalog.count(*) FROM market_data_private.instrument_master_outbox_v1) AS outbox_count FROM market_data_private.pit_window_instrument_master_chains_v1 AS l JOIN market_data_private.instrument_master_receipts_v1 AS r ON r.request_identity = l.request_identity JOIN market_data_private.instrument_master_cuts_v1 AS c ON c.request_identity = r.request_identity AND c.cut_identity = r.cut_identity JOIN market_data_private.instrument_master_outbox_v1 AS o ON o.request_identity = r.request_identity AND o.outbox_identity = r.receipt_identity CROSS JOIN market_data_private.instrument_master_state_v1 AS s WHERE s.singleton AND l.chain_root = p_chain_root) AS i $function$",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_window_chain_basis_v1(BYTEA) FROM PUBLIC",
+    // The Universe Selection a run's root names (T0-5e), for the admitted port: the record whose
+    // request identity the root's locator carries, with its receipt and outbox event, the columns
+    // the Owner store's own read verifies. The record is the left side of the join, so a record
+    // without its receipt or outbox event comes back with those columns NULL and is refused.
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_window_universe_selection_v1(p_request_identity BYTEA) RETURNS TABLE(request_identity BYTEA, request_meaning_digest BYTEA, selection_identity BYTEA, record_bytes BYTEA, receipt_identity BYTEA, receipt_bytes BYTEA, outbox_identity BYTEA, outbox_receipt_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT r.request_identity, r.request_meaning_digest, r.selection_identity, r.record_bytes, c.receipt_identity, c.receipt_bytes, o.outbox_identity, o.receipt_bytes FROM market_data_private.universe_selection_records_v1 AS r LEFT JOIN market_data_private.universe_selection_receipts_v1 AS c ON c.request_identity = r.request_identity LEFT JOIN market_data_private.universe_selection_outbox_v1 AS o ON o.request_identity = r.request_identity WHERE r.request_identity = p_request_identity $function$",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_window_universe_selection_v1(BYTEA) FROM PUBLIC",
 ];
 
 #[track_caller]
@@ -1311,18 +1323,23 @@ pub(in crate::owner) async fn read_pit_window_chain_basis_v1(
         .ok_or(Refused::StoreUnavailable)
 }
 
-/// The basis of a chain verified at a head, from its readback: the root custody's Universe
-/// Selection, Instrument Master cut and Market Semantics, each only when the readback's records
-/// name the root custody and agree with what its record binds - its basis and rule, its Instrument
-/// Master key and members, and its Market Semantics identity and value. A successor restates the
-/// root's basis, so whichever head the frames were read from, the basis is the root's.
+/// The basis of a chain verified at a head, from its readback and the Universe Selection read for
+/// it: the root custody's Universe Selection, Instrument Master cut and Market Semantics, each only
+/// when the readback's records name the root custody and agree with what its record binds - its
+/// basis and rule, its Universe Selection locator, its Instrument Master key and members, and its
+/// Market Semantics identity and value. A successor restates the root's basis, so whichever head
+/// the frames were read from, the basis is the root's.
 pub(crate) fn chain_basis_from_readback_v1(
     chain: &VerifiedChainV1,
     readback: ChainBasisReadbackV1,
+    selection: &UniverseSelectionReadbackV1,
 ) -> Option<PitWindowChainBasisV1> {
     let root = &chain.root;
     let (basis, (r0_record, _), (link, cut), (market_semantics, _)) = readback;
+    let record = selection.record();
     let agrees = basis.chain_root == chain.chain_root
+        && record.request_identity() == root.universe.0
+        && record.request_meaning_digest() == root.universe.1
         && basis.root_custody_identity == root.identity
         && r0_record.root_custody_identity == root.identity
         && r0_record.basis_digest == root.basis_digest()
@@ -1341,6 +1358,8 @@ pub(crate) fn chain_basis_from_readback_v1(
                 root.universe.0,
                 root.universe.1,
             ),
+            universe_selection_record: (record.identity(), record.digest()),
+            instrument_master_key: root.instrument_master_key,
             instrument_master_cut: cut,
             market_semantics_identity: root.market_semantics_identity,
             market_semantics_value: root.market_semantics_value,
@@ -1423,8 +1442,9 @@ impl PitWindowCustodyCommitV1 for PitWindowCustodyPostgresV1 {
 }
 
 impl MarketDataOwnerPostgres {
-    /// The custody intake over this Owner store, for its own proofs.
-    #[cfg(test)]
+    /// The custody intake over this Owner store, for its own proofs and the sealed acceptance
+    /// custody chain: the same intake the environment opens, over this store's pool.
+    #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
     pub(super) fn pit_window_custody_commit_v1(&self) -> Arc<dyn PitWindowCustodyCommitV1> {
         Arc::new(PitWindowCustodyPostgresV1 {
             owner: Self {
@@ -1931,15 +1951,62 @@ pub(crate) const fn check_run_shape_v1(
     Ok(())
 }
 
-/// The frames of `run` from the chain evidence read for it.
+/// Whether every gap of a run's `frames` has a quote: the fill candidates each per-frame read
+/// selects ([`select_fill_candidates_v1`]) under the predicate each frame's quote cut applies
+/// ([`gap_fill_bar_position_v1`]), with each gap bounded by the next frame or the run's end
+/// ([`custody_quote_cut_bound_v1`]). It reads no rows: a gap it passes can still be refused by its
+/// frame's read when a candidate's rows do not verify, but no gap it refuses can have a quote.
 ///
-/// The run-level check that every gap has a quote cut (`QuoteCutMissing`) lands with the quote cut
-/// derivation (T0-6), on the predicate the per-frame read shares; until then this read does not
-/// check gaps, and the per-frame read refuses every frame for want of a quote cut.
+/// # Errors
+///
+/// [`PitWindowRunRefusalV1::QuoteCutMissing`] for a custody with no fill timeframe or a gap with
+/// no quote.
+fn check_run_quote_cuts_v1(
+    sections: &CrossSectionsV1,
+    fill: Option<BindingDigest>,
+    interval_ns: u64,
+    run_end_ns_exclusive: u64,
+    frames: &[(u64, u64)],
+) -> Result<(), PitWindowRunRefusalV1> {
+    let fill = fill.ok_or(PitWindowRunRefusalV1::QuoteCutMissing)?;
+
+    for &(event_ns, decision_cut_ns) in frames {
+        let next_event_ns = event_ns
+            .checked_add(interval_ns)
+            .ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
+        let bound_ns_exclusive =
+            custody_quote_cut_bound_v1(event_ns, interval_ns, run_end_ns_exclusive)
+                .ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
+        let candidates = select_fill_candidates_v1(
+            sections,
+            fill,
+            FILL_BAR_INTERVAL_NS_V1,
+            decision_cut_ns,
+            next_event_ns,
+        );
+        gap_fill_bar_position_v1(
+            candidates.iter().map(|version| {
+                (
+                    version.event_ns.saturating_sub(FILL_BAR_INTERVAL_NS_V1),
+                    version.availability_ns,
+                )
+            }),
+            decision_cut_ns,
+            bound_ns_exclusive,
+        )
+        .ok_or(PitWindowRunRefusalV1::QuoteCutMissing)?;
+    }
+    Ok(())
+}
+
+/// The frames of `run` from the chain evidence read for it. The pool and admitted-port reads both
+/// decide through it, so both refuse a run any of whose gaps has no quote as `QuoteCutMissing`,
+/// before any frame is read (T0-5 ruling Q1).
 pub(crate) fn frames_from_evidence_v1(
     run: UntrustedPitWindowRunV1,
     evidence: PitWindowChainEvidenceV1,
     basis: Option<ChainBasisReadbackV1>,
+    selection: Option<UniverseSelectionReadbackV1>,
 ) -> Result<PitWindowRunFramesV1, PitWindowRunRefusalV1> {
     check_run_shape_v1(&run)?;
     let chain_root = run.custody.chain_root;
@@ -1950,9 +2017,13 @@ pub(crate) fn frames_from_evidence_v1(
                 PitWindowRunRefusalV1::StoreUnavailable
             }
         })?;
-    // A chain the T0-4c commit did not complete has no basis, and gets no partial answer.
+    // A chain the T0-4c commit did not complete has no basis, and one whose root's Universe
+    // Selection the store does not hold has no record; neither gets a partial answer.
     let basis = basis
-        .and_then(|readback| chain_basis_from_readback_v1(&verified.chain, readback))
+        .zip(selection)
+        .and_then(|(readback, selection)| {
+            chain_basis_from_readback_v1(&verified.chain, readback, &selection)
+        })
         .ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
     let window = verified.chain.root.window;
 
@@ -1972,6 +2043,13 @@ pub(crate) fn frames_from_evidence_v1(
     if frames.is_empty() {
         return Err(PitWindowRunRefusalV1::InvalidRequest);
     }
+    check_run_quote_cuts_v1(
+        &sections,
+        verified.chain.root.fill.as_ref().map(|fill| fill.identity),
+        verified.timeframes.interval_ns,
+        run.run_end_ns_exclusive,
+        &frames,
+    )?;
     let frames = frames
         .into_iter()
         .zip(1..)
@@ -2002,7 +2080,42 @@ pub(in crate::owner) async fn resolve_pit_window_frames_in_transaction_v1(
     let basis = read_pit_window_chain_basis_v1(transaction, run.custody.chain_root)
         .await
         .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
-    frames_from_evidence_v1(run, evidence, basis)
+    let selection = match root_universe_request_v1(&evidence, run.custody.chain_root) {
+        Some(request_identity) => {
+            read_universe_selection_by_request_v1(transaction, request_identity)
+                .await
+                .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?
+        }
+        None => None,
+    };
+    frames_from_evidence_v1(run, evidence, basis, selection)
+}
+
+/// The Universe Selection request identity the root custody of `chain_root` names, decoded from
+/// the chain as read and before the chain is verified; `None` when the evidence holds no root
+/// custody that decodes. The frames read verifies the chain, and checks the selection it reads
+/// under this identity against the verified root's locator.
+pub(crate) fn root_universe_request_v1(
+    evidence: &PitWindowChainEvidenceV1,
+    chain_root: BindingDigest,
+) -> Option<BindingDigest> {
+    evidence
+        .custodies
+        .iter()
+        .find(|custody| custody.identity == chain_root)
+        .and_then(|root| decode_custody_record_v1(&root.canonical_bytes, root.identity))
+        .map(|record| record.universe.0)
+}
+
+/// [`root_universe_request_v1`] over a chain as an admitted read returned it, for the port to read
+/// the selection in the chain's snapshot.
+fn raw_root_universe_request_v1(
+    raw: &crate::owner::store_admission::RawPitWindowChainV1,
+    chain_root: &[u8; 32],
+) -> Option<[u8; 32]> {
+    let evidence = chain_evidence_from_raw_v1(raw)?;
+    root_universe_request_v1(&evidence, BindingDigest::from_untrusted_bytes(*chain_root))
+        .map(|request_identity| *request_identity.as_bytes())
 }
 
 /// Why one frame's view was not resolved.
@@ -2025,6 +2138,7 @@ pub(crate) struct ResolvedPitWindowViewV1 {
     /// The window schedules, in member order.
     pub(crate) schedules: Vec<PitWindowScheduleFactV1>,
     /// Every fill-timeframe bar whose open lies in the gap after this frame, ascending by open,
+    /// each at the version visible at its own availability (`select_fill_candidates_v1`) and
     /// verified against the custody record (T0-6). Never selected as a view input.
     pub(crate) fill_candidates: Vec<ResolvedFillCandidateV1>,
 }
@@ -2033,41 +2147,12 @@ pub(crate) struct ResolvedPitWindowViewV1 {
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedFillCandidateV1 {
     pub(crate) version_identity: BindingDigest,
-    /// The bar's open: its declaration's labeled instant, the fill timeframe's `event_ns`.
+    /// The bar's open: its close, the fill timeframe's `event_ns`, less the fill interval.
     pub(crate) open_ns: u64,
+    /// The selected version's availability and publication, which the quote cut states.
+    pub(crate) available_ns: u64,
+    pub(crate) publication_ns: u64,
     pub(crate) rows: Vec<FillBarRowV1>,
-}
-
-/// The custody's fill-timeframe cross-sections whose open (`event_ns`, the fill declaration's
-/// labeled instant) lies in `(decision_cut_ns, next_event_ns)`, ascending by open: the latest
-/// non-withdrawn version of each. A custody with no fill timeframe has none. Candidates for the
-/// gap's quote cut (T0-6); the caller still reads and verifies each one's rows.
-fn fill_candidate_versions_v1(
-    sections: &CrossSectionsV1,
-    fill_identity: Option<BindingDigest>,
-    decision_cut_ns: u64,
-    next_event_ns: u64,
-) -> Vec<ChainVersionV1> {
-    let Some(fill_identity) = fill_identity else {
-        return Vec::new();
-    };
-    let mut candidates = sections
-        .events_of(fill_identity)
-        .filter_map(|(event_ns, chain)| {
-            let open_ns = event_ns.checked_sub(FILL_BAR_INTERVAL_NS_V1)?;
-
-            if open_ns <= decision_cut_ns || open_ns >= next_event_ns {
-                return None;
-            }
-            chain
-                .iter()
-                .filter(|version| version.kind != CrossSectionVersionKindV1::Withdrawal)
-                .max_by_key(|version| version.correction_sequence)
-                .cloned()
-        })
-        .collect::<Vec<_>>();
-    candidates.sort_by_key(|version| version.event_ns);
-    candidates
 }
 
 /// The selection of `frame`'s view from the chain evidence read for it, at the head it pins, with
@@ -2109,12 +2194,21 @@ pub(crate) fn view_selection_from_evidence_v1(
     }) {
         return Err(PitWindowViewRefusalV1::NotOnSchedule);
     }
-    let fill_candidates = fill_candidate_versions_v1(
-        &sections,
-        verified.chain.root.fill.as_ref().map(|fill| fill.identity),
-        selection.decision_cut_ns,
-        selection.next_event_ns,
-    );
+    let fill_candidates = verified
+        .chain
+        .root
+        .fill
+        .as_ref()
+        .map(|fill| {
+            select_fill_candidates_v1(
+                &sections,
+                fill.identity,
+                FILL_BAR_INTERVAL_NS_V1,
+                selection.decision_cut_ns,
+                selection.next_event_ns,
+            )
+        })
+        .unwrap_or_default();
     Ok((verified, selection, fill_candidates))
 }
 
@@ -2143,6 +2237,8 @@ fn resolved_fill_candidates_v1(
                 .map(|rows| ResolvedFillCandidateV1 {
                     version_identity: version.identity,
                     open_ns,
+                    available_ns: version.availability_ns,
+                    publication_ns: version.publication_ns,
                     rows,
                 })
                 .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)
@@ -2346,8 +2442,8 @@ pub(crate) fn chain_basis_from_raw_v1(
         .ok_or(())
 }
 
-/// The frames of `run`, read through an admitted custody port, with the chain's basis read in the
-/// same snapshot.
+/// The frames of `run`, read through an admitted custody port, with the chain's basis and the
+/// Universe Selection its root names read in the same snapshot.
 pub(in crate::owner) async fn resolve_pit_window_frames_through_port_v1<P>(
     port: &P,
     run: UntrustedPitWindowRunV1,
@@ -2358,14 +2454,20 @@ where
     check_run_shape_v1(&run)?;
     let chain_root = run.custody.chain_root;
     let raw = port
-        .resolve_pit_window_run_chain_v1(*chain_root.as_bytes())
+        .resolve_pit_window_run_chain_v1(*chain_root.as_bytes(), raw_root_universe_request_v1)
         .await
         .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
     let evidence =
         chain_evidence_from_raw_v1(&raw.chain).ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
     let basis = chain_basis_from_raw_v1(&raw.basis, chain_root)
         .map_err(|()| PitWindowRunRefusalV1::StoreUnavailable)?;
-    frames_from_evidence_v1(run, evidence, basis)
+    let selection = raw
+        .universe_selection
+        .as_ref()
+        .map(universe_selection_from_raw_v1)
+        .transpose()
+        .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+    frames_from_evidence_v1(run, evidence, basis, selection)
 }
 
 /// The view of `frame`, read at the head it pins through an admitted custody port.

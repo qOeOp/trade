@@ -203,9 +203,9 @@ pub const fn refusal_disposition_v1(
     use PitWindowCustodyRefusalV1::{
         AvailabilityLagNotBelowBarInterval, CrossSectionBranch,
         CrossSectionCorrectionNotPublishedBySource, ExecutionTimeframeNotFixedInterval,
-        FillTimeframeIsAnInputTimeframe, FillTimeframeNotFinerThanExecution, IdentityConflict,
-        InvalidRequest, MarketSemanticsMismatch, MarketSemanticsScopeValueConflict,
-        RetrievalAfterMintingCut, RowRetrievedBeforeBarClose,
+        FillTimeframeIsAnInputTimeframe, FillTimeframeNotFinerThanExecution,
+        FillTimeframeNotOneMinute, IdentityConflict, InvalidRequest, MarketSemanticsMismatch,
+        MarketSemanticsScopeValueConflict, RetrievalAfterMintingCut, RowRetrievedBeforeBarClose,
         SourceBindingDeclaresNoAvailabilityRule, SourceBindingUnavailable, StoreUnavailable,
         SuccessorBasisChanged, ValueFinerThanSeriesScale, VersionNotAvailableAtMintingCut,
         WindowMemberNotValidThroughout,
@@ -219,6 +219,8 @@ pub const fn refusal_disposition_v1(
         // A bar retrieved before it closed is today's open bar, and a value past nine places is
         // one this writer passed unchecked: the same request is refused again.
         RowRetrievedBeforeBarClose | ValueFinerThanSeriesScale => WriterDefect,
+        // The fill timeframe is this writer's own constant: a non-minute one is a writer defect.
+        FillTimeframeNotOneMinute => WriterDefect,
         InvalidRequest
         | CrossSectionBranch
         | CrossSectionCorrectionNotPublishedBySource
@@ -494,6 +496,10 @@ mod tests {
     )]
     #[case(
         PitWindowCustodyRefusalV1::ValueFinerThanSeriesScale,
+        BackfillRefusalDispositionV1::WriterDefect
+    )]
+    #[case(
+        PitWindowCustodyRefusalV1::FillTimeframeNotOneMinute,
         BackfillRefusalDispositionV1::WriterDefect
     )]
     #[case(

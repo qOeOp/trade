@@ -18,8 +18,7 @@
         "OUTPUT_INVALID",
         "CANCELLED",
         "DEADLINE_EXCEEDED",
-        "SEARCH_EMPTY",
-        "SEARCH_TARGET_UNMET",
+        "ARTIFACT_UNAVAILABLE",
         "INTERNAL"
       ],
       "title": "Code",
@@ -34,6 +33,20 @@
       "pattern": "^[a-z0-9_]{1,80}$",
       "title": "Reason",
       "type": "string"
+    },
+    "recovery": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "enum": [
+          "media_id",
+          "transcript_id",
+          "evidence_id"
+        ]
+      },
+      "title": "Recovery",
+      "type": "object"
     },
     "schema": {
       "const": "bilibili-note.error/v1",

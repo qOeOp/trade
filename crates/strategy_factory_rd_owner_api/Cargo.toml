@@ -145,7 +145,3 @@ test = false
 [[test]]
 name = "rd_owner_api_main"
 path = "src/main.rs"
-
-[[test]]
-name = "dashboard_read_api"
-path = "src/bin/dashboard_read_api.rs"

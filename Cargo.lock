@@ -11427,6 +11427,7 @@ dependencies = [
  "vibe-backtest",
  "vibe-backtest-owner-contracts",
  "vibe-backtest-result-custody",
+ "vibe-backtest-statistics",
  "vibe-common",
  "vibe-core",
  "vibe-data",

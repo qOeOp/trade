@@ -196,7 +196,7 @@ fi
 
 # 2. The images, from this checkout. Inputs that are committed, clean and already built are not
 # rebuilt; the key is what the Owner image copies in, so a commit elsewhere does not rebuild it.
-build_inputs=(Cargo.toml Cargo.lock crates patches examples/tutorials product/rd-workbench/Dockerfile.owner
+build_inputs=(Cargo.toml Cargo.lock crates services patches examples/tutorials product/rd-workbench/Dockerfile.owner
   product/rd-workbench/Dockerfile.sandbox product/rd-workbench/postgres-init)
 tree=$(git -C "$repo_root" ls-tree HEAD -- "${build_inputs[@]}" | shasum -a 256 | cut -d' ' -f1)
 dirty=$(git -C "$repo_root" status --porcelain -- "${build_inputs[@]}")

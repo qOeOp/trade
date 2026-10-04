@@ -130,23 +130,33 @@ impl PitWindowScheduleFactV1 {
     }
 }
 
+/// 1970-01-01T00:00:00Z was a Thursday, four days ahead of the Monday that opens its own week.
+const WEEK_START_MONDAY_PHASE_NS: u64 = 4 * 24 * 60 * 60 * 1_000_000_000;
+
 /// The phase of a grid anchored at `anchor`: the anchor instant reduced modulo `interval_ns`.
 ///
-/// Only a grid anchored at the Unix epoch has an instant of its own; a session-open anchor has
-/// none without a session, which T0 refuses before a schedule is minted.
+/// A grid anchored at the Unix epoch has phase zero; one anchored at 00:00 UTC on the Monday that
+/// opens each week (`UntrustedSourceBarAnchorV1::WeekStartMonday`'s own doc) has the Unix epoch's
+/// own offset from that Monday. A session-open anchor has no instant of its own without a
+/// session, which T0 refuses before a schedule is minted.
 pub(crate) const fn phase_ns_v1(anchor: DeclaredBarAnchorV1, interval_ns: u64) -> Option<u64> {
     match anchor {
         DeclaredBarAnchorV1::UnixEpoch if interval_ns > 0 => Some(0),
+        DeclaredBarAnchorV1::WeekStartMonday if interval_ns > 0 => Some(WEEK_START_MONDAY_PHASE_NS),
         _ => None,
     }
 }
 
-/// Whether `shape` is the one bar T0 schedules: a fixed interval on a continuous clock from the
-/// Unix epoch, labelled at its close, complete bars only.
+/// Whether `shape` is a bar T0 schedules: a fixed interval on a continuous clock, anchored at
+/// the Unix epoch or at the Monday that opens each week, labelled at its close, complete bars
+/// only.
 fn is_t0_shape(shape: &DeclaredBarShapeV1) -> bool {
     shape.kind == BarScheduleKindV1::FixedInterval
         && shape.clock == BarScheduleClockV1::Continuous
-        && shape.anchor == DeclaredBarAnchorV1::UnixEpoch
+        && matches!(
+            shape.anchor,
+            DeclaredBarAnchorV1::UnixEpoch | DeclaredBarAnchorV1::WeekStartMonday
+        )
         && shape.label == BarScheduleLabelV1::IntervalClose
         && shape.completion == BarScheduleCompletionV1::CompleteOnly
 }

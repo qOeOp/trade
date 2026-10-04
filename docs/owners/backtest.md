@@ -70,8 +70,8 @@ admitted set requires changing this document first.
   ordered chain proves. Neither `crates/backtest_owner/Cargo.toml` nor `crates/backtest_result_custody/Cargo.toml`
   declares a `[features]` table, so this custody path is the same code in every build.
 - **CURRENT_PARTIAL - exploratory Run Result views to Product Edge:** the Dashboard read API resolves exact
-  canonical Result bytes through `resolve_exploratory_replay_result_v2` in
-  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`, and only for a Result its TrialFamily census
+  canonical Result bytes through `resolve_exploratory_replay_result_v2`, composed in
+  `crates/strategy_factory_rd_owner_api/src/dashboard_read_api.rs`, and only for a Result its TrialFamily census
   counts ([R&D](./rd/), "CURRENT - every committed exploratory Result is counted").
   `product/rd-workbench/Dockerfile.owner` builds and installs that binary. The ordered chain covers the refusal with
   `replay_result_dashboard_read_api_refuses_a_result_no_census_counts`, and a counted Result opening through the
@@ -283,6 +283,38 @@ The report cannot call it yet, because two of its inputs reach no report assembl
   not complete while it does: its acceptance requires funding in the report.
 
 A run with exits also needs multi-frame replay.
+
+## Run report document
+
+**CURRENT - the assembly; TARGET - the route that serves it.** `backtest_run_report_document_v1` assembles a
+`backtest.run` report from values: the run's four-question report, its fills, the bars its pinned custody head reads
+back, its funding when stated, its instrument's taker fee rate and its request identity. It reads no Owner and no
+clock.
+
+- **The four questions stay four.** The Dashboard's `BacktestRunReport` answers exactly four questions about a single
+  run (`docs/guide/dashboard.md`), and the run report carries it whole under `report`, unchanged. What a run report
+  adds sits beside it, so the Dashboard contract gains no fifth field.
+- **Standing.** `standing` is `EXPLORATORY_ONLY` and `holdout` is `NO_HOLDOUT_PARTITION_DEFINED` until Qualification
+  registers its holdout partition.
+- **Pricing.** `pricing` names how the run was priced:
+  - `fills`: each order is decided at its frame's BAR close and filled at that frame's quote cut, as the target-set
+    Host states;
+  - `fees`: at the instrument's sealed terms;
+  - `funding`: `STATED` or `NOT_STATED`;
+  - `control`: at bar opens.
+- **Fees.** `fees` totals the run's commissions exactly, one decimal per currency.
+- **Control.** `control` is the matched-entry control of the section above, over the run's fills paired into round
+  trips, seeded from the request identity.
+- **Refusals.** Each is named: a fill this report cannot read (`REPORT_FILL_UNREADABLE`), a commission that is not
+  an amount and a currency (`REPORT_COMMISSION_UNREADABLE`), fills that do not pair into round trips
+  (`REPORT_FILLS_NOT_ROUND_TRIPS`), and inputs the control cannot measure (`REPORT_CONTROL_UNMEASURABLE`).
+- **Pinned bars.** The bars are read from Market Data at the run's pinned custody head, cut there, so a chain that has
+  since moved on still reads what the run read and is not refused. A pinned head no longer in the chain is refused
+  as Market Data names it (`PitWindowHeadNotInChain`), and bars that do not match the run's bundle digest are
+  refused as `REPORT_BARS_DIGEST_MISMATCH`.
+- **What it waits on.** That read and the route that serves this report wait for a run to record its custody
+  binding: `backtest.run` stops before its replay step today, and the binding appears in the run's recorded answer
+  once H8 issues it.
 
 ## Research T0 replication comparison
 

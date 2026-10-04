@@ -1,7 +1,7 @@
 // Full-route browser acceptance for the single-run report on `/backtest`.
 //
 // The R&D Owner chain (`backtest_run_report_browser_acceptance_reads_the_owner_answer` in
-// crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs) serves the production
+// crates/strategy_factory_rd_owner_api/tests/dashboard_read_api.rs) serves the production
 // Dashboard read API composition on loopback and runs this file. Every identity below was committed
 // by an earlier chain entry; nothing here is a fixture.
 //

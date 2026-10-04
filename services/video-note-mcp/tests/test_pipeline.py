@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from conftest import primitive_dependencies
 from PIL import Image, ImageDraw
 
 from video_note_mcp.adapters.fixture_distiller import (
@@ -774,7 +775,7 @@ def test_ordered_interior_medoid_tie_uses_time_authority(tmp_path: Path) -> None
 async def test_ordered_window_atomically_degrades_collisions_to_singleton(
     tmp_path: Path, collision: str, expected_count: int
 ) -> None:
-    duration_ms = 1000 if collision == "timestamp" else 5000
+    duration_ms = 5000
     segment = TranscriptSegment("E001", 0, duration_ms, "从这里到那里")
     source = AcquiredSource(
         source=SourceV1(
@@ -814,7 +815,7 @@ async def test_ordered_window_atomically_degrades_collisions_to_singleton(
             value = 20 + index * 30
             path = workspace / f"controlled-{index}.png"
             Image.new("L", (320, 180), value).save(path, format="PNG")
-            return _Decoded(timestamp_ms=timestamp_ms, path=path)
+            return _Decoded(timestamp_ms=0 if collision == "timestamp" else timestamp_ms, path=path)
 
     frames = await ControlledProbeMedia()._decode_window(
         source,
@@ -901,6 +902,7 @@ async def test_decoded_duration_must_match_source_identity(tmp_path: Path) -> No
         media=FfmpegMedia(),
         distiller=DeterministicDistiller(),
         publisher=LocalNotePublisher(tmp_path / "notes"),
+        **primitive_dependencies(FixtureSource(fixture)),
     )
 
     with pytest.raises(BilibiliNoteFailure) as failure:

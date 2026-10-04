@@ -26,7 +26,10 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    instrument_master::InstrumentMasterReadbackV1,
+    instrument_master::{
+        InstrumentMasterReadbackV1, V1StructuralPublicTermsProjectionError,
+        ValidatedInstrumentMasterV1StructuralPublicTermsProjection,
+    },
     market_semantics::MarketSemanticsValueV1,
     market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
@@ -39,6 +42,8 @@ pub(crate) mod quote_cut;
 pub(crate) mod schedule;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod sealed_acceptance;
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub mod sealed_acceptance_chain;
 pub(crate) mod view;
 
 /// The most members one custody holds, as the frame evidence and the native resolver do.
@@ -242,6 +247,12 @@ pub enum PitWindowCustodyRefusalV1 {
     /// `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`.
     #[error("the fill timeframe is not finer than the execution timeframe")]
     FillTimeframeNotFinerThanExecution,
+    /// `PIT_WINDOW_FILL_TIMEFRAME_NOT_ONE_MINUTE`: the fill timeframe's declared interval is not
+    /// exactly one minute, `quote_cut::FILL_BAR_INTERVAL_NS_V1`. A fill bar's open is its close
+    /// less that interval, and no custody record carries the fill timeframe's own declaration, so
+    /// any other interval would put the quote's instant somewhere other than the bar's open.
+    #[error("the fill timeframe's declared interval is not one minute")]
+    FillTimeframeNotOneMinute,
     /// `FILL_TIMEFRAME_IS_AN_INPUT_TIMEFRAME`: fill rows would otherwise reach strategy inputs.
     #[error("the fill timeframe is also an input timeframe")]
     FillTimeframeIsAnInputTimeframe,
@@ -388,6 +399,8 @@ impl PitWindowFrameCoordinateV1 {
 /// let _ = PitWindowChainBasisV1 {
 ///     chain_root: d,
 ///     head_identity: d,
+///     universe_selection_record: (d, d),
+///     instrument_master_key: d,
 ///     market_semantics_identity: d,
 ///     members: Vec::new(),
 ///     window: (0, 1),
@@ -398,6 +411,8 @@ pub struct PitWindowChainBasisV1 {
     chain_root: BindingDigest,
     head_identity: BindingDigest,
     universe_selection: UntrustedUniverseSelectionLocatorV1,
+    universe_selection_record: (BindingDigest, BindingDigest),
+    instrument_master_key: BindingDigest,
     instrument_master_cut: Arc<InstrumentMasterReadbackV1>,
     market_semantics_identity: BindingDigest,
     market_semantics_value: MarketSemanticsValueV1,
@@ -410,6 +425,8 @@ pub(crate) struct ChainBasisPartsV1 {
     pub(crate) chain_root: BindingDigest,
     pub(crate) head_identity: BindingDigest,
     pub(crate) universe_selection: UntrustedUniverseSelectionLocatorV1,
+    pub(crate) universe_selection_record: (BindingDigest, BindingDigest),
+    pub(crate) instrument_master_key: BindingDigest,
     pub(crate) instrument_master_cut: InstrumentMasterReadbackV1,
     pub(crate) market_semantics_identity: BindingDigest,
     pub(crate) market_semantics_value: MarketSemanticsValueV1,
@@ -425,6 +442,8 @@ impl PitWindowChainBasisV1 {
             chain_root: parts.chain_root,
             head_identity: parts.head_identity,
             universe_selection: parts.universe_selection,
+            universe_selection_record: parts.universe_selection_record,
+            instrument_master_key: parts.instrument_master_key,
             instrument_master_cut: Arc::new(parts.instrument_master_cut),
             market_semantics_identity: parts.market_semantics_identity,
             market_semantics_value: parts.market_semantics_value,
@@ -449,6 +468,23 @@ impl PitWindowChainBasisV1 {
     #[must_use]
     pub const fn universe_selection(&self) -> UntrustedUniverseSelectionLocatorV1 {
         self.universe_selection
+    }
+
+    /// The stored Universe Selection record the root custody's locator resolves to, as `(record
+    /// identity, record digest)`: the key `read_universe_selection_members_for_rd_v1` reads the
+    /// custody's members by. It is resolved in the same read as the frames, and its record's
+    /// request meaning digest is the locator's.
+    #[must_use]
+    pub const fn universe_selection_record(&self) -> (BindingDigest, BindingDigest) {
+        self.universe_selection_record
+    }
+
+    /// The Instrument Master key the root custody record binds, equal to the chain's Instrument
+    /// Master link's key: the digest every frame's view batch carries as its
+    /// `instrument_master_digest`.
+    #[must_use]
+    pub const fn instrument_master_key(&self) -> BindingDigest {
+        self.instrument_master_key
     }
 
     /// The Instrument Master cut the root's commit issued over the members, as the Owner reads it
@@ -482,6 +518,86 @@ impl PitWindowChainBasisV1 {
     pub const fn window(&self) -> (u64, u64) {
         self.window
     }
+
+    /// The UNIQUE `(venue_identity, source_identity)` mapping the member's V1 fact carries in this
+    /// basis's Instrument Master cut. R&D must not guess this pair when calling
+    /// [`InstrumentMasterReadbackV1::project_validated_v1_crypto_perpetual_structural_public_terms`]:
+    /// it is derived here, never picked from more than one candidate.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PitWindowMemberMappingErrorV1::NotAMember`] if `canonical_identity` is not one of
+    /// [`Self::members`] or has no fact in [`Self::instrument_master_cut`],
+    /// [`PitWindowMemberMappingErrorV1::NoMapping`] if its fact carries no mapping, and
+    /// [`PitWindowMemberMappingErrorV1::AmbiguousMapping`] if it carries more than one.
+    pub fn member_venue_source(
+        &self,
+        canonical_identity: &str,
+    ) -> Result<(&str, &str), PitWindowMemberMappingErrorV1> {
+        if !self
+            .members
+            .iter()
+            .any(|member| member == canonical_identity)
+        {
+            return Err(PitWindowMemberMappingErrorV1::NotAMember);
+        }
+        let fact = self
+            .instrument_master_cut
+            .facts()
+            .iter()
+            .find(|fact| fact.canonical_identity() == canonical_identity)
+            .ok_or(PitWindowMemberMappingErrorV1::NotAMember)?;
+        match fact.mappings() {
+            [] => Err(PitWindowMemberMappingErrorV1::NoMapping),
+            [mapping] => Ok((
+                mapping.venue_identity.as_str(),
+                mapping.source_identity.as_str(),
+            )),
+            _ => Err(PitWindowMemberMappingErrorV1::AmbiguousMapping),
+        }
+    }
+
+    /// The member's V1 structural public terms: the mapping [`Self::member_venue_source`] selects,
+    /// projected through
+    /// [`InstrumentMasterReadbackV1::project_validated_v1_crypto_perpetual_structural_public_terms`].
+    /// The selection is pure: no store read and no floor change beyond the basis already held.
+    ///
+    /// # Errors
+    ///
+    /// Returns the mapping selection error, or [`PitWindowMemberMappingErrorV1::Projection`]
+    /// wrapping the projection's own refusal.
+    pub fn structural_public_terms(
+        &self,
+        canonical_identity: &str,
+    ) -> Result<
+        ValidatedInstrumentMasterV1StructuralPublicTermsProjection,
+        PitWindowMemberMappingErrorV1,
+    > {
+        let (venue_identity, source_identity) = self.member_venue_source(canonical_identity)?;
+        self.instrument_master_cut
+            .project_validated_v1_crypto_perpetual_structural_public_terms(
+                canonical_identity,
+                venue_identity,
+                source_identity,
+            )
+            .map_err(PitWindowMemberMappingErrorV1::Projection)
+    }
+}
+
+/// Why a custody member's V1 venue/source mapping could not be selected, or the structural public
+/// terms it selects could not be projected.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum PitWindowMemberMappingErrorV1 {
+    #[error("the canonical identity is not a member of this chain basis")]
+    NotAMember,
+    #[error("the member's V1 fact in this basis's Instrument Master cut carries no mapping")]
+    NoMapping,
+    #[error(
+        "the member's V1 fact in this basis's Instrument Master cut carries more than one mapping"
+    )]
+    AmbiguousMapping,
+    #[error("the structural public terms projection failed: {0}")]
+    Projection(#[source] V1StructuralPublicTermsProjectionError),
 }
 
 /// The frames of one run, read from the head of the named chain. It has no public constructor:
@@ -587,8 +703,9 @@ pub enum PitWindowRunRefusalV1 {
 /// inputs and quote cut through the native Replay resolver, naming the frame by a custody frame
 /// source that pins the head the frames were read from.
 ///
-/// Every gap's quote cut is checked here, at run level, once its derivation exists (T0-6); until
-/// then the read does not check gaps, and the per-frame read refuses every frame for want of one.
+/// Every gap's quote cut is checked here, at run level, by the predicate each frame's quote cut
+/// applies: a run any of whose gaps has no quote is refused as `QuoteCutMissing` before any frame is
+/// read.
 #[async_trait]
 pub trait PitWindowCustodyFramesV1: Send + Sync + sealed::Sealed {
     /// Enumerates the run's frames from the execution timeframe's window schedule.
@@ -652,11 +769,355 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        CrossSectionVersionKindV1, UntrustedCrossSectionVersionV1, UntrustedPitWindowRunV1,
+        CrossSectionVersionKindV1, PitWindowMemberMappingErrorV1, UntrustedCrossSectionVersionV1,
+        UntrustedPitWindowRunV1,
+    };
+    use crate::owner::{
+        instrument_master::{
+            BACKTEST_OWNER_V1, ClockProjection, InstrumentClass, InstrumentDecimal,
+            InstrumentMasterCutV1, InstrumentMasterFactProposalV1, InstrumentMasterFactV1,
+            InstrumentMasterReadbackV1, InstrumentMasterResolution, InstrumentMasterScopeV1,
+            InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1,
+            authority::{build_cut, build_fact, build_readback, build_receipt},
+        },
+        shared_time_evidence::build_head_fact,
+        source_binding::{
+            BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule,
+            MarketDataClockCutKind,
+        },
     };
 
     fn digest(byte: u8) -> serde_json::Value {
         serde_json::to_value(super::BindingDigest::from_untrusted_bytes([byte; 32])).unwrap()
+    }
+
+    fn d(value: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([value; 32])
+    }
+
+    /// A sealed V1 crypto-perpetual Instrument Master readback for one member, carrying exactly the
+    /// mappings given.
+    fn member_mapping_readback(
+        canonical_identity: &str,
+        mappings: Vec<InstrumentVenueSourceMapping>,
+    ) -> InstrumentMasterReadbackV1 {
+        let admission = MarketDataClockAdmission {
+            cut_kind: MarketDataClockCutKind::MarketDataAsOf,
+            clock_identity: "12345678901234567890123456789012".into(),
+            clock_epoch: "abcdefghijklmnopqrstuvwxyzABCDEF".into(),
+            monotonic_sequence: 1,
+            wall_observed: 60,
+            decision_cut: 60,
+            valid_through: 100,
+            restart_continuity_digest: d(30),
+            uncertainty_bound: 1,
+            skew_bound: 2,
+            comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+        };
+        let head = build_head_fact(&admission, None).unwrap();
+        let fact = build_fact(
+            InstrumentMasterFactProposalV1 {
+                canonical_identity: canonical_identity.into(),
+                predecessor_fact_digest: None,
+                mappings,
+                instrument_class: InstrumentClass::CryptoPerpetual,
+                base_currency: Some("ETH".into()),
+                quote_currency: Some("USDT".into()),
+                settlement_currency: Some("USDT".into()),
+                margin_currency: Some("USDT".into()),
+                price_increment: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 2,
+                },
+                quantity_increment: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 0,
+                },
+                contract_multiplier: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 0,
+                },
+                calendar_identity: "CRYPTO-CONTINUOUS-V1".into(),
+                session_identity: "CRYPTO-CONTINUOUS-V1".into(),
+                time_zone_identity: "UTC".into(),
+                lifecycle_frontier: d(31),
+                corporate_action_frontier: d(32),
+                historical_membership_frontier: d(33),
+                market_semantics_identity: d(34),
+                source_frontier: d(35),
+                correction_frontier: d(36),
+                effective_from: 0,
+                effective_until: Some(200),
+                provider_available: 50,
+                retrieval: 51,
+                correction_publication: 52,
+                owner_observation: 55,
+            },
+            &head.handoff,
+            None,
+        )
+        .unwrap();
+        let request = UntrustedInstrumentMasterRequestV1 {
+            request_identity: d(40),
+            request_meaning_digest: d(41),
+            consumer_role: BACKTEST_OWNER_V1.into(),
+            scope: InstrumentMasterScopeV1::ExactInstrument(canonical_identity.into()),
+            effective_instant: 0,
+            owner_observation: 59,
+            decision_cut: 60,
+            clock_head: head.handoff.locator().clone(),
+            lifecycle_frontier: d(31),
+            corporate_action_frontier: d(32),
+            historical_membership_frontier: d(33),
+            market_semantics_identity: d(34),
+            source_frontier: d(35),
+            correction_frontier: d(36),
+            stable_correlation: d(42),
+        };
+        let cut = build_cut(
+            &request,
+            vec![canonical_identity.into()],
+            std::slice::from_ref(&fact),
+            fact.clock.clone(),
+        )
+        .unwrap();
+        let receipt = build_receipt(&request, &[fact], &cut, d(43), 1).unwrap();
+        build_readback(&receipt).unwrap()
+    }
+
+    fn raw_clock() -> ClockProjection {
+        ClockProjection {
+            clock_identity: [0u8; 32],
+            clock_epoch: [0u8; 32],
+            monotonic_sequence: 1,
+            wall_observed: 60,
+            decision_cut: 60,
+            head_identity: d(2),
+            head_digest: d(6),
+            valid_through: 100,
+            restart_continuity_digest: d(30),
+            uncertainty_bound: 1,
+            skew_bound: 2,
+            epoch_proof_identity: None,
+            epoch_proof_digest: None,
+        }
+    }
+
+    /// Builds an `InstrumentMasterFactV1` directly, bypassing the Owner's admission validation
+    /// that today refuses an empty mapping set. The member selection defended here (never a pick)
+    /// must hold even against a fact the admission does not let through, since the fact's own
+    /// author never constructed its mapping count.
+    fn raw_fact_with_mappings(
+        canonical_identity: &str,
+        mappings: Vec<InstrumentVenueSourceMapping>,
+    ) -> InstrumentMasterFactV1 {
+        InstrumentMasterFactV1 {
+            proposal: InstrumentMasterFactProposalV1 {
+                canonical_identity: canonical_identity.into(),
+                predecessor_fact_digest: None,
+                mappings,
+                instrument_class: InstrumentClass::CryptoPerpetual,
+                base_currency: Some("ETH".into()),
+                quote_currency: Some("USDT".into()),
+                settlement_currency: Some("USDT".into()),
+                margin_currency: Some("USDT".into()),
+                price_increment: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 2,
+                },
+                quantity_increment: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 0,
+                },
+                contract_multiplier: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 0,
+                },
+                calendar_identity: "CRYPTO-CONTINUOUS-V1".into(),
+                session_identity: "CRYPTO-CONTINUOUS-V1".into(),
+                time_zone_identity: "UTC".into(),
+                lifecycle_frontier: d(31),
+                corporate_action_frontier: d(32),
+                historical_membership_frontier: d(33),
+                market_semantics_identity: d(34),
+                source_frontier: d(35),
+                correction_frontier: d(36),
+                effective_from: 10,
+                effective_until: Some(200),
+                provider_available: 50,
+                retrieval: 51,
+                correction_publication: 52,
+                owner_observation: 55,
+            },
+            clock: raw_clock(),
+            canonical_bytes: Vec::new(),
+            identity: d(99),
+        }
+    }
+
+    /// Builds an `InstrumentMasterReadbackV1` directly around one raw fact; its own identities are
+    /// unchecked, which is harmless here because `member_venue_source`'s zero-mapping refusal never
+    /// reaches `verify_instrument_master_readback`.
+    fn raw_readback_for(fact: InstrumentMasterFactV1) -> InstrumentMasterReadbackV1 {
+        let canonical_identity = fact.canonical_identity().to_owned();
+        let cut = InstrumentMasterCutV1 {
+            request_identity: d(21),
+            request_meaning_digest: d(22),
+            scope: InstrumentMasterScopeV1::ExactInstrument(canonical_identity.clone()),
+            expected_members: vec![canonical_identity.clone()],
+            effective_instant: 0,
+            owner_observation: 59,
+            decision_cut: 60,
+            clock: raw_clock(),
+            resolutions: vec![InstrumentMasterResolution {
+                canonical_identity,
+                fact_digest: fact.identity(),
+            }],
+            frontiers: [d(31), d(32), d(33), d(34), d(35), d(36)],
+            canonical_bytes: Vec::new(),
+            identity: d(98),
+        };
+        InstrumentMasterReadbackV1 {
+            request_identity: d(21),
+            request_meaning_digest: d(22),
+            facts: vec![fact],
+            cut,
+            stable_correlation: d(23),
+            store_generation_identity: d(30),
+            store_append_sequence: 7,
+            receipt_identity: d(97),
+            outbox_identity: d(96),
+            canonical_bytes: Vec::new(),
+            identity: d(95),
+        }
+    }
+
+    /// Builds a chain basis naming exactly one member, over the given Instrument Master cut.
+    fn basis_for(
+        canonical_identity: &str,
+        cut: InstrumentMasterReadbackV1,
+    ) -> super::PitWindowChainBasisV1 {
+        use super::{
+            ChainBasisPartsV1, MarketSemanticsValueV1, UntrustedUniverseSelectionLocatorV1,
+        };
+        use crate::owner::market_semantics::{
+            MarketSemanticsPriceAdjustmentV1, MarketSemanticsTimestampBasisV1,
+        };
+
+        super::PitWindowChainBasisV1::from_owner_chain(ChainBasisPartsV1 {
+            chain_root: d(1),
+            head_identity: d(2),
+            universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4)),
+            universe_selection_record: (d(7), d(8)),
+            instrument_master_key: d(9),
+            instrument_master_cut: cut,
+            market_semantics_identity: d(5),
+            market_semantics_value: MarketSemanticsValueV1 {
+                normalization_identity: d(31),
+                price_adjustment: MarketSemanticsPriceAdjustmentV1::Raw,
+                timestamp_basis: MarketSemanticsTimestampBasisV1::IntervalClose,
+                price_unit_identity: d(32),
+                size_unit_identity: d(33),
+            },
+            members: vec![canonical_identity.to_owned()],
+            window: (10, 20),
+        })
+    }
+
+    /// A member with exactly one mapping returns it, and `structural_public_terms` equals a direct
+    /// projection call with the selected pair.
+    #[rstest]
+    fn a_single_mapping_member_resolves_and_projects() {
+        const MEMBER: &str = "ETHUSDT-PERP.SIM";
+        let mappings = vec![InstrumentVenueSourceMapping {
+            venue_identity: "SIM".into(),
+            source_identity: "BINANCE".into(),
+            source_instrument: b"ETHUSDT-PERP".to_vec(),
+        }];
+        let readback = member_mapping_readback(MEMBER, mappings);
+        let direct = readback
+            .project_validated_v1_crypto_perpetual_structural_public_terms(MEMBER, "SIM", "BINANCE")
+            .expect("the unique mapping projects");
+        let basis = basis_for(MEMBER, readback);
+
+        assert_eq!(
+            basis.member_venue_source(MEMBER),
+            Ok(("SIM", "BINANCE")),
+            "the unique mapping is selected"
+        );
+        assert_eq!(
+            basis.structural_public_terms(MEMBER),
+            Ok(direct),
+            "structural_public_terms equals a direct projection call with the selected pair"
+        );
+    }
+
+    /// A member with no mapping is refused by name, never picked.
+    #[rstest]
+    fn a_member_with_no_mapping_is_refused() {
+        const MEMBER: &str = "ETHUSDT-PERP.SIM";
+        let readback = raw_readback_for(raw_fact_with_mappings(MEMBER, Vec::new()));
+        let basis = basis_for(MEMBER, readback);
+
+        assert_eq!(
+            basis.member_venue_source(MEMBER),
+            Err(PitWindowMemberMappingErrorV1::NoMapping)
+        );
+        assert_eq!(
+            basis.structural_public_terms(MEMBER),
+            Err(PitWindowMemberMappingErrorV1::NoMapping)
+        );
+    }
+
+    /// A member with more than one mapping is refused by name, never picked.
+    #[rstest]
+    fn a_member_with_more_than_one_mapping_is_refused() {
+        const MEMBER: &str = "ETHUSDT-PERP.SIM";
+        let mappings = vec![
+            InstrumentVenueSourceMapping {
+                venue_identity: "SIM".into(),
+                source_identity: "BINANCE".into(),
+                source_instrument: b"ETHUSDT-PERP".to_vec(),
+            },
+            InstrumentVenueSourceMapping {
+                venue_identity: "SIM".into(),
+                source_identity: "BINANCE".into(),
+                source_instrument: b"ETHUSDT-PERP-ALT".to_vec(),
+            },
+        ];
+        let readback = member_mapping_readback(MEMBER, mappings);
+        let basis = basis_for(MEMBER, readback);
+
+        assert_eq!(
+            basis.member_venue_source(MEMBER),
+            Err(PitWindowMemberMappingErrorV1::AmbiguousMapping)
+        );
+        assert_eq!(
+            basis.structural_public_terms(MEMBER),
+            Err(PitWindowMemberMappingErrorV1::AmbiguousMapping)
+        );
+    }
+
+    /// A canonical identity outside the basis's member set is refused by name.
+    #[rstest]
+    fn a_non_member_is_refused() {
+        const MEMBER: &str = "ETHUSDT-PERP.SIM";
+        let mappings = vec![InstrumentVenueSourceMapping {
+            venue_identity: "SIM".into(),
+            source_identity: "BINANCE".into(),
+            source_instrument: b"ETHUSDT-PERP".to_vec(),
+        }];
+        let readback = member_mapping_readback(MEMBER, mappings);
+        let basis = basis_for(MEMBER, readback);
+
+        assert_eq!(
+            basis.member_venue_source("BTCUSDT-PERP.SIM"),
+            Err(PitWindowMemberMappingErrorV1::NotAMember)
+        );
+        assert_eq!(
+            basis.structural_public_terms("BTCUSDT-PERP.SIM"),
+            Err(PitWindowMemberMappingErrorV1::NotAMember)
+        );
     }
 
     /// The wire a backfill writer produces, field by field; a renamed field turns this red.
@@ -718,6 +1179,8 @@ mod tests {
             chain_root: d(1),
             head_identity: d(2),
             universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4)),
+            universe_selection_record: (d(7), d(8)),
+            instrument_master_key: d(9),
             instrument_master_cut: cut,
             market_semantics_identity: d(5),
             market_semantics_value: value,
@@ -734,6 +1197,8 @@ mod tests {
             basis.universe_selection(),
             UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4))
         );
+        assert_eq!(basis.universe_selection_record(), (d(7), d(8)));
+        assert_eq!(basis.instrument_master_key(), d(9));
         assert_eq!(basis.instrument_master_cut().identity(), cut_identity);
         assert_eq!(basis.market_semantics_identity(), d(5));
         assert_eq!(basis.market_semantics_value(), &value);

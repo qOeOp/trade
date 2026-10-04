@@ -8,19 +8,34 @@ from video_note_mcp.domain.models import (
     CreateNoteInputV1,
     ErrorV1,
     PublicBilibiliNoteResultV4,
-    PublicBilibiliSearchResultV2,
-    SearchAndCreateInputV1,
 )
-from video_note_mcp.presentation.schemas import search_tool_output_schema, tool_output_schema
+from video_note_mcp.domain.primitive_inputs import (
+    DownloadInput,
+    FramesInput,
+    ImportInput,
+    RenderInput,
+    TranscribeInput,
+)
+from video_note_mcp.domain.primitive_results import ArtifactResultV1
+from video_note_mcp.presentation.schemas import tool_output_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = {
+    **{
+        name + "-input-v1.schema.json": model.model_json_schema(by_alias=True)
+        for name, model in [
+            ("download", DownloadInput),
+            ("import", ImportInput),
+            ("transcribe", TranscribeInput),
+            ("frames", FramesInput),
+            ("render", RenderInput),
+        ]
+    },
+    "artifact-result-v1.schema.json": ArtifactResultV1.model_json_schema(by_alias=True),
+    "artifact-tool-output-v1.schema.json": tool_output_schema(ArtifactResultV1),
     "create-input-v1.schema.json": CreateNoteInputV1.model_json_schema(by_alias=True),
-    "search-input-v1.schema.json": SearchAndCreateInputV1.model_json_schema(by_alias=True),
     "error-v1.schema.json": ErrorV1.model_json_schema(by_alias=True),
     "result-v4.schema.json": PublicBilibiliNoteResultV4.model_json_schema(by_alias=True),
-    "search-result-v2.schema.json": PublicBilibiliSearchResultV2.model_json_schema(by_alias=True),
-    "search-tool-output-v2.schema.json": search_tool_output_schema(),
     "tool-output-v4.schema.json": tool_output_schema(),
 }
 

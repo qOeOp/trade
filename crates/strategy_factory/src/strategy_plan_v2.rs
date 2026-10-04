@@ -3662,9 +3662,19 @@ pub(crate) fn universe_member_role_v2(semantic_id: &str, field_semantic_id: &str
         field_semantic_id: field_semantic_id.to_owned(),
         channel: "MARKET".to_owned(),
         timeframe: "1D".to_owned(),
-        unit: "PRICE".to_owned(),
+        unit: universe_bar_field_unit_v2(field_semantic_id).to_owned(),
         scale: vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1,
         value_type: ValueTypeV2::I128,
+    }
+}
+
+/// The unit Market Data states for a BAR field (`sample_fact::field_semantic_registry`): its volume
+/// is a `QUANTITY`, and every other BAR field a `PRICE`. Market Data's binding refuses a role whose
+/// unit is not its field's, so a role takes the field's.
+fn universe_bar_field_unit_v2(field_semantic_id: &str) -> &'static str {
+    match field_semantic_id {
+        "MARKET_DATA.BAR.VOLUME.QUANTITY.V1" => "QUANTITY",
+        _ => "PRICE",
     }
 }
 

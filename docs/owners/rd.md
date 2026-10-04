@@ -816,6 +816,24 @@ catalog never holds a strategy a run would refuse at authoring.
 - `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` drives every
   operation and every refusal over HTTP on the ordered chain's PostgreSQL, with no market data and no Research request.
 
+**CURRENT - backtest runs and their registry:** `rd-owner-api` serves `backtest.run` under `/v1/backtests`.
+
+- `POST /v1/backtests` runs a request's orchestration to wherever it currently stops: from the catalogued statement
+  through the run's own Research goal, authoring, role binding and freeze, to the replay step, where it stops today as
+  `CUSTODY_FRAMES_NOT_AVAILABLE`. A refusal before that point is passed through by name.
+- A run is recorded in `rd_backtest_runs_v1`, an append-only R&D table, once its orchestration reaches the replay
+  step: its run id, the canonical bytes of the request it was submitted with, and the exact answer it was given.
+  Nothing is updated or deleted. The same request under the same run id answers the recorded run's bytes without
+  running again; another request under it is refused as `RUN_ID_CONFLICT`. A submission refused before its replay
+  step is not a run and records nothing, so its run id may be submitted again. No other Owner is granted the table.
+- `GET /v1/backtests/{run_id}` reads one recorded run, its request and its answer; `GET /v1/backtests?limit=` lists
+  runs newest first, 100 unless stated and at most 500 (`BACKTEST_RUN_LIST_LIMIT_OUT_OF_RANGE` otherwise); an id
+  never recorded is `RUN_UNKNOWN`. Reads only read the registry: they never run an orchestration again.
+- `GET /v1/backtests/{run_id}/report` answers `RUN_HAS_NO_RESULT` with the replay state the run stopped at, because no
+  run reaches a Result yet; the report is assembled there once one can.
+- `backtest_run_chain_entry_acceptance` drives every route and refusal over HTTP on the ordered chain's PostgreSQL,
+  after the orchestration's own proof that it reaches the replay step.
+
 **CURRENT - strategy-authoring MCP server:** the `strategy-authoring` server of the
 [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-authoring-mcp`, a stateless
 stdio process built from its own `services/strategy-authoring-mcp` crate, which depends on no Owner crate - only an
@@ -851,6 +869,27 @@ Acceptance on a local deployment, with only this server mounted and no market da
 8. `revise` the archived one: `STRATEGY_ARCHIVED`; `get` it: still readable, with `archived_at_epoch_ms`.
 9. `validate` with `max_holding_bars: 0`: `SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO`; with `stop_loss_fraction: "0.020"`:
    `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`.
+
+**CURRENT - backtest MCP server:** the `backtest` server of the
+[domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `backtest-mcp`, a stateless
+stdio process built from `services/backtest-mcp`, which is its own Cargo workspace with its own `Cargo.lock` and
+depends on no Owner crate - only an HTTP client, serde and the stdio loop. It holds `RD_OWNER_API_URL` and
+`RD_OWNER_API_TOKEN` in its own environment and reaches `/v1/backtests` only. Each tool sends one request and passes
+the answer or the refusal through by name, the body exactly as sent; no argument or result carries the token.
+
+| Tool             | Route                               | Answer                                                     |
+| ---------------- | ----------------------------------- | ---------------------------------------------------------- |
+| `run(...)`       | `POST /v1/backtests`                | where the run stopped, or the refusal by name              |
+| `status(run_id)` | `GET /v1/backtests/{run_id}`        | the recorded run's request and answer, or `RUN_UNKNOWN`    |
+| `report(run_id)` | `GET /v1/backtests/{run_id}/report` | the run's report, or why it has none (`RUN_HAS_NO_RESULT`) |
+| `list(limit)`    | `GET /v1/backtests`                 | recorded runs, newest first                                |
+
+`run` takes exactly the fields the route reads - `run_id`, `strategy_id`, `instrument`, `execution_timeframe`,
+`window_start_ns`, `window_end_ns_exclusive`, `custody_chain_root` - and refuses any other as
+`MALFORMED_TYPED_REQUEST` without a request. A run id becomes part of a route's path, so only letters, digits, `.`,
+`_` and `-`, at most 128 of them, are sent; any other spelling is answered `RUN_UNKNOWN` without a request. A route
+that cannot be reached is `RD_OWNER_API_UNREACHABLE`. `make mcp-backtest` builds and installs it for the local
+deployment and prints its registration.
 
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and
@@ -969,13 +1008,27 @@ crosses the prior 20 closes' range, when the bar touches a stop captured at two 
 at the close of the 250th bar the position is held, counting the bar it fills on; long and short mirrored. Every
 construct below maps to catalog operations, and none adds one.
 
-- *Inputs.* `OPEN`, `HIGH`, `LOW` and `CLOSE` of the one member of the Research scope's universe, each declared at
-  most once under a name of the author's choosing. A document must read `CLOSE`, which prices its orders; an input it
-  never reads is carried.
-- *Definitions.* `ago(of, bars)`, `max(of, window)`, `min(of, window)`, `atr(period)` over the four inputs (Wilder,
-  first sample the true range), `add`, `sub`, `mul`, `compare(a, predicate, b)`, `all_of`, `any_of` and `not`. An
-  operand is a name or a decimal literal; a literal takes the unit and scale of the other operand of its operation and
-  is refused when that scale cannot hold it exactly.
+- *Inputs.* `OPEN`, `HIGH`, `LOW`, `CLOSE` and `VOLUME` of the one member of the Research scope's universe, each
+  declared at most once under a name of the author's choosing. The four prices read Market Data's
+  `MARKET_DATA.BAR.<FIELD>.PRICE.V1` fields in unit `PRICE`, and `VOLUME` reads `MARKET_DATA.BAR.VOLUME.QUANTITY.V1`
+  in unit `QUANTITY`, the units Market Data's binding states for those fields and requires of a role; all five are at
+  scale 9. A document must read `CLOSE`, which prices its orders; an input it never reads is carried.
+- *Definitions.* `ago(of, bars)`, `max(of, window)`, `min(of, window)`, `atr(period)` over the four prices (Wilder,
+  first sample the true range), `add`, `sub`, `mul`, `div`, `compare(a, predicate, b)`, `all_of`, `any_of` and `not`.
+  An operand is a name or a decimal literal; a literal takes the unit and scale of the other operand of its operation
+  and is refused when that scale cannot hold it exactly.
+- *Units.* A unit is checked when a document compiles. `add`, `sub` and `compare` need one unit on both sides, so a
+  price and a quantity never meet there: adding, subtracting or comparing them is refused as `UNIT_MISMATCH` at the
+  definition. `mul` spells the product of its operands' units and `div` their quotient, `div` rounding to nearest at
+  scale 9 with both operands named. A ratio of one unit, such as a volume over a volume, is a pure number in meaning,
+  and the program spells its unit `QUANTITY/QUANTITY`: the catalog's unit rule for a quotient is syntactic and has no
+  step that cancels it. So it compares with a literal, which takes its unit, and with another ratio of the same units,
+  and a volume ratio and a price ratio, `QUANTITY/QUANTITY` and `PRICE/PRICE`, are refused as different units. A
+  quotient whose divisor is zero fails the program's evaluation, so a document divides only by what it knows is not.
+- *Clocks and readiness.* Every stateful node is stepped by the `CLOSE` role, so a lag's coordinate names a sample of
+  that clock whichever input it lags. An arithmetic input requires readiness exactly when its source is a warming
+  value, so a quotient of a volume over its rolling maximum is unready while that maximum warms. Neither changes a
+  program that reads only prices and lags only the close: research T0 compiles to the same bytes as before.
 - *States.* `latch(set, reset)` is true from the tick its `set` holds until the tick its `reset` holds, `reset`
   winning a tick where both hold; `count_while(condition)` counts the consecutive ticks its condition holds and is 0
   otherwise; `capture(value, when)` is the number `value` was at the last tick `when` held, 0 before it first holds.
@@ -1002,8 +1055,11 @@ construct below maps to catalog operations, and none adds one.
   captured at 105.10; a low of 106 holds and a low of 105 leaves at 66; short from flat at 71; flipped to long at
   76, ahead of the short's stop and channel exit on the same bar; out by the holding limit at 326, counted from the
   flip, and not at 325. It behaves the same at its guest stack rule before page rounding, 249 328 bytes against a
-  measured need of 170 336. The sixteen hand-written programs and the total single-threshold translation above
-  remain the next slices' acceptance.
+  measured need of 170 336. A document that reads `VOLUME` (`volume-breakout.json`, a 20-close breakout on more than
+  1.5 times the prior 20 bars' heaviest volume) compiles, prepares and is bound by the target-set Host, and as Wasm it
+  enters only on the breakout whose volume clears that ratio (`an_authored_volume_document_enters_on_the_volume_it_reads`).
+  The sixteen hand-written programs and the total single-threshold translation above remain the next slices'
+  acceptance.
 
 **TARGET / NOT_ADMITTED - authored source custody and report statement:** a document is stored with the
 freeze it compiled to, in the same transaction, keyed by the joint freeze digest, and `declare` accepts it

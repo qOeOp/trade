@@ -1862,21 +1862,16 @@ fn a_program_runs_at_its_stack_rule_without_the_page_rounding() {
     assert!(message.contains("MemoryOutOfBounds"), "{message}");
 }
 
-/// Research T0, written as an authoring-language document, runs as Wasm across frames.
-///
-/// The bars are flat at 100 (high 101, low 99) until the longest window warms. A close of 110 breaks
-/// the prior 50 closes' high and enters long, capturing its stop at the close minus two ATR(20):
-/// the true range is 2 on every flat bar and 11 on the breakout bar, so Wilder's ATR is
-/// (19 x 2 + 11) / 20 = 2.45 and the stop 105.10. A low of 106 holds and a low of 105 leaves at the
-/// close. A close of 95 under the prior 50 closes' low enters short from flat; a close of 120 over
-/// their high, while short, flips to long in one intent, ahead of the short's stop and channel exit
-/// it also meets. Held at 120, the flipped long is left by the holding limit, counted from the flip
-/// rather than from the short it reversed: decided on bar 76, it is left at the close of bar 326,
-/// the 250th bar counting the fill bar, and not on bar 325. T0 behaves the same at its stack rule before the page
-/// rounding, so its run does not rest on a page's slack.
-#[rstest::rstest]
-#[ignore = "builds and invokes research T0 with the pinned local wasm compiler"]
-fn the_authored_t0_document_runs_as_wasm_across_frames() {
+/// An authoring-language document compiled, derived, frozen and built into a running guest.
+fn authored_guest(
+    document: &str,
+    root: &Path,
+    label: &str,
+) -> (
+    StrategyDesignV2,
+    crate::rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
+    BuiltGuest,
+) {
     use crate::{
         bounded_feature_program_derivation_v1::derive_bounded_feature_program_proposal_v1,
         strategy_authoring_v1::{StrategyAuthoringDocumentV1, author_strategy_document_v1},
@@ -1884,13 +1879,10 @@ fn the_authored_t0_document_runs_as_wasm_across_frames() {
     };
     use vibe_indicators_kernel::PrimitiveCatalogV1;
 
-    let document: StrategyAuthoringDocumentV1 = serde_json::from_str(include_str!(
-        "../test_data/strategy_authoring_v1/t0-daily-trend.json"
-    ))
-    .unwrap();
+    let document: StrategyAuthoringDocumentV1 = serde_json::from_str(document).unwrap();
     let digest = BindingDigest::from_untrusted_bytes([7; 32]);
     let (design, meaning) = author_strategy_document_v1(&document, digest, digest, digest)
-        .unwrap_or_else(|e| panic!("T0 compiles: {e}"));
+        .unwrap_or_else(|e| panic!("{label} compiles: {e}"));
     let receipts = design
         .inputs
         .iter()
@@ -1911,8 +1903,89 @@ fn the_authored_t0_document_runs_as_wasm_across_frames() {
     let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
     let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
         .expect("joint Owner freeze");
+    let guest = BuiltGuest::build(&frozen, root, &root.join("target-out"), label);
+    (design, frozen, guest)
+}
+
+/// A document that reads VOLUME runs as Wasm and its entry turns on the volume it is given.
+///
+/// Thirty bars close at 100 on a volume of 1 000. A close of 110 on 1 200 breaks the prior 20
+/// closes' high on 1.2 times their heaviest volume, and does not enter. Five bars later a close of
+/// 120 breaks out again on 2 000, more than 1.5 times the 1 200 now heaviest, and enters; on 1 700,
+/// under 1.5 times it, the same bars do not.
+#[rstest::rstest]
+#[ignore = "builds and invokes the volume breakout with the pinned local wasm compiler"]
+fn an_authored_volume_document_enters_on_the_volume_it_reads() {
     let root = tempfile::tempdir().expect("private build root");
-    let mut guest = BuiltGuest::build(&frozen, root.path(), &root.path().join("target-out"), "t0");
+    let (design, _, mut guest) = authored_guest(
+        include_str!("../test_data/strategy_authoring_v1/volume-breakout.json"),
+        root.path(),
+        "volume",
+    );
+    let scale = 10_i128.pow(u32::from(design.inputs[0].scale));
+    let mut run = |breakout_volume: i128| {
+        let mut bars = vec![(100, 1_000); 30];
+        bars.push((110, 1_200));
+        bars.extend(vec![(110, 1_000); 4]);
+        bars.push((120, breakout_volume));
+        bars.extend(vec![(120, 1_000); 3]);
+        let mut state = Vec::new();
+        let mut entries = Vec::new();
+
+        for (sample, (close, volume)) in (1_u64..).zip(bars) {
+            let output = guest.invoke_ports(
+                sample,
+                &[
+                    ("input.close.v1", close * scale),
+                    ("input.volume.v1", volume * scale),
+                ],
+                &state,
+                "volume",
+            );
+            state = output.state.bytes().to_vec();
+
+            if output.output_availability == Some(PluginOutputAvailabilityV3::Ready)
+                && output.values[0].bytes() == b"kernel.position.enter.v1"
+            {
+                entries.push(sample);
+            }
+        }
+        entries
+    };
+
+    assert_eq!(
+        run(2_000),
+        [36],
+        "the heavy breakout enters, the light one does not"
+    );
+    assert_eq!(
+        run(1_700),
+        [0_u64; 0],
+        "under 1.5 times the heaviest volume nothing enters"
+    );
+}
+
+/// Research T0, written as an authoring-language document, runs as Wasm across frames.
+///
+/// The bars are flat at 100 (high 101, low 99) until the longest window warms. A close of 110 breaks
+/// the prior 50 closes' high and enters long, capturing its stop at the close minus two ATR(20):
+/// the true range is 2 on every flat bar and 11 on the breakout bar, so Wilder's ATR is
+/// (19 x 2 + 11) / 20 = 2.45 and the stop 105.10. A low of 106 holds and a low of 105 leaves at the
+/// close. A close of 95 under the prior 50 closes' low enters short from flat; a close of 120 over
+/// their high, while short, flips to long in one intent, ahead of the short's stop and channel exit
+/// it also meets. Held at 120, the flipped long is left by the holding limit, counted from the flip
+/// rather than from the short it reversed: decided on bar 76, it is left at the close of bar 326,
+/// the 250th bar counting the fill bar, and not on bar 325. T0 behaves the same at its stack rule before the page
+/// rounding, so its run does not rest on a page's slack.
+#[rstest::rstest]
+#[ignore = "builds and invokes research T0 with the pinned local wasm compiler"]
+fn the_authored_t0_document_runs_as_wasm_across_frames() {
+    let root = tempfile::tempdir().expect("private build root");
+    let (design, frozen, mut guest) = authored_guest(
+        include_str!("../test_data/strategy_authoring_v1/t0-daily-trend.json"),
+        root.path(),
+        "t0",
+    );
     let scale = 10_i128.pow(u32::from(design.inputs[0].scale));
     let target_port = guest
         .manifest
