@@ -173,6 +173,8 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             .await
             .expect("the R&D Owner pool opens"),
         custody_frames: None,
+        #[cfg(feature = "composer-v3-replay")]
+        develop_composer: None,
     };
 
     // Both statement families run through the one orchestration: each is authored by its own
@@ -362,6 +364,8 @@ async fn assert_backtest_runs_are_recorded_and_read_back_v1(
         // never reaches the custody frames step; the asserted refusal is CustodyFramesNotAvailable
         // regardless of this value.
         custody_frames: None,
+        #[cfg(feature = "composer-v3-replay")]
+        develop_composer: None,
         rd_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_url(rd_url, PostgresTls::Disabled)
             .await
@@ -505,8 +509,42 @@ fn describe_replay_reason(reason: &BacktestRunReplayUnavailableV1) -> String {
         BacktestRunReplayUnavailableV1::CustodyFramesRefused(refusal) => {
             format!("custody frames refused: {refusal}")
         }
+        #[cfg(not(feature = "composer-v3-replay"))]
         BacktestRunReplayUnavailableV1::FramesResolvedNoConsumerYet(frames) => {
             format!("frames resolved, no consumer yet: {frames:?}")
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ComposerNotAvailable => "composer not available".to_owned(),
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ComposerBuildUnavailable(e) => {
+            format!("composer build unavailable: {e}")
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ComposerBuildRefused(disposition) => {
+            format!("composer build refused: {disposition:?}")
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ComposerArtifactLocatorUnavailable(e) => {
+            format!("composer artifact locator unavailable: {e}")
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::TrialFamilyUnavailable => {
+            "trial family unavailable".to_owned()
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ReplayAdmissionFailed(e) => {
+            format!("replay admission failed: {e}")
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ReplayCommitFailed(e) => {
+            format!("replay commit failed: {e}")
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ReplayCommittedNoCustodyIssuanceYet(result) => {
+            format!(
+                "replay committed, no custody issuance yet: {:?}",
+                result.locator()
+            )
         }
     }
 }

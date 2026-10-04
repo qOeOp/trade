@@ -8,6 +8,16 @@
 //! `first_composer_v3_replay_acceptance.rs`) is a production stub, and backtest.run must not add
 //! a second one.
 //!
+//! This is about the DATA path only. The production Composer (H5, "build this frozen Design into
+//! a runnable Artifact") is not off-limits the same way: there is no other production build path,
+//! and an authored-and-frozen Design (never run through Composer intake) composes through it the
+//! same as any other frozen Design does (`tests.rs`'s
+//! `the_authored_frozen_program_runs_the_production_composer`). `backtest.run` calls the Composer
+//! once per run (`commit_custody_replay_v1`, gated behind the `composer-v3-replay` feature), then
+//! commits a Composer-backed Replay request (H7) whose market-data locator is a `CustodyRun`,
+//! never a `Snapshot` - H6 (the snapshot-only universe-member composition binding) has no custody
+//! equivalent and is skipped entirely for this path.
+//!
 //! The replay step is injected the same way the native Replay scheduling resolver already is
 //! elsewhere in this crate: the custody frames port
 //! (`vibe_data::owner::pit_window_custody_v1::PitWindowCustodyFramesV1`) is opened once at
@@ -36,6 +46,8 @@ use vibe_data::owner::{
         StrategyInputBindingAdmissionV1,
     },
 };
+#[cfg(feature = "composer-v3-replay")]
+use vibe_product_edge::ProductEdgeAdmissionRequestV1;
 use vibe_product_edge::{ProductEdgeError, ProductEdgePostgresOwnerV1};
 use vibe_strategy_factory::{
     backtest_run_dataset_ref_v1::BacktestRunDatasetRefV1,
@@ -54,6 +66,18 @@ use vibe_strategy_factory::{
     research_initial_pit_v1::ResearchInitialPitV1,
     strategy_catalog_postgres_v1::{PostgresStrategyCatalogV1, StrategyCatalogErrorV1},
     strategy_catalog_v1::{StrategyIdentityV1, StrategyStatementErrorV1, StrategyStatementV1},
+};
+#[cfg(feature = "composer-v3-replay")]
+use vibe_strategy_factory::{
+    develop_composer_operation_v2::DevelopComposerOperationDispositionV2,
+    develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
+    exploratory_replay::{
+        ComposerBackedExploratoryReplayProposalV3, ComposerReplayMarketDataLocatorV3,
+        EXPLORATORY_REPLAY_MUTATION_EFFECT_V3, EXPLORATORY_REPLAY_OPERATION_V3,
+        EXPLORATORY_REPLAY_SCHEMA_V3, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
+    },
+    product_edge::RESEARCH_OWNER_V1,
+    source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2,
 };
 
 use crate::research_goal_submission::{
@@ -83,6 +107,11 @@ pub(crate) struct BacktestRunOwnersV1 {
     /// `None` until Market Data's T0-5 derived view lands on main; see
     /// [`BacktestRunReplayUnavailableV1::CustodyFramesNotAvailable`].
     pub(crate) custody_frames: Option<Arc<dyn PitWindowCustodyFramesV1>>,
+    /// The production Composer (H5): builds this run's frozen Design into a runnable Artifact.
+    /// `None` in a deployment that does not configure one; see
+    /// [`BacktestRunReplayUnavailableV1::ComposerNotAvailable`].
+    #[cfg(feature = "composer-v3-replay")]
+    pub(crate) develop_composer: Option<Arc<PostgresSourceResearchComposerProductionV2>>,
 }
 
 /// One `backtest.run` request.
@@ -119,9 +148,36 @@ pub(crate) enum BacktestRunReplayUnavailableV1 {
     CustodyFramesNotAvailable,
     /// T0-5 answered but refused this run's frames by name.
     CustodyFramesRefused(PitWindowRunRefusalV1),
-    /// T0-5 answered with this run's frames, but nothing implements Lane 6's T1 consumer yet, so
-    /// there is still nothing to run them through.
+    /// T0-5 answered with this run's frames, but this deployment does not build the
+    /// `composer-v3-replay` feature, so nothing commits them further.
+    #[cfg(not(feature = "composer-v3-replay"))]
     FramesResolvedNoConsumerYet(Box<PitWindowRunFramesV1>),
+    /// Nothing implements the production Composer in this deployment.
+    #[cfg(feature = "composer-v3-replay")]
+    ComposerNotAvailable,
+    /// The production Composer could not be reached to build this run's executable Artifact.
+    #[cfg(feature = "composer-v3-replay")]
+    ComposerBuildUnavailable(String),
+    /// The production Composer refused to compose this run's frozen Design.
+    #[cfg(feature = "composer-v3-replay")]
+    ComposerBuildRefused(DevelopComposerOperationDispositionV2),
+    /// The Composer answered `Success`, but its sealed read locator could not be formed from the
+    /// response - a storage-level inconsistency, not a caller mistake.
+    #[cfg(feature = "composer-v3-replay")]
+    ComposerArtifactLocatorUnavailable(String),
+    /// The accepted Research request carries no TrialFamily to commit this run's Replay under.
+    #[cfg(feature = "composer-v3-replay")]
+    TrialFamilyUnavailable,
+    /// Product Edge did not admit this run's custody-backed Replay commit.
+    #[cfg(feature = "composer-v3-replay")]
+    ReplayAdmissionFailed(ProductEdgeError),
+    /// The custody-backed Replay request (H7) could not be committed.
+    #[cfg(feature = "composer-v3-replay")]
+    ReplayCommitFailed(ExploratoryReplayOwnerError),
+    /// The custody-backed Replay request committed; nothing issues its execution-input binding
+    /// yet (H8 custody issuance is a separate, later slice).
+    #[cfg(feature = "composer-v3-replay")]
+    ReplayCommittedNoCustodyIssuanceYet(Box<ExploratoryReplayCommitResultV2>),
 }
 
 /// Why `run_backtest_v1` did not reach the replay step.
@@ -259,7 +315,16 @@ pub(crate) async fn run_backtest_v1(
         .await
         .map_err(BacktestRunErrorV1::FreezeFailed)?;
 
-    let reason = resolve_replay_v1(owners, &request.dataset_ref, request.custody).await;
+    let reason = resolve_replay_v1(
+        owners,
+        &request.run_id,
+        &research_request_identity,
+        &accepted,
+        &request.dataset_ref,
+        request.custody,
+        &request.request_proof_digest,
+    )
+    .await;
     Ok(BacktestRunReachedReplayV1 {
         research_request_identity,
         design_identity,
@@ -467,23 +532,171 @@ fn default_market_semantics_value_v1() -> MarketSemanticsValueSubmissionV1 {
     }
 }
 
+/// Resolves this run's dataset_ref against T0 window custody, then hands the resolved frames to
+/// [`commit_custody_replay_v1`] (gated behind the `composer-v3-replay` feature; see that
+/// function's doc for what it does and its no-op fallback otherwise).
 async fn resolve_replay_v1(
     owners: &BacktestRunOwnersV1,
+    run_id: &str,
+    research_request_identity: &str,
+    accepted: &ResearchGoalOwnerResultV2,
     dataset_ref: &BacktestRunDatasetRefV1,
     custody: UntrustedPitWindowCustodyClaimV1,
+    request_proof_digest: &str,
 ) -> BacktestRunReplayUnavailableV1 {
     let Some(resolver) = owners.custody_frames.as_ref() else {
         return BacktestRunReplayUnavailableV1::CustodyFramesNotAvailable;
     };
+    let run_start_ns = dataset_ref.window_start_ns();
+    let run_end_ns_exclusive = dataset_ref.window_end_ns_exclusive();
     let run = UntrustedPitWindowRunV1 {
         custody,
-        run_start_ns: dataset_ref.window_start_ns(),
-        run_end_ns_exclusive: dataset_ref.window_end_ns_exclusive(),
+        run_start_ns,
+        run_end_ns_exclusive,
         head_identity: None,
     };
+    let frames = match resolver.resolve_pit_window_frames_v1(run).await {
+        Ok(frames) => frames,
+        Err(refusal) => return BacktestRunReplayUnavailableV1::CustodyFramesRefused(refusal),
+    };
+    commit_custody_replay_v1(
+        owners,
+        run_id,
+        research_request_identity,
+        accepted,
+        frames,
+        run_start_ns,
+        run_end_ns_exclusive,
+        request_proof_digest,
+    )
+    .await
+}
 
-    match resolver.resolve_pit_window_frames_v1(run).await {
-        Ok(frames) => BacktestRunReplayUnavailableV1::FramesResolvedNoConsumerYet(Box::new(frames)),
-        Err(refusal) => BacktestRunReplayUnavailableV1::CustodyFramesRefused(refusal),
+/// Builds this run's executable Artifact through the production Composer (H5) and commits a
+/// Composer-backed Replay request (H7) whose market-data locator is a `CustodyRun` - never a
+/// `Snapshot`, since H6 (the snapshot-only universe-member composition binding) has no custody
+/// equivalent and is skipped entirely for this path. H8 (the execution-input binding that would
+/// set `custody_binding: Some(...)`) is not wired yet; a successful commit here stops by name at
+/// [`BacktestRunReplayUnavailableV1::ReplayCommittedNoCustodyIssuanceYet`].
+///
+/// The frozen-Design-to-executable-Artifact step is the one call (`run_bounded_feature_program`,
+/// below) the user authorized retiring later (plan (ii): the host interprets the Bounded Feature
+/// Program directly once T0 is reproduced - see `docs/architecture/strategy-factory.md`'s "Host
+/// interpretation of the Bounded Feature Program"); when that lands, only this one call changes.
+#[cfg(feature = "composer-v3-replay")]
+#[allow(clippy::too_many_arguments)]
+async fn commit_custody_replay_v1(
+    owners: &BacktestRunOwnersV1,
+    run_id: &str,
+    research_request_identity: &str,
+    accepted: &ResearchGoalOwnerResultV2,
+    frames: PitWindowRunFramesV1,
+    run_start_ns: u64,
+    run_end_ns_exclusive: u64,
+    request_proof_digest: &str,
+) -> BacktestRunReplayUnavailableV1 {
+    let Some(composer) = owners.develop_composer.as_ref() else {
+        return BacktestRunReplayUnavailableV1::ComposerNotAvailable;
+    };
+    let response = match Box::pin(composer.run_bounded_feature_program(research_request_identity))
+        .await
+    {
+        Ok(response) => response,
+        Err(e) => return BacktestRunReplayUnavailableV1::ComposerBuildUnavailable(e.to_string()),
+    };
+
+    if response.disposition != DevelopComposerOperationDispositionV2::Success {
+        return BacktestRunReplayUnavailableV1::ComposerBuildRefused(response.disposition);
     }
+    let composer_locator =
+        match DevelopComposerSealedReadLocatorV2::from_accepted_response(&response) {
+            Ok(locator) => locator,
+            Err(e) => {
+                return BacktestRunReplayUnavailableV1::ComposerArtifactLocatorUnavailable(
+                    format!("{e:?}"),
+                );
+            }
+        };
+
+    let Some(family) = accepted.trial_family() else {
+        return BacktestRunReplayUnavailableV1::TrialFamilyUnavailable;
+    };
+
+    let replay_request_identity = format!("{run_id}-replay");
+    let market_data_locator = ComposerReplayMarketDataLocatorV3::CustodyRun {
+        chain_root: frames.chain_root(),
+        head_identity: frames.head_identity(),
+        run_start_ns,
+        run_end_ns_exclusive,
+    };
+    // The custody chain's own compatibility-scope identity stands in for the snapshot path's
+    // Source Binding scope digest - `compose_composer_backed_custody_replay_request_v3` checks
+    // this proposal field against exactly `frames.basis().market_semantics_identity()`.
+    let market_data_scope_digest = frames.basis().market_semantics_identity();
+    let typed_payload = serde_json::json!({
+        "request_identity": replay_request_identity,
+        "trial_family_identity": family.root().trial_family_identity(),
+        "artifact_identity": composer_locator.artifact_locator,
+        "composer_locator": composer_locator,
+        "market_data_locator": market_data_locator,
+        "market_data_scope_digest": market_data_scope_digest,
+    });
+    let admission = match owners
+        .product_edge
+        .admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: replay_request_identity.clone(),
+            typed_payload,
+            operation: EXPLORATORY_REPLAY_OPERATION_V3.to_owned(),
+            operation_schema: EXPLORATORY_REPLAY_SCHEMA_V3.to_owned(),
+            target_owner: RESEARCH_OWNER_V1.to_owned(),
+            requested_effects: vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V3.to_owned()],
+            request_proof_digest: request_proof_digest.to_owned(),
+            audit_correlation: format!("rd-workbench:{replay_request_identity}"),
+        })
+        .await
+    {
+        Ok(admission) => admission,
+        Err(e) => return BacktestRunReplayUnavailableV1::ReplayAdmissionFailed(e),
+    };
+
+    let proposal = ComposerBackedExploratoryReplayProposalV3 {
+        admission: admission.locator().clone(),
+        request_identity: replay_request_identity,
+        trial_family_identity: family.root().trial_family_identity().to_owned(),
+        artifact_identity: composer_locator.artifact_locator.clone(),
+        composer_locator,
+        market_data_locator,
+        market_data_scope_digest,
+    };
+
+    match owners
+        .research
+        .commit_composer_backed_exploratory_replay_request_v3(
+            proposal,
+            owners.custody_frames.as_deref(),
+        )
+        .await
+    {
+        Ok(result) => {
+            BacktestRunReplayUnavailableV1::ReplayCommittedNoCustodyIssuanceYet(Box::new(result))
+        }
+        Err(e) => BacktestRunReplayUnavailableV1::ReplayCommitFailed(e),
+    }
+}
+
+/// Without `composer-v3-replay`, nothing can commit a Replay request from resolved frames; this
+/// is the same stopping point `resolve_replay_v1` always answered before this slice.
+#[cfg(not(feature = "composer-v3-replay"))]
+#[allow(clippy::too_many_arguments)]
+async fn commit_custody_replay_v1(
+    _owners: &BacktestRunOwnersV1,
+    _run_id: &str,
+    _research_request_identity: &str,
+    _accepted: &ResearchGoalOwnerResultV2,
+    frames: PitWindowRunFramesV1,
+    _run_start_ns: u64,
+    _run_end_ns_exclusive: u64,
+    _request_proof_digest: &str,
+) -> BacktestRunReplayUnavailableV1 {
+    BacktestRunReplayUnavailableV1::FramesResolvedNoConsumerYet(Box::new(frames))
 }
