@@ -48,8 +48,13 @@ fn bar(open_ns: u64) -> SealedAcceptanceBarV1 {
     }
 }
 
-/// One member, five daily execution bars from `START`, and after each one's close the hourly fill
-/// bar that opens at it.
+/// The open of the fill bar after the frame at `event_ns`: a minute after its decision cut.
+fn fill_open(event_ns: u64) -> u64 {
+    event_ns + LAG + MINUTE
+}
+
+/// One member, five daily execution bars from `START`, and after each one's close the minute fill
+/// bar opening at [`fill_open`]. The fill timeframe is a minute, as the custody intake requires.
 fn spec() -> SealedAcceptanceCustodyChainSpecV1 {
     SealedAcceptanceCustodyChainSpecV1 {
         members: vec![MEMBER.to_owned()],
@@ -59,9 +64,11 @@ fn spec() -> SealedAcceptanceCustodyChainSpecV1 {
             bars: (0..FRAMES).map(|day| bar(START + day * DAY)).collect(),
         },
         fill_timeframe: SealedAcceptanceTimeframeV1 {
-            label: "1H".to_owned(),
-            interval_seconds: 3_600,
-            bars: (1..=FRAMES).map(|day| bar(START + day * DAY)).collect(),
+            label: "1M".to_owned(),
+            interval_seconds: 60,
+            bars: (1..=FRAMES)
+                .map(|day| bar(fill_open(START + day * DAY)))
+                .collect(),
         },
         lag_ns: LAG,
         instrument_increments: None,
@@ -183,6 +190,12 @@ async fn postgres_the_sealed_acceptance_chain_reads_every_frame_with_its_derived
             coordinate.ordinal()
         );
         assert_eq!(
+            instant_ns,
+            fill_open(coordinate.event_ns()),
+            "frame {}'s quote is at its fill bar's true open",
+            coordinate.ordinal()
+        );
+        assert_eq!(
             readback
                 .universe_frame()
                 .selection()
@@ -196,6 +209,63 @@ async fn postgres_the_sealed_acceptance_chain_reads_every_frame_with_its_derived
             .into_execution_parts()
             .expect("the frame seals its native schedule");
     }
+}
+
+/// The fixture's basis selects its member's unique sealed mapping, never picking one, and projects
+/// the member's structural public terms equal to a direct call through the basis's own Instrument
+/// Master cut with that mapping.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_the_fixtures_basis_selects_its_members_mapping_and_projects_its_terms() {
+    let owner = owner().await;
+    let chain = commit_sealed_acceptance_custody_chain_v1(&owner_url(), &spec())
+        .await
+        .expect("the production intakes commit the chain");
+    let run_end = chain.window().1;
+    let read = owner
+        .pit_window_custody_frames_v1()
+        .resolve_pit_window_frames_v1(run(chain.chain_root(), START + DAY, run_end))
+        .await
+        .expect("every frame is covered");
+    let basis = read.basis();
+
+    let (venue_identity, source_identity) = basis
+        .member_venue_source(MEMBER)
+        .expect("the fixture's fact carries exactly one mapping");
+    assert_eq!(venue_identity, "SEALED-ACCEPTANCE");
+    assert_eq!(source_identity, "SYNTHETIC");
+
+    let direct = basis
+        .instrument_master_cut()
+        .project_validated_v1_crypto_perpetual_structural_public_terms(
+            MEMBER,
+            venue_identity,
+            source_identity,
+        );
+
+    let selected = basis
+        .structural_public_terms(MEMBER)
+        .expect("the fixture's fact states every structural term a crypto perpetual needs");
+    assert_eq!(
+        selected,
+        direct.expect("a direct projection with the selected mapping agrees")
+    );
+
+    // The chain's cut names the request its root commit derived, stably across reads.
+    let cut = basis.instrument_master_cut().cut();
+    assert_ne!(cut.request_identity().as_bytes(), &[0; 32]);
+    assert_ne!(cut.request_meaning_digest().as_bytes(), &[0; 32]);
+    let again = owner
+        .pit_window_custody_frames_v1()
+        .resolve_pit_window_frames_v1(run(chain.chain_root(), START + DAY, run_end))
+        .await
+        .expect("every frame is covered");
+    let again_cut = again.basis().instrument_master_cut().cut();
+    assert_eq!(again_cut.request_identity(), cut.request_identity());
+    assert_eq!(
+        again_cut.request_meaning_digest(),
+        cut.request_meaning_digest()
+    );
 }
 
 /// A bar the custody intake cannot hold - a value finer than the custody series scale - is refused

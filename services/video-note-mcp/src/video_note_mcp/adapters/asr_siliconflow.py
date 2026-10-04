@@ -213,15 +213,6 @@ class SiliconFlowAsr:
             trust_env=False,
         )
 
-    async def _transcribe_file(self, audio_path: Path) -> str:
-        metrics = _AsrMetrics()
-        client = self._new_client()
-        try:
-            return await self._transcribe_file_with_client(audio_path, client, metrics)
-        finally:
-            coordinator = asyncio.create_task(client.aclose())
-            await finish_owned_task(coordinator)
-
     @staticmethod
     async def _cancel_and_join_windows(
         tasks: tuple[asyncio.Task[TranscriptSegment], ...],

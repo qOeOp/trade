@@ -130,7 +130,9 @@ pub struct SealedAcceptanceCustodyChainSpecV1 {
     pub members: Vec<String>,
     /// The timeframe frames are enumerated from; it is the custody's only input timeframe.
     pub execution_timeframe: SealedAcceptanceTimeframeV1,
-    /// The finer timeframe quote cuts are derived from.
+    /// The finer timeframe quote cuts are derived from. Its interval must be exactly 60 seconds:
+    /// a fill bar's open is its close less one minute, and the custody intake refuses any other
+    /// interval as `PIT_WINDOW_FILL_TIMEFRAME_NOT_ONE_MINUTE`.
     pub fill_timeframe: SealedAcceptanceTimeframeV1,
     /// How long after its close a bar becomes available, in nanoseconds.
     pub lag_ns: u64,
@@ -323,7 +325,7 @@ mod tests {
         let spec = SealedAcceptanceCustodyChainSpecV1 {
             members: vec!["BTCUSDT-PERP.BINANCE".to_owned()],
             execution_timeframe: timeframe("1D"),
-            fill_timeframe: timeframe("1H"),
+            fill_timeframe: timeframe("1M"),
             lag_ns: 0,
             instrument_increments: None,
             market_semantics_value: None,

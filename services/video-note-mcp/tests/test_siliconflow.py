@@ -37,6 +37,19 @@ def _profile() -> ModelProfile:
     )
 
 
+@pytest.fixture
+def asr_audio(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    audio = tmp_path / "audio.mp3"
+    audio.write_bytes(b"audio")
+
+    async def extract(source, target, **_kwargs):
+        assert source == audio
+        target.write_bytes(b"audio")
+
+    monkeypatch.setattr(asr_siliconflow, "_extract_audio", extract)
+    return audio
+
+
 def _strict_provider_payload(
     *, model: str, content: dict[str, object], variant: str, nested_key: str
 ) -> bytes:
@@ -193,11 +206,9 @@ async def test_asr_provider_capacity_is_shared_across_parallel_candidates(
 
 
 async def test_asr_retries_one_transient_invalid_response(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, asr_audio: Path
 ) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
-    audio = tmp_path / "audio.flac"
-    audio.write_bytes(b"audio")
     calls = 0
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -211,10 +222,10 @@ async def test_asr_retries_one_transient_invalid_response(
         return None
 
     monkeypatch.setattr(asr_siliconflow.asyncio, "sleep", no_sleep)
-    text = await SiliconFlowAsr(
+    result = await SiliconFlowAsr(
         profile=_profile(), transport=httpx.MockTransport(respond)
-    )._transcribe_file(audio)
-    assert text == "恢复后的转写"
+    ).transcribe(asr_audio, 1000, tmp_path, NullProgressReporter())
+    assert result.segments[0].text == "恢复后的转写"
     assert calls == 2
 
 
@@ -229,13 +240,12 @@ async def test_asr_retries_one_transient_invalid_response(
 async def test_asr_does_not_retry_permanent_provider_outcomes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    asr_audio: Path,
     status: int,
     payload: dict[str, object],
     expected_code: str,
 ) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
-    audio = tmp_path / "audio.flac"
-    audio.write_bytes(b"audio")
     calls = 0
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -244,19 +254,17 @@ async def test_asr_does_not_retry_permanent_provider_outcomes(
         return httpx.Response(status, json=payload)
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        await SiliconFlowAsr(
-            profile=_profile(), transport=httpx.MockTransport(respond)
-        )._transcribe_file(audio)
+        await SiliconFlowAsr(profile=_profile(), transport=httpx.MockTransport(respond)).transcribe(
+            asr_audio, 1000, tmp_path, NullProgressReporter()
+        )
     assert failure.value.code == expected_code
     assert calls == 1
 
 
 async def test_asr_retries_rate_limit_and_honors_bounded_recovery(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, asr_audio: Path
 ) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
-    audio = tmp_path / "audio.flac"
-    audio.write_bytes(b"audio")
     calls = 0
     observed_delays: list[float] = []
 
@@ -271,10 +279,10 @@ async def test_asr_retries_rate_limit_and_honors_bounded_recovery(
         observed_delays.append(delay)
 
     monkeypatch.setattr(asr_siliconflow.asyncio, "sleep", fake_sleep)
-    text = await SiliconFlowAsr(
+    result = await SiliconFlowAsr(
         profile=_profile(), transport=httpx.MockTransport(respond)
-    )._transcribe_file(audio)
-    assert text == "限流后恢复"
+    ).transcribe(asr_audio, 1000, tmp_path, NullProgressReporter())
+    assert result.segments[0].text == "限流后恢复"
     assert calls == 3
     assert observed_delays == [1.0, 1.5]
 
@@ -290,12 +298,10 @@ class _ChunkedBytes(httpx.AsyncByteStream):
 
 @pytest.mark.parametrize("declared", [True, False])
 async def test_asr_response_body_is_bounded_before_json_parse(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, declared: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, asr_audio: Path, declared: bool
 ) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
     monkeypatch.setattr(asr_siliconflow, "ASR_RESPONSE_BYTES", 16)
-    audio = tmp_path / "audio.mp3"
-    audio.write_bytes(b"audio")
 
     def respond(request: httpx.Request) -> httpx.Response:
         payload = b'{"text":"' + b"x" * 20 + b'"}'
@@ -308,26 +314,24 @@ async def test_asr_response_body_is_bounded_before_json_parse(
         )
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        await SiliconFlowAsr(
-            profile=_profile(), transport=httpx.MockTransport(respond)
-        )._transcribe_file(audio)
+        await SiliconFlowAsr(profile=_profile(), transport=httpx.MockTransport(respond)).transcribe(
+            asr_audio, 1000, tmp_path, NullProgressReporter()
+        )
     assert failure.value.reason == "asr_response_bytes_exceeded"
 
 
 async def test_asr_normalized_window_text_is_bounded(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, asr_audio: Path
 ) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
     monkeypatch.setattr(asr_siliconflow, "ASR_WINDOW_TEXT_BYTES", 6)
-    audio = tmp_path / "audio.mp3"
-    audio.write_bytes(b"audio")
     with pytest.raises(BilibiliNoteFailure) as failure:
         await SiliconFlowAsr(
             profile=_profile(),
             transport=httpx.MockTransport(
                 lambda request: httpx.Response(200, json={"text": "价格支撑"})
             ),
-        )._transcribe_file(audio)
+        ).transcribe(asr_audio, 1000, tmp_path, NullProgressReporter())
     assert failure.value.reason == "asr_text_bytes_exceeded"
 
 

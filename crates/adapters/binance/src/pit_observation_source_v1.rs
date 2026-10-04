@@ -199,12 +199,14 @@ fn last_closed_bar(
 /// lives in an anchor identity that a label cannot carry. So only labels that transcribe a legal
 /// `step` and `unit` belong here.
 ///
-/// Two labels in particular must not be added back. `1D` already means one named exchange session
-/// day, and the Owner's own equity fixtures use it that way - `AAPL.CLOSE.EXCHANGE_SESSION_1D` -
-/// so attaching it to this venue's continuous 24-hour interval would give one label two different
-/// spec shapes, with the older use being the correct one. `1W` would need an anchor stating which
-/// day a week begins on, and nobody has made that decision; a week is expressible without a new
-/// unit as `step = 168, unit = HOUR` once someone does.
+/// `1D` in particular must not be added back: it already means one named exchange session day,
+/// and the Owner's own equity fixtures use it that way - `AAPL.CLOSE.EXCHANGE_SESSION_1D` - so
+/// attaching it to this venue's continuous 24-hour interval would give one label two different
+/// spec shapes, with the older use being the correct one. A week is `step = 168, unit = HOUR`
+/// under the week-start-Monday anchor (`UntrustedSourceBarAnchorV1::WeekStartMonday`,
+/// `perpetual_admission_v1.rs::BinancePerpetualDatasetV1::bar_timeframes`); this function names
+/// no `1W` label of its own because it backs PIT observation intervals, a different path from the
+/// backfill job's declared bar timeframes above.
 pub(crate) const fn owner_timeframe(interval: &str) -> Option<&'static str> {
     Some(match interval.as_bytes() {
         b"1s" => "1S",

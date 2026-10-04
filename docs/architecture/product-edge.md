@@ -476,8 +476,9 @@ the run, so a replay reads the same data.
 **Source acquisition server (CURRENT).** The user put it in scope on 2026-10-03; the research loop simulated on
 `claude/inspiring-gauss-pxaril` needed video sources repeatedly.
 
-- **`video-note`**, the standalone Video Note MCP in `services/video-note-mcp`: `video_note.create(url)` and `video_note.search_and_create(query, platform)` turn
+- **`video-note`**, the standalone Video Note MCP in `services/video-note-mcp`: `video_note.create(url)` turns
   a public Bilibili, YouTube or HTTPS video into a transcript-backed note with frames and time-linked sources.
+  The calling agent owns search and video selection, then supplies the URL.
 - It sits outside the Owner stack: it reads no product store, no product server calls it, and it holds no product
   credential. The agent is the only link: it reads a note and, when the note motivates a hypothesis, cites the
   source URL and the note's content digest in `research.register_hypothesis`.

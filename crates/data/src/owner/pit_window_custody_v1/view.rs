@@ -13,7 +13,8 @@
 //! - every other input timeframe contributes its latest cross-section available by `d_k`, and a
 //!   withdrawn or not yet published latest one leaves the frame uncovered rather than substituting
 //!   an older bar;
-//! - the fill timeframe is never an input, so its versions are never selected.
+//! - the fill timeframe is never an input, so its versions are never selected for one; a fill
+//!   quote selects its bar's version through the same rule at that bar's own availability.
 //!
 //! Everything here is pure: the frames port, the pool resolver and the admitted-port resolver all
 //! select through it, so the three cannot disagree on a view.
@@ -251,6 +252,38 @@ pub(crate) fn select_view_v1(
         next_event_ns,
         selected,
     })
+}
+
+/// The fill-timeframe versions the gap after the frame with decision cut `decision_cut_ns` and
+/// next event `next_event_ns` could take its quote cut from
+/// (T0-6): every fill cross-section whose bar opens strictly inside `(d_k, e_{k+1})`, ascending by
+/// open, each at the version visible at that quote's own availability - the availability of the
+/// bar's original version, its close plus the declared lag, or the minting cut under a rule at
+/// retrieval. Inputs select at `d_k` and fill quotes at their bar's availability through the one
+/// [`visible_at`], at two cuts. Every correction is published after its bar's availability (a
+/// version's event, availability and publication never decrease, and a correction is published
+/// strictly after the version it replaces), so no correction ever reaches a fill quote: a fill
+/// takes the version known when its bar became available. A bar with no version visible at that
+/// instant is not a candidate.
+pub(crate) fn select_fill_candidates_v1(
+    sections: &CrossSectionsV1,
+    fill_identity: BindingDigest,
+    fill_interval_ns: u64,
+    decision_cut_ns: u64,
+    next_event_ns: u64,
+) -> Vec<ChainVersionV1> {
+    sections
+        .events_of(fill_identity)
+        .filter_map(|(event_ns, chain)| {
+            let open_ns = event_ns.checked_sub(fill_interval_ns)?;
+
+            if open_ns <= decision_cut_ns || open_ns >= next_event_ns {
+                return None;
+            }
+            let quote_availability_ns = chain.first()?.availability_ns;
+            visible_at(chain, quote_availability_ns).ok().cloned()
+        })
+        .collect()
 }
 
 /// The identity of a view: SHA-256 over the view schema version, the availability rule digest,

@@ -46,16 +46,25 @@ def render(
             f"· {timestamp(draft.source.duration_ms)}"
         )
         blocks.append(
-            f'<p><a href="{source}">{esc(label)}</a></p>'
+            (f"<p>{esc(label)} · 本地导入</p>" if html_mode else esc(label) + " · 本地导入")
+            if draft.source.platform == "local"
+            else f'<p><a href="{source}">{esc(label)}</a></p>'
             if html_mode
             else f"[{esc(label)}](<{url}>)"
         )
 
         def time_url(
-            ms: int, url: str = url, generic: bool = draft.source.platform == "generic"
+            ms: int,
+            url: str = url,
+            generic: bool = draft.source.platform == "generic",
+            local: bool = draft.source.platform == "local",
         ) -> str:
-            return url if generic else url + f"&t={ms // 1000}"
+            return "" if local else url if generic else url + f"&t={ms // 1000}"
 
+        if draft.transcript_method == "imported":
+            paragraph("转录来源：外部导入；时间轴由调用者提供，未冒充自动语音识别结果。")
+        if draft.source.platform == "local":
+            paragraph("本地视频，时间标记仅用于对照原文件。")
         if draft.source.platform == "generic":
             paragraph("时间标记用于对照原视频；通用来源链接仅返回原页面，不保证跳转到指定时间。")
         paragraph(
@@ -77,12 +86,19 @@ def render(
             bullet: bool,
             evidence: dict[str, TranscriptSegment] = evidence,
             url: str = url,
+            local: bool = draft.source.platform == "local",
         ) -> None:
             ms = min(evidence[e].start_ms for e in item.evidence_refs)
             end_ms = max(evidence[e].end_ms for e in item.evidence_refs)
             time_label = f"约 {timestamp(ms)}–{timestamp(end_ms)}"
             link = time_url(ms)
-            if html_mode:
+            if local:
+                blocks.append(
+                    f"<p>{esc(item.text)} <span>{time_label}</span></p>"
+                    if html_mode
+                    else esc(item.text) + f" [{time_label}]"
+                )
+            elif html_mode:
                 blocks.append(
                     f'<p class="point">{esc(item.text)} '
                     f'<a class="time" href="{html.escape(link, quote=True)}">'
@@ -120,10 +136,15 @@ def render(
                 caption = f"视频原始画面 · {timestamp(frame_time)}"
                 frame_link = html.escape(time_url(frame_time), quote=True)
                 if html_mode:
+                    caption_markup = (
+                        esc(caption)
+                        if draft.source.platform == "local"
+                        else f'<a href="{frame_link}">{esc(caption)}</a>'
+                    )
                     blocks.append(
                         f'<figure><img src="{html.escape(path, quote=True)}" '
                         f'alt="{esc(caption)}" loading="lazy">'
-                        f'<figcaption><a href="{frame_link}">{esc(caption)}</a>'
+                        f"<figcaption>{caption_markup}"
                         "</figcaption></figure>"
                     )
                 else:

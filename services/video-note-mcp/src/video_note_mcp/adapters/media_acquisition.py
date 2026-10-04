@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import stat
 from pathlib import Path
 
 from video_note_mcp.application.errors import BilibiliNoteFailure
@@ -136,4 +137,21 @@ def sha256_file(path: Path) -> str:
     with path.open("rb") as source:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def copy_bounded_media(source: Path, target: Path) -> str:
+    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    digest = hashlib.sha256()
+    with os.fdopen(fd, "rb") as src, target.open("xb") as dst:
+        info = os.fstat(src.fileno())
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MEDIA_DOWNLOAD_BYTES:
+            raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "media_file_invalid")
+        count = 0
+        while chunk := src.read(1024 * 1024):
+            count += len(chunk)
+            if count > MEDIA_DOWNLOAD_BYTES:
+                raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "media_bytes_exceeded")
+            digest.update(chunk)
+            dst.write(chunk)
     return digest.hexdigest()

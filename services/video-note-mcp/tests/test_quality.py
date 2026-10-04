@@ -3,7 +3,13 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from conftest import MemoryAuthor, MemoryMedia, MemorySource
+from conftest import (
+    MemoryAuthor,
+    MemoryMedia,
+    MemorySource,
+    MemoryTranscript,
+    primitive_dependencies,
+)
 from pydantic import ValidationError
 
 from video_note_mcp.adapters.audio_review import AudioReviewer, normalized, review_windows
@@ -12,7 +18,7 @@ from video_note_mcp.application.create_note import CreateBilibiliNote
 from video_note_mcp.application.errors import BilibiliNoteFailure
 from video_note_mcp.application.progress import NullProgressReporter
 from video_note_mcp.domain.artifacts import AudioReview, TranscriptResult, TranscriptSegment
-from video_note_mcp.domain.models import CreateNoteInputV1, SearchAndCreateInputV1
+from video_note_mcp.domain.models import CreateNoteInputV1
 from video_note_mcp.fixture import FIXTURE_URL
 
 
@@ -43,6 +49,7 @@ async def test_quality_preserves_original_and_exposes_disagreement(tmp_path, dra
         MemoryAuthor(draft),
         LocalNotePublisher(tmp_path),
         reviewer,
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
     result = await app.execute(FIXTURE_URL, quality=quality)
     assert reviewer.qualities == ([] if quality == "fast" else [quality])
@@ -65,21 +72,17 @@ async def test_required_review_failure_never_publishes(tmp_path, draft):
         MemoryAuthor(draft),
         LocalNotePublisher(tmp_path),
         Failed(),
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
     with pytest.raises(BilibiliNoteFailure, match="review_failed"):
         await app.execute(FIXTURE_URL, quality="precise")
     assert not list(tmp_path.glob("note-*"))
 
 
-def test_both_public_inputs_default_standard_and_reject_unknown():
+def test_public_input_default_standard_and_reject_unknown():
     assert CreateNoteInputV1(url=FIXTURE_URL).quality == "standard"
-    assert SearchAndCreateInputV1(query="折纸").quality == "standard"
-    for cls, args in [
-        (CreateNoteInputV1, {"url": FIXTURE_URL}),
-        (SearchAndCreateInputV1, {"query": "折纸"}),
-    ]:
-        with pytest.raises(ValidationError):
-            cls.model_validate({**args, "quality": "maximum"})
+    with pytest.raises(ValidationError):
+        CreateNoteInputV1.model_validate({"url": FIXTURE_URL, "quality": "maximum"})
 
 
 async def test_no_subtitle_review_limits_and_audio_coverage(tmp_path, draft):
@@ -105,48 +108,57 @@ async def test_no_subtitle_review_limits_and_audio_coverage(tmp_path, draft):
     assert normalized("3%") != normalized("3")
 
 
-async def test_reviewer_uses_different_asr_and_preserves_raw(tmp_path, draft, monkeypatch):
+@pytest.mark.parametrize(
+    "primary,expected_model",
+    [
+        ("mlx:test", "Qwen/Qwen3-ASR-1.7B"),
+        ("siliconflow:Qwen/Qwen3-ASR-1.7B", "XingChenAGI/XingChenASR-V3.2-Ultra"),
+    ],
+)
+async def test_reviewer_uses_siliconflow_wire_and_preserves_raw(
+    tmp_path, draft, monkeypatch, primary, expected_model
+):
+    import httpx
+
+    from video_note_mcp.adapters import asr_siliconflow, audio_review
+
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "siliconflow-test-only")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-only")
     source = await MemorySource(draft).acquire(FIXTURE_URL, tmp_path, NullProgressReporter())
     source = replace(
-        source,
-        transcript=replace(
-            source.transcript, method="asr", provider_ref="siliconflow:Qwen/Qwen3-ASR-1.7B"
-        ),
+        source, transcript=replace(source.transcript, method="asr", provider_ref=primary)
     )
-    models = []
+    requests = []
 
-    class Engine:
-        def __init__(self, profile):
-            models.append(profile.asr_model)
+    def respond(request):
+        requests.append(request)
+        assert str(request.url) == "https://api.siliconflow.cn/v1/audio/transcriptions"
+        assert request.headers["Authorization"] == "Bearer siliconflow-test-only"
+        assert expected_model.encode() in request.content
+        return httpx.Response(200, json={"text": "另一种结果"})
 
-        async def transcribe(self, media, duration, workspace, progress):
-            return TranscriptResult(
-                "asr",
-                "siliconflow:" + models[-1],
-                "zh",
-                (TranscriptSegment("E001", 0, duration, "另一种结果"),),
-            )
+    def engine(profile):
+        return asr_siliconflow.SiliconFlowAsr(profile, httpx.MockTransport(respond))
 
-    async def extract(*args, **kwargs):
-        pass
+    async def extract(_source, target, **_kwargs):
+        target.write_bytes(b"audio")
 
-    monkeypatch.setattr("video_note_mcp.adapters.audio_review.SiliconFlowAsr", Engine)
-    monkeypatch.setattr("video_note_mcp.adapters.audio_review._extract_audio", extract)
+    monkeypatch.setattr(audio_review, "SiliconFlowAsr", engine)
+    monkeypatch.setattr(audio_review, "_extract_audio", extract)
+    monkeypatch.setattr(asr_siliconflow, "_extract_audio", extract)
     result = await AudioReviewer().review(source, "precise", tmp_path)
-    assert models == ["XingChenAGI/XingChenASR-V3.2-Ultra"]
+    assert len(requests) == 1
+    assert result[0].provider_ref == "siliconflow:" + expected_model
     assert result[0].differs
     assert result[0].primary_text == " ".join(s.text for s in source.transcript.segments)
     assert source.transcript.segments == draft.transcript
 
 
-@pytest.mark.parametrize("search", [False, True])
 @pytest.mark.parametrize("quality", ["fast", "standard", "precise"])
-async def test_mcp_routes_quality_for_both_entrypoints(tmp_path, draft, search, quality):
+async def test_mcp_routes_quality(tmp_path, draft, quality):
     from mcp import Client
 
-    from video_note_mcp.adapters.fixture_search import FixtureSearch
-    from video_note_mcp.application.search_notes import SearchAndCreateBilibiliNotes
-    from video_note_mcp.mcp_server import SEARCH_TOOL_NAME, TOOL_NAME, build_server
+    from video_note_mcp.mcp_server import TOOL_NAME, build_server
 
     reviewer = Reviewer()
     publisher = LocalNotePublisher(tmp_path)
@@ -156,13 +168,12 @@ async def test_mcp_routes_quality_for_both_entrypoints(tmp_path, draft, search, 
         MemoryAuthor(draft),
         publisher,
         reviewer,
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
-    server = build_server(app, SearchAndCreateBilibiliNotes(FixtureSearch(), app, publisher))
-    arguments = {"query": "纸飞机", "max_videos": 1} if search else {"url": FIXTURE_URL}
+    server = build_server(app)
+    arguments = {"url": FIXTURE_URL}
     async with Client(server) as client:
-        result = await client.call_tool(
-            SEARCH_TOOL_NAME if search else TOOL_NAME, {**arguments, "quality": quality}
-        )
+        result = await client.call_tool(TOOL_NAME, {**arguments, "quality": quality})
     assert not result.is_error
     if quality == "fast":
         assert reviewer.qualities == []
@@ -189,6 +200,7 @@ async def test_cancellation_during_review_does_not_publish(tmp_path, draft):
         MemoryAuthor(draft),
         LocalNotePublisher(tmp_path),
         Waiting(),
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
     task = asyncio.create_task(app.execute(FIXTURE_URL, quality="precise"))
     await asyncio.wait_for(started.wait(), 1)

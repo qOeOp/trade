@@ -230,6 +230,8 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
             "/v1/market-data/strategy-input-bindings/from-design-intent",
             post(declare_strategy_input_bindings_from_design_intent),
         )
+        .route("/v1/market-data/bars", post(get_bars))
+        .route("/v1/market-data/funding", post(get_funding))
         .with_state(MarketDataPitApiState {
             intake,
             admission,
@@ -813,6 +815,34 @@ async fn resolve_decision_cut(
         Ok(cut) => (StatusCode::OK, Json(cut)).into_response(),
         Err(e) => intake_error(e),
     }
+}
+
+/// `get_bars(instrument, timeframe, range)`: no market value reaches an agent before
+/// Qualification's holdout partition exists (`docs/owners/market-data.md`, "TARGET market-data
+/// MCP server"). No Owner defines that partition yet, so this route refuses every request as
+/// `HOLDOUT_PARTITION_UNDEFINED` before reading the body: `RANGE_NOT_COVERED` and
+/// `RANGE_TOO_LARGE_FOR_INLINE` are TARGET, reached only once a real read exists behind this
+/// refusal to reach past.
+async fn get_bars(State(state): State<MarketDataPitApiState>, headers: HeaderMap) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    rejection(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "HOLDOUT_PARTITION_UNDEFINED",
+    )
+}
+
+/// `get_funding(instrument, range)`: the same holdout-partition refusal as [`get_bars`], for the
+/// same reason.
+async fn get_funding(State(state): State<MarketDataPitApiState>, headers: HeaderMap) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    rejection(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "HOLDOUT_PARTITION_UNDEFINED",
+    )
 }
 
 fn intake_error(error: PitMarketSnapshotIntakeErrorV1) -> Response {

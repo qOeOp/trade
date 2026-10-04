@@ -6,7 +6,7 @@ from typing import Protocol
 from video_note_mcp.domain.artifacts import (
     AcquiredSource as AcquiredSource,
 )
-from video_note_mcp.domain.artifacts import AudioReview
+from video_note_mcp.domain.artifacts import AudioReview, DownloadedSource
 from video_note_mcp.domain.artifacts import (
     FrameAsset as FrameAsset,
 )
@@ -27,7 +27,6 @@ from video_note_mcp.domain.artifacts import (
 )
 from video_note_mcp.domain.models import (
     Quality,
-    SearchCandidateV1,
     VideoNote,
 )
 
@@ -41,9 +40,9 @@ class TranscriptReviewPort(Protocol):
 
 
 class SourcePort(Protocol):
-    async def acquire(
+    async def download(
         self, url: str, workspace: Path, progress: ProgressReporter
-    ) -> AcquiredSource: ...
+    ) -> DownloadedSource: ...
 
 
 class SourceMediaPort(Protocol):
@@ -52,10 +51,6 @@ class SourceMediaPort(Protocol):
         canonical_url: str,
         workspace: Path,
     ) -> SourceMediaArtifact: ...
-
-
-class SearchPort(Protocol):
-    async def search(self, query: str, limit: int) -> tuple[SearchCandidateV1, ...]: ...
 
 
 class TranscriptPort(Protocol):
@@ -82,3 +77,20 @@ class DistillerPort(Protocol):
 
 class PublisherPort(Protocol):
     def publish(self, drafts: tuple[NoteDraft, ...]) -> PublishedNote: ...
+
+
+class ArtifactPort(Protocol):
+    def save_media(self, source: DownloadedSource) -> str: ...
+    def load_media(self, identity: str) -> DownloadedSource: ...
+    def save_transcript(self, media_id: str, source: AcquiredSource, quality: Quality) -> str: ...
+    def transcript_parent(self, identity: str) -> str: ...
+    def load_transcript(self, identity: str) -> tuple[AcquiredSource, Quality]: ...
+    def save_frames(self, transcript_id: str, frames: tuple[FrameAsset, ...]) -> str: ...
+    def load_frames(
+        self, identity: str
+    ) -> tuple[AcquiredSource, Quality, tuple[FrameAsset, ...]]: ...
+    def frame_paths(self, identity: str) -> tuple[str, ...]: ...
+
+
+class ImportPort(Protocol):
+    async def load(self, filename: str, title: str, workspace: Path) -> DownloadedSource: ...

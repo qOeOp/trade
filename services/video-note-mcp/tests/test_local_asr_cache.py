@@ -4,7 +4,6 @@ from dataclasses import replace
 import pytest
 
 from video_note_mcp.adapters.asr_mlx import MLX_IDENTITY, MlxAsr
-from video_note_mcp.adapters.source_cache import SourceCache
 from video_note_mcp.adapters.subprocesses import CapturedProcess
 from video_note_mcp.application.errors import BilibiliNoteFailure
 from video_note_mcp.application.progress import NullProgressReporter
@@ -53,22 +52,6 @@ def test_full_audio_receipt_allows_silence_but_rejects_overlap_and_incomplete(tm
                 ),
             )
         )
-
-
-def test_cache_identity_integrity_and_ttl(tmp_path, draft, monkeypatch):
-    source = material(tmp_path, draft)
-    cache = SourceCache(MLX_IDENTITY, tmp_path / "cache")
-    cache.save(source)
-    hit = cache.load(source.source)
-    assert hit and hit.transcript == source.transcript
-    assert hit.media_path.read_bytes() == source.media_path.read_bytes()
-    assert cache.load(source.source.model_copy(update={"part_id": "2"})) is None
-    assert SourceCache("different revision", cache.root).load(source.source) is None
-    monkeypatch.setattr("video_note_mcp.adapters.source_cache.time.time", lambda: 10**12)
-    assert cache.load(source.source) is None
-    monkeypatch.undo()
-    hit.media_path.write_bytes(b"corrupted")
-    assert cache.load(source.source) is None
 
 
 async def test_mlx_worker_receipt_and_duration_failure(tmp_path, monkeypatch):
