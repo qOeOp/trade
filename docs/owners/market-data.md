@@ -2876,7 +2876,9 @@ sample projection" below.
     never a caller-stated retrieval, and a row retrieved after that cut is refused as `RETRIEVAL_AFTER_MINTING_CUT`.
   - A run names a custody chain by its root, as an untrusted claim the Owner resolves to the chain's head, and states
     its own window inside the custody's. Its frames come back as coordinates - ordinal, `e_k` and `d_k`, where `d_k` is
-    the derived availability of frame `k`'s execution cross-section - read from the head it names. Each frame's inputs
+    the derived availability of frame `k`'s execution cross-section - read from the head it names, together with the
+    chain's basis, read in the same transaction at the same head. R&D takes a custody run's universe, Instrument Master
+    cut and Market Semantics from the run's frames readback, never from its own evaluation. Each frame's inputs
     and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
     the derived view slice. That source names the chain root, the head the frames were read from and `e_k`, so a
     correction committed between enumeration and the per-frame reads cannot mix two heads into one run; a head that is

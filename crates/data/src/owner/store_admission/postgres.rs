@@ -337,13 +337,17 @@ pub(super) const PIT_EVALUATION_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     ],
 };
 
-/// A PIT window custody chain's reads (slice T0-5): the chain at its head and the row facts of one
-/// frame's view.
+/// A PIT window custody chain's reads (slices T0-5 and T0-5c): the chain at its head, the row
+/// facts of one frame's view, and a run's chain basis - its basis record, R0 record and cut,
+/// Instrument Master link and the cut and readback it names, and Market Semantics head, fact and
+/// registry entry.
 pub(super) const PIT_WINDOW_CUSTODY_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "pit_window_custody_v1",
     functions: &[
+        "market_data_admitted_read.resolve_pit_window_chain_basis_v1(bytea)",
         "market_data_admitted_read.resolve_pit_window_chain_v1(bytea)",
         "market_data_admitted_read.resolve_pit_window_rows_v1(bytea,bytea[])",
+        "market_data_private.resolve_pit_window_chain_basis_v1(bytea)",
         "market_data_private.resolve_pit_window_chain_v1(bytea)",
         "market_data_private.resolve_pit_window_rows_v1(bytea,bytea[])",
     ],
@@ -353,6 +357,16 @@ pub(super) const PIT_WINDOW_CUSTODY_FLOOR_V1: MeasurementFloor = MeasurementFloo
         "market_data_private.pit_window_cross_section_versions_v1",
         "market_data_private.pit_window_custody_rows_v1",
         "market_data_private.pit_window_schedule_facts_v1",
+        "market_data_private.pit_window_chain_basis_records_v1",
+        "market_data_private.pit_window_r0_chain_records_v1",
+        "market_data_private.pit_window_instrument_master_chains_v1",
+        "market_data_private.instrument_master_receipts_v1",
+        "market_data_private.instrument_master_cuts_v1",
+        "market_data_private.instrument_master_outbox_v1",
+        "market_data_private.instrument_master_state_v1",
+        "market_data_private.market_semantics_chain_heads_v1",
+        "market_data_private.market_semantics_chain_facts_v1",
+        "market_data_private.market_semantics_chain_registry_v1",
     ],
 };
 
@@ -1355,6 +1369,19 @@ pub(crate) struct RawPitWindowChainV1 {
     pub(crate) entries: Vec<(i16, Vec<u8>)>,
 }
 
+/// A PIT window custody chain's basis as the Owner held it: each entry's kind - 1 the basis record,
+/// 2 the R0 record and cut, 3 the Instrument Master link, 4 the Market Semantics head, fact and
+/// registry entry, 5 the Instrument Master readback - and its row as JSON text.
+pub(crate) struct RawPitWindowChainBasisV1 {
+    pub(crate) entries: Vec<(i16, Vec<u8>)>,
+}
+
+/// A run's chain and its basis, read in one snapshot so the basis is the one the chain held.
+pub(crate) struct RawPitWindowRunChainV1 {
+    pub(crate) chain: RawPitWindowChainV1,
+    pub(crate) basis: RawPitWindowChainBasisV1,
+}
+
 /// One stored row fact of a view, as the Owner held it.
 pub(crate) struct RawPitWindowRowV1 {
     pub(crate) version_identity: Vec<u8>,
@@ -1416,6 +1443,70 @@ pub(super) async fn read_pit_window_chain_snapshot_v1(
             .into_iter()
             .map(|(kind, payload)| (kind, payload.into_bytes()))
             .collect(),
+    })
+}
+
+/// The entries of one chain read, refused when there are too many or one is too large.
+fn bounded_pit_window_entries(
+    rows: Vec<(i16, String)>,
+) -> Result<Vec<(i16, Vec<u8>)>, PostgresMeasurementError> {
+    if rows.len() > MAX_PIT_WINDOW_ENTRIES
+        || rows
+            .iter()
+            .any(|(_, payload)| payload.len() > MAX_PIT_WINDOW_ENTRY_BYTES)
+    {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    Ok(rows
+        .into_iter()
+        .map(|(kind, payload)| (kind, payload.into_bytes()))
+        .collect())
+}
+
+/// Reads one custody chain and its basis through the Owner's chain and basis functions, in one
+/// snapshot, so a run's basis is read at the head its frames are.
+pub(super) async fn read_pit_window_run_chain_snapshot_v1(
+    lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
+    chain_root: &[u8; 32],
+) -> Result<RawPitWindowRunChainV1, PostgresMeasurementError> {
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-pit-window-run-chain-v1").await?;
+    let connection = &mut session.connection;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    let chain: Vec<(i16, String)> = sqlx::query_as(
+        "SELECT entry_kind, payload::text FROM market_data_admitted_read.resolve_pit_window_chain_v1($1)",
+    )
+    .bind(chain_root.as_slice())
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let basis: Vec<(i16, String)> = sqlx::query_as(
+        "SELECT entry_kind, payload::text FROM market_data_admitted_read.resolve_pit_window_chain_basis_v1($1)",
+    )
+    .bind(chain_root.as_slice())
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let chain = bounded_pit_window_entries(chain)?;
+    let basis = bounded_pit_window_entries(basis)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(RawPitWindowRunChainV1 {
+        chain: RawPitWindowChainV1 { entries: chain },
+        basis: RawPitWindowChainBasisV1 { entries: basis },
     })
 }
 

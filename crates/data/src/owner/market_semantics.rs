@@ -51,8 +51,10 @@ pub(crate) enum MarketSemanticsTimestampBasisV1 {
     IntervalClose = 3,
 }
 
+/// The typed value a Market Semantics fact states: its normalisation, price adjustment, timestamp
+/// basis and units. It has no public constructor or field; a reader compares two by equality.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct MarketSemanticsValueV1 {
+pub struct MarketSemanticsValueV1 {
     pub(crate) normalization_identity: MarketSemanticsIdentity,
     pub(crate) price_adjustment: MarketSemanticsPriceAdjustmentV1,
     pub(crate) timestamp_basis: MarketSemanticsTimestampBasisV1,
