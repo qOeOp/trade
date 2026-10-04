@@ -37,7 +37,8 @@ use vibe_strategy_factory::{
     single_threshold_authoring_v1::{SingleThresholdChannelV1, SingleThresholdOutcomeV1},
     strategy_catalog_postgres_v1::PostgresStrategyCatalogV1,
     strategy_catalog_v1::{
-        SingleThresholdStrategySpecV1, StrategyStatementV1, canonical_strategy_statement_v1,
+        SingleThresholdStrategySpecV1, StrategyIdentityV1, StrategyStatementV1,
+        canonical_strategy_statement_v1,
     },
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
@@ -112,15 +113,25 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             .await
             .expect("the strategy catalog opens"),
     );
-    let canonical = canonical_strategy_statement_v1(&StrategyStatementV1::SingleThreshold(
+    let single_threshold = canonical_strategy_statement_v1(&StrategyStatementV1::SingleThreshold(
         Box::new(backtest_run_chain_entry_spec_v1()),
     ))
     .expect("the chain entry's own statement authors into a program");
-    let strategy_id = canonical.identity();
-    catalog
-        .create(&canonical)
-        .await
-        .expect("the chain entry's strategy is new to this chain database");
+    let authored = canonical_strategy_statement_v1(&StrategyStatementV1::Authored(
+        serde_json::from_str(include_str!(
+            "../../strategy_factory/test_data/strategy_authoring_v1/t0-daily-trend.json"
+        ))
+        .expect("T0's document decodes"),
+    ))
+    .expect("T0's document authors into a program");
+    let strategy_id = single_threshold.identity();
+
+    for canonical in [&single_threshold, &authored] {
+        catalog
+            .create(canonical)
+            .await
+            .expect("the chain entry's strategies are new to this chain database");
+    }
 
     let owners = BacktestRunOwnersV1 {
         catalog,
@@ -164,8 +175,44 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
         custody_frames: None,
     };
 
+    // Both statement families run through the one orchestration: each is authored by its own
+    // family into the Design the freeze takes.
+    for (run_id, strategy_id) in [
+        ("backtest-run-chain-entry-v1", strategy_id),
+        (
+            "backtest-run-chain-entry-authored-t0-v1",
+            authored.identity(),
+        ),
+    ] {
+        assert_run_reaches_the_replay_step_v1(
+            &owners,
+            run_id,
+            strategy_id,
+            &deployment.request_proof_digest,
+        )
+        .await;
+    }
+
+    assert_backtest_runs_are_recorded_and_read_back_v1(
+        test_database,
+        &deployment
+            .connect_owner(product_edge_url)
+            .await
+            .expect("the deployment's Product Edge Owner opens"),
+        &deployment.request_proof_digest,
+        strategy_id,
+    )
+    .await;
+}
+
+async fn assert_run_reaches_the_replay_step_v1(
+    owners: &BacktestRunOwnersV1,
+    run_id: &str,
+    strategy_id: StrategyIdentityV1,
+    request_proof_digest: &str,
+) {
     let request = BacktestRunRequestV1 {
-        run_id: "backtest-run-chain-entry-v1".to_owned(),
+        run_id: run_id.to_owned(),
         strategy_id,
         dataset_ref: BacktestRunDatasetRefV1::new(
             PERPETUAL_V1.to_owned(),
@@ -179,10 +226,10 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
         custody: UntrustedPitWindowCustodyClaimV1 {
             chain_root: BindingDigest::from_untrusted_bytes([0x5a; 32]),
         },
-        request_proof_digest: deployment.request_proof_digest.clone(),
+        request_proof_digest: request_proof_digest.to_owned(),
     };
 
-    match run_backtest_v1(&owners, request).await {
+    match run_backtest_v1(owners, request).await {
         Ok(reached) => {
             assert!(
                 reached
@@ -211,21 +258,10 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             );
         }
         Err(e) => panic!(
-            "backtest.run must reach the replay step: {}",
+            "backtest.run {run_id} must reach the replay step: {}",
             describe_error(&e)
         ),
     }
-
-    assert_backtest_runs_are_recorded_and_read_back_v1(
-        test_database,
-        &deployment
-            .connect_owner(product_edge_url)
-            .await
-            .expect("the deployment's Product Edge Owner opens"),
-        &deployment.request_proof_digest,
-        strategy_id,
-    )
-    .await;
 }
 
 const TOKEN: &str = "backtest-run-chain-entry-token";
@@ -269,7 +305,7 @@ async fn assert_backtest_runs_are_recorded_and_read_back_v1(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     product_edge: &vibe_product_edge::ProductEdgePostgresOwnerV1,
     request_proof_digest: &str,
-    strategy_id: vibe_strategy_factory::strategy_catalog_v1::StrategyIdentityV1,
+    strategy_id: StrategyIdentityV1,
 ) {
     use axum::http::StatusCode;
     use serde_json::json;

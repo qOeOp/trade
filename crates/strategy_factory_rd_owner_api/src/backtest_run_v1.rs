@@ -52,11 +52,8 @@ use vibe_strategy_factory::{
         ResearchBoundedFeatureProgramFreezeReceiptV1, ResearchBoundedFeatureProgramOwnerErrorV1,
     },
     research_initial_pit_v1::ResearchInitialPitV1,
-    single_threshold_authoring_v1::{
-        SingleThresholdAuthoringErrorV1, author_single_threshold_program_v1,
-    },
     strategy_catalog_postgres_v1::{PostgresStrategyCatalogV1, StrategyCatalogErrorV1},
-    strategy_catalog_v1::{SingleThresholdStrategySpecV1, StrategyIdentityV1},
+    strategy_catalog_v1::{StrategyIdentityV1, StrategyStatementErrorV1, StrategyStatementV1},
 };
 
 use crate::research_goal_submission::{
@@ -171,9 +168,8 @@ pub(crate) enum BacktestRunErrorV1 {
     MarketSemanticsAdmissionFailed(MarketSemanticsAdmissionErrorV1),
     /// The accepted goal's authoring facts could not be read back.
     AuthoringFactsUnavailable(ResearchBoundedFeatureProgramOwnerErrorV1),
-    /// The catalog statement does not author into a program (an indistinguishable-outcomes
-    /// threshold, an empty identifier, …).
-    AuthoringFailed(SingleThresholdAuthoringErrorV1),
+    /// The catalog statement does not author into a program, under its family's own refusal.
+    AuthoringFailed(StrategyStatementErrorV1),
     /// Publishing the Design's role intent failed.
     RoleIntentPublicationFailed(ResearchBoundedFeatureProgramOwnerErrorV1),
     /// Binding the Design's roles to Market Data's input series failed.
@@ -194,12 +190,12 @@ pub(crate) async fn run_backtest_v1(
     owners: &BacktestRunOwnersV1,
     request: BacktestRunRequestV1,
 ) -> Result<BacktestRunReachedReplayV1, BacktestRunErrorV1> {
-    let spec = fetch_strategy_spec_v1(&owners.catalog, request.strategy_id).await?;
+    let statement = fetch_strategy_statement_v1(&owners.catalog, request.strategy_id).await?;
     let research_request_identity = format!("backtest-run:{}", request.run_id);
     let accepted = submit_backtest_research_goal_v1(
         owners,
         &research_request_identity,
-        &spec,
+        &statement,
         &request.dataset_ref,
         &request.request_proof_digest,
     )
@@ -232,12 +228,13 @@ pub(crate) async fn run_backtest_v1(
         .read_research_authoring_facts_v1(&research_request_identity)
         .await
         .map_err(BacktestRunErrorV1::AuthoringFactsUnavailable)?;
-    let (design, meaning) = author_single_threshold_program_v1(&spec.authoring_request(
-        facts.research_request_identity,
-        facts.intent_identity,
-        facts.intent_digest,
-    ))
-    .map_err(BacktestRunErrorV1::AuthoringFailed)?;
+    let (design, meaning) = statement
+        .author(
+            facts.research_request_identity,
+            facts.intent_identity,
+            facts.intent_digest,
+        )
+        .map_err(BacktestRunErrorV1::AuthoringFailed)?;
 
     let role_intent = owners
         .bounded_feature_program
@@ -271,10 +268,10 @@ pub(crate) async fn run_backtest_v1(
     })
 }
 
-async fn fetch_strategy_spec_v1(
+async fn fetch_strategy_statement_v1(
     catalog: &PostgresStrategyCatalogV1,
     strategy_id: StrategyIdentityV1,
-) -> Result<SingleThresholdStrategySpecV1, BacktestRunErrorV1> {
+) -> Result<StrategyStatementV1, BacktestRunErrorV1> {
     let record = catalog
         .get(strategy_id)
         .await
@@ -291,13 +288,13 @@ async fn fetch_strategy_spec_v1(
 /// The goal's narrative fields (hypothesis, mechanism, …) carry no catalog equivalent and are a
 /// fixed convention for every backtest.run-originated goal, distinct from a human-authored one -
 /// except `falsification_question`, set to the catalog statement's own `falsifier` verbatim, so
-/// the Design this run authors (which carries the catalog's `falsifier` unchanged,
-/// `SingleThresholdStrategySpecV1::authoring_request`) restates exactly what this goal's Research
+/// the Design this run authors (which carries the catalog's `falsifier` unchanged, in either
+/// statement family) restates exactly what this goal's Research
 /// Intent froze. A mismatch there is what `publish_design_role_intent` would refuse by name.
 async fn submit_backtest_research_goal_v1(
     owners: &BacktestRunOwnersV1,
     research_request_identity: &str,
-    spec: &SingleThresholdStrategySpecV1,
+    statement: &StrategyStatementV1,
     dataset_ref: &BacktestRunDatasetRefV1,
     request_proof_digest: &str,
 ) -> Result<ResearchGoalOwnerResultV2, BacktestRunErrorV1> {
@@ -307,9 +304,16 @@ async fn submit_backtest_research_goal_v1(
             dataset_ref.instrument(),
             dataset_ref.execution_timeframe(),
         ),
-        mechanism: "A single-threshold program compares one channel against a fixed threshold."
-            .to_owned(),
-        falsification_question: spec.falsifier.clone(),
+        mechanism: match statement {
+            StrategyStatementV1::SingleThreshold(_) => {
+                "A single-threshold program compares one channel against a fixed threshold."
+            }
+            StrategyStatementV1::Authored(_) => {
+                "An authoring-language document compiled into one bounded feature program."
+            }
+        }
+        .to_owned(),
+        falsification_question: statement.falsifier().to_owned(),
         expected_observation: "The program's decisions are exactly the fixed statement's."
             .to_owned(),
         required_data: vec![format!(
