@@ -99,6 +99,7 @@ readonly market_data_owner_postgres_tests=(
 # that is where the production branch of what they relax is the branch compiled and proven.
 readonly market_data_owner_postgres_sealed_acceptance_tests=(
   owner::store_admission::tests::the_sealed_acceptance_resolver_reads_under_exactly_its_grants
+  owner::store_admission::tests::the_sealed_acceptance_custody_frames_read_under_exactly_their_grants
   owner::postgres::native_replay_custody_frame_v1_tests::postgres_the_sealed_acceptance_custody_resolver_reads_a_frame_with_its_stated_quotes
   owner::postgres::sealed_acceptance_custody_chain_v1_tests::postgres_the_sealed_acceptance_chain_reads_every_frame_with_its_derived_quote_cut
   owner::postgres::sealed_acceptance_custody_chain_v1_tests::postgres_a_bar_the_custody_intake_refuses_is_refused_under_its_name

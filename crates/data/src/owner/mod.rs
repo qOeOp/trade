@@ -605,6 +605,105 @@ pub fn native_replay_scheduling_resolver_for_sealed_acceptance_v1(
     ))
 }
 
+/// Opens the PIT window custody frames port sealed acceptance composes in place of the one a Store
+/// Admission would open.
+///
+/// It reads as the principal `reader_url` names, through the same raw reads, verification and
+/// selection the admitted custody port uses - a run's frames and the coverage lookup - with no
+/// Store Admission before or after a read. The principal must hold exactly what
+/// [`grant_pit_window_custody_acceptance_reads_v1`] grants: `USAGE` on `market_data_admitted_read`
+/// and `EXECUTE` on the four admitted wrappers those reads call, nothing on
+/// `market_data_private`. It exists only in a build that enables `sealed-strategy-input-acceptance`,
+/// which no deployed binary does, and it proves the segment after Store Admission; the admission
+/// itself is `B3`.
+///
+/// # Errors
+///
+/// `InvalidIdentity` when `reader_url` is not a disposable loopback `vibe_test_` database.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub fn pit_window_custody_frames_for_sealed_acceptance_v1(
+    reader_url: &str,
+) -> Result<
+    std::sync::Arc<dyn pit_window_custody_v1::PitWindowCustodyFramesV1>,
+    NativeReplaySchedulingBootstrapErrorV1,
+> {
+    let invalid = || NativeReplaySchedulingBootstrapErrorV1 {
+        failure: ResearchPitTerminalBootstrapFailure::InvalidIdentity,
+    };
+
+    if !sealed_acceptance_disposable_owner_url_v1(reader_url) {
+        return Err(invalid());
+    }
+    let port = store_admission::UnadmittedAcceptanceSnapshotPortV1::from_database_url(reader_url)
+        .map_err(|_| invalid())?;
+    Ok(std::sync::Arc::new(
+        postgres::pit_window_custody_v1::SealedAcceptancePitWindowCustodyFramesV1 { port },
+    ))
+}
+
+/// Grants `principal` exactly the privileges the sealed acceptance custody frames port's reads
+/// need, as the Market Data owner at `owner_url`, in a disposable database only.
+///
+/// # Errors
+///
+/// A bounded category when a grant was not made; grants already made stay made.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub async fn grant_pit_window_custody_acceptance_reads_v1(
+    owner_url: &str,
+    principal: &str,
+) -> Result<(), SealedAcceptanceGrantErrorV1> {
+    apply_pit_window_custody_acceptance_grants_v1(
+        owner_url,
+        principal,
+        store_admission::AcceptanceGrantV1::grant_to,
+    )
+    .await
+}
+
+/// Revokes what [`grant_pit_window_custody_acceptance_reads_v1`] granted, so a chain entry leaves
+/// the database as it found it.
+///
+/// # Errors
+///
+/// A bounded category when a revocation was not made.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub async fn revoke_pit_window_custody_acceptance_reads_v1(
+    owner_url: &str,
+    principal: &str,
+) -> Result<(), SealedAcceptanceGrantErrorV1> {
+    apply_pit_window_custody_acceptance_grants_v1(
+        owner_url,
+        principal,
+        store_admission::AcceptanceGrantV1::revoke_from,
+    )
+    .await
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+async fn apply_pit_window_custody_acceptance_grants_v1(
+    owner_url: &str,
+    principal: &str,
+    statement_of: fn(store_admission::AcceptanceGrantV1, &str) -> String,
+) -> Result<(), SealedAcceptanceGrantErrorV1> {
+    if !sealed_acceptance_disposable_owner_url_v1(owner_url) {
+        return Err(SealedAcceptanceGrantErrorV1::OwnerUnavailable);
+    }
+    let owner = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(owner_url, PostgresTls::Disabled)
+        .await
+        .map_err(|_| SealedAcceptanceGrantErrorV1::OwnerUnavailable)?;
+    let applied = store_admission::apply_acceptance_grants_v1(
+        &owner,
+        principal,
+        store_admission::PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1,
+        statement_of,
+    )
+    .await
+    .map_err(|_| SealedAcceptanceGrantErrorV1::StatementRefused);
+    owner.close().await;
+    applied
+}
+
 /// Opens the custody frame resolver sealed acceptance composes before slice T0-6 derives a custody
 /// gap's quote cut.
 ///
