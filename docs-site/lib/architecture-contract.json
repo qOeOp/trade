@@ -3127,6 +3127,20 @@
         "noAuthorityBasis": "Code presence and static tests cannot make this path CURRENT and the adapter cannot construct positive results own facts open another transaction or acquire Backtest write authority"
       },
       {
+        "inventoryId": "backtest-statistics",
+        "memberPaths": [
+          "crates/backtest_statistics"
+        ],
+        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
+        "destinationIds": [
+          "backtest"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Compute the exploratory matched-entry control and its ISO-week-clustered interval as one pure function over values the report assembler supplies",
+        "noAuthorityBasis": "The member depends on no Owner reads no database or clock and returns values only so it cannot own a fact or acquire Backtest authority"
+      },
+      {
         "inventoryId": "backtest-engine",
         "memberPaths": [
           "crates/backtest"

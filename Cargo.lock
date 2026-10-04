@@ -9690,6 +9690,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-backtest-statistics"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "vibe-betfair"
 version = "0.62.0"
 dependencies = [
