@@ -13,11 +13,8 @@ An RFC (Request for Comments) is a proposal for significant changes or additions
 such as new features, major refactorings, or process improvements. RFCs are meant for ideas that
 could have a broad impact and benefit from wider community discussion.
 
-New venue integrations always start here. See
-[Community-contributed integrations](https://github.com/nautechsystems/nautilus_trader/blob/develop/ROADMAP.md#community-contributed-integrations)
-for the approval process, and
-[ADAPTERS.md](https://github.com/nautechsystems/nautilus_trader/blob/develop/ADAPTERS.md)
-for adapter tiers and support boundaries.
+New venue integrations always start here. See [the roadmap](../../ROADMAP.md) for scope and
+priorities, and [ADAPTERS.md](../../ADAPTERS.md) for adapter tiers and support boundaries.
 
 ## Before you proceed
 

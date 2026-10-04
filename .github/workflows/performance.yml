@@ -41,10 +41,10 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: pass
-          POSTGRES_DB: nautilus
+          POSTGRES_DB: vibe
         ports:
           - 5432:5432
-        options: --health-cmd "pg_isready -U postgres -d nautilus" --health-interval 10s --health-timeout 5s --health-retries
+        options: --health-cmd "pg_isready -U postgres -d vibe" --health-interval 10s --health-timeout 5s --health-retries
           5
     # yamllint enable rule:line-length
     steps:
@@ -115,19 +115,19 @@ jobs:
         run: |
           docker image prune -a -f || true
 
-      - name: Install Nautilus CLI
+      - name: Install Vibe CLI
         env:
-          NAUTILUS_CLI_FORCE_SOURCE: "1"
-        run: bash scripts/ci/install-nautilus-cli.sh
+          VIBE_CLI_FORCE_SOURCE: "1"
+        run: bash scripts/ci/install-vibe-cli.sh
 
       - name: Init postgres schema
-        run: nautilus database init --schema ${{ github.workspace }}/schema/sql
+        run: vibe database init --schema ${{ github.workspace }}/schema/sql
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_USERNAME: postgres
           POSTGRES_PASSWORD: pass
-          POSTGRES_DATABASE: nautilus
+          POSTGRES_DATABASE: vibe
 
       - name: Set compile jobs from cache state
         run: bash scripts/ci/set-cargo-build-jobs.sh
@@ -135,7 +135,7 @@ jobs:
       - name: Run Rust tests
         run: make cargo-test NEXTEST_PROFILE=ci
 
-      # TODO: Add nautilus-persistence once required test data available
+      # TODO: Add vibe-persistence once required test data available
       - name: Run Rust benchmarks crate-by-crate
         env:
           # Shrink bench artifacts to reduce disk usage

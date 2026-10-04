@@ -12,7 +12,7 @@ if ! command -v docker > /dev/null 2>&1; then
   exit 1
 fi
 
-container="nautilus-postgres-preflight-$$"
+container="vibe-postgres-preflight-$$"
 
 cleanup() {
   docker rm --force "$container" > /dev/null 2>&1 || true
@@ -29,7 +29,7 @@ docker run \
   --publish 127.0.0.1::5432 \
   --env POSTGRES_USER=postgres \
   --env POSTGRES_PASSWORD=pass \
-  --env POSTGRES_DB=nautilus \
+  --env POSTGRES_DB=vibe \
   "$postgres_image" > /dev/null
 
 port_mapping="$(docker port "$container" 5432/tcp)"
@@ -46,7 +46,7 @@ until docker exec "$container" pg_isready \
   --host 127.0.0.1 \
   --port 5432 \
   --username postgres \
-  --dbname nautilus > /dev/null 2>&1; do
+  --dbname vibe > /dev/null 2>&1; do
   if [[ "$attempt" -ge 30 ]]; then
     docker logs "$container" >&2
     echo "ERROR: PostgreSQL did not become ready within 30 seconds." >&2
@@ -59,18 +59,18 @@ done
 export POSTGRES_HOST=127.0.0.1
 export POSTGRES_PORT="$postgres_port"
 export POSTGRES_PASSWORD=pass
-export POSTGRES_DATABASE=nautilus
+export POSTGRES_DATABASE=vibe
 
 for schema_file in types.sql tables.sql functions.sql partitions.sql; do
   docker exec --interactive "$container" \
-    psql --quiet --set ON_ERROR_STOP=1 --username postgres --dbname nautilus \
+    psql --quiet --set ON_ERROR_STOP=1 --username postgres --dbname vibe \
     < "schema/sql/$schema_file"
 done
 
 POSTGRES_USERNAME=postgres cargo run \
   --locked \
-  --package nautilus-cli \
-  --bin nautilus \
+  --package vibe-cli \
+  --bin vibe \
   --profile "${CARGO_CI_PROFILE:-nextest}" \
   -- database init --schema "$PWD/schema/sql"
 
@@ -84,7 +84,7 @@ else
   nextest_output_args=(--status-level fail --final-status-level flaky)
 fi
 
-POSTGRES_USERNAME=nautilus cargo nextest run \
+POSTGRES_USERNAME=vibe cargo nextest run \
   --workspace \
   --lib \
   --tests \
@@ -96,8 +96,8 @@ POSTGRES_USERNAME=nautilus cargo nextest run \
 
 POSTGRES_USERNAME=postgres cargo run \
   --locked \
-  --package nautilus-cli \
-  --bin nautilus \
+  --package vibe-cli \
+  --bin vibe \
   --profile "${CARGO_CI_PROFILE:-nextest}" \
   -- database drop
 
@@ -105,8 +105,8 @@ role_exists="$(docker exec "$container" psql \
   --tuples-only \
   --no-align \
   --username postgres \
-  --dbname nautilus \
-  --command "SELECT 1 FROM pg_roles WHERE rolname = 'nautilus'")"
+  --dbname vibe \
+  --command "SELECT 1 FROM pg_roles WHERE rolname = 'vibe'")"
 if [[ "$role_exists" == "1" ]]; then
   echo "ERROR: PostgreSQL application role still exists after database drop." >&2
   exit 1

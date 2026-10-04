@@ -1078,7 +1078,7 @@ const QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2: &[u8] =
 /// sizes, event/initialization times and member order from that frame's quote cut". Two halves of
 /// that already existed and neither sealed the other: [`NativeReplayQuoteLiquidityEvidenceV2`]
 /// carries the row digests and the exact stored `(mantissa, scale)` values but is never digested,
-/// while the V1 scheduling receipt digests prices and times as Nautilus display strings and binds
+/// while the V1 scheduling receipt digests prices and times as Vibe display strings and binds
 /// no row identity at all. This type seals both halves under one domain, against the frame's quote
 /// cut, so a fill can be authorized by an Owner fact rather than by transported values.
 ///

@@ -4,7 +4,7 @@
 # GitHub Actions Overview
 
 This directory contains reusable composite actions and workflow definitions for
-CI/CD, testing, publishing, and automation within the NautilusTrader repository.
+CI/CD, testing, publishing, and automation within the Vibe Trading repository.
 
 ## Composite actions (`.github/actions`)
 
@@ -50,10 +50,6 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   from being evicted between runs. It checks out no code, runs on `pull_request` rather than
   `pull_request_target`, and touches no ref but the closing pull request's.
 - **dst.yml**: runs deterministic simulation smoke tests on `nightly` and manual dispatch.
-- **nightly-docs-features-check.yml**: nightly docs.rs build checks and crate feature compatibility verification.
-- **nightly-miri.yml**: runs Miri against the core, model, and plugin crates each day at 13:00 UTC.
-- **nightly-tests.yml**: runs standard-precision Clippy, extended turmoil network tests, and
-  Cargo publish-plan and dry-run checks each day at 12:00 UTC.
 - **performance.yml**: Rust tests and `cargo-ci-benches` benchmarks, on manual dispatch.
 - **security-audit.yml**: runs change-aware and scheduled supply chain checks (cargo-audit,
   cargo-deny, cargo-vet, pip-audit, osv-scanner, and Zizmor).

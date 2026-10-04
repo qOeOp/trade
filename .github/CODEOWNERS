@@ -1,5 +1,5 @@
 # =============================================================================
-# NautilusTrader Code Owners
+# Vibe Trader Code Owners
 # =============================================================================
 # These files require explicit review to prevent supply chain attacks,
 # configuration errors, and unauthorized changes to critical infrastructure.
@@ -9,70 +9,70 @@
 # =============================================================================
 # GitHub Actions & Workflows - HIGH SECURITY RISK
 # =============================================================================
-/.github/workflows/              @nautechsystems/core
-/.github/actions/                @nautechsystems/core
+/.github/workflows/              @qOeOp
+/.github/actions/                @qOeOp
 /.github/scripts/                @qOeOp
-/.github/CODEOWNERS              @nautechsystems/core
+/.github/CODEOWNERS              @qOeOp
 
 # =============================================================================
 # Rust Build & Dependencies - SUPPLY CHAIN RISK
 # =============================================================================
-/Cargo.toml                      @nautechsystems/core
-/Cargo.lock                      @nautechsystems/core
-/crates/Cargo.toml               @nautechsystems/core
-/crates/**/Cargo.toml            @nautechsystems/core
-/crates/**/fuzz/Cargo.lock       @nautechsystems/core
-/.cargo/config.toml              @nautechsystems/core
-/rust-toolchain.toml             @nautechsystems/core
-/deny.toml                       @nautechsystems/core
-/.cargo/deny-fuzz.toml           @nautechsystems/core
+/Cargo.toml                      @qOeOp
+/Cargo.lock                      @qOeOp
+/crates/Cargo.toml               @qOeOp
+/crates/**/Cargo.toml            @qOeOp
+/crates/**/fuzz/Cargo.lock       @qOeOp
+/.cargo/config.toml              @qOeOp
+/rust-toolchain.toml             @qOeOp
+/deny.toml                       @qOeOp
+/.cargo/deny-fuzz.toml           @qOeOp
 
 # =============================================================================
 # Python Build & Dependencies - SUPPLY CHAIN RISK
 # =============================================================================
-/python/pyproject.toml           @nautechsystems/core
-/python/uv.lock                  @nautechsystems/core
+/python/pyproject.toml           @qOeOp
+/python/uv.lock                  @qOeOp
 
 # =============================================================================
 # Build & CI Configuration
 # =============================================================================
-/Makefile                        @nautechsystems/core
-/.config/nextest.toml            @nautechsystems/core
+/Makefile                        @qOeOp
+/.config/nextest.toml            @qOeOp
 
 # =============================================================================
 # Code Quality & Formatting Configuration
 # =============================================================================
-/.pre-commit-config.yaml         @nautechsystems/core
-/.pre-commit-hooks/              @nautechsystems/core
-/rustfmt.toml                    @nautechsystems/core
-/clippy.toml                     @nautechsystems/core
-/.taplo.toml                     @nautechsystems/core
-/.markdownlint.jsonc             @nautechsystems/core
-/.yamllint.yaml                  @nautechsystems/core
+/.pre-commit-config.yaml         @qOeOp
+/.pre-commit-hooks/              @qOeOp
+/rustfmt.toml                    @qOeOp
+/clippy.toml                     @qOeOp
+/.taplo.toml                     @qOeOp
+/.markdownlint.jsonc             @qOeOp
+/.yamllint.yaml                  @qOeOp
 
 # =============================================================================
 # Git Configuration
 # =============================================================================
-/.gitignore                      @nautechsystems/core
-/.gitattributes                  @nautechsystems/core
+/.gitignore                      @qOeOp
+/.gitattributes                  @qOeOp
 
 # =============================================================================
 # Container Build & Docker - SUPPLY CHAIN RISK
 # =============================================================================
-/.docker/                        @nautechsystems/core
-/.dockerignore                   @nautechsystems/core
+/.docker/                        @qOeOp
+/.dockerignore                   @qOeOp
 
 # =============================================================================
 # Scripts - HIGH SECURITY RISK
 # =============================================================================
-/scripts/                        @nautechsystems/core
+/scripts/                        @qOeOp
 
 # =============================================================================
 # Build Automation & Reporting
 # =============================================================================
-/.codecov.yml                    @nautechsystems/core
+/.codecov.yml                    @qOeOp
 
 # =============================================================================
 # Security & Documentation
 # =============================================================================
-/SECURITY.md                     @nautechsystems/core
+/SECURITY.md                     @qOeOp
