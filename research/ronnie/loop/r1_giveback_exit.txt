@@ -1,0 +1,19 @@
+R-1 dynamic exits from the +1R giveback checkpoints (in-sample on both periods); weekly R sums; 0.5%-risk return is the yearly sum of R x 0.5% with no compounding and no limit on open trades
+
+== development 2018-2022: 4932 trades
+  base   : avg R +0.152, total R 752, weekly Sharpe 1.71, max DD -68R, ~75%/yr at 0.5% risk
+  X6     : avg R +0.139, total R 683, weekly Sharpe 1.80, max DD -62R, ~68%/yr at 0.5% risk; acts on 14.4% of trades, minus base -0.0139 [-0.0299, +0.0017]
+  X24    : avg R +0.146, total R 718, weekly Sharpe 1.75, max DD -71R, ~72%/yr at 0.5% risk; acts on 10.2% of trades, minus base -0.0069 [-0.0205, +0.0068]
+  B6     : avg R +0.139, total R 684, weekly Sharpe 1.73, max DD -76R, ~68%/yr at 0.5% risk; acts on 14.4% of trades, minus base -0.0137 [-0.0280, +0.0002]
+  B24    : avg R +0.140, total R 692, weekly Sharpe 1.68, max DD -75R, ~69%/yr at 0.5% risk; acts on 10.2% of trades, minus base -0.0121 [-0.0249, +0.0011]
+  W0     : avg R +0.130, total R 639, weekly Sharpe 1.65, max DD -69R, ~64%/yr at 0.5% risk; acts on 19.0% of trades, minus base -0.0228 [-0.0360, -0.0085]
+  B6+X24 : avg R +0.137, total R 676, weekly Sharpe 1.76, max DD -74R, ~68%/yr at 0.5% risk; acts on 19.4% of trades, minus base -0.0154 [-0.0347, +0.0031]
+
+== validation 2023-2026-08: 2788 trades
+  base   : avg R +0.097, total R 271, weekly Sharpe 1.10, max DD -84R, ~37%/yr at 0.5% risk
+  X6     : avg R +0.102, total R 283, weekly Sharpe 1.30, max DD -72R, ~39%/yr at 0.5% risk; acts on 15.6% of trades, minus base +0.0044 [-0.0143, +0.0226]
+  X24    : avg R +0.087, total R 243, weekly Sharpe 1.11, max DD -79R, ~33%/yr at 0.5% risk; acts on 10.8% of trades, minus base -0.0101 [-0.0264, +0.0054]
+  B6     : avg R +0.096, total R 267, weekly Sharpe 1.18, max DD -77R, ~36%/yr at 0.5% risk; acts on 15.6% of trades, minus base -0.0015 [-0.0163, +0.0130]
+  B24    : avg R +0.090, total R 252, weekly Sharpe 1.14, max DD -82R, ~34%/yr at 0.5% risk; acts on 10.8% of trades, minus base -0.0069 [-0.0214, +0.0078]
+  W0     : avg R +0.092, total R 256, weekly Sharpe 1.12, max DD -80R, ~35%/yr at 0.5% risk; acts on 19.2% of trades, minus base -0.0054 [-0.0212, +0.0093]
+  B6+X24 : avg R +0.093, total R 258, weekly Sharpe 1.25, max DD -70R, ~35%/yr at 0.5% risk; acts on 20.2% of trades, minus base -0.0045 [-0.0255, +0.0159]

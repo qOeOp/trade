@@ -2602,6 +2602,18 @@ checkpoint (e.g. 24 hours after +1R and closed under +0.25R: 12-14% of these tra
 exit -0.14R; under +0.5R at six hours: hold +0.33 / +0.15R vs exit +0.14 / +0.14R). A 2R target with a 1R stop breaks
 even at a 33% win rate, and the weak buckets sit near it. This agrees with X-2: no management rule after +1R adds R.
 
+### Dynamic exits from those checkpoints (2026-10-04, in-sample on both periods; `loop/r1_giveback_exit.txt`)
+
+Rules act only on trades still open at a checkpoint counted from the first +1R hour: X6 / X24 exit at the close if
+under 0.70R at 6 hours / under 0.45R at 24 hours; B6 / B24 move the stop to the entry instead; W0 moves it to the
+entry when the +1R hour closes under 0.93R; B6+X24 combines B6 and X24. Development (4,932 trades): base avg R +0.152,
+total 752R, weekly Sharpe 1.71, max drawdown -68R; every rule lowers total R (639-718R) and avg R (W0 -0.023
+[-0.036, -0.009], the others within noise below zero); Sharpe moves by -0.06 to +0.09 (X6 1.80, drawdown -62R).
+Validation (2,788 trades): base +0.097, 271R, Sharpe 1.10, drawdown -84R; X6 +0.102, 283R, Sharpe 1.30, drawdown -72R
+(difference +0.004 [-0.014, +0.023]); the others lower total R. Only X6 is not worse in both periods, and its gain is
+within noise and shown on the data that chose its threshold. Nothing is adopted; X6 may enter the forward record as
+a paired exit if wanted.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R

@@ -54,7 +54,7 @@ def coin_rows(args):
         base = Rof(exs) - fee(px) - fee(exs)
         r = dict(coin=coin, fill=q.index[jf], side=side, base=base)
         fav = [0.0] + [Rof(h[m]) if side == 1 else Rof(l[m]) for m in range(jf + 1, jx + 1)]
-        if kind == "stop":
+        if kind == "stop" and len(fav) > 1:
             fav[-1] = min(fav[-1], max(fav[:-1]))
         k1 = [k for k, x in enumerate(fav) if x >= 1.0]
         j1 = jf + k1[0] if k1 else None
