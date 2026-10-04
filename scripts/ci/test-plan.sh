@@ -38,11 +38,6 @@ cp "$repo_root/scripts/ci/plan.sh" "$source_repo/scripts/ci/plan.sh"
 # scripts/ci/owner-chain-crates.tsv is: crates/example is outside the closure,
 # crates/guarded is inside it.
 printf 'crates/example\tout\ncrates/guarded\tin\n' > "$source_repo/scripts/ci/owner-chain-crates.tsv"
-# A fixture rust-test reverse-dependency table, read exactly as the real repository's committed
-# scripts/ci/rust-test-crates.tsv is. crates/example's own package is named "nested" (below), and
-# its closure also names "downstream" to exercise a change reaching more than its own package.
-printf 'crates/example\tdownstream nested\ncrates/guarded\tguarded\n' \
-  > "$source_repo/scripts/ci/rust-test-crates.tsv"
 printf 'pub fn base() {}\n' > "$source_repo/crates/guarded/src/lib.rs"
 printf '[package]\nname = "guarded"\nversion = "0.0.0"\n' > "$source_repo/crates/guarded/Cargo.toml"
 printf 'name: build\n' > "$source_repo/.github/workflows/build.yml"
@@ -256,7 +251,7 @@ run_case rust_manifest \
   run_tests=true run_rust_tests=true run_generated_drift=false \
   run_full_pre_commit=true run_capnp_check=false \
   codeql_python_impacted=false codeql_rust_impacted=true run_owner_chain=true \
-  rust_test_scope=ALL
+  rust_test_filter=ALL
 run_case shared_schema \
   "printf '# changed\\n' >> schema/example.capnp" \
   run_tests=true run_rust_tests=true run_generated_drift=true \
@@ -288,21 +283,31 @@ run_case owner_chain_a_new_crate_the_table_has_never_seen_fails_open \
    printf 'pub fn added() {}\\n' > crates/example/newcrate/src/lib.rs" \
   run_owner_chain=true
 
-# rust_test_scope: a leaf change (guarded) scopes to its own package only; a change under a crate
-# with dependents (example, package "nested") scopes to its whole reverse closure; a crate the
-# table has never seen, exactly like owner_chain above, fails open to ALL rather than a named
-# subset.
-run_case rust_test_scope_a_leaf_crate_scopes_to_itself \
+# rust_test_filter: a changed crate's own `[package] name` becomes one `rdeps(=name)` clause,
+# read directly from its Cargo.toml at HEAD - crates/example's own package is named "nested", not
+# "example" (its Cargo.toml above), so the filter names the package, not the directory. A second
+# changed file under the same crate adds no duplicate clause. A crate this cannot name at all
+# (added in this very diff, so its Cargo.toml exists only in the working tree, not at HEAD) falls
+# open to ALL rather than a named filter, the same bias owner_chain above uses.
+run_case rust_test_filter_names_the_changed_crates_own_package \
   "printf 'pub fn changed() {}\\n' >> crates/guarded/src/lib.rs" \
-  run_rust_tests=true rust_test_scope=guarded
-run_case rust_test_scope_a_crate_with_dependents_scopes_to_its_closure \
+  run_rust_tests=true rust_test_filter="rdeps(=guarded)"
+run_case rust_test_filter_uses_the_packages_own_name_not_its_directory \
   "printf 'pub fn changed() {}\\n' >> crates/example/src/lib.rs" \
-  run_rust_tests=true rust_test_scope="downstream nested"
-run_case rust_test_scope_a_new_crate_the_table_has_never_seen_fails_open \
-  "mkdir -p crates/example/newcrate/src; \
-   printf '[package]\\nname = \"newcrate\"\\nversion = \"0.0.0\"\\n' > crates/example/newcrate/Cargo.toml; \
-   printf 'pub fn added() {}\\n' > crates/example/newcrate/src/lib.rs" \
-  rust_test_scope=ALL
+  run_rust_tests=true rust_test_filter="rdeps(=nested)"
+run_case rust_test_filter_two_changed_crates_or_their_clauses \
+  "printf 'pub fn changed() {}\\n' >> crates/example/src/lib.rs; \
+   printf 'pub fn changed() {}\\n' >> crates/guarded/src/lib.rs" \
+  run_rust_tests=true rust_test_filter="rdeps(=nested) | rdeps(=guarded)"
+# A crate whose Cargo.toml inherits its name from the workspace, rather than stating it as a
+# literal string, cannot be named by the plain-text reader this script uses in place of `cargo
+# metadata` (no network, no warm registry cache in this small job) - it fails open to ALL exactly
+# like an unresolvable path does, never guessing a name.
+run_case rust_test_filter_a_workspace_inherited_name_fails_open \
+  "mkdir -p crates/example/inherited/src; \
+   printf '[package]\\nname.workspace = true\\nversion = \"0.0.0\"\\n' > crates/example/inherited/Cargo.toml; \
+   printf 'pub fn added() {}\\n' > crates/example/inherited/src/lib.rs" \
+  rust_test_filter=ALL
 
 run_case workflow_self_change \
   "printf '# changed\\n' >> .github/workflows/build.yml" "${fail_closed[@]}"

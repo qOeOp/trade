@@ -8,7 +8,7 @@ set -euo pipefail
 
 emit() {
   local tests="$1" rust_tests="$2" generated="$3" full_prek="$4" capnp="$5"
-  local python="$6" rust="$7" owner_chain="$8" rust_test_scope="$9" reason="${10}"
+  local python="$6" rust="$7" owner_chain="$8" rust_test_filter="$9" reason="${10}"
   {
     echo "run_tests=${tests}"
     echo "run_rust_tests=${rust_tests}"
@@ -18,7 +18,7 @@ emit() {
     echo "codeql_python_impacted=${python}"
     echo "codeql_rust_impacted=${rust}"
     echo "run_owner_chain=${owner_chain}"
-    echo "rust_test_scope=${rust_test_scope}"
+    echo "rust_test_filter=${rust_test_filter}"
     echo "pre_commit_base=${merge_base:-}"
   } >> "$GITHUB_OUTPUT"
   echo "$reason"
@@ -236,40 +236,52 @@ owner_chain_impact() {
   echo true
 }
 
-# Loaded once; a missing or malformed table, or a path it cannot attribute to a known crate
-# directory, fails open to "run every test" - the same bias `owner_chain_table_status` uses, and
-# `run_all` uses for everything else this script cannot classify.
-rust_test_scope_table_loaded=false
-declare -A rust_test_scope_table=()
-rust_test_scope_all=false
-rust_test_scope_packages=""
+# The running set of nextest filterset clauses, one `rdeps(=<package>)` per distinct changed
+# crate; ORed together at the end. `rdeps()` is nextest's own reverse-dependency closure (every
+# crate that transitively depends on the named one, plus the named one itself), computed live
+# from the real `cargo metadata` graph nextest already resolves to build - unlike a committed
+# table, it can never go stale. `=` forces the exact-name matcher: package-related predicates
+# default to a glob matcher, which filterset's own docs warn is ambiguous for a programmatically
+# built expression.
+#
+# This scopes which tests *run*, never which packages *build*: every package in the run still
+# compiles under `--workspace`, the same feature set the unscoped run would have compiled under.
+# An earlier version of this change used `-p` to scope the build itself, which measurably changed
+# feature unification for a shared dependency (`cargo tree -e features`, `rust_decimal`'s `maths`
+# feature present under `--workspace`, absent under `-p vibe-fred` alone) - a scoped run could pass
+# against a feature set the unscoped run never actually ships, silently masking a real failure.
+# Filtering only which already-identically-built tests run has no such risk.
+rust_test_filter_all=false
+rust_test_filter_clauses=""
 
-load_rust_test_scope_table() {
-  rust_test_scope_table_loaded=true
-  local table="scripts/ci/rust-test-crates.tsv"
-  [[ -f "$table" ]] || return 0
-  local dir names
-  while IFS=$'\t' read -r dir names; do
-    case "$dir" in
-      '' | '#'*) continue ;;
-    esac
-    rust_test_scope_table["$dir"]="$names"
-  done < "$table"
+# The `[package] name = "..."` a crate directory's own Cargo.toml declares at HEAD, read directly
+# rather than through `cargo metadata` - this script runs in a small sandboxed job with no network
+# and no warm registry cache. Empty if the field cannot be found, which the caller treats as
+# unresolved.
+crate_package_name() {
+  local crate_dir="$1" manifest
+  manifest="$(git show "HEAD:${crate_dir}/Cargo.toml" 2> /dev/null)" || return 0
+  printf '%s\n' "$manifest" |
+    awk '/^\[package\]/ { found=1; next } /^\[/ { found=0 } found && /^name[[:space:]]*=/ { print; exit }' |
+    sed -n 's/^name[[:space:]]*=[[:space:]]*"\(.*\)"$/\1/p'
 }
 
-# Adds `changed_file`'s owning crate's reverse-dependency closure (every package whose tests a
-# change there could affect) to the running scope; falls open to ALL - never a named subset - the
-# moment any one changed file cannot be attributed to a tabled crate.
-rust_test_scope_add() {
-  local changed_file="$1" crate_dir
-  [[ "$rust_test_scope_all" == true ]] && return
-  [[ "$rust_test_scope_table_loaded" == true ]] || load_rust_test_scope_table
+# Adds `changed_file`'s owning crate's `rdeps()` clause to the running filter; falls open to ALL -
+# never a named subset - the moment any one changed file cannot be attributed to a crate directory
+# whose own Cargo.toml names it.
+rust_test_filter_add() {
+  local changed_file="$1" crate_dir package_name
+  [[ "$rust_test_filter_all" == true ]] && return
   crate_dir="$(owning_crate_dir "$changed_file")"
-  if [[ -n "$crate_dir" && -n "${rust_test_scope_table[$crate_dir]+set}" ]]; then
-    rust_test_scope_packages+=" ${rust_test_scope_table[$crate_dir]}"
+  package_name="$([[ -n "$crate_dir" ]] && crate_package_name "$crate_dir")"
+  if [[ -n "$package_name" ]]; then
+    case " $rust_test_filter_clauses " in
+      *" rdeps(=${package_name}) "*) ;;
+      *) rust_test_filter_clauses+=" rdeps(=${package_name})" ;;
+    esac
     return
   fi
-  rust_test_scope_all=true
+  rust_test_filter_all=true
 }
 
 tests=false
@@ -356,7 +368,7 @@ while IFS= read -r -d '' status <&3; do
       codeql_python=true
       codeql_rust=true
       owner_chain=true
-      rust_test_scope_all=true
+      rust_test_filter_all=true
       continue
       ;;
   esac
@@ -381,7 +393,7 @@ while IFS= read -r -d '' status <&3; do
       if [[ "$(owner_chain_impact "$changed_file")" == true ]]; then
         owner_chain=true
       fi
-      rust_test_scope_add "$changed_file"
+      rust_test_filter_add "$changed_file"
       ;;
     */Cargo.toml)
       tests=true
@@ -391,7 +403,7 @@ while IFS= read -r -d '' status <&3; do
       if [[ "$(owner_chain_impact "$changed_file")" == true ]]; then
         owner_chain=true
       fi
-      rust_test_scope_add "$changed_file"
+      rust_test_filter_add "$changed_file"
       ;;
     Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
       */.cargo/* | clippy.toml)
@@ -402,7 +414,7 @@ while IFS= read -r -d '' status <&3; do
       full_prek=true
       codeql_rust=true
       owner_chain=true
-      rust_test_scope_all=true
+      rust_test_filter_all=true
       ;;
     Makefile | *.mk | tools.toml | *.sh | *.bash | *.zsh | *.toml | *.yaml | *.yml | \
       *.json | *.lock | generated/* | */generated/* | tests/* | */tests/* | \
@@ -420,14 +432,12 @@ if [[ "$changed" != true ]]; then
   run_all "Empty changed-path set: running full validation"
 fi
 
-if [[ "$rust_tests" != true || "$rust_test_scope_all" == true ]]; then
-  rust_test_scope=ALL
+if [[ "$rust_tests" != true || "$rust_test_filter_all" == true || -z "${rust_test_filter_clauses// /}" ]]; then
+  rust_test_filter=ALL
 else
-  rust_test_scope="$(echo "$rust_test_scope_packages" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ')"
-  rust_test_scope="${rust_test_scope% }"
-  [[ -n "$rust_test_scope" ]] || rust_test_scope=ALL
+  rust_test_filter="$(echo "$rust_test_filter_clauses" | sed -e 's/^ *//' -e 's/ *$//' -e 's/ / | /g')"
 fi
 
 emit "$tests" "$rust_tests" "$generated" "$full_prek" "$capnp" \
-  "$codeql_python" "$codeql_rust" "$owner_chain" "$rust_test_scope" \
+  "$codeql_python" "$codeql_rust" "$owner_chain" "$rust_test_filter" \
   "PR impact plan: tests=${tests}, rust=${rust_tests}, generated=${generated}, owner_chain=${owner_chain}, changed-file pre-commit"
