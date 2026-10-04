@@ -8,10 +8,11 @@ use vibe_data::owner::{
     UniverseSampleProjectionOwnerV1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_economic_terms_v1::InstrumentEconomicTermsReadbackV1,
-    instrument_master_v2::{InstrumentMasterReadbackV2, InstrumentMasterResolverV2},
+    instrument_master_v2::InstrumentMasterResolverV2,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
-    pit_window_custody_v1::PitWindowCustodyFramesV1,
+    pit_window_custody_v1::PitWindowCustodyFramesV1, read_universe_selection_members_for_rd_v1,
+    source_binding::BindingDigest,
 };
 use vibe_model::identifiers::StrategyId;
 
@@ -135,17 +136,6 @@ where
                 );
                 NativeReplayExecutionBindingConsumerErrorV1
             })?;
-    let request = preparation.replay().request().as_dto();
-    let instrument_master = instrument_master_owner
-        .resolve_instrument_master_v2_for_native_replay_request(request.request_identity.as_str())
-        .await
-        .map_err(|e| {
-            crate::storage_diagnostic::refused_by_store(
-                "native_replay_execution_binding.instrument_master.resolve",
-                &e,
-            );
-            NativeReplayExecutionBindingConsumerErrorV1
-        })?;
     let economic_locators = stored.instrument_economic_terms_locators().map_err(|e| {
         crate::storage_diagnostic::refused_by_store(
             "native_replay_execution_binding.economic_terms.locators",
@@ -189,7 +179,7 @@ where
             &stored,
             &preparation,
             &projected_plan,
-            &instrument_master,
+            instrument_master_owner,
             &term_readbacks,
             profile,
             market_data,
@@ -213,6 +203,17 @@ where
             execution,
         });
     }
+    let request = preparation.replay().request().as_dto();
+    let instrument_master = instrument_master_owner
+        .resolve_instrument_master_v2_for_native_replay_request(request.request_identity.as_str())
+        .await
+        .map_err(|e| {
+            crate::storage_diagnostic::refused_by_store(
+                "native_replay_execution_binding.instrument_master.resolve",
+                &e,
+            );
+            NativeReplayExecutionBindingConsumerErrorV1
+        })?;
     // `market_request` is retained unused for now: it is the input that produced this readback, and
     // the window's whole frame sequence is resolved from it once Market Data supplies the
     // coordinates. Rebuilding it at that point would be the same second-resolution fault the
@@ -393,16 +394,18 @@ fn refused(
     NativeReplayExecutionBindingConsumerErrorV1
 }
 
-/// The custody branch: every frame of the bound run, read at its pinned head under the binding's
-/// Instrument Master cut, the Plan and Artifact revalidated against the run's first frame, the
-/// binding re-derived from the Owners exactly, and the bundle composed from every frame by value.
+/// The custody branch: every frame of the bound run, read at its pinned head under the chain's
+/// own Instrument Master key; each member's public terms from the V2 fact its economic terms link;
+/// the Plan and Artifact revalidated against the run's first frame; the binding re-derived from the
+/// Owners exactly, which also proves those terms cover the run and agree with the chain's own
+/// Instrument Master; and the bundle composed from every frame by value.
 #[allow(clippy::too_many_arguments)]
 async fn resolve_custody_execution_v1<R>(
-    transaction: Transaction<'_, Postgres>,
+    mut transaction: Transaction<'_, Postgres>,
     stored: &NativeReplayExecutionInputBindingReadbackV1,
     preparation: &NativeReplayPreparationInputsV2,
     projected_plan: &StrategyPlanV2,
-    instrument_master: &InstrumentMasterReadbackV2,
+    instrument_master_owner: &InstrumentMasterV2PostgresOwner,
     term_readbacks: &[&InstrumentEconomicTermsReadbackV1],
     profile: OwnerIssuedReplayExecutionProfileBindingV1,
     market_data: &R,
@@ -425,11 +428,35 @@ where
         market_data,
         preparation,
         projected_plan,
-        instrument_master,
         custody,
     )
     .await
     .map_err(|e| refused("native_replay_execution_binding.custody.frames", &e))?;
+    let (record_identity, record_digest) = frames.basis().universe_selection_record();
+    let custody_members =
+        read_universe_selection_members_for_rd_v1(&mut transaction, record_identity, record_digest)
+            .await
+            .map_err(|e| refused("native_replay_execution_binding.custody.members", &e))?;
+    // Each member's public terms are the V2 fact its economic terms link, read by that exact
+    // digest; the re-derivation below proves they agree with the chain's own Instrument Master.
+    let mut public_facts = Vec::with_capacity(term_readbacks.len());
+
+    for (ordinal, terms) in term_readbacks.iter().enumerate() {
+        let digest =
+            BindingDigest::from_untrusted_bytes(terms.fact().input().instrument_public_fact_digest);
+        public_facts.push(
+            instrument_master_owner
+                .resolve_fact_v2(digest)
+                .await
+                .map_err(|e| {
+                    refused(
+                        "native_replay_execution_binding.custody.public_fact",
+                        &format!("member {ordinal}: {e}"),
+                    )
+                })?,
+        );
+    }
+    let public_fact_refs = public_facts.iter().collect::<Vec<_>>();
     let plan = StrategyPlanV2::parse_and_revalidate_durable_with_owner_universe(
         preparation.composer().plan_bytes(),
         frames.first_universe_frame(),
@@ -463,8 +490,10 @@ where
         &profile,
         &plan,
         &artifact,
-        instrument_master,
+        frames.basis(),
+        &custody_members,
         term_readbacks,
+        &public_fact_refs,
     )
     .map_err(|e| {
         refused(
@@ -479,15 +508,11 @@ where
             &"the re-derived binding names another custody run",
         ));
     }
-    let public_terms = instrument_master
-        .cut()
-        .members()
+    let public_terms = public_facts
         .iter()
         .enumerate()
-        .map(|(ordinal, member)| {
-            member
-                .fact()
-                .validate_native_crypto_perpetual_public_terms()
+        .map(|(ordinal, fact)| {
+            fact.validate_native_crypto_perpetual_public_terms()
                 .map_err(|e| {
                     refused(
                         "native_replay_execution_binding.custody.public_terms.validate",

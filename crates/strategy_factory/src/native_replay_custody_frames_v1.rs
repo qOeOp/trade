@@ -12,15 +12,15 @@
 
 use thiserror::Error;
 use vibe_data::owner::{
-    instrument_master_v2::InstrumentMasterReadbackV2,
     native_replay_scheduling_v1::{
         NativeReplayFrameSourceV1, NativeReplayInitialMarketRequestV1,
         NativeReplaySchedulingErrorV1, NativeReplaySchedulingReadbackV1,
         NativeReplaySchedulingResolverV1,
     },
     pit_window_custody_v1::{
-        PitObservationBatchSourceV1, PitWindowCustodyFramesV1, PitWindowRunFramesV1,
-        PitWindowRunRefusalV1, UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowRunV1,
+        PitObservationBatchSourceV1, PitWindowChainBasisV1, PitWindowCustodyFramesV1,
+        PitWindowRunFramesV1, PitWindowRunRefusalV1, UntrustedPitWindowCustodyClaimV1,
+        UntrustedPitWindowRunV1,
     },
     source_binding::BindingDigest,
     strategy_input_binding::StrategyInputUniverseFrameReceipt,
@@ -90,6 +90,7 @@ pub enum NativeReplayCustodyFramesErrorV1 {
 pub struct ResolvedNativeReplayCustodyFramesV1 {
     frames: Vec<(OwnerUniverseFrameV1, NativeReplaySchedulingReadbackV1)>,
     custody: ReplayCustodyRunCensusV1,
+    basis: PitWindowChainBasisV1,
 }
 
 impl ResolvedNativeReplayCustodyFramesV1 {
@@ -103,6 +104,13 @@ impl ResolvedNativeReplayCustodyFramesV1 {
     #[must_use]
     pub const fn custody(&self) -> &ReplayCustodyRunCensusV1 {
         &self.custody
+    }
+
+    /// The chain's basis as Market Data read it with the run's frames: its Instrument Master cut,
+    /// Universe Selection Record and members.
+    #[must_use]
+    pub const fn basis(&self) -> &PitWindowChainBasisV1 {
+        &self.basis
     }
 
     /// The run's first frame, which the Plan is revalidated against.
@@ -224,14 +232,15 @@ where
             head_version: run.head_version(),
             view_identities,
         },
+        basis: run.basis().clone(),
     })
 }
 
 /// Every frame of the custody run `custody` binds, read at the head it pins.
 ///
 /// The frames are enumerated afresh from the bound chain and window, and the run is refused as
-/// moved unless they come from the bound head. The Instrument Master cut every frame must be read
-/// under is the Plan's, the one the binding verified at issuance.
+/// moved unless they come from the bound head. Every frame must be read under the chain's own
+/// Instrument Master key, the cut its basis declares.
 ///
 /// # Errors
 ///
@@ -241,7 +250,6 @@ pub(crate) async fn resolve_bound_custody_run_frames_v1<F, R>(
     resolver: &R,
     preparation: &NativeReplayPreparationInputsV2,
     plan: &StrategyPlanV2,
-    instrument_master: &InstrumentMasterReadbackV2,
     custody: &ReplayCustodyRunBindingV1,
 ) -> Result<ResolvedNativeReplayCustodyFramesV1, NativeReplayCustodyFramesErrorV1>
 where
@@ -271,21 +279,14 @@ where
         .first()
         .ok_or(NativeReplayCustodyFramesErrorV1::NoFrame)?
         .event_ns();
-    let first = native_replay_custody_first_frame_request_v1(
-        preparation,
-        plan,
-        instrument_master,
-        custody,
-        first_event_ns,
+    let first =
+        native_replay_custody_first_frame_request_v1(plan, run.basis(), custody, first_event_ns)
+            .map_err(|e| NativeReplayCustodyFramesErrorV1::RequestUnavailable(e.to_string()))?;
+    resolve_native_replay_custody_frames_v1(
+        resolver,
+        &run,
+        &first,
+        run.basis().instrument_master_key(),
     )
-    .map_err(|e| NativeReplayCustodyFramesErrorV1::RequestUnavailable(e.to_string()))?;
-    let instrument_master_digest = plan
-        .universe_selection()
-        .ok_or_else(|| {
-            NativeReplayCustodyFramesErrorV1::RequestUnavailable(
-                "the Plan binds no Owner universe selection".to_owned(),
-            )
-        })?
-        .instrument_master_digest();
-    resolve_native_replay_custody_frames_v1(resolver, &run, &first, instrument_master_digest).await
+    .await
 }
