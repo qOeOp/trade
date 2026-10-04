@@ -26,8 +26,7 @@ use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwne
 /// `pg_temp` last; a routine that leaves `pg_temp` out searches it first.
 #[rstest]
 fn composer_owner_api_routines_search_pg_temp_last() {
-    let migration =
-        include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
+    let migration = include_str!("../../../database/postgres-init/10-migrate-authority-custody.sh");
     let routines = migration
         .split("CREATE OR REPLACE FUNCTION composer_owner_api.")
         .skip(1)
@@ -104,8 +103,7 @@ fn function_body<'a>(migration: &'a str, tag: &str) -> &'a str {
 
 #[rstest]
 fn artifact_build_receipts_read_takes_no_lock() {
-    let migration =
-        include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
+    let migration = include_str!("../../../database/postgres-init/10-migrate-authority-custody.sh");
     assert_eq!(
         lock_clauses(function_body(migration, "composer_artifact_build_receipts")),
         Vec::<&str>::new()
@@ -124,8 +122,7 @@ fn artifact_build_receipts_read_takes_no_lock() {
 #[rstest]
 fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority() {
     let source = include_str!("../src/develop_composer_postgres_v2.rs");
-    let migration =
-        include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
+    let migration = include_str!("../../../database/postgres-init/10-migrate-authority-custody.sh");
     assert!(source.contains("pg_advisory_xact_lock"));
     assert!(source.contains("10:rd.develop.research.v2"));
     assert!(source.contains("20:rd.develop.intent.v2"));

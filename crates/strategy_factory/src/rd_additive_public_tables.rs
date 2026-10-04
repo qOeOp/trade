@@ -10,7 +10,7 @@ use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 /// `owner_database_url` must authenticate as `rd_owner`, which creates and so owns every new
 /// table; `migrator_database_url` as `rd_schema_migrator`, which holds nothing beyond `EXECUTE` on
 /// the two SECURITY DEFINER functions that open and close the one window `rd_owner` needs
-/// (`product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`'s
+/// (`database/postgres-init/10-migrate-authority-custody.sh`'s
 /// `rd_schema_migration_api` schema). The window is closed even when creating a table inside it
 /// fails, since a lingering grant on `rd_owner` is the worse outcome to leave unreported; if
 /// closing it also fails, that failure is what this function returns.

@@ -61,7 +61,7 @@ widening the admitted set requires changing this document first.
   that Owner's `portfolio_api` read functions, and seals what it read together with the evidence cut it read it
   at. It makes no Risk decision, commits no Reservation, writes no fence, and consumes no Trade Intent, because
   the inputs for all four have no producer. Two prerequisites sat outside this Owner: the role pair and its
-  schemas are a shared-surface change under `product/rd-workbench/postgres-init/`, and Portfolio had to grant
+  schemas are a shared-surface change under `database/postgres-init/`, and Portfolio had to grant
   `risk_writer` execute on the read functions. Both are now met in
   `crates/portfolio_owner/src/capacity_scope_postgres.rs`, whose migration grants `USAGE` on `portfolio_api` and
   execute on three functions: `read_bound_capacity_scope_v1` and `read_current_capacity_view_v1` to

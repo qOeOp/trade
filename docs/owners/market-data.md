@@ -97,7 +97,7 @@ never runs in CI.
   `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, and its evidence carries the marker
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
   port accepts the marker. Admission itself is still `B3`: nothing leases its principal yet. That principal is
-  `market_data_admitted_reader`. `product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh` provisions it as
+  `market_data_admitted_reader`. `database/postgres-init/25-market-data-admitted-reader.sh` provisions it as
   a login role that inherits nothing, has no role membership in either direction, and holds `CONNECT` on the database;
   the compose file does not run that script yet. The deployed ACL cutover revokes every privilege on
   `market_data_private` and `market_data_admitted_read` from every role it names, and the admitted reader is not among
@@ -169,7 +169,7 @@ never runs in CI.
   Five production adapters exist, and `store_admission/composition.rs` composes them from the files the deployment's
   configuration names: the pinned Ed25519 signature verifier (`store_admission/signature.rs`), the PostgreSQL custody
   store (`store_admission/custody_postgres.rs`, its schema and its two principals in
-  `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file's
+  `database/postgres-init/20-deployment-store-custody.sh`, which the compose file's
   `deployment-store-provision` service runs), and the secret-file credential resolver
   (`store_admission/credential_files.rs`). A secret file has no version or expiry of its own: its version is the
   SHA-256 of its exact bytes, which the signed manifest names, and its lease lapses at the end of the fixed-length lease

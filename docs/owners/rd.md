@@ -260,7 +260,7 @@ ordered chain's acceptance build admits nothing in production.
   repository that grants execute to more than one consuming Owner role - `product_edge_owner`,
   `qualification_writer`, `backtest_owner`, `market_data_owner` and `market_data_reader`, with `rd_owner` as the
   schema's own role. The schemas, their functions and every grant are established by the Owner migrations that
-  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` runs, and that script with the migrations
+  `database/postgres-init/10-migrate-authority-custody.sh` runs, and that script with the migrations
   it invokes is the authority for what exists at any cut. This row deliberately states no function count. A count
   goes stale the day an Owner adds a function, and it overstates the surface even while it is right: a function
   living in an `_api` schema is reachable only when some role holds `EXECUTE` on it, and this schema holds both

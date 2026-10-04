@@ -82,7 +82,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身仍然是 `B3`：还没有
   任何东西租用它的主体。那个主体是 `market_data_admitted_reader`。
-  `product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh` 把它建成一个可登录、不继承任何东西、在两个方向上
+  `database/postgres-init/25-market-data-admitted-reader.sh` 把它建成一个可登录、不继承任何东西、在两个方向上
   都没有角色成员关系、并持有数据库 `CONNECT` 的角色；compose 文件还不运行这个脚本。部署时的 ACL 切换把
   `market_data_private` 与 `market_data_admitted_read` 上的全部权限从它点名的每个角色收回，admitted reader 不在其中。
   切换在 Owner materialize 之后运行，所以 Owner 迁移授给读者的权限能留下来，靠的只是读者不在那些名单里；
@@ -136,7 +136,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   `SealedDeploymentStoreAdmissionReceipt` 带 witness identity，却没有 signer key fingerprint 或 bundle identity。
   已有五个生产适配器，由 `store_admission/composition.rs` 从部署配置所指名的文件组合起来：pin 住一把公钥的 Ed25519
   签名验证器（`store_admission/signature.rs`）、PostgreSQL custody store（`store_admission/custody_postgres.rs`；其 schema
-  与两个主体在 `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，由 compose 文件的
+  与两个主体在 `database/postgres-init/20-deployment-store-custody.sh`，由 compose 文件的
   `deployment-store-provision` 服务运行），以及 secret 文件凭据 resolver（`store_admission/credential_files.rs`）。
   secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的 SHA-256，由签名 manifest 指名；其租约在准入的 store
   时钟 cut 所在的那个固定长度租期的期末到期，所以同一租期内的每次准入与 revalidation 都封存或重新加入同一张回执。

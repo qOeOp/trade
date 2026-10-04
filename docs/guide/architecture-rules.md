@@ -202,7 +202,7 @@ The baseline was measured on `main` at `80e9497a8`:
 
 - Crate edges: `cargo metadata --format-version 1 --no-deps`, normal dependencies only (dev and build dependencies
   excluded), with each crate assigned to its Owner.
-- Database edges: every `GRANT` to an Owner role in `product/rd-workbench/postgres-init/`, in migrations, and in
+- Database edges: every `GRANT` to an Owner role in `database/postgres-init/`, in migrations, and in
   crate DDL; every `CREATE FUNCTION` body that names another Owner's schema; and every production Rust SQL string
   that names another Owner's schema. Grants to `vibe_test_*` roles and grants in test or CI harness files (36
   sites) are reported separately and are not edges.
@@ -239,7 +239,7 @@ Product Edge of Operator Authorization).
 | `vibe-rd-source-intake-invocation-custody` | 1                           | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                          |
 
 Two further facts block independence outside the crate graph. One script,
-`product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` (5869 lines), creates the schemas of every
+`database/postgres-init/10-migrate-authority-custody.sh` (5869 lines), creates the schemas of every
 Owner, so no Owner migrates a database on its own. Of the four core Owners, only Backtest has a contract crate
 (`vibe-backtest-owner-contracts`); Market Data, R&D, and Qualification are consumed through their whole crates.
 
@@ -247,7 +247,7 @@ Owner, so no Owner migrates a database on its own. Of the four core Owners, only
 
 Each row is `TARGET` and is removed by its own reviewable change after U1. A row closes when its crate edge,
 grants, and call sites are all gone and a fresh run of the baseline shows the pair one-way. Paths are at
-`80e9497a8`; `10-migrate` is `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`.
+`80e9497a8`; `10-migrate` is `database/postgres-init/10-migrate-authority-custody.sh`.
 
 | Reverse edge              | Status   | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                             | Removal                                                                                                                                       |
 | ------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |

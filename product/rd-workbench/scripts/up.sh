@@ -197,7 +197,7 @@ fi
 # 2. The images, from this checkout. Inputs that are committed, clean and already built are not
 # rebuilt; the key is what the Owner image copies in, so a commit elsewhere does not rebuild it.
 build_inputs=(Cargo.toml Cargo.lock crates patches examples/tutorials product/rd-workbench/Dockerfile.owner
-  product/rd-workbench/Dockerfile.sandbox product/rd-workbench/postgres-init)
+  product/rd-workbench/Dockerfile.sandbox database/postgres-init)
 tree=$(git -C "$repo_root" ls-tree HEAD -- "${build_inputs[@]}" | shasum -a 256 | cut -d' ' -f1)
 dirty=$(git -C "$repo_root" status --porcelain -- "${build_inputs[@]}")
 if [ -z "$dirty" ] && [ "$(cat "$state_dir/steps/build" 2> /dev/null)" = "$tree" ] &&
@@ -362,8 +362,8 @@ else
 fi
 once postgres-tls-install "$volume_created $(shasum -a 256 "$tls_dir/server.crt" | cut -d' ' -f1)" \
   compose run --rm postgres-tls-install
-provision_digest=$(shasum -a 256 "$package_dir/postgres-init/20-deployment-store-custody.sh" \
-  "$package_dir/postgres-init/25-market-data-admitted-reader.sh" | shasum -a 256 | cut -d' ' -f1)
+provision_digest=$(shasum -a 256 "$repo_root/database/postgres-init/20-deployment-store-custody.sh" \
+  "$repo_root/database/postgres-init/25-market-data-admitted-reader.sh" | shasum -a 256 | cut -d' ' -f1)
 once deployment-store-provision "$volume_created $provision_digest" compose run --rm deployment-store-provision
 
 printf 'postgres://market_data_admitted_reader:%s@postgres:5432/rd_owner\n' "$(env_value MARKET_DATA_ADMITTED_READER_DB_PASSWORD)" \
@@ -388,7 +388,7 @@ esac
 
 # 7 and 8. The custody migration and the authority schema. Both are idempotent; each is skipped
 # once it has run on this volume with this script and this image.
-migrate_digest=$(shasum -a 256 "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d' ' -f1)
+migrate_digest=$(shasum -a 256 "$repo_root/database/postgres-init/10-migrate-authority-custody.sh" | cut -d' ' -f1)
 once authority-custody-migrate "$volume_created $migrate_digest $image_id" \
   compose run --rm --no-deps authority-custody-migrate
 once authority-schema-materialize "$volume_created $image_id" \

@@ -1,6 +1,6 @@
 //! The production custody store: signed append-only manifests, one signed current head per scope,
 //! and immutable admission receipts, in PostgreSQL behind
-//! `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`.
+//! `database/postgres-init/20-deployment-store-custody.sh`.
 //!
 //! The custodian's principal can only read history, read the store clock, and record receipts; the
 //! publisher's principal can only append a signed manifest and advance its head. Both reach the

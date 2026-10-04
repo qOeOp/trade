@@ -173,7 +173,7 @@ repos:
           sources, so a change it refuses is refused at commit rather than forty minutes later
         entry: bash product/rd-workbench/scripts/check.sh
         language: system
-        files: ^(product/rd-workbench/|crates/|scripts/ci/test-rd-owner-postgres\.bash$)
+        files: ^(product/rd-workbench/|database/|crates/|scripts/ci/test-rd-owner-postgres\.bash$)
         pass_filenames: false
       - id: check-feature-gate-coverage
         name: check feature gate coverage

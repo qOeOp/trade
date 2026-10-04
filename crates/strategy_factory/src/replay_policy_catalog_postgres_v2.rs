@@ -42,7 +42,7 @@ const ADMIN_COMMAND_SIGNATURE_DOMAIN_V3: &[u8] = b"rd.replay-policy-catalog-admi
 const ADMIN_COMMAND_AUTHENTICATION_FACT_DOMAIN_V3: &[u8] =
     b"rd.replay-policy-catalog-admin-authentication-fact.v3\0";
 const AUTHORITY_MIGRATION_SQL: &str =
-    include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
+    include_str!("../../../database/postgres-init/10-migrate-authority-custody.sh");
 
 const CATALOG_TABLES_V2: [&str; 4] = [
     "rd_replay_policy_catalog_records_v2",

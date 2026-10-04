@@ -825,7 +825,7 @@ check_backtest_result_function_source() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   python3 - \
-    "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
+    "$repository_root/database/postgres-init/10-migrate-authority-custody.sh" \
     "$repository_root/crates/backtest_result_custody/src/lib.rs" \
     "$repository_root/crates/backtest_result_custody/src/protected_replay.rs" \
     "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
@@ -1008,7 +1008,7 @@ check_exploratory_replay_read_fence_source() {
   python3 - \
     "$repository_root/crates/strategy_factory/src/exploratory_replay/postgres.rs" \
     "$repository_root/crates/rd_exploratory_replay_custody/src/lib.rs" \
-    "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
+    "$repository_root/database/postgres-init/10-migrate-authority-custody.sh" \
     "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
 from hashlib import sha256
 from pathlib import Path
@@ -1124,8 +1124,8 @@ require_literal_present() {
 check_market_data_principal_bootstrap_order() {
   local repository_root bootstrap migration bootstrap_line materializer_line
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  bootstrap="$repository_root/product/rd-workbench/postgres-init/00-create-rd-owner.sh"
-  migration="$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+  bootstrap="$repository_root/database/postgres-init/00-create-rd-owner.sh"
+  migration="$repository_root/database/postgres-init/10-migrate-authority-custody.sh"
   require_exact_line_once 'CREATE ROLE market_data_owner NOLOGIN;' "$bootstrap" \
     'the bootstrap creates the Market Data owner with no login of its own'
   require_exact_line_once 'CREATE ROLE market_data_reader NOLOGIN;' "$bootstrap" \
@@ -1223,7 +1223,7 @@ check_composer_acceptance_stays_in_the_chain() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   local migration_calls switch_calls
-  migration_calls="$(rg -c '^[[:space:]]+"\$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody\.sh$' "${BASH_SOURCE[0]}" || true)"
+  migration_calls="$(rg -c '^[[:space:]]+"\$container" sh -s < database/postgres-init/10-migrate-authority-custody\.sh$' "${BASH_SOURCE[0]}" || true)"
   switch_calls="$(rg -c '^[[:space:]]+--env "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE=\$\{composer_acceptance_migration\}" \\$' "${BASH_SOURCE[0]}" || true)"
   if [[ "${migration_calls:-0}" -lt 1 || "${migration_calls:-0}" != "${switch_calls:-0}" ]]; then
     echo "ERROR: every 10-migrate-authority-custody.sh run in this chain must pass SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE from the union: ${migration_calls:-0} runs, ${switch_calls:-0} pass it." >&2
@@ -1268,7 +1268,7 @@ check_composer_acceptance_stays_in_the_chain() {
   done
   local deploy_setters
   deploy_setters="$(git -C "$repository_root" grep -l -F SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE -- product/rd-workbench \
-    ':!product/rd-workbench/postgres-init/10-migrate-authority-custody.sh' \
+    ':!database/postgres-init/10-migrate-authority-custody.sh' \
     ':!product/rd-workbench/scripts/check/authority.bash' || true)"
   if [[ -n "$deploy_setters" ]]; then
     echo "ERROR: the deployment names SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE: ${deploy_setters//$'\n'/, }" >&2
@@ -1634,7 +1634,7 @@ check_trial_family_candidate_experiment_cutover() {
   python3 - \
     "$repository_root/crates/strategy_factory/src/trial_family_postgres.rs" \
     "$repository_root/crates/strategy_factory/src/iteration_decision_postgres.rs" \
-    "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
+    "$repository_root/database/postgres-init/10-migrate-authority-custody.sh" \
     "$repository_root/docs/owners/rd.md" \
     "$repository_root/docs/owners/rd.zh.md" \
     "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
@@ -2023,7 +2023,7 @@ run_authority_migration_for_database() {
     --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
     --env "RD_SCHEMA_MIGRATOR_DB_PASSWORD=${test_password}" \
     --env "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE=${composer_acceptance_migration}" \
-    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+    "$container" sh -s < database/postgres-init/10-migrate-authority-custody.sh
 }
 
 # `--report-records` and `--report-partial-records` judge records and nothing else: they run where
@@ -3404,7 +3404,7 @@ docker exec --interactive \
   --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
   --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
   --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
-  "$container" sh -s < product/rd-workbench/postgres-init/00-create-rd-owner.sh
+  "$container" sh -s < database/postgres-init/00-create-rd-owner.sh
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
@@ -3553,7 +3553,7 @@ docker exec --interactive \
   --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
   --env "RD_SCHEMA_MIGRATOR_DB_PASSWORD=${test_password}" \
   --env "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE=${composer_acceptance_migration}" \
-  "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+  "$container" sh -s < database/postgres-init/10-migrate-authority-custody.sh
 
 existing_cutover_candidate_experiment_fingerprint_before="$(
   existing_cutover_replay_fingerprint

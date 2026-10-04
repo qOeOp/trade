@@ -2563,9 +2563,8 @@ mod tests {
 
     #[rstest]
     fn outcome_evidence_migration_repeats_runtime_topology_guards() {
-        const MIGRATION: &str = include_str!(
-            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
-        );
+        const MIGRATION: &str =
+            include_str!("../../../database/postgres-init/10-migrate-authority-custody.sh");
         let start = MIGRATION
             .find("DO $backtest_outcome_evidence_topology_readback$")
             .expect("outcome evidence migration readback start");

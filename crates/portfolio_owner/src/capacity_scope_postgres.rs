@@ -406,7 +406,7 @@ impl CapacityScopePostgresV1 {
             //
             // `USAGE` survives there only because it has a second, unguarded source: search
             // `GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner` in
-            // `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`. The function
+            // `database/postgres-init/10-migrate-authority-custody.sh`. The function
             // level has no such second source, and `REVOKE ALL ON ALL FUNCTIONS IN SCHEMA
             // market_data_rd_api` in that same file does not name `rd_owner`, so those twelve bits
             // were never granted rather than granted and withdrawn.

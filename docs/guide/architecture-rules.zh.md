@@ -172,7 +172,7 @@ crate（`vibe-backtest`、`vibe-execution`、`vibe-portfolio`、`vibe-risk`、`v
 基线在 `main` 的 `80e9497a8` 上测量：
 
 - crate 边：`cargo metadata --format-version 1 --no-deps`，只取 normal 依赖（排除 dev 与 build 依赖），每个 crate 归到它的 Owner。
-- 数据库边：`product/rd-workbench/postgres-init/`、迁移与 crate DDL 里每一条授予 Owner 角色的 `GRANT`；每一个提到另一个 Owner
+- 数据库边：`database/postgres-init/`、迁移与 crate DDL 里每一条授予 Owner 角色的 `GRANT`；每一个提到另一个 Owner
   schema 的 `CREATE FUNCTION` 函数体；以及每一条提到另一个 Owner schema 的生产 Rust SQL 字符串。授予 `vibe_test_*` 角色的
   grant 和测试或 CI 夹具文件里的 grant（36 处）单独报告，不算边。
 - 正控：扫描找到了已知的 `market_data_rd_api` 授予 `rd_owner`，位于
@@ -203,14 +203,14 @@ crate 都符合规则：`vibe-data`、`vibe-binance`、`vibe-databento`、`vibe-
 | `vibe-rd-artifact-invocation-custody`      | 1                    | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                   |
 | `vibe-rd-source-intake-invocation-custody` | 1                    | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                   |
 
-crate 图之外还有两件事阻碍独立。一个脚本 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`（5869 行）创建所有 Owner
+crate 图之外还有两件事阻碍独立。一个脚本 `database/postgres-init/10-migrate-authority-custody.sh`（5869 行）创建所有 Owner
 的 schema，所以没有一个 Owner 能单独迁移数据库。四个核心 Owner 里只有 Backtest 有契约 crate（`vibe-backtest-owner-contracts`）；Market
 Data、R&D 与 Qualification 都是被整个 crate 依赖。
 
 ### 拆除清单
 
 每一行都是 `TARGET`，在 U1 之后由各自可单独评审的改动拆除。一行关闭的条件是：它的 crate 边、grant 与调用点全部消失，并且重跑基线显示
-这一对已是单向。路径以 `80e9497a8` 为准；`10-migrate` 指 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`。
+这一对已是单向。路径以 `80e9497a8` 为准；`10-migrate` 指 `database/postgres-init/10-migrate-authority-custody.sh`。
 
 | 反向边                    | 状态     | 证据                                                                                                                                                                                                                                                                                                                                                                                                                                              | 拆除方式                                                                                                              |
 | ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |

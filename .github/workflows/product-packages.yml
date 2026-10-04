@@ -15,6 +15,7 @@ on:
       - product/dashboard/**
       - product/rd-workbench/**
       - product/rd-owner-client/**
+      - database/**
       - docs/guide/dashboard.md
       - docs/guide/dashboard.zh.md
   pull_request:
@@ -24,6 +25,7 @@ on:
       - product/dashboard/**
       - product/rd-workbench/**
       - product/rd-owner-client/**
+      - database/**
       - docs/guide/dashboard.md
       - docs/guide/dashboard.zh.md
   workflow_dispatch:
