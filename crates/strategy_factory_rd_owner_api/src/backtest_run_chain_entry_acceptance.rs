@@ -92,16 +92,32 @@ fn chain_entry_bar(open_ns: u64) -> SealedAcceptanceBarV1 {
     }
 }
 
-/// The custody chain's own window, `[start, end)` in nanoseconds - [`chain_entry_spec_v1`]'s
-/// `CUSTODY_FRAMES` daily bars from epoch, plus its warm-up day.
-const fn chain_entry_window() -> (u64, u64) {
-    (0, (CUSTODY_FRAMES + 1) * DAY_NS)
+/// The first UTC day boundary at or after `effective_ns` - F's own perpetual admits its economic
+/// terms at Market Data's current decision cut (that instant), so the chain's own window must
+/// start no earlier than it, and the sealed Replay policy window (`[1, 2^63)`) separately refuses
+/// a start of zero outright. Starting the chain itself a day after this boundary, with the run
+/// window then starting a further day in (`chain_entry_run_window`), keeps every bar's open and
+/// close inside both.
+const fn chain_entry_start(effective_ns: u64) -> u64 {
+    (effective_ns / DAY_NS + 1) * DAY_NS
 }
 
-/// A real sealed-acceptance custody chain over the same perpetual F already admitted:
-/// `CUSTODY_FRAMES` daily execution bars from epoch, with a one-minute fill timeframe and a
-/// two-minute lag, matching the custody intake's own requirements.
-fn chain_entry_spec_v1() -> SealedAcceptanceCustodyChainSpecV1 {
+/// The custody chain's own window, `[start, end)` in nanoseconds - `CUSTODY_FRAMES` daily bars
+/// from [`chain_entry_start`], plus its warm-up day.
+const fn chain_entry_window(start: u64) -> (u64, u64) {
+    (start, start + (CUSTODY_FRAMES + 1) * DAY_NS)
+}
+
+/// The run's own requested window: the first frame's own instant (`e_1`, the execution bundle
+/// requires the request window's start to equal it) through the chain's own end.
+const fn chain_entry_run_window(start: u64) -> (u64, u64) {
+    (start + DAY_NS, start + (CUSTODY_FRAMES + 1) * DAY_NS)
+}
+
+/// A real sealed-acceptance custody chain over the same perpetual F already admitted, anchored at
+/// `start` (see [`chain_entry_start`]): `CUSTODY_FRAMES` daily execution bars, with a one-minute
+/// fill timeframe and a two-minute lag, matching the custody intake's own requirements.
+fn chain_entry_spec_v1(start: u64) -> SealedAcceptanceCustodyChainSpecV1 {
     let fill_open = |event_ns: u64| event_ns + CUSTODY_LAG_NS + MINUTE_NS;
     SealedAcceptanceCustodyChainSpecV1 {
         members: vec![PERPETUAL_V1.to_owned()],
@@ -109,14 +125,14 @@ fn chain_entry_spec_v1() -> SealedAcceptanceCustodyChainSpecV1 {
             label: "24H".to_owned(),
             interval_seconds: 86_400,
             bars: (0..CUSTODY_FRAMES)
-                .map(|day| chain_entry_bar(day * DAY_NS))
+                .map(|day| chain_entry_bar(start + day * DAY_NS))
                 .collect(),
         },
         fill_timeframe: SealedAcceptanceTimeframeV1 {
             label: "1M".to_owned(),
             interval_seconds: 60,
             bars: (1..=CUSTODY_FRAMES)
-                .map(|day| chain_entry_bar(fill_open(day * DAY_NS)))
+                .map(|day| chain_entry_bar(fill_open(start + day * DAY_NS)))
                 .collect(),
         },
         lag_ns: CUSTODY_LAG_NS,
@@ -164,6 +180,20 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
 ) {
     crate::tests::composed_market_data_binding_admission(test_database).await;
+
+    // F admits the perpetual's economic terms at Market Data's current decision cut; the
+    // custody chain's own window must start no earlier than that instant, so this entry anchors
+    // it on the next UTC day boundary after it.
+    let effective_ns =
+        pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberDailyBarsV1))
+            .await
+            .expect("Market Data's PIT intake opens")
+            .current_decision_cut()
+            .await
+            .expect("Market Data states its decision cut")
+            .decision_cut
+            .as_epoch_nanos();
+    let chain_start_ns = chain_entry_start(effective_ns);
 
     let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
     let product_edge_url = test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
@@ -286,15 +316,22 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     .await
     .expect("the harness reader role is granted the sealed custody reads it needs");
 
-    let chain =
-        commit_sealed_acceptance_custody_chain_v1(market_data_owner_url, &chain_entry_spec_v1())
-            .await
-            .expect("the sealed-acceptance custody chain commits over the production intakes");
-    let (window_start_ns, window_end_ns_exclusive) = chain_entry_window();
+    let chain = commit_sealed_acceptance_custody_chain_v1(
+        market_data_owner_url,
+        &chain_entry_spec_v1(chain_start_ns),
+    )
+    .await
+    .expect("the sealed-acceptance custody chain commits over the production intakes");
     assert_eq!(
         chain.window(),
-        (window_start_ns, window_end_ns_exclusive),
-        "the committed chain's window is the one this entry's run names"
+        chain_entry_window(chain_start_ns),
+        "the committed chain's own window is the one this entry anchored it at"
+    );
+    let (window_start_ns, window_end_ns_exclusive) = chain_entry_run_window(chain_start_ns);
+    assert!(
+        window_start_ns >= effective_ns,
+        "the run window starts no earlier than the terms' own effective instant: {window_start_ns} \
+         < {effective_ns}"
     );
 
     // Both statement families run through the one orchestration: each is authored by its own
