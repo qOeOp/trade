@@ -11,19 +11,15 @@ or fixed topic categories are imposed. The [design](bilibili-note.md) is the arc
 ```text
 video_note.create({"url":"https://www.bilibili.com/video/BV..."})
 video_note.create({"url":"https://www.youtube.com/watch?v=EtIAqiguRHs","quality":"fast"})
-video_note.search_and_create({"query":"Python 入门教程","platform":"youtube","max_videos":1})
 ```
 
-The old `bilibili_note.*` tool names remain accepted as compatibility aliases.
-Search defaults to Bilibili; select `platform: "youtube"` explicitly for YouTube.
+`bilibili_note.create` remains accepted as a compatibility alias.
+The calling agent owns search and video selection, then passes a URL to `video_note.create`.
+Both `search_and_create` names have been removed; they are not compatibility aliases.
 YouTube accepts public finite `watch`, `youtu.be` and `shorts` links, including share/time parameters.
 Playlists, channels and live streams are rejected. Install Deno (recommended) or Node 22+ on `PATH`;
 the locked yt-dlp default dependencies include the matching EJS component. No browser cookies are
 read automatically. Videos without subtitles use the same complete-audio ASR and quality tiers.
-
-Search returns a collection of exactly the requested number of successful notes (1–3), each retaining
-its own source attribution. At most two source jobs run concurrently. If the target cannot be met,
-no partial collection is published.
 
 A successful response includes formatted `rendered_markdown`, `note_path`, `html_path`, and `images`.
 The saved directory contains `note.md`, `note.html`, and `images/*.png`. Open `note.html` for the styled
@@ -67,12 +63,11 @@ The generic extractor has no site-specific prompts. It rejects playlists with mu
 streams, manifests, DRM, authentication, redirects, non-public destinations and non-HTTPS URLs.
 Only a complete video with an audio track and at least 720p can reach transcription. Unsupported
 pages return a typed failure; arbitrary websites are not guaranteed to work. No cookies or proxy
-are used by this fallback. Search still supports only Bilibili and YouTube.
+are used by this fallback.
 
 Generic sources use the downloaded file's measured duration; unknown author/date remain visibly
 unknown. Their time labels are references, and links return to the source page without claiming seek
-support. Generic media/transcripts are not cached because a URL can change content without changing
-its metadata. All quality tiers, screenshot selection, authoring and publication use the same pipeline.
+support. New generic downloads resolve the URL again; explicit IDs reuse the retained snapshot. All quality tiers, screenshot selection, authoring and publication use the same pipeline.
 
 ## Setup
 
@@ -101,24 +96,26 @@ there is no automatic paid fallback. The visual note model uses official DeepSee
 The cloud ASR profile uses `Qwen/Qwen3-ASR-1.7B`. Its text-only responses retain host-owned
 45-second time windows, not word or sentence timestamps.
 
-Local transcription and verified media are reused for 24 hours in
-`~/.cache/bilibili-note-mcp/material-v1` (`BILIBILI_NOTE_CACHE_DIR` overrides it). Metadata is refreshed
-on each request; changed metadata/model revision or digest mismatch prevents reuse. The cache stops
-adding entries at 8 GiB and does not automatically delete existing entries. Cloud ASR is not cached.
+Completed media, transcripts and frames remain in `~/.local/share/video-note-mcp/artifacts`
+(`BILIBILI_NOTE_ARTIFACT_DIR` overrides it). Reuse an immutable ID to avoid repeating completed work;
+a fresh `create` resolves the current URL again. The store permits 24-hour reuse, 256 records and
+8 GiB total. Expired records are refused without deletion; capacity exhaustion is explicit.
+Remove unneeded records only when no request is using them. Old `BILIBILI_NOTE_CACHE_DIR` entries
+are no longer read or written and are not deleted by the service.
 Screenshot candidates grow with duration, up to 48 across the timeline; notes select at most 24 images.
 This sampling improves coverage but cannot guarantee every visual detail is captured.
 
 Register that stdio command in the client using this directory as its working directory. Keep keys in
 private local environment configuration. The optional `BILIBILI_NOTE_OUTPUT_DIR` chooses a host-owned
 absolute output directory; the default is `~/.local/share/bilibili-note-mcp/notes`. Each completed
-request gets a unique directory. Outputs remain until explicitly deleted. Temporary source media and
-provider credentials are not included. Interrupted delivery can leave a completed local bundle.
+request gets a unique directory. Outputs remain until explicitly deleted. Retained source media stays in the separate artifact store;
+provider credentials are never included. Interrupted delivery can leave a completed local bundle.
 
 `BILIBILI_NOTE_EGRESS_PROXY` and `BILIBILI_NOTE_MEDIA_PROXY`, if used, must be explicit unauthenticated
 loopback HTTP endpoints. No proxy is required by default.
 
-Public success schemas are `bilibili-note.result/v4` and `bilibili-note.search-result/v2`; errors use
-`bilibili-note.error/v1`. This replaces the old text-only result. Tool names and inputs are unchanged.
+The public success schema is `bilibili-note.result/v4`; errors use
+`bilibili-note.error/v1`. This replaces the old text-only result. The direct-create input is unchanged.
 
 ## Verification
 
@@ -136,14 +133,13 @@ Live acceptance must include non-domain-specific material and viewing the actual
 
 ## 转录精度档位
 
-两个 MCP 入口均接受可选 `quality`，默认 `standard`：
+`video_note.create` 接受可选 `quality`，默认 `standard`：
 
 - `fast`：完整单路转写、笔记与原始截图核对。
 - `standard`：额外复听最多三个包含疑似异常、重复、字母或数字的片段。启发式筛选不能找出所有错词。
 - `precise`：第二种 ASR 复核全部音频，耗时与成本更高。
 
-例如 `video_note.create({"url":"视频链接","quality":"precise"})`；
-搜索入口使用 `video_note.search_and_create({"query":"主题或作者","max_videos":1,"quality":"standard"})`。
+例如 `video_note.create({"url":"视频链接","quality":"precise"})`。
 CLI 同样支持 `--create URL --quality precise`。已有内部 Python 调用默认仍为 `fast`。
 
 所有档位都不依赖字幕，保留完整原转录、时间段与复核分歧。复核结果不会擅自覆盖原文，
@@ -157,3 +153,37 @@ CLI 同样支持 `--create URL --quality precise`。已有内部 Python 调用�
 
 The HTML preview presents chapter summaries, screenshots and time links without a transcript appendix or a repeated takeaway section.
 Markdown retains the complete linear transcript for reference.
+
+## Recover with individual steps
+
+`create` composes the same steps as these tools, plus the configured note author:
+
+| Tool                    | Input                                               | Result                                                       |
+| ----------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
+| `video_note.download`   | `url` or retained `media_id`                        | `media_id`, local media path, verified source                |
+| `video_note.import`     | `kind: media`, `filename`, `title`                  | Local-source `media_id`                                      |
+| `video_note.import`     | `kind: transcript`, `media_id`, complete `segments` | `transcript_id`, explicitly imported transcript              |
+| `video_note.transcribe` | `media_id` or `transcript_id`, optional `quality`   | `transcript_id`, complete transcript and reviews             |
+| `video_note.frames`     | `transcript_id` or retained `evidence_id`           | `evidence_id`, transcript, original frame metadata and paths |
+| `video_note.render`     | `evidence_id`, structured `note`                    | Illustrated HTML and Markdown without a model call           |
+
+Imported segments have `start_ms`, `end_ms`, and `text`. They must cover the entire timeline without
+gaps; the host assigns `E001`, `E002`, etc. Import accepts optional `language` and `quality`, defaulting
+to `und` and `fast`; transcribe and create default to `standard`. Original imported text is preserved.
+Media import requires an absolute host-configured `BILIBILI_NOTE_IMPORT_DIR`; place the MP4/WebM there,
+then pass only its filename. Paths and symlinks are rejected. Audio, finite duration and 720p are required.
+
+`render.note` contains `overview`, `chapters`, and `takeaways`. Every text point has `text` and
+`evidence_refs`; each chapter has `title`, `points`, and `screenshots` containing `frame_id`.
+Use the exact IDs returned by frames. The existing grounding, escaping and publication checks apply.
+
+Failures include `recovery` with completed `media_id`, `transcript_id` and/or `evidence_id`.
+After ASR failure, retry transcribe or import a complete external transcript. After author failure,
+read frames with `evidence_id`, then supply a structured note to render. Audio-review failure retains
+the raw transcript marked `fast`. Call transcribe with that `transcript_id` and the requested quality
+to retry review without repeating ASR or changing the original provenance. Already satisfied quality
+returns the retained record. IDs survive server restarts; cancellation returns completed IDs after
+owned work stops. A transport disconnect can still prevent delivery of that receipt.
+
+Store capacity includes abandoned staging data. A concurrent commit returns `artifact_store_busy`
+instead of blocking cancellation indefinitely; retry the same step after the active commit finishes.

@@ -130,3 +130,22 @@ def validate_frames(frames: tuple[FrameAsset, ...]) -> None:
         _raise("VISUAL_EVIDENCE_INCOMPLETE", "visual_group_count_invalid")
     if ordered_groups > 1:
         _raise("VISUAL_EVIDENCE_INCOMPLETE", "ordered_group_count_invalid")
+
+
+def validate_frame_bindings(source: AcquiredSource, frames: tuple[FrameAsset, ...]) -> None:
+    evidence = {s.evidence_id: s for s in source.transcript.segments}
+    for frame in frames:
+        refs = frame.transcript_refs
+        if (
+            not refs
+            or len(set(refs)) != len(refs)
+            or not set(refs) <= evidence.keys()
+            or not 0 <= frame.timestamp_ms <= source.source.duration_ms
+        ):
+            _raise("VISUAL_EVIDENCE_INCOMPLETE", "chapter_frame_binding_invalid")
+        if (
+            not min(evidence[r].start_ms for r in refs)
+            <= frame.timestamp_ms
+            <= max(evidence[r].end_ms for r in refs)
+        ):
+            _raise("VISUAL_EVIDENCE_INCOMPLETE", "chapter_frame_binding_invalid")

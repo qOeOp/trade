@@ -9,6 +9,7 @@ pub mod artifact_build_sandbox;
 pub mod artifact_v2;
 pub mod backtest_run_dataset_ref_v1;
 pub mod backtest_run_registry_postgres_v1;
+pub mod backtest_run_report_document_v1;
 pub mod backtest_run_report_read_v1;
 mod bounded_feature_design_v1;
 mod bounded_feature_graph_v1;

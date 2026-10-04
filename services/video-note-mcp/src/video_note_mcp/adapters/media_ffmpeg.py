@@ -474,7 +474,7 @@ class FfmpegMedia:
         span = segment.end_ms - segment.start_ms
         timestamps = tuple(
             min(
-                max(0, source.source.duration_ms - 1000),
+                source.source.duration_ms - 1,
                 segment.start_ms + int(span * ratio),
             )
             for ratio in (0.12, 0.32, 0.5, 0.68, 0.88)
@@ -537,14 +537,18 @@ class FfmpegMedia:
                 "-v",
                 "error",
                 "-ss",
-                f"{timestamp_ms / 1000:.3f}",
+                f"{max(0, timestamp_ms - 1000) / 1000:.3f}",
                 "-i",
                 str(media_path),
+                # Keep a decode lead-in and hold the final displayed frame through EOF.
+                # Seeking directly into a last low-fps frame can otherwise yield no image.
+                "-ss",
+                f"{min(timestamp_ms, 1000) / 1000:.3f}",
                 "-frames:v",
                 "1",
                 "-vf",
                 (
-                    "scale="
+                    "tpad=stop_mode=clone:stop_duration=1,scale="
                     + (
                         "'min(iw,1920)':'min(ih,1080)'"
                         if width >= height

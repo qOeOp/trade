@@ -13,10 +13,6 @@ from video_note_mcp.domain.models import FailureCode
 class ContentLengthError(ValueError):
     """A Content-Length field is ambiguous, malformed, or outside the body bound."""
 
-    def __init__(self, kind: str) -> None:
-        super().__init__(kind)
-        self.kind = kind
-
 
 _ASCII_DECIMAL = re.compile(r"[0-9]+")
 

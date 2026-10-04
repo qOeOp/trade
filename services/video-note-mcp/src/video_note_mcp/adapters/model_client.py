@@ -24,7 +24,6 @@ from video_note_mcp.application.resource_limits import (
 from video_note_mcp.config import ModelProfile, load_model_profile
 
 from .http_bodies import read_httpx_body
-from .provider_envelopes import require_exact_model_envelope
 from .strict_json import decode_strict_json_object
 
 T = TypeVar("T", bound=BaseModel)
@@ -83,7 +82,13 @@ class JsonModelClient:
             async with asyncio.timeout(self._profile.timeout_seconds):
                 raw = await self._post(encoded, key, schema.__name__)
             envelope = decode_strict_json_object(raw)
-            require_exact_model_envelope(envelope, self._profile.vision_model)
+            observed_model = envelope.get("model")
+            if (
+                not isinstance(observed_model, str)
+                or not observed_model
+                or observed_model != self._profile.vision_model
+            ):
+                raise ValueError("provider model identity is missing or changed")
             usage = envelope.get("usage")
             keys = ("prompt_tokens", "completion_tokens", "total_tokens")
             if isinstance(usage, dict) and all(

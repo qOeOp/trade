@@ -129,17 +129,17 @@ def test_single_embedded_video_wrapper():
 async def test_routing_never_falls_back_after_platform_failure(tmp_path):
     bili, youtube, generic = AsyncMock(), AsyncMock(), AsyncMock()
     router = VideoSource(bili, youtube, generic)
-    youtube.acquire.side_effect = BilibiliNoteFailure("SOURCE_UNAVAILABLE", "unavailable")
+    youtube.download.side_effect = BilibiliNoteFailure("SOURCE_UNAVAILABLE", "unavailable")
     with pytest.raises(BilibiliNoteFailure):
-        await router.acquire(
+        await router.download(
             "https://www.youtube.com/watch?v=EtIAqiguRHs", tmp_path, NullProgressReporter()
         )
-    generic.acquire.assert_not_called()
-    await router.acquire(URL, tmp_path, NullProgressReporter())
-    generic.acquire.assert_awaited_once()
+    generic.download.assert_not_called()
+    await router.download(URL, tmp_path, NullProgressReporter())
+    generic.download.assert_awaited_once()
 
 
-async def test_each_generic_request_transcribes_current_download(monkeypatch, tmp_path):
+async def test_each_generic_request_preserves_current_download(monkeypatch, tmp_path):
     from video_note_mcp.adapters import generic_source as module
 
     calls = 0
@@ -163,16 +163,13 @@ async def test_each_generic_request_transcribes_current_download(monkeypatch, tm
 
     monkeypatch.setattr(module, "run_media_worker", worker)
     monkeypatch.setattr(module, "probe_downloaded_media", AsyncMock(return_value=(1000, 1280, 720)))
-    transcript = AsyncMock()
-    source = GenericSource(transcript)
-    a = await source.acquire(URL, tmp_path, NullProgressReporter())
-    b = await source.acquire(URL, tmp_path, NullProgressReporter())
+    source = GenericSource()
+    a = await source.download(URL, tmp_path, NullProgressReporter())
+    b = await source.download(URL, tmp_path, NullProgressReporter())
     assert a.source_snapshot_ref != b.source_snapshot_ref
-    assert transcript.transcribe.await_count == 2
     monkeypatch.setattr(module, "probe_downloaded_media", AsyncMock(return_value=(1000, 640, 360)))
     with pytest.raises(BilibiliNoteFailure, match="source_below_hd_floor"):
-        await source.acquire(URL, tmp_path, NullProgressReporter())
-    assert transcript.transcribe.await_count == 2
+        await source.download(URL, tmp_path, NullProgressReporter())
 
 
 def test_worker_denies_requests_before_transport():
