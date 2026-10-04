@@ -536,3 +536,27 @@ async def test_completed_receipt_survives_simultaneous_cancellation(
         assert app.artifacts.load_media(result["media_id"]).media_path.is_file()
     else:
         assert await asyncio.to_thread(Path(result["html_path"]).is_file)
+
+
+async def test_imported_short_final_segment_keeps_frame_inside_its_evidence(runtime):
+    _, app = runtime
+    async with Client(build_server(app)) as client:
+        media = await call(client, "download", {"url": FIXTURE_URL})
+        transcript = await call(
+            client,
+            "import",
+            {
+                "kind": "transcript",
+                "media_id": media["media_id"],
+                "segments": [
+                    {"start_ms": 0, "end_ms": 5500, "text": "介绍内容。"},
+                    {"start_ms": 5500, "end_ms": 6000, "text": "看这里。"},
+                ],
+            },
+        )
+        evidence = await call(client, "frames", {"transcript_id": transcript["transcript_id"]})
+        final_frames = [f for f in evidence["frames"] if "E002" in f["transcript_refs"]]
+        assert final_frames and all(5500 <= f["timestamp_ms"] < 6000 for f in final_frames)
+        await call(
+            client, "render", {"evidence_id": evidence["evidence_id"], "note": authored(evidence)}
+        )
