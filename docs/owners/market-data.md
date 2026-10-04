@@ -2943,7 +2943,10 @@ bar committed through a test-only seam that admits it as the intake did before t
     cut and Market Semantics from the run's frames readback, never from its own evaluation. The basis also names the
     Universe Selection record the root's locator resolves to in that transaction, by record identity and digest with
     the locator's meaning digest checked, and a run whose record is missing or disagrees is refused as
-    `StoreUnavailable`. Each frame's inputs and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
+    `StoreUnavailable`. The basis also selects a member's UNIQUE venue/source mapping from its own Instrument Master
+    cut for the V1 structural public terms projection, refusing by name, never a pick, when the member is unknown to
+    the basis or its fact carries zero or more than one mapping. Each frame's inputs and quote cut are then resolved
+    through the native Replay resolver, whose request gains a custody frame source in
     the derived view slice. That source names the chain root, the head the frames were read from and `e_k`, so a
     correction committed between enumeration and the per-frame reads cannot mix two heads into one run; a head that is
     not in the chain is refused. Every gap has its quote cut, the last bounded by the run's end, and a gap without one

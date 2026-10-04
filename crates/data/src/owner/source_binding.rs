@@ -424,6 +424,9 @@ pub enum UntrustedSourceBarAnchorV1 {
     UnixEpoch,
     /// Bars are aligned to the opening of the trading session.
     SessionOpen,
+    /// Bars are aligned to 00:00 UTC on the Monday that opens each calendar week (ISO 8601's own
+    /// week start), for a `FixedInterval` cadence whose period is one week.
+    WeekStartMonday,
 }
 
 /// The clock a declared bar grid runs on.

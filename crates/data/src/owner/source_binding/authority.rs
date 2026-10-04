@@ -1130,7 +1130,7 @@ fn validate_bar_timeframe(
     timeframe: &UntrustedSourceBarTimeframeV1,
 ) -> Result<(), SourceBindingError> {
     let combination = match timeframe.cadence {
-        UntrustedSourceBarCadenceV1::FixedInterval { step, .. } => {
+        UntrustedSourceBarCadenceV1::FixedInterval { step, unit } => {
             step > 0
                 && matches!(
                     (timeframe.anchor, timeframe.clock),
@@ -1142,6 +1142,12 @@ fn validate_bar_timeframe(
                         UntrustedSourceBarClockV1::ScheduleBounded
                     )
                 )
+                // A week-start-Monday grid names exactly one week; any other period has no
+                // Monday to be aligned to.
+                || (timeframe.anchor == UntrustedSourceBarAnchorV1::WeekStartMonday
+                    && timeframe.clock == UntrustedSourceBarClockV1::Continuous
+                    && step == 168
+                    && unit == UntrustedSourceBarUnitV1::Hour)
         }
         UntrustedSourceBarCadenceV1::ExchangeSessionDay => {
             timeframe.anchor == UntrustedSourceBarAnchorV1::SessionOpen
@@ -1163,7 +1169,7 @@ fn is_bar_row_timeframe(label: &str) -> bool {
     !count.is_empty()
         && !count.starts_with('0')
         && count.parse::<u64>().is_ok_and(|count| count > 0)
-        && matches!(unit, "NS" | "US" | "MS" | "S" | "M" | "H" | "D")
+        && matches!(unit, "NS" | "US" | "MS" | "S" | "M" | "H" | "D" | "W")
 }
 
 /// Appends a schema-2 proposal's bar timeframe declarations, count first. A schema-1 proposal
@@ -1197,6 +1203,7 @@ fn encode_bar_timeframe(encoder: &mut Encoder, timeframe: &UntrustedSourceBarTim
     encoder.u8(match timeframe.anchor {
         UntrustedSourceBarAnchorV1::UnixEpoch => 1,
         UntrustedSourceBarAnchorV1::SessionOpen => 2,
+        UntrustedSourceBarAnchorV1::WeekStartMonday => 3,
     });
     encoder.u8(match timeframe.clock {
         UntrustedSourceBarClockV1::Continuous => 1,
