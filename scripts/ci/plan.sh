@@ -218,6 +218,17 @@ while IFS= read -r -d '' status <&3; do
     continue
   fi
 
+  # Each of these is its own Cargo workspace, with its own Cargo.lock, excluded from the root
+  # workspace (Cargo.toml's `exclude`): nothing here can affect a root build, test, or codeql
+  # scan, so a change confined to one carries no root-workspace impact here. Its own
+  # services-rust-mcp.yml workflow (path_triggered_workflows.py) is the gate that actually runs
+  # against it.
+  case "$changed_file" in
+    services/market-data-mcp/* | services/strategy-authoring-mcp/* | services/backtest-mcp/*)
+      continue
+      ;;
+  esac
+
   # The planner, CI/security workflows, reusable actions, and validation hooks
   # control their own authority. Syntax validation supplements, but never
   # replaces, fail-closed full analysis for these paths.

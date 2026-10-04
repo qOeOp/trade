@@ -1,15 +1,15 @@
+# Its own Cargo workspace, with its own Cargo.lock: the root workspace does not list it, so it is
+# built, tested and deployed without the rest of the repository.
+[workspace]
+
 [package]
 name = "vibe-strategy-authoring-mcp"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
+version = "0.62.0"
+edition = "2024"
+rust-version = "1.97.1"
 readme = "README.md"
 description = "The strategy-authoring server of the agent's domain MCP catalog: a thin stdio process over R&D's own HTTP routes"
-repository.workspace = true
 publish = false
-
-[lints]
-workspace = true
 
 [lib]
 name = "strategy_authoring_mcp"
@@ -22,10 +22,25 @@ doc = false
 test = false
 
 [dependencies]
-anyhow = { workspace = true }
-reqwest = { workspace = true }
-serde_json = { workspace = true }
-tokio = { workspace = true }
+anyhow = "1.0.104"
+reqwest = { version = "0.13.4", default-features = false, features = [
+  "http2",
+  "json",
+  "rustls",
+] }
+serde_json = { version = "1.0.151", default-features = false, features = [
+  "std",
+] }
+tokio = { version = "1.53.1", default-features = false, features = [
+  "rt",
+  "macros",
+] }
 
 [dev-dependencies]
-rstest = { workspace = true }
+rstest = "0.26.1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

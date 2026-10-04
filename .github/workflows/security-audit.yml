@@ -39,6 +39,8 @@ on:
       - python/pyproject.toml
       - services/*/uv.lock
       - services/*/pyproject.toml
+      - services/*/Cargo.lock
+      - services/*/Cargo.toml
       - docs-site/package-lock.json
       - product/dashboard/package-lock.json
       - deny.toml
@@ -193,6 +195,9 @@ jobs:
         run: |
           cargo audit
           cargo audit --file crates/adapters/lighter/fuzz/pornin/Cargo.lock
+          cargo audit --file services/market-data-mcp/Cargo.lock
+          cargo audit --file services/strategy-authoring-mcp/Cargo.lock
+          cargo audit --file services/backtest-mcp/Cargo.lock
 
   cargo-deny:
     name: cargo-deny
@@ -225,6 +230,10 @@ jobs:
           cargo deny --manifest-path crates/adapters/lighter/fuzz/pornin/Cargo.toml \
             --config .cargo/deny-fuzz.toml --locked --all-features check \
             advisories licenses sources bans
+          for service in market-data-mcp strategy-authoring-mcp backtest-mcp; do
+            cargo deny --manifest-path "services/$service/Cargo.toml" --locked --all-features \
+              check advisories licenses sources bans
+          done
 
   pip-audit:
     name: pip-audit
@@ -300,6 +309,9 @@ jobs:
             --lockfile=crates/adapters/lighter/fuzz/pornin/Cargo.lock
             --lockfile=python/uv.lock
             --lockfile=services/video-note-mcp/uv.lock
+            --lockfile=services/market-data-mcp/Cargo.lock
+            --lockfile=services/strategy-authoring-mcp/Cargo.lock
+            --lockfile=services/backtest-mcp/Cargo.lock
             --lockfile=docs-site/package-lock.json
             --lockfile=product/dashboard/package-lock.json
 

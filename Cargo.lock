@@ -10708,17 +10708,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vibe-market-data-mcp"
-version = "0.62.0"
-dependencies = [
- "anyhow",
- "reqwest 0.13.4",
- "rstest",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "vibe-market-data-repair-custody"
 version = "0.62.0"
 dependencies = [
@@ -11383,17 +11372,6 @@ dependencies = [
  "vibe-core",
  "vibe-model",
  "walkdir",
-]
-
-[[package]]
-name = "vibe-strategy-authoring-mcp"
-version = "0.62.0"
-dependencies = [
- "anyhow",
- "reqwest 0.13.4",
- "rstest",
- "serde_json",
- "tokio",
 ]
 
 [[package]]

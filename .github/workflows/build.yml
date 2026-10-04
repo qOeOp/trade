@@ -220,7 +220,7 @@ jobs:
           fi
 
       - name: Name the path-filtered workflows this pull request triggers
-        # docs-pages, product-packages and video-note-mcp run only when a pull request touches
+        # docs-pages, product-packages, video-note-mcp and services-rust-mcp run only when a pull request touches
         # their paths, and nothing required their result: #1100 turned docs-pages red and could
         # still have merged. quality now requires each one this diff triggers. The script reads
         # each workflow's own `paths`, and counts anything it cannot decide as triggered. Like
@@ -246,6 +246,7 @@ jobs:
             .github/workflows/docs-pages.yml \
             .github/workflows/product-packages.yml \
             .github/workflows/video-note-mcp.yml \
+            .github/workflows/services-rust-mcp.yml \
             .github/workflows/security-audit.yml | tr '\n' ' ')"
           echo "path-workflows=${workflows}" >> "$GITHUB_OUTPUT"
 

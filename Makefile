@@ -213,8 +213,7 @@ CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-own
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-market-data-repair-custody vibe-model vibe-scanner vibe-scanner-custody \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
     vibe-operator-authorization vibe-plugin vibe-portfolio vibe-portfolio-owner vibe-postgres-connect vibe-product-edge vibe-product-edge-admin vibe-product-edge-claim-custody vibe-product-edge-contracts vibe-product-edge-routing-api vibe-qualification vibe-risk vibe-risk-owner vibe-rd-artifact-invocation-custody vibe-rd-exploratory-replay-custody vibe-rd-market-data-repair-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
-    strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading \
-    vibe-market-data-mcp vibe-strategy-authoring-mcp
+    strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
 ADAPTER_CRATES := vibe-architect-ax vibe-betfair vibe-binance \
@@ -1284,6 +1283,26 @@ mcp-backtest:  #-- Build the backtest MCP server for the local deployment and pr
 .PHONY: mcp-market-data
 mcp-market-data:  #-- Build the market-data MCP server for the local deployment and print how to register it
 	$Q bash product/rd-workbench/scripts/market-data-mcp.sh install
+
+# Each is its own Cargo workspace, with its own Cargo.lock, outside the root workspace: fmt,
+# clippy and test all run from inside the service's own directory, never against the root.
+.PHONY: check-strategy-authoring-mcp
+check-strategy-authoring-mcp:  #-- fmt, clippy and test the strategy-authoring MCP server in its own workspace
+	$Q cd services/strategy-authoring-mcp && cargo fmt --check \
+	    && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
+
+.PHONY: check-market-data-mcp
+check-market-data-mcp:  #-- fmt, clippy and test the market-data MCP server in its own workspace
+	$Q cd services/market-data-mcp && cargo fmt --check \
+	    && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
+
+.PHONY: check-backtest-mcp
+check-backtest-mcp:  #-- fmt, clippy and test the backtest MCP server in its own workspace
+	$Q cd services/backtest-mcp && cargo fmt --check \
+	    && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
+
+.PHONY: check-services-rust-mcp
+check-services-rust-mcp: check-strategy-authoring-mcp check-market-data-mcp check-backtest-mcp  #-- fmt, clippy and test every independent Rust MCP service
 
 #== CLI Tools
 

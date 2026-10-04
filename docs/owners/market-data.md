@@ -3439,23 +3439,25 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
 ### CURRENT market-data MCP server
 
 The `market-data` server of the [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface)
-is `market-data-mcp`, a stateless stdio process built from its own `services/market-data-mcp` crate, which depends on
-no Owner crate - only an HTTP client, serde and the stdio loop. It holds the Market Data API token in its own
+is `market-data-mcp`, a stateless stdio process built from `services/market-data-mcp`, which is its own Cargo
+workspace with its own `Cargo.lock` and depends on no Owner crate - only an HTTP client, serde and the stdio
+loop. It holds the Market Data API token in its own
 environment and reaches Market Data's routes only. Every rule lives in Market Data behind a route; a tool sends one
 request, passes its answer or refusal through by name, and sequences nothing. The same functions are a command line
-with the same names. `get_bars` and `get_funding` are `TARGET`: they wait on T0-5 and the funding schedule read
-below, and the server does not list them as tools until their routes exist.
+with the same names. `get_bars` and `get_funding` are registered tools today, but each refuses
+`HOLDOUT_PARTITION_UNDEFINED` unconditionally: no Owner defines Qualification's holdout partition yet, so no market
+value reaches an agent through them.
 
-| Tool                                     | Route                                                   | Refusals by name                                                                 |
-| ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                                                |
-| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                                             |
-| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | each admission step's own refusal                                                |
-| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`, `RANGE_INVALID`                   |
-| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                                    |
-| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                                             |
-| `get_bars(instrument, timeframe, range)` | after T0-5, over the run window custody view            | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
-| `get_funding(instrument, range)`         | after the funding schedule read below                   | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
+| Tool                                     | Route                                                   | Refusals by name                                                |
+| ---------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- |
+| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                               |
+| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                            |
+| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | each admission step's own refusal                               |
+| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`, `RANGE_INVALID`  |
+| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                   |
+| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                            |
+| `get_bars(instrument, timeframe, range)` | `POST /v1/market-data/bars`                             | `HOLDOUT_PARTITION_UNDEFINED` (unconditional, TARGET to narrow) |
+| `get_funding(instrument, range)`         | `POST /v1/market-data/funding`                          | `HOLDOUT_PARTITION_UNDEFINED` (unconditional, TARGET to narrow) |
 
 - **Listing and describing read what Market Data holds now.** `GET /v1/market-data/instruments` and
   `GET /v1/market-data/instruments/{instrument}` are `CURRENT`: `crates/data/src/owner/instrument_catalog_v1.rs` reads

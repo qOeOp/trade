@@ -51,6 +51,7 @@ fn parse_job_id(value: &str) -> Option<&str> {
 }
 
 /// The eight tools this route set backs today, each with the input it takes.
+#[must_use]
 pub fn tools() -> Value {
     let instrument = json!({
         "type": "string",
@@ -130,6 +131,7 @@ pub fn tools() -> Value {
 /// "MALFORMED_TYPED_REQUEST")` for a call missing a required argument, naming one these tools do
 /// not take, or stating one in the wrong shape, and `(404, "JOB_UNKNOWN")` for a `job_id` not
 /// spelled as exactly 64 lower-case hex digits.
+#[allow(clippy::too_many_lines)]
 pub fn request_for(name: &str, arguments: &Value) -> Result<ApiRequest, (u16, Value)> {
     let malformed = || (400, json!({"error": "MALFORMED_TYPED_REQUEST"}));
     let string_field = |field: &str| {
@@ -274,6 +276,7 @@ pub fn request_for(name: &str, arguments: &Value) -> Result<ApiRequest, (u16, Va
 
 /// A tool result: the Market Data API's body as text, verbatim, and parsed as structured
 /// content; an error when the API refused.
+#[must_use]
 pub fn tool_result((status, body): ApiAnswer) -> Value {
     let structured = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
     json!({

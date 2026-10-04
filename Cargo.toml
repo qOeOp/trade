@@ -77,9 +77,11 @@ members = [
   "crates/testkit",
   "crates/trading",
   "examples/tutorials",
-  "services/market-data-mcp",
-  "services/strategy-authoring-mcp",
 ]
+# Each services/<name>-mcp is its own independent Cargo workspace (own [workspace] table, own
+# Cargo.lock, no inherited workspace.* values): built, tested and deployed without the rest of the
+# repository, matching the directory-and-environment-per-MCP layout.
+exclude = ["services/*"]
 
 [workspace.package]
 version = "0.62.0"
