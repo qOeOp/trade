@@ -908,13 +908,19 @@ pub fn authenticate_monthly_klines(
     archive_bytes: &[u8],
     sidecar_bytes: &[u8],
 ) -> Result<AuthenticatedBinanceVisionKlines, BinanceVisionArchiveError> {
-    authenticate_vision_klines(binding, archive_bytes, sidecar_bytes)
+    authenticate_vision_klines(binding, archive_bytes, sidecar_bytes).map(|(_, klines)| klines)
 }
 
 /// Authenticates and parses one product-bound official Binance Vision daily kline archive
 /// (`BinanceVisionArchiveBinding::new_daily`): the same checks as
 /// [`authenticate_monthly_klines`], bound to one UTC day instead of one UTC month. Market Data's
 /// B5 verification reads a bar earlier this way, and covers a day a monthly file omits.
+///
+/// Also returns the archive's own verified content digest - the actual SHA-256 the ZIP bytes
+/// hashed to, already checked against the trusted `archive_sha256` the binding carries and the
+/// sidecar's own declared value - as `VenueBarArchiveV1::identity`: it has to change if Binance
+/// ever republishes a file under the same name with different bytes, which a digest derived from
+/// the name alone could not detect.
 ///
 /// # Errors
 ///
@@ -924,7 +930,7 @@ pub fn authenticate_daily_klines(
     binding: &BinanceVisionArchiveBinding,
     archive_bytes: &[u8],
     sidecar_bytes: &[u8],
-) -> Result<AuthenticatedBinanceVisionKlines, BinanceVisionArchiveError> {
+) -> Result<(Sha256Digest, AuthenticatedBinanceVisionKlines), BinanceVisionArchiveError> {
     authenticate_vision_klines(binding, archive_bytes, sidecar_bytes)
 }
 
@@ -932,7 +938,7 @@ fn authenticate_vision_klines(
     binding: &BinanceVisionArchiveBinding,
     archive_bytes: &[u8],
     sidecar_bytes: &[u8],
-) -> Result<AuthenticatedBinanceVisionKlines, BinanceVisionArchiveError> {
+) -> Result<(Sha256Digest, AuthenticatedBinanceVisionKlines), BinanceVisionArchiveError> {
     if archive_bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(BinanceVisionArchiveError::ArchiveTooLarge {
             actual: archive_bytes.len(),
@@ -967,7 +973,8 @@ fn authenticate_vision_klines(
     }
 
     let csv_bytes = read_single_csv_member(binding, archive_bytes)?;
-    parse_authenticated_csv(binding, actual_sidecar_sha256, &csv_bytes)
+    let klines = parse_authenticated_csv(binding, actual_sidecar_sha256, &csv_bytes)?;
+    Ok((actual_archive_sha256, klines))
 }
 
 /// Which calendar window a bound archive covers.
@@ -2482,7 +2489,9 @@ mod tests {
             "2023-03-01",
             &format!("{USD_M_HEADER}\n{csv}"),
         );
-        let authenticated = authenticate_daily_klines(&binding, &archive, &sidecar).unwrap();
+        let (identity, authenticated) =
+            authenticate_daily_klines(&binding, &archive, &sidecar).unwrap();
+        assert_eq!(identity, archive_digest(&archive));
         let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
         let bars = authenticated
             .parse_bars(
@@ -2578,8 +2587,13 @@ mod tests {
             BinanceKlineInterval::Minute1,
         )
         .unwrap();
-        let authenticated = authenticate_daily_klines(&binding, &archive, &sidecar).unwrap();
+        let (identity, authenticated) =
+            authenticate_daily_klines(&binding, &archive, &sidecar).unwrap();
 
+        assert_eq!(
+            identity.to_hex(),
+            "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355"
+        );
         assert_eq!(authenticated.metadata().total_rows(), 1440);
         assert_eq!(authenticated.metadata().gaps(), []);
     }

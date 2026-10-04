@@ -30,7 +30,7 @@ use crate::{
     common::{
         enums::{BinanceKlineInterval, BinanceProductType},
         offline::{
-            BinanceVisionArchiveBinding, archive_digest, authenticate_daily_klines,
+            BinanceVisionArchiveBinding, Sha256Digest, archive_digest, authenticate_daily_klines,
             authenticate_monthly_klines, sidecar_digest,
         },
     },
@@ -262,9 +262,10 @@ impl VisionBackfillFetcherV1 {
             .collect())
     }
 
-    /// Every ordinary bar of one archived UTC day, from its shard or from the archive. Market
-    /// Data's B5 verifier calls this for a bar earlier than its month's own file is published,
-    /// and for a day a monthly file omits.
+    /// The archive's own verified content digest, and every ordinary bar of one archived UTC
+    /// day, from its shard or from the archive. Market Data's B5 verifier calls this for a bar
+    /// earlier than its month's own file is published, and for a day a monthly file omits, and
+    /// carries the digest as `VenueBarArchiveV1::identity`.
     ///
     /// # Errors
     ///
@@ -278,7 +279,7 @@ impl VisionBackfillFetcherV1 {
         year: i32,
         month: u8,
         day: u8,
-    ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
+    ) -> Result<(Sha256Digest, Vec<FetchedBarV1>), VisionBackfillErrorV1> {
         let stem = format!(
             "{symbol}-{}-{year:04}-{month:02}-{day:02}",
             interval.as_str()
@@ -319,19 +320,22 @@ impl VisionBackfillFetcherV1 {
             interval,
         )
         .map_err(|_| VisionBackfillErrorV1::ArchiveUnreadable)?;
-        let read = authenticate_daily_klines(&binding, &archive, &sidecar)
+        let (identity, read) = authenticate_daily_klines(&binding, &archive, &sidecar)
             .map_err(|_| VisionBackfillErrorV1::ArchiveUnreadable)?;
         let klines = read
             .usdm_klines()
             .ok_or(VisionBackfillErrorV1::ArchiveUnreadable)?;
-        Ok(klines
-            .iter()
-            .map(|kline| FetchedBarV1 {
-                kline: kline.clone(),
-                retrieval_ns,
-                route: DAILY_ARCHIVE_ROUTE,
-            })
-            .collect())
+        Ok((
+            identity,
+            klines
+                .iter()
+                .map(|kline| FetchedBarV1 {
+                    kline: kline.clone(),
+                    retrieval_ns,
+                    route: DAILY_ARCHIVE_ROUTE,
+                })
+                .collect(),
+        ))
     }
 
     /// Every ordinary bar whose interval-close instant lies in `[window_start_ns,
@@ -1149,10 +1153,11 @@ mod tests {
             .unwrap()
             .with_stand_ins(format!("http://{address}"), clock);
 
-        let first = fetcher
+        let (identity, first) = fetcher
             .execution_day("BTCUSDT", BinanceKlineInterval::Hour1, 2021, 6, 1)
             .await
             .expect("a headerless 2021 day is read");
+        assert_eq!(identity, archive_digest(&zip));
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].kline.open_time, JUNE_2021_MS);
         assert!(
@@ -1166,10 +1171,11 @@ mod tests {
             "the zip and its sidecar"
         );
 
-        let again = fetcher
+        let (again_identity, again) = fetcher
             .execution_day("BTCUSDT", BinanceKlineInterval::Hour1, 2021, 6, 1)
             .await
             .unwrap();
+        assert_eq!(again_identity, identity);
         assert_eq!(
             again, first,
             "the shard answers, with the instant it was retrieved"
