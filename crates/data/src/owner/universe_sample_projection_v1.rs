@@ -13,17 +13,27 @@ use std::fmt::Display;
 use sha2::{Digest as _, Sha256};
 
 use super::{
+    pit_snapshot::{
+        VerifiedPitObservationBatch,
+        custody_view::{StoredViewRowV1, canonical_decimal_v1},
+    },
     sample_fact::StoredSampleReadbackV1,
     sample_projection::{
         COORDINATE_LEN, SampleCoordinateFieldsV1, encode_sample_coordinate_v1,
         sample_coordinate_digest_v1, verify_universe_member_sample_coordinate_v1,
     },
     source_binding::BindingDigest,
-    strategy_input_binding::{StrategyInputEventKind, StrategyInputUniverseFrameReceipt},
+    strategy_input_binding::{
+        StrategyInputEventKind, StrategyInputUniverseFrameReceipt, canonical_row_digest_v1,
+    },
 };
 
 const RECEIPT_DOMAIN: &[u8] = b"market-data.universe-sample-projection-receipt.v1\0";
 const SCHEDULE_SET_DOMAIN: &[u8] = b"market-data.universe-sample-projection-schedule-set.v1\0";
+const CUSTODY_RECEIPT_DOMAIN: &[u8] = b"market-data.universe-sample-projection.custody.v1\0";
+const CUSTODY_SCHEDULE_SET_DOMAIN: &[u8] =
+    b"market-data.universe-sample-projection-schedule-set.custody.v1\0";
+const CUSTODY_TIMEFRAME_PROJECTION_DOMAIN: &[u8] = b"market-data.custody-timeframe-projection.v1\0";
 const EVENT_LIFECYCLE: u8 = 1;
 const BAR_LIFECYCLE: u8 = 2;
 
@@ -316,13 +326,16 @@ pub(crate) fn prepare_universe_sample_projection_v1(
         frame,
         samples
             .iter()
-            .map(|sample| ComponentEvidenceV1 {
-                member_ordinal: sample.member_ordinal,
-                timeframe_projection_digest: sample.timeframe_projection_digest,
-                schedule_readback_identity: sample.schedule_readback_identity,
-                fields: SampleCoordinateFieldsV1::of_receipt(sample.sample.receipt()),
+            .map(|sample| {
+                ComponentEvidenceV1::of_fields(
+                    sample.member_ordinal,
+                    sample.timeframe_projection_digest,
+                    sample.schedule_readback_identity,
+                    SampleCoordinateFieldsV1::of_receipt(sample.sample.receipt()),
+                )
             })
             .collect(),
+        ProjectionDomainsV1::SNAPSHOT,
     )
 }
 
@@ -331,13 +344,57 @@ struct ComponentEvidenceV1 {
     member_ordinal: u8,
     timeframe_projection_digest: BindingDigest,
     schedule_readback_identity: Option<BindingDigest>,
+    /// The digest of the row the value was matched to, which must be the value's own row digest.
+    /// A snapshot sample is keyed by that very row, so it is the coordinate's row digest; a custody
+    /// sample is keyed by the custody row the view row restates, whose digest the coordinate
+    /// carries instead.
+    matched_row_digest: [u8; 32],
     fields: SampleCoordinateFieldsV1,
+}
+
+impl ComponentEvidenceV1 {
+    /// Evidence whose sample is keyed by the value's own row: the matched digest is the fields'.
+    const fn of_fields(
+        member_ordinal: u8,
+        timeframe_projection_digest: BindingDigest,
+        schedule_readback_identity: Option<BindingDigest>,
+        fields: SampleCoordinateFieldsV1,
+    ) -> Self {
+        Self {
+            member_ordinal,
+            timeframe_projection_digest,
+            schedule_readback_identity,
+            matched_row_digest: fields.canonical_row_digest,
+            fields,
+        }
+    }
+}
+
+/// The domains a projection's identity and schedule set are taken under.
+#[derive(Clone, Copy)]
+struct ProjectionDomainsV1 {
+    receipt: &'static [u8],
+    schedule_set: &'static [u8],
+}
+
+impl ProjectionDomainsV1 {
+    /// A stored projection's, issued over snapshot samples.
+    const SNAPSHOT: Self = Self {
+        receipt: RECEIPT_DOMAIN,
+        schedule_set: SCHEDULE_SET_DOMAIN,
+    };
+    /// A custody frame's, derived at read time and never stored, so it never equals a stored one.
+    const CUSTODY: Self = Self {
+        receipt: CUSTODY_RECEIPT_DOMAIN,
+        schedule_set: CUSTODY_SCHEDULE_SET_DOMAIN,
+    };
 }
 
 /// Seals the projection of `frame` from one component's evidence per value, in the frame's order.
 fn assemble_universe_sample_projection_v1(
     frame: &StrategyInputUniverseFrameReceipt,
     evidence: Vec<ComponentEvidenceV1>,
+    domains: ProjectionDomainsV1,
 ) -> Result<StrategyInputUniverseSampleProjectionReadbackV1, UniverseSampleProjectionErrorV1> {
     let values = frame.values();
 
@@ -357,7 +414,7 @@ fn assemble_universe_sample_projection_v1(
         if member.member_key() != value.member_key()
             || member.instrument() != value.instrument()
             || value.trigger_digest() != frame.trigger().digest()
-            || sample.fields.canonical_row_digest != *value.canonical_row_digest().as_bytes()
+            || sample.matched_row_digest != *value.canonical_row_digest().as_bytes()
         {
             return Err(UniverseSampleProjectionErrorV1::FrameMismatch);
         }
@@ -399,9 +456,10 @@ fn assemble_universe_sample_projection_v1(
         return Err(UniverseSampleProjectionErrorV1::FrameMismatch);
     }
     let schedule_dependency_set_digest = match lifecycle {
-        UniverseSampleProjectionLifecycleV1::Bar => {
-            Some(schedule_dependency_set_digest(&schedules)?)
-        }
+        UniverseSampleProjectionLifecycleV1::Bar => Some(schedule_dependency_set_digest(
+            domains.schedule_set,
+            &schedules,
+        )?),
         UniverseSampleProjectionLifecycleV1::Event => None,
     };
     let bytes = canonical_bytes(
@@ -411,13 +469,296 @@ fn assemble_universe_sample_projection_v1(
         &components,
     )?;
     Ok(StrategyInputUniverseSampleProjectionReadbackV1 {
-        identity: receipt_identity(&bytes),
+        identity: identity_under(domains.receipt, &bytes),
         subject: frame.digest(),
         lifecycle,
         schedule_dependency_set_digest,
         components: components.into_boxed_slice(),
         canonical_bytes: bytes.into_boxed_slice(),
     })
+}
+
+/// One version a custody frame's view selects: its identity, the custody timeframe it is a
+/// cross-section of, and that timeframe's row label.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CustodyFrameVersionV1 {
+    pub(crate) identity: BindingDigest,
+    pub(crate) timeframe_identity: BindingDigest,
+    pub(crate) label: String,
+}
+
+/// The custody rows one frame's view was sealed from, with what locates each of them.
+#[derive(Clone, Debug)]
+pub(crate) struct CustodyFrameRowsV1 {
+    /// The custody's members, in member order: a stored row's ordinal indexes them.
+    pub(crate) members: Vec<String>,
+    /// The versions the view selects.
+    pub(crate) versions: Vec<CustodyFrameVersionV1>,
+    pub(crate) rows: Vec<StoredViewRowV1>,
+}
+
+/// One custody member's window schedule fact, as the frame's schedule set names it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CustodyMemberScheduleV1<'a> {
+    pub(crate) instrument: &'a str,
+    pub(crate) identity: BindingDigest,
+}
+
+/// Derives the projection of a custody frame from the custody rows its view read, never stored.
+///
+/// Each value is matched to the view observation its row digest names, and that observation to the
+/// one stored row of its member, field and selected version, which must restate it. The component
+/// states that row's `SampleFactV2` through [`SampleCoordinateFieldsV1::of_fact_v2`], so the
+/// coordinate binds the custody row, not the view of it: the same row has the same coordinate
+/// bytes in every frame that reads it. Its timeframe projection digest is the custody's own, over
+/// the member binding digest, the member's timeframe spec identity and the custody timeframe
+/// identity, and its schedule is the member's window schedule fact. The identity and the schedule
+/// set are taken under custody domains, so a custody projection never equals a stored one.
+///
+/// # Errors
+///
+/// [`UniverseSampleProjectionErrorV1::FrameMismatch`] when a value names no observation, an
+/// observation no stored row of its version restates, a member has no window schedule, or the
+/// assembler refuses the components.
+pub(crate) fn derive_custody_universe_sample_projection_v1(
+    frame: &StrategyInputUniverseFrameReceipt,
+    view: &VerifiedPitObservationBatch,
+    custody: &CustodyFrameRowsV1,
+    schedules: &[CustodyMemberScheduleV1<'_>],
+) -> Result<StrategyInputUniverseSampleProjectionReadbackV1, UniverseSampleProjectionErrorV1> {
+    let mismatch = || UniverseSampleProjectionErrorV1::FrameMismatch;
+    let members = frame.selection().members();
+    let evidence = frame
+        .values()
+        .iter()
+        .map(|value| {
+            let member_ordinal = members
+                .iter()
+                .position(|member| member.member_key() == value.member_key())
+                .and_then(|ordinal| u8::try_from(ordinal).ok())
+                .ok_or_else(mismatch)?;
+            let mut observations = view
+                .observations()
+                .iter()
+                .filter(|row| canonical_row_digest_v1(row) == value.canonical_row_digest());
+            let observation = observations.next().ok_or_else(mismatch)?;
+
+            if observations.next().is_some() {
+                return Err(mismatch());
+            }
+            let custody_ordinal = custody
+                .members
+                .iter()
+                .position(|member| member == observation.instrument())
+                .ok_or_else(mismatch)?;
+            let version = custody
+                .versions
+                .iter()
+                .find(|version| version.label == observation.timeframe())
+                .ok_or_else(mismatch)?;
+            let mut stored = custody.rows.iter().filter(|row| {
+                row.version_identity == version.identity
+                    && usize::from(row.member_ordinal) == custody_ordinal
+                    && row.field == observation.field()
+            });
+            let (Some(stored), None) = (stored.next(), stored.next()) else {
+                return Err(mismatch());
+            };
+            let row = stored.fact.row();
+            let restates = row.cross_section_version == *version.identity.as_bytes()
+                && row.instrument == observation.instrument().as_bytes()
+                && row.event_effective == observation.event_effective()
+                && row.available == observation.provider_available()
+                && row.publication == observation.correction_publication()
+                && row.correction_sequence == observation.correction_sequence()
+                && canonical_decimal_v1(row.value_mantissa, row.value_scale)
+                    == canonical_decimal_v1(
+                        observation.value_mantissa(),
+                        observation.value_scale(),
+                    );
+            let schedule = schedules
+                .get(usize::from(member_ordinal))
+                .filter(|schedule| schedule.instrument == value.instrument())
+                .ok_or_else(mismatch)?;
+
+            if !restates {
+                return Err(mismatch());
+            }
+            Ok(ComponentEvidenceV1 {
+                member_ordinal,
+                timeframe_projection_digest: custody_timeframe_projection_digest_v1(
+                    value.binding_digest(),
+                    row.timeframe_identity,
+                    version.timeframe_identity,
+                ),
+                schedule_readback_identity: Some(schedule.identity),
+                matched_row_digest: *canonical_row_digest_v1(observation).as_bytes(),
+                fields: SampleCoordinateFieldsV1::of_fact_v2(&stored.fact),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    assemble_universe_sample_projection_v1(frame, evidence, ProjectionDomainsV1::CUSTODY)
+}
+
+/// The timeframe projection a custody member binding reads its rows through: SHA-256 over
+/// `market-data.custody-timeframe-projection.v1\0`, the member binding digest, the member's
+/// timeframe spec identity and the custody timeframe identity. It is the custody's own, and never
+/// claims equality with a snapshot `TimeframeProjectionReceiptV1`.
+pub(crate) fn custody_timeframe_projection_digest_v1(
+    member_binding_digest: BindingDigest,
+    member_timeframe_identity: [u8; 32],
+    custody_timeframe_identity: BindingDigest,
+) -> BindingDigest {
+    let mut hasher = Sha256::new();
+    hasher.update(CUSTODY_TIMEFRAME_PROJECTION_DOMAIN);
+    hasher.update(member_binding_digest.as_bytes());
+    hasher.update(member_timeframe_identity);
+    hasher.update(custody_timeframe_identity.as_bytes());
+    BindingDigest::from_untrusted_bytes(hasher.finalize().into())
+}
+
+/// Custody rows that restate every observation of `view`, as a custody whose view sealed exactly
+/// those observations would hold them, for proofs of the custody derivation over a synthetic view.
+///
+/// Each timeframe label is one selected version and each observation one `SampleFactV2` stating its
+/// value at custody's scale 9, prepared by the real fact preparation: a row at correction sequence `n` is prepared on a slot chain of
+/// `n` facts, its predecessors published one nanosecond apart before it. Only the custody row
+/// digest and the identities no observation states are synthetic, each derived from `seed` and the
+/// row, so two seeds hold two custodies over the same observations.
+///
+/// # Panics
+///
+/// Panics when an observation cannot be restated as a custody row, which no fixture's can.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn custody_rows_restating_view_for_acceptance_v1(
+    view: &VerifiedPitObservationBatch,
+    seed: &[u8],
+) -> CustodyFrameRowsV1 {
+    use super::sample_fact::v2::{SampleHeadsV2, SampleRowInputV2, prepare_sample_fact_v2};
+
+    let synthetic = |tag: &[u8], parts: &[&[u8]]| -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(b"market-data.acceptance.custody-rows.v1\0");
+        hasher.update(seed);
+        hasher.update(tag);
+        for part in parts {
+            hasher.update((part.len() as u64).to_le_bytes());
+            hasher.update(part);
+        }
+        hasher.finalize().into()
+    };
+    let mut members = Vec::<String>::new();
+    let mut versions = Vec::<CustodyFrameVersionV1>::new();
+
+    for observation in view.observations() {
+        if !members
+            .iter()
+            .any(|member| member == observation.instrument())
+        {
+            members.push(observation.instrument().to_owned());
+        }
+
+        if !versions
+            .iter()
+            .any(|version| version.label == observation.timeframe())
+        {
+            let label = observation.timeframe().as_bytes();
+            versions.push(CustodyFrameVersionV1 {
+                identity: BindingDigest::from_untrusted_bytes(synthetic(b"version", &[label])),
+                timeframe_identity: BindingDigest::from_untrusted_bytes(synthetic(
+                    b"timeframe",
+                    &[label],
+                )),
+                label: observation.timeframe().to_owned(),
+            });
+        }
+    }
+    members.sort();
+    let rows = view
+        .observations()
+        .iter()
+        .map(|observation| {
+            let version = versions
+                .iter()
+                .find(|version| version.label == observation.timeframe())
+                .expect("every label has its version");
+            let instrument = observation.instrument().as_bytes();
+            let field = observation.field().as_bytes();
+            let rescale = 10_i128.pow(u32::from(9 - observation.value_scale()));
+            let value_mantissa = observation.value_mantissa() * rescale;
+            let row = |correction_sequence: u64, publication: u64| SampleRowInputV2 {
+                cross_section_version: *version.identity.as_bytes(),
+                canonical_row_digest: synthetic(
+                    b"row",
+                    &[
+                        instrument,
+                        field,
+                        &observation.value_mantissa().to_le_bytes(),
+                        &[observation.value_scale()],
+                        &correction_sequence.to_le_bytes(),
+                    ],
+                ),
+                instrument: instrument.to_vec(),
+                channel: 1,
+                data_kind: 1,
+                field_semantic: field.to_vec(),
+                timeframe_identity: synthetic(b"member-timeframe", &[instrument, field]),
+                value_semantic: b"FIXED_I128_LE".to_vec(),
+                unit: b"UNIT".to_vec(),
+                value_mantissa,
+                value_scale: 9,
+                event_effective: observation.event_effective(),
+                available: observation.provider_available(),
+                publication,
+                correction_sequence,
+                source_binding_identity: observation.source_binding_identity(),
+                source_binding_lineage_root: view.source_binding_lineage_root(),
+                source_binding_lineage_version: view.source_binding_lineage_version(),
+                source_frontier_digest: observation.source_frontier_digest(),
+                correction_stream: observation.correction_stream_identity().as_bytes().to_vec(),
+                correction_frontier_digest: observation.correction_frontier_digest(),
+                instrument_master_digest: observation.instrument_master_digest(),
+                market_semantics_identity: observation.market_semantics_identity(),
+            };
+            let last = observation.correction_sequence();
+            let mut fact = prepare_sample_fact_v2(
+                &row(1, observation.correction_publication() - (last - 1)),
+                SampleHeadsV2::default(),
+            )
+            .expect("the original restates its observation");
+
+            for sequence in 2..=last {
+                fact = prepare_sample_fact_v2(
+                    &row(
+                        sequence,
+                        observation.correction_publication() - (last - sequence),
+                    ),
+                    SampleHeadsV2 {
+                        series: Some(&fact),
+                        slot: Some(&fact),
+                    },
+                )
+                .expect("each correction restates its observation");
+            }
+            StoredViewRowV1 {
+                version_identity: version.identity,
+                member_ordinal: u8::try_from(
+                    members
+                        .iter()
+                        .position(|member| member == observation.instrument())
+                        .expect("every instrument is a member"),
+                )
+                .expect("a custody holds few members"),
+                field: observation.field().to_owned(),
+                fact,
+            }
+        })
+        .collect();
+    CustodyFrameRowsV1 {
+        members,
+        versions,
+        rows,
+    }
 }
 
 /// A projection for an acceptance fixture's frame, sealed by the real codec over synthetic samples.
@@ -431,7 +772,7 @@ pub mod sealed_acceptance {
     use sha2::{Digest as _, Sha256};
 
     use super::{
-        ComponentEvidenceV1, StrategyInputUniverseSampleProjectionReadbackV1,
+        ComponentEvidenceV1, ProjectionDomainsV1, StrategyInputUniverseSampleProjectionReadbackV1,
         UniverseSampleProjectionComponentV1, UniverseSampleProjectionLifecycleV1,
         assemble_universe_sample_projection_v1, canonical_bytes, receipt_identity,
     };
@@ -480,14 +821,11 @@ pub mod sealed_acceptance {
                 };
                 let mut owner_event = [0_u8; 16];
                 owner_event.copy_from_slice(&synthetic(b"owner-event")[..16]);
-                ComponentEvidenceV1 {
+                ComponentEvidenceV1::of_fields(
                     member_ordinal,
-                    timeframe_projection_digest: BindingDigest::from_untrusted_bytes(synthetic(
-                        b"timeframe-projection",
-                    )),
-                    schedule_readback_identity: bar
-                        .then(|| schedule(member_ordinal, value.input_role_identity())),
-                    fields: SampleCoordinateFieldsV1 {
+                    BindingDigest::from_untrusted_bytes(synthetic(b"timeframe-projection")),
+                    bar.then(|| schedule(member_ordinal, value.input_role_identity())),
+                    SampleCoordinateFieldsV1 {
                         timeframe_identity: synthetic(b"timeframe"),
                         owner_event_identity: owner_event,
                         sample_identity: synthetic(b"sample"),
@@ -503,11 +841,56 @@ pub mod sealed_acceptance {
                         market_semantics_identity: *value.market_semantics_identity().as_bytes(),
                         receipt_digest: synthetic(b"sample-receipt"),
                     },
-                }
+                )
             })
             .collect();
-        assemble_universe_sample_projection_v1(frame, evidence)
+        assemble_universe_sample_projection_v1(frame, evidence, ProjectionDomainsV1::SNAPSHOT)
             .expect("a frame's own values seal into its projection")
+    }
+
+    /// The custody projection of `fixture`'s frame: derived by the custody derivation Market Data
+    /// runs for a custody frame, over custody rows that restate the frame's batch, each member's
+    /// schedule a window schedule fact identity derived from its ordinal.
+    ///
+    /// It is a custody projection - its identity and schedule set are under the custody domains -
+    /// over a snapshot fixture's batch, so a consumer can be proved against the custody derivation
+    /// without a custody store.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the fixture's rows cannot be restated as custody rows, which no fixture's can.
+    #[must_use]
+    pub fn issue_sealed_acceptance_custody_universe_sample_projection_v1(
+        fixture: &crate::owner::pit_snapshot::sealed_acceptance::SealedAcceptanceStrategyInputUniverseFrame,
+    ) -> StrategyInputUniverseSampleProjectionReadbackV1 {
+        let custody =
+            super::custody_rows_restating_view_for_acceptance_v1(fixture.view(), b"acceptance");
+        let identities = custody
+            .members
+            .iter()
+            .map(|member| {
+                let mut hasher = Sha256::new();
+                hasher.update(b"market-data.sealed-acceptance.window-schedule.v1\0");
+                hasher.update(member.as_bytes());
+                BindingDigest::from_untrusted_bytes(hasher.finalize().into())
+            })
+            .collect::<Vec<_>>();
+        let schedules = custody
+            .members
+            .iter()
+            .zip(&identities)
+            .map(|(instrument, identity)| super::CustodyMemberScheduleV1 {
+                instrument,
+                identity: *identity,
+            })
+            .collect::<Vec<_>>();
+        super::derive_custody_universe_sample_projection_v1(
+            fixture.frame(),
+            fixture.view(),
+            &custody,
+            &schedules,
+        )
+        .expect("a fixture's frame derives its custody projection")
     }
 
     /// One change to an issued projection, which [`reseal_sealed_acceptance_universe_sample_projection_v1`]
@@ -679,12 +1062,13 @@ fn strictly_ordered(components: &[UniverseSampleProjectionComponentV1]) -> bool 
 }
 
 fn schedule_dependency_set_digest(
+    domain: &[u8],
     schedules: &[(u8, BindingDigest, BindingDigest)],
 ) -> Result<BindingDigest, UniverseSampleProjectionErrorV1> {
     let count = u32::try_from(schedules.len())
         .map_err(|_| UniverseSampleProjectionErrorV1::FrameMismatch)?;
     let mut hasher = Sha256::new();
-    hasher.update(SCHEDULE_SET_DOMAIN);
+    hasher.update(domain);
     hasher.update(count.to_le_bytes());
 
     for (ordinal, role, schedule) in schedules {
@@ -747,8 +1131,12 @@ fn put_string(bytes: &mut Vec<u8>, value: &str) -> Result<(), UniverseSampleProj
 }
 
 fn receipt_identity(bytes: &[u8]) -> BindingDigest {
+    identity_under(RECEIPT_DOMAIN, bytes)
+}
+
+fn identity_under(domain: &[u8], bytes: &[u8]) -> BindingDigest {
     let mut hasher = Sha256::new();
-    hasher.update(RECEIPT_DOMAIN);
+    hasher.update(domain);
     hasher.update(bytes);
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
@@ -912,10 +1300,93 @@ mod tests {
         let expected: [u8; 32] = Sha256::digest(&preimage).into();
 
         assert_eq!(
-            schedule_dependency_set_digest(&schedules)
+            schedule_dependency_set_digest(SCHEDULE_SET_DOMAIN, &schedules)
                 .unwrap()
                 .as_bytes(),
             &expected
+        );
+    }
+
+    /// The snapshot path is unchanged by the custody derivation: its identity and schedule set are
+    /// under the stored projections' domains, it decodes as a stored projection, and a sample whose
+    /// row digest is not its value's is still refused, because a snapshot sample's matched row
+    /// digest is its coordinate's own.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    fn the_snapshot_projection_keeps_its_domains_and_its_row_check() {
+        let fixture =
+            crate::owner::pit_snapshot::sealed_acceptance::issue_strategy_input_universe_frame()
+                .unwrap();
+        let frame = fixture.frame();
+        let schedule = |ordinal: u8, role: BindingDigest| {
+            let mut bytes = *role.as_bytes();
+            bytes[0] ^= ordinal.wrapping_add(1);
+            BindingDigest::from_untrusted_bytes(bytes)
+        };
+        let projection = sealed_acceptance::issue_sealed_acceptance_universe_sample_projection_v1(
+            frame, schedule,
+        );
+        let mut identity = Sha256::new();
+        identity.update(b"market-data.universe-sample-projection-receipt.v1\0");
+        identity.update(projection.canonical_bytes());
+        let identity: [u8; 32] = identity.finalize().into();
+        assert_eq!(projection.identity().as_bytes(), &identity);
+        // The bytes themselves are pinned: the identity the fixture's projection had before custody
+        // coordinates existed.
+        assert_eq!(
+            identity,
+            [
+                52, 137, 204, 242, 91, 103, 236, 240, 51, 104, 41, 57, 177, 253, 87, 132, 15, 203,
+                213, 129, 68, 52, 104, 107, 119, 175, 243, 62, 183, 113, 152, 0
+            ]
+        );
+        assert_eq!(
+            StrategyInputUniverseSampleProjectionReadbackV1::decode(
+                projection.identity(),
+                projection.canonical_bytes()
+            ),
+            Ok(projection.clone())
+        );
+        let schedules = projection
+            .components()
+            .iter()
+            .map(|component| {
+                (
+                    component.member_ordinal(),
+                    component.input_role_identity(),
+                    schedule(component.member_ordinal(), component.input_role_identity()),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            projection.schedule_dependency_set_digest(),
+            Some(schedule_dependency_set_digest(SCHEDULE_SET_DOMAIN, &schedules).unwrap())
+        );
+
+        // A sample of another row than its value's is refused, as before custody coordinates.
+        let receipt = prepared_point_event_fixture_v1();
+        let evidence = frame
+            .values()
+            .iter()
+            .map(|value| {
+                let ordinal = frame
+                    .selection()
+                    .members()
+                    .iter()
+                    .position(|member| member.member_key() == value.member_key())
+                    .and_then(|ordinal| u8::try_from(ordinal).ok())
+                    .unwrap();
+                ComponentEvidenceV1::of_fields(
+                    ordinal,
+                    d(0x42),
+                    Some(schedule(ordinal, value.input_role_identity())),
+                    SampleCoordinateFieldsV1::of_receipt(receipt.receipt()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            assemble_universe_sample_projection_v1(frame, evidence, ProjectionDomainsV1::SNAPSHOT),
+            Err(UniverseSampleProjectionErrorV1::FrameMismatch)
         );
     }
 
