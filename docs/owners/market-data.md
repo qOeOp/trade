@@ -3408,7 +3408,11 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
 - **Execution bars come from the public archive.** For each member, interval and month, the fetch reads
   `data/futures/um/monthly/klines/{SYMBOL}/{interval}/{SYMBOL}-{interval}-{YYYY-MM}.zip` with its `.CHECKSUM` sidecar.
   The bars are read through `authenticate_monthly_klines`, with the sidecar's own digest as the bound digest. That
-  proves the bytes arrived as the host published them; it does not prove who published them.
+  proves the bytes arrived as the host published them; it does not prove who published them. The user authorized on
+  2026-10-05 (TARGET) that current-month data no longer needs this checksum. A month whose archive is not yet
+  published is read from the REST endpoint, and its rows are recorded as not checksum-verified until that month's
+  archive is published and verified against them. A closed month keeps the checksum. This sentence aligns with
+  Market Data's REST-primary source design, which states the fetch order.
 - **The dataset is named by the request, not read from the file.** The reader's entry takes the dataset it was asked
   for (`klines`) and checks it against the archive path it fetched. `markPriceKlines`, `indexPriceKlines` and
   `premiumIndexKlines` archives have the same name, columns and layout.

@@ -21,7 +21,11 @@ Independently gate every normal Trade Intent against current policy, account exp
   a consumed claim by an immutable Adapter Admission Result with `ADMITTED_ONCE`, `SUPPRESSED_BY_FENCE`, or
   `REJECTED`. Decrease-only creates no claim but its `PREPARED` attempt receives the same three-state Adapter
   Admission Result. Adapter admission is committed against recovery fence activation on the same frontier and is
-  the sole normal adapter-invocation authority.
+  the sole normal adapter-invocation authority. These claim and admission results hold until the user-authorized
+  TARGET [trading node](../guide/architecture-rules#target-trading-node) (2026-10-05) lands. There Risk is the
+  node's in-process `RiskEngine` plus its pre-submit gate, and that pair is the sole normal adapter-invocation
+  authority. The Risk Decision, categorized `REJECT`, `PERMIT_DECREASE_ONLY` (as `TradingState::Reducing`), the
+  Aggregate Commitment Frontier and the out-of-band Kill Switch keep their meaning.
 - One durably and atomically serialized Aggregate Commitment Frontier per immutable Portfolio-owned Capacity
   Scope. It combines one coherent Portfolio Risk Evidence Bundle with every held Reservation liability and
   counts each stable economic lineage exactly once. Risk alone computes usage and remaining headroom.
