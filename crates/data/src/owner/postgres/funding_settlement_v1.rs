@@ -21,10 +21,20 @@
 //! or received it, and too late for a Plan to read it as an input to a decision at or before that
 //! instant.
 
+use rust_decimal::Decimal;
 use sqlx::Row;
 
 use super::MarketDataOwnerPostgres;
-use crate::owner::source_binding::BindingDigest;
+use crate::owner::{
+    native_replay_scheduling_v1::ReplayFundingScheduleResolutionErrorV1,
+    replay_funding_schedule_v1::{
+        FundingSettlementV1, MemberFundingScheduleV1, ReplayFundingScheduleV1,
+    },
+    source_binding::BindingDigest,
+    store_admission::NativeReplaySchedulingReadPortV1,
+};
+
+use ReplayFundingScheduleResolutionErrorV1 as ResolutionRefused;
 
 pub(super) const SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.funding_settlement_facts_v1 (instrument TEXT NOT NULL CHECK (instrument<>''), settlement_ns BIGINT NOT NULL CHECK (settlement_ns>0), interval_hours SMALLINT NOT NULL CHECK (interval_hours>0), rate NUMERIC NOT NULL, retrieval_ns BIGINT NOT NULL CHECK (retrieval_ns>0), retrieval_route TEXT NOT NULL CHECK (retrieval_route<>''), PRIMARY KEY (instrument, settlement_ns))",
@@ -256,6 +266,291 @@ fn coverage_digest_v1(
     BindingDigest::from_untrusted_bytes(bytes)
 }
 
+/// One decoded settlement row, source-agnostic: the pool path reads it typed directly, the
+/// admitted-port path decodes it from the admitted read's JSON (`rate` travels as text - see
+/// `store_admission/postgres.rs::read_funding_settlement_snapshot_v1`'s own comment on why a bare
+/// JSON number would round it through `f64`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DecodedSettlementRowV1 {
+    settlement_ns: u64,
+    interval_hours: u8,
+    rate: Decimal,
+}
+
+/// The real jitter a venue's own `calc_time` can carry around a clean interval boundary,
+/// empirically a single millisecond (`funding_archive_v1.rs`'s own doc), given a wide margin: a
+/// true missing settlement shows as roughly twice the stated interval, orders of magnitude past
+/// this.
+const SETTLEMENT_GAP_TOLERANCE_NS: u64 = 60_000_000_000;
+
+/// The smallest interval the venue publishes; a window shorter than this can genuinely hold no
+/// settlement at all, so an empty, fully-covered member schedule is only accepted below this
+/// width. At or above it, zero rows for a covered window is a gap, not a quiet "nothing settled".
+const MINIMUM_SETTLEMENT_INTERVAL_NS: u64 = 3_600_000_000_000;
+
+/// Whether an observed gap between two real settlements matches the interval the later one
+/// declares, within [`SETTLEMENT_GAP_TOLERANCE_NS`] (capped at the interval itself so a short
+/// interval cannot be tolerance-exempted into accepting an arbitrarily large gap). Two real
+/// settlements must be spaced by exactly their stated interval, so this checks equality in both
+/// directions.
+fn gap_matches_interval_v1(actual_gap_ns: u64, interval_hours: u8) -> bool {
+    let expected_gap_ns = u64::from(interval_hours) * 3_600_000_000_000;
+    let tolerance = expected_gap_ns.min(SETTLEMENT_GAP_TOLERANCE_NS);
+    actual_gap_ns.abs_diff(expected_gap_ns) <= tolerance
+}
+
+/// Whether a window edge sits no more than its nearest settlement's declared interval (plus
+/// [`SETTLEMENT_GAP_TOLERANCE_NS`], capped at the interval) away from it. Unlike a gap between two
+/// real settlements, a window edge is not itself a settlement: the window may start exactly on,
+/// or any amount after, its first settlement's period start, and may end exactly on, or any amount
+/// before, its last settlement's period end - only an edge *further* from its settlement than that
+/// settlement's own interval is a real gap. Checking equality here instead would refuse nearly
+/// every real window, since a window's own start and end rarely land exactly one interval from the
+/// nearest settlement.
+fn edge_gap_within_interval_v1(actual_gap_ns: u64, interval_hours: u8) -> bool {
+    let expected_gap_ns = u64::from(interval_hours) * 3_600_000_000_000;
+    let tolerance = expected_gap_ns.min(SETTLEMENT_GAP_TOLERANCE_NS);
+    actual_gap_ns <= expected_gap_ns + tolerance
+}
+
+/// Builds one member's settlements from its sorted, decoded rows over `[window_start_ns,
+/// window_end_ns_exclusive)`, refusing a gap anywhere in the window - between two consecutive
+/// settlements, or between either edge and its nearest settlement.
+///
+/// `interval_hours` on a row is the archive's own field for the period *ending at* that row
+/// (empirically verified against a real 4h-to-1h transition, not derived from spacing), so a gap
+/// is checked against the *later* endpoint's declared interval: the later of a consecutive pair,
+/// the first row at the head edge, and the last row at the tail edge. A window with zero
+/// settlements is accepted only when it is narrower than the smallest interval the venue
+/// publishes ([`MINIMUM_SETTLEMENT_INTERVAL_NS`]); at or above that width, `coverage` proving the
+/// window was backfilled and still returning nothing is a gap, not an empty schedule.
+fn member_schedule_v1(
+    instrument: String,
+    mut rows: Vec<DecodedSettlementRowV1>,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<MemberFundingScheduleV1, ResolutionRefused> {
+    rows.sort_by_key(|row| row.settlement_ns);
+
+    let Some(first) = rows.first() else {
+        if window_end_ns_exclusive.saturating_sub(window_start_ns) < MINIMUM_SETTLEMENT_INTERVAL_NS
+        {
+            return Ok(MemberFundingScheduleV1::new(instrument, Vec::new()));
+        }
+        return Err(ResolutionRefused::SettlementGap);
+    };
+
+    let head_gap_ns = first.settlement_ns.saturating_sub(window_start_ns);
+    if !edge_gap_within_interval_v1(head_gap_ns, first.interval_hours) {
+        return Err(ResolutionRefused::SettlementGap);
+    }
+
+    for pair in rows.windows(2) {
+        let actual_gap_ns = pair[1].settlement_ns.saturating_sub(pair[0].settlement_ns);
+        if !gap_matches_interval_v1(actual_gap_ns, pair[1].interval_hours) {
+            return Err(ResolutionRefused::SettlementGap);
+        }
+    }
+
+    let last = rows.last().expect("checked non-empty above");
+    let tail_gap_ns = window_end_ns_exclusive.saturating_sub(last.settlement_ns);
+    if !edge_gap_within_interval_v1(tail_gap_ns, last.interval_hours) {
+        return Err(ResolutionRefused::SettlementGap);
+    }
+
+    let settlements = rows
+        .into_iter()
+        .map(|row| FundingSettlementV1::new(row.settlement_ns, row.rate))
+        .collect();
+    Ok(MemberFundingScheduleV1::new(instrument, settlements))
+}
+
+/// Whether `coverage` (already sorted, half-open, possibly overlapping) fully covers
+/// `[window_start_ns, window_end_ns_exclusive)`.
+fn fully_covered_v1(
+    coverage: &[(u64, u64)],
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> bool {
+    let mut covered_through = window_start_ns;
+
+    for &(start, end) in coverage {
+        if start > covered_through {
+            break;
+        }
+        covered_through = covered_through.max(end);
+
+        if covered_through >= window_end_ns_exclusive {
+            return true;
+        }
+    }
+    false
+}
+
+/// Resolves the window's settled funding for exactly `members` directly on the Owner's own pool,
+/// bypassing the admitted-read port - the test-build path
+/// [`super::MarketDataOwnerPostgres::commit_funding_settlements_v1`]'s own callers exercise.
+pub(crate) async fn resolve_replay_funding_schedule_from_pool_v1(
+    pool: &sqlx::PgPool,
+    members: &[String],
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<Option<ReplayFundingScheduleV1>, ResolutionRefused> {
+    let mut sorted_members = members.to_vec();
+    sorted_members.sort();
+    sorted_members.dedup();
+    let mut schedules = Vec::with_capacity(sorted_members.len());
+
+    for instrument in sorted_members {
+        let coverage_rows = sqlx::query(
+            "SELECT window_start_ns, window_end_ns_exclusive FROM market_data_private.resolve_funding_settlement_coverage_v1($1)",
+        )
+        .bind(&instrument)
+        .fetch_all(pool)
+        .await
+        .map_err(|_| ResolutionRefused::ReadbackUnavailable)?
+        .into_iter()
+        .map(|row| -> Result<(u64, u64), ResolutionRefused> {
+            let start: i64 = row
+                .try_get("window_start_ns")
+                .map_err(|_| ResolutionRefused::ReadbackUnavailable)?;
+            let end: i64 = row
+                .try_get("window_end_ns_exclusive")
+                .map_err(|_| ResolutionRefused::ReadbackUnavailable)?;
+            Ok((start.try_into().unwrap_or(0), end.try_into().unwrap_or(0)))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+        if !fully_covered_v1(&coverage_rows, window_start_ns, window_end_ns_exclusive) {
+            return Ok(None);
+        }
+        let rows = sqlx::query(
+            "SELECT settlement_ns, interval_hours, rate FROM market_data_private.resolve_funding_settlements_v1($1,$2,$3)",
+        )
+        .bind(&instrument)
+        .bind(i64::try_from(window_start_ns).map_err(|_| ResolutionRefused::ReadbackUnavailable)?)
+        .bind(
+            i64::try_from(window_end_ns_exclusive)
+                .map_err(|_| ResolutionRefused::ReadbackUnavailable)?,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|_| ResolutionRefused::ReadbackUnavailable)?
+        .into_iter()
+        .map(|row| -> Result<DecodedSettlementRowV1, ResolutionRefused> {
+            let settlement_ns: i64 = row
+                .try_get("settlement_ns")
+                .map_err(|_| ResolutionRefused::ReadbackUnavailable)?;
+            let interval_hours: i16 = row
+                .try_get("interval_hours")
+                .map_err(|_| ResolutionRefused::ReadbackUnavailable)?;
+            let rate: Decimal = row
+                .try_get("rate")
+                .map_err(|_| ResolutionRefused::ReadbackUnavailable)?;
+            Ok(DecodedSettlementRowV1 {
+                settlement_ns: settlement_ns.try_into().unwrap_or(0),
+                interval_hours: interval_hours.try_into().unwrap_or(0),
+                rate,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+        schedules.push(member_schedule_v1(
+            instrument,
+            rows,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )?);
+    }
+    ReplayFundingScheduleV1::new(window_start_ns, window_end_ns_exclusive, schedules)
+        .map(Some)
+        .map_err(|_| ResolutionRefused::ReadbackUnavailable)
+}
+
+/// Resolves the window's settled funding for exactly `members` through an admitted read port -
+/// production's own path, and the sealed acceptance port's.
+pub(crate) async fn resolve_replay_funding_schedule_through_port_v1<P>(
+    port: &P,
+    members: &[String],
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<Option<ReplayFundingScheduleV1>, ResolutionRefused>
+where
+    P: NativeReplaySchedulingReadPortV1 + ?Sized,
+{
+    let mut sorted_members = members.to_vec();
+    sorted_members.sort();
+    sorted_members.dedup();
+    let mut schedules = Vec::with_capacity(sorted_members.len());
+
+    for instrument in sorted_members {
+        let raw = port
+            .resolve_funding_settlements_v1(&instrument, window_start_ns, window_end_ns_exclusive)
+            .await
+            .map_err(|_| ResolutionRefused::ReadbackUnavailable)?;
+        let coverage_rows = raw
+            .coverage_rows
+            .iter()
+            .map(|bytes| decode_coverage_row_v1(bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !fully_covered_v1(&coverage_rows, window_start_ns, window_end_ns_exclusive) {
+            return Ok(None);
+        }
+        let rows = raw
+            .settlement_rows
+            .iter()
+            .map(|bytes| decode_settlement_row_v1(bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+        schedules.push(member_schedule_v1(
+            instrument,
+            rows,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )?);
+    }
+    ReplayFundingScheduleV1::new(window_start_ns, window_end_ns_exclusive, schedules)
+        .map(Some)
+        .map_err(|_| ResolutionRefused::ReadbackUnavailable)
+}
+
+fn decode_coverage_row_v1(bytes: &[u8]) -> Result<(u64, u64), ResolutionRefused> {
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| ResolutionRefused::ReadbackUnavailable)?;
+    let start = value
+        .get("window_start_ns")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or(ResolutionRefused::ReadbackUnavailable)?;
+    let end = value
+        .get("window_end_ns_exclusive")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or(ResolutionRefused::ReadbackUnavailable)?;
+    Ok((start, end))
+}
+
+fn decode_settlement_row_v1(bytes: &[u8]) -> Result<DecodedSettlementRowV1, ResolutionRefused> {
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| ResolutionRefused::ReadbackUnavailable)?;
+    let settlement_ns = value
+        .get("settlement_ns")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or(ResolutionRefused::ReadbackUnavailable)?;
+    let interval_hours = value
+        .get("interval_hours")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
+        .ok_or(ResolutionRefused::ReadbackUnavailable)?;
+    let rate = value
+        .get("rate")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|text| Decimal::from_str_exact(text).ok())
+        .ok_or(ResolutionRefused::ReadbackUnavailable)?;
+    Ok(DecodedSettlementRowV1 {
+        settlement_ns,
+        interval_hours,
+        rate,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -285,6 +580,217 @@ mod tests {
         let narrow = coverage_digest_v1("BTCUSDT-PERP.BINANCE", &rows, 0, 10);
         let wide = coverage_digest_v1("BTCUSDT-PERP.BINANCE", &rows, 0, 20);
         assert_ne!(narrow, wide);
+    }
+
+    use super::{DecodedSettlementRowV1, fully_covered_v1, member_schedule_v1};
+
+    const HOUR_NS: u64 = 3_600_000_000_000;
+    const EIGHT_HOURS_NS: u64 = 8 * HOUR_NS;
+
+    fn settlement(settlement_ns: u64, interval_hours: u8) -> DecodedSettlementRowV1 {
+        DecodedSettlementRowV1 {
+            settlement_ns,
+            interval_hours,
+            rate: Decimal::from_str_exact("0.0001").unwrap(),
+        }
+    }
+
+    #[rstest]
+    fn evenly_spaced_settlements_build_a_schedule() {
+        let rows = vec![
+            settlement(EIGHT_HOURS_NS, 8),
+            settlement(2 * EIGHT_HOURS_NS, 8),
+            settlement(3 * EIGHT_HOURS_NS, 8),
+        ];
+        let schedule = member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            0,
+            4 * EIGHT_HOURS_NS,
+        )
+        .expect("evenly spaced settlements build a schedule");
+        assert_eq!(schedule.settlements().len(), 3);
+    }
+
+    #[rstest]
+    fn a_1ms_jitter_around_the_stated_interval_is_tolerated() {
+        // The real venue jitter `funding_archive_v1.rs` found: a settlement 1ms past the clean
+        // 8-hour grid from its predecessor.
+        let last_settlement_ns = 2 * EIGHT_HOURS_NS + 1_000_000;
+        let rows = vec![
+            settlement(EIGHT_HOURS_NS, 8),
+            settlement(last_settlement_ns, 8),
+        ];
+        member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            0,
+            last_settlement_ns + EIGHT_HOURS_NS,
+        )
+        .expect("1ms of real venue jitter does not read as a missing settlement");
+    }
+
+    #[rstest]
+    fn a_missing_settlement_is_refused_by_name() {
+        // A genuine gap: the second settlement is two stated intervals after the first, not one.
+        let rows = vec![
+            settlement(EIGHT_HOURS_NS, 8),
+            settlement(3 * EIGHT_HOURS_NS, 8),
+        ];
+        assert_eq!(
+            member_schedule_v1(
+                "BTCUSDT-PERP.BINANCE".to_owned(),
+                rows,
+                0,
+                4 * EIGHT_HOURS_NS,
+            ),
+            Err(super::ResolutionRefused::SettlementGap)
+        );
+    }
+
+    #[rstest]
+    fn settlements_out_of_arrival_order_are_sorted_before_the_gap_check() {
+        let rows = vec![
+            settlement(2 * EIGHT_HOURS_NS, 8),
+            settlement(EIGHT_HOURS_NS, 8),
+            settlement(3 * EIGHT_HOURS_NS, 8),
+        ];
+        member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            0,
+            4 * EIGHT_HOURS_NS,
+        )
+        .expect("arrival order does not change whether the gaps are real");
+    }
+
+    #[rstest]
+    fn a_real_interval_transition_is_checked_against_the_later_settlements_own_interval() {
+        // Real ARKUSDT archive rows around its 4h-to-1h interval change: `calc_time` in
+        // milliseconds 1_790_798_400_000 (interval_hours=4) then 1_790_802_000_001
+        // (interval_hours=1), a real ~1ms venue jitter on top of the 1h gap the LATER row
+        // states. `interval_hours` describes the period *ending at* its own row, so the gap is
+        // governed by the later row's 1h, not the earlier row's 4h - using the earlier row's
+        // interval here would read this real gap as a ~3h shortfall and wrongly refuse it.
+        const FIRST_SETTLEMENT_NS: u64 = 1_790_798_400_000 * 1_000_000;
+        const SECOND_SETTLEMENT_NS: u64 = 1_790_802_000_001 * 1_000_000;
+        let rows = vec![
+            settlement(FIRST_SETTLEMENT_NS, 4),
+            settlement(SECOND_SETTLEMENT_NS, 1),
+        ];
+        member_schedule_v1(
+            "ARKUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            FIRST_SETTLEMENT_NS - 4 * HOUR_NS,
+            SECOND_SETTLEMENT_NS + HOUR_NS,
+        )
+        .expect("a real interval transition's own later-side interval governs its gap");
+    }
+
+    #[rstest]
+    fn a_window_edge_set_back_from_its_nearest_settlement_by_more_than_its_interval_is_refused() {
+        let rows = vec![settlement(EIGHT_HOURS_NS, 8)];
+        assert_eq!(
+            member_schedule_v1(
+                "BTCUSDT-PERP.BINANCE".to_owned(),
+                rows,
+                0,
+                EIGHT_HOURS_NS + 2 * EIGHT_HOURS_NS,
+            ),
+            Err(super::ResolutionRefused::SettlementGap),
+            "the tail edge is two stated intervals past the only settlement, not one"
+        );
+    }
+
+    #[rstest]
+    fn a_window_starting_exactly_on_its_first_settlement_has_a_zero_head_gap() {
+        // A window boundary is not itself a settlement: starting right on the first settlement
+        // (head gap zero) is not a gap at all, let alone one matching the declared interval.
+        let rows = vec![settlement(EIGHT_HOURS_NS, 8)];
+        member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            EIGHT_HOURS_NS,
+            2 * EIGHT_HOURS_NS,
+        )
+        .expect("a window starting exactly on its first settlement has no head gap to refuse");
+    }
+
+    #[rstest]
+    fn a_window_ending_mid_interval_after_its_last_settlement_is_accepted() {
+        // A real window's own end rarely lands exactly one interval past the last settlement -
+        // ending partway through the next interval is normal, not a gap.
+        let rows = vec![settlement(EIGHT_HOURS_NS, 8)];
+        member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            0,
+            EIGHT_HOURS_NS + HOUR_NS,
+        )
+        .expect("a tail gap narrower than the declared interval is not a gap");
+    }
+
+    #[rstest]
+    fn a_head_gap_past_the_first_settlements_interval_is_refused() {
+        const SETTLEMENT_NS: u64 = 3 * EIGHT_HOURS_NS;
+        const WINDOW_START_NS: u64 = SETTLEMENT_NS - (EIGHT_HOURS_NS + 2 * HOUR_NS);
+        let rows = vec![settlement(SETTLEMENT_NS, 8)];
+        assert_eq!(
+            member_schedule_v1(
+                "BTCUSDT-PERP.BINANCE".to_owned(),
+                rows,
+                WINDOW_START_NS,
+                SETTLEMENT_NS + EIGHT_HOURS_NS,
+            ),
+            Err(super::ResolutionRefused::SettlementGap),
+            "the head gap is one stated interval plus two hours, past tolerance"
+        );
+    }
+
+    #[rstest]
+    fn a_window_narrower_than_the_minimum_interval_accepts_zero_settlements() {
+        let schedule = member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            Vec::new(),
+            0,
+            HOUR_NS - 1,
+        )
+        .expect("a window this narrow can genuinely hold no settlement");
+        assert!(schedule.settlements().is_empty());
+    }
+
+    #[rstest]
+    fn a_covered_window_at_least_the_minimum_interval_wide_with_no_rows_is_refused() {
+        assert_eq!(
+            member_schedule_v1("BTCUSDT-PERP.BINANCE".to_owned(), Vec::new(), 0, HOUR_NS),
+            Err(super::ResolutionRefused::SettlementGap),
+            "a covered window at least as wide as the smallest interval must hold a settlement"
+        );
+    }
+
+    #[rstest]
+    fn a_single_range_exactly_covering_the_window_is_full_coverage() {
+        assert!(fully_covered_v1(&[(0, 10)], 0, 10));
+    }
+
+    #[rstest]
+    fn touching_ranges_that_together_span_the_window_are_full_coverage() {
+        assert!(fully_covered_v1(&[(0, 5), (5, 10)], 0, 10));
+    }
+
+    #[rstest]
+    fn a_true_gap_between_ranges_is_not_full_coverage() {
+        assert!(!fully_covered_v1(&[(0, 4), (6, 10)], 0, 10));
+    }
+
+    #[rstest]
+    fn no_recorded_range_is_not_full_coverage() {
+        assert!(!fully_covered_v1(&[], 0, 10));
+    }
+
+    #[rstest]
+    fn a_range_starting_after_the_window_is_not_full_coverage() {
+        assert!(!fully_covered_v1(&[(1, 10)], 0, 10));
     }
 }
 
