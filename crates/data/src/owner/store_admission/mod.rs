@@ -1634,7 +1634,7 @@ impl AcceptanceGrantV1 {
     }
 }
 
-/// Exactly what the three native Replay scheduling raw reads need of the principal they connect
+/// Exactly what the native Replay scheduling raw reads need of the principal they connect
 /// as, and nothing more.
 ///
 /// It is also a draft of the gate `B3` must grant the principal a Store Admission leases, measured
@@ -1642,8 +1642,9 @@ impl AcceptanceGrantV1 {
 /// needs it to be refused. Every entry is on `market_data_admitted_read`, so the principal holds
 /// nothing on `market_data_private`. The functions are exactly the wrappers the floors a
 /// scheduling admission measures list (`PIT_EVALUATION_FLOOR_V1`, `BAR_SCHEDULE_FLOOR_V1`,
-/// `NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2`), which `the_acceptance_grants_are_the_scheduling_wrappers`
-/// holds: the grants are the direct privileges, the floors their catalog closure.
+/// `NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2`, `FUNDING_SETTLEMENT_FLOOR_V1`), which
+/// `the_acceptance_grants_are_the_scheduling_wrappers` holds: the grants are the direct
+/// privileges, the floors their catalog closure.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(super) const NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1: &[AcceptanceGrantV1] = &[
     AcceptanceGrantV1::SchemaUsage("market_data_admitted_read"),
@@ -5416,10 +5417,17 @@ mod tests {
     }
 
     /// The sealed acceptance principal is granted `USAGE` on the admitted read schema and `EXECUTE`
-    /// on exactly the wrappers the three scheduling reads call, read from their source: nothing on
+    /// on exactly the wrappers the four scheduling reads call, read from their source: nothing on
     /// `market_data_private`, no wrapper those reads do not call, and none they call left out. Each
-    /// grant also lies inside the floors of the scheduling port's own `PORT_FLOORS` entry, so a
-    /// grant is never on an object no scheduling admission measures.
+    /// grant also lies inside the floors of the scheduling port's own `PORT_FLOORS` entry, or, for
+    /// the funding settlement read, its own dedicated floor: like
+    /// `AdmittedMarketDataSnapshotPort::resolve_funding_settlements_v1` itself, the funding read is
+    /// a per-call "direct measurement" against `FUNDING_SETTLEMENT_FLOOR_V1`, not part of the
+    /// scheduling port's construction-time floor union, so it is never added to `PORT_FLOORS`'s
+    /// entry for this port (doing so would make
+    /// `each_port_refuses_a_measurement_one_item_short_of_its_floors` expect construction itself to
+    /// refuse on a missing funding wrapper, which it does not - only the funding read does). A
+    /// grant is still never on an object no scheduling admission measures.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[rstest]
     fn the_acceptance_grants_are_the_scheduling_wrappers() {
@@ -5427,6 +5435,7 @@ mod tests {
             "read_market_data_pit_evaluation_snapshot",
             "read_bar_schedule_candidate_snapshots_v1",
             "read_native_replay_quote_cut_census_snapshot_v2",
+            "read_funding_settlement_snapshot_v1",
         ];
         let source = include_str!("postgres.rs");
         let called = SCHEDULING_READS
@@ -5437,7 +5446,9 @@ mod tests {
             .iter()
             .find(|(port, _, _)| *port == "native_replay_scheduling")
             .expect("the scheduling port is listed");
-        let (measured, _) = floor_union(floors);
+        let (mut measured, _) = floor_union(floors);
+        let (funding_measured, _) = floor_union(&[&postgres::FUNDING_SETTLEMENT_FLOOR_V1]);
+        measured.extend(funding_measured);
         let mut granted = BTreeSet::new();
         let mut schemas = Vec::new();
 
@@ -7101,29 +7112,37 @@ mod tests {
         .expect("the private schema's ACL is readable")
     }
 
-    /// Which of the three scheduling reads a grant serves.
+    /// Which of the four scheduling reads a grant serves.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
     enum SchedulingReadV1 {
         PitEvaluation,
         BarScheduleCandidates,
         QuoteCutCensus,
+        Funding,
     }
 
     /// The reads a grant exists for, stated before any run so the proof can disagree with it.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     fn reads_needing(grant: AcceptanceGrantV1) -> std::collections::BTreeSet<SchedulingReadV1> {
-        use SchedulingReadV1::{BarScheduleCandidates, PitEvaluation, QuoteCutCensus};
+        use SchedulingReadV1::{BarScheduleCandidates, Funding, PitEvaluation, QuoteCutCensus};
 
         match grant {
-            AcceptanceGrantV1::SchemaUsage(_) => {
-                [PitEvaluation, BarScheduleCandidates, QuoteCutCensus].into()
-            }
+            AcceptanceGrantV1::SchemaUsage(_) => [
+                PitEvaluation,
+                BarScheduleCandidates,
+                QuoteCutCensus,
+                Funding,
+            ]
+            .into(),
             AcceptanceGrantV1::FunctionExecute(function) if function.contains("bar_schedule") => {
                 [BarScheduleCandidates].into()
             }
             AcceptanceGrantV1::FunctionExecute(function) if function.contains("native_replay") => {
                 [QuoteCutCensus].into()
+            }
+            AcceptanceGrantV1::FunctionExecute(function) if function.contains("funding") => {
+                [Funding].into()
             }
             AcceptanceGrantV1::FunctionExecute(_) => [PitEvaluation].into(),
         }
@@ -7166,6 +7185,14 @@ mod tests {
         {
             refused.insert(SchedulingReadV1::QuoteCutCensus);
         }
+
+        if port
+            .resolve_funding_settlements_v1("AAPL.XNAS", 0, 1_000)
+            .await
+            .is_err()
+        {
+            refused.insert(SchedulingReadV1::Funding);
+        }
         refused
     }
 
@@ -7175,9 +7202,10 @@ mod tests {
     /// It connects as the disposable harness's reader role, which starts with no privilege on
     /// either Market Data schema. With nothing granted, every read is refused. With exactly
     /// `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, every read is answered: the snapshot's
-    /// evidence verifies, a member's schedule candidates are read, and the quote cut read through
-    /// the port is the one custody resolves. Those grants reach nothing private: the private
-    /// schema still has no grantee but its owner, which is what the time-zone custody check
+    /// evidence verifies, a member's schedule candidates are read, the quote cut read through
+    /// the port is the one custody resolves, and a funding settlement probe (an instrument with no
+    /// seeded rows) answers without a permission refusal. Those grants reach nothing private: the
+    /// private schema still has no grantee but its owner, which is what the time-zone custody check
     /// requires, and the principal calling a private function directly is refused. Each grant
     /// revoked alone refuses exactly the reads stated for it in `reads_needing`, and nothing else,
     /// so the list is neither short nor padded.
@@ -7236,7 +7264,7 @@ mod tests {
         // Nothing granted: the least-privilege principal reads nothing at all.
         assert_eq!(
             refused_reads(&resolver.port, &snapshot).await.len(),
-            3,
+            4,
             "an ungranted principal is refused every read"
         );
         let reader = sqlx::postgres::PgPoolOptions::new()
