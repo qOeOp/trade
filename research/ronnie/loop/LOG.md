@@ -2481,6 +2481,24 @@ one-level policy loses to the full book, whose first fill is the right trade mor
 advance. The capacity-constrained account again favours f = 0.5 (438 vs 211 total R, Sharpe 1.88 vs 1.10), the
 second time on the same data (S-1 had 398 vs 153); this is exploratory and is the one lead worth a registered test.
 
+## Loop S-3: order scores that avoid the tails, checked on data no score has seen (registered 2026-10-04, before running; the user approved)
+
+- **Origin:** S-1's linear score was not monotone (both tails worst, 30-60 best; see S-1 "Score bands"). Two scores are
+  fixed here, both fitted once on all S-1 development orders (53 coins, 2018-2022), then frozen.
+  - **trim:** the S-1 ridge score; take an order only when its score falls between the 20th and 80th percentiles of
+    the training scores.
+  - **binned:** an additive score that can say "moderate is best": each continuous feature is cut at its training
+    terciles, each binary feature by value, and each bin is worth its training mean R minus the overall mean, shrunk
+    by n / (n + 500); the score is the sum; take an order when it is above the training median.
+- **Test data:** the validation tier (20 coins: NEAR ... LDO, 2023-01 to 2026-08), never used by any selection score.
+  It is not untouched for R-1 itself (the R-1 holdout read overlapped it), so this tests the filters, not R-1. The
+  sealed holdout is not read. Orders built and walked exactly as in S-1 (every filled R-1 order alone, 1h/1m,
+  0.05% stop slippage), f = 0 and f = 0.5.
+- **Primary (four tests: two scores x two placements, Holm at 95%):** avg R of taken minus rejected orders, with a
+  week-clustered interval; a score counts if Holm-significant and the difference is at least 0.10R. Secondary: the
+  5-slot account (every order vs the score vs a random filter of the same pass rate, 100 draws), and the linear
+  score's ten bands on the validation data, to see whether the tails-worst shape repeats.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R
