@@ -237,10 +237,6 @@ fn native_replay_request_parts_v1(
 ///
 /// The request's run end is the binding's; its caller checks the run covers exactly the Replay's
 /// window. Every later frame's request is this one at that frame's `e_k`.
-#[expect(
-    dead_code,
-    reason = "the consumer's custody branch calls it once the binding's custody re-resolution check lands (Lane 5, H8)"
-)]
 pub(crate) fn native_replay_custody_first_frame_request_v1(
     preparation: &NativeReplayPreparationInputsV2,
     plan: &StrategyPlanV2,

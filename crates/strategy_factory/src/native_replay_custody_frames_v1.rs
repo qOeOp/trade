@@ -23,6 +23,7 @@ use vibe_data::owner::{
         PitWindowRunRefusalV1, UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowRunV1,
     },
     source_binding::BindingDigest,
+    strategy_input_binding::StrategyInputUniverseFrameReceipt,
 };
 
 use crate::{
@@ -102,6 +103,11 @@ impl ResolvedNativeReplayCustodyFramesV1 {
     #[must_use]
     pub const fn custody(&self) -> &ReplayCustodyRunCensusV1 {
         &self.custody
+    }
+
+    /// The run's first frame, which the Plan is revalidated against.
+    pub(crate) fn first_universe_frame(&self) -> &StrategyInputUniverseFrameReceipt {
+        self.frames[0].0.frame()
     }
 
     /// The frames and their census, for the execution bundle.
@@ -230,10 +236,6 @@ where
 /// # Errors
 ///
 /// Returns [`NativeReplayCustodyFramesErrorV1`] naming the refusal.
-#[expect(
-    dead_code,
-    reason = "the consumer's custody branch calls it once the binding's custody re-resolution check lands (Lane 5, H8)"
-)]
 pub(crate) async fn resolve_bound_custody_run_frames_v1<F, R>(
     custody_frames: &F,
     resolver: &R,
