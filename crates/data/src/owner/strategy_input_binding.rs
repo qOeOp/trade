@@ -2578,16 +2578,18 @@ fn event_kind(data_kind: &str) -> Result<StrategyInputEventKind, StrategyInputBi
     })
 }
 
-/// The digest a value receipt names its row by, so a proof can trace a value to the row it read.
-#[cfg(test)]
-pub(crate) fn canonical_row_digest_for_test(row: &VerifiedPitObservation) -> BindingDigest {
-    canonical_row_digest_v1(row)
-}
-
 /// The digest a value receipt names its row by: what traces a value back to the observation it
 /// read.
 pub(crate) fn canonical_row_digest_v1(row: &VerifiedPitObservation) -> BindingDigest {
     digest(&canonical_row_binding_bytes(row))
+}
+
+// This gated helper stays directly above `canonical_row_binding_bytes`: the production-producer
+// check's mutation harness calibrates on that adjacency (an ungated item right after a gated one).
+/// The digest a value receipt names its row by, so a proof can trace a value to the row it read.
+#[cfg(test)]
+pub(crate) fn canonical_row_digest_for_test(row: &VerifiedPitObservation) -> BindingDigest {
+    canonical_row_digest_v1(row)
 }
 
 fn canonical_row_binding_bytes(row: &VerifiedPitObservation) -> Vec<u8> {
