@@ -31,7 +31,7 @@ use crate::owner::{
     },
 };
 
-pub(super) const USDM: &str = include_str!(
+pub(in crate::owner) const USDM: &str = include_str!(
     "../../../../adapters/binance/test_data/futures/http_json/exchange_info_usdm.json"
 );
 const COINM: &str = include_str!(
@@ -40,8 +40,8 @@ const COINM: &str = include_str!(
 const CLOCK_IDENTITY: &str = "market-clock.identity.v2-intake-01";
 const CLOCK_EPOCH: &str = "market-clock.epoch.v2-intake-00001";
 /// 2026-09-21 in nanoseconds: a head on the real clock, after `BTCUSDT`'s listing.
-pub(super) const FIRST_CUT: u64 = 1_790_000_000_000_000_000;
-pub(super) const SECOND: u64 = 1_000_000_000;
+pub(in crate::owner) const FIRST_CUT: u64 = 1_790_000_000_000_000_000;
+pub(in crate::owner) const SECOND: u64 = 1_000_000_000;
 const BTCUSDT_ONBOARD_NS: i128 = 1_569_398_400_000 * 1_000_000;
 
 pub(super) fn d(byte: u8) -> BindingDigest {
@@ -64,7 +64,7 @@ fn clock(sequence: u64, decision_cut: u64) -> MarketDataClockAdmission {
 
 /// Commits one admitted Source Binding over `dataset_mapping` with `clock`, which is how the Owner's
 /// clock head moves in production.
-pub(super) async fn commit_binding(
+pub(in crate::owner) async fn commit_binding(
     owner: &MarketDataOwnerPostgres,
     dataset_mapping: &str,
     sequence: u64,
@@ -113,7 +113,7 @@ pub(super) async fn commit_binding_on(
         .expect("the Owner admits the binding and its clock")
 }
 
-pub(super) fn submission(
+pub(in crate::owner) fn submission(
     binding: &SourceBindingCommit,
     raw_symbol: &str,
     retrieval_time_ns: u64,
