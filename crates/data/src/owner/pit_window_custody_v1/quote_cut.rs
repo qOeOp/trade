@@ -1,24 +1,52 @@
-//! The quote cut a custody frame's gap takes its Quotes from (the hook slice T0-6 fills).
+//! The quote cut a custody frame's gap takes its Quotes from (slice T0-6).
 //!
-//! T0-5 fixes what a derivation is asked and how far a gap reaches; the derivation itself - the
-//! observed best bid and offer, or the open of the first fill bar after the decision cut - is
-//! T0-6's. Until it exists, every request for one fails closed as `QuoteCutMissing`: no quote is
-//! invented.
+//! T0-5 fixed what a derivation is asked and how far a gap reaches. T0-6's derivation is the open
+//! of the first fill-timeframe bar that opens strictly after the frame's decision cut, before the
+//! gap's bound: bid and ask both that open, both sizes the bar's traded volume
+//! ([`QuoteDerivationV1::FillBarOpen`]). The candidate bars themselves are read and verified by
+//! the caller (`postgres/pit_window_custody_v1.rs`, alongside the view), since reading custody
+//! needs a store; this module picks the first qualifying one and seals it. A gap with no
+//! qualifying bar fails closed as `QuoteCutMissing`: no quote is invented.
 
-use super::authority::RecordedTimeframeV1;
+use sha2::{Digest as _, Sha256};
+
+use super::{QuoteDerivationV1, authority::RecordedTimeframeV1};
 use crate::owner::{
     native_replay_quote_cut_v2::NativeReplayQuoteCutRefusalV2,
-    pit_snapshot::VerifiedPitObservationBatch, source_binding::BindingDigest,
+    pit_snapshot::{
+        VerifiedPitObservationBatch,
+        custody_view::{
+            CustodyQuoteCutInputsV1, CustodyQuoteRowV1, FillBarRowV1,
+            verify_custody_quote_cut_batch_v1,
+        },
+    },
+    source_binding::BindingDigest,
 };
 
+const QUOTE_CUT_IDENTITY_DOMAIN: &[u8] = b"market-data.pit-window-fill-quote-cut.v1\0";
+
+/// The fill timeframe's own interval: a fixed one minute, `IntervalClose`-labeled like every other
+/// bar this Owner commits, never parsed from the label (`docs/owners/market-data.md`, "PIT window
+/// custody"). The fill timeframe serves quote cuts only and is always this one grain, so the
+/// derivation fixes it rather than reading a declaration no custody record carries for it.
+pub(crate) const FILL_BAR_INTERVAL_NS_V1: u64 = 60_000_000_000;
+
+/// One fill-timeframe cross-section the gap could take its quote from, read and verified by the
+/// caller before the derivation runs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FillBarCandidateV1 {
+    /// The version this bar was verified at: the quote cut's identity binds it, so a later
+    /// correction of the same bar seals a different quote cut rather than silently replacing one
+    /// already issued.
+    pub(crate) version_identity: BindingDigest,
+    /// The bar's open: the instant its declaration labels it by. Strictly inside the gap, checked
+    /// when the candidate is read.
+    pub(crate) open_ns: u64,
+    /// One row per member, each the bar's open and traded volume.
+    pub(crate) rows: Vec<FillBarRowV1>,
+}
+
 /// What a quote cut derivation is asked for one gap.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the quote cut derivation reads it (T0-6); until then production asks and is refused"
-    )
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CustodyQuoteCutRequestV1 {
     pub(crate) chain_root: BindingDigest,
@@ -34,6 +62,10 @@ pub(crate) struct CustodyQuoteCutRequestV1 {
     pub(crate) members: Vec<String>,
     /// The custody's fill timeframe, which serves quote cuts only.
     pub(crate) fill_timeframe: Option<RecordedTimeframeV1>,
+    /// Every fill-timeframe bar whose open lies in the gap, ascending by open. The caller reads
+    /// and verifies these against the custody's store; this module trusts them as given and picks
+    /// the first.
+    pub(crate) fill_candidates: Vec<FillBarCandidateV1>,
 }
 
 /// The exclusive end of the gap after the frame at `event_ns`: the next frame's event,
@@ -51,20 +83,91 @@ pub(crate) const fn custody_quote_cut_bound_v1(
     }
 }
 
-/// The quote cut of the gap after `view`'s frame, as production derives it until slice T0-6: none.
-///
-/// Every gap is refused as `QuoteCutMissing`, which a frame reads as `EventOrderUnavailable`, so a
-/// custody frame fails closed rather than trade on an invented Quote. T0-6 replaces this body with
-/// the derivation, under the same signature.
+fn quote_cut_identity_v1(
+    view_identity: BindingDigest,
+    version_identity: BindingDigest,
+) -> BindingDigest {
+    let mut hasher = Sha256::new();
+    hasher.update(QUOTE_CUT_IDENTITY_DOMAIN);
+    hasher.update(view_identity.as_bytes());
+    hasher.update(version_identity.as_bytes());
+    BindingDigest::from_untrusted_bytes(hasher.finalize().into())
+}
+
+/// The quote cut of the gap after `view`'s frame: the first of `request.fill_candidates` (already
+/// read and verified by the caller, ascending by open), sealed as Quote rows bid = ask = open,
+/// both sizes the bar's traded volume.
 ///
 /// # Errors
 ///
-/// Always [`NativeReplayQuoteCutRefusalV2::QuoteCutMissing`].
-pub(crate) const fn resolve_custody_quote_cut_v1(
-    _view: &VerifiedPitObservationBatch,
-    _request: &CustodyQuoteCutRequestV1,
+/// [`NativeReplayQuoteCutRefusalV2::QuoteCutMissing`] when no candidate qualifies, or the chosen
+/// one does not carry exactly the frame's members.
+pub(crate) fn resolve_custody_quote_cut_v1(
+    view: &VerifiedPitObservationBatch,
+    request: &CustodyQuoteCutRequestV1,
 ) -> Result<VerifiedPitObservationBatch, NativeReplayQuoteCutRefusalV2> {
-    Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+    let Some(fill) = request.fill_timeframe.as_ref() else {
+        return Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing);
+    };
+    let candidate = request
+        .fill_candidates
+        .iter()
+        .find(|candidate| {
+            candidate.open_ns > request.decision_cut_ns
+                && candidate.open_ns < request.bound_ns_exclusive
+        })
+        .ok_or(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)?;
+    let mut rows = candidate.rows.clone();
+    rows.sort_by(|left, right| left.instrument.cmp(&right.instrument));
+    let quote_rows = rows
+        .iter()
+        .flat_map(|row| {
+            [
+                CustodyQuoteRowV1 {
+                    instrument: row.instrument.clone(),
+                    field: "BID_PRICE",
+                    value_mantissa: row.open_mantissa,
+                    value_scale: row.open_scale,
+                },
+                CustodyQuoteRowV1 {
+                    instrument: row.instrument.clone(),
+                    field: "ASK_PRICE",
+                    value_mantissa: row.open_mantissa,
+                    value_scale: row.open_scale,
+                },
+                CustodyQuoteRowV1 {
+                    instrument: row.instrument.clone(),
+                    field: "BID_SIZE",
+                    value_mantissa: row.volume_mantissa,
+                    value_scale: row.volume_scale,
+                },
+                CustodyQuoteRowV1 {
+                    instrument: row.instrument.clone(),
+                    field: "ASK_SIZE",
+                    value_mantissa: row.volume_mantissa,
+                    value_scale: row.volume_scale,
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    verify_custody_quote_cut_batch_v1(
+        view,
+        CustodyQuoteCutInputsV1 {
+            quote_cut_identity: quote_cut_identity_v1(
+                request.view_identity,
+                candidate.version_identity,
+            ),
+            instant_ns: candidate.open_ns,
+            available_ns: candidate.open_ns,
+            publication_ns: candidate.open_ns,
+            bound_ns_exclusive: request.bound_ns_exclusive,
+            derivation: QuoteDerivationV1::FillBarOpen {
+                fill_timeframe_identity: fill.identity,
+            },
+            rows: &quote_rows,
+        },
+    )
+    .map_err(|_| NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
 }
 
 #[cfg(test)]
