@@ -3623,6 +3623,56 @@ perpetual Data Client states per scope. Market Data reads, for a request's membe
 - **Accepted** on one real month of BTCUSDT: the count equals the venue's settlements, and a month with one removed is
   refused by name.
 
+### TARGET live funding retrieval for the strategy runtime
+
+The window funding schedule above answers a bounded historical window for Replay. A strategy runtime that is live,
+not replaying, needs the same settled-funding fact as it is produced, plus optionally a forecast of the next
+settlement. Both stay inside Market Data; neither widens what may reach real money.
+
+- **The settled-funding recorder lives in Market Data's resident service, never in the MCP.** The MCP is a stateless
+  request/response shell and holds no background task; a poller belongs to Market Data's own resident process. On
+  every settlement boundary for an admitted perpetual member, the recorder waits out the publication lag (below), then
+  calls the same unsigned public `fundingRate` endpoint the two-row scope read already calls
+  (`futures_pit_observation_source_v1.rs`), and writes the result idempotently into the funding settlement store that
+  commit `#1367` already defines. Backtest, the window funding schedule read above, and the live runtime therefore all
+  read one table, never two: the recorder is only ever a writer into that one surface, never a second reader path a
+  consumer could get out of sync with.
+- **Monthly archive reconciliation, not overwrite.** Once the next month's official archive (the authenticated
+  `fundingRate` archive commit `#1364` adds) is published, the recorder re-derives the same window from the archive
+  and compares it row for row against what it already wrote from the live endpoint. Equal rows are left untouched. A
+  mismatch is reported by name - which settlement, which field, archive value against live value - never silently
+  replaced; resolving a reported mismatch is an operator decision, not the recorder's. This also closes the gap the
+  archive-only path leaves open on its own: the current month, before its archive exists, has no settled-funding
+  history at all without this recorder.
+- **A forecast rate is a second, separate fact, and stays unbuilt until a strategy needs it.** The predicted
+  next-settlement rate is read from the public WebSocket market stream `/market/ws/<symbol>@markPrice` - not
+  `/ws/<symbol>@markPrice`, which handshakes successfully but never pushes a frame, as measured. A forecast row is
+  stored under its own kind, distinct from a settled-funding row by construction, so a consumer can never read a
+  forecast where it asked for a settled fact. This stream is not built by this design; it only reserves the forecast's
+  shape for when a strategy first declares the need.
+- **Look-ahead: a funding fact's availability instant is settlement plus publication lag, never settlement alone.**
+  One measured sample puts the lag at 11.6 s - one sample, not a bound; more samples are needed before any lag value
+  is treated as an upper bound here. Until a bound is measured and each settled row stores its own availability
+  instant, settled funding stays what it is today: a P&L input to a run, never a strategy input, because no consumer
+  could state when a strategy could first have seen it. Backtest and the live runtime read funding through the same
+  surface and apply the same availability cut; a settlement-only cut in one and a settlement-plus-lag cut in the other
+  would let a backtest see a fact before any live strategy ever could.
+- **Public data only.** Any HTTP client the recorder is built over refuses to hold a credential, exactly as the
+  existing Binance clients already refuse (`CredentialPresent`, `vision_backfill_v1.rs`,
+  `futures_pit_observation_source_v1.rs`): no `X-MBX-APIKEY` header and no `signature` parameter, ever.
+- **A GitHub-hosted runner cannot exercise the REST leg.** It reaches `fapi.binance.com` as `451`, as measured. An
+  end-to-end test against the recorder's real REST call can only run locally; that absence from CI is expected, not a
+  gap to chase there.
+- **Out of scope: real-account funding income.** What was actually charged to or paid into a live account is a
+  different fact from the venue's published settlement rate. Reading it needs an exchange API key and is a production
+  write adjacent to real money; under the architecture-authority rule in `AGENTS.md`, widening what may reach real
+  money needs the user's own explicit authorization, which this design neither requests nor assumes. An agent never
+  holds an exchange credential to get there. A real-account funding ledger, if ever wanted, is a separate, separately
+  authorized design.
+- **Status.** TARGET. This lands together with the runtime's record-only forward stage or the scan resident service,
+  whichever is built first - not now. Nothing in this change implements the recorder, the forecast stream, or the
+  reconciliation; it only fixes their shape so that later work has one documented design to build against.
+
 ## Input handoffs
 
 - Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
