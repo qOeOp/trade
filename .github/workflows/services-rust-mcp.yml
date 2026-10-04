@@ -56,8 +56,23 @@ jobs:
         with:
           persist-credentials: false
 
-      # Toolchain channel comes from the repository root's rust-toolchain.toml, which rustup finds
-      # by walking up from this directory; no separate toolchain step is needed.
+      - name: Get Rust toolchain version
+        id: rust-toolchain
+        working-directory: .
+        run: echo "TOOLCHAIN=$(bash scripts/rust-toolchain.sh)" >> "$GITHUB_ENV"
+
+      # A GitHub-hosted runner's pre-installed toolchain has no rustfmt/clippy component once
+      # rust-toolchain.toml pins a different channel, and rustup's bare auto-install (which a plain
+      # `cargo fmt`/`cargo clippy` would trigger) installs only rustc and cargo, not either
+      # component - the same reason the root build carries this step.
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+          components: clippy,rustfmt
+          cache: false
+          override: true
+
       - name: Check formatting
         run: cargo fmt --check
 
