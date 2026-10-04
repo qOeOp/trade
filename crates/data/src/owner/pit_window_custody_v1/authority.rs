@@ -528,6 +528,12 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
         if *interval >= execution_interval {
             return Err(Refused::FillTimeframeNotFinerThanExecution);
         }
+
+        // The quote cut derives a fill bar's open as its close less this one interval, so a fill
+        // timeframe of any other declared interval is refused rather than quoted at a wrong open.
+        if *interval != super::quote_cut::FILL_BAR_INTERVAL_NS_V1 {
+            return Err(Refused::FillTimeframeNotOneMinute);
+        }
     }
 
     // Members: the same Instrument Master fact and an included membership throughout the window.

@@ -31,8 +31,10 @@ const QUOTE_CUT_IDENTITY_DOMAIN: &[u8] = b"market-data.pit-window-fill-quote-cut
 
 /// The fill timeframe's own interval: a fixed one minute, `IntervalClose`-labeled like every other
 /// bar this Owner commits, never parsed from the label (`docs/owners/market-data.md`, "PIT window
-/// custody"). The fill timeframe serves quote cuts only and is always this one grain, so the
-/// derivation fixes it rather than reading a declaration no custody record carries for it.
+/// custody"). The fill timeframe serves quote cuts only, so the derivation fixes it rather than
+/// reading a declaration no custody record carries for it, and the custody commit enforces it:
+/// a fill timeframe whose declared interval is any other is refused as
+/// `PIT_WINDOW_FILL_TIMEFRAME_NOT_ONE_MINUTE`.
 pub(crate) const FILL_BAR_INTERVAL_NS_V1: u64 = 60_000_000_000;
 
 /// One fill-timeframe cross-section the gap could take its quote from, read and verified by the

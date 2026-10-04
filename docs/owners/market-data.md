@@ -2591,8 +2591,9 @@ This design replaces both.
   also declare a finer fixed-interval bar, which a PIT window custody request names as its fill timeframe, apart from
   the timeframes it holds for strategy inputs. Fill-timeframe rows serve the quote cut only: the derived view never
   selects them for a frame's inputs, because they are sparse, one bar per gap, and a strategy role reading that
-  timeframe would otherwise see a stale fill bar. A fill timeframe that is
-  not strictly shorter than the execution timeframe is refused by name as `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`.
+  timeframe would otherwise see a stale fill bar. A fill timeframe that is not strictly shorter than the execution
+  timeframe is refused by name as `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`, and in PIT window custody one whose
+  declared interval is not exactly one minute (`FILL_BAR_INTERVAL_NS_V1`) as `PIT_WINDOW_FILL_TIMEFRAME_NOT_ONE_MINUTE`.
   For each frame the fill bar is the first fill-timeframe bar whose open instant lies strictly after the frame's
   availability instant - its BAR's event-effective instant plus the lag the binding's availability rule declares - and
   strictly before the next frame's BAR. In custody it is the quote cut derived for the gap `(d_k, e_{k+1})`; on the
@@ -2882,8 +2883,11 @@ frames through this port, and no Backtest consumes a frame yet.
   selected by the same rule that selects frame `k`'s inputs at `d_k`: the fill follows the decision, and at `d_k` no
   quote could qualify, since its event follows `d_k`. A correction is published after the version it replaces, and an
   original at or after its own availability, so no correction ever reaches a fill quote: a fill uses the version known
-  when its bar became available. The quote's instant is the bar's open, and it states the selected version's
-  availability and publication; a bar available only at or after the gap's bound gives the gap no quote cut.
+  when its bar became available. The quote's instant is the bar's open - its close less the fill timeframe's declared
+  interval, which the custody commit holds to exactly one minute, `FILL_BAR_INTERVAL_NS_V1`, refusing any other as
+  `PIT_WINDOW_FILL_TIMEFRAME_NOT_ONE_MINUTE`, since no custody record carries the fill timeframe's declaration - and it
+  states the selected version's availability and publication; a bar available only at or after the gap's bound gives
+  the gap no quote cut.
 - **Interface:** `crates/data/src/owner/pit_window_custody_v1.rs` freezes what a backfill writer commits and how a
   multi-frame consumer finds a run's frames. The custody aggregate implements its commit port and alone constructs a
   receipt; until the derived view implements its frames port, nothing constructs a frame coordinate.

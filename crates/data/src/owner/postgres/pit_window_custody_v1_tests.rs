@@ -1083,6 +1083,20 @@ async fn postgres_every_custody_refusal_writes_nothing() {
         &owner,
         &intake,
         edited(&|r| {
+            // A fill finer than its execution bar, but a day long: its open would be quoted a
+            // minute before its close.
+            r.execution_timeframe = "2D".to_owned();
+            r.input_timeframes = vec!["2D".to_owned()];
+            r.fill_timeframe = Some("1D".to_owned());
+            r.cross_sections = vec![original("2D", WINDOW_START + 2 * DAY)];
+        }),
+        Refused::FillTimeframeNotOneMinute,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
             r.fill_timeframe = Some("1D".to_owned());
             r.cross_sections.pop();
         }),

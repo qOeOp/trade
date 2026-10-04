@@ -133,6 +133,7 @@ impl Basis {
                 bar_timeframes: vec![
                     continuous("1D", 24, UntrustedSourceBarUnitV1::Hour),
                     continuous("1M", 1, UntrustedSourceBarUnitV1::Minute),
+                    continuous("1H", 1, UntrustedSourceBarUnitV1::Hour),
                     continuous("24H", 24, UntrustedSourceBarUnitV1::Hour),
                     continuous("2D", 48, UntrustedSourceBarUnitV1::Hour),
                     // A second label for the minute bar: the same timeframe by another name.
@@ -538,6 +539,10 @@ const fn e(edit: Edit) -> Edit {
     r.fill_timeframe = Some("24H".into());
     r.cross_sections.pop();
 }), Refused::FillTimeframeNotFinerThanExecution)]
+#[case::fill_of_one_hour(e(|r, _| {
+    r.fill_timeframe = Some("1H".into());
+    r.cross_sections.pop();
+}), Refused::FillTimeframeNotOneMinute)]
 #[case::fill_is_input(e(|r, _| {
     r.fill_timeframe = Some("1D".into());
     r.cross_sections.pop();
