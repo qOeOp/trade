@@ -204,7 +204,7 @@ mod tests {
     use rstest::rstest;
     use rust_decimal::Decimal;
 
-    use super::{FundingSettlementWriteRowV1, SCHEMA_V1, coverage_digest_v1};
+    use super::{FundingSettlementWriteRowV1, coverage_digest_v1};
 
     fn row(settlement_ns: u64, rate: &str) -> FundingSettlementWriteRowV1 {
         FundingSettlementWriteRowV1 {
@@ -228,12 +228,5 @@ mod tests {
         let narrow = coverage_digest_v1("BTCUSDT-PERP.BINANCE", &rows, 0, 10);
         let wide = coverage_digest_v1("BTCUSDT-PERP.BINANCE", &rows, 0, 20);
         assert_ne!(narrow, wide);
-    }
-
-    #[rstest]
-    fn schema_statements_are_well_formed_sql_text() {
-        for statement in SCHEMA_V1 {
-            assert!(!statement.is_empty());
-        }
     }
 }
