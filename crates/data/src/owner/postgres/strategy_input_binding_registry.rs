@@ -949,6 +949,36 @@ async fn resolve_and_bind_with_mode(
     request: &UntrustedStrategyInputBindingRequest,
     mode: DependencyReadModeV1,
 ) -> Result<DeclaredStrategyInputBindingV1, StrategyInputBindingRegistryErrorV1> {
+    // A custody-sourced request resolves every dependency through its chain (T0-10).
+    if matches!(
+        request.source,
+        StrategyInputBatchSourceV1::CustodyView { .. }
+    ) {
+        let (batch, basis) = super::custody_strategy_input_v1::reread_custody_batch_v1(
+            transaction,
+            request,
+            mode == DependencyReadModeV1::RdOwner,
+        )
+        .await?;
+        super::custody_strategy_input_v1::check_custody_request_against_basis_v1(
+            request, &batch, &basis,
+        )?;
+        return match &request.scope {
+            UntrustedStrategyInputScope::ExactInstrument { .. } => {
+                bind_strategy_input_role(request, &batch)
+                    .map(|binding| {
+                        DeclaredStrategyInputBindingV1::ExactInstrument(Box::new(binding))
+                    })
+                    .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
+            }
+            UntrustedStrategyInputScope::UniverseSelection { .. } => {
+                bind_universe_members_declaration_v1(request, &batch)
+            }
+            UntrustedStrategyInputScope::InstrumentSet { .. } => {
+                Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
+            }
+        };
+    }
     let batch = resolve_native_pit(transaction, request, mode).await?;
     let universe =
         resolve_native_universe(transaction, request.universe_selection_digest, mode).await?;
@@ -1458,14 +1488,22 @@ async fn resolve_native_pit(
     request: &UntrustedStrategyInputBindingRequest,
     mode: DependencyReadModeV1,
 ) -> Result<VerifiedPitObservationBatch, StrategyInputBindingRegistryErrorV1> {
-    // A declaration is stored only for a snapshot source.
-    let StrategyInputBatchSourceV1::Snapshot {
-        snapshot_identity, ..
-    } = request.source
-    else {
-        return Err(StrategyInputBindingRegistryErrorV1::PitUnavailable);
-    };
-    load_verified_pit_batch(transaction, snapshot_identity, mode).await
+    // A declaration is stored for a snapshot source or, for a custody run's Design, a custody
+    // view source (T0-10), whose batch is the view at the head that holds it.
+    match request.source {
+        StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity, ..
+        } => load_verified_pit_batch(transaction, snapshot_identity, mode).await,
+        StrategyInputBatchSourceV1::CustodyView { .. } => {
+            super::custody_strategy_input_v1::reread_custody_batch_v1(
+                transaction,
+                request,
+                mode == DependencyReadModeV1::RdOwner,
+            )
+            .await
+            .map(|(batch, _)| batch)
+        }
+    }
 }
 
 /// Re-reads and re-verifies one snapshot's complete observation batch.
