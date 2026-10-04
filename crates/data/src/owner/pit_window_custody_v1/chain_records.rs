@@ -434,6 +434,24 @@ pub(crate) fn issue_market_semantics_chain_fact_v1(
     })
 }
 
+/// `fact` restated under another value and registry entry, sealed as a commit would seal it: a
+/// forgery every record's own readback accepts, for the proofs that a chain's basis is checked
+/// against its root custody's record.
+#[cfg(test)]
+pub(crate) fn restate_market_semantics_chain_fact_v1(
+    fact: &MarketSemanticsChainFactV1,
+    value: MarketSemanticsValueV1,
+    registry_record_identity: BindingDigest,
+) -> Option<MarketSemanticsChainFactV1> {
+    seal_market_semantics_fact(MarketSemanticsChainFactV1 {
+        value,
+        registry_record_identity,
+        canonical_bytes: Vec::new(),
+        identity: zero(),
+        ..fact.clone()
+    })
+}
+
 fn seal_market_semantics_fact(
     mut fact: MarketSemanticsChainFactV1,
 ) -> Option<MarketSemanticsChainFactV1> {

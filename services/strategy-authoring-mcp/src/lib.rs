@@ -1,17 +1,30 @@
 //! The `strategy-authoring` MCP server's protocol: the six tools, the one request each becomes, and the
 //! JSON-RPC answers around them.
 //!
-//! The server is `strategy-authoring-mcp` in `rd-owner-api`'s package, a stateless stdio process that holds
-//! the R&D API's URL and token. Everything it decides lives here, transport-free, so it is tested
-//! where the workspace's tests run; the binary adds only the HTTP client and the stdio loop. Every
-//! rule lives in R&D behind a route: a tool sends one request and passes the answer or the refusal
-//! through by name, sequencing nothing and remembering nothing.
+//! The server is `strategy-authoring-mcp`, a stateless stdio process that holds the R&D API's URL
+//! and token. Everything it decides lives here, transport-free, so it is tested where this
+//! crate's own tests run; `src/main.rs` adds only the HTTP client and the stdio loop. Every rule
+//! lives in R&D behind a route: a tool sends one request and passes the answer or the refusal
+//! through by name, sequencing nothing and remembering nothing. This crate depends on no Owner
+//! crate: it holds no business rule and makes no decision R&D's own routes do not already make.
 
 use std::{future::Future, pin::Pin};
 
 use serde_json::{Value, json};
 
-use crate::strategy_catalog_v1::StrategyIdentityV1;
+/// Validates the wire spelling of a `strategy_id`, `sha256:` and 64 lower-case hex digits, and
+/// returns it unchanged when valid. This crate carries no copy of the catalog's identity type; it
+/// only recognizes the one spelling a route's path accepts, exactly as `market-data-mcp`'s sibling
+/// `parse_job_id` recognizes a job identity.
+fn well_formed_strategy_id(text: &str) -> Option<&str> {
+    let hex = text.strip_prefix("sha256:")?;
+
+    (hex.len() == 64
+        && hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+    .then_some(text)
+}
 
 /// The MCP protocol revision answered when a client asks for none.
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -92,8 +105,8 @@ pub fn request_for(name: &str, arguments: &Value) -> Result<ApiRequest, (u16, Va
         arguments
             .get("strategy_id")
             .and_then(Value::as_str)
-            .and_then(StrategyIdentityV1::parse)
-            .map(|identity| identity.to_string())
+            .and_then(well_formed_strategy_id)
+            .map(ToOwned::to_owned)
             .ok_or((404, json!({"error": "STRATEGY_UNKNOWN"})))
     };
     let allowed = |keys: &[&str]| {

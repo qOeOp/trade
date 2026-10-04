@@ -5,7 +5,7 @@ use super::{
     MarketDataOwnerPostgres,
     pit_window_custody_v1::PitWindowViewRefusalV1,
     pit_window_custody_v1_tests::{
-        BTC, DAY, MINUTE, WINDOW_START, admit_members, after_close, commit, commit_binding,
+        BTC, DAY, ETH, MINUTE, WINDOW_START, admit_members, after_close, commit, commit_binding,
         correction, original, owner, request, successor, universe, version_at,
     },
 };
@@ -544,4 +544,277 @@ async fn postgres_a_tampered_custody_row_refuses_the_view() {
     }
     let view = owner.resolve_pit_window_view_v1(&at).await.unwrap();
     assert!(seal(&view).is_ok(), "every tamper was discarded");
+}
+
+/// A run's frames carry the basis their chain's records hold: the root custody's Universe
+/// Selection, its Instrument Master cut and its Market Semantics fact and value, its members and
+/// window. The basis is pinned to the head the frames were read from, and it is the root's: a
+/// successor that names another Universe Selection record over the same members moves the head
+/// and leaves the basis the root committed.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "synthetic/corrections", 1, Some(after_close(true))).await;
+    admit_members(&owner, &binding).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let universe_a = universe(&owner, &binding, 10, None).await;
+    let template = two_timeframe_request(request(&binding, universe_a));
+    let root = commit(&intake, template.clone()).await.unwrap();
+    let frames = owner.pit_window_custody_frames_v1();
+    let read = |run| {
+        let frames = frames.clone();
+        async move { frames.resolve_pit_window_frames_v1(run).await }
+    };
+    let at_root = read(run(
+        root.chain_root(),
+        WINDOW_START + 2 * DAY,
+        WINDOW_START + 4 * DAY,
+    ))
+    .await
+    .expect("the run reads at the root");
+    let basis = at_root.basis();
+
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let (_, _, (link, cut), (market_semantics, _)) =
+        super::pit_window_custody_v1::read_pit_window_chain_basis_v1(
+            &mut transaction,
+            root.chain_root(),
+        )
+        .await
+        .unwrap()
+        .expect("the root committed its chain records");
+    transaction.rollback().await.unwrap();
+    assert_eq!(basis.chain_root(), root.chain_root());
+    assert_eq!(basis.head_identity(), root.custody_identity());
+    assert_eq!(basis.universe_selection(), universe_a);
+    assert_eq!(basis.instrument_master_cut(), &cut);
+    assert_eq!(
+        basis.instrument_master_cut().cut().identity(),
+        link.cut_identity
+    );
+    assert_eq!(
+        basis.market_semantics_identity(),
+        template.market_semantics_identity
+    );
+    assert_eq!(
+        basis.market_semantics_identity(),
+        market_semantics.compatibility_scope_identity
+    );
+    assert_eq!(basis.market_semantics_value(), &market_semantics.value);
+    assert_eq!(basis.members(), [BTC, ETH]);
+    assert_eq!(basis.window(), (WINDOW_START, WINDOW_START + 4 * DAY));
+
+    // A successor naming another Universe Selection record over the same members.
+    let universe_b = universe(&owner, &binding, 11, None).await;
+    assert_ne!(universe_b, universe_a);
+    let two_day_bar = WINDOW_START + 2 * DAY;
+    let corrected = version_at_timeframe(&owner, root.custody_identity(), two_day_bar).await;
+    let mut restated = successor(
+        &root,
+        &template,
+        vec![two_day_correction(corrected, two_day_bar + DAY / 2)],
+    );
+    restated.universe_selection = universe_b;
+    let head = commit(&intake, restated)
+        .await
+        .expect("a successor restates its root's basis, which names no Universe Selection");
+    let at_head = read(run(
+        root.chain_root(),
+        WINDOW_START + 2 * DAY,
+        WINDOW_START + 4 * DAY,
+    ))
+    .await
+    .expect("the run reads at the head");
+    assert_eq!(at_head.head_identity(), head.custody_identity());
+    assert_eq!(at_head.basis().head_identity(), head.custody_identity());
+    assert_eq!(
+        at_head.basis().universe_selection(),
+        universe_a,
+        "the basis is the root's Universe Selection, not the head's"
+    );
+    assert_eq!(at_head.basis().chain_root(), basis.chain_root());
+    assert_eq!(
+        at_head.basis().instrument_master_cut(),
+        basis.instrument_master_cut()
+    );
+    assert_eq!(
+        at_head.basis().market_semantics_value(),
+        basis.market_semantics_value()
+    );
+    assert_eq!(at_head.basis().members(), basis.members());
+    assert_eq!(at_head.basis().window(), basis.window());
+    assert_eq!(
+        at_root.basis().head_identity(),
+        root.custody_identity(),
+        "frames read before the successor keep the head they were read from"
+    );
+}
+
+/// A run whose chain holds no basis record, a basis record edited behind its identity, or a Market
+/// Semantics fact forged consistently - restated under another value, with its registry entry and
+/// basis record re-sealed so every record's own readback accepts it - is refused rather than
+/// answered in part: the forged value differs from the one the root custody's record binds. Every
+/// edit is made in a transaction that is discarded, and none removes a row.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_run_without_its_verified_chain_basis_is_refused() {
+    use super::pit_window_custody_v1::{
+        frames_from_evidence_v1, load_chain_evidence_v1, read_pit_window_chain_basis_v1,
+        resolve_pit_window_frames_in_transaction_v1,
+    };
+    use crate::owner::pit_window_custody_v1::chain_records::{
+        issue_chain_basis_record_v1, issue_market_semantics_chain_registry_entry_v1,
+        restate_market_semantics_chain_fact_v1,
+    };
+
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
+    admit_members(&owner, &binding).await;
+    let universe = universe(&owner, &binding, 10, None).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let template = request(&binding, universe);
+    let receipt = commit(&intake, template.clone()).await.unwrap();
+    let chain_root = receipt.chain_root();
+    let covered = run(chain_root, WINDOW_START + DAY, WINDOW_START + 3 * DAY);
+    let root = chain_root.as_bytes().as_slice();
+
+    // A chain holding no basis record - one the T0-4c commit did not complete - is refused, where
+    // the same evidence with its basis is answered.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let evidence = load_chain_evidence_v1(&mut transaction, chain_root)
+        .await
+        .unwrap();
+    let readback = read_pit_window_chain_basis_v1(&mut transaction, chain_root)
+        .await
+        .unwrap();
+    transaction.rollback().await.unwrap();
+    assert!(frames_from_evidence_v1(covered, evidence.clone(), readback).is_ok());
+    assert_eq!(
+        frames_from_evidence_v1(covered, evidence, None).map(|_| ()),
+        Err(PitWindowRunRefusalV1::StoreUnavailable),
+        "a chain without a basis gets no partial answer"
+    );
+
+    // A basis record edited behind its identity.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    sqlx::query("UPDATE market_data_private.pit_window_chain_basis_records_v1 SET basis_bytes=basis_bytes||'\\x00'::bytea WHERE chain_root=$1")
+        .bind(root)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    assert_eq!(
+        resolve_pit_window_frames_in_transaction_v1(&mut transaction, covered)
+            .await
+            .map(|_| ()),
+        Err(PitWindowRunRefusalV1::StoreUnavailable)
+    );
+    transaction.rollback().await.unwrap();
+
+    // The forgery: the chain's Market Semantics fact restated under another normalisation.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let (basis, (r0_record, r0_cut), (link, _), (fact, registry)) =
+        read_pit_window_chain_basis_v1(&mut transaction, chain_root)
+            .await
+            .unwrap()
+            .expect("the root committed its chain records");
+    let mut value = fact.value;
+    value.normalization_identity = BindingDigest::from_untrusted_bytes([99; 32]);
+    let forged_registry = issue_market_semantics_chain_registry_entry_v1(
+        [
+            fact.compatibility_scope_identity,
+            chain_root,
+            link.identity(),
+            r0_record.identity(),
+            r0_cut.identity(),
+        ],
+        value,
+    )
+    .unwrap();
+    assert_eq!(
+        forged_registry.key_identity, registry.key_identity,
+        "the forged entry takes the committed one's key"
+    );
+    let forged_fact =
+        restate_market_semantics_chain_fact_v1(&fact, value, forged_registry.identity()).unwrap();
+    let forged_basis = issue_chain_basis_record_v1(
+        chain_root,
+        basis.root_custody_identity,
+        basis.r0_record_identity,
+        basis.r0_cut_identity,
+        basis.instrument_master_link_identity,
+        forged_fact.identity(),
+    )
+    .unwrap();
+
+    // Nothing is removed: the committed fact and registry entry step aside - the entry under
+    // another key, the fact under another chain root - and the forged ones take their places, which
+    // the chain's head and basis record are moved to.
+    let aside = BindingDigest::from_untrusted_bytes([98; 32]);
+    sqlx::query("UPDATE market_data_private.market_semantics_chain_registry_v1 SET registry_key_identity=$2,registry_key_bytes=$2 WHERE record_identity=$1")
+        .bind(registry.identity().as_bytes().as_slice())
+        .bind(aside.as_bytes().as_slice())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE market_data_private.market_semantics_chain_facts_v1 SET chain_root=$2 WHERE chain_root=$1")
+        .bind(root)
+        .bind(aside.as_bytes().as_slice())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO market_data_private.market_semantics_chain_registry_v1(registry_key_identity,registry_key_bytes,record_identity,record_bytes) VALUES($1,$2,$3,$4)")
+        .bind(forged_registry.key_identity.as_bytes().as_slice())
+        .bind(forged_registry.key_bytes.as_slice())
+        .bind(forged_registry.identity().as_bytes().as_slice())
+        .bind(forged_registry.canonical_bytes())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO market_data_private.market_semantics_chain_facts_v1(fact_identity,compatibility_scope_identity,chain_root,registry_record_identity,fact_bytes) VALUES($1,$2,$3,$4,$5)")
+        .bind(forged_fact.identity().as_bytes().as_slice())
+        .bind(forged_fact.compatibility_scope_identity.as_bytes().as_slice())
+        .bind(root)
+        .bind(forged_registry.identity().as_bytes().as_slice())
+        .bind(forged_fact.canonical_bytes())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE market_data_private.market_semantics_chain_heads_v1 SET fact_identity=$2 WHERE chain_root=$1")
+        .bind(root)
+        .bind(forged_fact.identity().as_bytes().as_slice())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE market_data_private.pit_window_chain_basis_records_v1 SET basis_identity=$2,basis_bytes=$3,market_semantics_fact_identity=$4 WHERE chain_root=$1")
+        .bind(root)
+        .bind(forged_basis.identity().as_bytes().as_slice())
+        .bind(forged_basis.canonical_bytes())
+        .bind(forged_fact.identity().as_bytes().as_slice())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let (_, _, _, (read_back, _)) = read_pit_window_chain_basis_v1(&mut transaction, chain_root)
+        .await
+        .expect("every record's own readback accepts the forgery")
+        .expect("the forged records are held");
+    assert_eq!(
+        read_back.value, value,
+        "the chain records now state the forged value"
+    );
+    assert_eq!(
+        resolve_pit_window_frames_in_transaction_v1(&mut transaction, covered)
+            .await
+            .map(|_| ()),
+        Err(PitWindowRunRefusalV1::StoreUnavailable),
+        "the root custody's record binds the committed value"
+    );
+    transaction.rollback().await.unwrap();
+
+    let frames = owner
+        .pit_window_custody_frames_v1()
+        .resolve_pit_window_frames_v1(covered)
+        .await
+        .expect("every tamper was discarded");
+    assert_eq!(frames.basis().market_semantics_value(), &fact.value);
 }
