@@ -7,6 +7,9 @@ use super::{
 use crate::owner::source_binding::BindingDigest;
 
 pub(crate) const VERSION: u16 = 1;
+/// A declaration over one frame's custody view (T0-10). Its layout is version 1's but for the
+/// source, so a snapshot declaration's bytes, and every digest over them, are unchanged.
+const VERSION_CUSTODY_VIEW: u16 = 2;
 pub(crate) const MAX_REQUEST_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_TEXT_BYTES: usize = 16 * 1024;
 pub(crate) const MAX_INSTRUMENTS: usize = 4_096;
@@ -26,7 +29,10 @@ pub(crate) fn encode_request_v1(
     validate_request(request).map_err(|_| CodecError::InvalidRequest)?;
     let mut encoder = Encoder::default();
     encoder.bytes(DOMAIN)?;
-    encoder.u16(VERSION);
+    encoder.u16(match request.source {
+        StrategyInputBatchSourceV1::Snapshot { .. } => VERSION,
+        StrategyInputBatchSourceV1::CustodyView { .. } => VERSION_CUSTODY_VIEW,
+    });
     encoder.digest(request.research_request_identity);
     encoder.digest(request.strategy_design_identity);
     encoder.digest(request.input_role_identity);
@@ -58,17 +64,28 @@ pub(crate) fn encode_request_v1(
     encoder.u8(request.scale);
     encoder.digest(request.pit_request_identity);
     encoder.digest(request.pit_request_digest);
-    // A declaration is stored only for a snapshot source: no custody view is persisted as a
-    // declaration until a reader of one exists (slice T1).
-    let StrategyInputBatchSourceV1::Snapshot {
-        snapshot_identity,
-        snapshot_fact_digest,
-    } = request.source
-    else {
-        return Err(CodecError::InvalidRequest);
-    };
-    encoder.digest(snapshot_identity);
-    encoder.digest(snapshot_fact_digest);
+    match request.source {
+        StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity,
+            snapshot_fact_digest,
+        } => {
+            encoder.digest(snapshot_identity);
+            encoder.digest(snapshot_fact_digest);
+        }
+        StrategyInputBatchSourceV1::CustodyView {
+            chain_root,
+            view_identity,
+            event_ns,
+            decision_cut_ns,
+            derived_frontier_digest,
+        } => {
+            encoder.digest(chain_root);
+            encoder.digest(view_identity);
+            encoder.u64(event_ns);
+            encoder.u64(decision_cut_ns);
+            encoder.digest(derived_frontier_digest);
+        }
+    }
     encoder.digest(request.observation_batch_digest);
     encoder.digest(request.source_binding_identity);
     encoder.digest(request.source_frontier_digest);
@@ -88,7 +105,9 @@ pub(crate) fn decode_request_v1(
     }
     let mut decoder = Decoder::new(bytes);
     decoder.expect_bytes(DOMAIN)?;
-    if decoder.u16()? != VERSION {
+    let version = decoder.u16()?;
+
+    if version != VERSION && version != VERSION_CUSTODY_VIEW {
         return Err(CodecError::CodecMismatch);
     }
     let research_request_identity = decoder.digest()?;
@@ -120,6 +139,22 @@ pub(crate) fn decode_request_v1(
     let timeframe = decoder.string()?;
     let unit = decode_unit(decoder.u8()?)?;
     let scale = decoder.u8()?;
+    let pit_request_identity = decoder.digest()?;
+    let pit_request_digest = decoder.digest()?;
+    let source = if version == VERSION {
+        StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity: decoder.digest()?,
+            snapshot_fact_digest: decoder.digest()?,
+        }
+    } else {
+        StrategyInputBatchSourceV1::CustodyView {
+            chain_root: decoder.digest()?,
+            view_identity: decoder.digest()?,
+            event_ns: decoder.u64()?,
+            decision_cut_ns: decoder.u64()?,
+            derived_frontier_digest: decoder.digest()?,
+        }
+    };
     let request = UntrustedStrategyInputBindingRequest {
         research_request_identity,
         strategy_design_identity,
@@ -130,12 +165,9 @@ pub(crate) fn decode_request_v1(
         timeframe,
         unit,
         scale,
-        pit_request_identity: decoder.digest()?,
-        pit_request_digest: decoder.digest()?,
-        source: StrategyInputBatchSourceV1::Snapshot {
-            snapshot_identity: decoder.digest()?,
-            snapshot_fact_digest: decoder.digest()?,
-        },
+        pit_request_identity,
+        pit_request_digest,
+        source,
         observation_batch_digest: decoder.digest()?,
         source_binding_identity: decoder.digest()?,
         source_frontier_digest: decoder.digest()?,
