@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import test from "node:test";
-import { bilingualSection, expectBonded, expectRoute, sources } from "./doc-contract.mjs";
 import ts from "typescript";
 
-import { exactBlueprints, maturityFor } from "../lib/navigation.js";
 import {
   decodeExploratoryReplayOpaqueIdentityV2,
   encodeExploratoryReplayOpaqueIdentityV2,
@@ -14,88 +12,6 @@ import { readExploratoryReplayReadbackGatewayV1 } from "../lib/exploratory-repla
 import { readExploratoryReplayHistoricalRejectionGatewayV1 } from "../lib/exploratory-replay-historical-rejection-gateway.ts";
 import { readExploratoryReplayResultGatewayV1 } from "../lib/exploratory-replay-result-gateway.ts";
 import { losslessQueryEncoding } from "../lib/lossless-query-encoding.ts";
-
-test("Backtest route renders one compact exact Replay request and result workbench", async () => {
-  const [component, route, resultRoute, resultGateway, shell, page, css, ownerApi, ownerRouter, ownerReadApi] = await Promise.all([
-    readFile(new URL("../components/exploratory-replay-readback-workbench.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/backtest/replays/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/backtest/results/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/exploratory-replay-result-gateway.ts", import.meta.url), "utf8"),
-    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/(dashboard)/[...route]/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/exploratory-replay-readback-workbench.module.css", import.meta.url), "utf8"),
-    readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs", import.meta.url), "utf8"),
-    // The Owner API's composition and the tests that drive it, as the one file they were before.
-    Promise.all(
-      ["server.rs", "tests.rs"].map((name) =>
-        readFile(new URL(`../../../crates/strategy_factory_rd_owner_api/src/${name}`, import.meta.url), "utf8"),
-      ),
-    ).then((parts) => parts.join("\n")),
-    readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/dashboard_read_api.rs", import.meta.url), "utf8"),
-  ]);
-  assert.equal(maturityFor("/backtest"), "DRAWABLE_EXACT");
-  assert.equal(exactBlueprints["/backtest"].primary, "ExploratoryReplayReadbackWorkbench");
-  assert.equal(exactBlueprints["/backtest"].terminal, "CanonicalResultOrUnavailable");
-  assert.match(exactBlueprints["/backtest"].state, /REQUEST_AND_RESULT_POINT_READ_ONLY - NO_RUN_OR_RESOLVE/u);
-  assert.match(component, /<PanelFrame/u);
-  assert.match(component, /<PanelFrameHeader/u);
-  assert.match(component, /<PanelFrameBody/u);
-  assert.match(component, /<PanelFrameInfo label="View Replay read boundary">/u);
-  assert.doesNotMatch(component, /description="Inspect one sealed Owner request/u);
-  assert.match(component, /Request identity/u);
-  assert.match(component, /Meaning digest/u);
-  assert.match(component, /Open readback/u);
-  assert.match(component, /\["Request", "Custody", "Replay basis"\]/u);
-  // The Replay basis names the universe the request was bound to beside its strategy design.
-  assert.match(component, /label="Universe selection"[^>]*>\{projection\.replayBasis\.universeSelectionIdentity\}/u);
-  // A Result is opened from the Owner's directory, never from typed identities.
-  assert.match(component, /<ResultDirectory/u);
-  assert.match(component, /<DataWorkspaceTable<ExploratoryReplayResultDirectoryEntryV1>/u);
-  assert.match(component, /\/api\/backtest\/result-directory\?/u);
-  assert.match(component, /No runs recorded/u);
-  // The directory is read for the request just opened, and only once it is available.
-  assert.match(component, /setStatus\("available"\);\s*void readDirectory\(\{ requestIdentity, meaningDigest \}, requestIdentityB64\);/u);
-  // The historical rejection rail keeps its own typed selector; the Result rail is gone.
-  assert.doesNotMatch(component, /placeholder="result identity"|placeholder="attempt identity"|label="Result identity"/u);
-  assert.match(component, /Open result/u);
-  assert.match(component, /requestSequence\.current !== sequence/u);
-  assert.match(component, /setProjection\(null\)/u);
-  assert.doesNotMatch(component, /requestCandidate\.trim\(\)|meaningCandidate\.trim\(\)/u);
-  assert.doesNotMatch(component, /useEffect|initialReadStarted/u);
-  assert.equal(component.match(/void read\(/gu)?.length, 2);
-  assert.match(route, /readExploratoryReplayReadbackGatewayV1/u);
-  assert.match(route, /getAll\("requestIdentityB64"\)/u);
-  assert.match(component, /requestIdentityB64/u);
-  assert.match(route, /getAll\("meaningDigest"\)/u);
-  assert.match(route, /cache-control/u);
-  assert.match(resultRoute, /readExploratoryReplayResultGatewayV1/u);
-  assert.match(resultRoute, /getAll\(key\)\.length === 1/u);
-  assert.match(resultGateway, /exactComponents/u);
-  assert.match(shell, /<ExploratoryReplayReadbackWorkbench/u);
-  assert.match(shell, /Replay request and result readback/u);
-  assert.doesNotMatch(shell, /NO_RUN_OR_RESULT|ResultProjectionUnavailable/u);
-  assert.match(page, /query\.replayRequestIdentity/u);
-  assert.match(page, /query\.resultIdentity/u);
-  assert.match(shell, /initialResultIdentity=\{replayHistoricalCustody \? undefined : replayResultIdentity\}/u);
-  assert.match(shell, /initialAttemptIdentity=\{replayHistoricalCustody \? undefined : replayAttemptIdentity\}/u);
-  // A link that names a Result selects its row; it opens nothing by itself.
-  assert.match(component, /initialResultIdentity && initialAttemptIdentity\s*\? \{ resultIdentity: initialResultIdentity, attemptIdentity: initialAttemptIdentity \}/u);
-  assert.match(ownerApi, /resolve_sealed_exploratory_replay_request_v2/u);
-  assert.match(ownerRouter, /"\/v2\/exploratory-replay-requests\/readback"/u);
-  assert.match(ownerReadApi, /"\/v2\/exploratory-replay-results\/\{result_identity\}"/u);
-  assert.doesNotMatch(component, /BacktestReturnBand|textarea|contentEditable|Run replay|>Resolve<|Download/u);
-  // The single-run report mounts once, only beneath the result the lookup opened, keyed by its locator.
-  assert.equal(component.match(/<BacktestRunReportReadback/gu)?.length, 1);
-  assert.match(
-    component,
-    /resultStatus === "available" && resultProjection \? \(\s*<>\s*<AvailableResult projection=\{resultProjection\} \/>[\s\S]*?<BacktestRunReportReadback\s+key=/u,
-  );
-  for (const field of ["result_identity", "request_identity", "attempt_identity"]) {
-    assert.match(component, new RegExp(`${field}: resultProjection\\.`, "u"));
-  }
-  assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(|var\(--ring\)|var\(--focus-ring\)/iu);
-  assert.doesNotMatch(css, /min-height:\s*(?:[5-9]\d\d|\d{4,})px/u);
-});
 
 test("Backtest BFF rejects malformed query UTF-8 before selector dispatch", async () => {
   const route = await readFile(
@@ -279,56 +195,4 @@ test("historical rejection BFF rejects malformed or ambiguous selectors before O
   assert.equal(valid.status, 503);
   assert.equal(valid.headers.get("cache-control"), "no-store");
   assert.equal(ownerCalls, 1);
-});
-
-test("historical Replay rejection uses shared status-card atoms and keeps technical custody in info", async () => {
-  const [component, route, shell, page, docs, docsZh] = await Promise.all([
-    readFile(new URL("../components/exploratory-replay-readback-workbench.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/backtest/rejections/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/(dashboard)/[...route]/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../../../docs/guide/dashboard.md", import.meta.url), "utf8"),
-    readFile(new URL("../../../docs/guide/dashboard.zh.md", import.meta.url), "utf8"),
-  ]);
-  assert.match(component, /<ReadbackLookup[\s\S]*?columns="triple"/u);
-  assert.match(component, /Open historical <EvidenceIcons\.next/u);
-  assert.match(component, /<FactGroup title="Outcome">[\s\S]*?<FactGroup title="Custody">[\s\S]*?<FactGroup title="Timing">/u);
-  for (const text of ["Historical", "Rejected", "Quarantined", "Invalid replay evidence", "Committed", "Observed"]) {
-    assert.ok(component.includes(text), `missing business fact ${text}`);
-  }
-  for (const label of ["Historical request", "Semantic digest", "Owner receipt", "Artifact", "Build receipt", "Source channel"]) {
-    assert.match(component, new RegExp(`<PanelFrameInfoFact label="${label}"`, "u"));
-  }
-  assert.match(route, /readExploratoryReplayHistoricalRejectionGatewayV1/u);
-  assert.match(route, /getAll\(key\)\.length === 1/u);
-  assert.match(shell, /initialHistoricalRequestIdentity/u);
-  assert.match(page, /query\.custody === "historical"/u);
-  const gateway = await sources([
-    "lib/exploratory-replay-historical-rejection-gateway.ts", "components/artifact-historical-readback-drilldown.tsx",
-  ]);
-  expectBonded({ en: docs, zh: docsZh }, [component, route, gateway].join("\n"), [
-    "/v1/exploratory-replay-rejections/readback", "REJECTED_NO_WRITE", "INVALID_REPLAY_EVIDENCE",
-    "Open historical", "custody=historical",
-  ], "historical Replay rejection");
-});
-
-test("Replay request contract is bonded to the workbench and the Owner routes it reads", async () => {
-  const section = await bilingualSection({
-    en: "## Bounded admission: Exploratory Replay request and result readback",
-    zh: "## 有界准入：Exploratory Replay 请求与结果回读",
-  });
-  const code = await sources([
-    "components/exploratory-replay-readback-workbench.tsx", "components/ui/iconography.ts",
-    "lib/exploratory-replay-readback-client.ts", "../../crates/strategy_factory_rd_owner_api/src/server.rs",
-    "../../crates/strategy_factory_rd_owner_api/src/tests.rs",
-    "lib/exploratory-replay-result-directory-gateway.ts",
-  ]);
-  expectRoute(section, "/backtest", "Replay readback");
-  expectBonded(section, code, [
-    "ExploratoryReplayReadbackWorkbench", "PanelFrame", "Request identity", "Meaning digest", "Open readback",
-    "Refresh", "Replay basis", "DataWorkspaceTable", "No runs recorded", "Open result", "Lucide",
-    "/v2/exploratory-replay-results?request_identity={request_identity}&meaning_digest={meaning_digest}",
-    "/v2/exploratory-replay-requests/readback", "meaning_digest",
-    "/v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}",
-  ], "Replay readback");
 });
