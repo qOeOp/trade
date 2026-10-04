@@ -176,6 +176,15 @@ impl StrategyStatementErrorV1 {
 }
 
 impl StrategyStatementV1 {
+    /// The statement this strategy can be wrong about, whichever family it is.
+    #[must_use]
+    pub fn falsifier(&self) -> &str {
+        match self {
+            Self::SingleThreshold(spec) => &spec.falsifier,
+            Self::Authored(document) => &document.falsifier,
+        }
+    }
+
     /// Compiles the statement for one Research request and Intent into its `design` and
     /// `meaning`, whichever family it is.
     ///

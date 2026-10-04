@@ -833,6 +833,10 @@ catalog never holds a strategy a run would refuse at authoring.
 - `POST /v1/backtests` runs a request's orchestration to wherever it currently stops: from the catalogued statement
   through the run's own Research goal, authoring, role binding and freeze, to the replay step, where it stops today as
   `CUSTODY_FRAMES_NOT_AVAILABLE`. A refusal before that point is passed through by name.
+- Either statement family runs: the statement is read as the catalog holds it and authored by its own family, a
+  single-threshold statement through the single-threshold author and a document through the authoring language's
+  compiler, into the same Design and meaning the freeze takes. A statement that does not author is refused as
+  `STRATEGY_STATEMENT_DOES_NOT_AUTHOR`, with its family's own refusal as the detail.
 - A run is recorded in `rd_backtest_runs_v1`, an append-only R&D table, once its orchestration reaches the replay
   step: its run id, the canonical bytes of the request it was submitted with, and the exact answer it was given.
   Nothing is updated or deleted. The same request under the same run id answers the recorded run's bytes without
@@ -844,7 +848,8 @@ catalog never holds a strategy a run would refuse at authoring.
 - `GET /v1/backtests/{run_id}/report` answers `RUN_HAS_NO_RESULT` with the replay state the run stopped at, because no
   run reaches a Result yet; the report is assembled there once one can.
 - `backtest_run_chain_entry_acceptance` drives every route and refusal over HTTP on the ordered chain's PostgreSQL,
-  after the orchestration's own proof that it reaches the replay step.
+  after the orchestration's own proof that it reaches the replay step from a single-threshold statement and from T0's
+  authored document.
 
 **CURRENT - strategy-authoring MCP server:** the `strategy-authoring` server of the
 [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-authoring-mcp`, a stateless
