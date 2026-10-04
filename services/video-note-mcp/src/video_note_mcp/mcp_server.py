@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from dataclasses import asdict
+from typing import Any
 
 import rfc8785
 from mcp import types
@@ -14,19 +17,25 @@ from video_note_mcp.application.owned_tasks import finish_owned_task
 from video_note_mcp.application.progress import (
     ProgressUpdateV1,
 )
-from video_note_mcp.application.search_notes import SearchAndCreateBilibiliNotes
+from video_note_mcp.domain.artifacts import TranscriptResult, TranscriptSegment
 from video_note_mcp.domain.models import (
     CreateNoteInputV1,
     ErrorV1,
     FailureCode,
     PublicBilibiliNoteResultV4,
-    PublicBilibiliSearchResultV2,
-    SearchAndCreateInputV1,
+    StrictModel,
 )
-from video_note_mcp.presentation.schemas import search_tool_output_schema, tool_output_schema
+from video_note_mcp.domain.primitive_inputs import (
+    DownloadInput,
+    FramesInput,
+    ImportInput,
+    RenderInput,
+    TranscribeInput,
+)
+from video_note_mcp.domain.primitive_results import ArtifactResultV1
+from video_note_mcp.presentation.schemas import tool_output_schema
 
 TOOL_NAME = "video_note.create"
-SEARCH_TOOL_NAME = "video_note.search_and_create"
 _USER_ANNOTATIONS = types.Annotations(audience=["user"])
 
 
@@ -43,14 +52,18 @@ class _McpProgressReporter:
             return
 
 
-def _error(code: FailureCode, reason: str) -> types.CallToolResult:
+def _error(
+    code: FailureCode, reason: str, recovery: dict[str, str] | None = None
+) -> types.CallToolResult:
     failure = ErrorV1(
         schema="bilibili-note.error/v1",
         maturity="current_poc",
         code=code,
         reason=reason,
     )
-    structured = failure.model_dump(mode="json", by_alias=True)
+    structured = failure.model_dump(mode="json", by_alias=True, exclude_defaults=True)
+    if recovery:
+        structured["recovery"] = recovery
     return types.CallToolResult(
         is_error=True,
         content=[
@@ -64,11 +77,39 @@ def _error(code: FailureCode, reason: str) -> types.CallToolResult:
     )
 
 
-def build_server(
-    use_case: CreateBilibiliNote,
-    search_use_case: SearchAndCreateBilibiliNotes,
-    youtube_search_use_case: SearchAndCreateBilibiliNotes | None = None,
-) -> Server:
+_PRIMITIVES: dict[str, tuple[type[StrictModel], str]] = {
+    "video_note.download": (
+        DownloadInput,
+        "Download verified media from url, or read existing media_id without downloading; returns "
+        "media_id for reuse.",
+    ),
+    "video_note.import": (
+        ImportInput,
+        "Import a media filename from host-configured BILIBILI_NOTE_IMPORT_DIR, or "
+        "complete timestamped transcript segments bound to a media_id. Imported "
+        "provenance is explicit. No arbitrary paths.",
+    ),
+    "video_note.transcribe": (
+        TranscribeInput,
+        "Transcribe media_id, or resume review from transcript_id without repeating ASR. "
+        "Exactly one source; returns transcript_id and complete timestamped speech "
+        "at selected quality.",
+    ),
+    "video_note.frames": (
+        FramesInput,
+        "Extract frames from transcript_id, or read evidence_id without extracting again; returns "
+        "complete transcript and local frame paths for authoring.",
+    ),
+    "video_note.render": (
+        RenderInput,
+        "Validate structured note against evidence_id and publish illustrated "
+        "HTML/Markdown. Reference E001 etc and frame IDs from frames. No model call; "
+        "no arbitrary HTML.",
+    ),
+}
+
+
+def build_server(use_case: CreateBilibiliNote) -> Server:
     async def list_tools(
         _context: ServerRequestContext[None],
         _params: types.PaginatedRequestParams | None,
@@ -99,69 +140,159 @@ def build_server(
                         open_world_hint=True,
                     ),
                 ),
+            ]
+            + [
                 types.Tool(
-                    name=SEARCH_TOOL_NAME,
-                    title="Search and create illustrated video notes",
-                    description=(
-                        "Search the selected platform (Bilibili or YouTube) by a topic or "
-                        "creator name and produce a collection of "
-                        "1–3 verified illustrated notes with separate source attribution and "
-                        "content-derived chapters. "
-                        "At most two videos process concurrently; exact requested success count "
-                        "is required. "
-                        "Returns local Markdown, HTML and screenshot paths on the server "
-                        "filesystem."
+                    name=name,
+                    description=description,
+                    input_schema=model.model_json_schema(by_alias=True),
+                    output_schema=tool_output_schema(
+                        PublicBilibiliNoteResultV4
+                        if name == "video_note.render"
+                        else ArtifactResultV1
                     ),
-                    input_schema=SearchAndCreateInputV1.model_json_schema(by_alias=True),
-                    output_schema=search_tool_output_schema(),
                     annotations=types.ToolAnnotations(
                         read_only_hint=False,
                         destructive_hint=False,
                         idempotent_hint=False,
-                        open_world_hint=True,
+                        open_world_hint=name
+                        in {"video_note.download", "video_note.transcribe", "video_note.import"},
                     ),
-                ),
+                )
+                for name, (model, description) in _PRIMITIVES.items()
             ]
         )
 
+    def media_result(identity: str) -> dict[str, Any]:
+        source = use_case.artifacts.load_media(identity)
+        return {
+            "media_id": identity,
+            "media_path": str(source.media_path),
+            "source": source.source.model_dump(mode="json"),
+        }
+
+    def transcript_result(identity: str) -> dict[str, Any]:
+        source, quality = use_case.artifacts.load_transcript(identity)
+        return {
+            "transcript_id": identity,
+            "source": source.source.model_dump(mode="json"),
+            "quality": quality,
+            "transcript": asdict(source.transcript),
+            "reviews": [asdict(r) for r in source.reviews],
+        }
+
     async def _call_tool_result(
-        context: ServerRequestContext[None], request: CreateNoteInputV1 | SearchAndCreateInputV1
+        context: ServerRequestContext[None], request: Any
     ) -> types.CallToolResult:
         progress = _McpProgressReporter(context)
         try:
-            if isinstance(request, SearchAndCreateInputV1):
-                selected = (
-                    youtube_search_use_case if request.platform == "youtube" else search_use_case
-                )
-                if selected is None:
-                    return _error("SOURCE_UNAVAILABLE", "search_platform_not_configured")
-                payload = await selected.execute(
-                    request.query, request.max_videos, progress, quality=request.quality
-                )
-                result: PublicBilibiliSearchResultV2 | PublicBilibiliNoteResultV4 = (
-                    PublicBilibiliSearchResultV2(
-                        schema="bilibili-note.search-result/v2",
-                        rendered_markdown=payload.rendered_markdown,
-                        note_path=payload.note_path,
-                        html_path=payload.html_path,
-                        images=payload.images,
+            retained: dict[str, Any] | None = None
+            if isinstance(request, DownloadInput):
+                if request.media_id is not None:
+                    identity = request.media_id
+                else:
+                    assert request.url is not None
+                    identity = await use_case.download(request.url, progress)
+                retained = media_result(identity)
+            elif isinstance(request, ImportInput):
+                if request.kind == "media":
+                    assert request.filename is not None and request.title is not None
+                    retained = media_result(
+                        await use_case.import_media(request.filename, request.title)
+                    )
+                else:
+                    assert request.media_id is not None and request.segments is not None
+                    imported = TranscriptResult(
+                        "imported",
+                        "caller",
+                        request.language,
+                        tuple(
+                            TranscriptSegment(f"E{i:03d}", s.start_ms, s.end_ms, s.text)
+                            for i, s in enumerate(request.segments, 1)
+                        ),
+                    )
+                    identity = await use_case.transcribe(
+                        request.media_id, progress, quality=request.quality, imported=imported
+                    )
+                    retained = transcript_result(identity)
+            elif isinstance(request, TranscribeInput):
+                retained = transcript_result(
+                    await use_case.transcribe(
+                        request.media_id,
+                        progress,
+                        quality=request.quality,
+                        transcript_id=request.transcript_id,
                     )
                 )
+            elif isinstance(request, FramesInput):
+                if request.evidence_id is not None:
+                    identity = request.evidence_id
+                else:
+                    assert request.transcript_id is not None
+                    identity = await use_case.frames(request.transcript_id, progress)
+                source, quality, frames = use_case.artifacts.load_frames(identity)
+                paths = use_case.artifacts.frame_paths(identity)
+                retained = {
+                    "source": source.source.model_dump(mode="json"),
+                    "quality": quality,
+                    "transcript": asdict(source.transcript),
+                    "reviews": [asdict(r) for r in source.reviews],
+                    "evidence_id": identity,
+                    "frames": [
+                        {**{k: v for k, v in asdict(f).items() if k != "png_bytes"}, "path": path}
+                        for f, path in zip(frames, paths, strict=True)
+                    ],
+                }
+            elif isinstance(request, RenderInput):
+                payload = use_case.render(request.evidence_id, request.note)
             else:
                 payload = await use_case.execute(request.url, progress, quality=request.quality)
-                result = PublicBilibiliNoteResultV4(
-                    schema="bilibili-note.result/v4",
-                    rendered_markdown=payload.rendered_markdown,
-                    note_path=payload.note_path,
-                    html_path=payload.html_path,
-                    images=payload.images,
+            if retained is not None:
+                retained["schema"] = "video-note.artifact-result/v1"
+                retained = ArtifactResultV1.model_validate_json(json.dumps(retained)).model_dump(
+                    mode="json", by_alias=True
                 )
-        except asyncio.CancelledError:
-            return _error("CANCELLED", "request_cancelled")
+                return types.CallToolResult(
+                    is_error=False,
+                    content=[
+                        types.TextContent(
+                            type="text",
+                            text=json.dumps(retained, ensure_ascii=False),
+                            annotations=_USER_ANNOTATIONS,
+                        )
+                    ],
+                    structured_content=retained,
+                )
+            result = PublicBilibiliNoteResultV4(
+                schema="bilibili-note.result/v4",
+                rendered_markdown=payload.rendered_markdown,
+                note_path=payload.note_path,
+                html_path=payload.html_path,
+                images=payload.images,
+            )
+        except asyncio.CancelledError as e:
+            recovery = {
+                key: getattr(request, key)
+                for key in ("media_id", "transcript_id", "evidence_id")
+                if getattr(request, key, None)
+            }
+            return _error(
+                "CANCELLED", "request_cancelled", {**recovery, **getattr(e, "recovery", {})}
+            )
         except BilibiliNoteFailure as e:
-            return _error(e.code, e.reason)
+            recovery = {
+                key: getattr(request, key)
+                for key in ("media_id", "transcript_id", "evidence_id")
+                if getattr(request, key, None)
+            }
+            return _error(e.code, e.reason, {**recovery, **e.recovery})
         except Exception:
-            return _error("INTERNAL", "unexpected_internal_failure")
+            recovery = {
+                key: getattr(request, key)
+                for key in ("media_id", "transcript_id", "evidence_id")
+                if getattr(request, key, None)
+            }
+            return _error("INTERNAL", "unexpected_internal_failure", recovery)
         # Publication committed: return its receipt without another cancellation point.
         return types.CallToolResult(
             is_error=False,
@@ -176,22 +307,13 @@ def build_server(
     async def call_tool(
         context: ServerRequestContext[None], params: types.CallToolRequestParams
     ) -> types.CallToolResult:
-        name = {
-            "bilibili_note.create": TOOL_NAME,
-            "bilibili_note.search_and_create": SEARCH_TOOL_NAME,
-        }.get(params.name, params.name)
-        if name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
+        name = {"bilibili_note.create": TOOL_NAME}.get(params.name, params.name)
+        if name not in {TOOL_NAME, *_PRIMITIVES}:
             return _error("OUTPUT_INVALID", "tool_name_invalid")
         try:
-            if name == SEARCH_TOOL_NAME:
-                admitted: CreateNoteInputV1 | SearchAndCreateInputV1 = (
-                    SearchAndCreateInputV1.model_validate(params.arguments or {})
-                )
-            else:
-                admitted = CreateNoteInputV1.model_validate(params.arguments or {})
+            model = CreateNoteInputV1 if name == TOOL_NAME else _PRIMITIVES[name][0]
+            admitted = model.model_validate_json(json.dumps(params.arguments or {}))
         except ValidationError:
-            if name == SEARCH_TOOL_NAME:
-                return _error("OUTPUT_INVALID", "tool_arguments_invalid")
             return _error("INVALID_URL", "tool_arguments_invalid")
         request_identity = {
             "tool": params.name,
@@ -217,7 +339,13 @@ def build_server(
                     # before pending or repeated cancellation is translated to
                     # one MCP result and one operator terminal event.
                     pass
-                result = _error("CANCELLED", "request_cancelled")
+                # A completed response owns its receipt, including a committed publication.
+                # Cancellation must not replace that receipt with an unresumable error.
+                result = (
+                    request.result()
+                    if not request.cancelled() and request.exception() is None
+                    else _error("CANCELLED", "request_cancelled")
+                )
             structured = result.structured_content
             if result.is_error and isinstance(structured, dict):
                 code = structured.get("code")

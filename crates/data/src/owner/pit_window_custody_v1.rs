@@ -396,6 +396,8 @@ impl PitWindowFrameCoordinateV1 {
 /// let _ = PitWindowChainBasisV1 {
 ///     chain_root: d,
 ///     head_identity: d,
+///     universe_selection_record: (d, d),
+///     instrument_master_key: d,
 ///     market_semantics_identity: d,
 ///     members: Vec::new(),
 ///     window: (0, 1),
@@ -406,6 +408,8 @@ pub struct PitWindowChainBasisV1 {
     chain_root: BindingDigest,
     head_identity: BindingDigest,
     universe_selection: UntrustedUniverseSelectionLocatorV1,
+    universe_selection_record: (BindingDigest, BindingDigest),
+    instrument_master_key: BindingDigest,
     instrument_master_cut: Arc<InstrumentMasterReadbackV1>,
     market_semantics_identity: BindingDigest,
     market_semantics_value: MarketSemanticsValueV1,
@@ -418,6 +422,8 @@ pub(crate) struct ChainBasisPartsV1 {
     pub(crate) chain_root: BindingDigest,
     pub(crate) head_identity: BindingDigest,
     pub(crate) universe_selection: UntrustedUniverseSelectionLocatorV1,
+    pub(crate) universe_selection_record: (BindingDigest, BindingDigest),
+    pub(crate) instrument_master_key: BindingDigest,
     pub(crate) instrument_master_cut: InstrumentMasterReadbackV1,
     pub(crate) market_semantics_identity: BindingDigest,
     pub(crate) market_semantics_value: MarketSemanticsValueV1,
@@ -433,6 +439,8 @@ impl PitWindowChainBasisV1 {
             chain_root: parts.chain_root,
             head_identity: parts.head_identity,
             universe_selection: parts.universe_selection,
+            universe_selection_record: parts.universe_selection_record,
+            instrument_master_key: parts.instrument_master_key,
             instrument_master_cut: Arc::new(parts.instrument_master_cut),
             market_semantics_identity: parts.market_semantics_identity,
             market_semantics_value: parts.market_semantics_value,
@@ -457,6 +465,23 @@ impl PitWindowChainBasisV1 {
     #[must_use]
     pub const fn universe_selection(&self) -> UntrustedUniverseSelectionLocatorV1 {
         self.universe_selection
+    }
+
+    /// The stored Universe Selection record the root custody's locator resolves to, as `(record
+    /// identity, record digest)`: the key `read_universe_selection_members_for_rd_v1` reads the
+    /// custody's members by. It is resolved in the same read as the frames, and its record's
+    /// request meaning digest is the locator's.
+    #[must_use]
+    pub const fn universe_selection_record(&self) -> (BindingDigest, BindingDigest) {
+        self.universe_selection_record
+    }
+
+    /// The Instrument Master key the root custody record binds, equal to the chain's Instrument
+    /// Master link's key: the digest every frame's view batch carries as its
+    /// `instrument_master_digest`.
+    #[must_use]
+    pub const fn instrument_master_key(&self) -> BindingDigest {
+        self.instrument_master_key
     }
 
     /// The Instrument Master cut the root's commit issued over the members, as the Owner reads it
@@ -727,6 +752,8 @@ mod tests {
             chain_root: d(1),
             head_identity: d(2),
             universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4)),
+            universe_selection_record: (d(7), d(8)),
+            instrument_master_key: d(9),
             instrument_master_cut: cut,
             market_semantics_identity: d(5),
             market_semantics_value: value,
@@ -743,6 +770,8 @@ mod tests {
             basis.universe_selection(),
             UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4))
         );
+        assert_eq!(basis.universe_selection_record(), (d(7), d(8)));
+        assert_eq!(basis.instrument_master_key(), d(9));
         assert_eq!(basis.instrument_master_cut().identity(), cut_identity);
         assert_eq!(basis.market_semantics_identity(), d(5));
         assert_eq!(basis.market_semantics_value(), &value);

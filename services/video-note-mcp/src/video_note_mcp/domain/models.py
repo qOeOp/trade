@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-TranscriptMethod = Literal["platform_subtitle", "asr"]
+TranscriptMethod = Literal["platform_subtitle", "asr", "imported"]
 FailureCode = Literal[
     "INVALID_URL",
     "UNSUPPORTED_URL",
@@ -22,8 +22,7 @@ FailureCode = Literal[
     "OUTPUT_INVALID",
     "CANCELLED",
     "DEADLINE_EXCEEDED",
-    "SEARCH_EMPTY",
-    "SEARCH_TARGET_UNMET",
+    "ARTIFACT_UNAVAILABLE",
     "INTERNAL",
 ]
 TRANSCRIPT_WINDOW_MS = 45_000
@@ -52,37 +51,13 @@ class CreateNoteInputV1(StrictModel):
     url: str = Field(min_length=1, max_length=2048)
 
 
-class SearchAndCreateInputV1(StrictModel):
-    platform: Literal["bilibili", "youtube"] = "bilibili"
-    quality: Quality = "standard"
-    query: NaturalText = Field(min_length=2, max_length=200)
-    max_videos: int = Field(default=2, ge=1, le=3)
-
-
-class SearchCandidateV1(StrictModel):
-    video_id: str = Field(pattern=r"^(?:BV[0-9A-Za-z]{10}|[A-Za-z0-9_-]{11})$")
-    title: NaturalText = Field(min_length=1, max_length=500)
-    canonical_url: str = Field(min_length=1, max_length=2048)
-    author_name: NaturalText | None = Field(default=None, min_length=1, max_length=200)
-    published_at: int | None = Field(default=None, gt=0)
-
-    @model_validator(mode="after")
-    def identity_matches_url(self) -> SearchCandidateV1:
-        expected = (
-            f"https://www.bilibili.com/video/{self.video_id}?p=1"
-            if len(self.video_id) == 12
-            else f"https://www.youtube.com/watch?v={self.video_id}"
-        )
-        if self.canonical_url != expected:
-            raise ValueError("search candidate identity does not match canonical URL")
-        return self
-
-
 class SourceV1(StrictModel):
-    platform: Literal["bilibili", "youtube", "generic"]
+    platform: Literal["bilibili", "youtube", "generic", "local"]
     requested_url: str
     canonical_url: str
-    video_id: str = Field(pattern=r"^(?:BV[0-9A-Za-z]{10}|[A-Za-z0-9_-]{11}|web-[0-9a-f]{64})$")
+    video_id: str = Field(
+        pattern=r"^(?:BV[0-9A-Za-z]{10}|[A-Za-z0-9_-]{11}|(?:web|local)-[0-9a-f]{64})$"
+    )
     part_id: str = Field(min_length=1, max_length=100)
     part_index: int = Field(ge=1)
     title: NaturalText = Field(min_length=1, max_length=500)
@@ -96,6 +71,20 @@ class SourceV1(StrictModel):
         from .url_policy import ValidatedBilibiliUrl, validate_bilibili_url
         from .youtube_url import ValidatedYoutubeUrl, validate_youtube_url
 
+        if self.platform == "local":
+            import re
+
+            if (
+                not re.fullmatch(r"local-[0-9a-f]{64}", self.video_id)
+                or self.part_id != self.video_id
+                or self.part_index != 1
+                or self.canonical_url != "local:sha256:" + self.video_id[6:]
+                or self.requested_url != self.canonical_url
+                or self.author_name is not None
+                or self.published_at is not None
+            ):
+                raise ValueError("local_source_identity_invalid")
+            return self
         if self.platform == "generic":
             generic = validate_generic_url(self.requested_url)
             if (
@@ -151,16 +140,11 @@ class PublicBilibiliNoteResultV4(StrictModel):
     images: tuple[str, ...]
 
 
-class PublicBilibiliSearchResultV2(StrictModel):
-    schema_id: Literal["bilibili-note.search-result/v2"] = Field(alias="schema")
-    rendered_markdown: str = Field(min_length=1, max_length=786432)
-    note_path: str
-    html_path: str
-    images: tuple[str, ...]
-
-
 class ErrorV1(StrictModel):
     schema_id: Literal["bilibili-note.error/v1"] = Field(alias="schema")
     maturity: Literal["current_poc"]
     code: FailureCode
     reason: str = Field(pattern=r"^[a-z0-9_]{1,80}$")
+    recovery: dict[Literal["media_id", "transcript_id", "evidence_id"], str] = Field(
+        default_factory=dict
+    )

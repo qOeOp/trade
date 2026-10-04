@@ -16,8 +16,9 @@ from video_note_mcp.adapters.media_acquisition import (
 from video_note_mcp.adapters.source_acquisition import SourceAcquisition
 from video_note_mcp.adapters.strict_json import decode_strict_json_object
 from video_note_mcp.application.errors import BilibiliNoteFailure
-from video_note_mcp.application.ports import AcquiredSource, SourceMediaArtifact, TranscriptPort
+from video_note_mcp.application.ports import SourceMediaArtifact
 from video_note_mcp.application.progress import ProgressReporter
+from video_note_mcp.domain.artifacts import DownloadedSource
 from video_note_mcp.domain.generic_url import validate_generic_url
 from video_note_mcp.domain.models import SourceV1
 
@@ -45,12 +46,9 @@ class _PreparedMedia:
 
 
 class GenericSource:
-    def __init__(self, transcript: TranscriptPort) -> None:
-        self.transcript = transcript
-
-    async def acquire(
+    async def download(
         self, url: str, workspace: Path, progress: ProgressReporter
-    ) -> AcquiredSource:
+    ) -> DownloadedSource:
         parsed = validate_generic_url(url)
         canonical = parsed.canonical_url()
         code, raw = await run_media_worker(
@@ -108,10 +106,7 @@ class GenericSource:
             format_id="progressive-https",
             adapter_ref="yt-dlp/generic",
         )
-        # No generic cache: a public URL can change bytes without changing its metadata.
-        return await SourceAcquisition(
-            self.transcript, _PreparedMedia(canonical, artifact)
-        ).acquire(
+        return await SourceAcquisition(_PreparedMedia(canonical, artifact)).download(
             source,
             width,
             height,

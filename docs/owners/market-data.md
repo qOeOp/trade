@@ -1283,7 +1283,10 @@ cut and both facts, prove exact membership and order, walk every direct-predeces
 without a gap or branch, revalidate current store admission and reader ACL, and return one move-only readback. A
 missing, extra, duplicate, reordered, noncanonical, cross-spliced, tampered, or ACL-drifted row returns no
 readback. Exact-locator replay and response-loss recovery return byte-identical historical bytes with zero append;
-same identity with different bytes conflicts.
+same identity with different bytes conflicts. `resolve_fact_v2` reads one public V2 fact by its exact fact digest
+under the same snapshot, ACL and ledger checks, returns it only after decoding and checking every link of its chain,
+answers an unknown digest with `UnknownLocator`, and makes no point-in-time judgement, since the fact carries its own
+time evidence and its consumer judges its use.
 
 Fact/cut/receipt/outbox creation is append-only and failure-atomic. Only the fixed Market Data writer may create
 or advance public V2 custody; the fixed consumer receives only `EXECUTE` on the exact resolver and no raw table
@@ -2916,8 +2919,10 @@ frames through this port, and no Backtest consumes a frame yet.
     its own window inside the custody's. Its frames come back as coordinates - ordinal, `e_k` and `d_k`, where `d_k` is
     the derived availability of frame `k`'s execution cross-section - read from the head it names, together with the
     chain's basis, read in the same transaction at the same head. R&D takes a custody run's universe, Instrument Master
-    cut and Market Semantics from the run's frames readback, never from its own evaluation. Each frame's inputs
-    and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
+    cut and Market Semantics from the run's frames readback, never from its own evaluation. The basis also names the
+    Universe Selection record the root's locator resolves to in that transaction, by record identity and digest with
+    the locator's meaning digest checked, and a run whose record is missing or disagrees is refused as
+    `StoreUnavailable`. Each frame's inputs and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
     the derived view slice. That source names the chain root, the head the frames were read from and `e_k`, so a
     correction committed between enumeration and the per-frame reads cannot mix two heads into one run; a head that is
     not in the chain is refused. Every gap has its quote cut, the last bounded by the run's end, and a gap without one

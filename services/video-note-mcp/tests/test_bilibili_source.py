@@ -10,31 +10,10 @@ from video_note_mcp.adapters.bilibili_http import BILIBILI_BROWSER_USER_AGENT
 from video_note_mcp.adapters.bilibili_source import BilibiliSource
 from video_note_mcp.adapters.egress import SafeHttpClient, _target
 from video_note_mcp.application.errors import BilibiliNoteFailure
-from video_note_mcp.application.ports import (
-    SourceMediaArtifact,
-    TranscriptResult,
-    TranscriptSegment,
-)
+from video_note_mcp.application.ports import SourceMediaArtifact
 from video_note_mcp.application.progress import NullProgressReporter
 
 USER_URL = "https://www.bilibili.com/video/BV1uHuQ6pEFr/?spm_id_from=333.337.search-card.all.click"
-
-
-class FakeTranscript:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    async def transcribe(
-        self, media_path: Path, duration_ms: int, workspace: Path, progress: object
-    ) -> TranscriptResult:
-        self.calls += 1
-        assert await asyncio.to_thread(media_path.read_bytes) == b"media"
-        return TranscriptResult(
-            method="asr",
-            provider_ref="siliconflow:test-asr",
-            language="zh-CN",
-            segments=(TranscriptSegment("E001", 0, duration_ms, "完整转写"),),
-        )
 
 
 class FakeHttp:
@@ -134,10 +113,11 @@ async def test_public_api_source_preserves_request_and_freezes_canonical_part(
 ) -> None:
     http = FakeHttp()
     media = FakeMedia()
-    source = await BilibiliSource(FakeTranscript(), media=media, http=http).acquire(  # type: ignore[arg-type]
+    source = await BilibiliSource(media=media, http=http).download(  # type: ignore[arg-type]
         USER_URL, tmp_path, NullProgressReporter()
     )
 
+    assert not hasattr(source, "transcript")
     assert source.source.requested_url == USER_URL
     assert source.source.canonical_url == "https://www.bilibili.com/video/BV1uHuQ6pEFr?p=1"
     assert source.source.part_id == "40765885910"
@@ -169,9 +149,7 @@ def test_only_explicit_loopback_http_proxy_is_admitted() -> None:
 
 async def test_source_metadata_identity_drift_fails_closed(tmp_path: Path) -> None:
     with pytest.raises(BilibiliNoteFailure) as failure:
-        await BilibiliSource(
-            FakeTranscript(), media=FakeMedia(), http=FakeHttp("BV1bK411W797")
-        ).acquire(  # type: ignore[arg-type]
+        await BilibiliSource(media=FakeMedia(), http=FakeHttp("BV1bK411W797")).download(  # type: ignore[arg-type]
             USER_URL, tmp_path, NullProgressReporter()
         )
     assert failure.value.code == "SOURCE_CHANGED"
@@ -206,50 +184,41 @@ async def test_source_rejects_coercible_metadata_before_download(
     for key in path[:-1]:
         cursor = cursor[key]  # type: ignore[index]
     cursor[path[-1]] = value  # type: ignore[index]
-    transcript = FakeTranscript()
     media = FakeMedia()
 
     with pytest.raises(BilibiliNoteFailure) as failure:
         await BilibiliSource(
-            transcript,
             media=media,
             http=PayloadHttp(payload),
-        ).acquire(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
+        ).download(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
 
     assert failure.value.code == "SOURCE_UNAVAILABLE"
     assert media.urls == []
-    assert transcript.calls == 0
 
 
-async def test_restricted_preview_is_rejected_before_asr(tmp_path: Path) -> None:
-    transcript = FakeTranscript()
+async def test_restricted_preview_is_rejected_during_download(tmp_path: Path) -> None:
     with pytest.raises(BilibiliNoteFailure) as failure:
         await BilibiliSource(
-            transcript,
             media=FakeMedia(duration_ms=300_000),
             http=FakeHttp(),
-        ).acquire(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
+        ).download(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
     assert failure.value.code == "SOURCE_UNAVAILABLE"
     assert failure.value.reason == "media_access_restricted_preview"
-    assert transcript.calls == 0
 
 
-async def test_unsupported_long_video_is_rejected_before_download_or_asr(
+async def test_unsupported_long_video_is_rejected_before_download(
     tmp_path: Path,
 ) -> None:
-    transcript = FakeTranscript()
     media = FakeMedia()
     with pytest.raises(BilibiliNoteFailure) as failure:
         await BilibiliSource(
-            transcript,
             media=media,
             http=FakeHttp(duration_seconds=5_805),
-        ).acquire(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
+        ).download(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
 
     assert failure.value.code == "SOURCE_UNAVAILABLE"
     assert failure.value.reason == "source_duration_exceeds_supported_limit"
     assert media.urls == []
-    assert transcript.calls == 0
 
 
 @pytest.mark.parametrize(
@@ -261,10 +230,9 @@ async def test_downloaded_media_identity_drift_fails_closed(
 ) -> None:
     with pytest.raises(BilibiliNoteFailure) as failure:
         await BilibiliSource(
-            FakeTranscript(),
             media=FakeMedia(video_id=video_id, part_index=part_index),
             http=FakeHttp(),
-        ).acquire(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
+        ).download(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
     assert failure.value.code == "SOURCE_CHANGED"
     assert failure.value.reason == "media_video_identity_changed"
 
@@ -308,38 +276,13 @@ def test_metadata_http_success_passes() -> None:
 async def test_source_metadata_envelope_code_names_its_cause(
     tmp_path: Path, envelope_code: int, code: str, reason: str
 ) -> None:
-    transcript = FakeTranscript()
     media = FakeMedia()
 
     with pytest.raises(BilibiliNoteFailure) as failure:
         await BilibiliSource(
-            transcript,
             media=media,
             http=PayloadHttp({"code": envelope_code, "message": "refused"}),
-        ).acquire(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
+        ).download(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
 
     assert (failure.value.code, failure.value.reason) == (code, reason)
     assert media.urls == []
-    assert transcript.calls == 0
-
-
-async def test_cache_hit_refreshes_metadata_and_skips_download_and_asr(tmp_path):
-    from dataclasses import replace
-
-    from video_note_mcp.adapters.source_cache import SourceCache
-
-    class CountingTranscript(FakeTranscript):
-        calls = 0
-
-        async def transcribe(self, media_path, duration_ms, workspace, progress):
-            result = await super().transcribe(media_path, duration_ms, workspace, progress)
-            return replace(result, provider_ref="test-engine")
-
-    transcript, media, http = CountingTranscript(), FakeMedia(), FakeHttp()
-    source = BilibiliSource(transcript, media, http, SourceCache("test-engine", tmp_path / "cache"))
-    first = await source.acquire(USER_URL, tmp_path, NullProgressReporter())
-    second = await source.acquire(USER_URL, tmp_path, NullProgressReporter())
-    assert first.transcript == second.transcript
-    assert transcript.calls == 1
-    assert len(media.urls) == 1
-    assert len(http.urls) == 2

@@ -34,7 +34,7 @@ mod corporate_action;
 #[cfg(test)]
 mod instrument_master_admission_v1_tests;
 #[cfg(test)]
-mod instrument_master_admission_v2_tests;
+pub(in crate::owner) mod instrument_master_admission_v2_tests;
 #[cfg(test)]
 mod instrument_master_snapshot_v2_tests;
 #[cfg(test)]

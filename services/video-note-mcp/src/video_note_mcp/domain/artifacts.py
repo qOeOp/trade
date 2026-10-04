@@ -35,6 +35,13 @@ class AudioReview:
 
 
 @dataclass(frozen=True, slots=True)
+class DownloadedSource:
+    source: SourceV1
+    media_path: Path
+    source_snapshot_ref: str
+
+
+@dataclass(frozen=True, slots=True)
 class AcquiredSource:
     source: SourceV1
     media_path: Path
@@ -77,6 +84,7 @@ class NoteDraft:
     frames: tuple[FrameAsset, ...]
     quality: Quality = "fast"
     reviews: tuple[AudioReview, ...] = ()
+    transcript_method: TranscriptMethod = "asr"
 
 
 @dataclass(frozen=True, slots=True)
