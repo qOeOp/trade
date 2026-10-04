@@ -203,6 +203,86 @@ pub(super) async fn persist_historical_membership_frontier_v1(
     Ok(())
 }
 
+/// Admits a fixed-member frontier once, every fact observed at `owner_cut`, the Owner's current
+/// decision cut: a frontier already admitted is rejoined, with nothing written, when its manifest is
+/// exactly the requested members and each member's head fact states the requested meaning - its
+/// instrument, effective range, Source Binding lineage root and correction frontier - whatever
+/// instant it was observed at. Any other difference is a `RequestConflict`.
+///
+/// The caller states what the membership means and never when it was observed: those instants are
+/// the Owner's. A fact stamped at the Owner's cut is in force at every later cut, so a read at the
+/// current cut finds it, and a later call rejoins rather than minting a second fact per call.
+pub(super) async fn admit_membership_at_owner_cut_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    eligible_frontier: BindingDigest,
+    proposals: Vec<HistoricalMembershipFactProposalV1>,
+    owner_cut: u64,
+) -> Result<(), UniverseSelectionErrorV1> {
+    if !codec::nonzero(eligible_frontier) || owner_cut == 0 {
+        return Err(UniverseSelectionErrorV1::InvalidMembership);
+    }
+    advisory_lock(transaction, eligible_frontier).await?;
+    let stored_manifest: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT member_key FROM market_data_private.historical_membership_manifest_v1 WHERE eligible_frontier=$1 ORDER BY member_key FOR SHARE",
+    )
+    .bind(eligible_frontier.as_bytes().as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+
+    if stored_manifest.is_empty() {
+        let observed = i128::from(owner_cut);
+        let stamped = proposals
+            .into_iter()
+            .map(|proposal| HistoricalMembershipFactProposalV1 {
+                provider_available_ns: observed,
+                retrieval_ns: observed,
+                correction_publication_ns: observed,
+                owner_observation_ns: observed,
+                decision_cut: owner_cut,
+                ..proposal
+            })
+            .collect();
+        return persist_historical_membership_frontier_v1(transaction, eligible_frontier, stamped)
+            .await;
+    }
+    let requested: BTreeSet<&[u8]> = proposals
+        .iter()
+        .map(|proposal| proposal.member_key.as_slice())
+        .collect();
+
+    if requested.len() != proposals.len()
+        || requested
+            .into_iter()
+            .ne(stored_manifest.iter().map(Vec::as_slice))
+    {
+        return Err(UniverseSelectionErrorV1::RequestConflict);
+    }
+
+    for proposal in &proposals {
+        let head: Option<Vec<u8>> = sqlx::query_scalar(
+            "SELECT f.fact_bytes FROM market_data_private.historical_membership_heads_v1 h JOIN market_data_private.historical_membership_facts_v1 f ON f.fact_identity=h.fact_identity WHERE h.eligible_frontier=$1 AND h.member_key=$2 FOR SHARE OF h",
+        )
+        .bind(eligible_frontier.as_bytes().as_slice())
+        .bind(proposal.member_key.as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+        let head = decode_source_fact_v1(&head.ok_or(UniverseSelectionErrorV1::RequestConflict)?)?;
+        let stated = &head.proposal;
+
+        if stated.instrument != proposal.instrument
+            || stated.effective_from_ns != proposal.effective_from_ns
+            || stated.effective_until_ns != proposal.effective_until_ns
+            || stated.source_binding_lineage_root != proposal.source_binding_lineage_root
+            || stated.correction_frontier_digest != proposal.correction_frontier_digest
+        {
+            return Err(UniverseSelectionErrorV1::RequestConflict);
+        }
+    }
+    Ok(())
+}
+
 pub(super) async fn resolve_universe_selection_in_transaction_v1(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedUniverseSelectionRequestV1,

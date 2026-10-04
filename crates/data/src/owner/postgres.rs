@@ -88,6 +88,8 @@ pub(super) use replay_market_facts_v2::{
 pub(super) use replay_market_facts_v2::{
     ISSUANCE_BINDING_CONSTRAINT, ISSUANCE_IDENTITY_CONSTRAINT, ISSUANCE_MEANING_CONSTRAINT,
 };
+#[cfg(test)]
+mod membership_at_owner_clock_v1_tests;
 mod sample_projection_v4;
 mod session;
 #[cfg(test)]
@@ -13109,6 +13111,55 @@ impl UniverseSelectionAdmissionV1 for UniverseSelectionAdmissionPostgresV1 {
             &mut transaction,
             request.eligible_instrument_frontier,
             proposals,
+        )
+        .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)
+    }
+
+    async fn admit_membership_at_owner_clock(
+        &self,
+        request: HistoricalMembershipAdmissionRequestV1,
+    ) -> Result<(), UniverseSelectionAdmissionErrorV1> {
+        let proposals = request
+            .members
+            .into_iter()
+            .map(|member| HistoricalMembershipFactProposalV1 {
+                member_key: member.member_key.into_bytes(),
+                instrument: member.instrument.into_bytes(),
+                predecessor_identity: None,
+                effective_from_ns: member.effective_from_ns,
+                effective_until_ns: member.effective_until_ns,
+                // Stamped by the Owner below: when a membership was observed is never the
+                // submitter's to state here.
+                provider_available_ns: 0,
+                retrieval_ns: 0,
+                correction_publication_ns: 0,
+                owner_observation_ns: 0,
+                decision_cut: 0,
+                source_binding_lineage_root: member.source_binding_lineage_root,
+                correction_frontier_digest: member.correction_frontier_digest,
+            })
+            .collect();
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?;
+        let owner_cut = load_current_clock_fact(&mut transaction)
+            .await
+            .map_err(|_| UniverseSelectionAdmissionErrorV1::StoreUnavailable)?
+            .ok_or(UniverseSelectionAdmissionErrorV1::StoreUnavailable)?
+            .clock()
+            .decision_cut;
+        universe_selection::admit_membership_at_owner_cut_v1(
+            &mut transaction,
+            request.eligible_instrument_frontier,
+            proposals,
+            owner_cut,
         )
         .await?;
         transaction
