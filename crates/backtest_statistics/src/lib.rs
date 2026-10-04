@@ -26,8 +26,8 @@ pub use replication::{
     compare_replication_v1, window_after_warmup,
 };
 pub use replication_input::{
-    ReplicationInputErrorV1, RunBarV1, RunFillV1, RunInstrumentV1,
-    reference_trades_from_research_csv, run_trades_from_fills,
+    EntryPriceCheckV1, EntryPriceOutsideV1, ReplicationInputErrorV1, RunBarV1, RunFillV1,
+    RunInstrumentV1, RunTradesV1, reference_trades_from_research_csv, run_trades_from_fills,
 };
 
 use crate::{

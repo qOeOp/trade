@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -106,15 +106,44 @@ pub fn reference_trades_from_research_csv(
             side,
             entry_day,
             exit_signal_day: entry_day + held - 1,
-            entry_price: None,
         });
     }
     Ok(trades)
 }
 
+/// A run's trades, its comparison windows, and the check of its entry prices against its bars.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RunTradesV1 {
+    pub trades: Vec<ReplicationTradeV1>,
+    pub windows: Vec<ReplicationWindowV1>,
+    pub entry_price_check: EntryPriceCheckV1,
+}
+
+/// Every round trip's entry fill price against the open of the bar it filled at.
+///
+/// Research's table states no price, so prices are checked against the run's own bars instead:
+/// an entry fills at its bar's open, so a price more than the instrument's tick from it is a fault
+/// of the run, counted here apart from the trade comparison.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct EntryPriceCheckV1 {
+    pub checked: usize,
+    pub outside: Vec<EntryPriceOutsideV1>,
+}
+
+/// One entry that did not fill at its bar's open.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct EntryPriceOutsideV1 {
+    pub instrument: String,
+    pub entry_day: i64,
+    pub price: f64,
+    pub bar_open: f64,
+    pub tick: f64,
+}
+
 /// A run's trades and comparison windows from its instruments' daily bars and fills: fills pair
 /// into round trips, each exit is decided on the bar before the one it fills at, and each window
-/// starts after `warmup_bars` bars.
+/// starts after `warmup_bars` bars. Each entry's price is checked against its bar's open within
+/// the instrument's tick in `ticks`, or exactly when `ticks` names none.
 ///
 /// # Errors
 ///
@@ -122,9 +151,14 @@ pub fn reference_trades_from_research_csv(
 pub fn run_trades_from_fills(
     run: &BTreeMap<String, RunInstrumentV1>,
     warmup_bars: usize,
-) -> Result<(Vec<ReplicationTradeV1>, Vec<ReplicationWindowV1>), ReplicationInputErrorV1> {
+    ticks: &BTreeMap<String, f64>,
+) -> Result<RunTradesV1, ReplicationInputErrorV1> {
     let mut trades = Vec::new();
     let mut windows = Vec::new();
+    let mut entry_price_check = EntryPriceCheckV1 {
+        checked: 0,
+        outside: Vec::new(),
+    };
 
     for (instrument, data) in run {
         let bars: Vec<BarOpenV1> = data
@@ -152,17 +186,36 @@ pub fn run_trades_from_fills(
             }
         })?;
         let day = |bar: usize| bars[bar].open_ns.div_euclid(NANOS_PER_DAY);
-        trades.extend(paired.trades.iter().map(|trip| ReplicationTradeV1 {
-            instrument: instrument.clone(),
-            side: trip.side,
-            entry_day: day(trip.entry_bar),
-            exit_signal_day: day(trip.exit_bar - 1),
-            entry_price: Some(trip.entry_price),
-        }));
+        let tick = ticks.get(instrument).copied().unwrap_or(0.0);
+
+        for trip in &paired.trades {
+            trades.push(ReplicationTradeV1 {
+                instrument: instrument.clone(),
+                side: trip.side,
+                entry_day: day(trip.entry_bar),
+                exit_signal_day: day(trip.exit_bar - 1),
+            });
+            entry_price_check.checked += 1;
+            let bar_open = bars[trip.entry_bar].open;
+
+            if (trip.entry_price - bar_open).abs() > tick {
+                entry_price_check.outside.push(EntryPriceOutsideV1 {
+                    instrument: instrument.clone(),
+                    entry_day: day(trip.entry_bar),
+                    price: trip.entry_price,
+                    bar_open,
+                    tick,
+                });
+            }
+        }
         let bar_days: Vec<i64> = (0..bars.len()).map(day).collect();
         windows.push(window_after_warmup(instrument, &bar_days, warmup_bars));
     }
-    Ok((trades, windows))
+    Ok(RunTradesV1 {
+        trades,
+        windows,
+        entry_price_check,
+    })
 }
 
 /// Days since 1970-01-01 of a value that starts `YYYY-MM-DD` (Hinnant's days-from-civil).
@@ -232,9 +285,14 @@ mod tests {
     }
 
     /// A run's fills become trades whose exit is decided the bar before it fills, inside a window
-    /// that skips the warmup.
+    /// that skips the warmup, and each entry's price is held to its bar's open within the tick.
     #[rstest]
-    fn run_fills_read_as_trades_and_windows() {
+    #[case::within_the_tick(0.1, 0)]
+    #[case::beyond_the_tick(0.01, 1)]
+    fn run_fills_read_as_trades_windows_and_price_checks(
+        #[case] tick: f64,
+        #[case] outside: usize,
+    ) {
         let bars: Vec<RunBarV1> = (0..10)
             .map(|day| RunBarV1 {
                 open_ns: (19_723 + day) * NANOS_PER_DAY,
@@ -246,7 +304,7 @@ mod tests {
                 at_ns: (19_723 + 2) * NANOS_PER_DAY,
                 side: FillSideV1::Buy,
                 quantity: 1.0,
-                price: 100.0,
+                price: 100.05,
             },
             RunFillV1 {
                 at_ns: (19_723 + 6) * NANOS_PER_DAY,
@@ -256,19 +314,18 @@ mod tests {
             },
         ];
         let run = BTreeMap::from([("BTC".to_owned(), RunInstrumentV1 { bars, fills })]);
-        let (trades, windows) = run_trades_from_fills(&run, 1).expect("pairs");
+        let ticks = BTreeMap::from([("BTC".to_owned(), tick)]);
+        let read = run_trades_from_fills(&run, 1, &ticks).expect("pairs");
 
         assert_eq!(
-            (
-                trades[0].entry_day,
-                trades[0].exit_signal_day,
-                trades[0].entry_price
-            ),
-            (19_725, 19_728, Some(100.0))
+            (read.trades[0].entry_day, read.trades[0].exit_signal_day),
+            (19_725, 19_728)
         );
         assert_eq!(
-            (windows[0].first_day, windows[0].last_day),
+            (read.windows[0].first_day, read.windows[0].last_day),
             (19_724, 19_732)
         );
+        assert_eq!(read.entry_price_check.checked, 1);
+        assert_eq!(read.entry_price_check.outside.len(), outside);
     }
 }

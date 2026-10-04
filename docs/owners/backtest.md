@@ -288,18 +288,25 @@ A run with exits also needs multi-frame replay.
 
 **CURRENT - the comparison; TARGET - a run to compare.** Phase 3 is accepted when a run of research T0's
 authoring-language document reproduces research's own T0 trades. `t0-replication`, a binary of
-`vibe-backtest-statistics`, compares them trade by trade and exits zero only when the match rate reaches 99.5%:
+`vibe-backtest-statistics`, compares them trade by trade:
 
 - **What a trade is.** A trade is keyed by its instrument, side and entry day, the day its entry filled. Research's
   table (`research/ronnie/trend/trades.csv`) states the entry day and the days held, the entry day counted, so its exit
   is decided on the entry day plus the days held less one. A run's fills pair into round trips, and its exit is decided
   on the bar before the one it fills at.
-- **What matches.** Two trades with one key match when their exits are decided on the same day and, where both state
-  an entry price, the prices agree within a relative band, 0.5% unless stated. Research's table states no price, so
-  against it only the days are held. A key that only one list has is a mismatch on that side, so the rate is matched
-  keys over every key either list has.
+- **What matches.** Two trades with one key match when their exits are decided on the same day. A key that only one
+  list has is a mismatch on that side, so the denominator is the union of both lists' keys, and the run is accepted at
+  a match rate of 99.5%.
 - **What is compared.** For each instrument, only trades that enter after the run's first 200 bars, where every
   indicator has warmed, and whose exit is decided before the run's last bar, which leaves a bar to fill it on.
+- **Prices are a self-check only.** Research's table states no price, so no price is compared with research. Instead
+  every entry of the run is held to the open of the bar it filled at, within the instrument's tick, and the entries
+  outside it are counted apart from the trade comparison. The binary exits zero only when the match rate is reached
+  and no entry is outside its tick.
+- **Structural differences are reported, not designed around.** Research holds a long and a short on one coin
+  independently, and this document holds one position that flips. If that difference brings a real run under 99.5%,
+  its mismatches are classified from the trade-by-trade list and decided then; neither the strategy nor the threshold
+  is changed for it in advance.
 - **What it cannot do yet.** No run of T0 produces fills to compare until `backtest.run` reaches its replay step.
 
 ## Input handoffs
