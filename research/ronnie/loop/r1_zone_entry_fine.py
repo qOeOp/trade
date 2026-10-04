@@ -1,5 +1,6 @@
 """Loop Z-1, minute check (loop/LOG.md): the Z-1 trades re-walked on 1h bars with every ambiguous hour resolved on 1m
-bars (Binance daily 1m files): the fill hour always (the fill minute, then stop and target from the following
+bars (Binance daily 1m files). The one slot per coin is re-run on these exits (a coin's next order may fill only after
+the hour its trade left), so a slot never frees on a daily-bar exit the finer walk does not confirm: the fill hour always (the fill minute, then stop and target from the following
 minutes), and any later hour that touches both the stop and the target. A minute touching both still counts as the
 stop. Stop exits are also charged a slippage of 0, 0.05% and 0.1% of price, which costs a tight stop more R.
 Usage: python loop/r1_zone_entry_fine.py   (1m files cached under $ZONE_1M_CACHE, default /tmp/zone_1m)"""
@@ -103,11 +104,11 @@ def walk(coin, q, d, sig):
         flag = "hour"
         px = min(o[j], lim) if side == 1 else max(o[j], lim)
         if (l[j] <= stop) if side == 1 else (h[j] >= stop):
-            return px, "stop", stop, flag
+            return px, "stop", stop, flag, j, j
     else:
         px = r[2]
         if r[0]:
-            return px, r[0], r[1], flag
+            return px, r[0], r[1], flag, j, j
     if (px - stop) * side <= 0:
         return None
     end = min(j + FR.HOLD * 24, len(c))
@@ -117,14 +118,14 @@ def walk(coin, q, d, sig):
         if hs and ht:
             r = resolve(coin, q.index[m], side, stop, tgt)
             if r is not None and r[0]:
-                return px, r[0], r[1], flag
+                return px, r[0], r[1], flag, j, m
             flag = "amb"
-            return px, "stop", min(o[m], stop) if side == 1 else max(o[m], stop), flag
+            return px, "stop", min(o[m], stop) if side == 1 else max(o[m], stop), flag, j, m
         if hs:
-            return px, "stop", min(o[m], stop) if side == 1 else max(o[m], stop), flag
+            return px, "stop", min(o[m], stop) if side == 1 else max(o[m], stop), flag, j, m
         if ht:
-            return px, "target", max(o[m], tgt) if side == 1 else min(o[m], tgt), flag
-    return px, "time", c[end - 1], flag
+            return px, "target", max(o[m], tgt) if side == 1 else min(o[m], tgt), flag, j, m
+    return px, "time", c[end - 1], flag, j, end - 1
 
 
 def coin_rows(coin):
@@ -135,15 +136,19 @@ def coin_rows(coin):
         return []
     rows = []
     for f, tm in Z.VARS:
-        sigs, _ = Z.signals(d, f, tm)
-        for s in sigs:
+        cand, _ = Z.signals(d, f, tm, raw=True)
+        busy = -1
+        for s in cand:
             day = d.index[s[0]]
-            if not (Z.T0 <= day < Z.T1) or s[0] <= 300 or s[0] + FR.HOLD >= len(d):
+            if s[0] <= 300 or s[0] + FR.HOLD >= len(d):
                 continue
             w = walk(coin, q, d, s)
-            if w is None:
+            if w is None or w[4] <= busy:
                 continue
-            px, kind, ex, flag = w
+            px, kind, ex, flag, jf, jx = w
+            busy = jx
+            if not (Z.T0 <= day < Z.T1):
+                continue
             side, stop = s[2], s[4]
             risk = abs(px - stop)
             row = dict(coin=coin, time=day, f=f, tm=tm, side=side, kind=kind, flag=flag, risk_pct=risk / px)
@@ -170,6 +175,18 @@ def main():
         cells = "; ".join(f"slip {sl:.2%}: {g[f'R{sl}'].mean():+.3f} / {g[f'R{sl}'].sum():.0f} / {sh(g, f'R{sl}'):.2f}" for sl in SLIPS)
         out.append(f"  f {f:.2f} {tm:4s}: n {len(g)}, win {np.mean(g['R0.0'] > 0):.0%}, {cells}; risk {g.risk_pct.median():.2%},"
                    f" fill on 1m {np.mean(g.flag != 'hour'):.0%}, ambiguous {np.mean(g.flag == 'amb'):.1%}")
+    import itertools
+    M = np.column_stack([(lambda g: g.set_index(pd.to_datetime(g.time))["R0.0"].resample("W-MON").sum().reindex(idx).fillna(0).values)(
+        z[(z.f == f) & (z.tm == "2R")]) for f in Z.FRACS])
+    blocks, logits = np.array_split(np.arange(len(M)), 12), []
+    for comb in itertools.combinations(range(12), 6):
+        ins = np.concatenate([blocks[i] for i in comb])
+        oos = np.concatenate([blocks[i] for i in range(12) if i not in comb])
+        si, so = M[ins].mean(0) / M[ins].std(0), M[oos].mean(0) / M[oos].std(0)
+        b = int(np.argmax(si))
+        wr = ((so < so[b]).sum() + 1) / (len(so) + 1)
+        logits.append(np.log(wr / (1 - wr)))
+    out.append(f"  CSCV PBO over the five primary fractions (slippage 0): {np.mean(np.array(logits) <= 0):.2f}")
     t = "\n".join(out)
     print(t)
     open(os.path.join(HERE, "r1_zone_entry_fine.txt"), "w").write(t + "\n")

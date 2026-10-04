@@ -22,7 +22,7 @@ FRACS = (0.0, 0.25, 0.5, 0.75, 1.0)
 VARS = [(f, "2R") for f in FRACS] + [(f, "orig") for f in FRACS[1:]]
 
 
-def signals(d, f, tmode):
+def signals(d, f, tmode, raw=False):
     S = FR.state(d)
     c, a, tr = S["c"], S["a"], S["trend"]
     cand, armed = [], 0
@@ -44,6 +44,8 @@ def signals(d, f, tmode):
         if (tgt - px) * side <= 0:
             continue
         cand.append((k, i, side, px, stop, tgt, lim, (lvl - lower) * side / a[i]))
+    if raw:
+        return sorted(cand, key=lambda x: (x[0], x[1])), armed
     busy, out = -1, []
     for x in sorted(cand, key=lambda x: (x[0], x[1])):
         if x[0] <= busy:
