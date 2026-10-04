@@ -1,13 +1,12 @@
-//! `POST /v1/backtests`: submit a `backtest.run` request and run its orchestration to wherever
-//! it currently stops.
+//! `/v1/backtests`: submit a `backtest.run` request and run its orchestration to wherever it
+//! currently stops, and read back the runs it carried to their replay step.
 //!
-//! No `GET` status/report/list routes yet. A `GET` that re-ran the whole orchestration to answer
-//! "where does this stand" would need the original request's dataset_ref and custody claim again
-//! (the orchestration is not identity-only), and a `list` needs a registry nothing writes to yet.
-//! Building either now - before any run can ever reach a Result, since nothing implements the
-//! T0-5 custody-frames resolver - would be exactly the structure-with-no-driver gap this
-//! repository's own documentation warns against. Both are the next slice's to design once T0-5
-//! and T1 land and a run can produce something worth reading back.
+//! A run is recorded in R&D's backtest run registry (`backtest_run_registry_postgres_v1`) once its
+//! orchestration reaches the replay step, with the canonical bytes of its request and the exact
+//! answer it was given. The same request under the same run id answers that recorded run without
+//! running again; another request under it is refused as `RUN_ID_CONFLICT`. A submission refused
+//! before its replay step records nothing, so its run id may be submitted again. `GET` reads only
+//! the registry: it never re-runs an orchestration.
 
 use std::sync::Arc;
 
@@ -15,11 +14,13 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::State,
+    extract::{Path, Query},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use sqlx::PgPool;
 use vibe_data::owner::{
     market_semantics_admission_v1::MarketSemanticsAdmissionV1,
@@ -31,6 +32,10 @@ use vibe_data::owner::{
 use vibe_product_edge::ProductEdgePostgresOwnerV1;
 use vibe_strategy_factory::{
     backtest_run_dataset_ref_v1::BacktestRunDatasetRefV1,
+    backtest_run_registry_postgres_v1::{
+        BacktestRunRecordV1, BacktestRunRegistryErrorV1, MAX_BACKTEST_RUN_LIST_V1,
+        PostgresBacktestRunRegistryV1,
+    },
     product_edge::ProductEdgeResolution,
     product_edge_postgres::{
         PostgresResearchGoalOwnerV1, research_initial_pit::MarketDataInitialPitPortsV1,
@@ -53,6 +58,7 @@ use crate::backtest_run_v1::{
 #[derive(Clone)]
 pub(crate) struct BacktestRunRoutesApiState {
     pub(crate) catalog: Arc<PostgresStrategyCatalogV1>,
+    pub(crate) registry: Arc<PostgresBacktestRunRegistryV1>,
     pub(crate) product_edge: Arc<ProductEdgePostgresOwnerV1>,
     pub(crate) research: Arc<PostgresResearchGoalOwnerV1>,
     pub(crate) bounded_feature_program: Arc<PostgresResearchBoundedFeatureProgramOwnerV1>,
@@ -67,11 +73,19 @@ pub(crate) struct BacktestRunRoutesApiState {
 
 pub(crate) fn router(state: BacktestRunRoutesApiState) -> Router {
     Router::new()
-        .route("/v1/backtests", post(submit_backtest_run))
+        .route(
+            "/v1/backtests",
+            post(submit_backtest_run).get(list_backtest_runs),
+        )
+        .route("/v1/backtests/{run_id}", get(get_backtest_run))
+        .route(
+            "/v1/backtests/{run_id}/report",
+            get(get_backtest_run_report),
+        )
         .with_state(state)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct BacktestRunRequestBodyV1 {
     run_id: String,
@@ -152,6 +166,20 @@ async fn submit_backtest_run(
         }
     };
     let run_id = request.run_id.clone();
+    // The request as this route reads it, in one spelling, so a resubmission is recognised by
+    // value rather than by the caller's whitespace or key order.
+    let request_bytes = serde_json::to_vec(&request).expect("a parsed request serialises");
+
+    match state.registry.get(&run_id).await {
+        Ok(Some(recorded)) if recorded.request_bytes == request_bytes => {
+            return recorded_answer(&recorded);
+        }
+        Ok(Some(_)) => {
+            return backtest_run_rejection(StatusCode::CONFLICT, "RUN_ID_CONFLICT", &run_id);
+        }
+        Ok(None) => {}
+        Err(e) => return registry_error_response(&e, &run_id),
+    }
     let Some(strategy_id) = StrategyIdentityV1::parse(&request.strategy_id) else {
         return backtest_run_rejection(StatusCode::BAD_REQUEST, "STRATEGY_ID_INVALID", &run_id);
     };
@@ -185,6 +213,7 @@ async fn submit_backtest_run(
         );
     };
 
+    let registry = state.registry;
     let owners = BacktestRunOwnersV1 {
         catalog: state.catalog,
         product_edge: state.product_edge,
@@ -208,9 +237,183 @@ async fn submit_backtest_run(
     };
 
     match run_backtest_v1(&owners, backtest_request).await {
-        Ok(reached) => (StatusCode::OK, Json(reached_replay_body(&reached))).into_response(),
+        Ok(reached) => {
+            let answer =
+                serde_json::to_vec(&reached_replay_body(&reached)).expect("an answer serialises");
+            match registry.record(&run_id, &request_bytes, &answer).await {
+                Ok(recorded) => recorded_answer(&recorded),
+                Err(e) => registry_error_response(&e, &run_id),
+            }
+        }
         Err(e) => backtest_run_error_response(&e, &run_id),
     }
+}
+
+/// A recorded run's answer, exactly as it was first given.
+fn recorded_answer(recorded: &BacktestRunRecordV1) -> Response {
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        recorded.answer_bytes.clone(),
+    )
+        .into_response()
+}
+
+fn registry_error_response(error: &BacktestRunRegistryErrorV1, run_id: &str) -> Response {
+    match error {
+        BacktestRunRegistryErrorV1::RunIdConflict => {
+            backtest_run_rejection(StatusCode::CONFLICT, "RUN_ID_CONFLICT", run_id)
+        }
+        BacktestRunRegistryErrorV1::Storage(detail) => {
+            tracing::warn!(%detail, %run_id, "the backtest run registry is unavailable");
+            backtest_run_rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "BACKTEST_RUN_REGISTRY_UNAVAILABLE",
+                run_id,
+            )
+        }
+    }
+}
+
+/// One recorded run on the wire: its request and its answer as the registry holds them.
+#[derive(Debug, Serialize)]
+struct BacktestRunViewV1 {
+    run_id: String,
+    request: Box<RawValue>,
+    answer: Box<RawValue>,
+    recorded_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct BacktestRunListV1 {
+    runs: Vec<BacktestRunViewV1>,
+}
+
+fn run_view(
+    recorded: BacktestRunRecordV1,
+) -> Result<BacktestRunViewV1, BacktestRunRegistryErrorV1> {
+    let raw = |bytes: Vec<u8>| {
+        String::from_utf8(bytes)
+            .ok()
+            .and_then(|text| RawValue::from_string(text).ok())
+            .ok_or_else(|| BacktestRunRegistryErrorV1::Storage("a recorded run is not JSON".into()))
+    };
+    Ok(BacktestRunViewV1 {
+        run_id: recorded.run_id,
+        request: raw(recorded.request_bytes)?,
+        answer: raw(recorded.answer_bytes)?,
+        recorded_at_epoch_ms: recorded.recorded_at_epoch_ms,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BacktestRunListQueryV1 {
+    limit: Option<u32>,
+}
+
+/// The page of runs one list returns when the caller names none.
+const DEFAULT_BACKTEST_RUN_LIST_V1: u32 = 100;
+
+async fn list_backtest_runs(
+    State(state): State<BacktestRunRoutesApiState>,
+    headers: HeaderMap,
+    query: Result<Query<BacktestRunListQueryV1>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return backtest_run_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let Ok(Query(query)) = query else {
+        return backtest_run_rejection(
+            StatusCode::BAD_REQUEST,
+            "MALFORMED_TYPED_REQUEST",
+            "unbound",
+        );
+    };
+    let limit = query.limit.unwrap_or(DEFAULT_BACKTEST_RUN_LIST_V1);
+
+    if limit == 0 || limit > MAX_BACKTEST_RUN_LIST_V1 {
+        return backtest_run_rejection(
+            StatusCode::BAD_REQUEST,
+            "BACKTEST_RUN_LIST_LIMIT_OUT_OF_RANGE",
+            "unbound",
+        );
+    }
+    let runs = match state.registry.list(limit).await {
+        Ok(runs) => runs,
+        Err(e) => return registry_error_response(&e, "unbound"),
+    };
+
+    match runs
+        .into_iter()
+        .map(run_view)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(runs) => (StatusCode::OK, Json(BacktestRunListV1 { runs })).into_response(),
+        Err(e) => registry_error_response(&e, "unbound"),
+    }
+}
+
+async fn get_backtest_run(
+    State(state): State<BacktestRunRoutesApiState>,
+    Path(run_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return backtest_run_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+
+    match state.registry.get(&run_id).await {
+        Ok(Some(recorded)) => match run_view(recorded) {
+            Ok(view) => (StatusCode::OK, Json(view)).into_response(),
+            Err(e) => registry_error_response(&e, &run_id),
+        },
+        Ok(None) => backtest_run_rejection(StatusCode::NOT_FOUND, "RUN_UNKNOWN", &run_id),
+        Err(e) => registry_error_response(&e, &run_id),
+    }
+}
+
+/// A run's report. No run reaches a Result yet - every recorded run stopped at its replay step -
+/// so a recorded run answers `RUN_HAS_NO_RESULT` with the replay state it stopped at, and the
+/// report is assembled here once a run can produce one.
+async fn get_backtest_run_report(
+    State(state): State<BacktestRunRoutesApiState>,
+    Path(run_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return backtest_run_rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let recorded = match state.registry.get(&run_id).await {
+        Ok(Some(recorded)) => recorded,
+        Ok(None) => return backtest_run_rejection(StatusCode::NOT_FOUND, "RUN_UNKNOWN", &run_id),
+        Err(e) => return registry_error_response(&e, &run_id),
+    };
+    let replay_state = serde_json::from_slice::<serde_json::Value>(&recorded.answer_bytes)
+        .ok()
+        .and_then(|answer| answer.get("replay_state").cloned())
+        .unwrap_or(serde_json::Value::Null);
+    (
+        StatusCode::CONFLICT,
+        Json(serde_json::json!({
+            "request_identity": run_id,
+            "code": "RUN_HAS_NO_RESULT",
+            "replay_state": replay_state,
+        })),
+    )
+        .into_response()
 }
 
 fn backtest_run_error_response(error: &BacktestRunErrorV1, request_identity: &str) -> Response {
