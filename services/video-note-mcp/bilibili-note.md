@@ -26,8 +26,8 @@ adapters. Reuse platform-specific metadata/media adapters and shared complete-so
 Metadata comes from the JSON `x/web-interface/wbi/view` endpoint. Maintain video/part identity, duration,
 public-DNS pinning, redirect refusal, explicit loopback proxy policy and media bounds.
 
-The application acquires a complete source in temporary storage, validates transcript coverage and
-frame identities, and builds notes through one bounded author pipeline:
+The application commits verified media, transcript and frame stages separately, validates their
+coverage and identity bindings, and builds notes through one bounded author pipeline:
 
 1. Send the complete timestamped transcript, optional audio review records, frame metadata and
    labeled contact sheets directly to one author request. It returns the existing structured note
@@ -94,12 +94,8 @@ bounded sentence segments plus processed duration; silent gaps are allowed only 
 receipt. Cloud fixed-window coverage validation stays strict. Cancellation terminates and reaps the
 worker process group. Local ASR does not replace the visual model or guarantee correct proper names.
 
-For the pinned local engine, a source cache reuses verified media and transcripts for the same complete source metadata and
-transcriber identity. Metadata is fetched on every request. Every hit validates bounded manifest data,
-media digest and transcript coverage; changed source metadata or engine revision is a miss. Host-owned
-atomic entries expire for reuse after 24 hours. Cache writes stop when the 8 GiB budget would be exceeded;
-misses still process normally. Cache errors never become fabricated source evidence. An explicit host
-cache directory owns retained media; no provider key is cached. No automatic deletion of user files.
+Intermediate media, transcripts and frames use the shared artifact store described below.
+Reuse is explicit by ID; a new download refreshes source metadata.
 
 Search, selection and multi-video orchestration belong to the calling agent.
 Each create request processes and publishes one source independently.
@@ -112,7 +108,7 @@ videos only, with platform-bound video identity and canonical URLs. Playlist, ch
 resources are rejected. No browser cookies are read automatically. The isolated worker uses bounded
 requests, HTTPS YouTube/media hosts, public DNS addresses and redirect refusal; the host validates
 closed receipts, complete audio/video, duration, HD dimensions and byte limits before ASR.
-Bilibili retains its WBI metadata and part identity rules. Both adapters reuse the same cache, ASR
+Bilibili retains its WBI metadata and part identity rules. Both adapters feed the same artifact store, ASR
 quality tiers, screenshot extraction, author and publishers. Missing subtitles do not prevent ASR.
 
 ## Generic public video source (user-authorized extension)
@@ -127,14 +123,13 @@ Playlists, manifests, live streams and DRM are refused. Local FFprobe/FFmpeg ret
 The adapter measures the downloaded complete file's duration, dimensions and audio track, and supplies
 that artifact to the existing acquisition owner. The 720p floor, full-audio ASR, quality tiers, frame
 binding, author and publication owners are unchanged. URL hash identifies the generic source; media
-SHA-256 binds its snapshot. No generic cache is used: unchanged URL/metadata cannot prove unchanged
-media. Missing author/date are explicit unknowns. Generic time links return to the canonical source
+SHA-256 binds its snapshot. New downloads resolve the URL again; IDs reuse an explicit frozen snapshot. Missing author/date are explicit unknowns. Generic time links return to the canonical source
 without inventing platform seek parameters. Platform adapters and their errors never downgrade to the
 generic path. No TradingView-specific parser or prompt.
 
 ## Public contract and artifacts
 
-Expose `video_note.create({url,quality?})`, with `bilibili_note.create` as its compatibility alias.
+Expose the composable tools below and `video_note.create({url,quality?})`, with `bilibili_note.create` as its compatibility alias.
 Remove both `search_and_create` names and their search contracts; the agent supplies the selected URL.
 The tool defaults to `standard`; quality is `fast`, `standard` or `precise`.
 Existing internal application calls retain their explicit single-pass default `fast`.
@@ -152,8 +147,8 @@ It writes a fresh private sibling staging directory, bounded PNG assets, Markdow
 atomically renames to a unique host-generated directory. Existing bundles are never overwritten.
 Publication is the commit point: errors/cancellation beforehand remove staging; afterward a completed
 bundle remains even if delivery is interrupted. No cancellation checkpoint may delete committed output.
-Raw audio and provider credentials remain temporary/private. Verified media and transcripts may remain
-in the private bounded source cache; users may remove that cache when no request is using it. Published bundles persist until
+Extracted audio remains temporary. Media, transcripts and frames remain in the bounded artifact store;
+credentials are never persisted. Users may remove artifacts when no request is using them. Published bundles persist until
 explicit user deletion; no automatic expiration or background cleanup.
 
 ## Validation and limits
@@ -193,9 +188,41 @@ signs, ranges and percent symbols) is
 uncertainty, not evidence that either model is correct. Models receive overlapping review records;
 the renderer always displays disagreements independently of model output. Full original transcript
 and review records accompany the note. No automated lexical replacement or subtitle requirement is
-introduced. Visible text remains optional evidence. Raw ASR caching remains independent of quality;
-review results are request-local and never overwrite that cache.
+introduced. Visible text remains optional evidence. Raw and reviewed transcripts use separate immutable records; review never overwrites original text.
 
-A higher tier means more verification work, not a guaranteed error rate. Validate both entrypoints,
+A higher tier means more verification work, not a guaranteed error rate. Validate create and the composable entrypoints,
 unknown quality refusal, concurrent different qualities, no-subtitle audio, unrelated subjects,
 review disagreement/failure/cancellation, original text preservation and bounded publication.
+
+## Composable recovery (user-authorized 2026-10-04)
+
+Download may read an existing `media_id`; frames may read an existing `evidence_id`, without
+repeating work. Each accepts exactly one new-input or retained-ID argument.
+
+The agent may call `video_note.download`, `video_note.import`, `video_note.transcribe`,
+`video_note.frames` and `video_note.render` independently. `create` composes the same operations
+plus the configured author. Source adapters acquire verified media only; transcription belongs to the
+shared application. There is no second fallback pipeline or implicit downgrade.
+
+One host-owned artifact store replaces the optional media/transcript cache. Immutable, digest-bound
+media, transcript and frame records use opaque IDs and explicit parent IDs. A downstream failure
+returns completed IDs without deleting those results. Restarting the server can resume from an ID;
+create does not silently reuse a URL snapshot. Reuse is explicit through IDs. The store is limited to
+8 GiB and 256 records, with a 24-hour reuse lifetime. Expiry rejects reuse but does not automatically
+delete files. Capacity exhaustion is an explicit failure. Staging is atomic and incomplete writes
+are cleaned; concurrent processes share a filesystem lock for commits.
+
+Import accepts either a filename in the host-configured import directory or complete timestamped
+transcript segments bound to an existing media ID. Paths, symlinks and unrelated files are rejected.
+Imported video is measured locally, meets the same finite-duration/audio/HD bounds, and is labeled
+local with unknown author/date. Its content digest is its identity; no platform provenance is invented.
+Imported transcript is labeled imported and must cover the entire timeline; it cannot assert an ASR
+full-audio receipt. Quality review remains available for imported transcripts and does not overwrite them.
+
+Frames are bound to the exact transcript record. Render accepts structured `VideoNote` prose and
+references, validates them against that evidence, and uses the existing escaping and atomic publisher.
+It never accepts arbitrary HTML or output paths. Outputs for imported sources show local provenance
+and reference times without manufacturing web links. Artifact contents are revalidated on read.
+
+Store capacity includes abandoned staging data. A concurrent commit returns `artifact_store_busy`
+instead of blocking cancellation indefinitely; retry the same step after the active commit finishes.

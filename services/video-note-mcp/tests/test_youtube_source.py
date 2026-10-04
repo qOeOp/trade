@@ -135,16 +135,16 @@ def test_worker_rejects_wrong_identity_live_and_unbounded_duration(change):
 async def test_source_router_keeps_platforms_separate(tmp_path):
     bili, youtube = AsyncMock(), AsyncMock()
     router = VideoSource(bili, youtube)
-    await router.acquire(URL, tmp_path, NullProgressReporter())
-    youtube.acquire.assert_awaited_once()
-    bili.acquire.assert_not_called()
+    await router.download(URL, tmp_path, NullProgressReporter())
+    youtube.download.assert_awaited_once()
+    bili.download.assert_not_called()
 
 
 @pytest.mark.parametrize("delta", [-10000, 10000])
-async def test_shared_acquisition_rejects_incomplete_or_changed_media_before_asr(tmp_path, delta):
+async def test_shared_acquisition_rejects_incomplete_or_changed_media(tmp_path, delta):
     from video_note_mcp.domain.artifacts import SourceMediaArtifact
 
-    media, transcript = AsyncMock(), AsyncMock()
+    media = AsyncMock()
     media.download.return_value = SourceMediaArtifact(
         media_path=tmp_path / "source.mp4",
         media_sha256="a" * 64,
@@ -157,10 +157,9 @@ async def test_shared_acquisition_rejects_incomplete_or_changed_media_before_asr
         adapter_ref="test",
     )
     with pytest.raises(BilibiliNoteFailure):
-        await SourceAcquisition(transcript, media).acquire(
+        await SourceAcquisition(media).download(
             source_metadata(META, URL), 1280, 720, {}, tmp_path, NullProgressReporter()
         )
-    transcript.transcribe.assert_not_called()
 
 
 async def test_worker_rejects_unknown_receipt_fields(monkeypatch):

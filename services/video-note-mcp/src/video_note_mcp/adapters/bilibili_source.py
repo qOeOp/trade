@@ -11,9 +11,8 @@ from video_note_mcp.adapters.bilibili_http import (
 )
 from video_note_mcp.adapters.egress import SafeHttpClient
 from video_note_mcp.adapters.source_acquisition import SourceAcquisition
-from video_note_mcp.adapters.source_cache import SourceCache
 from video_note_mcp.application.errors import BilibiliNoteFailure
-from video_note_mcp.application.ports import AcquiredSource, SourceMediaPort, TranscriptPort
+from video_note_mcp.application.ports import SourceMediaPort
 from video_note_mcp.application.progress import (
     ProgressReporter,
 )
@@ -21,6 +20,7 @@ from video_note_mcp.application.resource_limits import (
     MEDIA_SOURCE_MAX_PIXELS,
     MEDIA_SOURCE_MAX_SIDE,
 )
+from video_note_mcp.domain.artifacts import DownloadedSource
 from video_note_mcp.domain.models import MAX_SOURCE_DURATION_MS, FailureCode, SourceV1
 from video_note_mcp.domain.url_policy import InvalidBilibiliUrl, validate_bilibili_url
 
@@ -63,17 +63,15 @@ def _text(value: object, reason: str) -> str:
 class BilibiliSource:
     def __init__(
         self,
-        transcript: TranscriptPort,
         media: SourceMediaPort,
         http: SafeHttpClient | None = None,
-        cache: SourceCache | None = None,
     ) -> None:
-        self._acquisition = SourceAcquisition(transcript, media, cache)
+        self._acquisition = SourceAcquisition(media)
         self._http = http or SafeHttpClient()
 
-    async def acquire(
+    async def download(
         self, url: str, workspace: Path, progress: ProgressReporter
-    ) -> AcquiredSource:
+    ) -> DownloadedSource:
         try:
             validated = validate_bilibili_url(url)
         except InvalidBilibiliUrl as e:
@@ -168,6 +166,6 @@ class BilibiliSource:
             or min(width, height) < 720
         ):
             raise BilibiliNoteFailure("HD_SOURCE_UNAVAILABLE", "source_below_hd_floor")
-        return await self._acquisition.acquire(
+        return await self._acquisition.download(
             source, width, height, {"cid": cid}, workspace, progress
         )

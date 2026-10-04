@@ -5,7 +5,13 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from conftest import MemoryAuthor, MemoryMedia, MemorySource
+from conftest import (
+    MemoryAuthor,
+    MemoryMedia,
+    MemorySource,
+    MemoryTranscript,
+    primitive_dependencies,
+)
 
 from video_note_mcp.adapters.note_publisher import LocalNotePublisher
 from video_note_mcp.application.create_note import CreateBilibiliNote
@@ -20,6 +26,7 @@ def use_case(draft, root, author=None):
         MemoryMedia(draft),
         author or MemoryAuthor(draft),
         LocalNotePublisher(root),
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
 
 
@@ -27,6 +34,11 @@ async def test_publication_survives_temporary_source_cleanup(tmp_path, draft):
     app = use_case(draft, tmp_path)
     result = await app.execute(FIXTURE_URL)
     assert not app._source.workspace.exists()
+    retained = tuple(app.artifacts.root.glob("media-*"))
+    assert len(retained) == 1
+    media = app.artifacts.load_media(retained[0].name)
+    assert media.media_path.read_bytes() == b"temporary private media"
+    assert not app.artifacts.root.is_relative_to(tmp_path)
     paths = list(map(Path, (result.note_path, result.html_path, *result.images)))
     assert all(path.is_file() for path in paths)
     assert app._distiller.calls == 1

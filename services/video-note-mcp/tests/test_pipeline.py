@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from conftest import primitive_dependencies
 from PIL import Image, ImageDraw
 
 from video_note_mcp.adapters.fixture_distiller import (
@@ -901,6 +902,7 @@ async def test_decoded_duration_must_match_source_identity(tmp_path: Path) -> No
         media=FfmpegMedia(),
         distiller=DeterministicDistiller(),
         publisher=LocalNotePublisher(tmp_path / "notes"),
+        **primitive_dependencies(FixtureSource(fixture)),
     )
 
     with pytest.raises(BilibiliNoteFailure) as failure:

@@ -3,7 +3,13 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from conftest import MemoryAuthor, MemoryMedia, MemorySource
+from conftest import (
+    MemoryAuthor,
+    MemoryMedia,
+    MemorySource,
+    MemoryTranscript,
+    primitive_dependencies,
+)
 from pydantic import ValidationError
 
 from video_note_mcp.adapters.audio_review import AudioReviewer, normalized, review_windows
@@ -43,6 +49,7 @@ async def test_quality_preserves_original_and_exposes_disagreement(tmp_path, dra
         MemoryAuthor(draft),
         LocalNotePublisher(tmp_path),
         reviewer,
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
     result = await app.execute(FIXTURE_URL, quality=quality)
     assert reviewer.qualities == ([] if quality == "fast" else [quality])
@@ -65,6 +72,7 @@ async def test_required_review_failure_never_publishes(tmp_path, draft):
         MemoryAuthor(draft),
         LocalNotePublisher(tmp_path),
         Failed(),
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
     with pytest.raises(BilibiliNoteFailure, match="review_failed"):
         await app.execute(FIXTURE_URL, quality="precise")
@@ -160,6 +168,7 @@ async def test_mcp_routes_quality(tmp_path, draft, quality):
         MemoryAuthor(draft),
         publisher,
         reviewer,
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
     server = build_server(app)
     arguments = {"url": FIXTURE_URL}
@@ -191,6 +200,7 @@ async def test_cancellation_during_review_does_not_publish(tmp_path, draft):
         MemoryAuthor(draft),
         LocalNotePublisher(tmp_path),
         Waiting(),
+        **primitive_dependencies(MemoryTranscript(draft)),
     )
     task = asyncio.create_task(app.execute(FIXTURE_URL, quality="precise"))
     await asyncio.wait_for(started.wait(), 1)

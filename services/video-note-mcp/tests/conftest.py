@@ -8,6 +8,7 @@ from PIL import Image
 
 from video_note_mcp.application.ports import (
     AcquiredSource,
+    DownloadedSource,
     FrameAsset,
     NoteDraft,
     TranscriptResult,
@@ -74,6 +75,28 @@ def make_draft(title="纸飞机折叠示范", text="将纸张沿中线对折，�
     return NoteDraft(source, note, transcript, tuple(frames) if images else ())
 
 
+@pytest.fixture(autouse=True)
+def isolated_artifacts(tmp_path_factory, monkeypatch):
+    root = tmp_path_factory.mktemp("retained-artifacts")
+    monkeypatch.setenv("BILIBILI_NOTE_ARTIFACT_DIR", str(root))
+
+
+def primitive_dependencies(transcript):
+    from video_note_mcp.adapters.artifact_store import ArtifactStore
+    from video_note_mcp.adapters.local_import import LocalImport
+
+    return dict(transcript=transcript, artifacts=ArtifactStore(), importer=LocalImport())
+
+
+class MemoryTranscript:
+    def __init__(self, draft):
+        self.draft = draft
+
+    async def transcribe(self, media_path, duration_ms, workspace, progress):
+        assert media_path.exists()
+        return TranscriptResult("platform_subtitle", None, "zh-CN", self.draft.transcript)
+
+
 @pytest.fixture
 def draft():
     return make_draft()
@@ -84,15 +107,19 @@ class MemorySource:
         self.draft = draft
         self.workspace = None
 
-    async def acquire(self, url, workspace, progress):
+    async def download(self, url, workspace, progress):
         self.workspace = workspace
         media = workspace / "media.mp4"
         media.write_bytes(b"temporary private media")
+        return DownloadedSource(self.draft.source, media, "fixture-snapshot")
+
+    async def acquire(self, url, workspace, progress):
+        downloaded = await self.download(url, workspace, progress)
+        transcript = await MemoryTranscript(self.draft).transcribe(
+            downloaded.media_path, downloaded.source.duration_ms, workspace, progress
+        )
         return AcquiredSource(
-            self.draft.source,
-            media,
-            TranscriptResult("platform_subtitle", None, "zh-CN", self.draft.transcript),
-            "fixture-snapshot",
+            downloaded.source, downloaded.media_path, transcript, downloaded.source_snapshot_ref
         )
 
 

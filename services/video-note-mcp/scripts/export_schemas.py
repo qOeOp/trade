@@ -9,10 +9,30 @@ from video_note_mcp.domain.models import (
     ErrorV1,
     PublicBilibiliNoteResultV4,
 )
+from video_note_mcp.domain.primitive_inputs import (
+    DownloadInput,
+    FramesInput,
+    ImportInput,
+    RenderInput,
+    TranscribeInput,
+)
+from video_note_mcp.domain.primitive_results import ArtifactResultV1
 from video_note_mcp.presentation.schemas import tool_output_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = {
+    **{
+        name + "-input-v1.schema.json": model.model_json_schema(by_alias=True)
+        for name, model in [
+            ("download", DownloadInput),
+            ("import", ImportInput),
+            ("transcribe", TranscribeInput),
+            ("frames", FramesInput),
+            ("render", RenderInput),
+        ]
+    },
+    "artifact-result-v1.schema.json": ArtifactResultV1.model_json_schema(by_alias=True),
+    "artifact-tool-output-v1.schema.json": tool_output_schema(ArtifactResultV1),
     "create-input-v1.schema.json": CreateNoteInputV1.model_json_schema(by_alias=True),
     "error-v1.schema.json": ErrorV1.model_json_schema(by_alias=True),
     "result-v4.schema.json": PublicBilibiliNoteResultV4.model_json_schema(by_alias=True),

@@ -8,3 +8,4 @@ class BilibiliNoteFailure(RuntimeError):
         super().__init__(reason)
         self.code = code
         self.reason = reason
+        self.recovery: dict[str, str] = {}

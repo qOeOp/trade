@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "media_id": {
+      "pattern": "^media-[0-9a-f]{64}$",
+      "title": "Media Id",
+      "type": "string"
+    },
+    "quality": {
+      "default": "standard",
+      "enum": [
+        "fast",
+        "standard",
+        "precise"
+      ],
+      "title": "Quality",
+      "type": "string"
+    }
+  },
+  "required": [
+    "media_id"
+  ],
+  "title": "TranscribeInput",
+  "type": "object"
+}

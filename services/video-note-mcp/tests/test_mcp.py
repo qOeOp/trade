@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
+from conftest import MemoryTranscript, make_draft, primitive_dependencies
 from mcp import Client
 
 from video_note_mcp import __main__ as cli_module
@@ -13,7 +15,7 @@ from video_note_mcp.adapters.fixture_distiller import DeterministicDistiller
 from video_note_mcp.adapters.media_ffmpeg import FfmpegMedia
 from video_note_mcp.adapters.note_publisher import LocalNotePublisher
 from video_note_mcp.application.create_note import CreateBilibiliNote
-from video_note_mcp.application.ports import AcquiredSource
+from video_note_mcp.application.ports import DownloadedSource
 from video_note_mcp.application.progress import ProgressReporter
 from video_note_mcp.fixture import FIXTURE_URL
 from video_note_mcp.mcp_server import TOOL_NAME, build_server
@@ -28,9 +30,9 @@ class BlockingSource:
         self.started = asyncio.Event()
         self.cancelled = asyncio.Event()
 
-    async def acquire(
+    async def download(
         self, url: str, workspace: Path, progress: ProgressReporter
-    ) -> AcquiredSource:
+    ) -> DownloadedSource:
         self.started.set()
         try:
             await asyncio.Event().wait()
@@ -46,9 +48,9 @@ class SlowCleanupSource:
         self.allow_cleanup = asyncio.Event()
         self.cleanup_terminal = asyncio.Event()
 
-    async def acquire(
+    async def download(
         self, url: str, workspace: Path, progress: ProgressReporter
-    ) -> AcquiredSource:
+    ) -> DownloadedSource:
         del url, workspace, progress
         self.started.set()
         try:
@@ -69,6 +71,7 @@ async def test_mcp_client_cancellation_reaches_active_source_before_return() -> 
         media=FfmpegMedia(),
         distiller=DeterministicDistiller(),
         publisher=LocalNotePublisher(),
+        **primitive_dependencies(MemoryTranscript(make_draft())),
     )
     async with Client(_server(use_case)) as client:
         call = asyncio.create_task(
@@ -99,6 +102,7 @@ async def test_repeated_mcp_cancellation_waits_for_cleanup_and_emits_one_termina
         media=FfmpegMedia(),
         distiller=DeterministicDistiller(),
         publisher=LocalNotePublisher(),
+        **primitive_dependencies(MemoryTranscript(make_draft())),
     )
     monkeypatch.setattr("video_note_mcp.application.operator_events.os.write", write)
     async with Client(_server(use_case)) as client:
@@ -174,7 +178,10 @@ async def test_transport_success_has_durable_illustrated_contract(tmp_path, draf
     assert observed == sorted(observed)
     assert observed[0] == 5
     assert 100 not in observed
-    assert {t.name for t in listed.tools} == {TOOL_NAME}
+    assert {t.name for t in listed.tools} == {
+        "video_note." + name
+        for name in ("create", "download", "import", "transcribe", "frames", "render")
+    }
     assert not app._source.workspace.exists()
     assert all(
         path.is_file()
@@ -224,7 +231,10 @@ async def test_stdio_fixture_success_and_transcript_gap(tmp_path):
         command=sys.executable,
         args=["-m", "video_note_mcp", "--fixture-root", str(fixture), "--deterministic"],
         cwd=Path.cwd(),
-        env={"BILIBILI_NOTE_OUTPUT_DIR": str(output)},
+        env={
+            "BILIBILI_NOTE_OUTPUT_DIR": str(output),
+            "BILIBILI_NOTE_ARTIFACT_DIR": os.environ["BILIBILI_NOTE_ARTIFACT_DIR"],
+        },
     )
     async with stdio_client(parameters) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
@@ -265,9 +275,18 @@ def test_live_runtime_uses_direct_author():
 )
 async def test_retired_search_names_never_start_processing(name):
     source = BlockingSource()
-    app = CreateBilibiliNote(source, FfmpegMedia(), DeterministicDistiller(), LocalNotePublisher())
+    app = CreateBilibiliNote(
+        source,
+        FfmpegMedia(),
+        DeterministicDistiller(),
+        LocalNotePublisher(),
+        **primitive_dependencies(MemoryTranscript(make_draft())),
+    )
     async with Client(build_server(app)) as client:
-        assert {tool.name for tool in (await client.list_tools()).tools} == {TOOL_NAME}
+        assert {tool.name for tool in (await client.list_tools()).tools} == {
+            "video_note." + name
+            for name in ("create", "download", "import", "transcribe", "frames", "render")
+        }
         result = await client.call_tool(name, {"query": "paper airplane"})
     assert result.is_error
     assert result.structured_content["reason"] == "tool_name_invalid"
