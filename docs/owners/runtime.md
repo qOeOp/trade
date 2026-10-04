@@ -96,7 +96,11 @@ widening the admitted set requires changing this document first.
 ## Shared strategy lifecycle contract
 
 Runtime may apply only the exact [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)
-carried by the governed generation: `StrategyPlanV2`, content-addressed Wasm Artifact, Owner bindings,
+carried by the governed generation: `StrategyPlanV2`, content-addressed Artifact (a Wasm Artifact until the
+user-authorized
+[host interpretation](../architecture/strategy-factory#target-host-interpretation-of-the-bounded-feature-program)
+lands, then the Plan with each plugin's canonical Bounded Feature Program bytes and the interpreter identity),
+Owner bindings,
 `ProgramHost`, lifecycle/checkpoint/kernel/plugin versions, and Market Semantics Compatibility identity. The shared
 kernel alone consumes totally ordered `START`, `BAR`, `EVENT`, `FILL`, `TIMER`, `STOP` envelopes and owns
 `ENTER`, `ADD`, `REDUCE`, `EXIT`, `HOLD`, target position/weight/rebalance, protection adjustment and fill

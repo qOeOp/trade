@@ -312,7 +312,11 @@ governs how arbitrary admitted Research becomes executable. R&D alone freezes th
 protection meaning, optional bounded-plugin manifest, and Research Intent binding. Develop deterministically
 canonicalizes, closes capabilities, consumes exact Owner binding receipts, and lowers it to `StrategyPlanV2` and
 the sole Wasm Strategy Artifact/`ProgramHost` path. It may not generate unrestricted strategy code, invent a core
-opcode, infer a source through heuristic strings, or create another interpreter or runtime.
+opcode, infer a source through heuristic strings, or create a second interpreter or runtime beside the sole one.
+**TARGET, user-authorized 2026-10-04:** the sole runtime becomes `ProgramHostV2`'s interpreter of the frozen
+Bounded Feature Program, and the Wasm Artifact, lowering and build path retire in the slices of the
+[host interpretation](../architecture/strategy-factory#target-host-interpretation-of-the-bounded-feature-program)
+plan; until slice R2 lands the Wasm path stays the sole one.
 
 **TARGET / NOT_ADMITTED - ARC Complex D Bounded Feature Program V1:** R&D freezes one canonical
 `BoundedFeatureProgramV1` together with its Research Intent, `StrategyDesignV2`, bounded-plugin semantic ID and
@@ -368,10 +372,15 @@ lowers it with content-addressed first-party SDK/kernel sources. It references v
 source digests instead of copying formulas. The result is exactly one existing bounded plugin whose outputs are
 limited to typed post-state, `PositionIntentV1`, target and protection fields; `ProgramHostV2` seals the proposal
 and the shared lifecycle kernel alone applies it. No caller- or LLM-authored Rust/Wasm/dependency, floating point,
-Host feature opcode, second interpreter/runtime, raw-order plumbing, or executable fallback is admitted.
+Host feature opcode, second interpreter/runtime beside the sole one, raw-order plumbing, or executable fallback is
+admitted. Under the TARGET host interpretation the lowering step disappears: the frozen program itself is the
+plugin's executable meaning, and the host interpreter, which calls only published catalog functions, is the sole
+runtime.
 
-The future V3 build capsule/receipt must bind the canonical program, manifest, SDK/kernel, lowerer/compiler,
-toolchain/profile, complete source set, two byte-identical builds, Wasm, ABI and resource/import/export bounds.
+Until retirement slice R2, the V3 build capsule/receipt must bind the canonical program, manifest, SDK/kernel,
+lowerer/compiler, toolchain/profile, complete source set, two byte-identical builds, Wasm, ABI and
+resource/import/export bounds; from R2 the Artifact binds the canonical program bytes and the interpreter
+identity instead, and the capsule producer is deleted in R3.
 `PluginImplementationReceiptV2` may continue to bind its opaque verified-receipt digest, but Composer durable
 readback must distinguish tagged V2 from V3 and preserve every existing V2 row and digest byte-for-byte. The
 architecture contract and falsifiable first corpus are defined in
@@ -384,7 +393,8 @@ Research custody, the complete TrialFamily frontier, canonical bounded IR, exact
 PIT readback are all bound and revalidated at commit. It is neither an Artifact nor Backtest Replay, Qualification,
 Candidate, Eligibility, Governance or Runtime evidence. Its positive result cannot enter Research Selection. V1
 canonicalization, bounds, frozen-Intent checks and Owner binding are migration inputs to V2; the duplicate V1
-interpreter and toy renderer must be removed only after corpus equivalence is proven through the Wasm path.
+interpreter and toy renderer must be removed only after corpus equivalence is proven through the sole BFP
+execution path (the Wasm path, and from retirement slice R1 the host interpreter); slice R3 deletes them.
 
 Develop returns a content-addressed Plan and Artifact only after every input role has a typed fact-Owner binding,
 capability closure is complete and the lifecycle/checkpoint/plugin bounds are supported. Otherwise it returns
@@ -408,7 +418,9 @@ and deployed Owner readiness remain unavailable and are not inferred from the in
 features `POST /v2/develop-composer/runs` takes a canonical Research request locator, rereads the program
 that `POST /v1/bounded-feature-programs/{declare,freeze}` sealed against that Research custody, locks the
 Research and resolves its Market Data bindings on the Owner's own transaction, lowers and builds the
-program twice to byte-identical Wasm, and commits every positive Composer fact in that same transaction.
+program twice to byte-identical Wasm, and commits every positive Composer fact in that same transaction. From
+retirement slice R2 of the TARGET host interpretation it freezes the Plan with the program's canonical bytes
+instead, with no lowering and no build.
 A Research request that carries no frozen program is refused at its exact coordinate; nothing is compiled
 from a corpus. `derive_source_research_composer_request_v2`, which overwrote four identity fields of the
 fixed corpus Design, survives only inside sealed acceptance. The ordered chain proves the production

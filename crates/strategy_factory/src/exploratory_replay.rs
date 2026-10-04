@@ -93,6 +93,25 @@ pub struct ExploratoryReplayRequestProposalV2 {
     pub request: ReplayRequestDtoV2,
 }
 
+/// Where a Composer-backed Replay's market composition is bound: a snapshot's own issued
+/// composition binding (H6), or a custody run's chain root and pinned head - T0's window custody
+/// never issues a composition binding (there is no per-snapshot concept to compose), so a custody
+/// run names the chain and head its frames are read from instead.
+/// Untagged: a `Snapshot` locator serializes exactly as the bare `ReplayCompositionBindingLocatorV1`
+/// it wraps (`{binding_identity, binding_digest}`), byte-identical to every COMPOSER_V3 row this
+/// field's type carried before this enum existed - no schema-3/4 row's bytes change. A
+/// `CustodyRun` locator's distinct field names (`chain_root`/`head_identity`) are what let
+/// untagged deserialization tell the two apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ComposerReplayMarketDataLocatorV3 {
+    Snapshot(vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1),
+    CustodyRun {
+        chain_root: BindingDigest,
+        head_identity: BindingDigest,
+    },
+}
+
 /// Locator-only Replay composition proposal.
 ///
 /// The caller chooses no Replay policy or request field. R&D resolves the exact TrialFamily,
@@ -106,8 +125,7 @@ pub struct ComposerBackedExploratoryReplayProposalV3 {
     pub trial_family_identity: String,
     pub artifact_identity: String,
     pub composer_locator: crate::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
-    pub market_data_locator:
-        vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
+    pub market_data_locator: ComposerReplayMarketDataLocatorV3,
     pub market_data_scope_digest: BindingDigest,
 }
 
