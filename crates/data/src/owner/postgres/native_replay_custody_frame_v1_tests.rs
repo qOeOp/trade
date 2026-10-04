@@ -217,6 +217,65 @@ async fn custody_frame(
     (request, readback)
 }
 
+/// The frame's sample projection, derived from the custody rows its view read: it names the
+/// frame, holds one component per (member, role) value, and each coordinate, read from its fixed
+/// layout, states the stored custody row it names - that row's fact digest as its receipt, its
+/// own row digest, its Owner event and sample identities, V1's logical time, its event and its
+/// series position, lineage and Market Semantics.
+fn assert_projection_states_custody_rows(
+    custody: &NativeReplayCustodyFrameReadbackV1,
+    view: &ResolvedPitWindowViewV1,
+) {
+    let frame = custody.universe_frame();
+    let projection = custody.sample_projection();
+    assert_eq!(projection.subject(), frame.digest());
+    assert_eq!(projection.components().len(), frame.values().len());
+    assert_eq!(
+        projection.components().len(),
+        view.chain.root.members.len() * 2,
+        "one component per member and role"
+    );
+    assert!(projection.schedule_dependency_set_digest().is_some());
+
+    for (component, value) in projection.components().iter().zip(frame.values()) {
+        assert_eq!(component.member_key(), value.member_key());
+        assert_eq!(component.value_receipt_digest(), value.digest());
+        let stored = view
+            .rows
+            .iter()
+            .find(|row| row.fact.fact_digest() == *component.sample_receipt_digest().as_bytes())
+            .expect("each component names a stored custody row");
+        let fact = &stored.fact;
+        let row = fact.row();
+        assert_eq!(row.instrument, component.instrument().as_bytes());
+        assert_eq!(
+            stored.field,
+            if component.input_role_identity() == d(42) {
+                "CLOSE"
+            } else {
+                "OPEN"
+            }
+        );
+        let coordinate = component.coordinate();
+        let at = |range: std::ops::Range<usize>| &coordinate[range];
+        let u64_at =
+            |offset: usize| u64::from_le_bytes(coordinate[offset..offset + 8].try_into().unwrap());
+        assert_eq!(at(4..36), component.input_role_identity().as_bytes());
+        assert_eq!(at(36..68), &row.timeframe_identity);
+        assert_eq!(at(68..84), &fact.owner_event_identity());
+        assert_eq!(at(84..116), &fact.sample_identity());
+        assert_eq!(u64_at(116), row.available.max(row.publication));
+        assert_eq!(u64_at(124), row.event_effective);
+        assert_eq!(u64_at(132), fact.series_sequence());
+        assert_eq!(at(140..172), value.binding_digest().as_bytes());
+        assert_eq!(at(172..204), &row.canonical_row_digest);
+        assert_eq!(at(204..236), row.source_binding_lineage_root.as_bytes());
+        assert_eq!(u64_at(236), row.source_binding_lineage_version);
+        assert_eq!(at(244..276), row.market_semantics_identity.as_bytes());
+        assert_eq!(at(276..308), &fact.fact_digest());
+    }
+}
+
 /// The custody frame and the snapshot frame over its rows are one frame: the same universe
 /// members and role values, then the same native schedule - bar types, every value and instant,
 /// in member order - and the same quote instant. Their receipts are not compared.
@@ -329,6 +388,15 @@ async fn postgres_a_one_member_custody_frame_equals_its_snapshot_frame() {
     )
     .await;
     let custody = custody.expect("the custody frame resolves");
+    let view = owner
+        .resolve_pit_window_view_v1(&frame_at(
+            &receipt,
+            receipt.custody_identity(),
+            WINDOW_START + DAY,
+        ))
+        .await
+        .unwrap();
+    assert_projection_states_custody_rows(&custody, &view);
     let snapshot = custody
         .snapshot_twin_for_test(&request)
         .expect("the snapshot frame over the same rows issues");
@@ -371,13 +439,11 @@ async fn postgres_two_single_timeframe_custody_frames_equal_their_snapshot_frame
         .expect("the custody");
 
     for event in [WINDOW_START + DAY, WINDOW_START + 2 * DAY] {
-        let (request, custody) = custody_frame(
-            &owner,
-            frame_at(&receipt, receipt.custody_identity(), event),
-            WINDOW_START + 3 * DAY,
-        )
-        .await;
+        let frame = frame_at(&receipt, receipt.custody_identity(), event);
+        let (request, custody) = custody_frame(&owner, frame, WINDOW_START + 3 * DAY).await;
         let custody = custody.expect("the custody frame resolves");
+        let view = owner.resolve_pit_window_view_v1(&frame).await.unwrap();
+        assert_projection_states_custody_rows(&custody, &view);
         let snapshot = custody
             .snapshot_twin_for_test(&request)
             .expect("the snapshot frame over the same rows issues");

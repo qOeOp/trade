@@ -2773,6 +2773,11 @@ closure states each gap's Quotes, which the custody quote cut seal still checks 
 custody view, and a gap it states nothing for is `QuoteCutMissing` as in production. T0-6's derivation replaces it,
 and a result produced with it is not U1 evidence until it is re-run on that derivation.
 
+Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
+at read time from the `SampleFactV2` rows its view was sealed from and never stores, so a Plan with coordinate rows can
+read a custody frame through the host's unchanged projection check. The derivation is stated under "universe-frame
+sample projection" below.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
@@ -3151,6 +3156,26 @@ issuance, after the request's Instrument Master cut and before it resolves the f
 projection names another frame than the one it resolves. Sample custody attaches each binding's projection to the row's
 one sample and reuses a slot's sample, as stated. A window's frames, and the host's attachment of a projection to the
 frame it admits, are not built yet. It claims no production startup or write, deployment, runtime or trading authority.
+
+A custody frame's projection (T0-5b) is derived, not issued: Market Data builds it when it reads the frame, from the
+custody rows the frame's view was sealed from, through the same assembler and the same 308-byte coordinate codec, and
+stores nothing. Each value is matched to the view observation its row digest names, and that observation to the one
+stored row of its member, field and selected version, which must restate it. The component's coordinate states that
+row's `SampleFactV2`: its timeframe identity, Owner event identity and sample identity, a logical time that is V1's -
+the later of the row's availability and publication, never the bar's close - its event-effective instant, its series
+sequence as the Owner sequence, the custody row's own canonical digest at scale 9, its lineage root and version and
+Market Semantics identity, and the fact digest as the receipt digest, since a custody row has no separate receipt. The
+coordinate therefore binds the custody row, not the view of it: a view row restates the custody row in canonical form
+and with the frame's retrieval instant, so its digest differs from frame to frame, while the coordinate does not, and
+one row has the same coordinate bytes in every frame that reads it. A correction is a new version, row and fact, so it
+has a new coordinate. The component's timeframe-projection digest is the custody's own: SHA-256 over
+`market-data.custody-timeframe-projection.v1\0`, the member binding digest, the member's timeframe spec identity and the
+custody timeframe identity. It does not claim equality with a snapshot `TimeframeProjectionReceiptV1`; the spec
+identity it binds is already the schedule path's identity for the same declaration. The schedule set follows the
+assembler, per component in order, over the member's window schedule fact identity, under
+`market-data.universe-sample-projection-schedule-set.custody.v1\0`, and the projection's identity is taken under
+`market-data.universe-sample-projection.custody.v1\0`, so a custody projection never equals a stored one. A value no
+stored row restates derives no projection, and the frame is refused as `OwnerBindingMismatch`.
 
 An accepted correction is an immutable successor with both an exact series predecessor and correction
 predecessor. It creates a new `SampleFactV1`, `SampleReceiptV1`, `sample_identity`, and coordinate and advances the

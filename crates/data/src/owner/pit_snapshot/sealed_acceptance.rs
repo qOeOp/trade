@@ -219,6 +219,8 @@ impl SealedAcceptanceStrategyInputRoleBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SealedAcceptanceStrategyInputUniverseFrame {
     frame: StrategyInputUniverseFrameReceipt,
+    /// The verified batch the frame was bound from.
+    view: Box<super::VerifiedPitObservationBatch>,
     role_bindings: Box<[SealedAcceptanceStrategyInputRoleBinding]>,
 }
 
@@ -324,6 +326,11 @@ impl SealedAcceptanceStrategyInputUniverseFrame {
 
     pub const fn frame(&self) -> &StrategyInputUniverseFrameReceipt {
         &self.frame
+    }
+
+    /// The verified batch the frame was bound from.
+    pub(crate) fn view(&self) -> &super::VerifiedPitObservationBatch {
+        &self.view
     }
 }
 
@@ -547,6 +554,7 @@ fn issue_universe_frame_for_compile_time_corpus(
         .into_boxed_slice();
     Ok(SealedAcceptanceStrategyInputUniverseFrame {
         frame,
+        view: Box::new(verified),
         role_bindings,
     })
 }
