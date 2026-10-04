@@ -106,6 +106,7 @@ readonly market_data_owner_postgres_sealed_acceptance_tests=(
   owner::postgres::sealed_acceptance_custody_chain_v1_tests::postgres_the_sealed_acceptance_chain_reads_every_frame_with_its_derived_quote_cut
   owner::postgres::sealed_acceptance_custody_chain_v1_tests::postgres_a_bar_the_custody_intake_refuses_is_refused_under_its_name
   owner::postgres::sealed_acceptance_custody_chain_v1_tests::postgres_the_fixtures_basis_selects_its_members_mapping_and_projects_its_terms
+  owner::postgres::sealed_acceptance_custody_chain_v1_tests::postgres_a_member_already_admitted_keeps_its_fact
 )
 
 # Proofs in an integration-test binary, as `<binary>::<test>`. They reach what exists only in a build

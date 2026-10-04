@@ -2794,6 +2794,11 @@ Built so far (T0-5d): a build with `sealed-strategy-input-acceptance` also opens
 `commit_sealed_acceptance_custody_chain_v1`, which commits a synthetic custody chain only through the production Source
 Binding, Instrument Master V1, Universe Selection and custody intakes, so its output is production code run on
 synthetic inputs and never U1 evidence. Its spec's fill timeframe must be exactly one minute, as every custody's is.
+An ordered chain shares one store, so a member an earlier entry already admitted keeps its Instrument Master fact: the
+fixture submits no rival genesis fact and names no predecessor, which would correct the earlier entry's instrument. The
+custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. Its
+historical membership frontier names the window, so two fixture chains over the same members are two memberships
+(`postgres_a_member_already_admitted_keeps_its_fact`).
 
 Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
 at read time from the `SampleFactV2` rows its view was sealed from and never stores, so a Plan with coordinate rows can

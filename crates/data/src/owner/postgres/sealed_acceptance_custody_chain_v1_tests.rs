@@ -15,7 +15,8 @@ use crate::owner::pit_window_custody_v1::{
     UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowCustodyFrameV1,
     sealed_acceptance_chain::{
         SealedAcceptanceBarV1, SealedAcceptanceCustodyChainErrorV1,
-        SealedAcceptanceCustodyChainSpecV1, SealedAcceptanceDecimalV1, SealedAcceptanceOhlcvV1,
+        SealedAcceptanceCustodyChainSpecV1, SealedAcceptanceDecimalV1,
+        SealedAcceptanceInstrumentIncrementsV1, SealedAcceptanceOhlcvV1,
         SealedAcceptanceTimeframeV1, commit_sealed_acceptance_custody_chain_v1,
     },
 };
@@ -282,5 +283,33 @@ async fn postgres_a_bar_the_custody_intake_refuses_is_refused_under_its_name() {
         Err(SealedAcceptanceCustodyChainErrorV1::CustodyCommit(
             PitWindowCustodyRefusalV1::ValueFinerThanSeriesScale
         ))
+    );
+}
+
+/// An ordered chain shares one store, so the fixture can meet a member an earlier entry already
+/// admitted. It keeps that member's fact rather than submitting a rival genesis fact, which the
+/// Instrument Master intake refuses: a second chain whose own fact would differ - a finer price
+/// increment - over a shorter window commits, and binds the first chain's fact.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_member_already_admitted_keeps_its_fact() {
+    let first = commit_sealed_acceptance_custody_chain_v1(&owner_url(), &spec())
+        .await
+        .expect("the first chain admits the member");
+    let mut second_spec = spec();
+    second_spec.execution_timeframe.bars.pop();
+    second_spec.fill_timeframe.bars.pop();
+    second_spec.instrument_increments = Some(SealedAcceptanceInstrumentIncrementsV1 {
+        price: decimal("0.01"),
+        quantity: decimal("0.001"),
+    });
+    let second = commit_sealed_acceptance_custody_chain_v1(&owner_url(), &second_spec)
+        .await
+        .expect("the second chain keeps the member's fact");
+
+    assert_ne!(second.chain_root(), first.chain_root());
+    assert_eq!(
+        second.instrument_fact_digests(),
+        first.instrument_fact_digests()
     );
 }
