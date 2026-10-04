@@ -55,7 +55,6 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 ed25519-dalek = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -98,18 +97,6 @@ test = false
 [[bin]]
 name = "rd-owner-additive-table-migrate"
 path = "src/bin/rd_owner_additive_table_migrate.rs"
-doc = false
-test = false
-
-[[bin]]
-name = "strategy-authoring-mcp"
-path = "src/bin/strategy_authoring_mcp.rs"
-doc = false
-test = false
-
-[[bin]]
-name = "market-data-mcp"
-path = "src/bin/market_data_mcp.rs"
 doc = false
 test = false
 

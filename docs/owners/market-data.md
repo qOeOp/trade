@@ -3367,13 +3367,15 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   line over the same function serves an operator. U1's acceptance runs it once each for BTC, ETH and SOL in the
   deployment image, then reads each member's coverage.
 
-### TARGET market-data MCP server
+### CURRENT market-data MCP server
 
 The `market-data` server of the [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface)
-is served by Market Data. It is a stateless stdio process that holds the Market Data API token in its own environment
-and reaches Market Data's routes only. Every rule lives in Market Data behind a route; a tool sends one request,
-passes its answer or refusal through by name, and sequences nothing. The same functions are a command line with the
-same names.
+is `market-data-mcp`, a stateless stdio process built from its own `services/market-data-mcp` crate, which depends on
+no Owner crate - only an HTTP client, serde and the stdio loop. It holds the Market Data API token in its own
+environment and reaches Market Data's routes only. Every rule lives in Market Data behind a route; a tool sends one
+request, passes its answer or refusal through by name, and sequences nothing. The same functions are a command line
+with the same names. `get_bars` and `get_funding` are `TARGET`: they wait on T0-5 and the funding schedule read
+below, and the server does not list them as tools until their routes exist.
 
 | Tool                                     | Route                                                   | Refusals by name                                                                 |
 | ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -3392,7 +3394,7 @@ same names.
   economic-terms version admitted for it. A value the venue does not state is named (`UNBOUNDED`, `NOT_APPLICABLE` or
   `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
   Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
-  the perpetual F admits over HTTP. The MCP server over these routes is not built yet.
+  the perpetual F admits over HTTP.
 - **CURRENT: per-symbol admission is one Market Data operation, over five steps.**
   `POST /v1/market-data/binance-perpetual-admissions` takes a Binance USD-M symbol. Market Data fetches the symbol's
   public `exchangeInfo` entry once and commits, in order, five of the six facts the first `COMPOSER_V3` Replay's
