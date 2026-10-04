@@ -20,7 +20,8 @@ use crate::{
         BoundedFeatureDesignSpecV1, PLUGIN_SEMANTIC_ID, bounded_feature_design_v1,
     },
     bounded_feature_graph_v1::{
-        ADD, COMPARE, Graph, MUL, SIGNAL_UNIT, SUB, VALUE_PORT, fixed_type, node_value, prior_state,
+        ADD, COMPARE, DIV, Graph, MUL, SIGNAL_UNIT, SUB, VALUE_PORT, fixed_type, node_value,
+        prior_state,
     },
     bounded_feature_program_derivation_v1::{
         BoundedFeatureGraphBoundsV1, BoundedFeatureInputMeaningV1, BoundedFeatureProgramMeaningV1,
@@ -56,6 +57,8 @@ const RESCALE: &str =
 const RATIO_UNIT: &str = "RATIO";
 /// The unit of a `count_while` state.
 const BARS_UNIT: &str = "BARS";
+/// The scale a quotient is rounded to: Market Data's own value scale.
+const QUOTIENT_SCALE: u8 = 9;
 /// The longest window, lag or period a definition may name.
 const MAX_WINDOW: u32 = 1_000;
 /// The fuel a compiled program may burn in one invocation.
@@ -96,6 +99,8 @@ pub enum AuthoringFieldV1 {
     High,
     Low,
     Close,
+    /// The bar's traded quantity, a `QUANTITY` rather than a `PRICE`.
+    Volume,
 }
 
 impl AuthoringFieldV1 {
@@ -105,6 +110,7 @@ impl AuthoringFieldV1 {
             Self::High => "MARKET_DATA.BAR.HIGH.PRICE.V1",
             Self::Low => "MARKET_DATA.BAR.LOW.PRICE.V1",
             Self::Close => "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+            Self::Volume => "MARKET_DATA.BAR.VOLUME.QUANTITY.V1",
         }
     }
 }
@@ -149,6 +155,12 @@ pub enum AuthoringExpressionV1 {
         b: String,
     },
     Mul {
+        a: String,
+        b: String,
+    },
+    /// `a / b`, both names, at scale 9 rounded to nearest with ties to even; its unit is `a`'s over
+    /// `b`'s, so a ratio of one unit is `X/X`.
+    Div {
         a: String,
         b: String,
     },
@@ -660,11 +672,10 @@ impl<'a> Compiler<'a> {
                     return refuse("AGO_NEEDS_ONE_INPUT", format!("{path}.of"));
                 };
                 let role = role.clone();
+                // The coordinate names a sample of the clock that steps the lag, which is the
+                // CLOSE role's for every stateful node here, whichever input the lag reads.
                 let identity = strategy_input_role_identity_v2(
-                    self.roles
-                        .values()
-                        .find(|candidate| candidate.semantic_id == role)
-                        .expect("a value's role is one of the document's inputs"),
+                    &self.roles[self.fields[&AuthoringFieldV1::Close]],
                 );
                 let parameters = BoundedFeatureParametersV1::Lag {
                     offset: bars,
@@ -786,11 +797,11 @@ impl<'a> Compiler<'a> {
                 let (a, b) = self.aligned(name, a, b, &path)?;
                 let (unit, scale) = fixed_unit_scale(&a);
                 Ok(Value::Fixed {
-                    reference: self.graph.arithmetic(
+                    reference: self.graph.arithmetic_over(
                         name,
                         primitive,
-                        reference(&a),
-                        reference(&b),
+                        bound(&a),
+                        bound(&b),
                         &unit,
                         scale,
                     ),
@@ -835,16 +846,40 @@ impl<'a> Compiler<'a> {
                     })?;
                 let unit = format!("{unit_a}*{unit_b}");
                 Ok(Value::Fixed {
-                    reference: self.graph.arithmetic(
+                    reference: self.graph.arithmetic_over(
                         name,
                         MUL,
-                        reference(&left),
-                        reference(&right),
+                        bound(&left),
+                        bound(&right),
                         &unit,
                         scale,
                     ),
                     unit,
                     scale,
+                    warming: false,
+                    role: None,
+                })
+            }
+            AuthoringExpressionV1::Div { a, b } => {
+                for (operand, port) in [(a, "a"), (b, "b")] {
+                    if is_literal(operand) {
+                        return refuse("UNIT_MISMATCH", format!("{path}.{port}"));
+                    }
+                }
+                let (left, unit_a, _) = self.fixed_operand(a, &format!("{path}.a"))?;
+                let (right, unit_b, _) = self.fixed_operand(b, &format!("{path}.b"))?;
+                let unit = format!("{unit_a}/{unit_b}");
+                Ok(Value::Fixed {
+                    reference: self.graph.arithmetic_over(
+                        name,
+                        DIV,
+                        bound(&left),
+                        bound(&right),
+                        &unit,
+                        QUOTIENT_SCALE,
+                    ),
+                    unit,
+                    scale: QUOTIENT_SCALE,
                     warming: false,
                     role: None,
                 })
@@ -1458,6 +1493,16 @@ fn signed_units(
     })
 }
 
+/// A value as an arithmetic input: its reference, and whether it is still warming.
+fn bound(value: &Value) -> (BoundedFeatureValueRefV1, bool) {
+    match value {
+        Value::Fixed {
+            reference, warming, ..
+        } => (reference.clone(), *warming),
+        Value::Boolean { reference } => (reference.clone(), false),
+    }
+}
+
 fn reference(value: &Value) -> BoundedFeatureValueRefV1 {
     match value {
         Value::Fixed { reference, .. } | Value::Boolean { reference } => reference.clone(),
@@ -1707,5 +1752,103 @@ mod tests {
         let (design, meaning) = author(&t0()).unwrap_or_else(|e| panic!("T0 compiles: {e}"));
         self_check(&design, &meaning).expect("the compiled program prepares");
         assert_eq!(meaning.proposal_decision_table.branches.len(), 5);
+    }
+
+    fn volume_breakout() -> StrategyAuthoringDocumentV1 {
+        serde_json::from_str(include_str!(
+            "../test_data/strategy_authoring_v1/volume-breakout.json"
+        ))
+        .expect("the volume breakout parses")
+    }
+
+    /// A document that reads VOLUME compiles and prepares; its volume role reads Market Data's
+    /// volume field as a `QUANTITY`, and the target-set Host binds it.
+    #[rstest]
+    fn a_volume_document_compiles_prepares_and_binds() {
+        let (design, meaning) = author(&volume_breakout())
+            .unwrap_or_else(|e| panic!("the volume breakout compiles: {e}"));
+        self_check(&design, &meaning).expect("the compiled program prepares");
+        let volume = design
+            .inputs
+            .iter()
+            .find(|role| role.field_semantic_id == "MARKET_DATA.BAR.VOLUME.QUANTITY.V1")
+            .expect("a volume role");
+
+        assert_eq!((volume.unit.as_str(), volume.scale), ("QUANTITY", 9));
+        assert!(
+            design
+                .inputs
+                .iter()
+                .filter(|role| role != &volume)
+                .all(|role| role.unit == "PRICE")
+        );
+        crate::strategy_plan_v2::validate_universe_target_set_contract_for_test(design, Some(1))
+            .expect("the target-set Host binds every role, the volume role among them");
+    }
+
+    /// A price and a quantity are different units: comparing, adding or subtracting them is
+    /// refused by name, and a quotient's divisor must be named.
+    #[rstest]
+    #[case::compare(AuthoringExpressionV1::Compare { a: "close".to_owned(), predicate: BoundedFeaturePredicateV1::Greater, b: "volume".to_owned() }, "UNIT_MISMATCH", "definitions.heavy.expr")]
+    #[case::add(AuthoringExpressionV1::Add { a: "close".to_owned(), b: "volume".to_owned() }, "UNIT_MISMATCH", "definitions.heavy.expr")]
+    #[case::sub(AuthoringExpressionV1::Sub { a: "volume".to_owned(), b: "close".to_owned() }, "UNIT_MISMATCH", "definitions.heavy.expr")]
+    #[case::literal_divisor(AuthoringExpressionV1::Div { a: "volume".to_owned(), b: "2".to_owned() }, "UNIT_MISMATCH", "definitions.heavy.expr.b")]
+    fn a_price_and_a_quantity_do_not_mix(
+        #[case] expr: AuthoringExpressionV1,
+        #[case] code: &str,
+        #[case] path: &str,
+    ) {
+        let mut document = volume_breakout();
+        set_expr(&mut document, "heavy", expr);
+        let refusal = author(&document).expect_err("refused");
+
+        assert_eq!((refusal.code, refusal.path.as_str()), (code, path));
+    }
+
+    /// A quotient of one unit is spelled `X/X` and compares with a literal of that unit; a price
+    /// ratio and a volume ratio are different units and do not compare.
+    #[rstest]
+    fn a_ratio_is_spelled_as_its_quotient() {
+        let mut document = volume_breakout();
+        document.definitions.push(AuthoringDefinitionV1 {
+            name: "price_ratio".to_owned(),
+            expr: AuthoringExpressionV1::Div {
+                a: "close".to_owned(),
+                b: "high_20".to_owned(),
+            },
+        });
+        set_expr(
+            &mut document,
+            "heavy",
+            AuthoringExpressionV1::Compare {
+                a: "volume_ratio".to_owned(),
+                predicate: BoundedFeaturePredicateV1::Greater,
+                b: "price_ratio".to_owned(),
+            },
+        );
+        let refusal = author(&document).expect_err("refused");
+        assert_eq!(
+            (refusal.code, refusal.path.as_str()),
+            ("UNIT_MISMATCH", "definitions.heavy.expr")
+        );
+    }
+
+    /// Adding VOLUME, DIV and warming arithmetic inputs leaves every document that reads only OHLC
+    /// compiling to the bytes it did: research T0's design and meaning hash as they did before.
+    #[rstest]
+    fn an_ohlc_document_compiles_to_the_bytes_it_did() {
+        use sha2::{Digest, Sha256};
+
+        let (design, meaning) = author(&t0()).expect("T0 compiles");
+        let mut hasher = Sha256::new();
+        hasher.update(serde_json::to_vec(&design).unwrap());
+        hasher.update(serde_json::to_vec(&meaning).unwrap());
+        let digest: [u8; 32] = hasher.finalize().into();
+        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+
+        assert_eq!(
+            hex,
+            "a04a68960452d3ff4e1db495009214b8bfca84274785bc3000727a055c0d7d72"
+        );
     }
 }
