@@ -103,9 +103,26 @@ fn quote_cut_identity_v1(
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
-/// The fill bar the gap's quote cut takes: the first of `request.fill_candidates` whose open lies
-/// strictly inside `(d_k, bound)`. A bar that is not available before the gap's bound gives the gap
-/// no quote: its price would be one the run could not have known before the next frame.
+/// The one predicate deciding whether a gap has a quote, which the run-level check and each
+/// frame's quote cut both apply (T0-5 ruling Q1): the position, among `candidates` - each a fill
+/// bar's `(open, availability)`, ascending by open, at the version visible at its own availability -
+/// of the first bar opening strictly inside `(d_k, bound)`, provided that bar is available before
+/// the bound. A bar available only at or after the bound gives the gap no quote: its price would be
+/// one the run could not have known before the next frame. `None` when the gap has no quote.
+pub(crate) fn gap_fill_bar_position_v1(
+    candidates: impl IntoIterator<Item = (u64, u64)>,
+    decision_cut_ns: u64,
+    bound_ns_exclusive: u64,
+) -> Option<usize> {
+    let (position, (_, available_ns)) = candidates
+        .into_iter()
+        .enumerate()
+        .find(|(_, (open_ns, _))| *open_ns > decision_cut_ns && *open_ns < bound_ns_exclusive)?;
+    (available_ns < bound_ns_exclusive).then_some(position)
+}
+
+/// The fill bar the gap's quote cut takes: the one [`gap_fill_bar_position_v1`] names among
+/// `request.fill_candidates`.
 ///
 /// # Errors
 ///
@@ -114,19 +131,16 @@ fn quote_cut_identity_v1(
 pub(crate) fn fill_bar_of_gap_v1(
     request: &CustodyQuoteCutRequestV1,
 ) -> Result<&FillBarCandidateV1, NativeReplayQuoteCutRefusalV2> {
-    let candidate = request
-        .fill_candidates
-        .iter()
-        .find(|candidate| {
-            candidate.open_ns > request.decision_cut_ns
-                && candidate.open_ns < request.bound_ns_exclusive
-        })
-        .ok_or(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)?;
-
-    if candidate.available_ns >= request.bound_ns_exclusive {
-        return Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing);
-    }
-    Ok(candidate)
+    gap_fill_bar_position_v1(
+        request
+            .fill_candidates
+            .iter()
+            .map(|candidate| (candidate.open_ns, candidate.available_ns)),
+        request.decision_cut_ns,
+        request.bound_ns_exclusive,
+    )
+    .and_then(|position| request.fill_candidates.get(position))
+    .ok_or(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
 }
 
 /// The quote cut of the gap after `view`'s frame: [`fill_bar_of_gap_v1`]'s bar (already selected,

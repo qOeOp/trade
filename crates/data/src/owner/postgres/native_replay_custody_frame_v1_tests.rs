@@ -17,7 +17,8 @@ use super::{
         correction, original, owner, request, rows_of, successor, universe, version_at,
     },
     pit_window_view_v1_tests::{
-        seal, two_day_correction, two_timeframe_request, version_at_timeframe,
+        in_canonical_order, seal, two_day_correction, two_timeframe_request, version_at_timeframe,
+        with_gap_fill_bars,
     },
 };
 use crate::owner::{
@@ -881,21 +882,18 @@ async fn falsifier_chain_request(
     frontier: u8,
     fill_close: Option<u64>,
 ) -> UntrustedPitWindowCustodyRequestV1 {
-    let mut request = two_timeframe_request(request(
+    let request = two_timeframe_request(request(
         binding,
         universe(owner, binding, frontier, None).await,
     ));
-    request.fill_timeframe = Some("1M".to_owned());
-    let fills = std::iter::once(E_3 + MINUTE)
-        .chain(fill_close)
-        .map(|close| original("1M", close));
-    // Canonical order: by timeframe label, then event.
-    let (daily, two_day): (Vec<_>, Vec<_>) = request
-        .cross_sections
+    let fill_events = [WINDOW_START + DAY, WINDOW_START + 2 * DAY]
         .into_iter()
-        .partition(|version| version.timeframe == "1D");
-    request.cross_sections = daily.into_iter().chain(fills).chain(two_day).collect();
-    stating_bar(request, BAR)
+        .chain(fill_close.map(|close| close - 5 * MINUTE))
+        .collect::<Vec<_>>();
+    let mut request = with_gap_fill_bars(request, &fill_events);
+    // Beside them, a fill bar opening at `e_3` itself, which no gap takes.
+    request.cross_sections.push(original("1M", E_3 + MINUTE));
+    stating_bar(in_canonical_order(request), BAR)
 }
 
 /// A correction of the fill bar closing at `FILL_CLOSE`, published at `publication_ns`.

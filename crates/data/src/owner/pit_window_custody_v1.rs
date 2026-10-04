@@ -468,8 +468,9 @@ pub enum PitWindowRunRefusalV1 {
 /// inputs and quote cut through the native Replay resolver, naming the frame by a custody frame
 /// source that pins the head the frames were read from.
 ///
-/// Every gap's quote cut is checked here, at run level, once its derivation exists (T0-6); until
-/// then the read does not check gaps, and the per-frame read refuses every frame for want of one.
+/// Every gap's quote cut is checked here, at run level, by the predicate each frame's quote cut
+/// applies: a run any of whose gaps has no quote is refused as `QuoteCutMissing` before any frame is
+/// read.
 #[async_trait]
 pub trait PitWindowCustodyFramesV1: Send + Sync + sealed::Sealed {
     /// Enumerates the run's frames from the execution timeframe's window schedule.

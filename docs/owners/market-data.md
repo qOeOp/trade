@@ -2782,11 +2782,11 @@ at read time from the `SampleFactV2` rows its view was sealed from and never sto
 read a custody frame through the host's unchanged projection check. The derivation is stated under "universe-frame
 sample projection" below.
 
-Built so far (T0-6 and T0-7): the custody quote cut is derived from the gap's first fill bar that opens strictly inside
-`(d_k, e_{k+1})` (`resolve_custody_quote_cut_v1`), at the version `select_fill_candidates_v1` selects at that bar's own
-availability through the `visible_at` that selects frame `k`'s inputs at `d_k`. T0-6 first took the bar's latest
-correction at the pinned head, however late it was published; T0-7 restored the bound. Each of T0's four falsifiers has
-PostgreSQL proofs in the Market Data runner. N=1 and two-frame parity are
+Built so far (T0-6, T0-7 and the run-level quote check): the custody quote cut is derived from the gap's first fill bar
+that opens strictly inside `(d_k, e_{k+1})` (`resolve_custody_quote_cut_v1`), at the version `select_fill_candidates_v1`
+selects at that bar's own availability through the `visible_at` that selects frame `k`'s inputs at `d_k`. T0-6 first
+took the bar's latest correction at the pinned head, however late it was published; T0-7 restored the bound. Each of
+T0's four falsifiers has PostgreSQL proofs in the Market Data runner. N=1 and two-frame parity are
 `postgres_a_one_member_custody_frame_equals_its_snapshot_frame` and
 `postgres_two_single_timeframe_custody_frames_equal_their_snapshot_frames`. The correction published before `d_k` is
 `postgres_a_correction_published_before_d_k_changes_only_frame_k`. The rule at the minting instant is
@@ -2795,11 +2795,14 @@ PostgreSQL proofs in the Market Data runner. N=1 and two-frame parity are
 `postgres_a_fill_correction_published_after_its_bars_availability_never_reaches_the_quote`, both through the production
 custody frame resolver, with `postgres_a_fill_bar_available_after_d_k_gives_its_gap_a_quote` as their positive control.
 Moving the input cut to the quote's availability turns the first red, refused by the `CustodyView` seal before the proof
-compares anything, and selecting the fill bar at the head turns the second red at its quote. T0 status: every T0
-falsifier inside Market Data is proved. The frames port's run-level `QuoteCutMissing` check is not built:
-`PitWindowRunRefusalV1::QuoteCutMissing` is never constructed, so a gap without a quote cut is refused frame by frame,
-as `EventOrderUnavailable`, and not when a run's frames are read. Nothing outside Market Data's own proofs mints or
-reads a custody until T1.
+compares anything, and selecting the fill bar at the head turns the second red at its quote. T0 status: complete inside
+Market Data. Every T0 falsifier inside Market Data is proved, and the frames port refuses a run any of whose gaps has no
+quote as `QuoteCutMissing` before any frame is read, on the pool and admitted-port reads alike
+(`frames_from_evidence_v1`). It applies `gap_fill_bar_position_v1`, the predicate each frame's quote cut applies, to the
+candidates `select_fill_candidates_v1` selects for each gap
+(`postgres_a_run_with_a_gap_without_a_quote_is_refused_before_any_frame_is_read`; dropping the run-level check turns it
+red). Outside Market Data, the R&D Owner API's Binance backfill job commits custodies and its Backtest run reads a run's
+frames through this port, and no Backtest consumes a frame yet.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the

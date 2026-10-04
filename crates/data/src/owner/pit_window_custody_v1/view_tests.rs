@@ -432,7 +432,13 @@ fn a_fill_candidate_is_the_version_visible_at_its_bars_availability() {
     assert_eq!(selection.decision_cut_ns, DAY + LAG);
 
     assert_eq!(
-        select_fill_candidates_v1(&sections, d(FILL), MINUTE, &selection),
+        select_fill_candidates_v1(
+            &sections,
+            d(FILL),
+            MINUTE,
+            selection.decision_cut_ns,
+            selection.next_event_ns,
+        ),
         vec![in_gap.clone()],
         "the original known at the bar's availability, never its correction or withdrawal; the \
          bar opening at e_k, the bar opening at e_(k+1) and the bar unpublished at its own \

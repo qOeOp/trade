@@ -73,15 +73,17 @@ use crate::owner::{
             issue_instrument_master_chain_link_v1, issue_market_semantics_chain_fact_v1,
             issue_market_semantics_chain_registry_entry_v1, issue_r0_chain_record_v1,
         },
-        quote_cut::FILL_BAR_INTERVAL_NS_V1,
+        quote_cut::{
+            FILL_BAR_INTERVAL_NS_V1, custody_quote_cut_bound_v1, gap_fill_bar_position_v1,
+        },
         schedule::{
             PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1,
             window_schedule_admits_frame_v1,
         },
         sealed,
         view::{
-            ChainVersionV1, ViewRefusalV1, ViewSelectionV1, ViewTimeframesV1, cross_sections_v1,
-            enumerate_run_frames_v1, select_fill_candidates_v1, select_view_v1,
+            ChainVersionV1, CrossSectionsV1, ViewRefusalV1, ViewSelectionV1, ViewTimeframesV1,
+            cross_sections_v1, enumerate_run_frames_v1, select_fill_candidates_v1, select_view_v1,
         },
     },
     sample_fact::v2::{
@@ -1855,11 +1857,57 @@ pub(crate) const fn check_run_shape_v1(
     Ok(())
 }
 
-/// The frames of `run` from the chain evidence read for it.
+/// Whether every gap of a run's `frames` has a quote: the fill candidates each per-frame read
+/// selects ([`select_fill_candidates_v1`]) under the predicate each frame's quote cut applies
+/// ([`gap_fill_bar_position_v1`]), with each gap bounded by the next frame or the run's end
+/// ([`custody_quote_cut_bound_v1`]). It reads no rows: a gap it passes can still be refused by its
+/// frame's read when a candidate's rows do not verify, but no gap it refuses can have a quote.
 ///
-/// The run-level check that every gap has a quote cut (`QuoteCutMissing`) lands with the quote cut
-/// derivation (T0-6), on the predicate the per-frame read shares; until then this read does not
-/// check gaps, and the per-frame read refuses every frame for want of a quote cut.
+/// # Errors
+///
+/// [`PitWindowRunRefusalV1::QuoteCutMissing`] for a custody with no fill timeframe or a gap with
+/// no quote.
+fn check_run_quote_cuts_v1(
+    sections: &CrossSectionsV1,
+    fill: Option<BindingDigest>,
+    interval_ns: u64,
+    run_end_ns_exclusive: u64,
+    frames: &[(u64, u64)],
+) -> Result<(), PitWindowRunRefusalV1> {
+    let fill = fill.ok_or(PitWindowRunRefusalV1::QuoteCutMissing)?;
+
+    for &(event_ns, decision_cut_ns) in frames {
+        let next_event_ns = event_ns
+            .checked_add(interval_ns)
+            .ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
+        let bound_ns_exclusive =
+            custody_quote_cut_bound_v1(event_ns, interval_ns, run_end_ns_exclusive)
+                .ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
+        let candidates = select_fill_candidates_v1(
+            sections,
+            fill,
+            FILL_BAR_INTERVAL_NS_V1,
+            decision_cut_ns,
+            next_event_ns,
+        );
+        gap_fill_bar_position_v1(
+            candidates.iter().map(|version| {
+                (
+                    version.event_ns.saturating_sub(FILL_BAR_INTERVAL_NS_V1),
+                    version.availability_ns,
+                )
+            }),
+            decision_cut_ns,
+            bound_ns_exclusive,
+        )
+        .ok_or(PitWindowRunRefusalV1::QuoteCutMissing)?;
+    }
+    Ok(())
+}
+
+/// The frames of `run` from the chain evidence read for it. The pool and admitted-port reads both
+/// decide through it, so both refuse a run any of whose gaps has no quote as `QuoteCutMissing`,
+/// before any frame is read (T0-5 ruling Q1).
 pub(crate) fn frames_from_evidence_v1(
     run: UntrustedPitWindowRunV1,
     evidence: PitWindowChainEvidenceV1,
@@ -1891,6 +1939,13 @@ pub(crate) fn frames_from_evidence_v1(
     if frames.is_empty() {
         return Err(PitWindowRunRefusalV1::InvalidRequest);
     }
+    check_run_quote_cuts_v1(
+        &sections,
+        verified.chain.root.fill.as_ref().map(|fill| fill.identity),
+        verified.timeframes.interval_ns,
+        run.run_end_ns_exclusive,
+        &frames,
+    )?;
     let frames = frames
         .into_iter()
         .zip(1..)
@@ -2005,7 +2060,8 @@ pub(crate) fn view_selection_from_evidence_v1(
                 &sections,
                 fill.identity,
                 FILL_BAR_INTERVAL_NS_V1,
-                &selection,
+                selection.decision_cut_ns,
+                selection.next_event_ns,
             )
         })
         .unwrap_or_default();

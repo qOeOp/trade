@@ -254,7 +254,8 @@ pub(crate) fn select_view_v1(
     })
 }
 
-/// The fill-timeframe versions the gap after `selection`'s frame could take its quote cut from
+/// The fill-timeframe versions the gap after the frame with decision cut `decision_cut_ns` and
+/// next event `next_event_ns` could take its quote cut from
 /// (T0-6): every fill cross-section whose bar opens strictly inside `(d_k, e_{k+1})`, ascending by
 /// open, each at the version visible at that quote's own availability - the availability of the
 /// bar's original version, its close plus the declared lag, or the minting cut under a rule at
@@ -268,14 +269,15 @@ pub(crate) fn select_fill_candidates_v1(
     sections: &CrossSectionsV1,
     fill_identity: BindingDigest,
     fill_interval_ns: u64,
-    selection: &ViewSelectionV1,
+    decision_cut_ns: u64,
+    next_event_ns: u64,
 ) -> Vec<ChainVersionV1> {
     sections
         .events_of(fill_identity)
         .filter_map(|(event_ns, chain)| {
             let open_ns = event_ns.checked_sub(fill_interval_ns)?;
 
-            if open_ns <= selection.decision_cut_ns || open_ns >= selection.next_event_ns {
+            if open_ns <= decision_cut_ns || open_ns >= next_event_ns {
                 return None;
             }
             let quote_availability_ns = chain.first()?.availability_ns;

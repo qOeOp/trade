@@ -60,6 +60,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::pit_window_view_v1_tests::postgres_a_run_outside_its_window_or_chain_is_refused
   owner::postgres::pit_window_view_v1_tests::postgres_a_frame_without_a_complete_cross_section_refuses_the_run
   owner::postgres::pit_window_view_v1_tests::postgres_an_availability_rule_at_the_minting_instant_hides_every_frame
+  owner::postgres::pit_window_view_v1_tests::postgres_a_run_with_a_gap_without_a_quote_is_refused_before_any_frame_is_read
   owner::postgres::pit_window_view_v1_tests::postgres_a_correction_published_before_d_k_changes_only_frame_k
   owner::postgres::pit_window_view_v1_tests::postgres_a_pinned_head_reads_the_view_at_that_head_and_a_foreign_head_is_refused
   owner::postgres::pit_window_view_v1_tests::postgres_a_tampered_custody_row_refuses_the_view
