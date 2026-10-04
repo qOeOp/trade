@@ -1189,6 +1189,15 @@ readback per member only when exactly one complete pair is valid under one share
 overlapping, corrupt, or multiple complete pairs are unavailable. The caller supplies no account scope,
 economic-terms locator, latest selector, pool, or replacement store.
 
+A custody run has no per-request Master V2 cut, so its sibling operation,
+`resolve_unique_custody_run_members`, consumes the custody's verified `PitWindowChainBasisV1` instead. The members are
+the ones the root custody bound, in its order. Each member's venue is checked against the basis's own Instrument
+Master mapping before any terms are read. Without a V2 cut there is no expected public fact digest per member, so a
+member's terms are linked by canonical identity and effective range alone. The same uniqueness rule then applies:
+exactly one complete set, under one shared account scope. The returned readbacks name each member's public fact
+digest, which a consumer resolves through `resolve_fact_v2` when it needs the V2 fact. The caller still supplies no
+member, account scope or locator.
+
 R&D may mint its move-only economic provenance only from that verified Owner readback and
 must additionally match venue, account scope, event time, currencies and all visible economic profile
 values. Market Data's public-fact module still neither imports R&D nor validates, copies,
