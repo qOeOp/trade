@@ -8,9 +8,14 @@
 //! server would otherwise have to.
 //!
 //! The custody basis's `market_semantics_identity` is the admitted kline Source Binding's own
-//! compatibility identity, not a separate fact: re-admitting the same binding (`admission.admit`)
-//! rejoins it and hands back the same terminal, from which this module reads
-//! `.market_semantics_identity()` and `.locator()`. The basis's `universe_selection` is a
+//! compatibility identity, not a separate fact. `admission.admit` is not idempotent - it stamps
+//! the Owner's own fresh clock reading into the proposal before deriving its identity, so two
+//! calls admitting byte-identical content at two different real instants still derive two
+//! different `lineage_root`s - so this module admits the kline binding through
+//! `admission.admit_dataset_anchor` instead: the dataset's first-ever call admits it and persists
+//! the result, and every later call reads that one admission back rather than admitting again.
+//! This module reads `.market_semantics_identity()` and `.locator()` off whichever terminal that
+//! returns. The basis's `universe_selection` is a
 //! `FixedMember` selection scoped to the one member being backfilled, evaluated at the fixed
 //! far-future instant [`BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1`]: the Instrument
 //! Master fact `admit_instrument` admits carries the Owner's real wall-clock reading at admission
@@ -37,8 +42,7 @@ use vibe_binance::{
         binance_perpetual_canonical_identity_v1, binance_perpetual_correction_frontier_digest_v1,
         binance_perpetual_eligible_frontier_v1,
         binance_perpetual_eligible_set_admission_request_v1,
-        binance_perpetual_market_semantics_value_v1,
-        binance_perpetual_membership_lineage_anchor_v1, binance_perpetual_source_proposal,
+        binance_perpetual_market_semantics_value_v1, binance_perpetual_source_proposal,
     },
     vision_backfill_custody_v1::{
         BackfillCustodyBasisV1, BackfillTimeframeBarsV1, custody_request_v1,
@@ -311,18 +315,21 @@ fn hex(digest: &BindingDigest) -> String {
         .collect()
 }
 
-/// Admits (or rejoins) the kline Source Binding, to read back its locator and compatibility
-/// identity, exactly as the symbol's own admission (`crate::market_data_pit`) does.
+/// Reads back the kline dataset's one durable Source Binding anchor - admitting it, the dataset's
+/// first time only - to read back its locator and compatibility identity.
 async fn kline_binding_locator(
     admission: &Arc<dyn SourceBindingAdmissionV1>,
 ) -> Result<(UntrustedSourceBindingLocator, BindingDigest), String> {
     let proposal = binance_perpetual_source_proposal(BinancePerpetualDatasetV1::DailyKlines);
     let terminal = admission
-        .admit(SourceBindingAdmissionRequestV1 {
-            proposal,
-            rights: ProviderRightsEvidenceV1::Granted,
-            reachability: ProviderReachabilityEvidenceV1::Reachable,
-        })
+        .admit_dataset_anchor(
+            BinancePerpetualDatasetV1::DailyKlines.dataset_anchor_key(),
+            SourceBindingAdmissionRequestV1 {
+                proposal,
+                rights: ProviderRightsEvidenceV1::Granted,
+                reachability: ProviderReachabilityEvidenceV1::Reachable,
+            },
+        )
         .await
         .map_err(|e| format!("{e:?}"))?;
     if terminal.disposition() != SourceBindingAdmissionDispositionV1::Admitted {
@@ -348,12 +355,14 @@ const BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1: u64 = 4_102_444_800_
 /// Evaluates (or rejoins) a `FixedMember` universe selection scoped to the one member this job
 /// backfills, at the fixed far-future instant above.
 ///
-/// Admits the U1 set's historical membership inline, every call, before evaluating: the
-/// admission is keyed by [`binance_perpetual_membership_lineage_anchor_v1`], a fixed value rather
-/// than any real Source Binding's identity, so every call submits byte-identical content and
-/// genuinely rejoins rather than conflicting (`UniverseSelectionAdmissionV1::admit_membership`'s
-/// own "a frontier is admitted whole or not at all" is this route's only attempt at it - there is
-/// no separate one-time bootstrap step).
+/// Admits the U1 set's historical membership inline, every call, before evaluating, keyed by
+/// `source_binding_lineage_root` - the kline dataset's own anchored lineage root
+/// (`BinancePerpetualDatasetV1::DailyKlines`'s dataset anchor, read back by `kline_binding_locator`, never
+/// re-derived here), so every call submits byte-identical content and genuinely rejoins rather
+/// than conflicting (`UniverseSelectionAdmissionV1::admit_membership`'s own "a frontier is
+/// admitted whole or not at all" is this route's only attempt at it - there is no separate
+/// one-time bootstrap step for the membership admission itself, only for the kline binding its
+/// lineage root is keyed to).
 ///
 /// `ResearchInstrumentScopeV1` caps a scope at
 /// [`RESEARCH_INSTRUMENT_SCOPE_MAX_MEMBERS_V1`](vibe_data::owner::research_instrument_scope_v1::RESEARCH_INSTRUMENT_SCOPE_MAX_MEMBERS_V1)
@@ -363,10 +372,12 @@ const BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1: u64 = 4_102_444_800_
 async fn eligible_set_universe_selection(
     universe: &Arc<dyn UniverseSelectionAdmissionV1>,
     raw_symbol: &str,
+    source_binding_lineage_root: BindingDigest,
 ) -> Result<UntrustedUniverseSelectionLocatorV1, String> {
     universe
         .admit_membership(binance_perpetual_eligible_set_admission_request_v1(
             BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1,
+            source_binding_lineage_root,
         ))
         .await
         .map_err(|e| format!("{e:?}"))?;
@@ -399,7 +410,7 @@ async fn eligible_set_universe_selection(
         i128::from(cut),
         i128::from(cut),
         cut,
-        binance_perpetual_membership_lineage_anchor_v1(),
+        source_binding_lineage_root,
         correction_frontier_digest,
         stable_correlation,
     );
@@ -441,7 +452,9 @@ async fn run_backfill_v1(
 ) -> Result<BindingDigest, String> {
     let (kline_source_binding, market_semantics_identity) =
         kline_binding_locator(admission).await?;
-    let universe_selection = eligible_set_universe_selection(universe, raw_symbol).await?;
+    let universe_selection =
+        eligible_set_universe_selection(universe, raw_symbol, kline_source_binding.lineage_root())
+            .await?;
 
     let execution_bars = fetcher
         .execution_window(

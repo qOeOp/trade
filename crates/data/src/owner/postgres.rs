@@ -22,6 +22,7 @@ pub mod bar_joined_cut_acceptance_v1;
 pub mod bar_schedule_acceptance_v1;
 #[cfg(test)]
 mod bar_schedule_acceptance_v1_tests;
+mod source_binding_dataset_anchor_v1;
 // Test and sealed acceptance fixtures only; no production build reaches it.
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 mod acceptance_fixture_v1;
@@ -323,7 +324,8 @@ use super::{
         ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1,
         SourceBindingAdmissionDispositionV1, SourceBindingAdmissionErrorV1,
         SourceBindingAdmissionRequestV1, SourceBindingAdmissionTerminalV1,
-        SourceBindingAdmissionV1, sealed::Sealed as SourceBindingAdmissionSealed,
+        SourceBindingAdmissionV1, SourceBindingDatasetAnchorErrorV1,
+        sealed::Sealed as SourceBindingAdmissionSealed,
     },
     strategy_design_role_set::StrategyDesignRoleSetLocatorV1,
     strategy_input_binding_admission_v1::{
@@ -354,7 +356,7 @@ use super::{
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+use sqlx::{Connection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 
 #[cfg(test)]
 use super::pit_snapshot::{PitSnapshotOwnerReadback, PitSnapshotOwnerResolver};
@@ -1069,6 +1071,7 @@ impl MarketDataOwnerPostgres {
             .chain(universe_selection::RD_READ_SCHEMA_V1)
             .chain(pit_window_custody_v1::SCHEMA_V1)
             .chain(backfill_job_v1::SCHEMA_V1)
+            .chain(source_binding_dataset_anchor_v1::SCHEMA_V1)
             .chain(funding_settlement_v1::SCHEMA_V1)
         {
             sqlx::query(*statement)
@@ -12835,6 +12838,161 @@ impl SourceBindingAdmissionV1 for SourceBindingAdmissionPostgresV1 {
             fact.lineage_version(),
             public_source_disposition_v1(fact.disposition()),
             commit.receipt().locator().clone(),
+            derive_market_semantics_compatibility_identity_v1(&fact.proposal().semantics),
+        ))
+    }
+
+    async fn admit_dataset_anchor(
+        &self,
+        dataset_key: &str,
+        request: SourceBindingAdmissionRequestV1,
+    ) -> Result<SourceBindingAdmissionTerminalV1, SourceBindingDatasetAnchorErrorV1> {
+        use SourceBindingDatasetAnchorErrorV1 as Refused;
+
+        // A session lock, not a transaction-scoped one: `admit()` below opens and commits its own
+        // transaction on a connection of its own, so nothing here can hold it inside one
+        // transaction with the read and the write either side of it. Held on one connection
+        // checked out for this call's whole duration, it still serializes every caller across the
+        // whole pool - a session advisory lock is visible to every connection, not just its own.
+        let mut lock_connection = self
+            .owner
+            .pool
+            .acquire()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        sqlx::query(
+            "SELECT pg_catalog.pg_advisory_lock(pg_catalog.hashtextextended('market-data.source-binding-dataset-anchor.v1:'||$1,0))",
+        )
+        .bind(dataset_key)
+        .execute(&mut *lock_connection)
+        .await
+        .map_err(|_| Refused::StoreUnavailable)?;
+
+        let outcome = self
+            .admit_dataset_anchor_locked(dataset_key, request, &mut lock_connection)
+            .await;
+
+        // Best-effort: the connection returns to the pool either way, and a leaked session lock on
+        // a connection the pool keeps handing out would wedge every later caller for this
+        // dataset_key, so this is logged rather than silently dropped if it ever fails.
+        if sqlx::query("SELECT pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended('market-data.source-binding-dataset-anchor.v1:'||$1,0))")
+            .bind(dataset_key)
+            .execute(&mut *lock_connection)
+            .await
+            .is_err()
+        {
+            super::storage_diagnostic::refused_by_store(
+                "source_binding_admission.admit_dataset_anchor.unlock",
+                &"advisory unlock failed",
+            );
+        }
+        outcome
+    }
+}
+
+impl SourceBindingAdmissionPostgresV1 {
+    /// The read-check-admit-write sequence [`Self::admit_dataset_anchor`] runs under its session
+    /// lock. Never called without that lock held, so a second caller can never observe a
+    /// half-written anchor or race the first caller's own admission.
+    async fn admit_dataset_anchor_locked(
+        &self,
+        dataset_key: &str,
+        request: SourceBindingAdmissionRequestV1,
+        connection: &mut sqlx::PgConnection,
+    ) -> Result<SourceBindingAdmissionTerminalV1, SourceBindingDatasetAnchorErrorV1> {
+        use SourceBindingDatasetAnchorErrorV1 as Refused;
+
+        let requested_semantics =
+            derive_market_semantics_compatibility_identity_v1(&request.proposal.semantics);
+        let anchor = sqlx::query(
+            "SELECT binding_id, fact_digest, lineage_root, lineage_version FROM market_data_private.source_binding_dataset_anchors_v1 WHERE dataset_key=$1",
+        )
+        .bind(dataset_key)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(|_| Refused::StoreUnavailable)?;
+
+        let (binding_id, fact_digest, lineage_root, lineage_version) = match anchor {
+            Some(row) => (
+                row_digest(&row, "binding_id").map_err(|_| Refused::StoreUnavailable)?,
+                row_digest(&row, "fact_digest").map_err(|_| Refused::StoreUnavailable)?,
+                row_digest(&row, "lineage_root").map_err(|_| Refused::StoreUnavailable)?,
+                positive_u64(
+                    row.try_get("lineage_version")
+                        .map_err(|_| Refused::StoreUnavailable)?,
+                )
+                .map_err(|_| Refused::StoreUnavailable)?,
+            ),
+            None => {
+                let terminal = self.admit(request).await.map_err(Refused::Admission)?;
+                let anchored_at_ns = i64::try_from(live_retrieval_now_ns_v1())
+                    .map_err(|_| Refused::StoreUnavailable)?;
+                sqlx::query(
+                    "INSERT INTO market_data_private.source_binding_dataset_anchors_v1 (dataset_key, binding_id, fact_digest, lineage_root, lineage_version, anchored_at_ns) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (dataset_key) DO NOTHING",
+                )
+                .bind(dataset_key)
+                .bind(terminal.binding_id().as_bytes().as_slice())
+                .bind(terminal.locator().fact_digest().as_bytes().as_slice())
+                .bind(terminal.lineage_root().as_bytes().as_slice())
+                .bind(i64::try_from(terminal.lineage_version()).map_err(|_| Refused::StoreUnavailable)?)
+                .bind(anchored_at_ns)
+                .execute(&mut *connection)
+                .await
+                .map_err(|_| Refused::StoreUnavailable)?;
+                (
+                    terminal.binding_id(),
+                    terminal.locator().fact_digest(),
+                    terminal.lineage_root(),
+                    terminal.lineage_version(),
+                )
+            }
+        };
+
+        // Resolve the anchored binding fresh rather than trust the row: the anchor only ever
+        // names a binding_id, never the content behind it, and this is the one point before
+        // every later caller's custody basis depends on it that content is actually checked.
+        let mut transaction = connection
+            .begin()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        let envelope = load_envelope(
+            &mut transaction,
+            "SELECT * FROM market_data_private.resolve_source_binding_v1($1)",
+            binding_id,
+        )
+        .await
+        .map_err(|_| Refused::StoreUnavailable)?
+        .ok_or(Refused::AnchorStale)?;
+        let aggregate: SourceBindingStoredAggregate =
+            serde_json::from_value(envelope.aggregate).map_err(|_| Refused::StoreUnavailable)?;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+
+        let fact = aggregate.commit().fact();
+        if !verify_source_native(&aggregate, &envelope.native, false)
+            || fact.binding_id() != binding_id
+            || fact.digest() != fact_digest
+            || fact.lineage_root() != lineage_root
+            || fact.lineage_version() != lineage_version
+        {
+            return Err(Refused::AnchorStale);
+        }
+        // The anchor never re-admits, so a proposal whose meaning moved (a new adapter release)
+        // would otherwise be answered silently with the binding admitted under the old meaning.
+        if derive_market_semantics_compatibility_identity_v1(&fact.proposal().semantics)
+            != requested_semantics
+        {
+            return Err(Refused::AnchorSemanticsMoved);
+        }
+
+        Ok(SourceBindingAdmissionTerminalV1::seal(
+            fact.binding_id(),
+            fact.lineage_root(),
+            fact.lineage_version(),
+            public_source_disposition_v1(fact.disposition()),
+            aggregate.commit().receipt().locator().clone(),
             derive_market_semantics_compatibility_identity_v1(&fact.proposal().semantics),
         ))
     }

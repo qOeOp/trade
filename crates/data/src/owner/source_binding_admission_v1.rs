@@ -283,7 +283,58 @@ pub trait SourceBindingAdmissionV1: Send + Sync + sealed::Sealed {
         &self,
         request: SourceBindingAdmissionRequestV1,
     ) -> Result<SourceBindingAdmissionTerminalV1, SourceBindingAdmissionErrorV1>;
+
+    /// Admits `request` under `dataset_key`'s one durable anchor: the dataset's first-ever call
+    /// admits it and persists the result, and every later call - with content the caller must
+    /// keep byte-identical, since this never re-admits a changed proposal - reads that one
+    /// admission back instead of calling [`Self::admit`] again.
+    ///
+    /// `admit()` cannot be idempotent on its own (see `source_binding_dataset_anchor_v1`'s module
+    /// doc for why), so a dataset whose own content is meant to be admitted exactly once needs
+    /// this instead of calling [`Self::admit`] directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SourceBindingDatasetAnchorErrorV1::AnchorStale`] when the anchored binding no
+    /// longer resolves to the content it was admitted with, rather than silently re-admitting over
+    /// it.
+    async fn admit_dataset_anchor(
+        &self,
+        dataset_key: &str,
+        request: SourceBindingAdmissionRequestV1,
+    ) -> Result<SourceBindingAdmissionTerminalV1, SourceBindingDatasetAnchorErrorV1>;
 }
+
+/// Refusals from [`SourceBindingAdmissionV1::admit_dataset_anchor`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SourceBindingDatasetAnchorErrorV1 {
+    /// The dataset's anchored binding no longer resolves to the content it was admitted with.
+    AnchorStale,
+    /// The request's market semantics differ from those the dataset's anchored binding was
+    /// admitted with; the anchor never re-admits a changed proposal.
+    AnchorSemanticsMoved,
+    /// The underlying admission was refused or errored; carries its own category.
+    Admission(SourceBindingAdmissionErrorV1),
+    /// The Owner store is unreachable or refused the request.
+    StoreUnavailable,
+}
+
+impl Display for SourceBindingDatasetAnchorErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AnchorStale => formatter.write_str(
+                "the dataset's anchored binding no longer resolves to the content it was admitted with",
+            ),
+            Self::AnchorSemanticsMoved => formatter.write_str(
+                "the request's market semantics differ from the dataset's anchored binding",
+            ),
+            Self::Admission(error) => Display::fmt(error, formatter),
+            Self::StoreUnavailable => formatter.write_str("the Market Data store is unavailable"),
+        }
+    }
+}
+
+impl std::error::Error for SourceBindingDatasetAnchorErrorV1 {}
 
 pub(crate) mod sealed {
     pub trait Sealed {}

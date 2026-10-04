@@ -60,6 +60,17 @@ pub enum BinancePerpetualDatasetV1 {
 }
 
 impl BinancePerpetualDatasetV1 {
+    /// The stable name this dataset's one durable Source Binding anchor is keyed by
+    /// (`SourceBindingAdmissionV1::admit_dataset_anchor`). The anchor store is generic across every
+    /// dataset Market Data anchors, so the key carries the venue.
+    #[must_use]
+    pub const fn dataset_anchor_key(self) -> &'static str {
+        match self {
+            Self::DailyKlines => "binance/usdm/klines/1d",
+            Self::ExchangeInfo => "binance/usdm/exchangeInfo",
+        }
+    }
+
     const fn mapping(self) -> &'static str {
         match self {
             Self::DailyKlines => "usdm/klines/1d",
@@ -221,30 +232,19 @@ pub fn binance_perpetual_correction_frontier_digest_v1() -> BindingDigest {
     binance_perpetual_admission_digest_v1("correction-frontier")
 }
 
-/// A fixed, deterministic marker the historical-membership admission below and every later
-/// `source_binding_lineage_root` check against it use as their mutual matching key.
-///
-/// It names no real admitted Source Binding, and must not: `admit()`
-/// (`SourceBindingAdmissionV1::admit`) stamps the Owner's own real wall-clock evidence into the
-/// binding's identity before deriving it (`canonical_semantic_bytes`'s `encode_time_without_claim`
-/// call), so two calls admitting the "same" kline proposal at two different real instants derive
-/// two different `lineage_root`s - there is no stable identity a later caller could read back and
-/// match against one captured earlier. Keying the membership check off this fixed value instead -
-/// exactly as `correction_frontier_digest` above already does - is what lets a historical
-/// membership admitted once and a universe-selection evaluated on every later backfill agree, each
-/// independent of whichever fresh kline binding either side separately admits for its own custody
-/// basis that call.
-#[must_use]
-pub fn binance_perpetual_membership_lineage_anchor_v1() -> BindingDigest {
-    binance_perpetual_admission_digest_v1("membership-lineage-anchor")
-}
-
 /// The one-time, complete historical-membership admission for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`],
 /// to send through the generic `POST /v1/market-data/historical-memberships` route before any
 /// symbol's own Instrument Master submission. Re-sending it rejoins the same frontier.
+///
+/// `source_binding_lineage_root` must be the kline dataset's own anchored lineage root
+/// (`BinancePerpetualDatasetV1::DailyKlines`'s dataset anchor), not a value this function derives itself:
+/// `admit()` is not idempotent (see `source_binding_dataset_anchor_v1`'s module doc), so there is
+/// no fixed value this function could compute that would ever equal a real kline fact's lineage
+/// root once a caller checks the two against each other.
 #[must_use]
 pub fn binance_perpetual_eligible_set_admission_request_v1(
     effective_ns: u64,
+    source_binding_lineage_root: BindingDigest,
 ) -> HistoricalMembershipAdmissionRequestV1 {
     use vibe_data::owner::universe_selection_admission_v1::HistoricalMembershipSubmissionV1;
 
@@ -269,7 +269,7 @@ pub fn binance_perpetual_eligible_set_admission_request_v1(
                     correction_publication_ns: observed,
                     owner_observation_ns: observed,
                     decision_cut: effective_ns,
-                    source_binding_lineage_root: binance_perpetual_membership_lineage_anchor_v1(),
+                    source_binding_lineage_root,
                     correction_frontier_digest: binance_perpetual_admission_digest_v1(
                         "correction-frontier",
                     ),
@@ -629,8 +629,9 @@ mod tests {
     }
 
     #[rstest]
-    fn eligible_set_admission_request_names_the_fixed_lineage_anchor_and_correction_frontier() {
-        let request = binance_perpetual_eligible_set_admission_request_v1(1);
+    fn eligible_set_admission_request_names_the_given_lineage_root_and_correction_frontier() {
+        let lineage_root = BindingDigest::from_untrusted_bytes([9; 32]);
+        let request = binance_perpetual_eligible_set_admission_request_v1(1, lineage_root);
         assert_eq!(
             request.eligible_instrument_frontier,
             binance_perpetual_eligible_frontier_v1(BINANCE_PERPETUAL_U1_MEMBERS_V1)
@@ -652,8 +653,8 @@ mod tests {
 
         for member in &request.members {
             assert_eq!(
-                member.source_binding_lineage_root,
-                binance_perpetual_membership_lineage_anchor_v1()
+                member.source_binding_lineage_root, lineage_root,
+                "the request carries the caller's real anchored lineage root, not a value it derives itself"
             );
             assert_eq!(
                 member.correction_frontier_digest,
