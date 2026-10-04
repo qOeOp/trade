@@ -25,6 +25,7 @@ use vibe_model::{
 use crate::{
     artifact_v2::StrategyArtifactV2,
     exploratory_replay::ExploratoryReplayRequestLocatorV2,
+    native_replay_custody_frames_v1::ResolvedNativeReplayCustodyFramesV1,
     native_replay_execution_input_binding_v2::NativeReplayExecutionInputBindingReadbackV2,
     program_host_v2::{OwnerUniverseFrameV1, admit_owner_universe_program_event_v2},
     replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, ReplayFixedDecimalV1},
@@ -724,8 +725,9 @@ impl ReplayTargetSetExecutionBundleV1 {
     /// frame's Owner universe frame and the native schedule Market Data sealed from that frame's
     /// derived view and quote cut, in frame order, with the chain and head the run read.
     ///
-    /// The frames are the run's, not a caller's list: `custody` comes only from the crate's
-    /// resolution of the run at one pinned head, one view per frame. Every per-frame and
+    /// The frames are the run's, not a caller's list: only
+    /// [`crate::native_replay_custody_frames_v1::resolve_native_replay_custody_frames_v1`] makes
+    /// them, at one pinned head, one view per frame. Every per-frame and
     /// cross-frame rule of [`Self::new`] runs; frames must name the bundle's members, the request
     /// window's end, and the batch their universe frame was admitted from, and advance in time.
     ///
@@ -738,13 +740,13 @@ impl ReplayTargetSetExecutionBundleV1 {
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
-        frames: Vec<(OwnerUniverseFrameV1, NativeReplaySchedulingReadbackV1)>,
-        custody: ReplayCustodyRunCensusV1,
+        frames: ResolvedNativeReplayCustodyFramesV1,
         strategy_id: StrategyId,
         run_id: String,
         public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
         funding_schedule: Option<ReplayFundingScheduleV1>,
     ) -> anyhow::Result<Self> {
+        let (frames, custody) = frames.into_parts();
         anyhow::ensure!(
             !frames.is_empty() && frames.len() == custody.view_identities.len(),
             "request execution bundle custody frames and views do not correspond"
