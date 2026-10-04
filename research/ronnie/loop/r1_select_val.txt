@@ -1,0 +1,17 @@
+S-3: frozen order scores (fit on 34888 development orders) on the validation tier: 25281 orders, 20 coins, 2023-2026-08
+
+== f 0.0: 13575 validation orders, avg R +0.092
+  linear score bands on validation (avg R, n): 0-10 +0.169 (1883), 10-20 +0.056 (1655), 20-30 +0.107 (1551), 30-40 +0.047 (1375), 40-50 -0.069 (1360), 50-60 +0.063 (1236), 60-70 +0.083 (1204), 70-80 +0.139 (1122), 80-90 +0.127 (1089), 90-100 +0.211 (1100)
+  trim  : takes 58%; taken +0.060 vs rejected +0.136: difference -0.076 [-0.190, +0.035], p 0.168; taken minus all -0.032; by year 2023 -0.02, 2024 -0.11, 2025 -0.14, 2026 +0.09
+    5-slot account: every order 1345 trades / total R 196 / Sharpe 1.38 / max DD -27R; trim 1266 / 99 / 0.70 / -49R; random filter total R 160 [104, 218], Sharpe 1.16
+  binned: takes 43%; taken +0.122 vs rejected +0.070: difference +0.052 [-0.100, +0.197], p 0.502; taken minus all +0.030; by year 2023 +0.24, 2024 +0.22, 2025 -0.14, 2026 -0.10
+    5-slot account: every order 1345 trades / total R 196 / Sharpe 1.38 / max DD -27R; binned 1077 / 164 / 1.21 / -36R; random filter total R 145 [88, 196], Sharpe 1.07
+
+== f 0.5: 11706 validation orders, avg R +0.065
+  linear score bands on validation (avg R, n): 0-10 +0.131 (1474), 10-20 +0.042 (1307), 20-30 -0.028 (1274), 30-40 +0.006 (1183), 40-50 +0.019 (1192), 50-60 +0.006 (1248), 60-70 +0.080 (1155), 70-80 +0.067 (1048), 80-90 +0.149 (948), 90-100 +0.241 (877)
+  trim  : takes 61%; taken +0.023 vs rejected +0.131: difference -0.107 [-0.216, +0.002], p 0.054; taken minus all -0.042; by year 2023 -0.03, 2024 -0.10, 2025 -0.11, 2026 -0.22
+    5-slot account: every order 2718 trades / total R 249 / Sharpe 1.22 / max DD -72R; trim 2116 / 204 / 1.07 / -93R; random filter total R 237 [159, 308], Sharpe 1.31
+  binned: takes 47%; taken +0.091 vs rejected +0.043: difference +0.048 [-0.067, +0.165], p 0.394; taken minus all +0.026; by year 2023 +0.14, 2024 +0.19, 2025 -0.05, 2026 -0.09
+    5-slot account: every order 2718 trades / total R 249 / Sharpe 1.22 / max DD -72R; binned 1648 / 101 / 0.61 / -89R; random filter total R 215 [160, 281], Sharpe 1.26
+
+Holm (95%, four tests): f 0.5 trim p 0.054 vs 0.0125, diff -0.107 -> fail, f 0.0 trim p 0.168 vs 0.0167, diff -0.076 -> fail, f 0.5 binned p 0.394 vs 0.0250, diff +0.048 -> fail, f 0.0 binned p 0.502 vs 0.0500, diff +0.052 -> fail

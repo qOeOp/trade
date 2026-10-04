@@ -2499,6 +2499,25 @@ second time on the same data (S-1 had 398 vs 153); this is exploratory and is th
   5-slot account (every order vs the score vs a random filter of the same pass rate, 100 draws), and the linear
   score's ten bands on the validation data, to see whether the tails-worst shape repeats.
 
+### Loop S-3 result (2026-10-04; `loop/r1_select_val.txt`)
+
+All four tests fail (Holm). Validation tier, 25,281 orders on 20 coins, 2023-2026-08:
+
+| f | score | takes | taken minus rejected [95%] | taken minus all | 5-slot account total R / Sharpe / max DD (every order; random filter) |
+| --- | --- | --- | --- | --- | --- |
+| 0 | trim | 58% | -0.076 [-0.190, +0.035] | -0.032 | 99 / 0.70 / -49R (196 / 1.38 / -27R; 160) |
+| 0 | binned | 43% | +0.052 [-0.100, +0.197] | +0.030 | 164 / 1.21 / -36R (196 / 1.38 / -27R; 145) |
+| 0.5 | trim | 61% | -0.107 [-0.216, +0.002] | -0.042 | 204 / 1.07 / -93R (249 / 1.22 / -72R; 237) |
+| 0.5 | binned | 47% | +0.048 [-0.067, +0.165] | +0.026 | 101 / 0.61 / -89R (249 / 1.22 / -72R; 215) |
+
+- The development shape did not repeat: on validation the linear score's bands are U-shaped the other way (f = 0:
+  0-10 +0.169, 40-50 -0.069, 90-100 +0.211), so "avoid the tails" removed the best orders. The binned score is
+  positive in 2023-2024 and negative in 2025-2026, as the linear score flipped by year in development. No score built
+  from the twelve features ranks R-1 orders stably; every filter's account did worse than taking every order.
+- The S-1/S-2 account lead for f = 0.5 does not repeat either: more total R (249 vs 196) but lower Sharpe (1.22 vs
+  1.38) and a much deeper drawdown (-72R vs -27R). Nothing is adopted; the twelve-feature selection line is closed
+  for R-1 (status: equivalent to taking every order within the data's power).
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R
