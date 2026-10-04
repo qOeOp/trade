@@ -67,6 +67,18 @@ const FIXTURE_VENUE: &str = "SEALED-ACCEPTANCE";
 const FIXTURE_SOURCE: &str = "SYNTHETIC";
 const FIXTURE_CALENDAR: &str = "CRYPTO-CONTINUOUS-V1";
 const FIXTURE_QUOTE_CURRENCY: &str = "USDT";
+
+/// A fixture member's base currency: its symbol before the first `-`, less the quote currency
+/// (`BTCUSDT-PERP.BINANCE` is `BTC`). A crypto perpetual's structural terms need one, so a member
+/// it cannot be read from is refused as an invalid spec rather than admitted without it.
+fn fixture_base_currency(member: &str) -> Option<String> {
+    member
+        .split('-')
+        .next()?
+        .strip_suffix(FIXTURE_QUOTE_CURRENCY)
+        .filter(|base| !base.is_empty())
+        .map(str::to_owned)
+}
 const FIXTURE_ROUTE: &str = "sealed-acceptance/synthetic";
 /// The requester role the fixture's Universe Selection request states: Market Data's own, never
 /// a Research role.
@@ -315,7 +327,7 @@ impl<'a> ChainPlanV1<'a> {
         &self,
         member: &str,
         binding: &UntrustedSourceBindingLocator,
-    ) -> InstrumentMasterFactSubmissionV1 {
+    ) -> Result<InstrumentMasterFactSubmissionV1, Error> {
         let increments = self
             .spec
             .instrument_increments
@@ -324,7 +336,8 @@ impl<'a> ChainPlanV1<'a> {
             mantissa: value.mantissa,
             scale: value.scale,
         };
-        InstrumentMasterFactSubmissionV1 {
+        let base_currency = fixture_base_currency(member).ok_or(Error::InvalidSpec)?;
+        Ok(InstrumentMasterFactSubmissionV1 {
             canonical_identity: member.to_owned(),
             predecessor_fact_digest: None,
             mappings: vec![InstrumentVenueSourceMappingSubmissionV1 {
@@ -333,7 +346,7 @@ impl<'a> ChainPlanV1<'a> {
                 source_instrument: member.as_bytes().to_vec(),
             }],
             instrument_class: "CRYPTO_PERPETUAL".to_owned(),
-            base_currency: None,
+            base_currency: Some(base_currency),
             quote_currency: Some(FIXTURE_QUOTE_CURRENCY.to_owned()),
             settlement_currency: Some(FIXTURE_QUOTE_CURRENCY.to_owned()),
             margin_currency: Some(FIXTURE_QUOTE_CURRENCY.to_owned()),
@@ -356,7 +369,7 @@ impl<'a> ChainPlanV1<'a> {
             retrieval: 6,
             correction_publication: 7,
             owner_observation: 8,
-        }
+        })
     }
 
     /// Every member included from instant 1 with no end, observed at the Owner's head.
@@ -491,7 +504,7 @@ pub(in crate::owner) async fn commit_sealed_acceptance_custody_chain_in_store_v1
 
     for member in &spec.members {
         let admitted =
-            Box::pin(instruments.admit_fact(plan.instrument_submission(member, locator)))
+            Box::pin(instruments.admit_fact(plan.instrument_submission(member, locator)?))
                 .await
                 .map_err(Error::InstrumentMasterAdmission)?;
         instrument_fact_digests.push(admitted.fact_digest());

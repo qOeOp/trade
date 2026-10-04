@@ -207,6 +207,10 @@ impl InstrumentMasterFactV1 {
     pub const fn instrument_class(&self) -> InstrumentClass {
         self.proposal.instrument_class
     }
+    /// Returns the exact venue/source mappings sealed into this historical fact, read-only.
+    pub fn mappings(&self) -> &[InstrumentVenueSourceMapping] {
+        &self.proposal.mappings
+    }
     /// Returns the exact calendar evidence field sealed into this historical fact.
     pub fn calendar_identity(&self) -> &str {
         &self.proposal.calendar_identity
@@ -263,6 +267,15 @@ pub struct InstrumentMasterCutV1 {
 }
 
 impl InstrumentMasterCutV1 {
+    /// The identity of the request this cut answers. A custody chain's cut answers the request
+    /// its root commit derives from the chain root, never a Replay request.
+    pub const fn request_identity(&self) -> InstrumentMasterIdentity {
+        self.request_identity
+    }
+    /// The meaning digest of the request this cut answers.
+    pub const fn request_meaning_digest(&self) -> InstrumentMasterIdentity {
+        self.request_meaning_digest
+    }
     pub const fn identity(&self) -> InstrumentMasterIdentity {
         self.identity
     }
