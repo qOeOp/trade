@@ -1,21 +1,36 @@
 //! The ordered chain's proof that `backtest.run`'s orchestration is driven, not merely structured:
-//! this entry runs it from a catalogued strategy through authoring, role binding and freeze, up
-//! to the exact point the replay step cannot proceed - nothing on `main` implements Market Data's
-//! T0-5 derived view yet.
+//! this entry runs it from a catalogued strategy through authoring, role binding and freeze, all
+//! the way to a real custody-run execution-input binding (H8), over a real sealed-acceptance
+//! custody chain.
 //!
 //! Placed after F in the chain, so F's already-admitted perpetual (its Source Binding, Instrument
 //! Master fact and historical membership) is this entry's precondition, not something it repeats.
 //! F is the chain's only producer of that fixture; this entry only reads the state it left.
 //!
-//! `BacktestRunOwnersV1::custody_frames` is `None` here, so no custody chain is looked up for the
-//! dataset_ref and the run stops at `CustodyFramesNotAvailable`; this entry's fixture binds a PIT
-//! snapshot, not a custody run - see the module doc of `backtest_run_v1`.
+//! The custody chain itself is committed fresh by this entry
+//! (`commit_sealed_acceptance_custody_chain_v1`, #1348), over the SAME canonical instrument F
+//! already admitted, and named implicitly: `run_backtest_v1` resolves it itself from the
+//! dataset_ref's instrument, execution timeframe and window (`resolve_custody_run_v1`, #1400) -
+//! whether that chain's own Universe Selection turns out to be the same record the Design's
+//! role-binding (H4) resolves is exactly the open question this entry answers empirically: if it
+//! is not, `run_backtest_v1` refuses by name (`CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN`), and the
+//! right answer is Lane 3's ruling, not a softer assertion here.
 
 use std::sync::Arc;
 
 use vibe_data::owner::{
+    grant_pit_window_custody_acceptance_reads_v1,
+    instrument_economic_terms_postgres_owner_from_environment_v1,
+    instrument_master_v2_postgres_owner_from_environment,
     market_semantics_admission_v1::market_semantics_admission_from_environment_v1,
     pit_market_snapshot_intake_v1::pit_market_snapshot_intake_from_environment_v1,
+    pit_window_custody_frames_for_sealed_acceptance_v1,
+    pit_window_custody_v1::sealed_acceptance_chain::{
+        SealedAcceptanceBarV1, SealedAcceptanceCustodyChainSpecV1, SealedAcceptanceDecimalV1,
+        SealedAcceptanceOhlcvV1, SealedAcceptanceTimeframeV1,
+        commit_sealed_acceptance_custody_chain_v1,
+    },
+    revoke_pit_window_custody_acceptance_reads_v1,
     strategy_input_binding_admission_v1::strategy_input_binding_admission_from_environment_v1,
     universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
 };
@@ -33,6 +48,7 @@ use vibe_strategy_factory::{
     },
     rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
     single_threshold_authoring_v1::{SingleThresholdChannelV1, SingleThresholdOutcomeV1},
+    source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2,
     strategy_catalog_postgres_v1::PostgresStrategyCatalogV1,
     strategy_catalog_v1::{
         SingleThresholdStrategySpecV1, StrategyIdentityV1, StrategyStatementV1,
@@ -46,6 +62,68 @@ use crate::backtest_run_v1::{
     run_backtest_v1,
 };
 use crate::first_composer_v3_replay_acceptance::{PERPETUAL_V1, UniverseMemberDailyBarsV1};
+
+const SECOND_NS: u64 = 1_000_000_000;
+const MINUTE_NS: u64 = 60 * SECOND_NS;
+const DAY_NS: u64 = 24 * 60 * MINUTE_NS;
+/// Daily frames, enough that a short-window run comfortably sits inside the TrialFamily's sealed
+/// Replay policy window; this entry never executes bars, so it needs no warm-up length.
+const CUSTODY_FRAMES: u64 = 5;
+const CUSTODY_LAG_NS: u64 = 2 * MINUTE_NS;
+/// The harness's own disposable-database reader role, granted the sealed custody reads this
+/// entry needs and nothing else; revoked again once the entry finishes.
+const SEALED_ACCEPTANCE_READER_PRINCIPAL: &str = "vibe_test_role_market_data_reader";
+
+fn chain_entry_decimal(text: &str) -> SealedAcceptanceDecimalV1 {
+    SealedAcceptanceDecimalV1::parse(text).expect("a decimal")
+}
+
+/// One daily bar on the perpetual's own tick, at `open_ns`.
+fn chain_entry_bar(open_ns: u64) -> SealedAcceptanceBarV1 {
+    SealedAcceptanceBarV1 {
+        open_ns,
+        members: vec![SealedAcceptanceOhlcvV1 {
+            open: chain_entry_decimal("65000.1"),
+            high: chain_entry_decimal("65400.0"),
+            low: chain_entry_decimal("64800.5"),
+            close: chain_entry_decimal("65210.3"),
+            volume: chain_entry_decimal("1234"),
+        }],
+    }
+}
+
+/// The custody chain's own window, `[start, end)` in nanoseconds - [`chain_entry_spec_v1`]'s
+/// `CUSTODY_FRAMES` daily bars from epoch, plus its warm-up day.
+const fn chain_entry_window() -> (u64, u64) {
+    (0, (CUSTODY_FRAMES + 1) * DAY_NS)
+}
+
+/// A real sealed-acceptance custody chain over the same perpetual F already admitted:
+/// `CUSTODY_FRAMES` daily execution bars from epoch, with a one-minute fill timeframe and a
+/// two-minute lag, matching the custody intake's own requirements.
+fn chain_entry_spec_v1() -> SealedAcceptanceCustodyChainSpecV1 {
+    let fill_open = |event_ns: u64| event_ns + CUSTODY_LAG_NS + MINUTE_NS;
+    SealedAcceptanceCustodyChainSpecV1 {
+        members: vec![PERPETUAL_V1.to_owned()],
+        execution_timeframe: SealedAcceptanceTimeframeV1 {
+            label: "24H".to_owned(),
+            interval_seconds: 86_400,
+            bars: (0..CUSTODY_FRAMES)
+                .map(|day| chain_entry_bar(day * DAY_NS))
+                .collect(),
+        },
+        fill_timeframe: SealedAcceptanceTimeframeV1 {
+            label: "1M".to_owned(),
+            interval_seconds: 60,
+            bars: (1..=CUSTODY_FRAMES)
+                .map(|day| chain_entry_bar(fill_open(day * DAY_NS)))
+                .collect(),
+        },
+        lag_ns: CUSTODY_LAG_NS,
+        instrument_increments: None,
+        market_semantics_value: None,
+    }
+}
 
 /// Market Data's registered semantic ids for a daily close and open - the same two F's own Design
 /// authors against, since they name generic vocabulary, not anything F-specific.
@@ -170,14 +248,54 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             .connect_url(rd_url, PostgresTls::Disabled)
             .await
             .expect("the R&D Owner pool opens"),
-        custody_frames: None,
+        custody_frames: Some(
+            pit_window_custody_frames_for_sealed_acceptance_v1(
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
+            )
+            .expect("the sealed-acceptance custody frames port opens"),
+        ),
         #[cfg(feature = "composer-v3-replay")]
-        develop_composer: None,
+        develop_composer: Some(Arc::new(
+            PostgresSourceResearchComposerProductionV2::connect(
+                rd_url,
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+            )
+            .await
+            .expect("the production Composer opens"),
+        )),
         #[cfg(feature = "composer-v3-replay")]
-        instrument_master_v2: None,
+        instrument_master_v2: Some(Arc::new(
+            instrument_master_v2_postgres_owner_from_environment()
+                .await
+                .expect("the Instrument Master V2 Owner opens"),
+        )),
         #[cfg(feature = "composer-v3-replay")]
-        instrument_economic_terms: None,
+        instrument_economic_terms: Some(Arc::new(
+            instrument_economic_terms_postgres_owner_from_environment_v1()
+                .await
+                .expect("the Instrument Economic Terms Owner opens"),
+        )),
     };
+
+    let market_data_owner_url =
+        test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
+    grant_pit_window_custody_acceptance_reads_v1(
+        market_data_owner_url,
+        SEALED_ACCEPTANCE_READER_PRINCIPAL,
+    )
+    .await
+    .expect("the harness reader role is granted the sealed custody reads it needs");
+
+    let chain =
+        commit_sealed_acceptance_custody_chain_v1(market_data_owner_url, &chain_entry_spec_v1())
+            .await
+            .expect("the sealed-acceptance custody chain commits over the production intakes");
+    let (window_start_ns, window_end_ns_exclusive) = chain_entry_window();
+    assert_eq!(
+        chain.window(),
+        (window_start_ns, window_end_ns_exclusive),
+        "the committed chain's window is the one this entry's run names"
+    );
 
     // Both statement families run through the one orchestration: each is authored by its own
     // family into the Design the freeze takes.
@@ -193,9 +311,18 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             run_id,
             strategy_id,
             &deployment.request_proof_digest,
+            window_start_ns,
+            window_end_ns_exclusive,
         )
         .await;
     }
+
+    revoke_pit_window_custody_acceptance_reads_v1(
+        market_data_owner_url,
+        SEALED_ACCEPTANCE_READER_PRINCIPAL,
+    )
+    .await
+    .expect("the harness reader role's sealed custody grant is revoked");
 
     assert_backtest_runs_are_recorded_and_read_back_v1(
         test_database,
@@ -214,6 +341,8 @@ async fn assert_run_reaches_the_replay_step_v1(
     run_id: &str,
     strategy_id: StrategyIdentityV1,
     request_proof_digest: &str,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
 ) {
     let request = BacktestRunRequestV1 {
         run_id: run_id.to_owned(),
@@ -221,8 +350,8 @@ async fn assert_run_reaches_the_replay_step_v1(
         dataset_ref: BacktestRunDatasetRefV1::new(
             PERPETUAL_V1.to_owned(),
             "1d".to_owned(),
-            0,
-            86_400_000_000_000,
+            window_start_ns,
+            window_end_ns_exclusive,
         )
         .expect("the chain entry's dataset_ref is well-formed"),
         request_proof_digest: request_proof_digest.to_owned(),
@@ -246,13 +375,12 @@ async fn assert_run_reaches_the_replay_step_v1(
                 !reached.freeze.joint_freeze_digest.is_empty(),
                 "the program froze with a real joint-freeze digest"
             );
+            // This entire file compiles only under `sealed-source-intake-composer-acceptance`,
+            // which requires `composer-v3-replay` - `custody_binding` always exists here.
             assert!(
-                matches!(
-                    reached.reason,
-                    BacktestRunReplayUnavailableV1::CustodyFramesNotAvailable
-                ),
-                "backtest.run must stop at the replay step by this one name until Market Data's \
-                 T0-5 view lands: {:?}",
+                reached.custody_binding.is_some(),
+                "backtest.run {run_id} must issue a real custody-run execution-input binding \
+                 (H8) over a committed custody chain naming the Design's own instrument: {:?}",
                 describe_replay_reason(&reached.reason),
             );
         }
