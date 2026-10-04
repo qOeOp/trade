@@ -6,7 +6,7 @@
 # a hook's entry: for `git commit -- <paths>` GIT_INDEX_FILE names a temporary index holding exactly
 # what is being committed, and `git diff --cached` in scripts/clippy-changed.sh and
 # scripts/doc-changed.sh reads it; cleared, they check the wrong files.
-exclude: ^(patches/pyo3-stub-gen/|services/bilibili-note-mcp/deploy/openclaw/openclaw-2026\.7\.1-2-mcp-progress\.patch$)
+exclude: ^(patches/pyo3-stub-gen/|services/video-note-mcp/deploy/openclaw/openclaw-2026.7.1-2-mcp-progress.patch$)
 repos:
   ##############################################################################
   #  General checks
@@ -20,7 +20,7 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
       - id: debug-statements
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
       - id: detect-private-key
       - id: check-added-large-files
         exclude: ^crates/serialization/generated/capnp/
@@ -107,7 +107,7 @@ repos:
         language: system
         types: [text]
         # Bilibili Note owns Chinese-language typography in its dedicated gate.
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
       - id: test-unicode-typography
         name: test Unicode typography hook
         description: Verifies rejected characters, allowed characters, and exceptions
@@ -123,7 +123,7 @@ repos:
         types: [text]
         files: "\\.(rs|py|md|toml|yaml|yml)$"
         # Bilibili Note is a Chinese-language research product by contract.
-        exclude: ^(docs/.*\.zh\.md|services/bilibili-note-mcp/)
+        exclude: ^(docs/.*\.zh\.md|services/video-note-mcp/)
       - id: test-hook-failure-is-reported
         name: test hook failure reporting
         description: Drives every hook with a failing command and requires it to name the line
@@ -348,7 +348,7 @@ repos:
         files: >-
           (?x)^(
             scripts/ci/path_triggered_workflows(_test)?\.py|
-            \.github/workflows/(docs-pages|product-packages|bilibili-note-mcp|security-audit)\.yml
+            \.github/workflows/(docs-pages|product-packages|video-note-mcp|security-audit)\.yml
           )$
         pass_filenames: false
       - id: check-connect-guard-plant
@@ -630,7 +630,7 @@ repos:
         language: system
         args: ["--all", "--", "--check"]
         files: "\\.(rs|toml)$"
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
         types: [file]
         pass_filenames: false
       - id: cargo-clippy
@@ -639,7 +639,7 @@ repos:
         entry: bash scripts/clippy-changed.sh
         language: system
         files: "\\.(rs|toml)$"
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
         types: [file]
         pass_filenames: false
       - id: cargo-clippy-network-turmoil-non-linux
@@ -656,7 +656,7 @@ repos:
         entry: bash scripts/doc-changed.sh
         language: system
         files: "\\.(rs|toml)$"
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
         types: [file]
         pass_filenames: false
       - id: test-disallowed-connect-guard
@@ -691,25 +691,25 @@ repos:
     hooks:
       - id: pyupgrade
         args: ["--py312-plus"]
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
   - repo: https://github.com/asottile/add-trailing-comma
     rev: v4.0.0
     hooks:
       - id: add-trailing-comma
         name: add-trailing-comma
         types: [python]
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.1
     hooks:
       - id: ruff
         name: ruff
         args: ["--fix", "--config", "python/pyproject.toml"]
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
       - id: ruff-format
         name: ruff-format
         args: ["--config", "python/pyproject.toml"]
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
   - repo: https://github.com/PyCQA/docformatter
     # Pinned to 1.7.7 because v1.7.8 conflicts with this repo's Ruff docstring rules
     rev: v1.7.7
@@ -717,7 +717,7 @@ repos:
       - id: docformatter
         language_version: python3.13 # Pin to 3.13 due to incompatibility with 3.14
         additional_dependencies: [tomli]
-        exclude: ^services/bilibili-note-mcp/
+        exclude: ^services/video-note-mcp/
         args:
           - "--wrap-summaries"
           - "88"

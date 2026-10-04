@@ -1727,6 +1727,31 @@ impl SampleCoordinateFieldsV1 {
             receipt_digest: receipt.digest(),
         }
     }
+
+    /// What a custody row fact states, read as the V1 receipt reads its sample.
+    ///
+    /// The logical time is V1's: the later of the row's availability and its publication, the
+    /// instant the row became known, never the bar's close. The Owner sequence is the fact's series
+    /// position, the sample identity and Owner event identity are the fact's own, and the receipt
+    /// digest is the fact digest: a custody row has no separate receipt. Every field is keyed by the
+    /// custody row, never by a view of it, so one row states the same fields in every frame that
+    /// reads it, and a correction - a new fact over a new version and row - states new ones.
+    pub(crate) fn of_fact_v2(fact: &super::sample_fact::v2::SampleFactV2) -> Self {
+        let row = fact.row();
+        Self {
+            timeframe_identity: row.timeframe_identity,
+            owner_event_identity: fact.owner_event_identity(),
+            sample_identity: fact.sample_identity(),
+            logical_time: row.available.max(row.publication),
+            event_effective: fact.event_effective(),
+            owner_sequence: fact.series_sequence(),
+            canonical_row_digest: row.canonical_row_digest,
+            source_binding_lineage_root: *row.source_binding_lineage_root.as_bytes(),
+            source_binding_lineage_version: row.source_binding_lineage_version,
+            market_semantics_identity: *row.market_semantics_identity.as_bytes(),
+            receipt_digest: fact.fact_digest(),
+        }
+    }
 }
 
 /// The one encoder of the 308-byte coordinate, over the sample fields it states.
