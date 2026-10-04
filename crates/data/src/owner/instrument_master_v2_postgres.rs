@@ -304,6 +304,40 @@ impl InstrumentMasterV2PostgresOwner {
         Ok(readback)
     }
 
+    /// Returns exactly the one V2 fact whose identity is `fact_digest`.
+    ///
+    /// It reads under the same snapshot, table locks, ACL and ledger checks as [`Self::resolve`],
+    /// and verifies the fact the way `resolve` verifies a cut member: the fact's whole chain is
+    /// decoded and every link checked, so the fact is returned only as a verified link of a chain
+    /// that verifies. It makes no point-in-time judgement: the fact carries its own time evidence,
+    /// and its consumer judges its use. It writes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstrumentMasterCustodyErrorV2::UnknownLocator`] when no fact has that identity,
+    /// and a custody or storage error when the store, its ACL, its ledger or the fact's chain does
+    /// not verify.
+    pub async fn resolve_fact_v2(
+        &self,
+        fact_digest: BindingDigest,
+    ) -> Result<InstrumentMasterFactV2, InstrumentMasterCustodyErrorV2> {
+        let mut tx = begin_repeatable_read_v2(&self.pool).await?;
+        assert_acl_in_transaction(&mut tx).await?;
+        assert_complete_ledger(&mut tx).await?;
+        // `MissingFact` here means no row has the identity: the chain decoder refuses any row whose
+        // stored identity is not its bytes' own, so a row found by identity is in the verified chain.
+        let fact = load_chain_ending_at(&mut tx, fact_digest)
+            .await
+            .map_err(|e| match e {
+                InstrumentMasterCustodyErrorV2::MissingFact => {
+                    InstrumentMasterCustodyErrorV2::UnknownLocator
+                }
+                e => e,
+            })?;
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
+        Ok(fact)
+    }
+
     /// The latest fact of every instrument's chain in canonical-identity order, or of the one
     /// instrument named, with every link of each chain decoded and checked.
     ///
@@ -1703,6 +1737,149 @@ pub(crate) mod tests {
             );
             assert_eq!(member_identities(&b.expect("second issuance")), [BTC.1]);
             assert_eq!(resolved.expect("concurrent resolve"), issued);
+        }
+    }
+
+    /// A V2 fact reads back by its digest alone, exactly as the intake stored it, and only as a
+    /// verified link of a chain that verifies.
+    ///
+    /// The baseline and a contract-status delta are admitted through the production intakes on the
+    /// production clock, so the instrument's chain has two links. Each reads back by its digest byte
+    /// for byte, and an unknown digest is `UnknownLocator`. A stored fact altered so it no longer
+    /// decodes is refused, and so is the other, untouched link of its chain, because the whole chain
+    /// is verified rather than only the row asked for. Restored, both read back again.
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    async fn postgres_a_fact_resolves_by_its_digest_only_as_a_link_of_its_verified_chain() {
+        use crate::owner::{
+            instrument_master_admission_v2::InstrumentMasterStatusDeltaSubmissionV2,
+            postgres::{
+                MarketDataOwnerPostgres,
+                instrument_master_admission_v2_tests::{
+                    FIRST_CUT, SECOND, USDM, commit_binding, submission,
+                },
+            },
+        };
+
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof writes and alters rows it restores; it runs only against a disposable database"
+        );
+        let market = MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let instruments = InstrumentMasterV2PostgresOwner::install(market.pool().clone())
+            .await
+            .expect("the V2 store installs");
+
+        // The baseline, observed at the second head; then a status delta, observed at the third.
+        let usdm = commit_binding(&market, "usdm/exchangeInfo", 1, FIRST_CUT).await;
+        let second_cut = FIRST_CUT + 2 * SECOND;
+        commit_binding(&market, "coinm/exchangeInfo", 2, second_cut).await;
+        let baseline = market
+            .admit_instrument_master_baseline_v2(submission(
+                &usdm,
+                "BTCUSDT",
+                FIRST_CUT + SECOND,
+                USDM,
+            ))
+            .await
+            .expect("the baseline intake admits the recorded payload");
+        commit_binding(&market, "usdm/exchangeInfo", 3, FIRST_CUT + 4 * SECOND).await;
+        let event = serde_json::json!({
+            "e": "contractInfo",
+            "E": (second_cut + SECOND) / 1_000_000,
+            "s": "BTCUSDT",
+            "ct": "PERPETUAL",
+            "dt": 4_133_404_800_000_u64,
+            "ot": 1_569_398_400_000_u64,
+            "cs": "SETTLING",
+            "bks": [{"bs": 1, "bnf": 0, "bnc": 5000, "mmr": 0.01, "cf": 0, "mi": 21, "ma": 50}],
+            "st": 1
+        });
+        let settling = market
+            .admit_instrument_master_status_delta_v2(InstrumentMasterStatusDeltaSubmissionV2 {
+                predecessor_fact_identity: baseline.fact_identity(),
+                retrieval_time_ns: i128::from(second_cut + 2 * SECOND),
+                raw_payload: event.to_string(),
+                source_binding: usdm.receipt().locator().clone(),
+            })
+            .await
+            .expect("the delta intake extends the baseline");
+
+        let stored: Vec<(Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT fact_identity,fact_bytes FROM market_data_instrument_master_v2.facts ORDER BY correction_sequence",
+        )
+        .fetch_all(market.pool())
+        .await
+        .unwrap();
+        let digest = |bytes: &[u8]| BindingDigest::from_untrusted_bytes(bytes.try_into().unwrap());
+        assert_eq!(
+            stored
+                .iter()
+                .map(|(identity, _)| digest(identity))
+                .collect::<Vec<_>>(),
+            [baseline.fact_identity(), settling.fact_identity()],
+            "the intakes stored one chain of two links"
+        );
+
+        // 1. Each link reads back by its digest, byte for byte as stored.
+        let reads_back = async || {
+            for (identity, bytes) in &stored {
+                let fact = instruments
+                    .resolve_fact_v2(digest(identity))
+                    .await
+                    .expect("an admitted fact resolves by its digest");
+                assert_eq!(fact.identity(), digest(identity));
+                assert_eq!(fact.canonical_bytes(), bytes.as_slice());
+            }
+        };
+        reads_back().await;
+
+        // 2. A digest no fact has.
+        assert_eq!(
+            instruments
+                .resolve_fact_v2(BindingDigest::from_untrusted_bytes([0xEE; 32]))
+                .await,
+            Err(InstrumentMasterCustodyErrorV2::UnknownLocator)
+        );
+
+        // 3. Each link altered in turn: the altered fact is refused, and so is the untouched one,
+        //    because its chain no longer verifies. Restored after each.
+        for (altered_at, untouched_at) in [(0, 1), (1, 0)] {
+            let (identity, original) = &stored[altered_at];
+            let mut altered = original.clone();
+            let last = altered.len() - 1;
+            altered[last] ^= 1;
+            let set = async |bytes: &[u8]| {
+                sqlx::query(
+                    "UPDATE market_data_instrument_master_v2.facts SET fact_bytes=$1 WHERE fact_identity=$2",
+                )
+                .bind(bytes)
+                .bind(identity.as_slice())
+                .execute(market.pool())
+                .await
+                .unwrap();
+            };
+            set(&altered).await;
+            assert_eq!(
+                instruments.resolve_fact_v2(digest(identity)).await,
+                Err(InstrumentMasterCustodyErrorV2::ChainMismatch),
+                "a tampered fact is refused"
+            );
+            assert_eq!(
+                instruments
+                    .resolve_fact_v2(digest(&stored[untouched_at].0))
+                    .await,
+                Err(InstrumentMasterCustodyErrorV2::ChainMismatch),
+                "a fact whose chain holds a tampered link is refused"
+            );
+            set(original).await;
+            reads_back().await;
         }
     }
 }
