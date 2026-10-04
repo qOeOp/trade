@@ -2570,6 +2570,23 @@ crypto bought them; none of these gauges sorts R-1 trades stably. Nothing is ado
 - **Trades:** the realistic R-1 trades of M-1 (f = 0), development 2020-07 to 2022-12 (gauge history limits it),
   validation tier 2023-01 to 2026-08.
 
+### Loop M-2 result (2026-10-04; `loop/r1_crypto_stress.txt`, gauges in `out/M-2_gauges.csv.gz`)
+
+- **B (pause shorts when BTC funding is in its bottom 5%) passes the registered criterion.** Validation: shorts filled
+  in that condition average -0.529R (33 trades, 15 weeks, 17 coins) against +0.114 outside; difference +0.643
+  [+0.254, +0.991], p 0.002 (Holm threshold 0.025). Development agrees in sign but weakly: -0.029 (108 trades, 13
+  weeks) against +0.101, +0.130 [-0.245, +0.425]. The pause touches few trades (about 6% of days), so the book moves
+  little: validation total R 272 to 290, Sharpe 1.01 to 1.07, drawdown unchanged; development 554 to 559. Reading:
+  when shorts are crowded, new R-1 shorts get squeezed. Small sample; the evidence is one validation read.
+- **A (pause longs when two of five long-side gauges agree) fails.** Development was strong (longs -0.355 in stress vs
+  +0.194, +0.550 [+0.204, +0.917], 49 trades) but validation is +0.078 [-0.239, +0.382] with 119 trades.
+- **Single gauges, for reading:** cb_weak (Coinbase premium in its bottom 10%) is the one gauge with the same shape in
+  both periods: longs worse (development -0.134 vs +0.198, validation -0.059 vs +0.120) and shorts better (+0.347 vs
+  +0.028; +0.247 vs +0.058). funding_hot did not hurt longs in either period. oi_build and depeg fire on under 1% of
+  days and say nothing.
+- **Decision:** B joins the forward record as a paired variant (R-1 with shorts paused under crowded-short funding);
+  R-1u is unchanged. cb_weak is a lead for a registered test of its own.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R

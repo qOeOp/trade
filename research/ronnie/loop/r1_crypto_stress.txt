@@ -1,0 +1,29 @@
+M-2: crypto-native stress gauges for R-1 (realistic trades, f = 0)
+
+== development (2020-07 to 2023-01): 3758 trades, avg R +0.144 (longs +0.182, shorts +0.092)
+  funding_hot : on 4% of days; longs in it +0.463 (189) vs outside +0.155; shorts in it -0.807 (14) vs outside +0.100
+  funding_cold: on 5% of days; longs in it +0.159 (33) vs outside +0.182; shorts in it -0.029 (108) vs outside +0.101
+  oi_build    : on 1% of days; longs in it -0.524 (18) vs outside +0.188; shorts in it +1.229 (12) vs outside +0.084
+  stable_out  : on 26% of days; longs in it -0.009 (486) vs outside +0.237; shorts in it +0.122 (678) vs outside +0.070
+  depeg       : on 0% of days; longs in it -1.029 (1) vs outside +0.183; shorts in it +0.487 (44) vs outside +0.081
+  cb_weak     : on 12% of days; longs in it -0.134 (101) vs outside +0.198; shorts in it +0.347 (322) vs outside +0.028
+  long_stress : on 8% of days; longs in it -0.355 (49) vs outside +0.194; shorts in it +0.466 (262) vs outside +0.019
+  A pause longs: outside minus inside +0.550 [+0.204, +0.917], p 0.004 (49 trades paused)
+    book: no pause total R 554 / Sharpe 1.63 / max DD -99R; pause 570 / 1.68 / -99R; random pauses 544 / 1.62 [1.58, 1.67] / -98R
+  B pause shorts: outside minus inside +0.130 [-0.245, +0.425], p 0.488 (108 trades paused)
+    book: no pause total R 554 / Sharpe 1.63 / max DD -99R; pause 559 / 1.67 / -99R; random pauses 542 / 1.65 [1.59, 1.71] / -95R
+
+== validation (2023-01 to 2026-09): 2755 trades, avg R +0.099 (longs +0.102, shorts +0.095)
+  funding_hot : on 7% of days; longs in it +0.124 (219) vs outside +0.098; shorts in it -0.312 (21) vs outside +0.103
+  funding_cold: on 6% of days; longs in it -0.169 (101) vs outside +0.120; shorts in it -0.529 (33) vs outside +0.114
+  oi_build    : on 0% of days; longs in it +0.168 (5) vs outside +0.101; shorts in it +nan (0) vs outside +0.095
+  stable_out  : on 32% of days; longs in it +0.078 (290) vs outside +0.107; shorts in it +0.141 (302) vs outside +0.079
+  depeg       : on 0% of days; longs in it -0.015 (3) vs outside +0.102; shorts in it -1.030 (14) vs outside +0.109
+  cb_weak     : on 14% of days; longs in it -0.059 (164) vs outside +0.120; shorts in it +0.247 (226) vs outside +0.058
+  long_stress : on 9% of days; longs in it +0.030 (119) vs outside +0.107; shorts in it +0.113 (155) vs outside +0.092
+  A pause longs: outside minus inside +0.078 [-0.239, +0.382], p 0.646 (119 trades paused)
+    book: no pause total R 272 / Sharpe 1.01 / max DD -102R; pause 269 / 0.99 / -102R; random pauses 259 / 0.99 [0.88, 1.07] / -101R
+  B pause shorts: outside minus inside +0.643 [+0.254, +0.991], p 0.002 (33 trades paused)
+    book: no pause total R 272 / Sharpe 1.01 / max DD -102R; pause 290 / 1.07 / -102R; random pauses 270 / 1.01 [0.95, 1.06] / -101R
+
+Holm on the validation tier (95%, two tests): B pause shorts p 0.002 vs 0.0250, diff +0.643 (development +0.130) -> PASS, A pause longs p 0.646 vs 0.0500, diff +0.078 (development +0.550) -> fail
