@@ -2,12 +2,13 @@
 //! JSON-RPC answers around them.
 //!
 //! The server is `market-data-mcp`, a stateless stdio process that holds the Market Data API's
-//! URL and token. Everything it decides lives here, transport-free, so it is tested where the
-//! workspace's tests run; the binary adds only the HTTP client and the stdio loop. Every rule
+//! URL and token. Everything it decides lives here, transport-free, so it is tested where this
+//! crate's own tests run; `src/main.rs` adds only the HTTP client and the stdio loop. Every rule
 //! lives in Market Data behind a route: a tool sends one request and passes the answer or the
-//! refusal through by name, sequencing nothing and remembering nothing - exactly the shape
-//! `vibe_strategy_factory::strategy_authoring_mcp_v1` already uses for the `strategy-authoring`
-//! server.
+//! refusal through by name, sequencing nothing and remembering nothing - exactly the shape the
+//! sibling `strategy-authoring-mcp` crate uses for the `strategy-authoring` server. This crate
+//! depends on no Owner crate: it holds no business rule and makes no decision Market Data's own
+//! routes do not already make.
 //!
 //! `get_bars` and `get_funding` are not tools here yet: their own routes
 //! (`docs/owners/market-data.md`, "TARGET market-data MCP server") do not exist until T0-5 and

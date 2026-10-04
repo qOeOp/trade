@@ -3,8 +3,8 @@
 //! A stateless stdio process speaking MCP's JSON-RPC, one message per line. It holds the Market
 //! Data API's URL and token in its own environment (`MARKET_DATA_OWNER_API_URL`,
 //! `MARKET_DATA_OWNER_API_TOKEN`) and reaches `/v1/market-data/*` only. What each message means
-//! is `vibe_data::owner::market_data_mcp_v1`; this binary adds the HTTP client and the stdio
-//! loop. No tool argument or result carries the token.
+//! is this crate's own `lib.rs`; this binary adds only the HTTP client and the stdio loop. No
+//! tool argument or result carries the token.
 
 use std::{
     future::Future,
@@ -12,8 +12,8 @@ use std::{
     pin::Pin,
 };
 
+use market_data_mcp::{Api, ApiAnswer, ApiRequest, handle};
 use serde_json::{Value, json};
-use vibe_data::owner::market_data_mcp_v1::{Api, ApiAnswer, ApiRequest, handle};
 
 /// The Market Data API over HTTP, authenticated by the token this process holds.
 struct HttpApi {

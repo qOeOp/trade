@@ -818,7 +818,8 @@ catalog never holds a strategy a run would refuse at authoring.
 
 **CURRENT - strategy-authoring MCP server:** the `strategy-authoring` server of the
 [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-authoring-mcp`, a stateless
-stdio process built from `rd-owner-api`'s package. It holds `RD_OWNER_API_URL` and `RD_OWNER_API_TOKEN` in its own
+stdio process built from its own `services/strategy-authoring-mcp` crate, which depends on no Owner crate - only an
+HTTP client, serde and the stdio loop. It holds `RD_OWNER_API_URL` and `RD_OWNER_API_TOKEN` in its own
 environment and reaches `/v1/strategies` only. Each tool sends one request and passes the answer or the refusal through
 by name; no argument or result carries the token. A result's text is the API's body exactly as sent, so a returned
 spec keeps the stored key order its identity hashes.
@@ -1531,7 +1532,7 @@ instrument, in the R&D transaction that makes the read, and reads every agent re
 - trial rows are written when R&D issues a Replay's execution-input binding, the one point where the members and the
   window are both known; a binding that is joined rather than issued writes nothing again;
 - an agent reads market values only through Market Data's MCP server, and Market Data records each such read as its own
-  agent data-read row before it answers ([market-data MCP server](./market-data#target-market-data-mcp-server)). These
+  agent data-read row before it answers ([market-data MCP server](./market-data#current-market-data-mcp-server)). These
   rows moved there from this ledger when the agent's tools moved to domain servers; the census reads them downward,
   and until a session is bound to a lineage it counts an agent read against every lineage. No R&D tool returns market
   values to an agent;

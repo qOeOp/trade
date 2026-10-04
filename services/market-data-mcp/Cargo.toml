@@ -1,0 +1,31 @@
+[package]
+name = "vibe-market-data-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+description = "The market-data server of the agent's domain MCP catalog: a thin stdio process over Market Data's own HTTP routes"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+name = "market_data_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "market-data-mcp"
+path = "src/main.rs"
+doc = false
+test = false
+
+[dependencies]
+anyhow = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
