@@ -1871,6 +1871,58 @@ reproducible anchor the single-frame path already gives F - not a second, parall
   one, per the standing rule that this entry grows as its dependencies land rather than being
   recreated each time.
 
+**H2/H4 for a custody run: the Design's universe binding must come from the chain's own basis
+(TARGET; not built)**. `run_backtest_v1` admits every run's Design role-binding the same way
+today, custody or not: it issues an initial PIT snapshot unconditionally
+(`issue_research_initial_pit_v1`, needed regardless for Research goal admission - this stays, per
+the bullet below), publishes the Design's role intent (`publish_design_role_intent`), then calls
+`StrategyInputBindingAdmissionV1::admit_published_design(design_identity)`. That call's only
+resolution path (`register_authenticated_design_roles_v1`,
+`crates/data/src/owner/postgres/authenticated_design_registration_v1.rs`) resolves every
+universe-member role against the ONE PIT batch snapshot the role intent's schema 2
+`initial_pit_request` names (`resolve_role_snapshot_v1`) - there is no second path. A custody run
+has no PIT snapshot of its own; what it has instead is the chain's own basis
+(`PitWindowChainBasisV1`, already resolved once elsewhere in the same run via
+`resolve_custody_run_v1`/the custody frames port), which names its own Universe Selection record,
+Instrument Master cut and Market Semantics identity - a different, and for a disposable or
+freshly-admitted chain, structurally never-equal record to whatever the initial PIT snapshot's
+batch resolves. This is exactly what the ordered chain's `backtest_run_chain_entry_acceptance.rs`
+entry demonstrates empirically: it commits a real custody chain, drives the full orchestration to
+H8, and the execution-input binding's universe cross-check
+(`CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN`,
+`crates/strategy_factory/src/native_replay_execution_input_binding_v1.rs`) refuses every time,
+correctly - not because anything is broken, but because H2/H4 bound the Design to the initial PIT
+snapshot's selection while H8 checks it against the chain's own.
+
+**Ruling (10-05, Lane 3, cross-session)**: for a custody run, the Design's universe binding should
+come from the chain's own basis selection, passed down by value, not from the initial PIT
+snapshot's - consistent with the standing rule that modules call only downward and values cross
+layers by value: read Market Data's chain once, then hand its resolved values down to the Design,
+rather than letting the Design bind to one Market Data view (the PIT snapshot) while a different
+Market Data view (the chain) gets checked against it later. Concretely, this needs:
+
+- A custody-run counterpart to `admit_published_design` - e.g.
+  `admit_published_design_over_custody_run(design_identity, run: &UntrustedPitWindowRunV1)` - that
+  `run_backtest_v1` calls instead when `custody_run.is_some()` (it already resolves this value
+  before admission runs today, just unused by admission). This belongs in `vibe_data`
+  (`StrategyInputBindingAdmissionV1`'s implementation,
+  `crates/data/src/owner/postgres/authenticated_design_registration_v1.rs` and neighbors) alongside
+  the existing PIT-snapshot path, not bypassed from the R&D side - **Lane 2's to build**, following
+  the same "only MD resolves members/frames/digests" boundary the module doc of
+  `strategy_input_binding_admission_v1.rs` already states for the snapshot path.
+- Internally, this resolves each role against the chain's own basis
+  (`PitWindowChainBasisV1::universe_selection()`/`instrument_master_key()`/
+  `market_semantics_identity()`/`members()`) instead of a PIT batch - a parallel to
+  `resolve_role_snapshot_v1`, not a modification of it, since the snapshot path's callers and tests
+  must keep behaving exactly as they do today.
+- The initial PIT snapshot `run_backtest_v1` issues unconditionally keeps its OTHER job - Research
+  goal admission (`submit_backtest_research_goal_v1`/`issue_research_initial_pit_v1`) - for both
+  data paths; only the Design's universe-member role resolution moves off it for a custody run.
+- Once this lands, `backtest_run_chain_entry_acceptance.rs`'s ordered-chain entry flips its
+  assertion from the named refusal to `custody_binding.is_some()` - the one remaining piece of
+  slice 3 (`docs: see lane5_handoff.md` for the current state), and Lane 4 reruns the full
+  `trade-rd-lane0` window only after that, not before.
+
 **T1, the custody run's consumer (TARGET; built in part).** This is the consumer side of the seam that "T1: a
 custody-run Replay commit and execution-input binding" states. A custody run reaches the Sim through the same durable
 anchors as a snapshot run, so its Result can be reread against the frames it read:
