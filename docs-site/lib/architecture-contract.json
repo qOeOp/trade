@@ -3318,6 +3318,21 @@
         "noAuthorityBasis": "CLI or plugin presence proves no Dashboard or MCP client product integration business authority or external effect permission"
       },
       {
+        "inventoryId": "domain-mcp-services",
+        "memberPaths": [
+          "services/market-data-mcp",
+          "services/strategy-authoring-mcp"
+        ],
+        "disposition": "NON_AUTHORITATIVE_ACCESS_BOUNDARY",
+        "destinationIds": [
+          "strategy-factory-rd-owner-api-composition"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Each server is a stateless stdio process over one of rd-owner-api's own HTTP route sets, depending on no Owner crate; every rule it answers by name lives behind that route",
+        "noAuthorityBasis": "A domain MCP server decides nothing itself: it sends one request per tool call and passes the route's answer or refusal through unchanged"
+      },
+      {
         "inventoryId": "verification-and-reference",
         "memberPaths": [
           "crates/testkit",

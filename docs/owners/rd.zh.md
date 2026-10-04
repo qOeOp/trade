@@ -1229,7 +1229,7 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
   纳秒计的半开区间 `[start, end)`、该标的在该区间所属的层级及层级策略的身份，以及提交时间；
 - 试验行在 R&D 签发 Replay 的执行输入绑定时写入，那是唯一同时知道成员与窗口的位置；被加入而非新签发的绑定不再写入；
 - 代理只通过 Market Data 的 MCP 服务读取市场数值，Market Data 在应答之前把每次这样的读取记为它自己的代理数据读取行
-  （[market-data MCP 服务](./market-data#target-market-data-mcp-server)）。代理工具迁到领域服务时，这些行也从本台账迁了过去；
+  （[market-data MCP 服务](./market-data#current-market-data-mcp-server)）。代理工具迁到领域服务时，这些行也从本台账迁了过去；
   census 向下读取它们，在会话绑定到血缘之前，把一次代理读取计入每一条血缘。没有 R&D 工具向代理返回市场数值；
 - 写不了行的读取会失败，所以没有不留行的读取。
 

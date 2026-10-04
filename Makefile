@@ -213,7 +213,8 @@ CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-own
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-market-data-repair-custody vibe-model vibe-scanner vibe-scanner-custody \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
     vibe-operator-authorization vibe-plugin vibe-portfolio vibe-portfolio-owner vibe-postgres-connect vibe-product-edge vibe-product-edge-admin vibe-product-edge-claim-custody vibe-product-edge-contracts vibe-product-edge-routing-api vibe-qualification vibe-risk vibe-risk-owner vibe-rd-artifact-invocation-custody vibe-rd-exploratory-replay-custody vibe-rd-market-data-repair-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
-    strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading
+    strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading \
+    vibe-market-data-mcp vibe-strategy-authoring-mcp
 
 # Crates tested in the workspace-compiled adapter lane
 ADAPTER_CRATES := vibe-architect-ax vibe-betfair vibe-binance \
