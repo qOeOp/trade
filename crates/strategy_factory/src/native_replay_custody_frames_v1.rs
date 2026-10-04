@@ -28,11 +28,17 @@ use crate::{
 /// Why a custody run's frames could not be read.
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub enum NativeReplayCustodyFramesErrorV1 {
-    /// The request names a snapshot, another chain, or another head than the run was read from.
+    /// The request names a snapshot, or another chain than the run was read from.
     #[error(
         "CUSTODY_REQUEST_NOT_THE_RUNS: the frame request does not name the run's chain and head"
     )]
     RequestNotTheRuns,
+    /// The chain's head is no longer the one the request pins: the run was enumerated from a
+    /// later head, and a pinned run never follows it.
+    #[error(
+        "CUSTODY_HEAD_MOVED_SINCE_BINDING: the run was enumerated from another head than the one pinned"
+    )]
+    HeadMovedSinceBinding,
     /// The run enumerated no frame.
     #[error("CUSTODY_RUN_HAS_NO_FRAME: the run enumerated no frame")]
     NoFrame,
@@ -87,8 +93,9 @@ impl ResolvedNativeReplayCustodyFramesV1 {
 /// Reads every frame of `run` through `resolver`, at the head `run` was enumerated from.
 ///
 /// `first` is the run's request for its first frame (`NativeReplayInitialMarketRequestV1::
-/// for_custody_frame`), pinning the head `run` returned; every later frame's request is the same
-/// one at that frame's `e_k`.
+/// for_custody_frame`), pinning the head the run is bound to; every later frame's request is the
+/// same one at that frame's `e_k`. `run` must have been enumerated from that same head, or the run
+/// is refused as moved rather than read under the newer one.
 ///
 /// # Errors
 ///
@@ -106,9 +113,12 @@ where
         return Err(NativeReplayCustodyFramesErrorV1::RequestNotTheRuns);
     };
 
-    if pinned.custody.chain_root != run.chain_root() || pinned.head_identity != run.head_identity()
-    {
+    if pinned.custody.chain_root != run.chain_root() {
         return Err(NativeReplayCustodyFramesErrorV1::RequestNotTheRuns);
+    }
+
+    if pinned.head_identity != run.head_identity() {
+        return Err(NativeReplayCustodyFramesErrorV1::HeadMovedSinceBinding);
     }
 
     if run.frames().is_empty() {
