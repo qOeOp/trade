@@ -397,6 +397,42 @@ pub(super) async fn recover_universe_selection_by_record_in_transaction_v1(
     Ok(readback)
 }
 
+/// Reads the one Universe Selection with this request identity, verified as a whole, without
+/// locking it, in the caller's snapshot. `None` when no selection has this request identity.
+///
+/// A custody's frames read resolves its root's request locator to the stored selection record
+/// this way, inside a `READ ONLY` transaction.
+pub(super) async fn read_universe_selection_by_request_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: BindingDigest,
+) -> Result<Option<UniverseSelectionReadbackV1>, UniverseSelectionErrorV1> {
+    load_readback(transaction, request_identity, false).await
+}
+
+/// The Universe Selection aggregate an admitted read returned, verified as the Owner store's own
+/// read verifies it: a part the read did not carry, or an aggregate whose record, receipt and
+/// outbox event do not name each other, is untrusted.
+pub(super) fn universe_selection_from_raw_v1(
+    raw: &crate::owner::store_admission::RawUniverseSelectionAggregateV1,
+) -> Result<UniverseSelectionReadbackV1, UniverseSelectionErrorV1> {
+    let column = |value: &Option<Vec<u8>>| {
+        value
+            .clone()
+            .ok_or(UniverseSelectionErrorV1::StoreUntrusted)
+    };
+    StoredAggregateV1 {
+        request_identity: digest_from_row(column(&raw.request_identity)?)?,
+        meaning: digest_from_row(column(&raw.request_meaning_digest)?)?,
+        selection: digest_from_row(column(&raw.selection_identity)?)?,
+        record_bytes: column(&raw.record_bytes)?,
+        receipt_identity: digest_from_row(column(&raw.receipt_identity)?)?,
+        receipt_bytes: column(&raw.receipt_bytes)?,
+        outbox_identity: digest_from_row(column(&raw.outbox_identity)?)?,
+        outbox_receipt: column(&raw.outbox_receipt_bytes)?,
+    }
+    .verified()
+}
+
 async fn load_readback(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: BindingDigest,

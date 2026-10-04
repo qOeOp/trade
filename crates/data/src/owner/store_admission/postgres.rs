@@ -337,19 +337,22 @@ pub(super) const PIT_EVALUATION_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     ],
 };
 
-/// A PIT window custody chain's reads (slices T0-5 and T0-5c): the chain at its head, the row
-/// facts of one frame's view, and a run's chain basis - its basis record, R0 record and cut,
-/// Instrument Master link and the cut and readback it names, and Market Semantics head, fact and
-/// registry entry.
+/// A PIT window custody chain's reads (slices T0-5, T0-5c and T0-5e): the chain at its head, the
+/// row facts of one frame's view, and a run's chain basis - its basis record, R0 record and cut,
+/// Instrument Master link and the cut and readback it names, Market Semantics head, fact and
+/// registry entry, and the Universe Selection record, receipt and outbox event the root's locator
+/// names.
 pub(super) const PIT_WINDOW_CUSTODY_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "pit_window_custody_v1",
     functions: &[
         "market_data_admitted_read.resolve_pit_window_chain_basis_v1(bytea)",
         "market_data_admitted_read.resolve_pit_window_chain_v1(bytea)",
         "market_data_admitted_read.resolve_pit_window_rows_v1(bytea,bytea[])",
+        "market_data_admitted_read.resolve_pit_window_universe_selection_v1(bytea)",
         "market_data_private.resolve_pit_window_chain_basis_v1(bytea)",
         "market_data_private.resolve_pit_window_chain_v1(bytea)",
         "market_data_private.resolve_pit_window_rows_v1(bytea,bytea[])",
+        "market_data_private.resolve_pit_window_universe_selection_v1(bytea)",
     ],
     relations: &[
         "market_data_private.pit_window_custodies_v1",
@@ -367,6 +370,9 @@ pub(super) const PIT_WINDOW_CUSTODY_FLOOR_V1: MeasurementFloor = MeasurementFloo
         "market_data_private.market_semantics_chain_heads_v1",
         "market_data_private.market_semantics_chain_facts_v1",
         "market_data_private.market_semantics_chain_registry_v1",
+        "market_data_private.universe_selection_records_v1",
+        "market_data_private.universe_selection_receipts_v1",
+        "market_data_private.universe_selection_outbox_v1",
     ],
 };
 
@@ -1376,11 +1382,45 @@ pub(crate) struct RawPitWindowChainBasisV1 {
     pub(crate) entries: Vec<(i16, Vec<u8>)>,
 }
 
-/// A run's chain and its basis, read in one snapshot so the basis is the one the chain held.
+/// One Universe Selection aggregate as the Owner held it - its record, receipt and outbox event -
+/// each column `None` when the read did not carry it.
+pub(crate) struct RawUniverseSelectionAggregateV1 {
+    pub(crate) request_identity: Option<Vec<u8>>,
+    pub(crate) request_meaning_digest: Option<Vec<u8>>,
+    pub(crate) selection_identity: Option<Vec<u8>>,
+    pub(crate) record_bytes: Option<Vec<u8>>,
+    pub(crate) receipt_identity: Option<Vec<u8>>,
+    pub(crate) receipt_bytes: Option<Vec<u8>>,
+    pub(crate) outbox_identity: Option<Vec<u8>>,
+    pub(crate) outbox_receipt_bytes: Option<Vec<u8>>,
+}
+
+/// A run's chain, its basis and the Universe Selection its root's locator names, read in one
+/// snapshot so the basis and selection are the ones the chain held. `universe_selection` is `None`
+/// when the chain names no request identity or the store holds no selection under it.
 pub(crate) struct RawPitWindowRunChainV1 {
     pub(crate) chain: RawPitWindowChainV1,
     pub(crate) basis: RawPitWindowChainBasisV1,
+    pub(crate) universe_selection: Option<RawUniverseSelectionAggregateV1>,
 }
+
+/// The Universe Selection request identity a chain's root custody record names, decoded from the
+/// chain as one read returned it; `None` when the chain does not decode to one. The custody record
+/// is Market Data's encoding, so the reader takes its decoder rather than holding one.
+pub(crate) type PitWindowUniverseRequestOfV1 =
+    fn(&RawPitWindowChainV1, &[u8; 32]) -> Option<[u8; 32]>;
+
+/// One Universe Selection aggregate as the selection function returns it.
+type UniverseSelectionAggregateTupleV1 = (
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+);
 
 /// One stored row fact of a view, as the Owner held it.
 pub(crate) struct RawPitWindowRowV1 {
@@ -1398,6 +1438,8 @@ type PitWindowRowTupleV1 = (Vec<u8>, i16, String, Vec<u8>, Vec<u8>);
 /// The most entries one chain read returns, and the most bytes one entry holds.
 const MAX_PIT_WINDOW_ENTRIES: usize = 100_000;
 const MAX_PIT_WINDOW_ENTRY_BYTES: usize = 1024 * 1024;
+/// The most bytes one column of a Universe Selection aggregate holds: the Owner's own aggregate cap.
+const MAX_UNIVERSE_SELECTION_COLUMN_BYTES: usize = 8 * 1024 * 1024;
 
 /// Reads one custody chain through the Owner's chain function, in one snapshot.
 pub(super) async fn read_pit_window_chain_snapshot_v1(
@@ -1463,12 +1505,15 @@ fn bounded_pit_window_entries(
         .collect())
 }
 
-/// Reads one custody chain and its basis through the Owner's chain and basis functions, in one
-/// snapshot, so a run's basis is read at the head its frames are.
+/// Reads one custody chain, its basis and the Universe Selection its root's locator names through
+/// the Owner's chain, basis and selection functions, in one snapshot, so a run's basis is read at
+/// the head its frames are. `universe_request_of` decodes the root's request identity from the
+/// chain this snapshot read.
 pub(super) async fn read_pit_window_run_chain_snapshot_v1(
     lease: &PostgresCredentialLease,
     transport: &StoreTransport,
     chain_root: &[u8; 32],
+    universe_request_of: PitWindowUniverseRequestOfV1,
 ) -> Result<RawPitWindowRunChainV1, PostgresMeasurementError> {
     if ambient_pg_configuration_present() {
         return Err(PostgresMeasurementError::InvalidTarget);
@@ -1498,16 +1543,85 @@ pub(super) async fn read_pit_window_run_chain_snapshot_v1(
     .fetch_all(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
-    let chain = bounded_pit_window_entries(chain)?;
+    let chain = RawPitWindowChainV1 {
+        entries: bounded_pit_window_entries(chain)?,
+    };
     let basis = bounded_pit_window_entries(basis)?;
+    let universe_selection = match universe_request_of(&chain, chain_root) {
+        Some(request_identity) => {
+            let rows: Vec<UniverseSelectionAggregateTupleV1> = sqlx::query_as(
+                "SELECT request_identity, request_meaning_digest, selection_identity, record_bytes, receipt_identity, receipt_bytes, outbox_identity, outbox_receipt_bytes FROM market_data_admitted_read.resolve_pit_window_universe_selection_v1($1)",
+            )
+            .bind(request_identity.as_slice())
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+            bounded_universe_selection_aggregate(rows)?
+        }
+        None => None,
+    };
     transaction
         .commit()
         .await
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     Ok(RawPitWindowRunChainV1 {
-        chain: RawPitWindowChainV1 { entries: chain },
+        chain,
         basis: RawPitWindowChainBasisV1 { entries: basis },
+        universe_selection,
     })
+}
+
+/// The one aggregate a selection read returns, refused when it returns more than one or a column
+/// is too large.
+fn bounded_universe_selection_aggregate(
+    rows: Vec<UniverseSelectionAggregateTupleV1>,
+) -> Result<Option<RawUniverseSelectionAggregateV1>, PostgresMeasurementError> {
+    let mut rows = rows.into_iter();
+    let Some(row) = rows.next() else {
+        return Ok(None);
+    };
+
+    if rows.next().is_some() {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let (
+        request_identity,
+        request_meaning_digest,
+        selection_identity,
+        record_bytes,
+        receipt_identity,
+        receipt_bytes,
+        outbox_identity,
+        outbox_receipt_bytes,
+    ) = row;
+    let raw = RawUniverseSelectionAggregateV1 {
+        request_identity,
+        request_meaning_digest,
+        selection_identity,
+        record_bytes,
+        receipt_identity,
+        receipt_bytes,
+        outbox_identity,
+        outbox_receipt_bytes,
+    };
+
+    if [
+        &raw.request_identity,
+        &raw.request_meaning_digest,
+        &raw.selection_identity,
+        &raw.record_bytes,
+        &raw.receipt_identity,
+        &raw.receipt_bytes,
+        &raw.outbox_identity,
+        &raw.outbox_receipt_bytes,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|column| column.len() > MAX_UNIVERSE_SELECTION_COLUMN_BYTES)
+    {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    Ok(Some(raw))
 }
 
 /// Reads the row facts of `versions` of one custody chain through the Owner's rows function, in
