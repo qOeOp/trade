@@ -12,6 +12,7 @@
 use std::{collections::BTreeMap, fmt::Debug};
 
 use async_trait::async_trait;
+use vibe_data::owner::bar_schedule::execution_timeframe_bar_label_v1;
 use vibe_data::owner::pit_observation_source_v1::{
     PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1, VendorObservationV1,
 };
@@ -206,8 +207,18 @@ fn last_closed_bar(
 /// under the week-start-Monday anchor (`UntrustedSourceBarAnchorV1::WeekStartMonday`,
 /// `perpetual_admission_v1.rs::BinancePerpetualDatasetV1::bar_timeframes`); this function names
 /// no `1W` label of its own because it backs PIT observation intervals, a different path from the
-/// backfill job's declared bar timeframes above.
+/// backfill job's declared bar timeframes above. The other execution timeframes (`1h`/`4h`/`1d`)
+/// take Market Data's own label (`execution_timeframe_bar_label_v1`).
 pub(crate) const fn owner_timeframe(interval: &str) -> Option<&'static str> {
+    // An execution timeframe takes Market Data's own label, the one its bindings declare - except
+    // `1w`: a PIT observation row carries no anchor, and a week's label means nothing without the
+    // week-start-Monday anchor only a declared bar timeframe states.
+    if let (false, Some(label)) = (
+        matches!(interval.as_bytes(), b"1w"),
+        execution_timeframe_bar_label_v1(interval),
+    ) {
+        return Some(label);
+    }
     Some(match interval.as_bytes() {
         b"1s" => "1S",
         b"1m" => "1M",
@@ -215,13 +226,10 @@ pub(crate) const fn owner_timeframe(interval: &str) -> Option<&'static str> {
         b"5m" => "5M",
         b"15m" => "15M",
         b"30m" => "30M",
-        b"1h" => "1H",
         b"2h" => "2H",
-        b"4h" => "4H",
         b"6h" => "6H",
         b"8h" => "8H",
         b"12h" => "12H",
-        b"1d" => "24H",
         b"3d" => "72H",
         _ => return None,
     })

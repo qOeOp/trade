@@ -53,7 +53,7 @@ use vibe_data::owner::{
     backfill_job_v1::{
         BackfillCoverageRangeV1, BackfillJobErrorV1, BackfillJobRequestV1, BackfillJobV1,
     },
-    bar_schedule::SUPPORTED_EXECUTION_TIMEFRAMES_V1,
+    bar_schedule::{SUPPORTED_EXECUTION_TIMEFRAMES_V1, execution_timeframe_bar_label_v1},
     funding_settlement_commit_v1::{FundingSettlementCommitV1, FundingSettlementWriteRowV1},
     pit_window_custody_v1::PitWindowCustodyCommitV1,
     research_instrument_scope_v1::ResearchInstrumentScopeV1,
@@ -124,19 +124,6 @@ fn execution_interval(execution_timeframe: &str) -> Option<BinanceKlineInterval>
         "4h" => Some(BinanceKlineInterval::Hour4),
         "1d" => Some(BinanceKlineInterval::Day1),
         "1w" => Some(BinanceKlineInterval::Week1),
-        _ => None,
-    }
-}
-
-/// The canonical row-timeframe label the kline binding's own `bar_timeframes` declares
-/// (`perpetual_admission_v1.rs::BinancePerpetualDatasetV1::bar_timeframes`'s doc), for the public
-/// `execution_timeframe` a `backfill` call takes.
-fn canonical_row_timeframe(execution_timeframe: &str) -> Option<&'static str> {
-    match execution_timeframe {
-        "1h" => Some("1H"),
-        "4h" => Some("4H"),
-        "1d" => Some("24H"),
-        "1w" => Some("1W"),
         _ => None,
     }
 }
@@ -504,7 +491,7 @@ async fn run_backfill_v1(
 
     // Unreachable for a request that passed the whitelist check above: every member of
     // `SUPPORTED_EXECUTION_TIMEFRAMES_V1` has a canonical row-timeframe label.
-    let row_timeframe = canonical_row_timeframe(&request.execution_timeframe)
+    let row_timeframe = execution_timeframe_bar_label_v1(&request.execution_timeframe)
         .ok_or_else(|| "RowTimeframeUndeclared".to_owned())?;
     let basis = BackfillCustodyBasisV1 {
         source_binding: kline_source_binding,
