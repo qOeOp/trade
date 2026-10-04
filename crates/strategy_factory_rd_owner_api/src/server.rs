@@ -524,6 +524,20 @@ pub async fn run() -> anyhow::Result<()> {
         )
         .await?,
     );
+    // backtest.run's own in-process caller (H5) needs the production Composer specifically, not
+    // whatever acceptance-sealed stand-in `develop_composer` is under other feature configs.
+    #[cfg(all(
+        feature = "composer-v3-replay",
+        not(feature = "sealed-develop-composer-acceptance")
+    ))]
+    let backtest_run_develop_composer = Some(develop_composer.clone());
+    #[cfg(all(
+        feature = "composer-v3-replay",
+        feature = "sealed-develop-composer-acceptance"
+    ))]
+    let backtest_run_develop_composer: Option<
+        Arc<vibe_strategy_factory::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2>,
+    > = None;
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
     #[cfg(all(
@@ -650,6 +664,8 @@ pub async fn run() -> anyhow::Result<()> {
                 market_data_pit_intake: market_data_pit_intake.clone(),
                 market_semantics: market_data_market_semantics_admission.clone(),
                 custody_frames: market_data_custody_frames.clone(),
+                #[cfg(feature = "composer-v3-replay")]
+                develop_composer: backtest_run_develop_composer,
                 rd_pool: backtest_run_rd_pool,
                 request_proof_digest: request_proof_digest.clone(),
                 token_digest,
