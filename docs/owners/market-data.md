@@ -2973,6 +2973,25 @@ Proofs:
 - **Survives a later head.** A declaration made at one head re-resolves after a correction moved the head.
 - **Refusals.** A request whose view, Universe Selection record, Source Binding, Market Semantics fact or Instrument
   Master cut disagrees with the chain is refused by name, and nothing is written.
+
+Built (T0-10 (a) and (b)):
+
+- **The entry.** `admit_published_design_over_custody_run` reads the Design's role intent as the snapshot path does.
+  It then composes over the first frame of the run at its pinned head (`register_custody_design_roles_v1`).
+- **Refusals before composing.**
+  - A run with no pinned head is refused as `CUSTODY_HEAD_UNPINNED`, because two admissions could otherwise compose
+    over different views.
+  - A run whose frames cannot be read is refused as `CUSTODY_RUN_UNAVAILABLE`.
+- **The storage codec.** A custody-view declaration is stored under its own codec version, 2, whose layout differs from
+  version 1 only in the source. Snapshot declarations keep their bytes and every digest over them.
+- **One declaration per view.** A declaration is keyed by its view's request identity. The same Design over another
+  run or head is therefore another declaration at that view's coordinate, not a conflict.
+- **The registry's custody arm.** It re-reads the view by walking the chain's custodies from the head toward the root,
+  and checks the Universe Selection record, Instrument Master key and Market Semantics identity against the chain
+  basis. The Source Binding is checked when the role binds against the sealed view.
+- **Under `rd_owner`.** A custody declaration read under that principal is refused as `PIT_UNAVAILABLE` until (c)
+  adds its read functions.
+- **Proofs.** The three `custody_strategy_input_v1_tests` PG proofs.
 - **The reread.** The reread under `rd_owner` returns the custody frame the declaration was made over.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
