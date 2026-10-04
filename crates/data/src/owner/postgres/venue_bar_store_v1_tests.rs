@@ -181,3 +181,173 @@ async fn postgres_venue_bars_are_appended_rejoined_and_never_overwritten() {
         1_704_067_200_000_000_000 + 7 * DAY + lag_ns
     );
 }
+
+/// An archive verifies the stored bars it states identically, records a conflict for one it
+/// states differently, and reports the bars only it or only the store holds, writing nothing for
+/// them; a correction resolves the conflict as a later version, seen only from its availability.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_an_archive_verifies_bars_and_a_correction_appends_a_version() {
+    use crate::owner::{
+        source_binding::BindingDigest,
+        venue_bar_store_v1::{VenueBarArchiveKindV1, VenueBarArchiveV1, VenueBarCorrectionErrorV1},
+    };
+
+    let url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let store = VenueBarStorePostgresV1 {
+        owner: MarketDataOwnerPostgres::connect(&url).await.unwrap(),
+    };
+    let retrieved = START + 3 * DAY + VENUE_BAR_SETTLE_DELAY_NS_V1;
+    store
+        .commit_venue_bars_v1(
+            INSTRUMENT,
+            "1d",
+            VenueBarAvailabilityV1::AtRetrieval,
+            retrieved,
+            &[
+                bar(START, "100"),
+                bar(START + DAY, "200"),
+                bar(START + 2 * DAY, "300"),
+            ],
+        )
+        .await
+        .expect("the REST page commits");
+    let archive = VenueBarArchiveV1 {
+        kind: VenueBarArchiveKindV1::MonthlyArchive,
+        identity: BindingDigest::from_untrusted_bytes([7; 32]),
+        window_start_ns: START + DAY,
+        window_end_ns_exclusive: START + 5 * DAY,
+        bars: vec![
+            bar(START, "100"),
+            bar(START + DAY, "201"),
+            bar(START + 3 * DAY, "400"),
+        ],
+    };
+    let verified_at = retrieved + DAY;
+
+    let summary = store
+        .verify_venue_bars_v1(INSTRUMENT, "1d", &archive, verified_at)
+        .await
+        .expect("the archive verifies");
+    assert_eq!(summary.verified, 1);
+    assert_eq!(summary.conflicts.len(), 1);
+    assert_eq!(summary.conflicts[0].fields, ["volume"]);
+    assert_eq!(
+        summary.archive_only,
+        [START + 3 * DAY],
+        "nothing is written for it"
+    );
+    assert_eq!(summary.store_only, [START + 2 * DAY], "it stays unverified");
+    let again = store
+        .verify_venue_bars_v1(INSTRUMENT, "1d", &archive, verified_at + 1)
+        .await
+        .unwrap();
+    assert_eq!(again.verified, 1);
+    assert_eq!(
+        rows(&store.owner).await,
+        (3, 1),
+        "a repeat writes nothing new"
+    );
+
+    let read = |cut_ns: u64, verified_only: bool| {
+        let store = &store;
+        async move {
+            store
+                .read_venue_bars_v1(
+                    INSTRUMENT,
+                    "1d",
+                    START,
+                    START + 4 * DAY,
+                    cut_ns,
+                    verified_only,
+                )
+                .await
+        }
+    };
+    let bars = read(verified_at, false).await.unwrap();
+    assert_eq!(
+        bars.iter().map(|bar| bar.verified).collect::<Vec<_>>(),
+        [true, false, false]
+    );
+    assert_eq!(
+        read(verified_at, true).await,
+        Err(VenueBarReadErrorV1::NotVerified {
+            open_ns: START + DAY
+        })
+    );
+
+    let open = store
+        .open_venue_bar_conflicts_v1(INSTRUMENT, "1d")
+        .await
+        .unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].offered_side, "MONTHLY_ARCHIVE");
+    let conflict = open[0].conflict_identity;
+    assert_eq!(
+        store
+            .correct_venue_bar_v1(
+                INSTRUMENT,
+                "1d",
+                BindingDigest::from_untrusted_bytes([9; 32]),
+                bar(START + DAY, "201"),
+                verified_at + DAY,
+            )
+            .await,
+        Err(VenueBarCorrectionErrorV1::UnknownConflict)
+    );
+    let corrected_at = verified_at + DAY;
+    assert_eq!(
+        store
+            .correct_venue_bar_v1(
+                INSTRUMENT,
+                "1d",
+                conflict,
+                bar(START + DAY, "201"),
+                corrected_at
+            )
+            .await,
+        Ok(2)
+    );
+    assert_eq!(
+        store
+            .correct_venue_bar_v1(
+                INSTRUMENT,
+                "1d",
+                conflict,
+                bar(START + DAY, "201"),
+                corrected_at
+            )
+            .await,
+        Err(VenueBarCorrectionErrorV1::ConflictSuperseded),
+        "a conflict is resolved once"
+    );
+    assert!(
+        store
+            .open_venue_bar_conflicts_v1(INSTRUMENT, "1d")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let before = read(corrected_at - 1, false).await.unwrap();
+    assert_eq!(
+        (before[1].version, before[1].source),
+        (1, VenueBarSourceV1::Rest)
+    );
+    let after = read(corrected_at, false).await.unwrap();
+    assert_eq!(
+        (after[1].version, after[1].source),
+        (2, VenueBarSourceV1::Correction)
+    );
+    assert_eq!(after[1].bar, bar(START + DAY, "201"));
+
+    let reverified = store
+        .verify_venue_bars_v1(INSTRUMENT, "1d", &archive, corrected_at + 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        reverified.verified, 2,
+        "the corrected version now matches the archive"
+    );
+    assert!(reverified.conflicts.is_empty());
+}

@@ -120,6 +120,98 @@ pub enum VenueBarReadErrorV1 {
     StoreUnavailable,
 }
 
+/// Which official source confirms stored bars (slice B2).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VenueBarArchiveKindV1 {
+    /// The venue's monthly archive file.
+    MonthlyArchive,
+    /// The venue's daily archive file, published the next day.
+    DailyArchive,
+    /// A derivation from already verified finer bars, for `1w` and `1M`, whose monthly archive
+    /// files hold a snapshot of a bar still forming.
+    DerivedFromVerified,
+}
+
+impl VenueBarArchiveKindV1 {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::MonthlyArchive => "MONTHLY_ARCHIVE",
+            Self::DailyArchive => "DAILY_ARCHIVE",
+            Self::DerivedFromVerified => "DERIVED_FROM_VERIFIED",
+        }
+    }
+}
+
+/// One archive's bars for an instrument and timeframe, as its reader authenticated them.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VenueBarArchiveV1 {
+    pub kind: VenueBarArchiveKindV1,
+    /// The archive's own identity: its file's digest, or the derivation's.
+    pub identity: BindingDigest,
+    /// The window the archive covers, `[start, end)` over bar closes.
+    pub window_start_ns: u64,
+    pub window_end_ns_exclusive: u64,
+    /// Its bars, in strictly ascending open order, each inside the window.
+    pub bars: Vec<VenueBarV1>,
+}
+
+/// What one verification did.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct VenueBarVerificationSummaryV1 {
+    /// Stored bars the archive confirmed, each now verified.
+    pub verified: u64,
+    /// Stored bars the archive states differently: recorded as conflicts, left unverified.
+    pub conflicts: Vec<VenueBarConflictV1>,
+    /// Archive bars the store does not hold yet; nothing is written for them.
+    pub archive_only: Vec<u64>,
+    /// Stored bars inside the window the archive does not hold; they stay unverified.
+    pub store_only: Vec<u64>,
+}
+
+/// Why a verification was not made. Every refusal writes nothing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum VenueBarVerificationErrorV1 {
+    /// An empty instrument or window, an unserved interval, bars out of order or outside the
+    /// window.
+    #[error("the venue bar verification is malformed")]
+    InvalidRequest,
+    /// `BAR_OFF_GRID`: an archive bar whose open is not on its timeframe's grid.
+    #[error("an archive bar opening at {open_ns} is not on its timeframe's grid")]
+    BarOffGrid { open_ns: u64 },
+    #[error("the Market Data store is unavailable")]
+    StoreUnavailable,
+}
+
+/// A recorded conflict no correction has resolved yet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VenueBarOpenConflictV1 {
+    pub conflict_identity: BindingDigest,
+    pub open_ns: u64,
+    pub stored_version: u32,
+    /// `REST`, or the archive kind that offered the differing content.
+    pub offered_side: String,
+    /// The offered content in canonical column order.
+    pub offered_values: String,
+}
+
+/// Why a correction was not appended. Every refusal writes nothing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum VenueBarCorrectionErrorV1 {
+    #[error("the venue bar correction is malformed")]
+    InvalidRequest,
+    /// `BAR_CONFLICT_UNKNOWN`: no conflict of this identity is recorded for this bar.
+    #[error("no such conflict is recorded")]
+    UnknownConflict,
+    /// `BAR_CONFLICT_SUPERSEDED`: the bar has a later version than the one the conflict names.
+    #[error("the conflict names a version that is no longer the bar's latest")]
+    ConflictSuperseded,
+    /// `BAR_OFF_GRID` or `BAR_INCONSISTENT` for the corrected bar.
+    #[error("the corrected bar cannot be stored")]
+    BarRefused,
+    #[error("the Market Data store is unavailable")]
+    StoreUnavailable,
+}
+
 /// The sealed venue bar store. A recorder writes through it; no consumer can implement it.
 #[async_trait]
 pub trait VenueBarStoreV1: Send + Sync + sealed::Sealed {
@@ -155,6 +247,50 @@ pub trait VenueBarStoreV1: Send + Sync + sealed::Sealed {
         cut_ns: u64,
         verified_only: bool,
     ) -> Result<Vec<VenueBarReadV1>, VenueBarReadErrorV1>;
+
+    /// Verifies the stored bars of `instrument` at `venue_interval` against one archive, at
+    /// `verified_ns`: each stored bar the archive states identically gains a verification record,
+    /// each it states differently is recorded as a conflict and stays unverified, and nothing is
+    /// ever deleted or overwritten. Archive bars the store lacks, and stored bars the archive
+    /// lacks, are reported and left alone.
+    ///
+    /// # Errors
+    ///
+    /// The refusal that names why nothing was written.
+    async fn verify_venue_bars_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+        archive: &VenueBarArchiveV1,
+        verified_ns: u64,
+    ) -> Result<VenueBarVerificationSummaryV1, VenueBarVerificationErrorV1>;
+
+    /// The conflicts recorded for `instrument` at `venue_interval` that no correction resolves,
+    /// in open order.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidRequest` for an unserved interval, `StoreUnavailable` otherwise.
+    async fn open_venue_bar_conflicts_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+    ) -> Result<Vec<VenueBarOpenConflictV1>, VenueBarReadErrorV1>;
+
+    /// Appends an operator's correction resolving `conflict_identity`: the bar's next version,
+    /// sourced `CORRECTION`, available from `available_ns`. The read selects it only from then on.
+    ///
+    /// # Errors
+    ///
+    /// The refusal that names why nothing was written.
+    async fn correct_venue_bar_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+        conflict_identity: BindingDigest,
+        corrected: VenueBarV1,
+        available_ns: u64,
+    ) -> Result<u32, VenueBarCorrectionErrorV1>;
 }
 
 pub(crate) mod sealed {

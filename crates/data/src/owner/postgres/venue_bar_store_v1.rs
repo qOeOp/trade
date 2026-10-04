@@ -12,9 +12,11 @@ use crate::owner::{
     bar_schedule::{ServedTimeframeV1, served_timeframe_v1},
     source_binding::BindingDigest,
     venue_bar_store_v1::{
-        VENUE_BAR_SETTLE_DELAY_NS_V1, VenueBarAvailabilityV1, VenueBarCommitSummaryV1,
-        VenueBarConflictV1, VenueBarReadErrorV1, VenueBarReadV1, VenueBarSourceV1, VenueBarStoreV1,
-        VenueBarV1, VenueBarWriteErrorV1, sealed,
+        VENUE_BAR_SETTLE_DELAY_NS_V1, VenueBarArchiveV1, VenueBarAvailabilityV1,
+        VenueBarCommitSummaryV1, VenueBarConflictV1, VenueBarCorrectionErrorV1,
+        VenueBarOpenConflictV1, VenueBarReadErrorV1, VenueBarReadV1, VenueBarSourceV1,
+        VenueBarStoreV1, VenueBarV1, VenueBarVerificationErrorV1, VenueBarVerificationSummaryV1,
+        VenueBarWriteErrorV1, sealed,
     },
 };
 
@@ -181,6 +183,57 @@ async fn load_head(
     }))
 }
 
+/// Records, once per stored and offered content pair, that `offered` states the bar `key` names
+/// differently from its stored `head`; nothing is overwritten.
+async fn record_conflict(
+    transaction: &mut Transaction<'_, Postgres>,
+    (instrument, timeframe, open_ns): (&str, &str, u64),
+    head: &StoredHeadV1,
+    offered: &VenueBarV1,
+    offered_side: &str,
+    recorded_ns: u64,
+) -> Result<VenueBarConflictV1, sqlx::Error> {
+    let offered_digest = content_digest(offered);
+    let columns = canonical_columns(offered);
+    let conflict_identity = digest(
+        CONFLICT_DOMAIN,
+        &[
+            instrument.as_bytes(),
+            timeframe.as_bytes(),
+            &open_ns.to_be_bytes(),
+            head.digest.as_bytes(),
+            offered_digest.as_bytes(),
+        ],
+    );
+    let number = |value: u64| i64::try_from(value).map_err(|_| sqlx::Error::RowNotFound);
+    sqlx::query(
+        "INSERT INTO market_data_private.venue_bar_conflicts_v1 (conflict_identity, instrument, timeframe, open_ns, stored_version, stored_digest, offered_digest, offered_side, offered_values, recorded_ns) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (conflict_identity) DO NOTHING",
+    )
+    .bind(conflict_identity.as_bytes().as_slice())
+    .bind(instrument)
+    .bind(timeframe)
+    .bind(number(open_ns)?)
+    .bind(i32::try_from(head.version).map_err(|_| sqlx::Error::RowNotFound)?)
+    .bind(head.digest.as_bytes().as_slice())
+    .bind(offered_digest.as_bytes().as_slice())
+    .bind(offered_side)
+    .bind(columns.join(","))
+    .bind(number(recorded_ns)?)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(VenueBarConflictV1 {
+        conflict_identity,
+        open_ns,
+        stored_version: head.version,
+        fields: FIELDS
+            .iter()
+            .zip(head.columns.iter().zip(columns.iter()))
+            .filter(|(_, (stored, offered))| stored != offered)
+            .map(|(field, _)| *field)
+            .collect(),
+    })
+}
+
 fn bar_from_row(row: &sqlx::postgres::PgRow) -> Result<VenueBarV1, ()> {
     let number = |column: &str| -> Result<u64, ()> {
         u64::try_from(row.try_get::<i64, _>(column).map_err(|_| ())?).map_err(|_| ())
@@ -233,7 +286,6 @@ impl MarketDataOwnerPostgres {
         for bar in bars {
             let open_ns = to_i64(bar.open_ns)?;
             let offered = content_digest(bar);
-            let columns = canonical_columns(bar);
 
             match load_head(&mut transaction, instrument, timeframe.label, open_ns)
                 .await
@@ -273,42 +325,18 @@ impl MarketDataOwnerPostgres {
                 }
                 Some(head) if head.digest == offered => summary.rejoined += 1,
                 Some(head) => {
-                    let conflict_identity = digest(
-                        CONFLICT_DOMAIN,
-                        &[
-                            instrument.as_bytes(),
-                            timeframe.label.as_bytes(),
-                            &bar.open_ns.to_be_bytes(),
-                            head.digest.as_bytes(),
-                            offered.as_bytes(),
-                        ],
+                    summary.conflicts.push(
+                        record_conflict(
+                            &mut transaction,
+                            (instrument, timeframe.label, bar.open_ns),
+                            &head,
+                            bar,
+                            "REST",
+                            retrieval_ns,
+                        )
+                        .await
+                        .map_err(store)?,
                     );
-                    sqlx::query(
-                        "INSERT INTO market_data_private.venue_bar_conflicts_v1 (conflict_identity, instrument, timeframe, open_ns, stored_version, stored_digest, offered_digest, offered_side, offered_values, recorded_ns) VALUES ($1,$2,$3,$4,$5,$6,$7,'REST',$8,$9) ON CONFLICT (conflict_identity) DO NOTHING",
-                    )
-                    .bind(conflict_identity.as_bytes().as_slice())
-                    .bind(instrument)
-                    .bind(timeframe.label)
-                    .bind(open_ns)
-                    .bind(i32::try_from(head.version).map_err(|_| Refused::StoreUnavailable)?)
-                    .bind(head.digest.as_bytes().as_slice())
-                    .bind(offered.as_bytes().as_slice())
-                    .bind(columns.join(","))
-                    .bind(to_i64(retrieval_ns)?)
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(store)?;
-                    summary.conflicts.push(VenueBarConflictV1 {
-                        conflict_identity,
-                        open_ns: bar.open_ns,
-                        stored_version: head.version,
-                        fields: FIELDS
-                            .iter()
-                            .zip(head.columns.iter().zip(columns.iter()))
-                            .filter(|(_, (stored, offered))| stored != offered)
-                            .map(|(field, _)| *field)
-                            .collect(),
-                    });
                 }
             }
         }
@@ -380,6 +408,241 @@ impl MarketDataOwnerPostgres {
     }
 }
 
+impl MarketDataOwnerPostgres {
+    async fn verify_venue_bars_in_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+        archive: &VenueBarArchiveV1,
+        verified_ns: u64,
+    ) -> Result<VenueBarVerificationSummaryV1, VenueBarVerificationErrorV1> {
+        use VenueBarVerificationErrorV1 as Refused;
+
+        let timeframe = served_timeframe_v1(venue_interval).ok_or(Refused::InvalidRequest)?;
+        let window = (archive.window_start_ns, archive.window_end_ns_exclusive);
+
+        if instrument.is_empty()
+            || window.0 >= window.1
+            || verified_ns == 0
+            || archive
+                .bars
+                .windows(2)
+                .any(|pair| pair[0].open_ns >= pair[1].open_ns)
+        {
+            return Err(Refused::InvalidRequest);
+        }
+
+        for bar in &archive.bars {
+            if timeframe.close_of(bar.open_ns) != Some(bar.close_ns_exclusive) {
+                return Err(Refused::BarOffGrid {
+                    open_ns: bar.open_ns,
+                });
+            }
+
+            if bar.close_ns_exclusive < window.0 || bar.close_ns_exclusive >= window.1 {
+                return Err(Refused::InvalidRequest);
+            }
+        }
+        let number = |value: u64| i64::try_from(value).map_err(|_| Refused::InvalidRequest);
+        let store = |_: sqlx::Error| Refused::StoreUnavailable;
+        let mut transaction = self.pool.begin().await.map_err(store)?;
+        sqlx::query(
+            "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('market-data.venue-bars.v1:'||$1||'/'||$2,0))",
+        )
+        .bind(instrument)
+        .bind(timeframe.label)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store)?;
+        let mut summary = VenueBarVerificationSummaryV1::default();
+
+        for bar in &archive.bars {
+            let Some(head) = load_head(
+                &mut transaction,
+                instrument,
+                timeframe.label,
+                number(bar.open_ns)?,
+            )
+            .await
+            .map_err(store)?
+            else {
+                summary.archive_only.push(bar.open_ns);
+                continue;
+            };
+
+            if head.digest == content_digest(bar) {
+                sqlx::query(
+                    "INSERT INTO market_data_private.venue_bar_verifications_v1 (instrument, timeframe, open_ns, version, archive_kind, archive_identity, verified_ns) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
+                )
+                .bind(instrument)
+                .bind(timeframe.label)
+                .bind(number(bar.open_ns)?)
+                .bind(i32::try_from(head.version).map_err(|_| Refused::StoreUnavailable)?)
+                .bind(archive.kind.as_str())
+                .bind(archive.identity.as_bytes().as_slice())
+                .bind(number(verified_ns)?)
+                .execute(&mut *transaction)
+                .await
+                .map_err(store)?;
+                summary.verified += 1;
+            } else {
+                summary.conflicts.push(
+                    record_conflict(
+                        &mut transaction,
+                        (instrument, timeframe.label, bar.open_ns),
+                        &head,
+                        bar,
+                        archive.kind.as_str(),
+                        verified_ns,
+                    )
+                    .await
+                    .map_err(store)?,
+                );
+            }
+        }
+        let stored: Vec<i64> = sqlx::query_scalar(
+            "SELECT DISTINCT open_ns FROM market_data_private.venue_bar_versions_v1 WHERE instrument=$1 AND timeframe=$2 AND close_ns>=$3 AND close_ns<$4 ORDER BY open_ns",
+        )
+        .bind(instrument)
+        .bind(timeframe.label)
+        .bind(number(window.0)?)
+        .bind(number(window.1)?)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(store)?;
+        summary.store_only = stored
+            .into_iter()
+            .filter_map(|open_ns| u64::try_from(open_ns).ok())
+            .filter(|open_ns| archive.bars.iter().all(|bar| bar.open_ns != *open_ns))
+            .collect();
+        transaction.commit().await.map_err(store)?;
+        Ok(summary)
+    }
+
+    async fn open_venue_bar_conflicts_in_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+    ) -> Result<Vec<VenueBarOpenConflictV1>, VenueBarReadErrorV1> {
+        let timeframe =
+            served_timeframe_v1(venue_interval).ok_or(VenueBarReadErrorV1::InvalidRequest)?;
+        let rows = sqlx::query(
+            "SELECT c.conflict_identity, c.open_ns, c.stored_version, c.offered_side, c.offered_values FROM market_data_private.venue_bar_conflicts_v1 AS c WHERE c.instrument=$1 AND c.timeframe=$2 AND NOT EXISTS (SELECT 1 FROM market_data_private.venue_bar_versions_v1 AS v WHERE v.corrects_conflict=c.conflict_identity) ORDER BY c.open_ns, c.conflict_identity",
+        )
+        .bind(instrument)
+        .bind(timeframe.label)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| VenueBarReadErrorV1::StoreUnavailable)?;
+        rows.iter()
+            .map(|row| {
+                let identity: Vec<u8> = row.try_get("conflict_identity").map_err(|_| ())?;
+                Ok(VenueBarOpenConflictV1 {
+                    conflict_identity: <[u8; 32]>::try_from(identity.as_slice())
+                        .map(BindingDigest::from_untrusted_bytes)
+                        .map_err(|_| ())?,
+                    open_ns: u64::try_from(row.try_get::<i64, _>("open_ns").map_err(|_| ())?)
+                        .map_err(|_| ())?,
+                    stored_version: u32::try_from(
+                        row.try_get::<i32, _>("stored_version").map_err(|_| ())?,
+                    )
+                    .map_err(|_| ())?,
+                    offered_side: row.try_get("offered_side").map_err(|_| ())?,
+                    offered_values: row.try_get("offered_values").map_err(|_| ())?,
+                })
+            })
+            .collect::<Result<Vec<_>, ()>>()
+            .map_err(|()| VenueBarReadErrorV1::StoreUnavailable)
+    }
+
+    async fn correct_venue_bar_in_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+        conflict_identity: BindingDigest,
+        corrected: VenueBarV1,
+        available_ns: u64,
+    ) -> Result<u32, VenueBarCorrectionErrorV1> {
+        use VenueBarCorrectionErrorV1 as Refused;
+
+        let timeframe = served_timeframe_v1(venue_interval).ok_or(Refused::InvalidRequest)?;
+
+        if instrument.is_empty() || available_ns == 0 {
+            return Err(Refused::InvalidRequest);
+        }
+
+        if timeframe.close_of(corrected.open_ns) != Some(corrected.close_ns_exclusive)
+            || !bar_is_consistent(&corrected)
+        {
+            return Err(Refused::BarRefused);
+        }
+        let number = |value: u64| i64::try_from(value).map_err(|_| Refused::InvalidRequest);
+        let store = |_: sqlx::Error| Refused::StoreUnavailable;
+        let mut transaction = self.pool.begin().await.map_err(store)?;
+        sqlx::query(
+            "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('market-data.venue-bars.v1:'||$1||'/'||$2,0))",
+        )
+        .bind(instrument)
+        .bind(timeframe.label)
+        .execute(&mut *transaction)
+        .await
+        .map_err(store)?;
+        let conflict: Option<i32> = sqlx::query_scalar(
+            "SELECT stored_version FROM market_data_private.venue_bar_conflicts_v1 WHERE conflict_identity=$1 AND instrument=$2 AND timeframe=$3 AND open_ns=$4",
+        )
+        .bind(conflict_identity.as_bytes().as_slice())
+        .bind(instrument)
+        .bind(timeframe.label)
+        .bind(number(corrected.open_ns)?)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(store)?;
+        let stored_version = conflict.ok_or(Refused::UnknownConflict)?;
+        let head = load_head(
+            &mut transaction,
+            instrument,
+            timeframe.label,
+            number(corrected.open_ns)?,
+        )
+        .await
+        .map_err(store)?
+        .ok_or(Refused::StoreUnavailable)?;
+
+        if i32::try_from(head.version).ok() != Some(stored_version) {
+            return Err(Refused::ConflictSuperseded);
+        }
+        let version = head
+            .version
+            .checked_add(1)
+            .ok_or(Refused::StoreUnavailable)?;
+        sqlx::query(
+            "INSERT INTO market_data_private.venue_bar_versions_v1 (instrument, timeframe, open_ns, version, close_ns, open, high, low, close, volume, quote_volume, trade_count, taker_buy_volume, taker_buy_quote_volume, content_digest, source, retrieval_ns, availability_ns, corrects_conflict) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'CORRECTION',$16,$16,$17)",
+        )
+        .bind(instrument)
+        .bind(timeframe.label)
+        .bind(number(corrected.open_ns)?)
+        .bind(i32::try_from(version).map_err(|_| Refused::StoreUnavailable)?)
+        .bind(number(corrected.close_ns_exclusive)?)
+        .bind(corrected.open)
+        .bind(corrected.high)
+        .bind(corrected.low)
+        .bind(corrected.close)
+        .bind(corrected.volume)
+        .bind(corrected.quote_volume)
+        .bind(number(corrected.trade_count)?)
+        .bind(corrected.taker_buy_volume)
+        .bind(corrected.taker_buy_quote_volume)
+        .bind(content_digest(&corrected).as_bytes().as_slice())
+        .bind(number(available_ns)?)
+        .bind(conflict_identity.as_bytes().as_slice())
+        .execute(&mut *transaction)
+        .await
+        .map_err(store)?;
+        transaction.commit().await.map_err(store)?;
+        Ok(version)
+    }
+}
+
 /// The durable venue bar store. It retains the Owner and exposes no pool.
 pub(crate) struct VenueBarStorePostgresV1 {
     pub(crate) owner: MarketDataOwnerPostgres,
@@ -426,6 +689,47 @@ impl VenueBarStoreV1 for VenueBarStorePostgresV1 {
                 (window_start_ns, window_end_ns_exclusive),
                 cut_ns,
                 verified_only,
+            )
+            .await
+    }
+
+    async fn verify_venue_bars_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+        archive: &VenueBarArchiveV1,
+        verified_ns: u64,
+    ) -> Result<VenueBarVerificationSummaryV1, VenueBarVerificationErrorV1> {
+        self.owner
+            .verify_venue_bars_in_v1(instrument, venue_interval, archive, verified_ns)
+            .await
+    }
+
+    async fn open_venue_bar_conflicts_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+    ) -> Result<Vec<VenueBarOpenConflictV1>, VenueBarReadErrorV1> {
+        self.owner
+            .open_venue_bar_conflicts_in_v1(instrument, venue_interval)
+            .await
+    }
+
+    async fn correct_venue_bar_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+        conflict_identity: BindingDigest,
+        corrected: VenueBarV1,
+        available_ns: u64,
+    ) -> Result<u32, VenueBarCorrectionErrorV1> {
+        self.owner
+            .correct_venue_bar_in_v1(
+                instrument,
+                venue_interval,
+                conflict_identity,
+                corrected,
+                available_ns,
             )
             .await
     }
