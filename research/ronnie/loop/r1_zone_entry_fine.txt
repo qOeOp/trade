@@ -1,0 +1,12 @@
+Z-1 minute check: 1h walk with ambiguous hours resolved on 1m bars, 48643 trades
+  per fraction: trades, avg R / total R / weekly Sharpe at stop slippage 0, 0.05%, 0.1%; median risk % of price; fill hour on minutes; trades left ambiguous (counted as stop)
+  f 0.00 2R  : n 4640, win 43%, slip 0.00%: +0.273 / 1269 / 2.65; slip 0.05%: +0.269 / 1246 / 2.61; slip 0.10%: +0.264 / 1223 / 2.56; risk 6.46%, fill on 1m 100%, ambiguous 0.0%
+  f 0.25 2R  : n 5324, win 44%, slip 0.00%: +0.286 / 1522 / 3.02; slip 0.05%: +0.280 / 1490 / 2.96; slip 0.10%: +0.274 / 1458 / 2.90; risk 5.22%, fill on 1m 100%, ambiguous 0.0%
+  f 0.50 2R  : n 5976, win 45%, slip 0.00%: +0.311 / 1856 / 3.68; slip 0.05%: +0.303 / 1811 / 3.60; slip 0.10%: +0.296 / 1767 / 3.51; risk 4.07%, fill on 1m 100%, ambiguous 0.0%
+  f 0.75 2R  : n 6272, win 45%, slip 0.00%: +0.301 / 1891 / 4.01; slip 0.05%: +0.292 / 1830 / 3.88; slip 0.10%: +0.282 / 1769 / 3.76; risk 3.03%, fill on 1m 100%, ambiguous 0.0%
+  f 1.00 2R  : n 6390, win 44%, slip 0.00%: +0.281 / 1795 / 3.85; slip 0.05%: +0.267 / 1704 / 3.66; slip 0.10%: +0.253 / 1614 / 3.47; risk 2.08%, fill on 1m 100%, ambiguous 0.0%
+  f 0.25 orig: n 4694, win 38%, slip 0.00%: +0.321 / 1508 / 2.77; slip 0.05%: +0.315 / 1478 / 2.71; slip 0.10%: +0.308 / 1447 / 2.66; risk 5.24%, fill on 1m 100%, ambiguous 0.0%
+  f 0.50 orig: n 4885, win 33%, slip 0.00%: +0.373 / 1823 / 2.90; slip 0.05%: +0.364 / 1779 / 2.83; slip 0.10%: +0.355 / 1736 / 2.77; risk 4.09%, fill on 1m 100%, ambiguous 0.0%
+  f 0.75 orig: n 5104, win 26%, slip 0.00%: +0.398 / 2030 / 2.77; slip 0.05%: +0.385 / 1965 / 2.69; slip 0.10%: +0.372 / 1900 / 2.60; risk 3.05%, fill on 1m 100%, ambiguous 0.0%
+  f 1.00 orig: n 5358, win 20%, slip 0.00%: +0.413 / 2212 / 2.57; slip 0.05%: +0.393 / 2104 / 2.44; slip 0.10%: +0.372 / 1995 / 2.32; risk 2.10%, fill on 1m 100%, ambiguous 0.0%
+  CSCV PBO over the five primary fractions (slippage 0): 0.43

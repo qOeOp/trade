@@ -329,3 +329,8 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     range family's E-2 files; it was caught and relabelled Z-1 before any reading. Nothing was lost only because the
     old E-2 run never saved trades. Proposal: `engine.log` refuses a label already in the census for a different
     candidate, and output paths derive from that label, so a collision fails before a file is written.
+62. **E-1 (deeper entries by ATR) was scored on daily bars only.** It concluded "deeper hurts" because a daily bar
+    cannot order the fill, the bounce and the stop inside one day once the stop is tight; Z-1 found the opposite on
+    1m-resolved bars. Note 60's rule had been written for exits but applies to any entry that tightens the stop.
+    Proposal: the scorer reports the share of trades whose fill bar also reaches the stop or the target, and refuses a
+    daily-bar verdict when that share differs by more than a few points between the variants it compares.

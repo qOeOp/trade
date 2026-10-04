@@ -2336,7 +2336,7 @@ and lowers the Sharpe. In-sample for the tag; the forward record decides (L-5c, 
 CSCV PBO 0.00. No deeper entry improves R-1u: 0.10 ATR is level with it (Sharpe +0.08, total R -26, within noise),
 and from 0.25 ATR on returns fall fast. With the stop fixed at the zone, a deeper limit shrinks the stop, so noise and
 fees stop more trades out (win rate 41% to 25%), and the strongest breakouts never come back that far. The edge over
-random entries rises only because the matched controls, with the same tiny stops, lose even more. Nothing changes.
+random entries rises only because the matched controls, with the same tiny stops, lose even more. Nothing changes. (Superseded on 2026-10-04 by Z-1: on 1m-resolved bars deeper entries help; daily bars could not order the fill day.)
 
 ## Loop Z-1: R-1 limit at a fraction of the zone (registered 2026-10-04, before running; the user's question)
 
@@ -2353,6 +2353,35 @@ random entries rises only because the matched controls, with the same tiny stops
   daily bars and with the same trades re-walked on 1h bars (fill hour, then stop and target in hourly order); CSCV PBO
   over the five primary fractions. A fraction joins the forward record as a paired variant only if it beats f = 0 on
   both total R and Sharpe across its neighbours (a plateau); nothing changes R-1u.
+
+### Loop Z-1 result (2026-10-04; `loop/r1_zone_entry.txt`, `loop/r1_zone_entry_fine.txt`)
+
+Median zone height 0.52 ATR. Daily bars cannot score this question: with the stop fixed, a deeper limit leaves a stop
+0.25-0.5 ATR away, and on the fill day a daily bar cannot tell "dipped to the limit, bounced to 2R, then fell through
+the stop" from "fell through the stop first", nor allow the target on the fill day. Daily scoring made f = 1 lose
+(-0.060 avg R, -334 total R) where the 1h walk made it win (+0.283). The trades were therefore re-walked on 1h bars with
+every fill hour and every hour touching both stop and target resolved on 1m bars (no trade left ambiguous), and the
+coin slot re-run on those exits:
+
+| f (0 = wick, current; 1 = far edge) | trades | win | avg R | total R | weekly Sharpe | avg R at 0.1% stop slippage | risk, % of price |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 (R-1u) | 4,640 | 43% | +0.273 | 1,269 | 2.65 | +0.264 | 6.5% |
+| 0.25 | 5,324 | 44% | +0.286 | 1,522 | 3.02 | +0.274 | 5.2% |
+| 0.50 | 5,976 | 45% | +0.311 | 1,856 | 3.68 | +0.296 | 4.1% |
+| 0.75 | 6,272 | 45% | +0.301 | 1,891 | 4.01 | +0.282 | 3.0% |
+| 1.00 | 6,390 | 44% | +0.281 | 1,795 | 3.85 | +0.253 | 2.1% |
+
+Secondary (target held at the f = 0 order's 2R price): avg R +0.32 to +0.41 with win 38% to 20%, Sharpe 2.6-2.9, below
+the 2R-from-fill variants. CSCV PBO over the five primary fractions 0.43: which interior fraction is best is noise.
+
+- **Reading:** every fraction from 0.25 to 1 beats the wick on total R and Sharpe, a plateau peaking at 0.5-0.75, and
+  it survives 0.1% slippage on every stop. Most of the gain is count, not quality: average R per trade by year is
+  level (f = 0 is best in 2020 and 2021), while the tighter stop ends trades sooner, frees the coin's slot and takes
+  more breakouts, and smaller per-trade risk lowers weekly volatility. By side, deeper helps shorts (+0.19 at f = 0 to
+  +0.27-0.29 at f >= 0.5) and not longs (+0.33 flat to 0.75, +0.27 at the far edge). Deeper limits also mean larger
+  notional for the same R (risk 2-4% of price instead of 6.5%).
+- **Decision (registered criterion met):** f = 0.5 (the zone's middle, the plateau's centre) joins the forward record as
+  a paired variant R-1m; R-1u is unchanged. Development data only (survivor coins, 2018-2022); the holdout is not read.
 
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
