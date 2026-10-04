@@ -5,6 +5,7 @@ WORKDIR /workspace
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY services ./services
 COPY patches ./patches
 COPY examples/tutorials ./examples/tutorials
 COPY product/rd-workbench/Dockerfile.sandbox ./product/rd-workbench/Dockerfile.sandbox
