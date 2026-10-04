@@ -104,7 +104,12 @@ pub fn venue_bar_from_kline_row_v1(
         close: parse_decimal(&row.close, open_ms, "close")?,
         volume: parse_decimal(&row.volume, open_ms, "volume")?,
         quote_volume: parse_decimal(&row.quote_volume, open_ms, "quote_volume")?,
-        trade_count: u64::try_from(row.num_trades).unwrap_or(0),
+        trade_count: u64::try_from(row.num_trades).map_err(|_| {
+            VenueBarRestRowErrorV1::Malformed {
+                open_ms,
+                reason: "num_trades is negative".to_string(),
+            }
+        })?,
         taker_buy_volume: parse_decimal(
             &row.taker_buy_base_volume,
             open_ms,
@@ -348,6 +353,22 @@ mod tests {
             VenueBarRestRowErrorV1::OffGrid {
                 venue_interval: "1m".to_string(),
                 open_ms: 30_000,
+            }
+        );
+    }
+
+    #[rstest]
+    fn a_negative_trade_count_is_refused_by_name() {
+        let mut malformed = row(0, 59_999);
+        malformed.num_trades = -1;
+
+        let err = venue_bar_from_kline_row_v1(&malformed, "1m").unwrap_err();
+
+        assert_eq!(
+            err,
+            VenueBarRestRowErrorV1::Malformed {
+                open_ms: 0,
+                reason: "num_trades is negative".to_string(),
             }
         );
     }

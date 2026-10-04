@@ -3951,8 +3951,8 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     not to be needed: that wrapper keeps only its bar's nautilus event timestamp (Binance's `closeTime`),
     discarding `openTime`, which `VenueBarV1` needs independently of `closeTime` to derive its own grid-exact
     close through `served_timeframe_v1`. `request_raw_klines`, a new thin passthrough to the adapter's already-
-    cached raw kline rows, is called directly instead - keyed by the raw venue symbol string, with no `BarType`
-    or instrument cache in the loop at all.
+    rate-limited raw kline rows, is called directly instead - keyed by the raw venue symbol string, with no
+    `BarType` or instrument cache in the loop at all.
   - **B4 - the calendar-month cadence (Lane 8).** `CalendarMonth` cadence on the UTC month anchor in
     `UntrustedSourceBarCadenceV1`, with its codec, refused as an execution timeframe. The served label table is B1's.
 
