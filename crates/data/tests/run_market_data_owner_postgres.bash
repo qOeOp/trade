@@ -53,6 +53,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::pit_window_custody_v1_tests::postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writing
   owner::postgres::pit_window_custody_v1_tests::postgres_every_custody_refusal_writes_nothing
   owner::postgres::pit_window_custody_v1_tests::postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_changed_basis
+  owner::postgres::pit_window_custody_v1_tests::postgres_a_successor_naming_another_universe_record_is_refused
   owner::postgres::pit_window_custody_v1_tests::postgres_availability_follows_the_rule_and_never_passes_the_minting_cut
   owner::postgres::pit_window_custody_v1_tests::postgres_a_custody_after_a_snapshot_of_its_scope_states_the_scope_value
   owner::postgres::pit_window_custody_v1_tests::postgres_a_snapshot_after_a_custody_of_its_scope_states_the_scope_value
@@ -83,6 +84,8 @@ readonly market_data_owner_postgres_tests=(
 readonly market_data_owner_postgres_sealed_acceptance_tests=(
   owner::store_admission::tests::the_sealed_acceptance_resolver_reads_under_exactly_its_grants
   owner::postgres::native_replay_custody_frame_v1_tests::postgres_the_sealed_acceptance_custody_resolver_reads_a_frame_with_its_stated_quotes
+  owner::postgres::sealed_acceptance_custody_chain_v1_tests::postgres_the_sealed_acceptance_chain_reads_every_frame_with_its_derived_quote_cut
+  owner::postgres::sealed_acceptance_custody_chain_v1_tests::postgres_a_bar_the_custody_intake_refuses_is_refused_under_its_name
 )
 
 # Proofs in an integration-test binary, as `<binary>::<test>`. They reach what exists only in a build

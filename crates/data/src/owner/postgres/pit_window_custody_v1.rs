@@ -1423,8 +1423,9 @@ impl PitWindowCustodyCommitV1 for PitWindowCustodyPostgresV1 {
 }
 
 impl MarketDataOwnerPostgres {
-    /// The custody intake over this Owner store, for its own proofs.
-    #[cfg(test)]
+    /// The custody intake over this Owner store, for its own proofs and the sealed acceptance
+    /// custody chain: the same intake the environment opens, over this store's pool.
+    #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
     pub(super) fn pit_window_custody_commit_v1(&self) -> Arc<dyn PitWindowCustodyCommitV1> {
         Arc::new(PitWindowCustodyPostgresV1 {
             owner: Self {

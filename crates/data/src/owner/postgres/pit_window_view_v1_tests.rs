@@ -549,8 +549,7 @@ async fn postgres_a_tampered_custody_row_refuses_the_view() {
 /// A run's frames carry the basis their chain's records hold: the root custody's Universe
 /// Selection, its Instrument Master cut and its Market Semantics fact and value, its members and
 /// window. The basis is pinned to the head the frames were read from, and it is the root's: a
-/// successor that names another Universe Selection record over the same members moves the head
-/// and leaves the basis the root committed.
+/// successor, which restates that basis, moves the head and leaves the basis the root committed.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
@@ -605,20 +604,19 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     assert_eq!(basis.members(), [BTC, ETH]);
     assert_eq!(basis.window(), (WINDOW_START, WINDOW_START + 4 * DAY));
 
-    // A successor naming another Universe Selection record over the same members.
-    let universe_b = universe(&owner, &binding, 11, None).await;
-    assert_ne!(universe_b, universe_a);
+    // A successor restating its root's basis, the same Universe Selection record included.
     let two_day_bar = WINDOW_START + 2 * DAY;
     let corrected = version_at_timeframe(&owner, root.custody_identity(), two_day_bar).await;
-    let mut restated = successor(
-        &root,
-        &template,
-        vec![two_day_correction(corrected, two_day_bar + DAY / 2)],
-    );
-    restated.universe_selection = universe_b;
-    let head = commit(&intake, restated)
-        .await
-        .expect("a successor restates its root's basis, which names no Universe Selection");
+    let head = commit(
+        &intake,
+        successor(
+            &root,
+            &template,
+            vec![two_day_correction(corrected, two_day_bar + DAY / 2)],
+        ),
+    )
+    .await
+    .expect("a successor restating its root's basis extends the chain");
     let at_head = read(run(
         root.chain_root(),
         WINDOW_START + 2 * DAY,
@@ -628,11 +626,7 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     .expect("the run reads at the head");
     assert_eq!(at_head.head_identity(), head.custody_identity());
     assert_eq!(at_head.basis().head_identity(), head.custody_identity());
-    assert_eq!(
-        at_head.basis().universe_selection(),
-        universe_a,
-        "the basis is the root's Universe Selection, not the head's"
-    );
+    assert_eq!(at_head.basis().universe_selection(), universe_a);
     assert_eq!(at_head.basis().chain_root(), basis.chain_root());
     assert_eq!(
         at_head.basis().instrument_master_cut(),
