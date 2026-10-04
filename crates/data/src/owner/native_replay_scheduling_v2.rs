@@ -1436,6 +1436,19 @@ mod frame_sequence_resolver_tests {
         > {
             Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
         }
+
+        /// Not exercised by this recorder's own tests: no case here asks for funding.
+        async fn resolve_replay_funding_schedule_v1(
+            &self,
+            _members: &[String],
+            _window_start_ns: u64,
+            _window_end_ns_exclusive: u64,
+        ) -> Result<
+            Option<crate::owner::replay_funding_schedule_v1::ReplayFundingScheduleV1>,
+            crate::owner::native_replay_scheduling_v1::ReplayFundingScheduleResolutionErrorV1,
+        > {
+            Ok(None)
+        }
     }
 
     fn coordinate(

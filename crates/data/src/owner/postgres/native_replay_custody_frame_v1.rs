@@ -291,6 +291,24 @@ where
         })
         .await
     }
+
+    async fn resolve_replay_funding_schedule_v1(
+        &self,
+        members: &[String],
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<
+        Option<crate::owner::replay_funding_schedule_v1::ReplayFundingScheduleV1>,
+        crate::owner::native_replay_scheduling_v1::ReplayFundingScheduleResolutionErrorV1,
+    > {
+        super::funding_settlement_v1::resolve_replay_funding_schedule_from_pool_v1(
+            &self.pool,
+            members,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+    }
 }
 
 #[cfg(test)]
