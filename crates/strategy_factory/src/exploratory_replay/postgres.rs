@@ -5385,7 +5385,8 @@ fn storage(error: sqlx::Error) -> ExploratoryReplayOwnerError {
 /// Only a selector: the caller must already hold that request's verified sealed readback from the
 /// same transaction, so the row read here is the one it verified. `None` means the request has no
 /// COMPOSER_V3 source and therefore names no binding, which is every request in a build without
-/// the Composer-backed Replay feature, since only that feature writes COMPOSER_V3 rows.
+/// the Composer-backed Replay feature, since only that feature writes COMPOSER_V3 rows - and every
+/// custody-run-backed request, which genuinely has no snapshot composition binding to name.
 pub(crate) async fn read_composer_v3_market_data_binding_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     replay_request_identity: &str,
@@ -5413,7 +5414,10 @@ pub(crate) async fn read_composer_v3_market_data_binding_in_transaction(
     if frozen.source.proposal.request_identity != replay_request_identity {
         return Err(unavailable("COMPOSER_V3 binding Replay identity mismatch"));
     }
-    Ok(Some(frozen.source.proposal.market_data_locator))
+    Ok(match frozen.source.proposal.market_data_locator {
+        super::ComposerReplayMarketDataLocatorV3::Snapshot(locator) => Some(locator),
+        super::ComposerReplayMarketDataLocatorV3::CustodyRun { .. } => None,
+    })
 }
 
 fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {

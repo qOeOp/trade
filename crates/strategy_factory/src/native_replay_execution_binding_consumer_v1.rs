@@ -350,6 +350,27 @@ where
         );
         NativeReplayExecutionBindingConsumerErrorV1
     })?;
+    let funding_window = profile.request_window();
+    let funding_members = instrument_master
+        .cut()
+        .members()
+        .iter()
+        .map(|member| member.fact().canonical_identity().to_string())
+        .collect::<Vec<_>>();
+    let funding_schedule = market_data
+        .resolve_replay_funding_schedule_v1(
+            &funding_members,
+            funding_window.start_event_ns,
+            funding_window.end_event_ns_exclusive,
+        )
+        .await
+        .map_err(|e| {
+            crate::storage_diagnostic::refused_by_store(
+                "native_replay_execution_binding.funding.resolve",
+                &e,
+            );
+            NativeReplayExecutionBindingConsumerErrorV1
+        })?;
     let execution = ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1(
         profile,
         plan,
@@ -359,9 +380,10 @@ where
         run_id,
         public_terms,
         scheduling,
-        // No Owner read states this window's funding yet, so the bundle states none and its census
-        // records `FUNDING_NOT_STATED`.
-        None,
+        // No backfilled coverage reaches the whole window: the bundle states none, exactly as
+        // before this read existed, and its census records `FUNDING_NOT_STATED`. A genuine gap
+        // inside a covered window is refused above, by name, never silently zero-filled.
+        funding_schedule,
     )
     .map_err(|e| {
         crate::storage_diagnostic::refused_by_store(
@@ -527,6 +549,24 @@ where
             &e,
         )
     })?;
+    let funding_members = custody_members
+        .members()
+        .iter()
+        .map(|member| member.instrument().to_string())
+        .collect::<Vec<_>>();
+    let funding_schedule = market_data
+        .resolve_replay_funding_schedule_v1(
+            &funding_members,
+            custody.run_start_ns,
+            custody.run_end_ns_exclusive,
+        )
+        .await
+        .map_err(|e| {
+            refused(
+                "native_replay_execution_binding.custody.funding.resolve",
+                &e,
+            )
+        })?;
     ReplayTargetSetExecutionBundleV1::new_from_custody_frames_v1(
         profile,
         plan,
@@ -535,8 +575,10 @@ where
         strategy_id,
         run_id,
         public_terms,
-        // No Owner read states this window's funding yet, so the bundle states none.
-        None,
+        // No backfilled coverage reaches the whole run window: the bundle states none, exactly
+        // as before this read existed. A genuine gap inside a covered window is refused above,
+        // by name, never silently zero-filled.
+        funding_schedule,
     )
     .map_err(|e| {
         refused(

@@ -175,6 +175,13 @@ async fn assert_the_production_preparation_executes_one_member_one_frame(
     assert_eq!(census.bar_count(), bundle.frame_count());
     assert_eq!(census.event_count(), bundle.frame_count());
     assert_eq!(census.scheduling_data_count(), 2 * bundle.frame_count());
+    // F's member has no backfilled funding coverage, so the window's funding read answers
+    // `Ok(None)` (F2's "not backfilled" branch) and the bundle states exactly that, never a
+    // zero-filled schedule.
+    assert_eq!(
+        census.funding(),
+        vibe_strategy_factory::replay_target_set_execution_bundle_v1::ReplayFundingStatementV1::FundingNotStated
+    );
     oracle_inputs_from_the_bundle(&bundle)
 }
 

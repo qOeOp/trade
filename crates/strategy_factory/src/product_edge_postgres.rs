@@ -2188,14 +2188,20 @@ impl PostgresResearchGoalOwnerV1 {
 
     /// Commits a Composer-backed Replay from exact R&D, Composer, and Market Data Owner facts.
     /// The locator-only proposal cannot provide a positive sealed source or execution profile.
+    ///
+    /// `custody_frames` is consulted only when the proposal's `market_data_locator` is
+    /// `CustodyRun`; a snapshot-locator proposal never reads it.
     #[cfg(feature = "composer-v3-replay")]
     pub async fn commit_composer_backed_exploratory_replay_request_v3(
         &self,
         proposal: crate::exploratory_replay::ComposerBackedExploratoryReplayProposalV3,
+        custody_frames: Option<&dyn PitWindowCustodyFramesV1>,
     ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
         Box::pin(
             crate::exploratory_replay::postgres::composer_commit_v3::commit_composer_v3(
-                &self.pool, proposal,
+                &self.pool,
+                proposal,
+                custody_frames,
             ),
         )
         .await
