@@ -440,11 +440,25 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
                 })
                 .await
                 .map_err(|e| unavailable(format!("custody run frames unavailable: {e}")))?;
-            if source.custody_chain_root != Some(frames.chain_root())
-                || source.custody_head_identity != Some(frames.head_identity())
-            {
+            // The chain root is the request's own: the port is handed exactly what the stored
+            // source names, so a differing root is the port returning another chain entirely -
+            // genuine corruption, not a lifecycle event.
+            if source.custody_chain_root != Some(frames.chain_root()) {
                 return Err(corrupt(
-                    "custody run resolved a different chain or head than the stored source",
+                    "custody run resolved a different chain than the stored source",
+                ));
+            }
+            // The head is read from the chain's current head, which is free to advance (a
+            // correction or a later commit) between the original commit and this readback. That
+            // is not corruption - the chain and the readback are both correct - so it gets its own
+            // name, matching the consumer's `CUSTODY_HEAD_MOVED_SINCE_BINDING`: an idempotent
+            // retry or an H8 readback of this exact binding cannot succeed once the head has
+            // moved, but the binding and the chain are both intact.
+            if source.custody_head_identity != Some(frames.head_identity()) {
+                return Err(corrupt(
+                    "CUSTODY_HEAD_MOVED_SINCE_BINDING: the chain's head advanced since this \
+                     source was committed; this readback will not resolve again until Market \
+                     Data can read it at the pinned head instead of the chain's current one",
                 ));
             }
             let universe_frame_digest = reread_design_universe_frame_digest_v1(

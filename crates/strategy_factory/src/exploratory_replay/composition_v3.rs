@@ -876,6 +876,16 @@ fn compose_composer_backed_custody_replay_request_v3(
             digest: sha256_digest(composer_locator.artifact_identity)?,
         },
         resolved_owner_inputs,
+        // A custody run has no committed PIT snapshot to name: `pit_scope`/`pit_snapshot` here
+        // carry the chain's own identity (chain_root as `pit_scope`'s identity, the market
+        // semantics as its digest; chain_root again as `pit_snapshot`'s identity, the pinned head
+        // as its digest) in the same opaque `sha256:<hex>` shape a real snapshot identity has.
+        // They are stored and compared for equality only (the `composed.source != *source` check
+        // above, and the same two fields read back on a later resolve) - nothing in this crate or
+        // its callers resolves either field through `resolve_pit_snapshot_v1` or any other PIT
+        // snapshot read, for either data path. Grep `pit_snapshot\.identity\|\.pit_scope\.identity`
+        // before adding one: a reader that did would find a chain_root formatted as a snapshot
+        // identity and get a misleading `NotFound`, not a refusal naming why.
         pit_scope: sha256_content(chain_root, basis.market_semantics_identity())?,
         pit_snapshot: sha256_content(chain_root, head_identity)?,
         universe_selection: sha256_content(universe_identity, universe_digest)?,
