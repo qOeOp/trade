@@ -898,7 +898,7 @@ fn validate_binding_names(
 ) -> Result<(i64, i64), BinanceVisionArchiveError> {
     if interval_millis(interval).is_none() {
         return Err(BinanceVisionArchiveError::InvalidBinding(format!(
-            "only 15m, 1h, 4h, and 1d monthly contracts are supported, received {}",
+            "only 15m, 1h, 4h, 1d, and 1w monthly contracts are supported, received {}",
             interval.as_str()
         )));
     }
@@ -996,7 +996,20 @@ const fn interval_millis(interval: BinanceKlineInterval) -> Option<i64> {
         BinanceKlineInterval::Hour1 => Some(60 * 60 * 1_000),
         BinanceKlineInterval::Hour4 => Some(4 * 60 * 60 * 1_000),
         BinanceKlineInterval::Day1 => Some(DAY_MILLIS),
+        BinanceKlineInterval::Week1 => Some(7 * DAY_MILLIS),
         _ => None,
+    }
+}
+
+/// The open-time grid's phase, relative to the Unix epoch: zero for every interval here except
+/// `1w`, whose grid is anchored to 00:00 UTC on the Monday that opens each calendar week
+/// (`UntrustedSourceBarAnchorV1::WeekStartMonday`'s own doc), not to the epoch instant itself -
+/// 1970-01-01 was a Thursday, four days (`345_600_000` ms) ahead of the Monday that starts its
+/// own week.
+const fn interval_phase_millis(interval: BinanceKlineInterval) -> i64 {
+    match interval {
+        BinanceKlineInterval::Week1 => 4 * DAY_MILLIS,
+        _ => 0,
     }
 }
 
@@ -1149,6 +1162,7 @@ fn parse_authenticated_csv(
     let interval_millis = interval_millis(binding.interval).ok_or_else(|| {
         BinanceVisionArchiveError::InvalidBinding("unsupported interval".to_string())
     })?;
+    let interval_phase_millis = interval_phase_millis(binding.interval);
     let max_monthly_rows = usize::try_from(31 * DAY_MILLIS / interval_millis)
         .expect("supported interval row bound fits usize");
 
@@ -1204,7 +1218,7 @@ fn parse_authenticated_csv(
             return Err(BinanceVisionArchiveError::InvalidNumeric { row, field, value });
         }
 
-        if open_millis % interval_millis != 0 {
+        if (open_millis - interval_phase_millis) % interval_millis != 0 {
             return Err(BinanceVisionArchiveError::InvalidTemporalSemantics {
                 row,
                 message: "open time is not aligned to the bound UTC interval".to_string(),
@@ -1505,6 +1519,21 @@ mod tests {
     const ARCHIVE_NAME: &str = "BTCUSDT-1h-2023-03.zip";
     const MEMBER_NAME: &str = "BTCUSDT-1h-2023-03.csv";
     const T0: i64 = 1_677_628_800_000;
+
+    /// `BTCUSDT-1w-2024-01.zip`'s one real row, fetched and verified against this archive's own
+    /// published `.CHECKSUM` sidecar: `open_time=1704067200000` is 2024-01-01T00:00:00Z, a real
+    /// Monday. The grid check must accept it under [`interval_phase_millis`]'s Monday phase, which
+    /// a plain Unix-epoch-phase grid (Thursday) would refuse.
+    #[rstest]
+    fn week1_grid_accepts_the_real_monday_open_binance_published() {
+        let open_millis: i64 = 1_704_067_200_000;
+        let interval_millis = interval_millis(BinanceKlineInterval::Week1).expect("declared");
+        let phase = interval_phase_millis(BinanceKlineInterval::Week1);
+        assert_eq!((open_millis - phase) % interval_millis, 0);
+        // The Unix epoch's own phase (Thursday) does not accept a Monday open: this is the
+        // defect a phase-less check would have, confirmed rather than assumed.
+        assert_ne!(open_millis % interval_millis, 0);
+    }
 
     fn canonical_dataset(
         identity: &str,

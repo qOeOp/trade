@@ -10,11 +10,11 @@
 //! depends on no Owner crate: it holds no business rule and makes no decision Market Data's own
 //! routes do not already make.
 //!
-//! `get_bars` and `get_funding` are not tools here yet: their own routes
-//! (`docs/owners/market-data.md`, "TARGET market-data MCP server") do not exist until T0-5 and
-//! the funding schedule read land, in phase 3. Adding a tool for a route that always refused
-//! `HOLDOUT_PARTITION_UNDEFINED` would teach nothing a caller could not already read from the
-//! doc.
+//! `get_bars` and `get_funding` are both tools, matching
+//! `docs/owners/market-data.md`'s "TARGET market-data MCP server" table, but no Owner defines
+//! Qualification's holdout partition yet, so both routes refuse every call
+//! `HOLDOUT_PARTITION_UNDEFINED` before reading any market value - the real read behind that
+//! refusal (T0-5 and the funding schedule read) is phase 3.
 
 use serde_json::{Value, json};
 
@@ -50,7 +50,7 @@ fn parse_job_id(value: &str) -> Option<&str> {
     .then_some(value)
 }
 
-/// The six tools this route set backs today, each with the input it takes.
+/// The eight tools this route set backs today, each with the input it takes.
 pub fn tools() -> Value {
     let instrument = json!({
         "type": "string",
@@ -99,6 +99,25 @@ pub fn tools() -> Value {
             "name": "coverage",
             "description": "The half-open ranges every successful backfill has covered for one instrument, by execution timeframe. States no market value.",
             "inputSchema": {"type": "object", "properties": {"instrument": instrument}, "required": ["instrument"], "additionalProperties": false}
+        },
+        {
+            "name": "get_bars",
+            "description": "Read bars for one instrument, one execution timeframe, over one half-open window. Refused HOLDOUT_PARTITION_UNDEFINED today: no Owner defines Qualification's holdout partition yet, so no market value reaches an agent.",
+            "inputSchema": {"type": "object", "properties": {
+                "instrument": instrument,
+                "execution_timeframe": execution_timeframe,
+                "window_start_ns": {"type": "integer", "minimum": 0, "description": "Inclusive start of the window, in nanoseconds since the Unix epoch."},
+                "window_end_ns_exclusive": {"type": "integer", "minimum": 0, "description": "Exclusive end of the window, in nanoseconds since the Unix epoch."}
+            }, "required": ["instrument", "execution_timeframe", "window_start_ns", "window_end_ns_exclusive"], "additionalProperties": false}
+        },
+        {
+            "name": "get_funding",
+            "description": "Read settled funding rows for one instrument, over one half-open window. Refused HOLDOUT_PARTITION_UNDEFINED today, the same as get_bars and for the same reason.",
+            "inputSchema": {"type": "object", "properties": {
+                "instrument": instrument,
+                "window_start_ns": {"type": "integer", "minimum": 0, "description": "Inclusive start of the window, in nanoseconds since the Unix epoch."},
+                "window_end_ns_exclusive": {"type": "integer", "minimum": 0, "description": "Exclusive end of the window, in nanoseconds since the Unix epoch."}
+            }, "required": ["instrument", "window_start_ns", "window_end_ns_exclusive"], "additionalProperties": false}
         }
     ])
 }
@@ -107,7 +126,7 @@ pub fn tools() -> Value {
 ///
 /// # Errors
 ///
-/// Returns `(404, "TOOL_UNKNOWN")` for a name none of the six tools has, `(400,
+/// Returns `(404, "TOOL_UNKNOWN")` for a name none of the eight tools has, `(400,
 /// "MALFORMED_TYPED_REQUEST")` for a call missing a required argument, naming one these tools do
 /// not take, or stating one in the wrong shape, and `(404, "JOB_UNKNOWN")` for a `job_id` not
 /// spelled as exactly 64 lower-case hex digits.
@@ -195,12 +214,60 @@ pub fn request_for(name: &str, arguments: &Value) -> Result<ApiRequest, (u16, Va
             ),
             body: None,
         }),
+        "get_bars"
+            if allowed(&[
+                "instrument",
+                "execution_timeframe",
+                "window_start_ns",
+                "window_end_ns_exclusive",
+            ]) =>
+        {
+            let window_start_ns = arguments
+                .get("window_start_ns")
+                .and_then(Value::as_u64)
+                .ok_or_else(malformed)?;
+            let window_end_ns_exclusive = arguments
+                .get("window_end_ns_exclusive")
+                .and_then(Value::as_u64)
+                .ok_or_else(malformed)?;
+            Ok(ApiRequest {
+                method: "POST",
+                path: "/v1/market-data/bars".to_owned(),
+                body: Some(json!({
+                    "instrument": string_field("instrument")?,
+                    "execution_timeframe": string_field("execution_timeframe")?,
+                    "window_start_ns": window_start_ns,
+                    "window_end_ns_exclusive": window_end_ns_exclusive,
+                })),
+            })
+        }
+        "get_funding" if allowed(&["instrument", "window_start_ns", "window_end_ns_exclusive"]) => {
+            let window_start_ns = arguments
+                .get("window_start_ns")
+                .and_then(Value::as_u64)
+                .ok_or_else(malformed)?;
+            let window_end_ns_exclusive = arguments
+                .get("window_end_ns_exclusive")
+                .and_then(Value::as_u64)
+                .ok_or_else(malformed)?;
+            Ok(ApiRequest {
+                method: "POST",
+                path: "/v1/market-data/funding".to_owned(),
+                body: Some(json!({
+                    "instrument": string_field("instrument")?,
+                    "window_start_ns": window_start_ns,
+                    "window_end_ns_exclusive": window_end_ns_exclusive,
+                })),
+            })
+        }
         "list_instruments"
         | "describe_instrument"
         | "admit_instrument"
         | "backfill"
         | "job_status"
-        | "coverage" => Err(malformed()),
+        | "coverage"
+        | "get_bars"
+        | "get_funding" => Err(malformed()),
         _ => Err((404, json!({"error": "TOOL_UNKNOWN"}))),
     }
 }
@@ -312,6 +379,20 @@ mod tests {
     )]
     #[case::job_status("job_status", json!({"job_id": JOB_ID}), "GET", &format!("/v1/market-data/backfill-jobs/{JOB_ID}"), None)]
     #[case::coverage("coverage", json!({"instrument": INSTRUMENT}), "GET", &format!("/v1/market-data/instruments/{INSTRUMENT}/coverage"), None)]
+    #[case::get_bars(
+        "get_bars",
+        json!({"instrument": INSTRUMENT, "execution_timeframe": "1d", "window_start_ns": 1, "window_end_ns_exclusive": 2}),
+        "POST",
+        "/v1/market-data/bars",
+        Some(json!({"instrument": INSTRUMENT, "execution_timeframe": "1d", "window_start_ns": 1, "window_end_ns_exclusive": 2}))
+    )]
+    #[case::get_funding(
+        "get_funding",
+        json!({"instrument": INSTRUMENT, "window_start_ns": 1, "window_end_ns_exclusive": 2}),
+        "POST",
+        "/v1/market-data/funding",
+        Some(json!({"instrument": INSTRUMENT, "window_start_ns": 1, "window_end_ns_exclusive": 2}))
+    )]
     #[tokio::test]
     async fn each_tool_sends_one_request_to_its_route(
         #[case] name: &str,
@@ -382,7 +463,7 @@ mod tests {
 
     #[rstest]
     #[tokio::test]
-    async fn the_server_speaks_the_mcp_handshake_and_lists_six_tools() {
+    async fn the_server_speaks_the_mcp_handshake_and_lists_eight_tools() {
         let api = RecordingApi {
             sent: Mutex::new(Vec::new()),
             answer: (200, "{}".to_owned()),
@@ -425,6 +506,8 @@ mod tests {
                 "backfill",
                 "job_status",
                 "coverage",
+                "get_bars",
+                "get_funding",
             ]
         );
 

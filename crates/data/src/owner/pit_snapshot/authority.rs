@@ -1774,7 +1774,7 @@ impl<'a> Decoder<'a> {
         let valid_count = !count.is_empty()
             && !count.starts_with('0')
             && count.parse::<u64>().is_ok_and(|count| count > 0);
-        if valid_count && matches!(unit, "NS" | "US" | "MS" | "S" | "M" | "H" | "D") {
+        if valid_count && matches!(unit, "NS" | "US" | "MS" | "S" | "M" | "H" | "D" | "W") {
             Ok(value)
         } else {
             Err(PitSnapshotError::InvalidObservationBatch)
