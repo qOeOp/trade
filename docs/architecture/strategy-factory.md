@@ -1592,6 +1592,62 @@ turn that red (Binance publishes no correction stream, so a synthetic source dri
 the minting instant must hide every frame; removing the available ≤ `d_k` check must turn the T2 look-ahead test red;
 and the same higher-timeframe bar must carry byte-identical coordinates in adjacent frames.
 
+### T1: a custody-run Replay commit and execution-input binding
+
+**TARGET.** T0 (above) gives Market Data a chain of backfilled history and a per-frame derived
+view; nothing yet commits a Replay request or an execution-input binding against a *run* over that
+chain rather than a single PIT snapshot. T1 is exactly that seam, option **(A)**: the sealed Replay
+commit and the execution-input binding each grow a custody branch beside their existing
+single-frame one, so a Result over a custody run carries the same durable, independently
+reproducible anchor the single-frame path already gives F - not a second, parallel contract.
+
+- **Unaffected**: Composer (H5) and the composition binding (H6, the sealed Artifact/Plan a Replay
+  request names) do not change. The custody-vs-snapshot choice is made at the Replay request, after
+  a Design, Plan and Artifact already exist; nothing about producing those depends on how their
+  data window will later be read.
+- **The sealed Replay commit** (H7, `/v2/exploratory-replays`'s request) accepts, as an alternative
+  to a single PIT snapshot identity, a PIT window custody chain root and a run window
+  (`run_start_ns`, `run_end_ns_exclusive`) - the same `UntrustedPitWindowRunV1` shape T0's frames
+  port already takes. A custody-run request never also names a PIT snapshot; the two are exclusive.
+- **The custody path skips H4b** (the single-frame path's BAR-schedule mint): a custody run's
+  schedule is already minted once, per member, as T0-4b's window schedule fact
+  (`PitWindowScheduleFactV1`, market-data.md "window schedule fact") when the chain's root custody
+  was committed. There is nothing left for H4b to mint.
+- **The execution-input binding** (H8, `NativeReplayExecutionInputBindingV1`'s readback) gains a
+  read-only accessor, `custody_run() -> Option<ReplayCustodyRunBindingV1>`; a snapshot-run binding
+  returns `None`, unchanged. For a custody run:
+
+  ```rust
+  pub struct ReplayCustodyRunBindingV1 {
+      pub chain_root: [u8; 32],
+      pub head_identity: [u8; 32],
+      pub run_start_ns: u64,
+      pub run_end_ns_exclusive: u64,
+  }
+  ```
+
+  `head_identity` is written once, at issuance: the issuer calls Market Data's
+  `resolve_pit_window_frames_v1(run)` and records the `head_identity` the returned
+  `PitWindowRunFramesV1` names. The binding pins that head; it is never advanced to a later one by
+  the binding itself.
+- **The consumer side is "T1, the custody run's consumer" below** - re-resolution, the pinned-head
+  check (`CUSTODY_HEAD_MOVED_SINCE_BINDING`), per-frame reads and `census().custody()` all live
+  there, kept in one place so the two sides cannot drift into disagreeing descriptions.
+- **Production gate**: a custody run cannot complete end-to-end in production until Lane 1's T0-6
+  lands - T0-6 is the per-gap quote-cut derivation, not general availability/clock wiring.
+  Production today refuses every gap as `QuoteCutMissing`, which a custody frame surfaces as
+  `EventOrderUnavailable`, until T0-6 derives it. Until T0-6 lands, this is verified the same way
+  F's single-frame chain entry already is - an injected quote-cut proof through the sealed-
+  acceptance custody resolver (#1331) - and, per Lane 2's rule, that injected-proof run must be
+  repeated once T0-6 lands before it counts as evidence of the production path; the injected proof
+  is a stand-in for T0-6, not a substitute that outlives it.
+- **Goal**: this lets the `backtest.run` orchestration's ordered-chain entry (`run_backtest_v1`,
+  `crates/strategy_factory_rd_owner_api/src/backtest_run_v1.rs`, which today stops by name at
+  `CustodyFramesNotAvailable`) extend, in place, from "frame parsed, no consumer yet" to a
+  multi-frame run that produces a Result, a count and a report - the same chain entry, not a new
+  one, per the standing rule that this entry grows as its dependencies land rather than being
+  recreated each time.
+
 ### Members: a parameter
 
 The Research scope is the only source of the member set (P0). The one-or-two bound becomes one declared upper bound.
