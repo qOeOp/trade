@@ -139,6 +139,7 @@ pub use successor_intent_postgres::{
 mod legacy_prepared_attempt_drain;
 #[cfg(test)]
 mod lowered_guest_build_for_test;
+mod native_replay_custody_binding_issuance_v1;
 pub mod native_replay_custody_frames_v1;
 mod native_replay_execution_binding_consumer_v1;
 pub mod native_replay_execution_bundle_owner_v2;

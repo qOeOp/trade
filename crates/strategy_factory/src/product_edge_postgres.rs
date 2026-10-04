@@ -2426,6 +2426,42 @@ impl PostgresResearchGoalOwnerV1 {
         Ok(readback)
     }
 
+    /// Resolves every constituent of a custody-run execution-input binding (H8) and atomically
+    /// issues the R&D binding, mirroring
+    /// [`Self::issue_native_replay_execution_input_binding_v1`] for the custody data path.
+    pub async fn issue_native_replay_execution_input_binding_from_custody_run_v1<P>(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
+        custody_frames: &dyn vibe_data::owner::pit_window_custody_v1::PitWindowCustodyFramesV1,
+        run: crate::native_replay_execution_input_binding_v1::ReplayCustodyRunBindingV1,
+    ) -> Result<
+        crate::NativeReplayExecutionInputBindingReadbackV1,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+    {
+        let mut transaction = self.begin_native_replay_issuance_transaction_v1().await?;
+        let readback = crate::native_replay_custody_binding_issuance_v1::issue_native_replay_custody_binding_v1_in_transaction(
+            &mut transaction,
+            locator,
+            composer,
+            instrument_terms_owner,
+            instrument_master_owner,
+            custody_frames,
+            run,
+        )
+        .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        Ok(readback)
+    }
+
     /// Opens the transaction one execution-input binding is issued or resolved in.
     ///
     /// It is READ COMMITTED because that is the one level every Owner read on the way answers

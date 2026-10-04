@@ -558,6 +558,13 @@ impl VerifiedStrategyInputBindingsV2 {
         }
     }
 
+    /// The Owner-sealed Universe Selection these bindings carry, or `None` for an exact-instrument
+    /// Design. Read-only: a caller cannot construct or splice a projection of its own, only read
+    /// back what one of this type's own constructors already verified.
+    pub(crate) fn universe_selection(&self) -> Option<&UniverseSelectionProjectionV2> {
+        self.universe_selection.as_ref()
+    }
+
     #[allow(
         dead_code,
         reason = "consumed by the crate-local Develop Composer before its durable composition root"

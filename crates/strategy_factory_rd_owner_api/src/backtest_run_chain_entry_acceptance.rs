@@ -175,6 +175,10 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
         custody_frames: None,
         #[cfg(feature = "composer-v3-replay")]
         develop_composer: None,
+        #[cfg(feature = "composer-v3-replay")]
+        instrument_master_v2: None,
+        #[cfg(feature = "composer-v3-replay")]
+        instrument_economic_terms: None,
     };
 
     // Both statement families run through the one orchestration: each is authored by its own
@@ -366,6 +370,10 @@ async fn assert_backtest_runs_are_recorded_and_read_back_v1(
         custody_frames: None,
         #[cfg(feature = "composer-v3-replay")]
         develop_composer: None,
+        #[cfg(feature = "composer-v3-replay")]
+        instrument_master_v2: None,
+        #[cfg(feature = "composer-v3-replay")]
+        instrument_economic_terms: None,
         rd_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_url(rd_url, PostgresTls::Disabled)
             .await
@@ -540,11 +548,12 @@ fn describe_replay_reason(reason: &BacktestRunReplayUnavailableV1) -> String {
             format!("replay commit failed: {e}")
         }
         #[cfg(feature = "composer-v3-replay")]
-        BacktestRunReplayUnavailableV1::ReplayCommittedNoCustodyIssuanceYet(result) => {
-            format!(
-                "replay committed, no custody issuance yet: {:?}",
-                result.locator()
-            )
+        BacktestRunReplayUnavailableV1::ReplayCommitted(result) => {
+            format!("replay committed: {:?}", result.locator())
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::CustodyIssuanceFailed(e) => {
+            format!("custody issuance failed: {e}")
         }
     }
 }
