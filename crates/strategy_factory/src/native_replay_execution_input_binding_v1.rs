@@ -15,8 +15,14 @@ use vibe_data::owner::{
     instrument_economic_terms_v1::{
         InstrumentEconomicTermsLocatorV1, InstrumentEconomicTermsReadbackV1,
     },
-    instrument_master_v2::{InstrumentMasterReadbackV2, native_replay_request_identity_v2},
+    instrument_master::InstrumentDecimal,
+    instrument_master_v2::{
+        FactValue, InstrumentDecimalV2, InstrumentMasterFactV2, InstrumentMasterReadbackV2,
+        native_replay_request_identity_v2,
+    },
+    pit_window_custody_v1::PitWindowChainBasisV1,
     strategy_input_binding::StrategyInputUniverseFrameReceipt,
+    universe_selection::UniverseSelectionMembersForRdV1,
 };
 
 use crate::{
@@ -29,11 +35,14 @@ use crate::{
     target_set_members::{BoundedMembers, is_admitted_member_count},
 };
 
-/// Bumped to 2 for the custody-run data path (T1): `members` no longer carries BAR-schedule
-/// fields, and the binding now encodes a `data_path` discriminant after them. No binding has ever
-/// been issued under schema 1 outside this module's own tests, so there is no byte carried
-/// forward from it.
-const SCHEMA_VERSION: u16 = 2;
+/// Bumped to 3: schema 2 (the custody-run data path, T1) moved BAR-schedule fields out of
+/// `members` into a `data_path` discriminant; schema 3 additionally makes
+/// `public_instrument_master_cut` a discriminated `PublicInstrumentMasterCutV1` (a custody run's
+/// chain-wide V1 Instrument Master cut uses a different locator shape than a snapshot's V2 one -
+/// writing V1 values into the V2-shaped locator would let a downstream V2 resolve misread them).
+/// No binding has ever been issued under any earlier schema outside this module's own tests, so
+/// there is no byte carried forward from either change.
+const SCHEMA_VERSION: u16 = 3;
 const BINDING_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding.v1\0";
 const RECEIPT_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding-receipt.v1\0";
 const OUTBOX_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding-outbox.v1\0";
@@ -67,7 +76,7 @@ pub struct NativeReplayExecutionInputBindingV1 {
     artifact: NamedLocatorV1,
     strategy_plan: NamedLocatorV1,
     execution_profile_seals: ExecutionProfileSealLocatorsV1,
-    public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1,
+    public_instrument_master_cut: PublicInstrumentMasterCutV1,
     members: BoundedMembers<NativeReplayExecutionInputMemberV1>,
     data_path: NativeReplayExecutionDataPathV1,
     binding_identity: [u8; 32],
@@ -178,6 +187,25 @@ struct InstrumentMasterCutLocatorBindingV1 {
     request_binding_digest: [u8; 32],
     cut_identity: [u8; 32],
     receipt_identity: [u8; 32],
+}
+
+/// The Instrument Master cut a binding names, by data path.
+///
+/// A snapshot binding's locator is V2 resolver vocabulary (`request_binding_digest` is a V2
+/// concept): a custody-run value must never be written into it, or a downstream V2 resolve would
+/// answer `UnknownLocator` or, worse, resolve the wrong thing. A custody run names the chain's own
+/// V1 cut instead - minted once at root-custody-commit time from the chain root, bound to the
+/// chain rather than to any one Replay request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PublicInstrumentMasterCutV1 {
+    SnapshotV2(InstrumentMasterCutLocatorBindingV1),
+    CustodyChainV1 {
+        chain_root: [u8; 32],
+        cut_identity: [u8; 32],
+        receipt_identity: [u8; 32],
+        request_identity: [u8; 32],
+        request_meaning_digest: [u8; 32],
+    },
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -538,6 +566,13 @@ pub enum NativeReplayExecutionInputBindingCauseV1 {
     BindingCustodyRunHeadIdentityZero,
     /// A custody run's window is not strictly ordered (`run_start_ns < run_end_ns_exclusive`).
     BindingCustodyRunWindowInvalid,
+    /// The custody chain's own declared members (`PitWindowChainBasisV1::members`) are not the
+    /// same instrument set, in the same order, as the Universe Selection record's.
+    CustodyMembersNotTheChains,
+    /// A custody member's linked V2 Instrument Master fact disagrees with the custody chain's own
+    /// V1 fact for that member: canonical identity, a currency, an increment or the contract
+    /// multiplier differs, or the chain's structural projection could not be derived at all.
+    CustodyPublicTermsDisagreeWithChainInstrumentMaster,
     /// The execution profile seal's Replay Policy Catalog binding digest is zero.
     CatalogBindingSealZero,
     /// The execution profile seal's TrialFamily binding digest is zero.
@@ -701,6 +736,10 @@ impl NativeReplayExecutionInputBindingCauseV1 {
             Self::BindingCustodyRunChainRootZero => "BINDING_CUSTODY_RUN_CHAIN_ROOT_ZERO",
             Self::BindingCustodyRunHeadIdentityZero => "BINDING_CUSTODY_RUN_HEAD_IDENTITY_ZERO",
             Self::BindingCustodyRunWindowInvalid => "BINDING_CUSTODY_RUN_WINDOW_INVALID",
+            Self::CustodyMembersNotTheChains => "CUSTODY_MEMBERS_NOT_THE_CHAINS",
+            Self::CustodyPublicTermsDisagreeWithChainInstrumentMaster => {
+                "CUSTODY_PUBLIC_TERMS_DISAGREE_WITH_CHAIN_INSTRUMENT_MASTER"
+            }
             Self::CatalogBindingSealZero => "CATALOG_BINDING_SEAL_ZERO",
             Self::FamilyBindingSealZero => "FAMILY_BINDING_SEAL_ZERO",
             Self::RequestBindingSealZero => "REQUEST_BINDING_SEAL_ZERO",
@@ -725,7 +764,7 @@ pub(crate) struct VerifiedNativeReplayExecutionInputConstituentsV1 {
     artifact: NamedLocatorV1,
     strategy_plan: NamedLocatorV1,
     execution_profile_seals: ExecutionProfileSealLocatorsV1,
-    public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1,
+    public_instrument_master_cut: PublicInstrumentMasterCutV1,
     members: BoundedMembers<NativeReplayExecutionInputMemberV1>,
     data_path: NativeReplayExecutionDataPathV1,
 }
@@ -765,6 +804,75 @@ pub(crate) async fn issue_native_replay_execution_input_binding_from_owner_readb
     .await
 }
 
+/// Verifies a custody run's complete constituent set and atomically appends its binding, receipt
+/// and outbox row under the already sealed Replay request, exactly as
+/// [`issue_native_replay_execution_input_binding_from_owner_readbacks_v1`] does for a snapshot.
+///
+/// See [`verify_custody_run_shared_replay_execution_inputs`] for what each parameter is and where
+/// it comes from.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn issue_native_replay_execution_input_binding_from_custody_run_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    preparation: &NativeReplayPreparationInputsV2,
+    profile: &OwnerIssuedReplayExecutionProfileBindingV1,
+    plan: &StrategyPlanV2,
+    artifact: &StrategyArtifactV2,
+    basis: &PitWindowChainBasisV1,
+    custody_members: &UniverseSelectionMembersForRdV1,
+    instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
+    resolved_public_terms: &[&InstrumentMasterFactV2],
+    run: ReplayCustodyRunBindingV1,
+) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1> {
+    refuse_invalid_custody_run(run)?;
+    let shared = verify_custody_run_shared_replay_execution_inputs(
+        preparation,
+        profile,
+        plan,
+        artifact,
+        basis,
+        custody_members,
+        instrument_terms,
+        resolved_public_terms,
+        run.run_start_ns,
+        run.run_end_ns_exclusive,
+    )?;
+    let verified = VerifiedNativeReplayExecutionInputConstituentsV1 {
+        request_locator: preparation.replay().locator(),
+        trial_family: shared.trial_family,
+        artifact: shared.artifact,
+        strategy_plan: shared.strategy_plan,
+        execution_profile_seals: shared.execution_profile_seals,
+        public_instrument_master_cut: shared.public_instrument_master_cut,
+        members: shared.members,
+        data_path: NativeReplayExecutionDataPathV1::CustodyRun(run),
+    };
+    issue_native_replay_execution_input_binding_v1_in_transaction(
+        transaction,
+        preparation.replay(),
+        verified,
+    )
+    .await
+}
+
+fn refuse_invalid_custody_run(
+    run: ReplayCustodyRunBindingV1,
+) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
+    let unavailable = NativeReplayExecutionInputBindingErrorV1::Unavailable;
+
+    if run.chain_root == [0; 32] {
+        return Err(unavailable(Cause::BindingCustodyRunChainRootZero));
+    }
+
+    if run.head_identity == [0; 32] {
+        return Err(unavailable(Cause::BindingCustodyRunHeadIdentityZero));
+    }
+
+    if run.run_start_ns >= run.run_end_ns_exclusive {
+        return Err(unavailable(Cause::BindingCustodyRunWindowInvalid));
+    }
+    Ok(())
+}
+
 /// Proves that a fresh consumer-side Owner resolution reproduces the stored binding exactly.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn verify_re_resolved_native_replay_execution_inputs_v1(
@@ -800,50 +908,49 @@ pub(crate) fn verify_re_resolved_native_replay_execution_inputs_v1(
 /// Proves that a fresh consumer-side Owner resolution reproduces a custody-run binding's shared
 /// constituents exactly, and returns the run it names.
 ///
-/// `instrument_master` and `instrument_terms` are the custody chain's own basis - its Instrument
-/// Master cut and the economic terms checked against it, the authoritative source for a custody
-/// run's members (Lane 3's ruling), not a per-request universe frame. There is no universe frame
-/// or BAR schedule to re-check here: a custody run has neither.
-///
-/// `public_terms` the caller derives from the returned members must come from this binding's own
-/// stored, verified locators - [`NativeReplayExecutionInputBindingReadbackV1::instrument_economic_
-/// terms_locators`] - and never from an independent resolution the caller performs itself.
+/// `basis` is the custody chain's own basis (`PitWindowRunFramesV1::basis()`), `custody_members`
+/// is the Universe Selection record it names (already resolved by the caller via
+/// `read_universe_selection_members_for_rd_v1(tx, basis.universe_selection_record())`), and
+/// `resolved_public_terms` is each member's linked V2 Instrument Master fact (already resolved by
+/// the caller via `InstrumentMasterV2PostgresOwner::resolve_fact_v2`, from
+/// `economic_input.instrument_public_fact_digest`, the same digest
+/// [`NativeReplayExecutionInputBindingReadbackV1::instrument_economic_terms_locators`] names) -
+/// never from an independent resolution the caller performs itself. There is no per-request
+/// universe frame or BAR schedule to re-check here: a custody run has neither.
 ///
 /// # Errors
 ///
 /// [`Cause::BindingIsNotACustodyRun`] when `stored` names a snapshot binding, and
 /// [`Cause::ReResolutionDiffers`] when the freshly resolved shared constituents, or the request
 /// locator, do not reproduce the stored binding's.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn verify_re_resolved_native_replay_custody_execution_inputs_v1(
     stored: &NativeReplayExecutionInputBindingReadbackV1,
     preparation: &NativeReplayPreparationInputsV2,
     profile: &OwnerIssuedReplayExecutionProfileBindingV1,
     plan: &StrategyPlanV2,
     artifact: &StrategyArtifactV2,
-    instrument_master: &InstrumentMasterReadbackV2,
+    basis: &PitWindowChainBasisV1,
+    custody_members: &UniverseSelectionMembersForRdV1,
     instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
+    resolved_public_terms: &[&InstrumentMasterFactV2],
 ) -> Result<ReplayCustodyRunBindingV1, NativeReplayExecutionInputBindingErrorV1> {
     let unavailable = NativeReplayExecutionInputBindingErrorV1::Unavailable;
     let NativeReplayExecutionDataPathV1::CustodyRun(run) = &stored.binding.data_path else {
         return Err(unavailable(Cause::BindingIsNotACustodyRun));
     };
     let run = *run;
-    let plan_selection = plan
-        .universe_selection()
-        .ok_or(unavailable(Cause::PlanHasNoUniverseSelection))?;
-    let member_keys_and_instruments = plan_selection
-        .members()
-        .iter()
-        .map(|member| (member.member_key(), member.instrument()))
-        .collect::<Vec<_>>();
-    let shared = verify_shared_replay_execution_inputs(
+    let shared = verify_custody_run_shared_replay_execution_inputs(
         preparation,
         profile,
         plan,
         artifact,
-        instrument_master,
+        basis,
+        custody_members,
         instrument_terms,
-        &member_keys_and_instruments,
+        resolved_public_terms,
+        run.run_start_ns,
+        run.run_end_ns_exclusive,
     )?;
 
     if stored.binding.request_locator != preparation.replay().locator()
@@ -1106,7 +1213,7 @@ fn prepare_rows(
             .execution_profile_seals
             .runner_operational_profile_digest,
     );
-    writer.instrument_master_cut_locator(verified.public_instrument_master_cut);
+    writer.public_instrument_master_cut(verified.public_instrument_master_cut);
     writer.u16(u16::try_from(verified.members.len()).map_err(|_| {
         NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::BindingNotEncodable)
     })?);
@@ -1194,7 +1301,7 @@ fn recover_rows(
         economic_configuration_digest: decoder.digest()?,
         runner_operational_profile_digest: decoder.digest()?,
     };
-    let public_instrument_master_cut = decoder.instrument_master_cut_locator()?;
+    let public_instrument_master_cut = decoder.public_instrument_master_cut()?;
     let member_count = usize::from(decoder.u16()?);
     if !is_admitted_member_count(member_count) {
         return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
@@ -1331,7 +1438,7 @@ fn validate_verified(
         Cause::BindingStrategyPlanLocatorInvalid,
     )?;
     refuse(
-        !valid_instrument_master_cut_locator(verified.public_instrument_master_cut),
+        !valid_public_instrument_master_cut(verified.public_instrument_master_cut),
         Cause::BindingInstrumentMasterCutLocatorInvalid,
     )?;
     refuse(
@@ -1434,7 +1541,7 @@ struct SharedReplayExecutionInputsV1 {
     artifact: NamedLocatorV1,
     strategy_plan: NamedLocatorV1,
     execution_profile_seals: ExecutionProfileSealLocatorsV1,
-    public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1,
+    public_instrument_master_cut: PublicInstrumentMasterCutV1,
     members: BoundedMembers<NativeReplayExecutionInputMemberV1>,
 }
 
@@ -1652,12 +1759,14 @@ fn verify_shared_replay_execution_inputs(
             economic_configuration_digest: profile.economic_configuration_digest(),
             runner_operational_profile_digest: profile.runner_operational_profile_digest(),
         },
-        public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1 {
-            request_identity: *master_locator.request_identity().as_bytes(),
-            request_binding_digest: *master_locator.request_binding_digest().as_bytes(),
-            cut_identity: *master_locator.cut_identity().as_bytes(),
-            receipt_identity: *master_locator.receipt_identity().as_bytes(),
-        },
+        public_instrument_master_cut: PublicInstrumentMasterCutV1::SnapshotV2(
+            InstrumentMasterCutLocatorBindingV1 {
+                request_identity: *master_locator.request_identity().as_bytes(),
+                request_binding_digest: *master_locator.request_binding_digest().as_bytes(),
+                cut_identity: *master_locator.cut_identity().as_bytes(),
+                receipt_identity: *master_locator.receipt_identity().as_bytes(),
+            },
+        ),
         members,
     })
 }
@@ -1794,6 +1903,299 @@ fn verify_owner_readbacks(
     })
 }
 
+/// Verifies a custody run's complete constituent set: the shared agreement (duplicated here
+/// rather than shared with [`verify_shared_replay_execution_inputs`], since the two member loops
+/// have nothing but their first half in common - this one resolves members from the custody
+/// chain's own basis, not a per-request universe frame, and has no V2 Instrument Master cut or
+/// BAR schedule to check), each member's V1-fact-to-V2-terms association (Lane 3's ruling), and
+/// the V1/V2 structural cross-check (Lane 6's finding: V1's own structural projection cannot
+/// materialize a native instrument - it lacks `is_inverse`, lot size and every limit - so
+/// materialization still uses the V2 fact the terms are bound to, proven to name the same
+/// instrument as the chain's V1 member instead of trusted on its own).
+///
+/// `resolved_public_terms` is the V2 fact the economic terms at the same index name
+/// (`economic_input.instrument_public_fact_digest`), already resolved by the caller via
+/// `InstrumentMasterV2PostgresOwner::resolve_fact_v2`. `custody_members` is the custody chain's
+/// Universe Selection record, already resolved by the caller via
+/// `read_universe_selection_members_for_rd_v1(tx, basis.universe_selection_record())`.
+#[allow(clippy::too_many_arguments)]
+fn verify_custody_run_shared_replay_execution_inputs(
+    preparation: &NativeReplayPreparationInputsV2,
+    profile: &OwnerIssuedReplayExecutionProfileBindingV1,
+    plan: &StrategyPlanV2,
+    artifact: &StrategyArtifactV2,
+    basis: &PitWindowChainBasisV1,
+    custody_members: &UniverseSelectionMembersForRdV1,
+    instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
+    resolved_public_terms: &[&InstrumentMasterFactV2],
+    run_start_ns: u64,
+    run_end_ns_exclusive: u64,
+) -> Result<SharedReplayExecutionInputsV1, NativeReplayExecutionInputBindingErrorV1> {
+    let replay = preparation.replay();
+    let request = replay.request().as_dto();
+    let composer = preparation.composer();
+    let unavailable = NativeReplayExecutionInputBindingErrorV1::Unavailable;
+    let plan_selection = plan
+        .universe_selection()
+        .ok_or(unavailable(Cause::PlanHasNoUniverseSelection))?;
+    let seal = replay
+        .execution_profile_seal()
+        .ok_or(unavailable(Cause::ReplayHasNoExecutionProfileSeal))?;
+    let request_plan_digest = parse_sha256(request.strategy_plan.digest.as_str())?;
+    let request_artifact_digest = parse_sha256(request.artifact.digest.as_str())?;
+    let request_universe_digest = parse_sha256(request.universe_selection.digest.as_str())?;
+    let artifact_modules = artifact.private_module_bytes();
+
+    let refuse = |refused: bool, cause: Cause| {
+        if refused {
+            Err(unavailable(cause))
+        } else {
+            Ok(())
+        }
+    };
+    let family_root = preparation.family().root();
+    refuse(
+        !profile.matches_request_locator(&replay.locator()),
+        Cause::ExecutionProfileNamesAnotherRequest,
+    )?;
+    refuse(
+        profile.trial_family_identity() != family_root.trial_family_identity(),
+        Cause::ExecutionProfileNamesAnotherFamily,
+    )?;
+    refuse(
+        profile.trial_family_digest() != parse_sha256(family_root.root_digest())?,
+        Cause::ExecutionProfileFamilyDigestDiffers,
+    )?;
+    refuse(
+        request.strategy_plan.identity.as_str() != profile.request_strategy_plan_identity(),
+        Cause::ExecutionProfileNamesAnotherPlan,
+    )?;
+    refuse(
+        request_plan_digest != profile.request_strategy_plan_digest(),
+        Cause::ExecutionProfilePlanDigestDiffers,
+    )?;
+    refuse(
+        request_plan_digest != *plan.canonical_plan_digest().as_bytes(),
+        Cause::PlanDigestDiffersFromRequest,
+    )?;
+    refuse(
+        request.artifact.identity.as_str() != profile.request_artifact_identity(),
+        Cause::ExecutionProfileNamesAnotherArtifact,
+    )?;
+    refuse(
+        request_artifact_digest != profile.request_artifact_digest(),
+        Cause::ExecutionProfileArtifactDigestDiffers,
+    )?;
+    refuse(
+        request_artifact_digest != *artifact.identity().as_bytes(),
+        Cause::ArtifactDigestDiffersFromRequest,
+    )?;
+    refuse(
+        request.universe_selection.identity.as_str()
+            != profile.request_universe_selection_identity(),
+        Cause::ExecutionProfileNamesAnotherUniverseSelection,
+    )?;
+    refuse(
+        request_universe_digest != profile.request_universe_selection_digest(),
+        Cause::ExecutionProfileUniverseSelectionDigestDiffers,
+    )?;
+    refuse(
+        !profile.matches_instrument_terms_readbacks(instrument_terms),
+        Cause::ExecutionProfileNamesOtherEconomicTerms,
+    )?;
+    refuse(
+        composer.plan_bytes() != plan.durable_bytes(),
+        Cause::ComposerPlanBytesDiffer,
+    )?;
+    refuse(
+        composer.artifact_package_bytes() != artifact.durable_package_bytes(),
+        Cause::ComposerArtifactPackageDiffers,
+    )?;
+    refuse(
+        !composer
+            .module_bytes()
+            .eq(artifact_modules.iter().map(|bytes| bytes.as_ref())),
+        Cause::ComposerModulesDiffer,
+    )?;
+    refuse(
+        artifact.validate_for_plan(plan).is_err(),
+        Cause::ArtifactInvalidForPlan,
+    )?;
+
+    let custody_member_list = custody_members.members();
+    refuse(
+        !is_admitted_member_count(custody_member_list.len()),
+        Cause::MemberCountNotAdmitted,
+    )?;
+
+    let mut member_keys = Vec::with_capacity(custody_member_list.len());
+
+    for member in custody_member_list {
+        let key = std::str::from_utf8(member.member_key())
+            .map_err(|_| unavailable(Cause::BindingMemberKeyInvalid))?;
+        member_keys.push((key, member.instrument()));
+    }
+    refuse(
+        member_keys.windows(2).any(|pair| pair[0].0 >= pair[1].0),
+        Cause::UniverseFrameMembersOutOfOrder,
+    )?;
+    refuse(
+        instrument_terms.len() != member_keys.len(),
+        Cause::EconomicTermsCountDiffers,
+    )?;
+    refuse(
+        resolved_public_terms.len() != member_keys.len(),
+        Cause::EconomicTermsCountDiffers,
+    )?;
+    refuse(
+        basis.members().len() != member_keys.len()
+            || !basis
+                .members()
+                .iter()
+                .zip(member_keys.iter())
+                .all(|(chain_member, (_, instrument))| chain_member == instrument),
+        Cause::CustodyMembersNotTheChains,
+    )?;
+    refuse(
+        member_keys.len() != plan_selection.members().len(),
+        Cause::UniverseFrameMemberCountDiffersFromPlan,
+    )?;
+    refuse(
+        !member_keys
+            .iter()
+            .zip(plan_selection.members())
+            .all(|((key, instrument), planned)| {
+                *key == planned.member_key() && *instrument == planned.instrument()
+            }),
+        Cause::UniverseFrameMembersDifferFromPlan,
+    )?;
+
+    let mut members = Vec::with_capacity(member_keys.len());
+
+    for (index, (member_key, member_instrument)) in member_keys.iter().enumerate() {
+        let economic = instrument_terms[index];
+        let economic_input = economic.fact().input();
+        let v2_fact = resolved_public_terms[index];
+
+        refuse(
+            economic_input.instrument_identity != *member_instrument,
+            Cause::EconomicTermsNameAnotherInstrument,
+        )?;
+        refuse(
+            v2_fact.canonical_identity() != *member_instrument,
+            Cause::EconomicTermsCiteAnotherPublicFact,
+        )?;
+        refuse(
+            economic_input.instrument_public_fact_digest != *v2_fact.identity().as_bytes(),
+            Cause::EconomicTermsCiteAnotherPublicFact,
+        )?;
+        refuse(
+            economic_input.valid_from_ns > i128::from(run_start_ns),
+            Cause::EconomicTermsNotYetInForce,
+        )?;
+        refuse(
+            i128::from(run_end_ns_exclusive) > economic_input.valid_until_ns_exclusive,
+            Cause::EconomicTermsNoLongerInForce,
+        )?;
+        refuse(!economic.verify(), Cause::EconomicTermsDoNotVerify)?;
+
+        let v1_structural = basis
+            .structural_public_terms(member_instrument)
+            .map_err(|_| unavailable(Cause::CustodyPublicTermsDisagreeWithChainInstrumentMaster))?;
+        let v2_terms = v2_fact.terms();
+        refuse(
+            v2_fact.canonical_identity() != v1_structural.canonical_identity()
+                || !fact_value_eq_str(&v2_terms.base_currency, v1_structural.base_currency())
+                || !fact_value_eq_str(&v2_terms.quote_currency, v1_structural.quote_currency())
+                || !fact_value_eq_str(
+                    &v2_terms.settlement_currency,
+                    v1_structural.settlement_currency(),
+                )
+                || !fact_value_eq_decimal(
+                    &v2_terms.price_increment_from_filter,
+                    v1_structural.price_increment(),
+                )
+                || !fact_value_eq_decimal(
+                    &v2_terms.quantity_increment_from_filter,
+                    v1_structural.quantity_increment(),
+                )
+                || !fact_value_eq_decimal(
+                    &v2_terms.contract_multiplier,
+                    v1_structural.contract_multiplier(),
+                ),
+            Cause::CustodyPublicTermsDisagreeWithChainInstrumentMaster,
+        )?;
+
+        let economic_locator = economic.locator();
+        members.push(NativeReplayExecutionInputMemberV1 {
+            member_key: (*member_key).to_owned(),
+            public_instrument_identity: v2_fact.canonical_identity().to_owned(),
+            public_instrument_digest: *v2_fact.identity().as_bytes(),
+            venue_identity: v2_fact.venue_identity().to_owned(),
+            account_scope_identity: economic_input.account_scope_identity.clone(),
+            instrument_economic_terms_fact: ExactOwnerLocatorV1 {
+                identity: economic_locator.fact_identity(),
+                digest: economic.fact().meaning_identity(),
+            },
+            instrument_economic_terms_receipt: ExactOwnerLocatorV1 {
+                identity: economic_locator.receipt_identity(),
+                digest: economic_locator.receipt_identity(),
+            },
+        });
+    }
+
+    if members
+        .windows(2)
+        .any(|pair| pair[0].account_scope_identity != pair[1].account_scope_identity)
+    {
+        return Err(unavailable(Cause::AccountScopesDiffer));
+    }
+    let members =
+        BoundedMembers::new(members).map_err(|_| unavailable(Cause::MemberCountNotAdmitted))?;
+    let cut = basis.instrument_master_cut().cut();
+
+    Ok(SharedReplayExecutionInputsV1 {
+        trial_family: NamedLocatorV1 {
+            identity: profile.trial_family_identity().to_owned(),
+            digest: profile.trial_family_digest(),
+        },
+        artifact: NamedLocatorV1 {
+            identity: request.artifact.identity.as_str().to_owned(),
+            digest: *artifact.identity().as_bytes(),
+        },
+        strategy_plan: NamedLocatorV1 {
+            identity: request.strategy_plan.identity.as_str().to_owned(),
+            digest: *plan.canonical_plan_digest().as_bytes(),
+        },
+        execution_profile_seals: ExecutionProfileSealLocatorsV1 {
+            catalog_binding_digest: seal.catalog_binding_digest(),
+            family_binding_digest: seal.family_binding_digest(),
+            request_binding_digest: seal.request_binding_digest(),
+            economic_configuration_digest: profile.economic_configuration_digest(),
+            runner_operational_profile_digest: profile.runner_operational_profile_digest(),
+        },
+        public_instrument_master_cut: PublicInstrumentMasterCutV1::CustodyChainV1 {
+            chain_root: *basis.chain_root().as_bytes(),
+            cut_identity: *cut.identity().as_bytes(),
+            receipt_identity: *basis.instrument_master_cut().receipt_identity().as_bytes(),
+            request_identity: *cut.request_identity().as_bytes(),
+            request_meaning_digest: *cut.request_meaning_digest().as_bytes(),
+        },
+        members,
+    })
+}
+
+fn fact_value_eq_str(value: &FactValue<String>, expected: &str) -> bool {
+    matches!(value, FactValue::Value(actual) if actual == expected)
+}
+
+fn fact_value_eq_decimal(
+    value: &FactValue<InstrumentDecimalV2>,
+    expected: InstrumentDecimal,
+) -> bool {
+    matches!(value, FactValue::Value(actual) if actual.mantissa == expected.mantissa && actual.scale == expected.scale)
+}
+
 fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayExecutionInputBindingErrorV1> {
     let hex = value.strip_prefix("sha256:").ok_or(
         NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::DigestNotCanonical),
@@ -1828,15 +2230,32 @@ fn valid_locator(value: ExactOwnerLocatorV1) -> bool {
     value.identity != [0; 32] && value.digest != [0; 32]
 }
 
-fn valid_instrument_master_cut_locator(value: InstrumentMasterCutLocatorBindingV1) -> bool {
-    [
-        value.request_identity,
-        value.request_binding_digest,
-        value.cut_identity,
-        value.receipt_identity,
-    ]
-    .into_iter()
-    .all(|identity| identity != [0; 32])
+fn valid_public_instrument_master_cut(value: PublicInstrumentMasterCutV1) -> bool {
+    match value {
+        PublicInstrumentMasterCutV1::SnapshotV2(locator) => [
+            locator.request_identity,
+            locator.request_binding_digest,
+            locator.cut_identity,
+            locator.receipt_identity,
+        ]
+        .into_iter()
+        .all(|identity| identity != [0; 32]),
+        PublicInstrumentMasterCutV1::CustodyChainV1 {
+            chain_root,
+            cut_identity,
+            receipt_identity,
+            request_identity,
+            request_meaning_digest,
+        } => [
+            chain_root,
+            cut_identity,
+            receipt_identity,
+            request_identity,
+            request_meaning_digest,
+        ]
+        .into_iter()
+        .all(|identity| identity != [0; 32]),
+    }
 }
 
 /// The first of a binding member's locators that is empty, blank, oversized or zero, named.
@@ -1966,11 +2385,30 @@ impl CanonicalWriter {
         self.digest(value.identity);
         self.digest(value.digest);
     }
-    fn instrument_master_cut_locator(&mut self, value: InstrumentMasterCutLocatorBindingV1) {
-        self.digest(value.request_identity);
-        self.digest(value.request_binding_digest);
-        self.digest(value.cut_identity);
-        self.digest(value.receipt_identity);
+    fn public_instrument_master_cut(&mut self, value: PublicInstrumentMasterCutV1) {
+        match value {
+            PublicInstrumentMasterCutV1::SnapshotV2(locator) => {
+                self.0.push(0);
+                self.digest(locator.request_identity);
+                self.digest(locator.request_binding_digest);
+                self.digest(locator.cut_identity);
+                self.digest(locator.receipt_identity);
+            }
+            PublicInstrumentMasterCutV1::CustodyChainV1 {
+                chain_root,
+                cut_identity,
+                receipt_identity,
+                request_identity,
+                request_meaning_digest,
+            } => {
+                self.0.push(1);
+                self.digest(chain_root);
+                self.digest(cut_identity);
+                self.digest(receipt_identity);
+                self.digest(request_identity);
+                self.digest(request_meaning_digest);
+            }
+        }
     }
     fn data_path(
         &mut self,
@@ -2082,15 +2520,37 @@ impl<'a> CanonicalDecoder<'a> {
             digest: self.digest()?,
         })
     }
-    fn instrument_master_cut_locator(
+    fn public_instrument_master_cut(
         &mut self,
-    ) -> Result<InstrumentMasterCutLocatorBindingV1, NativeReplayExecutionInputBindingErrorV1> {
-        Ok(InstrumentMasterCutLocatorBindingV1 {
-            request_identity: self.digest()?,
-            request_binding_digest: self.digest()?,
-            cut_identity: self.digest()?,
-            receipt_identity: self.digest()?,
-        })
+    ) -> Result<PublicInstrumentMasterCutV1, NativeReplayExecutionInputBindingErrorV1> {
+        let discriminant =
+            *self
+                .take(1)?
+                .first()
+                .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                    Cause::StoredBindingCorrupt,
+                ))?;
+
+        match discriminant {
+            0 => Ok(PublicInstrumentMasterCutV1::SnapshotV2(
+                InstrumentMasterCutLocatorBindingV1 {
+                    request_identity: self.digest()?,
+                    request_binding_digest: self.digest()?,
+                    cut_identity: self.digest()?,
+                    receipt_identity: self.digest()?,
+                },
+            )),
+            1 => Ok(PublicInstrumentMasterCutV1::CustodyChainV1 {
+                chain_root: self.digest()?,
+                cut_identity: self.digest()?,
+                receipt_identity: self.digest()?,
+                request_identity: self.digest()?,
+                request_meaning_digest: self.digest()?,
+            }),
+            _ => Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                Cause::StoredBindingCorrupt,
+            )),
+        }
     }
     fn member(
         &mut self,
@@ -2276,7 +2736,9 @@ mod tests {
                 economic_configuration_digest: d(9),
                 runner_operational_profile_digest: d(10),
             },
-            public_instrument_master_cut: instrument_master_locator(11),
+            public_instrument_master_cut: PublicInstrumentMasterCutV1::SnapshotV2(
+                instrument_master_locator(11),
+            ),
             members: BoundedMembers::try_from([
                 member("AAPL", "AAPL.XNAS", 20),
                 member("MSFT", "MSFT.XNAS", 40),
@@ -2381,10 +2843,10 @@ mod tests {
     /// The persisted binding, receipt, and outbox bytes of a two-member binding, pinned from the
     /// pre-widening tree so the count-carrying member loop cannot move them.
     ///
-    /// Re-pinned for schema 2 (T1 custody-run data path, 10-04): `members` no longer carries
-    /// BAR-schedule fields and the binding now encodes a `data_path` discriminant after them. No
-    /// binding was ever issued under schema 1 outside this module's own tests, so there was no
-    /// byte to carry forward across the change.
+    /// Re-pinned for schema 3 (T1 custody-run `PublicInstrumentMasterCutV1` discriminant, 10-04):
+    /// `public_instrument_master_cut` now encodes a one-byte discriminant before its payload. No
+    /// binding was ever issued under any earlier schema outside this module's own tests, so there
+    /// was no byte to carry forward across the change.
     #[rstest::rstest]
     fn two_member_binding_bytes_are_unchanged_by_the_member_count_widening() {
         let prepared = prepare_rows(verified(), 17).expect("prepared");
@@ -2398,23 +2860,23 @@ mod tests {
             &[
                 (
                     "binding",
-                    1_375,
-                    "318e51ce699e044f14c7f7413a4267c6b6c6e6765018f71ef316e72d50049bf5",
+                    1_376,
+                    "13dc071aa05eb32c30f6cc1424a706f58d0600ae6dbc7b4f04248b3be0e3a640",
                 ),
                 (
                     "binding_identity",
                     32,
-                    "61d5b66fc9897c962d65b74d748d48f02f9de78733cc9480310e3868691e3e7f",
+                    "8fe69a82849b4a4e9297334676bdb8df18188f7fd2f33f6e2a16d9d48c5e8689",
                 ),
                 (
                     "receipt",
                     74,
-                    "f6b18d7263c4c310f04a59e7d2c90d6246614c715753fd27fc55210e8d286315",
+                    "d78ce7053e514c3523e06cb7e220da0c0b89e5c4dbc65514e83c6e5d67186ffb",
                 ),
                 (
                     "outbox",
                     77,
-                    "43abda83f43144fdbe396d78e413a6b635c6886c0b5e06aec3b56ed118fc690d",
+                    "8c214054359f99ca338c6961ad879cd0422da953c6c1bd85a5565859de3cfdc1",
                 ),
             ],
         );
