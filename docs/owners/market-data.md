@@ -1283,7 +1283,10 @@ cut and both facts, prove exact membership and order, walk every direct-predeces
 without a gap or branch, revalidate current store admission and reader ACL, and return one move-only readback. A
 missing, extra, duplicate, reordered, noncanonical, cross-spliced, tampered, or ACL-drifted row returns no
 readback. Exact-locator replay and response-loss recovery return byte-identical historical bytes with zero append;
-same identity with different bytes conflicts.
+same identity with different bytes conflicts. `resolve_fact_v2` reads one public V2 fact by its exact fact digest
+under the same snapshot, ACL and ledger checks, returns it only after decoding and checking every link of its chain,
+answers an unknown digest with `UnknownLocator`, and makes no point-in-time judgement, since the fact carries its own
+time evidence and its consumer judges its use.
 
 Fact/cut/receipt/outbox creation is append-only and failure-atomic. Only the fixed Market Data writer may create
 or advance public V2 custody; the fixed consumer receives only `EXECUTE` on the exact resolver and no raw table
