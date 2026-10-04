@@ -11,8 +11,8 @@ use super::{
     pit_window_view_v1_tests::run,
 };
 use crate::owner::pit_window_custody_v1::{
-    PitObservationBatchSourceV1, PitWindowCustodyRefusalV1, QuoteDerivationV1,
-    UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowCustodyFrameV1,
+    PitObservationBatchSourceV1, PitWindowCustodyRefusalV1, PitWindowMemberMappingErrorV1,
+    QuoteDerivationV1, UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowCustodyFrameV1,
     sealed_acceptance_chain::{
         SealedAcceptanceBarV1, SealedAcceptanceCustodyChainErrorV1,
         SealedAcceptanceCustodyChainSpecV1, SealedAcceptanceDecimalV1, SealedAcceptanceOhlcvV1,
@@ -195,6 +195,49 @@ async fn postgres_the_sealed_acceptance_chain_reads_every_frame_with_its_derived
         readback
             .into_execution_parts()
             .expect("the frame seals its native schedule");
+    }
+}
+
+/// The fixture's basis selects its member's unique sealed mapping, never picking one, and projects
+/// the member's structural public terms equal to a direct call through the basis's own Instrument
+/// Master cut with that mapping.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_the_fixtures_basis_selects_its_members_mapping_and_projects_its_terms() {
+    let owner = owner().await;
+    let chain = commit_sealed_acceptance_custody_chain_v1(&owner_url(), &spec())
+        .await
+        .expect("the production intakes commit the chain");
+    let run_end = chain.window().1;
+    let read = owner
+        .pit_window_custody_frames_v1()
+        .resolve_pit_window_frames_v1(run(chain.chain_root(), START + DAY, run_end))
+        .await
+        .expect("every frame is covered");
+    let basis = read.basis();
+
+    let (venue_identity, source_identity) = basis
+        .member_venue_source(MEMBER)
+        .expect("the fixture's fact carries exactly one mapping");
+    assert_eq!(venue_identity, "SEALED-ACCEPTANCE");
+    assert_eq!(source_identity, "SYNTHETIC");
+
+    let direct = basis
+        .instrument_master_cut()
+        .project_validated_v1_crypto_perpetual_structural_public_terms(
+            MEMBER,
+            venue_identity,
+            source_identity,
+        );
+
+    match (basis.structural_public_terms(MEMBER), direct) {
+        (Ok(selected), Ok(direct)) => assert_eq!(selected, direct),
+        (Err(PitWindowMemberMappingErrorV1::Projection(selected)), Err(direct)) => {
+            assert_eq!(selected, direct);
+        }
+        (selected, direct) => panic!(
+            "structural_public_terms disagrees with a direct projection call: {selected:?} vs {direct:?}"
+        ),
     }
 }
 
