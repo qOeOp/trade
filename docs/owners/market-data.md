@@ -3934,16 +3934,25 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     Built (with B1). `verify_venue_bars_v1` reports archive-only and store-only bars. `open_venue_bar_conflicts_v1`
     lists the conflicts no correction resolves. `correct_venue_bar_v1` refuses an unknown conflict
     (`BAR_CONFLICT_UNKNOWN`) or one whose bar has moved on (`BAR_CONFLICT_SUPERSEDED`).
-  - **B3 - the REST recorder (Lane 8, after B1).** Forward pagination over `request_binance_bars`, for every
-    timeframe label in the served set, from an instrument's first listed bar, or the last stored close, to the
-    present. Every page is committed through B1's writer, and a bar is admitted only after the settle delay. It is
-    paced inside the public rate limit and resumable.
+  - **B3 - the REST recorder (Lane 8, after B1).** Forward pagination over Binance's kline rows, for every
+    timeframe label in the served set, from an instrument's first listed bar (Binance's own response to a
+    `startTime` of the Unix epoch, ascending), or the last stored close, to the present. Every page is committed
+    through B1's writer, and a bar is admitted only after the settle delay. It is paced inside the public rate
+    limit (the adapter's own built-in `RateLimiter`, already shared by every Binance call) and resumable.
 
     Acceptance:
     - Unit tests for paging boundaries and the settle filter.
     - A local test against live REST: one day of BTCUSDT `1m` and `1d`, recorded twice, writes once and then
       rejoins.
     - The counts against the archive equal the measurements above.
+
+    Built. `crates/adapters/binance/src/venue_bar_rest_recorder_v1.rs`. The Lane 8 design decision Lane 3 flagged -
+    how the recorder resolves and caches an instrument to satisfy `request_binance_bars`'s `BarType` - turned out
+    not to be needed: that wrapper keeps only its bar's nautilus event timestamp (Binance's `closeTime`),
+    discarding `openTime`, which `VenueBarV1` needs independently of `closeTime` to derive its own grid-exact
+    close through `served_timeframe_v1`. `request_raw_klines`, a new thin passthrough to the adapter's already-
+    cached raw kline rows, is called directly instead - keyed by the raw venue symbol string, with no `BarType`
+    or instrument cache in the loop at all.
   - **B4 - the calendar-month cadence (Lane 8).** `CalendarMonth` cadence on the UTC month anchor in
     `UntrustedSourceBarCadenceV1`, with its codec, refused as an execution timeframe. The served label table is B1's.
 

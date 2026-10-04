@@ -56,6 +56,7 @@ pub mod futures_pit_observation_source_v1;
 pub mod perpetual_admission_v1;
 pub mod pit_observation_source_v1;
 pub mod spot;
+pub mod venue_bar_rest_recorder_v1;
 pub mod vision_backfill_custody_v1;
 pub mod vision_backfill_v1;
 
