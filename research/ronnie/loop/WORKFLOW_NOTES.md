@@ -324,3 +324,8 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     the finest bars available, with the share of still-ambiguous bars reported; daily-bar results stand only for rules
     whose events are decided at the daily close.
 
+61. **Loop labels are chosen by hand and collide.** "E-1" names both a range-family loop and the 2026-10-03 deeper-entry
+    loop in LOG.md, and the zone-fraction script first wrote `out/E-2_trades.csv.gz` and a census row "E-2" next to the
+    range family's E-2 files; it was caught and relabelled Z-1 before any reading. Nothing was lost only because the
+    old E-2 run never saved trades. Proposal: `engine.log` refuses a label already in the census for a different
+    candidate, and output paths derive from that label, so a collision fails before a file is written.

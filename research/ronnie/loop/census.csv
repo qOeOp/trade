@@ -171,3 +171,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-03T04:36:46+00:00,X-2,R-1 dynamic exits,rerun-iteration,5322,+nan,+nan,+nan,False,six exits; see r1_dynexit.txt fill-bar high excluded from +1R triggers
 2026-10-03T04:38:01+00:00,X-2 4h,R-1 dynamic exits,iteration,5322,+nan,+nan,+nan,False,4h-ordered; see r1_dynexit4h.txt
 2026-10-03T04:39:29+00:00,X-2 1h,R-1 dynamic exits,iteration,5322,+nan,+nan,+nan,False,1h-ordered; see r1_dynexit_1h.txt
+2026-10-04T01:50:22+00:00,Z-1,R-1 zone-fraction entries,iteration,43745,+nan,+nan,+nan,False,five fractions + fixed-target variants; see r1_zone_entry.txt

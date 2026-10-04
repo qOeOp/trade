@@ -1,0 +1,11 @@
+Z-1: R-1u limit at fraction f of the zone (0 = the broken wick, the current rule; 1 = the far edge), stop fixed at the zone stop; development 53 coins 2018-2022; median zone height 0.52 ATR
+  f 0.00 target 2R  : n 4300, avg R +0.219, win 41%, edge +0.221 [+0.142, +0.297], total R 941, weekly Sharpe 2.18 | 1h walk: avg R +0.278, win 43%, total R 1197, Sharpe 2.65; median target 2.0R, stop 0.76 ATR
+  f 0.25 target 2R  : n 4854, avg R +0.208, win 41%, edge +0.248 [+0.181, +0.319], total R 1010, weekly Sharpe 2.42 | 1h walk: avg R +0.292, win 44%, total R 1416, Sharpe 3.11; median target 2.0R, stop 0.61 ATR
+  f 0.50 target 2R  : n 5343, avg R +0.195, win 41%, edge +0.300 [+0.230, +0.374], total R 1041, weekly Sharpe 2.41 | 1h walk: avg R +0.315, win 45%, total R 1685, Sharpe 3.64; median target 2.0R, stop 0.47 ATR
+  f 0.75 target 2R  : n 5517, avg R +0.112, win 38%, edge +0.313 [+0.251, +0.376], total R 619, weekly Sharpe 1.57 | 1h walk: avg R +0.309, win 45%, total R 1705, Sharpe 3.89; median target 2.0R, stop 0.36 ATR
+  f 1.00 target 2R  : n 5516, avg R -0.060, win 33%, edge +0.301 [+0.246, +0.358], total R -334, weekly Sharpe -0.87 | 1h walk: avg R +0.283, win 44%, total R 1562, Sharpe 3.63; median target 2.0R, stop 0.25 ATR
+  f 0.25 target orig: n 4335, avg R +0.253, win 36%, edge +0.258 [+0.174, +0.348], total R 1099, weekly Sharpe 2.31 | 1h walk: avg R +0.323, win 38%, total R 1401, Sharpe 2.80; median target 2.6R, stop 0.60 ATR
+  f 0.50 target orig: n 4488, avg R +0.305, win 31%, edge +0.342 [+0.244, +0.446], total R 1371, weekly Sharpe 2.38 | 1h walk: avg R +0.378, win 33%, total R 1698, Sharpe 2.84; median target 3.4R, stop 0.47 ATR
+  f 0.75 target orig: n 4628, avg R +0.305, win 25%, edge +0.356 [+0.248, +0.473], total R 1412, weekly Sharpe 2.24 | 1h walk: avg R +0.391, win 26%, total R 1812, Sharpe 2.74; median target 4.6R, stop 0.35 ATR
+  f 1.00 target orig: n 4764, avg R +0.330, win 19%, edge +0.422 [+0.298, +0.553], total R 1572, weekly Sharpe 2.26 | 1h walk: avg R +0.417, win 20%, total R 1987, Sharpe 2.70; median target 6.6R, stop 0.25 ATR
+  CSCV PBO over the five primary (2R) fractions: 0.39
