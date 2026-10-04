@@ -556,6 +556,9 @@ pub enum NativeReplayExecutionInputBindingCauseV1 {
     ReResolutionDiffers,
     /// An issued binding could not be re-resolved into a native execution bundle.
     ExecutionBundleUnresolved,
+    /// A custody-run re-verification was asked of a binding whose data path is a snapshot, not a
+    /// custody run.
+    BindingIsNotACustodyRun,
 }
 
 impl NativeReplayExecutionInputBindingCauseV1 {
@@ -707,6 +710,7 @@ impl NativeReplayExecutionInputBindingCauseV1 {
             Self::StoredBindingCorrupt => "STORED_BINDING_CORRUPT",
             Self::ReResolutionDiffers => "RE_RESOLUTION_DIFFERS",
             Self::ExecutionBundleUnresolved => "EXECUTION_BUNDLE_UNRESOLVED",
+            Self::BindingIsNotACustodyRun => "BINDING_IS_NOT_A_CUSTODY_RUN",
         }
     }
 }
@@ -791,6 +795,68 @@ pub(crate) fn verify_re_resolved_native_replay_execution_inputs_v1(
         ));
     }
     Ok(())
+}
+
+/// Proves that a fresh consumer-side Owner resolution reproduces a custody-run binding's shared
+/// constituents exactly, and returns the run it names.
+///
+/// `instrument_master` and `instrument_terms` are the custody chain's own basis - its Instrument
+/// Master cut and the economic terms checked against it, the authoritative source for a custody
+/// run's members (Lane 3's ruling), not a per-request universe frame. There is no universe frame
+/// or BAR schedule to re-check here: a custody run has neither.
+///
+/// `public_terms` the caller derives from the returned members must come from this binding's own
+/// stored, verified locators - [`NativeReplayExecutionInputBindingReadbackV1::instrument_economic_
+/// terms_locators`] - and never from an independent resolution the caller performs itself.
+///
+/// # Errors
+///
+/// [`Cause::BindingIsNotACustodyRun`] when `stored` names a snapshot binding, and
+/// [`Cause::ReResolutionDiffers`] when the freshly resolved shared constituents, or the request
+/// locator, do not reproduce the stored binding's.
+pub(crate) fn verify_re_resolved_native_replay_custody_execution_inputs_v1(
+    stored: &NativeReplayExecutionInputBindingReadbackV1,
+    preparation: &NativeReplayPreparationInputsV2,
+    profile: &OwnerIssuedReplayExecutionProfileBindingV1,
+    plan: &StrategyPlanV2,
+    artifact: &StrategyArtifactV2,
+    instrument_master: &InstrumentMasterReadbackV2,
+    instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
+) -> Result<ReplayCustodyRunBindingV1, NativeReplayExecutionInputBindingErrorV1> {
+    let unavailable = NativeReplayExecutionInputBindingErrorV1::Unavailable;
+    let NativeReplayExecutionDataPathV1::CustodyRun(run) = &stored.binding.data_path else {
+        return Err(unavailable(Cause::BindingIsNotACustodyRun));
+    };
+    let run = *run;
+    let plan_selection = plan
+        .universe_selection()
+        .ok_or(unavailable(Cause::PlanHasNoUniverseSelection))?;
+    let member_keys_and_instruments = plan_selection
+        .members()
+        .iter()
+        .map(|member| (member.member_key(), member.instrument()))
+        .collect::<Vec<_>>();
+    let shared = verify_shared_replay_execution_inputs(
+        preparation,
+        profile,
+        plan,
+        artifact,
+        instrument_master,
+        instrument_terms,
+        &member_keys_and_instruments,
+    )?;
+
+    if stored.binding.request_locator != preparation.replay().locator()
+        || shared.trial_family != stored.binding.trial_family
+        || shared.artifact != stored.binding.artifact
+        || shared.strategy_plan != stored.binding.strategy_plan
+        || shared.execution_profile_seals != stored.binding.execution_profile_seals
+        || shared.public_instrument_master_cut != stored.binding.public_instrument_master_cut
+        || shared.members != stored.binding.members
+    {
+        return Err(unavailable(Cause::ReResolutionDiffers));
+    }
+    Ok(run)
 }
 
 /// Atomically appends one binding, receipt, and outbox row under an already sealed Replay request.
@@ -1358,27 +1424,34 @@ fn validate_verified(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn verify_owner_readbacks(
+/// What a sealed Replay commit's execution-input binding checks the same way for every data path:
+/// the execution profile, Composer, Plan and Artifact agreement, and each member's Instrument
+/// Master public fact and economic terms. A data path's own frame/schedule evidence (the
+/// single-frame universe frame and BAR schedules, or a custody run's chain) is the caller's own
+/// check, before or after this one.
+struct SharedReplayExecutionInputsV1 {
+    trial_family: NamedLocatorV1,
+    artifact: NamedLocatorV1,
+    strategy_plan: NamedLocatorV1,
+    execution_profile_seals: ExecutionProfileSealLocatorsV1,
+    public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1,
+    members: BoundedMembers<NativeReplayExecutionInputMemberV1>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_shared_replay_execution_inputs(
     preparation: &NativeReplayPreparationInputsV2,
     profile: &OwnerIssuedReplayExecutionProfileBindingV1,
     plan: &StrategyPlanV2,
     artifact: &StrategyArtifactV2,
     instrument_master: &InstrumentMasterReadbackV2,
     instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
-    universe_frame: &StrategyInputUniverseFrameReceipt,
-    schedules: &[&BarScheduleReadbackV1],
-) -> Result<
-    VerifiedNativeReplayExecutionInputConstituentsV1,
-    NativeReplayExecutionInputBindingErrorV1,
-> {
+    member_keys_and_instruments: &[(&str, &str)],
+) -> Result<SharedReplayExecutionInputsV1, NativeReplayExecutionInputBindingErrorV1> {
     let replay = preparation.replay();
     let request = replay.request().as_dto();
     let composer = preparation.composer();
-    let selection = universe_frame.selection();
     let unavailable = NativeReplayExecutionInputBindingErrorV1::Unavailable;
-    let plan_selection = plan
-        .universe_selection()
-        .ok_or(unavailable(Cause::PlanHasNoUniverseSelection))?;
     let seal = replay
         .execution_profile_seal()
         .ok_or(unavailable(Cause::ReplayHasNoExecutionProfileSeal))?;
@@ -1466,20 +1539,160 @@ fn verify_owner_readbacks(
         Cause::ArtifactInvalidForPlan,
     )?;
     refuse(
-        !is_admitted_member_count(selection.members().len()),
+        !is_admitted_member_count(member_keys_and_instruments.len()),
         Cause::MemberCountNotAdmitted,
     )?;
     refuse(
-        selection
-            .members()
+        member_keys_and_instruments
             .windows(2)
-            .any(|pair| pair[0].member_key() >= pair[1].member_key()),
+            .any(|pair| pair[0].0 >= pair[1].0),
         Cause::UniverseFrameMembersOutOfOrder,
     )?;
     refuse(
-        instrument_terms.len() != selection.members().len(),
+        instrument_terms.len() != member_keys_and_instruments.len(),
         Cause::EconomicTermsCountDiffers,
     )?;
+
+    let cut_members = instrument_master.cut().members();
+    refuse(
+        instrument_master.cut().request_identity()
+            != native_replay_request_identity_v2(request.request_identity.as_str())
+                .map_err(|_| unavailable(Cause::RequestIdentityInvalid))?,
+        Cause::InstrumentMasterCutNamesAnotherRequest,
+    )?;
+    refuse(
+        cut_members.len() != member_keys_and_instruments.len(),
+        Cause::InstrumentMasterCutMemberCountDiffers,
+    )?;
+    let mut members = Vec::with_capacity(cut_members.len());
+
+    for (index, &(member_key, member_instrument)) in member_keys_and_instruments.iter().enumerate()
+    {
+        let public_fact = cut_members[index].fact();
+        let economic = instrument_terms[index];
+        let economic_input = economic.fact().input();
+        let public_terms = public_fact
+            .validate_native_crypto_perpetual_public_terms()
+            .map_err(|_| unavailable(Cause::PublicTermsInvalid))?;
+        let event_time = i128::from(request.window.start_event_ns);
+
+        refuse(
+            member_instrument != public_fact.canonical_identity(),
+            Cause::InstrumentMasterCutMemberDiffers,
+        )?;
+        refuse(
+            economic_input.instrument_identity != public_fact.canonical_identity(),
+            Cause::EconomicTermsNameAnotherInstrument,
+        )?;
+        refuse(
+            economic_input.instrument_public_fact_digest != *public_fact.identity().as_bytes(),
+            Cause::EconomicTermsCiteAnotherPublicFact,
+        )?;
+        refuse(
+            economic_input.venue_identity != public_fact.venue_identity(),
+            Cause::EconomicTermsNameAnotherVenue,
+        )?;
+        refuse(
+            economic_input.quote_currency != public_terms.quote_currency(),
+            Cause::EconomicTermsNameAnotherQuoteCurrency,
+        )?;
+        refuse(
+            economic_input.valid_from_ns > event_time,
+            Cause::EconomicTermsNotYetInForce,
+        )?;
+        refuse(
+            event_time >= economic_input.valid_until_ns_exclusive,
+            Cause::EconomicTermsNoLongerInForce,
+        )?;
+        refuse(!economic.verify(), Cause::EconomicTermsDoNotVerify)?;
+        let economic_locator = economic.locator();
+        members.push(NativeReplayExecutionInputMemberV1 {
+            member_key: member_key.to_owned(),
+            public_instrument_identity: public_fact.canonical_identity().to_owned(),
+            public_instrument_digest: *public_fact.identity().as_bytes(),
+            venue_identity: public_fact.venue_identity().to_owned(),
+            account_scope_identity: economic_input.account_scope_identity.clone(),
+            instrument_economic_terms_fact: ExactOwnerLocatorV1 {
+                identity: economic_locator.fact_identity(),
+                digest: economic.fact().meaning_identity(),
+            },
+            instrument_economic_terms_receipt: ExactOwnerLocatorV1 {
+                identity: economic_locator.receipt_identity(),
+                digest: economic_locator.receipt_identity(),
+            },
+        });
+    }
+
+    if members
+        .windows(2)
+        .any(|pair| pair[0].account_scope_identity != pair[1].account_scope_identity)
+    {
+        return Err(unavailable(Cause::AccountScopesDiffer));
+    }
+    let members =
+        BoundedMembers::new(members).map_err(|_| unavailable(Cause::MemberCountNotAdmitted))?;
+    let master_locator = instrument_master.locator();
+    Ok(SharedReplayExecutionInputsV1 {
+        trial_family: NamedLocatorV1 {
+            identity: profile.trial_family_identity().to_owned(),
+            digest: profile.trial_family_digest(),
+        },
+        artifact: NamedLocatorV1 {
+            identity: request.artifact.identity.as_str().to_owned(),
+            digest: *artifact.identity().as_bytes(),
+        },
+        strategy_plan: NamedLocatorV1 {
+            identity: request.strategy_plan.identity.as_str().to_owned(),
+            digest: *plan.canonical_plan_digest().as_bytes(),
+        },
+        execution_profile_seals: ExecutionProfileSealLocatorsV1 {
+            catalog_binding_digest: seal.catalog_binding_digest(),
+            family_binding_digest: seal.family_binding_digest(),
+            request_binding_digest: seal.request_binding_digest(),
+            economic_configuration_digest: profile.economic_configuration_digest(),
+            runner_operational_profile_digest: profile.runner_operational_profile_digest(),
+        },
+        public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1 {
+            request_identity: *master_locator.request_identity().as_bytes(),
+            request_binding_digest: *master_locator.request_binding_digest().as_bytes(),
+            cut_identity: *master_locator.cut_identity().as_bytes(),
+            receipt_identity: *master_locator.receipt_identity().as_bytes(),
+        },
+        members,
+    })
+}
+
+/// Verifies a single-frame (snapshot) binding's complete constituent set: the shared agreement
+/// ([`verify_shared_replay_execution_inputs`]) plus the universe frame's own selection (held
+/// against the Plan's) and each member's BAR schedule.
+#[allow(clippy::too_many_arguments)]
+fn verify_owner_readbacks(
+    preparation: &NativeReplayPreparationInputsV2,
+    profile: &OwnerIssuedReplayExecutionProfileBindingV1,
+    plan: &StrategyPlanV2,
+    artifact: &StrategyArtifactV2,
+    instrument_master: &InstrumentMasterReadbackV2,
+    instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
+    universe_frame: &StrategyInputUniverseFrameReceipt,
+    schedules: &[&BarScheduleReadbackV1],
+) -> Result<
+    VerifiedNativeReplayExecutionInputConstituentsV1,
+    NativeReplayExecutionInputBindingErrorV1,
+> {
+    let replay = preparation.replay();
+    let request = replay.request().as_dto();
+    let selection = universe_frame.selection();
+    let unavailable = NativeReplayExecutionInputBindingErrorV1::Unavailable;
+    let plan_selection = plan
+        .universe_selection()
+        .ok_or(unavailable(Cause::PlanHasNoUniverseSelection))?;
+    let refuse = |refused: bool, cause: Cause| {
+        if refused {
+            Err(unavailable(cause))
+        } else {
+            Ok(())
+        }
+    };
     refuse(
         schedules.len() != selection.members().len(),
         Cause::BarScheduleCountDiffers,
@@ -1514,60 +1727,31 @@ fn verify_owner_readbacks(
             }),
         Cause::UniverseFrameMembersDifferFromPlan,
     )?;
+    let member_keys_and_instruments = selection
+        .members()
+        .iter()
+        .map(|member| (member.member_key(), member.instrument()))
+        .collect::<Vec<_>>();
+    let shared = verify_shared_replay_execution_inputs(
+        preparation,
+        profile,
+        plan,
+        artifact,
+        instrument_master,
+        instrument_terms,
+        &member_keys_and_instruments,
+    )?;
 
+    let event_time = i128::from(request.window.start_event_ns);
     let cut_members = instrument_master.cut().members();
-    refuse(
-        instrument_master.cut().request_identity()
-            != native_replay_request_identity_v2(request.request_identity.as_str())
-                .map_err(|_| unavailable(Cause::RequestIdentityInvalid))?,
-        Cause::InstrumentMasterCutNamesAnotherRequest,
-    )?;
-    refuse(
-        cut_members.len() != selection.members().len(),
-        Cause::InstrumentMasterCutMemberCountDiffers,
-    )?;
-    let mut members = Vec::with_capacity(cut_members.len());
-    let mut member_bar_schedules = Vec::with_capacity(cut_members.len());
-    for index in 0..cut_members.len() {
-        let selected = &selection.members()[index];
-        let public_fact = cut_members[index].fact();
-        let economic = instrument_terms[index];
-        let economic_input = economic.fact().input();
-        let schedule = schedules[index];
-        let public_terms = public_fact
-            .validate_native_crypto_perpetual_public_terms()
-            .map_err(|_| unavailable(Cause::PublicTermsInvalid))?;
-        let event_time = i128::from(request.window.start_event_ns);
-
-        refuse(
-            selected.instrument() != public_fact.canonical_identity(),
-            Cause::InstrumentMasterCutMemberDiffers,
-        )?;
-        refuse(
-            economic_input.instrument_identity != public_fact.canonical_identity(),
-            Cause::EconomicTermsNameAnotherInstrument,
-        )?;
-        refuse(
-            economic_input.instrument_public_fact_digest != *public_fact.identity().as_bytes(),
-            Cause::EconomicTermsCiteAnotherPublicFact,
-        )?;
-        refuse(
-            economic_input.venue_identity != public_fact.venue_identity(),
-            Cause::EconomicTermsNameAnotherVenue,
-        )?;
-        refuse(
-            economic_input.quote_currency != public_terms.quote_currency(),
-            Cause::EconomicTermsNameAnotherQuoteCurrency,
-        )?;
-        refuse(
-            economic_input.valid_from_ns > event_time,
-            Cause::EconomicTermsNotYetInForce,
-        )?;
-        refuse(
-            event_time >= economic_input.valid_until_ns_exclusive,
-            Cause::EconomicTermsNoLongerInForce,
-        )?;
-        refuse(!economic.verify(), Cause::EconomicTermsDoNotVerify)?;
+    let mut member_bar_schedules = Vec::with_capacity(shared.members.len());
+    for ((member, schedule), cut_member) in shared
+        .members
+        .iter()
+        .zip(schedules.iter())
+        .zip(cut_members.iter())
+    {
+        let public_fact = cut_member.fact();
         refuse(
             schedule.fact().canonical_instrument() != public_fact.canonical_identity(),
             Cause::BarScheduleNamesAnotherInstrument,
@@ -1576,24 +1760,8 @@ fn verify_owner_readbacks(
             schedule.fact().cut_effective_instant() != event_time,
             Cause::BarScheduleCutAtAnotherInstant,
         )?;
-        let economic_locator = economic.locator();
-        members.push(NativeReplayExecutionInputMemberV1 {
-            member_key: selected.member_key().to_owned(),
-            public_instrument_identity: public_fact.canonical_identity().to_owned(),
-            public_instrument_digest: *public_fact.identity().as_bytes(),
-            venue_identity: public_fact.venue_identity().to_owned(),
-            account_scope_identity: economic_input.account_scope_identity.clone(),
-            instrument_economic_terms_fact: ExactOwnerLocatorV1 {
-                identity: economic_locator.fact_identity(),
-                digest: economic.fact().meaning_identity(),
-            },
-            instrument_economic_terms_receipt: ExactOwnerLocatorV1 {
-                identity: economic_locator.receipt_identity(),
-                digest: economic_locator.receipt_identity(),
-            },
-        });
         member_bar_schedules.push(NativeReplayExecutionMemberBarScheduleV1 {
-            member_key: selected.member_key().to_owned(),
+            member_key: member.member_key.clone(),
             schedule_identity: *schedule.fact().identity().as_bytes(),
             bar_schedule_cut: ExactOwnerLocatorV1 {
                 identity: *schedule.cut_identity().as_bytes(),
@@ -1605,46 +1773,17 @@ fn verify_owner_readbacks(
             },
         });
     }
-
-    if members
-        .windows(2)
-        .any(|pair| pair[0].account_scope_identity != pair[1].account_scope_identity)
-    {
-        return Err(unavailable(Cause::AccountScopesDiffer));
-    }
-    let members =
-        BoundedMembers::new(members).map_err(|_| unavailable(Cause::MemberCountNotAdmitted))?;
     let member_bar_schedules = BoundedMembers::new(member_bar_schedules)
         .map_err(|_| unavailable(Cause::MemberCountNotAdmitted))?;
-    let master_locator = instrument_master.locator();
+
     Ok(VerifiedNativeReplayExecutionInputConstituentsV1 {
         request_locator: replay.locator(),
-        trial_family: NamedLocatorV1 {
-            identity: profile.trial_family_identity().to_owned(),
-            digest: profile.trial_family_digest(),
-        },
-        artifact: NamedLocatorV1 {
-            identity: request.artifact.identity.as_str().to_owned(),
-            digest: *artifact.identity().as_bytes(),
-        },
-        strategy_plan: NamedLocatorV1 {
-            identity: request.strategy_plan.identity.as_str().to_owned(),
-            digest: *plan.canonical_plan_digest().as_bytes(),
-        },
-        execution_profile_seals: ExecutionProfileSealLocatorsV1 {
-            catalog_binding_digest: seal.catalog_binding_digest(),
-            family_binding_digest: seal.family_binding_digest(),
-            request_binding_digest: seal.request_binding_digest(),
-            economic_configuration_digest: profile.economic_configuration_digest(),
-            runner_operational_profile_digest: profile.runner_operational_profile_digest(),
-        },
-        public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1 {
-            request_identity: *master_locator.request_identity().as_bytes(),
-            request_binding_digest: *master_locator.request_binding_digest().as_bytes(),
-            cut_identity: *master_locator.cut_identity().as_bytes(),
-            receipt_identity: *master_locator.receipt_identity().as_bytes(),
-        },
-        members,
+        trial_family: shared.trial_family,
+        artifact: shared.artifact,
+        strategy_plan: shared.strategy_plan,
+        execution_profile_seals: shared.execution_profile_seals,
+        public_instrument_master_cut: shared.public_instrument_master_cut,
+        members: shared.members,
         data_path: NativeReplayExecutionDataPathV1::Snapshot {
             universe_frame_receipt: ExactOwnerLocatorV1 {
                 identity: *universe_frame.digest().as_bytes(),
