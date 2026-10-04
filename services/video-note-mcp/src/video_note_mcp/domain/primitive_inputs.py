@@ -56,8 +56,15 @@ class ImportInput(StrictModel):
 
 
 class TranscribeInput(StrictModel):
-    media_id: str = Field(pattern=r"^media-[0-9a-f]{64}$")
+    media_id: str | None = Field(default=None, pattern=r"^media-[0-9a-f]{64}$")
+    transcript_id: str | None = Field(default=None, pattern=r"^transcript-[0-9a-f]{64}$")
     quality: Quality = "standard"
+
+    @model_validator(mode="after")
+    def one_source(self) -> TranscribeInput:
+        if (self.media_id is None) == (self.transcript_id is None):
+            raise ValueError("exactly_one_transcription_source_required")
+        return self
 
 
 class FramesInput(StrictModel):

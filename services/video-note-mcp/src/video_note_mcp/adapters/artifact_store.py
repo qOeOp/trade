@@ -246,6 +246,11 @@ class ArtifactStore:
         )
 
     @_validated
+    def transcript_parent(self, identity: str) -> str:
+        data, _ = self._load(identity, "transcript")
+        return str(data["media_id"])
+
+    @_validated
     def load_transcript(self, identity: str) -> tuple[AcquiredSource, Quality]:
         data, _ = self._load(identity, "transcript")
         media = self.load_media(data["media_id"])

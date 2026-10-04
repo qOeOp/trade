@@ -2,9 +2,17 @@
   "additionalProperties": false,
   "properties": {
     "media_id": {
-      "pattern": "^media-[0-9a-f]{64}$",
-      "title": "Media Id",
-      "type": "string"
+      "anyOf": [
+        {
+          "pattern": "^media-[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Media Id"
     },
     "quality": {
       "default": "standard",
@@ -15,11 +23,21 @@
       ],
       "title": "Quality",
       "type": "string"
+    },
+    "transcript_id": {
+      "anyOf": [
+        {
+          "pattern": "^transcript-[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transcript Id"
     }
   },
-  "required": [
-    "media_id"
-  ],
   "title": "TranscribeInput",
   "type": "object"
 }

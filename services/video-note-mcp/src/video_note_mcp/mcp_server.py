@@ -91,8 +91,9 @@ _PRIMITIVES: dict[str, tuple[type[StrictModel], str]] = {
     ),
     "video_note.transcribe": (
         TranscribeInput,
-        "Transcribe retained media_id at selected quality; returns transcript_id and "
-        "complete timestamped speech.",
+        "Transcribe media_id, or resume review from transcript_id without repeating ASR. "
+        "Exactly one source; returns transcript_id and complete timestamped speech "
+        "at selected quality.",
     ),
     "video_note.frames": (
         FramesInput,
@@ -216,7 +217,12 @@ def build_server(use_case: CreateBilibiliNote) -> Server:
                     retained = transcript_result(identity)
             elif isinstance(request, TranscribeInput):
                 retained = transcript_result(
-                    await use_case.transcribe(request.media_id, progress, quality=request.quality)
+                    await use_case.transcribe(
+                        request.media_id,
+                        progress,
+                        quality=request.quality,
+                        transcript_id=request.transcript_id,
+                    )
                 )
             elif isinstance(request, FramesInput):
                 if request.evidence_id is not None:
@@ -264,8 +270,15 @@ def build_server(use_case: CreateBilibiliNote) -> Server:
                 html_path=payload.html_path,
                 images=payload.images,
             )
-        except asyncio.CancelledError:
-            return _error("CANCELLED", "request_cancelled")
+        except asyncio.CancelledError as e:
+            recovery = {
+                key: getattr(request, key)
+                for key in ("media_id", "transcript_id", "evidence_id")
+                if getattr(request, key, None)
+            }
+            return _error(
+                "CANCELLED", "request_cancelled", {**recovery, **getattr(e, "recovery", {})}
+            )
         except BilibiliNoteFailure as e:
             recovery = {
                 key: getattr(request, key)
@@ -326,7 +339,12 @@ def build_server(use_case: CreateBilibiliNote) -> Server:
                     # before pending or repeated cancellation is translated to
                     # one MCP result and one operator terminal event.
                     pass
-                result = _error("CANCELLED", "request_cancelled")
+                recovery = {}
+                if not request.cancelled() and request.exception() is None:
+                    completed = request.result().structured_content
+                    if isinstance(completed, dict):
+                        recovery = completed.get("recovery", {})
+                result = _error("CANCELLED", "request_cancelled", recovery)
             structured = result.structured_content
             if result.is_error and isinstance(structured, dict):
                 code = structured.get("code")

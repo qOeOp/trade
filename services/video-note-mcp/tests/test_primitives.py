@@ -378,8 +378,9 @@ async def test_cancel_during_media_commit_waits_for_copy_before_scratch_cleanup(
     await asyncio.sleep(0)
     assert not task.done()
     release.set()
-    with pytest.raises(asyncio.CancelledError):
+    with pytest.raises(asyncio.CancelledError) as failure:
         await task
+    assert failure.value.recovery == {"media_id": committed[0]}
     assert app.artifacts.load_media(committed[0]).media_path.is_file()
 
 
@@ -406,3 +407,90 @@ def test_abandoned_staging_counts_toward_capacity(tmp_path, draft):
     with pytest.raises(BilibiliNoteFailure, match="capacity"):
         store.save_media(stored_source(tmp_path, draft))
     assert (abandoned / "media.mp4").is_file()
+
+
+async def test_cancelled_create_returns_committed_ids_for_restart(runtime):
+    fixture, app = runtime
+    started = asyncio.Event()
+
+    async def blocked_author(*args):
+        started.set()
+        await asyncio.Event().wait()
+
+    app._distiller.distill = blocked_author
+    async with Client(build_server(app)) as client:
+        task = asyncio.create_task(
+            client.call_tool("video_note.create", {"url": FIXTURE_URL, "quality": "fast"})
+        )
+        await asyncio.wait_for(started.wait(), 5)
+        task.cancel()
+        result = await task
+    assert result.is_error and result.structured_content["code"] == "CANCELLED"
+    ids = result.structured_content["recovery"]
+    assert set(ids) == {"media_id", "transcript_id", "evidence_id"}
+    resumed = _use_case(fixture, deterministic=True)
+    resumed._source.download = AsyncMock(side_effect=AssertionError("no redownload"))
+    resumed._transcript.transcribe = AsyncMock(side_effect=AssertionError("no ASR"))
+    async with Client(build_server(resumed)) as client:
+        evidence = await call(client, "frames", {"evidence_id": ids["evidence_id"]})
+        await call(
+            client, "render", {"evidence_id": ids["evidence_id"], "note": authored(evidence)}
+        )
+
+
+async def test_review_resume_uses_original_transcript_without_asr(runtime):
+    from types import SimpleNamespace
+
+    fixture, app = runtime
+    async with Client(build_server(app)) as client:
+        media = await call(client, "download", {"url": FIXTURE_URL})
+        failed = await client.call_tool(
+            "video_note.transcribe", {"media_id": media["media_id"], "quality": "precise"}
+        )
+    raw_id = failed.structured_content["recovery"]["transcript_id"]
+    raw, _ = app.artifacts.load_transcript(raw_id)
+    resumed = _use_case(fixture, deterministic=True)
+    resumed._transcript.transcribe = AsyncMock(side_effect=AssertionError("must not rerun ASR"))
+    resumed._reviewer = SimpleNamespace(review=AsyncMock(return_value=()))
+    async with Client(build_server(resumed)) as client:
+        result = await call(client, "transcribe", {"transcript_id": raw_id, "quality": "precise"})
+    reviewed, quality = resumed.artifacts.load_transcript(result["transcript_id"])
+    assert quality == "precise"
+    assert reviewed.transcript == raw.transcript
+    resumed._transcript.transcribe.assert_not_awaited()
+    resumed._reviewer.review.assert_awaited_once()
+    async with Client(build_server(resumed)) as client:
+        retained = await call(
+            client, "transcribe", {"transcript_id": result["transcript_id"], "quality": "standard"}
+        )
+    assert retained["transcript_id"] == result["transcript_id"]
+    assert retained["quality"] == "precise"
+    resumed._reviewer.review.assert_awaited_once()
+
+
+async def test_cancelled_review_preserves_raw_transcript(runtime):
+    from types import SimpleNamespace
+
+    _, app = runtime
+    started = asyncio.Event()
+
+    async def review(*args):
+        started.set()
+        await asyncio.Event().wait()
+
+    app._reviewer = SimpleNamespace(review=review)
+    async with Client(build_server(app)) as client:
+        media = await call(client, "download", {"url": FIXTURE_URL})
+        task = asyncio.create_task(
+            client.call_tool(
+                "video_note.transcribe", {"media_id": media["media_id"], "quality": "precise"}
+            )
+        )
+        await asyncio.wait_for(started.wait(), 5)
+        task.cancel()
+        result = await task
+    assert result.structured_content["code"] == "CANCELLED"
+    ids = result.structured_content["recovery"]
+    assert ids["media_id"] == media["media_id"]
+    _, quality = app.artifacts.load_transcript(ids["transcript_id"])
+    assert quality == "fast"

@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Never
 
-from video_note_mcp.application.errors import BilibiliNoteFailure
+from video_note_mcp.application.errors import BilibiliNoteFailure, NoteCancelled
 from video_note_mcp.application.owned_tasks import finish_owned_task
 from video_note_mcp.application.ports import (
     AcquiredSource,
@@ -48,6 +48,16 @@ def _raise(code: FailureCode, reason: str) -> Never:
     raise BilibiliNoteFailure(code, reason)
 
 
+async def _commit_id(key: str, task: asyncio.Task[str]) -> str:
+    try:
+        return await finish_owned_task(task)
+    except asyncio.CancelledError as e:
+        recovery = {}
+        if not task.cancelled() and task.exception() is None:
+            recovery[key] = task.result()
+        raise NoteCancelled(recovery, e) from e
+
+
 class _AcquisitionProgressReporter:
     def __init__(self, parent: ProgressReporter) -> None:
         self._parent = parent
@@ -86,90 +96,133 @@ class CreateBilibiliNote:
         await reporter.report(progress_update(ProgressStageV1.REQUEST_VALIDATED))
         with tempfile.TemporaryDirectory(prefix="video-note-download-") as scratch:
             source = await self._acquire_with_liveness(url, Path(scratch), reporter)
-            return await finish_owned_task(
-                asyncio.create_task(asyncio.to_thread(self.artifacts.save_media, source))
+            return await _commit_id(
+                "media_id",
+                asyncio.create_task(asyncio.to_thread(self.artifacts.save_media, source)),
             )
 
     async def import_media(self, filename: str, title: str) -> str:
         with tempfile.TemporaryDirectory(prefix="video-note-import-") as scratch:
             source = await self._importer.load(filename, title, Path(scratch))
-            return await finish_owned_task(
-                asyncio.create_task(asyncio.to_thread(self.artifacts.save_media, source))
+            return await _commit_id(
+                "media_id",
+                asyncio.create_task(asyncio.to_thread(self.artifacts.save_media, source)),
             )
 
     async def transcribe(
         self,
-        media_id: str,
+        media_id: str | None = None,
         progress: ProgressReporter | None = None,
         *,
         quality: Quality = "fast",
         imported: TranscriptResult | None = None,
+        transcript_id: str | None = None,
     ) -> str:
         if quality not in ("fast", "standard", "precise"):
             raise ValueError("invalid quality")
+        if (media_id is None) == (transcript_id is None) or (
+            transcript_id is not None and imported is not None
+        ):
+            raise ValueError("exactly_one_transcription_source_required")
         reporter = progress or NullProgressReporter()
-        media = await finish_owned_task(
-            asyncio.create_task(asyncio.to_thread(self.artifacts.load_media, media_id))
-        )
-        with tempfile.TemporaryDirectory(prefix="video-note-transcribe-") as scratch:
-            workspace = Path(scratch)
-            transcript = imported or await self._transcript.transcribe(
-                media.media_path, media.source.duration_ms, workspace, reporter
-            )
-            source = AcquiredSource(
-                media.source, media.media_path, transcript, media.source_snapshot_ref
-            )
-            validate_transcript(source)
-            # Save the complete raw transcript before optional audio review.
-            transcript_id = await finish_owned_task(
-                asyncio.create_task(
-                    asyncio.to_thread(self.artifacts.save_transcript, media_id, source, "fast")
-                )
-            )
-            try:
+        recovery: dict[str, str] = {}
+        if media_id is not None:
+            recovery["media_id"] = media_id
+        if transcript_id is not None:
+            recovery["transcript_id"] = transcript_id
+        try:
+            with tempfile.TemporaryDirectory(prefix="video-note-transcribe-") as scratch:
+                workspace = Path(scratch)
+                if transcript_id is not None:
+                    source, retained_quality = await finish_owned_task(
+                        asyncio.create_task(
+                            asyncio.to_thread(self.artifacts.load_transcript, transcript_id)
+                        )
+                    )
+                    if ("fast", "standard", "precise").index(retained_quality) >= (
+                        "fast",
+                        "standard",
+                        "precise",
+                    ).index(quality):
+                        return transcript_id
+                    media_id = self.artifacts.transcript_parent(transcript_id)
+                else:
+                    assert media_id is not None
+                    media = await finish_owned_task(
+                        asyncio.create_task(asyncio.to_thread(self.artifacts.load_media, media_id))
+                    )
+                    transcript = imported or await self._transcript.transcribe(
+                        media.media_path, media.source.duration_ms, workspace, reporter
+                    )
+                    source = AcquiredSource(
+                        media.source, media.media_path, transcript, media.source_snapshot_ref
+                    )
+                    validate_transcript(source)
+                    # Commit raw evidence before the independently retryable review.
+                    transcript_id = await _commit_id(
+                        "transcript_id",
+                        asyncio.create_task(
+                            asyncio.to_thread(
+                                self.artifacts.save_transcript, media_id, source, "fast"
+                            )
+                        ),
+                    )
+                recovery = {"media_id": media_id, "transcript_id": transcript_id}
                 if quality != "fast":
                     if self._reviewer is None:
                         _raise("TRANSCRIPT_UNAVAILABLE", "reviewer_not_configured")
                     source = replace(
                         source, reviews=await self._reviewer.review(source, quality, workspace)
                     )
-                    transcript_id = await finish_owned_task(
+                    transcript_id = await _commit_id(
+                        "transcript_id",
                         asyncio.create_task(
                             asyncio.to_thread(
                                 self.artifacts.save_transcript, media_id, source, quality
                             )
-                        )
+                        ),
                     )
-            except Exception as e:
-                failure = (
-                    e
-                    if isinstance(e, BilibiliNoteFailure)
-                    else BilibiliNoteFailure("INTERNAL", "unexpected_internal_failure")
-                )
-                failure.recovery.update(media_id=media_id, transcript_id=transcript_id)
-                if failure is e:
-                    raise
-                raise failure from e
-        await reporter.report(progress_update(ProgressStageV1.TRANSCRIPT_READY))
-        return transcript_id
+                    recovery["transcript_id"] = transcript_id
+            await reporter.report(progress_update(ProgressStageV1.TRANSCRIPT_READY))
+            return transcript_id
+        except asyncio.CancelledError as e:
+            raise NoteCancelled(recovery, e) from e
+        except Exception as e:
+            failure = (
+                e
+                if isinstance(e, BilibiliNoteFailure)
+                else BilibiliNoteFailure("INTERNAL", "unexpected_internal_failure")
+            )
+            failure.recovery = {**recovery, **failure.recovery}
+            if failure is e:
+                raise
+            raise failure from e
 
     async def frames(self, transcript_id: str, progress: ProgressReporter | None = None) -> str:
-        source, _ = await finish_owned_task(
-            asyncio.create_task(asyncio.to_thread(self.artifacts.load_transcript, transcript_id))
-        )
-        with tempfile.TemporaryDirectory(prefix="video-note-frames-") as scratch:
-            frames = await self._media.extract_frames(source, Path(scratch))
-            validate_frames(frames)
-            validate_frame_bindings(source, frames)
-            identity = await finish_owned_task(
+        recovery = {"transcript_id": transcript_id}
+        try:
+            source, _ = await finish_owned_task(
                 asyncio.create_task(
-                    asyncio.to_thread(self.artifacts.save_frames, transcript_id, frames)
+                    asyncio.to_thread(self.artifacts.load_transcript, transcript_id)
                 )
             )
-        await (progress or NullProgressReporter()).report(
-            progress_update(ProgressStageV1.HD_FRAMES_READY)
-        )
-        return identity
+            with tempfile.TemporaryDirectory(prefix="video-note-frames-") as scratch:
+                frames = await self._media.extract_frames(source, Path(scratch))
+                validate_frames(frames)
+                validate_frame_bindings(source, frames)
+                identity = await _commit_id(
+                    "evidence_id",
+                    asyncio.create_task(
+                        asyncio.to_thread(self.artifacts.save_frames, transcript_id, frames)
+                    ),
+                )
+                recovery["evidence_id"] = identity
+            await (progress or NullProgressReporter()).report(
+                progress_update(ProgressStageV1.HD_FRAMES_READY)
+            )
+            return identity
+        except asyncio.CancelledError as e:
+            raise NoteCancelled(recovery, e) from e
 
     async def author(self, evidence_id: str, reporter: ProgressReporter) -> VideoNote:
         source, _, frames = await finish_owned_task(
@@ -237,6 +290,8 @@ class CreateBilibiliNote:
             await reporter.report(progress_update(ProgressStageV1.NOTE_VALIDATED))
             await asyncio.sleep(0)
             return self.render(recovery["evidence_id"], note)
+        except asyncio.CancelledError as e:
+            raise NoteCancelled(recovery, e) from e
         except Exception as e:
             failure = (
                 e

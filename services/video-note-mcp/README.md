@@ -163,7 +163,7 @@ Markdown retains the complete linear transcript for reference.
 | `video_note.download`   | `url` or retained `media_id`                        | `media_id`, local media path, verified source                |
 | `video_note.import`     | `kind: media`, `filename`, `title`                  | Local-source `media_id`                                      |
 | `video_note.import`     | `kind: transcript`, `media_id`, complete `segments` | `transcript_id`, explicitly imported transcript              |
-| `video_note.transcribe` | `media_id`, optional `quality`                      | `transcript_id`, complete transcript and reviews             |
+| `video_note.transcribe` | `media_id` or `transcript_id`, optional `quality`   | `transcript_id`, complete transcript and reviews             |
 | `video_note.frames`     | `transcript_id` or retained `evidence_id`           | `evidence_id`, transcript, original frame metadata and paths |
 | `video_note.render`     | `evidence_id`, structured `note`                    | Illustrated HTML and Markdown without a model call           |
 
@@ -179,9 +179,11 @@ Use the exact IDs returned by frames. The existing grounding, escaping and publi
 
 Failures include `recovery` with completed `media_id`, `transcript_id` and/or `evidence_id`.
 After ASR failure, retry transcribe or import a complete external transcript. After author failure,
-read frames with `evidence_id`, then supply a structured note to render. Audio-review failure retains the raw transcript marked `fast`,
-without pretending review completed. IDs survive server restarts. Cancellation may leave a completed
-artifact whose receipt was interrupted; it never deletes previously committed results.
+read frames with `evidence_id`, then supply a structured note to render. Audio-review failure retains
+the raw transcript marked `fast`. Call transcribe with that `transcript_id` and the requested quality
+to retry review without repeating ASR or changing the original provenance. Already satisfied quality
+returns the retained record. IDs survive server restarts; cancellation returns completed IDs after
+owned work stops. A transport disconnect can still prevent delivery of that receipt.
 
 Store capacity includes abandoned staging data. A concurrent commit returns `artifact_store_busy`
 instead of blocking cancellation indefinitely; retry the same step after the active commit finishes.

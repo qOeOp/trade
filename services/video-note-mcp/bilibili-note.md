@@ -202,11 +202,14 @@ repeating work. Each accepts exactly one new-input or retained-ID argument.
 The agent may call `video_note.download`, `video_note.import`, `video_note.transcribe`,
 `video_note.frames` and `video_note.render` independently. `create` composes the same operations
 plus the configured author. Source adapters acquire verified media only; transcription belongs to the
-shared application. There is no second fallback pipeline or implicit downgrade.
+shared application. Transcribe accepts exactly one media ID for new ASR or transcript ID to resume
+audio review while preserving raw text and provenance. Already satisfied quality reuses its record.
+There is no second fallback pipeline or implicit downgrade.
 
 One host-owned artifact store replaces the optional media/transcript cache. Immutable, digest-bound
 media, transcript and frame records use opaque IDs and explicit parent IDs. A downstream failure
-returns completed IDs without deleting those results. Restarting the server can resume from an ID;
+returns completed IDs without deleting those results. Cancellation also returns committed IDs after
+owning and stopping pending work; a disconnected transport may lose the receipt. Restarting the server can resume from an ID;
 create does not silently reuse a URL snapshot. Reuse is explicit through IDs. The store is limited to
 8 GiB and 256 records, with a 24-hour reuse lifetime. Expiry rejects reuse but does not automatically
 delete files. Capacity exhaustion is an explicit failure. Staging is atomic and incomplete writes
