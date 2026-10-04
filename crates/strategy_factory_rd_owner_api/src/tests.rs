@@ -2465,7 +2465,7 @@ async fn an_authored_design_is_published_bound_and_frozen_over_http() {
             research_request_identity: facts.research_request_identity,
             intent_identity: facts.intent_identity,
             intent_digest: facts.intent_digest,
-            universe_timeframe: "1D".to_owned(),
+            universe_timeframe: None,
             channel: SingleThresholdChannelV1::ExactInstrument {
                 role_semantic_id: "research.input.close.daily.v1".to_owned(),
                 instrument: vibe_data::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1

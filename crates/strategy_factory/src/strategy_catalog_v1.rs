@@ -85,7 +85,11 @@ impl SingleThresholdStrategySpecV1 {
             research_request_identity,
             intent_identity,
             intent_digest,
-            universe_timeframe: universe_timeframe.to_owned(),
+            universe_timeframe: matches!(
+                spec.channel,
+                SingleThresholdChannelV1::UniverseMember { .. }
+            )
+            .then(|| universe_timeframe.to_owned()),
             channel: spec.channel,
             threshold: spec.threshold,
             comparison: spec.comparison,
