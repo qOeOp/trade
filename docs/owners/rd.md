@@ -833,6 +833,13 @@ catalog never holds a strategy a run would refuse at authoring.
 - `POST /v1/backtests` runs a request's orchestration to wherever it currently stops: from the catalogued statement
   through the run's own Research goal, authoring, role binding and freeze, to the replay step, where it stops today as
   `CUSTODY_FRAMES_NOT_AVAILABLE`. A refusal before that point is passed through by name.
+- The request names a dataset - instrument, execution timeframe and window - and never a custody chain. Before
+  anything is written, the route asks Market Data for the one custody chain that holds the instrument alone at that
+  timeframe and covers the whole window, its current head pinned (`resolve_pit_window_run_for_window_v1`), and reads
+  the run from it. A window Market Data cannot name one chain for is refused by Market Data's own name -
+  `PIT_WINDOW_NOT_COVERED` with the missing ranges, `PIT_WINDOW_CUSTODY_NOT_FOUND`,
+  `PIT_WINDOW_COVERED_ONLY_ACROSS_CHAINS` or `PIT_WINDOW_COVERAGE_REQUEST_INVALID` - and records nothing, so the same
+  run id may be submitted again once the window is backfilled.
 - Either statement family runs: the statement is read as the catalog holds it and authored by its own family, a
   single-threshold statement through the single-threshold author and a document through the authoring language's
   compiler, into the same Design and meaning the freeze takes. A statement that does not author is refused as
@@ -903,7 +910,7 @@ the answer or the refusal through by name, the body exactly as sent; no argument
 | `list(limit)`    | `GET /v1/backtests`                 | recorded runs, newest first                                |
 
 `run` takes exactly the fields the route reads - `run_id`, `strategy_id`, `instrument`, `execution_timeframe`,
-`window_start_ns`, `window_end_ns_exclusive`, `custody_chain_root` - and refuses any other as
+`window_start_ns`, `window_end_ns_exclusive` - and refuses any other as
 `MALFORMED_TYPED_REQUEST` without a request. A run id becomes part of a route's path, so only letters, digits, `.`,
 `_` and `-`, at most 128 of them, are sent; any other spelling is answered `RUN_UNKNOWN` without a request. A route
 that cannot be reached is `RD_OWNER_API_UNREACHABLE`. `make mcp-backtest` builds and installs it for the local

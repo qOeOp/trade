@@ -18,14 +18,13 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 const MAX_RUN_ID_LEN: usize = 128;
 
 /// The fields `run` sends, exactly the ones `POST /v1/backtests` reads.
-const RUN_FIELDS: [&str; 7] = [
+const RUN_FIELDS: [&str; 6] = [
     "run_id",
     "strategy_id",
     "instrument",
     "execution_timeframe",
     "window_start_ns",
     "window_end_ns_exclusive",
-    "custody_chain_root",
 ];
 
 /// One request a tool sends to the R&D API.
@@ -68,15 +67,14 @@ pub fn tools() -> Value {
     json!([
         {
             "name": "run",
-            "description": "Submit a backtest of a catalogued strategy over one instrument's window. The whole run happens server-side in this one call; the answer is where it stopped, or the refusal by name. The same request under the same run_id answers the recorded run again; another request under it is refused as RUN_ID_CONFLICT.",
+            "description": "Submit a backtest of a catalogued strategy over one instrument's window; the server reads it from the Market Data custody that covers the window, or refuses it by name (PIT_WINDOW_NOT_COVERED with the missing ranges, PIT_WINDOW_CUSTODY_NOT_FOUND, ...). The whole run happens server-side in this one call; the answer is where it stopped, or the refusal by name. The same request under the same run_id answers the recorded run again; another request under it is refused as RUN_ID_CONFLICT.",
             "inputSchema": {"type": "object", "properties": {
                 "run_id": run_id,
                 "strategy_id": {"type": "string", "description": "A strategy_id from the strategy-authoring server, `sha256:` and 64 lower-case hex digits."},
                 "instrument": {"type": "string", "description": "The instrument, such as BTCUSDT-PERP.BINANCE."},
                 "execution_timeframe": {"type": "string", "description": "The bar timeframe the run executes on, such as 1d or 4h."},
                 "window_start_ns": {"type": "integer", "minimum": 0, "description": "The window's first instant, in nanoseconds since the Unix epoch."},
-                "window_end_ns_exclusive": {"type": "integer", "minimum": 0, "description": "The instant after the window's last, in nanoseconds since the Unix epoch."},
-                "custody_chain_root": {"type": "string", "description": "The Market Data custody chain the window is read from."}
+                "window_end_ns_exclusive": {"type": "integer", "minimum": 0, "description": "The instant after the window's last, in nanoseconds since the Unix epoch."}
             }, "required": RUN_FIELDS, "additionalProperties": false}
         },
         {
@@ -258,8 +256,7 @@ mod tests {
             "instrument": "BTCUSDT-PERP.BINANCE",
             "execution_timeframe": "1d",
             "window_start_ns": 0,
-            "window_end_ns_exclusive": 86_400_000_000_000_u64,
-            "custody_chain_root": "5a5a"
+            "window_end_ns_exclusive": 86_400_000_000_000_u64
         })
     }
 

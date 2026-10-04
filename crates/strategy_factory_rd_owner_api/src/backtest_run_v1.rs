@@ -36,8 +36,8 @@ use vibe_data::owner::{
     },
     pit_snapshot::PitSnapshotSubmissionV1,
     pit_window_custody_v1::{
-        PitWindowCustodyFramesV1, PitWindowRunFramesV1, PitWindowRunRefusalV1,
-        UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowRunV1,
+        PitWindowCoverageRefusalV1, PitWindowCustodyFramesV1, PitWindowRunFramesV1,
+        PitWindowRunRefusalV1, UntrustedPitWindowRunV1,
     },
     research_instrument_scope_v1::ResearchInstrumentScopeWireV1,
     resolve_research_pit_terminal_by_correlation_v1,
@@ -123,10 +123,6 @@ pub(crate) struct BacktestRunRequestV1 {
     pub(crate) run_id: String,
     pub(crate) strategy_id: StrategyIdentityV1,
     pub(crate) dataset_ref: BacktestRunDatasetRefV1,
-    /// The custody chain this run's window is read from. Market Data has no production lookup
-    /// from a `dataset_ref` to a chain yet (that is T0-5's own job); until it does, the caller
-    /// supplies the chain it already knows serves this dataset_ref.
-    pub(crate) custody: UntrustedPitWindowCustodyClaimV1,
     /// The caller's own signed proof that it holds authority for `run_id`, passed through to
     /// Product Edge unchanged.
     pub(crate) request_proof_digest: String,
@@ -187,6 +183,10 @@ pub(crate) enum BacktestRunErrorV1 {
     /// The dataset_ref's execution timeframe has no bar label Market Data declares, so no input
     /// role can be stated over it.
     ExecutionTimeframeUndeclared,
+    /// Market Data names no one custody chain covering the dataset_ref's window, by its own
+    /// refusal. Checked before anything is written, so the run id can be submitted again once the
+    /// window is backfilled.
+    CustodyCoverageRefused(PitWindowCoverageRefusalV1),
     /// The catalog has no strategy under this identity.
     StrategyUnknown,
     /// The strategy is archived.
@@ -252,6 +252,7 @@ pub(crate) async fn run_backtest_v1(
 ) -> Result<BacktestRunReachedReplayV1, BacktestRunErrorV1> {
     let timeframe = execution_timeframe_bar_label_v1(request.dataset_ref.execution_timeframe())
         .ok_or(BacktestRunErrorV1::ExecutionTimeframeUndeclared)?;
+    let custody_run = resolve_custody_run_v1(owners, &request.dataset_ref).await?;
     let statement = fetch_strategy_statement_v1(&owners.catalog, request.strategy_id).await?;
     let research_request_identity = format!("backtest-run:{}", request.run_id);
     let accepted = submit_backtest_research_goal_v1(
@@ -327,8 +328,7 @@ pub(crate) async fn run_backtest_v1(
         &request.run_id,
         &research_request_identity,
         &accepted,
-        &request.dataset_ref,
-        request.custody,
+        custody_run,
         &request.request_proof_digest,
     )
     .await;
@@ -539,7 +539,30 @@ fn default_market_semantics_value_v1() -> MarketSemanticsValueSubmissionV1 {
     }
 }
 
-/// Resolves this run's dataset_ref against T0 window custody, then hands the resolved frames to
+/// Names the custody run that serves this dataset_ref: Market Data's one chain holding the
+/// instrument alone at the execution timeframe and covering the whole window, its current head
+/// pinned. The caller names a plain dataset and never a chain. `None` when this deployment has no
+/// custody frames port, which the replay step answers by name.
+async fn resolve_custody_run_v1(
+    owners: &BacktestRunOwnersV1,
+    dataset_ref: &BacktestRunDatasetRefV1,
+) -> Result<Option<UntrustedPitWindowRunV1>, BacktestRunErrorV1> {
+    let Some(resolver) = owners.custody_frames.as_ref() else {
+        return Ok(None);
+    };
+    resolver
+        .resolve_pit_window_run_for_window_v1(
+            dataset_ref.instrument(),
+            dataset_ref.execution_timeframe(),
+            dataset_ref.window_start_ns(),
+            dataset_ref.window_end_ns_exclusive(),
+        )
+        .await
+        .map(Some)
+        .map_err(BacktestRunErrorV1::CustodyCoverageRefused)
+}
+
+/// Resolves this run's custody run into its frames, then hands them to
 /// [`commit_custody_replay_v1`] (gated behind the `composer-v3-replay` feature; see that
 /// function's doc for what it does and its no-op fallback otherwise).
 async fn resolve_replay_v1(
@@ -547,21 +570,14 @@ async fn resolve_replay_v1(
     run_id: &str,
     research_request_identity: &str,
     accepted: &ResearchGoalOwnerResultV2,
-    dataset_ref: &BacktestRunDatasetRefV1,
-    custody: UntrustedPitWindowCustodyClaimV1,
+    custody_run: Option<UntrustedPitWindowRunV1>,
     request_proof_digest: &str,
 ) -> BacktestRunReplayUnavailableV1 {
-    let Some(resolver) = owners.custody_frames.as_ref() else {
+    let (Some(resolver), Some(run)) = (owners.custody_frames.as_ref(), custody_run) else {
         return BacktestRunReplayUnavailableV1::CustodyFramesNotAvailable;
     };
-    let run_start_ns = dataset_ref.window_start_ns();
-    let run_end_ns_exclusive = dataset_ref.window_end_ns_exclusive();
-    let run = UntrustedPitWindowRunV1 {
-        custody,
-        run_start_ns,
-        run_end_ns_exclusive,
-        head_identity: None,
-    };
+    let run_start_ns = run.run_start_ns;
+    let run_end_ns_exclusive = run.run_end_ns_exclusive;
     let frames = match resolver.resolve_pit_window_frames_v1(run).await {
         Ok(frames) => frames,
         Err(refusal) => return BacktestRunReplayUnavailableV1::CustodyFramesRefused(refusal),

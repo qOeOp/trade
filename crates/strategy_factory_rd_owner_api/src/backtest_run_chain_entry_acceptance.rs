@@ -7,17 +7,15 @@
 //! Master fact and historical membership) is this entry's precondition, not something it repeats.
 //! F is the chain's only producer of that fixture; this entry only reads the state it left.
 //!
-//! `custody` is a synthetic chain claim, not a committed one: `BacktestRunOwnersV1::custody_frames`
-//! is `None` today, so `run_backtest_v1` never calls a resolver with it. Once Market Data's T0-5
-//! view lands, this entry gains a real custody commit to carry the test further - see the module
-//! doc of `backtest_run_v1`.
+//! `BacktestRunOwnersV1::custody_frames` is `None` here, so no custody chain is looked up for the
+//! dataset_ref and the run stops at `CustodyFramesNotAvailable`; this entry's fixture binds a PIT
+//! snapshot, not a custody run - see the module doc of `backtest_run_v1`.
 
 use std::sync::Arc;
 
 use vibe_data::owner::{
     market_semantics_admission_v1::market_semantics_admission_from_environment_v1,
     pit_market_snapshot_intake_v1::pit_market_snapshot_intake_from_environment_v1,
-    pit_window_custody_v1::UntrustedPitWindowCustodyClaimV1, source_binding::BindingDigest,
     strategy_input_binding_admission_v1::strategy_input_binding_admission_from_environment_v1,
     universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
 };
@@ -223,11 +221,6 @@ async fn assert_run_reaches_the_replay_step_v1(
             86_400_000_000_000,
         )
         .expect("the chain entry's dataset_ref is well-formed"),
-        // Synthetic: `custody_frames` is `None` above, so `run_backtest_v1` never resolves this
-        // claim against real custody - see this file's module doc.
-        custody: UntrustedPitWindowCustodyClaimV1 {
-            chain_root: BindingDigest::from_untrusted_bytes([0x5a; 32]),
-        },
         request_proof_digest: request_proof_digest.to_owned(),
     };
 
@@ -391,7 +384,6 @@ async fn assert_backtest_runs_are_recorded_and_read_back_v1(
             "execution_timeframe": "1d",
             "window_start_ns": 0,
             "window_end_ns_exclusive": window_end_ns_exclusive,
-            "custody_chain_root": BindingDigest::from_untrusted_bytes([0x5a; 32]),
         })
     };
     let token = Some(TOKEN);
@@ -553,6 +545,9 @@ fn describe_error(error: &BacktestRunErrorV1) -> String {
     match error {
         BacktestRunErrorV1::ExecutionTimeframeUndeclared => {
             "execution timeframe undeclared".to_owned()
+        }
+        BacktestRunErrorV1::CustodyCoverageRefused(refusal) => {
+            format!("custody coverage refused: {refusal}")
         }
         BacktestRunErrorV1::StrategyUnknown => "strategy unknown".to_owned(),
         BacktestRunErrorV1::StrategyArchived => "strategy archived".to_owned(),
