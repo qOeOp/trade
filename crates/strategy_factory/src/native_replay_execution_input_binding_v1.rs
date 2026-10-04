@@ -935,6 +935,19 @@ fn refuse_invalid_custody_run(
 /// view admission path a Design would need to actually agree with this check. The remaining
 /// fields below DO compare like domains (both sides' Instrument Master digest, Market Semantics
 /// identity, and member set), so they stay.
+///
+/// Dropping that comparison does not drop the property it was trying to state - "the strategy's
+/// bound Universe Selection equals the chain's own" - it relocates: once a Design is admitted
+/// over a custody view (T0-10, `docs/architecture/market-data.md`'s "(a)+(b)" section,
+/// `StrategyInputBindingAdmissionV1::admit_published_design_over_custody_run`), the SAME strategy-
+/// input-hash domain this function could not compare here is checked per frame, at the identical
+/// resolution the snapshot path already uses:
+/// `universe_frame.selection().selection_identity()`/`selection_digest()` against the request's
+/// own `universe_selection_identity`/`universe_selection_digest`
+/// (`crates/data/src/owner/native_replay_scheduling_v1.rs`, ~1581, refusing
+/// `OwnerBindingMismatch`). This function's job stays narrower, by design: catching an IM key,
+/// Market Semantics or member drift between the role-binding and the chain basis BEFORE that
+/// per-frame check ever runs.
 pub(crate) fn verify_custody_run_universe_matches_role_binding_v1(
     bindings: &VerifiedStrategyInputBindingsV2,
     basis: &PitWindowChainBasisV1,
