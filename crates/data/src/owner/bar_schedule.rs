@@ -38,6 +38,25 @@ pub type BarScheduleIdentity = BindingDigest;
 /// "TARGET Binance backfill fetch for T0 window custody").
 pub const SUPPORTED_EXECUTION_TIMEFRAMES_V1: &[&str] = &["1w", "1d", "4h", "1h"];
 
+/// The row-timeframe label a Source Binding declares, and every custody, schedule and PIT row
+/// carries, for one of [`SUPPORTED_EXECUTION_TIMEFRAMES_V1`]; `None` for any other timeframe.
+///
+/// This is the one mapping from a public execution timeframe to its declared bar label. `1d` is
+/// `24H`, never `1D`: `1D` already names one exchange session day, and a perpetual's continuous
+/// 24-hour bar has another shape. `1w` is `1W`, a 168-hour bar on the week-start-Monday anchor. A
+/// consumer that declares an input role over a run's execution timeframe takes the role's
+/// timeframe from here rather than writing a label of its own.
+#[must_use]
+pub const fn execution_timeframe_bar_label_v1(execution_timeframe: &str) -> Option<&'static str> {
+    match execution_timeframe.as_bytes() {
+        b"1w" => Some("1W"),
+        b"1d" => Some("24H"),
+        b"4h" => Some("4H"),
+        b"1h" => Some("1H"),
+        _ => None,
+    }
+}
+
 const FACT_DOMAIN: &[u8] = b"market-data.bar-schedule-fact.v1\0";
 const CUT_DOMAIN: &[u8] = b"market-data.bar-schedule-cut.v1\0";
 const RECEIPT_DOMAIN: &[u8] = b"market-data.bar-schedule-receipt.v1\0";
