@@ -12,17 +12,26 @@
 
 use thiserror::Error;
 use vibe_data::owner::{
+    instrument_master_v2::InstrumentMasterReadbackV2,
     native_replay_scheduling_v1::{
         NativeReplayFrameSourceV1, NativeReplayInitialMarketRequestV1,
         NativeReplaySchedulingErrorV1, NativeReplaySchedulingReadbackV1,
         NativeReplaySchedulingResolverV1,
     },
-    pit_window_custody_v1::{PitObservationBatchSourceV1, PitWindowRunFramesV1},
+    pit_window_custody_v1::{
+        PitObservationBatchSourceV1, PitWindowCustodyFramesV1, PitWindowRunFramesV1,
+        PitWindowRunRefusalV1, UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowRunV1,
+    },
+    source_binding::BindingDigest,
 };
 
 use crate::{
+    native_replay_execution_input_binding_v1::ReplayCustodyRunBindingV1,
+    native_replay_initial_owner_inputs_v1::native_replay_custody_first_frame_request_v1,
+    native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
     program_host_v2::OwnerUniverseFrameV1,
     replay_target_set_execution_bundle_v1::ReplayCustodyRunCensusV1,
+    strategy_plan_v2::StrategyPlanV2,
 };
 
 /// Why a custody run's frames could not be read.
@@ -55,6 +64,22 @@ pub enum NativeReplayCustodyFramesErrorV1 {
     /// A frame's sample projection does not cover its universe frame.
     #[error("CUSTODY_FRAME_COORDINATES_UNAVAILABLE: frame {ordinal} at {event_ns}")]
     CoordinatesUnavailable { ordinal: u64, event_ns: u64 },
+    /// A frame was read under another Instrument Master cut than the one the binding verified: the
+    /// chain's basis declares a cut of its own, and the two must be one.
+    #[error(
+        "CUSTODY_INSTRUMENT_MASTER_NOT_THE_BINDINGS: frame {ordinal} at {event_ns} was read under another Instrument Master cut"
+    )]
+    InstrumentMasterNotTheBindings { ordinal: u64, event_ns: u64 },
+    /// The binding's run does not cover exactly the Replay's window.
+    #[error("CUSTODY_RUN_NOT_THE_REPLAY_WINDOW: the bound run does not cover the Replay's window")]
+    RunNotTheReplayWindow,
+    /// Market Data refused to enumerate the run's frames.
+    #[error("CUSTODY_RUN_REFUSED: {0}")]
+    RunRefused(PitWindowRunRefusalV1),
+    /// The run's first frame request could not be formed from the Replay, Plan and Instrument
+    /// Master cut.
+    #[error("CUSTODY_RUN_REQUEST_UNAVAILABLE: {0}")]
+    RequestUnavailable(String),
 }
 
 /// Every frame of one custody run, in frame order, with the chain and head they were read at.
@@ -95,7 +120,8 @@ impl ResolvedNativeReplayCustodyFramesV1 {
 /// `first` is the run's request for its first frame (`NativeReplayInitialMarketRequestV1::
 /// for_custody_frame`), pinning the head the run is bound to; every later frame's request is the
 /// same one at that frame's `e_k`. `run` must have been enumerated from that same head, or the run
-/// is refused as moved rather than read under the newer one.
+/// is refused as moved rather than read under the newer one. Every frame must be read under
+/// `instrument_master_digest`, the cut the run's binding verified.
 ///
 /// # Errors
 ///
@@ -105,6 +131,7 @@ pub async fn resolve_native_replay_custody_frames_v1<R>(
     resolver: &R,
     run: &PitWindowRunFramesV1,
     first: &NativeReplayInitialMarketRequestV1,
+    instrument_master_digest: BindingDigest,
 ) -> Result<ResolvedNativeReplayCustodyFramesV1, NativeReplayCustodyFramesErrorV1>
 where
     R: NativeReplaySchedulingResolverV1 + ?Sized,
@@ -170,6 +197,15 @@ where
             OwnerUniverseFrameV1::from_owner_projection_v1(universe_frame, &projection).map_err(
                 |_| NativeReplayCustodyFramesErrorV1::CoordinatesUnavailable { ordinal, event_ns },
             )?;
+
+        if owner_frame.frame().selection().instrument_master_digest() != instrument_master_digest {
+            return Err(
+                NativeReplayCustodyFramesErrorV1::InstrumentMasterNotTheBindings {
+                    ordinal,
+                    event_ns,
+                },
+            );
+        }
         view_identities.push(*view_identity.as_bytes());
         frames.push((owner_frame, scheduling));
     }
@@ -183,4 +219,71 @@ where
             view_identities,
         },
     })
+}
+
+/// Every frame of the custody run `custody` binds, read at the head it pins.
+///
+/// The frames are enumerated afresh from the bound chain and window, and the run is refused as
+/// moved unless they come from the bound head. The Instrument Master cut every frame must be read
+/// under is the Plan's, the one the binding verified at issuance.
+///
+/// # Errors
+///
+/// Returns [`NativeReplayCustodyFramesErrorV1`] naming the refusal.
+#[expect(
+    dead_code,
+    reason = "the consumer's custody branch calls it once the binding's custody re-resolution check lands (Lane 5, H8)"
+)]
+pub(crate) async fn resolve_bound_custody_run_frames_v1<F, R>(
+    custody_frames: &F,
+    resolver: &R,
+    preparation: &NativeReplayPreparationInputsV2,
+    plan: &StrategyPlanV2,
+    instrument_master: &InstrumentMasterReadbackV2,
+    custody: &ReplayCustodyRunBindingV1,
+) -> Result<ResolvedNativeReplayCustodyFramesV1, NativeReplayCustodyFramesErrorV1>
+where
+    F: PitWindowCustodyFramesV1 + ?Sized,
+    R: NativeReplaySchedulingResolverV1 + ?Sized,
+{
+    let replay = preparation.replay().request().as_dto();
+    let window = &replay.window;
+
+    if (custody.run_start_ns, custody.run_end_ns_exclusive)
+        != (window.start_event_ns, window.end_event_ns_exclusive)
+    {
+        return Err(NativeReplayCustodyFramesErrorV1::RunNotTheReplayWindow);
+    }
+    let run = custody_frames
+        .resolve_pit_window_frames_v1(UntrustedPitWindowRunV1 {
+            custody: UntrustedPitWindowCustodyClaimV1 {
+                chain_root: BindingDigest::from_untrusted_bytes(custody.chain_root),
+            },
+            run_start_ns: custody.run_start_ns,
+            run_end_ns_exclusive: custody.run_end_ns_exclusive,
+        })
+        .await
+        .map_err(NativeReplayCustodyFramesErrorV1::RunRefused)?;
+    let first_event_ns = run
+        .frames()
+        .first()
+        .ok_or(NativeReplayCustodyFramesErrorV1::NoFrame)?
+        .event_ns();
+    let first = native_replay_custody_first_frame_request_v1(
+        preparation,
+        plan,
+        instrument_master,
+        custody,
+        first_event_ns,
+    )
+    .map_err(|e| NativeReplayCustodyFramesErrorV1::RequestUnavailable(e.to_string()))?;
+    let instrument_master_digest = plan
+        .universe_selection()
+        .ok_or_else(|| {
+            NativeReplayCustodyFramesErrorV1::RequestUnavailable(
+                "the Plan binds no Owner universe selection".to_owned(),
+            )
+        })?
+        .instrument_master_digest();
+    resolve_native_replay_custody_frames_v1(resolver, &run, &first, instrument_master_digest).await
 }
