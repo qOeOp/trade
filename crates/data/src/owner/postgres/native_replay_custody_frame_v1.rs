@@ -7,9 +7,9 @@
 //! two cannot diverge.
 //!
 //! The quote cut comes from a resolver the caller passes. Production passes
-//! [`resolve_custody_quote_cut_v1`], which refuses every gap as `QuoteCutMissing` until slice T0-6
-//! derives one: a custody frame then fails closed as `EventOrderUnavailable`, and no Quote is
-//! invented. Proofs pass a resolver of their own.
+//! [`resolve_custody_quote_cut_v1`], T0-6's derivation from the gap's first fill bar, at the
+//! version visible at that bar's own availability; a gap it derives nothing for fails closed as
+//! `EventOrderUnavailable`, and no Quote is invented. Proofs may pass a resolver of their own.
 
 use super::{
     native_replay_scheduling_error_of_quote_cut_refusal,
@@ -118,6 +118,8 @@ where
         .map(|candidate| FillBarCandidateV1 {
             version_identity: candidate.version_identity,
             open_ns: candidate.open_ns,
+            available_ns: candidate.available_ns,
+            publication_ns: candidate.publication_ns,
             rows: candidate.rows.clone(),
         })
         .collect();
@@ -235,8 +237,8 @@ where
 /// **Acceptance only.** It reads a custody frame on the Owner pool through
 /// [`resolve_native_replay_custody_frame_from_pool_v1`], the read the pool and admitted paths share
 /// through [`custody_frame_readback_from_view_v1`]; only the quote source differs: `quote` states
-/// each gap's Quotes where production's [`resolve_custody_quote_cut_v1`] refuses every gap, and the
-/// stated rows are sealed by the custody quote cut seal, so the gap, member and source checks all
+/// each gap's Quotes where production's [`resolve_custody_quote_cut_v1`] derives them from fill
+/// bars, and the stated rows are sealed by the custody quote cut seal, so the gap, member and source checks all
 /// apply. T0-6's real fill-bar derivation replaces it, and any end-to-end result produced with it
 /// must be re-run on the real derivation before it counts as U1 evidence. A snapshot frame is never
 /// read here.

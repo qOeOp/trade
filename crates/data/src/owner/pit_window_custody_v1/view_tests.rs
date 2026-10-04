@@ -413,6 +413,36 @@ fn the_fill_timeframe_is_never_selected() {
     );
 }
 
+/// A fill quote selects its bar's version through the inputs' own rule, at the bar's
+/// availability instead of `d_k`: a correction or withdrawal published after that availability
+/// never reaches it, a bar not published by its own availability is no candidate, and only bars
+/// opening strictly inside `(d_k, e_{k+1})` are.
+#[rstest]
+fn a_fill_candidate_is_the_version_visible_at_its_bars_availability() {
+    const MINUTE: u64 = 60 * SECOND;
+    let in_gap = original(FILL, DAY + 5 * MINUTE);
+    let corrected = correction(&in_gap, in_gap.availability_ns + 1);
+    let withdrawn = withdrawal(&corrected, in_gap.availability_ns + 2);
+    let mut late = original(FILL, DAY + 9 * MINUTE);
+    late.publication_ns = late.availability_ns + 1;
+    let mut versions = chain();
+    versions.extend([in_gap.clone(), corrected, withdrawn, late]);
+    let sections = cross_sections_v1(&versions).unwrap();
+    let selection = select_view_v1(&sections, &timeframes(&[EXECUTION]), DAY).unwrap();
+    assert_eq!(selection.decision_cut_ns, DAY + LAG);
+
+    assert_eq!(
+        select_fill_candidates_v1(&sections, d(FILL), MINUTE, &selection),
+        vec![in_gap.clone()],
+        "the original known at the bar's availability, never its correction or withdrawal; the \
+         bar opening at e_k, the bar opening at e_(k+1) and the bar unpublished at its own \
+         availability are not candidates"
+    );
+
+    // The same rule at d_k would see no version of it at all: the fill bar closes after d_k.
+    assert!(effective_at(sections.at(d(FILL), in_gap.event_ns).unwrap(), DAY + LAG).is_none());
+}
+
 #[rstest]
 fn the_view_identity_binds_each_part_of_its_preimage() {
     let view = select(&chain(), &[EXECUTION, TWO_DAY], 3 * DAY).unwrap();

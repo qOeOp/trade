@@ -5,8 +5,12 @@
 //! gap's bound: bid and ask both that open, both sizes the bar's traded volume
 //! ([`QuoteDerivationV1::FillBarOpen`]). The candidate bars themselves are read and verified by
 //! the caller (`postgres/pit_window_custody_v1.rs`, alongside the view), since reading custody
-//! needs a store; this module picks the first qualifying one and seals it. A gap with no
-//! qualifying bar fails closed as `QuoteCutMissing`: no quote is invented.
+//! needs a store; this module picks the first qualifying one and seals it. Each candidate is the
+//! version visible at its bar's own availability (`view::select_fill_candidates_v1`, the selection
+//! a frame's inputs make at `d_k`), so a correction published after that never reaches the quote,
+//! and the quote cut states that version's availability and publication. A gap with no qualifying
+//! bar, or whose bar is available only at or after the gap's bound, fails closed as
+//! `QuoteCutMissing`: no quote is invented.
 
 use sha2::{Digest as _, Sha256};
 
@@ -39,9 +43,14 @@ pub(crate) struct FillBarCandidateV1 {
     /// correction of the same bar seals a different quote cut rather than silently replacing one
     /// already issued.
     pub(crate) version_identity: BindingDigest,
-    /// The bar's open: the instant its declaration labels it by. Strictly inside the gap, checked
-    /// when the candidate is read.
+    /// The bar's open, the quote's instant. Strictly inside the gap, checked when the candidate is
+    /// read.
     pub(crate) open_ns: u64,
+    /// The selected version's availability: the version visible at the bar's own availability,
+    /// never a later correction of it.
+    pub(crate) available_ns: u64,
+    /// The selected version's publication: at or before its bar's availability.
+    pub(crate) publication_ns: u64,
     /// One row per member, each the bar's open and traded volume.
     pub(crate) rows: Vec<FillBarRowV1>,
 }
@@ -62,9 +71,9 @@ pub(crate) struct CustodyQuoteCutRequestV1 {
     pub(crate) members: Vec<String>,
     /// The custody's fill timeframe, which serves quote cuts only.
     pub(crate) fill_timeframe: Option<RecordedTimeframeV1>,
-    /// Every fill-timeframe bar whose open lies in the gap, ascending by open. The caller reads
-    /// and verifies these against the custody's store; this module trusts them as given and picks
-    /// the first.
+    /// Every fill-timeframe bar whose open lies in the gap, ascending by open, each at the version
+    /// visible at its own availability. The caller selects, reads and verifies these against the
+    /// custody's store; this module trusts them as given and picks the first.
     pub(crate) fill_candidates: Vec<FillBarCandidateV1>,
 }
 
@@ -94,9 +103,36 @@ fn quote_cut_identity_v1(
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
-/// The quote cut of the gap after `view`'s frame: the first of `request.fill_candidates` (already
-/// read and verified by the caller, ascending by open), sealed as Quote rows bid = ask = open,
-/// both sizes the bar's traded volume.
+/// The fill bar the gap's quote cut takes: the first of `request.fill_candidates` whose open lies
+/// strictly inside `(d_k, bound)`. A bar that is not available before the gap's bound gives the gap
+/// no quote: its price would be one the run could not have known before the next frame.
+///
+/// # Errors
+///
+/// [`NativeReplayQuoteCutRefusalV2::QuoteCutMissing`] when no candidate opens inside the gap, or
+/// the first that does is available only at or after the gap's bound.
+pub(crate) fn fill_bar_of_gap_v1(
+    request: &CustodyQuoteCutRequestV1,
+) -> Result<&FillBarCandidateV1, NativeReplayQuoteCutRefusalV2> {
+    let candidate = request
+        .fill_candidates
+        .iter()
+        .find(|candidate| {
+            candidate.open_ns > request.decision_cut_ns
+                && candidate.open_ns < request.bound_ns_exclusive
+        })
+        .ok_or(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)?;
+
+    if candidate.available_ns >= request.bound_ns_exclusive {
+        return Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing);
+    }
+    Ok(candidate)
+}
+
+/// The quote cut of the gap after `view`'s frame: [`fill_bar_of_gap_v1`]'s bar (already selected,
+/// read and verified by the caller), sealed as Quote rows bid = ask = open, both sizes the bar's
+/// traded volume, at the bar's open and stating the selected version's availability and
+/// publication.
 ///
 /// # Errors
 ///
@@ -109,14 +145,7 @@ pub(crate) fn resolve_custody_quote_cut_v1(
     let Some(fill) = request.fill_timeframe.as_ref() else {
         return Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing);
     };
-    let candidate = request
-        .fill_candidates
-        .iter()
-        .find(|candidate| {
-            candidate.open_ns > request.decision_cut_ns
-                && candidate.open_ns < request.bound_ns_exclusive
-        })
-        .ok_or(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)?;
+    let candidate = fill_bar_of_gap_v1(request)?;
     let mut rows = candidate.rows.clone();
     rows.sort_by(|left, right| left.instrument.cmp(&right.instrument));
     let quote_rows = rows
@@ -158,8 +187,8 @@ pub(crate) fn resolve_custody_quote_cut_v1(
                 candidate.version_identity,
             ),
             instant_ns: candidate.open_ns,
-            available_ns: candidate.open_ns,
-            publication_ns: candidate.open_ns,
+            available_ns: candidate.available_ns,
+            publication_ns: candidate.publication_ns,
             bound_ns_exclusive: request.bound_ns_exclusive,
             derivation: QuoteDerivationV1::FillBarOpen {
                 fill_timeframe_identity: fill.identity,
@@ -174,7 +203,57 @@ pub(crate) fn resolve_custody_quote_cut_v1(
 mod tests {
     use rstest::rstest;
 
-    use super::custody_quote_cut_bound_v1;
+    use super::{
+        BindingDigest, CustodyQuoteCutRequestV1, FillBarCandidateV1, custody_quote_cut_bound_v1,
+        fill_bar_of_gap_v1,
+    };
+    use crate::owner::native_replay_quote_cut_v2::NativeReplayQuoteCutRefusalV2;
+
+    fn candidate(open_ns: u64, available_ns: u64) -> FillBarCandidateV1 {
+        FillBarCandidateV1 {
+            version_identity: BindingDigest::from_untrusted_bytes(
+                [u8::try_from(open_ns).unwrap(); 32],
+            ),
+            open_ns,
+            available_ns,
+            publication_ns: available_ns,
+            rows: Vec::new(),
+        }
+    }
+
+    fn gap(candidates: Vec<FillBarCandidateV1>) -> CustodyQuoteCutRequestV1 {
+        let d = BindingDigest::from_untrusted_bytes([1; 32]);
+        CustodyQuoteCutRequestV1 {
+            chain_root: d,
+            head_identity: d,
+            view_identity: d,
+            decision_cut_ns: 100,
+            bound_ns_exclusive: 200,
+            members: Vec::new(),
+            fill_timeframe: None,
+            fill_candidates: candidates,
+        }
+    }
+
+    /// The gap takes the first bar opening strictly inside `(d_k, bound)`, and none at all when
+    /// that bar is available only at or after the bound.
+    #[rstest]
+    #[case::the_first_inside(vec![candidate(100, 150), candidate(120, 150), candidate(130, 150)], Ok(120))]
+    #[case::available_just_before_the_bound(vec![candidate(120, 199)], Ok(120))]
+    #[case::available_at_the_bound(vec![candidate(120, 200), candidate(130, 150)], Err(()))]
+    #[case::available_after_the_bound(vec![candidate(120, 250)], Err(()))]
+    #[case::opening_at_the_bound(vec![candidate(200, 210)], Err(()))]
+    #[case::none(vec![], Err(()))]
+    fn a_gap_takes_the_first_fill_bar_inside_it_available_before_its_bound(
+        #[case] candidates: Vec<FillBarCandidateV1>,
+        #[case] expected: Result<u64, ()>,
+    ) {
+        let request = gap(candidates);
+        assert_eq!(
+            fill_bar_of_gap_v1(&request).map(|candidate| candidate.open_ns),
+            expected.map_err(|()| NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+        );
+    }
 
     #[rstest]
     #[case::the_next_frame(100, 10, 200, Some(110))]
