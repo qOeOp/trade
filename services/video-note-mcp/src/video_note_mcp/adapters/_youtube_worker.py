@@ -107,10 +107,10 @@ def metadata(info: Any, expected_id: str | None = None) -> dict[str, Any]:
 
 
 def run(request: dict[str, Any]) -> dict[str, Any]:
-    if set(request) != {"schema", "operation", "value", "limit", "workspace", "proxy"}:
+    if set(request) != {"schema", "operation", "value", "workspace", "proxy"}:
         raise ValueError("youtube_request_invalid")
     operation, value = request["operation"], request["value"]
-    if request["schema"] != SCHEMA or operation not in {"metadata", "media", "search"}:
+    if request["schema"] != SCHEMA or operation not in {"metadata", "media"}:
         raise ValueError("youtube_request_invalid")
     if not isinstance(value, str):
         raise ValueError("youtube_request_invalid")
@@ -124,17 +124,10 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("youtube_workspace_invalid")
     elif request["workspace"] is not None:
         raise ValueError("youtube_workspace_invalid")
-    if operation == "search":
-        limit = request["limit"]
-        if type(limit) is not int or not 1 <= limit <= 9 or not 2 <= len(value) <= 200:
-            raise ValueError("youtube_search_invalid")
-        target, extractor = f"ytsearch{limit}:{value}", "YoutubeSearch"
-        expected_id = None
-    else:
-        parsed = validate_youtube_url(value)
-        if value != parsed.canonical_url() or request["limit"] != 1:
-            raise ValueError("youtube_request_invalid")
-        target, extractor, expected_id = value, "Youtube", parsed.video_id
+    parsed = validate_youtube_url(value)
+    if value != parsed.canonical_url():
+        raise ValueError("youtube_request_invalid")
+    target, extractor, expected_id = value, "Youtube", parsed.video_id
     metrics = _DownloadMetrics()
     options = {
         "quiet": True,
@@ -157,7 +150,6 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
         "merge_output_format": "mp4",
         "max_filesize": MEDIA_DOWNLOAD_BYTES,
         "progress_hooks": [metrics.progress_hook],
-        "extract_flat": "in_playlist" if operation == "search" else False,
     }
     if workspace:
         options["outtmpl"] = str(workspace / "source.%(ext)s")
@@ -170,27 +162,6 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             try:
                 with YoutubeOnlyDL(options) as downloader:
                     info = downloader.extract_info(target, download=False, ie_key=extractor)
-                    if operation == "search":
-                        entries = list(info.get("entries") or [])[: request["limit"]]
-                        rows = []
-                        for entry in entries:
-                            identity = entry.get("id")
-                            title = entry.get("title")
-                            if (
-                                isinstance(identity, str)
-                                and VIDEO_ID.fullmatch(identity)
-                                and isinstance(title, str)
-                                and 1 <= len(title) <= 500
-                                and not entry.get("is_live")
-                            ):
-                                rows.append(
-                                    {
-                                        "video_id": identity,
-                                        "title": title,
-                                        "canonical_url": f"https://www.youtube.com/watch?v={identity}",
-                                    }
-                                )
-                        return {"schema": SCHEMA, "ok": True, "candidates": rows}
                     result = metadata(info, expected_id)
                     if operation == "media":
                         downloader.process_info(info)

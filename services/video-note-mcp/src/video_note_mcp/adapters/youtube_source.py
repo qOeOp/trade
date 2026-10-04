@@ -19,16 +19,16 @@ from video_note_mcp.adapters.media_acquisition import (
     sha256_file,
 )
 from video_note_mcp.adapters.source_acquisition import SourceAcquisition
-from video_note_mcp.adapters.source_cache import SourceCache
 from video_note_mcp.adapters.strict_json import StrictJsonError, decode_strict_json_object
 from video_note_mcp.application.errors import BilibiliNoteFailure
-from video_note_mcp.application.ports import AcquiredSource, SourceMediaArtifact, TranscriptPort
+from video_note_mcp.application.ports import SourceMediaArtifact
 from video_note_mcp.application.progress import ProgressReporter
 from video_note_mcp.application.resource_limits import (
     MEDIA_SOURCE_MAX_PIXELS,
     MEDIA_SOURCE_MAX_SIDE,
 )
-from video_note_mcp.domain.models import SearchCandidateV1, SourceV1
+from video_note_mcp.domain.artifacts import DownloadedSource
+from video_note_mcp.domain.models import SourceV1
 from video_note_mcp.domain.youtube_url import validate_youtube_url
 
 _SCHEMA = "video-note-youtube-worker/v1"
@@ -43,13 +43,12 @@ class YoutubeExtractor:
         )
 
     async def request(
-        self, operation: str, value: str, workspace: Path | None = None, limit: int = 1
+        self, operation: str, value: str, workspace: Path | None = None
     ) -> dict[str, Any]:
         payload = {
             "schema": _SCHEMA,
             "operation": operation,
             "value": value,
-            "limit": limit,
             "workspace": str(workspace) if workspace else None,
             "proxy": self.proxy,
         }
@@ -64,8 +63,7 @@ class YoutubeExtractor:
             result = decode_strict_json_object(raw)
             if code != 0 or result.get("schema") != _SCHEMA or result.get("ok") is not True:
                 raise ValueError("youtube_worker_failed")
-            key = "candidates" if operation == "search" else "metadata"
-            if set(result) != {"schema", "ok", key}:
+            if set(result) != {"schema", "ok", "metadata"}:
                 raise ValueError("youtube_worker_receipt_invalid")
             return result
         except (ValueError, StrictJsonError) as e:
@@ -139,20 +137,18 @@ def source_metadata(data: Any, requested_url: str) -> SourceV1:
 class YoutubeSource:
     def __init__(
         self,
-        transcript: TranscriptPort,
-        cache: SourceCache | None = None,
         extractor: YoutubeExtractor | None = None,
     ) -> None:
         self.extractor = extractor or YoutubeExtractor()
-        self.acquisition = SourceAcquisition(transcript, self.extractor, cache)
+        self.acquisition = SourceAcquisition(self.extractor)
 
-    async def acquire(
+    async def download(
         self, url: str, workspace: Path, progress: ProgressReporter
-    ) -> AcquiredSource:
+    ) -> DownloadedSource:
         canonical = validate_youtube_url(url).canonical_url()
         data = (await self.extractor.request("metadata", canonical))["metadata"]
         source = source_metadata(data, url)
-        return await self.acquisition.acquire(
+        return await self.acquisition.download(
             source,
             data["width"],
             data["height"],
@@ -160,23 +156,3 @@ class YoutubeSource:
             workspace,
             progress,
         )
-
-
-class YoutubeSearch:
-    def __init__(self, extractor: YoutubeExtractor | None = None) -> None:
-        self.extractor = extractor or YoutubeExtractor()
-
-    async def search(self, query: str, limit: int) -> tuple[SearchCandidateV1, ...]:
-        rows = (await self.extractor.request("search", query, limit=limit))["candidates"]
-        try:
-            if not isinstance(rows, list) or len(rows) > limit:
-                raise ValueError("youtube_search_invalid")
-            candidates = tuple(SearchCandidateV1.model_validate(r) for r in rows)
-            if any(len(c.video_id) != 11 for c in candidates):
-                raise ValueError("youtube_search_platform_invalid")
-        except (ValueError, ValidationError) as e:
-            raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "youtube_search_invalid") from e
-        unique = tuple({c.video_id: c for c in candidates}.values())
-        if not unique:
-            raise BilibiliNoteFailure("SEARCH_EMPTY", "search_no_usable_results")
-        return unique

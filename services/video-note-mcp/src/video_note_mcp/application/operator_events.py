@@ -22,14 +22,8 @@ OperatorEventName = Literal[
     "request_cancelled",
     "media_completed",
     "media_failed",
-    "search_completed",
-    "search_failed",
     "asr_completed",
     "asr_failed",
-    "candidate_completed",
-    "candidate_failed",
-    "candidate_cancelled",
-    "batch_completed",
     "vision_started",
     "vision_completed",
     "vision_failed",
@@ -61,14 +55,8 @@ _FIELDS: dict[OperatorEventName, frozenset[str]] = {
             "attempt_elapsed_ms",
         }
     ),
-    "search_completed": frozenset({"candidates"}),
-    "search_failed": frozenset({"code", "reason"}),
     "asr_completed": frozenset({"windows", "attempts", "retries", "rate_limits"}),
     "asr_failed": frozenset({"windows", "attempts", "retries", "rate_limits", "code", "reason"}),
-    "candidate_completed": frozenset({"candidate_index", "stage", "progress"}),
-    "candidate_failed": frozenset({"candidate_index", "stage", "progress", "code", "reason"}),
-    "candidate_cancelled": frozenset({"candidate_index", "stage", "progress"}),
-    "batch_completed": frozenset({"attempted", "succeeded", "failed", "cancelled", "max_active"}),
     "vision_started": frozenset({"groups", "frames"}),
     "vision_completed": frozenset({"groups", "frames"}),
     "vision_failed": frozenset({"groups", "frames", "code", "reason"}),
@@ -169,27 +157,7 @@ def _event_fields_are_consistent(event: OperatorEventName, fields: dict[str, obj
             and (failure_phase == "after_bytes") == (attempt_downloaded_bytes > 0)
             and outer_exception_family in _MEDIA_OUTER_EXCEPTION_FAMILIES
         )
-    if event != "batch_completed":
-        return True
-    attempted = fields["attempted"]
-    succeeded = fields["succeeded"]
-    failed = fields["failed"]
-    cancelled = fields["cancelled"]
-    max_active = fields["max_active"]
-    if (
-        not isinstance(attempted, int)
-        or isinstance(attempted, bool)
-        or not isinstance(succeeded, int)
-        or isinstance(succeeded, bool)
-        or not isinstance(failed, int)
-        or isinstance(failed, bool)
-        or not isinstance(cancelled, int)
-        or isinstance(cancelled, bool)
-        or not isinstance(max_active, int)
-        or isinstance(max_active, bool)
-    ):
-        return False
-    return attempted == succeeded + failed + cancelled and max_active <= attempted
+    return True
 
 
 @dataclass(slots=True)

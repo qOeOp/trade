@@ -57,7 +57,7 @@ class AudioReviewer:
     async def review(
         self, source: AcquiredSource, quality: Quality, workspace: Path
     ) -> tuple[AudioReview, ...]:
-        profile = load_model_profile()
+        profile = load_model_profile("siliconflow")
         model = "Qwen/Qwen3-ASR-1.7B"
         if source.transcript.provider_ref == f"siliconflow:{model}":
             model = "XingChenAGI/XingChenASR-V3.2-Ultra"
