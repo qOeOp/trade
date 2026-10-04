@@ -50,6 +50,7 @@ pub mod common;
 pub mod config;
 pub mod data_types;
 pub mod factories;
+pub mod funding_archive_v1;
 pub mod futures;
 pub mod futures_pit_observation_source_v1;
 pub mod perpetual_admission_v1;
