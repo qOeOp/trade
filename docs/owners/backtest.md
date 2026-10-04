@@ -288,7 +288,7 @@ A run with exits also needs multi-frame replay.
 
 ## Run report document
 
-**CURRENT - the assembly; TARGET - the route that serves it.** `backtest_run_report_document_v1` assembles a
+**CURRENT - the assembly; IMPLEMENTATION_ADMITTED - the route that serves it.** `backtest_run_report_document_v1` assembles a
 `backtest.run` report from values: the run's four-question report, its fills, the bars its pinned custody head reads
 back, its funding when stated, its instrument's taker fee rate and its request identity. It reads no Owner and no
 clock.
@@ -314,9 +314,19 @@ clock.
   since moved on still reads what the run read and is not refused. A pinned head no longer in the chain is refused
   as Market Data names it (`PitWindowHeadNotInChain`), and bars that do not match the run's bundle digest are
   refused as `REPORT_BARS_DIGEST_MISMATCH`.
-- **What it waits on.** That read and the route that serves this report wait for a run to record its custody
-  binding: `backtest.run` stops before its replay step today, and the binding appears in the run's recorded answer
-  once H8 issues it.
+- **Statement.** `GET /v1/backtests/{run_id}/report` states the strategy the run's registry row names by
+  `strategy_id`: a single-threshold statement as the family states it, and an authoring-language document as its
+  canonical bytes, once recompiling it reproduces the run's frozen pair (`docs/owners/rd.md`, "a `backtest.run`
+  report states its authored document"). A document that does not reproduce is `AUTHORED_STATEMENT_NOT_REPRODUCED`,
+  and a program whose inputs span more than one instrument or granularity is `REPORT_DATA_WINDOW_NOT_SINGLE`.
+- **Data window.** A custody run's window is read from its pinned custody binding, not from a PIT snapshot: the
+  instrument is the dataset_ref's, which is the chain's one member; the granularity is the bar label Market Data
+  declares for the execution timeframe; start and exclusive end are the binding's run window; the cut is the pinned
+  head identity, and the count is the one custody cut the run binds. A chain that has since moved on still states
+  the window the run read.
+- **What it waits on.** The route answers `RUN_HAS_NO_RESULT`, with the replay state the run stopped at, until the
+  run records a Result. H8 records the custody binding in the run's answer; executing that bound replay and
+  committing its Result is the next `backtest.run` step, and the report is assembled from the Result it commits.
 
 ## Research T0 replication comparison
 

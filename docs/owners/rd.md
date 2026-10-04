@@ -1086,17 +1086,27 @@ construct below maps to catalog operations, and none adds one.
   The sixteen hand-written programs and the total single-threshold translation above remain the next slices'
   acceptance.
 
-**TARGET / NOT_ADMITTED - authored source custody and report statement:** a document is stored with the
-freeze it compiled to, in the same transaction, keyed by the joint freeze digest, and `declare` accepts it
-beside the `meaning` it compiled to. This Owner recompiles it and refuses a document whose design or
-`meaning` differs from the declared pair. A report then states a run from its document only after both
-anchors hold: the document recompiled under its recorded language version reproduces the frozen design and
-program bytes, and `anchor_frozen_program_to_run` ties the program to the run exactly as it does today. A
-document that no longer reproduces its freeze is an integrity failure and never falls back to another
-statement. The report reads the document in the freeze's snapshot, without a lock, and compiles after the
-transaction ends. The table is read by the report, so its materialization carries the same pre-cutover
-proof as the others. It stays `TARGET` because the report's data window is a single instrument at a single
-granularity, which a program with several inputs cannot state, and no contract yet defines that window.
+**IMPLEMENTATION_ADMITTED - a `backtest.run` report states its authored document:** a run submitted through
+`backtest.run` names its statement by `strategy_id` in the request its registry row records, and the strategy catalog
+holds that statement immutably, so the catalog is the document's custody and no second copy is stored beside the
+freeze. The report states a document only after both anchors hold:
+
+- recompiling the catalog document under the run's own Research request identity, Intent identity and digest, and
+  its declared bar timeframe, reproduces the frozen Design and program bytes exactly; and
+- `anchor_frozen_program_to_run` ties that program to the run's artifact exactly as it does for a single-threshold
+  statement.
+
+A document that no longer reproduces its freeze is an integrity failure, refused as
+`AUTHORED_STATEMENT_NOT_REPRODUCED`, and never falls back to another statement. The statement is the document itself
+in its canonical bytes, with its `strategy_id` and language version; the report never re-renders it as a
+single-threshold channel.
+
+The report's data window is one instrument at one granularity: the run's dataset_ref instrument and its execution
+timeframe. Every input role of an admitted document is a universe-member role at the run's one declared bar
+timeframe over a one-member universe, so this always holds today. A program whose input roles do not share one
+instrument and one granularity has no window this report can state and is refused by name as
+`REPORT_DATA_WINDOW_NOT_SINGLE`. A run that did not come through `backtest.run` has no registry row naming a
+statement, so it keeps the single-threshold recovery and its refusal (`NO_STRATEGY_STATEMENT_FOR_FAMILY`).
 
 ## Lineage and protected-feedback admission
 

@@ -200,7 +200,10 @@ whose reason is not in the set. `available` means the series has points and both
 quantities are stated. Net return and maximum drawdown are always present as keys and null only in
 `empty`, so a missing key is always a fault. A run whose strategy is outside the admitted
 single-threshold family is `unavailable` for a named reason, that no Owner statement of strategy
-exists for this program family, rather than under a generic code.
+exists for this program family, rather than under a generic code. An authoring-language document is
+stated only on `backtest.run`'s own report route, which finds the statement through its run registry; this
+surface reads by result locator, so it keeps that reason for such a run until a renderer for documents is
+admitted here. A custody run's `cut_identity` is its pinned custody head and its snapshot count is one.
 
 This surface performs no Backtest dispatch, selection commit, comparison judgment, Owner resolve,
 provider call or business write, and it establishes no S3 deployment availability, executor cutover or
