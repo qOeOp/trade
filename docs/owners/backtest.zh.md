@@ -63,7 +63,7 @@
   `[features]` 表，因此这条 custody 路径在任何构建里都是同一份代码。
 - **CURRENT_PARTIAL - 向 Product Edge 提供的探索 Run Result 视图：** Dashboard 读 API 通过
   `resolve_exploratory_replay_result_v2` 解析准确的规范 Result 字节，它位于
-  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`，且只对其 TrialFamily census 已计数的 Result
+  `crates/strategy_factory_rd_owner_api/src/dashboard_read_api.rs`，且只对其 TrialFamily census 已计数的 Result
   这样做（[R&D](./rd/)，「CURRENT - 每个已提交的探索性 Result 都被计数」）。`product/rd-workbench/Dockerfile.owner`
   构建并安装该二进制。有序链路以 `replay_result_dashboard_read_api_refuses_a_result_no_census_counts` 覆盖拒绝，
   以 `backtest_run_report_browser_acceptance_reads_the_owner_answer` 覆盖已计数的 Result 经已部署的读 API 被打开。

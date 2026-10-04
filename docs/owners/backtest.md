@@ -70,8 +70,8 @@ admitted set requires changing this document first.
   ordered chain proves. Neither `crates/backtest_owner/Cargo.toml` nor `crates/backtest_result_custody/Cargo.toml`
   declares a `[features]` table, so this custody path is the same code in every build.
 - **CURRENT_PARTIAL - exploratory Run Result views to Product Edge:** the Dashboard read API resolves exact
-  canonical Result bytes through `resolve_exploratory_replay_result_v2` in
-  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`, and only for a Result its TrialFamily census
+  canonical Result bytes through `resolve_exploratory_replay_result_v2`, composed in
+  `crates/strategy_factory_rd_owner_api/src/dashboard_read_api.rs`, and only for a Result its TrialFamily census
   counts ([R&D](./rd/), "CURRENT - every committed exploratory Result is counted").
   `product/rd-workbench/Dockerfile.owner` builds and installs that binary. The ordered chain covers the refusal with
   `replay_result_dashboard_read_api_refuses_a_result_no_census_counts`, and a counted Result opening through the
