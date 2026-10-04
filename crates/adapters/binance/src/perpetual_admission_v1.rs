@@ -90,36 +90,51 @@ impl BinancePerpetualDatasetV1 {
         }
     }
 
-    /// Every row timeframe this binding backs: `SUPPORTED_EXECUTION_TIMEFRAMES_V1`'s three fixed-
-    /// interval members (`1h`/`4h`/`1d`, declared as `1H`/`4H`/`24H` - not `1D`, which already
-    /// names a named exchange session day elsewhere, `pit_observation_source_v1.rs::owner_timeframe`'s
-    /// own doc explains why a perpetual's continuous 24-hour bar must not share that label) plus
-    /// `1M`, the backfill job's fixed fill timeframe. Every row is on the Unix epoch grid, labelled
-    /// at its close, complete only: a perpetual never closes, so none of these is an exchange
-    /// session. `1w` stays out of `bar_timeframes` and out of this list: a week additionally needs
-    /// an anchor naming which day it begins on, which nobody has decided
-    /// (`pit_observation_source_v1.rs::owner_timeframe`'s doc again), so declaring one here would
-    /// invent that decision rather than implement an already-made one.
+    /// Every row timeframe this binding backs: `SUPPORTED_EXECUTION_TIMEFRAMES_V1`'s four members
+    /// (`1h`/`4h`/`1d`/`1w`, declared as `1H`/`4H`/`24H`/`1W` - not `1D`, which already names a
+    /// named exchange session day elsewhere, `pit_observation_source_v1.rs::owner_timeframe`'s own
+    /// doc explains why a perpetual's continuous 24-hour bar must not share that label) plus `1M`,
+    /// the backfill job's fixed fill timeframe. Every row is labelled at its close, complete only:
+    /// a perpetual never closes, so none of these is an exchange session. `1H`/`1M`/`24H`/`4H` run
+    /// on the Unix epoch grid; `1W` runs on the week-start-Monday grid Binance's own weekly klines
+    /// use (00:00 UTC Monday), the user's own decision for where a week begins.
     fn bar_timeframes(self) -> Vec<UntrustedSourceBarTimeframeV1> {
         match self {
             Self::DailyKlines => {
+                let bar = |row_timeframe: &str,
+                           step: u32,
+                           unit: UntrustedSourceBarUnitV1,
+                           anchor: UntrustedSourceBarAnchorV1| {
+                    UntrustedSourceBarTimeframeV1 {
+                        row_timeframe: row_timeframe.to_owned(),
+                        cadence: UntrustedSourceBarCadenceV1::FixedInterval { step, unit },
+                        anchor,
+                        clock: UntrustedSourceBarClockV1::Continuous,
+                        label: UntrustedSourceBarLabelV1::IntervalClose,
+                        completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+                    }
+                };
                 let continuous =
                     |row_timeframe: &str, step: u32, unit: UntrustedSourceBarUnitV1| {
-                        UntrustedSourceBarTimeframeV1 {
-                            row_timeframe: row_timeframe.to_owned(),
-                            cadence: UntrustedSourceBarCadenceV1::FixedInterval { step, unit },
-                            anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
-                            clock: UntrustedSourceBarClockV1::Continuous,
-                            label: UntrustedSourceBarLabelV1::IntervalClose,
-                            completion: UntrustedSourceBarCompletionV1::CompleteOnly,
-                        }
+                        bar(
+                            row_timeframe,
+                            step,
+                            unit,
+                            UntrustedSourceBarAnchorV1::UnixEpoch,
+                        )
                     };
                 // Declarations must sort in strictly ascending byte order by `row_timeframe`
                 // (`source_binding/authority.rs`'s "one set of declarations has one encoding"),
-                // which is not numeric order for these labels: "1H" < "1M" < "24H" < "4H".
+                // which is not numeric order for these labels: "1H" < "1M" < "1W" < "24H" < "4H".
                 vec![
                     continuous("1H", 1, UntrustedSourceBarUnitV1::Hour),
                     continuous("1M", 1, UntrustedSourceBarUnitV1::Minute),
+                    bar(
+                        "1W",
+                        168,
+                        UntrustedSourceBarUnitV1::Hour,
+                        UntrustedSourceBarAnchorV1::WeekStartMonday,
+                    ),
                     continuous("24H", 24, UntrustedSourceBarUnitV1::Hour),
                     continuous("4H", 4, UntrustedSourceBarUnitV1::Hour),
                 ]

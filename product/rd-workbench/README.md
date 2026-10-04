@@ -172,9 +172,9 @@ Five steps, from the repository root:
    `.local/.env` when the server starts, exports it as `MARKET_DATA_OWNER_API_TOKEN`, and sets
    `MARKET_DATA_OWNER_API_URL` to `http://127.0.0.1:${RD_LOCAL_API_PORT:-18080}`. The token is never
    printed and never written into Claude Code's configuration.
-5. In a new Claude Code session, exercise the server's six tools. Recorded below is one full run
-   against a real local deployment, `make rd-workbench-up` re-run between steps 6 and 7 to confirm it
-   does not wipe what came before:
+5. In a new Claude Code session, exercise the server's eight tools. Recorded below is one full run
+   against a real local deployment, `make rd-workbench-up` re-run near the end to confirm it does
+   not wipe what came before:
 
    1. `list_instruments` - `{"instruments":[]}` on the fresh deployment.
    2. `admit_instrument` for `BTCUSDT`, `ETHUSDT`, `SOLUSDT` - each admits once and answers its
@@ -186,23 +186,32 @@ Five steps, from the repository root:
       `job_status` reaches `SUCCEEDED` with a `custody_receipt_identity`; `coverage` reports exactly
       that one range. Repeating the identical `backfill` call refuses `JOB_TRANSITION_INVALID`
       (the job it would re-run already reached a terminal state) and `coverage` is unchanged - no
-      duplicate data. `backfill` for `ETHUSDT-PERP.BINANCE` and `SOLUSDT-PERP.BINANCE`, each a one-
-      day window - both `SUCCEEDED`.
-   7. `make rd-workbench-up` again, no code or `.env` change - `rd-owner-api`'s container is left
-      running (`skip rd-owner-api: running and healthy on the current image`); every admitted
-      instrument and every job's coverage reads back unchanged.
-   8. `backfill` for `BTCUSDT-PERP.BINANCE` at `1h` and at `4h`, each a small window - both
-      `SUCCEEDED`; `coverage` then lists all three execution timeframes for `BTCUSDT-PERP.BINANCE`.
-   9. `backfill` at `15m` - refused `TIMEFRAME_UNSUPPORTED` before any fetch.
-   10. `get_bars` / `get_funding` - refused `TOOL_UNKNOWN`: neither tool exists yet (phase 3, not
-       B1-B4's scope).
-   11. `backfill` at `1w` - queues and runs, then fails named `ArchiveUnreadable`: the public
-       Binance Vision archive's weekly-kline format is not one this fetcher reads. `1w` stays
-       listed in `SUPPORTED_EXECUTION_TIMEFRAMES_V1` (`docs/owners/market-data.md`'s whitelisted
-       set) but has no backing declared row timeframe in the kline Source Binding -
-       `binance_perpetual_source_proposal`'s own doc explains why: a week additionally needs an
-       anchor naming which day it begins on, which nobody has decided. Treat `1w` as a named,
-       honest gap - not silently miscoded - until that anchor decision is made.
+      duplicate data. `backfill` for `ETHUSDT-PERP.BINANCE` and `SOLUSDT-PERP.BINANCE`, the same
+      one-month window - both `SUCCEEDED`.
+   7. `backfill` for `BTCUSDT-PERP.BINANCE` at `1h` and at `4h`, each a small window - both
+      `SUCCEEDED`; `coverage` then lists every execution timeframe backfilled so far for
+      `BTCUSDT-PERP.BINANCE`. A window naming exactly one bar must end strictly after that bar's
+      close (`window_end_ns_exclusive` one nanosecond past `window_start_ns + interval`, say) -
+      `commit_pit_window_custody_v1`'s own cross-section filter drops a bar whose close lands
+      exactly on the window's exclusive end, and an otherwise-single-bar window with nothing past
+      that boundary is then refused `InvalidRequest` for holding no cross-section at all. The
+      `[2024-01-01, 2024-02-01)` window above never hits this: thirty bars close strictly inside it
+      regardless of the thirty-first.
+   8. `backfill` at `15m` - refused `TIMEFRAME_UNSUPPORTED` before any fetch.
+   9. `get_bars` / `get_funding` - refused `HOLDOUT_PARTITION_UNDEFINED`: both tools exist and route,
+      and no Owner defines Qualification's holdout partition yet, so no market value reaches an
+      agent through them today.
+   10. `backfill` at `1w`, the one calendar week Binance Vision still publishes a weekly archive for
+       (`[2024-01-01, 2024-01-08)`, half-open past the single bar's close) - `SUCCEEDED`; `coverage`
+       lists `1w` alongside `1d`/`1h`/`4h`. The kline Source Binding declares `1W` anchored at
+       00:00 UTC on the Monday that opens each week (`UntrustedSourceBarAnchorV1::WeekStartMonday`),
+       the user's own decision for where a week begins; the Vision archive reader's open-time grid
+       check carries the same Monday phase, and T0's window-schedule minting now recognizes that
+       anchor too (`pit_window_custody_v1/schedule.rs::phase_ns_v1`).
+   11. `make rd-workbench-up` again, no code or `.env` change - `rd-owner-api`'s container recreates
+       on its own image (an uncommitted working tree always rebuilds; a clean one skips when nothing
+       changed) and comes back healthy; every admitted instrument and every job's coverage, `1w`
+       included, reads back unchanged.
 
 ## Deployment Store Admission boundary
 

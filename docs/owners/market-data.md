@@ -2922,7 +2922,10 @@ frames through this port, and no Backtest consumes a frame yet.
     cut and Market Semantics from the run's frames readback, never from its own evaluation. The basis also names the
     Universe Selection record the root's locator resolves to in that transaction, by record identity and digest with
     the locator's meaning digest checked, and a run whose record is missing or disagrees is refused as
-    `StoreUnavailable`. Each frame's inputs and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
+    `StoreUnavailable`. The basis also selects a member's UNIQUE venue/source mapping from its own Instrument Master
+    cut for the V1 structural public terms projection, refusing by name, never a pick, when the member is unknown to
+    the basis or its fact carries zero or more than one mapping. Each frame's inputs and quote cut are then resolved
+    through the native Replay resolver, whose request gains a custody frame source in
     the derived view slice. That source names the chain root, the head the frames were read from and `e_k`, so a
     correction committed between enumeration and the per-frame reads cannot mix two heads into one run; a head that is
     not in the chain is refused. Every gap has its quote cut, the last bounded by the run's end, and a gap without one
@@ -3420,19 +3423,20 @@ workspace with its own `Cargo.lock` and depends on no Owner crate - only an HTTP
 loop. It holds the Market Data API token in its own
 environment and reaches Market Data's routes only. Every rule lives in Market Data behind a route; a tool sends one
 request, passes its answer or refusal through by name, and sequences nothing. The same functions are a command line
-with the same names. `get_bars` and `get_funding` are `TARGET`: they wait on T0-5 and the funding schedule read
-below, and the server does not list them as tools until their routes exist.
+with the same names. `get_bars` and `get_funding` are registered tools today, but each refuses
+`HOLDOUT_PARTITION_UNDEFINED` unconditionally: no Owner defines Qualification's holdout partition yet, so no market
+value reaches an agent through them.
 
-| Tool                                     | Route                                                   | Refusals by name                                                                 |
-| ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                                                |
-| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                                             |
-| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | each admission step's own refusal                                                |
-| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`, `RANGE_INVALID`                   |
-| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                                    |
-| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                                             |
-| `get_bars(instrument, timeframe, range)` | after T0-5, over the run window custody view            | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
-| `get_funding(instrument, range)`         | after the funding schedule read below                   | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
+| Tool                                     | Route                                                   | Refusals by name                                                |
+| ---------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- |
+| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                               |
+| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                            |
+| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | each admission step's own refusal                               |
+| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`, `RANGE_INVALID`  |
+| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                   |
+| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                            |
+| `get_bars(instrument, timeframe, range)` | `POST /v1/market-data/bars`                             | `HOLDOUT_PARTITION_UNDEFINED` (unconditional, TARGET to narrow) |
+| `get_funding(instrument, range)`         | `POST /v1/market-data/funding`                          | `HOLDOUT_PARTITION_UNDEFINED` (unconditional, TARGET to narrow) |
 
 - **Listing and describing read what Market Data holds now.** `GET /v1/market-data/instruments` and
   `GET /v1/market-data/instruments/{instrument}` are `CURRENT`: `crates/data/src/owner/instrument_catalog_v1.rs` reads

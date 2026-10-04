@@ -30,6 +30,7 @@ const ANCHOR_DOMAIN: &[u8] = b"market-data.bar-schedule.anchor.v1\0";
 pub enum DeclaredBarAnchorV1 {
     UnixEpoch = 0x01,
     SessionOpen = 0x02,
+    WeekStartMonday = 0x03,
 }
 
 /// Why a batch's bars have no declared timeframe.
@@ -129,6 +130,7 @@ impl DeclaredBarTimeframeV1 {
             anchor: match declared.anchor {
                 UntrustedSourceBarAnchorV1::UnixEpoch => DeclaredBarAnchorV1::UnixEpoch,
                 UntrustedSourceBarAnchorV1::SessionOpen => DeclaredBarAnchorV1::SessionOpen,
+                UntrustedSourceBarAnchorV1::WeekStartMonday => DeclaredBarAnchorV1::WeekStartMonday,
             },
             clock: match declared.clock {
                 UntrustedSourceBarClockV1::Continuous => BarScheduleClockV1::Continuous,
