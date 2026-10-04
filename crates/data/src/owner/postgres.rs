@@ -23,6 +23,10 @@ pub mod bar_schedule_acceptance_v1;
 #[cfg(test)]
 mod bar_schedule_acceptance_v1_tests;
 mod source_binding_dataset_anchor_v1;
+mod venue_bar_store_v1;
+pub(in crate::owner) use venue_bar_store_v1::venue_bar_store_from_environment_v1;
+#[cfg(test)]
+mod venue_bar_store_v1_tests;
 // Test and sealed acceptance fixtures only; no production build reaches it.
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 mod acceptance_fixture_v1;
@@ -1075,6 +1079,7 @@ impl MarketDataOwnerPostgres {
             .chain(pit_window_custody_v1::SCHEMA_V1)
             .chain(backfill_job_v1::SCHEMA_V1)
             .chain(source_binding_dataset_anchor_v1::SCHEMA_V1)
+            .chain(venue_bar_store_v1::SCHEMA_V1)
             .chain(funding_settlement_v1::SCHEMA_V1)
         {
             sqlx::query(*statement)
@@ -9270,6 +9275,52 @@ impl crate::owner::pit_window_custody_v1::PitWindowCustodyFramesV1 for MarketDat
             pit_window_custody_v1::resolve_pit_window_frames_through_port_v1(
                 &self.admitted_port,
                 run,
+            )
+            .await
+        }
+    }
+
+    async fn resolve_pit_window_run_for_window_v1(
+        &self,
+        instrument: &str,
+        execution_timeframe: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<
+        crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+        crate::owner::pit_window_custody_v1::PitWindowCoverageRefusalV1,
+    > {
+        #[cfg(test)]
+        {
+            use crate::owner::pit_window_custody_v1::PitWindowCoverageRefusalV1;
+
+            let mut transaction = self
+                .pool
+                .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                .await
+                .map_err(|_| PitWindowCoverageRefusalV1::StoreUnavailable)?;
+            let run = pit_window_custody_v1::resolve_pit_window_run_for_window_in_transaction_v1(
+                &mut transaction,
+                instrument,
+                execution_timeframe,
+                window_start_ns,
+                window_end_ns_exclusive,
+            )
+            .await;
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| PitWindowCoverageRefusalV1::StoreUnavailable)?;
+            run
+        }
+        #[cfg(not(test))]
+        {
+            pit_window_custody_v1::resolve_pit_window_run_for_window_through_port_v1(
+                &self.admitted_port,
+                instrument,
+                execution_timeframe,
+                window_start_ns,
+                window_end_ns_exclusive,
             )
             .await
         }

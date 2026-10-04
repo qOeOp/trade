@@ -1189,6 +1189,15 @@ readback per member only when exactly one complete pair is valid under one share
 overlapping, corrupt, or multiple complete pairs are unavailable. The caller supplies no account scope,
 economic-terms locator, latest selector, pool, or replacement store.
 
+A custody run has no per-request Master V2 cut, so its sibling operation,
+`resolve_unique_custody_run_members`, consumes the custody's verified `PitWindowChainBasisV1` instead. The members are
+the ones the root custody bound, in its order. Each member's venue is checked against the basis's own Instrument
+Master mapping before any terms are read. Without a V2 cut there is no expected public fact digest per member, so a
+member's terms are linked by canonical identity and effective range alone. The same uniqueness rule then applies:
+exactly one complete set, under one shared account scope. The returned readbacks name each member's public fact
+digest, which a consumer resolves through `resolve_fact_v2` when it needs the V2 fact. The caller still supplies no
+member, account scope or locator.
+
 R&D may mint its move-only economic provenance only from that verified Owner readback and
 must additionally match venue, account scope, event time, currencies and all visible economic profile
 values. Market Data's public-fact module still neither imports R&D nor validates, copies,
@@ -2862,6 +2871,32 @@ Built so far (T0-9): the H6 checks a custody run needs and the accessors T1 cons
   and each frame's R0 is the one the same rule gives at its own `e_k`. The admitted custody read therefore needs no
   read of the Source Binding's declarations. A frame with no R0 is a store no commit wrote, so the run answers
   `StoreUnavailable`.
+- **A dataset names its custody, not the caller (coverage lookup).**
+  `PitWindowCustodyFramesV1::resolve_pit_window_run_for_window_v1(instrument, execution_timeframe, start, end)`
+  returns the `UntrustedPitWindowRunV1` over `[start, end)` of the one custody chain that holds that instrument alone
+  at that execution timeframe and covers the whole window, with the chain's current head pinned. A consumer names a
+  plain dataset, `(instrument, timeframe, window)`, and never a chain root.
+  - **Candidates.** They come from the window schedule facts, read through the admitted custody port
+    (`resolve_pit_window_chains_for_instrument_v1`, inside the custody floor). A candidate matches when it holds one
+    member and its execution interval is the timeframe's (`execution_timeframe_interval_ns_v1`).
+  - **More than one covering chain.** The one whose root was minted last is named, which is the latest backfill of
+    that window. Between roots minted at the same cut, the lowest chain root is named. The choice is never arbitrary.
+  - **Refusals, each by name:**
+    - `CustodyNotFound`: no matching chain;
+    - `WindowNotCovered { missing }`: the window has parts no chain covers, and `missing` lists them in order;
+    - `CoveredOnlyAcrossChains`: chains together cover the window but no single chain does, and a run reads one;
+    - `InvalidRequest`: an empty window or an unsupported timeframe.
+  - **Verification.** The returned run is verified by `resolve_pit_window_frames_v1`, exactly as a run a caller
+    names itself.
+- **The sealed acceptance custody frames port.** A build with `sealed-strategy-input-acceptance` also opens
+  `pit_window_custody_frames_for_sealed_acceptance_v1(reader_url)`. It is the same `PitWindowCustodyFramesV1` (a run's
+  frames and the coverage lookup), with the same raw reads, verification and selection as the admitted port, but no
+  Store Admission before or after a read, so it proves the segment after admission; the admission itself is `B3`.
+  - **Store.** It opens only on a disposable loopback `vibe_test_` database.
+  - **Grants.** The principal holds exactly `grant_pit_window_custody_acceptance_reads_v1`: `USAGE` on
+    `market_data_admitted_read` and `EXECUTE` on the chain, chain basis, Universe Selection and
+    chains-for-instrument wrappers, with nothing on `market_data_private`. Its proof revokes each grant alone and
+    requires exactly the read that needs it to be refused.
 - **Availability rule (H7).** `PitWindowChainBasisV1::availability_rule_digest()` returns the root custody record's
   rule digest, which the read has already checked against the chain R0 record's.
 - **Pinned-head run read.** `UntrustedPitWindowRunV1` takes an optional `head_identity` (serde-defaulted, omitted when
@@ -3413,6 +3448,12 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   published is read from the REST endpoint, and its rows are recorded as not checksum-verified until that month's
   archive is published and verified against them. A closed month keeps the checksum. This sentence aligns with
   Market Data's REST-primary source design, which states the fetch order.
+- **A window's bars are the ones that close inside it.** A backfill window and a run window are both `[start, end)`
+  over interval-close instants: a bar belongs to the window when its close is in it, and the window schedule's
+  frames are exactly those close instants. The archive files a bar by its open, so the bar closing at the window's
+  start opens one interval earlier, often in the previous month. The fetch therefore reads months from one interval
+  before the start. Before this, the first frame of every grid-aligned window had no cross-section, and a run over the
+  same window as its backfill was refused as `PIT_WINDOW_FRAME_NOT_COVERED`.
 - **The dataset is named by the request, not read from the file.** The reader's entry takes the dataset it was asked
   for (`klines`) and checks it against the archive path it fetched. `markPriceKlines`, `indexPriceKlines` and
   `premiumIndexKlines` archives have the same name, columns and layout.
@@ -3847,6 +3888,93 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
   - **REST tests run locally.** A GitHub-hosted runner reaches `fapi.binance.com` as `451`, so tests that call REST
     run only on a local machine. The user accepted this explicitly on 2026-10-05.
   - **`get_bars` is not part of this change.** Its `HOLDOUT_PARTITION_UNDEFINED` refusal stays.
+- **Implementation slices.** Each slice is a separately reviewable PR with its own acceptance; a slice starts only
+  when the ones it names have merged. Lane 2 owns the Market Data core (B1, B2); Lane 8 implements the rest.
+  - **B1 - the bar store (Lane 2).** An Owner-private, append-only store of native bars, keyed by instrument,
+    timeframe label and open instant, each bar a chain of versions. A version holds the 11 venue columns, its
+    source, its retrieval instant and its availability instant. A writer commits a page of bars for one instrument
+    and timeframe:
+    - **Rejoin:** a bar already stored with the same content writes nothing.
+    - **Conflict:** a bar stored with different content is recorded as a named conflict (`BAR_CONTENT_CONFLICT`,
+      naming the bar, its fields and both values) and nothing is overwritten.
+    - **Refusals:** a bar whose close plus the settle delay is not before its retrieval is refused by name
+      (`BAR_NOT_SETTLED`), and so is a bar off its timeframe's grid (`BAR_OFF_GRID`).
+
+    A point-in-time read takes instrument, timeframe, window, cut and `verified_only`, and returns, for each bar,
+    the latest version available at the cut, with its marks, through an admitted wrapper inside a new measured
+    floor. `verified_only` refuses by name any window holding an unverified bar.
+
+    Acceptance: PG proofs for each of the following.
+    - Rejoin writes nothing.
+    - A differing re-fetch records exactly one conflict and leaves the stored bar unchanged.
+    - Each refusal writes nothing.
+    - A read at a cut before a version's availability does not see it.
+    - `verified_only` refuses over an unverified bar.
+    - The floor is the catalog closure of its read.
+
+    Built (with B2). `crates/data/src/owner/venue_bar_store_v1.rs` and its Postgres implementation, with the served
+    timeframe table moved here from B4 (`bar_schedule::served_timeframe_v1`: label and grid per venue interval). The
+    admitted read and its floor are deferred until an R&D consumer reads bars: B7 reads on the Owner side, and
+    `get_bars` stays refused. A bar belongs to a read window by its close, as in custody.
+  - **B2 - verification and corrections (Lane 2, after B1).** An Owner operation verifies stored bars against
+    archive rows for an instrument, timeframe and covered window.
+    - **Equal bars:** a verification record (archive kind, archive identity, verified instant) is appended, and the
+      bar reads as verified.
+    - **Differing bars:** a conflict is recorded under the same name as B1's, naming the archive as its second side.
+    - **Missing bars:** a bar the archive does not hold stays unverified, and is never deleted.
+    - **Corrections:** an operator correction appends a successor version, naming the conflict it resolves. It has
+      no route, and the read selects it only from its own availability on.
+
+    Acceptance: PG proofs.
+    - Equal bars become verified with nothing else written.
+    - A differing bar yields one conflict and stays unverified.
+    - An archive missing a day verifies only the days it holds.
+    - A correction is seen only from its availability.
+
+    Built (with B1). `verify_venue_bars_v1` reports archive-only and store-only bars. `open_venue_bar_conflicts_v1`
+    lists the conflicts no correction resolves. `correct_venue_bar_v1` refuses an unknown conflict
+    (`BAR_CONFLICT_UNKNOWN`) or one whose bar has moved on (`BAR_CONFLICT_SUPERSEDED`).
+  - **B3 - the REST recorder (Lane 8, after B1).** Forward pagination over `request_binance_bars`, for every
+    timeframe label in the served set, from an instrument's first listed bar, or the last stored close, to the
+    present. Every page is committed through B1's writer, and a bar is admitted only after the settle delay. It is
+    paced inside the public rate limit and resumable.
+
+    Acceptance:
+    - Unit tests for paging boundaries and the settle filter.
+    - A local test against live REST: one day of BTCUSDT `1m` and `1d`, recorded twice, writes once and then
+      rejoins.
+    - The counts against the archive equal the measurements above.
+  - **B4 - the calendar-month cadence (Lane 8).** `CalendarMonth` cadence on the UTC month anchor in
+    `UntrustedSourceBarCadenceV1`, with its codec, refused as an execution timeframe. The served label table is B1's.
+
+    Acceptance:
+    - A calendar-month declaration encodes, decodes and refuses a fixed interval.
+    - It is refused as an execution timeframe.
+  - **B5 - archive verification jobs (Lane 8, after B2 and B3).**
+    - **Schedule:** fetch each monthly and daily archive once it is published (the daily archive T+1 from about
+      09:30 UTC, the monthly archive from the 2nd at about 12:00 UTC), and verify through B2. The existing
+      authenticated readers (`authenticate_monthly_klines`, `funding_archive_v1`) are reused unchanged.
+    - **Coverage:** a month whose file omits days is verified from the daily files for those days.
+    - **`1w` and `1M`:** verified from their daily files, or by derivation from verified `1m` bars. Derivation uses
+      `TimeBarAggregator` for `1w`, and for `1M` either its fixed month path or an explicit month bucketing.
+
+    Acceptance:
+    - A local run over BTCUSDT, ETHUSDT and SOLUSDT reproduces the measurement: the incident days surface as the
+      named conflicts listed above, and SOLUSDT's omitted days are verified from the daily files.
+  - **B6 - one resident service (Lane 8, after B3 and B5).** The recorder, the verification jobs and the
+    settled-funding recorder (#1382) run in one scheduler in one resident Market Data process, never in an MCP.
+
+    Acceptance:
+    - It restarts without double writes, which is proved by rejoin counts.
+    - A local soak of a few days records closed bars, verifies them on archive publication, and reports conflicts.
+  - **B7 - custody input from the store (Lane 8, after B1 and B5).** The backfill job builds a custody's execution
+    and fill bars from the store instead of fetching archives, and its rows name the REST route. Chains already
+    committed are never rewritten.
+
+    Acceptance:
+    - A backfill over a window the store holds commits a custody whose rows equal the store's bars.
+    - A run over it passes.
+    - A window reaching the current month backfills, which supersedes the "published months only" rule.
 - **Status.** TARGET, not implemented. The measurement scripts (archive aggregation, the `TimeBarAggregator` harness,
   REST against the daily archive, and REST settling) were run locally on 2026-10-04 and 2026-10-05 and are not kept in
   the repository. They are cheap to rerun before implementation.

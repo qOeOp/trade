@@ -57,6 +57,123 @@ pub const fn execution_timeframe_bar_label_v1(execution_timeframe: &str) -> Opti
     }
 }
 
+/// The fixed bar interval, in nanoseconds, of one of [`SUPPORTED_EXECUTION_TIMEFRAMES_V1`]: the
+/// interval its window schedule's frames step by. `None` for any other timeframe.
+#[must_use]
+pub const fn execution_timeframe_interval_ns_v1(execution_timeframe: &str) -> Option<u64> {
+    const HOUR: u64 = 3_600_000_000_000;
+
+    match execution_timeframe.as_bytes() {
+        b"1w" => Some(168 * HOUR),
+        b"1d" => Some(24 * HOUR),
+        b"4h" => Some(4 * HOUR),
+        b"1h" => Some(HOUR),
+        _ => None,
+    }
+}
+
+/// Where a served timeframe's bars open and close.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServedBarGridV1 {
+    /// Fixed-length bars on a grid `anchor_ns + n * interval_ns`: the Unix epoch, or Monday
+    /// 00:00 UTC for a week.
+    Fixed { interval_ns: u64, anchor_ns: u64 },
+    /// One bar per UTC calendar month, from the 1st 00:00 to the next 1st 00:00.
+    CalendarMonth,
+}
+
+/// One timeframe Market Data serves as a bar series: its row-timeframe label and its grid.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ServedTimeframeV1 {
+    pub label: &'static str,
+    pub grid: ServedBarGridV1,
+}
+
+impl ServedTimeframeV1 {
+    /// The close (exclusive end) of the bar that opens at `open_ns`, or `None` when `open_ns` is
+    /// not on this timeframe's grid.
+    #[must_use]
+    pub fn close_of(&self, open_ns: u64) -> Option<u64> {
+        match self.grid {
+            ServedBarGridV1::Fixed {
+                interval_ns,
+                anchor_ns,
+            } => {
+                let since_anchor = open_ns.checked_sub(anchor_ns)?;
+                since_anchor
+                    .is_multiple_of(interval_ns)
+                    .then(|| open_ns.checked_add(interval_ns))
+                    .flatten()
+            }
+            ServedBarGridV1::CalendarMonth => {
+                let open = jiff::Timestamp::from_nanosecond(i128::from(open_ns))
+                    .ok()?
+                    .to_zoned(jiff::tz::TimeZone::UTC);
+
+                if open.day() != 1
+                    || open.hour() != 0
+                    || open.minute() != 0
+                    || open.second() != 0
+                    || open.subsec_nanosecond() != 0
+                {
+                    return None;
+                }
+                let close = open.checked_add(jiff::Span::new().months(1)).ok()?;
+                u64::try_from(close.timestamp().as_nanosecond()).ok()
+            }
+        }
+    }
+}
+
+/// The timeframe Market Data serves for one venue kline interval (`1m`, `15m`, `30m`, `1h`, `2h`,
+/// `4h`, `6h`, `8h`, `12h`, `1d`, `1w`, `1M`), the charting set the user chose on 2026-10-05; `None`
+/// for any other interval.
+///
+/// Labels follow the Source Binding declarations: `1d` is `24H`, never `1D`, which names an
+/// exchange session day; the venue's `1M` is a calendar month, labelled `1MO` because `1M` is the
+/// minute. Serving a timeframe does not admit it as a custody execution timeframe, which stays
+/// [`SUPPORTED_EXECUTION_TIMEFRAMES_V1`].
+#[must_use]
+pub const fn served_timeframe_v1(venue_interval: &str) -> Option<ServedTimeframeV1> {
+    const MINUTE: u64 = 60_000_000_000;
+    // 1970-01-01 was a Thursday; the first Monday 00:00 UTC is four days later.
+    const MONDAY_NS: u64 = 4 * 1_440 * MINUTE;
+    const fn fixed(label: &'static str, minutes: u64) -> ServedTimeframeV1 {
+        ServedTimeframeV1 {
+            label,
+            grid: ServedBarGridV1::Fixed {
+                interval_ns: minutes * MINUTE,
+                anchor_ns: 0,
+            },
+        }
+    }
+
+    Some(match venue_interval.as_bytes() {
+        b"1m" => fixed("1M", 1),
+        b"15m" => fixed("15M", 15),
+        b"30m" => fixed("30M", 30),
+        b"1h" => fixed("1H", 60),
+        b"2h" => fixed("2H", 120),
+        b"4h" => fixed("4H", 240),
+        b"6h" => fixed("6H", 360),
+        b"8h" => fixed("8H", 480),
+        b"12h" => fixed("12H", 720),
+        b"1d" => fixed("24H", 1_440),
+        b"1w" => ServedTimeframeV1 {
+            label: "1W",
+            grid: ServedBarGridV1::Fixed {
+                interval_ns: 7 * 1_440 * MINUTE,
+                anchor_ns: MONDAY_NS,
+            },
+        },
+        b"1M" => ServedTimeframeV1 {
+            label: "1MO",
+            grid: ServedBarGridV1::CalendarMonth,
+        },
+        _ => return None,
+    })
+}
+
 const FACT_DOMAIN: &[u8] = b"market-data.bar-schedule-fact.v1\0";
 const CUT_DOMAIN: &[u8] = b"market-data.bar-schedule-cut.v1\0";
 const RECEIPT_DOMAIN: &[u8] = b"market-data.bar-schedule-receipt.v1\0";

@@ -558,6 +558,13 @@ impl VerifiedStrategyInputBindingsV2 {
         }
     }
 
+    /// The Owner-sealed Universe Selection these bindings carry, or `None` for an exact-instrument
+    /// Design. Read-only: a caller cannot construct or splice a projection of its own, only read
+    /// back what one of this type's own constructors already verified.
+    pub(crate) fn universe_selection(&self) -> Option<&UniverseSelectionProjectionV2> {
+        self.universe_selection.as_ref()
+    }
+
     #[allow(
         dead_code,
         reason = "consumed by the crate-local Develop Composer before its durable composition root"
@@ -3643,9 +3650,13 @@ pub(crate) const UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.OPE
 /// Market Data field of the universe vertical's fixed `CLOSE` member role.
 pub(crate) const UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.CLOSE.PRICE.V1";
 
-/// A daily Market Data price at Market Data's value scale, read for each Owner universe member rather
+/// A Market Data price at Market Data's value scale, read for each Owner universe member rather
 /// than for a named instrument: the role the single-threshold authoring surface emits for its
-/// universe form.
+/// universe form, and every input an authored document reads.
+///
+/// `timeframe` is the bar label Market Data declares for the run's execution timeframe, which a
+/// run supplies: the same request is a `24H` bar on a perpetual and a `1D` session day elsewhere,
+/// and Market Data binds a role only to the label it declared.
 ///
 /// The scale is [`vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`], referenced and never restated, so one Design reads
 /// every instrument the scope may name at one fixed point: Market Data aligns each canonical row to
@@ -3653,7 +3664,11 @@ pub(crate) const UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.CL
 ///
 /// The universe contract below does not require this shape; it admits any role set the target-set
 /// Host can bind and that names one pricing role.
-pub(crate) fn universe_member_role_v2(semantic_id: &str, field_semantic_id: &str) -> InputRoleV2 {
+pub(crate) fn universe_member_role_v2(
+    semantic_id: &str,
+    field_semantic_id: &str,
+    timeframe: &str,
+) -> InputRoleV2 {
     InputRoleV2 {
         semantic_id: semantic_id.to_owned(),
         fact_class: InputFactClassV2::MarketData,
@@ -3661,7 +3676,7 @@ pub(crate) fn universe_member_role_v2(semantic_id: &str, field_semantic_id: &str
         scope: InputScopeV2::UniverseMembers,
         field_semantic_id: field_semantic_id.to_owned(),
         channel: "MARKET".to_owned(),
-        timeframe: "1D".to_owned(),
+        timeframe: timeframe.to_owned(),
         unit: universe_bar_field_unit_v2(field_semantic_id).to_owned(),
         scale: vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1,
         value_type: ValueTypeV2::I128,

@@ -157,6 +157,7 @@ jobs:
     outputs:
       run-tests: ${{ steps.plan.outputs.run_tests }}
       run-rust-tests: ${{ steps.plan.outputs.run_rust_tests }}
+      run-owner-chain: ${{ steps.plan.outputs.run_owner_chain }}
       run-generated-drift: ${{ steps.plan.outputs.run_generated_drift }}
       run-full-pre-commit: ${{ steps.plan.outputs.run_full_pre_commit }}
       run-capnp-check: ${{ steps.plan.outputs.run_capnp_check }}
@@ -798,6 +799,14 @@ jobs:
           # grows the entry - 5.47 GB against 1.92 GB for dependencies alone, on 2026-09-26.
           rust-cache-workspace-crates: "true"
 
+      - name: Check Owner-chain closure table freshness
+        # This job is gated the same way scripts/ci/plan.sh's own `run_owner_chain` output is (a
+        # `.rs`/`Cargo.toml`/`Cargo.lock` change), so it is exactly the job to keep the committed
+        # table honest: the small `plan` job that reads it cannot - computing it needs `cargo
+        # metadata`'s full resolved graph, which needs network and a warm registry cache this one
+        # already paid for.
+        run: python3 scripts/ci/owner-chain-closure.py --check
+
       - name: Restore the checked-out cargo config
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
@@ -942,7 +951,7 @@ jobs:
     if: >
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
-      (needs.plan.outputs.run-rust-tests == 'true' ||
+      (needs.plan.outputs.run-owner-chain == 'true' ||
        needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master') &&
       needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run == ''
@@ -1041,7 +1050,7 @@ jobs:
     if: >
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
-      (needs.plan.outputs.run-rust-tests == 'true' ||
+      (needs.plan.outputs.run-owner-chain == 'true' ||
        needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master')
     name: owner chain plan
@@ -1099,7 +1108,7 @@ jobs:
     if: >
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
-      (needs.plan.outputs.run-rust-tests == 'true' ||
+      (needs.plan.outputs.run-owner-chain == 'true' ||
        needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master') &&
       needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run == ''
@@ -1505,6 +1514,7 @@ jobs:
           CHAIN_THIS_TREE: ${{ needs.postgres-owner-chain-plan-linux-x86.outputs.this-tree }}
           RUN_TESTS: ${{ needs.plan.outputs.run-tests }}
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
+          RUN_OWNER_CHAIN: ${{ needs.plan.outputs.run-owner-chain }}
           RUN_GENERATED_DRIFT: ${{ needs.plan.outputs.run-generated-drift }}
           PUBLISH_R2: ${{ needs.plan.outputs.publish_r2 }}
           REF: ${{ github.ref }}
@@ -1522,6 +1532,11 @@ jobs:
           if [[ "$RUN_GENERATED_DRIFT" == true ]]; then
             test "$RUN_TESTS" = true
           fi
+          # `rust tests`/`rust doctests` and the Owner Postgres chain are gated independently
+          # since scripts/ci/plan.sh started routing the chain by its own, narrower
+          # `run-owner-chain` output (a change can need the former without the latter, never the
+          # other way: `owner_chain_impact` only ever sets `run_owner_chain` alongside
+          # `run_rust_tests`, never on its own).
           if [[ "$REF" != refs/heads/test-pre-commit ]] &&
              [[ "$RUN_TESTS" == true ]] &&
              { [[ "$RUN_RUST_TESTS" == true ]] ||
@@ -1529,6 +1544,15 @@ jobs:
                [[ "$REF_NAME" == master ]]; }; then
             test "$RUST_TESTS_RESULT" = success
             test "$RUST_DOCTESTS_RESULT" = success
+          else
+            test "$RUST_TESTS_RESULT" = skipped
+            test "$RUST_DOCTESTS_RESULT" = skipped
+          fi
+          if [[ "$REF" != refs/heads/test-pre-commit ]] &&
+             [[ "$RUN_TESTS" == true ]] &&
+             { [[ "$RUN_OWNER_CHAIN" == true ]] ||
+               [[ "$PUBLISH_R2" == true ]] ||
+               [[ "$REF_NAME" == master ]]; }; then
             test "$CHAIN_PLAN_RESULT" = success
             if [[ -n "$CHAIN_REUSE_RUN" ]]; then
               test "$POSTGRES_CHAIN_ARCHIVE_RESULT" = skipped
@@ -1544,8 +1568,7 @@ jobs:
               test "$POSTGRES_CHAIN_REPORT_RESULT" = success
             fi
           else
-            test "$RUST_TESTS_RESULT" = skipped
-            test "$RUST_DOCTESTS_RESULT" = skipped
+            test "$CHAIN_PLAN_RESULT" = skipped
             test "$POSTGRES_CHAIN_ARCHIVE_RESULT" = skipped
             test "$POSTGRES_CHAINS_RESULT" = skipped
             test "$POSTGRES_CHAIN_REPORT_RESULT" = skipped

@@ -22,6 +22,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::PgPool;
+#[cfg(feature = "composer-v3-replay")]
+use vibe_data::owner::{
+    instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
+    instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
+};
 use vibe_data::owner::{
     market_semantics_admission_v1::MarketSemanticsAdmissionV1,
     pit_market_snapshot_intake_v1::PitMarketSnapshotIntakeV1,
@@ -72,6 +77,10 @@ pub(crate) struct BacktestRunRoutesApiState {
     pub(crate) custody_frames: Option<Arc<dyn PitWindowCustodyFramesV1>>,
     #[cfg(feature = "composer-v3-replay")]
     pub(crate) develop_composer: Option<Arc<PostgresSourceResearchComposerProductionV2>>,
+    #[cfg(feature = "composer-v3-replay")]
+    pub(crate) instrument_master_v2: Option<Arc<InstrumentMasterV2PostgresOwner>>,
+    #[cfg(feature = "composer-v3-replay")]
+    pub(crate) instrument_economic_terms: Option<Arc<InstrumentEconomicTermsPostgresOwnerV1>>,
     pub(crate) rd_pool: PgPool,
     pub(crate) request_proof_digest: String,
     pub(crate) token_digest: [u8; 32],
@@ -129,7 +138,9 @@ enum BacktestRunReplayStateV1 {
     #[cfg(feature = "composer-v3-replay")]
     ReplayCommitFailed,
     #[cfg(feature = "composer-v3-replay")]
-    ReplayCommittedNoCustodyIssuanceYet,
+    ReplayCommitted,
+    #[cfg(feature = "composer-v3-replay")]
+    CustodyIssuanceFailed,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,6 +151,10 @@ struct BacktestRunReachedReplayBodyV1 {
     joint_freeze_digest: String,
     replay_state: BacktestRunReplayStateV1,
     replay_detail: Option<String>,
+    /// Whether H8 custody issuance succeeded for this run - report assembly's signal to re-read
+    /// this run's bars at the pinned head.
+    #[cfg(feature = "composer-v3-replay")]
+    custody_binding_issued: bool,
 }
 
 fn reached_replay_body(reached: &BacktestRunReachedReplayV1) -> BacktestRunReachedReplayBodyV1 {
@@ -190,9 +205,14 @@ fn reached_replay_body(reached: &BacktestRunReachedReplayV1) -> BacktestRunReach
             Some(e.to_string()),
         ),
         #[cfg(feature = "composer-v3-replay")]
-        BacktestRunReplayUnavailableV1::ReplayCommittedNoCustodyIssuanceYet(result) => (
-            BacktestRunReplayStateV1::ReplayCommittedNoCustodyIssuanceYet,
+        BacktestRunReplayUnavailableV1::ReplayCommitted(result) => (
+            BacktestRunReplayStateV1::ReplayCommitted,
             Some(format!("{:?}", result.locator())),
+        ),
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::CustodyIssuanceFailed(e) => (
+            BacktestRunReplayStateV1::CustodyIssuanceFailed,
+            Some(e.to_string()),
         ),
     };
     BacktestRunReachedReplayBodyV1 {
@@ -202,6 +222,8 @@ fn reached_replay_body(reached: &BacktestRunReachedReplayV1) -> BacktestRunReach
         joint_freeze_digest: reached.freeze.joint_freeze_digest.clone(),
         replay_state,
         replay_detail,
+        #[cfg(feature = "composer-v3-replay")]
+        custody_binding_issued: reached.custody_binding.is_some(),
     }
 }
 
@@ -288,6 +310,10 @@ async fn submit_backtest_run(
         custody_frames: state.custody_frames,
         #[cfg(feature = "composer-v3-replay")]
         develop_composer: state.develop_composer,
+        #[cfg(feature = "composer-v3-replay")]
+        instrument_master_v2: state.instrument_master_v2,
+        #[cfg(feature = "composer-v3-replay")]
+        instrument_economic_terms: state.instrument_economic_terms,
     };
     let backtest_request = BacktestRunRequestV1 {
         run_id: run_id.clone(),
@@ -481,6 +507,11 @@ async fn get_backtest_run_report(
 
 fn backtest_run_error_response(error: &BacktestRunErrorV1, request_identity: &str) -> Response {
     let (status, code, detail): (_, _, String) = match error {
+        BacktestRunErrorV1::ExecutionTimeframeUndeclared => (
+            StatusCode::BAD_REQUEST,
+            "DATASET_REF_INVALID",
+            String::new(),
+        ),
         BacktestRunErrorV1::StrategyUnknown => {
             (StatusCode::NOT_FOUND, "STRATEGY_UNKNOWN", String::new())
         }

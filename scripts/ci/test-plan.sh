@@ -26,6 +26,7 @@ mkdir -p \
   "$source_repo/.github/workflows" \
   "$source_repo/config" \
   "$source_repo/crates/example/src/python" \
+  "$source_repo/crates/guarded/src" \
   "$source_repo/misc" \
   "$source_repo/notes" \
   "$source_repo/python" \
@@ -33,6 +34,12 @@ mkdir -p \
   "$source_repo/scripts/ci" \
   "$source_repo/tests/data"
 cp "$repo_root/scripts/ci/plan.sh" "$source_repo/scripts/ci/plan.sh"
+# A fixture Owner-chain table, read exactly as the real repository's committed
+# scripts/ci/owner-chain-crates.tsv is: crates/example is outside the closure,
+# crates/guarded is inside it.
+printf 'crates/example\tout\ncrates/guarded\tin\n' > "$source_repo/scripts/ci/owner-chain-crates.tsv"
+printf 'pub fn base() {}\n' > "$source_repo/crates/guarded/src/lib.rs"
+printf '[package]\nname = "guarded"\nversion = "0.0.0"\n' > "$source_repo/crates/guarded/Cargo.toml"
 printf 'name: build\n' > "$source_repo/.github/workflows/build.yml"
 printf 'repos: []\n' > "$source_repo/.pre-commit-config.yaml"
 printf 'pub fn example() {}\n' > "$source_repo/crates/example/src/lib.rs"
@@ -171,12 +178,12 @@ run_inverse_mode_push_case() {
 light=(
   run_tests=false run_rust_tests=false run_generated_drift=false
   run_full_pre_commit=false run_capnp_check=false
-  codeql_python_impacted=false codeql_rust_impacted=false
+  codeql_python_impacted=false codeql_rust_impacted=false run_owner_chain=false
 )
 fail_closed=(
   run_tests=true run_rust_tests=true run_generated_drift=true
   run_full_pre_commit=true run_capnp_check=true
-  codeql_python_impacted=true codeql_rust_impacted=true
+  codeql_python_impacted=true codeql_rust_impacted=true run_owner_chain=true
 )
 
 run_case arbitrary_markdown \
@@ -238,22 +245,42 @@ run_case rust_only \
   "printf 'pub fn changed() {}\\n' >> crates/example/src/lib.rs" \
   run_tests=true run_rust_tests=true run_generated_drift=false \
   run_full_pre_commit=true run_capnp_check=false \
-  codeql_python_impacted=false codeql_rust_impacted=true
+  codeql_python_impacted=false codeql_rust_impacted=true run_owner_chain=false
 run_case rust_manifest \
   "printf '[workspace]\\n' >> Cargo.toml" \
   run_tests=true run_rust_tests=true run_generated_drift=false \
   run_full_pre_commit=true run_capnp_check=false \
-  codeql_python_impacted=false codeql_rust_impacted=true
+  codeql_python_impacted=false codeql_rust_impacted=true run_owner_chain=true
 run_case shared_schema \
   "printf '# changed\\n' >> schema/example.capnp" \
   run_tests=true run_rust_tests=true run_generated_drift=true \
   run_full_pre_commit=true run_capnp_check=true \
-  codeql_python_impacted=true codeql_rust_impacted=true
+  codeql_python_impacted=true codeql_rust_impacted=true run_owner_chain=true
 run_case cross_language_binding \
   "printf 'pub fn changed() {}\\n' >> crates/example/src/python/mod.rs" \
   run_tests=true run_rust_tests=true run_generated_drift=true \
   run_full_pre_commit=true run_capnp_check=true \
-  codeql_python_impacted=true codeql_rust_impacted=true
+  codeql_python_impacted=true codeql_rust_impacted=true run_owner_chain=true
+
+# The table's entries, on crates that otherwise look identical to each other: which one
+# `run_owner_chain` follows is the whole point of scripts/ci/owner-chain-closure.py's table.
+run_case owner_chain_includes_the_changed_crate \
+  "printf 'pub fn changed() {}\\n' >> crates/guarded/src/lib.rs" \
+  run_rust_tests=true run_owner_chain=true
+run_case owner_chain_excludes_the_changed_crates_manifest \
+  "printf 'description = \"x\"\\n' >> crates/example/Cargo.toml" \
+  run_rust_tests=true run_owner_chain=false
+run_case owner_chain_includes_the_changed_crates_manifest \
+  "printf 'description = \"x\"\\n' >> crates/guarded/Cargo.toml" \
+  run_rust_tests=true run_owner_chain=true
+# A crate the table has never seen (added in this very diff) is read from the git tree, not the
+# table, and resolves to no table entry at all - which fails open exactly like a changed path
+# outside every known crate directory would.
+run_case owner_chain_a_new_crate_the_table_has_never_seen_fails_open \
+  "mkdir -p crates/example/newcrate/src; \
+   printf '[package]\\nname = \"newcrate\"\\nversion = \"0.0.0\"\\n' > crates/example/newcrate/Cargo.toml; \
+   printf 'pub fn added() {}\\n' > crates/example/newcrate/src/lib.rs" \
+  run_owner_chain=true
 
 run_case workflow_self_change \
   "printf '# changed\\n' >> .github/workflows/build.yml" "${fail_closed[@]}"
