@@ -31,6 +31,7 @@ pub mod chain_market_base_v1;
 #[cfg(test)]
 mod chain_market_base_v1_tests;
 mod corporate_action;
+mod funding_settlement_v1;
 #[cfg(test)]
 mod instrument_master_admission_v1_tests;
 #[cfg(test)]
@@ -1064,6 +1065,7 @@ impl MarketDataOwnerPostgres {
             .chain(universe_selection::RD_READ_SCHEMA_V1)
             .chain(pit_window_custody_v1::SCHEMA_V1)
             .chain(backfill_job_v1::SCHEMA_V1)
+            .chain(funding_settlement_v1::SCHEMA_V1)
         {
             sqlx::query(*statement)
                 .execute(&mut *transaction)
