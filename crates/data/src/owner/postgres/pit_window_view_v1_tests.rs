@@ -604,6 +604,64 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     assert_eq!(basis.members(), [BTC, ETH]);
     assert_eq!(basis.window(), (WINDOW_START, WINDOW_START + 4 * DAY));
 
+    // The basis's Instrument Master key is the root record's, the chain link's, and the digest
+    // every frame's view batch carries.
+    assert_eq!(basis.instrument_master_key(), link.instrument_master_key);
+    assert!(!at_root.frames().is_empty());
+
+    for coordinate in at_root.frames() {
+        let view = owner
+            .resolve_pit_window_view_v1(&frame(
+                &root,
+                root.custody_identity(),
+                coordinate.event_ns(),
+            ))
+            .await
+            .expect("each frame's view resolves");
+        let batch = seal(&view).expect("each frame's view seals");
+        assert_eq!(
+            batch.instrument_master_digest(),
+            basis.instrument_master_key(),
+            "frame {} carries the basis's Instrument Master key",
+            coordinate.ordinal()
+        );
+    }
+
+    // The root's locator resolves to the record the universe intake stored for it, and R&D's read
+    // by that record returns exactly the custody's members.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let stored = super::universe_selection::recover_universe_selection_in_transaction_v1(
+        &mut transaction,
+        &universe_a,
+    )
+    .await
+    .expect("the universe intake stored the root's selection");
+    transaction.rollback().await.unwrap();
+    assert_eq!(
+        basis.universe_selection_record(),
+        (stored.record().identity(), stored.record().digest()),
+        "the basis names the universe intake's record"
+    );
+    let (record_identity, record_digest) = basis.universe_selection_record();
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let members = crate::owner::read_universe_selection_members_for_rd_v1(
+        &mut transaction,
+        record_identity,
+        record_digest,
+    )
+    .await
+    .expect("R&D reads the custody's members by the basis's record");
+    transaction.rollback().await.unwrap();
+    assert_eq!(
+        members
+            .members()
+            .iter()
+            .map(crate::owner::universe_selection::UniverseSelectionMemberForRdV1::instrument)
+            .collect::<Vec<_>>(),
+        basis.members(),
+        "the record's members are exactly the custody's"
+    );
+
     // A successor restating its root's basis, the same Universe Selection record included.
     let two_day_bar = WINDOW_START + 2 * DAY;
     let corrected = version_at_timeframe(&owner, root.custody_identity(), two_day_bar).await;
@@ -627,6 +685,14 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     assert_eq!(at_head.head_identity(), head.custody_identity());
     assert_eq!(at_head.basis().head_identity(), head.custody_identity());
     assert_eq!(at_head.basis().universe_selection(), universe_a);
+    assert_eq!(
+        at_head.basis().universe_selection_record(),
+        basis.universe_selection_record()
+    );
+    assert_eq!(
+        at_head.basis().instrument_master_key(),
+        basis.instrument_master_key()
+    );
     assert_eq!(at_head.basis().chain_root(), basis.chain_root());
     assert_eq!(
         at_head.basis().instrument_master_cut(),
@@ -645,7 +711,8 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
     );
 }
 
-/// A run whose chain holds no basis record, a basis record edited behind its identity, or a Market
+/// A run whose chain holds no basis record, whose root's Universe Selection the read does not hold
+/// or holds another one, a basis record edited behind its identity, or a Market
 /// Semantics fact forged consistently - restated under another value, with its registry entry and
 /// basis record re-sealed so every record's own readback accepts it - is refused rather than
 /// answered in part: the forged value differs from the one the root custody's record binds. Every
@@ -653,9 +720,12 @@ async fn postgres_a_run_carries_its_root_chain_basis_at_the_head_it_read() {
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_a_run_without_its_verified_chain_basis_is_refused() {
-    use super::pit_window_custody_v1::{
-        frames_from_evidence_v1, load_chain_evidence_v1, read_pit_window_chain_basis_v1,
-        resolve_pit_window_frames_in_transaction_v1,
+    use super::{
+        pit_window_custody_v1::{
+            frames_from_evidence_v1, load_chain_evidence_v1, read_pit_window_chain_basis_v1,
+            resolve_pit_window_frames_in_transaction_v1,
+        },
+        universe_selection::read_universe_selection_by_request_v1,
     };
     use crate::owner::pit_window_custody_v1::chain_records::{
         issue_chain_basis_record_v1, issue_market_semantics_chain_registry_entry_v1,
@@ -674,20 +744,47 @@ async fn postgres_a_run_without_its_verified_chain_basis_is_refused() {
     let root = chain_root.as_bytes().as_slice();
 
     // A chain holding no basis record - one the T0-4c commit did not complete - is refused, where
-    // the same evidence with its basis is answered.
-    let mut transaction = owner.pool().begin().await.unwrap();
-    let evidence = load_chain_evidence_v1(&mut transaction, chain_root)
-        .await
-        .unwrap();
-    let readback = read_pit_window_chain_basis_v1(&mut transaction, chain_root)
-        .await
-        .unwrap();
-    transaction.rollback().await.unwrap();
-    assert!(frames_from_evidence_v1(covered, evidence.clone(), readback).is_ok());
+    // the same evidence with its basis is answered; so is a chain whose root's Universe Selection
+    // the read does not hold, or whose read holds a selection the root's locator does not name.
+    let read = |request_identity| {
+        let pool = owner.pool().clone();
+        async move {
+            let mut transaction = pool.begin().await.unwrap();
+            let evidence = load_chain_evidence_v1(&mut transaction, chain_root)
+                .await
+                .unwrap();
+            let readback = read_pit_window_chain_basis_v1(&mut transaction, chain_root)
+                .await
+                .unwrap();
+            let selection =
+                read_universe_selection_by_request_v1(&mut transaction, request_identity)
+                    .await
+                    .unwrap();
+            transaction.rollback().await.unwrap();
+            (evidence, readback, selection)
+        }
+    };
+    let (evidence, readback, selection) = read(universe.request_identity()).await;
+    assert!(frames_from_evidence_v1(covered, evidence, readback, selection).is_ok());
+    let (evidence, _, selection) = read(universe.request_identity()).await;
     assert_eq!(
-        frames_from_evidence_v1(covered, evidence, None).map(|_| ()),
+        frames_from_evidence_v1(covered, evidence, None, selection).map(|_| ()),
         Err(PitWindowRunRefusalV1::StoreUnavailable),
         "a chain without a basis gets no partial answer"
+    );
+    let (evidence, readback, _) = read(universe.request_identity()).await;
+    assert_eq!(
+        frames_from_evidence_v1(covered, evidence, readback, None).map(|_| ()),
+        Err(PitWindowRunRefusalV1::StoreUnavailable),
+        "a root whose selection record is missing is refused"
+    );
+    let other = super::pit_window_custody_v1_tests::universe(&owner, &binding, 20, None).await;
+    let (evidence, readback, foreign) = read(other.request_identity()).await;
+    assert!(foreign.is_some(), "the other selection is stored");
+    assert_eq!(
+        frames_from_evidence_v1(covered, evidence, readback, foreign).map(|_| ()),
+        Err(PitWindowRunRefusalV1::StoreUnavailable),
+        "a selection the root's locator does not name is refused"
     );
 
     // A basis record edited behind its identity.

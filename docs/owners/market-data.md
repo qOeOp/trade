@@ -2887,8 +2887,10 @@ sample projection" below.
     its own window inside the custody's. Its frames come back as coordinates - ordinal, `e_k` and `d_k`, where `d_k` is
     the derived availability of frame `k`'s execution cross-section - read from the head it names, together with the
     chain's basis, read in the same transaction at the same head. R&D takes a custody run's universe, Instrument Master
-    cut and Market Semantics from the run's frames readback, never from its own evaluation. Each frame's inputs
-    and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
+    cut and Market Semantics from the run's frames readback, never from its own evaluation. The basis also names the
+    Universe Selection record the root's locator resolves to in that transaction, by record identity and digest with
+    the locator's meaning digest checked, and a run whose record is missing or disagrees is refused as
+    `StoreUnavailable`. Each frame's inputs and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
     the derived view slice. That source names the chain root, the head the frames were read from and `e_k`, so a
     correction committed between enumeration and the per-frame reads cannot mix two heads into one run; a head that is
     not in the chain is refused. Every gap has its quote cut, the last bounded by the run's end, and a gap without one
