@@ -2966,6 +2966,11 @@ The work, in order:
   - **What it does not compare.** It does not compare the strategy-input selection hash with the Universe Selection
     record's identity, which is another domain.
   - **When it passes.** Once (a) to (c) hold, the custody run's chain entry answers `custody_binding.is_some()`.
+  - **Where the universe property now lives.** The property that a custody run's strategy universe selection is the
+    chain's selection is relocated, not removed. The H8 cross-domain comparison #1411 deleted held it before.
+    Per-frame custody resolution now proves it: every frame requires the Design's strategy-input `selection_identity`
+    to equal the one derived from that frame's custody view. (a) makes that identity the first frame's own, so a
+    Design whose universe differs from the chain's is refused at its first frame.
 
 Proofs:
 
