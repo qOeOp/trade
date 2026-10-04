@@ -158,6 +158,22 @@ pub(super) const BAR_SCHEDULE_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     ],
 };
 
+/// The fixed funding settlement read: one instrument's settled rows inside one window, and every
+/// committed coverage range of that instrument.
+pub(super) const FUNDING_SETTLEMENT_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "funding_settlement_v1",
+    functions: &[
+        "market_data_admitted_read.resolve_funding_settlements_v1(text,bigint,bigint)",
+        "market_data_admitted_read.resolve_funding_settlement_coverage_v1(text)",
+        "market_data_private.resolve_funding_settlements_v1(text,bigint,bigint)",
+        "market_data_private.resolve_funding_settlement_coverage_v1(text)",
+    ],
+    relations: &[
+        "market_data_private.funding_settlement_facts_v1",
+        "market_data_private.funding_settlement_coverage_v1",
+    ],
+};
+
 /// A frame's quote cut read: the census of quote cuts it is chosen from and the frame census its
 /// bound is read from.
 pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = MeasurementFloor {
@@ -381,6 +397,7 @@ pub(super) const MEASUREMENT_FLOORS: &[MeasurementFloor] = &[
     SAMPLE_PROJECTION_FLOOR_V2,
     SAMPLE_PROJECTION_FLOOR_V3,
     BAR_SCHEDULE_FLOOR_V1,
+    FUNDING_SETTLEMENT_FLOOR_V1,
     NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2,
     SHARED_TIME_FLOOR_V1,
     SOURCE_BINDING_FLOOR_V1,
@@ -1267,6 +1284,109 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
         .await
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     Ok(snapshots)
+}
+
+/// Exact raw funding settlement rows and committed coverage ranges observed inside one fixed
+/// read-only snapshot, for one instrument over one window.
+///
+/// This private DTO is deliberately opaque to callers. The Market Data Owner alone derives
+/// completeness from the coverage rows and builds `ReplayFundingScheduleV1` from the settlement
+/// rows; this read states only what the store held.
+pub(crate) struct RawFundingSettlementSnapshotV1 {
+    pub(crate) settlement_rows: Vec<Vec<u8>>,
+    pub(crate) coverage_rows: Vec<Vec<u8>>,
+}
+
+/// Reads every settled funding row of one instrument inside `[window_start_ns,
+/// window_end_ns_exclusive)` and every committed coverage range of that instrument, in one fixed
+/// read-only snapshot.
+pub(super) async fn read_funding_settlement_snapshot_v1(
+    lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
+    instrument: &str,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<RawFundingSettlementSnapshotV1, PostgresMeasurementError> {
+    const MAX_ROWS: usize = 100_000;
+    const MAX_EVIDENCE_ROW_BYTES: usize = 4 * 1024;
+    const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
+
+    if instrument.is_empty()
+        || window_end_ns_exclusive <= window_start_ns
+        || ambient_pg_configuration_present()
+    {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let window_start_ns =
+        i64::try_from(window_start_ns).map_err(|_| PostgresMeasurementError::InvalidTarget)?;
+    let window_end_ns_exclusive = i64::try_from(window_end_ns_exclusive)
+        .map_err(|_| PostgresMeasurementError::InvalidTarget)?;
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-funding-settlement-v1").await?;
+    let connection = &mut session.connection;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    // `rate` is cast to text before it reaches JSON: `to_jsonb` keeps a NUMERIC's exact digits in
+    // the row Postgres holds, but `serde_json::Value` here has no `arbitrary_precision` feature,
+    // so it would parse a bare JSON number through `f64` and round the venue's exact rate -
+    // proven against this exact pipeline: `1.123456789012345678` round-trips as
+    // `1.1234567890123457`. A JSON string never takes that path; `Decimal::from_str_exact` reads
+    // the text back exactly.
+    let settlements = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT jsonb_build_object('settlement_ns',r.settlement_ns,'interval_hours',r.interval_hours,'rate',r.rate::text) FROM market_data_admitted_read.resolve_funding_settlements_v1($1,$2,$3) AS r",
+    )
+    .bind(instrument)
+    .bind(window_start_ns)
+    .bind(window_end_ns_exclusive)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let coverage = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT to_jsonb(c) FROM market_data_admitted_read.resolve_funding_settlement_coverage_v1($1) AS c",
+    )
+    .bind(instrument)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if settlements.len() > MAX_ROWS || coverage.len() > MAX_ROWS {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let mut evidence_bytes = 0_usize;
+    let to_rows = |values: Vec<serde_json::Value>,
+                   evidence_bytes: &mut usize|
+     -> Result<Vec<Vec<u8>>, PostgresMeasurementError> {
+        values
+            .into_iter()
+            .map(|value| {
+                let row = serde_json::to_vec(&value)
+                    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+                if row.len() > MAX_EVIDENCE_ROW_BYTES {
+                    return Err(PostgresMeasurementError::SnapshotUnavailable);
+                }
+                *evidence_bytes = evidence_bytes
+                    .checked_add(row.len())
+                    .filter(|total| *total <= MAX_EVIDENCE_BYTES)
+                    .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+                Ok(row)
+            })
+            .collect()
+    };
+    let settlement_rows = to_rows(settlements, &mut evidence_bytes)?;
+    let coverage_rows = to_rows(coverage, &mut evidence_bytes)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(RawFundingSettlementSnapshotV1 {
+        settlement_rows,
+        coverage_rows,
+    })
 }
 
 /// One frame's quote cut census as the Owner held it in one read: the bound the first later frame
