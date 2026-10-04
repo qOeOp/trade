@@ -3,7 +3,7 @@
 ## Overview
 
 The blockchain adapter ingests DeFi data from EVM chains and exposes it through the
-VibeTrader data model. It uses three backends:
+VibeTrading data model. It uses three backends:
 
 - HyperSync: high-throughput historical blocks and contract logs. See the
   [Envio HyperSync docs](https://docs.envio.dev/docs/HyperSync/hypersync-usage) for query shape,
@@ -369,7 +369,7 @@ requests during backtests.
 `load_pool_snapshot` reads a full snapshot, including positions and ticks, from Postgres:
 
 ```python
-from vibe_trader.adapters.blockchain import load_pool_snapshot
+from vibe_trading.adapters.blockchain import load_pool_snapshot
 
 snapshot = load_pool_snapshot(
     pg_config=postgres_config,

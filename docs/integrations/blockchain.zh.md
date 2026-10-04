@@ -2,7 +2,7 @@
 
 ## 概述
 
-区块链适配器从 EVM 链接入 DeFi 数据，并通过 VibeTrader 数据模型公开这些数据。它使用三种后端：
+区块链适配器从 EVM 链接入 DeFi 数据，并通过 VibeTrading 数据模型公开这些数据。它使用三种后端：
 
 - HyperSync：高吞吐量历史区块和合约日志。有关查询结构、分页和调优，请参阅 [Envio HyperSync 文档](https://docs.envio.dev/docs/HyperSync/hypersync-usage)。
 - HTTP RPC：合约调用、Multicall 读取和最终链上状态补全。
@@ -327,7 +327,7 @@ vibe blockchain analyze-pools \
 `load_pool_snapshot` 从 Postgres 读取包含持仓和 tick 的完整快照：
 
 ```python
-from vibe_trader.adapters.blockchain import load_pool_snapshot
+from vibe_trading.adapters.blockchain import load_pool_snapshot
 
 snapshot = load_pool_snapshot(
     pg_config=postgres_config,

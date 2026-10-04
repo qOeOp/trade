@@ -18,11 +18,11 @@ use vibe_model::{
 /// Binance Futures current open interest snapshot.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinanceFuturesOpenInterest {
@@ -108,11 +108,11 @@ impl CustomDataTrait for BinanceFuturesOpenInterest {
 /// Binance Futures historical open interest point.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinanceFuturesOpenInterestHistPoint {
@@ -148,11 +148,11 @@ impl BinanceFuturesOpenInterestHistPoint {
 /// parsing/symbology path in this adapter is still perpetual-only.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinanceFuturesOpenInterestHist {
@@ -242,11 +242,11 @@ impl CustomDataTrait for BinanceFuturesOpenInterestHist {
 /// Binance Futures liquidation update from the `forceOrder` stream.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BinanceFuturesLiquidation {
@@ -349,11 +349,11 @@ impl CustomDataTrait for BinanceFuturesLiquidation {
 /// Binance Spot 24-hour ticker statistics from the `ticker` stream.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinanceSpotTicker {
@@ -454,11 +454,11 @@ impl CustomDataTrait for BinanceSpotTicker {
 /// Binance Futures mark-price stream update with venue-specific fields.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BinanceFuturesMarkPriceUpdate {
@@ -529,11 +529,11 @@ impl CustomDataTrait for BinanceFuturesMarkPriceUpdate {
 /// Binance Futures 24-hour ticker statistics from the `ticker` stream.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinanceFuturesTicker {

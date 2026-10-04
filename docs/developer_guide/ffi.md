@@ -1,6 +1,6 @@
 # FFI Memory Contract
 
-VibeTrader exposes a C foreign function interface (FFI) only from `vibe-core` and
+VibeTrading exposes a C foreign function interface (FFI) only from `vibe-core` and
 `vibe-model`. Both crates gate the interface behind their `ffi` Cargo feature and keep the
 exported modules under `crates/core/src/ffi/` and `crates/model/src/ffi/`.
 

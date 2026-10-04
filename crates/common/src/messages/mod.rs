@@ -1,7 +1,7 @@
 //! Message types for system communication.
 //!
 //! This module provides message types used for communication between different
-//! parts of the VibeTrader system, including data requests, execution commands,
+//! parts of the VibeTrading system, including data requests, execution commands,
 //! and system control messages.
 
 use strum::Display;

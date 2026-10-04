@@ -3,7 +3,7 @@
 This page documents the existing engine. Where it differs from the target product architecture in
 `docs/architecture/index.md`, that document is authoritative.
 
-This guide covers the architectural principles and structure of VibeTrader:
+This guide covers the architectural principles and structure of VibeTrading:
 
 - Design philosophy and quality attributes.
 - Core components and how they interact.
@@ -17,7 +17,7 @@ the runtime of a single Vibe node (also known as a "trader instance").
 
 ## Design philosophy
 
-The major architectural techniques and design patterns employed by VibeTrader are:
+The major architectural techniques and design patterns employed by VibeTrading are:
 
 - [Domain driven design (DDD)](https://en.wikipedia.org/wiki/Domain-driven_design)
 - [Event-driven architecture](https://en.wikipedia.org/wiki/Event-driven_programming)
@@ -42,7 +42,7 @@ roughly in order of weighting.
 
 ### Assurance-driven engineering
 
-VibeTrader is incrementally adopting a high-assurance mindset: critical code
+VibeTrading is incrementally adopting a high-assurance mindset: critical code
 paths should carry executable invariants that verify behaviour matches the
 business requirements. Practically this means we:
 
@@ -64,7 +64,7 @@ Further reading: [High Assurance Rust](https://highassurance.rs/).
 
 ### Crash-only design
 
-VibeTrader draws inspiration from [crash-only design](https://en.wikipedia.org/wiki/Crash-only_software)
+VibeTrading draws inspiration from [crash-only design](https://en.wikipedia.org/wiki/Crash-only_software)
 principles, particularly for handling unrecoverable faults. The core insight is that systems which
 can recover cleanly from crashes are more robust than those with separate (and rarely tested)
 graceful shutdown paths.
@@ -96,7 +96,7 @@ unrecoverable errors result in immediate process termination.
 
 ### Data integrity and fail-fast policy
 
-VibeTrader prioritizes data integrity over availability for trading operations. The system employs
+VibeTrading prioritizes data integrity over availability for trading operations. The system employs
 a strict fail-fast policy for arithmetic operations and data handling to prevent silent data corruption
 that could lead to incorrect trading decisions.
 
@@ -119,7 +119,7 @@ can cascade through the system, resulting in:
 - Backtests producing misleading results.
 - Silent financial losses.
 
-By crashing immediately on invalid data, VibeTrader aims to provide:
+By crashing immediately on invalid data, VibeTrading aims to provide:
 
 1. **No silent corruption** - The fail-fast policy is intended to prevent invalid data from propagating; this relies on checks covering the inputs.
 2. **Immediate feedback** - Issues are discovered during development and testing, not in production.
@@ -155,7 +155,7 @@ let total_ns = timestamp1.checked_add(timestamp2)?; // Returns Option<UnixNanos>
 ```
 
 This policy is implemented throughout the core types (`UnixNanos`, `Price`, `Quantity`, etc.)
-and helps VibeTrader maintain strong data correctness for production trading.
+and helps VibeTrading maintain strong data correctness for production trading.
 
 In production deployments, the system is typically configured with `panic = abort` in release builds,
 ensuring that any panic results in a clean process termination that can be handled by process supervisors
@@ -164,7 +164,7 @@ lead to immediate restart rather than attempting to continue in a potentially co
 
 ## System architecture
 
-The VibeTrader codebase is actually both a framework for composing trading
+The VibeTrading codebase is actually both a framework for composing trading
  systems, and a set of default system implementations which can operate in various
 [environment contexts](#environment-contexts).
 
@@ -229,7 +229,7 @@ Provides risk management:
 
 ### Environment contexts
 
-An environment context in VibeTrader defines the type of data and trading venue you work with.
+An environment context in VibeTrading defines the type of data and trading venue you work with.
 Understanding these contexts matters for backtesting, development, and live trading.
 
 Here are the available environments you can work with:
@@ -556,7 +556,7 @@ from the left nav menu.
 ## Code structure
 
 The foundation of the codebase is the `crates/` directory, which contains the Rust implementation.
-The `python/vibe_trader/` package provides the public Python surface. PyO3 collects the Rust
+The `python/vibe_trading/` package provides the public Python surface. PyO3 collects the Rust
 bindings into the `_libvibe` extension module used by that package.
 
 The `vibe-core` and `vibe-model` crates retain an optional C FFI for native consumers. Other
@@ -566,7 +566,7 @@ workspace crates use Rust APIs or PyO3 bindings.
 
 ```mermaid
 flowchart TB
-    subgraph trader["python/vibe_trader<br/>Python"]
+    subgraph trader["python/vibe_trading<br/>Python"]
     end
 
     subgraph bindings["crates/pyo3<br/>PyO3"]
@@ -683,7 +683,7 @@ Rust method body runs.
 
 ### Errors and exceptions
 
-The documentation aims to cover all possible exceptions that VibeTrader code
+The documentation aims to cover all possible exceptions that VibeTrading code
 can raise, and the conditions that trigger them.
 
 :::warning
@@ -721,10 +721,10 @@ heavy paths gaining the most. The trade‑off is a modest increase in resident m
 mimalloc's segment caching.
 
 A Rust binary links exactly one global allocator, and libraries do not impose one, so the
-VibeTrader crates remain allocator-neutral. When building directly against the crates,
+VibeTrading crates remain allocator-neutral. When building directly against the crates,
 opt in from your own binary (see the [Rust guide](rust.md#memory-allocator)).
 
 ## Related guides
 
-- [Overview](overview.md) - High-level introduction to VibeTrader.
+- [Overview](overview.md) - High-level introduction to VibeTrading.
 - [Message Bus](message_bus.md) - Core messaging infrastructure.

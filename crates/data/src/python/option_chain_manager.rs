@@ -45,8 +45,8 @@ fn parse_option_kind(value: u8) -> PyResult<OptionKind> {
 ///
 /// ATM price is always derived from the exchange-provided forward price
 /// embedded in each option greeks/ticker update.
-#[pyclass(name = "OptionChainManager", module = "vibe_trader.data")]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.data")]
+#[pyclass(name = "OptionChainManager", module = "vibe_trading.data")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.data")]
 #[derive(Debug)]
 pub struct PyOptionChainManager {
     aggregator: OptionChainAggregator,

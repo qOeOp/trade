@@ -30,17 +30,17 @@ Windows 信号处理与类 Unix 系统不同。如果您在 Windows 上运行，
 `LiveNodeConfig` 负责节点核心组件的设置。数据客户端与执行客户端应通过 `LiveNode.builder(...)` 注册，不要通过该配置中的客户端字典注册。配置默认值与 `Option<T>` 语义参见[配置](../concepts/configuration.md)概念指南。
 
 ```python
-from vibe_trader.common import Environment
-from vibe_trader.common import LogLevel
-from vibe_trader.config import CacheConfig
-from vibe_trader.config import LiveDataEngineConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LiveNodeConfig
-from vibe_trader.config import LiveRiskEngineConfig
-from vibe_trader.config import LoggerConfig
-from vibe_trader.config import MessageBusConfig
-from vibe_trader.config import PortfolioConfig
-from vibe_trader.model import TraderId
+from vibe_trading.common import Environment
+from vibe_trading.common import LogLevel
+from vibe_trading.config import CacheConfig
+from vibe_trading.config import LiveDataEngineConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LiveNodeConfig
+from vibe_trading.config import LiveRiskEngineConfig
+from vibe_trading.config import LoggerConfig
+from vibe_trading.config import MessageBusConfig
+from vibe_trading.config import PortfolioConfig
+from vibe_trading.model import TraderId
 
 config = LiveNodeConfig(
     environment=Environment.LIVE,
@@ -154,12 +154,12 @@ let backing = RedisMessageBusFactory::new(redis_config).create(
 Python 通过 `LiveNodeBuilder` 注入同一个 Redis factory：
 
 ```python
-from vibe_trader.common import Environment
-from vibe_trader.common import MessageBusConfig
-from vibe_trader.infrastructure import RedisMessageBusConfig
-from vibe_trader.infrastructure import RedisMessageBusFactory
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
+from vibe_trading.common import Environment
+from vibe_trading.common import MessageBusConfig
+from vibe_trading.infrastructure import RedisMessageBusConfig
+from vibe_trading.infrastructure import RedisMessageBusFactory
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
 
 trader_id = TraderId("TRADER-001")
 message_bus = MessageBusConfig(
@@ -186,13 +186,13 @@ node.run()
 一个节点可以连接多个客户端。此示例在构建节点之前注册 Binance 现货和 USD‑M 期货数据客户端：
 
 ```python
-from vibe_trader.adapters.binance import BinanceDataClientConfig
-from vibe_trader.adapters.binance import BinanceDataClientFactory
-from vibe_trader.adapters.binance import BinanceEnvironment
-from vibe_trader.adapters.binance import BinanceProductType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.binance import BinanceDataClientConfig
+from vibe_trading.adapters.binance import BinanceDataClientFactory
+from vibe_trading.adapters.binance import BinanceEnvironment
+from vibe_trading.adapters.binance import BinanceProductType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
 
 node = (
     LiveNode.builder(
@@ -222,7 +222,7 @@ node = (
 
 ## ExecutionEngine 配置
 
-`LiveExecEngineConfig` 控制订单处理、执行事件与交易场所对账。完整说明参见 [API 参考](/docs/python-api-latest/live.html#vibe_trader.live.LiveExecEngineConfig)。
+`LiveExecEngineConfig` 控制订单处理、执行事件与交易场所对账。完整说明参见 [API 参考](/docs/python-api-latest/live.html#vibe_trading.live.LiveExecEngineConfig)。
 
 ### 对账
 
@@ -312,7 +312,7 @@ node = (
 
 ## 策略配置
 
-完整参数列表参见 `StrategyConfig` [API 参考](/docs/python-api-latest/trading.html#vibe_trader.trading.StrategyConfig)。
+完整参数列表参见 `StrategyConfig` [API 参考](/docs/python-api-latest/trading.html#vibe_trading.trading.StrategyConfig)。
 
 ### 标识
 

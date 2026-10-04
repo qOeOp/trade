@@ -1,7 +1,7 @@
 # 数据测试规范
 
 本节定义使用 Rust `DataTester` Actor 验证适配器数据功能的严格测试矩阵。Python 将其作为内置 Actor
-暴露，通过 `vibe_trader.testkit.DataTesterConfig` 配置；Rust 代码从 `vibe_testkit::testers` 导入。
+暴露，通过 `vibe_trading.testkit.DataTesterConfig` 配置；Rust 代码从 `vibe_testkit::testers` 导入。
 每个测试用例都用带前缀的 ID（例如 TC-D01）标识，并按功能分组。
 
 **每个适配器都必须通过与其支持的数据类型相匹配的测试子集。**
@@ -23,16 +23,16 @@
 
 **Python 节点设置**：
 
-旧示例仍使用 `vibe_trader.live.node.TradingNode`，但当前以 Rust 为后端的 PyO3 适配器使用
-`vibe_trader.live.LiveNode`。需要在节点构建前注册适配器客户端 factory 时，使用
+旧示例仍使用 `vibe_trading.live.node.TradingNode`，但当前以 Rust 为后端的 PyO3 适配器使用
+`vibe_trading.live.LiveNode`。需要在节点构建前注册适配器客户端 factory 时，使用
 `LiveNode.builder(...)`。
 
 ```python
-from vibe_trader.common import Environment
-from vibe_trader.config import LiveDataEngineConfig
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import DataTesterConfig
+from vibe_trading.common import Environment
+from vibe_trading.config import LiveDataEngineConfig
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import DataTesterConfig
 
 node = (
     LiveNode.builder("TESTER-001", TraderId("TESTER-001"), Environment.SANDBOX)

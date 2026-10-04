@@ -70,7 +70,7 @@ fn extract_derive_exec_config(
     }
 }
 
-/// Exposed through `vibe_trader.adapters.derive`.
+/// Exposed through `vibe_trading.adapters.derive`.
 ///
 /// # Errors
 ///

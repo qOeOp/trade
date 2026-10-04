@@ -1,10 +1,10 @@
 import pytest
 from tests.providers import TestInstrumentProvider
 
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Symbol
-from vibe_trader.model import SyntheticInstrument
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Symbol
+from vibe_trading.model import SyntheticInstrument
 
 
 BTCUSDT_BINANCE = TestInstrumentProvider.btcusdt_binance()

@@ -2,15 +2,15 @@ import pytest
 from unit.adapters.example_modules import capture_data_tester_main
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.tardis import ReplayNormalizedRequestOptions
-from vibe_trader.adapters.tardis import StreamNormalizedRequestOptions
-from vibe_trader.adapters.tardis import TardisDataClientConfig
-from vibe_trader.adapters.tardis import TardisDataClientFactory
-from vibe_trader.adapters.tardis import TardisInstrumentMiniInfo
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.tardis import ReplayNormalizedRequestOptions
+from vibe_trading.adapters.tardis import StreamNormalizedRequestOptions
+from vibe_trading.adapters.tardis import TardisDataClientConfig
+from vibe_trading.adapters.tardis import TardisDataClientFactory
+from vibe_trading.adapters.tardis import TardisInstrumentMiniInfo
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import TraderId
 
 
 TARDIS = "TARDIS"

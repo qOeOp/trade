@@ -503,11 +503,11 @@ The Python execution config selects trade modes as follows:
 | Derivative | `cross`    | `margin_mode=OKXMarginMode.CROSS`.                |
 
 ```python
-from vibe_trader.adapters.okx import OKXExecClientConfig
-from vibe_trader.adapters.okx import OKXInstrumentType
-from vibe_trader.adapters.okx import OKXMarginMode
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.okx import OKXExecClientConfig
+from vibe_trading.adapters.okx import OKXInstrumentType
+from vibe_trading.adapters.okx import OKXMarginMode
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 exec_config = OKXExecClientConfig(
@@ -783,8 +783,8 @@ Use `OKXInstrumentType.EVENTS` in the data or execution client config. The adapt
 event contract series list, then requests instruments for each series.
 
 ```python
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXInstrumentType
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXInstrumentType
 
 
 data_config = OKXDataClientConfig(instrument_types=[OKXInstrumentType.EVENTS])
@@ -880,8 +880,8 @@ export OKX_API_PASSPHRASE="your_demo_passphrase"
 Set `environment=OKXEnvironment.DEMO` in your client configuration:
 
 ```python
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXEnvironment
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXEnvironment
 
 
 data_config = OKXDataClientConfig(environment=OKXEnvironment.DEMO)
@@ -912,8 +912,8 @@ where it was registered (using a key against another region's endpoints returns
 `region` defaults to `GLOBAL`. For example, an EEA account:
 
 ```python
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXRegion
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXRegion
 
 
 data_config = OKXDataClientConfig(region=OKXRegion.EEA)
@@ -1081,7 +1081,7 @@ The OKX execution client provides the following configuration options:
 | ------------------------ | --------------------------- | ------------------------------------------- |
 | `instrument_types`       | `(OKXInstrumentType.SPOT,)` | Tradable OKX instrument types.              |
 | `load_spreads`           | `False`                     | Loads live spread instruments.              |
-| `trader_id`              | Required                    | Vibe trader ID for the client.              |
+| `trader_id`              | Required                    | Vibe Trading ID for the client.             |
 | `account_id`             | Required                    | Vibe account ID for the client.             |
 | `base_url_http`          | `None`                      | Override for the OKX trading REST endpoint. |
 | `base_url_ws_private`    | `None`                      | Override for the private WebSocket URL.     |

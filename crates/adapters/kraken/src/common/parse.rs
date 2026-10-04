@@ -1181,7 +1181,7 @@ pub fn bar_type_to_futures_resolution(bar_type: BarType) -> anyhow::Result<&'sta
 /// - Short UUID (32 hex chars): passed through
 /// - Free text: max 18 chars
 ///
-/// Sequential VibeTrader IDs (e.g. `O202602270023210040011`) exceed the
+/// Sequential VibeTrading IDs (e.g. `O202602270023210040011`) exceed the
 /// 18-char free-text limit. These are truncated to 'O' + last 17 chars,
 /// preserving the counter portion for maximum entropy.
 pub fn truncate_cl_ord_id(client_order_id: &ClientOrderId) -> String {

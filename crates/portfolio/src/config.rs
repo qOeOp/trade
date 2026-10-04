@@ -5,11 +5,11 @@ use vibe_core::serialization::default_true;
 /// Configuration for `Portfolio` instances.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.portfolio", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.portfolio", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.portfolio")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.portfolio")
 )]
 #[cfg_attr(
     feature = "python",

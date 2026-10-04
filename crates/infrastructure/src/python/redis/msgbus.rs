@@ -115,10 +115,10 @@ impl RedisMessageBusConfig {
 #[derive(Debug, Clone)]
 #[pyclass(
     name = "RedisMessageBusFactory",
-    module = "vibe_trader.infrastructure",
+    module = "vibe_trading.infrastructure",
     from_py_object
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.infrastructure")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.infrastructure")]
 pub struct PyRedisMessageBusFactory {
     inner: RedisMessageBusFactory,
 }
@@ -155,8 +155,11 @@ pub(in crate::python) fn register_redis_msgbus_factory() -> PyResult<()> {
 }
 
 #[derive(Debug)]
-#[pyclass(name = "RedisMessageBusBacking", module = "vibe_trader.infrastructure")]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.infrastructure")]
+#[pyclass(
+    name = "RedisMessageBusBacking",
+    module = "vibe_trading.infrastructure"
+)]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.infrastructure")]
 pub struct PyRedisMessageBusBacking {
     inner: RedisMessageBusBacking,
 }
@@ -333,7 +336,7 @@ mod tests {
             "streams_prefix": "stream",
             "stream_per_topic": false,
             "external_streams": ["signals"],
-            "types_filter": ["vibe_trader.model.data:QuoteTick"],
+            "types_filter": ["vibe_trading.model.data:QuoteTick"],
             "heartbeat_interval_secs": null,
         });
 
@@ -351,7 +354,7 @@ mod tests {
         assert_eq!(config.external_streams, Some(vec!["signals".to_string()]));
         assert_eq!(
             config.types_filter,
-            Some(vec!["vibe_trader.model.data:QuoteTick".to_string()])
+            Some(vec!["vibe_trading.model.data:QuoteTick".to_string()])
         );
         assert_eq!(config.heartbeat_interval_secs, None);
         assert_eq!(backing.host, Some("redis.example.com".to_string()));

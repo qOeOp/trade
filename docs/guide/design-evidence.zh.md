@@ -1,6 +1,6 @@
 # 设计证据
 
-外部证据用于挑战本流程，不用于宣称 VibeTrader 已经盈利、可投产或等同于其他平台。Owner 命名、
+外部证据用于挑战本流程，不用于宣称 VibeTrading 已经盈利、可投产或等同于其他平台。Owner 命名、
 绑定 permit 的命令协议、唯一 Recovery Case 闭合写入者以及 14 分组加一个通道 / 5 模块上限，仍是本项目的设计选择。
 
 ## 引擎边界与唯一交易路径
@@ -9,7 +9,7 @@
 缓存和组合职责。其订单路径在路由到场所前验证风险，再把执行事实返回策略和组合状态。
 [QuantConnect LEAN Algorithm Framework](https://www.quantconnect.com/docs/v2/writing-algorithms/algorithm-framework/overview)
 用类型化交接分离标的选择、信号生产、组合构建、风险管理和执行。这些成熟设计支持明确所有权和
-唯一可观察交易路径，但不能证明 VibeTrader 的具体 Owner 切分或 permit 协议。
+唯一可观察交易路径，但不能证明 VibeTrading 的具体 Owner 切分或 permit 协议。
 
 ## 研究主张与保护性评估
 
@@ -29,7 +29,7 @@
 
 [NautilusTrader 实盘对账](https://nautilustrader.io/docs/latest/concepts/live/)用场所回读对齐内部订单和
 持仓状态，并持久化执行事件以支持恢复。这支持让 Execution 拥有外部效果和对账、显式保留不确定性、
-在恢复闭合前必须获得场所证据。VibeTrader 的 Recovery Case 汇总和 `KNOWN_CLOSED` 仍是自身的失败关闭设计。
+在恢复闭合前必须获得场所证据。VibeTrading 的 Recovery Case 汇总和 `KNOWN_CLOSED` 仍是自身的失败关闭设计。
 
 ## 后续实现必须证明什么
 

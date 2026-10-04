@@ -2,7 +2,7 @@
 //! <https://www.okx.com/docs-v5/en/>.
 //!
 //! The core type exported by this module is [`OKXHttpClient`].  It offers an
-//! interface to all exchange endpoints currently required by VibeTrader.
+//! interface to all exchange endpoints currently required by VibeTrading.
 //!
 //! Key responsibilities handled internally:
 //! • Request signing and header composition for private routes (HMAC-SHA256).
@@ -1763,11 +1763,11 @@ impl OKXRawHttpClient {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.okx", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.okx", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.okx")
 )]
 pub struct OKXHttpClient {
     pub(crate) inner: Arc<OKXRawHttpClient>,

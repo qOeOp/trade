@@ -60,9 +60,9 @@ use crate::{
 /// at the Python boundary for parsing venue messages into Vibe domain types.
 #[pyclass(
     name = "AxMdWebSocketClient",
-    module = "vibe_trader.adapters.architect_ax"
+    module = "vibe_trading.adapters.architect_ax"
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.architect_ax")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.architect_ax")]
 pub struct PyAxMdWebSocketClient {
     inner: AxMdWebSocketClient,
     instruments_cache: Arc<AtomicMap<Ustr, InstrumentAny>>,
@@ -461,9 +461,9 @@ impl PyAxMdWebSocketClient {
 /// parsing at the Python boundary.
 #[pyclass(
     name = "AxOrdersWebSocketClient",
-    module = "vibe_trader.adapters.architect_ax"
+    module = "vibe_trading.adapters.architect_ax"
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.architect_ax")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.architect_ax")]
 pub struct PyAxOrdersWebSocketClient {
     inner: AxOrdersWebSocketClient,
 }

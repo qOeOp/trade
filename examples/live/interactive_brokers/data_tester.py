@@ -11,16 +11,16 @@ from __future__ import annotations
 
 import argparse
 
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersDataClientFactory
-from vibe_trader.adapters.interactive_brokers import MarketDataType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import BarType
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import DataTesterConfig
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersDataClientFactory
+from vibe_trading.adapters.interactive_brokers import MarketDataType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import BarType
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import DataTesterConfig
 
 
 IB = "IB"

@@ -88,7 +88,7 @@ flowchart TB
 可以把 `TRACE` 设为筛选级别，以捕获 Rust 组件的追踪日志，即使 Python 代码无法直接发出该级别。
 :::
 
-更多信息请参阅 `LoggerConfig` [API 参考](/docs/python-api-latest/common.html#vibe_trader.common.LoggerConfig)。
+更多信息请参阅 `LoggerConfig` [API 参考](/docs/python-api-latest/common.html#vibe_trading.common.LoggerConfig)。
 
 日志支持以下配置：
 
@@ -179,11 +179,11 @@ flowchart TB
 以下交易节点日志配置示例包含上文介绍的部分选项：
 
 ```python
-from vibe_trader.common import LogLevel
-from vibe_trader.config import FileWriterConfig
-from vibe_trader.config import LoggerConfig
-from vibe_trader.config import LiveNodeConfig
-from vibe_trader.model import TraderId
+from vibe_trading.common import LogLevel
+from vibe_trading.config import FileWriterConfig
+from vibe_trading.config import LoggerConfig
+from vibe_trading.config import LiveNodeConfig
+from vibe_trading.model import TraderId
 
 config_node = LiveNodeConfig(
     trader_id=TraderId.from_str("TESTER-001"),
@@ -283,11 +283,11 @@ ANSI 颜色代码可以提高终端中日志的可读性。在不支持 ANSI 颜
 如果你***没有***使用会自行初始化 `VibeKernel`（以及日志）的对象，例如 `BacktestEngine` 或 `LiveNode`，可以按以下方式启用日志：
 
 ```python
-from vibe_trader.common import init_logging
-from vibe_trader.common import Logger
-from vibe_trader.common import LogLevel
-from vibe_trader.core import UUID4
-from vibe_trader.model import TraderId
+from vibe_trading.common import init_logging
+from vibe_trading.common import Logger
+from vibe_trading.common import LogLevel
+from vibe_trading.core import UUID4
+from vibe_trading.model import TraderId
 
 log_guard = init_logging(
     trader_id=TraderId.from_str("TESTER-001"),
@@ -325,7 +325,7 @@ logger = Logger("MyLogger")
 直接初始化 tracing subscriber：
 
 ```python
-from vibe_trader.common import init_tracing
+from vibe_trading.common import init_tracing
 
 init_tracing()
 ```

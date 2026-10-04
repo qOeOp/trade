@@ -2,7 +2,7 @@
 
 本页记载既有引擎。凡与 `docs/owners/backtest.md` 的 Owner 契约不一致处，以 Owner 契约为准。
 
-VibeTrader 提供底层 `BacktestEngine` API 以便直接控制，也提供高层 `BacktestNode` API，
+VibeTrading 提供底层 `BacktestEngine` API 以便直接控制，也提供高层 `BacktestNode` API，
 用于基于目录执行可配置的回测。
 
 ## 选择 API 层级
@@ -27,8 +27,8 @@ VibeTrader 提供底层 `BacktestEngine` API 以便直接控制，也提供高�
 交易场所、金融工具、组件和数据，最后调用 `run()`：
 
 ```python
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
 
 engine = BacktestEngine(BacktestEngineConfig())
 engine.add_venue(...)
@@ -101,14 +101,14 @@ engine.end()
 先构建节点，再通过该次运行专用的方法添加策略：
 
 ```python
-from vibe_trader.config import BacktestDataConfig
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.config import BacktestRunConfig
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestDataConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.config import BacktestRunConfig
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -143,7 +143,7 @@ results = node.run()
 请求正常关闭：
 
 ```python
-from vibe_trader.config import BacktestEngineConfig
+from vibe_trading.config import BacktestEngineConfig
 
 config = BacktestEngineConfig(shutdown_on_error=True)
 ```

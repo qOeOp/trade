@@ -12,7 +12,7 @@ export function baseOptions(locale: Locale): BaseLayoutProps {
           <img src="/trade/icon.svg" alt="" className="size-6 dark:hidden" />
           <img src="/trade/icon-dark.svg" alt="" className="hidden size-6 dark:block" />
           <Logo aria-hidden className="h-4 w-auto" />
-          <span className="sr-only">Vibe Trader</span>
+          <span className="sr-only">Vibe Trading</span>
         </span>
       ),
     },

@@ -2,12 +2,12 @@ import datetime as dt
 
 import pandas as pd
 
-from vibe_trader.common.enums import LogColor
-from vibe_trader.common.events import TimeEvent
-from vibe_trader.core.datetime import unix_nanos_to_dt
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.common.enums import LogColor
+from vibe_trading.common.events import TimeEvent
+from vibe_trading.core.datetime import unix_nanos_to_dt
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.trading.strategy import Strategy
 
 
 class SimpleTimerStrategy(Strategy):

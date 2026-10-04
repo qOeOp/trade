@@ -4,11 +4,11 @@ from decimal import Decimal
 
 import pytest
 
-from vibe_trader.model import FIXED_PRECISION
-from vibe_trader.model import FIXED_SCALAR
-from vibe_trader.model import HIGH_PRECISION
-from vibe_trader.model import PRECISION_BYTES
-from vibe_trader.model import Price
+from vibe_trading.model import FIXED_PRECISION
+from vibe_trading.model import FIXED_SCALAR
+from vibe_trading.model import HIGH_PRECISION
+from vibe_trading.model import PRECISION_BYTES
+from vibe_trading.model import Price
 
 
 def test_fixed_point_constants_are_consistent():

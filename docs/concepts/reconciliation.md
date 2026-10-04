@@ -61,7 +61,7 @@ These orders participate in portfolio calculations and position tracking like an
 :::
 
 For all live trading options, see the `LiveExecEngineConfig`
-[API reference](/docs/python-api-latest/config.html#vibe_trader.live.LiveExecEngineConfig).
+[API reference](/docs/python-api-latest/config.html#vibe_trading.live.LiveExecEngineConfig).
 
 ## Reconciliation procedure
 

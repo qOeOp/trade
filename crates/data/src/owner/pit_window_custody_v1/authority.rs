@@ -565,17 +565,26 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
     }
 
     // Timeframes: every label the binding declares, the execution one a fixed interval.
-    let declared = |label: &str| {
-        binding
+    let declared = |label: &str| -> Result<DeclaredBarTimeframeV1, Refused> {
+        let timeframe = binding
             .bar_timeframes
             .iter()
             .find(|timeframe| timeframe.row_timeframe == label)
-            .map(|timeframe| {
-                DeclaredBarTimeframeV1::from_declaration(binding.fact_digest, timeframe)
-            })
-            .ok_or(Refused::InvalidRequest)
+            .ok_or(Refused::InvalidRequest)?;
+        DeclaredBarTimeframeV1::from_declaration(binding.fact_digest, timeframe)
+            .map_err(|_| Refused::InvalidRequest)
     };
-    let execution = declared(&request.execution_timeframe)?;
+    // A `CalendarMonth` cadence is caught here under the same name `ExchangeSessionDay` already
+    // is below: both are declared timeframes that are not a fixed interval, and no window
+    // schedule can enumerate either as an execution timeframe.
+    let execution_declared = binding
+        .bar_timeframes
+        .iter()
+        .find(|timeframe| timeframe.row_timeframe == request.execution_timeframe)
+        .ok_or(Refused::InvalidRequest)?;
+    let execution =
+        DeclaredBarTimeframeV1::from_declaration(binding.fact_digest, execution_declared)
+            .map_err(|_| Refused::ExecutionTimeframeNotFixedInterval)?;
     let execution_interval =
         continuous_fixed_interval(&execution).ok_or(Refused::ExecutionTimeframeNotFixedInterval)?;
 

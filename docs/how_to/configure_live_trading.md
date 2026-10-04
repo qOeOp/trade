@@ -44,17 +44,17 @@ defaults and `Option<T>` semantics, see
 the [Configuration](../concepts/configuration.md) concept guide.
 
 ```python
-from vibe_trader.common import Environment
-from vibe_trader.common import LogLevel
-from vibe_trader.config import CacheConfig
-from vibe_trader.config import LiveDataEngineConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LiveNodeConfig
-from vibe_trader.config import LiveRiskEngineConfig
-from vibe_trader.config import LoggerConfig
-from vibe_trader.config import MessageBusConfig
-from vibe_trader.config import PortfolioConfig
-from vibe_trader.model import TraderId
+from vibe_trading.common import Environment
+from vibe_trading.common import LogLevel
+from vibe_trading.config import CacheConfig
+from vibe_trading.config import LiveDataEngineConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LiveNodeConfig
+from vibe_trading.config import LiveRiskEngineConfig
+from vibe_trading.config import LoggerConfig
+from vibe_trading.config import MessageBusConfig
+from vibe_trading.config import PortfolioConfig
+from vibe_trading.model import TraderId
 
 config = LiveNodeConfig(
     environment=Environment.LIVE,
@@ -173,12 +173,12 @@ let backing = RedisMessageBusFactory::new(redis_config).create(
 Python injects the same Redis factory through `LiveNodeBuilder`:
 
 ```python
-from vibe_trader.common import Environment
-from vibe_trader.common import MessageBusConfig
-from vibe_trader.infrastructure import RedisMessageBusConfig
-from vibe_trader.infrastructure import RedisMessageBusFactory
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
+from vibe_trading.common import Environment
+from vibe_trading.common import MessageBusConfig
+from vibe_trading.infrastructure import RedisMessageBusConfig
+from vibe_trading.infrastructure import RedisMessageBusFactory
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
 
 trader_id = TraderId("TRADER-001")
 message_bus = MessageBusConfig(
@@ -211,13 +211,13 @@ A node can connect to multiple clients. This example registers Binance spot and 
 clients before building the node:
 
 ```python
-from vibe_trader.adapters.binance import BinanceDataClientConfig
-from vibe_trader.adapters.binance import BinanceDataClientFactory
-from vibe_trader.adapters.binance import BinanceEnvironment
-from vibe_trader.adapters.binance import BinanceProductType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.binance import BinanceDataClientConfig
+from vibe_trading.adapters.binance import BinanceDataClientFactory
+from vibe_trading.adapters.binance import BinanceEnvironment
+from vibe_trading.adapters.binance import BinanceProductType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
 
 node = (
     LiveNode.builder(
@@ -249,7 +249,7 @@ node = (
 
 `LiveExecEngineConfig` controls order processing, execution events, and
 venue reconciliation. For full details see the
-[API Reference](/docs/python-api-latest/live.html#vibe_trader.live.LiveExecEngineConfig).
+[API Reference](/docs/python-api-latest/live.html#vibe_trading.live.LiveExecEngineConfig).
 
 ### Reconciliation
 
@@ -352,7 +352,7 @@ Each loop delegates to the cache APIs described in
 ## Strategy configuration
 
 For a complete parameter list see the `StrategyConfig`
-[API Reference](/docs/python-api-latest/trading.html#vibe_trader.trading.StrategyConfig).
+[API Reference](/docs/python-api-latest/trading.html#vibe_trading.trading.StrategyConfig).
 
 ### Identification
 

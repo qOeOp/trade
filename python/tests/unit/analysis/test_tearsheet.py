@@ -1,30 +1,30 @@
 import pytest
 
-from vibe_trader.analysis import TearsheetBarsWithFillsChart
-from vibe_trader.analysis import TearsheetConfig
-from vibe_trader.analysis import TearsheetCustomChart
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetMonthlyReturnsChart
-from vibe_trader.analysis import TearsheetStatsTableChart
-from vibe_trader.analysis import TearsheetYearlyReturnsChart
-from vibe_trader.analysis import create_bars_with_fills
-from vibe_trader.analysis import create_drawdown_chart
-from vibe_trader.analysis import create_equity_curve
-from vibe_trader.analysis import create_monthly_returns_heatmap
-from vibe_trader.analysis import create_returns_distribution
-from vibe_trader.analysis import create_rolling_sharpe
-from vibe_trader.analysis import create_tearsheet
-from vibe_trader.analysis import create_tearsheet_from_stats
-from vibe_trader.analysis import create_yearly_returns
-from vibe_trader.analysis import get_chart
-from vibe_trader.analysis import get_theme
-from vibe_trader.analysis import list_charts
-from vibe_trader.analysis import list_themes
-from vibe_trader.analysis import register_chart
-from vibe_trader.analysis import register_tearsheet_chart
-from vibe_trader.analysis import register_theme
-from vibe_trader.analysis import tearsheet
-from vibe_trader.analysis import themes
+from vibe_trading.analysis import TearsheetBarsWithFillsChart
+from vibe_trading.analysis import TearsheetConfig
+from vibe_trading.analysis import TearsheetCustomChart
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetMonthlyReturnsChart
+from vibe_trading.analysis import TearsheetStatsTableChart
+from vibe_trading.analysis import TearsheetYearlyReturnsChart
+from vibe_trading.analysis import create_bars_with_fills
+from vibe_trading.analysis import create_drawdown_chart
+from vibe_trading.analysis import create_equity_curve
+from vibe_trading.analysis import create_monthly_returns_heatmap
+from vibe_trading.analysis import create_returns_distribution
+from vibe_trading.analysis import create_rolling_sharpe
+from vibe_trading.analysis import create_tearsheet
+from vibe_trading.analysis import create_tearsheet_from_stats
+from vibe_trading.analysis import create_yearly_returns
+from vibe_trading.analysis import get_chart
+from vibe_trading.analysis import get_theme
+from vibe_trading.analysis import list_charts
+from vibe_trading.analysis import list_themes
+from vibe_trading.analysis import register_chart
+from vibe_trading.analysis import register_tearsheet_chart
+from vibe_trading.analysis import register_theme
+from vibe_trading.analysis import tearsheet
+from vibe_trading.analysis import themes
 
 
 pd = pytest.importorskip("pandas")
@@ -604,7 +604,7 @@ def test_create_bars_with_fills_handles_empty_fills_report():
 def test_render_bars_with_fills_auto_discovers_bar_type_by_aggregation_source():
     from plotly.subplots import make_subplots
 
-    from vibe_trader.model import AggregationSource
+    from vibe_trading.model import AggregationSource
 
     bar_type_str = "AUD/USD.SIM-1-MINUTE-BID-EXTERNAL"
 
@@ -675,17 +675,17 @@ def test_create_tearsheet_from_stats_exports_static_image(tmp_path):
 
 def _run_backtest_with_fills():
     from tests.providers import TestInstrumentProvider
-    from vibe_trader.backtest import BacktestEngine
-    from vibe_trader.backtest import BacktestEngineConfig
-    from vibe_trader.model import AccountType
-    from vibe_trader.model import Currency
-    from vibe_trader.model import Money
-    from vibe_trader.model import OmsType
-    from vibe_trader.model import Price
-    from vibe_trader.model import Quantity
-    from vibe_trader.model import QuoteTick
-    from vibe_trader.model import Venue
-    from vibe_trader.trading import ImportableStrategyConfig
+    from vibe_trading.backtest import BacktestEngine
+    from vibe_trading.backtest import BacktestEngineConfig
+    from vibe_trading.model import AccountType
+    from vibe_trading.model import Currency
+    from vibe_trading.model import Money
+    from vibe_trading.model import OmsType
+    from vibe_trading.model import Price
+    from vibe_trading.model import Quantity
+    from vibe_trading.model import QuoteTick
+    from vibe_trading.model import Venue
+    from vibe_trading.trading import ImportableStrategyConfig
 
     audusd = TestInstrumentProvider.audusd_sim()
     usd = Currency.from_str("USD")
@@ -732,26 +732,26 @@ def _run_backtest_with_fills():
 
 
 def _run_issue_3899_backtest():
-    from vibe_trader.backtest import BacktestEngine
-    from vibe_trader.backtest import BacktestEngineConfig
-    from vibe_trader.model import AccountType
-    from vibe_trader.model import Bar
-    from vibe_trader.model import BarAggregation
-    from vibe_trader.model import BarSpecification
-    from vibe_trader.model import BarType
-    from vibe_trader.model import Currency
-    from vibe_trader.model import Equity
-    from vibe_trader.model import InstrumentId
-    from vibe_trader.model import Money
-    from vibe_trader.model import OmsType
-    from vibe_trader.model import OrderSide
-    from vibe_trader.model import Price
-    from vibe_trader.model import PriceType
-    from vibe_trader.model import Quantity
-    from vibe_trader.model import Symbol
-    from vibe_trader.model import TimeInForce
-    from vibe_trader.model import Venue
-    from vibe_trader.trading import Strategy
+    from vibe_trading.backtest import BacktestEngine
+    from vibe_trading.backtest import BacktestEngineConfig
+    from vibe_trading.model import AccountType
+    from vibe_trading.model import Bar
+    from vibe_trading.model import BarAggregation
+    from vibe_trading.model import BarSpecification
+    from vibe_trading.model import BarType
+    from vibe_trading.model import Currency
+    from vibe_trading.model import Equity
+    from vibe_trading.model import InstrumentId
+    from vibe_trading.model import Money
+    from vibe_trading.model import OmsType
+    from vibe_trading.model import OrderSide
+    from vibe_trading.model import Price
+    from vibe_trading.model import PriceType
+    from vibe_trading.model import Quantity
+    from vibe_trading.model import Symbol
+    from vibe_trading.model import TimeInForce
+    from vibe_trading.model import Venue
+    from vibe_trading.trading import Strategy
 
     class BuyHoldThenSellStrategy(Strategy):
         def __init__(self):
@@ -1047,8 +1047,8 @@ def test_calculate_snapshot_returns_rejects_mixed_account_currencies():
 
 
 def test_resolve_snapshot_equity_uses_requested_total_currency():
-    from vibe_trader.model import Currency
-    from vibe_trader.model import Money
+    from vibe_trading.model import Currency
+    from vibe_trading.model import Money
 
     class DummySnapshot:
         base_currency_equity = Money(90.0, Currency.from_str("EUR"))
@@ -1059,8 +1059,8 @@ def test_resolve_snapshot_equity_uses_requested_total_currency():
 
 
 def test_resolve_snapshot_equity_rejects_implicit_multi_currency_total():
-    from vibe_trader.model import Currency
-    from vibe_trader.model import Money
+    from vibe_trading.model import Currency
+    from vibe_trading.model import Money
 
     class DummySnapshot:
         base_currency_equity = Money(100.0, Currency.from_str("USD"))
@@ -1203,7 +1203,7 @@ def test_calculate_grid_layout_grows_to_fit_all_charts(num_charts):
 
 
 def test_calculate_grid_layout_raises_when_layout_too_small():
-    from vibe_trader.analysis.config import GridLayout
+    from vibe_trading.analysis.config import GridLayout
 
     charts = [TearsheetEquityChart(), TearsheetEquityChart()]
     layout = GridLayout(rows=1, cols=1, heights=[1.0])

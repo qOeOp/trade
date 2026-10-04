@@ -20,6 +20,7 @@ use std::{
 };
 
 use vibe_core::{AtomicTime, time::get_atomic_clock_realtime};
+use vibe_data::owner::bar_schedule::{ServedBarGridV1, served_timeframe_v1};
 use vibe_data::owner::source_binding::{
     UntrustedSourceAvailabilityRuleV1, UntrustedSourceVisibilityV1,
 };
@@ -77,11 +78,21 @@ pub enum VisionBackfillErrorV1 {
     /// A requested window's start or end lies before the Unix epoch, so it names no calendar
     /// month an archive could serve.
     WindowBeforeEpoch,
+    /// `PRIOR_BAR_UNAVAILABLE`: the bar closing at a grid-aligned window's start - the window's
+    /// first frame - is in neither the archive nor the public endpoint. `open_ms` names it.
+    PriorBarUnavailable { open_ms: i64 },
 }
 
 impl Display for VisionBackfillErrorV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::PriorBarUnavailable { open_ms } = self {
+            return write!(
+                formatter,
+                "the bar opening at {open_ms} ms, which closes at the window's start, is in neither the archive nor the endpoint"
+            );
+        }
         formatter.write_str(match self {
+            Self::PriorBarUnavailable { .. } => unreachable!("answered above"),
             Self::CredentialPresent => {
                 "the HTTP client holds a credential this public fetch never uses"
             }
@@ -272,9 +283,42 @@ impl VisionBackfillFetcherV1 {
     ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
         let mut bars = Vec::new();
         let first_open_ns = window_start_ns.saturating_sub(longest_interval_ns(interval));
+        let window_months = calendar_months(window_start_ns, window_end_ns_exclusive)?;
 
         for (year, month) in calendar_months(first_open_ns, window_end_ns_exclusive)? {
-            bars.extend(self.execution_month(symbol, interval, year, month).await?);
+            match self.execution_month(symbol, interval, year, month).await {
+                Ok(month_bars) => bars.extend(month_bars),
+                // A month before the window's own holds only the bar closing at its start. The
+                // archive may not publish that month at all (the USD-M monthly archive starts at
+                // 2020-01), so that bar comes from the public endpoint instead; a month of the
+                // window itself still has to be archived.
+                Err(VisionBackfillErrorV1::ArchiveUnavailable)
+                    if !window_months.contains(&(year, month)) =>
+                {
+                    bars.extend(
+                        self.endpoint_bars_before(symbol, interval, window_start_ns)
+                            .await?,
+                    );
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        // A window whose start is a bar close of its grid has its first frame there, so the bar
+        // closing at the start must be held; a start between closes needs no such bar.
+        if let Some(prior_open_ns) = grid_bar_closing_at_v1(interval, window_start_ns) {
+            let held = bars.iter().any(|bar| {
+                bar.kline
+                    .close_time
+                    .checked_add(1)
+                    .and_then(|close_ms| u64::try_from(close_ms).ok())
+                    .is_some_and(|close_ms| close_ms * 1_000_000 == window_start_ns)
+            });
+
+            if !held {
+                return Err(VisionBackfillErrorV1::PriorBarUnavailable {
+                    open_ms: i64::try_from(prior_open_ns / 1_000_000).unwrap_or(i64::MAX),
+                });
+            }
         }
         bars.retain(|bar| {
             bar.kline
@@ -359,6 +403,46 @@ impl VisionBackfillFetcherV1 {
             months.push(self.funding_month(symbol, year, month).await?);
         }
         Ok(months)
+    }
+
+    /// The closed bars of `interval` that open within one interval before `window_start_ns`, from
+    /// the public endpoint: the bar closing at the window's start, when its month is not archived.
+    ///
+    /// # Errors
+    ///
+    /// [`VisionBackfillErrorV1::EndpointUnavailable`] when the endpoint does not answer.
+    async fn endpoint_bars_before(
+        &self,
+        symbol: &str,
+        interval: BinanceKlineInterval,
+        window_start_ns: u64,
+    ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
+        let retrieval_ns = self.clock.get_time_ns().as_u64();
+        let start_ms = window_start_ns / 1_000_000;
+        let first_open_ms = start_ms.saturating_sub(longest_interval_ns(interval) / 1_000_000);
+        let millis = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
+        let klines = self
+            .endpoint
+            .inner()
+            .klines(&BinanceKlinesParams {
+                symbol: symbol.to_string(),
+                interval: interval.as_str().to_string(),
+                start_time: Some(millis(first_open_ms)),
+                end_time: Some(millis(start_ms).saturating_sub(1)),
+                limit: None,
+            })
+            .await
+            .map_err(|_| VisionBackfillErrorV1::EndpointUnavailable)?;
+        let closed_by_ms = millis(retrieval_ns / 1_000_000);
+        Ok(klines
+            .into_iter()
+            .filter(|kline| kline.close_time < closed_by_ms)
+            .map(|kline| FetchedBarV1 {
+                kline,
+                retrieval_ns,
+                route: ENDPOINT_ROUTE,
+            })
+            .collect())
     }
 
     /// The first `1m` bar opening strictly after `after_ms` and strictly before `before_ms`, or
@@ -469,6 +553,18 @@ impl VisionBackfillFetcherV1 {
         }
         Ok(response.body.to_vec())
     }
+}
+
+/// The open of the bar of `interval` that closes exactly at `instant_ns`, when `instant_ns` is a
+/// bar close of the interval's grid (the Unix epoch, or Monday 00:00 UTC for a week); `None`
+/// otherwise, and for a calendar month, which no backfill executes on.
+fn grid_bar_closing_at_v1(interval: BinanceKlineInterval, instant_ns: u64) -> Option<u64> {
+    let timeframe = served_timeframe_v1(interval.as_str())?;
+    let ServedBarGridV1::Fixed { interval_ns, .. } = timeframe.grid else {
+        return None;
+    };
+    let open_ns = instant_ns.checked_sub(interval_ns)?;
+    (timeframe.close_of(open_ns) == Some(instant_ns)).then_some(open_ns)
 }
 
 /// The longest one bar of `interval` can be: its fixed length, or 31 days for a calendar month.
@@ -930,6 +1026,72 @@ mod tests {
                 .collect::<Vec<_>>(),
             [JUNE_2021_MS],
             "the bar opening a day before the window closes at its start"
+        );
+    }
+
+    /// The bar closing at a window's start, in a month the archive does not publish (the USD-M
+    /// monthly archive starts 2020-01), comes from the public endpoint; the window's own months
+    /// still come from the archive.
+    #[tokio::test]
+    async fn the_bar_closing_at_the_start_of_an_unarchived_month_comes_from_the_endpoint() {
+        let shards = ShardDir::new();
+        let zip = zipped(&june_rows());
+        let mut stand = archive(Some(zip.clone()), checksum(&zip));
+        let mut prior_day = one_minute(JUNE_2021_MS - DAY_MS);
+        prior_day[0][6] = json!(JUNE_2021_MS - 1);
+        stand.fill = prior_day;
+        let seen = stand.seen.clone();
+        let fetcher = fetcher(stand, shards.path()).await;
+        let nanos = |ms: i64| u64::try_from(ms).unwrap() * 1_000_000;
+
+        let bars = fetcher
+            .execution_window(
+                "BTCUSDT",
+                BinanceKlineInterval::Day1,
+                nanos(JUNE_2021_MS),
+                nanos(JUNE_2021_MS + 2 * DAY_MS),
+            )
+            .await
+            .expect("the window backfills although 2021-05 is not archived");
+        assert_eq!(
+            bars.iter()
+                .map(|bar| (bar.kline.open_time, bar.route))
+                .collect::<Vec<_>>(),
+            [
+                (JUNE_2021_MS - DAY_MS, ENDPOINT_ROUTE),
+                (JUNE_2021_MS, ARCHIVE_ROUTE)
+            ]
+        );
+        let (_, query) = seen.lock().unwrap()[0].clone();
+        assert!(
+            query.contains("interval=1d")
+                && query.contains(&format!("startTime={}", JUNE_2021_MS - DAY_MS))
+                && query.contains(&format!("endTime={}", JUNE_2021_MS - 1)),
+            "{query}"
+        );
+    }
+
+    /// A grid-aligned window whose first frame's bar is in neither the archive nor the endpoint
+    /// is refused by name, naming that bar, rather than backfilled without its first frame.
+    #[tokio::test]
+    async fn a_first_frame_bar_found_nowhere_is_refused_by_name() {
+        let shards = ShardDir::new();
+        let zip = zipped(&june_rows());
+        let fetcher = fetcher(archive(Some(zip.clone()), checksum(&zip)), shards.path()).await;
+        let nanos = |ms: i64| u64::try_from(ms).unwrap() * 1_000_000;
+
+        assert_eq!(
+            fetcher
+                .execution_window(
+                    "BTCUSDT",
+                    BinanceKlineInterval::Day1,
+                    nanos(JUNE_2021_MS),
+                    nanos(JUNE_2021_MS + 2 * DAY_MS),
+                )
+                .await,
+            Err(VisionBackfillErrorV1::PriorBarUnavailable {
+                open_ms: JUNE_2021_MS - DAY_MS
+            })
         );
     }
 

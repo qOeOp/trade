@@ -1,6 +1,6 @@
 # Python
 
-VibeTrader 大部分面向用户的代码都使用 [Python](https://www.python.org/) 编程语言。
+VibeTrading 大部分面向用户的代码都使用 [Python](https://www.python.org/) 编程语言。
 Python 拥有丰富的库和框架生态，非常适合策略开发、数据分析和系统集成。
 
 ## 代码风格

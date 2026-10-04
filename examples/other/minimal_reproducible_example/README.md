@@ -1,6 +1,6 @@
 # Minimal Reproducible Example
 
-A bare-minimum template for reproducing and reporting issues with VibeTrader.
+A bare-minimum template for reproducing and reporting issues with VibeTrading.
 
 ## Why This Template?
 

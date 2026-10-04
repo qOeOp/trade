@@ -4,7 +4,7 @@ Tardis provides granular data for cryptocurrency markets including tick-by-tick 
 updates, trades, open interest, funding rates, option summaries, and liquidations data for leading
 crypto exchanges.
 
-VibeTrader integrates with the Tardis API, Tardis Machine WebSocket server, and Tardis CSV
+VibeTrading integrates with the Tardis API, Tardis Machine WebSocket server, and Tardis CSV
 formats. The capabilities of this adapter include:
 
 - CSV loading and streaming functions: read Tardis‑format files into Vibe data in bulk or
@@ -37,15 +37,15 @@ The core components of the adapter are compiled as static libraries and linked d
 ## Tardis documentation
 
 Tardis provides extensive user [documentation](https://docs.tardis.dev/).
-We recommend also referring to the Tardis documentation in conjunction with this VibeTrader integration guide.
+We recommend also referring to the Tardis documentation in conjunction with this VibeTrading integration guide.
 
 ## Supported formats
 
 Tardis provides *normalized* market data, a unified format consistent across supported exchanges.
 This normalization lets one parser handle data from any [Tardis-supported exchange](#venues).
-VibeTrader does not support exchange-native Tardis market data formats in this adapter.
+VibeTrading does not support exchange-native Tardis market data formats in this adapter.
 
-The following normalized Tardis Machine formats are supported by VibeTrader. See the official
+The following normalized Tardis Machine formats are supported by VibeTrading. See the official
 [Tardis data type reference](https://docs.tardis.dev/tardis-machine/data-types) for field schemas.
 
 | Tardis format       | Vibe data type                                                    |
@@ -91,8 +91,8 @@ This includes the following:
 
 ## Symbology and normalization
 
-The Tardis integration ensures compatibility with VibeTrader's crypto exchange adapters
-by consistently normalizing symbols. Typically, VibeTrader uses the native exchange naming
+The Tardis integration ensures compatibility with VibeTrading's crypto exchange adapters
+by consistently normalizing symbols. Typically, VibeTrading uses the native exchange naming
 conventions provided by Tardis. For certain exchanges, raw symbols are adjusted to adhere to
 Vibe symbology normalization, as outlined below:
 
@@ -168,12 +168,12 @@ Tardis also exposes legacy Binance exchanges such as `binance-european-options` 
 
 ## Environment variables
 
-The following environment variables are used by Tardis and VibeTrader.
+The following environment variables are used by Tardis and VibeTrading.
 
 - `TM_API_KEY`: API key for the Tardis Machine.
-- `TARDIS_API_KEY`: API key for VibeTrader Tardis clients.
+- `TARDIS_API_KEY`: API key for VibeTrading Tardis clients.
 - `TARDIS_MACHINE_WS_URL` (optional): WebSocket URL for the `TardisMachineClient`.
-- `TARDIS_BASE_URL` (optional): Base URL for the `TardisHttpClient` in VibeTrader.
+- `TARDIS_BASE_URL` (optional): Base URL for the `TardisHttpClient` in VibeTrading.
 - `VIBE_PATH` (optional): Parent directory containing the `catalog/` subdirectory for
   replay output.
 
@@ -351,7 +351,7 @@ To run a replay in Python, create a script similar to the following:
 import asyncio
 from pathlib import Path
 
-from vibe_trader.adapters.tardis import run_tardis_machine_replay
+from vibe_trading.adapters.tardis import run_tardis_machine_replay
 
 
 async def run():
@@ -449,7 +449,7 @@ file can keep lower precision metadata.
 ```python
 from pathlib import Path
 
-from vibe_trader.adapters.tardis import convert_tardis_options_chain_csv
+from vibe_trading.adapters.tardis import convert_tardis_options_chain_csv
 
 
 convert_tardis_options_chain_csv(
@@ -494,8 +494,8 @@ To load the data, create a script similar to the following:
 ```python
 from pathlib import Path
 
-from vibe_trader.adapters.tardis import load_tardis_deltas
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.tardis import load_tardis_deltas
+from vibe_trading.model import InstrumentId
 
 
 instrument_id = InstrumentId.from_str("BTC-PERPETUAL.DERIBIT")
@@ -572,8 +572,8 @@ accepts a `chunk_size` parameter that controls how many records are read per chu
 ```python
 from pathlib import Path
 
-from vibe_trader.adapters.tardis import stream_tardis_trades
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.tardis import stream_tardis_trades
+from vibe_trading.model import InstrumentId
 
 instrument_id = InstrumentId.from_str("BTC-PERPETUAL.DERIBIT")
 filepath = Path("large_trades_file.csv")
@@ -600,8 +600,8 @@ for chunk in trades:
 For order book data, streaming is available for both deltas and depth snapshots:
 
 ```python
-from vibe_trader.adapters.tardis import stream_tardis_deltas
-from vibe_trader.adapters.tardis import stream_tardis_depth10_from_snapshot5
+from vibe_trading.adapters.tardis import stream_tardis_deltas
+from vibe_trading.adapters.tardis import stream_tardis_depth10_from_snapshot5
 
 
 # Stream order book deltas
@@ -620,7 +620,7 @@ for chunk in stream_tardis_depth10_from_snapshot5(filepath):
 Quote data can be streamed similarly:
 
 ```python
-from vibe_trader.adapters.tardis import stream_tardis_quotes
+from vibe_trading.adapters.tardis import stream_tardis_quotes
 
 
 # Stream quote ticks
@@ -711,7 +711,7 @@ To request instrument definitions in Python, create a script similar to the foll
 ```python
 import asyncio
 
-from vibe_trader.adapters.tardis import TardisHttpClient
+from vibe_trading.adapters.tardis import TardisHttpClient
 
 
 async def run():
@@ -776,7 +776,7 @@ Since there are multiple [Tardis-supported exchanges](#venues), when loading all
 you must filter for the desired venues using an `InstrumentProviderConfig`:
 
 ```python
-from vibe_trader.config import InstrumentProviderConfig
+from vibe_trading.config import InstrumentProviderConfig
 
 # See supported venues https://github.com/qOeOp/trade/blob/main/docs/integrations/tardis.md#venues
 venues = {"BINANCE", "BYBIT"}
@@ -787,7 +787,7 @@ instrument_provider_config = InstrumentProviderConfig(load_all=True, filters=fil
 You can also load specific instrument definitions in the usual way:
 
 ```python
-from vibe_trader.config import InstrumentProviderConfig
+from vibe_trading.config import InstrumentProviderConfig
 
 instrument_ids = [
     InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),  # Uses the 'binance-futures' exchange
@@ -805,7 +805,7 @@ The instrument provider filters out option-specific exchanges, such as `binance-
 To explicitly load option instruments, include `"option"` in the `instrument_type` filter:
 
 ```python
-from vibe_trader.config import InstrumentProviderConfig
+from vibe_trading.config import InstrumentProviderConfig
 
 venues = {"BINANCE", "BYBIT"}
 filters = {
@@ -824,7 +824,7 @@ For simplicity, it's recommended to load all instruments for the venues you inte
 
 ## Live data client
 
-The `TardisDataClient` integrates Tardis Machine with a running VibeTrader system.
+The `TardisDataClient` integrates Tardis Machine with a running VibeTrading system.
 The Python live data client translates standard subscriptions into Tardis Machine streams for:
 
 - `OrderBookDelta` (L2 granularity from Tardis, including changes or full-depth snapshots)

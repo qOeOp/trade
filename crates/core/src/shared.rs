@@ -1,6 +1,6 @@
 //! Wrappers around shared, interior-mutable cell pairs.
 //!
-//! VibeTrader engines store many components as `Rc<RefCell<T>>` for shared ownership with
+//! VibeTrading engines store many components as `Rc<RefCell<T>>` for shared ownership with
 //! interior mutability. Spelling that type at every boundary is verbose and risks accidentally
 //! holding a strong reference where a weak one is required, leading to reference cycles.
 //!

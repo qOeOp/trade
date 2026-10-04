@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 from decimal import Decimal
 
-from vibe_trader.adapters.interactive_brokers.common import IB
-from vibe_trader.adapters.interactive_brokers.config import DockerizedIBGatewayConfig
-from vibe_trader.adapters.interactive_brokers.config import InteractiveBrokersDataClientConfig
-from vibe_trader.adapters.interactive_brokers.config import (
+from vibe_trading.adapters.interactive_brokers.common import IB
+from vibe_trading.adapters.interactive_brokers.config import DockerizedIBGatewayConfig
+from vibe_trading.adapters.interactive_brokers.config import InteractiveBrokersDataClientConfig
+from vibe_trading.adapters.interactive_brokers.config import (
     InteractiveBrokersInstrumentProviderConfig,
 )
-from vibe_trader.adapters.interactive_brokers.factories import (
+from vibe_trading.adapters.interactive_brokers.factories import (
     InteractiveBrokersLiveDataClientFactory,
 )
-from vibe_trader.adapters.sandbox.config import SandboxExecutionClientConfig
-from vibe_trader.adapters.sandbox.factory import SandboxLiveExecClientFactory
-from vibe_trader.config import LiveDataEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.examples.strategies.ema_cross import EMACross
-from vibe_trader.examples.strategies.ema_cross import EMACrossConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.data import BarType
-from vibe_trader.persistence.catalog import ParquetDataCatalog
+from vibe_trading.adapters.sandbox.config import SandboxExecutionClientConfig
+from vibe_trading.adapters.sandbox.factory import SandboxLiveExecClientFactory
+from vibe_trading.config import LiveDataEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.examples.strategies.ema_cross import EMACross
+from vibe_trading.examples.strategies.ema_cross import EMACrossConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.data import BarType
+from vibe_trading.persistence.catalog import ParquetDataCatalog
 
 
 # Load instruments from a Parquet catalog

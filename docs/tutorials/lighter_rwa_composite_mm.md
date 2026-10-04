@@ -103,7 +103,7 @@ running the example.
 ## Project setup
 
 The strategy, node, and adapters ship as crates, so you can depend on them from
-your own Cargo project rather than working inside a VibeTrader checkout. Add
+your own Cargo project rather than working inside a VibeTrading checkout. Add
 the following to your `Cargo.toml`, pointing every Vibe dependency at the
 same `develop` git source so the crates resolve to one consistent version:
 
@@ -176,7 +176,7 @@ instead of hiding it in a custom strategy.
 
 ## Example node
 
-There are two ways to run this: from a VibeTrader checkout via the shipped
+There are two ways to run this: from a VibeTrading checkout via the shipped
 [Lighter NVDA composite market maker example][example-script] binary, or by
 copying the node wiring below into a `main` in your own project that depends on
 the crates from [Project setup](#project-setup). A Python counterpart also lives at

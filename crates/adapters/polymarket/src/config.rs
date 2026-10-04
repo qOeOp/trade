@@ -41,11 +41,11 @@ fn default_updown_assets() -> Vec<String> {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.polymarket", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.polymarket", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.polymarket")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.polymarket")
 )]
 pub struct PolymarketUpDownEventSlugConfig {
     /// Asset codes used in the slug prefix.
@@ -155,11 +155,11 @@ impl PolymarketUpDownEventSlugConfig {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.polymarket", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.polymarket", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.polymarket")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.polymarket")
 )]
 pub struct PolymarketInstrumentProviderConfig {
     /// Whether all venue instruments should be loaded on startup.
@@ -232,11 +232,11 @@ impl PolymarketInstrumentProviderConfig {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.polymarket", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.polymarket", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.polymarket")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.polymarket")
 )]
 pub struct PolymarketDataClientConfig {
     pub instrument_config: Option<PolymarketInstrumentProviderConfig>,
@@ -473,11 +473,11 @@ impl PolymarketDataClientConfig {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.polymarket", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.polymarket", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.polymarket")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.polymarket")
 )]
 pub struct PolymarketExecClientConfig {
     #[builder(default)]

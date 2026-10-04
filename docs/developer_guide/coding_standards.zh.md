@@ -102,7 +102,7 @@ Vibe `load_*` 词汇：
 
 #### 适配器包门面
 
-`python/vibe_trader/adapters/` 下的每个包都是私有 `_libvibe` 扩展之上的轻量门面。
+`python/vibe_trading/adapters/` 下的每个包都是私有 `_libvibe` 扩展之上的轻量门面。
 每个适配器的 `__init__.py` 都声明确定性的 `__all__`，作为其公共 API 的唯一事实来源；
 `python/generate_stubs.py` 会把该列表复制到匹配的 `.pyi` 中，使运行时导出与 stub 导出完全一致。
 

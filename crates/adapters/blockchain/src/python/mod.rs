@@ -46,7 +46,7 @@ fn extract_blockchain_config(py: Python<'_>, config: Py<PyAny>) -> PyResult<Box<
     }
 }
 
-/// Exposed through `vibe_trader.adapters.blockchain`.
+/// Exposed through `vibe_trading.adapters.blockchain`.
 ///
 /// # Errors
 ///

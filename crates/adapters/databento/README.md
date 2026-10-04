@@ -1,13 +1,13 @@
 # vibe-databento
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for [Databento](https://databento.com).
+[VibeTrading](https://github.com/qOeOp/trade) adapter for [Databento](https://databento.com).
 
 The `vibe-databento` crate provides a complete integration with the Databento API for
 accessing institutional-grade market data feeds across multiple venues and asset classes.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

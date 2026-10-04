@@ -2,36 +2,36 @@ from decimal import Decimal
 
 import pytest
 
-from vibe_trader.backtest import BacktestDataConfig
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.backtest import BacktestRunConfig
-from vibe_trader.backtest import BacktestVenueConfig
-from vibe_trader.backtest import FXRolloverInterestModule
-from vibe_trader.backtest import InterestRateRecord
-from vibe_trader.common import CacheConfig
-from vibe_trader.common import LoggerConfig
-from vibe_trader.common import MessageBusConfig
-from vibe_trader.core import UUID4
-from vibe_trader.data import DataEngineConfig
-from vibe_trader.execution import BestPriceFillModel
-from vibe_trader.execution import CappedOptionFeeModel
-from vibe_trader.execution import ExecutionEngineConfig
-from vibe_trader.execution import StaticLatencyModel
-from vibe_trader.execution import TieredNotionalOptionFeeModel
-from vibe_trader.live import PortfolioConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BarAggregation
-from vibe_trader.model import BarSpecification
-from vibe_trader.model import BookType
-from vibe_trader.model import ClientId
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OmsType
-from vibe_trader.model import OtoTriggerMode
-from vibe_trader.model import PriceType
-from vibe_trader.model import StandardMarginModel
-from vibe_trader.risk import RiskEngineConfig
-from vibe_trader.trading import ImportableControllerConfig
+from vibe_trading.backtest import BacktestDataConfig
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.backtest import BacktestRunConfig
+from vibe_trading.backtest import BacktestVenueConfig
+from vibe_trading.backtest import FXRolloverInterestModule
+from vibe_trading.backtest import InterestRateRecord
+from vibe_trading.common import CacheConfig
+from vibe_trading.common import LoggerConfig
+from vibe_trading.common import MessageBusConfig
+from vibe_trading.core import UUID4
+from vibe_trading.data import DataEngineConfig
+from vibe_trading.execution import BestPriceFillModel
+from vibe_trading.execution import CappedOptionFeeModel
+from vibe_trading.execution import ExecutionEngineConfig
+from vibe_trading.execution import StaticLatencyModel
+from vibe_trading.execution import TieredNotionalOptionFeeModel
+from vibe_trading.live import PortfolioConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BarAggregation
+from vibe_trading.model import BarSpecification
+from vibe_trading.model import BookType
+from vibe_trading.model import ClientId
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OmsType
+from vibe_trading.model import OtoTriggerMode
+from vibe_trading.model import PriceType
+from vibe_trading.model import StandardMarginModel
+from vibe_trading.risk import RiskEngineConfig
+from vibe_trading.trading import ImportableControllerConfig
 
 
 def test_engine_config_defaults():

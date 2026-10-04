@@ -1,4 +1,4 @@
-from vibe_trader.adapters.okx import OKXHttpClient
+from vibe_trading.adapters.okx import OKXHttpClient
 
 
 def test_http_client_exposes_generic_spread_execution_methods() -> None:

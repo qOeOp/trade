@@ -1,13 +1,13 @@
 # vibe-coinbase
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for the [Coinbase Advanced Trade](https://docs.cdp.coinbase.com/coinbase-app/docs/advanced-trade-apis) API.
+[VibeTrading](https://github.com/qOeOp/trade) adapter for the [Coinbase Advanced Trade](https://docs.cdp.coinbase.com/coinbase-app/docs/advanced-trade-apis) API.
 
 The `vibe-coinbase` crate provides client bindings (HTTP & WebSocket), data models,
 and helper utilities that wrap the official **Coinbase Advanced Trade API**.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

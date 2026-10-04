@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 import pandas as pd
 
-from vibe_trader.adapters.okx import OKX
-from vibe_trader.adapters.okx import OKXContractType
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXEnvironment
-from vibe_trader.adapters.okx import OKXInstrumentType
-from vibe_trader.adapters.okx import OKXLiveDataClientFactory
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.data import BarType
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.test_kit.strategies.tester_data import DataTester
-from vibe_trader.test_kit.strategies.tester_data import DataTesterConfig
+from vibe_trading.adapters.okx import OKX
+from vibe_trading.adapters.okx import OKXContractType
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXEnvironment
+from vibe_trading.adapters.okx import OKXInstrumentType
+from vibe_trading.adapters.okx import OKXLiveDataClientFactory
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.data import BarType
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.test_kit.strategies.tester_data import DataTester
+from vibe_trading.test_kit.strategies.tester_data import DataTesterConfig
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

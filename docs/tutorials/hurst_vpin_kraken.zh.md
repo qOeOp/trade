@@ -31,12 +31,12 @@ Kraken 期货以两种形式列出比特币和以太币的永续合约：
 
 ### 为什么结合美元柱与 VPIN
 
-VPIN 定义在*成交量*桶上，而非*时间*桶上。美元柱（VibeTrader 中的 `VALUE` 聚合）在累计成交固定名义金额后收盘，因此采样框架会随市场活跃度自适应。把每个 VPIN 桶定义为一根美元柱，可让两个信号使用同一时钟；在同一组柱上采样的 Hurst 也使用相同框架。
+VPIN 定义在*成交量*桶上，而非*时间*桶上。美元柱（VibeTrading 中的 `VALUE` 聚合）在累计成交固定名义金额后收盘，因此采样框架会随市场活跃度自适应。把每个 VPIN 桶定义为一根美元柱，可让两个信号使用同一时钟；在同一组柱上采样的 Hurst 也使用相同框架。
 
 ## 先决条件
 
 - 可用的 Rust 工具链（参见 [rustup.rs](https://rustup.rs)）。
-- 已克隆并能成功构建的 VibeTrader 仓库。
+- 已克隆并能成功构建的 VibeTrading 仓库。
 - 可以通过互联网下载免费的 Tardis 示例（每个月的第一天不需要 API 密钥）。
 
 ## 数据准备
@@ -121,9 +121,9 @@ let instrument = CryptoPerpetual::builder()
 
 ## 美元柱采样
 
-VibeTrader 提供 AFML 第 2 章中的所有信息驱动柱聚合器：tick、成交量、价值（美元），以及各自的不平衡柱与游程柱变体。这里使用普通 `VALUE` 柱，在成交数据流累计固定名义金额后收盘。
+VibeTrading 提供 AFML 第 2 章中的所有信息驱动柱聚合器：tick、成交量、价值（美元），以及各自的不平衡柱与游程柱变体。这里使用普通 `VALUE` 柱，在成交数据流累计固定名义金额后收盘。
 
-柱类型用字符串表示。`INTERNAL` 后缀指示引擎在 VibeTrader 内部从底层成交数据流聚合，价格类型为 `LAST`：
+柱类型用字符串表示。`INTERNAL` 后缀指示引擎在 VibeTrading 内部从底层成交数据流聚合，价格类型为 `LAST`：
 
 ```rust
 use vibe_model::data::BarType;

@@ -79,7 +79,7 @@ __pycache__/
 requirements*
 venv*/
 .venv*/
-python/vibe_trader/_libvibe.pyi
+python/vibe_trading/_libvibe.pyi
 
 # Build environment and temp
 _build/
@@ -155,9 +155,9 @@ bench_data/
 /docs/tutorials/databento/
 /examples/backtest/notebooks/catalog/
 /examples/notebooks/catalog/
-vibe_trader/**/.gitignore
-vibe_trader/test_kit/mocks/.vibe/
-vibe_trader.egg-info
+vibe_trading/**/.gitignore
+vibe_trading/test_kit/mocks/.vibe/
+vibe_trading.egg-info
 /test_data/catalog/
 /test_data/large/*
 /test_data/local/

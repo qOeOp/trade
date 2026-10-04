@@ -386,6 +386,9 @@ pub enum NativeReplayExecutionInputBindingCauseV1 {
     MoreThanOneRoleTimeframe,
     /// The frame's Source Binding declares no bar for the execution role's timeframe label.
     ExecutionTimeframeNotDeclared,
+    /// The frame's declared bar is a `CalendarMonth` cadence, which no window schedule can
+    /// enumerate as an execution timeframe yet.
+    CalendarMonthNotAnExecutionTimeframe,
     /// Market Data did not issue the initial frame's universe sample projection, for a reason
     /// other than the schedule ones above.
     SampleProjectionNotIssued,
@@ -633,6 +636,9 @@ impl NativeReplayExecutionInputBindingCauseV1 {
             Self::ExecutionRoleAmbiguous => "EXECUTION_ROLE_AMBIGUOUS",
             Self::MoreThanOneRoleTimeframe => "MORE_THAN_ONE_ROLE_TIMEFRAME",
             Self::ExecutionTimeframeNotDeclared => "EXECUTION_TIMEFRAME_NOT_DECLARED",
+            Self::CalendarMonthNotAnExecutionTimeframe => {
+                "CALENDAR_MONTH_NOT_AN_EXECUTION_TIMEFRAME"
+            }
             Self::SampleProjectionNotIssued => "SAMPLE_PROJECTION_NOT_ISSUED",
             Self::InstrumentMasterUnresolved => "INSTRUMENT_MASTER_UNRESOLVED",
             Self::InstrumentMasterCutForeign => "INSTRUMENT_MASTER_CUT_FOREIGN",
@@ -914,9 +920,34 @@ fn refuse_invalid_custody_run(
 /// # Errors
 ///
 /// [`Cause::CustodyRunUniverseDiffersFromDesign`] when the reread names no Universe Selection at
-/// all (an exact-instrument Design has no custody-run equivalent either), or when any of the
-/// Universe Selection record identity/digest, the Instrument Master key, the Market Semantics
-/// identity, or the member set differ from the basis's own.
+/// all (an exact-instrument Design has no custody-run equivalent either), or when the Instrument
+/// Master key, the Market Semantics identity, or the member set differ from the basis's own.
+///
+/// This deliberately does NOT compare `selection.selection_identity()`/`selection_digest()`
+/// against `basis.universe_selection_record()`: the two are different domains that can never
+/// agree, by construction, not a drift signal. `selection_identity`/`selection_digest` are the
+/// strategy-input hash `derive_universe_selection` computes over a verified PIT observation
+/// batch (`VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_IDENTITY_V1`/`..._DIGEST_V1`,
+/// `crates/data/src/owner/strategy_input_binding.rs`) - it exists only when a Design is
+/// registered against a PIT snapshot batch. `basis.universe_selection_record()` is the Universe
+/// Selection store record's own request identity/digest, a completely different Owner domain.
+/// Comparing them was a bug, caught by Lane 2 (cross-session, 10-05) while scoping the custody
+/// view admission path a Design would need to actually agree with this check. The remaining
+/// fields below DO compare like domains (both sides' Instrument Master digest, Market Semantics
+/// identity, and member set), so they stay.
+///
+/// Dropping that comparison does not drop the property it was trying to state - "the strategy's
+/// bound Universe Selection equals the chain's own" - it relocates: once a Design is admitted
+/// over a custody view (T0-10, `docs/architecture/market-data.md`'s "(a)+(b)" section,
+/// `StrategyInputBindingAdmissionV1::admit_published_design_over_custody_run`), the SAME strategy-
+/// input-hash domain this function could not compare here is checked per frame, at the identical
+/// resolution the snapshot path already uses:
+/// `universe_frame.selection().selection_identity()`/`selection_digest()` against the request's
+/// own `universe_selection_identity`/`universe_selection_digest`
+/// (`crates/data/src/owner/native_replay_scheduling_v1.rs`, ~1581, refusing
+/// `OwnerBindingMismatch`). This function's job stays narrower, by design: catching an IM key,
+/// Market Semantics or member drift between the role-binding and the chain basis BEFORE that
+/// per-frame check ever runs.
 pub(crate) fn verify_custody_run_universe_matches_role_binding_v1(
     bindings: &VerifiedStrategyInputBindingsV2,
     basis: &PitWindowChainBasisV1,
@@ -925,7 +956,6 @@ pub(crate) fn verify_custody_run_universe_matches_role_binding_v1(
     let Some(selection) = bindings.universe_selection() else {
         return Err(unavailable(Cause::CustodyRunUniverseDiffersFromDesign));
     };
-    let (selection_identity, selection_digest) = basis.universe_selection_record();
     let basis_members: BTreeSet<&str> = basis.members().iter().map(String::as_str).collect();
     let bound_members: BTreeSet<&str> = selection
         .members()
@@ -933,9 +963,7 @@ pub(crate) fn verify_custody_run_universe_matches_role_binding_v1(
         .map(UniverseMemberProjectionV2::instrument)
         .collect();
 
-    if selection.selection_identity() != selection_identity
-        || selection.selection_digest() != selection_digest
-        || selection.instrument_master_digest() != basis.instrument_master_key()
+    if selection.instrument_master_digest() != basis.instrument_master_key()
         || selection.market_semantics_identity() != basis.market_semantics_identity()
         || bound_members != basis_members
     {

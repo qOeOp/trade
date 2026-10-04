@@ -29,7 +29,7 @@ use crate::{
 ///
 /// Returns a `PyErr` if the `exchange` or `instrument_type` cannot be parsed.
 #[pyfunction(name = "tardis_normalize_symbol_str")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (symbol, exchange, instrument_type, is_inverse=None))]
 pub fn py_tardis_normalize_symbol_str(
     symbol: &str,
@@ -71,7 +71,7 @@ fn extract_tardis_data_config(
     }
 }
 
-/// Exposed through `vibe_trader.adapters.tardis`.
+/// Exposed through `vibe_trading.adapters.tardis`.
 ///
 /// # Errors
 ///

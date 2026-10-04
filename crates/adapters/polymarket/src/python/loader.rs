@@ -32,7 +32,7 @@ use crate::{
 };
 
 #[pyclass(name = "PolymarketDataLoader", skip_from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.polymarket")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.polymarket")]
 #[derive(Clone, Debug)]
 pub struct PyPolymarketDataLoader {
     instrument: BinaryOption,

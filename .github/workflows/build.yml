@@ -84,9 +84,8 @@ on:
 # One run per pull request, and one per branch tip on `main`. Keying a push group on the commit
 # gave every `main` push a group of its own, so `cancel-in-progress` could never fire there: the
 # 41 merges of 2026-09-17 left nine full builds queued behind one another, holding the runner
-# budget that the next pull request's gate waits for while publishing nothing, since every
-# release job here is gated on `nautechsystems/nautilus_trader`. `main` is squash-merged in
-# sequence, so only its tip is worth verifying and a superseded run should yield its runner.
+# budget that the next pull request's gate waits for. `main` is squash-merged in sequence, so
+# only its tip is worth verifying and a superseded run should yield its runner.
 # The shared test branches keep the commit in their group on purpose: a force-push there is
 # another agent's experiment rather than a superseding tip, and cancelling it would destroy
 # verification someone is waiting for.
@@ -164,11 +163,6 @@ jobs:
       pre-commit-base: ${{ steps.plan.outputs.pre_commit_base }}
       security-audit-needed: ${{ steps.security-audit.outputs.audit_needed }}
       untrusted_pr: ${{ steps.policy.outputs.untrusted_pr }}
-      publish_r2: ${{ steps.wheel-publication.outputs.publish_r2 }}
-      publish_development: ${{ steps.wheel-publication.outputs.publish_development }}
-      publish_environment: ${{ steps.wheel-publication.outputs.publish_environment }}
-      wheel_matrix: ${{ steps.wheel-publication.outputs.wheel_matrix }}
-      wheel_version: ${{ steps.wheel-publication.outputs.wheel_version }}
       path-workflows: ${{ steps.path-workflows.outputs.path-workflows }}
     steps:
       # https://github.com/step-security/harden-runner
@@ -261,24 +255,6 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_AFTER_SHA: ${{ github.event.after }}
         run: bash scripts/ci/security-audit-gate.sh
-
-      - name: Plan wheel publication
-        id: wheel-publication
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          if [[ "${{ github.repository }}" != "nautechsystems/nautilus_trader" ]]; then
-            {
-              echo "publish_r2=false"
-              echo "publish_development=false"
-              echo "publish_environment="
-              echo "wheel_matrix=none"
-              echo "wheel_version="
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          bash scripts/ci/plan-wheel-publication.bash
 
       # Candidate-owned fixtures run only after every authority-bearing output
       # above is frozen, so they can fail the job but cannot influence routing.
@@ -487,14 +463,6 @@ jobs:
           rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
           rust-cache-workspace-crates: "true"
 
-      - name: Update version in pyproject.toml
-        if: ${{ github.ref != 'refs/heads/master' }}
-        working-directory: ${{ env.PACKAGE_DIR }}
-        env:
-          PUBLISH_WHEEL_VERSION: ${{ needs.plan.outputs.wheel_version }}
-        run: |
-          bash ../scripts/ci/update-pyproject-version.sh
-
       # Temporary: fail fast on rare runner worktree corruption while we isolate the root cause
       - name: Verify immutable CI inputs (pre-wheel build)
         run: bash scripts/ci/verify-ci-inputs.sh pre-wheel-build
@@ -569,7 +537,6 @@ jobs:
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
       (needs.plan.outputs.run-rust-tests == 'true' ||
-       needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master')
     name: rust doctests (ubuntu-22.04)
     runs-on: ubuntu-22.04
@@ -649,7 +616,6 @@ jobs:
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
       (needs.plan.outputs.run-rust-tests == 'true' ||
-       needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master')
     name: rust tests (ubuntu-22.04)
     runs-on: ubuntu-22.04
@@ -852,7 +818,7 @@ jobs:
       - name: Install Vibe CLI
         env:
           VIBE_CLI_FORCE_SOURCE: "1"
-        run: bash scripts/ci/install-nautilus-cli.sh
+        run: bash scripts/ci/install-vibe-cli.sh
 
       - name: Init postgres schema
         run: vibe database init --schema ${{ github.workspace }}/schema/sql
@@ -952,7 +918,6 @@ jobs:
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
       (needs.plan.outputs.run-owner-chain == 'true' ||
-       needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master') &&
       needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run == ''
     name: rd owner archive (ubuntu-22.04)
@@ -1051,7 +1016,6 @@ jobs:
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
       (needs.plan.outputs.run-owner-chain == 'true' ||
-       needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master')
     name: owner chain plan
     runs-on: ubuntu-22.04
@@ -1109,7 +1073,6 @@ jobs:
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
       (needs.plan.outputs.run-owner-chain == 'true' ||
-       needs.plan.outputs.publish_r2 == 'true' ||
        github.ref == 'refs/heads/master') &&
       needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run == ''
     name: ${{ matrix.chain.name }}
@@ -1516,7 +1479,6 @@ jobs:
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
           RUN_OWNER_CHAIN: ${{ needs.plan.outputs.run-owner-chain }}
           RUN_GENERATED_DRIFT: ${{ needs.plan.outputs.run-generated-drift }}
-          PUBLISH_R2: ${{ needs.plan.outputs.publish_r2 }}
           REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
         run: |
@@ -1540,7 +1502,6 @@ jobs:
           if [[ "$REF" != refs/heads/test-pre-commit ]] &&
              [[ "$RUN_TESTS" == true ]] &&
              { [[ "$RUN_RUST_TESTS" == true ]] ||
-               [[ "$PUBLISH_R2" == true ]] ||
                [[ "$REF_NAME" == master ]]; }; then
             test "$RUST_TESTS_RESULT" = success
             test "$RUST_DOCTESTS_RESULT" = success
@@ -1551,7 +1512,6 @@ jobs:
           if [[ "$REF" != refs/heads/test-pre-commit ]] &&
              [[ "$RUN_TESTS" == true ]] &&
              { [[ "$RUN_OWNER_CHAIN" == true ]] ||
-               [[ "$PUBLISH_R2" == true ]] ||
                [[ "$REF_NAME" == master ]]; }; then
             test "$CHAIN_PLAN_RESULT" = success
             if [[ -n "$CHAIN_REUSE_RUN" ]]; then

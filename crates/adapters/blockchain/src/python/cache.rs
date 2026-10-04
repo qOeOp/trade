@@ -22,20 +22,20 @@ use crate::cache::database::BlockchainCacheDatabase;
 /// Returns a `PyErr` if `pool_address` is not a valid pool identifier, or if the database
 /// connection or query fails.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.blockchain")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.blockchain")]
 #[pyo3(name = "load_pool_snapshot")]
 #[pyo3(signature = (pg_config, chain_id, pool_address, before_block=None, require_valid=true))]
 #[gen_stub(
     override_return_type(
-        type_repr = "typing.Optional[vibe_trader.model.PoolSnapshot]",
-        imports = ("typing", "vibe_trader.model"),
+        type_repr = "typing.Optional[vibe_trading.model.PoolSnapshot]",
+        imports = ("typing", "vibe_trading.model"),
     ),
 )]
 pub fn py_load_pool_snapshot(
     #[gen_stub(
         override_type(
-            type_repr = "vibe_trader.infrastructure.PostgresConnectOptions",
-            imports = ("vibe_trader.infrastructure",),
+            type_repr = "vibe_trading.infrastructure.PostgresConnectOptions",
+            imports = ("vibe_trading.infrastructure",),
         ),
     )]
     pg_config: PostgresConnectOptions,

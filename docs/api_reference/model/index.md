@@ -1,7 +1,7 @@
 # Model
 
 ```{eval-rst}
-.. automodule:: vibe_trader.model
+.. automodule:: vibe_trading.model
 ```
 
 ```{eval-rst}

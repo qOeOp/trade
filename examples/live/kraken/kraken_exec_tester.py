@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 from decimal import Decimal
 
-from vibe_trader.adapters.kraken import KRAKEN
-from vibe_trader.adapters.kraken import KrakenDataClientConfig
-from vibe_trader.adapters.kraken import KrakenEnvironment
-from vibe_trader.adapters.kraken import KrakenExecClientConfig
-from vibe_trader.adapters.kraken import KrakenLiveDataClientFactory
-from vibe_trader.adapters.kraken import KrakenLiveExecClientFactory
-from vibe_trader.adapters.kraken import KrakenProductType
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.test_kit.strategies.tester_exec import ExecTester
-from vibe_trader.test_kit.strategies.tester_exec import ExecTesterConfig
+from vibe_trading.adapters.kraken import KRAKEN
+from vibe_trading.adapters.kraken import KrakenDataClientConfig
+from vibe_trading.adapters.kraken import KrakenEnvironment
+from vibe_trading.adapters.kraken import KrakenExecClientConfig
+from vibe_trading.adapters.kraken import KrakenLiveDataClientFactory
+from vibe_trading.adapters.kraken import KrakenLiveExecClientFactory
+from vibe_trading.adapters.kraken import KrakenProductType
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.test_kit.strategies.tester_exec import ExecTester
+from vibe_trading.test_kit.strategies.tester_exec import ExecTesterConfig
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

@@ -1,18 +1,18 @@
-from vibe_trader.model import AccountId
-from vibe_trader.model import BarType
-from vibe_trader.model import Currency
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Money
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import register_custom_data_class
-from vibe_trader.persistence import MacroYieldCurveData
-from vibe_trader.persistence import ParquetDataCatalog
-from vibe_trader.persistence import RustTestParamsCustomData
-from vibe_trader.persistence import RustTestPriceMapCustomData
-from vibe_trader.persistence import RustTestTypedMapCustomData
+from vibe_trading.model import AccountId
+from vibe_trading.model import BarType
+from vibe_trading.model import Currency
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Money
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import register_custom_data_class
+from vibe_trading.persistence import MacroYieldCurveData
+from vibe_trading.persistence import ParquetDataCatalog
+from vibe_trading.persistence import RustTestParamsCustomData
+from vibe_trading.persistence import RustTestPriceMapCustomData
+from vibe_trading.persistence import RustTestTypedMapCustomData
 
 
 def test_yield_curve_custom_data_catalog_and_json_roundtrip(tmp_path):

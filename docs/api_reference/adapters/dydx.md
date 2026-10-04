@@ -1,7 +1,7 @@
 # dYdX
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.dydx
+.. automodule:: vibe_trading.adapters.dydx
    :show-inheritance:
    :inherited-members:
    :members:

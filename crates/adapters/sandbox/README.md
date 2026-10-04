@@ -1,6 +1,6 @@
 # vibe-sandbox
 
-[VibeTrader](https://github.com/qOeOp/trade) sandbox execution adapter for paper trading.
+[VibeTrading](https://github.com/qOeOp/trade) sandbox execution adapter for paper trading.
 
 The `vibe-sandbox` crate provides a simulated execution client that uses the
 `OrderMatchingEngine` to simulate order execution against live market data. This enables
@@ -15,9 +15,9 @@ paper trading and strategy testing in real-time without actual order execution o
 - Account balance and position tracking.
 - Support for both cash and margin account types.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

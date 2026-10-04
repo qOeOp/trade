@@ -1,11 +1,11 @@
-//! Network clients and connection policy for [VibeTrader](https://github.com/qOeOp/trade).
+//! Network clients and connection policy for [VibeTrading](https://github.com/qOeOp/trade).
 //!
 //! The crate provides asynchronous HTTP, reconnecting WebSocket, and suffix‑framed TCP clients,
 //! together with rate limiting, retry, backoff, proxy, and TLS support.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single

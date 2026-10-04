@@ -4,20 +4,20 @@ from pathlib import Path
 
 import pandas as pd
 
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.backtest.engine import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import RiskEngineConfig
-from vibe_trader.examples.strategies.simpler_quoter import SimpleQuoterStrategy
-from vibe_trader.examples.strategies.simpler_quoter import SimpleQuoterStrategyConfig
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.objects import Money
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.backtest.engine import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import RiskEngineConfig
+from vibe_trading.examples.strategies.simpler_quoter import SimpleQuoterStrategy
+from vibe_trading.examples.strategies.simpler_quoter import SimpleQuoterStrategyConfig
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.objects import Money
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 
 if __name__ == "__main__":

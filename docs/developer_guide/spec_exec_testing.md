@@ -2,7 +2,7 @@
 
 This section defines a rigorous test matrix for validating adapter execution
 functionality using the Rust `ExecTester` strategy. Python exposes it as a
-built‑in strategy configured through `vibe_trader.testkit.ExecTesterConfig`;
+built‑in strategy configured through `vibe_trading.testkit.ExecTesterConfig`;
 Rust code imports it from `vibe_testkit::testers`. Each test case is
 identified by a prefixed ID (e.g. TC-E01) and grouped by functionality.
 
@@ -34,17 +34,17 @@ Before running execution tests:
 
 **Python node setup**:
 
-Legacy examples still use `vibe_trader.live.node.TradingNode`, but current Rust‑backed
-PyO3 adapters use `vibe_trader.live.LiveNode`. Use `LiveNode.builder(...)`
+Legacy examples still use `vibe_trading.live.node.TradingNode`, but current Rust‑backed
+PyO3 adapters use `vibe_trading.live.LiveNode`. Use `LiveNode.builder(...)`
 when you need to register adapter client factories before the node is built.
 
 ```python
-from vibe_trader.common import Environment
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LiveRiskEngineConfig
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import ExecTesterConfig
+from vibe_trading.common import Environment
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LiveRiskEngineConfig
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import ExecTesterConfig
 
 node = (
     LiveNode.builder("TESTER-001", TraderId("TESTER-001"), Environment.SANDBOX)

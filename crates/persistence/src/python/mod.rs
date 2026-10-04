@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 use vibe_model::data::ensure_rust_extractor_registered;
 use vibe_serialization::arrow::custom::ensure_custom_data_registered;
 
-/// Exposed through `vibe_trader.persistence`.
+/// Exposed through `vibe_trading.persistence`.
 ///
 /// # Errors
 ///

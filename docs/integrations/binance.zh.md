@@ -2,7 +2,7 @@
 
 Binance 成立于 2017 年，是按日交易量、加密资产及加密衍生品未平仓量计算规模最大的加密货币交易所之一。
 
-VibeTrader 提供 Binance 实时市场数据和执行集成。适配器使用 Rust 实现，并通过相同的公开配置、
+VibeTrading 提供 Binance 实时市场数据和执行集成。适配器使用 Rust 实现，并通过相同的公开配置、
 工厂和数据类型向 Python 提供接口。
 
 支持的产品：
@@ -40,10 +40,10 @@ VibeTrader 提供 Binance 实时市场数据和执行集成。适配器使用 Ru
 ```python
 import asyncio
 
-from vibe_trader.adapters.binance import BinanceDataClientConfig
-from vibe_trader.adapters.binance import BinanceInstrumentProviderConfig
-from vibe_trader.adapters.binance import BinanceProductType
-from vibe_trader.adapters.binance import load_binance_instruments
+from vibe_trading.adapters.binance import BinanceDataClientConfig
+from vibe_trading.adapters.binance import BinanceInstrumentProviderConfig
+from vibe_trading.adapters.binance import BinanceProductType
+from vibe_trading.adapters.binance import load_binance_instruments
 
 config = BinanceDataClientConfig(
     product_type=BinanceProductType.USD_M,
@@ -61,7 +61,7 @@ instruments = asyncio.run(load_binance_instruments(config))
 对于 Binance 深度 CSV 数据，请直接调用无状态加载器：
 
 ```python
-from vibe_trader.adapters.binance import load_binance_order_book_deltas
+from vibe_trading.adapters.binance import load_binance_order_book_deltas
 
 df = load_binance_order_book_deltas(path, nrows=1_000_000)
 ```
@@ -102,7 +102,7 @@ df = load_binance_order_book_deltas(path, nrows=1_000_000)
 
 ## 符号体系
 
-现货和期货合约尽可能使用 Binance 原生符号。由于 VibeTrader 支持多交易场所交易，必须区分现货交易对
+现货和期货合约尽可能使用 Binance 原生符号。由于 VibeTrading 支持多交易场所交易，必须区分现货交易对
 `BTCUSDT` 和永续期货合约 `BTCUSDT`（Binance 对二者使用相同符号）。
 
 Vibe 会为 USD-M 永续符号添加 `-PERP`。例如，Binance USD-M `BTCUSDT` 永续合约会变为
@@ -431,7 +431,7 @@ strategy.submit_order(order, params={"close_position": True})
 
 ## Link & Trade
 
-对于通过 Binance 适配器下达的每个订单，所有系统生成的客户端订单 ID 都会自动加上 VibeTrader 集成 ID 前缀。
+对于通过 Binance 适配器下达的每个订单，所有系统生成的客户端订单 ID 都会自动加上 VibeTrading 集成 ID 前缀。
 这样无需用户配置，即可通过 Binance 的 [Link and Trade](https://developers.binance.com/docs/binance_link/link-and-trade)
 计划透明地进行订单归因。
 
@@ -449,7 +449,7 @@ strategy.submit_order(order, params={"close_position": True})
 两个工具函数可以恢复原始 Vibe `ClientOrderId`：
 
 ```python
-from vibe_trader.adapters.binance import (
+from vibe_trading.adapters.binance import (
     decode_binance_futures_client_order_id,
     decode_binance_spot_client_order_id,
 )
@@ -548,9 +548,9 @@ Vibe 还会从同一数据流发出标准标记价格、指数价格和资金费
 现货 24 小时 ticker 自定义数据要求公共 JSON 市场数据模式和 `instrument_id` 元数据值：
 
 ```python
-from vibe_trader.adapters.binance import BinanceSpotTicker
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.binance import BinanceSpotTicker
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(
@@ -568,9 +568,9 @@ self.subscribe_data(
 订阅特定 Futures 金融工具的 24 小时 ticker 统计：
 
 ```python
-from vibe_trader.adapters.binance import BinanceFuturesTicker
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.binance import BinanceFuturesTicker
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 client_id = ClientId.from_str("BINANCE")
 
@@ -592,9 +592,9 @@ ticker 自定义数据要求 `instrument_id`；不支持全市场 ticker 订阅�
 从 actor 或策略订阅 `BinanceFuturesMarkPriceUpdate`（包括资金费率信息）：
 
 ```python
-from vibe_trader.adapters.binance import BinanceFuturesMarkPriceUpdate
-from vibe_trader.model import DataType
-from vibe_trader.model import ClientId
+from vibe_trading.adapters.binance import BinanceFuturesMarkPriceUpdate
+from vibe_trading.model import DataType
+from vibe_trading.model import ClientId
 
 # In your `on_start` method
 self.subscribe_data(
@@ -623,9 +623,9 @@ def on_data(self, data):
 - 省略 `instrument_id`，订阅所有符号（`!forceOrder@arr`）。
 
 ```python
-from vibe_trader.adapters.binance import BinanceFuturesLiquidation
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.binance import BinanceFuturesLiquidation
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 client_id = ClientId.from_str("BINANCE")
 
@@ -892,7 +892,7 @@ Futures 不受影响。
 REST 快照同步。显式深度订阅使用部分订单簿快照（参阅[订单簿](#订单簿)）。
 
 :::note
-在 Python 中通过 `vibe_trader.adapters.binance` 上的 `BinanceSpotMarketDataMode` 公开。
+在 Python 中通过 `vibe_trading.adapters.binance` 上的 `BinanceSpotMarketDataMode` 公开。
 :::
 
 ### 密钥类型
@@ -900,7 +900,7 @@ REST 快照同步。显式深度订阅使用部分订单簿快照（参阅[订�
 Binance 支持三种 API 密钥类型：**Ed25519**、**HMAC-SHA256** 和 **RSA**。适配器会根据 API Secret 格式
 自动检测密钥类型，因此无需配置。
 
-**强烈建议使用 Ed25519。** Binance 建议使用性能和安全性更高的 Ed25519。未来版本的 VibeTrader
+**强烈建议使用 Ed25519。** Binance 建议使用性能和安全性更高的 Ed25519。未来版本的 VibeTrading
 将只允许 Ed25519。
 
 | 密钥类型 | 数据客户端 | 执行客户端 | 状态                         |
@@ -943,7 +943,7 @@ openssl pkey -in binance_ed25519_private.pem -pubout -out binance_ed25519_public
 3. 粘贴公钥文件内容（包括 `-----BEGIN PUBLIC KEY-----` 头和尾）
 4. 配置权限（Enable Spot & Margin Trading 等）
 
-**与 VibeTrader 搭配使用**
+**与 VibeTrading 搭配使用**
 
 将私钥设为 API Secret：
 
@@ -1133,7 +1133,7 @@ WebSocket 上发布聚合成交；旧版 `@trade` 数据流没有文档，现已
 金融工具提供器同时控制选择和费用策略：
 
 ```python
-from vibe_trader.adapters.binance import BinanceInstrumentProviderConfig
+from vibe_trading.adapters.binance import BinanceInstrumentProviderConfig
 
 instrument_provider = BinanceInstrumentProviderConfig(
     load_all=False,
@@ -1171,7 +1171,7 @@ instrument_provider = BinanceInstrumentProviderConfig(
 要抑制这些警告：
 
 ```python
-from vibe_trader.adapters.binance import BinanceInstrumentProviderConfig
+from vibe_trading.adapters.binance import BinanceInstrumentProviderConfig
 
 instrument_provider = BinanceInstrumentProviderConfig(
     load_all=True,
@@ -1187,11 +1187,11 @@ Binance Futures Hedge 模式允许同时持有同一金融工具的多头和空�
 `oms_type=OmsType.HEDGING`，并保持 `use_position_ids=True` 以跟踪交易场所的两个持仓方向：
 
 ```python
-from vibe_trader.adapters.binance import BinanceExecClientConfig
-from vibe_trader.adapters.binance import BinanceProductType
-from vibe_trader.model import AccountId
-from vibe_trader.model import OmsType
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.binance import BinanceExecClientConfig
+from vibe_trading.adapters.binance import BinanceProductType
+from vibe_trading.model import AccountId
+from vibe_trading.model import OmsType
+from vibe_trading.model import TraderId
 
 config = BinanceExecClientConfig(
     trader_id=TraderId.from_str("TRADER-001"),

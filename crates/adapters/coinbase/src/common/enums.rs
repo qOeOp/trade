@@ -6,7 +6,7 @@ use strum::{AsRefStr, Display, EnumIter, EnumString};
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.coinbase",
+        module = "vibe_trading.adapters.coinbase",
         eq,
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
@@ -14,7 +14,7 @@ use strum::{AsRefStr, Display, EnumIter, EnumString};
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.coinbase")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.coinbase")
 )]
 pub enum CoinbaseEnvironment {
     /// Production environment.
@@ -166,7 +166,7 @@ pub enum CoinbaseOrderPlacementSource {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.coinbase",
+        module = "vibe_trading.adapters.coinbase",
         eq,
         eq_int,
         frozen,
@@ -176,7 +176,7 @@ pub enum CoinbaseOrderPlacementSource {
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.coinbase")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.coinbase")
 )]
 pub enum CoinbaseMarginType {
     #[serde(alias = "Cross")]

@@ -1,5 +1,5 @@
 # Trading
 
 ```{eval-rst}
-.. automodule:: vibe_trader.trading
+.. automodule:: vibe_trading.trading
 ```

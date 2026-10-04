@@ -1,16 +1,16 @@
 import pytest
 
-from vibe_trader.indicators import AdaptiveMovingAverage
-from vibe_trader.indicators import DoubleExponentialMovingAverage
-from vibe_trader.indicators import ExponentialMovingAverage
-from vibe_trader.indicators import HullMovingAverage
-from vibe_trader.indicators import SimpleMovingAverage
-from vibe_trader.indicators import SpreadAnalyzer
-from vibe_trader.indicators import VariableIndexDynamicAverage
-from vibe_trader.indicators import WeightedMovingAverage
-from vibe_trader.indicators import WilderMovingAverage
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import PriceType
+from vibe_trading.indicators import AdaptiveMovingAverage
+from vibe_trading.indicators import DoubleExponentialMovingAverage
+from vibe_trading.indicators import ExponentialMovingAverage
+from vibe_trading.indicators import HullMovingAverage
+from vibe_trading.indicators import SimpleMovingAverage
+from vibe_trading.indicators import SpreadAnalyzer
+from vibe_trading.indicators import VariableIndexDynamicAverage
+from vibe_trading.indicators import WeightedMovingAverage
+from vibe_trading.indicators import WilderMovingAverage
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import PriceType
 
 
 def test_adaptive_moving_average_inspection_properties() -> None:

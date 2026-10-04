@@ -68,7 +68,7 @@ impl ForexSession {
 
 /// Converts a UTC timestamp to the local time for the given Forex session.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.trading")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.trading")]
 #[pyo3(name = "fx_local_from_utc")]
 pub fn py_fx_local_from_utc(session: ForexSession, time_now: Timestamp) -> PyResult<String> {
     let local = fx_local_from_utc(session, time_now);
@@ -80,7 +80,7 @@ pub fn py_fx_local_from_utc(session: ForexSession, time_now: Timestamp) -> PyRes
 
 /// Returns the next session start time in UTC.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.trading")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.trading")]
 #[pyo3(name = "fx_next_start")]
 pub fn py_fx_next_start(session: ForexSession, time_now: Timestamp) -> PyResult<Timestamp> {
     Ok(fx_next_start(session, time_now))
@@ -88,7 +88,7 @@ pub fn py_fx_next_start(session: ForexSession, time_now: Timestamp) -> PyResult<
 
 /// Returns the next session end time in UTC.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.trading")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.trading")]
 #[pyo3(name = "fx_next_end")]
 pub fn py_fx_next_end(session: ForexSession, time_now: Timestamp) -> PyResult<Timestamp> {
     Ok(fx_next_end(session, time_now))
@@ -96,7 +96,7 @@ pub fn py_fx_next_end(session: ForexSession, time_now: Timestamp) -> PyResult<Ti
 
 /// Returns the previous session start time in UTC.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.trading")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.trading")]
 #[pyo3(name = "fx_prev_start")]
 pub fn py_fx_prev_start(session: ForexSession, time_now: Timestamp) -> PyResult<Timestamp> {
     Ok(fx_prev_start(session, time_now))
@@ -104,7 +104,7 @@ pub fn py_fx_prev_start(session: ForexSession, time_now: Timestamp) -> PyResult<
 
 /// Returns the previous session end time in UTC.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.trading")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.trading")]
 #[pyo3(name = "fx_prev_end")]
 pub fn py_fx_prev_end(session: ForexSession, time_now: Timestamp) -> PyResult<Timestamp> {
     Ok(fx_prev_end(session, time_now))

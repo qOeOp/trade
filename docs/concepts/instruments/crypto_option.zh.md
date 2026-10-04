@@ -100,14 +100,14 @@ from decimal import Decimal
 
 import pandas as pd
 
-from vibe_trader.model import CryptoOption
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Money
-from vibe_trader.model import OptionKind
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import CryptoOption
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Money
+from vibe_trading.model import OptionKind
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 BTC = Currency.from_str("BTC")
 USD = Currency.from_str("USD")

@@ -5,10 +5,10 @@ const origin = 'https://qoeop.github.io';
 export const siteMetadata: Metadata = {
   metadataBase: new URL(origin),
   title: {
-    default: 'Vibe Trader Documentation',
-    template: '%s | Vibe Trader',
+    default: 'Vibe Trading Documentation',
+    template: '%s | Vibe Trading',
   },
-  description: 'Documentation for the Vibe Trader research and trading platform.',
+  description: 'Documentation for the Vibe Trading research and trading platform.',
   icons: {
     icon: [
       { url: '/trade/icon.svg', media: '(prefers-color-scheme: light)' },

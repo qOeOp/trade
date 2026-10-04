@@ -75,10 +75,10 @@ facade directly.
 
 ## Messaging styles
 
-VibeTrader is an **event-driven** framework where components communicate by sending and receiving messages.
+VibeTrading is an **event-driven** framework where components communicate by sending and receiving messages.
 Understanding the different messaging styles helps when building trading systems.
 
-This guide explains the three primary messaging patterns available in VibeTrader:
+This guide explains the three primary messaging patterns available in VibeTrading:
 
 | **Messaging style**                   | **Purpose**                          | **Best for**                                          |
 | :------------------------------------ | :----------------------------------- | :---------------------------------------------------- |
@@ -92,7 +92,7 @@ Each approach serves different purposes. This section helps you decide which pat
 
 #### Concept
 
-The `MessageBus` is the central hub for all messages in VibeTrader. Rust components can publish
+The `MessageBus` is the central hub for all messages in VibeTrading. Rust components can publish
 typed messages to named topics and subscribe handlers to those topics. This low-level interface is
 not part of the current Python actor or strategy surface.
 
@@ -126,7 +126,7 @@ The Data publish/subscribe approach works well when you need:
 
 - **Exchange of structured trading data** like market data, indicators, custom metrics, or option greeks.
 - **Proper event ordering** via built-in timestamps (`ts_event`, `ts_init`) crucial for backtest accuracy.
-- **Data persistence and serialization** through the `@customdataclass` decorator, integrating with VibeTrader's data catalog system.
+- **Data persistence and serialization** through the `@customdataclass` decorator, integrating with VibeTrading's data catalog system.
 - **Standardized trading data exchange** between system components.
 
 #### Considerations
@@ -139,8 +139,8 @@ The Data publish/subscribe approach works well when you need:
 ```python
 from dataclasses import dataclass
 
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
 
 
 @dataclass
@@ -203,8 +203,8 @@ The Signal messaging approach works well when you need:
 # Define signal constants for better organization (optional but recommended)
 import types
 
-from vibe_trader.common import LogColor
-from vibe_trader.core.datetime import unix_nanos_to_dt
+from vibe_trading.common import LogColor
+from vibe_trading.core.datetime import unix_nanos_to_dt
 
 signals = types.SimpleNamespace()
 signals.NEW_HIGHEST_PRICE = "NewHighestPriceReached"
@@ -476,9 +476,9 @@ To enable this filtering mechanism, pass a list of `type` objects to the `types_
 specifying which types of messages should be excluded from external publication.
 
 ```python
-from vibe_trader.config import MessageBusConfig
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import TradeTick
+from vibe_trading.config import MessageBusConfig
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import TradeTick
 
 # Create a MessageBusConfig instance with types filtering
 message_bus = MessageBusConfig(types_filter=[QuoteTick, TradeTick])

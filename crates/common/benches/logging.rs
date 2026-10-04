@@ -31,7 +31,7 @@ use vibe_model::identifiers::TraderId;
 const TIMESTAMP_NS: u64 = 1_725_000_000_123_456_789;
 const TRADER_ID: &str = "TRADER-001";
 const INSTANCE_ID: &str = "INSTANCE-001";
-const COMPONENT: &str = "vibe_trader::adapters::binance::execution";
+const COMPONENT: &str = "vibe_trading::adapters::binance::execution";
 const MESSAGE: &str = "Order accepted: client_order_id=O-20260527-000001 venue_order_id=123456789";
 const CLEAN_FILE_LINE: &str =
     "2026-05-27T10:00:00.123456789Z [INFO] TRADER-001.Component: clean log line\n";
@@ -40,18 +40,18 @@ const ANSI_FILE_LINE: &str =
 const FILTERED_COMPONENT: &str = "BenchFiltered";
 const FILTERED_TARGET: &str = "BenchFiltered";
 const COMPONENT_TARGETS_12: [&str; 12] = [
-    "vibe_trader::adapters::binance::execution",
-    "vibe_trader::adapters::bybit::execution",
-    "vibe_trader::adapters::okx::execution",
-    "vibe_trader::adapters::coinbase::execution",
-    "vibe_trader::adapters::kraken::execution",
-    "vibe_trader::adapters::bitmex::execution",
-    "vibe_trader::adapters::deribit::execution",
-    "vibe_trader::adapters::dydx::execution",
-    "vibe_trader::adapters::hyperliquid::execution",
-    "vibe_trader::adapters::databento::execution",
-    "vibe_trader::adapters::betfair::execution",
-    "vibe_trader::adapters::sandbox::execution",
+    "vibe_trading::adapters::binance::execution",
+    "vibe_trading::adapters::bybit::execution",
+    "vibe_trading::adapters::okx::execution",
+    "vibe_trading::adapters::coinbase::execution",
+    "vibe_trading::adapters::kraken::execution",
+    "vibe_trading::adapters::bitmex::execution",
+    "vibe_trading::adapters::deribit::execution",
+    "vibe_trading::adapters::dydx::execution",
+    "vibe_trading::adapters::hyperliquid::execution",
+    "vibe_trading::adapters::databento::execution",
+    "vibe_trading::adapters::betfair::execution",
+    "vibe_trading::adapters::sandbox::execution",
 ];
 
 static FILTERED_LOGGER_INIT: OnceLock<()> = OnceLock::new();
@@ -276,17 +276,17 @@ fn bench_filtering(c: &mut Criterion) {
     component_levels.insert(component, LevelFilter::Warn);
 
     let mut module_filters = vec![
-        (Ustr::from("vibe_trader::adapters"), LevelFilter::Info),
+        (Ustr::from("vibe_trading::adapters"), LevelFilter::Info),
         (
-            Ustr::from("vibe_trader::adapters::binance"),
+            Ustr::from("vibe_trading::adapters::binance"),
             LevelFilter::Warn,
         ),
-        (Ustr::from("vibe_trader::common"), LevelFilter::Debug),
-        (Ustr::from("vibe_trader::core"), LevelFilter::Info),
-        (Ustr::from("vibe_trader::data"), LevelFilter::Info),
-        (Ustr::from("vibe_trader::execution"), LevelFilter::Debug),
-        (Ustr::from("vibe_trader::model"), LevelFilter::Info),
-        (Ustr::from("vibe_trader::portfolio"), LevelFilter::Debug),
+        (Ustr::from("vibe_trading::common"), LevelFilter::Debug),
+        (Ustr::from("vibe_trading::core"), LevelFilter::Info),
+        (Ustr::from("vibe_trading::data"), LevelFilter::Info),
+        (Ustr::from("vibe_trading::execution"), LevelFilter::Debug),
+        (Ustr::from("vibe_trading::model"), LevelFilter::Info),
+        (Ustr::from("vibe_trading::portfolio"), LevelFilter::Debug),
     ];
     module_filters.sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
 

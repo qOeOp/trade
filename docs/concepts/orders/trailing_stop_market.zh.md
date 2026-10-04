@@ -53,14 +53,14 @@ let order = self.order().trailing_stop_market(
 ```python tab="Python"
 import pandas as pd
 from decimal import Decimal
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model.enums import TriggerType
-from vibe_trader.model.enums import TrailingOffsetType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import TrailingStopMarketOrder
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model.enums import TriggerType
+from vibe_trading.model.enums import TrailingOffsetType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import TrailingStopMarketOrder
 
 order: TrailingStopMarketOrder = self.order_factory.trailing_stop_market(
     instrument_id=InstrumentId.from_str("ETHUSD-PERP.BINANCE"),
@@ -80,7 +80,7 @@ order: TrailingStopMarketOrder = self.order_factory.trailing_stop_market(
 如果同时省略 `activation_price` 和 `trigger_price`，订单会在当前市场立即激活，
 其触发价格会在首次更新时根据 `trailing_offset` 形成。
 
-更多详情请参阅 [`TrailingStopMarketOrder` API 参考](/docs/python-api-latest/model/orders.html#vibe_trader.model.orders.trailing_stop_market.TrailingStopMarketOrder)。
+更多详情请参阅 [`TrailingStopMarketOrder` API 参考](/docs/python-api-latest/model/orders.html#vibe_trading.model.orders.trailing_stop_market.TrailingStopMarketOrder)。
 
 ## 相关指南
 

@@ -56,12 +56,9 @@ on:
       - scripts/rust-toolchain.sh
       - scripts/uv-version.sh
       - scripts/ci/check-security-audit-result.sh
-      - scripts/ci/plan-wheel-publication.bash
-      - scripts/ci/publish-wheels*
+      - scripts/ci/publish-wheels-policy.bash
       - scripts/ci/security-audit-gate.sh
-      - scripts/ci/test-publish-wheels.bash
-      - scripts/ci/update-pyproject-version.sh
-      - scripts/ci/validate-wheel-artifacts.bash
+      - scripts/ci/test-publish-wheels-policy.bash
       - .zizmor.yml
       - .github/actions/**
       - .github/workflows/**

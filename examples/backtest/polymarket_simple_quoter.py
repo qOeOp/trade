@@ -17,25 +17,25 @@ from decimal import Decimal
 
 import pandas as pd
 
-from vibe_trader.adapters.polymarket import POLYMARKET_VENUE
-from vibe_trader.adapters.polymarket import PolymarketDataLoader
-from vibe_trader.backtest.engine import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnly
-from vibe_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnlyConfig
-from vibe_trader.model.currencies import USDC_POS
-from vibe_trader.model.data import BarType
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.objects import Money
+from vibe_trading.adapters.polymarket import POLYMARKET_VENUE
+from vibe_trading.adapters.polymarket import PolymarketDataLoader
+from vibe_trading.backtest.engine import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.examples.strategies.ema_cross_long_only import EMACrossLongOnly
+from vibe_trading.examples.strategies.ema_cross_long_only import EMACrossLongOnlyConfig
+from vibe_trading.model.currencies import USDC_POS
+from vibe_trading.model.data import BarType
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.objects import Money
 
 
 # Market slug to fetch data for
 # To find active markets, run:
-#   python vibe_trader/adapters/polymarket/scripts/active_markets.py
+#   python vibe_trading/adapters/polymarket/scripts/active_markets.py
 # To find BTC/ETH UpDown markets specifically, run:
-#   python vibe_trader/adapters/polymarket/scripts/list_updown_markets.py
+#   python vibe_trading/adapters/polymarket/scripts/list_updown_markets.py
 MARKET_SLUG = "gta-vi-released-before-june-2026"
 
 

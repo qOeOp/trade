@@ -4,8 +4,8 @@ use pyo3::prelude::*;
 
 use crate::cache::fifo::FifoCache;
 
-#[pyo3::pyclass(name = "FifoCache", module = "vibe_trader.common")]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")]
+#[pyo3::pyclass(name = "FifoCache", module = "vibe_trading.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")]
 #[derive(Debug)]
 pub struct PyFifoCache {
     inner: FifoCache<String, 10_000>,

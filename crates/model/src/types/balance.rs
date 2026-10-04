@@ -17,11 +17,11 @@ use crate::{
 #[derive(Copy, Clone, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", frozen, eq, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", frozen, eq, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 pub struct AccountBalance {
     /// The account balance currency.
@@ -185,11 +185,11 @@ impl Display for AccountBalance {
 #[derive(Copy, Clone, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", frozen, eq, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", frozen, eq, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 /// Represents a margin balance.
 ///

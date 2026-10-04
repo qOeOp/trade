@@ -42,7 +42,7 @@ flowchart LR
 ## 先决条件
 
 - Python 3.12+
-- 本地 Vibe Trader 源码构建（`make build-debug`）
+- 本地 Vibe Trading 源码构建（`make build-debug`）
 - 同级的 [`orderbook_data.py`](./orderbook_data.py) 和 [`orderbook_imbalance.py`](./orderbook_imbalance.py) 文件。下载教程或通过 Jupytext 转换时，请将它们与本教程放在同一目录。
 - 一份每日 Bybit `ob500` ZIP，例如从 [public.bybit.com](https://public.bybit.com) 获取的 `2024-12-01_XRPUSDT_ob500.data.zip`。
 
@@ -52,9 +52,9 @@ import shutil
 from pathlib import Path
 
 import pandas as pd
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.common import LogLevel
-from vibe_trader.config import (
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.common import LogLevel
+from vibe_trading.config import (
     BacktestDataConfig,
     BacktestEngineConfig,
     BacktestRunConfig,
@@ -62,8 +62,8 @@ from vibe_trader.config import (
     ImportableStrategyConfig,
     LoggerConfig,
 )
-from vibe_trader.core.datetime import dt_to_unix_nanos
-from vibe_trader.model import (
+from vibe_trading.core.datetime import dt_to_unix_nanos
+from vibe_trading.model import (
     AccountType,
     BookType,
     CryptoPerpetual,
@@ -75,7 +75,7 @@ from vibe_trader.model import (
     Symbol,
     Venue,
 )
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 from orderbook_data import (
     deltas_from_frame,

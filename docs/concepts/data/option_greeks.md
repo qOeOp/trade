@@ -58,8 +58,8 @@ let greeks = OptionGreeks {
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OptionGreeks
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OptionGreeks
 
 greeks = OptionGreeks(
     instrument_id=InstrumentId.from_str("BTC-20240628-65000-C.DERIBIT"),

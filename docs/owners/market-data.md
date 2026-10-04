@@ -2794,6 +2794,11 @@ Built so far (T0-5d): a build with `sealed-strategy-input-acceptance` also opens
 `commit_sealed_acceptance_custody_chain_v1`, which commits a synthetic custody chain only through the production Source
 Binding, Instrument Master V1, Universe Selection and custody intakes, so its output is production code run on
 synthetic inputs and never U1 evidence. Its spec's fill timeframe must be exactly one minute, as every custody's is.
+An ordered chain shares one store, so a member an earlier entry already admitted keeps its Instrument Master fact: the
+fixture submits no rival genesis fact and names no predecessor, which would correct the earlier entry's instrument. The
+custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. Its
+historical membership frontier names the window, so two fixture chains over the same members are two memberships
+(`postgres_a_member_already_admitted_keeps_its_fact`).
 
 Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
 at read time from the `SampleFactV2` rows its view was sealed from and never stores, so a Plan with coordinate rows can
@@ -2912,6 +2917,68 @@ Built so far (T0-9): the H6 checks a custody run needs and the accessors T1 cons
     nothing is written.
   - The authority's unit tests refuse a moved lineage root and a moved correction frontier by name.
   - The frame R0 unit test pins the first and last frames' R0 and the off-grid refusal.
+
+TARGET (T0-10): a custody run's Design is declared over its own custody frame.
+
+The ruling of 2026-10-05 (Lane 3, recorded in `docs/architecture/strategy-factory.md` under "H2/H4 for a custody run")
+says a custody run's Design binds its universe from the chain, not from the initial PIT snapshot. The code fixes what
+that means:
+
+- **Per-frame resolution already requires it.** It composes each frame's universe-member binding requests over that
+  frame's custody view and requires the frame's strategy-input `selection_identity` to equal the run's. That identity
+  is the hash `derive_universe_selection` takes over the Instrument Master digest, the Source Binding lineage root,
+  the Market Semantics identity and the members.
+- **A snapshot-declared Design cannot match.** A Design declared over the initial PIT snapshot carries the snapshot's
+  Instrument Master cut, so it never matches a custody frame.
+- **The Design is declared over a custody view.** Its roles are declared over the run's first custody frame, sealed
+  as a `VerifiedPitObservationBatch` whose source is `CustodyView`.
+- **The snapshot is kept for the goal.** The initial PIT snapshot still serves Research goal admission for both data
+  paths.
+
+The work, in order:
+
+- **(a) The admission entry.**
+  `StrategyInputBindingAdmissionV1::admit_published_design_over_custody_run(design_identity, run)`.
+  - **Input.** It takes the run the coverage lookup names, with its head pinned.
+  - **What it reads.** It reads the run's first frame view at that head, and seals it through the same custody-view
+    seal the native resolver uses.
+  - **How it declares.** It composes every role's request over that batch with the existing
+    `compose_binding_request_v1`, which already carries a `CustodyView` source. It then registers them write-once
+    beside the snapshot path, under the same coverage rules and terminal.
+  - **What the terminal carries.** The terminal's coordinate is the view's request identity, which is its view
+    identity, and the view's decision cut.
+- **(b) The declaration registry's custody arm.**
+  - **Today.** `resolve_and_bind` re-resolves every dependency the snapshot way: the batch by snapshot identity, the
+    Universe Selection record by digest, the source, the Market Semantics head, and the Instrument Master.
+  - **A custody-sourced request resolves through the chain instead.**
+    - **The batch.** The view is re-read at the head whose frame view has the request's view identity, found by walking
+      the chain from its head toward its root, so a later correction never refuses an earlier declaration.
+    - **The other dependencies** are the chain basis's: its Universe Selection record, its R0 record's Source Binding,
+      its Market Semantics fact, and its Instrument Master cut. The chain basis read already verifies each of these
+      against the root custody.
+  - **Validation.** Each is checked against the request exactly as the snapshot arm checks its own, and nothing is
+    stored unless every one agrees.
+  - **No silent drop.** A request with any other source stays refused.
+- **(c) The persisted-custody reread's custody arm.**
+  - **What it serves.** `reread_persisted_strategy_input_universe_custody_for_update_v1`, which H8 reaches through
+    `reread_design_input_custody_v1`, re-resolves the declarations' batch through the same custody arm.
+  - **Under `rd_owner`.** That principal reads only `market_data_rd_api`, so the arm needs that schema's
+    custody-view and chain-basis read functions and their grants. The deployment's role grants in
+    `database/postgres-init` change with them.
+- **(d) The run's own check (Lane 5).**
+  - **What it compares.** H8's check compares the Design's bound Instrument Master digest, Market Semantics identity
+    and members with the chain basis's.
+  - **What it does not compare.** It does not compare the strategy-input selection hash with the Universe Selection
+    record's identity, which is another domain.
+  - **When it passes.** Once (a) to (c) hold, the custody run's chain entry answers `custody_binding.is_some()`.
+
+Proofs:
+
+- **Write-once.** PG proofs that a custody-declared Design registers write-once and rejoins.
+- **Survives a later head.** A declaration made at one head re-resolves after a correction moved the head.
+- **Refusals.** A request whose view, Universe Selection record, Source Binding, Market Semantics fact or Instrument
+  Master cut disagrees with the chain is refused by name, and nothing is written.
+- **The reread.** The reread under `rd_owner` returns the custody frame the declaration was made over.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
@@ -3452,7 +3519,11 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   over interval-close instants: a bar belongs to the window when its close is in it, and the window schedule's
   frames are exactly those close instants. The archive files a bar by its open, so the bar closing at the window's
   start opens one interval earlier, often in the previous month. The fetch therefore reads months from one interval
-  before the start. Before this, the first frame of every grid-aligned window had no cross-section, and a run over the
+  before the start. When that earlier month is not archived at all (the USD-M monthly archive starts at 2020-01, so a
+  window from 2020-01-01 needs the 2019-12-31 bar), only that bar comes from the public `klines` endpoint, and its rows
+  name the endpoint route; the window's own months must still be archived. A grid-aligned window whose first frame's
+  bar is in neither is refused by name, `PRIOR_BAR_UNAVAILABLE`, naming that bar's open, rather than backfilled without
+  its first frame. Before this, the first frame of every grid-aligned window had no cross-section, and a run over the
   same window as its backfill was refused as `PIT_WINDOW_FRAME_NOT_COVERED`.
 - **The dataset is named by the request, not read from the file.** The reader's entry takes the dataset it was asked
   for (`klines`) and checks it against the archive path it fetched. `markPriceKlines`, `indexPriceKlines` and

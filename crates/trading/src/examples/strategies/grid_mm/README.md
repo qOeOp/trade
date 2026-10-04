@@ -97,7 +97,7 @@ Pass the config to `add_builtin_strategy` on a `LiveNode` or
 runs entirely in Rust.
 
 ```python
-from vibe_trader.trading import GridMarketMakerConfig
+from vibe_trading.trading import GridMarketMakerConfig
 
 config = GridMarketMakerConfig(
     instrument_id=InstrumentId.from_str("BTC-USDT-SWAP.OKX"),

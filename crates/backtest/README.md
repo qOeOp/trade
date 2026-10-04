@@ -1,6 +1,6 @@
 # vibe-backtest
 
-Backtest engine for [VibeTrader](https://github.com/qOeOp/trade).
+Backtest engine for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-backtest` crate provides an event-driven backtesting framework that allows
 quantitative traders to test and validate trading strategies on historical data with high
@@ -12,9 +12,9 @@ fidelity market simulation. The system replicates real market conditions includi
 - Multi-venue and multi-asset backtesting capabilities.
 - Configuration and state management.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

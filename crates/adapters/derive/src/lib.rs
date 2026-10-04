@@ -1,4 +1,4 @@
-//! [VibeTrader](https://github.com/qOeOp/trade) adapter for
+//! [VibeTrading](https://github.com/qOeOp/trade) adapter for
 //! [Derive](https://docs.derive.xyz).
 //!
 //! The `vibe-derive` crate provides integration with the Derive self-custodial onchain
@@ -6,9 +6,9 @@
 //! on the Derive Chain together with a session-key signer; orders are EIP-712 typed-data
 //! signed against the venue's per-action module contracts.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single
@@ -18,7 +18,7 @@
 //!
 //! This crate provides feature flags to control source code inclusion during compilation,
 //! depending on the intended use case, i.e. whether to provide Python bindings
-//! for the `vibe_trader` Python package,
+//! for the `vibe_trading` Python package,
 //! or as part of a Rust only build.
 //!
 //! - `python`: Enables Python bindings from [PyO3](https://pyo3.rs).

@@ -24,7 +24,7 @@ pub const DYDX_TESTNET_CHAIN_ID: &str = "dydx-testnet-4";
 /// Cosmos SDK bech32 address prefix for dYdX.
 pub const DYDX_BECH32_PREFIX: &str = "dydx";
 
-/// Order router address for the VibeTrader order attribution.
+/// Order router address for the VibeTrading order attribution.
 /// Defined by dYdX governance proposal 381 (<https://mintscan.io/dydx/proposals/381>).
 pub const DYDX_VIBE_ORDER_ROUTER_ADDRESS: &str = "dydx1pahjv32ex740hahnp5dc4hnmlchkeea6ndqat5";
 

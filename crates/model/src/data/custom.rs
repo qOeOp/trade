@@ -364,11 +364,11 @@ pub fn ensure_custom_data_json_registered<T: CustomDataTrait + Sized>() -> anyho
 /// Custom data is always Rust-defined (optionally with PyO3 bindings).
 #[cfg_attr(
     feature = "python",
-    pyclass(module = "vibe_trader.model", name = "CustomData", from_py_object)
+    pyclass(module = "vibe_trading.model", name = "CustomData", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 #[derive(Clone, Debug)]
 pub struct CustomData {

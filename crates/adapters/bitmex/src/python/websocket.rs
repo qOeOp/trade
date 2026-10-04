@@ -66,8 +66,11 @@ use crate::{
 
 /// Python wrapper around [`BitmexWebSocketClient`] that holds an instrument cache
 /// at the Python boundary for parsing venue messages into Vibe domain types.
-#[pyclass(name = "BitmexWebSocketClient", module = "vibe_trader.adapters.bitmex")]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bitmex")]
+#[pyclass(
+    name = "BitmexWebSocketClient",
+    module = "vibe_trading.adapters.bitmex"
+)]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bitmex")]
 pub struct PyBitmexWebSocketClient {
     inner: BitmexWebSocketClient,
     instruments_cache: Arc<AtomicMap<Ustr, InstrumentAny>>,

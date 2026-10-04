@@ -1,12 +1,12 @@
 from decimal import Decimal
 
-from vibe_trader.model import Bet
-from vibe_trader.model import BetPosition
-from vibe_trader.model import BetSide
-from vibe_trader.model import OrderSide
-from vibe_trader.model import calc_bets_pnl
-from vibe_trader.model import inverse_probability_to_bet
-from vibe_trader.model import probability_to_bet
+from vibe_trading.model import Bet
+from vibe_trading.model import BetPosition
+from vibe_trading.model import BetSide
+from vibe_trading.model import OrderSide
+from vibe_trading.model import calc_bets_pnl
+from vibe_trading.model import inverse_probability_to_bet
+from vibe_trading.model import probability_to_bet
 
 
 def test_bet_properties_and_payoffs():

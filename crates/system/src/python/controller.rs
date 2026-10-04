@@ -19,9 +19,9 @@ use crate::{controller::Controller, trader::Trader};
 ///
 /// Subclass this to author a controller in Python. The trader reference is bound when the
 /// controller is registered, so control methods are only available from that point on.
-#[gen_stub_pyclass(module = "vibe_trader.trading")]
+#[gen_stub_pyclass(module = "vibe_trading.trading")]
 #[pyclass(
-    module = "vibe_trader.trading",
+    module = "vibe_trading.trading",
     name = "Controller",
     extends = PyDataActor,
     subclass,
@@ -192,7 +192,7 @@ pub(crate) fn bind_controller_trader(
             .extract::<PyRefMut<PyController>>()
             .map_err(|e| {
                 anyhow::anyhow!(
-                    "Controller must inherit from `vibe_trader.trading.Controller`: {e}"
+                    "Controller must inherit from `vibe_trading.trading.Controller`: {e}"
                 )
             })?;
 

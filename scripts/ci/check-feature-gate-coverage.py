@@ -54,14 +54,14 @@ EXPECTED_UNCOVERED = {
     # Sealed acceptances no CI feature string turns on, directly or through another crate's
     # feature list. Cargo is asked for that, so an entry here that becomes reachable fails below.
     "isolated-event-replay-acceptance": "sealed acceptance named by no --features string",
-    # Named only by workflows that do not run here.
-    "turmoil": "nightly-tests.yml only; every job there is upstream-guarded",
-    # Named only by `make docsrs-check`, whose two callers are both skipped: build.yml's
-    # `release-docs-features-preflight` and the upstream-guarded nightly-docs-features-check.yml.
-    "gateway": "docsrs-check only; both callers skipped",
-    "persistence": "docsrs-check only; both callers skipped",
-    "indicators": "docsrs-check only; both callers skipped",
-    "tracing-bridge": "docsrs-check only; both callers skipped",
+    # Named only by a workflow this repo never ran (deleted as upstream-only dead CI).
+    "turmoil": "no CI caller; its only job named it in a now-deleted upstream-guarded workflow",
+    # Named only by `make docsrs-check`, whose only remaining caller is skipped: build.yml's
+    # `release-docs-features-preflight`.
+    "gateway": "docsrs-check only; its caller is skipped",
+    "persistence": "docsrs-check only; its caller is skipped",
+    "indicators": "docsrs-check only; its caller is skipped",
+    "tracing-bridge": "docsrs-check only; its caller is skipped",
     # Named by a script that is run by hand.
     "fuzz": "scripts/fuzz-adapter.sh only; run by hand",
     # Gate code in crates whose feature reaches no job.

@@ -1,6 +1,6 @@
 # Bar
 
-`Bar` 表示特定 `BarType` 的 OHLCV 价格与成交量数据。K 线可以由交易场所或数据提供商提供，也可以由 VibeTrader 根据报价 tick、成交 tick 或粒度更小的 K 线聚合生成。
+`Bar` 表示特定 `BarType` 的 OHLCV 价格与成交量数据。K 线可以由交易场所或数据提供商提供，也可以由 VibeTrading 根据报价 tick、成交 tick 或粒度更小的 K 线聚合生成。
 
 ## 字段
 
@@ -44,10 +44,10 @@ let bar = Bar::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
 
 bar = Bar(
     bar_type=BarType.from_str("AUD/USD.SIM-1-MINUTE-LAST-EXTERNAL"),

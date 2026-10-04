@@ -1,6 +1,6 @@
 //! Actor system for event-driven message processing.
 //!
-//! This module provides the actor framework used throughout VibeTrader for handling
+//! This module provides the actor framework used throughout VibeTrading for handling
 //! data processing, event management, and asynchronous message handling. Actors are
 //! lightweight components that process messages in isolation.
 

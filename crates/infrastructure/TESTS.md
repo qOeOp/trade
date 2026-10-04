@@ -44,7 +44,7 @@ make purge-services  # Remove everything including data volumes
 
 ## Running tests
 
-Once services are running (and VibeTrader installed by `uv` or `make`):
+Once services are running (and VibeTrading installed by `uv` or `make`):
 
 ### Python infrastructure integration tests
 

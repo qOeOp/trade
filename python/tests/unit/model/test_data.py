@@ -2,11 +2,11 @@ import json
 
 import pytest
 
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
-from vibe_trader.model import custom_data_backend_kind
-from vibe_trader.model import deserialize_custom_from_json
-from vibe_trader.model import register_custom_data_class
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
+from vibe_trading.model import custom_data_backend_kind
+from vibe_trading.model import deserialize_custom_from_json
+from vibe_trading.model import register_custom_data_class
 
 
 def test_data_type_construction():

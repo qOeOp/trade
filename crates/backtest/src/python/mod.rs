@@ -8,7 +8,7 @@ pub mod result;
 
 use pyo3::prelude::*;
 
-/// Exposed through `vibe_trader.backtest`.
+/// Exposed through `vibe_trading.backtest`.
 ///
 /// # Errors
 ///

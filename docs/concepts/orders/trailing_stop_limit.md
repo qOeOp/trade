@@ -57,14 +57,14 @@ let order = self.order().trailing_stop_limit(
 ```python tab="Python"
 import pandas as pd
 from decimal import Decimal
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model.enums import TriggerType
-from vibe_trader.model.enums import TrailingOffsetType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import TrailingStopLimitOrder
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model.enums import TriggerType
+from vibe_trading.model.enums import TrailingOffsetType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import TrailingStopLimitOrder
 
 order: TrailingStopLimitOrder = self.order_factory.trailing_stop_limit(
     instrument_id=InstrumentId.from_str("AUD/USD.CURRENEX"),
@@ -83,7 +83,7 @@ order: TrailingStopLimitOrder = self.order_factory.trailing_stop_limit(
 )
 ```
 
-See the [`TrailingStopLimitOrder` API Reference](/docs/python-api-latest/model/orders.html#vibe_trader.model.orders.trailing_stop_limit.TrailingStopLimitOrder) for further details.
+See the [`TrailingStopLimitOrder` API Reference](/docs/python-api-latest/model/orders.html#vibe_trading.model.orders.trailing_stop_limit.TrailingStopLimitOrder) for further details.
 
 ## Related guides
 

@@ -23,7 +23,7 @@ fn main() {
 
     // Set compile-time environment variables
     println!("cargo:rustc-env=VIBE_VERSION={vibe_version}");
-    println!("cargo:rustc-env=VIBE_USER_AGENT=VibeTrader/{vibe_version}");
+    println!("cargo:rustc-env=VIBE_USER_AGENT=VibeTrading/{vibe_version}");
 }
 
 fn try_read_pyproject_version() -> Option<String> {

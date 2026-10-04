@@ -8,7 +8,7 @@ Indexer 服务则通过 REST 和 WebSocket API 提供市场数据与账户状态
 ## 安装
 
 :::note
-无需安装其他 extras。适配器使用 Rust 实现，并在构建期间自动编译到核心 `vibe_trader` 包中。
+无需安装其他 extras。适配器使用 Rust 实现，并在构建期间自动编译到核心 `vibe_trading` 包中。
 :::
 
 ## 示例
@@ -530,9 +530,9 @@ dYdX 支持每个钱包地址拥有多个子账户，使交易策略和风险管
 在执行客户端配置中指定子账户编号：
 
 ```python
-from vibe_trader.adapters.dydx import DydxExecClientConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.dydx import DydxExecClientConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 exec_config = DydxExecClientConfig(
@@ -599,11 +599,11 @@ export DYDX_TESTNET_PRIVATE_KEY="0x..."  # hex-encoded, 0x prefix optional
 在数据客户端和执行客户端上都设置 `network=DydxNetwork.TESTNET`：
 
 ```python
-from vibe_trader.adapters.dydx import DydxDataClientConfig
-from vibe_trader.adapters.dydx import DydxExecClientConfig
-from vibe_trader.adapters.dydx import DydxNetwork
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.dydx import DydxDataClientConfig
+from vibe_trading.adapters.dydx import DydxExecClientConfig
+from vibe_trading.adapters.dydx import DydxNetwork
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 data_config = DydxDataClientConfig(network=DydxNetwork.TESTNET)
@@ -713,9 +713,9 @@ API Trading Keys 可让你将交易权限委托给独立签名密钥，而无需
 适配器在连接时检测到二者不匹配，并自动在链上查询匹配的认证器 ID。
 
 ```python
-from vibe_trader.adapters.dydx import DydxExecClientConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.dydx import DydxExecClientConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 config = DydxExecClientConfig(

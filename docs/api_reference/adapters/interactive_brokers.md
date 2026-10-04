@@ -1,7 +1,7 @@
 # Interactive Brokers
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.interactive_brokers
+.. automodule:: vibe_trading.adapters.interactive_brokers
    :show-inheritance:
    :inherited-members:
    :members:

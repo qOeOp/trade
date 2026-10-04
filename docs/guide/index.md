@@ -1,6 +1,6 @@
 # Product guide
 
-VibeTrader is a governed loop for turning falsifiable market ideas into managed automated trading.
+VibeTrading is a governed loop for turning falsifiable market ideas into managed automated trading.
 The product is not a collection of engine APIs. Its public shape is the set of owners and handoffs
 shown in the global architecture Flow.
 

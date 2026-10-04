@@ -30,14 +30,14 @@ use vibe_model::enums::BookAction;
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.deribit",
+        module = "vibe_trading.adapters.deribit",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.deribit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.deribit")
 )]
 pub enum DeribitUpdateInterval {
     /// Raw updates - immediate delivery of each event.
@@ -96,7 +96,7 @@ impl Display for DeribitUpdateInterval {
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(eq, eq_int, module = "vibe_trader.adapters.deribit", from_py_object)
+    pyo3::pyclass(eq, eq_int, module = "vibe_trading.adapters.deribit", from_py_object)
 )]
 pub enum DeribitWsChannel {
     // Public Market Data Channels

@@ -1,11 +1,11 @@
-//! [VibeTrader](https://github.com/qOeOp/trade) adapter for the [Lighter](https://lighter.xyz) DEX.
+//! [VibeTrading](https://github.com/qOeOp/trade) adapter for the [Lighter](https://lighter.xyz) DEX.
 //!
 //! The `vibe-lighter` crate provides integration with the Lighter API for trading
 //! perpetual futures and spot markets on a zk-rollup decentralized exchange.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single
@@ -15,7 +15,7 @@
 //!
 //! This crate provides feature flags to control source code inclusion during compilation,
 //! depending on the intended use case, i.e. whether to provide Python bindings
-//! for the `vibe_trader` Python package,
+//! for the `vibe_trading` Python package,
 //! or as part of a Rust only build.
 //!
 //! - `python`: Enables Python bindings from [PyO3](https://pyo3.rs).
@@ -29,7 +29,7 @@
 //!
 //! # Integrator attribution
 //!
-//! Submitted create and modify order transactions carry the VibeTrader integrator account index
+//! Submitted create and modify order transactions carry the VibeTrading integrator account index
 //! in Lighter's `L2TxAttributes`. This helps us gauge real usage of the integration and prioritize
 //! ongoing maintenance. Maker and taker integrator fees are set to zero, so attribution adds no
 //! trading cost.

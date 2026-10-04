@@ -7,10 +7,9 @@ labels:
 
 # Feature Request
 
-Check the [open-source scope](https://github.com/nautechsystems/nautilus_trader/blob/develop/ROADMAP.md#open-source-scope)
-before opening this request. Broad changes, major refactorings, and process changes belong in an
-RFC instead. New venue integrations always start as an RFC, see
-[Community-contributed integrations](https://github.com/nautechsystems/nautilus_trader/blob/develop/ROADMAP.md#community-contributed-integrations).
+Check the [roadmap](../../ROADMAP.md) before opening this request. Broad changes, major
+refactorings, and process changes belong in an RFC instead. New venue integrations always start as
+an RFC; see [ADAPTERS.md](../../ADAPTERS.md) for current adapter tiers.
 
 - [ ] I've searched existing issues and discussions to avoid duplicates.
 

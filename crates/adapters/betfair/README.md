@@ -1,16 +1,16 @@
 # vibe-betfair
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for the [Betfair](https://www.betfair.com/) betting exchange.
+[VibeTrading](https://github.com/qOeOp/trade) adapter for the [Betfair](https://www.betfair.com/) betting exchange.
 
 The `vibe-betfair` crate provides data and execution clients, streaming
-and REST API models, and full VibeTrader integration for the
+and REST API models, and full VibeTrading integration for the
 [Betfair](https://www.betfair.com/) betting exchange.
 
 The official API reference can be found at <https://docs.developer.betfair.com/>.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

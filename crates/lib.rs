@@ -1,4 +1,4 @@
-//! Container crate for VibeTrader.
+//! Container crate for VibeTrading.
 //!
 //! This crate re-exports the core, model, and common component crates as a small
 //! stable entry point. Use the individual `vibe-*` crates for adapter,

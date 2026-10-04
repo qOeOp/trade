@@ -191,7 +191,7 @@ for ccy, margin_balance in margin_account.account_margins().items():
 
 ## 保证金模型
 
-VibeTrader 为计算路径提供灵活的保证金计算模型。计算路径包括回测，以及以 `calculate_account_state=True` 运行、用于对账的实盘策略。交易场所报告的保证金会直接进入 `_account_margins` 或 `_margins`，不经过模型。
+VibeTrading 为计算路径提供灵活的保证金计算模型。计算路径包括回测，以及以 `calculate_account_state=True` 运行、用于对账的实盘策略。交易场所报告的保证金会直接进入 `_account_margins` 或 `_margins`，不经过模型。
 
 ### 概述
 

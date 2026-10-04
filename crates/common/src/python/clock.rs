@@ -23,12 +23,12 @@ use crate::{
 /// clocks should be created from Rust and handed over to Python as needed.
 #[allow(non_camel_case_types)]
 #[pyo3::pyclass(
-    module = "vibe_trader.common",
+    module = "vibe_trading.common",
     name = "Clock",
     unsendable,
     from_py_object
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")]
 #[derive(Debug, Clone)]
 pub struct PyClock(Rc<RefCell<dyn Clock>>);
 

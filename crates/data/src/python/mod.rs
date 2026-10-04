@@ -5,7 +5,7 @@ pub mod option_chain_manager;
 
 use pyo3::prelude::*;
 
-/// Exposed through `vibe_trader.data`.
+/// Exposed through `vibe_trading.data`.
 ///
 /// # Errors
 ///

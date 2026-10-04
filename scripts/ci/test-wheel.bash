@@ -6,7 +6,7 @@ temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 neutral_dir="$(mktemp -d "$temp_root/vibe-wheel.XXXXXX")"
 trap 'rm -rf "$neutral_dir"' EXIT
 
-uv sync --group test --no-install-package vibe-trader
+uv sync --group test --no-install-package vibe-trading
 
 set -- ../dist/*.whl
 if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
@@ -40,9 +40,9 @@ uv run --project "$pkg_dir" --no-sync python -c '
 import pathlib
 import sys
 
-import vibe_trader
+import vibe_trading
 
-package_dir = pathlib.Path(vibe_trader.__file__).resolve().parent
+package_dir = pathlib.Path(vibe_trading.__file__).resolve().parent
 environment_dir = pathlib.Path(sys.prefix).resolve()
 
 if not package_dir.is_relative_to(environment_dir):

@@ -1,7 +1,7 @@
 # Kraken
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.kraken
+.. automodule:: vibe_trading.adapters.kraken
    :show-inheritance:
    :inherited-members:
    :members:

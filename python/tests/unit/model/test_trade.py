@@ -2,11 +2,11 @@ import pickle
 
 import pytest
 
-from vibe_trader.model import AggressorSide
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import TradeId
-from vibe_trader.model import TradeTick
+from vibe_trading.model import AggressorSide
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import TradeId
+from vibe_trading.model import TradeTick
 
 
 @pytest.fixture
@@ -23,8 +23,8 @@ def trade(audusd_id):
 
 
 def test_trade_fully_qualified_name():
-    assert TradeTick.fully_qualified_name() == "vibe_trader.model:TradeTick"
-    assert TradeTick.__module__ == "vibe_trader.model"
+    assert TradeTick.fully_qualified_name() == "vibe_trading.model:TradeTick"
+    assert TradeTick.__module__ == "vibe_trading.model"
 
 
 def test_trade_construction(trade, audusd_id):

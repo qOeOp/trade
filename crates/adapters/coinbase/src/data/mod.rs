@@ -1,4 +1,4 @@
-//! Coinbase Advanced Trade data client for VibeTrader.
+//! Coinbase Advanced Trade data client for VibeTrading.
 //!
 //! Implements the [`DataClient`] trait, providing market data subscriptions and
 //! historical data requests through the Coinbase Advanced Trade API.

@@ -31,14 +31,14 @@ use strum::{Display, EnumIter, EnumString, FromRepr};
         frozen,
         eq,
         eq_int,
-        module = "vibe_trader.common",
+        module = "vibe_trading.common",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.common")
 )]
 pub enum ComponentState {
     /// When a component is instantiated, but not yet ready to fulfill its specification.
@@ -105,14 +105,14 @@ impl ComponentState {
         frozen,
         eq,
         eq_int,
-        module = "vibe_trader.common",
+        module = "vibe_trading.common",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.common")
 )]
 pub enum ComponentTrigger {
     /// A trigger for the component to initialize.
@@ -173,14 +173,14 @@ pub enum ComponentTrigger {
         frozen,
         eq,
         eq_int,
-        module = "vibe_trader.common",
+        module = "vibe_trading.common",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.common")
 )]
 pub enum Environment {
     Backtest,
@@ -214,14 +214,14 @@ pub enum Environment {
         frozen,
         eq,
         eq_int,
-        module = "vibe_trader.common",
+        module = "vibe_trading.common",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.common")
 )]
 pub enum LogLevel {
     /// The **OFF** log level. A level lower than all other log levels (off).
@@ -276,14 +276,14 @@ pub enum LogLevel {
         frozen,
         eq,
         eq_int,
-        module = "vibe_trader.common",
+        module = "vibe_trading.common",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.common")
 )]
 pub enum LogColor {
     /// The default/normal log color.
@@ -362,14 +362,14 @@ impl From<Level> for LogColor {
         frozen,
         eq,
         eq_int,
-        module = "vibe_trader.common",
+        module = "vibe_trading.common",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.common")
 )]
 pub enum LogFormat {
     /// Header log format. This ANSI escape code is used for magenta text color,
@@ -418,14 +418,14 @@ pub enum LogFormat {
         frozen,
         eq,
         eq_int,
-        module = "vibe_trader.common",
+        module = "vibe_trading.common",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.common")
 )]
 pub enum SerializationEncoding {
     /// The JavaScript Object Notation (JSON) encoding.

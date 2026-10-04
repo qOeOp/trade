@@ -16,7 +16,7 @@ use crate::files::ensure_file_exists_or_download_http;
 /// - Any I/O operation fails during file creation, reading, or writing: `PyErr`.
 /// - Checksum verification or JSON parsing fails: `PyErr`.
 #[pyfunction(name = "ensure_file_exists_or_download_http")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.testkit")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.testkit")]
 #[pyo3(signature = (filepath, url, checksums=None, timeout_secs=Some(30)))]
 pub fn py_ensure_file_exists_or_download_http(
     filepath: &str,

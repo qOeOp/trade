@@ -5,20 +5,20 @@ from unit.adapters.example_modules import capture_data_tester_main
 from unit.adapters.example_modules import capture_exec_tester_main
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.hyperliquid import HyperliquidDataClientConfig
-from vibe_trader.adapters.hyperliquid import HyperliquidDataClientFactory
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidExecClientConfig
-from vibe_trader.adapters.hyperliquid import HyperliquidExecFactoryConfig
-from vibe_trader.adapters.hyperliquid import HyperliquidExecutionClientFactory
-from vibe_trader.adapters.hyperliquid import HyperliquidHttpClient
-from vibe_trader.adapters.hyperliquid import HyperliquidWebSocketClient
-from vibe_trader.adapters.hyperliquid import hyperliquid_resolve_execution_account_address
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.hyperliquid import HyperliquidDataClientConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidDataClientFactory
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidExecClientConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidExecFactoryConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidExecutionClientFactory
+from vibe_trading.adapters.hyperliquid import HyperliquidHttpClient
+from vibe_trading.adapters.hyperliquid import HyperliquidWebSocketClient
+from vibe_trading.adapters.hyperliquid import hyperliquid_resolve_execution_account_address
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 HYPERLIQUID = "HYPERLIQUID"

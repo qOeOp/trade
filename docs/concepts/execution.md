@@ -3,7 +3,7 @@
 This page documents the existing engine. Where it differs from the Owner contract in
 `docs/owners/execution.md`, the Owner contract is authoritative.
 
-VibeTrader coordinates order submission, risk checks, venue execution, reconciliation, and
+VibeTrading coordinates order submission, risk checks, venue execution, reconciliation, and
 position updates across multiple strategies and venues. This page explains the components and
 message flows that support execution.
 
@@ -192,7 +192,7 @@ The `OmsType` enum has three variants:
 - `HEDGING`: Multiple positions per instrument and strategy can remain open.
 
 When the strategy and venue OMS types differ, the `ExecutionEngine` assigns or overrides
-`position_id` values on `OrderFilled` events. A virtual position exists in VibeTrader but not
+`position_id` values on `OrderFilled` events. A virtual position exists in VibeTrading but not
 as a separate venue position.
 
 | Strategy OMS | Venue OMS | Result                                                              |
@@ -289,13 +289,13 @@ The `TradingState` enum has three variants:
   exposure are accepted.
 
 See the
-[`RiskEngineConfig` API reference](/docs/python-api-latest/config.html#vibe_trader.risk.RiskEngineConfig)
+[`RiskEngineConfig` API reference](/docs/python-api-latest/config.html#vibe_trading.risk.RiskEngineConfig)
 for configuration details.
 
 ## Execution algorithms
 
 An `ExecutionAlgorithm` receives primary orders selected by `exec_algorithm_id` and can split them
-into smaller spawned orders. VibeTrader supports custom algorithms and includes a native Rust
+into smaller spawned orders. VibeTrading supports custom algorithms and includes a native Rust
 TWAP implementation.
 
 ### TWAP (Time-Weighted Average Price)
@@ -304,8 +304,8 @@ TWAP spreads a primary order across regular intervals to reduce the market impac
 the full quantity at once. To register the native algorithm with an initialized `BacktestEngine`:
 
 ```python
-from vibe_trader.model import ExecAlgorithmId
-from vibe_trader.config import ExecutionAlgorithmConfig
+from vibe_trading.model import ExecAlgorithmId
+from vibe_trading.config import ExecutionAlgorithmConfig
 
 engine.add_native_exec_algorithm(
     "TwapAlgorithm",
@@ -331,9 +331,9 @@ To define a Python execution algorithm, subclass `ExecutionAlgorithm` and implem
 `on_order(...)`:
 
 ```python
-from vibe_trader.model import ExecAlgorithmId
-from vibe_trader.trading import ExecutionAlgorithm
-from vibe_trader.config import ExecutionAlgorithmConfig
+from vibe_trading.model import ExecAlgorithmId
+from vibe_trading.trading import ExecutionAlgorithm
+from vibe_trading.config import ExecutionAlgorithmConfig
 
 
 class MyExecutionAlgorithm(ExecutionAlgorithm):
@@ -491,7 +491,7 @@ a restart therefore produces the same `trade_id` and is deduplicated.
 For live trading, enable overfill tolerance in the `LiveExecEngineConfig`:
 
 ```python
-from vibe_trader.config import LiveExecEngineConfig
+from vibe_trading.config import LiveExecEngineConfig
 
 config = LiveExecEngineConfig(
     allow_overfills=True,

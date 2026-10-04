@@ -15,8 +15,8 @@ use crate::{
 };
 
 /// Python wrapper for `StrikeRange` (complex enum).
-#[pyclass(name = "StrikeRange", module = "vibe_trader.model", from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")]
+#[pyclass(name = "StrikeRange", module = "vibe_trading.model", from_py_object)]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")]
 #[derive(Clone, Debug)]
 pub struct PyStrikeRange {
     pub inner: StrikeRange,

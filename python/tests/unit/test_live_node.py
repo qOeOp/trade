@@ -9,30 +9,30 @@ from strategies.acceptance import DualTimerConfig
 
 from tests.unit.common.actor import ControllerRegistrationProbe
 from tests.unit.common.actor import LifecycleProbeStrategy
-from vibe_trader.common import Cache
-from vibe_trader.common import CacheConfig
-from vibe_trader.common import ComponentState
-from vibe_trader.common import DataActor
-from vibe_trader.common import DataActorConfig
-from vibe_trader.common import Environment
-from vibe_trader.common import ImportableActorConfig
-from vibe_trader.common import MessageBusConfig
-from vibe_trader.live import LiveDataEngineConfig
-from vibe_trader.live import LiveExecEngineConfig
-from vibe_trader.live import LiveNode
-from vibe_trader.live import LiveNodeConfig
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.live import PortfolioConfig
-from vibe_trader.model import ExecAlgorithmId
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderStatus
-from vibe_trader.model import TraderId
-from vibe_trader.portfolio import Portfolio
-from vibe_trader.trading import ExecutionAlgorithm
-from vibe_trader.trading import ExecutionAlgorithmConfig
-from vibe_trader.trading import ImportableControllerConfig
-from vibe_trader.trading import ImportableExecAlgorithmConfig
-from vibe_trader.trading import ImportableStrategyConfig
+from vibe_trading.common import Cache
+from vibe_trading.common import CacheConfig
+from vibe_trading.common import ComponentState
+from vibe_trading.common import DataActor
+from vibe_trading.common import DataActorConfig
+from vibe_trading.common import Environment
+from vibe_trading.common import ImportableActorConfig
+from vibe_trading.common import MessageBusConfig
+from vibe_trading.live import LiveDataEngineConfig
+from vibe_trading.live import LiveExecEngineConfig
+from vibe_trading.live import LiveNode
+from vibe_trading.live import LiveNodeConfig
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.live import PortfolioConfig
+from vibe_trading.model import ExecAlgorithmId
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderStatus
+from vibe_trading.model import TraderId
+from vibe_trading.portfolio import Portfolio
+from vibe_trading.trading import ExecutionAlgorithm
+from vibe_trading.trading import ExecutionAlgorithmConfig
+from vibe_trading.trading import ImportableControllerConfig
+from vibe_trading.trading import ImportableExecAlgorithmConfig
+from vibe_trading.trading import ImportableStrategyConfig
 
 
 @pytest.fixture(scope="module")
@@ -106,12 +106,12 @@ def test_importable_actor_config_empty():
 def test_importable_strategy_config_construction():
     config = ImportableStrategyConfig(
         strategy_path="tests.unit.common.actor:TestStrategy",
-        config_path="vibe_trader.trading:StrategyConfig",
+        config_path="vibe_trading.trading:StrategyConfig",
         config={"strategy_id": "S-001"},
     )
 
     assert config.strategy_path == "tests.unit.common.actor:TestStrategy"
-    assert config.config_path == "vibe_trader.trading:StrategyConfig"
+    assert config.config_path == "vibe_trading.trading:StrategyConfig"
     assert config.config == {"strategy_id": "S-001"}
 
 
@@ -281,7 +281,7 @@ def test_live_node_start_stop_dispose_local(trader_id, stop_before_dispose):
     node.add_strategy_from_config(
         ImportableStrategyConfig(
             strategy_path="tests.unit.common.actor:LifecycleProbeStrategy",
-            config_path="vibe_trader.trading:StrategyConfig",
+            config_path="vibe_trading.trading:StrategyConfig",
             config={},
         ),
     )
@@ -378,7 +378,7 @@ def test_live_node_strategy_start_failure_disposes_resources():
     node.add_strategy_from_config(
         ImportableStrategyConfig(
             strategy_path="tests.unit.common.actor:FailingStartStrategy",
-            config_path="vibe_trader.trading:StrategyConfig",
+            config_path="vibe_trading.trading:StrategyConfig",
             config={},
         ),
     )
@@ -499,7 +499,7 @@ def test_add_actor_from_config_rejects_nonexistent_module(live_node):
 def test_add_strategy_from_config_registers(live_node):
     config = ImportableStrategyConfig(
         strategy_path="tests.unit.common.actor:TestStrategy",
-        config_path="vibe_trader.trading:StrategyConfig",
+        config_path="vibe_trading.trading:StrategyConfig",
         config={},
     )
 
@@ -541,7 +541,7 @@ def test_add_exec_algorithm_from_config_registers(live_node):
 def test_add_exec_algorithm_from_config_registers_v2_instance(live_node):
     config = ImportableExecAlgorithmConfig(
         exec_algorithm_path="tests.unit.test_live_node:LifecycleExecutionAlgorithm",
-        config_path="vibe_trader.trading:ExecutionAlgorithmConfig",
+        config_path="vibe_trading.trading:ExecutionAlgorithmConfig",
         config={"exec_algorithm_id": "PY-LIVE-CONFIG"},
     )
 

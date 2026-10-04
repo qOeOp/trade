@@ -25,7 +25,7 @@ from _common import instrument_provider_config
 from _common import resolve_ib_endpoint
 from _common import schedule_node_stop
 
-from vibe_trader.adapters import interactive_brokers
+from vibe_trading.adapters import interactive_brokers
 
 
 ProviderConfigFactory = Callable[[], object]

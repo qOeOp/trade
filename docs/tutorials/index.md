@@ -20,7 +20,7 @@ Rust tutorials use the commands shown on their pages.
 
 ## Recommended order
 
-New to VibeTrader? Work through these in sequence:
+New to VibeTrading? Work through these in sequence:
 
 1. [Quickstart](../getting_started/quickstart) - run your first backtest in five minutes
    with synthetic data

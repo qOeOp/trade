@@ -1,13 +1,13 @@
 # vibe-model
 
-Trading domain model for [VibeTrader](https://github.com/qOeOp/trade).
+Trading domain model for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-model` crate provides a type-safe domain model that forms the backbone of the framework
 and can serve as the foundation for building algorithmic trading systems.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

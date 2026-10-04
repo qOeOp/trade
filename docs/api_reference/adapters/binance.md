@@ -1,7 +1,7 @@
 # Binance
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.binance
+.. automodule:: vibe_trading.adapters.binance
    :show-inheritance:
    :inherited-members:
    :members:

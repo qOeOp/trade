@@ -1,9 +1,9 @@
 # vibe-data
 
-Data engine and market data processing for [VibeTrader](https://github.com/qOeOp/trade).
+Data engine and market data processing for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-data` crate provides a framework for handling market data ingestion,
-processing, and aggregation within the VibeTrader ecosystem. This includes real-time
+processing, and aggregation within the VibeTrading ecosystem. This includes real-time
 data streaming, historical data management, and various aggregation methodologies:
 
 - High-performance data engine for orchestrating data operations.
@@ -13,9 +13,9 @@ data streaming, historical data management, and various aggregation methodologie
 - Subscription management and data request handling.
 - Configurable data routing and processing pipelines.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

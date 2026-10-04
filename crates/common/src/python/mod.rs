@@ -41,7 +41,7 @@ pub fn config_error_to_pyvalue_err(e: ConfigError) -> PyErr {
     to_pyvalue_err(e)
 }
 
-/// Exposed through `vibe_trader.common`.
+/// Exposed through `vibe_trading.common`.
 ///
 /// # Errors
 ///

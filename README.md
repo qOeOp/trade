@@ -1,6 +1,6 @@
-# Vibe Trader
+# Vibe Trading
 
-Vibe Trader is a Rust-native trading engine with Python bindings for research,
+Vibe Trading is a Rust-native trading engine with Python bindings for research,
 deterministic simulation, and live execution. The repository is an internal
 development base: crates and Python artifacts are not configured for public
 publication.
@@ -12,11 +12,11 @@ The runtime is organized around a shared event-driven kernel:
 - `vibe-core`, `vibe-common`, and `vibe-model` own foundational types and contracts.
 - `vibe-data`, `vibe-execution`, `vibe-portfolio`, and `vibe-risk` own the engine planes.
 - `vibe-system`, `vibe-backtest`, and `vibe-live` compose those planes for simulation and live use.
-- `vibe-pyo3` exposes the Rust implementation through `vibe_trader._libvibe`.
+- `vibe-pyo3` exposes the Rust implementation through `vibe_trading._libvibe`.
 - `crates/adapters/` contains venue and data-provider integrations.
 
 The Rust crate names use `vibe-*`, Rust imports use `vibe_*`, and the Python package is
-`vibe_trader`. These are the only supported project identities; compatibility aliases and
+`vibe_trading`. These are the only supported project identities; compatibility aliases and
 forwarding packages are intentionally absent.
 
 ## Product architecture
@@ -40,7 +40,7 @@ markers there rather than inferring progress from crate size.
 
 - [`crates/`](crates/) - Rust workspace and adapters.
 - [`product/`](product/) - the R&D deployment package and the first-party Dashboard.
-- [`python/vibe_trader/`](python/vibe_trader/) - Python package and type stubs.
+- [`python/vibe_trading/`](python/vibe_trading/) - Python package and type stubs.
 - [`python/tests/`](python/tests/) - Python unit, integration, acceptance, and performance tests.
 - [`docs/`](docs/) - concepts, integration guides, tutorials, and API sources.
 - [`examples/`](examples/) - backtest, sandbox, and live examples.
@@ -68,5 +68,5 @@ source-development setup and [`CONTRIBUTING.md`](CONTRIBUTING.md) for repository
 
 ## Branding status
 
-No official Vibe Trader visual asset is included in this baseline. Artwork inherited from the
-source project must not be renamed or displayed as Vibe Trader branding.
+No official Vibe Trading visual asset is included in this baseline. Artwork inherited from the
+source project must not be renamed or displayed as Vibe Trading branding.

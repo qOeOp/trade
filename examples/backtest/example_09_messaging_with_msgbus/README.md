@@ -1,6 +1,6 @@
 # Example: Self-Communication Using Message Bus
 
-A practical demonstration of using VibeTrader's message bus for self-communication within a strategy.
+A practical demonstration of using VibeTrading's message bus for self-communication within a strategy.
 The example implements a "10th bar notification system" where the strategy:
 
 1. Creates a custom event (using Python's dataclass) to represent the 10th bar occurrence.

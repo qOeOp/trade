@@ -228,7 +228,7 @@ impl BetPosition {
 
 /// Calculates the combined profit and loss for a slice of bets.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.model")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.model")]
 #[pyo3(name = "calc_bets_pnl")]
 #[expect(clippy::needless_pass_by_value)]
 pub fn py_calc_bets_pnl(bets: Vec<Bet>) -> PyResult<Decimal> {
@@ -243,7 +243,7 @@ pub fn py_calc_bets_pnl(bets: Vec<Bet>) -> PyResult<Decimal> {
 ///
 /// Returns an error if `probability` is zero.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.model")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.model")]
 #[pyo3(name = "probability_to_bet")]
 pub fn py_probability_to_bet(
     probability: Decimal,
@@ -261,7 +261,7 @@ pub fn py_probability_to_bet(
 ///
 /// Returns an error if `probability` is 1.0 or its inverse is zero.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.model")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.model")]
 #[pyo3(name = "inverse_probability_to_bet")]
 pub fn py_inverse_probability_to_bet(
     probability: Decimal,

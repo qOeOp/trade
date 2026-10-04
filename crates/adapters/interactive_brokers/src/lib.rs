@@ -1,13 +1,13 @@
-//! [VibeTrader](https://github.com/qOeOp/trade) adapter for
+//! [VibeTrading](https://github.com/qOeOp/trade) adapter for
 //! [Interactive Brokers](https://www.interactivebrokers.com).
 //!
 //! The `vibe-interactive-brokers` crate wraps the [`ibapi`](https://crates.io/crates/ibapi)
-//! client and connects it to VibeTrader's live data, execution, historical data, and
+//! client and connects it to VibeTrading's live data, execution, historical data, and
 //! instrument loading infrastructure.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single

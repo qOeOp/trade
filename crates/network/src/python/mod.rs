@@ -7,7 +7,7 @@
 #![allow(unexpected_cfgs)]
 use pyo3::prelude::*;
 
-/// Exposed through `vibe_trader.network`.
+/// Exposed through `vibe_trading.network`.
 ///
 /// # Errors
 ///

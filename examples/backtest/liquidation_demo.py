@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Deterministic Liquidation Engine Demo - VibeTrader Issue #3788.
+Deterministic Liquidation Engine Demo - VibeTrading Issue #3788.
 
 Demonstrates automatic margin liquidation using the Rust SimulatedExchange.
 
@@ -12,19 +12,19 @@ Run with:
 import json
 import sys
 
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import ImportableStrategyConfig as _ISC
-from vibe_trader.model import AccountType
-from vibe_trader.model import CryptoPerpetual
-from vibe_trader.model import Currency
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import Venue
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import ImportableStrategyConfig as _ISC
+from vibe_trading.model import AccountType
+from vibe_trading.model import CryptoPerpetual
+from vibe_trading.model import Currency
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import Venue
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 
 BTC = Currency.from_str("BTC")
@@ -57,7 +57,7 @@ def run_demo() -> dict:
     _STEPS.clear()
 
     _log("-" * 60)
-    _log("  VibeTrader - Deterministic Liquidation Engine Demo")
+    _log("  VibeTrading - Deterministic Liquidation Engine Demo")
     _log("  GitHub Issue #3788")
     _log("-" * 60)
 
@@ -87,9 +87,9 @@ def run_demo() -> dict:
 
     engine.add_strategy_from_config(
         _ISC(
-            strategy_path=("vibe_trader.examples.strategies.market_buy_on_start:MarketBuyOnStart"),
+            strategy_path=("vibe_trading.examples.strategies.market_buy_on_start:MarketBuyOnStart"),
             config_path=(
-                "vibe_trader.examples.strategies.market_buy_on_start:MarketBuyOnStartConfig"
+                "vibe_trading.examples.strategies.market_buy_on_start:MarketBuyOnStartConfig"
             ),
             config={
                 "instrument_id": str(XBTUSD.id),

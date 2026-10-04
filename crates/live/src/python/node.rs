@@ -1137,8 +1137,8 @@ fn register_data_tester(node: &mut LiveNode, config: &Bound<'_, PyAny>) -> PyRes
 /// Python wrapper for `LiveNodeBuilder` that uses interior mutability
 /// to work around PyO3's shared ownership model.
 #[derive(Debug)]
-#[pyclass(name = "LiveNodeBuilder", module = "vibe_trader.live", unsendable)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.live")]
+#[pyclass(name = "LiveNodeBuilder", module = "vibe_trading.live", unsendable)]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.live")]
 pub struct LiveNodeBuilderPy {
     inner: Rc<RefCell<Option<LiveNodeBuilder>>>,
 }

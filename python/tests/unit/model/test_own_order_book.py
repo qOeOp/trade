@@ -3,12 +3,12 @@ from decimal import Decimal
 import pytest
 from tests.unit.model.factories import make_own_order
 
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderStatus
-from vibe_trader.model import OwnOrderBook
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderStatus
+from vibe_trading.model import OwnOrderBook
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
 
 
 @pytest.fixture

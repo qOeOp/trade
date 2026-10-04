@@ -10,7 +10,7 @@ use vibe_network::websocket::TransportBackend;
 use crate::config::{BlockchainDataClientConfig, DexPoolFilters};
 
 #[pymethods]
-#[pyo3_stub_gen::derive::gen_stub_pymethods(module = "vibe_trader.adapters.blockchain")]
+#[pyo3_stub_gen::derive::gen_stub_pymethods(module = "vibe_trading.adapters.blockchain")]
 impl DexPoolFilters {
     /// Defines filtering criteria for the DEX pool universe that the data client will operate on.
     #[new]
@@ -23,7 +23,7 @@ impl DexPoolFilters {
 }
 
 #[pymethods]
-#[pyo3_stub_gen::derive::gen_stub_pymethods(module = "vibe_trader.adapters.blockchain")]
+#[pyo3_stub_gen::derive::gen_stub_pymethods(module = "vibe_trading.adapters.blockchain")]
 impl BlockchainDataClientConfig {
     /// Configuration for blockchain data clients.
     #[new]
@@ -32,15 +32,15 @@ impl BlockchainDataClientConfig {
     fn py_new(
         #[gen_stub(
             override_type(
-                type_repr = "vibe_trader.model.Chain",
-                imports = ("vibe_trader.model",),
+                type_repr = "vibe_trading.model.Chain",
+                imports = ("vibe_trading.model",),
             ),
         )]
         chain: &Chain,
         #[gen_stub(
             override_type(
-                type_repr = "typing.Sequence[vibe_trader.model.DexType]",
-                imports = ("typing", "vibe_trader.model"),
+                type_repr = "typing.Sequence[vibe_trading.model.DexType]",
+                imports = ("typing", "vibe_trading.model"),
             ),
         )]
         dex_ids: Vec<DexType>,
@@ -53,8 +53,8 @@ impl BlockchainDataClientConfig {
         pool_filters: Option<DexPoolFilters>,
         #[gen_stub(
             override_type(
-                type_repr = "typing.Optional[vibe_trader.infrastructure.PostgresConnectOptions]",
-                imports = ("typing", "vibe_trader.infrastructure"),
+                type_repr = "typing.Optional[vibe_trading.infrastructure.PostgresConnectOptions]",
+                imports = ("typing", "vibe_trading.infrastructure"),
             ),
         )]
         postgres_cache_database_config: Option<PostgresConnectOptions>,
@@ -81,8 +81,8 @@ impl BlockchainDataClientConfig {
     #[getter]
     #[gen_stub(
         override_return_type(
-            type_repr = "vibe_trader.model.Chain",
-            imports = ("vibe_trader.model",),
+            type_repr = "vibe_trading.model.Chain",
+            imports = ("vibe_trading.model",),
         ),
     )]
     fn chain(&self) -> Chain {

@@ -2,7 +2,7 @@
 
 ## 简介
 
-VibeTrader 是一个开源、生产级、原生 Rust 的多资产、多场所交易系统引擎。
+VibeTrading 是一个开源、生产级、原生 Rust 的多资产、多场所交易系统引擎。
 
 系统在单一事件驱动架构中覆盖研究、确定性模拟和实盘执行，Python 作为策略逻辑、配置和编排的控制平面。
 
@@ -12,7 +12,7 @@ VibeTrader 是一个开源、生产级、原生 Rust 的多资产、多场所交
 研究系统和实盘系统采用相同的执行语义与确定性时间模型。策略无需修改代码即可从研究部署到生产，
 实现研究与实盘的一致性，并减少通常会引入部署风险的偏差。
 
-VibeTrader 与资产类别无关。任何具有 REST API 或 WebSocket feed 的场所都可以通过模块化适配器集成。
+VibeTrading 与资产类别无关。任何具有 REST API 或 WebSocket feed 的场所都可以通过模块化适配器集成。
 集成范围包括中心化和去中心化加密货币交易所（CEX 和 DEX）、外汇（FX）、股票、期货、期权和博彩交易所。
 
 ## 功能
@@ -30,12 +30,12 @@ VibeTrader 与资产类别无关。任何具有 REST API 或 WebSocket feed 的�
 - **多场所**：同时跨多个场所运行做市和跨场所策略。
 - **AI 训练**：高吞吐量模拟支持使用强化学习（RL）或进化策略（ES）训练 AI 交易 Agent 等工作负载。
 
-## 为什么选择 VibeTrader？
+## 为什么选择 VibeTrading？
 
 交易策略研究通常在 Python 中使用向量化方法完成，而生产交易系统则会使用编译型语言中的事件驱动架构
 另行构建。
 
-VibeTrader 消除了这种分离。
+VibeTrading 消除了这种分离。
 
 原生 Rust 核心为研究和实盘执行提供确定性事件驱动运行时，Python 则充当控制平面。
 两个环境使用相同架构、执行语义和时间模型，使策略无需重新实现即可从研究进入生产。
@@ -45,13 +45,13 @@ VibeTrader 消除了这种分离。
 
 ## 用例
 
-VibeTrader 支持三个主要用例：
+VibeTrading 支持三个主要用例：
 
 - 使用历史数据回测交易系统（`backtest`）。
 - 使用实时数据和虚拟执行模拟交易系统（`sandbox`）。
 - 在真实或模拟账户上实盘部署交易系统（`live`）。
 
-VibeTrader 为 Python 和 Rust 同时提供回测与实盘节点实现。sandbox 适配器为 `sandbox` 环境提供模拟执行。
+VibeTrading 为 Python 和 Rust 同时提供回测与实盘节点实现。sandbox 适配器为 `sandbox` 环境提供模拟执行。
 
 :::note
 
@@ -91,7 +91,7 @@ payload，并为 schema 覆盖的市场数据支持 Cap'n Proto 与 Simple Binar
 
 ## 时间戳
 
-VibeTrader 以 UNIX 纳秒表示系统时间戳。其标准 ISO 8601（RFC 3339）格式化器使用 UTC，
+VibeTrading 以 UNIX 纳秒表示系统时间戳。其标准 ISO 8601（RFC 3339）格式化器使用 UTC，
 并保留全部九位小数。毫秒格式化器会为指定显示保留三位小数，例如有效期至指定日期（GTD）的到期时间。
 
 时间戳字符串由以下部分组成：
@@ -125,7 +125,7 @@ VibeTrader 以 UNIX 纳秒表示系统时间戳。其标准 ISO 8601（RFC 3339�
 
 ## 数据类型
 
-VibeTrader 定义了以下内置市场和参考数据类型。历史请求和实时订阅能否使用取决于 provider 和适配器。
+VibeTrading 定义了以下内置市场和参考数据类型。历史请求和实时订阅能否使用取决于 provider 和适配器。
 有关字段和行为，请参阅[数据](data/index.md)。
 
 - `OrderBookDelta`（单个订单簿变更）

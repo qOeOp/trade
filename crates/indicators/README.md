@@ -1,6 +1,6 @@
 # vibe-indicators
 
-Technical analysis indicators for [VibeTrader](https://github.com/qOeOp/trade).
+Technical analysis indicators for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-indicators` crate provides a collection of technical analysis indicators
 for quantitative trading and market research. This includes a wide variety of indicators
@@ -17,9 +17,9 @@ All indicators are designed for high-performance real-time processing with bound
 usage and efficient circular buffer implementations. The crate supports both Rust-native
 usage and Python integration for strategy development and backtesting.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

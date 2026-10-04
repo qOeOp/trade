@@ -12,7 +12,7 @@ The strategy combines two indicators on 1-minute mid bars:
   20-bar mean and a +/-2sd envelope. The bands flag price as overextended
   relative to recent volatility.
 - **Relative Strength Index** (`RSI(14)`): a 14-bar momentum oscillator.
-  VibeTrader RSI is on `[0, 1]`, so the conventional 30/70 thresholds
+  VibeTrading RSI is on `[0, 1]`, so the conventional 30/70 thresholds
   become `0.30` / `0.70`.
 
 Entry needs both signals at once: a touch of the lower band with `RSI < 0.30`
@@ -78,7 +78,7 @@ for AX EURUSD-PERP backtests.
 ## Prerequisites
 
 - Python 3.12+
-- A local Vibe Trader source build (`make build-debug`).
+- A local Vibe Trading source build (`make build-debug`).
 - A free TrueFX account, used to download a monthly tick archive.
 
 ## Data preparation
@@ -97,7 +97,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from vibe_trader.persistence.wranglers import QuoteTickDataWrangler
+from vibe_trading.persistence.wranglers import QuoteTickDataWrangler
 
 df = pd.read_csv(
     Path("EURUSD-2025-12.csv"),
@@ -123,13 +123,13 @@ gives one contract a notional of 1,000 EUR.
 ```python
 from decimal import Decimal
 
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AssetClass
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.instruments import PerpetualContract
-from vibe_trader.model.objects import Price
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AssetClass
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.instruments import PerpetualContract
+from vibe_trading.model.objects import Price
+from vibe_trading.model.objects import Quantity
 
 instrument_id = InstrumentId.from_str("EURUSD-PERP.AX")
 
@@ -167,30 +167,30 @@ rates.
 | `bb_period`          | `20`   | Rolling window for the BB mean and the standard deviation. |
 | `bb_std`             | `2.0`  | Band width in standard deviations.                         |
 | `rsi_period`         | `14`   | RSI lookback in bars.                                      |
-| `rsi_buy_threshold`  | `0.30` | Long entry confirmation (VibeTrader RSI is `[0, 1]`).      |
+| `rsi_buy_threshold`  | `0.30` | Long entry confirmation (VibeTrading RSI is `[0, 1]`).     |
 | `rsi_sell_threshold` | `0.70` | Short entry confirmation.                                  |
 | `trade_size`         | `1`    | One contract per trade (1,000 EUR notional).               |
 
 :::tip
-VibeTrader RSI returns values in `[0.0, 1.0]`, not `[0, 100]`. The
+VibeTrading RSI returns values in `[0.0, 1.0]`, not `[0, 100]`. The
 `0.30` / `0.70` thresholds correspond to the textbook 30 / 70 levels.
 :::
 
 ## Backtest setup
 
 ```python
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import LoggerConfig
-from vibe_trader.examples.strategies.bb_mean_reversion import BBMeanReversion
-from vibe_trader.examples.strategies.bb_mean_reversion import BBMeanReversionConfig
-from vibe_trader.model.data import BarType
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.objects import Money
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import LoggerConfig
+from vibe_trading.examples.strategies.bb_mean_reversion import BBMeanReversion
+from vibe_trading.examples.strategies.bb_mean_reversion import BBMeanReversionConfig
+from vibe_trading.model.data import BarType
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.objects import Money
 
 engine = BacktestEngine(
     BacktestEngineConfig(

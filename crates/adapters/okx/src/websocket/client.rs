@@ -190,11 +190,11 @@ pub(crate) struct PendingOrderInfo {
 #[derive(Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.okx", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.okx", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.okx")
 )]
 pub struct OKXWebSocketClient {
     url: String,

@@ -5,27 +5,27 @@ from decimal import Decimal
 
 import pandas as pd
 
-from vibe_trader.adapters.binance import BINANCE_VENUE
-from vibe_trader.adapters.binance import get_cached_binance_http_client
-from vibe_trader.adapters.binance.common.enums import BinanceAccountType
-from vibe_trader.adapters.binance.common.enums import BinanceEnvironment
-from vibe_trader.adapters.binance.futures.providers import BinanceFuturesInstrumentProvider
-from vibe_trader.backtest.engine import BacktestEngine
-from vibe_trader.common.component import LiveClock
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.examples.strategies.ema_cross_trailing_stop import EMACrossTrailingStop
-from vibe_trader.examples.strategies.ema_cross_trailing_stop import EMACrossTrailingStopConfig
-from vibe_trader.model.data import BarType
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.objects import Money
-from vibe_trader.persistence.wranglers import QuoteTickDataWrangler
-from vibe_trader.test_kit.providers import TestDataProvider
+from vibe_trading.adapters.binance import BINANCE_VENUE
+from vibe_trading.adapters.binance import get_cached_binance_http_client
+from vibe_trading.adapters.binance.common.enums import BinanceAccountType
+from vibe_trading.adapters.binance.common.enums import BinanceEnvironment
+from vibe_trading.adapters.binance.futures.providers import BinanceFuturesInstrumentProvider
+from vibe_trading.backtest.engine import BacktestEngine
+from vibe_trading.common.component import LiveClock
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.examples.strategies.ema_cross_trailing_stop import EMACrossTrailingStop
+from vibe_trading.examples.strategies.ema_cross_trailing_stop import EMACrossTrailingStopConfig
+from vibe_trading.model.data import BarType
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.objects import Money
+from vibe_trading.persistence.wranglers import QuoteTickDataWrangler
+from vibe_trading.test_kit.providers import TestDataProvider
 
 
 async def create_provider():

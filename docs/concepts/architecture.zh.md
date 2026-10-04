@@ -2,7 +2,7 @@
 
 本页记载既有引擎。凡与 `docs/architecture/index.md` 所载目标产品架构不一致处，以该文档为准。
 
-本指南介绍 VibeTrader 的架构原则和结构：
+本指南介绍 VibeTrading 的架构原则和结构：
 
 - 设计理念和质量属性。
 - 核心组件及其交互方式。
@@ -15,7 +15,7 @@
 
 ## 设计理念
 
-VibeTrader 采用的主要架构技术和设计模式包括：
+VibeTrading 采用的主要架构技术和设计模式包括：
 
 - [领域驱动设计（DDD）](https://en.wikipedia.org/wiki/Domain-driven_design)
 - [事件驱动架构](https://en.wikipedia.org/wiki/Event-driven_programming)
@@ -38,7 +38,7 @@ VibeTrader 采用的主要架构技术和设计模式包括：
 
 ### 保障驱动工程
 
-VibeTrader 正在逐步采用高保障思维：关键代码路径应具备可执行不变量，用来验证实际行为符合业务要求。具体而言，我们会：
+VibeTrading 正在逐步采用高保障思维：关键代码路径应具备可执行不变量，用来验证实际行为符合业务要求。具体而言，我们会：
 
 - 识别故障影响范围最大的组件（核心领域类型、风险和执行流程），并用自然语言明确其不变量。
 - 将这些不变量编码为在 CI 中运行的可执行检查（单元测试、属性测试、模糊测试、静态断言），同时保持反馈循环轻量。
@@ -51,7 +51,7 @@ VibeTrader 正在逐步采用高保障思维：关键代码路径应具备可执
 
 ### 仅崩溃设计
 
-VibeTrader 借鉴了[仅崩溃设计](https://en.wikipedia.org/wiki/Crash-only_software)原则，尤其用于处理不可恢复故障。其核心观点是：能够在崩溃后干净恢复的系统，比同时维护独立且很少经过测试的优雅关闭路径更稳健。
+VibeTrading 借鉴了[仅崩溃设计](https://en.wikipedia.org/wiki/Crash-only_software)原则，尤其用于处理不可恢复故障。其核心观点是：能够在崩溃后干净恢复的系统，比同时维护独立且很少经过测试的优雅关闭路径更稳健。
 
 关键原则：
 
@@ -77,7 +77,7 @@ VibeTrader 借鉴了[仅崩溃设计](https://en.wikipedia.org/wiki/Crash-only_s
 
 ### 数据完整性与快速失败策略
 
-对于交易操作，VibeTrader 将数据完整性置于可用性之上。系统对算术运算和数据处理采用严格的快速失败策略，防止静默数据损坏导致错误交易决策。
+对于交易操作，VibeTrading 将数据完整性置于可用性之上。系统对算术运算和数据处理采用严格的快速失败策略，防止静默数据损坏导致错误交易决策。
 
 #### 快速失败原则
 
@@ -97,7 +97,7 @@ VibeTrader 借鉴了[仅崩溃设计](https://en.wikipedia.org/wiki/Crash-only_s
 - 回测产生误导性结果。
 - 未被察觉的财务损失。
 
-通过在遇到无效数据时立即崩溃，VibeTrader 旨在提供：
+通过在遇到无效数据时立即崩溃，VibeTrading 旨在提供：
 
 1. **不发生静默损坏** - 快速失败策略旨在阻止无效数据传播；其效果取决于检查是否覆盖所有输入。
 2. **即时反馈** - 问题在开发和测试阶段暴露，而不是到生产环境才发现。
@@ -132,13 +132,13 @@ let price = serde_json::from_str("NaN"); // Error: "must be finite"
 let total_ns = timestamp1.checked_add(timestamp2)?; // Returns Option<UnixNanos>
 ```
 
-该策略贯穿核心类型（`UnixNanos`、`Price`、`Quantity` 等），帮助 VibeTrader 在生产交易中保持严格的数据正确性。
+该策略贯穿核心类型（`UnixNanos`、`Price`、`Quantity` 等），帮助 VibeTrading 在生产交易中保持严格的数据正确性。
 
 生产部署通常在发布构建中配置 `panic = abort`，确保任何 panic 都会干净终止进程，再由进程监督器或编排系统处理。这符合[仅崩溃设计](#仅崩溃设计)原则：不可恢复错误会触发立即重启，而不是让系统在可能损坏的状态下继续运行。
 
 ## 系统架构
 
-VibeTrader 代码库既是用于组合交易系统的框架，也提供了一组可在不同[环境上下文](#环境上下文)中运行的默认系统实现。
+VibeTrading 代码库既是用于组合交易系统的框架，也提供了一组可在不同[环境上下文](#环境上下文)中运行的默认系统实现。
 
 ### 核心组件
 
@@ -201,7 +201,7 @@ VibeTrader 代码库既是用于组合交易系统的框架，也提供了一组
 
 ### 环境上下文
 
-VibeTrader 中的环境上下文定义所使用的数据和交易场所类型。理解这些上下文对于回测、开发和实盘交易十分重要。
+VibeTrading 中的环境上下文定义所使用的数据和交易场所类型。理解这些上下文对于回测、开发和实盘交易十分重要。
 
 可用环境包括：
 
@@ -504,7 +504,7 @@ classDiagram
 
 ## 代码结构
 
-代码库以 `crates/` 目录中的 Rust 实现为基础。`python/vibe_trader/` 包提供公开的 Python 接口。PyO3 将 Rust 绑定汇集到该包使用的 `_libvibe` 扩展模块中。
+代码库以 `crates/` 目录中的 Rust 实现为基础。`python/vibe_trading/` 包提供公开的 Python 接口。PyO3 将 Rust 绑定汇集到该包使用的 `_libvibe` 扩展模块中。
 
 `vibe-core` 和 `vibe-model` crate 为原生使用方保留了可选的 C FFI。工作区中的其他 crate 使用 Rust API 或 PyO3 绑定。
 
@@ -512,7 +512,7 @@ classDiagram
 
 ```mermaid
 flowchart TB
-    subgraph trader["python/vibe_trader<br/>Python"]
+    subgraph trader["python/vibe_trading<br/>Python"]
     end
 
     subgraph bindings["crates/pyo3<br/>PyO3"]
@@ -623,7 +623,7 @@ PyO3 会验证绑定参数，并将 Rust 错误转换为 Python 异常：
 
 ### 错误与异常
 
-本文档力求涵盖 VibeTrader 代码可能抛出的所有异常及其触发条件。
+本文档力求涵盖 VibeTrading 代码可能抛出的所有异常及其触发条件。
 
 :::warning
 Python 标准库或第三方库依赖也可能抛出本文档未记录的其他异常。
@@ -649,9 +649,9 @@ Python 标准库或第三方库依赖也可能抛出本文档未记录的其他�
 
 Linux 和 Windows 上的 `vibe` CLI 与 Python wheel 使用 [mimalloc](https://github.com/microsoft/mimalloc) 进行 Rust 内存分配。macOS Python wheel 使用系统分配器，以保持与嵌入自有分配器的 Python 包兼容。视工作负载而定，回测引擎基准测试速度约提升 3% 至 44%，订单流密集路径获益最大。代价是 mimalloc 的分段缓存会使常驻内存略有增加。
 
-一个 Rust 二进制文件只链接一个全局分配器，库本身不会强制指定分配器，因此 VibeTrader crate 保持分配器中立。直接基于这些 crate 构建时，应在自己的二进制文件中选择启用（参见 [Rust 指南](rust.md#memory-allocator)）。
+一个 Rust 二进制文件只链接一个全局分配器，库本身不会强制指定分配器，因此 VibeTrading crate 保持分配器中立。直接基于这些 crate 构建时，应在自己的二进制文件中选择启用（参见 [Rust 指南](rust.md#memory-allocator)）。
 
 ## 相关指南
 
-- [概述](overview.md) - VibeTrader 的高层介绍。
+- [概述](overview.md) - VibeTrading 的高层介绍。
 - [消息总线](message_bus.md) - 核心消息传递基础设施。

@@ -11,86 +11,86 @@ from tests.unit.common.actor import OrderListCacheProbeStrategy
 from tests.unit.common.actor import PortfolioHedgedProbeStrategy
 from tests.unit.common.actor import PortfolioProbeStrategy
 from tests.unit.common.actor import TestStrategy
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.common import ComponentState
-from vibe_trader.common import CustomData
-from vibe_trader.common import Signal
-from vibe_trader.common import TimeEvent
-from vibe_trader.core import UUID4
-from vibe_trader.model import AccountId
-from vibe_trader.model import AccountType
-from vibe_trader.model import AggressorSide
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import BookAction
-from vibe_trader.model import BookOrder
-from vibe_trader.model import BookType
-from vibe_trader.model import ClientId
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import Currency
-from vibe_trader.model import DataType
-from vibe_trader.model import FundingRateUpdate
-from vibe_trader.model import IndexPriceUpdate
-from vibe_trader.model import InstrumentClose
-from vibe_trader.model import InstrumentCloseType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import InstrumentStatus
-from vibe_trader.model import LiquiditySide
-from vibe_trader.model import MarketStatusAction
-from vibe_trader.model import MarkPriceUpdate
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import OptionChainSlice
-from vibe_trader.model import OptionGreeks
-from vibe_trader.model import OptionSeriesId
-from vibe_trader.model import OrderAccepted
-from vibe_trader.model import OrderBook
-from vibe_trader.model import OrderBookDelta
-from vibe_trader.model import OrderBookDeltas
-from vibe_trader.model import OrderCanceled
-from vibe_trader.model import OrderCancelRejected
-from vibe_trader.model import OrderDenied
-from vibe_trader.model import OrderEmulated
-from vibe_trader.model import OrderExpired
-from vibe_trader.model import OrderFilled
-from vibe_trader.model import OrderInitialized
-from vibe_trader.model import OrderList
-from vibe_trader.model import OrderListId
-from vibe_trader.model import OrderModifyRejected
-from vibe_trader.model import OrderPendingCancel
-from vibe_trader.model import OrderPendingUpdate
-from vibe_trader.model import OrderRejected
-from vibe_trader.model import OrderReleased
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderSubmitted
-from vibe_trader.model import OrderTriggered
-from vibe_trader.model import OrderType
-from vibe_trader.model import OrderUpdated
-from vibe_trader.model import Position
-from vibe_trader.model import PositionChanged
-from vibe_trader.model import PositionClosed
-from vibe_trader.model import PositionId
-from vibe_trader.model import PositionOpened
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TradeId
-from vibe_trader.model import TraderId
-from vibe_trader.model import TradeTick
-from vibe_trader.model import Venue
-from vibe_trader.model import VenueOrderId
-from vibe_trader.trading import ForexSession
-from vibe_trader.trading import ImportableStrategyConfig
-from vibe_trader.trading import Strategy
-from vibe_trader.trading import StrategyConfig
-from vibe_trader.trading import fx_local_from_utc
-from vibe_trader.trading import fx_next_end
-from vibe_trader.trading import fx_next_start
-from vibe_trader.trading import fx_prev_end
-from vibe_trader.trading import fx_prev_start
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.common import ComponentState
+from vibe_trading.common import CustomData
+from vibe_trading.common import Signal
+from vibe_trading.common import TimeEvent
+from vibe_trading.core import UUID4
+from vibe_trading.model import AccountId
+from vibe_trading.model import AccountType
+from vibe_trading.model import AggressorSide
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import BookAction
+from vibe_trading.model import BookOrder
+from vibe_trading.model import BookType
+from vibe_trading.model import ClientId
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import Currency
+from vibe_trading.model import DataType
+from vibe_trading.model import FundingRateUpdate
+from vibe_trading.model import IndexPriceUpdate
+from vibe_trading.model import InstrumentClose
+from vibe_trading.model import InstrumentCloseType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import InstrumentStatus
+from vibe_trading.model import LiquiditySide
+from vibe_trading.model import MarketStatusAction
+from vibe_trading.model import MarkPriceUpdate
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import OptionChainSlice
+from vibe_trading.model import OptionGreeks
+from vibe_trading.model import OptionSeriesId
+from vibe_trading.model import OrderAccepted
+from vibe_trading.model import OrderBook
+from vibe_trading.model import OrderBookDelta
+from vibe_trading.model import OrderBookDeltas
+from vibe_trading.model import OrderCanceled
+from vibe_trading.model import OrderCancelRejected
+from vibe_trading.model import OrderDenied
+from vibe_trading.model import OrderEmulated
+from vibe_trading.model import OrderExpired
+from vibe_trading.model import OrderFilled
+from vibe_trading.model import OrderInitialized
+from vibe_trading.model import OrderList
+from vibe_trading.model import OrderListId
+from vibe_trading.model import OrderModifyRejected
+from vibe_trading.model import OrderPendingCancel
+from vibe_trading.model import OrderPendingUpdate
+from vibe_trading.model import OrderRejected
+from vibe_trading.model import OrderReleased
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderSubmitted
+from vibe_trading.model import OrderTriggered
+from vibe_trading.model import OrderType
+from vibe_trading.model import OrderUpdated
+from vibe_trading.model import Position
+from vibe_trading.model import PositionChanged
+from vibe_trading.model import PositionClosed
+from vibe_trading.model import PositionId
+from vibe_trading.model import PositionOpened
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TradeId
+from vibe_trading.model import TraderId
+from vibe_trading.model import TradeTick
+from vibe_trading.model import Venue
+from vibe_trading.model import VenueOrderId
+from vibe_trading.trading import ForexSession
+from vibe_trading.trading import ImportableStrategyConfig
+from vibe_trading.trading import Strategy
+from vibe_trading.trading import StrategyConfig
+from vibe_trading.trading import fx_local_from_utc
+from vibe_trading.trading import fx_next_end
+from vibe_trading.trading import fx_next_start
+from vibe_trading.trading import fx_prev_end
+from vibe_trading.trading import fx_prev_start
 
 
 HISTORICAL_REQUEST_DATETIME_CASES = [
@@ -257,7 +257,7 @@ def test_strategy_order_factory_returns_registered_factory():
         engine.add_strategy_from_config(
             ImportableStrategyConfig(
                 strategy_path="tests.unit.common.actor:OrderFactoryProbeStrategy",
-                config_path="vibe_trader.trading:StrategyConfig",
+                config_path="vibe_trading.trading:StrategyConfig",
                 config={},
             ),
         )
@@ -348,7 +348,7 @@ def test_strategy_can_recover_order_list_id_from_cache():
         engine.add_strategy_from_config(
             ImportableStrategyConfig(
                 strategy_path="tests.unit.common.actor:OrderListCacheProbeStrategy",
-                config_path="vibe_trader.trading:StrategyConfig",
+                config_path="vibe_trading.trading:StrategyConfig",
                 config={},
             ),
         )
@@ -362,7 +362,7 @@ def test_strategy_can_recover_order_list_id_from_cache():
         assert order_list is not None
         assert order_lists == [order_list]
         assert type(order_list) is OrderList
-        assert OrderList.__module__ == "vibe_trader.model"
+        assert OrderList.__module__ == "vibe_trading.model"
         assert isinstance(order_list_id, OrderListId)
         assert order_list.id == order_list_id
         assert order_list.instrument_id == instrument.id
@@ -405,7 +405,7 @@ def test_strategy_portfolio_returns_registered_kernel_portfolio():
         engine.add_strategy_from_config(
             ImportableStrategyConfig(
                 strategy_path="tests.unit.common.actor:PortfolioProbeStrategy",
-                config_path="vibe_trader.trading:StrategyConfig",
+                config_path="vibe_trading.trading:StrategyConfig",
                 config={},
             ),
         )
@@ -451,7 +451,7 @@ def test_strategy_portfolio_rejects_unsupported_query_arguments():
         engine.add_strategy_from_config(
             ImportableStrategyConfig(
                 strategy_path="tests.unit.common.actor:PortfolioProbeStrategy",
-                config_path="vibe_trader.trading:StrategyConfig",
+                config_path="vibe_trading.trading:StrategyConfig",
                 config={},
             ),
         )
@@ -516,7 +516,7 @@ def test_strategy_portfolio_flat_methods_net_hedged_positions():
         engine.add_strategy_from_config(
             ImportableStrategyConfig(
                 strategy_path="tests.unit.common.actor:PortfolioHedgedProbeStrategy",
-                config_path="vibe_trader.trading:StrategyConfig",
+                config_path="vibe_trading.trading:StrategyConfig",
                 config={},
             ),
         )
@@ -850,7 +850,7 @@ def test_strategy_historical_requests_accept_datetimes_when_registered(request_t
     engine.add_strategy_from_config(
         ImportableStrategyConfig(
             strategy_path="tests.unit.trading.test_trading:HistoricalRequestProbeStrategy",
-            config_path="vibe_trader.trading:StrategyConfig",
+            config_path="vibe_trading.trading:StrategyConfig",
             config={},
         ),
     )

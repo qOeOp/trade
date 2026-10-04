@@ -7,8 +7,8 @@ import textwrap
 
 
 def test_portfolio_public_module_exports_pyo3_classes():
-    portfolio = importlib.import_module("vibe_trader.portfolio")
-    native_portfolio = importlib.import_module("vibe_trader._libvibe.portfolio")
+    portfolio = importlib.import_module("vibe_trading.portfolio")
+    native_portfolio = importlib.import_module("vibe_trading._libvibe.portfolio")
 
     assert portfolio.Portfolio is native_portfolio.Portfolio
     assert portfolio.PortfolioConfig is native_portfolio.PortfolioConfig
@@ -17,7 +17,7 @@ def test_portfolio_public_module_exports_pyo3_classes():
 
 
 def test_portfolio_config_defaults_equity_curve_on_and_allows_opt_out():
-    from vibe_trader.portfolio import PortfolioConfig
+    from vibe_trading.portfolio import PortfolioConfig
 
     default = PortfolioConfig()
     disabled = PortfolioConfig(equity_curve=False)
@@ -32,13 +32,13 @@ def test_portfolio_public_module_sets_runtime_module_names():
         """
         import importlib
 
-        portfolio = importlib.import_module("vibe_trader.portfolio")
-        native_portfolio = importlib.import_module("vibe_trader._libvibe.portfolio")
+        portfolio = importlib.import_module("vibe_trading.portfolio")
+        native_portfolio = importlib.import_module("vibe_trading._libvibe.portfolio")
 
         assert portfolio.Portfolio is native_portfolio.Portfolio
         assert portfolio.PortfolioConfig is native_portfolio.PortfolioConfig
-        assert portfolio.Portfolio.__module__ == "vibe_trader.portfolio"
-        assert portfolio.PortfolioConfig.__module__ == "vibe_trader.portfolio"
+        assert portfolio.Portfolio.__module__ == "vibe_trading.portfolio"
+        assert portfolio.PortfolioConfig.__module__ == "vibe_trading.portfolio"
         """,
     )
 
@@ -53,10 +53,10 @@ def test_portfolio_public_module_sets_runtime_module_names():
 
 
 def test_live_reexports_portfolio_config_for_compatibility():
-    from vibe_trader.backtest import BacktestEngineConfig
-    from vibe_trader.live import LiveNodeConfig
-    from vibe_trader.live import PortfolioConfig as LivePortfolioConfig
-    from vibe_trader.portfolio import PortfolioConfig
+    from vibe_trading.backtest import BacktestEngineConfig
+    from vibe_trading.live import LiveNodeConfig
+    from vibe_trading.live import PortfolioConfig as LivePortfolioConfig
+    from vibe_trading.portfolio import PortfolioConfig
 
     live_config = LiveNodeConfig(portfolio=LivePortfolioConfig())
     backtest_config = BacktestEngineConfig(portfolio=PortfolioConfig())

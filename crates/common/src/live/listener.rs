@@ -9,10 +9,10 @@ use crate::{
     msgbus::{BusMessage, BusPayloadType, MStr, Topic},
 };
 
-#[cfg_attr(feature = "python", pyo3::pyclass(module = "vibe_trader.common"))]
+#[cfg_attr(feature = "python", pyo3::pyclass(module = "vibe_trading.common"))]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")
 )]
 #[derive(Debug)]
 pub struct MessageBusListener {

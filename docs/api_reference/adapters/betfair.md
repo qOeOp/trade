@@ -1,7 +1,7 @@
 # Betfair
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.betfair
+.. automodule:: vibe_trading.adapters.betfair
    :show-inheritance:
    :inherited-members:
    :members:

@@ -117,14 +117,14 @@ let selection = BettingInstrument::builder()
 ```python tab="Python"
 import pandas as pd
 
-from vibe_trader.model import BettingInstrument
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Money
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
-from vibe_trader.model import Venue
+from vibe_trading.model import BettingInstrument
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Money
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
+from vibe_trading.model import Venue
 
 GBP = Currency.from_str("GBP")
 

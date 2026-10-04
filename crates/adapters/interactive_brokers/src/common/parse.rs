@@ -531,7 +531,7 @@ pub fn exchange_to_mic_venue(exchange: &str) -> Option<String> {
     })
 }
 
-/// Convert a VibeTrader `InstrumentId` to an Interactive Brokers `Contract`.
+/// Convert a VibeTrading `InstrumentId` to an Interactive Brokers `Contract`.
 ///
 /// This function handles all instrument types:
 /// - Stocks (STK)

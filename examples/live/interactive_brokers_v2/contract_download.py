@@ -8,7 +8,7 @@ from _common import env_int
 from _common import instrument_provider_config
 from _common import resolve_ib_endpoint
 
-from vibe_trader.adapters import interactive_brokers
+from vibe_trading.adapters import interactive_brokers
 
 
 async def main() -> None:

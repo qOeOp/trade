@@ -5,7 +5,7 @@ pub mod sizing;
 
 use pyo3::prelude::*;
 
-/// Exposed through `vibe_trader.risk`.
+/// Exposed through `vibe_trading.risk`.
 ///
 /// # Errors
 ///

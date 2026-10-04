@@ -57,10 +57,10 @@ def publish_signal(self, name: str, value, ts_event: int = 0) -> None:
 
 ## 消息传递方式
 
-VibeTrader 是一个**事件驱动**框架，组件通过收发消息进行通信。
+VibeTrading 是一个**事件驱动**框架，组件通过收发消息进行通信。
 理解不同的消息传递方式有助于构建交易系统。
 
-本指南介绍 VibeTrader 提供的三种主要消息传递模式：
+本指南介绍 VibeTrading 提供的三种主要消息传递模式：
 
 | **消息传递方式**              | **用途**           | **最适合**                           |
 | :---------------------------- | :----------------- | :----------------------------------- |
@@ -74,7 +74,7 @@ VibeTrader 是一个**事件驱动**框架，组件通过收发消息进行通�
 
 #### 概念
 
-`MessageBus` 是 VibeTrader 中所有消息的中央枢纽。Rust 组件可以向命名主题发布类型化消息，并为这些主题订阅处理程序。当前 Python Actor 或策略接口不包含此底层接口。
+`MessageBus` 是 VibeTrading 中所有消息的中央枢纽。Rust 组件可以向命名主题发布类型化消息，并为这些主题订阅处理程序。当前 Python Actor 或策略接口不包含此底层接口。
 
 #### 主要优势和用例
 
@@ -104,7 +104,7 @@ VibeTrader 是一个**事件驱动**框架，组件通过收发消息进行通�
 
 - **交换结构化交易数据**，例如市场数据、指标、自定义度量或期权希腊字母指标。
 - 通过内置时间戳（`ts_event`、`ts_init`）实现**正确的事件顺序**，这对于回测准确性至关重要。
-- 通过 `@customdataclass` 装饰器实现**数据持久化和序列化**，并与 VibeTrader 数据目录系统集成。
+- 通过 `@customdataclass` 装饰器实现**数据持久化和序列化**，并与 VibeTrading 数据目录系统集成。
 - 在系统组件之间**标准化交换交易数据**。
 
 #### 注意事项
@@ -117,8 +117,8 @@ VibeTrader 是一个**事件驱动**框架，组件通过收发消息进行通�
 ```python
 from dataclasses import dataclass
 
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
 
 
 @dataclass
@@ -181,8 +181,8 @@ def on_data(self, data: CustomData) -> None:
 # Define signal constants for better organization (optional but recommended)
 import types
 
-from vibe_trader.common import LogColor
-from vibe_trader.core.datetime import unix_nanos_to_dt
+from vibe_trading.common import LogColor
+from vibe_trading.core.datetime import unix_nanos_to_dt
 
 signals = types.SimpleNamespace()
 signals.NEW_HIGHEST_PRICE = "NewHighestPriceReached"
@@ -397,9 +397,9 @@ Redis 不支持通配符流主题。为提高与 Redis 的兼容性，建议将�
 要启用此过滤机制，请向消息总线配置的 `types_filter` 参数传入 `type` 对象列表，指定应从外部发布中排除的消息类型。
 
 ```python
-from vibe_trader.config import MessageBusConfig
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import TradeTick
+from vibe_trading.config import MessageBusConfig
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import TradeTick
 
 # Create a MessageBusConfig instance with types filtering
 message_bus = MessageBusConfig(types_filter=[QuoteTick, TradeTick])

@@ -1,6 +1,6 @@
 # FFI 内存契约
 
-VibeTrader 仅通过 `vibe-core` 和 `vibe-model` 暴露 C 外部函数接口（FFI）。这两个 crate
+VibeTrading 仅通过 `vibe-core` 和 `vibe-model` 暴露 C 外部函数接口（FFI）。这两个 crate
 都使用各自的 `ffi` Cargo feature 控制该接口，并将导出模块分别放在
 `crates/core/src/ffi/` 和 `crates/model/src/ffi/` 下。
 

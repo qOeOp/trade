@@ -2,7 +2,7 @@
 
 :::note[Layer]
 These pages describe the inherited engine: the component model that `crates` and
-`python/vibe_trader` implement today. They are accurate about that layer, and they are kept for
+`python/vibe_trading` implement today. They are accurate about that layer, and they are kept for
 people working in it.
 
 They are not the platform's architecture of record. Where a page here and an Owner contract answer
@@ -10,7 +10,7 @@ the same question differently, the Owner contract governs. Boundaries are set by
 `docs/architecture/`; each business fact and its single writer are set by `docs/owners/`.
 :::
 
-VibeTrader supports a broad set of order types and execution instructions, exposing as much
+VibeTrading supports a broad set of order types and execution instructions, exposing as much
 of a trading venue's functionality as possible. Traders can define instructions and contingencies
 for order execution and management across any trading strategy.
 
@@ -20,11 +20,11 @@ All order types are derived from two fundamentals: *Market* and *Limit* orders. 
 *Market* orders consume liquidity by executing immediately at the best available price, whereas *Limit*
 orders provide liquidity by resting in the order book at a specified price until matched.
 
-VibeTrader supports nine order types (the `OrderType` enum values), summarized under
+VibeTrading supports nine order types (the `OrderType` enum values), summarized under
 [Order types](#order-types) with a dedicated guide for each.
 
 :::info
-VibeTrader provides a unified API for many order types and execution instructions, but not all venues support every option.
+VibeTrading provides a unified API for many order types and execution instructions, but not all venues support every option.
 If an order includes an instruction or option the target venue does not support, the system does not submit it.
 Instead, it logs a clear, explanatory error.
 :::
@@ -228,11 +228,11 @@ apply to the order type being created, or are only needed to specify more advanc
 This leaves the factory with simpler order creation methods to work with, all the
 examples use an `OrderFactory` from within a `Strategy` context.
 
-See the [`OrderFactory` API Reference](/docs/python-api-latest/common.html#vibe_trader.common.factories.OrderFactory) for further details.
+See the [`OrderFactory` API Reference](/docs/python-api-latest/common.html#vibe_trading.common.factories.OrderFactory) for further details.
 
 ## Order types
 
-VibeTrader supports the following order types. Each links to a dedicated guide with a code
+VibeTrading supports the following order types. Each links to a dedicated guide with a code
 example; optional parameters are marked with a comment showing the default value.
 
 | Order type                                        | Category             | Description                                                                 |
@@ -276,7 +276,7 @@ bracket orders attach take-profit and stop-loss children to an entry. See the
 
 ## Emulated orders
 
-VibeTrader can locally emulate order types that a venue does not natively support, using only
+VibeTrading can locally emulate order types that a venue does not natively support, using only
 `MARKET` and `LIMIT` orders for actual execution. See the [Emulated orders](emulated.md) guide for
 the emulation lifecycle, supported types, querying, and best practices.
 

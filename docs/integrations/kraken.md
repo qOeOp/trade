@@ -45,7 +45,7 @@ Kraken provides detailed documentation for users:
 - [Kraken Spot REST API](https://docs.kraken.com/api/docs/guides/spot-rest-intro)
 - [Kraken Futures REST API](https://docs.kraken.com/api/docs/futures-api)
 
-Refer to the Kraken documentation in conjunction with this VibeTrader
+Refer to the Kraken documentation in conjunction with this VibeTrading
 integration guide.
 
 ## Products
@@ -143,7 +143,7 @@ currency (e.g., `ETH/XBT` to `ETH/BTC`). Futures retain Kraken's native `XBT` fo
 
 ### Spot markets
 
-VibeTrader uses ISO 4217-A3 format for Kraken Spot instrument symbols,
+VibeTrading uses ISO 4217-A3 format for Kraken Spot instrument symbols,
 which provides a standardized representation across exchanges. The adapter
 handles translation to Kraken's native format internally.
 
@@ -204,7 +204,7 @@ InstrumentId.from_str("PF_XBTUSD.KRAKEN")  # Perpetual fixed-margin BTC
 Kraken exposes Spot per-order book data via the WebSocket v2 `level3` channel at
 `wss://ws-l3.kraken.com/v2`. This gives venue order IDs, per-order quantities,
 and true incremental events (`add`, `modify`, `delete`). The adapter hashes each
-venue order ID into the `u64` `BookOrder.order_id` field used by VibeTrader.
+venue order ID into the `u64` `BookOrder.order_id` field used by VibeTrading.
 
 ### Prerequisites
 
@@ -213,7 +213,7 @@ is authenticated. Set them in `KrakenDataClientConfig` or via
 `KRAKEN_SPOT_API_KEY` and `KRAKEN_SPOT_API_SECRET`:
 
 ```python
-from vibe_trader.adapters.kraken import KrakenDataClientConfig
+from vibe_trading.adapters.kraken import KrakenDataClientConfig
 
 config = KrakenDataClientConfig(
     api_key="YOUR_KEY",
@@ -224,7 +224,7 @@ config = KrakenDataClientConfig(
 Then subscribe with `book_type=BookType.L3_MBO`:
 
 ```python
-from vibe_trader.model import BookType
+from vibe_trading.model import BookType
 
 await client.subscribe_book_deltas(
     instrument_id=instrument_id,
@@ -503,9 +503,9 @@ trading).
 **Configuration:**
 
 ```python
-from vibe_trader.adapters.kraken import KrakenExecClientConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.kraken import KrakenExecClientConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 exec_config = KrakenExecClientConfig(
@@ -537,10 +537,10 @@ order submission. Margin trading is enabled per-execution-client via
 ### Configuration
 
 ```python
-from vibe_trader.adapters.kraken import KrakenExecClientConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import AccountType
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.kraken import KrakenExecClientConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import AccountType
+from vibe_trading.model import TraderId
 
 
 exec_config = KrakenExecClientConfig(

@@ -152,14 +152,14 @@ pub enum OKXOrderType {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXOrderStatus {
     Canceled,
@@ -246,14 +246,14 @@ impl From<LiquiditySide> for OKXExecType {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXInstrumentType {
     #[default]
@@ -423,14 +423,14 @@ pub enum OKXSpreadState {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXContractType {
     #[serde(rename = "")]
@@ -509,14 +509,14 @@ impl TryFrom<OKXOptionType> for OptionKind {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXGreeksType {
     /// Black-Scholes greeks in USD.
@@ -580,14 +580,14 @@ impl From<OKXGreeksType> for GreeksConvention {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXTradeMode {
     #[default]
@@ -656,14 +656,14 @@ pub enum OKXAccountMode {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXMarginMode {
     #[serde(rename = "")]
@@ -698,14 +698,14 @@ pub enum OKXMarginMode {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXPositionMode {
     #[default]
@@ -1060,14 +1060,14 @@ pub enum OKXRpiPermission {
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXVipLevel {
     /// VIP level 0 (default tier).
@@ -1305,14 +1305,14 @@ pub fn conditional_order_to_algo_type(order_type: OrderType) -> anyhow::Result<O
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXAlgoOrderStatus {
     Live,
@@ -1542,14 +1542,14 @@ pub enum OKXQuickMarginType {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXEnvironment {
     /// Live trading environment.
@@ -1586,14 +1586,14 @@ pub enum OKXEnvironment {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.okx",
+        module = "vibe_trading.adapters.okx",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.okx")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.okx")
 )]
 pub enum OKXRegion {
     /// Global endpoints (accounts registered on www.okx.com).

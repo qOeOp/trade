@@ -148,7 +148,7 @@ impl AxMarketDataLevel {
     }
 }
 
-/// Exposed through `vibe_trader.adapters.architect_ax`.
+/// Exposed through `vibe_trading.adapters.architect_ax`.
 ///
 /// # Errors
 ///

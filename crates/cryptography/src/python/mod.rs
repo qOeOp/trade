@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 
 use crate::python;
 
-/// Exposed through `vibe_trader.cryptography`.
+/// Exposed through `vibe_trading.cryptography`.
 ///
 /// # Errors
 ///

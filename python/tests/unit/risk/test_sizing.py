@@ -3,12 +3,12 @@ from decimal import Decimal
 import pytest
 
 from tests.providers import TestInstrumentProvider
-from vibe_trader.model import Currency
-from vibe_trader.model import Money
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.risk import FixedRiskSizer
-from vibe_trader.risk import PositionSizer
+from vibe_trading.model import Currency
+from vibe_trading.model import Money
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.risk import FixedRiskSizer
+from vibe_trading.risk import PositionSizer
 
 
 USD = Currency.from_str("USD")

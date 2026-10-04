@@ -13,22 +13,22 @@ from __future__ import annotations
 import argparse
 from decimal import Decimal
 
-from vibe_trader.adapters.dydx import DydxDataClientConfig
-from vibe_trader.adapters.dydx import DydxDataClientFactory
-from vibe_trader.adapters.dydx import DydxExecClientConfig
-from vibe_trader.adapters.dydx import DydxExecutionClientFactory
-from vibe_trader.adapters.dydx import DydxNetwork
-from vibe_trader.common import Environment
-from vibe_trader.config import LiveRiskEngineConfig
-from vibe_trader.live import LiveNode
-from vibe_trader.model import AccountId
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Quantity
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import ExecTesterConfig
+from vibe_trading.adapters.dydx import DydxDataClientConfig
+from vibe_trading.adapters.dydx import DydxDataClientFactory
+from vibe_trading.adapters.dydx import DydxExecClientConfig
+from vibe_trading.adapters.dydx import DydxExecutionClientFactory
+from vibe_trading.adapters.dydx import DydxNetwork
+from vibe_trading.common import Environment
+from vibe_trading.config import LiveRiskEngineConfig
+from vibe_trading.live import LiveNode
+from vibe_trading.model import AccountId
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Quantity
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import ExecTesterConfig
 
 
 DYDX = "DYDX"

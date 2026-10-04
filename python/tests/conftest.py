@@ -3,15 +3,15 @@ from pathlib import Path
 
 import pytest
 
-from vibe_trader.common import LogLevel
-from vibe_trader.common import init_logging
-from vibe_trader.core import UUID4
-from vibe_trader.model import AccountId
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TraderId
-from vibe_trader.model import Venue
+from vibe_trading.common import LogLevel
+from vibe_trading.common import init_logging
+from vibe_trading.core import UUID4
+from vibe_trading.model import AccountId
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TraderId
+from vibe_trading.model import Venue
 
 
 # Add tests/ to sys.path so test strategies are importable by the engine

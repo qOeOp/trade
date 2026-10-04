@@ -22,12 +22,12 @@ use crate::{factories::OrderFactory, python::clock::PyClock};
 /// Wrapper providing shared access to [`OrderFactory`] from Python.
 #[allow(non_camel_case_types)]
 #[pyo3::pyclass(
-    module = "vibe_trader.common",
+    module = "vibe_trading.common",
     name = "OrderFactory",
     unsendable,
     from_py_object
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")]
 #[derive(Debug, Clone)]
 pub struct PyOrderFactory(Rc<RefCell<OrderFactory>>);
 

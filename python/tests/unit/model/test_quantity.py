@@ -4,10 +4,10 @@ from decimal import Decimal
 
 import pytest
 
-from vibe_trader.model import FIXED_PRECISION
-from vibe_trader.model import HIGH_PRECISION
-from vibe_trader.model import PRECISION_BYTES
-from vibe_trader.model import Quantity
+from vibe_trading.model import FIXED_PRECISION
+from vibe_trading.model import HIGH_PRECISION
+from vibe_trading.model import PRECISION_BYTES
+from vibe_trading.model import Quantity
 
 
 def test_nan_raises():

@@ -411,11 +411,11 @@ Python 执行配置按以下方式选择交易模式：
 | 衍生品   | `cross`    | `margin_mode=OKXMarginMode.CROSS`。             |
 
 ```python
-from vibe_trader.adapters.okx import OKXExecClientConfig
-from vibe_trader.adapters.okx import OKXInstrumentType
-from vibe_trader.adapters.okx import OKXMarginMode
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.okx import OKXExecClientConfig
+from vibe_trading.adapters.okx import OKXInstrumentType
+from vibe_trading.adapters.okx import OKXMarginMode
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 exec_config = OKXExecClientConfig(
@@ -654,8 +654,8 @@ OKX 通过 `instType=EVENTS` 提供预测市场合约。适配器将这些金融
 在数据或执行客户端配置中使用 `OKXInstrumentType.EVENTS`。适配器先请求事件合约系列列表，再请求每个系列的金融工具。
 
 ```python
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXInstrumentType
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXInstrumentType
 
 
 data_config = OKXDataClientConfig(instrument_types=[OKXInstrumentType.EVENTS])
@@ -743,8 +743,8 @@ export OKX_API_PASSPHRASE="your_demo_passphrase"
 在客户端配置中设置 `environment=OKXEnvironment.DEMO`：
 
 ```python
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXEnvironment
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXEnvironment
 
 
 data_config = OKXDataClientConfig(environment=OKXEnvironment.DEMO)
@@ -772,8 +772,8 @@ OKX 为各区域提供不同的端点，API 密钥仅对其注册区域有效（
 `region` 默认为 `GLOBAL`。例如，对于 EEA 账户：
 
 ```python
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXRegion
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXRegion
 
 
 data_config = OKXDataClientConfig(region=OKXRegion.EEA)
@@ -919,7 +919,7 @@ OKX 执行客户端提供以下配置选项：
 | ------------------------ | --------------------------- | ------------------------------------- |
 | `instrument_types`       | `(OKXInstrumentType.SPOT,)` | 可交易的 OKX 金融工具类型。           |
 | `load_spreads`           | `False`                     | 加载实时价差金融工具。                |
-| `trader_id`              | 必填                        | 客户端的 Vibe trader ID。             |
+| `trader_id`              | 必填                        | 客户端的 Vibe Trading ID。            |
 | `account_id`             | 必填                        | 客户端的 Vibe account ID。            |
 | `base_url_http`          | `None`                      | 覆盖 OKX 交易 REST 端点。             |
 | `base_url_ws_private`    | `None`                      | 覆盖私有 WebSocket URL。              |

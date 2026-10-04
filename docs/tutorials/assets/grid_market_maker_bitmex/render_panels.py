@@ -30,31 +30,31 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from vibe_trader.adapters.tardis.loaders import TardisCSVDataLoader
-from vibe_trader.analysis.tearsheet import _write_figure
-from vibe_trader.analysis.themes import get_theme
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.common import DataActor
-from vibe_trader.common import LogLevel
-from vibe_trader.config import DataActorConfig
-from vibe_trader.config import LoggerConfig
-from vibe_trader.examples.strategies.grid_market_maker import GridMarketMaker
-from vibe_trader.examples.strategies.grid_market_maker import GridMarketMakerConfig
-from vibe_trader.model.currencies import BTC
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.data import QuoteTick
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import AssetClass
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.instruments import PerpetualContract
-from vibe_trader.model.objects import Money
-from vibe_trader.model.objects import Price
-from vibe_trader.model.objects import Quantity
+from vibe_trading.adapters.tardis.loaders import TardisCSVDataLoader
+from vibe_trading.analysis.tearsheet import _write_figure
+from vibe_trading.analysis.themes import get_theme
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.common import DataActor
+from vibe_trading.common import LogLevel
+from vibe_trading.config import DataActorConfig
+from vibe_trading.config import LoggerConfig
+from vibe_trading.examples.strategies.grid_market_maker import GridMarketMaker
+from vibe_trading.examples.strategies.grid_market_maker import GridMarketMakerConfig
+from vibe_trading.model.currencies import BTC
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.data import QuoteTick
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import AssetClass
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.instruments import PerpetualContract
+from vibe_trading.model.objects import Money
+from vibe_trading.model.objects import Price
+from vibe_trading.model.objects import Quantity
 
 
 OUT = Path(__file__).resolve().parent

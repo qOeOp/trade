@@ -2,7 +2,7 @@
 title: "使用外汇柱数据回测"
 ---
 
-使用外汇展期利息和概率成交模型，在 USD/JPY 一分钟买价/卖价柱上运行 EMA 交叉策略。数据随 VibeTrader 测试工具包提供，因此本教程无需下载外部数据即可运行。
+使用外汇展期利息和概率成交模型，在 USD/JPY 一分钟买价/卖价柱上运行 EMA 交叉策略。数据随 VibeTrading 测试工具包提供，因此本教程无需下载外部数据即可运行。
 
 [在 GitHub 上查看源代码](https://github.com/qOeOp/trade/blob/main/docs/tutorials/backtest_fx_bars.py)。
 
@@ -59,31 +59,31 @@ flowchart LR
 ## 先决条件
 
 - Python 3.12+
-- 本地 Vibe Trader 源码构建（`make build-debug`）。只有需要重新生成教程末尾的图表时，才需要额外安装 `visualization`。
+- 本地 Vibe Trading 源码构建（`make build-debug`）。只有需要重新生成教程末尾的图表时，才需要额外安装 `visualization`。
 
 ```python
 from decimal import Decimal
 
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import FXRolloverInterestModule
-from vibe_trader.backtest import InterestRateRecord
-from vibe_trader.config import LoggerConfig
-from vibe_trader.config import RiskEngineConfig
-from vibe_trader.execution import ProbabilisticFillModel
-from vibe_trader.examples.strategies.ema_cross import EMACross
-from vibe_trader.examples.strategies.ema_cross import EMACrossConfig
-from vibe_trader.model import BarType
-from vibe_trader.model import Money
-from vibe_trader.model import Venue
-from vibe_trader.model.currencies import JPY
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.persistence.wranglers import QuoteTickDataWrangler
-from vibe_trader.test_kit.providers import TestDataProvider
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import FXRolloverInterestModule
+from vibe_trading.backtest import InterestRateRecord
+from vibe_trading.config import LoggerConfig
+from vibe_trading.config import RiskEngineConfig
+from vibe_trading.execution import ProbabilisticFillModel
+from vibe_trading.examples.strategies.ema_cross import EMACross
+from vibe_trading.examples.strategies.ema_cross import EMACrossConfig
+from vibe_trading.model import BarType
+from vibe_trading.model import Money
+from vibe_trading.model import Venue
+from vibe_trading.model.currencies import JPY
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.persistence.wranglers import QuoteTickDataWrangler
+from vibe_trading.test_kit.providers import TestDataProvider
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 ```
 
 ## 引擎设置

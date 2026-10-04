@@ -4,18 +4,18 @@ from decimal import Decimal
 from strategy import DemoStrategy
 
 from examples.utils.data_provider import prepare_demo_data_eurusd_futures_1min
-from vibe_trader.backtest.engine import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import TraderId
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.instruments.base import Instrument
-from vibe_trader.model.objects import Money
+from vibe_trading.backtest.engine import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import TraderId
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.instruments.base import Instrument
+from vibe_trading.model.objects import Money
 
 
 if __name__ == "__main__":

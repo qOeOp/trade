@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from vibe_trader.config import StrategyConfig
-from vibe_trader.model import (
+from vibe_trading.config import StrategyConfig
+from vibe_trading.model import (
     BookType,
     InstrumentId,
     OrderBookDeltas,
@@ -18,7 +18,7 @@ from vibe_trader.model import (
     Quantity,
     TimeInForce,
 )
-from vibe_trader.trading import Strategy
+from vibe_trading.trading import Strategy
 
 
 class OrderBookImbalanceConfig(StrategyConfig):

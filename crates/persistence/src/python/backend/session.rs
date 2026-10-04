@@ -21,7 +21,7 @@ unsafe impl<T> Send for SendPtr<T> {}
 
 #[repr(C)]
 #[pyclass(frozen, eq, eq_int, from_py_object)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.persistence")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.persistence")]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum VibeDataType {
     // Custom = 0,  # First slot reserved for custom data

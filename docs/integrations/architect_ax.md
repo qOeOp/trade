@@ -37,7 +37,7 @@ and won't need to necessarily work with these lower level components directly.
 AX Exchange provides documentation for users which can be found at the
 [Architect documentation site](https://docs.architect.exchange/).
 It's recommended you also refer to the AX Exchange documentation in conjunction with this
-VibeTrader integration guide.
+VibeTrading integration guide.
 
 ## Products
 
@@ -90,7 +90,7 @@ symbols use the `-PERP` suffix. Dated symbols include their year and contract mo
 The venue identifier is `AX`. To construct a Vibe `InstrumentId`:
 
 ```python
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import InstrumentId
 
 instrument_id = InstrumentId.from_str("EURUSD-PERP.AX")
 ```
@@ -460,7 +460,7 @@ credentials are valid and have trading permissions.
   rejects rows with neither an order ID nor explicit special-fill classification, and rejects
   inconsistent classification.
 - **Unfilled IOC/FOK**: AX reports an unfilled immediate order as an expiry; the adapter maps
-  it to `OrderCanceled` to match VibeTrader semantics.
+  it to `OrderCanceled` to match VibeTrading semantics.
 
 ## Contributing
 

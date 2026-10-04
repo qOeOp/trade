@@ -1,6 +1,6 @@
 # Databento
 
-VibeTrader includes an adapter for the [Databento](https://databento.com/) API
+VibeTrading includes an adapter for the [Databento](https://databento.com/) API
 and for data in
 [Databento Binary Encoding (DBN)](https://databento.com/docs/standards-and-conventions/databento-binary-encoding).
 Databento is a market data provider only. The adapter does not include an execution client,
@@ -78,7 +78,7 @@ The adapter decodes DBN data to Vibe objects. The same Rust decoder handles:
 
 ## Supported schemas
 
-The following Databento schemas are supported by VibeTrader:
+The following Databento schemas are supported by VibeTrading:
 
 | Databento schema                                                             | Vibe data type                   | Description                     |
 | :--------------------------------------------------------------------------- | :------------------------------- | :------------------------------ |
@@ -240,10 +240,10 @@ The examples below assume a `Strategy` or `DataActor` context where `self` has
 subscription methods. Import the required types:
 
 ```python
-from vibe_trader.model import BarType
-from vibe_trader.model import BookType
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import BarType
+from vibe_trading.model import BookType
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
 
 
 DATABENTO_CLIENT_ID = ClientId.from_str("DATABENTO")
@@ -310,7 +310,7 @@ self.subscribe_trades(
 ### Order book depth subscriptions (MBP and L2)
 
 ```python
-from vibe_trader.model import BookType
+from vibe_trading.model import BookType
 
 
 # Subscribe to top 10 levels of market depth
@@ -356,10 +356,10 @@ self.subscribe_bars(bar_type=BarType.from_str(f"{instrument_id}-1-DAY-LAST-EXTER
 Imbalance and statistics data require the generic `subscribe_data` method:
 
 ```python
-from vibe_trader.adapters.databento import DatabentoImbalance
-from vibe_trader.adapters.databento import DatabentoStatistics
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.databento import DatabentoImbalance
+from vibe_trading.adapters.databento import DatabentoStatistics
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 
 DATABENTO_CLIENT_ID = ClientId.from_str("DATABENTO")
@@ -612,15 +612,15 @@ the interval open.
 The `imbalance` and `statistics` schemas have no built-in Vibe equivalents.
 The adapter defines `DatabentoImbalance` and `DatabentoStatistics` in Rust.
 
-Python bindings expose these types directly from `vibe_trader.adapters.databento`.
+Python bindings expose these types directly from `vibe_trading.adapters.databento`.
 
 Requesting and subscribing to these types requires the generic `subscribe_data`
 method. Subscribe to `imbalance` for `AAPL.XNAS`:
 
 ```python
-from vibe_trader.adapters.databento import DatabentoImbalance
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.databento import DatabentoImbalance
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 
 DATABENTO_CLIENT_ID = ClientId.from_str("DATABENTO")
@@ -638,9 +638,9 @@ Request a bounded range of `statistics` for the `ES.FUT` parent symbol
 endpoint before real historical pulls:
 
 ```python
-from vibe_trader.adapters.databento import DatabentoStatistics
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.databento import DatabentoStatistics
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 
 DATABENTO_CLIENT_ID = ClientId.from_str("DATABENTO")
@@ -665,9 +665,9 @@ register automatically when you import the adapter package.
 #### Writing to the catalog
 
 ```python
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.model import InstrumentId
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.model import InstrumentId
+from vibe_trading.persistence import ParquetDataCatalog
 
 catalog = ParquetDataCatalog.from_env()
 loader = DatabentoDataLoader()
@@ -683,7 +683,7 @@ catalog.write_data(imbalances)
 #### Reading from the catalog
 
 ```python
-from vibe_trader.adapters.databento import DatabentoImbalance
+from vibe_trading.adapters.databento import DatabentoImbalance
 
 results = catalog.query(DatabentoImbalance, identifiers=["AAPL.XNAS"])
 
@@ -751,8 +751,8 @@ each supported output type, including `load_instruments`, `load_order_book_delta
 Pass the publisher metadata file when it is not available beside the running executable:
 
 ```python
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.model import InstrumentId
 
 
 loader = DatabentoDataLoader(publishers_filepath="publishers.json")
@@ -770,7 +770,7 @@ trades = loader.load_trades(
 Load definition data before market data when writing to a `ParquetDataCatalog`:
 
 ```python
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 
 catalog = ParquetDataCatalog.from_env()
@@ -819,7 +819,7 @@ Create `DatabentoLiveClientConfig` from the adapter's public Python module. The 
 import os
 from pathlib import Path
 
-from vibe_trader.adapters.databento import DatabentoLiveClientConfig
+from vibe_trading.adapters.databento import DatabentoLiveClientConfig
 
 
 config = DatabentoLiveClientConfig(

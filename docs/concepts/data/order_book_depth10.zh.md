@@ -54,12 +54,12 @@ let depth = OrderBookDepth10::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.data import BookOrder
-from vibe_trader.model.data import OrderBookDepth10
-from vibe_trader.model.enums import OrderSide
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.data import BookOrder
+from vibe_trading.model.data import OrderBookDepth10
+from vibe_trading.model.enums import OrderSide
 
 bids = [
     BookOrder(

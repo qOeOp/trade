@@ -7,7 +7,7 @@ use vibe_model::{data::OrderBookDepth10, identifiers::InstrumentId};
 use vibe_serialization::arrow::DecodeFromRecordBatch;
 
 #[pyclass]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.persistence")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.persistence")]
 pub struct OrderBookDepth10DataWrangler {
     instrument_id: InstrumentId,
     price_precision: u8,

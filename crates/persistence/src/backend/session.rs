@@ -46,11 +46,11 @@ pub type QueryResult = KMerge<EagerStream<std::vec::IntoIter<Data>>, Data, TsIni
 /// a Vec of data by types that implement [`DecodeDataFromRecordBatch`].
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.persistence", unsendable)
+    pyo3::pyclass(module = "vibe_trading.persistence", unsendable)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.persistence")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.persistence")
 )]
 pub struct DataBackendSession {
     pub chunk_size: usize,
@@ -326,11 +326,11 @@ pub fn build_query(
 
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.persistence", unsendable)
+    pyo3::pyclass(module = "vibe_trading.persistence", unsendable)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.persistence")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.persistence")
 )]
 pub struct DataQueryResult {
     pub result: QueryResult,

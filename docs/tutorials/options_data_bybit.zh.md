@@ -10,7 +10,7 @@ title: "期权数据与 Greeks（Bybit）"
 
 ## 简介
 
-Bybit 在每次期权 ticker 更新中同时发布 Greeks（delta、gamma、vega、theta）和隐含波动率。VibeTrader 在两个层级公开这些数据：
+Bybit 在每次期权 ticker 更新中同时发布 Greeks（delta、gamma、vega、theta）和隐含波动率。VibeTrading 在两个层级公开这些数据：
 
 - **单金融工具 Greeks**：订阅一份期权合约，并在每次 ticker 更新时接收 `OptionGreeks` 事件。
 - **期权链快照**：订阅整个到期系列，周期性接收 `OptionChainSlice` 事件；该事件聚合全部活跃行权价的报价与 Greeks。
@@ -42,7 +42,7 @@ flowchart LR
 ## 先决条件
 
 - 可用的 Rust 工具链（[rustup.rs](https://rustup.rs)）。
-- 已克隆并能成功构建的 VibeTrader 仓库。
+- 已克隆并能成功构建的 VibeTrading 仓库。
 - 一个具有读取权限的 Bybit API 密钥。仅数据使用不需要交易许可。在[bybit.com](https://www.bybit.com/app/user/api-management)创建密钥。
 - 为身份验证设置的环境变量：
 
@@ -222,7 +222,7 @@ fn on_stop(&mut self) -> anyhow::Result<()> {
 
 单金融工具订阅提供精细控制，但监控整个波动率曲面需要管理多条数据流，并关联不同行权价的更新。期权链订阅可代为处理：`DataEngine` 聚合一个系列所有行权价的报价与 Greeks，并按定时器发布单个 `OptionChainSlice`。
 
-聚合在 VibeTrader 内部完成。Bybit 发布逐合约的期权市场数据，其 V5 公共 WebSocket 文档并未提供原生期权链数据流。
+聚合在 VibeTrading 内部完成。Bybit 发布逐合约的期权市场数据，其 V5 公共 WebSocket 文档并未提供原生期权链数据流。
 
 ### 关键类型
 

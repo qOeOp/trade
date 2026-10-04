@@ -77,9 +77,9 @@ def on_bar(self, bar: Bar) -> None:
 以下是配置 `Cache` 的基本示例：
 
 ```python
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import CacheConfig
-from vibe_trader.config import LiveNodeConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import CacheConfig
+from vibe_trading.config import LiveNodeConfig
 
 # For backtesting
 engine_config = BacktestEngineConfig(
@@ -273,7 +273,7 @@ update_count = self.cache.book_update_count(instrument_id)  # Returns the number
 #### 访问价格
 
 ```python
-from vibe_trader.model import PriceType
+from vibe_trading.model import PriceType
 
 # Get current price by type; Returns Price or None.
 price = self.cache.price(
@@ -285,7 +285,7 @@ price = self.cache.price(
 #### K 线类型
 
 ```python
-from vibe_trader.model import AggregationSource, PriceType
+from vibe_trading.model import AggregationSource, PriceType
 
 # Get all available bar types for an instrument; Returns list[BarType].
 bar_types = self.cache.bar_types(
@@ -535,7 +535,7 @@ class HousekeepingStrategy(Strategy):
 `LiveExecEngineConfig` 使用定时器调度批量清理。设置清理间隔以启用循环，并通过缓冲期或回溯窗口控制要保留的近期条目。以下默认值适用于大多数实盘会话：
 
 ```python
-from vibe_trader.config import LiveExecEngineConfig
+from vibe_trading.config import LiveExecEngineConfig
 
 exec_engine = LiveExecEngineConfig(
     purge_closed_orders_interval_mins=15,
@@ -573,7 +573,7 @@ self.cache.add(key="my_key", value=b"some binary data")
 stored_data = self.cache.get("my_key")  # Returns bytes or None
 ```
 
-对于更复杂的用例，`Cache` 可以存储继承自 `vibe_trader.core.Data` 基类的自定义数据对象。
+对于更复杂的用例，`Cache` 可以存储继承自 `vibe_trading.core.Data` 基类的自定义数据对象。
 
 :::warning
 `Cache` 并非完整数据库的替代品。对于大型数据集或复杂查询需求，请考虑使用专用数据库系统。
@@ -583,7 +583,7 @@ stored_data = self.cache.get("my_key")  # Returns bytes or None
 
 ### 缓存与投资组合的用途
 
-`Cache` 和 `Portfolio` 组件在 VibeTrader 中各有不同但互为补充的用途：
+`Cache` 和 `Portfolio` 组件在 VibeTrading 中各有不同但互为补充的用途：
 
 **缓存**：
 

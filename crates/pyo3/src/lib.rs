@@ -1,11 +1,11 @@
-//! Python bindings aggregator crate for [VibeTrader](https://github.com/qOeOp/trade).
+//! Python bindings aggregator crate for [VibeTrading](https://github.com/qOeOp/trade).
 //!
-//! The `vibe-pyo3` crate collects the Python bindings generated across the VibeTrader workspace
+//! The `vibe-pyo3` crate collects the Python bindings generated across the VibeTrading workspace
 //! and re-exports them through a single shared library that can be included in binary wheels.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single
@@ -63,7 +63,7 @@ fn _libvibe(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let modules = sys.getattr("modules")?;
     let sys_modules: &Bound<'_, PyAny> = modules.cast()?;
 
-    let module_name = "vibe_trader._libvibe";
+    let module_name = "vibe_trading._libvibe";
 
     // Set pyo3_vibe to be recognized as a subpackage
     sys_modules.set_item(module_name, m)?;

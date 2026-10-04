@@ -1,6 +1,6 @@
 # 安装
 
-Vibe Trader 通过源代码检出进行安装；本仓库尚未定义公开发行渠道。
+Vibe Trading 通过源代码检出进行安装；本仓库尚未定义公开发行渠道。
 
 ## 前置条件
 
@@ -36,7 +36,7 @@ make build-debug
 make build
 ```
 
-导入包为 `vibe_trader`；其编译扩展为 `vibe_trader._libvibe`。
+导入包为 `vibe_trading`；其编译扩展为 `vibe_trading._libvibe`。
 
 ## 仅开发 Rust
 

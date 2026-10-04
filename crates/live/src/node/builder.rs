@@ -68,7 +68,7 @@ impl Debug for ExternalMessageBusIngress {
 /// audit and replay (see [`Self::with_event_store`]).
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.live", unsendable)
+    pyo3::pyclass(module = "vibe_trading.live", unsendable)
 )]
 pub struct LiveNodeBuilder {
     name: String,

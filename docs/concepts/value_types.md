@@ -1,6 +1,6 @@
 # Value Types
 
-VibeTrader provides specialized value types for representing core trading concepts:
+VibeTrading provides specialized value types for representing core trading concepts:
 `Price`, `Quantity`, and `Money`. These types use fixed-point arithmetic internally
 for performant, deterministic calculations across different platforms
 and environments.
@@ -19,7 +19,7 @@ All value types are **immutable**. Once a value is constructed, it cannot be cha
 Operations do not mutate the original object.
 
 ```python
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.objects import Quantity
 
 qty1 = Quantity(100, precision=0)
 qty2 = Quantity(50, precision=0)
@@ -59,7 +59,7 @@ domain meaning (a price plus a price is still a price):
 | `Money - Money`       | `Money`    |
 
 ```python
-from vibe_trader.model.objects import Price
+from vibe_trading.model.objects import Price
 
 price1 = Price(100.50, precision=2)
 price2 = Price(0.25, precision=2)
@@ -103,8 +103,8 @@ Unary operators preserve the value type where the result is valid for that type:
 unsigned and cannot represent a negative value.
 
 ```python
-from vibe_trader.model.objects import Price, Quantity, Money
-from vibe_trader.model.currencies import USD
+from vibe_trading.model.objects import Price, Quantity, Money
+from vibe_trading.model.currencies import USD
 
 price = Price(100.50, precision=2)
 print(-price)  # -100.50
@@ -140,7 +140,7 @@ in both directions (`value op scalar` and `scalar op value`):
 
 ```python
 from decimal import Decimal
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.objects import Quantity
 
 qty = Quantity(100, precision=0)
 
@@ -170,7 +170,7 @@ field tracks the number of decimal places used at construction, controlling disp
 formatting and serialization, but the underlying raw value always uses the global scale.
 
 ```python
-from vibe_trader.model.objects import Price
+from vibe_trading.model.objects import Price
 
 p1 = Price(1.23, precision=2)  # displays as "1.23"
 p2 = Price(1.230, precision=3)  # displays as "1.230"
@@ -204,7 +204,7 @@ When performing arithmetic between values with different precisions, the result
 uses the maximum precision of the operands.
 
 ```python
-from vibe_trader.model.objects import Price
+from vibe_trading.model.objects import Price
 
 price1 = Price(100.5, precision=1)  # 1 decimal place
 price2 = Price(0.125, precision=3)  # 3 decimal places
@@ -222,7 +222,7 @@ print(result.precision)  # 3 (max of 1 and 3)
 or subtract a larger quantity from a smaller one raises an error:
 
 ```python
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.objects import Quantity
 
 # This raises ValueError: Quantity cannot be negative
 qty = Quantity(-100, precision=0)
@@ -239,8 +239,8 @@ result = qty1 - qty2  # Would be -50, which is invalid
 require matching currencies:
 
 ```python
-from vibe_trader.model.objects import Money
-from vibe_trader.model.currencies import USD, EUR
+from vibe_trading.model.objects import Money
+from vibe_trading.model.currencies import USD, EUR
 
 usd_amount = Money(100.00, USD)
 eur_amount = Money(50.00, EUR)
@@ -259,8 +259,8 @@ result = usd_amount + eur_amount
 Since value types are immutable, accumulate by reassigning:
 
 ```python
-from vibe_trader.model.objects import Money
-from vibe_trader.model.currencies import USD
+from vibe_trading.model.objects import Money
+from vibe_trading.model.currencies import USD
 
 total = Money(0.00, USD)
 amounts = [Money(100.00, USD), Money(50.00, USD), Money(25.00, USD)]
@@ -276,7 +276,7 @@ print(total)  # 175.00 USD
 Value types provide conversion methods:
 
 ```python
-from vibe_trader.model.objects import Price
+from vibe_trading.model.objects import Price
 
 price = Price(123.456, precision=3)
 
@@ -295,7 +295,7 @@ string_value = str(price)  # "123.456"
 Parse value types from string representations:
 
 ```python
-from vibe_trader.model.objects import Quantity, Price, Money
+from vibe_trading.model.objects import Quantity, Price, Money
 
 qty = Quantity.from_str("100.5")
 price = Price.from_str("99.95")

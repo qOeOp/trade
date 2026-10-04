@@ -7,10 +7,10 @@ temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 neutral_dir="$(mktemp -d "$temp_root/vibe-python-doctests.XXXXXX")"
 trap 'rm -rf "$neutral_dir"' EXIT
 
-distribution_probe='import importlib.util; assert importlib.util.find_spec("vibe_trader.backtest.engine") is None'
+distribution_probe='import importlib.util; assert importlib.util.find_spec("vibe_trading.backtest.engine") is None'
 set -- \
-  vibe_trader.analysis.tearsheet \
-  vibe_trader.analysis.themes
+  vibe_trading.analysis.tearsheet \
+  vibe_trading.analysis.themes
 
 unset PYTHONPATH
 unset VIRTUAL_ENV

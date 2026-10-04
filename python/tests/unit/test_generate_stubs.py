@@ -96,8 +96,8 @@ def test_write_config_stub_uses_runtime_exports(tmp_path):
         """
 from __future__ import annotations
 
-from vibe_trader.analysis import TearsheetConfig
-from vibe_trader.common import CacheConfig
+from vibe_trading.analysis import TearsheetConfig
+from vibe_trading.common import CacheConfig
 
 __all__ = [
     "CacheConfig",
@@ -111,8 +111,8 @@ __all__ = [
 
     # Assert
     stub = runtime_path.with_suffix(".pyi").read_text()
-    assert "from vibe_trader.common import CacheConfig as CacheConfig" in stub
-    assert "from vibe_trader.analysis import TearsheetConfig as TearsheetConfig" in stub
+    assert "from vibe_trading.common import CacheConfig as CacheConfig" in stub
+    assert "from vibe_trading.analysis import TearsheetConfig as TearsheetConfig" in stub
     assert ast.literal_eval(
         next(
             node.value
@@ -131,7 +131,7 @@ def test_write_config_stub_rejects_export_drift(tmp_path):
     runtime_path.parent.mkdir()
     runtime_path.write_text(
         """
-from vibe_trader.common import CacheConfig
+from vibe_trading.common import CacheConfig
 
 __all__ = ["TearsheetConfig"]
 """.lstrip(),
@@ -441,7 +441,7 @@ def test_collect_rust_class_fixups_reads_custom_data_stub_module(tmp_path):
     rust_file.parent.mkdir(parents=True)
     rust_file.write_text(
         """
-#[custom_data(pyo3, no_arrow, stub_module = "vibe_trader.adapters.hyperliquid")]
+#[custom_data(pyo3, no_arrow, stub_module = "vibe_trading.adapters.hyperliquid")]
 pub struct HyperliquidAllMids {
     #[custom_data_field(json)]
     pub mids: HashMap<InstrumentId, Price>,
@@ -468,11 +468,11 @@ def test_collect_rust_class_fixups_detects_cfg_attr_wrapped_custom_data(tmp_path
         """
 #[cfg_attr(
     feature = "arrow",
-    custom_data(pyo3, stub_module = "vibe_trader.adapters.hyperliquid")
+    custom_data(pyo3, stub_module = "vibe_trading.adapters.hyperliquid")
 )]
 #[cfg_attr(
     not(feature = "arrow"),
-    custom_data(pyo3, no_arrow, stub_module = "vibe_trader.adapters.hyperliquid")
+    custom_data(pyo3, no_arrow, stub_module = "vibe_trading.adapters.hyperliquid")
 )]
 pub struct HyperliquidAllMids {
     #[custom_data_field(json)]
@@ -628,7 +628,7 @@ def test_collect_rust_class_fixups_detects_cfg_attr_subclass_pyclass(tmp_path):
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.trading",
+        module = "vibe_trading.trading",
         subclass,
         from_py_object
     )
@@ -653,7 +653,7 @@ def test_collect_rust_class_fixups_ignores_subclass_in_pyclass_string_values(tmp
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.subclass",
+        module = "vibe_trading.adapters.subclass",
         name = "SubclassNamedConfig",
         from_py_object
     )
@@ -1199,7 +1199,7 @@ pub const POLYMARKET: &str = "POLYMARKET";
 
 def test_remove_stale_top_level_adapter_stubs_deletes_generated_aliases(tmp_path):
     # Arrange
-    root = tmp_path / "vibe_trader"
+    root = tmp_path / "vibe_trading"
     adapters_dir = root / "adapters"
     (adapters_dir / "polymarket").mkdir(parents=True)
     (adapters_dir / "polymarket" / "__init__.pyi").write_text("class Polymarket: ...\n")
@@ -1226,12 +1226,12 @@ def test_remove_stale_top_level_adapter_stubs_deletes_generated_aliases(tmp_path
 
 def test_sync_adapter_all_exports_copies_runtime_all_into_stub(tmp_path):
     # Arrange: runtime facade declares a curated __all__; stub has the raw generated one.
-    root = tmp_path / "vibe_trader"
+    root = tmp_path / "vibe_trading"
     adapter_dir = root / "adapters" / "bybit"
     adapter_dir.mkdir(parents=True)
     (adapter_dir / "__init__.py").write_text(
         """
-from vibe_trader._libvibe.bybit import *  # noqa: F403
+from vibe_trading._libvibe.bybit import *  # noqa: F403
 
 __all__ = [
     "BYBIT",
@@ -1278,7 +1278,7 @@ BYBIT: str
 
 def test_sync_adapter_all_exports_rejects_runtime_name_absent_from_stub(tmp_path):
     # Arrange: runtime exports a name the stub does not define or import.
-    root = tmp_path / "vibe_trader"
+    root = tmp_path / "vibe_trading"
     adapter_dir = root / "adapters" / "binance"
     adapter_dir.mkdir(parents=True)
     (adapter_dir / "__init__.py").write_text(
@@ -1405,7 +1405,7 @@ def test_binance_stub_exposes_python_migration_surface():
     assert "BINANCE_CLIENT_ID: model.ClientId" in stub
     assert "BINANCE_VENUE: model.Venue" in stub
     assert (
-        "vibe_trader.adapters.binance.instruments",
+        "vibe_trading.adapters.binance.instruments",
         "load_binance_instruments",
         "load_binance_instruments",
     ) in reexports
@@ -1519,7 +1519,7 @@ class Client:
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
-STUB_ROOT = WORKSPACE_ROOT / "python" / "vibe_trader"
+STUB_ROOT = WORKSPACE_ROOT / "python" / "vibe_trading"
 
 STUB_ENUM_CLASS_RE = re.compile(r"^class\s+(\w+)\s*\(\s*(?:enum\.)?Enum\s*\)\s*:")
 STUB_VARIANT_RE = re.compile(r"^\s+([A-Za-z_]\w*)\s*=\s*\.\.\.")
@@ -1551,31 +1551,31 @@ PYO3_SIGNATURE_RE = re.compile(r"#\[pyo3\(signature\s*=\s*\((.*?)\)\)\]", re.DOT
 
 CONFIG_READBACK_REPLACEMENTS = {
     (
-        "vibe_trader.backtest",
+        "vibe_trading.backtest",
         "BacktestDataConfig",
         "catalog_fs_storage_options",
     ): "catalog_fs_storage_option_keys",
     (
-        "vibe_trader.backtest",
+        "vibe_trading.backtest",
         "BacktestDataConfig",
         "catalog_fs_rust_storage_options",
     ): "catalog_fs_rust_storage_option_keys",
 }
 
 WRITABLE_CONFIG_PROPERTIES = {
-    ("vibe_trader.common", "DataActorConfig"): {
+    ("vibe_trading.common", "DataActorConfig"): {
         "actor_id",
         "log_commands",
         "log_events",
     },
-    ("vibe_trader.adapters.interactive_brokers", "InteractiveBrokersDataClientConfig"): {
+    ("vibe_trading.adapters.interactive_brokers", "InteractiveBrokersDataClientConfig"): {
         "instrument_provider",
     },
-    ("vibe_trader.adapters.interactive_brokers", "InteractiveBrokersExecClientConfig"): {
+    ("vibe_trading.adapters.interactive_brokers", "InteractiveBrokersExecClientConfig"): {
         "instrument_provider",
     },
     (
-        "vibe_trader.adapters.interactive_brokers",
+        "vibe_trading.adapters.interactive_brokers",
         "InteractiveBrokersInstrumentProviderConfig",
     ): {"cache_path"},
 }
@@ -1587,19 +1587,19 @@ WRITABLE_CONFIG_PROPERTIES = {
 # after the owning crate exposes a member as part of the supported public contract.
 NON_CONTRACT_DTO_CLASSES = frozenset(
     {
-        ("vibe_trader.adapters.bybit", "BybitAccountDetails"),
-        ("vibe_trader.adapters.bybit", "BybitFeeRate"),
-        ("vibe_trader.adapters.bybit", "BybitNativeTpSlParams"),
-        ("vibe_trader.adapters.bybit", "BybitOrder"),
-        ("vibe_trader.adapters.bybit", "BybitOrderCursorList"),
-        ("vibe_trader.adapters.bybit", "BybitServerTime"),
-        ("vibe_trader.adapters.bybit", "BybitTickerData"),
-        ("vibe_trader.adapters.bybit", "BybitTickersParams"),
-        ("vibe_trader.adapters.bybit", "BybitWsAmendOrderParams"),
-        ("vibe_trader.adapters.bybit", "BybitWsCancelOrderParams"),
-        ("vibe_trader.adapters.bybit", "BybitWsPlaceOrderParams"),
-        ("vibe_trader.adapters.databento", "DatabentoSubscriptionAck"),
-        ("vibe_trader.adapters.okx", "OKXWebSocketError"),
+        ("vibe_trading.adapters.bybit", "BybitAccountDetails"),
+        ("vibe_trading.adapters.bybit", "BybitFeeRate"),
+        ("vibe_trading.adapters.bybit", "BybitNativeTpSlParams"),
+        ("vibe_trading.adapters.bybit", "BybitOrder"),
+        ("vibe_trading.adapters.bybit", "BybitOrderCursorList"),
+        ("vibe_trading.adapters.bybit", "BybitServerTime"),
+        ("vibe_trading.adapters.bybit", "BybitTickerData"),
+        ("vibe_trading.adapters.bybit", "BybitTickersParams"),
+        ("vibe_trading.adapters.bybit", "BybitWsAmendOrderParams"),
+        ("vibe_trading.adapters.bybit", "BybitWsCancelOrderParams"),
+        ("vibe_trading.adapters.bybit", "BybitWsPlaceOrderParams"),
+        ("vibe_trading.adapters.databento", "DatabentoSubscriptionAck"),
+        ("vibe_trading.adapters.okx", "OKXWebSocketError"),
     },
 )
 
@@ -1609,9 +1609,9 @@ NON_CONTRACT_DTO_CLASSES = frozenset(
 # types. Do not add entries here without a concrete deferral reason.
 DEFERRED_RUNTIME_METHODS = frozenset(
     {
-        ("vibe_trader.adapters.kraken", "KrakenFuturesHttpClient", "edit_orders_batch"),
-        ("vibe_trader.adapters.kraken", "KrakenFuturesHttpClient", "submit_orders_batch"),
-        ("vibe_trader.adapters.kraken", "KrakenSpotHttpClient", "submit_orders_batch"),
+        ("vibe_trading.adapters.kraken", "KrakenFuturesHttpClient", "edit_orders_batch"),
+        ("vibe_trading.adapters.kraken", "KrakenFuturesHttpClient", "submit_orders_batch"),
+        ("vibe_trading.adapters.kraken", "KrakenSpotHttpClient", "submit_orders_batch"),
     },
 )
 
@@ -1632,24 +1632,24 @@ ADAPTER_CONFIG_READBACK_REPLACEMENTS = {
 }
 ADAPTER_CONFIG_FIELD_READBACK_REPLACEMENTS = {
     (
-        "vibe_trader.adapters.blockchain",
+        "vibe_trading.adapters.blockchain",
         "BlockchainDataClientConfig",
         "postgres_cache_database_config",
     ): "has_postgres_cache_database_config",
     (
-        "vibe_trader.adapters.interactive_brokers",
+        "vibe_trading.adapters.interactive_brokers",
         "DockerizedIBGatewayConfig",
         "password",
     ): "has_password",
 }
 ADAPTER_CONFIG_CONSTRUCTOR_ONLY_FIELDS = {
     (
-        "vibe_trader.adapters.interactive_brokers",
+        "vibe_trading.adapters.interactive_brokers",
         "InteractiveBrokersDataClientConfig",
         "dockerized_gateway",
     ),
     (
-        "vibe_trader.adapters.interactive_brokers",
+        "vibe_trading.adapters.interactive_brokers",
         "InteractiveBrokersExecClientConfig",
         "dockerized_gateway",
     ),
@@ -1732,12 +1732,12 @@ def test_live_stub_exposes_builder_engine_config_methods():
 @pytest.mark.parametrize(
     ("module_name", "class_name"),
     [
-        ("vibe_trader.adapters.dydx", "DydxClientOrderIdEncoder"),
-        ("vibe_trader.infrastructure", "RedisMessageBusConfig"),
-        ("vibe_trader.infrastructure", "RedisMessageBusFactory"),
-        ("vibe_trader.persistence", "DataBackendSession"),
-        ("vibe_trader.persistence", "ParquetDataCatalog"),
-        ("vibe_trader.persistence", "StreamingFeatherWriter"),
+        ("vibe_trading.adapters.dydx", "DydxClientOrderIdEncoder"),
+        ("vibe_trading.infrastructure", "RedisMessageBusConfig"),
+        ("vibe_trading.infrastructure", "RedisMessageBusFactory"),
+        ("vibe_trading.persistence", "DataBackendSession"),
+        ("vibe_trading.persistence", "ParquetDataCatalog"),
+        ("vibe_trading.persistence", "StreamingFeatherWriter"),
     ],
 )
 def test_stub_constructor_matches_runtime(module_name, class_name):
@@ -2253,7 +2253,7 @@ def _iter_supported_stub_configs(adapter):
     for stub_file in sorted(STUB_ROOT.rglob("__init__.pyi")):
         relative_package = stub_file.relative_to(STUB_ROOT).parent
         module_name = _module_name_from_stub_path(relative_package)
-        is_adapter = module_name.startswith("vibe_trader.adapters.")
+        is_adapter = module_name.startswith("vibe_trading.adapters.")
         if adapter is not None and is_adapter != adapter:
             continue
 
@@ -2298,14 +2298,14 @@ def test_adapter_config_constructors_have_runtime_readback():
 
 
 def test_adapter_config_readback_returns_constructor_values(tmp_path):
-    from vibe_trader.adapters.architect_ax import AxDataClientConfig
-    from vibe_trader.adapters.betfair import BetfairDataConfig
-    from vibe_trader.adapters.bitmex import BitmexExecClientConfig
-    from vibe_trader.adapters.bitmex import BitmexExecFactoryConfig
-    from vibe_trader.adapters.bybit import BybitDataClientConfig
-    from vibe_trader.adapters.databento import DatabentoLiveClientConfig
-    from vibe_trader.model import AccountId
-    from vibe_trader.model import TraderId
+    from vibe_trading.adapters.architect_ax import AxDataClientConfig
+    from vibe_trading.adapters.betfair import BetfairDataConfig
+    from vibe_trading.adapters.bitmex import BitmexExecClientConfig
+    from vibe_trading.adapters.bitmex import BitmexExecFactoryConfig
+    from vibe_trading.adapters.bybit import BybitDataClientConfig
+    from vibe_trading.adapters.databento import DatabentoLiveClientConfig
+    from vibe_trading.model import AccountId
+    from vibe_trading.model import TraderId
 
     ax_config = AxDataClientConfig(
         base_url_http="https://ax.example.test",
@@ -2360,11 +2360,11 @@ def test_adapter_config_readback_returns_constructor_values(tmp_path):
 
 
 def test_adapter_config_runtime_setter_policy(tmp_path):
-    from vibe_trader.adapters.architect_ax import AxDataClientConfig
-    from vibe_trader.adapters.interactive_brokers import DockerizedIBGatewayConfig
-    from vibe_trader.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
-    from vibe_trader.adapters.interactive_brokers import InteractiveBrokersExecClientConfig
-    from vibe_trader.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
+    from vibe_trading.adapters.architect_ax import AxDataClientConfig
+    from vibe_trading.adapters.interactive_brokers import DockerizedIBGatewayConfig
+    from vibe_trading.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
+    from vibe_trading.adapters.interactive_brokers import InteractiveBrokersExecClientConfig
+    from vibe_trading.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
 
     readonly_config = AxDataClientConfig(base_url_http="https://ax.example.test")
     gateway_config = DockerizedIBGatewayConfig()
@@ -2388,8 +2388,8 @@ def test_adapter_config_runtime_setter_policy(tmp_path):
 
 
 def test_adapter_config_secret_values_are_not_exposed(tmp_path):
-    from vibe_trader.model import AccountId
-    from vibe_trader.model import TraderId
+    from vibe_trading.model import AccountId
+    from vibe_trading.model import TraderId
 
     required_values = {
         "account_id": AccountId("VENUE-001"),
@@ -2446,13 +2446,13 @@ def test_adapter_config_secret_values_are_not_exposed(tmp_path):
 
 
 def test_adapter_config_sensitive_readback_values_are_not_represented():
-    from vibe_trader.adapters.bitmex import BitmexExecClientConfig
-    from vibe_trader.adapters.blockchain import BlockchainDataClientConfig
-    from vibe_trader.adapters.derive import DeriveDataClientConfig
-    from vibe_trader.adapters.dydx import DydxDataClientConfig
-    from vibe_trader.infrastructure import PostgresConnectOptions
-    from vibe_trader.model import Chain
-    from vibe_trader.model import DexType
+    from vibe_trading.adapters.bitmex import BitmexExecClientConfig
+    from vibe_trading.adapters.blockchain import BlockchainDataClientConfig
+    from vibe_trading.adapters.derive import DeriveDataClientConfig
+    from vibe_trading.adapters.dydx import DydxDataClientConfig
+    from vibe_trading.infrastructure import PostgresConnectOptions
+    from vibe_trading.model import Chain
+    from vibe_trading.model import DexType
 
     sentinel = "raw-sensitive-value"
     configs = [
@@ -2533,7 +2533,7 @@ def _config_constructor_readback_mismatches(
 
         field_key = (module_name, stub_class.name, parameter.arg)
 
-        if module_name.startswith("vibe_trader.adapters."):
+        if module_name.startswith("vibe_trading.adapters."):
             readback_name, policy_mismatches = _adapter_config_field_policy(
                 runtime_class,
                 properties,
@@ -2560,7 +2560,7 @@ def _config_constructor_readback_mismatches(
 
 def _config_readback_name(field_key):
     module_name, _, field_name = field_key
-    if not module_name.startswith("vibe_trader.adapters."):
+    if not module_name.startswith("vibe_trading.adapters."):
         return CONFIG_READBACK_REPLACEMENTS.get(field_key, field_name)
     if field_key in ADAPTER_CONFIG_CONSTRUCTOR_ONLY_FIELDS:
         return None
@@ -3077,6 +3077,6 @@ def _iter_public_runtime_modules(stub_root: Path):
 
 def _module_name_from_stub_path(relative_package: Path) -> str:
     if not relative_package.parts:
-        return "vibe_trader"
+        return "vibe_trading"
 
-    return f"vibe_trader.{'.'.join(relative_package.parts)}"
+    return f"vibe_trading.{'.'.join(relative_package.parts)}"

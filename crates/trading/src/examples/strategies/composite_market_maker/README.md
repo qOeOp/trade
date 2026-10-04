@@ -137,7 +137,7 @@ Pass the config to `add_builtin_strategy` on a `LiveNode` or `BacktestEngine`.
 Python provides the configuration; the strategy runs entirely in Rust.
 
 ```python
-from vibe_trader.trading import CompositeMarketMakerConfig
+from vibe_trading.trading import CompositeMarketMakerConfig
 
 config = CompositeMarketMakerConfig(
     instrument_id=InstrumentId.from_str("OCPI-H100-PERP.AX"),

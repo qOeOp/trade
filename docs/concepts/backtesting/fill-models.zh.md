@@ -2,7 +2,7 @@
 
 本页记载既有引擎。凡与 `docs/owners/backtest.md` 的 Owner 契约不一致处，以 Owner 契约为准。
 
-历史数据无法反映模拟订单原本会如何与其他市场参与者交互。成交模型控制 VibeTrader
+历史数据无法反映模拟订单原本会如何与其他市场参与者交互。成交模型控制 VibeTrading
 对限价单成交资格、单个最小价位滑点以及可选合成流动性所作的假设。
 
 ## 不同订单簿类型下的行为
@@ -64,11 +64,11 @@
 将内置模型对象直接传给 `BacktestVenueConfig`：
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.execution import DefaultFillModel
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.execution import DefaultFillModel
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -87,7 +87,7 @@ venue = BacktestVenueConfig(
 合成订单簿模型使用相同的构造函数参数：
 
 ```python
-from vibe_trader.execution import ThreeTierFillModel
+from vibe_trading.execution import ThreeTierFillModel
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -115,7 +115,7 @@ venue = BacktestVenueConfig(
 - `fill_limit_inside_spread() -> bool`
 - `get_orderbook_for_fill_simulation(instrument, order, best_bid, best_ask) -> OrderBook | None`
 
-继承 `vibe_trader.execution.FillModel` 可获得这些方法的默认实现。
+继承 `vibe_trading.execution.FillModel` 可获得这些方法的默认实现。
 此自定义对象协议仅适用于底层引擎。
 
 ## 概率参数

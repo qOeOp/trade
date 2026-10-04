@@ -6,23 +6,23 @@ automatically and should not define __init__.
 
 """
 
-from vibe_trader.common import DataActor
-from vibe_trader.common import DataActorConfig
-from vibe_trader.common import ImportableActorConfig
-from vibe_trader.core import UUID4
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import ContingencyType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import MarketOrder
-from vibe_trader.model import OrderSide
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import Venue
-from vibe_trader.trading import Controller
-from vibe_trader.trading import ImportableStrategyConfig
-from vibe_trader.trading import Strategy
-from vibe_trader.trading import StrategyConfig
+from vibe_trading.common import DataActor
+from vibe_trading.common import DataActorConfig
+from vibe_trading.common import ImportableActorConfig
+from vibe_trading.core import UUID4
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import ContingencyType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import MarketOrder
+from vibe_trading.model import OrderSide
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import Venue
+from vibe_trading.trading import Controller
+from vibe_trading.trading import ImportableStrategyConfig
+from vibe_trading.trading import Strategy
+from vibe_trading.trading import StrategyConfig
 
 
 class TestActorConfig(DataActorConfig):

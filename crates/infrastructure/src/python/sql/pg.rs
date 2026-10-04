@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use crate::sql::pg::PostgresConnectOptions;
 
 #[pymethods]
-#[pyo3_stub_gen::derive::gen_stub_pymethods(module = "vibe_trader.infrastructure")]
+#[pyo3_stub_gen::derive::gen_stub_pymethods(module = "vibe_trading.infrastructure")]
 impl PostgresConnectOptions {
     /// Creates a new `PostgresConnectOptions` instance.
     #[new]

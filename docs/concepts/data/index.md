@@ -2,7 +2,7 @@
 
 :::note[Layer]
 These pages describe the inherited engine: the component model that `crates` and
-`python/vibe_trader` implement today. They are accurate about that layer, and they are kept for
+`python/vibe_trading` implement today. They are accurate about that layer, and they are kept for
 people working in it.
 
 They are not the platform's architecture of record. Where a page here and an Owner contract answer
@@ -10,7 +10,7 @@ the same question differently, the Owner contract governs. Boundaries are set by
 `docs/architecture/`; each business fact and its single writer are set by `docs/owners/`.
 :::
 
-VibeTrader supports granular order book data, quotes, trades, bars, reference prices, and
+VibeTrading supports granular order book data, quotes, trades, bars, reference prices, and
 custom data. This overview links to the built‑in types and explains the concepts shared across
 backtesting, sandbox, and live environments.
 
@@ -40,7 +40,7 @@ the topic hierarchy.
 
 ## Order books
 
-A Rust `OrderBook` maintains state for one instrument in backtesting and live trading. VibeTrader
+A Rust `OrderBook` maintains state for one instrument in backtesting and live trading. VibeTrading
 supports these book types:
 
 - `L3_MBO`: Level 3 market‑by‑order (MBO) data, keyed by order ID at every price level.
@@ -93,7 +93,7 @@ A *bar*, also known as a candle, candlestick, or kline, summarizes price and vol
 - Closing price
 - Traded volume (or ticks as a volume proxy)
 
-An *aggregation method* defines how VibeTrader groups input data into bars.
+An *aggregation method* defines how VibeTrading groups input data into bars.
 
 ### Purpose of data aggregation
 
@@ -105,7 +105,7 @@ Aggregation converts granular market data into bars that:
 
 ### Aggregation methods
 
-VibeTrader supports these aggregation methods:
+VibeTrading supports these aggregation methods:
 
 | Name               | Description                                               | Category    |
 | :----------------- | :-------------------------------------------------------- | :---------- |
@@ -162,7 +162,7 @@ to classify each trade. They cannot be aggregated from `QuoteTick` data alone.
 
 ### Types of aggregation
 
-VibeTrader supports three aggregation inputs:
+VibeTrading supports three aggregation inputs:
 
 | Input         | Result                                    | Price type             | Syntax requirement  |
 | ------------- | ----------------------------------------- | ---------------------- | ------------------- |
@@ -179,7 +179,7 @@ VibeTrader supports three aggregation inputs:
   - `step`: The interval or frequency.
   - `aggregation`: The aggregation method.
   - `price_type`: The price basis, such as bid, ask, mid, or last.
-- **Aggregation source** (`AggregationSource`): Whether VibeTrader or an external venue or data
+- **Aggregation source** (`AggregationSource`): Whether VibeTrading or an external venue or data
   provider aggregated the bar.
 
 :::note
@@ -202,7 +202,7 @@ Bar types can also be classified as either *standard* or *composite*:
 
 Bar data aggregation can be either *internal* or *external*:
 
-- `INTERNAL`: VibeTrader aggregates the bar.
+- `INTERNAL`: VibeTrading aggregates the bar.
 - `EXTERNAL`: A venue or data provider aggregates the bar.
 
 For bar‑to‑bar aggregation, the target is always `INTERNAL`. The source can be `INTERNAL` or
@@ -216,7 +216,7 @@ Define a standard bar type with:
 
 `{instrument_id}-{step}-{aggregation}-{price_type}-{INTERNAL | EXTERNAL}`
 
-This example defines 5‑minute AAPL trade bars that VibeTrader aggregates locally:
+This example defines 5‑minute AAPL trade bars that VibeTrading aggregates locally:
 
 ```python
 bar_type = BarType.from_str("AAPL.XNAS-5-MINUTE-LAST-INTERNAL")
@@ -304,7 +304,7 @@ def on_start(self) -> None:
 
 #### Advanced bar-to-bar example
 
-Build longer aggregation chains from bars that VibeTrader has already aggregated:
+Build longer aggregation chains from bars that VibeTrading has already aggregated:
 
 ```python
 # Create 1-minute bars from TradeTick objects
@@ -319,7 +319,7 @@ hourly_bar_type = BarType.from_str("6EH4.XCME-1-HOUR-LAST-INTERNAL@5-MINUTE-INTE
 
 ### Working with bars: request vs. subscribe
 
-VibeTrader provides two operations for working with bars:
+VibeTrading provides two operations for working with bars:
 
 | Method             | Purpose                 | Delivery handler       |
 | ------------------ | ----------------------- | ---------------------- |
@@ -406,7 +406,7 @@ apply to all time‑based aggregation from milliseconds through years:
 | `time_bars_build_delay`             | `int`  | `0`           | Delay in microseconds before building a bar. Useful in backtests to ensure data at bar boundary timestamps is processed before the timer fires. |
 
 ```python
-from vibe_trader.config import DataEngineConfig
+from vibe_trading.config import DataEngineConfig
 
 config = DataEngineConfig(
     time_bars_timestamp_on_close=True,
@@ -420,7 +420,7 @@ config = DataEngineConfig(
 Many market data, order, and event objects carry two timestamps:
 
 - `ts_event`: UNIX timestamp in nanoseconds when the event occurred.
-- `ts_init`: UNIX timestamp in nanoseconds when VibeTrader initialized the object.
+- `ts_init`: UNIX timestamp in nanoseconds when VibeTrading initialized the object.
 
 ### Typical meanings
 
@@ -438,7 +438,7 @@ Many market data, order, and event objects carry two timestamps:
 
 :::note
 `ts_init` means initialization time, not always receipt time. Commands and internally generated
-events also use it even though VibeTrader does not receive them from an external source.
+events also use it even though VibeTrading does not receive them from an external source.
 :::
 
 ### Latency analysis
@@ -465,7 +465,7 @@ event time, while `ts_init` usually records local object initialization after re
 
 - For data from external sources, `ts_init` is usually the local receipt or normalization time,
   but clock skew means it is not guaranteed to be greater than or equal to `ts_event`.
-- For data created within VibeTrader, `ts_init` and `ts_event` can match.
+- For data created within VibeTrading, `ts_init` and `ts_event` can match.
 - Some types with `ts_init` do not have `ts_event` because:
   - The initialization of an object happens at the same time as the event itself.
   - The concept of an external event time does not apply.
@@ -493,11 +493,11 @@ See [Custom data](#custom-data) to define and publish another data type.
 Load and convert data to:
 
 - Run backtests with `BacktestEngine`.
-- Persist VibeTrader Parquet data with `ParquetDataCatalog.write_data(...)` for a
+- Persist VibeTrading Parquet data with `ParquetDataCatalog.write_data(...)` for a
   `BacktestNode`.
 - Use the same data in research and backtesting.
 
-Each use case converts an external format into VibeTrader data objects.
+Each use case converts an external format into VibeTrading data objects.
 
 The conversion uses:
 
@@ -511,7 +511,7 @@ Data loaders are specific to a source format. For example, Binance order book CS
 
 ### Data wranglers
 
-The `vibe_trader.persistence` module provides Rust-backed wranglers for each VibeTrader
+The `vibe_trading.persistence` module provides Rust-backed wranglers for each VibeTrading
 data type:
 
 - `OrderBookDeltaDataWrangler`
@@ -524,7 +524,7 @@ These wranglers accept fixed‑width Arrow record batch bytes and return Python 
 
 ### Fixed-point precision and raw values
 
-VibeTrader uses fixed‑point arithmetic for `Price` and `Quantity`. Raw values must match the
+VibeTrading uses fixed‑point arithmetic for `Price` and `Quantity`. Raw values must match the
 scale for their declared precision.
 
 #### Raw value requirements
@@ -532,7 +532,7 @@ scale for their declared precision.
 When constructing `Price` or `Quantity` with `from_raw()`, use a raw value from:
 
 - The `.raw` field of an existing value, such as `price.raw`.
-- VibeTrader fixed‑point conversion functions.
+- VibeTrading fixed‑point conversion functions.
 - Values from Vibe‑produced Arrow data.
 
 :::warning
@@ -561,7 +561,7 @@ This correction adds a small amount of overhead during data decoding.
 ### Transformation pipeline
 
 1. A data‑loading function reads raw data, such as CSV, into a `pd.DataFrame`.
-1. A data wrangler converts the frame into VibeTrader objects.
+1. A data wrangler converts the frame into VibeTrading objects.
 1. The pipeline returns a `list[Data]`.
 
 ```mermaid
@@ -588,9 +588,9 @@ The following Python example applies both steps:
 ```python
 from pathlib import Path
 
-from vibe_trader.adapters.binance import load_binance_order_book_deltas
-from vibe_trader.persistence.wranglers import OrderBookDeltaDataWrangler
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.adapters.binance import load_binance_order_book_deltas
+from vibe_trading.persistence.wranglers import OrderBookDeltaDataWrangler
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 
 # Load raw data
@@ -607,7 +607,7 @@ deltas = wrangler.process(df)
 
 ## Data catalog
 
-The data catalog stores VibeTrader data in [Parquet](https://parquet.apache.org) files for
+The data catalog stores VibeTrading data in [Parquet](https://parquet.apache.org) files for
 backtesting, live trading, and research.
 
 ### Overview and architecture
@@ -641,7 +641,7 @@ Initialize a catalog for data already stored at a local path:
 
 ```python
 from pathlib import Path
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 
 CATALOG_PATH = Path.cwd() / "catalog"
@@ -793,8 +793,8 @@ Set `skip_disjoint_check=True` only when the overlap is intentional.
 Use `query()` to read data from the catalog:
 
 ```python
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import TradeTick
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import TradeTick
 
 # Query quote ticks for a specific instrument and time range
 quotes = catalog.query(
@@ -846,9 +846,9 @@ trades = catalog.query(
 **Loading quote ticks:**
 
 ```python
-from vibe_trader.config import BacktestDataConfig
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import QuoteTick
+from vibe_trading.config import BacktestDataConfig
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import QuoteTick
 
 data_config = BacktestDataConfig(
     catalog_path="/path/to/catalog",
@@ -922,8 +922,8 @@ data_config = BacktestDataConfig(
 Pass the data configurations to `BacktestRunConfig`:
 
 ```python
-from vibe_trader.config import BacktestRunConfig
-from vibe_trader.config import BacktestVenueConfig
+from vibe_trading.config import BacktestRunConfig
+from vibe_trading.config import BacktestVenueConfig
 
 data_configs = [
     BacktestDataConfig(
@@ -1149,7 +1149,7 @@ completed Feather stream to Parquet when the application manages the writer life
 
 ## Data migrations
 
-The `vibe_model` crate defines the internal data format. VibeTrader serializes these models
+The `vibe_model` crate defines the internal data format. VibeTrading serializes these models
 as Arrow record batches and stores them in Parquet files.
 
 Use the migration utilities when changing
@@ -1260,7 +1260,7 @@ systems, use the message bus, and persist in the cache or catalog.
 :::
 
 ```python
-from vibe_trader.core import Data
+from vibe_trading.core import Data
 
 
 class MyDataPoint(Data):
@@ -1329,7 +1329,7 @@ The optional `metadata` dictionary adds fields to the message bus topic.
 Pass the same metadata to `BacktestDataConfig` for backtest data:
 
 ```python
-from vibe_trader.config import BacktestDataConfig
+from vibe_trading.config import BacktestDataConfig
 
 data_config = BacktestDataConfig(
     catalog_path=str(catalog.path),
@@ -1349,7 +1349,7 @@ self.subscribe_data(
 
 `client_id` routes the subscription to a specific client.
 
-VibeTrader passes each received object to `on_data()`. Check its type because the handler
+VibeTrading passes each received object to `on_data()`. Check its type because the handler
 receives all custom data:
 
 ```python
@@ -1383,12 +1383,12 @@ from __future__ import annotations
 import msgspec
 import pyarrow as pa
 
-from vibe_trader.core import Data
-from vibe_trader.core.datetime import unix_nanos_to_iso8601
-from vibe_trader.model import DataType
-from vibe_trader.model import InstrumentId
-from vibe_trader.serialization.arrow.serializer import register_arrow
-from vibe_trader.serialization.base import register_serializable_type
+from vibe_trading.core import Data
+from vibe_trading.core.datetime import unix_nanos_to_iso8601
+from vibe_trading.model import DataType
+from vibe_trading.model import InstrumentId
+from vibe_trading.serialization.arrow.serializer import register_arrow
+from vibe_trading.serialization.base import register_serializable_type
 
 
 class GreeksData(Data):
@@ -1506,7 +1506,7 @@ Register the Arrow schema before streaming custom data to Feather or writing it 
 ```python
 register_arrow(GreeksData, GreeksData.schema(), GreeksData.to_catalog, GreeksData.from_catalog)
 
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 catalog = ParquetDataCatalog(".")
 
@@ -1519,9 +1519,9 @@ The `@customdataclass` decorator generates the timestamp, serialization, and Arr
 above. Override a generated method only when the defaults do not fit the type:
 
 ```python
-from vibe_trader.core import Data
-from vibe_trader.model import InstrumentId
-from vibe_trader.model.custom import customdataclass
+from vibe_trading.core import Data
+from vibe_trading.model import InstrumentId
+from vibe_trading.model.custom import customdataclass
 
 
 @customdataclass
@@ -1545,11 +1545,11 @@ For custom data with the Rust-backed `ParquetDataCatalog`, use
 the class once after defining it:
 
 ```python
-from vibe_trader.persistence import ParquetDataCatalog
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
-from vibe_trader.model import register_custom_data_class
-from vibe_trader.model.custom import customdataclass_pyo3
+from vibe_trading.persistence import ParquetDataCatalog
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
+from vibe_trading.model import register_custom_data_class
+from vibe_trading.model.custom import customdataclass_pyo3
 
 
 @customdataclass_pyo3()
@@ -1575,7 +1575,7 @@ result = catalog.query("MarketTickPython")
 ticks = [item.data for item in result]
 ```
 
-See `vibe_trader.model.custom.customdataclass_pyo3` for details.
+See `vibe_trading.model.custom.customdataclass_pyo3` for details.
 
 #### Custom data type stub
 
@@ -1583,8 +1583,8 @@ For a runtime‑generated constructor, add a `.pyi` file so IDEs can resolve the
 attributes. A custom type in `greeks.py` can use this `greeks.pyi` stub:
 
 ```python
-from vibe_trader.core import Data
-from vibe_trader.model import InstrumentId
+from vibe_trading.core import Data
+from vibe_trading.model import InstrumentId
 
 
 class GreeksData(Data):

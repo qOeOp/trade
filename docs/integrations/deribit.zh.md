@@ -152,8 +152,8 @@ let expirations = client
 ```
 
 ```python tab="Python"
-from vibe_trader.adapters.deribit import DeribitCurrency
-from vibe_trader.adapters.deribit import DeribitHttpClient
+from vibe_trading.adapters.deribit import DeribitCurrency
+from vibe_trading.adapters.deribit import DeribitHttpClient
 
 client = DeribitHttpClient()
 expirations = await client.request_option_expirations(DeribitCurrency.BTC)
@@ -256,8 +256,8 @@ Vibe 适配器通过订阅参数支持两类数据源：
 3. 当连接未认证时，使用 Deribit 的公开 `100ms` 分组数据源。
 
 ```python
-from vibe_trader.model import BookType
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import BookType
+from vibe_trading.model import InstrumentId
 
 instrument_id = InstrumentId.from_str("BTC-PERPETUAL.DERIBIT")
 
@@ -460,10 +460,10 @@ Deribit 持续交换资金费（每隔几秒），而不是像大多数其他交
 actor 或策略通过一次 `on_historical_data` 回调接收完整响应。每一项都是 `CustomData` 包装器，其 `data` 字段中包含 `DeribitBookSummary`：
 
 ```python
-from vibe_trader.adapters.deribit import DERIBIT_CLIENT_ID
-from vibe_trader.adapters.deribit import DeribitBookSummary
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
+from vibe_trading.adapters.deribit import DERIBIT_CLIENT_ID
+from vibe_trading.adapters.deribit import DeribitBookSummary
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
 
 
 def on_start(self) -> None:
@@ -502,9 +502,9 @@ def on_historical_data(self, data: list[CustomData]) -> None:
 从 actor 或策略使用 `DataType(DeribitVolatilityIndex.__name__)` 订阅。`index_name` 元数据键为必填项：
 
 ```python
-from vibe_trader.adapters.deribit import DeribitVolatilityIndex
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.deribit import DeribitVolatilityIndex
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(DeribitVolatilityIndex.__name__, metadata={"index_name": "btc_usd"}),
@@ -660,12 +660,12 @@ Deribit 上的每个 API 密钥都有默认访问作用域，用于定义最大�
 Deribit 提供测试网环境，可在不使用真实资金的情况下测试策略。要使用测试网，请在客户端配置中设置 `environment=DeribitEnvironment.TESTNET`：
 
 ```python
-from vibe_trader.adapters.deribit import DeribitDataClientConfig
-from vibe_trader.adapters.deribit import DeribitEnvironment
-from vibe_trader.adapters.deribit import DeribitExecClientConfig
-from vibe_trader.adapters.deribit import DeribitProductType
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.deribit import DeribitDataClientConfig
+from vibe_trading.adapters.deribit import DeribitEnvironment
+from vibe_trading.adapters.deribit import DeribitExecClientConfig
+from vibe_trading.adapters.deribit import DeribitProductType
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 product_types = [DeribitProductType.FUTURE]
 trader_id = TraderId.from_str("TRADER-001")
@@ -725,7 +725,7 @@ exec_config = DeribitExecClientConfig(
 
 | 选项                     | 默认值     | 说明                                       |
 | ------------------------ | ---------- | ------------------------------------------ |
-| `trader_id`              | 必填       | 用于生成报告和事件的 Vibe trader ID。      |
+| `trader_id`              | 必填       | 用于生成报告和事件的 Vibe Trading ID。     |
 | `account_id`             | 必填       | 用于生成报告和事件的 Vibe account ID。     |
 | `api_key`                | `None`     | Deribit API 密钥。省略时从环境变量加载。   |
 | `api_secret`             | `None`     | Deribit API secret。省略时从环境变量加载。 |
@@ -746,16 +746,16 @@ Rust 配置还公开 `transport_backend`。启用 `transport-sockudo` Cargo feat
 以下是使用 Deribit 数据和执行客户端的实盘节点示例：
 
 ```python
-from vibe_trader.adapters.deribit import DeribitDataClientConfig
-from vibe_trader.adapters.deribit import DeribitDataClientFactory
-from vibe_trader.adapters.deribit import DeribitEnvironment
-from vibe_trader.adapters.deribit import DeribitExecClientConfig
-from vibe_trader.adapters.deribit import DeribitExecutionClientFactory
-from vibe_trader.adapters.deribit import DeribitProductType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.deribit import DeribitDataClientConfig
+from vibe_trading.adapters.deribit import DeribitDataClientFactory
+from vibe_trading.adapters.deribit import DeribitEnvironment
+from vibe_trading.adapters.deribit import DeribitExecClientConfig
+from vibe_trading.adapters.deribit import DeribitExecutionClientFactory
+from vibe_trading.adapters.deribit import DeribitProductType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 product_types = [DeribitProductType.FUTURE]
 trader_id = TraderId.from_str("TRADER-001")
@@ -820,8 +820,8 @@ node = (
 加载多种产品类型的示例：
 
 ```python
-from vibe_trader.adapters.deribit import DeribitDataClientConfig
-from vibe_trader.adapters.deribit import DeribitProductType
+from vibe_trading.adapters.deribit import DeribitDataClientConfig
+from vibe_trading.adapters.deribit import DeribitProductType
 
 config = DeribitDataClientConfig(
     product_types=[

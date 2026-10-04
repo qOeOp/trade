@@ -84,13 +84,13 @@ let es_spread = FuturesSpread::builder()
 ```python tab="Python"
 import pandas as pd
 
-from vibe_trader.model import AssetClass
-from vibe_trader.model import Currency
-from vibe_trader.model import FuturesSpread
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import AssetClass
+from vibe_trading.model import Currency
+from vibe_trading.model import FuturesSpread
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 es_spread = FuturesSpread(
     instrument_id=InstrumentId.from_str("ESM4-ESU4.GLBX"),

@@ -1,9 +1,9 @@
 import pytest
 
-from vibe_trader.data import DataEngineConfig
-from vibe_trader.model import BarAggregation
-from vibe_trader.model import BarIntervalType
-from vibe_trader.model import ClientId
+from vibe_trading.data import DataEngineConfig
+from vibe_trading.model import BarAggregation
+from vibe_trading.model import BarIntervalType
+from vibe_trading.model import ClientId
 
 
 def test_data_engine_config_defaults():

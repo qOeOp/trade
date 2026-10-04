@@ -126,7 +126,7 @@ represents a simple spread between Bitcoin and Ethereum spot prices on Binance. 
 `BTCUSDT.BINANCE` and `ETHUSDT.BINANCE` already exist in the cache.
 
 ```python
-from vibe_trader.model.instruments import SyntheticInstrument
+from vibe_trading.model.instruments import SyntheticInstrument
 
 btcusdt_binance_id = InstrumentId.from_str("BTCUSDT.BINANCE")
 ethusdt_binance_id = InstrumentId.from_str("ETHUSDT.BINANCE")
@@ -227,7 +227,7 @@ unknown symbols, type errors, and capacity overflows. Evaluation rejects wrong i
 non-finite prices (NaN, Infinity) before they reach the formula.
 
 See the
-[`SyntheticInstrument` API Reference](/docs/python-api-latest/model/instruments.html#vibe_trader.model.instruments.synthetic.SyntheticInstrument)
+[`SyntheticInstrument` API Reference](/docs/python-api-latest/model/instruments.html#vibe_trading.model.instruments.synthetic.SyntheticInstrument)
 for input requirements and exceptions.
 
 ## Related guides

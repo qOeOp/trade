@@ -12,7 +12,7 @@ use super::{
 pub(super) const METHOD: &str = "GET";
 pub(super) const ORIGIN: &str = "https://api.openalex.org";
 pub(super) const HOST: &str = "api.openalex.org";
-pub(super) const USER_AGENT: &str = "vibe-trader-source-intake-v1";
+pub(super) const USER_AGENT: &str = "vibe-trading-source-intake-v1";
 const CONNECTOR_IDENTITY: &str = "rd.openalex-work-by-doi";
 const CONNECTOR_VERSION: &str = "v1";
 const TLS_STACK_IDENTITY: &str = "rustls-only-v1";
@@ -223,7 +223,7 @@ pub(super) fn build_binding(
     let absent_body_digest = digest_bytes("rd.http.absent-body.v1", b"");
     let allowed_header_digest = digest_bytes(
         "rd.openalex.request-headers.v1",
-        b"accept:application/json\nuser-agent:vibe-trader-source-intake-v1",
+        b"accept:application/json\nuser-agent:vibe-trading-source-intake-v1",
     );
     let mut binding = SourceAcquisitionBindingV1 {
         schema_version: 1,

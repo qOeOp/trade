@@ -68,7 +68,7 @@ fn extract_betfair_exec_config(
 
 /// Betfair adapter Python module.
 ///
-/// Exposed through `vibe_trader.adapters.betfair`.
+/// Exposed through `vibe_trading.adapters.betfair`.
 ///
 /// # Errors
 ///

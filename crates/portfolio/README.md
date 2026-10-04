@@ -1,6 +1,6 @@
 # vibe-portfolio
 
-Portfolio management and risk analysis for [VibeTrader](https://github.com/qOeOp/trade).
+Portfolio management and risk analysis for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-portfolio` crate provides portfolio management capabilities including
 real-time position tracking, performance calculations, and risk management. This includes
@@ -16,9 +16,9 @@ sophisticated portfolio analytics and multi-currency support:
 The crate handles complex portfolio scenarios including multi-venue trading, currency conversions,
 and sophisticated margin calculations for both live trading and backtesting environments.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

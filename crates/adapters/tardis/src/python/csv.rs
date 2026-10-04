@@ -23,7 +23,7 @@ use crate::csv::{
 macro_rules! impl_tardis_stream_iterator {
     ($struct_name:ident, $data_type:ty, $type_name:expr) => {
         #[pyclass(unsendable)]
-        #[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.tardis")]
+        #[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.tardis")]
         pub struct $struct_name {
             stream: Box<dyn Iterator<Item = anyhow::Result<Vec<$data_type>>>>,
         }
@@ -66,7 +66,7 @@ fn options_chain_data_to_pyobject(py: Python<'_>, data: Data) -> PyResult<Py<PyA
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "load_tardis_deltas")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_load_tardis_deltas(
     filepath: PathBuf,
@@ -89,7 +89,7 @@ pub fn py_load_tardis_deltas(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "load_tardis_depth10_from_snapshot5")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_load_tardis_depth10_from_snapshot5(
     filepath: PathBuf,
@@ -112,7 +112,7 @@ pub fn py_load_tardis_depth10_from_snapshot5(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "load_tardis_depth10_from_snapshot25")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_load_tardis_depth10_from_snapshot25(
     filepath: PathBuf,
@@ -135,7 +135,7 @@ pub fn py_load_tardis_depth10_from_snapshot25(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "load_tardis_quotes")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_load_tardis_quotes(
     filepath: PathBuf,
@@ -158,7 +158,7 @@ pub fn py_load_tardis_quotes(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "load_tardis_trades")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_load_tardis_trades(
     filepath: PathBuf,
@@ -181,7 +181,7 @@ pub fn py_load_tardis_trades(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "load_tardis_funding_rates")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, instrument_id=None, limit=None))]
 pub fn py_load_tardis_funding_rates(
     filepath: PathBuf,
@@ -195,7 +195,7 @@ pub fn py_load_tardis_funding_rates(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "load_tardis_options_chain")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, underlyings=None, price_precision=None, size_precision=None, limit=None))]
 pub fn py_load_tardis_options_chain(
     py: Python<'_>,
@@ -224,7 +224,7 @@ pub fn py_load_tardis_options_chain(
 ///
 /// Returns a Python error if parsing, instrument derivation, or catalog writing fails.
 #[pyfunction(name = "convert_tardis_options_chain_csv")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepaths, catalog_path, underlyings=None, snapshot_interval_ms=None, extract_bbo_as_quotes=true, write_instruments=true, price_precision=None, size_precision=None))]
 #[allow(
     clippy::too_many_arguments,
@@ -268,7 +268,7 @@ impl_tardis_stream_iterator!(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "stream_tardis_deltas")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, chunk_size=100_000, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_stream_tardis_deltas(
     filepath: PathBuf,
@@ -294,7 +294,7 @@ pub fn py_stream_tardis_deltas(
 }
 
 #[pyclass(unsendable)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.tardis")]
 pub struct TardisBatchedDeltasStreamIterator {
     stream: Box<dyn Iterator<Item = anyhow::Result<Vec<Py<PyAny>>>>>,
 }
@@ -327,7 +327,7 @@ impl TardisBatchedDeltasStreamIterator {
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "stream_tardis_batched_deltas")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, chunk_size=100_000, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_stream_tardis_batched_deltas(
     filepath: PathBuf,
@@ -364,7 +364,7 @@ impl_tardis_stream_iterator!(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "stream_tardis_quotes")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, chunk_size=100_000, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_stream_tardis_quotes(
     filepath: PathBuf,
@@ -390,7 +390,7 @@ pub fn py_stream_tardis_quotes(
 }
 
 #[pyclass(unsendable)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.tardis")]
 pub struct TardisOptionsChainStreamIterator {
     stream: Box<dyn Iterator<Item = anyhow::Result<Vec<Data>>>>,
 }
@@ -427,7 +427,7 @@ impl TardisOptionsChainStreamIterator {
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "stream_tardis_options_chain")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, chunk_size=100_000, underlyings=None, price_precision=None, size_precision=None, limit=None))]
 pub fn py_stream_tardis_options_chain(
     filepath: PathBuf,
@@ -464,7 +464,7 @@ impl_tardis_stream_iterator!(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "stream_tardis_trades")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, chunk_size=100_000, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_stream_tardis_trades(
     filepath: PathBuf,
@@ -501,7 +501,7 @@ impl_tardis_stream_iterator!(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "stream_tardis_depth10_from_snapshot5")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, chunk_size=100_000, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_stream_tardis_depth10_from_snapshot5(
     filepath: PathBuf,
@@ -532,7 +532,7 @@ pub fn py_stream_tardis_depth10_from_snapshot5(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "stream_tardis_depth10_from_snapshot25")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, chunk_size=100_000, price_precision=None, size_precision=None, instrument_id=None, limit=None))]
 pub fn py_stream_tardis_depth10_from_snapshot25(
     filepath: PathBuf,
@@ -569,7 +569,7 @@ impl_tardis_stream_iterator!(
 ///
 /// Returns a Python error if loading or parsing the CSV file fails.
 #[pyfunction(name = "stream_tardis_funding_rates")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.tardis")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.tardis")]
 #[pyo3(signature = (filepath, chunk_size=100_000, instrument_id=None, limit=None))]
 pub fn py_stream_tardis_funding_rates(
     filepath: PathBuf,

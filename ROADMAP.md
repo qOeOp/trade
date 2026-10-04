@@ -1,4 +1,4 @@
-# Vibe Trader roadmap
+# Vibe Trading roadmap
 
 The repository carries two layers. The engine layer is a reliable single-node trading engine and
 its Python control surface. The product layer is the Owner architecture defined in

@@ -19,11 +19,11 @@ pub const PROTOCOL_FEE_BASIS_POINTS_DENOMINATOR: u32 = 10_000;
 /// and the complete tick distribution.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PoolSnapshot {
@@ -81,11 +81,11 @@ impl PoolSnapshot {
 /// deposit/withdrawal flows, and protocol fee configuration.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PoolState {
@@ -189,11 +189,11 @@ impl Default for PoolState {
 /// deposit and collection flows, event counts, and performance metrics for debugging.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PoolAnalytics {

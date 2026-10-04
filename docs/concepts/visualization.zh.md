@@ -1,6 +1,6 @@
 # 可视化
 
-VibeTrader 提供基于 Plotly 构建的可扩展可视化系统，用交互式 HTML 绩效报告分析回测结果。只需少量代码即可生成报告，并添加自定义图表和主题。
+VibeTrading 提供基于 Plotly 构建的可扩展可视化系统，用交互式 HTML 绩效报告分析回测结果。只需少量代码即可生成报告，并添加自定义图表和主题。
 
 ## 概述
 
@@ -16,7 +16,7 @@ VibeTrader 提供基于 Plotly 构建的可扩展可视化系统，用交互式 
 可视化系统需要安装 `visualization` 可选依赖。它会安装 Pandas 以处理 DataFrame、Plotly 以绘制交互式图表，以及 Kaleido 以导出静态图像：
 
 ```bash
-uv pip install "vibe_trader[visualization]"
+uv pip install "vibe_trading[visualization]"
 ```
 
 :::
@@ -30,8 +30,8 @@ uv pip install "vibe_trader[visualization]"
 使用默认设置生成绩效报告：
 
 ```python
-from vibe_trader.analysis import create_tearsheet
-from vibe_trader.backtest import BacktestEngine
+from vibe_trading.analysis import create_tearsheet
+from vibe_trading.backtest import BacktestEngine
 
 # After running your backtest
 engine.run()
@@ -75,11 +75,11 @@ create_tearsheet(
 控制显示哪些图表以及它们的样式：
 
 ```python
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.analysis import TearsheetDrawdownChart
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetRunInfoChart
-from vibe_trader.analysis import TearsheetStatsTableChart
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.analysis import TearsheetDrawdownChart
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetRunInfoChart
+from vibe_trading.analysis import TearsheetStatsTableChart
 
 config = TearsheetConfig(
     charts=[
@@ -104,7 +104,7 @@ create_tearsheet(
 对于多货币回测，可以将统计数据筛选到特定货币：
 
 ```python
-from vibe_trader.model.currencies import USD
+from vibe_trading.model.currencies import USD
 
 create_tearsheet(
     engine=engine,
@@ -198,14 +198,14 @@ create_tearsheet(engine=engine, config=config)
 
 ## 主题
 
-主题控制图表的颜色、字体和背景等视觉样式。VibeTrader 提供四种内置主题：
+主题控制图表的颜色、字体和背景等视觉样式。VibeTrading 提供四种内置主题：
 
-| 主题名称       | 说明                               | 使用场景         |
-| -------------- | ---------------------------------- | ---------------- |
-| `plotly_white` | 带深灰色标题的简洁浅色主题。       | 默认的专业报告。 |
-| `plotly_dark`  | 使用标准 Plotly 配色的深色背景。   | 弱光环境。       |
-| `vibe`         | 使用 VibeTrader 品牌色的浅色主题。 | 官方浅色模式。   |
-| `vibe_dark`    | 使用青绿/青色标志色的深色主题。    | 官方深色模式。   |
+| 主题名称       | 说明                                | 使用场景         |
+| -------------- | ----------------------------------- | ---------------- |
+| `plotly_white` | 带深灰色标题的简洁浅色主题。        | 默认的专业报告。 |
+| `plotly_dark`  | 使用标准 Plotly 配色的深色背景。    | 弱光环境。       |
+| `vibe`         | 使用 VibeTrading 品牌色的浅色主题。 | 官方浅色模式。   |
+| `vibe_dark`    | 使用青绿/青色标志色的深色主题。     | 官方深色模式。   |
 
 ### 选择主题
 
@@ -221,7 +221,7 @@ create_tearsheet(engine=engine, config=config)
 注册自定义主题以在所有可视化中保持一致的品牌：
 
 ```python
-from vibe_trader.analysis import register_theme
+from vibe_trading.analysis import register_theme
 
 register_theme(
     name="corporate",
@@ -252,11 +252,11 @@ config = TearsheetConfig(theme="corporate")
 `TearsheetConfig` 类以声明方式控制绩效报告生成：
 
 ```python
-from vibe_trader.analysis import GridLayout
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.analysis import TearsheetDrawdownChart
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetStatsTableChart
+from vibe_trading.analysis import GridLayout
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.analysis import TearsheetDrawdownChart
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetStatsTableChart
 
 config = TearsheetConfig(
     charts=[
@@ -301,7 +301,7 @@ config = TearsheetConfig(
 ### 注册自定义图表
 
 ```python
-from vibe_trader.analysis.tearsheet import register_chart
+from vibe_trading.analysis.tearsheet import register_chart
 import plotly.graph_objects as go
 
 
@@ -311,7 +311,7 @@ def my_custom_chart(returns, output_path=None, title="Custom Chart", theme="plot
 
     This function signature matches the built-in chart functions for consistency.
     """
-    from vibe_trader.analysis.themes import get_theme
+    from vibe_trading.analysis.themes import get_theme
 
     theme_config = get_theme(theme)
 
@@ -349,11 +349,11 @@ register_chart("my_custom", my_custom_chart)
 若要按正确的网格位置集成绩效报告，请使用 `register_tearsheet_chart`。`register_chart` 注册的是返回独立图形的函数；绩效报告渲染器则直接把轨迹绘制到共享子图网格单元，因此函数签名接收目标 `fig`，以及用于确定渲染位置的 `row` 和 `col`。
 
 ```python
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.analysis import TearsheetCustomChart
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetStatsTableChart
-from vibe_trader.analysis import register_tearsheet_chart
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.analysis import TearsheetCustomChart
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetStatsTableChart
+from vibe_trading.analysis import register_tearsheet_chart
 
 
 def _render_my_metric(fig, row, col, returns, theme_config, **kwargs):
@@ -420,7 +420,7 @@ config = TearsheetConfig(
 ```python
 import pandas as pd
 
-from vibe_trader.analysis.tearsheet import create_tearsheet_from_stats
+from vibe_trading.analysis.tearsheet import create_tearsheet_from_stats
 
 # Load precomputed data. The structure matches BacktestResult stats fields.
 stats_pnls = {"USD": {"PnL (total)": 1500.0, "Win Rate": 0.55, ...}}  # Per-currency
@@ -517,13 +517,13 @@ create_tearsheet_from_stats(
 `create_bars_with_fills` 函数生成叠加订单成交标记的蜡烛图，便于直观分析价格走势中的策略执行。它可以独立使用，也可以包含在绩效报告中：
 
 ```python
-from vibe_trader.analysis import create_bars_with_fills
-from vibe_trader.analysis import create_tearsheet
-from vibe_trader.analysis import TearsheetBarsWithFillsChart
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetStatsTableChart
-from vibe_trader.model.data import BarType
+from vibe_trading.analysis import create_bars_with_fills
+from vibe_trading.analysis import create_tearsheet
+from vibe_trading.analysis import TearsheetBarsWithFillsChart
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetStatsTableChart
+from vibe_trading.model.data import BarType
 
 # Standalone usage
 bar_type = BarType.from_str("ESM4.XCME-1-MINUTE-LAST-EXTERNAL")

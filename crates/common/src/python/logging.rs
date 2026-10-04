@@ -209,7 +209,7 @@ impl FileWriterConfig {
 /// Initialize logging.
 ///
 /// Logging should be used for Python and sync Rust logic which is most of
-/// the components in the `vibe_trader` package.
+/// the components in the `vibe_trading` package.
 /// Logging can be configured to filter components and write up to a specific level only
 /// by passing a configuration using the `VIBE_LOG` environment variable.
 ///
@@ -220,7 +220,7 @@ impl FileWriterConfig {
 ///
 /// Returns an error if the logging subsystem fails to initialize.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "init_logging")]
 #[expect(clippy::too_many_arguments)]
 #[pyo3(signature = (trader_id, instance_id, level_stdout, level_file=None, component_levels=None, directory=None, file_name=None, file_format=None, file_rotate=None, is_colored=None, is_bypassed=None, print_config=None, log_components_only=None, fileout_sync_on_flush=None, buffered_stdout=None))]
@@ -274,7 +274,7 @@ pub fn py_init_logging(
 }
 
 #[pyfunction()]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "logger_flush")]
 pub fn py_logger_flush() {
     log::logger().flush();
@@ -288,7 +288,7 @@ pub fn py_logger_flush() {
 ///
 /// Returns an error if the sync request cannot be delivered or acknowledged.
 #[pyfunction()]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "logging_sync_to_disk")]
 pub fn py_logging_sync_to_disk() -> PyResult<bool> {
     logging::logging_sync_to_disk()
@@ -327,7 +327,7 @@ const fn level_filter_to_log_level(level: LevelFilter) -> LogLevel {
 
 /// Create a new log event.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "logger_log")]
 pub fn py_logger_log(level: LogLevel, color: LogColor, component: &str, message: &str) {
     logger::log(level, color, Ustr::from(component), message);
@@ -335,7 +335,7 @@ pub fn py_logger_log(level: LogLevel, color: LogColor, component: &str, message:
 
 /// Logs the standard Vibe system header.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "log_header")]
 pub fn py_log_header(trader_id: TraderId, machine_id: &str, instance_id: UUID4, component: &str) {
     headers::log_header(trader_id, machine_id, instance_id, Ustr::from(component));
@@ -343,7 +343,7 @@ pub fn py_log_header(trader_id: TraderId, machine_id: &str, instance_id: UUID4, 
 
 /// Logs system information.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "log_sysinfo")]
 pub fn py_log_sysinfo(component: &str) {
     headers::log_sysinfo(Ustr::from(component));
@@ -351,7 +351,7 @@ pub fn py_log_sysinfo(component: &str) {
 
 /// Sets the global logging clock to static mode.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "logging_clock_set_static_mode")]
 pub fn py_logging_clock_set_static_mode() {
     logging_clock_set_static_mode();
@@ -359,7 +359,7 @@ pub fn py_logging_clock_set_static_mode() {
 
 /// Sets the global logging clock to real-time mode.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "logging_clock_set_realtime_mode")]
 pub fn py_logging_clock_set_realtime_mode() {
     logging_clock_set_realtime_mode();
@@ -367,7 +367,7 @@ pub fn py_logging_clock_set_realtime_mode() {
 
 /// Sets the global logging clock static time with the given UNIX timestamp (nanoseconds).
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "logging_clock_set_static_time")]
 pub fn py_logging_clock_set_static_time(time_ns: u64) {
     logging_clock_set_static_time(time_ns);
@@ -376,7 +376,7 @@ pub fn py_logging_clock_set_static_time(time_ns: u64) {
 /// Returns whether the tracing subscriber has been initialized.
 #[cfg(feature = "tracing-bridge")]
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "tracing_is_initialized")]
 #[must_use]
 pub fn py_tracing_is_initialized() -> bool {
@@ -400,7 +400,7 @@ pub fn py_tracing_is_initialized() -> bool {
 /// Returns an error if the tracing subscriber has already been initialized.
 #[cfg(feature = "tracing-bridge")]
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "init_tracing")]
 pub fn py_init_tracing() -> PyResult<()> {
     crate::logging::bridge::init_tracing().map_err(to_pyvalue_err)
@@ -413,12 +413,12 @@ pub fn py_init_tracing() -> PyResult<()> {
 /// all records through the Vibe logging infrastructure so that log levels
 /// and formatting remain consistent across Rust and Python.
 #[pyclass(
-    module = "vibe_trader.common",
+    module = "vibe_trading.common",
     name = "Logger",
     unsendable,
     from_py_object
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")]
 #[derive(Debug, Clone)]
 pub struct PyLogger {
     name: Ustr,

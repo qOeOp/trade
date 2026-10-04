@@ -1,14 +1,14 @@
 # vibe-blockchain
 
-[VibeTrader](https://github.com/qOeOp/trade) blockchain adapter for DeFi data ingestion.
+[VibeTrading](https://github.com/qOeOp/trade) blockchain adapter for DeFi data ingestion.
 
 The `vibe-blockchain` crate provides a high-performance, universal, extensible adapter for ingesting
 DeFi data from decentralized exchanges (DEXs), liquidity pools, and on-chain events. It enables you to
 power analytics pipelines and trading strategies with real-time and historical on-chain data.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

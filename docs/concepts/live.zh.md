@@ -1,6 +1,6 @@
 # 实盘交易
 
-VibeTrader 无需修改代码即可把经过回测的策略部署到实时市场。
+VibeTrading 无需修改代码即可把经过回测的策略部署到实时市场。
 相同的 Actor、策略和执行算法既可以对接回测引擎，也可以对接实盘交易节点。
 
 :::warning
@@ -122,7 +122,7 @@ kernel 启动后，Rust logger 会记录第一条 `log::error!`，包括来自�
 并停止引擎；它不会中止进程。
 
 ```python
-from vibe_trader.config import LiveNodeConfig
+from vibe_trading.config import LiveNodeConfig
 
 config = LiveNodeConfig(shutdown_on_error=True)
 ```

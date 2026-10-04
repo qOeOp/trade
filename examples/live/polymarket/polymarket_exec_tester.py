@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 from decimal import Decimal
 
-from vibe_trader.adapters.polymarket import POLYMARKET
-from vibe_trader.adapters.polymarket import PolymarketDataClientConfig
-from vibe_trader.adapters.polymarket import PolymarketExecClientConfig
-from vibe_trader.adapters.polymarket import PolymarketLiveDataClientFactory
-from vibe_trader.adapters.polymarket import PolymarketLiveExecClientFactory
-from vibe_trader.adapters.polymarket.common.symbol import get_polymarket_instrument_id
-from vibe_trader.adapters.polymarket.providers import PolymarketInstrumentProviderConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import PortfolioConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.test_kit.strategies.tester_exec import ExecTester
-from vibe_trader.test_kit.strategies.tester_exec import ExecTesterConfig
+from vibe_trading.adapters.polymarket import POLYMARKET
+from vibe_trading.adapters.polymarket import PolymarketDataClientConfig
+from vibe_trading.adapters.polymarket import PolymarketExecClientConfig
+from vibe_trading.adapters.polymarket import PolymarketLiveDataClientFactory
+from vibe_trading.adapters.polymarket import PolymarketLiveExecClientFactory
+from vibe_trading.adapters.polymarket.common.symbol import get_polymarket_instrument_id
+from vibe_trading.adapters.polymarket.providers import PolymarketInstrumentProviderConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import PortfolioConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.test_kit.strategies.tester_exec import ExecTester
+from vibe_trading.test_kit.strategies.tester_exec import ExecTesterConfig
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***
@@ -28,7 +28,7 @@ from vibe_trader.test_kit.strategies.tester_exec import ExecTesterConfig
 # for both get_orders() and get_trades() methods. It automatically fetches all
 # pages and returns the complete dataset, so no manual pagination is needed.
 
-# To find active markets run `python vibe_trader/adapters/polymarket/scripts/active_markets.py`
+# To find active markets run `python vibe_trading/adapters/polymarket/scripts/active_markets.py`
 
 # Slug: gta-vi-released-before-june-2026
 # Active: True

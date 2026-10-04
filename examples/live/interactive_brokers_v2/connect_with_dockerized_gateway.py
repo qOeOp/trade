@@ -15,7 +15,7 @@ from _common import is_ib_endpoint_reachable
 from _common import resolve_ib_endpoint
 from _common import schedule_node_stop
 
-from vibe_trader.adapters import interactive_brokers
+from vibe_trading.adapters import interactive_brokers
 
 
 def main() -> None:

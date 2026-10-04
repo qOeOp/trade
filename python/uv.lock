@@ -1199,7 +1199,7 @@ wheels = [
 ]
 
 [[package]]
-name = "vibe-trader"
+name = "vibe-trading"
 version = "2.0.0rc3"
 source = { editable = "." }
 

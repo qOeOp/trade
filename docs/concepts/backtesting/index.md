@@ -2,7 +2,7 @@
 
 :::note[Layer]
 These pages describe the inherited engine: the component model that `crates` and
-`python/vibe_trader` implement today. They are accurate about that layer, and they are kept for
+`python/vibe_trading` implement today. They are accurate about that layer, and they are kept for
 people working in it.
 
 They are not the platform's architecture of record. Where a page here and an Owner contract answer
@@ -16,7 +16,7 @@ live trading: built-in engines, the `Cache`, the [MessageBus](../message_bus.md)
 user-defined modules.
 
 A `BacktestEngine` processes a stream of historical data. When the stream is exhausted, the engine
-produces results and performance metrics for analysis. VibeTrader offers two API levels for
+produces results and performance metrics for analysis. VibeTrading offers two API levels for
 backtesting:
 
 | API level  | Use when                                                                |

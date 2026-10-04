@@ -1,6 +1,6 @@
 # Portfolio Example
 
-A simple strategy demonstrating how to use Portfolio in VibeTrader.
+A simple strategy demonstrating how to use Portfolio in VibeTrading.
 
 The Portfolio is a central component that tracks the state of your trading account.
 It connects directly to the broker to get real-time positions, balances, and P&L.
@@ -38,7 +38,7 @@ Key differences between `Portfolio` and `Cache`:
 
 ## Additional Resources
 
-For more information about Portfolio in VibeTrader, see:
+For more information about Portfolio in VibeTrading, see:
 
 - Portfolio API documentation - search the codebase for `Portfolio` class.
 - Portfolio concept guide - see the "Portfolio" section in the documentation for more details.

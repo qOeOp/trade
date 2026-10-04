@@ -3,18 +3,18 @@ import sys
 import pytest
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.okx import OKX
-from vibe_trader.adapters.okx import OKXDataClientConfig
-from vibe_trader.adapters.okx import OKXDataClientFactory
-from vibe_trader.adapters.okx import OKXEnvironment
-from vibe_trader.adapters.okx import OKXExecClientConfig
-from vibe_trader.adapters.okx import OKXExecutionClientFactory
-from vibe_trader.adapters.okx import OKXInstrumentType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.okx import OKX
+from vibe_trading.adapters.okx import OKXDataClientConfig
+from vibe_trading.adapters.okx import OKXDataClientFactory
+from vibe_trading.adapters.okx import OKXEnvironment
+from vibe_trading.adapters.okx import OKXExecClientConfig
+from vibe_trading.adapters.okx import OKXExecutionClientFactory
+from vibe_trading.adapters.okx import OKXInstrumentType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 SMOKE_API_KEY = "test_key"

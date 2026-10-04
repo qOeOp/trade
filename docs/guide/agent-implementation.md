@@ -1,6 +1,6 @@
 # Agent implementation guide
 
-This page bridges the target product architecture to the current VibeTrader engine. It preserves useful
+This page bridges the target product architecture to the current VibeTrading engine. It preserves useful
 developer knowledge without turning legacy prose, crate layout, examples, or reachable APIs into a second
 source of product authority.
 

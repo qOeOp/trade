@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 
-from vibe_trader.common.enums import LogColor
-from vibe_trader.config import StrategyConfig
-from vibe_trader.core.datetime import unix_nanos_to_dt
-from vibe_trader.core.message import Event
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.model.instruments import Instrument
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.common.enums import LogColor
+from vibe_trading.config import StrategyConfig
+from vibe_trading.core.datetime import unix_nanos_to_dt
+from vibe_trading.core.message import Event
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.model.instruments import Instrument
+from vibe_trading.trading.strategy import Strategy
 
 
 @dataclass

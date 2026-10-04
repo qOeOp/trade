@@ -1,13 +1,13 @@
 # vibe-pyo3
 
-Python bindings for [VibeTrader](https://github.com/qOeOp/trade).
+Python bindings for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-pyo3` crate provides all [PyO3](https://pyo3.rs) Python bindings for the
-main `vibe_trader` Python package, built via [maturin](https://github.com/PyO3/maturin).
+main `vibe_trading` Python package, built via [maturin](https://github.com/PyO3/maturin).
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

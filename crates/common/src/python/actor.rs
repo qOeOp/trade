@@ -730,12 +730,12 @@ fn pydict_to_state(state: &Bound<'_, PyDict>) -> PyResult<IndexMap<String, Vec<u
 /// underlying actor instance, ensuring mutations are visible from both sides.
 #[allow(non_camel_case_types)]
 #[pyo3::pyclass(
-    module = "vibe_trader.common",
+    module = "vibe_trading.common",
     name = "DataActor",
     unsendable,
     subclass
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")]
 pub struct PyDataActor {
     inner: Rc<UnsafeCell<PyDataActorInner>>,
 }

@@ -2,7 +2,7 @@
 title: "订单簿数据"
 ---
 
-加载 Bybit 订单簿存档，并将经过规范化的交易场所数据行转换为 VibeTrader 订单簿增量，供 Binance 和 Bybit 回测教程使用。
+加载 Bybit 订单簿存档，并将经过规范化的交易场所数据行转换为 VibeTrading 订单簿增量，供 Binance 和 Bybit 回测教程使用。
 
 ```python
 from __future__ import annotations
@@ -15,7 +15,7 @@ from os import PathLike
 from zipfile import ZipFile, is_zipfile
 
 import pandas as pd
-from vibe_trader.model import (
+from vibe_trading.model import (
     BookAction,
     BookOrder,
     CryptoPerpetual,

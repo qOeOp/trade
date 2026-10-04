@@ -1,7 +1,7 @@
 import pytest
 
 from tests.stubs import TestDataProviderPyo3
-from vibe_trader.indicators import VolumeWeightedAveragePrice
+from vibe_trading.indicators import VolumeWeightedAveragePrice
 
 
 def test_handle_bar_uses_typical_price() -> None:

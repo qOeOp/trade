@@ -15,7 +15,7 @@
 
 ## 推荐顺序
 
-初次使用 VibeTrader？建议按以下顺序学习：
+初次使用 VibeTrading？建议按以下顺序学习：
 
 1. [快速入门](../getting_started/quickstart) - 使用合成数据，在五分钟内运行首次回测
 2. [回测（底层 API）](../getting_started/backtest_low_level) - 直接使用 `BacktestEngine`、真实市场数据和执行算法

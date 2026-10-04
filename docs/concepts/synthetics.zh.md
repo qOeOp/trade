@@ -109,7 +109,7 @@ formula = "if(BTCUSDT.BINANCE > ETHUSDT.BINANCE, BTCUSDT.BINANCE, ETHUSDT.BINANC
 以下示例通过 actor 或策略创建一个合成金融工具。该金融工具表示 Binance 上比特币与以太坊现货价格之间的简单价差，并假定 `BTCUSDT.BINANCE` 和 `ETHUSDT.BINANCE` 已经存在于缓存中。
 
 ```python
-from vibe_trader.model.instruments import SyntheticInstrument
+from vibe_trading.model.instruments import SyntheticInstrument
 
 btcusdt_binance_id = InstrumentId.from_str("BTCUSDT.BINANCE")
 ethusdt_binance_id = InstrumentId.from_str("ETHUSDT.BINANCE")
@@ -203,7 +203,7 @@ self.strategy.submit_order(order)
 
 Vibe 会在每个边界验证合成金融工具。公式编译会拒绝未知符号、类型错误和容量溢出；求值会在价格进入公式之前拒绝错误的输入数量和非有限价格（NaN、Infinity）。
 
-有关输入要求和异常，请参阅 [`SyntheticInstrument` API 参考](/docs/python-api-latest/model/instruments.html#vibe_trader.model.instruments.synthetic.SyntheticInstrument)。
+有关输入要求和异常，请参阅 [`SyntheticInstrument` API 参考](/docs/python-api-latest/model/instruments.html#vibe_trading.model.instruments.synthetic.SyntheticInstrument)。
 
 ## 相关指南
 

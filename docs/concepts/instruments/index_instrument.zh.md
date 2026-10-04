@@ -55,12 +55,12 @@ let spx = IndexInstrument::builder()
 ```
 
 ```python tab="Python"
-from vibe_trader.model import Currency
-from vibe_trader.model import IndexInstrument
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import Currency
+from vibe_trading.model import IndexInstrument
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 spx = IndexInstrument(
     instrument_id=InstrumentId.from_str("SPX.XCBO"),

@@ -49,13 +49,13 @@ let order = self.order().limit_if_touched(
 
 ```python tab="Python"
 import pandas as pd
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model.enums import TriggerType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import LimitIfTouchedOrder
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model.enums import TriggerType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import LimitIfTouchedOrder
 
 order: LimitIfTouchedOrder = self.order_factory.limit_if_touched(
     instrument_id=InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),
@@ -72,7 +72,7 @@ order: LimitIfTouchedOrder = self.order_factory.limit_if_touched(
 )
 ```
 
-更多详情请参阅 [`LimitIfTouchedOrder` API 参考](/docs/python-api-latest/model/orders.html#vibe_trader.model.orders.limit_if_touched.LimitIfTouchedOrder)。
+更多详情请参阅 [`LimitIfTouchedOrder` API 参考](/docs/python-api-latest/model/orders.html#vibe_trading.model.orders.limit_if_touched.LimitIfTouchedOrder)。
 
 ## 相关指南
 

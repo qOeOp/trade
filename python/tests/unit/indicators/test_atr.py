@@ -3,7 +3,7 @@ import sys
 import pytest
 
 from tests.stubs import TestDataProviderPyo3
-from vibe_trader.indicators import AverageTrueRange
+from vibe_trading.indicators import AverageTrueRange
 
 
 @pytest.fixture

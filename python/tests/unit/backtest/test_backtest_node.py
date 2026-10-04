@@ -4,24 +4,24 @@ import pytest
 
 from tests.providers import TestInstrumentProvider
 from tests.stubs import TestDataProviderPyo3
-from vibe_trader.analysis import TearsheetConfig
-from vibe_trader.analysis import TearsheetStatsTableChart
-from vibe_trader.analysis import create_tearsheet
-from vibe_trader.analysis import tearsheet
-from vibe_trader.analysis.reporter import ReportProvider
-from vibe_trader.backtest import BacktestDataConfig
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.backtest import BacktestRunConfig
-from vibe_trader.backtest import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OmsType
-from vibe_trader.model import Quantity
-from vibe_trader.model import Venue
-from vibe_trader.persistence import ParquetDataCatalog
-from vibe_trader.trading import EmaCrossConfig
+from vibe_trading.analysis import TearsheetConfig
+from vibe_trading.analysis import TearsheetStatsTableChart
+from vibe_trading.analysis import create_tearsheet
+from vibe_trading.analysis import tearsheet
+from vibe_trading.analysis.reporter import ReportProvider
+from vibe_trading.backtest import BacktestDataConfig
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.backtest import BacktestRunConfig
+from vibe_trading.backtest import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OmsType
+from vibe_trading.model import Quantity
+from vibe_trading.model import Venue
+from vibe_trading.persistence import ParquetDataCatalog
+from vibe_trading.trading import EmaCrossConfig
 
 
 def test_node_construction():

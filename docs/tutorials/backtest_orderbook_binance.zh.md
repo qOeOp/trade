@@ -47,7 +47,7 @@ flowchart LR
 ## 先决条件
 
 - Python 3.12+
-- 本地 Vibe Trader 源码构建（`make build-debug`）
+- 本地 Vibe Trading 源码构建（`make build-debug`）
 - 同级的 [`orderbook_data.py`](./orderbook_data.py) 和 [`orderbook_imbalance.py`](./orderbook_imbalance.py) 文件。下载教程或通过 Jupytext 转换时，请将它们与本教程放在同一目录。
 - 要重放日期的 Binance T_DEPTH CSV。随附教程使用 [data.binance.vision](https://data.binance.vision) 提供的 BTCUSDT 2022-11-01 数据。请将文件放入 `VIBE_DATA_DIR/Binance/` 目录。
 
@@ -57,10 +57,10 @@ import shutil
 from pathlib import Path
 
 import pandas as pd
-from vibe_trader.adapters.binance import load_binance_order_book_deltas
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.common import LogLevel
-from vibe_trader.config import (
+from vibe_trading.adapters.binance import load_binance_order_book_deltas
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.common import LogLevel
+from vibe_trading.config import (
     BacktestDataConfig,
     BacktestEngineConfig,
     BacktestRunConfig,
@@ -68,8 +68,8 @@ from vibe_trader.config import (
     ImportableStrategyConfig,
     LoggerConfig,
 )
-from vibe_trader.core.datetime import dt_to_unix_nanos
-from vibe_trader.model import (
+from vibe_trading.core.datetime import dt_to_unix_nanos
+from vibe_trading.model import (
     AccountType,
     BookType,
     Currency,
@@ -81,14 +81,14 @@ from vibe_trader.model import (
     Symbol,
     Venue,
 )
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 from orderbook_data import deltas_from_frame
 ```
 
 ## 加载数据
 
-`_depth_snap.csv` 和 `_depth_update.csv` 的每一行表示一个 L2 价位事件。Binance 加载器将其映射为 VibeTrader `OrderBookDelta` 对象：快照使用 `update_type="snap"`，更新使用 `set` / `delete`。BTCUSDT 2022-11-01 的完整更新文件约为 12 GB（约 1.1 亿行），因此教程最多读取 1,000,000 行。
+`_depth_snap.csv` 和 `_depth_update.csv` 的每一行表示一个 L2 价位事件。Binance 加载器将其映射为 VibeTrading `OrderBookDelta` 对象：快照使用 `update_type="snap"`，更新使用 `set` / `delete`。BTCUSDT 2022-11-01 的完整更新文件约为 12 GB（约 1.1 亿行），因此教程最多读取 1,000,000 行。
 
 ```python
 DATA_DIR = Path(os.environ.get("VIBE_DATA_DIR", "~/Downloads/Data")).expanduser() / "Binance"

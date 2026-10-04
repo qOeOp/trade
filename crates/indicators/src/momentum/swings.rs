@@ -9,10 +9,10 @@ const MAX_PERIOD: usize = 1_024;
 
 #[repr(C)]
 #[derive(Debug)]
-#[cfg_attr(feature = "python", pyo3::pyclass(module = "vibe_trader.indicators"))]
+#[cfg_attr(feature = "python", pyo3::pyclass(module = "vibe_trading.indicators"))]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.indicators")
 )]
 pub struct Swings {
     pub period: usize,

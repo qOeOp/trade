@@ -14,7 +14,7 @@ use vibe_model::{enums::TradingState, identifiers::TraderId};
 #[serde(tag = "type")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 pub struct TradingStateChanged {
     /// The trader ID associated with the event.

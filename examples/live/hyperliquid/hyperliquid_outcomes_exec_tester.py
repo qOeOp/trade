@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 from decimal import Decimal
 
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID
-from vibe_trader.adapters.hyperliquid import HyperliquidDataClientConfig
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidExecClientConfig
-from vibe_trader.adapters.hyperliquid import HyperliquidLiveDataClientFactory
-from vibe_trader.adapters.hyperliquid import HyperliquidLiveExecClientFactory
-from vibe_trader.adapters.hyperliquid.enums import HyperliquidProductType
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.test_kit.strategies.tester_exec import ExecTester
-from vibe_trader.test_kit.strategies.tester_exec import ExecTesterConfig
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID
+from vibe_trading.adapters.hyperliquid import HyperliquidDataClientConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidExecClientConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidLiveDataClientFactory
+from vibe_trading.adapters.hyperliquid import HyperliquidLiveExecClientFactory
+from vibe_trading.adapters.hyperliquid.enums import HyperliquidProductType
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.test_kit.strategies.tester_exec import ExecTester
+from vibe_trading.test_kit.strategies.tester_exec import ExecTesterConfig
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

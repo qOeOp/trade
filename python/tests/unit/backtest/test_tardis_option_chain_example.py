@@ -6,8 +6,8 @@ from types import ModuleType
 import pytest
 
 
-pytest.importorskip("vibe_trader._libvibe")
-_model = pytest.importorskip("vibe_trader.model")
+pytest.importorskip("vibe_trading._libvibe")
+_model = pytest.importorskip("vibe_trading.model")
 InstrumentId = _model.InstrumentId
 Price = _model.Price
 

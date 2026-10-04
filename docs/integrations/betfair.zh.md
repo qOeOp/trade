@@ -4,7 +4,7 @@ Betfair 是面向体育及其他事件的投注交易所。该适配器集成 Be
 
 ## 安装
 
-按照[安装指南](../getting_started/installation.md)安装 VibeTrader。Python 包已包含 Betfair 适配器，无需安装适配器专用的额外依赖。
+按照[安装指南](../getting_started/installation.md)安装 VibeTrading。Python 包已包含 Betfair 适配器，无需安装适配器专用的额外依赖。
 
 ## 示例
 

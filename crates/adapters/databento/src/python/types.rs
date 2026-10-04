@@ -274,11 +274,11 @@ impl DatabentoStatistics {
 /// Subscription acknowledgement from the Databento gateway.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.databento", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.databento", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.databento")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.databento")
 )]
 #[derive(Debug, Clone)]
 pub struct DatabentoSubscriptionAck {

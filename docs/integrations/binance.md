@@ -4,7 +4,7 @@ Founded in 2017, Binance is one of the largest cryptocurrency exchanges in terms
 of daily trading volume, and open interest of crypto assets and crypto
 derivative products.
 
-VibeTrader provides Binance integration for live market data and execution. The adapter is
+VibeTrading provides Binance integration for live market data and execution. The adapter is
 implemented in Rust and exposed to Python through the same public configurations, factories, and
 data types.
 
@@ -48,10 +48,10 @@ client:
 ```python
 import asyncio
 
-from vibe_trader.adapters.binance import BinanceDataClientConfig
-from vibe_trader.adapters.binance import BinanceInstrumentProviderConfig
-from vibe_trader.adapters.binance import BinanceProductType
-from vibe_trader.adapters.binance import load_binance_instruments
+from vibe_trading.adapters.binance import BinanceDataClientConfig
+from vibe_trading.adapters.binance import BinanceInstrumentProviderConfig
+from vibe_trading.adapters.binance import BinanceProductType
+from vibe_trading.adapters.binance import load_binance_instruments
 
 config = BinanceDataClientConfig(
     product_type=BinanceProductType.USD_M,
@@ -70,7 +70,7 @@ supported Binance product and is rejected.
 For Binance depth CSV data, call the stateless loader directly:
 
 ```python
-from vibe_trader.adapters.binance import load_binance_order_book_deltas
+from vibe_trading.adapters.binance import load_binance_order_book_deltas
 
 df = load_binance_order_book_deltas(path, nrows=1_000_000)
 ```
@@ -115,7 +115,7 @@ See the Binance [API Reference](/docs/python-api-latest/adapters/binance.html) f
 ## Symbology
 
 Native Binance symbols are used where possible for spot and futures contracts.
-Because VibeTrader supports multi-venue trading, it must distinguish between
+Because VibeTrading supports multi-venue trading, it must distinguish between
 `BTCUSDT` the spot pair and `BTCUSDT` the perpetual futures contract (Binance
 uses the same symbol for both).
 
@@ -486,7 +486,7 @@ error. Use `activation_price` instead.
 
 ## Link & Trade
 
-The VibeTrader integration ID is automatically prefixed to all
+The VibeTrading integration ID is automatically prefixed to all
 system-generated client order IDs for every order placed through the Binance
 adapter. This provides transparent order attribution through Binance's
 [Link and Trade](https://developers.binance.com/docs/binance_link/link-and-trade)
@@ -513,7 +513,7 @@ When querying Binance directly (REST API, web UI, or your own HTTP code), the
 the original Vibe `ClientOrderId`:
 
 ```python
-from vibe_trader.adapters.binance import (
+from vibe_trading.adapters.binance import (
     decode_binance_futures_client_order_id,
     decode_binance_spot_client_order_id,
 )
@@ -631,9 +631,9 @@ Spot 24-hour ticker custom data requires public JSON market-data mode and an
 `instrument_id` metadata value:
 
 ```python
-from vibe_trader.adapters.binance import BinanceSpotTicker
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.binance import BinanceSpotTicker
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(
@@ -652,9 +652,9 @@ subscription because Binance Spot SBE does not provide the stream.
 Subscribe to 24-hour ticker statistics for a specific Futures instrument:
 
 ```python
-from vibe_trader.adapters.binance import BinanceFuturesTicker
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.binance import BinanceFuturesTicker
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 client_id = ClientId.from_str("BINANCE")
 
@@ -678,9 +678,9 @@ Subscribe to `BinanceFuturesMarkPriceUpdate` (including funding rate info)
 from your actor or strategy:
 
 ```python
-from vibe_trader.adapters.binance import BinanceFuturesMarkPriceUpdate
-from vibe_trader.model import DataType
-from vibe_trader.model import ClientId
+from vibe_trading.adapters.binance import BinanceFuturesMarkPriceUpdate
+from vibe_trading.model import DataType
+from vibe_trading.model import ClientId
 
 # In your `on_start` method
 self.subscribe_data(
@@ -709,9 +709,9 @@ Subscribe to liquidation updates for either:
 - all symbols (`!forceOrder@arr`) by omitting `instrument_id`.
 
 ```python
-from vibe_trader.adapters.binance import BinanceFuturesLiquidation
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.binance import BinanceFuturesLiquidation
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 client_id = ClientId.from_str("BINANCE")
 
@@ -1008,7 +1008,7 @@ Explicit depth subscriptions use partial-book snapshots (see [Order books](#orde
 
 :::note
 Exposed to Python as `BinanceSpotMarketDataMode` on
-`vibe_trader.adapters.binance`.
+`vibe_trading.adapters.binance`.
 :::
 
 ### Key types
@@ -1018,7 +1018,7 @@ Binance supports three API key types: **Ed25519**, **HMAC-SHA256**, and
 no configuration is needed.
 
 **Ed25519 is strongly recommended.** Binance recommends Ed25519 for its
-superior performance and security. A future version of VibeTrader will
+superior performance and security. A future version of VibeTrading will
 require Ed25519 exclusively.
 
 | Key Type | Data Clients | Execution Clients | Status                                           |
@@ -1062,7 +1062,7 @@ Download the [Binance Asymmetric Key Generator](https://github.com/binance/asymm
 3. Paste the contents of your public key file (including the `-----BEGIN PUBLIC KEY-----` header/footer)
 4. Configure permissions (Enable Spot & Margin Trading, etc.)
 
-**Using with VibeTrader**
+**Using with VibeTrading**
 
 Set the private key as your API secret:
 
@@ -1271,7 +1271,7 @@ the legacy `@trade` stream was undocumented and has been silenced. The HTTP
 The instrument provider controls both selection and fee policy:
 
 ```python
-from vibe_trader.adapters.binance import BinanceInstrumentProviderConfig
+from vibe_trading.adapters.binance import BinanceInstrumentProviderConfig
 
 instrument_provider = BinanceInstrumentProviderConfig(
     load_all=False,
@@ -1314,7 +1314,7 @@ with a warning.
 To suppress these warnings:
 
 ```python
-from vibe_trader.adapters.binance import BinanceInstrumentProviderConfig
+from vibe_trading.adapters.binance import BinanceInstrumentProviderConfig
 
 instrument_provider = BinanceInstrumentProviderConfig(
     load_all=True,
@@ -1332,11 +1332,11 @@ To use hedge mode, configure it on Binance, set
 both venue position sides:
 
 ```python
-from vibe_trader.adapters.binance import BinanceExecClientConfig
-from vibe_trader.adapters.binance import BinanceProductType
-from vibe_trader.model import AccountId
-from vibe_trader.model import OmsType
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.binance import BinanceExecClientConfig
+from vibe_trading.adapters.binance import BinanceProductType
+from vibe_trading.model import AccountId
+from vibe_trading.model import OmsType
+from vibe_trading.model import TraderId
 
 config = BinanceExecClientConfig(
     trader_id=TraderId.from_str("TRADER-001"),

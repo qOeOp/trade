@@ -19,7 +19,8 @@ Use this template only for issues that fit the **Bug** definition.
 
 - Submitting this issue automatically applies the `bug` label.
 - `bug`-labeled issues are triaged with higher priority because they require corrective implementation work.
-- **Expectation mismatches** and design-level concerns should be opened as [Discussions](https://github.com/nautechsystems/nautilus_trader/discussions), or RFCs instead, where they can be validated and discussed to consensus before any work is scheduled.
+- **Expectation mismatches** and design-level concerns should be opened as an RFC instead, where they
+  can be validated and discussed to consensus before any work is scheduled.
 - The absence of a feature is typically not an expectation mismatch, and should be filed as an enhancement request.
 
 ## Confirmation
@@ -29,23 +30,7 @@ Use this template only for issues that fit the **Bug** definition.
 - [ ] I've re-read the relevant sections of the documentation.
 - [ ] I've searched existing issues and discussions to avoid duplicates.
 - [ ] I've reviewed or skimmed the source code (or examples) to confirm the behavior is not by design.
-- [ ] I've tested this issue using a recent pre-release or development wheel (`2.0.0rcN`,
-      `dev` develop, or `a` nightly) and can still reproduce it.
-
-Checking a recent pre-release or development wheel can save time because the issue may already have been fixed.
-You can test the v2 release-candidate wheels from PyPI by running:
-
-```bash
-pip install -U nautilus_trader --pre
-```
-
-You can test branch development wheels by running:
-
-```bash
-pip install -U nautilus_trader --pre --index-url https://packages.nautechsystems.io/simple
-```
-
-See the [Installation Guide](https://nautilustrader.io/docs/latest/getting_started/installation) for more details.
+- [ ] I've tested this issue against a recent build from `main` and can still reproduce it.
 
 ## Expected behavior
 
@@ -61,9 +46,8 @@ Add here...
 2.
 3.
 
-Consider starting from our
-[Minimal Reproducible Example](https://github.com/nautechsystems/nautilus_trader/tree/develop/examples/other/minimal_reproducible_example)
-template, which generates its own data so you do not need to attach market data files.
+Prefer a minimal reproducible example that generates its own data, so you do not need to attach
+market data files.
 
 ## Code snippets or logs
 
@@ -73,6 +57,5 @@ template, which generates its own data so you do not need to attach market data 
 
 - OS platform:
 - Python version:
-- `nautilus_trader` version:
-- Installed from (PyPI wheel, package index wheel, or built from source):
+- `vibe_trader` version or commit:
 - Adapter/venue (if applicable):
