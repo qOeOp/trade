@@ -217,13 +217,12 @@ fn parse_funding_csv(
                 value: "0".to_string(),
             });
         }
-        let rate = Decimal::from_str_exact(rate).map_err(|_| {
-            BinanceVisionArchiveError::InvalidNumeric {
+        let rate =
+            parse_funding_rate(rate).ok_or_else(|| BinanceVisionArchiveError::InvalidNumeric {
                 row,
                 field: "last_funding_rate",
                 value: rate.to_string(),
-            }
-        })?;
+            })?;
 
         if previous_settlement_ns.is_some_and(|previous| settlement_ns <= previous) {
             return Err(BinanceVisionArchiveError::InvalidTemporalSemantics {
@@ -239,6 +238,19 @@ fn parse_funding_csv(
         });
     }
     Ok(rows)
+}
+
+/// The archive's `last_funding_rate` field, read exactly: plain decimal notation
+/// (`-0.00012359`) the common way, and scientific notation (`8.4E-7`, verified empirically
+/// against the real `BTCUSDT-fundingRate-2020-01.zip` archive, row 12 - a near-zero rate the
+/// venue prints this way rather than as a leading-zero decimal) through [`Decimal::from_scientific`],
+/// which is exact rather than rounding. `Decimal::from_str_exact` alone rejects the scientific
+/// form outright, so a real archive month containing one near-zero rate would otherwise refuse
+/// the whole month.
+fn parse_funding_rate(value: &str) -> Option<Decimal> {
+    Decimal::from_str_exact(value)
+        .ok()
+        .or_else(|| Decimal::from_scientific(value).ok())
 }
 
 #[cfg(test)]
@@ -265,6 +277,17 @@ mod tests {
             rows[1].settlement_ns - rows[0].settlement_ns,
             8 * 3_600 * 1_000_000_000
         );
+    }
+
+    /// `BTCUSDT-fundingRate-2020-01.zip`'s real row 12: a near-zero rate the venue prints in
+    /// scientific notation rather than as a leading-zero decimal.
+    #[rstest]
+    fn a_scientific_notation_rate_parses_exactly() {
+        let csv = "calc_time,funding_interval_hours,last_funding_rate\n\
+                    1704067200000,8,8.4E-7\n";
+        let rows = parse_funding_csv(csv.as_bytes()).expect("parses");
+        assert_eq!(rows[0].rate, Decimal::from_scientific("8.4E-7").unwrap());
+        assert_eq!(rows[0].rate.to_string(), "0.00000084");
     }
 
     #[rstest]

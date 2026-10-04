@@ -3673,6 +3673,180 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
   whichever is built first - not now. Nothing in this change implements the recorder, the forecast stream, or the
   reconciliation; it only fixes their shape so that later work has one documented design to build against.
 
+### TARGET full chart timeframes and one stitched bar series
+
+The user decided on 2026-10-05 that Market Data serves the timeframes a charting tool offers - `1m`, `15m`, `30m`, `1h`,
+`2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `1w` and `1M` (one calendar month) - and that the latest closed bars, the current
+month included, are available. The user also chose how (2026-10-05, following Nautilus): public REST is the primary
+source for every month, and the official archives only verify it afterwards. A consumer reads one series per instrument
+and timeframe and never sees which source a bar came from, except through two marks on each bar. This section states the
+design and the measurements behind it. Nothing in it is implemented yet; Lane 8 implements it.
+
+- **Measured: Binance's own bars at different timeframes do not always agree with each other.** The question was
+  whether every timeframe can be derived from `1m` alone, so that `1m` is the one source of truth. Every USD-M monthly
+  archive of BTCUSDT and ETHUSDT from 2020-01 to 2025-12, and of SOLUSDT from 2020-09 to 2025-12, was read and
+  checksum-verified. Each `1m` month was aggregated into every other timeframe and compared, field by field and
+  exactly, with the venue's native bars for that timeframe. The aggregation ran twice: through a script, and through
+  the production `TimeBarAggregator` (`crates/data/src/aggregation.rs`, historical mode, test clock, left-open
+  intervals, timestamp on close). For every fixed interval, both produced the same bars. For BTCUSDT:
+
+  | Timeframe   | Native bars | Equal in all 10 fields | Equal in OHLC |
+  | ----------- | ----------: | ---------------------: | ------------: |
+  | `15m`       |     210,432 |                210,414 |       210,424 |
+  | `30m`       |     105,216 |                105,198 |       105,209 |
+  | `1h`        |      52,608 |                 52,591 |        52,603 |
+  | `2h`        |      26,304 |                 26,288 |        26,301 |
+  | `4h`        |      13,152 |                 13,137 |        13,149 |
+  | `6h`        |       8,768 |                  8,755 |         8,766 |
+  | `8h`        |       6,576 |                  6,562 |         6,575 |
+  | `12h`       |       4,384 |                  4,369 |         4,382 |
+  | `1d`        |       2,192 |                  2,178 |         2,192 |
+  | `1w` (REST) |         312 |                    298 |           312 |
+  | `1M` (REST) |          72 |                     60 |            72 |
+
+  ETHUSDT and SOLUSDT give the same shape; for example, ETHUSDT `1d` has 2,176 of 2,192 equal. Every difference falls
+  in a few incident windows, and BTCUSDT and ETHUSDT share them: 2021-01-12, 2021-05-15, 2022-06-18, 2022-06-22 to 24,
+  2022-07-04, 2022-07-16, 2022-08-19, 2022-08-21, 2023-08-16, 2023-11-10/14, 2025-01-14 and 2025-01-29. Outside them,
+  derivation is exact, including the UTC day boundary, the Monday 00:00 UTC week and the calendar month.
+  The fields that differ are volume, quote volume, trade count and the two taker-buy volumes, and in a few intraday
+  buckets also the open, high or low. There are two kinds of difference:
+  - **The venue's own timeframes disagree.** On 2021-01-12, for example, the `1m` bars sum to 449,027.984 BTC in both
+    the archive and REST, while the `1d` bar says 449,065.693 in both. No `1m` source can reproduce that `1d` bar.
+  - **The `1m` archive was corrected after it was published.** On 2025-01-29, 20 minutes of the monthly `1m` archive
+    differ from today's REST `1m` bars, and REST's `1m` sum equals the native `1d` bar. On 2023-11-10, 99 minutes
+    differ.
+- **Measured: the archive has defects of its own.**
+  - **A monthly file can silently omit days.** SOLUSDT's monthly archives have no `1m` rows, and no native bars, for
+    2022-02-26 to 28 and 2022-04-01 to 02. The daily archive and REST both have them.
+  - **A monthly `1w` or `1M` file holds a snapshot of a bar that was still forming.** For a week that spans two
+    months, the 2021-07 `1w` file closes the week of 2021-07-26 at 41,159.40. That matches neither the 2021-07-31 nor
+    the 2021-08-01 close. REST closes it at 39,846.78, exactly the `1m`-derived value. Native `1w` and `1M` monthly
+    files exist only up to 2023 or 2024.
+  - **Native `1m` coverage is otherwise dense.** BTCUSDT and ETHUSDT have 3,156,480 minutes over 2020 to 2025 and
+    none missing.
+- **Measured: the daily archive and REST.**
+  - **REST equals the daily archive.** Public REST `/fapi/v1/klines` equals the daily archive in all 11 columns, for
+    4 x 1,440 BTCUSDT `1m` bars (2026-09-25 and 2026-10-01 to 03).
+  - **REST returns the bar that is still forming.** Its last bar's close time is after the request instant.
+  - **A REST bar keeps changing after its close.** Of 7 bars first read within 5 s of their close, 3 changed later, at
+    up to 9.5 s after close, as late trades landed: close, volume and trade count all moved.
+    A second, 20-minute sample polling every 2 s saw 16 of 20 bars change after their first closed read, the
+    latest at 5.5 s.
+  - **Publication times.** A daily archive is published about 8 to 9.5 hours after its UTC day ends (08:00 to 09:20
+    UTC the next day, over 2026-09-20 to 2026-10-03). A monthly archive is published on the 2nd of the next month,
+    09:00 to 12:00 UTC.
+- **Decision: public REST is the primary source for every timeframe and month; the archives verify.** Every
+  timeframe is fetched as the venue's own native bars from `/fapi/v1/klines`, never derived from `1m`. The measurement
+  above is why derivation would be wrong: on 14 of 2,192 days, a series derived from `1m` would differ from the
+  venue's own bar for that timeframe, because the venue's own timeframes disagree. REST also carries later venue
+  corrections that an already-published archive does not (2025-01-29). Fetching natively costs about 14% more rows
+  than `1m` alone (about 430,000 against 3,156,480 per instrument over six years). `1m` is stored either way, because
+  it is the fill timeframe.
+- **How REST is read.**
+  - **Use the native fetch that keeps every column.** The existing Futures client fetches native bars with every
+    column through `request_binance_bars` (`crates/adapters/binance/src/futures/http/client.rs`), which returns
+    `BinanceBar`: open, high, low, close, volume, quote volume, trade count and both taker-buy volumes.
+    `request_bars` converts these into Nautilus's `Bar`, which keeps only open, high, low, close and volume, so it
+    would drop columns Market Data already serves (`TAKER_BUY_VOLUME`). The recorder uses `request_binance_bars`.
+  - **Pagination has to be built.** That call makes exactly one REST request, at most 1,500 bars. The recorder pages
+    it forward from the last stored close until the present. Six years of BTCUSDT `1m` is about 2,100 requests at
+    weight 10 each, well inside the public rate limit if spread over a few minutes.
+  - **A settle delay comes on top of the client's own filter.** The client drops a bar whose close time is not before
+    its clock, so it never returns the bar still forming. It does not wait for late trades, which the measurement
+    shows can still change a bar up to 9.5 s after close. The recorder therefore admits a bar only once its close plus
+    a settle delay, starting at 30 s, has passed at retrieval. The delay stays above every change measured.
+  - **The latest bars.** A newly closed bar comes from the next REST poll, or from the WebSocket kline stream's
+    closed-bar message (`x = true`), after the same settle delay. A bar from either is the same REST-tier bar.
+- **Every bar carries two marks, and the read stays one series.**
+  - **`source`:** `REST` for every recorded bar.
+  - **`verified`:** false until an archive confirms the bar.
+  - **The rest of the bar.** Each bar also carries its retrieval instant and its availability instant. A bar read
+    live is available at its retrieval instant. A backfilled historical bar is available at its close plus the
+    binding's declared lag, as T0 custody declares it.
+  - **The read.** It names an instrument, a timeframe and a window, and returns that timeframe's closed bars in order
+    with both marks. A point-in-time read selects the latest version of each bar visible at the reader's cut.
+  - **Strict reads.** A consumer that must not rest on unverified data asks for `verified_only`, and the read refuses
+    by name any window that holds an unverified bar. The final check of a qualification review is such a consumer.
+    The marks are metadata on a bar, never a second read path.
+- **The archives verify bars after they are published, and only append.**
+  - **What does the verifying.** When an official archive covering stored bars is published, a verifier compares it
+    with them, bar by bar and field by field. For fixed-interval timeframes this is the monthly archive. The daily
+    archive (T+1) can verify earlier, and covers the days a monthly file omits.
+  - **Equal:** the bars are marked verified. Nothing else is written.
+  - **Different:** a conflict is reported by name, naming the bar, the fields, the REST value and the archive value.
+    The stored bar is never overwritten. Resolving the conflict is an operator decision, and a correction enters as
+    an append-only successor version of the bar, as T0 custody already corrects a cross-section.
+  - **An archive that is incomplete for its grid** verifies only the bars it holds. It never verifies an absent bar,
+    and it never deletes a stored one.
+  - **`1w` and `1M` bars are never verified against a monthly archive**, because of the forming-bar snapshot above.
+    They are verified against the daily archive's file for that bar where one exists. Otherwise they are verified
+    against their derivation from already verified `1m` bars, through `TimeBarAggregator` for `1w` and a calendar
+    bucketing for `1M`. A mismatch there is reported by name like any other.
+  - **Conflicts are expected on real history.** The measured venue incidents and the 2025-01-29 archive correction
+    will each surface as one, so this is a normal path that operators acknowledge, not an error path.
+  - **One service.** One resident Market Data service runs this recorder and verifier together with the
+    settled-funding recorder (see "TARGET live funding retrieval for the strategy runtime" above), with one scheduler,
+    one verification rule and one conflict report. Funding follows the same split: `/fapi/v1/fundingRate` is primary,
+    and the monthly funding archive verifies it.
+- **What is reused, and what has to be built.**
+  - **Reused as is:**
+    - `BinanceKlineInterval` (`crates/adapters/binance/src/common/enums.rs`), which already names every timeframe
+      here, `1M` included;
+    - `request_binance_bars` and the klines query and model (`futures/http/query.rs`, `futures/http/models.rs`);
+    - the WebSocket kline stream (`futures/websocket/streams/handler.rs`), whose message carries the closed flag;
+    - the authenticated archive readers (`authenticate_monthly_klines`, and the funding archive reader), now on the
+      verifying side;
+    - `TimeBarAggregator`, for the `1w` derivation check.
+  - **Built here:**
+    - **Forward pagination** over `request_binance_bars`.
+    - **The settle delay.**
+    - **The `source` and `verified` marks**, with the availability instant on every bar.
+    - **Append-only correction versions.**
+    - **The verifier**, with named conflicts, and the `verified_only` read.
+    - **The daily-archive reader**, for early verification and for days a monthly file omits.
+    - **Calendar-month cadence.** `UntrustedSourceBarCadenceV1` has only `FixedInterval` and `ExchangeSessionDay`,
+      so `1M` needs a new `CalendarMonth` cadence on the UTC month anchor.
+    - **New labels in the label mapping** (`execution_timeframe_bar_label_v1`, #1386): `15M`, `30M`, `2H`, `6H`,
+      `8H` and `12H`, `1m` as `1M` (already the fill label), and a distinct month label. `1M` is taken by the
+      minute, so the month cannot reuse it.
+  - **Not usable as is:**
+    - **`request_bars`**, because its `Bar` drops columns (above).
+    - **`TimeBarAggregator` for calendar months.** In historical mode it produced 0 bars from six years of `1m`,
+      because its monthly path schedules a time alert that historical replay never fires. The `1M` derivation check
+      needs that fixed, or does its own month bucketing.
+    - **The DataEngine's composite bars**, which aggregate inside a running engine rather than over stored history.
+- **Migration from today's archive-first backfill.**
+  - **The archive path #1384 completed stays, as the verifier.** Today's backfill job reads execution bars from
+    monthly archives (`authenticate_monthly_klines`) and funding from the monthly funding archive. That code becomes
+    the verifier's reader, unchanged.
+  - **The order of work:**
+    1. Add the REST recorder and the bar store with both marks. The recorder backfills every timeframe from the
+       first listed month to the present.
+    2. Run the verifier over the stored history with today's archive readers, and check its counts against the
+       measurement above.
+    3. Point the backfill job's custody input at the stored series instead of fetching archives directly. A
+       custody's rows then name the `REST` route, and carry the bar's `verified` mark in their custody evidence.
+    4. Keep funding the same way: settled funding is recorded from REST and verified by the monthly archive. The
+       #1384 writer becomes the verifier's commit side.
+  - **No rewrite.** Custody chains already committed from archive rows are never rewritten. A chain keeps the rows
+    and routes it was committed with.
+  - **What becomes unnecessary.** The "published months only" rule proposed in the #1384 review: REST serves the
+    current month directly.
+- **What does not change.**
+  - **T0 custody.** It still holds one window over one execution timeframe and the fixed `1m` fill timeframe.
+  - **Admitted execution timeframes.** Serving a timeframe as a bar series does not admit it as a custody execution
+    timeframe. `1m` stays gated on a per-trade fill model and `15m` on an intraday cost model, as "TARGET Binance
+    backfill fetch for T0 window custody" states. `1M` additionally needs the window schedule to enumerate calendar
+    intervals, which it does not today: frames are `phase + n * interval`.
+- **Constraints.**
+  - **Public data only.** Every client refuses a credential, as the existing Binance clients do (`CredentialPresent`).
+  - **REST tests run locally.** A GitHub-hosted runner reaches `fapi.binance.com` as `451`, so tests that call REST
+    run only on a local machine. The user accepted this explicitly on 2026-10-05.
+  - **`get_bars` is not part of this change.** Its `HOLDOUT_PARTITION_UNDEFINED` refusal stays.
+- **Status.** TARGET, not implemented. The measurement scripts (archive aggregation, the `TimeBarAggregator` harness,
+  REST against the daily archive, and REST settling) were run locally on 2026-10-04 and 2026-10-05 and are not kept in
+  the repository. They are cheap to rerun before implementation.
+
 ## Input handoffs
 
 - Data vendors and trading venues provide raw market and reference records through Data Clients, and every time

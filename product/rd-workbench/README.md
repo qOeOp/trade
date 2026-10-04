@@ -174,7 +174,9 @@ Five steps, from the repository root:
    printed and never written into Claude Code's configuration.
 5. In a new Claude Code session, exercise the server's eight tools. Recorded below is one full run
    against a real local deployment, `make rd-workbench-up` re-run near the end to confirm it does
-   not wipe what came before:
+   not wipe what came before. This is a rebuild on a fresh `trade-rd-local` volume of `main` at
+   `9d3369dc2` (after #1381's membership-admission-at-the-Owner's-clock fix and #1384's funding
+   backfill wiring), run directly against the HTTP routes rather than through the MCP binary:
 
    1. `list_instruments` - `{"instruments":[]}` on the fresh deployment.
    2. `admit_instrument` for `BTCUSDT`, `ETHUSDT`, `SOLUSDT` - each admits once and answers its
@@ -212,6 +214,18 @@ Five steps, from the repository root:
        on its own image (an uncommitted working tree always rebuilds; a clean one skips when nothing
        changed) and comes back healthy; every admitted instrument and every job's coverage, `1w`
        included, reads back unchanged.
+   12. `backfill` for `ETHUSDT-PERP.BINANCE` at `1d` over a window not touching the current month
+       (`[2024-01-01, 2024-02-01)`, the same calendar month as step 6's) - `SUCCEEDED`; the funding
+       backfill #1384 wires into the same job now writes alongside the kline custody commit.
+       `market_data_private.funding_settlement_facts_v1` holds 93 rows for the instrument spanning
+       exactly that month, and `funding_settlement_coverage_v1` records the one range
+       `[2024-01-01, 2024-02-01)`; `resolve_funding_settlements_v1` (the store's own SECURITY
+       DEFINER read function) answers the same 93 rows. `get_funding` still refuses
+       `HOLDOUT_PARTITION_UNDEFINED` - the backfill writes the store; the HTTP read route is gated
+       separately and unaffected by this write. A window reaching the current month, or starting
+       before the archive's own listing, fails the same way the kline path's does (no published
+       archive for that month yet); neither leg has a "published months only" rule yet - noted as
+       a follow-up, not exercised here.
 
 ## Deployment Store Admission boundary
 

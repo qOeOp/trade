@@ -87,6 +87,12 @@ pub(super) struct StoredComposerReplaySourceV3 {
     /// never follows a newer head.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) custody_head_identity: Option<BindingDigest>,
+    /// Custody-run-only: this run's own requested window - never the TrialFamily's whole sealed
+    /// policy domain, which only bounds it. `None` on a row persisted before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) custody_run_start_ns: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) custody_run_end_ns_exclusive: Option<u64>,
 }
 
 const FIRST_CORPUS_SOURCE_SCHEMA_V3: u16 = 3;
@@ -577,6 +583,8 @@ pub(super) fn prepare_composer_backed_replay_v3(
                 .map(|master| master.outbox_identity()),
             custody_chain_root: None,
             custody_head_identity: None,
+            custody_run_start_ns: None,
+            custody_run_end_ns_exclusive: None,
         },
     })
 }
@@ -733,6 +741,18 @@ pub(super) fn prepare_composer_backed_custody_replay_v3(
         frames,
         universe_frame_digest,
     )?;
+    let (run_start_ns, run_end_ns_exclusive) = match proposal.market_data_locator {
+        ComposerReplayMarketDataLocatorV3::CustodyRun {
+            run_start_ns,
+            run_end_ns_exclusive,
+            ..
+        } => (run_start_ns, run_end_ns_exclusive),
+        ComposerReplayMarketDataLocatorV3::Snapshot(_) => {
+            return Err(unavailable(
+                "custody composition called for a Snapshot-locator proposal",
+            ));
+        }
+    };
     let family = cut.legacy_family();
     let root = family.root();
     let root_receipt = family.root_receipt();
@@ -784,6 +804,8 @@ pub(super) fn prepare_composer_backed_custody_replay_v3(
             instrument_master_outbox_identity: None,
             custody_chain_root: Some(frames.chain_root()),
             custody_head_identity: Some(frames.head_identity()),
+            custody_run_start_ns: Some(run_start_ns),
+            custody_run_end_ns_exclusive: Some(run_end_ns_exclusive),
         },
     })
 }
@@ -819,17 +841,25 @@ fn compose_composer_backed_custody_replay_request_v3(
         "rd-successor-research-intent-v1-"
     };
 
-    let (chain_root, head_identity) = match proposal.market_data_locator {
-        ComposerReplayMarketDataLocatorV3::CustodyRun {
-            chain_root,
-            head_identity,
-        } => (chain_root, head_identity),
-        ComposerReplayMarketDataLocatorV3::Snapshot(_) => {
-            return Err(unavailable(
-                "custody composition called for a Snapshot-locator proposal",
-            ));
-        }
-    };
+    let (chain_root, head_identity, run_start_ns, run_end_ns_exclusive) =
+        match proposal.market_data_locator {
+            ComposerReplayMarketDataLocatorV3::CustodyRun {
+                chain_root,
+                head_identity,
+                run_start_ns,
+                run_end_ns_exclusive,
+            } => (
+                chain_root,
+                head_identity,
+                run_start_ns,
+                run_end_ns_exclusive,
+            ),
+            ComposerReplayMarketDataLocatorV3::Snapshot(_) => {
+                return Err(unavailable(
+                    "custody composition called for a Snapshot-locator proposal",
+                ));
+            }
+        };
 
     if proposal.request_identity.is_empty()
         || root.trial_family_identity() != proposal.trial_family_identity
@@ -845,8 +875,8 @@ fn compose_composer_backed_custody_replay_request_v3(
         ));
     }
     let window = replay_window_within_policy_v3(
-        i128::from(policy.window.start_event_ns),
-        i128::from(policy.window.end_event_ns_exclusive),
+        i128::from(run_start_ns),
+        i128::from(run_end_ns_exclusive),
         &policy.window,
     )?;
 
@@ -1135,6 +1165,8 @@ mod tests {
             instrument_master_outbox_identity: Some(digest(21)),
             custody_chain_root: None,
             custody_head_identity: None,
+            custody_run_start_ns: None,
+            custody_run_end_ns_exclusive: None,
         }
     }
 
