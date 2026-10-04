@@ -325,25 +325,20 @@ pub(crate) async fn commit_composer_v3(
         ComposerReplayMarketDataLocatorV3::CustodyRun {
             chain_root,
             head_identity,
+            run_start_ns,
+            run_end_ns_exclusive,
         } => {
             let resolver = custody_frames.ok_or_else(|| {
                 unavailable("custody-run Replay commit requires a custody frames port")
             })?;
-            let policy_window = cut
-                .legacy_family()
-                .root()
-                .policy()
-                .replay_policy_catalog_v3()
-                .ok_or_else(|| unavailable("TrialFamily has no sealed Replay execution profiles"))?
-                .replay_policy_v2()
-                .verify()
-                .map_err(unavailable)?
-                .window;
+            // This run's own requested window - never the TrialFamily's whole sealed policy
+            // domain, which only bounds it (`compose_composer_backed_custody_replay_request_v3`
+            // checks that below, via `replay_window_within_policy_v3`).
             let frames = resolver
                 .resolve_pit_window_frames_v1(UntrustedPitWindowRunV1 {
                     custody: UntrustedPitWindowCustodyClaimV1 { chain_root },
-                    run_start_ns: policy_window.start_event_ns,
-                    run_end_ns_exclusive: policy_window.end_event_ns_exclusive,
+                    run_start_ns,
+                    run_end_ns_exclusive,
                     // Read at the head the locator pins, so a backfill that moved the chain since
                     // never refuses a retry of this commit.
                     head_identity: Some(head_identity),
