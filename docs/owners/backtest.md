@@ -253,21 +253,61 @@ same-universe random control and holdout apply, and neither replaces them.
   Result records the method, the cluster unit, the resample count, the level, the cluster count and the seed.
   Clustering by date is deliberate: clustering by instrument treats trades on different instruments in the same week
   as independent, and the interval it gives is too narrow.
-- **Why the holding period, not the strategy's exits.** The control matches what every trade has: its side, its
-  entry year and how long it was held. A control that replayed the strategy's own stop and target needs a per-trade
+- **Why the holding period, not the strategy's exits.** Research's T0 control
+  (`research/ronnie/trend/run.py`) is computed on the price series too, but each of its random entries runs T0's own
+  rules: a stop at two ATR(20) filled intraday, the 20-close channel exit and the 250-day limit, in units of that
+  stop's risk. This control instead matches what every trade has: its side, its entry year and how long it was held,
+  in returns. A control that replayed the strategy's own stop and target needs a per-trade
   stop, and a strategy written in authoring language V1 judges its stop inside the program, so no fill or report
   carries one; nor does a run need a second replay per draw. Measured on `main` at 2e209d3a7: the report's fills carry
   side, quantity, price and commission and no stop, and no report type carries a per-bar price or a funding amount, so
   the function takes those as inputs rather than reading them from a replay.
+- **Not compared with research's numbers.** Because the two controls differ by construction, phase 3's acceptance
+  does not compare this control's distribution, its edge or its interval with research's; it compares trades (the
+  next section).
 - **A control, not a selection criterion.** The control says whether a run's trades beat random trades of the same
   side and holding period. It ranks nothing: no Iteration Decision selects or orders candidates by it, and it never
   stands in for Qualification's holdout or same-universe random control.
 
 The report cannot call it yet, because two of its inputs reach no report assembly point, measured on `main` at
-2e209d3a7. The canonical engine result keeps the run's outputs (fills, positions, snapshots, returns), not the bars it
-read, so the bar opens need a read of the run's data window. And no Owner read surface carries per-bar funding: every
-production execution bundle states `FUNDING_NOT_STATED` (`docs/architecture/strategy-factory.md`). A run with exits
-also needs multi-frame replay.
+2e209d3a7:
+
+- **Bar opens.** The canonical engine result keeps the run's outputs (fills, positions, snapshots, returns), not the
+  bars it read. The report's assembly reads them again from Market Data, at the run's own pinned custody chain root,
+  head identity and window rather than whatever is newest; bars that do not match the run's bundle digest, or a head
+  that has moved, are refused by name, never replaced, so the report measures exactly what the run read. The engine is
+  not changed to keep its inputs.
+- **Funding.** No Owner read surface carries per-bar funding: every production execution bundle states
+  `FUNDING_NOT_STATED` (`docs/architecture/strategy-factory.md`). Until Market Data publishes the funding schedule
+  read surface and the report consumes it, the report computes the control with `funding_stated: false`. Phase 3 is
+  not complete while it does: its acceptance requires funding in the report.
+
+A run with exits also needs multi-frame replay.
+
+## Research T0 replication comparison
+
+**CURRENT - the comparison; TARGET - a run to compare.** Phase 3 is accepted when a run of research T0's
+authoring-language document reproduces research's own T0 trades. `t0-replication`, a binary of
+`vibe-backtest-statistics`, compares them trade by trade:
+
+- **What a trade is.** A trade is keyed by its instrument, side and entry day, the day its entry filled. Research's
+  table (`research/ronnie/trend/trades.csv`) states the entry day and the days held, the entry day counted, so its exit
+  is decided on the entry day plus the days held less one. A run's fills pair into round trips, and its exit is decided
+  on the bar before the one it fills at.
+- **What matches.** Two trades with one key match when their exits are decided on the same day. A key that only one
+  list has is a mismatch on that side, so the denominator is the union of both lists' keys, and the run is accepted at
+  a match rate of 99.5%.
+- **What is compared.** For each instrument, only trades that enter after the run's first 200 bars, where every
+  indicator has warmed, and whose exit is decided before the run's last bar, which leaves a bar to fill it on.
+- **Prices are a self-check only.** Research's table states no price, so no price is compared with research. Instead
+  every entry of the run is held to the open of the bar it filled at, within the instrument's tick, and the entries
+  outside it are counted apart from the trade comparison. The binary exits zero only when the match rate is reached
+  and no entry is outside its tick.
+- **Structural differences are reported, not designed around.** Research holds a long and a short on one coin
+  independently, and this document holds one position that flips. If that difference brings a real run under 99.5%,
+  its mismatches are classified from the trade-by-trade list and decided then; neither the strategy nor the threshold
+  is changed for it in advance.
+- **What it cannot do yet.** No run of T0 produces fills to compare until `backtest.run` reaches its replay step.
 
 ## Input handoffs
 
