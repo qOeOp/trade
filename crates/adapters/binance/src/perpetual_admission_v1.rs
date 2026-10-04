@@ -27,6 +27,7 @@
 use rust_decimal::Decimal;
 use serde_json::Value;
 use vibe_data::owner::{
+    bar_schedule::execution_timeframe_bar_label_v1,
     instrument_master_admission_v1::{
         InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
         InstrumentVenueSourceMappingSubmissionV1,
@@ -137,17 +138,23 @@ impl BinancePerpetualDatasetV1 {
                 // Declarations must sort in strictly ascending byte order by `row_timeframe`
                 // (`source_binding/authority.rs`'s "one set of declarations has one encoding"),
                 // which is not numeric order for these labels: "1H" < "1M" < "1W" < "24H" < "4H".
+                // Each execution timeframe's label is Market Data's own
+                // (`execution_timeframe_bar_label_v1`), so a role a consumer declares over a run's
+                // execution timeframe names the same label this binding declares.
+                let label = |execution_timeframe: &str| {
+                    execution_timeframe_bar_label_v1(execution_timeframe).unwrap_or_default()
+                };
                 vec![
-                    continuous("1H", 1, UntrustedSourceBarUnitV1::Hour),
+                    continuous(label("1h"), 1, UntrustedSourceBarUnitV1::Hour),
                     continuous("1M", 1, UntrustedSourceBarUnitV1::Minute),
                     bar(
-                        "1W",
+                        label("1w"),
                         168,
                         UntrustedSourceBarUnitV1::Hour,
                         UntrustedSourceBarAnchorV1::WeekStartMonday,
                     ),
-                    continuous("24H", 24, UntrustedSourceBarUnitV1::Hour),
-                    continuous("4H", 4, UntrustedSourceBarUnitV1::Hour),
+                    continuous(label("1d"), 24, UntrustedSourceBarUnitV1::Hour),
+                    continuous(label("4h"), 4, UntrustedSourceBarUnitV1::Hour),
                 ]
             }
             Self::ExchangeInfo => Vec::new(),
