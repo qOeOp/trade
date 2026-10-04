@@ -78,6 +78,7 @@ def main() -> None:
             "docs-pages.yml",
             "product-packages.yml",
             "video-note-mcp.yml",
+            "services-rust-mcp.yml",
             "security-audit.yml",
             "codeql-analysis.yml",
         )
@@ -99,6 +100,7 @@ def main() -> None:
         "docs-pages.yml": (True, False, False),
         "product-packages.yml": (False, True, False),
         "video-note-mcp.yml": (False, False, False),
+        "services-rust-mcp.yml": (False, False, False),
         "security-audit.yml": (True, False, False),
     }
     for name, (on1100, on_dash, on_plain) in expect.items():
@@ -117,6 +119,31 @@ def main() -> None:
         real["video-note-mcp.yml"],
         service_lock,
         True,
+    )
+    rust_service_lock = ["services/market-data-mcp/Cargo.lock"]
+    check(
+        "security-audit.yml on a Rust service lockfile",
+        real["security-audit.yml"],
+        rust_service_lock,
+        True,
+    )
+    check(
+        "services-rust-mcp.yml on one of its own lockfiles",
+        real["services-rust-mcp.yml"],
+        rust_service_lock,
+        True,
+    )
+    check(
+        "video-note-mcp.yml on a Rust service lockfile",
+        real["video-note-mcp.yml"],
+        rust_service_lock,
+        False,
+    )
+    check(
+        "services-rust-mcp.yml on the Python service lockfile",
+        real["services-rust-mcp.yml"],
+        service_lock,
+        False,
     )
     # The npm lockfiles osv-scanner reads: a critical in either went unreported while neither
     # was scanned (GHSA-vcvr-r3jv-pc5j, next, 2026-10-03).

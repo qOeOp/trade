@@ -3,7 +3,7 @@
 Name the path-filtered workflows a pull request's diff would trigger, so quality can
 require them.
 
-docs-pages, product-packages and video-note-mcp run on a pull request only when its diff touches
+docs-pages, product-packages, video-note-mcp and services-rust-mcp run on a pull request only when its diff touches
 their `pull_request.paths`, and nothing required their result. #1100 turned docs-pages red and
 could still have merged, because the ruleset requires `quality` alone.
 

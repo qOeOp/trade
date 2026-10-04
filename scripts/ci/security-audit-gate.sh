@@ -26,10 +26,11 @@ set -euo pipefail
 # .github/workflows/security-audit.yml.
 #   - Lock files                Cargo.lock, crates/**/fuzz/Cargo.lock,
 #                               python/uv.lock, services/*/uv.lock,
+#                               services/*/Cargo.lock,
 #                               docs-site/package-lock.json,
 #                               product/dashboard/package-lock.json
 #   - Manifests                 Cargo.toml, crates/(...)?Cargo.toml,
-#                               python/pyproject.toml
+#                               python/pyproject.toml, services/*/Cargo.toml
 #   - Audit policy              deny.toml, .cargo/deny-fuzz.toml, osv-scanner.toml,
 #                               .cargo/audit.toml, .supply-chain/*, .zizmor.yml
 #   - Toolchain config          .cargo/config.toml, rust-toolchain.toml,
@@ -113,7 +114,7 @@ pattern+='|crates/(.*/)?Cargo\.toml'
 pattern+='|crates/.*/fuzz/Cargo\.lock'
 pattern+='|\.pre-commit-config\.yaml'
 pattern+='|python/(uv\.lock|pyproject\.toml)'
-pattern+='|services/[^/]+/(uv\.lock|pyproject\.toml)'
+pattern+='|services/[^/]+/(uv\.lock|pyproject\.toml|Cargo\.lock|Cargo\.toml)'
 pattern+='|(docs-site|product/dashboard)/package-lock\.json'
 pattern+='|deny\.toml|\.cargo/deny-fuzz\.toml|osv-scanner\.toml|\.supply-chain/.*|\.zizmor\.yml'
 pattern+='|tools\.toml|\.cargo/(config|audit)\.toml|rust-toolchain\.toml'

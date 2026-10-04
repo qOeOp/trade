@@ -348,7 +348,7 @@ repos:
         files: >-
           (?x)^(
             scripts/ci/path_triggered_workflows(_test)?\.py|
-            \.github/workflows/(docs-pages|product-packages|video-note-mcp|security-audit)\.yml
+            \.github/workflows/(docs-pages|product-packages|video-note-mcp|services-rust-mcp|security-audit)\.yml
           )$
         pass_filenames: false
       - id: check-connect-guard-plant

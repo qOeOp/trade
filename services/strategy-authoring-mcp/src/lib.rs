@@ -49,6 +49,7 @@ pub trait Api {
 }
 
 /// The six tools, each with the input it takes.
+#[must_use]
 pub fn tools() -> Value {
     let spec = json!({
         "type": "object",
@@ -96,6 +97,13 @@ pub fn tools() -> Value {
 }
 
 /// The one request a tool call becomes, or the refusal it is answered with before any request.
+///
+/// # Errors
+///
+/// Returns `(404, "TOOL_UNKNOWN")` for a name none of the six tools has, `(400,
+/// "MALFORMED_TYPED_REQUEST")` for a call missing a required argument, naming one these tools do
+/// not take, or stating one in the wrong shape, and `(404, "STRATEGY_UNKNOWN")` for a
+/// `strategy_id` not spelled `sha256:` and 64 lower-case hex digits.
 pub fn request_for(name: &str, arguments: &Value) -> Result<ApiRequest, (u16, Value)> {
     let malformed = || (400, json!({"error": "MALFORMED_TYPED_REQUEST"}));
     let spec = || arguments.get("spec").cloned().ok_or_else(malformed);
@@ -162,6 +170,7 @@ pub fn request_for(name: &str, arguments: &Value) -> Result<ApiRequest, (u16, Va
 
 /// A tool result: the R&D API's body as text, verbatim, and parsed as structured content; an
 /// error when the API refused.
+#[must_use]
 pub fn tool_result((status, body): ApiAnswer) -> Value {
     let structured = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
     json!({

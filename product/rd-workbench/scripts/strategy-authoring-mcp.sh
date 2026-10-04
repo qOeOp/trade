@@ -24,9 +24,10 @@ if [ "${1:-}" = install ]; then
     echo "$env_file is missing: run make rd-workbench-up first" >&2
     exit 1
   fi
-  cargo build --locked --release --manifest-path "$repo_root/Cargo.toml" \
-    -p vibe-strategy-authoring-mcp
-  target_dir=$(cargo metadata --format-version 1 --no-deps --manifest-path "$repo_root/Cargo.toml" |
+  # The server is its own Cargo workspace, with its own Cargo.lock, outside the root workspace.
+  manifest=$repo_root/services/strategy-authoring-mcp/Cargo.toml
+  cargo build --locked --release --manifest-path "$manifest"
+  target_dir=$(cargo metadata --format-version 1 --no-deps --manifest-path "$manifest" |
     python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
   mkdir -p "$state_dir/bin"
   install -m 0755 "$target_dir/release/strategy-authoring-mcp" "$server"
