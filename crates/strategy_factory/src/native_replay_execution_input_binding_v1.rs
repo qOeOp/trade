@@ -920,9 +920,21 @@ fn refuse_invalid_custody_run(
 /// # Errors
 ///
 /// [`Cause::CustodyRunUniverseDiffersFromDesign`] when the reread names no Universe Selection at
-/// all (an exact-instrument Design has no custody-run equivalent either), or when any of the
-/// Universe Selection record identity/digest, the Instrument Master key, the Market Semantics
-/// identity, or the member set differ from the basis's own.
+/// all (an exact-instrument Design has no custody-run equivalent either), or when the Instrument
+/// Master key, the Market Semantics identity, or the member set differ from the basis's own.
+///
+/// This deliberately does NOT compare `selection.selection_identity()`/`selection_digest()`
+/// against `basis.universe_selection_record()`: the two are different domains that can never
+/// agree, by construction, not a drift signal. `selection_identity`/`selection_digest` are the
+/// strategy-input hash `derive_universe_selection` computes over a verified PIT observation
+/// batch (`VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_IDENTITY_V1`/`..._DIGEST_V1`,
+/// `crates/data/src/owner/strategy_input_binding.rs`) - it exists only when a Design is
+/// registered against a PIT snapshot batch. `basis.universe_selection_record()` is the Universe
+/// Selection store record's own request identity/digest, a completely different Owner domain.
+/// Comparing them was a bug, caught by Lane 2 (cross-session, 10-05) while scoping the custody
+/// view admission path a Design would need to actually agree with this check. The remaining
+/// fields below DO compare like domains (both sides' Instrument Master digest, Market Semantics
+/// identity, and member set), so they stay.
 pub(crate) fn verify_custody_run_universe_matches_role_binding_v1(
     bindings: &VerifiedStrategyInputBindingsV2,
     basis: &PitWindowChainBasisV1,
@@ -931,7 +943,6 @@ pub(crate) fn verify_custody_run_universe_matches_role_binding_v1(
     let Some(selection) = bindings.universe_selection() else {
         return Err(unavailable(Cause::CustodyRunUniverseDiffersFromDesign));
     };
-    let (selection_identity, selection_digest) = basis.universe_selection_record();
     let basis_members: BTreeSet<&str> = basis.members().iter().map(String::as_str).collect();
     let bound_members: BTreeSet<&str> = selection
         .members()
@@ -939,9 +950,7 @@ pub(crate) fn verify_custody_run_universe_matches_role_binding_v1(
         .map(UniverseMemberProjectionV2::instrument)
         .collect();
 
-    if selection.selection_identity() != selection_identity
-        || selection.selection_digest() != selection_digest
-        || selection.instrument_master_digest() != basis.instrument_master_key()
+    if selection.instrument_master_digest() != basis.instrument_master_key()
         || selection.market_semantics_identity() != basis.market_semantics_identity()
         || bound_members != basis_members
     {
