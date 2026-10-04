@@ -337,6 +337,23 @@ mod tests {
 
     use super::*;
 
+    /// Research T0's document keeps the catalog identity a deployment answered for it, so a change
+    /// to the language that does not change an OHLC document cannot move the id it is stored under.
+    #[rstest]
+    fn research_t0_keeps_its_catalog_identity() {
+        let document = serde_json::from_str(include_str!(
+            "../test_data/strategy_authoring_v1/t0-daily-trend.json"
+        ))
+        .expect("the T0 document parses");
+        let canonical = canonical_strategy_statement_v1(&StrategyStatementV1::Authored(document))
+            .expect("T0 is a statement");
+
+        assert_eq!(
+            canonical.identity().to_string(),
+            "sha256:dae7fb403a3a16c17f3c3b7eeafd252b281dd06969d4a0cf3ef85f2868388a4a"
+        );
+    }
+
     /// Admits a single-threshold statement.
     fn canonical_strategy_spec_v1(
         spec: &SingleThresholdStrategySpecV1,
