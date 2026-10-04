@@ -142,6 +142,36 @@ impl StoredComposerReplaySourceV3 {
             ))
         }
     }
+
+    /// Refuses a stored source whose fields are not exactly the ones its own schema requires -
+    /// for every schema this crate issues, custody included.
+    ///
+    /// [`Self::shape`] answers only for schema 3/4: a custody run (schema 5) has no Market Data
+    /// composition binding to compare a shape against at all (H6 is skipped for it), so there is
+    /// no `ReplayMarketFactsShapeV2` value to give it - only this field-presence check applies.
+    pub(super) fn validate_fields(&self) -> Result<(), ExploratoryReplayOwnerError> {
+        if self.schema_version == CUSTODY_RUN_SOURCE_SCHEMA_V3 {
+            let instrument_master_absent = [
+                self.instrument_master_identity,
+                self.instrument_master_receipt_identity,
+                self.instrument_master_outbox_identity,
+            ]
+            .iter()
+            .all(Option::is_none);
+            let custody_fields_present = self.custody_chain_root.is_some()
+                && self.custody_head_identity.is_some()
+                && self.custody_run_start_ns.is_some()
+                && self.custody_run_end_ns_exclusive.is_some();
+            return if instrument_master_absent && custody_fields_present {
+                Ok(())
+            } else {
+                Err(shape_refused(
+                    ComposerReplayShapeRefusalV1::CustodyRunSourceFieldsInvalid,
+                ))
+            };
+        }
+        self.shape().map(|_| ())
+    }
 }
 
 pub(super) struct ComposedComposerBackedReplayV3 {
@@ -291,7 +321,7 @@ pub(super) fn issue_composer_replay_frozen_v3(
     (StoredComposerReplayFrozenV3, StoredComposerReplayReceiptV3),
     ExploratoryReplayOwnerError,
 > {
-    source.shape()?;
+    source.validate_fields()?;
 
     if committed_at_epoch_ms == 0
         || !canonical_sha256(&product_edge_request_semantic_digest)
@@ -1298,7 +1328,6 @@ mod tests {
     #[case::schema_4_with_the_outbox(4, [None, None, Some(21)], ComposerReplayShapeRefusalV1::UniverseSourceCarriesInstrumentMaster)]
     #[case::schema_4_with_all(4, [Some(19), Some(20), Some(21)], ComposerReplayShapeRefusalV1::UniverseSourceCarriesInstrumentMaster)]
     #[case::schema_2(2, [Some(19), Some(20), Some(21)], ComposerReplayShapeRefusalV1::UnknownSourceSchema)]
-    #[case::schema_5(5, [None, None, None], ComposerReplayShapeRefusalV1::UnknownSourceSchema)]
     fn a_source_whose_schema_and_instrument_master_disagree_is_refused_by_name(
         #[case] schema_version: u16,
         #[case] instrument_master: [Option<u8>; 3],
@@ -1314,6 +1343,83 @@ mod tests {
         };
         assert_eq!(refusal(source.shape().unwrap_err()), expected);
         assert_eq!(refusal(frozen(source).unwrap_err()), expected);
+    }
+
+    /// Schema 5 (custody) has no `ReplayMarketFactsShapeV2` of its own - `shape()` still refuses
+    /// it `UnknownSourceSchema` by design (it answers only for schema 3/4, see its own doc) - but
+    /// `validate_fields()`, which `frozen()` actually calls, checks the custody-specific fields
+    /// instead and names a different, more precise cause when they are missing.
+    #[rstest]
+    #[case::no_instrument_master_or_custody_fields(
+        [None, None, None],
+        None,
+        None,
+        None,
+        None,
+        ComposerReplayShapeRefusalV1::CustodyRunSourceFieldsInvalid
+    )]
+    #[case::carries_an_instrument_master_field(
+        [Some(19), None, None],
+        Some(30),
+        Some(31),
+        Some(32),
+        Some(33),
+        ComposerReplayShapeRefusalV1::CustodyRunSourceFieldsInvalid
+    )]
+    #[case::missing_the_chain_root(
+        [None, None, None],
+        None,
+        Some(31),
+        Some(32),
+        Some(33),
+        ComposerReplayShapeRefusalV1::CustodyRunSourceFieldsInvalid
+    )]
+    fn a_custody_run_source_with_invalid_fields_is_refused_by_name(
+        #[case] instrument_master: [Option<u8>; 3],
+        #[case] custody_chain_root: Option<u8>,
+        #[case] custody_head_identity: Option<u8>,
+        #[case] custody_run_start_ns: Option<u64>,
+        #[case] custody_run_end_ns_exclusive: Option<u64>,
+        #[case] expected: ComposerReplayShapeRefusalV1,
+    ) {
+        let [identity, receipt, outbox] = instrument_master.map(|byte| byte.map(digest));
+        let source = StoredComposerReplaySourceV3 {
+            schema_version: 5,
+            instrument_master_identity: identity,
+            instrument_master_receipt_identity: receipt,
+            instrument_master_outbox_identity: outbox,
+            custody_chain_root: custody_chain_root.map(digest),
+            custody_head_identity: custody_head_identity.map(digest),
+            custody_run_start_ns,
+            custody_run_end_ns_exclusive,
+            ..first_corpus_source()
+        };
+        assert_eq!(
+            refusal(source.shape().unwrap_err()),
+            ComposerReplayShapeRefusalV1::UnknownSourceSchema
+        );
+        assert_eq!(refusal(source.validate_fields().unwrap_err()), expected);
+        assert_eq!(refusal(frozen(source).unwrap_err()), expected);
+    }
+
+    /// A schema 5 (custody) source with every field exactly as the custody path issues it
+    /// validates and freezes - `shape()` never gets called for it in that path at all.
+    #[rstest]
+    fn a_well_formed_custody_run_source_validates_and_freezes() {
+        let source = StoredComposerReplaySourceV3 {
+            schema_version: 5,
+            instrument_master_identity: None,
+            instrument_master_receipt_identity: None,
+            instrument_master_outbox_identity: None,
+            custody_chain_root: Some(digest(30)),
+            custody_head_identity: Some(digest(31)),
+            custody_run_start_ns: Some(1),
+            custody_run_end_ns_exclusive: Some(2),
+            ..first_corpus_source()
+        };
+        source.validate_fields().unwrap();
+        let (frozen, receipt) = frozen(source).unwrap();
+        verify_composer_replay_frozen_v3(&frozen, &receipt).unwrap();
     }
 
     #[rstest]
