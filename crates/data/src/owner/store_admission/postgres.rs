@@ -363,10 +363,12 @@ pub(super) const PIT_WINDOW_CUSTODY_FLOOR_V1: MeasurementFloor = MeasurementFloo
     functions: &[
         "market_data_admitted_read.resolve_pit_window_chain_basis_v1(bytea)",
         "market_data_admitted_read.resolve_pit_window_chain_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_window_chains_for_instrument_v1(text)",
         "market_data_admitted_read.resolve_pit_window_rows_v1(bytea,bytea[])",
         "market_data_admitted_read.resolve_pit_window_universe_selection_v1(bytea)",
         "market_data_private.resolve_pit_window_chain_basis_v1(bytea)",
         "market_data_private.resolve_pit_window_chain_v1(bytea)",
+        "market_data_private.resolve_pit_window_chains_for_instrument_v1(text)",
         "market_data_private.resolve_pit_window_rows_v1(bytea,bytea[])",
         "market_data_private.resolve_pit_window_universe_selection_v1(bytea)",
     ],
@@ -1495,6 +1497,20 @@ pub(crate) struct RawPitWindowChainV1 {
     pub(crate) entries: Vec<(i16, Vec<u8>)>,
 }
 
+/// The coverage function's columns, in its order.
+pub(crate) type PitWindowChainCandidateColumnsV1 = (Vec<u8>, Vec<u8>, i64, i64, i64, i64, i64);
+
+/// One chain holding a window schedule for an instrument, as the coverage lookup read it.
+pub(crate) struct RawPitWindowChainCandidateV1 {
+    pub(crate) chain_root: Vec<u8>,
+    pub(crate) head_identity: Vec<u8>,
+    pub(crate) interval_ns: i64,
+    pub(crate) window_start_ns: i64,
+    pub(crate) window_end_ns_exclusive: i64,
+    pub(crate) cut_ns: i64,
+    pub(crate) member_count: i64,
+}
+
 /// A PIT window custody chain's basis as the Owner held it: each entry's kind - 1 the basis record,
 /// 2 the R0 record and cut, 3 the Instrument Master link, 4 the Market Semantics head, fact and
 /// registry entry, 5 the Instrument Master readback - and its row as JSON text.
@@ -1606,6 +1622,69 @@ pub(super) async fn read_pit_window_chain_snapshot_v1(
             .map(|(kind, payload)| (kind, payload.into_bytes()))
             .collect(),
     })
+}
+
+/// Every chain holding a window schedule for `instrument`, through the Owner's coverage function.
+pub(super) async fn read_pit_window_chains_for_instrument_snapshot_v1(
+    lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
+    instrument: &str,
+) -> Result<Vec<RawPitWindowChainCandidateV1>, PostgresMeasurementError> {
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let mut session = open_store_session(
+        lease,
+        transport,
+        "vibe-market-data-pit-window-chains-for-instrument-v1",
+    )
+    .await?;
+    let connection = &mut session.connection;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    let rows: Vec<PitWindowChainCandidateColumnsV1> = sqlx::query_as(
+        "SELECT chain_root, head_identity, interval_ns, window_start_ns, window_end_ns_exclusive, cut_ns, member_count FROM market_data_admitted_read.resolve_pit_window_chains_for_instrument_v1($1)",
+    )
+    .bind(instrument)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+
+    if rows.len() > MAX_PIT_WINDOW_ENTRIES {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(
+                chain_root,
+                head_identity,
+                interval_ns,
+                window_start_ns,
+                window_end_ns_exclusive,
+                cut_ns,
+                member_count,
+            )| RawPitWindowChainCandidateV1 {
+                chain_root,
+                head_identity,
+                interval_ns,
+                window_start_ns,
+                window_end_ns_exclusive,
+                cut_ns,
+                member_count,
+            },
+        )
+        .collect())
 }
 
 /// The entries of one chain read, refused when there are too many or one is too large.

@@ -48,6 +48,12 @@ Runtime, Risk, Portfolio, and Governance.
 - **Execution Adapters** - admit exactly the adapter binding fixed by Execution Scope, then translate requests,
   replies, fills, errors, and readbacks without changing endpoint, account, capability, or trust policy on restart.
 - **Effect Journal** - persist one stable `PREPARED` attempt before requesting admission, then persist `INVOCATION_STARTED` only after the matching immutable `ADMITTED_ONCE` result and join all later external-effect facts to that identity.
+  This order holds until the user-authorized TARGET
+  [trading node](../guide/architecture-rules#target-trading-node) (2026-10-05) lands. There the journal is the
+  inherited order states and raw event log of the node's `ExecutionEngine`. The node's outbox projector turns them
+  into append-only effect, fill and drift facts carrying the Execution Scope and Authorization Lineage. The Order
+  Engine is the inherited `ExecutionEngine` and `OrderManager`, and the Reconciler's comparison is the inherited
+  reconciliation. Recovery Case state and its audited `KNOWN_CLOSED` closure stay this Owner's own.
 - **Reconciler** - own Recovery Case state and bounded Recovery Commands, compare effects with authoritative
   readback, join closure evidence, and alone write immutable `KNOWN_CLOSED` without resuming trading.
 

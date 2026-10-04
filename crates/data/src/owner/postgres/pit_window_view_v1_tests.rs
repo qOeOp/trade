@@ -1110,3 +1110,86 @@ async fn postgres_a_run_without_its_verified_chain_basis_is_refused() {
         .expect("every tamper was discarded");
     assert_eq!(frames.basis().market_semantics_value(), &fact.value);
 }
+
+/// A plain dataset - instrument, execution timeframe, window - names the one single-member chain
+/// that covers it, with its head pinned; a window it does not cover is refused with the part it
+/// lacks, and an instrument or timeframe no single-member chain holds is refused by name.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_dataset_names_the_single_member_chain_that_covers_it() {
+    use super::pit_window_custody_v1_tests::rows_of;
+    use crate::owner::pit_window_custody_v1::PitWindowCoverageRefusalV1;
+
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
+    admit_members(&owner, &binding).await;
+    let one_member = |universe| {
+        let mut one_member = request(&binding, universe);
+        one_member.members = vec![BTC.to_owned()];
+        one_member.fill_timeframe = None;
+        one_member.cross_sections = [WINDOW_START + DAY, WINDOW_START + 2 * DAY]
+            .into_iter()
+            .map(|event| {
+                let version = original("1D", event);
+                UntrustedCrossSectionVersionV1 {
+                    rows: rows_of(&[BTC], 0, version.rows[0].retrieval_ns),
+                    ..version
+                }
+            })
+            .collect::<Vec<_>>();
+        one_member
+    };
+    let intake = owner.pit_window_custody_commit_v1();
+    let first = universe(&owner, &binding, 10, None).await;
+    let receipt = commit(&intake, one_member(first))
+        .await
+        .expect("the custody");
+    // A two-member chain over the same window never names a one-instrument dataset.
+    let both = universe(&owner, &binding, 11, None).await;
+    commit(&intake, request(&binding, both))
+        .await
+        .expect("the two-member custody");
+    let frames = owner.pit_window_custody_frames_v1();
+    let lookup = |instrument: &'static str, timeframe: &'static str, end: u64| {
+        let frames = frames.clone();
+        async move {
+            frames
+                .resolve_pit_window_run_for_window_v1(instrument, timeframe, WINDOW_START, end)
+                .await
+        }
+    };
+
+    assert_eq!(
+        lookup(BTC, "1d", WINDOW_START + 3 * DAY).await,
+        Ok(UntrustedPitWindowRunV1 {
+            custody: UntrustedPitWindowCustodyClaimV1 {
+                chain_root: receipt.chain_root(),
+            },
+            run_start_ns: WINDOW_START,
+            run_end_ns_exclusive: WINDOW_START + 3 * DAY,
+            head_identity: Some(receipt.custody_identity()),
+        }),
+        "the covering chain, its head pinned"
+    );
+    assert_eq!(
+        lookup(BTC, "1d", WINDOW_START + 5 * DAY).await,
+        Err(PitWindowCoverageRefusalV1::WindowNotCovered {
+            missing: vec![(WINDOW_START + 3 * DAY, WINDOW_START + 5 * DAY)]
+        }),
+        "the part no chain covers is named"
+    );
+    assert_eq!(
+        lookup(ETH, "1d", WINDOW_START + 3 * DAY).await,
+        Err(PitWindowCoverageRefusalV1::CustodyNotFound),
+        "ETH is held only by the two-member chain"
+    );
+    assert_eq!(
+        lookup(BTC, "4h", WINDOW_START + 3 * DAY).await,
+        Err(PitWindowCoverageRefusalV1::CustodyNotFound),
+        "no chain holds BTC at 4h"
+    );
+    assert_eq!(
+        lookup(BTC, "15m", WINDOW_START + 3 * DAY).await,
+        Err(PitWindowCoverageRefusalV1::InvalidRequest)
+    );
+}

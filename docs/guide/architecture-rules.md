@@ -174,7 +174,9 @@ Four rules govern the stack:
   change; only its public contract can. The measurable form: the normal-dependency closure of an Owner's crate
   holds only that Owner's crates, crates of lower-layer Owners, crates of same-layer Owners it calls one-way, and
   ownerless libraries; and each Owner's contract lives in a leaf crate that holds types only and depends on
-  nothing but ownerless libraries.
+  nothing but ownerless libraries. Under the user-authorized TARGET [trading node](#target-trading-node)
+  (2026-10-05), Runtime, Risk and Execution are parts of one such module rather than three: the node as a whole
+  satisfies this rule, and its parts are not deployed apart.
 
 The fourth rule adds a bound; the user stated it on 2026-10-03. The third rule relaxes an invariant the
 documentation stated before: that each Owner reads the original record itself
@@ -188,7 +190,8 @@ The relaxation does not change:
 - Qualification holdout isolation. It is information isolation, not trust between Owners: protected results and
   cell detail still never return to R&D, and Qualification alone still resolves cumulative holdout history;
 - the real-money, Risk, and Execution boundaries stated under Automated trading write chain and Paper and live
-  parity;
+  parity. The user-authorized TARGET [trading node](#target-trading-node) (2026-10-05) later moves the boundary
+  between Risk and Execution into one process; the real-money boundary stays where it is;
 - append-only facts, content addressing, and one authority per mutable fact.
 
 New designs follow these rules now. Where another section of this documentation tells a lower Owner to read or
@@ -333,6 +336,104 @@ An initial or renewed Eligibility Fact cross-binds that exact Protected Replay R
 `TERMINAL_RESULT` Protected Run Result, the protected decision-policy identity and version, and Qualification's verified
 request/result equality. A rejected, invalid, nonterminal, or mismatched result can never produce Eligibility.
 
+<a id="target-trading-node"></a>
+
+## TARGET - Trading node
+
+**Authorization.** On 2026-10-05 the user authorized building the trading side as one in-process node, assembled
+from the inherited live node, `RiskEngine` and `ExecutionEngine` plus a thin trust layer of this product's own. The
+choice was made in a structured question that listed each stated invariant this section moves. The authorization
+moves those invariants and nothing else. It admits no Paper or Live path, no production write, and no real trading:
+Paper and Live stay `TARGET / NOT_ADMITTED` exactly as Paper and live parity states.
+
+**Why, as measured on `main` at `0ae095623`.** The inherited crates already provide each mechanism the write chain
+below was going to build across Owners:
+
+- `LiveNode` (`crates/live/src/node/mod.rs:146`) starts its clients, runs startup reconciliation (`:394`, `:676`)
+  and hosts strategies through the trader (`crates/system/src/trader.rs:686`).
+- `RiskEngine` (`crates/risk/src/engine/mod.rs:68`) sits synchronously between a strategy and `ExecutionEngine`. It
+  checks each order (`check_order`, `:896`), throttles submits and modifies (`:72-73`), bounds notional per order
+  (`:74`), and switches `TradingState` between active, halted and reducing (`:402`, `:874`).
+- `ExecutionEngine` (`crates/execution/src/engine/mod.rs:99`) and `OrderManager` (`order_manager/manager.rs:24`)
+  own the order lifecycle.
+- The `reconciliation/` module (`orders.rs:296`, `:683`; `positions.rs:395`) and the live `ExecutionManager`
+  (`crates/live/src/execution/manager.rs:378`, `:475`, `:1400`) reconcile against the venue.
+
+The cross-Owner protocol below (steps 6-10: Reservation Claim, `PREPARED`, Adapter Admission, `ADMITTED_ONCE`,
+`INVOCATION_STARTED`) exists only because Risk and Execution were separate services. In one process, the risk check
+already happens exactly once, synchronously, before the engine accepts an order. About 450-550 lines of planned
+Owner design in this page and the Risk, Execution and Runtime pages describe that protocol, and none of its code
+exists: `crates/runtime` is 182 non-test lines whose only state is `NotReady`, `crates/risk_owner` is 583, and
+`crates/execution_owner` is 2,529, almost all of it adapter-binding custody.
+
+**The node.**
+
+- *Scope.* There is one node per Capacity Scope: account, mode and economic pool. Every generation Governance
+  applies to that account runs as one strategy inside it. The Aggregate Commitment Frontier, the shared capacity
+  every strategy on the account draws from, is therefore one in-process value rather than a durable cross-service
+  serialization.
+- *A module.* The node is one module in the sense of "Each Owner is an independent module" above. Runtime, Risk
+  and Execution are its parts, not separately deployed Owners. It builds, migrates its own schema, tests and runs
+  on its own.
+- *Dependencies point down.* The node reads Market Data and Instrument Master only through their public contracts
+  and live data clients. It receives from Governance, by value with digests, the generation decision, the
+  Artifact, the Execution Scope and the Capacity Scope ceilings. Governance calls the node one way; the node never
+  reads Governance, R&D, Backtest or Qualification. It has no edge to Backtest at all.
+
+**The trust layer.** These are the only parts this product writes; everything else is the inherited engine.
+
+1. *Generation admission gate.* This runs in front of the trader's `add_strategy` and `start_strategy`. It admits a
+   strategy only for a Governance decision whose authorization mode, Execution Scope and Artifact digest it
+   receives and checks, and it writes the Runtime Generation Application Receipt (`APPLIED`,
+   `REJECTED_NO_INSTANCE` or `APPLICATION_UNKNOWN`) as described under Automated trading write chain.
+2. *Pre-submit gate.* This runs before `RiskEngine` accepts an order. It refuses the order unless all of the
+   following hold:
+   - the Capacity Scope frontier, held in process and computed over the inherited `Portfolio` exposure, has
+     headroom for it;
+   - the out-of-band Kill Switch sentinel reads not halted for the venue. The node also maps that reading onto
+     `TradingState::Halted`, which stops the whole node;
+   - the order's PAPER or LIVE namespace and adapter-binding digest equal the Execution Scope's.
+
+   A decrease-only lifecycle decision sets `TradingState::Reducing`, so only cancel, reduce, flatten or readback
+   passes.
+3. *Append-only outbox projector.* It subscribes to the node's order, fill, position and account events. It writes
+   each Owner fact into the node's Postgres store with its outbox entry in one transaction, carrying the Execution
+   Scope and the complete Authorization Lineage. The facts are the Risk decision with its categorized `REJECT`,
+   the order effect, the fill, and the drift. The inherited `event_store` crate, a BLAKE3-chained append-only
+   journal, is the candidate for the node's raw event log.
+4. *Reconciliation hook.* Each reconciliation result becomes a committed Reconciliation Drift Fact. Unknown external
+   effects open a Recovery Case.
+5. *Readiness publisher.* It publishes `READY`, `NOT_READY` and incident facts tied to the node's state and
+   `TradingState`. `NOT_READY` is committed before the node stops intent.
+
+**What stays this product's own**, because the inherited engine has no such property:
+
+- Operator Authorization and Strategy Governance, which are the authority the gates check;
+- Capacity Scope and Capacity View, the ceilings of an economic pool shared across strategies;
+- the out-of-band Kill Switch sentinel. Its read depends on the filesystem alone, because the inherited
+  `TradingState` is process-local and a switch inside a wedged process is wedged with it. Enforcing a halt at the
+  venue from outside a wedged node stays `TARGET`, unchanged;
+- the Recovery Case and its audited `KNOWN_CLOSED` closure.
+
+**What this moves.**
+
+- *Steps 6-10 of the add-risk chain* move into one synchronous pre-submit gate and `RiskEngine` check. The
+  Reservation and its claim are no longer separate facts: the in-process frontier holds the liability until the
+  projector records the fill or the cancel.
+- *Risk's Adapter Admission as the sole normal adapter-invocation authority* moves into `RiskEngine` and the
+  pre-submit gate in the same process. An order reaches an execution client only after both.
+- *Execution's Effect Journal order* (`PREPARED` before admission, `INVOCATION_STARTED` after `ADMITTED_ONCE`) moves
+  into the inherited order states (initialized, submitted, accepted, and so on) and the raw event log, projected
+  into append-only Owner facts.
+- *Separate deployment of Runtime, Risk and Execution* becomes one node deployed as one module.
+
+The real-money boundary does not move. No order reaches a venue without a Governance decision, an `APPLIED`
+receipt, a passing pre-submit gate and a `RiskEngine` check, and Live stays not admitted.
+
+**Status.** This section is `TARGET`. Where Automated trading write chain, Decrease-only lifecycle chain, the Risk
+and Execution pages, or capability adoption describe the cross-Owner protocol, that text applies until the node
+lands and is not the pattern for new work.
+
 ## Automated trading write chain
 
 An Authorized Generation Decision is permission, not Runtime state. Runtime separately owns a Generation
@@ -340,7 +441,9 @@ Application Receipt. Only `APPLIED`, bound to exactly one Strategy Instance, che
 Execution Scope, artifact, and fence epoch, proves running state. `REJECTED_NO_INSTANCE` proves no instance;
 `APPLICATION_UNKNOWN` blocks duplicate application and automated intent until the same attempt is reconciled.
 
-The normal add-risk chain is exact and ordered:
+The normal add-risk chain is exact and ordered. Steps 6-10, and the Reservation Claim and Adapter Admission they
+carry, hold until the user-authorized TARGET [trading node](#target-trading-node) lands; there they become one
+synchronous pre-submit gate and `RiskEngine` check inside the node, and steps 1-5 and 11-13 keep their meaning:
 
 1. Governance authorizes one generation and immutable Execution Scope under an explicit authorization mode.
    `INITIAL_ACTIVATION`, `PROMOTION`, and automated Paper or Live require

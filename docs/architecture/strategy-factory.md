@@ -1365,6 +1365,21 @@ Backtest engine state, timeout, logging, instance, cache and subsystem field. Bo
 fixed-width integer or exact base-10 fixed-point values, closed model enums and no hidden default, floating-point,
 environment or caller fallback.
 
+**TARGET, user-authorized 2026-10-05:** the two seals stop mirroring the inherited configuration field by field.
+Each seal becomes the canonical serialized bytes of the inherited `SimulatedVenueConfig` or `BacktestEngineConfig`,
+with all fields present and no default filled in by a deserializer, plus their digest. A closed allow-list names
+the few fields a TrialFamily may vary, and any other field differing from the pinned value is refused by name.
+The rule "no hidden default, floating-point" is moved, not dropped:
+
+- the canonical bytes state every field, so no default is hidden;
+- a floating-point field, such as a fill probability or a liquidation ratio, is allowed only at its pinned value,
+  which the bytes record exactly.
+
+The census measured about 3.8 thousand non-test lines in the mirror (`replay_economic_configuration_v1`,
+`replay_runner_operational_profile_v1`, and the binding and native profiles that translate it back). About 3.0 to
+3.4 thousand of those go. The Instrument Owner terms check and the allow-list stay. Every seal digest changes
+once, with the TrialFamily policies that bind them.
+
 The permanent TrialFamily binding and the R&D-owned request binding both repeat the exact two seal digests and
 cross-bind the same family identity and digest. Maker/taker fees and initial/maintenance margins are usable only
 with a distinct non-forgeable Instrument Owner provenance value minted from its verified exact-locator readback.
@@ -1759,7 +1774,7 @@ Every invariant the frame-sequence design held has a new home, except one:
 | One member set, role set, Instrument Master cut, timeframe, venue, and account scope for every frame | Frame sequence V2                          | Unchanged: the member set is fixed and a member not valid throughout refuses the run                                                          |
 | No gap, no skipped frame, no frame list from the caller                                              | Frame sequence V2                          | Frames enumerated from the execution timeframe's Owner schedule; a gap is `PIT_WINDOW_FRAME_NOT_COVERED`                                      |
 | Latest visible correction, never the superseded version, ambiguous branches refused                  | Frame sequence V2 and the quote cut census | Version selection per cross section at `d_k`; a branch refuses the frame                                                                      |
-| A BAR receipt alone cannot authorize a fill                                                          | Frame sequence V2                          | Each frame still needs its derived quote cut, strictly inside `(d_k, e_{k+1})`                                                                |
+| A BAR receipt alone cannot authorize a fill                                                          | Frame sequence V2                          | Each frame still needs its derived quote cut, strictly inside `(d_k, e_{k+1})`; TARGET (user, 2026-10-05): the engine's bar execution fills   |
 | An exact locator reread returns identical bytes                                                      | Frame sequence V2                          | Custody is immutable after commit; view identities are recomputable                                                                           |
 | A verified batch comes only from a committed snapshot                                                | Market Data seal                           | A second sealed source, `CustodyView`, with its own `compile_fail` and tamper tests                                                           |
 | Nothing from the future is visible                                                                   | The snapshot boundary                      | The declared availability rule, version selection at `d_k`, and the binder's available ≤ `d_k`; the rule is a declaration, not an observation |
@@ -1970,6 +1985,22 @@ SDK change. A program reaches them only through new lifecycle-output semantic ID
 versioning like the position flip. The shared lifecycle kernel owns every order's state; the target-set Host
 translates that state into native `BacktestEngine` orders; and the engine alone fills them.
 
+**Authorization of 2026-10-05.** On 2026-10-05 the user authorized three changes to how those orders are placed and
+filled:
+
+- protection uses the inherited order machinery: bracket orders (`crates/common/src/factories/order.rs:1137`),
+  OCO contingency, and native trailing stops (`crates/model/src/trailing.rs:24`);
+- Replay runs with the engine's `bar_execution` enabled;
+- the synthesized fill quote per gap between frames is deleted.
+
+This moves the invariant "A BAR receipt alone cannot authorize a fill" (see the window-custody table above): a
+fill is authorized by the engine's own bar execution over the gap's custody bars. The census that led to this
+measured about 2-3 thousand non-test lines of quote-cut and fill-quote code standing in for `bar_execution`
+(`native_replay_quote_cut_v2`, the fill-quote parts of native Replay scheduling, and `fill_quote_instants`). It also
+found the Host hand-building protection as one stop-market, with trailing done by repeated `modify_order`
+(`program_host_backtest_target_set_v2.rs`). **Every recorded Replay's outcome digests change**, because its fills
+now come from the bar path rather than one quote; a recorded run is re-run, never reinterpreted.
+
 The first consumer is research R-1u (role-reversal retest), the only research rule in its forward stage. Its
 acceptance is a trade-by-trade reproduction of its perpetual reference trades, which needs the three research
 prerequisites listed in the [retirement plan](#bfp-host-interpretation-retirement-plan). R-1u itself has no
@@ -1981,11 +2012,12 @@ here.
 - every entry is a GTC limit at the frame price;
 - the Host places at most one stop;
 - a take-profit leg is held in protection state but never placed;
-- each gap between frames carries one fill quote;
+- each gap between frames carries one synthesized fill quote instead of its bars;
 - each member has one bar type.
 
-The generic engine already supports GTD expiry, OCO/OUO order lists, reduce-only quantity, modify, and bar
-execution. Closing the gap therefore means exposing what the engine already has, not adding a simulator.
+The inherited engine already supports GTD expiry, bracket and OCO/OUO order lists, native trailing stops,
+reduce-only quantity, modify, and bar execution. Closing the gap therefore means exposing what the engine already
+has, not adding a simulator.
 
 **1. Resting entries (limit, GTD, several at once).**
 
@@ -2014,8 +2046,9 @@ execution. Closing the gap therefore means exposing what the engine already has,
 
 **2. OCO exits.**
 
-- When an entry fills, the kernel arms its protection, and the Host submits a reduce-only stop-market leg and a
-  reduce-only limit leg as one OCO list.
+- An armed entry is submitted as one inherited bracket. The entry limit triggers (OTO) a reduce-only stop-market
+  leg and a reduce-only limit leg joined as OCO. The kernel arms its protection when the entry fills.
+- A trailing protection is the inherited trailing-stop order, not a stop moved by repeated modifies.
 - This is A2 ("take-profit as reduce-only limit orders"). It reuses D1's protective-fill reconciliation unchanged:
   each FILL names the leg it advances, and a fill of either leg closes the position and clears the protection.
 - A leg may carry a quantity below the position. That is how R-1s's half at 2R would be expressed later; an OUO
@@ -2024,18 +2057,21 @@ execution. Closing the gap therefore means exposing what the engine already has,
   the first blocker under intrabar protection, so a program never proposes an exit for a member a protective fill
   already flattened.
 
-**3. The intrabar path.** The gap between frame `k` and frame `k+1` is executed on that gap's bars, not on one
-quote. Market Data's PIT window custody already holds them: the fill timeframe, exactly one minute.
+**3. The intrabar path.** The gap between frame `k` and frame `k+1` is executed on that gap's bars by the engine's
+own `bar_execution`, not on one synthesized quote. Market Data's PIT window custody already holds the bars: the
+fill timeframe, exactly one minute.
 
-- *Execution policy.* A new Replay execution-policy row, `INTRABAR_EXECUTION_BAR_WITH_MINUTE_TIE_BREAK_V1`, makes
-  the engine first run each gap as the execution-timeframe bar.
+- *Execution policy.* A new Replay execution-policy row, `INTRABAR_EXECUTION_BAR_WITH_MINUTE_TIE_BREAK_V1`, enables
+  `bar_execution` and feeds the engine each gap as its execution-timeframe bar.
 - *Descending to minutes.* That bar's OHLC can reach more than one live order whose relative order would change
-  the outcome: an entry and its stop, a stop and a target, or two entries. In that case the Host replays the gap
-  from its one-minute fill bars instead.
+  the outcome: an entry and its stop, a stop and a target, or two entries. In that case the Host feeds that gap
+  as its one-minute custody bars instead.
 - *Within one minute, the adverse leg first.* A minute that reaches both a stop and a target fills the stop. A
   minute that fills an entry may also fill that entry's stop at the stop price, but never its target; the target
-  is first checked on the next minute. These are R-1u's rules, and they are named in the policy row rather than
-  inherited from the engine's open-high-low-close or adaptive ordering.
+  is first checked on the next minute. These are R-1u's rules. The engine's bar path visits a bar's extremes in
+  open-high-low-close or adaptive order instead. The first R-1u reproduction measures how many reference trades
+  that ordering changes. If any change, one adverse-first bar-ordering option is added to the inherited matching
+  engine's bar path, named in the policy row; if none change, nothing is added.
 - *Gap prices.* A limit or target crossed at the open fills at the open when that is better than its price. A stop
   crossed at the open fills at the open when that is worse than its price.
 
@@ -2058,8 +2094,9 @@ walks R-1u (1-hour bars, with minutes only for ties).
 **Estimated size, in Rust lines before tests:**
 
 - the kernel resting-entry book (arm, expiry, suspend, void, resubmit) and its checkpoint codec: 600 to 1,000;
-- the Host OCO exit list: 200 to 350;
-- the intrabar execution policy (engine bar execution, descent to minutes): 100 to 300, plus validation;
+- the Host bracket and trailing submission over the inherited order lists: 100 to 200;
+- the intrabar execution policy (engine bar execution, descent to minutes): 100 to 300, plus validation. It
+  deletes about 2-3 thousand lines of quote-cut and fill-quote code;
 - lifecycle-output semantic IDs and catalog rows: about 200;
 - authoring-language constructs: 300 to 550.
 

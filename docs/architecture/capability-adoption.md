@@ -262,7 +262,10 @@ The target Telemetry Gateway admits OTLP-compatible receivers, processors, and e
 2. **Permit-bound effects** - for add-risk, Runtime receives a terminal Risk Decision and one-use Reservation before creating an Authorized Order Command.
    Decrease-only instead requires exact `PERMIT_DECREASE_ONLY` and explicit-none
    Reservation/claim lineage. Both paths require Execution `PREPARED`, Risk adapter admission, and matching
-   `ADMITTED_ONCE` before invocation.
+   `ADMITTED_ONCE` before invocation. Under the user-authorized TARGET
+   [trading node](../guide/architecture-rules#target-trading-node) (2026-10-05), this gate is satisfied in process.
+   An order reaches an execution client only after the node's generation admission gate, its pre-submit gate and
+   the inherited `RiskEngine` check, all in one process.
 3. **Owner-scoped durability** - Event Store and persistence calls append through the native Owner boundary. Unknown capture or replay state stays unknown and activates the relevant recovery fence.
 4. **Artifact identity reuse** - indicator, feature, strategy, configuration, and dependency identities are frozen in Strategy Artifact and remain identical across replay, paper, and live Runtime.
 5. **No product surface or telemetry by implication** - the Agent Tools command set, the Dashboard MCP operation set, external agents, Telegram, OTLP collection, a broker, and the Dashboard itself remain target capabilities until canonical consumers satisfy their contracts. App and MCP channels share one `TRADE_PRODUCT_EDGE` admission gateway and cannot become competing writers. Every mutating request admission binds the authoritative shell-history head whose unique `ACTIVE` binding is selected; already admitted work remains bound to its original immutable origin. A local installation or presence in Flow is not implementation evidence.

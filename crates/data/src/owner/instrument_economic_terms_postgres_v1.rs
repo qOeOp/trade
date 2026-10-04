@@ -25,6 +25,7 @@ use super::instrument_economic_terms_v1::{
 use super::instrument_master_v2::{
     FactValue, InstrumentMasterCutMemberV2, InstrumentMasterFactV2, InstrumentMasterReadbackV2,
 };
+use super::pit_window_custody_v1::PitWindowChainBasisV1;
 
 const CUSTODY_DOMAIN: &[u8] = b"instrument-owner.private-economic-terms.custody.v1\0";
 const ADVISORY_LOCK_KEY: i64 = 0x4945_5456_3100_0001;
@@ -261,7 +262,89 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             .iter()
             .map(|member| member.fact().canonical_identity())
             .collect::<Vec<_>>();
+        let expected_digests = members
+            .iter()
+            .map(|member| *member.fact().identity().as_bytes())
+            .collect::<Vec<_>>();
+        self.select_unique_members(
+            &identities,
+            Some(&expected_digests),
+            venue_identity,
+            quote_currency,
+            event_time_ns,
+        )
+        .await
+    }
 
+    /// Resolves one economic-terms readback for each member of a custody run's verified chain
+    /// basis, in the basis's member order.
+    ///
+    /// A custody run has no per-request Instrument Master V2 cut: its members are the ones the
+    /// root custody bound (`PitWindowChainBasisV1::members`), which Market Data verified, so the
+    /// consumer still cannot choose an instrument, an account scope or a locator. Without a V2 cut
+    /// there is no expected public fact digest per member, so a member's terms are linked by its
+    /// canonical identity and the terms' effective range alone (`event_time_ns` inside
+    /// `[valid_from_ns, valid_until_ns_exclusive)`). Each member's venue is checked against the
+    /// basis's own Instrument Master mapping (`member_venue_source`) before any terms are read.
+    /// Every member must resolve under one shared account scope, exactly once.
+    ///
+    /// The returned readbacks name each member's `instrument_public_fact_digest`; a consumer that
+    /// needs the public V2 fact resolves it by that digest (`resolve_fact_v2`).
+    ///
+    /// # Errors
+    ///
+    /// `InvalidSelection` for a malformed venue or quote currency; `UnknownSelection` when a
+    /// member is mapped to another venue or no complete member set is in force at
+    /// `event_time_ns`; `AmbiguousSelection` when more than one fact or account scope could
+    /// satisfy it; and a custody or storage error when the store does not verify.
+    pub async fn resolve_unique_custody_run_members(
+        &self,
+        basis: &PitWindowChainBasisV1,
+        venue_identity: &str,
+        quote_currency: &str,
+        event_time_ns: i128,
+    ) -> Result<Vec<InstrumentEconomicTermsReadbackV1>, InstrumentEconomicTermsPostgresErrorV1>
+    {
+        if !valid_selector_text(venue_identity) || !valid_selector_text(quote_currency) {
+            return Err(InstrumentEconomicTermsPostgresErrorV1::InvalidSelection);
+        }
+        let identities = basis
+            .members()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+
+        if identities.is_empty()
+            || identities.iter().any(|member| {
+                basis
+                    .member_venue_source(member)
+                    .map_or(true, |(venue, _)| venue != venue_identity)
+            })
+        {
+            return Err(InstrumentEconomicTermsPostgresErrorV1::UnknownSelection);
+        }
+        self.select_unique_members(
+            &identities,
+            None,
+            venue_identity,
+            quote_currency,
+            event_time_ns,
+        )
+        .await
+    }
+
+    /// The one terms readback per member, under one shared account scope, in force at
+    /// `event_time_ns`. A member matches by its canonical identity and, when `expected_digests`
+    /// is given, also by the public fact digest at its position.
+    async fn select_unique_members(
+        &self,
+        identities: &[&str],
+        expected_digests: Option<&[[u8; 32]]>,
+        venue_identity: &str,
+        quote_currency: &str,
+        event_time_ns: i128,
+    ) -> Result<Vec<InstrumentEconomicTermsReadbackV1>, InstrumentEconomicTermsPostgresErrorV1>
+    {
         let mut tx = self
             .pool
             .begin()
@@ -277,17 +360,13 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         let rows = sqlx::query(
             "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest,s.instrument_identity AS selection_instrument_identity,s.venue_identity AS selection_venue_identity,s.account_scope_identity AS selection_account_scope_identity,s.quote_currency AS selection_quote_currency FROM instrument_owner_private.economic_terms_selection_v1 s JOIN instrument_owner_private.economic_terms_facts_v1 f ON f.fact_identity=s.fact_identity JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE s.instrument_identity=ANY($1) AND s.venue_identity=$2 AND s.quote_currency=$3 ORDER BY f.fact_identity",
         )
-        .bind(&identities)
+        .bind(identities)
         .bind(venue_identity)
         .bind(quote_currency)
         .fetch_all(&mut *tx)
         .await
         .map_err(|cause| store_error(&cause))?;
 
-        let expected_digests = members
-            .iter()
-            .map(|member| *member.fact().identity().as_bytes())
-            .collect::<Vec<_>>();
         let mut readbacks = Vec::with_capacity(rows.len());
         let mut by_scope: BTreeMap<String, Vec<Vec<usize>>> = BTreeMap::new();
 
@@ -296,8 +375,10 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             let input = readback.fact().input();
             let member_index = identities.iter().enumerate().find_map(|(index, identity)| {
                 (*identity == input.instrument_identity
-                    && expected_digests[index] == input.instrument_public_fact_digest)
-                    .then_some(index)
+                    && expected_digests.is_none_or(|digests| {
+                        digests[index] == input.instrument_public_fact_digest
+                    }))
+                .then_some(index)
             });
 
             if let Some(member_index) = member_index
@@ -309,7 +390,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
                 let index = readbacks.len();
                 by_scope
                     .entry(input.account_scope_identity.clone())
-                    .or_insert_with(|| vec![Vec::new(); members.len()])[member_index]
+                    .or_insert_with(|| vec![Vec::new(); identities.len()])[member_index]
                     .push(index);
             }
             readbacks.push(Some(readback));
@@ -762,6 +843,39 @@ mod tests {
                 .unwrap_err(),
             InstrumentEconomicTermsPostgresErrorV1::UnknownSelection,
             "a venue the members are not at resolves nothing"
+        );
+
+        // A custody run has no V2 cut: its members are matched by canonical identity alone, in
+        // the order the basis names them, under the same uniqueness and validity rules.
+        let by_identity = terms
+            .select_unique_members(
+                &["ETHUSDT-PERP.BINANCE", "BTCUSDT-PERP.BINANCE"],
+                None,
+                &venue,
+                &quote,
+                500,
+            )
+            .await
+            .expect("custody members resolve by canonical identity");
+        assert_eq!(
+            instruments(&by_identity),
+            ["ETHUSDT-PERP.BINANCE", "BTCUSDT-PERP.BINANCE"]
+        );
+        assert_eq!(
+            terms
+                .select_unique_members(&["BTCUSDT-PERP.BINANCE"], None, &venue, &quote, 1_000)
+                .await
+                .unwrap_err(),
+            InstrumentEconomicTermsPostgresErrorV1::UnknownSelection,
+            "outside the terms' validity no custody member resolves"
+        );
+        assert_eq!(
+            terms
+                .select_unique_members(&["SOLUSDT-PERP.BINANCE"], None, &venue, &quote, 500)
+                .await
+                .unwrap_err(),
+            InstrumentEconomicTermsPostgresErrorV1::UnknownSelection,
+            "a member with no terms resolves nothing"
         );
     }
 }

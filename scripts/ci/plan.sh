@@ -8,7 +8,7 @@ set -euo pipefail
 
 emit() {
   local tests="$1" rust_tests="$2" generated="$3" full_prek="$4" capnp="$5"
-  local python="$6" rust="$7" reason="$8"
+  local python="$6" rust="$7" owner_chain="$8" reason="$9"
   {
     echo "run_tests=${tests}"
     echo "run_rust_tests=${rust_tests}"
@@ -17,13 +17,14 @@ emit() {
     echo "run_capnp_check=${capnp}"
     echo "codeql_python_impacted=${python}"
     echo "codeql_rust_impacted=${rust}"
+    echo "run_owner_chain=${owner_chain}"
     echo "pre_commit_base=${merge_base:-}"
   } >> "$GITHUB_OUTPUT"
   echo "$reason"
 }
 
 run_all() {
-  emit true true true true true true true "$1"
+  emit true true true true true true true true "$1"
   exit 0
 }
 
@@ -57,7 +58,7 @@ case "${EVENT_NAME:-}" in
       "$before_pin_entry" != '100644 blob' || "$after_pin_entry" != '100644 blob' ]]; then
       run_all "main push is not an exact Skill pin update: running full validation"
     fi
-    emit false false false false false false false \
+    emit false false false false false false false false \
       "exact main Skill pin update: running narrow non-language validation"
     exit 0
     ;;
@@ -168,6 +169,72 @@ except UnicodeDecodeError:
 '
 }
 
+# scripts/ci/owner-chain-crates.tsv (scripts/ci/owner-chain-closure.py's own table) maps every
+# workspace crate directory to whether it lies in the transitive dependency closure of the Owner
+# Postgres chain's guarded roots (scripts/ci/test-rd-owner-postgres.bash's `guarded_roots`).
+# Loaded once; a missing or malformed table, or a path it cannot attribute to a known crate
+# directory, fails open to "the chain is needed" - the same bias `run_all` uses for everything
+# else this script cannot classify.
+owner_chain_table_loaded=false
+declare -A owner_chain_table_status=()
+
+load_owner_chain_table() {
+  owner_chain_table_loaded=true
+  local table="scripts/ci/owner-chain-crates.tsv"
+  [[ -f "$table" ]] || return 0
+  local dir status
+  while IFS=$'\t' read -r dir status; do
+    case "$dir" in
+      '' | '#'*) continue ;;
+    esac
+    owner_chain_table_status["$dir"]="$status"
+  done < "$table"
+}
+
+# The crate directory that genuinely owns `changed_file`, read from the git tree at HEAD (the
+# diff's own tip, so a crate the same PR just added is seen too) rather than from the table: the
+# table can only ever be as fresh as the last `--write`, and trusting it for *which* directory is
+# a crate root - not just what the known ones map to - would silently misattribute a path under a
+# brand-new, not-yet-tabled crate to its nearest tabled ancestor instead of failing open. Walks
+# upward from the file's own directory until one holds a `Cargo.toml` at HEAD; a path with no
+# such ancestor (nothing under `crates/` or `services/` reaches this function at all - see the
+# `*.rs`/`*/Cargo.toml` cases below) prints empty, which the caller treats as unresolved.
+owning_crate_dir() {
+  local changed_file="$1" probe
+  probe="${changed_file%/*}"
+  [[ "$probe" == "$changed_file" ]] && probe=""
+  while true; do
+    if [[ -z "$probe" ]]; then
+      echo ""
+      return
+    fi
+    if git cat-file -e "HEAD:${probe}/Cargo.toml" 2> /dev/null; then
+      echo "$probe"
+      return
+    fi
+    if [[ "$probe" == */* ]]; then
+      probe="${probe%/*}"
+    else
+      probe=""
+    fi
+  done
+}
+
+owner_chain_impact() {
+  local changed_file="$1" crate_dir
+  [[ "$owner_chain_table_loaded" == true ]] || load_owner_chain_table
+  crate_dir="$(owning_crate_dir "$changed_file")"
+  if [[ -n "$crate_dir" && -n "${owner_chain_table_status[$crate_dir]+set}" ]]; then
+    if [[ "${owner_chain_table_status[$crate_dir]}" == in ]]; then
+      echo true
+    else
+      echo false
+    fi
+    return
+  fi
+  echo true
+}
+
 tests=false
 rust_tests=false
 generated=false
@@ -175,6 +242,7 @@ full_prek=false
 capnp=false
 codeql_python=false
 codeql_rust=false
+owner_chain=false
 changed=false
 
 status_file="$(mktemp "${TMPDIR:-/tmp}/trade-ci-plan.XXXXXX")"
@@ -250,6 +318,7 @@ while IFS= read -r -d '' status <&3; do
       capnp=true
       codeql_python=true
       codeql_rust=true
+      owner_chain=true
       continue
       ;;
   esac
@@ -271,13 +340,28 @@ while IFS= read -r -d '' status <&3; do
       rust_tests=true
       full_prek=true
       codeql_rust=true
+      if [[ "$(owner_chain_impact "$changed_file")" == true ]]; then
+        owner_chain=true
+      fi
       ;;
-    Cargo.toml | */Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
-      */.cargo/* | clippy.toml)
+    */Cargo.toml)
       tests=true
       rust_tests=true
       full_prek=true
       codeql_rust=true
+      if [[ "$(owner_chain_impact "$changed_file")" == true ]]; then
+        owner_chain=true
+      fi
+      ;;
+    Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
+      */.cargo/* | clippy.toml)
+      # Workspace-wide, not one crate's own manifest: a dependency edge, a shared profile, or the
+      # toolchain itself could move any crate across the closure's line, so this stays ambiguous.
+      tests=true
+      rust_tests=true
+      full_prek=true
+      codeql_rust=true
+      owner_chain=true
       ;;
     Makefile | *.mk | tools.toml | *.sh | *.bash | *.zsh | *.toml | *.yaml | *.yml | \
       *.json | *.lock | generated/* | */generated/* | tests/* | */tests/* | \
@@ -296,5 +380,5 @@ if [[ "$changed" != true ]]; then
 fi
 
 emit "$tests" "$rust_tests" "$generated" "$full_prek" "$capnp" \
-  "$codeql_python" "$codeql_rust" \
-  "PR impact plan: tests=${tests}, rust=${rust_tests}, generated=${generated}, changed-file pre-commit"
+  "$codeql_python" "$codeql_rust" "$owner_chain" \
+  "PR impact plan: tests=${tests}, rust=${rust_tests}, generated=${generated}, owner_chain=${owner_chain}, changed-file pre-commit"
