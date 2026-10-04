@@ -83,6 +83,11 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_a_continuous_declaration_mints_a_schedule_without_calendar_or_session
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_no_schedule_is_proposed_for_rows_their_binding_does_not_declare
   owner::store_admission::tests::a_production_build_refuses_evidence_that_names_no_admission
+  owner::postgres::funding_settlement_v1::postgres_proof_v1::committing_the_same_real_content_twice_rejoins_without_a_second_row
+  owner::postgres::funding_settlement_v1::postgres_proof_v1::a_different_rate_under_the_same_identity_is_refused_with_zero_writes
+  owner::postgres::funding_settlement_v1::postgres_proof_v1::an_empty_window_still_records_its_coverage
+  owner::postgres::funding_settlement_v1::postgres_proof_v1::a_settlement_outside_the_stated_window_is_refused_before_any_write
+  owner::postgres::funding_settlement_v1::postgres_proof_v1::no_role_but_the_owner_can_reach_the_tables_or_the_private_functions
 )
 
 # Proofs of code that exists only in a build carrying `sealed-strategy-input-acceptance`. They run
