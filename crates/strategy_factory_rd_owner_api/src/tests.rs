@@ -95,7 +95,7 @@ use vibe_strategy_factory::product_edge::ResearchGoalOwnerResultV2;
 
 #[rstest]
 fn composer_startup_uses_two_owner_urls_without_preissued_native_join() {
-    let source = include_str!("main.rs");
+    let source = include_str!("server.rs");
     assert!(source.contains("MARKET_DATA_OWNER_DATABASE_URL"));
     assert!(source.contains("MARKET_DATA_RD_ROLE_SET_DATABASE_URL"));
     let removed_native_env = ["MARKET_DATA_COMPOSER", "_NATIVE_JOIN_LOCATORS_V1"].concat();
@@ -120,7 +120,7 @@ fn startup_mode_admits_only_default_serve_or_exact_schema_materialization() {
         ])
         .is_err()
     );
-    let materializer = include_str!("main.rs")
+    let materializer = include_str!("server.rs")
         .split("if schema_materialization_requested(&arguments)?")
         .nth(1)
         .expect("materialization mode")

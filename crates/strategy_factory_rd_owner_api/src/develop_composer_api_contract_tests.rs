@@ -115,7 +115,7 @@ fn acceptance_fault_controls_require_the_explicit_runtime_gate() {
     );
     assert_eq!(admit_sealed_acceptance_fault_control(true), Ok(()));
 
-    let source = include_str!("main.rs");
+    let source = include_str!("server.rs");
 
     for (handler, next_item) in [
         (
