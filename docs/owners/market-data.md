@@ -3879,6 +3879,87 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
   - **REST tests run locally.** A GitHub-hosted runner reaches `fapi.binance.com` as `451`, so tests that call REST
     run only on a local machine. The user accepted this explicitly on 2026-10-05.
   - **`get_bars` is not part of this change.** Its `HOLDOUT_PARTITION_UNDEFINED` refusal stays.
+- **Implementation slices.** Each slice is a separately reviewable PR with its own acceptance; a slice starts only
+  when the ones it names have merged. Lane 2 owns the Market Data core (B1, B2); Lane 8 implements the rest.
+  - **B1 - the bar store (Lane 2).** An Owner-private, append-only store of native bars, keyed by instrument,
+    timeframe label and open instant, each bar a chain of versions. A version holds the 11 venue columns, its
+    source, its retrieval instant and its availability instant. A writer commits a page of bars for one instrument
+    and timeframe:
+    - **Rejoin:** a bar already stored with the same content writes nothing.
+    - **Conflict:** a bar stored with different content is recorded as a named conflict (`BAR_CONTENT_CONFLICT`,
+      naming the bar, its fields and both values) and nothing is overwritten.
+    - **Refusals:** a bar whose close plus the settle delay is not before its retrieval is refused by name
+      (`BAR_NOT_SETTLED`), and so is a bar off its timeframe's grid (`BAR_OFF_GRID`).
+
+    A point-in-time read takes instrument, timeframe, window, cut and `verified_only`, and returns, for each bar,
+    the latest version available at the cut, with its marks, through an admitted wrapper inside a new measured
+    floor. `verified_only` refuses by name any window holding an unverified bar.
+
+    Acceptance: PG proofs for each of the following.
+    - Rejoin writes nothing.
+    - A differing re-fetch records exactly one conflict and leaves the stored bar unchanged.
+    - Each refusal writes nothing.
+    - A read at a cut before a version's availability does not see it.
+    - `verified_only` refuses over an unverified bar.
+    - The floor is the catalog closure of its read.
+  - **B2 - verification and corrections (Lane 2, after B1).** An Owner operation verifies stored bars against
+    archive rows for an instrument, timeframe and covered window.
+    - **Equal bars:** a verification record (archive kind, archive identity, verified instant) is appended, and the
+      bar reads as verified.
+    - **Differing bars:** a conflict is recorded under the same name as B1's, naming the archive as its second side.
+    - **Missing bars:** a bar the archive does not hold stays unverified, and is never deleted.
+    - **Corrections:** an operator correction appends a successor version, naming the conflict it resolves. It has
+      no route, and the read selects it only from its own availability on.
+
+    Acceptance: PG proofs.
+    - Equal bars become verified with nothing else written.
+    - A differing bar yields one conflict and stays unverified.
+    - An archive missing a day verifies only the days it holds.
+    - A correction is seen only from its availability.
+  - **B3 - the REST recorder (Lane 8, after B1).** Forward pagination over `request_binance_bars`, for every
+    timeframe label in the served set, from an instrument's first listed bar, or the last stored close, to the
+    present. Every page is committed through B1's writer, and a bar is admitted only after the settle delay. It is
+    paced inside the public rate limit and resumable.
+
+    Acceptance:
+    - Unit tests for paging boundaries and the settle filter.
+    - A local test against live REST: one day of BTCUSDT `1m` and `1d`, recorded twice, writes once and then
+      rejoins.
+    - The counts against the archive equal the measurements above.
+  - **B4 - labels and the calendar month (Lane 8, after B1).**
+    - **Labels:** the served set gets one label mapping beside the execution one (`15M`, `30M`, `2H`, `6H`, `8H`,
+      `12H` added, `1m` as `1M`), and a calendar month labelled `1MO`. `1M` is the minute.
+    - **Cadence:** `CalendarMonth` cadence on the UTC month anchor, in `UntrustedSourceBarCadenceV1`.
+    - **Unchanged:** the execution whitelist (`SUPPORTED_EXECUTION_TIMEFRAMES_V1`) does not change.
+
+    Acceptance:
+    - Unit tests: every served label is unique and round-trips.
+    - A calendar-month declaration encodes, decodes and refuses a fixed interval.
+  - **B5 - archive verification jobs (Lane 8, after B2 and B3).**
+    - **Schedule:** fetch each monthly and daily archive once it is published (the daily archive T+1 from about
+      09:30 UTC, the monthly archive from the 2nd at about 12:00 UTC), and verify through B2. The existing
+      authenticated readers (`authenticate_monthly_klines`, `funding_archive_v1`) are reused unchanged.
+    - **Coverage:** a month whose file omits days is verified from the daily files for those days.
+    - **`1w` and `1M`:** verified from their daily files, or by derivation from verified `1m` bars. Derivation uses
+      `TimeBarAggregator` for `1w`, and for `1M` either its fixed month path or an explicit month bucketing.
+
+    Acceptance:
+    - A local run over BTCUSDT, ETHUSDT and SOLUSDT reproduces the measurement: the incident days surface as the
+      named conflicts listed above, and SOLUSDT's omitted days are verified from the daily files.
+  - **B6 - one resident service (Lane 8, after B3 and B5).** The recorder, the verification jobs and the
+    settled-funding recorder (#1382) run in one scheduler in one resident Market Data process, never in an MCP.
+
+    Acceptance:
+    - It restarts without double writes, which is proved by rejoin counts.
+    - A local soak of a few days records closed bars, verifies them on archive publication, and reports conflicts.
+  - **B7 - custody input from the store (Lane 8, after B1 and B5).** The backfill job builds a custody's execution
+    and fill bars from the store instead of fetching archives, and its rows name the REST route. Chains already
+    committed are never rewritten.
+
+    Acceptance:
+    - A backfill over a window the store holds commits a custody whose rows equal the store's bars.
+    - A run over it passes.
+    - A window reaching the current month backfills, which supersedes the "published months only" rule.
 - **Status.** TARGET, not implemented. The measurement scripts (archive aggregation, the `TimeBarAggregator` harness,
   REST against the daily archive, and REST settling) were run locally on 2026-10-04 and 2026-10-05 and are not kept in
   the repository. They are cheap to rerun before implementation.

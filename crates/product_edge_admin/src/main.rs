@@ -141,6 +141,13 @@ async fn main() -> anyhow::Result<()> {
             &config,
         ),
         manifest(
+            "exploratory_replay.compose_or_resolve.v3",
+            "rd-exploratory-replay-composition-v3",
+            "R_AND_D",
+            vec!["R_AND_D_EXPLORATORY_REPLAY_COMPOSITION_MUTATION_V3".to_string()],
+            &config,
+        ),
+        manifest(
             SOURCE_INTAKE_OPERATION_V1,
             SOURCE_INTAKE_OPERATION_SCHEMA_V1,
             SOURCE_INTAKE_TARGET_OWNER_V1,
