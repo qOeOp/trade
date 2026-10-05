@@ -35,7 +35,6 @@ use axum::{
 };
 use serde_json::json;
 use vibe_binance::{
-    common::enums::BinanceKlineInterval,
     futures::http::client::BinanceFuturesHttpClient,
     perpetual_admission_v1::{
         BINANCE_PERPETUAL_U1_MEMBERS_V1, BinancePerpetualDatasetV1,
@@ -44,18 +43,17 @@ use vibe_binance::{
         binance_perpetual_eligible_set_admission_request_v1,
         binance_perpetual_market_semantics_value_v1, binance_perpetual_source_proposal,
     },
-    vision_backfill_custody_v1::{
-        BackfillCustodyBasisV1, BackfillTimeframeBarsV1, custody_request_v1,
-    },
+    vision_backfill_custody_v1::BackfillCustodyBasisV1,
     vision_backfill_v1::{FUNDING_ARCHIVE_ROUTE, VisionBackfillFetcherV1},
 };
+use vibe_core::time::get_atomic_clock_realtime;
 use vibe_data::owner::{
     backfill_job_v1::{
         BackfillCoverageRangeV1, BackfillJobErrorV1, BackfillJobRequestV1, BackfillJobV1,
     },
     bar_schedule::{SUPPORTED_EXECUTION_TIMEFRAMES_V1, execution_timeframe_bar_label_v1},
     funding_settlement_commit_v1::{FundingSettlementCommitV1, FundingSettlementWriteRowV1},
-    pit_window_custody_v1::PitWindowCustodyCommitV1,
+    pit_window_custody_v1::{PitWindowCustodyCommitV1, UntrustedPitWindowCustodyRequestV1},
     research_instrument_scope_v1::ResearchInstrumentScopeV1,
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
     source_binding_admission_v1::{
@@ -67,6 +65,8 @@ use vibe_data::owner::{
         UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
     },
     universe_selection_admission_v1::UniverseSelectionAdmissionV1,
+    venue_bar_custody_v1::custody_inputs_from_store_v1,
+    venue_bar_store_v1::VenueBarStoreV1,
 };
 
 use crate::server::authorized;
@@ -77,6 +77,7 @@ pub(super) struct BinanceBackfillJobApiState {
     pub(super) admission: Option<Arc<dyn SourceBindingAdmissionV1>>,
     pub(super) universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
     pub(super) custody_commit: Option<Arc<dyn PitWindowCustodyCommitV1>>,
+    pub(super) venue_bar_store: Option<Arc<dyn VenueBarStoreV1>>,
     pub(super) funding_commit: Option<Arc<dyn FundingSettlementCommitV1>>,
     pub(super) fetcher: Option<Arc<VisionBackfillFetcherV1>>,
     pub(super) token_digest: [u8; 32],
@@ -118,16 +119,6 @@ fn job_id_from_hex(job_id: &str) -> Option<BindingDigest> {
     Some(BindingDigest::from_untrusted_bytes(bytes))
 }
 
-fn execution_interval(execution_timeframe: &str) -> Option<BinanceKlineInterval> {
-    match execution_timeframe {
-        "1h" => Some(BinanceKlineInterval::Hour1),
-        "4h" => Some(BinanceKlineInterval::Hour4),
-        "1d" => Some(BinanceKlineInterval::Day1),
-        "1w" => Some(BinanceKlineInterval::Week1),
-        _ => None,
-    }
-}
-
 /// The kline binding's own fixed fill-bar row timeframe: one minute, canonically `1M`.
 const BINANCE_PERPETUAL_FILL_ROW_TIMEFRAME_V1: &str = "1M";
 
@@ -153,6 +144,7 @@ async fn start_backfill(
         Some(admission),
         Some(universe),
         Some(custody_commit),
+        Some(venue_bar_store),
         Some(funding_commit),
         Some(fetcher),
     ) = (
@@ -160,6 +152,7 @@ async fn start_backfill(
         state.admission,
         state.universe,
         state.custody_commit,
+        state.venue_bar_store,
         state.funding_commit,
         state.fetcher,
     )
@@ -180,9 +173,6 @@ async fn start_backfill(
     if !SUPPORTED_EXECUTION_TIMEFRAMES_V1.contains(&request.execution_timeframe.as_str()) {
         return rejection(StatusCode::BAD_REQUEST, "TIMEFRAME_UNSUPPORTED");
     }
-    let Some(interval) = execution_interval(&request.execution_timeframe) else {
-        return rejection(StatusCode::BAD_REQUEST, "TIMEFRAME_UNSUPPORTED");
-    };
 
     let job_id = match jobs.queue(request.clone()).await {
         Ok(job_id) => job_id,
@@ -200,9 +190,9 @@ async fn start_backfill(
             custody_commit: &custody_commit,
             funding_commit: &funding_commit,
         },
+        &venue_bar_store,
         &fetcher,
         raw_symbol,
-        interval,
         &request,
     )
     .await
@@ -446,9 +436,17 @@ struct BackfillWritersV1<'a> {
     funding_commit: &'a Arc<dyn FundingSettlementCommitV1>,
 }
 
-/// Fetches, builds and commits the member's custody over the request's window, then backfills
-/// the same member's settled funding over the same window through the idempotent funding
-/// settlement writer, returning the committed custody identity or a named refusal.
+/// Builds and commits the member's custody over the request's window from Market Data's own
+/// venue bar store (slice B7), then backfills the same member's settled funding over the same
+/// window through the idempotent funding settlement writer, returning the committed custody
+/// identity or a named refusal.
+///
+/// Every row's custody evidence is the store's own version: `retrieval_route` is the version's
+/// source (`REST`, `CORRECTION`, ...) and `retrieval_ns` is its own `availability_ns`, never this
+/// call's wall clock, so a rerun of the same request reads the same versions, builds the same
+/// request and rejoins the custody already committed. A window the store does not fully hold, or
+/// a bar an unresolved conflict still covers, is refused by name, writing nothing - there is no
+/// archive fallback.
 ///
 /// The funding backfill runs after the custody commit succeeds, not before and not concurrently:
 /// both writes are individually idempotent (a custody commit rejoins an identical one; a funding
@@ -459,9 +457,9 @@ async fn run_backfill_v1(
     admission: &Arc<dyn SourceBindingAdmissionV1>,
     universe: &Arc<dyn UniverseSelectionAdmissionV1>,
     writers: &BackfillWritersV1<'_>,
+    venue_bar_store: &Arc<dyn VenueBarStoreV1>,
     fetcher: &Arc<VisionBackfillFetcherV1>,
     raw_symbol: &str,
-    interval: BinanceKlineInterval,
     request: &BackfillJobRequestV1,
 ) -> Result<BindingDigest, String> {
     let (kline_source_binding, market_semantics_identity) =
@@ -469,47 +467,59 @@ async fn run_backfill_v1(
     let universe_selection =
         eligible_set_universe_selection(universe, raw_symbol, kline_source_binding.lineage_root())
             .await?;
-
-    let execution_bars = fetcher
-        .execution_window(
-            raw_symbol,
-            interval,
-            request.window_start_ns,
-            request.window_end_ns_exclusive,
-        )
-        .await
-        .map_err(|e| format!("{e:?}"))?;
-    let availability = binance_perpetual_source_proposal(BinancePerpetualDatasetV1::DailyKlines)
-        .availability_rule
-        .ok_or_else(|| "NoAvailabilityRule".to_owned())?;
-    let window_end_ms = i64::try_from(request.window_end_ns_exclusive / 1_000_000)
-        .map_err(|_| "WindowOutOfRange".to_owned())?;
-    let fill_bars = fetcher
-        .fill_bars(raw_symbol, &execution_bars, &availability, window_end_ms)
-        .await
-        .map_err(|e| format!("{e:?}"))?;
+    let member = binance_perpetual_canonical_identity_v1(raw_symbol);
+    let now_ns = get_atomic_clock_realtime().get_time_ns().as_u64();
 
     // Unreachable for a request that passed the whitelist check above: every member of
     // `SUPPORTED_EXECUTION_TIMEFRAMES_V1` has a canonical row-timeframe label.
     let row_timeframe = execution_timeframe_bar_label_v1(&request.execution_timeframe)
         .ok_or_else(|| "RowTimeframeUndeclared".to_owned())?;
+    let availability = binance_perpetual_source_proposal(BinancePerpetualDatasetV1::DailyKlines)
+        .availability_rule
+        .ok_or_else(|| "NoAvailabilityRule".to_owned())?;
+
+    let inputs = custody_inputs_from_store_v1(
+        venue_bar_store.as_ref(),
+        &member,
+        &request.execution_timeframe,
+        request.window_start_ns,
+        request.window_end_ns_exclusive,
+        &availability,
+        now_ns,
+    )
+    .await
+    .map_err(|e| format!("{e:?}"))?;
+    let mut cross_sections = inputs.execution;
+    cross_sections.extend(inputs.fill);
+    cross_sections.sort_by(|a, b| {
+        (&a.timeframe, a.event_effective_ns).cmp(&(&b.timeframe, b.event_effective_ns))
+    });
+
     let basis = BackfillCustodyBasisV1 {
         source_binding: kline_source_binding,
         market_semantics_identity,
         market_semantics_value: binance_perpetual_market_semantics_value_v1(),
         universe_selection,
-        member: binance_perpetual_canonical_identity_v1(raw_symbol),
+        member: member.clone(),
         window_start_ns: request.window_start_ns,
         window_end_ns_exclusive: request.window_end_ns_exclusive,
         execution_timeframe: row_timeframe.to_owned(),
         fill_timeframe: BINANCE_PERPETUAL_FILL_ROW_TIMEFRAME_V1.to_owned(),
     };
-    let inputs = [BackfillTimeframeBarsV1 {
-        label: row_timeframe.to_owned(),
-        bars: execution_bars,
-    }];
-    let custody_request =
-        custody_request_v1(basis, &inputs, &fill_bars).map_err(|e| format!("{e:?}"))?;
+    let custody_request = UntrustedPitWindowCustodyRequestV1 {
+        source_binding: basis.source_binding,
+        market_semantics_identity: basis.market_semantics_identity,
+        market_semantics_value: basis.market_semantics_value,
+        universe_selection: basis.universe_selection,
+        members: vec![basis.member],
+        window_start_ns: basis.window_start_ns,
+        window_end_ns_exclusive: basis.window_end_ns_exclusive,
+        execution_timeframe: basis.execution_timeframe,
+        input_timeframes: vec![row_timeframe.to_owned()],
+        fill_timeframe: Some(basis.fill_timeframe),
+        predecessor: None,
+        cross_sections,
+    };
 
     let custody_identity = writers
         .custody_commit
@@ -522,7 +532,7 @@ async fn run_backfill_v1(
         writers.funding_commit,
         fetcher,
         raw_symbol,
-        &binance_perpetual_canonical_identity_v1(raw_symbol),
+        &member,
         request.window_start_ns,
         request.window_end_ns_exclusive,
     )
@@ -597,7 +607,7 @@ pub(super) fn vision_backfill_fetcher_v1(
 mod tests {
     use rstest::rstest;
 
-    use super::{execution_interval, hex, job_id_from_hex, raw_symbol_for_instrument};
+    use super::{hex, job_id_from_hex, raw_symbol_for_instrument};
     use vibe_data::owner::source_binding::BindingDigest;
 
     #[rstest]
@@ -617,17 +627,6 @@ mod tests {
     #[rstest]
     fn job_id_from_hex_refuses_non_hex_characters() {
         assert_eq!(job_id_from_hex(&"g".repeat(64)), None);
-    }
-
-    #[rstest]
-    fn execution_interval_covers_exactly_the_whitelist() {
-        assert!(execution_interval("1h").is_some());
-        assert!(execution_interval("4h").is_some());
-        assert!(execution_interval("1d").is_some());
-        assert!(execution_interval("1w").is_some());
-        assert!(execution_interval("15m").is_none());
-        assert!(execution_interval("1m").is_none());
-        assert!(execution_interval("bogus").is_none());
     }
 
     #[rstest]

@@ -24,6 +24,7 @@ use vibe_data::owner::bar_schedule::{ServedBarGridV1, served_timeframe_v1};
 use vibe_data::owner::source_binding::{
     UntrustedSourceAvailabilityRuleV1, UntrustedSourceVisibilityV1,
 };
+use vibe_data::owner::venue_bar_custody_v1::fill_bar_gaps_ns_v1;
 use vibe_network::http::HttpClient;
 
 use crate::{
@@ -634,22 +635,24 @@ impl VisionBackfillFetcherV1 {
         let UntrustedSourceVisibilityV1::AfterBarClose { lag_ns } = availability.visibility else {
             return Err(VisionBackfillErrorV1::AvailabilityNotAfterBarClose);
         };
-        let mut closes: Vec<i64> = execution
+        let closes_ns: Vec<u64> = execution
             .iter()
-            .map(|bar| bar.kline.close_time.saturating_add(1))
+            .map(|bar| {
+                u64::try_from(bar.kline.close_time.saturating_add(1))
+                    .unwrap_or(0)
+                    .saturating_mul(1_000_000)
+            })
             .collect();
-        closes.sort_unstable();
+        let window_end_ns = u64::try_from(window_end_ms)
+            .unwrap_or(0)
+            .saturating_mul(1_000_000);
         let mut fills = Vec::new();
 
-        for (index, close) in closes.iter().enumerate() {
-            let before = closes.get(index + 1).copied().unwrap_or(window_end_ms);
+        for (after_ns, before_ns) in fill_bar_gaps_ns_v1(&closes_ns, lag_ns, window_end_ns) {
             // A bar opening at a whole millisecond strictly after the availability instant opens
             // strictly after its whole-millisecond floor.
-            let available_ns = u64::try_from(*close)
-                .unwrap_or(0)
-                .saturating_mul(1_000_000)
-                .saturating_add(lag_ns);
-            let after = i64::try_from(available_ns / 1_000_000).unwrap_or(i64::MAX);
+            let after = i64::try_from(after_ns / 1_000_000).unwrap_or(i64::MAX);
+            let before = i64::try_from(before_ns / 1_000_000).unwrap_or(i64::MAX);
 
             if let Some(fill) = self.fill_bar(symbol, after, before).await? {
                 fills.push(fill);

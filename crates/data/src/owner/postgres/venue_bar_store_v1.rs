@@ -802,6 +802,19 @@ pub(in crate::owner) async fn venue_bar_store_from_environment_v1()
     Ok(Arc::new(VenueBarStorePostgresV1 { owner }))
 }
 
+impl MarketDataOwnerPostgres {
+    /// The venue bar store over this Owner store, for its own proofs and the B7 custody inputs
+    /// proof: the same store the environment opens, over this store's pool.
+    #[cfg(test)]
+    pub(super) fn venue_bar_store_v1(&self) -> Arc<dyn VenueBarStoreV1> {
+        Arc::new(VenueBarStorePostgresV1 {
+            owner: Self {
+                pool: self.pool().clone(),
+            },
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;

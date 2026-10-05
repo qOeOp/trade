@@ -53,6 +53,7 @@ pub mod universe_member_composition_basis_v1;
 pub mod universe_sample_projection_v1;
 pub mod universe_selection;
 pub mod universe_selection_admission_v1;
+pub mod venue_bar_custody_v1;
 pub mod venue_bar_store_v1;
 
 pub(crate) mod storage_diagnostic;

@@ -403,6 +403,7 @@ pub async fn run() -> anyhow::Result<()> {
         bootstrap_market_data_binance_perpetual_admission()?;
     let market_data_backfill_jobs = bootstrap_market_data_backfill_jobs().await?;
     let market_data_custody_commit = bootstrap_market_data_custody_commit().await?;
+    let market_data_venue_bar_store = bootstrap_market_data_venue_bar_store().await?;
     let market_data_funding_commit = bootstrap_market_data_funding_settlement_commit().await?;
     let market_data_custody_frames = bootstrap_market_data_custody_frames().await?;
     let market_data_backfill_fetcher = market_data_binance_perpetual_admission
@@ -735,6 +736,7 @@ pub async fn run() -> anyhow::Result<()> {
                 admission: market_data_source_binding_admission,
                 universe: market_data_universe_selection,
                 custody_commit: market_data_custody_commit,
+                venue_bar_store: market_data_venue_bar_store,
                 funding_commit: market_data_funding_commit,
                 fetcher: market_data_backfill_fetcher,
                 token_digest,
@@ -1178,6 +1180,19 @@ pub(crate) async fn bootstrap_market_data_custody_commit() -> anyhow::Result<
     Ok(Some(
         vibe_data::owner::pit_window_custody_v1::pit_window_custody_commit_from_environment_v1()
             .await?,
+    ))
+}
+
+/// Composes the venue bar store when Market Data's store is configured: the backfill job reads
+/// its own Owner-committed bars through this (slice B7), never through the archive or endpoint
+/// fetch.
+pub(crate) async fn bootstrap_market_data_venue_bar_store()
+-> anyhow::Result<Option<Arc<dyn vibe_data::owner::venue_bar_store_v1::VenueBarStoreV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        vibe_data::owner::venue_bar_store_v1::venue_bar_store_from_environment_v1().await?,
     ))
 }
 

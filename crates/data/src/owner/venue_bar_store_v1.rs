@@ -54,6 +54,17 @@ pub enum VenueBarSourceV1 {
     Correction,
 }
 
+impl VenueBarSourceV1 {
+    /// The source's own retrieval-route name, as a custody row's evidence names it (slice B7).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rest => "REST",
+            Self::Correction => "CORRECTION",
+        }
+    }
+}
+
 /// A re-fetched bar whose content differs from the stored version; nothing was overwritten.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VenueBarConflictV1 {
