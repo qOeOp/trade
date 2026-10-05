@@ -4,6 +4,21 @@
 
 Unify Research and Develop under one business-fact Owner. The Research capability turns traceable hypotheses into falsifiable Research Intents; the Develop capability produces immutable Strategy Artifacts and bounded attended repairs. R&D owns both experiment and artifact identity, uses Backtest as an evidence-producing service, and does not own protected qualification, deployment, or trading authority.
 
+## TARGET - Strategy content identity and lifecycle versions
+
+R&D owns the canonical strategy content hash. Reuse the existing catalog `strategy_id` principle rather than adding
+another version registry: the same normalized strategy specification has the same identity independently of its
+Research request. General authoring must cover strategy rules, parameters and their admitted semantic version;
+changed behavior cannot keep the same content identity. Existing single-threshold canonical bytes and domain remain
+unchanged; a broader grammar needs a named version and admission before use.
+
+Changing this content hash creates a new strategy version with predecessor lineage and a complete new lifecycle:
+backtest qualification, user-confirmed trial entry, trial and promotion. Repeating a research/backtest request does
+not itself create a new strategy version; request, Design and sealed Artifact identities remain independently bound.
+Pool allocation, stage, timestamps and display labels are not authored strategy content. Hash equality does not
+prove qualification: Governance must resolve the exact approved Artifact, scope and current evidence, never trust a
+caller-supplied hash or reuse another run's seal.
+
 ## TARGET - Research projects and concurrent agents
 
 Multiple external agents may work on distinct hypotheses, families or preregistered experiments in one research

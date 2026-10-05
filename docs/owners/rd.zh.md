@@ -4,6 +4,17 @@
 
 把 Research 与 Develop 统一在一个业务事实 Owner 内。Research 能力把可追踪假设转化为可证伪 Research Intent；Develop 能力生成不可变 Strategy Artifact 并执行有界的有人值守修复。R&D 同时拥有实验与工件身份，使用 Backtest 作为证据生产服务，但不拥有保护资格 部署或交易权威。
 
+## TARGET - 策略内容身份与生命周期版本
+
+R&D 拥有规范化策略内容 hash。复用现有目录的 `strategy_id` 原则，不另建版本注册表：同一规范化策略规格
+独立于 Research request 保持相同身份。完整编写语法须覆盖策略规则、参数及已准入语义版本，不能保持内容身份不变却
+替换策略行为。现有 single-threshold 规范字节与 domain 保持原义；扩展语法须具名版本并准入后使用。
+
+内容 hash 改变就形成带 predecessor 谱系的新策略版本，重新走完整生命周期：回测资格、用户确认试盘、试盘与转正。
+重复研究或回测请求本身不形成新策略版本；request、Design 和封存 Artifact 仍分别绑定。资金分配、阶段、时间戳与显示名称
+不属于策略编写内容。hash 相同不证明资格；Governance 仍须解析原已批准 Artifact、范围和当前证据，不能信任调用者自报
+hash 或借用另一运行的封存事实。
+
 ## TARGET - 研究项目与多代理协作
 
 一个研究项目可以由多个外部代理并行推进不同假设、机制家族或预登记实验。R&D 拥有唯一项目身份、

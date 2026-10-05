@@ -84,6 +84,12 @@ Full discovery operations, shared Host integration and end-to-end acceptance rem
 
 ### Qualified backtests, real trading trials and promotion
 
+Strategy versions follow the R&D canonical content hash (`strategy_id`), not run or Research request IDs. A new
+hash follows the complete lifecycle. An unchanged version may return to its original stage only through user
+confirmation and resolution of the original qualified Artifact and stage evidence, with current eligibility,
+authority, capital and risk checks. A stop never reactivates it automatically; missing or changed qualification
+bindings cannot be repaired by hash equality. Pool reallocations alone do not change the strategy version.
+
 Backtest qualification makes a candidate eligible, not active. Dashboard requires the user to confirm trial entry
 for the exact candidate, frozen trial conditions and capital policy; valid current authority, allocation and native
 readiness remain required. The user may keep a qualified candidate in R&D to improve it. Qualification alone never

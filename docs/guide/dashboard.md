@@ -35,6 +35,8 @@ read-only schedule history retains accurate facts without authorizing new market
 
 ## TARGET - Trial condition selection
 
+Dashboard shows the canonical strategy content hash and original stage evidence separately from run IDs; a hash
+change needs the full new-version lifecycle. Original-version reactivation needs confirmation and current checks.
 Dashboard requires confirmation of the exact candidate and frozen trial/capital policy before initial trial entry.
 A qualified candidate may stay in R&D; a running valid strategy may be unloaded for improvement with an explicit
 user reason rather than economic failure. Read back Governance authorization and Runtime application separately;
