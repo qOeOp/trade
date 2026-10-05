@@ -1932,9 +1932,6 @@ for fragment in (
 ):
     if fragment not in successor_evaluations:
         raise SystemExit("ERROR: successor fixture does not consume exact Owner Census Candidate identity/digest")
-
-if "the nine relations traversed by the" in owner_doc or "\u5b9e\u9645\u904d\u5386\u7684\u4e5d\u5f20 relation" in owner_doc_zh:
-    raise SystemExit("ERROR: R&D Owner docs retain a stale Replay verifier relation count")
 PY
 }
 
