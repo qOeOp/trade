@@ -19,15 +19,15 @@ In Recovery, `runtime-risk-incident-fence` carries `runtime-incident-fact` and
 either source-only branch can create or join the same Recovery Case type after its own admission, while
 simultaneous admitted branches join one case without merging their facts.
 
-| Scenario                | Entry                                                                     | Required proof                                            |
-| ----------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
-| [Overview](./overview/) | Falsifiable idea                                                          | Committed owner facts across the closed product loop      |
-| [Research](./research/) | Sourced hypothesis                                                        | Frozen Research Intent and Strategy Artifact              |
-| [Backtest](./backtest/) | Frozen artifact and evidence pack                                         | Intake receipt plus branch‑specific proof                 |
-| [Scan](./scan/)         | Scheduled tick                                                            | Auditable proposal or recorded no‑proposal reason         |
-| [Paper](./paper/)       | Governed active strategy in paper mode                                    | Reconciled simulated effects and settled reservation      |
-| [Live](./live/)         | Governed active strategy in live mode                                     | Authoritative venue readback and reconciled account state |
-| [Recovery](./recovery/) | Readiness loss, Runtime incident, reconciliation drift, or Risk hard stop | `RecoveryCase.KNOWN_CLOSED`                               |
+| Scenario                | Entry                                                                     | Required proof                                              |
+| ----------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [Overview](./overview/) | Falsifiable idea                                                          | Committed owner facts across the closed product loop        |
+| [Research](./research/) | Sourced hypothesis                                                        | Frozen Research Intent and Strategy Artifact                |
+| [Backtest](./backtest/) | Frozen artifact and evidence pack                                         | Intake receipt plus branch‑specific proof                   |
+| [Scan](./scan/)         | On‑demand R&D observation query                                           | Observation result, coverage and explicit unavailable state |
+| [Paper](./paper/)       | Governed active strategy in paper mode                                    | Reconciled simulated effects and settled reservation        |
+| [Live](./live/)         | Governed active strategy in live mode                                     | Authoritative venue readback and reconciled account state   |
+| [Recovery](./recovery/) | Readiness loss, Runtime incident, reconciliation drift, or Risk hard stop | `RecoveryCase.KNOWN_CLOSED`                                 |
 
 Paper and live share the same automated control chain and differ only at the Execution adapter. Recovery is
 a separate no-add-risk path and cannot reuse an ordinary trade intent.

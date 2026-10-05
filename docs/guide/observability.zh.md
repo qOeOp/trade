@@ -2,7 +2,7 @@
 
 ## 目标
 
-本指南把一个 Owner 或 node 接入可诊断体系，但不把它耦合到单一 vendor、broker、数据库或 Dashboard。它适用于 R&D、Market Data、Backtest、Qualification、Scanner、Strategy Governance、Runtime、Risk、Execution 与 Portfolio。
+本指南把一个 Owner 或 node 接入可诊断体系，但不把它耦合到单一 vendor、broker、数据库或 Dashboard。它适用于 R&D、Market Data、Backtest、Qualification、旧 Scanner 兼容、Strategy Governance、Runtime、Risk、Execution 与 Portfolio。
 
 原则很简单：Owner 持久化业务事实，Observability 持久化运行副本和投影。即使 Observability 消失，Owner 正确性和 Recovery 义务也不能改变。
 
@@ -25,18 +25,18 @@ API key、opaque credential value、Qualification 保护证据、原始 prompt/s
 
 ## Owner 持久化与 Dashboard 矩阵
 
-| Owner               | 权威记录                                                           | Dashboard 投影                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| R&D                 | source provenance、Research Intent、Artifact、迭代与选择           | 使用来源、假设、开发尝试、失败原因、到选中版本的迭代次数、D-only repair 历史                                                              |
-| Backtest            | replay request、exploratory/protected result 与 diagnosis          | 探索运行的用途、终态、耗时、成本、容量与诊断分布；保护运行只显示公共终态、类型不透明且不可解引用的 reference 与 source‑frontier freshness |
-| Qualification       | intake、保护评估、attempt disposition、Eligibility                 | 只按公共终态计数：`QUALIFIED`/`CLOSED_NOT_QUALIFIED`/expiry/revocation                                                                    |
-| Market Data         | source binding、PIT snapshot、stream、correction 与 valuation fact | 来源新鲜度、缺口、修订、权利/语义拒绝、provider 时延                                                                                      |
-| Scanner             | due‑slot attempt、逐策略 disposition、receipt、proposal            | 调度次数、扫描候选、matched/failed、proposal 与时延                                                                                       |
-| Strategy Governance | registry、lifecycle、allocation 与 authorized generation decision  | 当前部署 generation、开始/停止时间、活跃时长、pause/retire/resume 与资金变化                                                              |
-| Runtime             | application、readiness、checkpoint 与 incident fact                | 当前应用 generation、uptime/downtime、重启、incident 与使用时长                                                                           |
-| Risk                | decision/reservation、aggregate commitment、fence 与 closure       | allow/reject/decrease‑only、reservation 时延、liability、fence 与持续时间                                                                 |
-| Execution           | journal、command、order/fill/readback、account 与 Recovery fact    | attempt、order、fill、adapter 时延、unknown effect、drift 与恢复时长                                                                      |
-| Portfolio           | performance、exposure、capacity、interaction 与 lifecycle evidence | PnL/drawdown、exposure、capacity、interaction degradation 与证据新鲜度                                                                    |
+| Owner               | 权威记录                                                                  | Dashboard 投影                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| R&D                 | source provenance、Research Intent、Artifact、迭代、选择及发现 job/result | 使用来源、假设、开发尝试、失败原因、到选中版本的迭代次数、D-only repair 历史                                                              |
+| Backtest            | replay request、exploratory/protected result 与 diagnosis                 | 探索运行的用途、终态、耗时、成本、容量与诊断分布；保护运行只显示公共终态、类型不透明且不可解引用的 reference 与 source‑frontier freshness |
+| Qualification       | intake、保护评估、attempt disposition、Eligibility                        | 只按公共终态计数：`QUALIFIED`/`CLOSED_NOT_QUALIFIED`/expiry/revocation                                                                    |
+| Market Data         | source binding、PIT snapshot、stream、correction 与 valuation fact        | 来源新鲜度、缺口、修订、权利/语义拒绝、provider 时延                                                                                      |
+| 旧 Scanner          | due‑slot attempt、逐策略 disposition、receipt、proposal                   | 调度次数、扫描候选、matched/failed、proposal 与时延                                                                                       |
+| Strategy Governance | registry、lifecycle、allocation 与 authorized generation decision         | 当前部署 generation、开始/停止时间、活跃时长、pause/retire/resume 与资金变化                                                              |
+| Runtime             | application、readiness、checkpoint 与 incident fact                       | 当前应用 generation、uptime/downtime、重启、incident 与使用时长                                                                           |
+| Risk                | decision/reservation、aggregate commitment、fence 与 closure              | allow/reject/decrease‑only、reservation 时延、liability、fence 与持续时间                                                                 |
+| Execution           | journal、command、order/fill/readback、account 与 Recovery fact           | attempt、order、fill、adapter 时延、unknown effect、drift 与恢复时长                                                                      |
+| Portfolio           | performance、exposure、capacity、interaction 与 lifecycle evidence        | PnL/drawdown、exposure、capacity、interaction degradation 与证据新鲜度                                                                    |
 
 计数必须由不可变身份和明确状态推导，不能维护一个脱离事实的可变计数器。例如策略使用次数来自不同 applied-generation 或 invocation fact，downtime 来自同一 clock epoch 下成对的 readiness/incident 区间。
 

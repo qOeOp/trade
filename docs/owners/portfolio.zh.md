@@ -131,7 +131,7 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 - 向 [Strategy Governance](./strategy-governance/) 为每个集合 Capital Allocation Disposition 提供一个
   Portfolio Interaction Receipt，并用同一 Portfolio Lifecycle Evidence Receipt 提供生命周期归因。
   Governance 拥有 contender 排序和生命周期动作，Portfolio 只提供一致来源事实与归因。
-- 向 [Scanner](./scanner/) 提供只作为提案提示的有界 Capacity View。
+- 旧兼容交接向 [Scanner](./scanner/) 提供只作为提案提示的有界 Capacity View；保留旧回执，不新建定时发现或部署路线。
 - 恢复期间向 [Execution](./execution/) 提供 Recovery Case 所需已对账账户闭合投影。
 - 向 Product Edge 提供一个有界 Portfolio View，绑定稳定请求 trusted principal 授权账户与 Execution Scope 授权政策截面和 Portfolio
   快照截面以及投影和 valid-through 时间。它以 `AVAILABLE` `INCOMPLETE_FAIL_CLOSED` `STALE` 或 `UNAVAILABLE` 报告账户 暴露 表现和容量投影，

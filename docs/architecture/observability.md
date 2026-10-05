@@ -39,8 +39,8 @@ Large payloads remain in a content-addressed object store behind digest referenc
 ## Global Status View
 
 Dashboard API exposes a bounded read-only Global Status View. It may summarize R&D source use and iteration
-history, Backtest runs under their disclosure class, Qualification outcomes, Market Data freshness, Scanner
-proposals, active generations, Runtime uptime and incidents, Risk reservations/fences, Execution
+history, Backtest runs under their disclosure class, Qualification outcomes, Market Data freshness, R&D observation coverage/results, legacy Scanner
+receipts, active generations, Runtime uptime and incidents, Risk reservations/fences, Execution
 orders/fills/unknown effects, and Portfolio exposure/performance/capacity. Exploratory Backtest projections may
 include their diagnostic category set. Protected projections may include only the public terminal outcome
 `CLOSED_NOT_QUALIFIED` or `QUALIFIED`, a type-opaque non-dereferenceable result reference, and source-frontier

@@ -39,7 +39,7 @@ Observability 是不拥有业务事实的运行观测边界，统一处理 trace
 ## Global Status View
 
 Dashboard API 提供受限的只读 Global Status View。它可以按 disclosure class 汇总 R&D 使用的数据来源与
-迭代历史、Backtest 运行、Qualification 结果、Market Data 新鲜度、Scanner proposal、活跃 generation、
+迭代历史、Backtest 运行、Qualification 结果、Market Data 新鲜度、R&D 发现覆盖/结果、旧 Scanner 回执、活跃 generation、
 Runtime uptime 与 incident、Risk reservation/fence、Execution order/fill/unknown effect，以及 Portfolio
 exposure/performance/capacity。探索 Backtest 投影可以包含 diagnostic category set；保护投影只能包含
 公共终态 `CLOSED_NOT_QUALIFIED` 或 `QUALIFIED`、类型不透明且不可解引用的 result reference 和

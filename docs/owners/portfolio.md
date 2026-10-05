@@ -149,7 +149,7 @@ grants nothing, and widening the admitted set requires changing this document fi
 - To [Strategy Governance](./strategy-governance/): one Portfolio Interaction Receipt for every set-wide Capital
   Allocation Disposition and the same Portfolio Lifecycle Evidence Receipt for lifecycle attribution. Governance
   owns contender ranking and lifecycle action; Portfolio supplies only coherent source facts and attribution.
-- To [Scanner](./scanner/): a bounded Capacity View used only as a proposal hint.
+- Legacy handoff to [Scanner](./scanner/): a bounded Capacity View used only as a proposal hint. This preserves old receipts, not a new scheduled discovery or deployment path.
 - To [Execution](./execution/) during recovery: the reconciled account closure projection for the Recovery Case.
 - To Product Edge: one bounded Portfolio View keyed by stable request, trusted principal, authorized account and Execution Scope, authorization-policy cut, and Portfolio
   snapshot cut plus projection and valid-through times. It reports `AVAILABLE`, `INCOMPLETE_FAIL_CLOSED`, `STALE`, or `UNAVAILABLE` account, exposure, performance, and
