@@ -13,38 +13,33 @@ fn utc_day(now_ns: u64) -> Option<jiff::civil::Date> {
         .map(|timestamp| timestamp.to_zoned(jiff::tz::TimeZone::UTC).date())
 }
 
-/// Once per UTC calendar day: `true` the first time this is called for a given day, `false` for
-/// every later call the same day.
+/// Whether to attempt (or retry) verifying `target_start_ns` now. `false` once
+/// `last_success_target_ns` already names this exact target - a verification, unlike a retry
+/// after failure, is never repeated once it has actually succeeded. Otherwise due only once
+/// `retry_interval_ns` has passed since `last_attempt_ns` (or there has been no attempt yet) -
+/// an attempt is recorded whether it succeeds or not, so a failure (the archive not published
+/// yet) is retried on a bounded cadence rather than hitting the archive every tick.
 #[must_use]
-pub fn daily_gate_due(now_ns: u64, last_done_ns: Option<u64>) -> bool {
-    let Some(today) = utc_day(now_ns) else {
+pub fn verification_retry_due(
+    target_start_ns: u64,
+    last_success_target_ns: Option<u64>,
+    now_ns: u64,
+    last_attempt_ns: Option<u64>,
+    retry_interval_ns: u64,
+) -> bool {
+    if last_success_target_ns == Some(target_start_ns) {
         return false;
-    };
-
-    match last_done_ns.and_then(utc_day) {
-        None => true,
-        Some(last_day) => last_day != today,
     }
+    last_attempt_ns.is_none_or(|last| now_ns >= last.saturating_add(retry_interval_ns))
 }
 
-/// Once per UTC calendar month, and only once the archive for last month could plausibly have
-/// been published - the 2nd of the month at the earliest (`docs/owners/market-data.md`'s own
-/// measurement: "published on the 2nd of the next month, 09:00 to 12:00 UTC"). `false` on every
-/// day before the 2nd, and `false` again after the first call this month.
+/// Whether the archive for last month could plausibly have been published yet - the 2nd of the
+/// month at the earliest (`docs/owners/market-data.md`'s own measurement: "published on the 2nd
+/// of the next month, 09:00 to 12:00 UTC"). A precondition for monthly archive verification,
+/// separate from [`verification_retry_due`]'s success/retry bookkeeping.
 #[must_use]
-pub fn monthly_gate_due(now_ns: u64, last_done_ns: Option<u64>) -> bool {
-    let Some(today) = utc_day(now_ns) else {
-        return false;
-    };
-
-    if today.day() < 2 {
-        return false;
-    }
-
-    match last_done_ns.and_then(utc_day) {
-        None => true,
-        Some(last_day) => (last_day.year(), last_day.month()) != (today.year(), today.month()),
-    }
+pub fn month_archive_plausibly_published(now_ns: u64) -> bool {
+    utc_day(now_ns).is_some_and(|today| today.day() >= 2)
 }
 
 /// Whether B6a's funding recorder is due: `now_ns` has reached or passed the instant
@@ -59,16 +54,26 @@ pub fn funding_poll_due(now_ns: u64, next_poll_ns: Option<u64>) -> bool {
 /// own target: a day's archive is never checked before the day has fully closed.
 #[must_use]
 pub fn yesterday_utc(now_ns: u64) -> Option<(i16, i8, i8)> {
+    let (yesterday_start_ns, _) = yesterday_bounds_ns(now_ns)?;
+    utc_day(yesterday_start_ns).map(|date| (date.year(), date.month(), date.day()))
+}
+
+/// Yesterday's UTC calendar day's own `[start, end)` - the daily archive verification job's own
+/// target identity, so a successful verification is recorded against the exact day it verified,
+/// never against "whatever day it happened to run on".
+#[must_use]
+pub fn yesterday_bounds_ns(now_ns: u64) -> Option<(u64, u64)> {
     let today_start_ns = u64::try_from(
         i64::try_from(now_ns).ok()? - i64::try_from(now_ns).ok()?.rem_euclid(NS_PER_DAY),
     )
     .ok()?;
-    let yesterday_ns = today_start_ns.checked_sub(1)?;
-    utc_day(yesterday_ns).map(|date| (date.year(), date.month(), date.day()))
+    let yesterday_start_ns = today_start_ns.checked_sub(NS_PER_DAY_U)?;
+    Some((yesterday_start_ns, today_start_ns))
 }
 
 /// Last UTC calendar month, as `(year, month)` - the monthly archive verification job's own
-/// target, checked only once `monthly_gate_due` has already confirmed it is at least the 2nd.
+/// target, checked only once `month_archive_plausibly_published` has already confirmed it is at
+/// least the 2nd.
 #[must_use]
 pub fn last_month_utc(now_ns: u64) -> Option<(i16, i8)> {
     let today = utc_day(now_ns)?;
@@ -131,9 +136,10 @@ pub fn weekly_gate_due(now_ns: u64, last_done_week_start_ns: Option<u64>) -> boo
 }
 
 /// Once per closed UTC calendar month, keyed the same way as [`weekly_gate_due`]. Distinct from
-/// [`monthly_gate_due`]: that one gates archive verification against the archive's own
-/// publication delay (not before the 2nd); this one gates a derivation from the store's own
-/// already-verified `1d` bars, which needs no publication wait at all.
+/// [`month_archive_plausibly_published`] plus [`verification_retry_due`]: those gate archive
+/// verification against the archive's own publication delay (not before the 2nd) and a retry
+/// cadence; this one gates a derivation from the store's own already-verified `1d` bars, which
+/// needs neither - a derivation is cheap enough to retry every tick until it succeeds.
 #[must_use]
 pub fn monthly_derivation_gate_due(now_ns: u64, last_done_month_start_ns: Option<u64>) -> bool {
     let Some((month_start, _)) = last_month_bounds_ns(now_ns) else {
@@ -152,30 +158,63 @@ mod tests {
     // 2026-01-15 00:00:00 UTC.
     const MID_JAN_NS: u64 = 1_768_435_200_000_000_000;
 
+    const HOUR: u64 = 3_600_000_000_000;
+
     #[rstest]
-    fn the_daily_gate_fires_once_per_day_then_waits_for_the_next() {
-        assert!(daily_gate_due(MID_JAN_NS, None));
-        assert!(!daily_gate_due(
-            MID_JAN_NS + 12 * 3_600_000_000_000,
-            Some(MID_JAN_NS)
+    fn verification_never_retries_once_it_actually_succeeded() {
+        let target = 1_000;
+        assert!(verification_retry_due(target, None, MID_JAN_NS, None, HOUR));
+        assert!(!verification_retry_due(
+            target,
+            Some(target),
+            MID_JAN_NS,
+            None,
+            HOUR
         ));
-        assert!(daily_gate_due(MID_JAN_NS + DAY, Some(MID_JAN_NS)));
+        // A different target (e.g. the next day) is due again even though some target succeeded.
+        assert!(verification_retry_due(
+            target + DAY,
+            Some(target),
+            MID_JAN_NS,
+            None,
+            HOUR
+        ));
     }
 
     #[rstest]
-    fn the_monthly_gate_waits_for_the_second_then_fires_once_per_month() {
+    fn a_failed_attempt_retries_only_after_the_interval_passes() {
+        let target = 1_000;
+        assert!(!verification_retry_due(
+            target,
+            None,
+            MID_JAN_NS,
+            Some(MID_JAN_NS),
+            HOUR
+        ));
+        assert!(!verification_retry_due(
+            target,
+            None,
+            MID_JAN_NS + HOUR - 1,
+            Some(MID_JAN_NS),
+            HOUR
+        ));
+        assert!(verification_retry_due(
+            target,
+            None,
+            MID_JAN_NS + HOUR,
+            Some(MID_JAN_NS),
+            HOUR
+        ));
+    }
+
+    #[rstest]
+    fn the_month_archive_is_not_plausibly_published_before_the_second() {
         // 2026-02-01: not yet the 2nd.
         let feb_1 = MID_JAN_NS + 17 * DAY;
-        assert!(!monthly_gate_due(feb_1, None));
-        // 2026-02-02: due, first time this month.
+        assert!(!month_archive_plausibly_published(feb_1));
+        // 2026-02-02: plausibly published.
         let feb_2 = feb_1 + DAY;
-        assert!(monthly_gate_due(feb_2, None));
-        assert!(!monthly_gate_due(feb_2, Some(feb_2)));
-        // Later the same month: still not due again.
-        assert!(!monthly_gate_due(feb_2 + 10 * DAY, Some(feb_2)));
-        // Next month, past the 2nd: due again.
-        let mar_3 = feb_2 + 29 * DAY;
-        assert!(monthly_gate_due(mar_3, Some(feb_2)));
+        assert!(month_archive_plausibly_published(feb_2));
     }
 
     #[rstest]

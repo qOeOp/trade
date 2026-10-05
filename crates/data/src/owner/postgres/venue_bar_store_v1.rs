@@ -406,6 +406,32 @@ impl MarketDataOwnerPostgres {
         }
         Ok(bars)
     }
+
+    async fn latest_venue_bar_close_ns_in_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+    ) -> Result<Option<u64>, VenueBarReadErrorV1> {
+        use VenueBarReadErrorV1 as Refused;
+
+        let timeframe = served_timeframe_v1(venue_interval).ok_or(Refused::InvalidRequest)?;
+
+        if instrument.is_empty() {
+            return Err(Refused::InvalidRequest);
+        }
+        let close_ns: Option<i64> = sqlx::query_scalar(
+            "SELECT max(close_ns) FROM market_data_private.venue_bar_versions_v1 WHERE instrument=$1 AND timeframe=$2",
+        )
+        .bind(instrument)
+        .bind(timeframe.label)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| Refused::StoreUnavailable)?;
+        close_ns
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|_| Refused::StoreUnavailable)
+    }
 }
 
 impl MarketDataOwnerPostgres {
@@ -717,6 +743,16 @@ impl VenueBarStoreV1 for VenueBarStorePostgresV1 {
     ) -> Result<Vec<VenueBarOpenConflictV1>, VenueBarReadErrorV1> {
         self.owner
             .open_venue_bar_conflicts_in_v1(instrument, venue_interval)
+            .await
+    }
+
+    async fn latest_venue_bar_close_ns_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+    ) -> Result<Option<u64>, VenueBarReadErrorV1> {
+        self.owner
+            .latest_venue_bar_close_ns_in_v1(instrument, venue_interval)
             .await
     }
 

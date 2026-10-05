@@ -21,9 +21,14 @@ use vibe_data::owner::{
 };
 
 use crate::scheduling::{
-    daily_gate_due, funding_poll_due, last_month_bounds_ns, last_week_bounds_ns,
-    monthly_derivation_gate_due, monthly_gate_due, weekly_gate_due, yesterday_utc,
+    funding_poll_due, last_month_bounds_ns, last_week_bounds_ns, month_archive_plausibly_published,
+    monthly_derivation_gate_due, verification_retry_due, weekly_gate_due, yesterday_bounds_ns,
+    yesterday_utc,
 };
+
+/// How long after a failed archive-verification attempt (the archive isn't published yet) before
+/// retrying - bounded so a tick never hits the live archive endpoint every 60s while waiting.
+const ARCHIVE_VERIFICATION_RETRY_NS: u64 = 3_600_000_000_000;
 
 /// A served venue interval B3 records for every tracked instrument. Every timeframe
 /// `served_timeframe_v1` admits (`docs/owners/market-data.md`'s charting set).
@@ -83,8 +88,20 @@ pub async fn resolve_tracked_instruments_v1(
 pub struct TickMemoryV1 {
     pub resume_from_ms: std::collections::HashMap<(String, &'static str), i64>,
     pub next_funding_poll_ns: std::collections::HashMap<String, u64>,
-    pub last_daily_verification_ns: std::collections::HashMap<String, u64>,
-    pub last_monthly_verification_ns: std::collections::HashMap<String, u64>,
+    /// The target day's own `start_ns` the last SUCCESSFUL daily verification actually verified -
+    /// never set on `ArchiveUnavailable`, so a day the archive hadn't published yet is retried,
+    /// not silently marked done.
+    pub last_daily_verification_success_ns: std::collections::HashMap<String, u64>,
+    /// When daily verification was last attempted, successful or not - throttles retries to
+    /// an hourly cadence rather than hitting the archive every tick.
+    pub last_daily_verification_attempt_ns: std::collections::HashMap<String, u64>,
+    /// The target month's own `start_ns` the last successful monthly verification verified - same
+    /// success-only semantics as the daily map above.
+    pub last_monthly_verification_success_ns: std::collections::HashMap<String, u64>,
+    pub last_monthly_verification_attempt_ns: std::collections::HashMap<String, u64>,
+    /// The target week's own `start_ns` the last successful `1w` derivation verified. A
+    /// derivation reads only the store's own already-verified `1d` bars, so `NotVerified` is
+    /// cheap to retry every tick - no attempt-throttle map needed, unlike the archive jobs above.
     pub last_weekly_derivation_week_start_ns: std::collections::HashMap<String, u64>,
     pub last_monthly_derivation_month_start_ns: std::collections::HashMap<String, u64>,
 }
@@ -135,7 +152,20 @@ async fn run_recorder_pair(
     memory: &mut TickMemoryV1,
 ) {
     let key = (instrument.canonical_instrument.clone(), venue_interval);
-    let resume_from_ms = memory.resume_from_ms.get(&key).copied().unwrap_or(0);
+    let resume_from_ms = match memory.resume_from_ms.get(&key).copied() {
+        Some(resume_from_ms) => resume_from_ms,
+        // No entry yet - the process's own memory, not the store, is empty: a restart, or this
+        // pair's very first tick. Seed from the store's own latest close instead of walking from
+        // the epoch every time; only a truly empty store (nothing committed for this pair ever)
+        // falls back to 0.
+        None => bar_store
+            .latest_venue_bar_close_ns_v1(&instrument.canonical_instrument, venue_interval)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|close_ns| i64::try_from(close_ns / 1_000_000).ok())
+            .unwrap_or(0),
+    };
 
     match record_venue_bars_v1(
         client,
@@ -240,16 +270,31 @@ async fn run_daily_verification(
     now_ns: u64,
     memory: &mut TickMemoryV1,
 ) {
-    let last_done = memory
-        .last_daily_verification_ns
+    let Some((target_start_ns, _)) = yesterday_bounds_ns(now_ns) else {
+        return;
+    };
+    let last_success = memory
+        .last_daily_verification_success_ns
+        .get(&instrument.canonical_instrument)
+        .copied();
+    let last_attempt = memory
+        .last_daily_verification_attempt_ns
         .get(&instrument.canonical_instrument)
         .copied();
 
-    if !daily_gate_due(now_ns, last_done) {
+    if !verification_retry_due(
+        target_start_ns,
+        last_success,
+        now_ns,
+        last_attempt,
+        ARCHIVE_VERIFICATION_RETRY_NS,
+    ) {
         return;
     }
+    // Record the attempt regardless of outcome, so a failure retries on the throttled cadence
+    // above instead of every tick - but never marks success until the archive actually verifies.
     memory
-        .last_daily_verification_ns
+        .last_daily_verification_attempt_ns
         .insert(instrument.canonical_instrument.clone(), now_ns);
 
     let Some((year, month, day)) = yesterday_utc(now_ns) else {
@@ -259,8 +304,14 @@ async fn run_daily_verification(
         return;
     };
     let request = daily_archive_request(instrument, now_ns);
+
     match verify_execution_day_v1(fetcher, bar_store, &request, i32::from(year), month, day).await {
-        Ok(summary) => warn_on_conflicts(instrument, "daily archive verification", &summary),
+        Ok(summary) => {
+            memory
+                .last_daily_verification_success_ns
+                .insert(instrument.canonical_instrument.clone(), target_start_ns);
+            warn_on_conflicts(instrument, "daily archive verification", &summary);
+        }
         Err(e) if is_archive_unavailable(&e) => {}
         Err(e) => tracing::warn!(
             instrument = instrument.canonical_instrument,
@@ -277,16 +328,32 @@ async fn run_monthly_verification(
     now_ns: u64,
     memory: &mut TickMemoryV1,
 ) {
-    let last_done = memory
-        .last_monthly_verification_ns
+    if !month_archive_plausibly_published(now_ns) {
+        return;
+    }
+    let Some((target_start_ns, _)) = last_month_bounds_ns(now_ns) else {
+        return;
+    };
+    let last_success = memory
+        .last_monthly_verification_success_ns
+        .get(&instrument.canonical_instrument)
+        .copied();
+    let last_attempt = memory
+        .last_monthly_verification_attempt_ns
         .get(&instrument.canonical_instrument)
         .copied();
 
-    if !monthly_gate_due(now_ns, last_done) {
+    if !verification_retry_due(
+        target_start_ns,
+        last_success,
+        now_ns,
+        last_attempt,
+        ARCHIVE_VERIFICATION_RETRY_NS,
+    ) {
         return;
     }
     memory
-        .last_monthly_verification_ns
+        .last_monthly_verification_attempt_ns
         .insert(instrument.canonical_instrument.clone(), now_ns);
 
     let Some((year, month)) = crate::scheduling::last_month_utc(now_ns) else {
@@ -296,8 +363,14 @@ async fn run_monthly_verification(
         return;
     };
     let request = daily_archive_request(instrument, now_ns);
+
     match verify_execution_month_v1(fetcher, bar_store, &request, i32::from(year), month).await {
-        Ok(summary) => warn_on_conflicts(instrument, "monthly archive verification", &summary),
+        Ok(summary) => {
+            memory
+                .last_monthly_verification_success_ns
+                .insert(instrument.canonical_instrument.clone(), target_start_ns);
+            warn_on_conflicts(instrument, "monthly archive verification", &summary);
+        }
         Err(e) if is_archive_unavailable(&e) => {}
         Err(e) => tracing::warn!(
             instrument = instrument.canonical_instrument,
@@ -324,9 +397,6 @@ async fn run_weekly_derivation(
     let Some((window_start_ns, window_end_ns_exclusive)) = last_week_bounds_ns(now_ns) else {
         return;
     };
-    memory
-        .last_weekly_derivation_week_start_ns
-        .insert(instrument.canonical_instrument.clone(), window_start_ns);
 
     match verify_derived_from_daily_v1(
         bar_store,
@@ -339,7 +409,15 @@ async fn run_weekly_derivation(
     )
     .await
     {
-        Ok(summary) => warn_on_conflicts(instrument, "1w derivation", &summary),
+        Ok(summary) => {
+            // Marked done only now, on actual success - marking it before trying would mean a
+            // week whose 1d bars are not verified yet (the normal case right after a week closes,
+            // since that waits on daily archive verification) is never retried.
+            memory
+                .last_weekly_derivation_week_start_ns
+                .insert(instrument.canonical_instrument.clone(), window_start_ns);
+            warn_on_conflicts(instrument, "1w derivation", &summary);
+        }
         Err(vibe_binance::venue_bar_archive_verifier_v1::VerifyDerivedErrorV1::Read(
             vibe_data::owner::venue_bar_store_v1::VenueBarReadErrorV1::NotVerified { .. },
         )) => {
@@ -370,9 +448,6 @@ async fn run_monthly_derivation(
     let Some((window_start_ns, window_end_ns_exclusive)) = last_month_bounds_ns(now_ns) else {
         return;
     };
-    memory
-        .last_monthly_derivation_month_start_ns
-        .insert(instrument.canonical_instrument.clone(), window_start_ns);
 
     match verify_derived_from_daily_v1(
         bar_store,
@@ -385,7 +460,14 @@ async fn run_monthly_derivation(
     )
     .await
     {
-        Ok(summary) => warn_on_conflicts(instrument, "1M derivation", &summary),
+        Ok(summary) => {
+            // Marked done only now, on actual success - see run_weekly_derivation's own comment
+            // for why marking it before trying would mean this derivation essentially never runs.
+            memory
+                .last_monthly_derivation_month_start_ns
+                .insert(instrument.canonical_instrument.clone(), window_start_ns);
+            warn_on_conflicts(instrument, "1M derivation", &summary);
+        }
         Err(vibe_binance::venue_bar_archive_verifier_v1::VerifyDerivedErrorV1::Read(
             vibe_data::owner::venue_bar_store_v1::VenueBarReadErrorV1::NotVerified { .. },
         )) => {
@@ -476,9 +558,18 @@ mod live_tests {
     /// `resolve_tracked_instruments_v1`/the catalog, since seeding a real admitted Instrument
     /// Master fact needs the full admission ceremony this test does not exercise; the catalog
     /// resolution itself is a thin, separately-reasoned-about wrapper over `describe_instrument_v1`.
+    ///
+    /// A restart's fresh memory resumes from the store's own latest close (Lane 2's review of
+    /// #1436's first draft: resuming from 0 on every restart would re-walk an instrument's whole
+    /// history), not from the epoch - so the second tick below makes NEW forward progress, it
+    /// does not re-fetch the first tick's own page. The actual "rejoin, not a duplicate" proof is
+    /// `venue_bar_rest_recorder_v1::live_tests::recording_the_same_day_twice_writes_once_and_then_rejoins`,
+    /// which calls the recorder directly with the identical resume point twice; what this test
+    /// proves is that a restart never produces a conflict (the store's own authoritative signal
+    /// that two callers disagreed about the same bar) and that it resumes forward, not from zero.
     #[tokio::test]
     #[ignore = "reaches the live public Binance endpoint and a real Market Data store"]
-    async fn a_tick_run_twice_only_rejoins_the_second_time() {
+    async fn a_restarted_tick_resumes_from_the_stores_own_close_without_conflicts() {
         let bar_store = venue_bar_store_from_environment_v1()
             .await
             .expect("MARKET_DATA_OWNER_DATABASE_URL names a reachable venue bar store");
@@ -490,8 +581,9 @@ mod live_tests {
             std::env::temp_dir().join("lane8-b6b-tick-acceptance"),
         )
         .expect("the fetcher builds");
+        let instrument = "BTCUSDT-PERP.BINANCE-B6B-TICK-PROOF";
         let instruments = [TrackedInstrumentV1 {
-            canonical_instrument: "BTCUSDT-PERP.BINANCE-B6B-TICK-PROOF".to_string(),
+            canonical_instrument: instrument.to_string(),
             raw_symbol: "BTCUSDT".to_string(),
         }];
         let now_ns: u64 = get_atomic_clock_realtime().get_time_ns().into();
@@ -509,20 +601,13 @@ mod live_tests {
         )
         .await;
 
-        let first_written = bar_rows_written(
-            bar_store.as_ref(),
-            &instruments[0].canonical_instrument,
-            now_ns,
-        )
-        .await;
-        assert!(
-            first_written > 0,
-            "the first tick's own page budget still commits something"
-        );
+        let after_first_tick = bar_store
+            .latest_venue_bar_close_ns_v1(instrument, "1m")
+            .await
+            .expect("the first tick's own bars are readable")
+            .expect("the first tick committed at least one 1m bar");
 
-        // A fresh, empty memory - simulating a restart, not a continuation - resumes from
-        // scratch (resume_from_ms defaults to 0 again) and re-fetches the same first page, which
-        // the store now already holds in full.
+        // A fresh, empty memory - simulating a restart, not a continuation.
         let mut restarted_memory = TickMemoryV1::default();
         run_tick_v1(
             &client(),
@@ -536,29 +621,23 @@ mod live_tests {
         )
         .await;
 
-        let after_second_tick = bar_rows_written(
-            bar_store.as_ref(),
-            &instruments[0].canonical_instrument,
-            now_ns + 1,
-        )
-        .await;
-        assert_eq!(
-            after_second_tick, first_written,
-            "the second tick, same resume point tracked in memory, only rejoins - no new rows"
-        );
-    }
-
-    /// Counts every `1m` bar stored for `instrument` up to `cut_ns`, as a stand-in for "how many
-    /// rows exist now" - this test's own fixture instrument has no other writer, so a growing
-    /// count between the two ticks would mean the second tick wrote something new.
-    async fn bar_rows_written(
-        bar_store: &dyn vibe_data::owner::venue_bar_store_v1::VenueBarStoreV1,
-        instrument: &str,
-        cut_ns: u64,
-    ) -> usize {
-        bar_store
-            .read_venue_bars_v1(instrument, "1m", 0, cut_ns, cut_ns, false)
+        let after_second_tick = bar_store
+            .latest_venue_bar_close_ns_v1(instrument, "1m")
             .await
-            .map_or(0, |rows| rows.len())
+            .expect("the second tick's own bars are readable")
+            .expect("the second tick committed at least one 1m bar");
+        assert!(
+            after_second_tick >= after_first_tick,
+            "the restarted tick resumed forward from the store's own close, not from the epoch"
+        );
+
+        let conflicts = bar_store
+            .open_venue_bar_conflicts_v1(instrument, "1m")
+            .await
+            .expect("conflicts are readable");
+        assert!(
+            conflicts.is_empty(),
+            "a restart never disagrees with what it, or an earlier tick, already committed"
+        );
     }
 }
