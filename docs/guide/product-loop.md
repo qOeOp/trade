@@ -3,8 +3,8 @@
 ## Product purpose and scope
 
 The product turns sourced market hypotheses into reproducible strategies, portfolio backtest evidence and research
-decisions, with continuous facts for independent qualification, record-only forward evaluation and governed
-strategy lifecycles. It supports perpetuals, spot data/backtests and spot/perpetual two-leg research. The first
+decisions, then backtest qualification, small real trading trials and automatic promotion into governed
+strategy lifecycles. This complete promotion route is a design target, not admission of real trading implementation. It supports perpetuals, spot data/backtests and spot/perpetual two-leg research. The first
 end-to-end acceptance is the Binance USDT perpetual R-1 resting-entry/staged-exit story. Spot, multi-leg and dynamic
 portfolio capabilities remain development targets until their individual admission and integration.
 
@@ -29,16 +29,17 @@ immutable Artifacts. The agent cannot edit business facts.
 
 ## From source to research decision
 
-| Stage                 | User or agent action                                                                 | Product result and responsibility                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| Define the question   | Submit source, mechanism, alternatives and falsifiable prediction                    | R&D admits source, freezes Research Intent and permanent trial lineage                                            |
-| Prepare data          | Declare market, time, signal timeframes and warm‑up                                  | Market Data supplies PIT coverage, versions and named gaps; services own preparation jobs                         |
-| Author strategy       | Submit JSON signal rules, sizing configuration and execution policy                  | R&D compiles BFP and seals Artifact, dependencies and complete meaning                                            |
-| Explore               | Submit bounded backtest and query identities                                         | Backend completes internal composition; native Backtest produces orders, fills, portfolio results and diagnostics |
-| Diagnose and iterate  | Compare frozen objectives and choose a legal next action                             | R&D commits repair, successor experiment, stop or selection; an unknown run produces no economic judgment         |
-| Qualify independently | Submit selected, frozen candidate                                                    | Qualification consumes the preregistered protected protocol and returns only bounded public conclusions           |
-| Record forward        | Query continuous simulation under the same execution semantics                       | Qualification owns registration/decision; Backtest preserves simulated orders, positions and costs across cuts    |
-| Govern lifecycle      | Request deployment or de‑risking within qualification, capital and permission bounds | Governance authorizes; Runtime independently proves application; trading paths require separate admission         |
+| Stage                 | User or agent action                                                                 | Product result and responsibility                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Define the question   | Submit source, mechanism, alternatives and falsifiable prediction                    | R&D admits source, freezes Research Intent and permanent trial lineage                                                         |
+| Prepare data          | Declare market, time, signal timeframes and warm‑up                                  | Market Data supplies PIT coverage, versions and named gaps; services own preparation jobs                                      |
+| Author strategy       | Submit JSON signal rules, sizing configuration and execution policy                  | R&D compiles BFP and seals Artifact, dependencies and complete meaning                                                         |
+| Explore               | Submit bounded backtest and query identities                                         | Backend completes internal composition; native Backtest produces orders, fills, portfolio results and diagnostics              |
+| Diagnose and iterate  | Compare frozen objectives and choose a legal next action                             | R&D commits repair, successor experiment, stop or selection; an unknown run produces no economic judgment                      |
+| Qualify independently | Submit selected, frozen candidate                                                    | Qualification consumes the preregistered protected protocol and returns only bounded public conclusions                        |
+| Trade in trial pool   | Enter the trial pool after backtest qualification under frozen configuration         | Governance owns stage/allocation; native Runtime/Risk/Execution trade; nonqualified candidates remain in R&D                   |
+| Promote automatically | Query frozen promotion conditions and current evidence                               | Meeting conditions promotes to the formal pool; expiry without promotion ends entries, cancels entry orders and returns to R&D |
+| Govern lifecycle      | Request deployment or de‑risking within qualification, capital and permission bounds | Governance authorizes; Runtime independently proves application; trading paths require separate admission                      |
 
 One `backtest.run` completes validation, research binding, dataset resolution, Artifact and replay composition inside
 the backend. The agent does not assemble internal receipts, move market rows or drive each Owner step. Requests,
@@ -46,7 +47,7 @@ jobs, results and legal actions are addressable by stable identities. Same-ident
 original results; changed meaning creates a successor or conflict, never overwrites old records. See
 [Product Edge](../architecture/product-edge/) and [research design](../scenarios/research/).
 
-## Qualification and forward evidence
+## Backtest qualification, trials and promotion
 
 Exploration is not qualification. Qualification independently consumes the whole frozen candidate, trial family,
 costs, capacity, embargo, budget and holdout rules. Internally it may distinguish pass, equivalence failure and
@@ -54,11 +55,22 @@ insufficient evidence; research sees only `QUALIFIED` or `CLOSED_NOT_QUALIFIED`,
 from a public nonqualified result. Protected numbers, reasons and categories do not return to research. New
 families, charts or direct MCP calls do not bypass reads or trial accounting.
 
-Record-only forward is a target: before its first cut, freeze interim/decision dates, elimination/admission lines,
-sequential-test parameters and derivations. Backtest uses the same qualified Artifact, orders, cadence, costs,
-slippage and capacity model, carrying simulated state across cuts. It touches no Runtime instance, venue adapter,
-credential or money. Report every candidate and revoke qualification on elimination. A positive Forward Decision
-allows proposing paper activation; it replaces none of the other activation authorities.
+Only candidates meeting frozen backtest qualification criteria enter the trial pool. Unevaluated candidates,
+insufficient evidence and clear absence of economic advantage permit no direct trial entry. Approved ratios divide
+account capital budgets between the common trial and formal strategy pools, then per-strategy allocations within
+each pool; both stages are real trading. Before a trial, freeze user-approved promotion conditions including a
+minimum independent trade sample; duration and complete net-return/risk rules remain to be defined. Meeting them
+triggers automatic promotion through Governance stage/allocation updates. Maximum-period failure returns to R&D,
+stops new entries and cancels unfilled entry orders while existing positions retain their original protections;
+unloading immediately returns the strategy allocation for redistribution among running strategies. The exit path owns
+residual position management. Actual residual margin remains an account fact checked by Risk at order admission,
+without retaining the unloaded strategy's running allocation. See the full [research contract](../scenarios/research/#qualified-backtests-real-trading-trials-and-promotion).
+
+Qualification's record-only Forward Record is an isolated simulation evidence capability. It creates no orders or
+capital commitments, is not a mandatory step on this route and cannot replace real trial evidence or trigger
+promotion. Existing sealed protocols cannot silently change; versioned stage/authorization contracts and Owner
+handoffs need end-to-end acceptance. Target design grants no implementation, deployment, trading credential or order
+permission.
 
 ## Trading control and recovery
 

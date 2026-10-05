@@ -568,6 +568,12 @@ does not have yet.
 
 ## TARGET - Forward Record
 
+Forward Record is isolated record-only simulation evidence, not a required step on the
+[backtest qualification, real trial and promotion route](../scenarios/research.md#qualified-backtests-real-trading-trials-and-promotion).
+It cannot replace real trial returns, create a trial permit or promote a strategy into the formal pool. Qualification
+owns backtest eligibility and protected facts; Governance owns promotion stage, authorization and allocation;
+Runtime/Risk/Execution own actual operation and trading facts. The new route cannot silently alter sealed interfaces.
+
 This section states a contract with no implementation; it grants no permission to build, deploy, or drive a
 forward record.
 

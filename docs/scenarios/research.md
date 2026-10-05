@@ -55,8 +55,12 @@ not yet evaluated, or with evidence insufficient to meet the backtest criteria s
 exists. If the maximum observation period frozen before the trial expires without meeting promotion conditions,
 end the trial and return the candidate to R&D. Stop new entries, cancel unfilled entry orders and manage existing
 positions with their original stops and targets; do not force liquidation or omit remaining risk to improve the
-expiry result. Positions still exiting and unresolved orders retain their capital commitments until the owning
-service confirms release. Trials are real trading too; the formal pool is the allocation after promotion. Trial entry adds no separate
+expiry result. Unloading the strategy immediately returns its allocated budget to the pool for redistribution among
+running strategies; it does not wait for all positions to exit. The exit-management path takes over remaining
+positions, cancellations and reconciliation under frozen rules without requiring the unloaded strategy to emit signals.
+Actual positions, unresolved orders, fees and unknown effects remain account margin/risk facts, without reserving the
+unloaded strategy's running allocation. Reallocated budgets create no venue-available margin; Risk admits actual
+orders against current account funds and remaining exposure. Trials are real trading too; the formal pool is the allocation after promotion. Trial entry adds no separate
 research qualification process: backtest qualification is its research prerequisite, while existing account, capital
 and execution safety constraints govern every real order. Trials validate actual fills and returns; small amounts do
 not bypass backtest qualification. The user approves and freezes promotion criteria before trials; meeting them triggers automatic promotion without

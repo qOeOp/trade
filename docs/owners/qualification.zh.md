@@ -470,6 +470,10 @@ R&D 尚未具备的生产 census 追加。
 
 ## TARGET - 前向记录
 
+Forward Record 是独立的只记录模拟证据能力，不是[回测合格、真实试盘与转正](../scenarios/research.zh.md#回测合格真实试盘与转正)
+路线的必经阶段；它不能代替真实试盘收益、创建试盘许可或触发正式策略池转正。Qualification 持有回测资格与保护事实，
+Governance 持有晋级阶段、授权和分配，Runtime/Risk/Execution 持有实际运行及交易事实；新路线不能静默改变封存接口。
+
 本节陈述的是一份尚无实现的契约；它不授予构建、部署或驱动前向记录的任何许可。
 
 Forward Record 只能从一个当前的 `QUALIFIED` Eligibility Fact 开始，以一个终态 Forward Decision 结束。它只做记录：不创建
