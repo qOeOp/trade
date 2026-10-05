@@ -460,6 +460,9 @@ impl VisionBackfillFetcherV1 {
         year: i32,
         month: u8,
     ) -> Result<FetchedFundingMonthV1, VisionBackfillErrorV1> {
+        if !is_valid_binance_symbol(symbol) {
+            return Err(VisionBackfillErrorV1::InvalidSymbol);
+        }
         let archive_name = format!("{symbol}-fundingRate-{year:04}-{month:02}.zip");
         let shard = self.shard_dir.join(symbol).join("funding");
 
@@ -1384,6 +1387,17 @@ mod tests {
                 .execution_month("BTCUSDT", BinanceKlineInterval::Day1, 2021, 6)
                 .await,
             Err(VisionBackfillErrorV1::ArchiveUnavailable)
+        );
+    }
+
+    #[tokio::test]
+    async fn funding_month_refuses_an_invalid_symbol_before_building_any_path() {
+        let shards = ShardDir::new();
+        let fetcher = fetcher(archive(None, Vec::new()), shards.path()).await;
+
+        assert_eq!(
+            fetcher.funding_month("../x", 2021, 6).await,
+            Err(VisionBackfillErrorV1::InvalidSymbol)
         );
     }
 
