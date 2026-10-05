@@ -20,8 +20,8 @@ business truth or trades directly.
 4. A frozen candidate enters independent protected Qualification.
 5. Strategy Governance combines eligibility, lifecycle evidence, capital policy, complete request Authorization
    Lineage, and an explicit Autonomous Policy Authorization into deployment decisions.
-6. Scanner can periodically submit evidence-only proposals. A proposal continues lawfully only inside an already
-   authorized unattended lifecycle lineage and a separate Governance decision; Scanner never deploys.
+6. R&D offers on-demand discovery using the same strategy judgments without deployment proposals. Running strategies
+   consume market data continuously; Governance evaluates frozen lifecycle conditions directly.
 7. Runtime, Risk, and Execution perform automated paper or live trading through one permit-bound write chain.
 8. Portfolio projects read-only account, exposure, performance, capacity, interaction, and degradation facts.
    Governance deterministically allocates a complete contender set; Risk enforces generation envelopes and joins
@@ -54,7 +54,7 @@ history head, Operator Authorization, operation manifest, and Autonomous Policy 
 
 - Natural language, an agent plan, a notification, or an event is never trading authority.
 - Protected evaluation cannot feed the same research loop.
-- Scanner cannot start Runtime.
+- Read-only discovery cannot start Runtime.
 - Risk cannot issue an order command; Execution cannot accept a command without the bound permit.
 - Unknown external effect cannot be treated as success, closure, or permission to start a new generation.
 - An active generation is never retained by silence. Eligibility loss or stale required performance, exposure, or

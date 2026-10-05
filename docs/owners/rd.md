@@ -35,6 +35,38 @@ handoff after an unknown task, shared exposure and protected refusals. Admission
 meaning as serial processing, independent of hosts or response order. Define project binding in request admission
 context; do not mutate sealed artifacts or silently add fields to existing request versions.
 
+## TARGET - On-demand read-only opportunity discovery
+
+Users or external agents can ask which instruments currently satisfy a strategy's conditions. This belongs to
+R&D research/observation, requires no deployed strategy and creates no Scanner department, scheduled scanning job
+or trading authority. R&D owns request and job/result identities. Market Data supplies exact universes, availability
+cuts and market inputs; evaluation reuses the sealed Artifact and shared native Host, never a separate scanner
+implementation of indicators, entry or exit rules.
+
+Requests bind Artifact version, fixed/dynamic selection rule, windows, evaluation cut/clock (closed bars or explicitly
+supported intrabar rules) and resource bounds. R&D persists long queries; MCP returns a job identity and may exit.
+Retries join the same operation. Unknown results, stale inputs, inadequate coverage and per-instrument failures remain
+explicit. No signal is a completed result; missing data is not absence of an opportunity. Results bind input cut and
+Artifact, distinguishing new signals, reconstructed rule state, trigger/distance, total, completed, excluded and
+incomplete instruments. Historical warmup may reconstruct rule state, but an in-trend status or inferred entry price
+is not an actual account position/fill. Account facts require authorized Portfolio/Execution interfaces. Unqualified
+Artifacts can perform discovery; results establish no economic edge, activation proposal, order or capital commitment.
+
+Running strategies receive Market Data continuously through the native node and emit intents under the same Artifact
+windows/rules. They need no separate scanning schedule to find opportunities or wake instances. Queries and running
+strategies reuse judgment code and custodied inputs while keeping observation-request and instance state distinct.
+Queries cannot reuse or mutate live position/order/rule state. Pure judgments agree for identical Artifacts, input
+prefixes and evaluation clocks. Moving a discovered instrument into trading still requires existing qualification,
+governance, capital and execution authority.
+
+The `scan` catalog exposes only R&D on-demand discovery and result reads, with no scan schedule CRUD. The target has
+no separate Scanner department or deployment-proposal route; Governance evaluates frozen lifecycle conditions
+directly. Legacy contracts retain history through versioned migration without converting query results into authority.
+A shared database grants no private-table access between departments. Acceptance covers queries, recovery, retries,
+partial coverage, empty results, resource stopping and comparison with native judgments on identical inputs.
+The entire path creates no orders, activations or account writes. Full capability remains target design; research
+scripts and the existing Scanner core do not establish native integration acceptance.
+
 ## Authoritative facts owned
 
 - Immutable Research Source Provenance Record binding source identity, content digest, location, retrieval cut,
@@ -1832,6 +1864,48 @@ entry supersedes an earlier one by naming it.
   quality. The research archive enters this way, as one source per file and line range.
 - A status change names new evidence: evidence its predecessor did not bind. A supersession that cites none is
   refused as `KNOWLEDGE_SUPERSESSION_WITHOUT_NEW_EVIDENCE`.
+
+**Reusable positive factor knowledge.** Indicators, patterns, entry conditions, exit rules and portfolio filters
+can all be recorded as constructs without first becoming standalone strategies or acquiring trading eligibility.
+R-1 price room, breakout body, stacked levels and trend age are examples of constructs in the research source, not
+confirmed positive factors. At each terminal diagnosis, R&D checks readable evidence and admits useful positive,
+negative and inconclusive findings into this same ledger. An unknown job retains an unresolved reference, never a
+success or failure finding. Human or agent proposals require R&D verification and a durable receipt readable in the
+next session; a chat summary is insufficient.
+
+A construct entry must answer these questions:
+
+| Content                      | Required facts                                                                                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Definition and reusable rule | Exact formula or pattern, parameters/version, inputs/windows, signal availability, counting unit and compilable definition reference; prose alone is explicitly not compilable  |
+| Tested scope                 | Market/instruments, periods/data snapshots, strata, costs/fill model, control and measurement objective; distinguish prediction, trade effect and portfolio net return          |
+| Evidence and selection       | Intent, Artifact, counted attempt/Result, estimator version, effect/interval, sample size, related variants and data exposure; retain more than the winning parameters          |
+| Stability and limitations    | Replications across periods, instruments or new data, untested scopes, decay, counterexamples and implementation repairs; reuse of the same data is not independent replication |
+| Future use                   | Applicability, excluded scopes, missing evidence, review triggers and supersession; a new Intent citing the entry retains source and exposure lineage                           |
+
+A positive estimate can become an exploratory finding with an evidence grade; it is not immediately a stable
+economic edge. Stability criteria freeze before the relevant experiments. Missing required intervals or replication
+remain insufficient evidence. Run success, positive correlation or one net return cannot establish universal value.
+Definitions with opposite effects under the same label retain separate identities. Failures and invalidations are
+also recorded; successors name older entries while their evidence remains readable.
+
+**Search and reuse.** External agents query R&D's `knowledge` capability by research objective, construct type,
+input needs, market and scope. Responses include matching reasons, exact entry version, evidence grade,
+applicability, counterexamples and evidence references, rather than ranking only by highest return.
+Before preregistration, agents check existing knowledge; an absent match is untested, not ineffective. Selected
+constructs become inputs to a new JSON strategy version. R&D still seals a new Artifact, registers variants and runs
+full strategy and portfolio backtests. A construct's advantage does not qualify its composition or remove correlation,
+cost and capital competition. A study informed by known findings is not blind; source and exposure lineage remain
+in the ledger. Search, admission, checking and supersession belong to R&D. This requires no factor service, separate
+knowledge Owner or mandatory vector database. R&D private relations may share a PostgreSQL instance; other departments
+obtain authorized evidence projections through bounded Owner interfaces, never cross-table queries or mutations.
+
+**Acceptance for this story.** Admit a construct effect from a counted R-1 exploratory Result; retries return the
+same entry and receipt. A second agent after restart searches the applicable scope and cites the entry in a new
+Intent. Cover a single positive estimate, repeated validation on identical data, negative findings and supersession
+with new evidence, unavailable estimators/intervals, and protected-data refusal. Only exact evidence forms entries;
+queries leak no protected facts and retain the full selection history. Successor strategy execution and qualification
+remain facts of their respective Owners. Historical scripts enter as external source evidence, not native replication.
 
 **How it binds the next Research Intent.** A Research Intent declares the mechanism it tests and the constructs its
 rule uses. R&D checks them against the ledger at the two points an Intent freezes: in the S1 admission transaction

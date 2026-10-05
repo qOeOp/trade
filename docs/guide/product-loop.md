@@ -87,10 +87,10 @@ measurement and attribution.
 
 Governance owns generation authorization, capital envelopes and lifecycle. Only an `APPLIED` receipt proves Runtime
 application. Active-generation renewal requires fresh eligibility, performance, exposure and degradation evidence;
-missing evidence stops new risk while preserving the decrease-only safety path. Scanner periodically evaluates
-deployment conditions and proposes to Governance, isolates individual-strategy gaps and never starts Runtime.
-Host research wake-ups and service-owned Scanner/forward jobs are separate responsibilities; Dashboard owns no
-business state machine.
+missing evidence stops new risk while preserving the decrease-only safety path. R&D provides on-demand discovery.
+Running strategies continuously evaluate market data without a separate scan schedule or deployment-proposal department.
+Governance evaluates frozen deployment/lifecycle conditions directly. Host timers wake agents; services own their jobs,
+and Dashboard owns no business state machine.
 
 Unknown effects permit no blind resubmit, commitment release or failure claim. Runtime readiness, incidents,
 reconciliation drift and Risk hard stops enter recovery through their authoritative facts. Execution cancels,
@@ -102,7 +102,7 @@ no Paper, Live or real-money effect.
 
 ## User interface and service acceptance
 
-The custom Dashboard presents Sources, Research, Hypotheses, Artifacts, Backtests, Qualification, Scanner, Runtime
+The custom Dashboard presents Sources, Research, Hypotheses, Artifacts, Backtests, Qualification, Runtime
 and Operations under the same identities, unresolved reasons and allowed actions. Logs, charts, operational success
 and agent explanation create no research decision, qualification or deployment fact. Changes submit successor JSON,
 never edit an Artifact in place. Implement only routes and atoms admitted by [Dashboard](./dashboard/).

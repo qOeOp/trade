@@ -4360,7 +4360,7 @@
     {
       "id": "scanner",
       "groupId": "group-program",
-      "label": "Scanner",
+      "label": "Scanner (legacy)",
       "badge": "EXE",
       "docsRoute": "owners/scanner",
       "modules": [
@@ -4369,12 +4369,10 @@
           "label": "Strategy Loader",
           "kind": "adapter",
           "emphasis": "support",
-          "scenarios": [
-            "scan"
-          ],
+          "scenarios": [],
           "description": {
-            "en": "Reads deployable ArtifactRefs each scheduled tick\nLoads rules data needs versions and lifecycle caps\nBuilds the check list without starting Runtime",
-            "zh": "每轮定时扫描开始时从策略注册表读取所有可部署 ArtifactRef\n同时加载每个策略的激活条件 数据要求 版本和当前生命周期限制\n只形成待检查策略清单 不启动 Runtime 也不修改治理状态"
+            "en": "Legacy compatibility: Reads deployable ArtifactRefs each scheduled tick\nLoads rules data needs versions and lifecycle caps\nBuilds the check list without starting Runtime",
+            "zh": "旧契约兼容：读取受治理工件与条件版本\n保留已封存成员及生命周期依据\n不作为新产品的部署前置或调度能力"
           }
         },
         {
@@ -4382,12 +4380,10 @@
           "label": "Market Snapshot",
           "kind": "protected",
           "emphasis": "standard",
-          "scenarios": [
-            "scan"
-          ],
+          "scenarios": [],
           "description": {
-            "en": "Derives symbols fields windows and quality needs\nReads one timestamped market view and versions\nFreezes one input and records insufficient data",
-            "zh": "根据待检查策略声明汇总所需标的 行情字段 回看窗口和数据质量要求\n从 Market Data 获取同一时点的行情事实 覆盖范围和数据版本\n冻结为本轮可复现输入 数据不足时记录原因但不生成部署提案"
+            "en": "Legacy compatibility: Derives symbols fields windows and quality needs\nReads one timestamped market view and versions\nFreezes one input and records insufficient data",
+            "zh": "旧契约兼容：保留已绑定行情与覆盖身份\n缺失输入不伪装为完整匹配\n新按需发现由 R&D 消费 Market Data 接口"
           }
         },
         {
@@ -4395,12 +4391,10 @@
           "label": "Strategy Matcher",
           "kind": "authority",
           "emphasis": "core",
-          "scenarios": [
-            "scan"
-          ],
+          "scenarios": [],
           "description": {
-            "en": "Runs each activation rule on the replay kernel\nChecks regime history quality and lifecycle limits\nReturns matches reasons and evidence only",
-            "zh": "在 Native Replay 的单帧评估内核上逐个执行策略激活条件 并使用同一份市场快照进行判断\n同时检查市场状态 历史窗口 数据质量和治理生命周期是否允许候选\n输出匹配结果 未匹配原因和证据引用 不批准部署也不启动 Runtime"
+            "en": "Legacy compatibility: Runs each activation rule on the replay kernel\nChecks regime history quality and lifecycle limits\nReturns matches reasons and evidence only",
+            "zh": "旧契约兼容：保留准确匹配与负面处置\n不能授予治理或交易权限\n目标治理直接评估冻结生命周期条件"
           }
         },
         {
@@ -4408,12 +4402,10 @@
           "label": "Proposal Builder",
           "kind": "authority",
           "emphasis": "core",
-          "scenarios": [
-            "scan"
-          ],
+          "scenarios": [],
           "description": {
-            "en": "Collects matched strategies symbols and evidence\nAdds capital hints metrics stops and scan identity\nSends auditable proposal without starting Runtime",
-            "zh": "收集所有通过匹配的策略 标的 条件版本 市场快照和证据引用\n补充建议资金档位 观察指标 停止条件和本轮扫描身份\n封装为可审计部署提案提交 Strategy Governance 不直接启动策略"
+            "en": "Legacy compatibility: Collects matched strategies symbols and evidence\nAdds capital hints metrics stops and scan identity\nSends auditable proposal without starting Runtime",
+            "zh": "旧契约兼容：保留历史提案与唯一终态回执\n旧提案不创建运行实例或资金权限\n新产品不再设置独立部署提案部门"
           }
         }
       ]
@@ -4809,16 +4801,16 @@
       },
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Source to frozen strategy artifact",
-        "zh": "从来源到冻结策略工件"
+        "en": "Source through native evidence to a recorded research decision",
+        "zh": "从来源经原生证据到已记录研究决定"
       },
       "entry": {
         "en": "Sourced hypothesis",
         "zh": "带来源假设"
       },
       "proof": {
-        "en": "Intent + Artifact",
-        "zh": "意图 + 工件"
+        "en": "Intent + Artifact + Result + Decision",
+        "zh": "意图 + 工件 + 结果 + 决定"
       },
       "primaryRelationIds": [
         "product-rd",
@@ -4887,29 +4879,23 @@
       },
       "docsRoute": "scenarios/scan",
       "description": {
-        "en": "Scheduled matching to one terminal Scanner Receipt",
-        "zh": "定时匹配并生成唯一终态 Scanner Receipt"
+        "en": "On-demand read-only market opportunity discovery",
+        "zh": "按需只读市场机会发现"
       },
       "entry": {
-        "en": "Scheduled tick",
-        "zh": "定时触发"
+        "en": "Artifact and requested market scope",
+        "zh": "工件与请求市场范围"
       },
       "proof": {
-        "en": "Terminal receipt",
-        "zh": "终态回执"
+        "en": "Bounded discovery result",
+        "zh": "有界发现结果"
       },
       "primaryRelationIds": [
-        "governance-program",
-        "data-program",
-        "portfolio-program",
-        "program-governance"
+        "product-rd-observation",
+        "data-rd-observation",
+        "rd-product-observation"
       ],
       "supportingRelationIds": [
-        "data-portfolio",
-        "governance-product",
-        "portfolio-governance",
-        "portfolio-governance-interaction",
-        "program-product",
         "observability-product-status"
       ]
     },
@@ -10646,6 +10632,58 @@
         "Crash restart response loss timeout and replay join the same attempt identity and never issue a naked retry",
         "NO_EFFECT and SETTLED require authoritative adapter or venue readback bound to the same action target and effect frontier"
       ]
+    },
+    {
+      "id": "research-observation-request",
+      "label": "Research Observation Request",
+      "custodianId": "rd",
+      "crossBindObjectIds": [
+        "strategy-artifact"
+      ],
+      "identityBinds": [
+        "stable-request-identity",
+        "trusted-principal-and-admitted-read-scope",
+        "artifact-identity-and-digest",
+        "universe-rule-and-version",
+        "input-window-and-evaluation-clock",
+        "resource-cap-and-protected-read-policy"
+      ],
+      "states": [
+        "SUBMITTED_OR_UNKNOWN",
+        "ADMITTED",
+        "REJECTED_NO_WRITE"
+      ],
+      "invariants": [
+        "Target read-only operation reuses strategy evaluation without granting execution authority",
+        "Same identity and meaning joins the same job; changed meaning is conflicting replay",
+        "Observation access obeys protected partitions and data exposure accounting; no scan schedules are created"
+      ]
+    },
+    {
+      "id": "research-observation-result",
+      "label": "Research Observation Result",
+      "custodianId": "rd",
+      "crossBindObjectIds": [
+        "research-observation-request",
+        "strategy-artifact",
+        "pit-market-snapshot"
+      ],
+      "identityBinds": [
+        "request-and-job-identity",
+        "artifact-and-input-cut",
+        "evaluation-time",
+        "expected-completed-excluded-and-incomplete-members",
+        "per-member-signal-or-unavailable-disposition"
+      ],
+      "states": [
+        "SUBMITTED_OR_UNKNOWN",
+        "TERMINAL_RESULT"
+      ],
+      "invariants": [
+        "Empty completed results differ from missing data or unknown execution",
+        "Reconstructed positions never assert account positions; partial coverage never asserts complete coverage",
+        "Results grant no qualification activation capital commitment or order authority"
+      ]
     }
   ],
   "relations": [
@@ -10797,7 +10835,6 @@
       "relation": "read-model",
       "objectId": "governance-decision-view",
       "scenarios": [
-        "scan",
         "paper",
         "live",
         "recovery"
@@ -10914,9 +10951,7 @@
       "targetId": "group-product",
       "relation": "fact",
       "objectId": "scanner-receipt",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "light",
       "docsRoute": "architecture/product-edge",
@@ -11193,7 +11228,6 @@
       "relation": "fact",
       "objectId": "portfolio-lifecycle-evidence-receipt",
       "scenarios": [
-        "scan",
         "paper",
         "live",
         "recovery"
@@ -11250,9 +11284,7 @@
       "targetId": "group-program",
       "relation": "fact",
       "objectId": "pit-market-snapshot",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": true,
       "weight": "standard",
       "docsRoute": "scenarios/scan",
@@ -11277,9 +11309,7 @@
       "targetId": "group-program",
       "relation": "fact",
       "objectId": "deployable-strategy-set",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": true,
       "weight": "light",
       "docsRoute": "scenarios/scan",
@@ -11304,9 +11334,7 @@
       "targetId": "group-governance",
       "relation": "fact",
       "objectId": "scanner-receipt",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": true,
       "weight": "light",
       "docsRoute": "scenarios/scan",
@@ -11473,9 +11501,7 @@
       "targetId": "group-program",
       "relation": "fact",
       "objectId": "capacity-view",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "standard",
       "docsRoute": "owners/scanner",
@@ -11529,7 +11555,6 @@
       "relation": "fact",
       "objectId": "valuation-facts",
       "scenarios": [
-        "scan",
         "paper",
         "live",
         "recovery"
@@ -12409,7 +12434,6 @@
       "relation": "fact",
       "objectId": "portfolio-interaction-receipt",
       "scenarios": [
-        "scan",
         "paper",
         "live"
       ],
@@ -12672,6 +12696,88 @@
       "sourceRole": "execution",
       "objectAuthority": "execution",
       "businessOutcomeOwnerId": "rd"
+    },
+    {
+      "id": "product-rd-observation",
+      "class": "owner",
+      "sourceId": "group-product",
+      "targetId": "group-rd",
+      "relation": "request",
+      "objectId": "research-observation-request",
+      "scenarios": [
+        "scan"
+      ],
+      "overview": false,
+      "weight": "light",
+      "docsRoute": "scenarios/scan",
+      "description": {
+        "en": "Submit an on-demand read-only observation",
+        "zh": "提交按需只读观察请求"
+      },
+      "semantics": {
+        "accepted": "R&D verifies trusted principal scope Artifact input-clock and resource bindings and admits one persistent read-only job",
+        "rejected": "Malformed changed-meaning or unauthorized scope produces no job or trading authority",
+        "unknown": "Missing admission remains unknown and cannot be treated as query failure or success",
+        "replay": "Same request identity and meaning joins the original job; conflicting meaning is rejected"
+      },
+      "sourceRole": "product-edge",
+      "objectAuthority": "rd",
+      "businessOutcomeOwnerId": "rd"
+    },
+    {
+      "id": "data-rd-observation",
+      "class": "owner",
+      "sourceId": "group-data",
+      "targetId": "group-rd",
+      "relation": "fact",
+      "objectId": "pit-market-snapshot",
+      "scenarios": [
+        "scan"
+      ],
+      "overview": false,
+      "weight": "light",
+      "docsRoute": "scenarios/scan",
+      "description": {
+        "en": "Supply verified inputs to an observation Host",
+        "zh": "向观察 Host 提供已验证输入"
+      },
+      "semantics": {
+        "accepted": "Market Data supplies verified scope and input references under matching availability license revision and protected-read policy with exposure recorded",
+        "rejected": "Future stale incomplete unlicensed or protected inputs cannot be evaluated as complete observations",
+        "unknown": "Missing or unknown input custody retains per-member unavailable state rather than no signal",
+        "replay": "Same requested input cut resolves the same immutable data identity; changed data requires a successor query"
+      },
+      "sourceRole": "market-data",
+      "objectAuthority": "market-data",
+      "businessOutcomeOwnerId": "rd"
+    },
+    {
+      "id": "rd-product-observation",
+      "class": "owner",
+      "sourceId": "group-rd",
+      "targetId": "group-product",
+      "relation": "read-model",
+      "objectId": "research-observation-result",
+      "scenarios": [
+        "scan"
+      ],
+      "overview": false,
+      "weight": "light",
+      "docsRoute": "scenarios/scan",
+      "description": {
+        "en": "Read an on-demand discovery result",
+        "zh": "读取按需发现结果"
+      },
+      "semantics": {
+        "accepted": "Authorized callers read the R&D-owned exact job result with Artifact input cut and complete member dispositions",
+        "rejected": "Cross-principal or protected values and inferred account positions are never projected",
+        "unknown": "Absent result stays unknown; stale or missing market inputs do not mean no opportunity",
+        "replay": "Readback retains the original job result and creates no new observation or trading effect"
+      },
+      "sourceRole": "rd",
+      "objectAuthority": "rd",
+      "businessOutcomeOwnerId": null,
+      "noBusinessOutcomeBasis": "Product Edge only reads a committed Owner result and creates no business transition"
     }
   ],
   "executorProductEdgeContract": {

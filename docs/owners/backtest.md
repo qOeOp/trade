@@ -4,6 +4,31 @@
 
 Replay frozen strategy artifacts against admitted historical facts with production-equivalent trading semantics. Backtest owns what was actually consumed and what happened in replay; it does not decide whether a result is deployable.
 
+## TARGET - Research reporting and multi-leg replay
+
+Reports are bounded projections of native results, not another fill ledger. Reuse native Portfolio/analyzer facts
+for accounts, positions and costs; bind valuation sampling, return units, cost/control versions and expose trade cards,
+paired variant differences and event/first-touch diagnostics. Nontrading event studies produce neither trading NAV
+nor qualification. Statistical methods/parameters preregister and version, without arbitrary script interpreters.
+R&D cross-run estimators consume readable results and own intervals, correlation and knowledge findings. Backtest
+selects no winner or stable advantage. Missing native inputs produce named gaps, not closed-trade substitutes for
+portfolio performance. Zero trades, open positions and partial coverage are distinct.
+
+A paired/multi-leg Artifact binds each instrument, quantity/hedge relation, quote/settlement currency, margin mode
+and funding source, with frozen triggers and leg execution/cancellation rules. Backtest reuses native orders, venues
+and accounts, reporting per-leg simulated fill sequence, fees, funding, margin, net exposure and unhedged duration.
+Spot cash and perpetual margin cannot each reuse the same available funds. Markets guarantee no atomic fills;
+a shared candle cannot fabricate simultaneous success. Partial fills, refusals, unknown legs and exits follow the
+frozen execution policy for outstanding orders and filled exposure, without strategy-owned network retries.
+Policy must declare unhedged exposure/duration limits, stopping new risk and exit actions. Missing policy or
+instrument/cost/capital facts refuse admission without implicit defaults. Replay advances one account timeline and
+unified capital/risk accounting. Host/policy/account integration still needs acceptance; native multi-venue/order
+capabilities alone do not prove this whole story.
+
+Acceptance compares frozen single/paired controls, funding settlement, second-leg refusal/partial/unknown outcomes,
+fees and FX, then reconciles reports against native account facts. Protected jobs isolate credentials/caches/outputs;
+diagnostics cannot become a protected-data exit.
+
 ## Authoritative facts owned
 
 - Replay identity, deterministic clock, frozen inputs, runtime and simulation versions, and configuration digest.

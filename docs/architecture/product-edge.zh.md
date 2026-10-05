@@ -387,20 +387,23 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 **其余 server（TARGET）。** 细节在对应 Owner 的阶段规定。
 
 - **`knowledge`**，由 R&D 知识台账提供：`family_status`、`record_conclusion` 与 `check_before_research`。红线：条目只追加，
-  不持有任何受保护数值。
+  不持有任何受保护数值。构件检索返回准确规则版本、适用范围、证据等级与反例；正向发现和负向结论同样保存，
+  复用进入新 Intent，不继承策略资格。完整契约见 [研究知识台账](../owners/rd.zh.md#target---研究知识台账)。
 - **`qualification`**，由 Qualification 提供：`submit_candidate`、`status`、`verdict`、`forward_register` 与
   `forward_status`。红线：任何 holdout 数值都不出去。今天 Qualification 把每个负向终态都按字节相同地投影为
   `CLOSED_NOT_QUALIFIED`，因此 `verdict` 只答 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`。内部评估可区分通过、等价无效与
   证据不足，但用户于 2026-10-05 确认这些类别保持受保护；任何公开负向判决都不关闭研究机制。
-- **`scan`**，由 Scanner 提供：`create_schedule`、`list_schedules`、`scan_now`（发现视图）与 `results`。红线：扫描结果从不是
-  激活权威。
+- **`scan`**，由 R&D 提供按需只读机会发现与结果读取，不提供扫描计划 CRUD；运行策略自行持续消费行情判断机会。
+  扫描结果不是激活权威。见 [R&D 按需发现](../owners/rd.zh.md#target---按需只读机会发现)。
 - **`governance`**，由 Strategy Governance 提供：`list_eligible`、`propose_activation`（Paper 或 Live）、`pause`、`retire`
-  与只读的 `capital_policy`。红线：激活只能提议，由用户在 Dashboard 批准。
+  与只读的 `capital_policy`。红线：请求本身不创建激活。用户在 Dashboard 批准适用政策与权限，试盘达到冻结条件后自动转正；
+  初次进入试盘的批准方式仍待确定。
 - **`portfolio`**，由 Portfolio 提供：`account_state`、`exposure`、`performance` 与 `capacity`，全部只读。
 - **`operations`**，一个 server 汇集 Runtime、Risk、Execution 与可观测性的只读视图，使代理面对的 server 不多：
   `instance_status`、`readiness`、`orders`、`fills`、`drift` 与 `alerts`。红线：kill switch 只可读，只有用户本人能触发它。
 
-**真钱红线。** 没有任何 MCP 工具下单，也没有任何工具触及真钱。交易侧的每个动作都由代理提议、由用户批准。
+**真钱红线。** MCP 不直接下单或接触交易凭据。生命周期效果必须在用户批准的政策与授权内，
+符合冻结条件的自动转正由 Governance 决定，不要求每次重复人工批准；当前真实效果仍未准入。
 
 **长时间运行的工作。** 用户问到超出一次工具调用的工作在哪里运行。答案是让每种工作留在它的生命周期本来所在的地方：
 

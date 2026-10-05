@@ -473,10 +473,14 @@ the run, so a replay reads the same data.
 - Acceptance registers an experiment, rejects an invalid preregistration, runs its frozen Artifact, and reads
   the complete attempt and Iteration Decision back after a session restart, without any protected detail.
 
-**Later servers (TARGET).** Each is a blueprint; its details are fixed when its stage comes.
+**Additional domain catalogs (TARGET).** These group existing Owner capabilities, not mandatory separate departments
+or processes; the [service blueprint](./) defines their composition. Each remains a blueprint until its operation contracts pass.
 
 - **`knowledge`**, served by R&D's knowledge ledger: `family_status`, `record_conclusion` and
-  `check_before_research`. Red line: entries are append-only and hold no protected value.
+  `check_before_research`. Red line: entries are append-only and hold no protected value. Construct search returns
+  exact rule versions, applicability, evidence grades and counterexamples. Positive findings and negative conclusions
+  are retained alike; reuse enters a new Intent without inheriting strategy eligibility. See the
+  [Research knowledge ledger](../owners/rd/#target---research-knowledge-ledger).
   `docs/plans/research-knowledge-ledger-seed.md` is a draft first-entries import from `research/ronnie`
   (constructs, mechanism statuses, the development-only leak rule) for whoever builds this server next.
 - **`qualification`**, served by Qualification: `submit_candidate`, `status`, `verdict`, `forward_register` and
@@ -484,11 +488,12 @@ the run, so a replay reads the same data.
   byte-equivalently as `CLOSED_NOT_QUALIFIED`, so `verdict` answers `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; the
   internal assessment may distinguish pass, equivalence to null, and insufficient evidence, but the user confirmed on
   2026-10-05 that those categories remain protected. No public negative verdict closes a research mechanism.
-- **`scan`**, served by Scanner: `create_schedule`, `list_schedules`, `scan_now` (the discovery view) and `results`.
-  Red line: a scan result is never activation authority.
+- **`scan`**, served by R&D for on-demand read-only discovery/results, with no scan schedule CRUD. Running strategies
+  already consume/evaluate market data continuously. Results are never activation authority. See
+  [R&D discovery](../owners/rd/#target---on-demand-read-only-opportunity-discovery).
 - **`governance`**, served by Strategy Governance: `list_eligible`, `propose_activation` (Paper or Live), `pause`,
-  `retire` and a read-only `capital_policy`. Red line: an activation is only proposed; the user approves it in the
-  Dashboard.
+  `retire` and a read-only `capital_policy`. Red line: requests alone create no activation. The user approves applicable policy and authority in Dashboard;
+  trial promotion then follows frozen conditions automatically. The initial trial-entry approval mode remains to be defined.
 - **`portfolio`**, served by Portfolio: `account_state`, `exposure`, `performance` and `capacity`, all read-only.
 - **`operations`**, one server over read-only views of Runtime, Risk, Execution and observability, so an agent faces
   few servers: `instance_status`, `readiness`, `orders`, `fills`, `drift` and `alerts`. Red line: the kill switch is

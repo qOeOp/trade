@@ -69,8 +69,8 @@ Qualification 的只记录 Forward Record 是隔离的模拟证据能力，不�
 
 Governance 决定授权 generation、资金包络和生命周期；`APPLIED` 回执才证明 Runtime 已应用。
 活动 generation 续期要求新鲜资格、表现、暴露与退化证据；缺失时阻止新增风险，保留原 decrease-only 安全路径。
-Scanner 定时评估部署条件并向 Governance 提议，逐策略隔离缺口，不启动 Runtime。宿主唤醒研究代理与
-服务持有 Scanner/前向任务是不同职责，Dashboard 不拥有这些业务状态机。
+R&D 提供按需只读机会发现，运行策略持续消费行情判断入场，不设置额外定时扫描或部署提案部门。
+Governance 直接判定冻结上线与生命周期条件；宿主唤醒研究代理，服务持有各自任务，Dashboard 不拥有业务状态机。
 
 未知效果不能重下、释放承诺或当成失败。Runtime readiness、事故、对账 drift 与 Risk hard stop 按各自
 权威事实进入恢复；Execution 只在完整活动 fence-set 允许的动作交集内撤单、减仓、清仓和回读。
@@ -80,7 +80,7 @@ Paper、Live 与真实资金均不由研究、前向或文档自动准入。
 
 ## 用户界面与服务验收
 
-自研 Dashboard 通过 Sources、Research、Hypotheses、Artifacts、Backtests、Qualification、Scanner、Runtime
+自研 Dashboard 通过 Sources、Research、Hypotheses、Artifacts、Backtests、Qualification、Runtime
 与 Operations 展示同一身份的事实、未决原因和允许动作。日志、图表、操作完成与代理解释不创建研究决定、
 资格或部署事实。修改提交后继 JSON，不原地编辑 Artifact。只有[Dashboard](./dashboard/)已准入的路由和原子可实现。
 

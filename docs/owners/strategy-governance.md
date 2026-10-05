@@ -18,6 +18,17 @@ allocation; it does not produce backtest qualification, fills or profit measurem
 - R&D owns diagnosis, successor changes and new backtests; successors qualify again and start new trials without inheriting old results, stage decisions or authorization.
 - Strategies express signals and necessary protection rules, not their own eligibility, promotion, unload, pool membership or allocation. Dashboard provides selection and readback.
 
+The target no longer depends on a separate Scanner deployment proposal or periodic match. Governance evaluates
+approved frozen conditions directly from bounded Qualification, Portfolio and Runtime/Risk/Execution facts; R&D
+on-demand discovery is neither deployment evidence nor authority. The legacy `ScannerConditional` contract below
+is migration compatibility and remains rejected as `ConditionalScannerNotAdmitted` today. A named target policy version
+keeps eligibility, capital, authority and recovery constraints rather than lifting evidence requirements on old paths
+or silently reinterpreting fields.
+
+Equal pool division uses a new target policy version; sealed priority ranking/capped allocation below retains its
+original meaning. Do not reinterpret old fields for equal division or let each node allocate the whole pool again.
+Governance publishes allocation from one effective membership cut.
+
 This is target business policy. Condition choices, normative stage facts and versioned handoffs still need completion.
 It cannot silently rewrite sealed contracts, authorization modes or effect admission below. Implementation must connect
 the corresponding Owners without a second order, account or qualification engine.

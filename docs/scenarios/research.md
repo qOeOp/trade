@@ -5,7 +5,7 @@ exploration separate from protected qualification.
 
 ## Research scope and autonomy
 
-Research admits perpetuals, spot data/backtests and spot/perpetual two-leg strategies. R-1 first acceptance remains Binance USDT perpetuals. Spot intake and multi-leg hosting require their own integration and acceptance; no Paper/Live path is admitted.
+Research admits perpetual/spot, spot/perpetual pairs and source-bound historical FX, commodity and index research. R-1 first acceptance remains Binance USDT perpetuals. Spot intake and multi-leg hosting require their own integration and acceptance; no Paper/Live path is admitted.
 
 <a id="user-story-and-acceptance-target"></a>
 
@@ -30,14 +30,14 @@ For example, coding coin clustering when the protocol requires week clustering i
 changing a protocol that originally chose coin clustering to week clustering is a protocol revision. Neither
 makes old results independent evidence for the new protocol.
 
-| User expectation                                                | Observable result for agent and user                                                                                                                                                                                                                             | Authority and failure path                                                                                                                           |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Start from a source and question, then explore within the theme | Source quality, mechanism, alternatives, discriminating prediction, minimum effect of interest, trial family, and variant set are frozen before result reads; a new family has distinct lineage                                                                  | Source Intake and R&D receipts; sources are data, and unregistered or out‑of‑scope experiments are refused                                           |
-| Use only data available at the time                             | Point‑in‑time universe rule, listing and delisting treatment, data version, costs, funding, and capacity identity are frozen with the request; every agent data read and trial is traceable                                                                      | Market Data and R&D ledgers; protected partitions, missing data, and unreproducible scope fail closed                                                |
-| Author real order behavior                                      | The agent submits JSON `research.strategy-authoring.v1`; R&D compiles and seals an immutable artifact that can express expiring resting limits, linked stops and targets, partial exits, stop moves, holding limits, and slots assigned by actual fill order     | R&D authoring and build receipts; build and semantic failures do not become economic failures                                                        |
-| See a useful research report                                    | Under the same frozen data and execution model, report portfolio return, drawdown, risk‑adjusted results, holding and cash comparisons, concurrent exposure and overlap, costs, and capacity first; single‑strategy and random‑entry comparisons diagnose causes | Native Backtest Result and R&D Diagnosis; charts, agent prose, and run success create neither selection nor qualification                            |
-| Continue or stop unattended                                     | Each round records prediction, observed result, failure cause, mechanism change, and resource use; spend cap and method stop rules can halt it, while trial count is not a run quota                                                                             | R&D Iteration Decision and knowledge ledger; unknown results stay unresolved and weak evidence waits for new data                                    |
-| Evaluate independently and observe forward evidence             | Qualification may internally distinguish pass, equivalence to null, and insufficient evidence, but exposes only `QUALIFIED` or `CLOSED_NOT_QUALIFIED` to research; qualified candidates enter a record‑only forward stage with the same order and cost semantics | Qualification owns protected and forward facts; public nonqualification cannot close a mechanism, and forward recording cannot create trading orders |
+| User expectation                                                | Observable result for agent and user                                                                                                                                                                                                                                           | Authority and failure path                                                                                                                           |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start from a source and question, then explore within the theme | Source quality, mechanism, alternatives, discriminating prediction, minimum effect of interest, trial family, and variant set are frozen before result reads; a new family has distinct lineage                                                                                | Source Intake and R&D receipts; sources are data, and unregistered or out‑of‑scope experiments are refused                                           |
+| Use only data available at the time                             | Point‑in‑time universe rule, listing and delisting treatment, data version, costs, funding, and capacity identity are frozen with the request; every agent data read and trial is traceable                                                                                    | Market Data and R&D ledgers; protected partitions, missing data, and unreproducible scope fail closed                                                |
+| Author real order behavior                                      | The agent submits JSON `research.strategy-authoring.v1`; R&D compiles and seals an immutable artifact that can express expiring resting limits, linked stops and targets, partial exits, stop moves, holding limits, and slots assigned by actual fill order                   | R&D authoring and build receipts; build and semantic failures do not become economic failures                                                        |
+| See a useful research report                                    | Under the same frozen data and execution model, report portfolio return, drawdown, risk‑adjusted results, holding and cash comparisons, concurrent exposure and overlap, costs, and capacity first; single‑strategy and random‑entry comparisons diagnose causes               | Native Backtest Result and R&D Diagnosis; charts, agent prose, and run success create neither selection nor qualification                            |
+| Continue or stop unattended                                     | Each round records prediction, observed result, failure cause, mechanism change, and resource use; spend cap and method stop rules can halt it, while trial count is not a run quota                                                                                           | R&D Iteration Decision and knowledge ledger; unknown results stay unresolved and weak evidence waits for new data                                    |
+| Evaluate independently and observe forward evidence             | Qualification may internally distinguish pass, equivalence to null, and insufficient evidence, but exposes only `QUALIFIED` or `CLOSED_NOT_QUALIFIED` to research; record‑only forward is optional simulation evidence; qualified candidates follow the real trial route below | Qualification owns protected and forward facts; public nonqualification cannot close a mechanism, and forward recording cannot create trading orders |
 
 ### Concurrent projects and imported data
 
@@ -46,6 +46,41 @@ family rules and experiment identities remain frozen separately. Handoff resumes
 resetting census or independence. See [R&D project admission](../owners/rd/#target---research-projects-and-concurrent-agents)
 and [Market Data imports](../guide/market-data-intake/#target---external-historical-file-imports). Files cannot directly
 become backtest market facts.
+
+### Factor discovery, durable knowledge and reuse
+
+During R-1 iteration, a user discovers a promising indicator, pattern or rule and wants a future agent to find and
+reuse it. Sources at `0725a7b3f89902e27cd421a18b4b879a13268534` include
+`research/ronnie/loop/ledger.txt`, `loop/r1_select.py` and `loop/WORKFLOW_NOTES.md`.
+The ledger records cross-loop signals and the runner tests R-1 constructs. Historical figures and its admission
+rules are not confirmed product advantages or default thresholds.
+
+The replay is: Backtest produces an exact exploratory Result → R&D checks attempt/census and diagnosis → the R&D
+knowledge ledger admits construct definition, applicability, effect and evidence → a successor agent searches
+`knowledge` and cites an entry → preregisters a new Intent and authors a new Artifact → Backtest evaluates portfolio
+return and risk. Qualification and trials still use their respective Owners; knowledge cannot trigger trading.
+One positive result is recorded as an exploratory finding, with insufficient evidence explicit when replication or
+statistical support is absent. Negative, invalidated and untested scopes remain visible. Restart retains entries,
+retries create no duplicate evidence, and protected values and reasons never enter knowledge.
+
+This fits existing R&D, using Market Data identities and Backtest results without a new factor department or another
+backtest engine. A database instance may be shared; entry writes, versions and queries belong only to R&D interfaces.
+See the [Research knowledge ledger](../owners/rd/#target---research-knowledge-ledger) for entry, reuse and failure
+acceptance. This is a target path: ledger implementation, construct declarations, estimators and end-to-end search/reuse
+acceptance remain missing. Documentation does not establish current agent availability.
+
+### On-demand discovery and running strategies
+
+At `0725a7b3f89902e27cd421a18b4b879a13268534`, `research/ronnie/scan/scan.py` finds closed daily trend signals
+across Binance USDT perpetuals and reports new signals, in-trend, flat and trigger distance without accounts/orders.
+Its top-150/spot intersection is a prototype scope, not a product default.
+Replay: user/agent chooses Artifact/universe → R&D admits an on-demand read-only job → Market Data binds inputs/scope
+→ shared native Host warms up/evaluates → R&D persists timestamped discovery → agent interprets or starts research.
+Reports include total, completed, excluded and incomplete instruments. Unknown/missing data is not no opportunity;
+reconstructed positions are not account facts. Running strategies already subscribe/evaluate through the native node;
+there is no separate scan schedule. Queries reuse pure judgment while isolating mutable state. Discovery creates no
+deployment proposal; Governance owns lifecycle. See [R&D on-demand discovery](../owners/rd/#target---on-demand-read-only-opportunity-discovery).
+Full discovery operations, shared Host integration and end-to-end acceptance remain missing capabilities.
 
 ### Qualified backtests, real trading trials and promotion
 
@@ -104,6 +139,51 @@ This admits target design only, not Paper/Live implementation, credential access
 implementation and sealed contracts do not change automatically with this target route. Migration requires versioned
 stage facts, permissions and acceptance before connecting the corresponding Owners; small size cannot bypass capital,
 risk, recovery or protected-data contracts.
+
+## Research story replay and capability gaps
+
+The source is `origin/claude/inspiring-gauss-pxaril` at `0725a7b3f89902e27cd421a18b4b879a13268534`.
+`research/ronnie/` contains 1007 files and 31 family `INTENT.md` files, including data/charts/results rather than one
+story per file. The 20 independently verifiable capability stories below cover every family Intent and cross-family
+source, loop, book, discovery and forward workflows. Paths are relative to `research/ronnie/`; bare directory names
+refer to their `INTENT.md`. This is contract replay against the architecture, not current runtime acceptance or adoption
+of prototype thresholds, statistical conclusions or historical holdout protocols.
+
+| Story | User goal and sources                                                                                                                    | Path, result and failure boundary                                                                                                               | Current gap                                                                                     |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| U01   | Interpret human methods and drawings; `community/INTENT.md; tv/; yt/; journal/score.py`                                                  | Agent interpretation → R&D provenance/annotations → frozen hypothesis; insufficient time evidence stays an outside claim                        | Bounded annotation/chart‑rule structure needs acceptance                                        |
+| U02   | Import data and replicate across markets; `altcoins, fxrevert, goldtrend, rangex, rangex2`                                               | Market Data admits source, clocks, price basis/revisions → Backtest; missing contract/cost facts cannot establish tradability                   | Scope defined; family‑specific data admission/Host integration missing                          |
+| U03   | Combine multiple bar windows; `mtf, timing`                                                                                              | R&D freezes closed/forming‑bar semantics → Market Data prepares → native Host; future values/inconsistent aggregation refused                   | Complex windows/warmup/input binding need acceptance                                            |
+| U04   | R-1 resting entries and partial exits; `loop/family_r.py; loop/r1_dynexit_fine.py; run_plan.py`                                          | JSON → R&D Artifact → native Backtest orders; unknown/fine‑data gaps stay unresolved without duplicate coarse fills                             | First acceptance; native readback/report/local refinement incomplete                            |
+| U05   | Compare stop and exit rules; `stops, exits; loop/r1_exits.py; roleflip/`                                                                 | Same entries/capital baseline → paired Backtest controls → R&D attribution; changing R units is not improved return                             | Bounded diagnostics/paired reporting need integration                                           |
+| U06   | Select filters and learned parameters; `filters, filters2, range6; loop/r1_select.py; loop/r1_select_val.py`                             | R&D registers all variants/training selection → frozen Backtest estimation → diagnosis; reuse is not independence                               | Construct/model authoring, selection history and estimators incomplete                          |
+| U07   | Express multiple price mechanisms; `patterns, patterns2, setups, screen, range, range2, range3, range4, range5, volume2`                 | One JSON/Artifact/Host expresses patterns/context → Backtest; no module per mechanism, unsupported rules refused                                | Extend bounded authoring constructs; a narrow breakout example proves no general coverage       |
+| U08   | Study mechanisms before simulating trades; `oversold, volume; community/INTENT.md`                                                       | R&D registers events/controls → Backtest statistics → findings; first‑touch/correlation is not portfolio return/qualification                   | Bounded event‑study report gap within existing data/report capabilities                         |
+| U09   | Study funding and market state; `carry, short; loop/fetch_funding_ext.py; loop/fetch_metrics.py; loop/overlay_x2.py`                     | Market Data economics/availability → Host/Backtest → R&D; settlement costs and signal reads require distinct proof                              | OI/taker flow/historical availability/field consumption need acceptance                         |
+| U10   | Use macro calendars and stress inputs; `events; loop/r1_macro.py; loop/r1_crypto_stress.py`                                              | Market Data releases/vintages → causal features → Backtest; delayed latest revisions are not PIT                                                | Source/revision/event‑calendar admission needs integration                                      |
+| U11   | Run fixed and dynamic continuous books; `trend, combo; trend/books_pit.py; loop/ensemble.py`                                             | R&D freezes membership/subrules → Market Data timeline → one Backtest equity path; selection does not reset holdings                            | Versioned timeline/capacity contract; current fixed path cannot satisfy B3                      |
+| U12   | Two‑leg carry and pair trades; `carry; loop/family_h.py`                                                                                 | One frozen Artifact → native multi‑leg orders/account replay; actual fills, fees and margin per leg, no assumed atomicity                       | Multi‑leg Host, netting/hedging and partial‑leg failure policy need acceptance                  |
+| U13   | Measure sizing and risk‑management effects; `risk; loop/r1_portfolio.py`                                                                 | Frozen sizing/risk policy → shared native account comparisons → reports → R&D; experiments cannot override production pool policy               | Policy/cost/capital‑competition binding and reports incomplete                                  |
+| U14   | Verify source fidelity and fills; `xcheck/compare.py; replay/src/main.rs; tv_line_fidelity.py; checks.py`                                | Source annotations/exported intents → native Backtest comparison → R&D repair successor; Python is no second engine                             | End‑to‑end repair/corresponding event evidence needs acceptance                                 |
+| U15   | Diagnose decay, attribution and false edges; `loop/attrib.py; loop/bucket_audit.py; loop/decay_diagnosis.py; loop/gatekeeper_book.py`    | Backtest results/stratified controls → R&D versioned estimation/full census → continue/stop; retain losses, seal protected diagnosis            | Statistical reporting/estimators/selection decision integration incomplete                      |
+| U16   | Concurrent autonomous research and takeover; `RD_AUTONOMY.md; loop/PROTOCOL.md; loop/RETROSPECTIVE.md; loop/LOG.md`                      | Shared budgets/census → durable jobs → agent judgment → R&D Decision; atomic budget contention, unknown jobs retained                           | Concurrent projects/full research catalog/report‑decision readback need acceptance              |
+| U17   | Retain and reuse factor knowledge; `loop/ledger.txt; loop/WORKFLOW_NOTES.md; loop/r1_select.py`                                          | Counted Result → R&D knowledge → search → new Intent/Artifact; positive estimates are not automatic stability, reuse grants no eligibility      | Knowledge ledger/construct declarations/search consumer unimplemented                           |
+| U18   | Query current market opportunities; `scan/scan.py`                                                                                       | On‑demand R&D query → Market Data → shared Host → bounded discovery; no scan schedule, inferred state is not a position                         | Read‑only discovery operations/native evaluation integration need acceptance                    |
+| U19   | Observe future evidence and seal qualification feedback; `loop/FORWARD_PLAN.md; trend/forward_b3.py; journal/score.py; loop/CRITERIA.md` | Frozen candidate → two‑level public qualification; qualified backtests precede real trials, optional simulation, no copied prototype thresholds | Protected isolation specified; real trial stages/condition choices need freezing                |
+| U20   | Deploy findings and return to iteration; `User-approved lifecycle; product extension of forward research needs`                          | Governance pools/stages → native node → Portfolio → promote or unload to R&D; release allocation immediately, protect residual exposure         | Target authority split; no live effect admission, stage/capital/recovery chain needs acceptance |
+
+### From replay to development tasks
+
+Each responsibility path is assigned; the last column still requires delivery. Start a task at one producer/consumer
+handoff and name version, input, sole fact writer, success/refusal/unknown outcome and restart readback. A defined path
+is not current runtime success. U04 is first end-to-end acceptance; U11/U12/U17/U18 test dynamic books, multi-leg,
+knowledge reuse and discovery without implementing all mechanisms at once. U03/U07/U08/U14 reuse constructs and input
+binding. Extend native results and versioned estimators instead of new services per statistic. Unsupported bounded
+expressions return gaps for an implementation successor, not arbitrary scripts, a second simulator or unverifiable edge.
+
+First-trial approval mode, promotion options/thresholds and formal retention criteria still require user-frozen policy,
+not new departments. Other gaps are versioned interfaces/acceptance within assigned capabilities, giving future agents
+concrete stories to develop. This target grants no real-money effects.
 
 ## R-1 resting entries and staged exits
 
@@ -213,6 +293,14 @@ not mutation of a sealed run or replacement digest; protected request/result equ
 Automatic orchestration stays within frozen market/time/source/budget/protected permissions; failures name the
 reason rather than widen budgets or invent paths. On-demand acquisition is registered preparation, not arbitrary
 fetch authority or permission to rewrite sealed data/results.
+
+A logical job is distinct from each physical attempt. Before execution, finish registered preparation and seal the
+exact run request. An admitted attempt never changes request, snapshot or data digests. New fine-data identities form
+named successor attempts admitted by R&D; the user job may track them while retaining old attempts, resources and
+read exposure. Resolve an unknown predecessor before creating a successor. Resume an unresolved point only after
+measurement proves checkpoint/input compatibility with native public continuation boundaries; otherwise replay
+natively and deterministically from a valid start. Replay cannot double-count predecessor fills, fees or results.
+Selection cites one complete exact request/result pair, not a fabricated aggregate of physical attempts.
 
 **Nautilus reuse and isolation.** Modify/integrate the Nautilus retained in this repository rather
 than write another backtest engine. Prefer native aggregation, order state, matching and account events.

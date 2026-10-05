@@ -1898,6 +1898,14 @@ This target needs Market Data membership custody, versioned authoring/Plan suppo
 Those are bounded dependencies of this one story, not separate registries, a second simulator, or current
 implementation evidence.
 
+Membership timelines use a new contract version: Intent/Plan freeze selector, rebalance calendar/time zone, candidate
+scope and capacity. Market Data appends immutable receipts for each decision cut, binding source versions,
+event/availability cuts, ranking and membership changes. Replay binds the complete timeline identity/digest; each
+strategy frame sees only the effective prefix. Missing membership facts remain unresolved. Legacy fixed requests and
+single selection receipts do not acquire this meaning. Multiple Donchian subrules may share one portfolio Artifact
+without becoming multiple running instances or duplicating account allocation; bounded subrule state/attribution
+must still replay.
+
 ### Members: a parameter
 
 Research scope is the only member-set source (P0), with a provisional upper bound of 16, fixed after I1.5

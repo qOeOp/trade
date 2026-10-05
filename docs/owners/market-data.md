@@ -20,6 +20,34 @@ fixes byte layouts, field order, integer widths, and digest domains. They are no
 encoding is a different fact, but they answer only how a value is spelled, never who may write it or what it
 means. Skip them unless you are implementing or verifying an encoding.
 
+## TARGET - Research economic data and availability
+
+Beyond the Binance perpetual first acceptance, historical research includes spot/perpetual pairs and explicitly
+based FX, commodities and indices. This input scope grants no new live venue authority. Market Data extends existing
+Nautilus models, catalog and Data Clients, without a factor-data service. Funding, OI, taker flow, macro releases and
+historical universe facts use the same admission, coverage, revision and bounded read interfaces. R&D owns construct
+definitions/findings; Market Data owns market facts.
+
+Each family declares source, instrument/unit and market basis (bid/ask, spot, index, mark or actual contract), event,
+actual availability and observation times, revision/vintage, calendar/time zone and missing-value meaning. Continuous
+futures additionally declare roll/adjustment rules and are not a single tradable contract. Rows retain these identities;
+equal timestamps do not imply equal availability. Unsupported types remain named gaps, never fabricated zeroes.
+Native `CustomData` can carry extensions but proves neither source availability/protection nor Host consumption.
+
+Funding has distinct consumption roles: settled events can charge replay costs; trading signals require evidence that
+the row was public before the decision cut. `calc_time == fundingTime` proves settlement identity, not publication.
+The recorder's `availability_ns` is observed retrieval time, not settlement plus an invented delay. Retrieval of old
+history today does not establish historical signal availability. Historical signal inputs need admitted publication/
+availability evidence; absent proof leaves a named refusal or unresolved dependency, never future settlement knowledge
+in a past signal. Forecast and settled funding have distinct types. The measured 11.6-second lag is one sample, not
+an upper bound or default correction. Consumers share availability-cut rules while cost settlement and signal access
+remain separately frozen semantics, rather than one ambiguous timestamp.
+
+Macro inputs require historical release/vintage or equivalent evidence. Today's latest values delayed two days are
+not point-in-time proof. Revisions retain old versions without changing what a past strategy knew. OI/taker flow also
+declare field availability and coverage. Acceptance covers source clocks/units, gaps, revisions, future-value pollution
+and consumer consistency. Named scope alone does not establish admission or current replay availability.
+
 ## Implementation admission ledger
 
 This ledger is the greppable index of what the contract below has actually reached. It grants no permission by
@@ -3514,9 +3542,9 @@ published, and field `FUNDING_TIME` is the settlement instant in nanoseconds. Bo
 `fundingRate` endpoint, asked for the last two settlements at or before the scope's event-effective coordinate, so a
 settlement at exactly that coordinate is included and one a millisecond later is not.
 
-- **Knowable at settlement.** A settled rate is knowable at its own settlement instant. The public archive's
-  `calc_time` and the endpoint's `fundingTime` are equal, and so are the rates, for all 93 BTCUSDT settlements of
-  2024-01.
+- **Settlement identity is not publication availability.** Equal archive `calc_time`, endpoint `fundingTime`
+  and rates across all 93 BTCUSDT settlements in 2024-01 establish matching settlement facts, not visibility to
+  a strategy at that instant. Signal use requires the availability evidence specified above.
 - **Absence is the absence of rows, never a value.** Before a member's first settlement, and once the settlement that
   the last two imply is overdue at the coordinate, the member has no funding rows, and the client never states a zero
   rate in their place. A consumer that needs funding refuses on the missing field. An endpoint that cannot be reached
@@ -3822,9 +3850,9 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
   shape for when a strategy first declares the need.
 - **Look-ahead: a funding fact's availability instant is settlement plus publication lag, never settlement alone.**
   One measured sample puts the lag at 11.6 s - one sample, not a bound; more samples are needed before any lag value
-  is treated as an upper bound here. Until a bound is measured and each settled row stores its own availability
-  instant, settled funding stays what it is today: a P&L input to a run, never a strategy input, because no consumer
-  could state when a strategy could first have seen it. Backtest and the live runtime read funding through the same
+  is treated as an upper bound here. A signal consumer needs each row's verified availability
+  instant; a measured lag bound alone cannot replace it. Current settled funding consumption is P&L-only; target
+  signal use requires historical availability evidence and a separately admitted Host input. Backtest and the live runtime read funding through the same
   surface and apply the same availability cut; a settlement-only cut in one and a settlement-plus-lag cut in the other
   would let a backtest see a fact before any live strategy ever could.
 - **Public data only.** Any HTTP client the recorder is built over refuses to hold a credential, exactly as the

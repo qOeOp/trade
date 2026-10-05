@@ -19,8 +19,7 @@ UI、MCP transport 与 workflow 都不保存业务事实，也不直接交易。
 4. 冻结候选进入独立保护 Qualification。
 5. Strategy Governance 综合资格 生命周期证据 资金政策 完整请求 Authorization Lineage 和显式
    Autonomous Policy Authorization，形成部署决定。
-6. Scanner 可以定期提交证据提案；提案只有在既有已授权无人值守生命周期血缘和独立 Governance
-   决定中才能合法继续，Scanner 永不部署。
+6. R&D 可按需查询市场机会，复用策略判断但不生成部署提案。运行策略持续消费行情，Governance 直接判定冻结生命周期条件。
 7. Runtime、Risk 与 Execution 经过绑定许可的唯一写链执行自动模拟或实盘交易。
 8. Portfolio 投影只读账户 暴露 表现 容量 交互和 degradation 事实；Governance 对完整 contender set
    确定分配，Risk 只执行 generation envelope 并联结账户事实 open order 与 liability，不成为 allocator。
@@ -52,7 +51,7 @@ Authorization operation manifest 和 Autonomous Policy Authorization 一直贯�
 
 - 自然语言、Agent 计划、通知或事件永远不是交易权威。
 - 保护评估不得反馈同一研发循环。
-- Scanner 不得启动 Runtime。
+- 只读机会发现不得启动 Runtime。
 - Risk 不得签发订单命令，Execution 不得接受未绑定许可的命令。
 - 外部效果未知时，不得宣称成功或闭合，也不得启动新 generation。
 - 活动 generation 不得靠沉默保留。Eligibility 丢失或必需 performance exposure degradation 证据过期

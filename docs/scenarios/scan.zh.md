@@ -1,73 +1,37 @@
-# 定时扫描场景
+# 按需市场扫描场景
 
-Scanner 是定期判断哪些受治理策略当前适用的慢轨。每轮只生成一个终态 Scanner Receipt；只有 `PROPOSED` 携带部署提案，永不执行部署或交易。
+用户或外部代理请求「现在有哪些标的符合这份策略条件」。扫描属于 R&D 的只读发现能力，不新增部门、
+定时扫描任务、部署提案或交易权限。运行策略已经持续消费行情判断机会，不由扫描任务唤醒。
 
-## Entry / 入口
+## 入口
 
-准确 schedule-definition version、scan-scope identity/version 和规范无歧义 due-slot boundary 在执行前
-派生唯一稳定 attempt identity。clock epoch 与 continuity 是准入证据，不属于该身份。重复投递 并发
-重启或迟到执行都加入该 attempt 与终态回执；scope 或 clock continuity 未知、due slot 冲突时不创建
-attempt 或提案。扫描内部没有交互式批准。
+请求固定 Artifact 版本、市场与标的选择规则、窗口、评价截面/时钟和资源上限。允许未部署、未取得资格的
+Artifact 做观察，但不把它的信号说成已合格机会。调用方提交稳定 request 身份；相同含义重试加入同一 job。
 
-## Value path / 价值路径
+## 价值路径与交接
 
-Strategy Loader 从 Strategy Governance 读取可部署 ArtifactRef 激活条件 数据要求 版本和生命周期限制。
-Market Snapshot 为每个策略绑定外部提供的 universe-selection rule、所需标的 窗口 质量规则 PIT 事实、
-calendar session/time zone corporate action 历史 membership 和 Market Semantics Compatibility 身份，
-或记录负面 disposition。
-Strategy Matcher 独立评估每个策略。若已发布激活条件要求 Capacity View，它必须绑定准确容量 scope
-候选无关 capacity scope、账户事实截面、估值与流动性输入、资金池方法与假设版本、测量时间和
-有效期。策略 generation 特定经济条件保持为独立输入。
-Proposal Builder 只收录证据完整的匹配。
-一个策略缺失或失败的输入不得压制其他策略的有效提案。
+1. R&D 接纳查询、检查访问范围与资源，持久保存 job 身份。
+2. Market Data 按类型化接口提供已验证数据引用、标的成员和可得截面，缺口按标的保留。
+3. R&D 的观察 Host 复用封存工件和原生策略判断能力，按准确输入前缀暖机/评价；不连接执行权限。
+4. R&D 提交结果，代理或 Dashboard 读回并解释。大范围查询可异步完成，MCP/聊天退出不取消它。
 
-## Owner handoffs / Owner 交接
+## 结果与证明
 
-Strategy Governance → Scanner 提供注册表事实与激活条件。Market Data → Scanner 提供带时间戳的
-市场事实。Portfolio → Scanner 可选提供仅供提案规划使用的 Capacity View。Scanner → Strategy
-Governance 提交终态 Scanner Receipt，不存在 Scanner → Runtime 交接。
-Governance 只能在既有已授权无人值守生命周期血缘内考虑 `PROPOSED`，并提交自己的生命周期决定和
-Capital Allocation Disposition。
+结果绑定工件、数据版本、评价时间和标的集合，返回信号、规则推演状态、触发条件与距离，以及总数、
+完成数、排除项与未完成原因。「趋势中」是历史规则推演，不是真实持仓；真实账户状态另从有权读面查询。
+空结果可证明完成且没有信号；过期、缺数据和未知执行不能证明没有机会。单标的失败不隐藏其他完成结果，
+但报告不能把部分覆盖称为全市场完成。
 
-## Proof / 证明
+## 失败、恢复与边界
 
-每轮只以 `PROPOSED` `NO_MATCH` `INSUFFICIENT_DATA` `COMPLETED_NO_PROPOSAL` 或 `FAILED` 之一闭合。完整回执绑定相等 expected 与 observed 集，并为每个成员绑定终态 disposition。
-至少一个策略证据完整且匹配时为 `PROPOSED`，提案只含这些策略且保留其他负面 disposition。
-全部策略可评估且均无匹配时为 `NO_MATCH`；无匹配 无 `CONDITION_FAILED` 且有数据阻断时为
-`INSUFFICIENT_DATA`。完整集合没有 `MATCHED` 且至少一个本地 `CONDITION_FAILED` 时为
-`COMPLETED_NO_PROPOSAL`，并保留每个成员。`FAILED` 仅属于 batch，且只表示 `INCOMPLETE_FAILED` 或有
-独立证据的 `BATCH_OPERATIONAL_FAILED`。不完整回执按以下方式闭合：expected 成员已知时绑定准确 expected
-observed 和 missing 集；成员未解析时则绑定权威未解析 disposition observed 事实 missing-members-unavailable 标记和
-终态原因，绝不编造成员。operational failure 必须绑定 `SCHEDULER_ORCHESTRATION_FAILURE`
-`SCANNER_SERVICE_FAILURE` 或 `SHARED_DEPENDENCY_OPERATIONAL_FAILURE` 之一，以及 failure identity、证据
-source cut 与 Time Evidence。只有有独立证据的上述 batch 系统故障或 disposition 集不完整时，才先闭合为 batch `FAILED`；
-包括 `CONDITION_FAILED` 在内的本地 disposition 都不能创建该 batch
-failure。总优先级为独立 batch `FAILED`、完整 `PROPOSED`、完整 `COMPLETED_NO_PROPOSAL`、
-`INSUFFICIENT_DATA`、`NO_MATCH`。
+- 重启读原 job/结果；未知任务先解析原身份，不重复提交新任务或提前释放资源承诺。
+- 只消费获准范围与实际可得输入，不能借查询绕过保护数据或研究暴露台账。
+- 同工件、输入前缀和时钟下，纯判断与运行策略一致；观察实例隔离可变状态，不能改真实订单/持仓。
+- 结果不签发资格、治理授权、交易意图或订单。后续交易仍由 Qualification、Governance 和原生节点接纳。
 
-## Development outcome / 开发结果
+## 实现与验收
 
-- **受益者** - 需要定期发现机会又不能让定时器直接部署或交易的策略运营者。
-- **可观测结果** - 每次定时触发覆盖完整受治理注册表，并返回准确匹配 负面处置 缺失成员和唯一终态回执。
-- **未改变伤害** - 过期或数据不足策略可能被静默提升，有效匹配可能被其他失败隐藏，Scanner 也可能变成隐蔽部署权威。
-- **终态负例** - `NO_MATCH` `INSUFFICIENT_DATA` `COMPLETED_NO_PROPOSAL` 或 `FAILED` 不产生部署；Governance 只能考虑完整 `PROPOSED` 回执中的准确成员。
-
-## Fail closed and forbidden transitions / 失败关闭与禁止转换
-
-- 历史不足 行情过期 标的身份未知或生命周期不允许时，只阻断依赖它的策略。
-- 被数据阻断的策略不能进入提案，也不能隐藏其他策略的完整匹配。
-- `INCOMPLETE_FAILED` 导致 disposition 集不完整或有独立证据的 `BATCH_OPERATIONAL_FAILED` 生效时，
-  已有匹配也不能生成 `PROPOSED`。
-- 不完整 `FAILED` 视图只在 expected 已知时显示准确 missing，否则显示未解析 disposition 和
-  missing-members-unavailable 标记；operational `FAILED` 视图显示独立类型化 category 与 evidence
-  identity。两者都不能假装集合完整；本地 `CONDITION_FAILED` 改为让完整无匹配集合闭合为
-  `COMPLETED_NO_PROPOSAL`。
-- Governance 只能激活同一回执里的准确 matched proposal member，负面或非成员策略不能激活。
-- Portfolio 容量只是建议性事实投影，Scanner 不能据此分配资金。
-- 除非已发布条件明确要求，否则 Capacity View 是可选输入；一旦要求，任一字段缺失 过期 不可用 部分或身份不匹配都提交 `INPUT_UNAVAILABLE`，不能生成 `MATCHED`。
-- 提案不是激活、资格、交易意图或订单命令。
-- 提案只是证据，不是授权。即使准确匹配，缺少已授权无人值守 lineage 或独立 Governance 决定也不
-  创建 Runtime application。
-- Scanner 不能启动 Runtime、绕过 Governance 或重试外部交易效果。
-- cadence calendar time zone fold/gap misfire 或 backfill rule 变化时必须创建后继 schedule definition，
-  不能重新解释已提交 slot，也不能用 clock epoch 改写 attempt 身份。
+完整路径仍是目标；验收覆盖临时查询、空结果、部分缺口、重复请求、重启、资源停止与原生判断对照，
+并证明无订单、激活或账户写入。规范职责见 [R&D 按需发现](../owners/rd.zh.md#target---按需只读机会发现)。
+旧定时部署 Scanner 的封存回执保留在 [兼容迁移契约](../owners/scanner.zh.md#目标定位与旧契约迁移)，
+不作为本场景的前置、结果或新开发路线。

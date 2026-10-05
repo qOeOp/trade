@@ -1,5 +1,19 @@
 # Scanner
 
+## Target role and legacy contract migration
+
+The product target no longer retains a separate Scanner department or its deployment-proposal route. On-demand market
+search belongs to [R&D discovery](./rd/#target---on-demand-read-only-opportunity-discovery),
+reusing sealed strategies and native evaluation. Strategy Governance directly decides initial deployment, trial
+promotion, retention and retirement from eligibility, account/performance facts and frozen conditions. It needs no
+new scan-proposal producer, and opportunity signals are not a prerequisite for strategy deployment.
+
+The body below describes the legacy sealed Scanner contract and partial implementation for compatibility/migration,
+not a new product department. Governance currently rejects `ScannerConditional` with `ConditionalScannerNotAdmitted`;
+no production consumer is connected. Removing the target department cannot silently turn this legacy path into
+unconditional activation. Migration uses versioned governance conditions preserving qualification, authority, capital
+and recovery constraints. Old receipts/attempt identities remain; unadmitted scheduling/effects gain no admission here.
+
 ## Responsibility
 
 Run a scheduled slow-track match between governed strategies and current market conditions, then submit evidence-bound deployment proposals to Strategy Governance. Scanner never activates Runtime and never owns strategy lifecycle state.
