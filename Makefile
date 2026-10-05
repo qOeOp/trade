@@ -608,6 +608,14 @@ cargo-update:  #-- Update Rust dependencies (versions from Cargo.toml)
 cargo-check:  #-- Check Rust code without building
 	cargo check --workspace --all-features
 
+# Every merged commit on main gets its own `cargo check`, fast, instead of waiting for the next
+# scheduled full build/test run (main-compile-check.yml). This checks the workspace, not just the
+# library, with the same feature set and compile profile `rust tests` uses - CARGO_TEST_FEATURES,
+# not --all-features, so this never passes on a feature combination the real CI checks never run.
+.PHONY: cargo-check-main
+cargo-check-main:  #-- Check every target on main, CI's own feature set and profile
+	cargo check --workspace --all-targets --features "$(CARGO_TEST_FEATURES)" --profile $(CARGO_CI_PROFILE)
+
 # Security tool checks
 .PHONY: check-audit-installed
 check-audit-installed:  #-- Verify cargo-audit is installed
