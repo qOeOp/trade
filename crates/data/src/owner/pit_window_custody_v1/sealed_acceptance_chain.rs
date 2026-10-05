@@ -141,6 +141,11 @@ pub struct SealedAcceptanceCustodyChainSpecV1 {
     /// [`SealedAcceptanceInstrumentIncrementsV1::DEFAULT`] when `None`.
     pub instrument_increments: Option<SealedAcceptanceInstrumentIncrementsV1>,
     /// A raw, interval-close value with fixture-named unit identities when `None`.
+    ///
+    /// The custody intake refuses a value that differs from the one a head of its compatibility
+    /// scope already states (`MarketSemanticsScopeValueConflict`). A chain that names an earlier
+    /// entry's semantics in `source_semantics` shares that entry's scope, so it states that
+    /// entry's value here too.
     pub market_semantics_value: Option<MarketSemanticsValueSubmissionV1>,
     /// The Source Binding's market semantics; fixture-named rules when `None`.
     ///
