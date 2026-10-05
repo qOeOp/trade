@@ -4,6 +4,37 @@
 
 Unify Research and Develop under one business-fact Owner. The Research capability turns traceable hypotheses into falsifiable Research Intents; the Develop capability produces immutable Strategy Artifacts and bounded attended repairs. R&D owns both experiment and artifact identity, uses Backtest as an evidence-producing service, and does not own protected qualification, deployment, or trading authority.
 
+## TARGET - Research projects and concurrent agents
+
+Multiple external agents may work on distinct hypotheses, families or preregistered experiments in one research
+project. R&D owns its unique identity, approved theme and boundaries, participating principal scopes, shared product
+resource ceiling and project trial/data-exposure census. A project is an R&D business scope, not another Owner,
+hosted agent runtime or workflow. Existing sessions, TrialFamilies and reachable MCPs do not prove this target exists.
+
+Every new research operation resolves one project, its exact frozen boundaries and a trial/family identity. Families
+retain their own hypotheses and rules; host-specific ledgers cannot reset shared spend, trial counts or exposure.
+Reads enter the common exposure record with proven principal, data scope and lineage; unresolved attribution follows
+the existing conservative census and never proves unseen data. Protected seals, independence and qualification
+protocols remain separate; another agent identity cannot bypass them.
+
+Resource admission and commitments update atomically at one project budget cut and pass the admitted bound to the
+executing service. Unknown execution/settlement retains its commitment until an Owner receipt resolves it. Insufficient
+capacity rejects new work; agents cannot independently read a balance then over-admit. Each owning service persists
+its tasks. Cancellation, failure and restart reconcile actual consumption by stable identity without double release.
+Model consumption remains separately capped and reported by each host; unavailable usage is never zero.
+
+The same request identity and meaning join one operation/receipt. Distinct experiment requests, even with identical
+parameters, cannot be silently content-deduplicated and remain counted. Deliberate replication needs preregistration;
+reusing historical data creates no independent sample. Concurrent writes cannot overwrite immutable artifacts,
+results or terminal decisions; conflicts return the exact existing identity or disposition. Agent departure, limits
+or handoff neither changes the project identity nor cancels admitted service work; successors resume from authorization
+and Owner receipts.
+
+Acceptance covers two agents competing for the final budget unit, same-request retries, distinct-request replication,
+handoff after an unknown task, shared exposure and protected refusals. Admissions, consumption and census have the same
+meaning as serial processing, independent of hosts or response order. Define project binding in request admission
+context; do not mutate sealed artifacts or silently add fields to existing request versions.
+
 ## Authoritative facts owned
 
 - Immutable Research Source Provenance Record binding source identity, content digest, location, retrieval cut,

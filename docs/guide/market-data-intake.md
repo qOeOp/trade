@@ -16,6 +16,26 @@ Runtime, or Portfolio consumer will actually use.
 - A credential proves only that a principal may attempt authentication. It does not prove connector support,
   license or retention rights, point-in-time correctness, coverage, or suitability for backtesting.
 
+## TARGET - External historical file imports
+
+Users or external agents may submit external historical files for Market Data validation and custody, then consume
+validated references through Backtest. An R&D attachment is inert research material; upload success, readable bytes
+or a strategy opening CSV never admits market facts. This is a product target, not an existing import API.
+Reuse this repository's Nautilus conversion, canonical types and catalog storage before adding product extensions.
+
+Register immutable byte digest, provenance and rights, dataset type, instrument mapping, columns/units and time
+semantics. Validate actual strategy dependencies, including prices, quantities, funding, lifecycle, coverage and gaps.
+Missing fields retain unknown/not-applicable dispositions; never fabricate zero funding, placeholder volume or
+historical availability. Provider feeds and files use the same Source Binding, semantics, PIT, revision and admission.
+
+Only admitted imports materialize canonical observations and custody references. Backtest neither reads caller file
+paths nor bypasses data permissions. Repeating the same identity/meaning joins its receipt; corrected content creates
+a successor version with provenance/revision lineage, never overwriting prior run inputs. Import admission is not
+qualification: protected partitions, independence and required economic fields retain their respective contracts.
+
+Acceptance covers valid files reaching the same native backtest path, precise column/unit/time refusal, no invented
+missing values, upload retry recovery, revisions preserving old replay, and no R&D/Backtest bypass for unadmitted files.
+
 ## Admission sequence
 
 Use one fail-closed sequence for every provider:

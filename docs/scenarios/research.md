@@ -39,6 +39,34 @@ makes old results independent evidence for the new protocol.
 | Continue or stop unattended                                     | Each round records prediction, observed result, failure cause, mechanism change, and resource use; spend cap and method stop rules can halt it, while trial count is not a run quota                                                                             | R&D Iteration Decision and knowledge ledger; unknown results stay unresolved and weak evidence waits for new data                                    |
 | Evaluate independently and observe forward evidence             | Qualification may internally distinguish pass, equivalence to null, and insufficient evidence, but exposes only `QUALIFIED` or `CLOSED_NOT_QUALIFIED` to research; qualified candidates enter a record‑only forward stage with the same order and cost semantics | Qualification owns protected and forward facts; public nonqualification cannot close a mechanism, and forward recording cannot create trading orders |
 
+### Concurrent projects and imported data
+
+One research project supports concurrent external agents with shared product budget, trial and data-exposure ledgers;
+family rules and experiment identities remain frozen separately. Handoff resumes project/Owner receipts without
+resetting census or independence. See [R&D project admission](../owners/rd/#target---research-projects-and-concurrent-agents)
+and [Market Data imports](../guide/market-data-intake/#target---external-historical-file-imports). Files cannot directly
+become backtest market facts.
+
+### Restricted real trading trial target
+
+A strategy without formal qualification may use a separately designed restricted real trading trial path; it cannot
+fabricate `QUALIFIED` or reuse a formal qualification permit. Capital is expressed as margin committed: 20U margin
+at 5x leverage corresponds to approximately 100U notional exposure before fees. This illustrates units, not default
+order size, recommended leverage or guaranteed maximum loss. Freeze actual allocation ratios and bounds approved by
+the user. Split account allocatable margin capacity by approved ratios between a common trial pool and the formal
+strategy pool; 20%/80% or 30%/70% illustrate configuration, not a selected default. Each trial strategy also has an
+allocation cap, and all trial strategies share the pool ceiling. This allocates capital budgets rather than dividing
+actual positions: positions, resting orders and fee commitments still reconcile at account level. Ratio changes cannot
+automatically liquidate positions or reuse existing commitments; apply capital allocation change rules.
+Leverage/aggregate exposure caps, loss/stop/exit rules, expiry and explicit authorization contracts still require
+completion; absent required conditions admit no trial.
+Real account/fill facts require native node, Governance/Risk/Execution admission and reconciliation; neither strategy
+nor R&D calls trading APIs directly. Research and qualification evidence retain provenance, exposure and trial counts.
+
+This admits target design only, not Paper/Live implementation, credential access or actual orders. Existing formal
+trading qualification floors remain. The new trial route needs independently versioned, testable authorization facts;
+small size cannot bypass capital, risk, recovery or protected-data contracts.
+
 ## R-1 resting entries and staged exits
 
 **The first end-to-end acceptance example is the R-1 family.** Its market baseline is point-in-time Binance USDT
