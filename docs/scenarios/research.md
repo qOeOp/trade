@@ -65,7 +65,11 @@ research qualification process: backtest qualification is its research prerequis
 and execution safety constraints govern every real order. Trials validate actual fills and returns; small amounts do
 not bypass backtest qualification. The user approves and freezes promotion criteria before trials; meeting them triggers automatic promotion without
 case-by-case confirmation. Governance updates the stage and applicable capital allocation; the strategy does not
-request promotion or take on execution duties. Promotion also requires a minimum trade sample; elapsed time and
+request promotion or take on execution duties. Dashboard supports selecting trial promotion conditions, with common
+default conditions and user-approved strategy-specific choices before the trial begins. The available choices and
+parameter sets are not yet defined; examples such as one month and positive returns are neither published options nor
+fixed defaults. At start, persist the chosen version and full parameters. Later edits cannot rewrite the active trial
+or replace its original conditions using observed results. Promotion also requires a minimum trade sample; elapsed time and
 positive returns from a few trades are insufficient. Count independent trades, not each staged exit as a new sample.
 The duration, minimum sample size and complete return/risk rules remain to be frozen; one month with positive returns
 is a user example, not a complete agreed rule. Never fabricate existing `QUALIFIED` or permit facts; bind backtest

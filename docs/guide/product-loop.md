@@ -60,7 +60,8 @@ insufficient evidence and clear absence of economic advantage permit no direct t
 account capital budgets between the common trial and formal strategy pools. Each pool divides its budget equally
 among actually running strategy instances, recalculating affected pools on entry, unload or promotion. Allocation
 changes affect subsequent trading requests without automatically resizing existing positions or orders; an empty pool
-retains its budget. Both stages are real trading. Before a trial, freeze user-approved promotion conditions including a
+retains its budget. Both stages are real trading. Dashboard supports choosing promotion conditions: common defaults with user-approved strategy-specific choices
+before trial start; the choice set remains undefined. Freeze the chosen version and parameters, including a
 minimum independent trade sample; duration and complete net-return/risk rules remain to be defined. Meeting them
 triggers automatic promotion through Governance stage/allocation updates. Maximum-period failure returns to R&D,
 stops new entries and cancels unfilled entry orders while existing positions retain their original protections;

@@ -29,6 +29,14 @@ Dashboard job success -X-> business success or trading authority
 Owner 记录。unknown outcome 只能暴露 same-identity resolve。真实交易与其他生产写仍需本设计文档之外的
 明确用户授权。
 
+### TARGET - 试盘条件选择
+
+Dashboard 在试盘开始前提供转正条件选择，使用统一默认条件，也允许用户选择并批准策略专属条件。
+具体可选条件、参数及页面交互尚未确定；一个月或收益为正等讨论示例不构成已发布选项。
+开始试盘时提交所选条件的版本与完整参数，由业务 Owner 验证并冻结，Dashboard 不自行判断通过或转正。
+运行中不得通过切换选项回写当前试盘条件；页面应能回读当前冻结条件及其对应试盘身份。
+此能力保持目标设计状态，不扩大下文的 `IMPLEMENTATION_ADMITTED` 路由或原子集合。
+
 ### Action authorization 准入合同
 
 Owner projection 返回 next action 只是启用 button 的必要条件，不是充分条件。Dashboard 在渲染 enabled

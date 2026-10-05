@@ -29,6 +29,15 @@ Mutating controls stay disabled until the current Owner projection admits exactl
 a typed request; it never edits an Owner record. An unknown outcome exposes only same-identity resolve. Real
 trading and any other production write still require explicit user authority outside this design document.
 
+### TARGET - Trial condition selection
+
+Before a trial starts, Dashboard offers promotion-condition selection with common defaults and user-approved
+strategy-specific choices. The available choices, parameters and page interactions remain undefined; examples such
+as one month or positive returns are not published options. Submit the chosen version and complete parameters for
+business Owner validation and freezing. Dashboard does not decide qualification or promotion. Changing a selection
+cannot rewrite an active trial; the page reads back the frozen conditions and their exact trial identity.
+This remains target design and does not expand the `IMPLEMENTATION_ADMITTED` routes or atoms below.
+
 ### Action authorization admission contract
 
 An Owner‑projected next action is necessary but not sufficient to enable a button. Before rendering an enabled
