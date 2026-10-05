@@ -460,22 +460,32 @@ the run, so a replay reads the same data.
   `.../iteration_result_admission.rs`) already hold today - the same facts `backtest.run` already counts "every
   run... as a trial in R&D's census before its result is shown" (above).
 - `register_hypothesis(mechanism, falsifier, smallest_effect_of_interest, variant_count, source?)` →
-  `hypothesis_id`. Forms the TrialFamily (or its next successor Research Intent) exactly as R&D's existing
-  formation path requires: before any attempt of that family runs, sealed into the family's decision-policy
-  binding. Refused by name, `DATA_ALREADY_READ`, when Market Data's agent data-read ledger shows this agent
-  already read data the hypothesis's falsifier or smallest-effect claim depends on - R&D already reads that
-  ledger downward of Market Data ("Agent data-read ledger" in [Market Data](../owners/market-data/)); this tool
-  reuses that existing read, it does not add a second one.
+  `hypothesis_id`. Forms the TrialFamily exactly as R&D's existing formation path requires: before any attempt of
+  that family runs, sealed into the family's decision-policy binding. One hypothesis is one TrialFamily, 1:1; no
+  Research Intent layer sits under it here. `variant_count` is the declared number of variants the hypothesis
+  states up front, for the multiple-testing correction - it is not a trial cap and is not
+  `TrialFamilyPolicyV1.trial_budget`, which the Owner already enforces as a hard ceiling on attempts
+  (`consumed_trial_budget > trial_budget` is refused in `crates/strategy_factory/src/trial_family.rs`); the user
+  removed the trial-budget hard cap on 2026-09-27 and kept only a spend cap, so this tool must not read as
+  reintroducing one. `variant_count` is therefore a new field this server's write forms on the hypothesis, not a
+  read of the existing budget field. Refused by name, `DATA_ALREADY_READ`, when Market Data's agent data-read
+  ledger shows this agent already read data the hypothesis's falsifier or smallest-effect claim depends on - R&D
+  already reads that ledger downward of Market Data ("Agent data-read ledger" in
+  [Market Data](../owners/market-data/)); this tool reuses that existing read, it does not add a second one.
 - `list_trials(hypothesis_id, filter?)` → every trial the family's Census Frontier counts - including losing,
   rejected, invalid and unknown trials, because the Census Frontier already does. Each trial is the reference
   triple (`run_id`, `strategy_id`, `dataset_ref`) exactly as the `backtest` server's `run` call formed it: R&D
   forms and stores that triple itself before it ever calls Backtest, so answering this needs no call back into
   `backtest` and breaks no "no MCP server calls another" rule. Each trial also carries its outcome category:
   `COUNTED_NO_DECISION`, or the committed Iteration Decision outcome by name (`REPAIR_INPUTS`, a successor, or a
-  terminal stop) - never the Diagnosis detail behind it.
+  terminal stop) - never the Diagnosis detail behind it. The Iteration Decision's Diagnosis input stays entirely
+  inside `backtest.run`'s existing result-admission path; this server adds no separate write for it.
 - `census(hypothesis_id)` → the family's current state, read-only: trial count, the consumed trial budget
   (`TrialFamilyCensusFrontierV2.consumed_trial_budget`), and whether the family is open, closed, or at a terminal
-  stop. This is the brief's "spend"; R&D already tracks it per family, this tool only reads it.
+  stop. `consumed_trial_budget` counts trials, not spend - R&D's own spend cap (US dollars per UTC calendar
+  month) is a TARGET, not yet a recorded fact ("TARGET - Cumulative trial accounting and the spend cap" in
+  [R&D](../owners/rd)). Until that fact exists, this tool reports the trial count under its own name and does
+  not call it spend.
 - **Red line (verdicts, never values).** Every output above states an outcome category or a count, never a
   holdout measurement, a per-trade result, or Diagnosis detail - the same discipline Qualification's `verdict`
   tool already holds for its own holdout (below): a research-ledger answer cannot leak what a later qualification
@@ -495,21 +505,6 @@ the run, so a replay reads the same data.
   that trial back through `list_trials` and `census` with its correct outcome category and consumed budget -
   reproducing, end to end, one loop of the `research/ronnie` simulation's protocol (hypothesis, register, run,
   report; `loop/PROTOCOL.md` on `claude/inspiring-gauss-pxaril`).
-
-**Open questions for the user, not decided in this doc:**
-
-1. Whether `register_hypothesis`'s `variant_count` can reuse the TrialFamily's already-sealed decision-policy
-   budget field, or needs a new R&D-owned field: the existing type seals a budget at formation but does not
-   separately name a declared variant count up front.
-2. Whether a hypothesis is one TrialFamily or one Research Intent within a family - the simulation's "loop" sits
-   below a whole family, closer to a successor Intent. This changes what `hypothesis_id` identifies and whether
-   `register_hypothesis` can be called more than once per family.
-3. Whether the Iteration Decision's Diagnosis input (loss decomposition, competing explanations, the diagnostic
-   R&D's own rules require before a decision commits) needs its own agent-facing write tool, or stays entirely
-   inside `backtest.run`'s existing result-admission path with no separate ledger-side input. This doc assumes
-   the latter - no new write tool - because R&D's stated decision rule is self-derived from frozen policy, not
-   caller-supplied, but that assumption should be confirmed before this server's outcome categories are built
-   against.
 
 **Later servers (TARGET).** Each is a blueprint; its details are fixed when its stage comes.
 
