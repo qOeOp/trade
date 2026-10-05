@@ -37,11 +37,11 @@ use vibe_data::owner::{
     pit_window_custody_frames_for_sealed_acceptance_v1,
     pit_window_custody_v1::sealed_acceptance_chain::{
         SealedAcceptanceBarV1, SealedAcceptanceCustodyChainSpecV1, SealedAcceptanceDecimalV1,
-        SealedAcceptanceOhlcvV1, SealedAcceptanceTimeframeV1,
+        SealedAcceptanceOhlcvV1, SealedAcceptanceSourceFrontiersV1, SealedAcceptanceTimeframeV1,
         commit_sealed_acceptance_custody_chain_v1,
     },
     revoke_pit_window_custody_acceptance_reads_v1,
-    source_binding::{BindingDigest, UntrustedMarketSemantics},
+    source_binding::{BindingDigest, UntrustedCompleteFrontier, UntrustedMarketSemantics},
     strategy_input_binding_admission_v1::strategy_input_binding_admission_from_environment_v1,
     universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
 };
@@ -129,6 +129,25 @@ fn chain_entry_market_semantics_value() -> MarketSemanticsValueSubmissionV1 {
     }
 }
 
+/// F's own Source Binding frontiers for `PERPETUAL_V1`, verbatim (`perpetual_source_proposal`'s
+/// `frontier` closure) - the run's own initial PIT takes its Source Binding from the current
+/// eligible frontier's membership, and since #1418 this chain's member keeps F's IM fact, which
+/// carries F's binding's source/correction frontiers. Market Semantics admission requires the
+/// run binding's frontiers to equal the held fact's, so this entry names F's exactly rather than
+/// minting its own; a mismatch would refuse early by name as `HeldInstrumentFrontiersDiffer`.
+fn chain_entry_source_frontiers() -> SealedAcceptanceSourceFrontiersV1 {
+    let frontier = |meaning: &str| UntrustedCompleteFrontier {
+        stream_identity: "binance/usdm-klines".to_owned(),
+        cut_identity: "binance/usdm-klines/cut-1".to_owned(),
+        sequence: 1,
+        digest: chain_entry_first_composer_v3_digest(meaning),
+    };
+    SealedAcceptanceSourceFrontiersV1 {
+        source: frontier("perpetual.source-frontier"),
+        correction: frontier("perpetual.correction-frontier"),
+    }
+}
+
 /// One daily bar on the perpetual's own tick, at `open_ns`.
 fn chain_entry_bar(open_ns: u64) -> SealedAcceptanceBarV1 {
     SealedAcceptanceBarV1 {
@@ -197,6 +216,7 @@ fn chain_entry_spec_v1(start: u64) -> SealedAcceptanceCustodyChainSpecV1 {
         instrument_increments: None,
         market_semantics_value: Some(chain_entry_market_semantics_value()),
         source_semantics: Some(chain_entry_source_semantics()),
+        source_frontiers: Some(chain_entry_source_frontiers()),
     }
 }
 
