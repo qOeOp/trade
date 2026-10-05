@@ -57,10 +57,11 @@ on:
           - shards
           - serial
         default: shards
-  # `ready-gate` admits exactly `ready_for_review`, `opened:false` and `reopened:false`, so these
-  # are the only events it can answer `run-full` for. `synchronize` is deliberately absent: a push
-  # would fail the gate rather than validate, and re-validating after a push is the Draft -> Ready
-  # toggle the gate's own notice asks for.
+  # `ready-gate` admits exactly `ready_for_review`, `opened:false`, `reopened:false` and
+  # `synchronize:false`, so these are the only events it can answer `run-full` for. A draft's own
+  # push still fails the gate - the Draft -> Ready toggle the gate's own notice asks for is still
+  # how a draft gets its first full run - but once a PR is Ready, every later push now validates
+  # on its own `synchronize` event instead of needing that toggle again.
   pull_request:
     branches:
       - main
@@ -68,6 +69,7 @@ on:
       - opened
       - reopened
       - ready_for_review
+      - synchronize
   # A merge queue asks this workflow for a verdict on a temporary
   # `gh-readonly-queue/main/...` branch holding `main` plus the entries ahead of the candidate. The
   # queue waits for that verdict and drops the entry when none arrives, so a queue configured while
@@ -140,7 +142,7 @@ jobs:
             run_full=true
           else
             case "${ACTION}:${DRAFT}" in
-              ready_for_review:* | opened:false | reopened:false) run_full=true ;;
+              ready_for_review:* | opened:false | reopened:false | synchronize:false) run_full=true ;;
             esac
           fi
           echo "run-full=${run_full}" >> "$GITHUB_OUTPUT"
