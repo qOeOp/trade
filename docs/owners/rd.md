@@ -105,7 +105,8 @@ claimed none were. The claim was already false when it was written, and a reader
 an admission as invalid:
 
 - the authoring output that stops at `design` and `meaning`, under **Strategy authoring surface**;
-- the authoring language V1 in the same section, which nothing implements at this cut;
+- the authoring language V1: T0 constructs are implemented by `author_strategy_document_v1`; the wider language
+  envelope below remains target-only, so neither "nothing exists" nor "all constructs ship" is accurate;
 - the bounded Replay Policy V2 composition, whose admission is stated in the body of a section headed
   **TARGET / NOT_ADMITTED**. The heading governs the wider target; the admitted composition is the narrower one
   the body fixes. Reading the heading alone gets the opposite answer, in both directions.
@@ -726,6 +727,25 @@ strategies. Unpinned hosts remain fail-closed and never substitute a generic too
 
 ### Strategy authoring surface
 
+**TARGET - R-1 JSON authoring closure.** The user confirmed on 2026-10-05 that the formal strategy input remains a
+JSON authoring document compiled by R&D, rather than a second direct-source route. A versioned successor of
+`research.strategy-authoring.v1` must express the R-1 example in the [Research scenario](../scenarios/research/).
+Frozen V1 documents keep their original grammar, compiler, and semantics; extending the authoring family cannot
+rewrite old Artifacts.
+
+The current rule-selection latches describe intended position, which can diverge from actual fills. The R-1
+successor therefore reads sealed simulated order/position feedback from the shared lifecycle kernel, and expresses
+resting-limit placement and expiry, linked stop/target protection, partial exits, stop moves after actual fills, and
+holding-period exits. R&D derives the Design/Plan and bounded program; the kernel owns order transitions and
+Backtest owns simulated fills. The agent does not assert that an order filled or provide a fabricated position.
+The same Artifact and order semantics must run through exploratory and forward replay. Unsupported feedback or
+order behavior is a named authoring refusal, not a daily-bar approximation or a separate Python matcher.
+
+Acceptance compiles separately registered R-1u and R-1s documents and runs nontrivial entry, cancellation, expiry,
+partial-fill/exit, stop-move, holding-limit, and same-time ordering cases through the real shared simulator to a
+report. A changed event sequence must change the observable fill path where the rule requires it. This is a design
+requirement, not a claim that the existing single-threshold catalog or language target already supports it.
+
 **TARGET / NOT_ADMITTED - authored strategy shape:** a Bounded Feature Program is written today as a
 node graph. The two programs that exist were produced by hand-written generators, and what those
 generators did is the evidence for what this layer has to be, in place of a designed-from-scratch
@@ -828,11 +848,16 @@ catalog never holds a strategy a run would refuse at authoring.
 - `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` drives every
   operation and every refusal over HTTP on the ordered chain's PostgreSQL, with no market data and no Research request.
 
-**CURRENT - backtest runs and their registry:** `rd-owner-api` serves `backtest.run` under `/v1/backtests`.
+**CURRENT_PARTIAL - backtest runs and their registry:** `rd-owner-api` serves `backtest.run` under `/v1/backtests`.
 
 - `POST /v1/backtests` runs a request's orchestration to wherever it currently stops: from the catalogued statement
-  through the run's own Research goal, authoring, role binding and freeze, to the replay step, where it stops today as
-  `CUSTODY_FRAMES_NOT_AVAILABLE`. A refusal before that point is passed through by name.
+  through the run's own Research goal, authoring, role binding and freeze, to the replay step.
+  `CUSTODY_FRAMES_NOT_AVAILABLE` is the fallback when no custody resolver/run is wired, not every run's terminal state.
+  With the custody resolver and Composer enabled it can reach H8; with `native-replay-execution` and its service wired,
+  a successful durable execution also records `replay_result_identity`. Missing execution wiring is
+  `ReplayExecutionUnavailable`, and execution failures remain named. See
+  `crates/strategy_factory_rd_owner_api/src/backtest_run_v1.rs`, `resolve_replay_v1` and
+  `execute_committed_replay_v1`. These branches do not prove a deployed end-to-end run has passed acceptance.
 - The request names a dataset - instrument, execution timeframe and window - and never a custody chain. Before
   anything is written, the route asks Market Data for the one custody chain that holds the instrument alone at that
   timeframe and covers the whole window, its current head pinned (`resolve_pit_window_run_for_window_v1`), and reads
@@ -852,8 +877,9 @@ catalog never holds a strategy a run would refuse at authoring.
 - `GET /v1/backtests/{run_id}` reads one recorded run, its request and its answer; `GET /v1/backtests?limit=` lists
   runs newest first, 100 unless stated and at most 500 (`BACKTEST_RUN_LIST_LIMIT_OUT_OF_RANGE` otherwise); an id
   never recorded is `RUN_UNKNOWN`. Reads only read the registry: they never run an orchestration again.
-- `GET /v1/backtests/{run_id}/report` answers `RUN_HAS_NO_RESULT` with the replay state the run stopped at, because no
-  run reaches a Result yet; the report is assembled there once one can.
+- `GET /v1/backtests/{run_id}/report` answers `RUN_HAS_NO_RESULT` with the replay state the run stopped at, because the
+  report projection is not connected on this revision. A stored Result identity is not yet a served report;
+  the report route remains a separately verified delivery.
 - `backtest_run_chain_entry_acceptance` drives every route and refusal over HTTP on the ordered chain's PostgreSQL,
   after the orchestration's own proof that it reaches the replay step from a single-threshold statement and from T0's
   authored document.
@@ -917,10 +943,11 @@ that cannot be reached is `RD_OWNER_API_UNREACHABLE`. `make mcp-backtest` builds
 deployment and prints its registration.
 
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
-function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and
-its implementation follows the first COMPOSER_V3 Replay through the ordered chain. The proposer is a
-language model or the Composer; the user does not write documents, so there is no text syntax to parse,
-and a rendering of a document exists for reading only.
+function into the `design` and `meaning` pair and nothing further. The **CURRENT slice 1** below implements
+T0's bounded subset in `strategy_authoring_v1::author_strategy_document_v1`; the remaining constructs in this
+wider envelope are TARGET and must be checked against that compiler before being offered. The external agent
+authors the JSON; the product validates, compiles and seals it without an in-product model. A readable rendering
+is not an executable input or an alternative authority.
 
 - *Form.* One JSON document, `research.strategy-authoring.v1`, closed at every level with
   `deny_unknown_fields` and tagged enums, the same promise this Owner makes a proposer for `meaning`. It has
@@ -1482,6 +1509,12 @@ counted. For V2 families:
 **The spend cap.** One user-set cap bounds what Research spends, and reaching it pauses Research rather than stopping
 it.
 
+The user confirmed on 2026-10-05 that product spend and external-agent model usage have separate limits and reports.
+R&D enforces only product-side metered effects. The agent host enforces its own model allowance; unavailable host
+usage is reported as unavailable, never zero or a product-verified total. A host usage limit stops further agent
+orchestration without closing the research family or cancelling already admitted deterministic jobs. Another
+authorized session resumes from Owner receipts and job identities.
+
 - *What is metered.* Paid market data, by the cost its provider quotes before the request: Databento's `get_cost` preflight,
   which today has its own cap `DATABENTO_MAX_PROBE_COST_USD`, is folded into this one. Compute, the seconds of
   Backtest replay and Develop builds, at a user-set rate that defaults to zero on the single local host the user
@@ -1776,9 +1809,12 @@ construct names it, so a successor experiment is checked the same way. Each refu
 cut R&D owns, so it closes `REJECTED_NO_WRITE` under its own name and stores the check record with the ledger head it
 read, as `INSTRUMENT_SCOPE_NOT_RESOLVABLE` stores its check:
 
-- `KNOWLEDGE_MECHANISM_CLOSED`: the mechanism is `CLOSED` in the requested scope and the Intent states no new
-  mechanism. A new mechanism is a different mechanism identity, with the observable prediction that tells it apart
-  from the closed one (the diagnosis contract above).
+- `KNOWLEDGE_MECHANISM_CLOSED`: the mechanism is `CLOSED` in the requested scope and the Intent states neither a
+  distinct mechanism nor an admissible evidence review. A distinct mechanism has a different identity and an
+  observable prediction that distinguishes it from the closed one. An evidence review keeps the same mechanism
+  identity and explicitly names the old conclusion, new independent data or untested scope, preregistered review
+  prediction, and smallest effect of interest. R&D verifies the new-data claim against the complete predecessor
+  data-read frontier before admitting it; renaming, rereading old data, or public Qualification status is not new evidence.
 - `KNOWLEDGE_PARKED_GAP_UNADDRESSED`: the mechanism is `PARKED` in the requested scope and the Intent does not name
   which of the entry's missing data it supplies.
 - `KNOWLEDGE_CONSTRUCT_CLOSED`: a declared construct is `CLOSED` as a filter or component in the requested scope.
@@ -1788,8 +1824,11 @@ A scope the ledger has not tested passes, and the Intent records that it opens a
 rests only on outside evidence is lifted by a replication inside the product, which is new evidence, and only by one
 that could have found what the closure denies: its Intent registers the smallest effect of interest before it runs,
 its attempts are counted in the census like any other, and its detectable edge is no larger than the one the closure
-rested on. A replication with less power leaves the closure in place. A closure resting on R&D evidence is lifted only
-by a new mechanism.
+rested on. A replication with less power leaves the closure in place. On 2026-10-05 the user authorized explicit
+review of the same mechanism with new independent data or a new market scope. This replaces the previous refusal
+that allowed only a different mechanism to revisit an R&D-supported closure. Admission creates a review successor,
+not a successful conclusion: the old closure and all prior trial counts remain, and only the review's new committed
+evidence can supersede the conclusion within the scope it actually tested.
 
 Today none of these is reached: no Intent declares a mechanism identity or constructs, and the ledger has no entries.
 Each becomes reachable when the declaration lands, and the first entries the archive provides make the first three

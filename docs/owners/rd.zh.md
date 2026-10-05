@@ -87,7 +87,8 @@
 那句话写下时就已经是假的，而信了它的读者会把一处准入读成无效：
 
 - 停在 `design` 与 `meaning` 的编写出口，在 **Strategy authoring surface** 一节；
-- 同一节里的编写语言 V1，在这个截面上还没有任何实现；
+- 同一节里的编写语言 V1：`author_strategy_document_v1` 已实现 T0 子集，更广的语言包络仍为 TARGET，
+  不能写成全部未实现，也不能把目标构造当作已发货；
 - 有界的 Replay Policy V2 composition，它的准入写在一个标题为 **TARGET / NOT_ADMITTED** 的小节正文里。
   标题管的是更宽的那个目标，被准入的是正文钉住的那个更窄的 composition。
   只读标题会得到相反的答案，而且两个方向都会错。
@@ -600,6 +601,19 @@ host 仍 fail closed，绝不替换为 generic toolchain。
 
 ### 策略编写面
 
+**TARGET - R-1 JSON 编写闭环。** 用户于 2026-10-05 确认正式策略输入仍是由 R&D 编译的 JSON 编写文档，
+不另开直接源码路线。`research.strategy-authoring.v1` 的版本化后继必须表达[研究场景](../scenarios/research/)的 R-1 样例。
+冻结 V1 文档保留原语法、编译器与语义，扩展编写族不能改写旧 Artifact。
+
+当前按规则选中的 latch 陈述意图仓位，实际未成交时会分叉。因此 R-1 后继读取共享生命周期内核封存的模拟订单/持仓反馈，
+表达限价挂单与到期、止损和目标联动、分段退出、实际成交后的止损移动与持仓时限。R&D 推导 Design/Plan 与有界程序，
+内核拥有订单转换，Backtest 拥有模拟成交；代理不陈述订单已成交，也不提供伪造仓位。同一 Artifact 与订单语义
+必须同时用于探索回测和前向回放。不支持的反馈或订单行为按名拒绝，不能退成日线近似或独立 Python 撮合器。
+
+验收分别编译预登记的 R-1u 与 R-1s 文档，经真实共享模拟器跑过有效入场、撤单、到期、部分成交/退出、止损移动、
+持仓时限与同一时刻的事件排序后到达报告；改变事件顺序必须在规则要求处改变成交路径。这是设计要求，
+不声称现有单阈值目录或编写语言目标已经支持。
+
 **TARGET / NOT_ADMITTED - 被编写的策略形态：** Bounded Feature Program 今天是以节点图的形式写出来的。
 现存的两个程序由手写生成器产出，而那些生成器实际做了什么，就是这一层必须长成什么样的证据，
 取代一套从零设计的抽象。
@@ -709,9 +723,11 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
    `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`。
 
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
-`meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay
-走通有序链路之后。提案者是语言模型或 Composer；用户不写文档，所以没有需要解析的文本语法，
-文档的渲染只供阅读。
+`meaning` 这一对，再无其他。`strategy_authoring_v1::author_strategy_document_v1` 已实现 T0 的有界子集，
+包括 OHLCV、ago/max/min/ATR、算术/比较/布尔、latch/count_while/capture 及 ENTER/FLIP/EXIT/HOLD。
+下面更广的语言包络仍为 TARGET；每项必须核对当前编译器，不能当作已支持。外部代理编写 JSON，产品验证、
+编译与封存，不调用产品内模型。可读渲染不是执行输入，也不构成另一份权威。当前规则与验证入口以
+[英文当前切片](./rd.md#strategy-authoring-surface)及真实编译器为准。
 
 - *形态。* 一份 JSON 文档，`research.strategy-authoring.v1`，每一层都用 `deny_unknown_fields` 与
   带标签的枚举封闭，这与本 Owner 对 `meaning` 给提案者的承诺相同。它有 `inputs`、一个扁平的具名
@@ -1110,6 +1126,10 @@ Candidate 与按一个并非由搜索方写下的定义抽取的程序相比较�
 
 **花费上限。** 一个用户设定的上限约束 Research 的花费，达到它时 Research 暂停而不是停止。
 
+用户于 2026-10-05 确认产品支出与外部代理模型额度各自限额、分别报告。R&D 只强制产品侧被计量的效果，
+代理宿主强制自己的模型额度；读不到宿主用量时陈述不可用，不能报零或宣称产品验证了总额。宿主 usage limit
+只阻断代理继续编排，不关闭研究家族，也不取消已接纳的确定性任务。另一个获授权会话按 Owner 回执与 job 身份恢复。
+
 - *计量什么。* 付费行情数据，按提供方在请求前给出的报价：Databento 的
   `get_cost` 预检今天有自己的上限 `DATABENTO_MAX_PROBE_COST_USD`，并入这一个上限。算力，即 Backtest 重放与 Develop 构建的
   秒数，以用户设定的费率计，在用户已准入的单台本机上默认为零，于是只有用户给算力定价时它才计入。语言模型调用不计量：自用户 2026-10-03 的决定起，
@@ -1306,15 +1326,19 @@ CSCV 的 PBO 估计，按 Qualification 所述，从 `main` f2238c09b 的 `crate
 会点名该构件，因此后继实验以同样方式检查。每一种拒绝都是在 R&D 拥有的台账截面上否定请求本身，所以它以自己的名字关闭为
 `REJECTED_NO_WRITE`，并与它读到的台账 head 一起存下检查记录，正如 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 存下它的检查：
 
-- `KNOWLEDGE_MECHANISM_CLOSED`：该机制在请求的范围内是 `CLOSED`，而 Intent 没有陈述新机制。新机制是一个不同的机制身份，
-  并带有把它与已关闭机制区分开的可观测预测（上面的诊断契约）。
+- `KNOWLEDGE_MECHANISM_CLOSED`：该机制在请求的范围内是 `CLOSED`，而 Intent 既没有陈述不同机制，也没有可接纳的证据复核。
+  不同机制有新的身份与能区分它的可观测预测；证据复核保留原机制身份，明确点名旧结论、新独立数据或未测范围、
+  预登记的复核预测与最小关注效应。R&D 在准入前按完整前驱数据读取前沿核实新数据；改名、重读旧数据或公开 Qualification
+  状态都不算新证据。
 - `KNOWLEDGE_PARKED_GAP_UNADDRESSED`：该机制在请求的范围内是 `PARKED`，而 Intent 没有点名它补上了条目所缺数据中的哪一项。
 - `KNOWLEDGE_CONSTRUCT_CLOSED`：某个声明的构件在请求的范围内作为过滤器或组成部分是 `CLOSED`。
 - `KNOWLEDGE_DECLARATION_MISSING`：Intent 没有声明机制身份或构件清单。
 
 台账未测过的范围放行，Intent 记下它打开了一个未测分层。只依据外部证据的关闭，由产品内的一次复现解除，复现就是新证据，
 但只有能够发现该关闭所否认之物的复现才算：它的 Intent 在运行前登记最小关注效应，它的 attempt 像其他 attempt 一样计入 census，
-它的可检测效应不大于该关闭所依据的可检测效应。检验力更低的复现不解除该关闭。依据 R&D 证据的关闭只能由新机制解除。
+它的可检测效应不大于该关闭所依据的可检测效应。检验力更低的复现不解除该关闭。用户于 2026-10-05 授权同一机制在
+新独立数据或新市场范围上显式复核，取代原先只允许不同机制重访 R&D 证据关闭的拒绝。准入只创建复核后继，
+不宣称复核成功：旧关闭与全部试验计数保留，只有复核产生的新已提交证据能在它实际检验的范围内取代结论。
 
 今天这些拒绝一条也到达不了：没有任何 Intent 声明机制身份或构件，台账也没有条目。声明落地后每一条都变得可达，归档提供的
 第一批条目使前三条可以构造。

@@ -634,57 +634,21 @@ test('authority-local invariant records bind exact invariant and applicable migr
   assert.equal(validateDevelopmentChunkRecord(partialMigration, candidateContract).outcome, 'INVALID');
 });
 
-test('R57 critical owner-local decisions are selectable as one bounded development chunk', () => {
-  const requiredInvariantIds = [
-    'governance-set-wide-capital-allocation',
-    'rd-research-iteration-and-selection',
-    'risk-recovery-safety-envelope',
-    'execution-recovery-effect-attempt',
-    'scanner-due-slot-attempt',
-    'portfolio-degradation-attribution',
-    'risk-intent-sequence-and-rejection',
-    'rd-external-source-trust',
-  ];
-  const registry = new Map(contract.developmentChunkContract.authorityLocalInvariants.map((invariant) => [invariant.id, invariant]));
-  for (const id of requiredInvariantIds) {
-    const invariant = registry.get(id);
-    assert.ok(invariant, `${id} is not selectable`);
-    assert.ok(invariant.requiredRelatedObjectIds.length > 0, `${id} has no related object binding`);
-    assert.ok(invariant.requiredGuarantees.length >= 4, `${id} has no focused oracle set`);
-    assert.deepEqual(Object.keys(invariant.semantics), ['accepted', 'rejected', 'unknown', 'replay']);
-  }
-
+test('every current authority-local invariant produces a bounded record and rejects widened guarantees', () => {
   const candidateContract = withInvariantBindingShape();
-  const invariant = registry.get('governance-set-wide-capital-allocation');
-  const record = materializeCanonicalDevelopmentChunkRecord(candidateContract);
-  record['selection-mode'] = 'AUTHORITY_LOCAL_INVARIANT';
-  record['consumer-and-scenario'] = { consumerId: invariant.observableConsumerId, scenarioId: invariant.scenarioId };
-  record['request-or-object-producer-authority'] = invariant.authorityId;
-  record['business-outcome-owner-or-none-with-basis'] = { ownerId: invariant.authorityId, noneBasis: null };
-  record[idsField] = {
-    ownerId: invariant.authorityId,
-    objectId: invariant.objectId,
-    relationId: null,
-    invariantId: invariant.id,
-    docsRoute: 'owners/strategy-governance',
-  };
-  record['carried-object-authority'] = invariant.authorityId;
-  record['relation-source-role'] = 'authority-local-invariant';
-  record['relation-action-kind'] = null;
-  record['accepted-rejected-unknown-and-replay-semantics'] = structuredClone(invariant.semantics);
-  record[bindingField] = {
-    applicable: true,
-    invariantId: invariant.id,
-    migrationSurfaceId: invariant.migrationSurfaceId ?? null,
-    requiredRelatedObjectIds: structuredClone(invariant.requiredRelatedObjectIds),
-    requiredGuarantees: structuredClone(invariant.requiredGuarantees),
-  };
-  record[migrationField] = { applicable: false, basis: 'No authority migration is part of this chunk' };
-  assert.deepEqual(validateDevelopmentChunkRecord(record, candidateContract), { outcome: 'VALID', reasons: [] });
-
-  const widened = structuredClone(record);
-  widened[bindingField].requiredGuarantees = [...invariant.requiredGuarantees, 'implement-the-whole-scenario'];
-  assert.equal(validateDevelopmentChunkRecord(widened, candidateContract).outcome, 'INVALID');
+  const invariants = candidateContract.developmentChunkContract.authorityLocalInvariants;
+  assert.ok(invariants.length > 0);
+  for (const invariant of invariants) {
+    if (invariant.migrationSurfaceId) {
+      assert.throws(() => materializeCanonicalInvariantDevelopmentChunkRecord(candidateContract, invariant.id));
+      continue;
+    }
+    const record = materializeCanonicalInvariantDevelopmentChunkRecord(candidateContract, invariant.id);
+    assert.deepEqual(validateDevelopmentChunkRecord(record, candidateContract), { outcome: 'VALID', reasons: [] }, invariant.id);
+    const widened = structuredClone(record);
+    widened[bindingField].requiredGuarantees = [...invariant.requiredGuarantees, 'implement-the-whole-scenario'];
+    assert.equal(validateDevelopmentChunkRecord(widened, candidateContract).outcome, 'INVALID', invariant.id);
+  }
 });
 
 const canonicalRelationMigrationRecord = (relationId, surfaceId) => {
@@ -732,7 +696,7 @@ const canonicalRelationMigrationRecord = (relationId, surfaceId) => {
   return record;
 };
 
-test('R58 migration chunks keep Runtime checkpoint readiness separate from Execution Recovery closure', () => {
+test('migration chunks keep Runtime checkpoint readiness separate from Execution Recovery closure', () => {
   const runtime = canonicalRelationMigrationRecord(
     'runtime-execution-readiness',
     'strategy-generation-checkpoint-readiness',

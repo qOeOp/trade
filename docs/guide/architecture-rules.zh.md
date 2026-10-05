@@ -285,6 +285,30 @@ Protected Replay Request 必须冻结准确 Strategy Artifact、请求 PIT 范�
 Protected Run Result 保护决策政策身份与版本，以及 Qualification 已验证的请求结果相等关系。被拒绝 无效
 非终态或不匹配结果永远不能生成 Eligibility。
 
+<a id="target-trading-node"></a>
+
+## 原生交易节点目标
+
+每个 Capacity Scope（账户、模式、经济资金池）一个进程内节点，采用继承的 `LiveNode`、`RiskEngine`、
+`ExecutionEngine` 与薄产品信任层。Runtime、Risk、Execution 是该模块的内部职责，独立构建、迁移、测试和运行；
+不建设三套服务间执行状态机。Governance 传入 generation 决定、Artifact、Execution Scope 和资金上限的封存值，
+节点只向下消费 Market Data/Instrument 公共合同与客户端，不回读 R&D、Backtest、Qualification 或 Governance。
+
+产品扩展限于以下合同：
+
+1. generation gate 在 trader 的 add/start 前核验 Governance 授权模式、Execution Scope 与 Artifact，
+   写 `APPLIED`、`REJECTED_NO_INSTANCE` 或 `APPLICATION_UNKNOWN` 的应用回执。
+2. pre-submit gate 在原生 RiskEngine 前检查共享 Capacity Scope 承诺与原生 Portfolio 暴露、场外 Kill Switch sentinel、
+   PAPER/LIVE 命名空间及 adapter binding。halt 映射到 `TradingState::Halted`，只减不增映射到 `Reducing`。
+3. 事件投影在一笔事务中追加 order/fill/position/account、具名 Risk 拒绝、drift 与 outbox，保留完整授权血缘与 scope。
+   原生日志是原始事件机制，不能替代产品 custody 的原子提交。
+4. 对账 hook 提交 drift，未知外部效果进入 Recovery；readiness 与 incident 绑定节点状态，停止意图前提交 `NOT_READY`。
+
+共享承诺前沿在进程内持有责任，只有有据的 fill/cancel/settlement 才能解除或替换；不另签平行预留或重复扣减。
+场外 sentinel 保持独立于进程的 halt 读取；从卡死进程外在场所强制 halt 仍待实现。Recovery Case 与审计闭合由产品合同定义。
+该节点是 `TARGET`，不准入 Paper、Live、生产调用或真实资金。现有版本记录保持其原始字节和拒绝语义，
+切换不得靠重释既有 receipt 实现。[英文合同](./architecture-rules.md#target-trading-node)给出相同职责。
+
 ## 自动交易写链
 
 Authorized Generation Decision 是许可，不是 Runtime 状态。Runtime 单独拥有 Generation Application
@@ -292,27 +316,21 @@ Receipt。只有绑定唯一 Strategy Instance、checkpoint、决定、generatio
 fence epoch 的 `APPLIED` 才证明正在运行。`REJECTED_NO_INSTANCE` 证明无实例，`APPLICATION_UNKNOWN`
 在同一尝试完成对账前阻止重复应用和自动意图。
 
-正常新增风险写链具有准确固定顺序：
+新增风险在原生节点中按唯一顺序通过：
 
-1. Governance 按显式授权模式授权一个 generation 和不可变 Execution Scope。`INITIAL_ACTIVATION`
-   `PROMOTION` 和
-   自动 Paper 或 Live 要求 `UNATTENDED_REQUEST_WITH_POLICY` 并绑定当前 Autonomous Policy
-   Authorization。`ATTENDED_REQUEST` 保持非运行和 decrease-only。授权本身不证明执行。
-2. Runtime 应用该决定，只有其 Generation Application Receipt 为 `APPLIED` 才证明一个 Strategy Instance。
-3. 已应用实例向 Risk 发送一个 Trade Intent。
-4. Risk 返回终态 `ALLOW` 加一次性 Reservation，或返回不带 Reservation 的 `REJECT`。
-5. Runtime 向 Execution 发送绑定准确决定与 Reservation 的 Authorized Order Command。
-6. Execution 校验绑定并向 Risk 发送一个稳定 Reservation Claim Request。
-7. Risk 持久原子序列化唯一不可变 `CONSUMED` `WITHDRAWN` 或 `REJECTED` claim result；只有
-   `CONSUMED` 允许准备 attempt。
-8. Execution 持久记录一个稳定 `PREPARED` attempt，再发送一个 `ADAPTER_ADMISSION_REQUEST`。
-9. Risk 持久原子序列化 adapter admission 与 recovery fence activation，提交唯一不可变 `ADMITTED_ONCE`
-   `SUPPRESSED_BY_FENCE` 或 `REJECTED`。
-10. 只有匹配 `ADMITTED_ONCE` 才允许 Execution 持久化 `INVOCATION_STARTED` 并调用适配器。
-11. 适配器响应与权威回读闭合 Effect Journal，不能裸重试。
-12. Execution 向 Risk 回报结果与 settlement lineage，并向 Runtime 回报订单 成交 拒绝 回读和对账事实。
-13. Execution 向 Portfolio 回报账户 订单 成交 费用 场所和 settlement lineage。Portfolio 发布一致
-    projection bundle，Risk 再从同一 lineage 闭合或保持 Reservation liability。
+1. Governance 在显式授权模式下决定 generation、Execution Scope 与资金包络；自动 INITIAL_ACTIVATION、
+   PROMOTION、Paper/Live 还要求当前 `UNATTENDED_REQUEST_WITH_POLICY` 与完整 Autonomous Policy Authorization。
+   `ATTENDED_REQUEST` 仍限于非运行或 decrease-only。
+2. generation gate 应用授权，只有准确 `APPLIED` 才启动唯一 Strategy Instance。
+3. 共享运行模块结合信号、独立数量配置和已提交账户/行情事实形成 Trade Intent。
+4. pre-submit gate 与原生 RiskEngine 同步检查额度、有效权限、模式和 fence；拒绝产生具名事实而无订单效果。
+5. 原生 ExecutionEngine 接纳命令并推进订单状态；只有通过两道 gate 的命令可到场所客户端。
+6. 实际订单、成交、账户、费用与 drift 经原生事件/回读进入同一事实链，保留请求与授权血缘；未知效果仅恢复对账。
+7. Portfolio 投影同截面的归属、暴露与计量，承诺前沿按同一经济 lineage 替换或保持占用，不重复预留或释放。
+
+原生订单状态和原始事件日志承担调用顺序证明；产品 outbox projector 承担持久证据。既有版本的
+`Reservation`、claim、`PREPARED` 和 adapter-admission 记录仍按各 Owner 的兼容契约验证，不能作为新建
+跨服务执行链的实施要求，也不能按新节点含义修改旧记录。
 
 Risk 永不签发订单命令。Execution 必须拒绝缺失、过期、不匹配或已经消费的许可。
 Governance 为每个 generation 拥有唯一不可变 Execution Scope，包括 strategy generation、`PAPER` 或

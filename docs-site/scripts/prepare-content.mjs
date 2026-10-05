@@ -63,8 +63,6 @@ function titleFromHeading(heading) {
 }
 
 export function routeRelativeMarkdownLinks(source, route) {
-  if (route.split('/').at(-1) === 'index') return source;
-
   const edits = [];
   const visit = (node) => {
     if (node.type === 'link' && /^\.\.?\//.test(node.url)) {
@@ -80,7 +78,11 @@ export function routeRelativeMarkdownLinks(source, route) {
         throw new Error(`Unsupported relative Markdown link spelling: ${raw}`);
       }
       const localStart = destination.index + destination[0].lastIndexOf(rawTarget);
-      const routeTarget = rawTarget.startsWith('./') ? `../${rawTarget.slice(2)}` : `../${rawTarget}`;
+      // Markdown source paths and directory links share the exported route namespace.
+      const normalizedTarget = rawTarget.replace(/(?:\.zh)?\.md(?=[?#]|$)/, '/').replace(/\/index\/(?=[?#]|$)/, '/');
+      const routeTarget = route.split('/').at(-1) === 'index'
+        ? normalizedTarget
+        : normalizedTarget.startsWith('./') ? `../${normalizedTarget.slice(2)}` : `../${normalizedTarget}`;
       edits.push({ start: start + localStart, end: start + localStart + rawTarget.length, routeTarget });
     }
     for (const child of node.children ?? []) visit(child);

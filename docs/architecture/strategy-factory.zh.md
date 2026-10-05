@@ -50,6 +50,12 @@ Qualification 投影构成一条按 principal/scope 绑定、只追加且无环�
 
 R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt，Research 能力再冻结一个 Exploratory Replay Request，绑定准确工件 数据范围 重放配置和模型身份后，独立 Backtest 服务才接收。探索事实只返回 R&D 并可形成后继 Intent。R&D 维护只追加 TrialFamily Census Frontier，且只有 R&D 能提交 Iteration Decision；终态停止不创建 Selection。只有 `READY_FOR_SELECTION` 决定才能产生仅选择 `SELECTED_FOR_QUALIFICATION` disposition 并提交 Qualification Candidate。
 
+## Host 直接解释 BFP 目标
+
+T0 复现后，Host 直接解释保留的 Bounded Feature Program，分切片替代 Rust/Cargo/Wasm 与 Composer 构建路径。
+R2 切换前，Wasm 按现有版本合同校验；新路径保留静态边界、catalog、固定算术、不可变身份、确定性与恢复。
+精确 Artifact、Host 与切片契约见[Host interpretation](./strategy-factory.md#target-host-interpretation-of-the-bounded-feature-program)。
+
 <a id="strategy-design-v2-shared-lifecycle-kernel"></a>
 
 ## StrategyDesignV2 与共享生命周期内核
@@ -227,14 +233,16 @@ trading authority。
 
 `BoundedFeatureProgramV1`（BFP V1）是唯一接纳的通用 Complex D 表示。R&D/Develop 将其规范含义与 Research
 Intent、`StrategyDesignV2` 一同冻结；R&D 的 Develop 能力负责验证与 lowering，但不能发明 Research 含义。
-它唯一的前向路径是：
+BFP 的目标执行方式是由 Host 直接解释规范程序；静态 DAG、catalog、fixed-I128、资源界与恢复约束保留。
+当前编译路径在 R2 切换前继续校验既有 capsule 与 Wasm 身份，不为新增策略扩大生成代码机制。
+其当前兼容路径是：
 
 `Frozen Research -> canonical BoundedFeatureProgramV1 typed DAG -> deterministic first-party source lowering ->`
 `versioned V3 build capsule/receipt -> existing PluginManifestV2/Composer/StrategyArtifactV2 ->`
 `existing ProgramHostV2 -> shared lifecycle kernel -> Backtest`。
 
 BFP 是 Design 所声明准确一个 bounded plugin 的 build input，不是 Host graph extension、Host feature opcode、
-interpreter、runtime、strategy template、raw-order program 或新 Owner。LLM 或 caller 可以提出 Research 含义，
+第二个 runtime、strategy template、raw-order program 或新 Owner。LLM 或 caller 可以提出 Research 含义，
 但不能创作 Rust、Wasm、dependency、ABI、公式实现、build command、clock、Owner receipt 或 executable
 fallback。只有冻结的规范 BFP 能进入 first-party lowerer。lowerer 必须确定且 dependency-closed，只能从已 pin
 SDK 与 primitive-kernel catalog 组装 source；不得接纳 caller source、package、build script、带 ambient input 的
@@ -650,25 +658,15 @@ Market Data V1 native scheduling seal 封存每一帧，该 seal 现在从帧自
 确认的提交保持 unavailable。该准入不授予 disposable PostgreSQL acceptance、已部署或正在运行的服务、
 production invocation、Paper/Live execution 或 trading。
 
-**SUPERSEDED TARGET，Owner 封存的 Native Replay 帧序列 V2：** 策略形状包络以 PIT 窗口托管取代这个 profile；
-该 profile 没有调用方，切片 T1 里各 Owner 删除各自那一部分，表经迁移删除。下面几段保留下来，作为取代方案的搬迁表所继承的那些不变式的陈述。现有
-`NativeReplayExecutionInputBindingV1`、单帧、28 项观测证据、执行 bundle、请求和 Result 的字节与身份
-均保持不变。新增独立的 `NativeReplayExecutionInputBindingV2`，针对请求窗口内整条相邻、完整且
-分别由 Market Data Owner 签发的 frame 序列。第一帧必须等于重新解析得到的 V1 初始帧；其后每一帧
-都必须来自另一份真实 PIT snapshot 和 observation batch，不能取 PIT correction successor、测试帧或调用方
-输入。Market Data 必须按封存的窗口和决策 cut 枚举完整可用 frame；帧数少于两个、帧间漏帧、重复、乱序或
-证据缺失时，这个 V2 档不可用，而更长的窗口是更长的序列不是一次拒绝。一次运行消费除最后一帧以外的每一
-帧，最后那帧只用来给它前一帧的流动性划界。每帧都绑定自己的 PIT cut、batch、trigger、BAR schedule（每个成员
-一个 receipt digest），以及独立经过 Owner 验证的 Quote EVENT 流动性 receipt，包括成员顺序、价量和事件时间；
-各帧使用同一 Plan/Design role schema、同一组 canonical member（即 V1 binding 的成员）、universe selection、
-Instrument Master cut、timeframe、venue 和账户。帧宽因此随成员数变化；V2 字节不重复写成员数，而是取自
-V1 binding，双成员 binding 的字节保持不变，恢复时由存储长度反推成员数。
+#### 执行输入的版本与物化
 
-R&D 仅在准确读取 V1 binding 和每一帧的 Owner 能力后，原子托管 V2 binding、确定性 receipt 与 outbox；
-V2 sequence digest 覆盖各帧顺序及全部 frame、schedule、liquidity receipt。精确重试和响应丢失恢复只回读
-原记录，意义变化零写入冲突。Native preparation 必须独立重解每个 Owner cut、逐字节复现 V2 binding，再交付
-move-only bundle；bundle 在 ProgramHost 或 Backtest 改变状态前验证每帧完整 BAR、随后真实 EVENT 流动性、
-跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。Market Data 按规范 scale 签发每个
+多帧回放使用 PIT 窗口托管与逐帧派生视图，窗口、决策可得时间、规范成员顺序、输入角色、标的条款和执行政策
+随请求绑定。完整覆盖、修订选择、无未来数据、同身份字节恢复和原子 binding/receipt/outbox 由对应托管契约保证。
+不另建每帧外部 snapshot 提交链，不将 V1 按新含义重释，缺少来源时不回退到测试帧或调用方数据。
+当前 V1 的单帧、28 项证据与既有请求/Result 字节保持原含义。多帧 Result 必须另绑定准确窗口和全部消费输入，
+旧单帧证据不能证明多帧运行。未平仓运行可有有效结果，但不得声称 round-trip closure；响应丢失仅恢复已提交结果。
+
+Market Data 按规范 scale 签发每个
 BAR 与 Quote 的值，所以 0.001 tick 上的收盘价 123.450 到达时是 123.45。Instrument Master 的 tick 是取回当天交易所的
 tick，而交易所会随价格上涨把 tick 放粗：BTCUSDT 今天的 tick 是 0.10，它 2021-06-01 的日线开盘却是 37244.36；SOLUSDT
 今天是 0.0100，它 2021 年的价格有三位小数。所以 bundle 先把每个成员的价格网格放宽到其窗口内 BAR 与 Quote 价格出现过的
@@ -685,34 +683,6 @@ canonical Result bytes；单帧 V1 的 28 项证据不能证明一次序列运�
 停机空仓且本次 canonical Result 记录仓位已关闭，才产生与 Result digest 绑定的闭环证据；仍持仓或部分成交
 不得声称闭环，无法对账的减仓必须失败。按准确 attempt/Result 的恢复只能回读已提交 Result 与证据，不能
 重跑或制造闭环。该设计尚未证明动态 Owner 签发、disposable PostgreSQL 验收、策略盈利或交易权限。
-
-**为什么更长的回测是一份窗口托管，而不是更长的帧序列：** 一个 PIT batch 就是一个时刻，而解析成员角色行的那一步
-不按事件时间过滤，所以一个 batch 里若还有同一角色的后一个时刻，就有两条精确匹配的行，于是根本绑不出 universe
-frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正是这件事。帧序列 profile 的回答是每个
-时刻一份快照、一个 universe frame 和一个原生调度封印，代价是每帧一次外部提交，而且整次运行只能有一个周期。窗口
-托管保留这两条事实 - 每一帧仍然经下文那唯一的构造点、从一瞬 batch 绑定 - 但这个 batch 是从只铸造一次的托管里
-派生出来的，如策略形状包络所述。
-
-**今天一次运行被钉在一帧上的位置：**
-`ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1` 有一个生产调用方，在
-`native_replay_execution_binding_consumer_v1.rs` 里，那一处调用就是一次运行不再是一帧的地方。
-它旁边那个 N 帧构造器恰好只有一个调用点，在
-`compose_native_replay_execution_bundle_v2` 内部，而后者一个调用方都没有；
-`native_replay_execution_input_binding_v2` 的每一个条目在默认库构建里都是死的。在那里做替换
-需要第二个 `StrategyInputUniverseFrameReceipt`；该收据只有一个构造点，在
-`bind_strategy_input_universe_frame` 里，而它吃一个 `VerifiedPitObservationBatch`。所以第二帧
-不只是没人写，而是在 Market Data 提交第二份批次之前不可构造，并且
-`pit_snapshot/sealed_acceptance.rs` 带着 `compile_fail` doctest，断言即使打开 acceptance feature，
-反序列化与结构体字面量都伪造不出它。
-
-**那「一个生产调用方」不意味着什么：** 它是一个调用方计数，不是「这条路径会跑」的陈述。今天在任何
-可编译配置下都没有东西签发 `NativeReplayExecutionInputBindingV1`。它的签发收敛到
-`issue_native_replay_execution_input_binding_v1`，而后者唯一的调用方是一个 HTTP handler，
-只在 `rd-owner-api` 这个 crate 自己的 `composer-replay-issuance` 下注册，
-部署镜像经由 `composer-v3-replay` 开启它，有序链路的构建经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
-也没有测试或客户端提到那条路由。签发者与它旁边的解析者都是 `PostgresResearchGoalOwnerV1` 上
-无门的生产函数，相距四十三行，要的协作者是同一套。所以这条执行路径是没被走到，而不是走不到，
-而一条先签发再解析的有序链路条目就能驱动它，既不必启用 feature 也不必扩任何 union。
 
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。
@@ -1267,12 +1237,9 @@ TARGET 才能获准；它不授予 production 或 trading authority。
 
 ## TARGET - 策略形状包络
 
-用户于 2026-09-27 定下这个目标，原话是：「你的设计要增强表达力 用设计承接住我要的那种可能形态的策略形状
-多周期多标的是肯定的」，以及「目前的设计也不一定是最好的 有时候比起扩展还有可能推翻重新设计」。点到的形状有：
-突破与区间、支撑与阻力、K 线形态与指标、多周期多标的策略、斐波那契位。消费者是用户自己的语料：每一种形状都必须
-经编写语言编译成 Bounded Feature Program，并在多帧 Backtest 上跑到报告。第一次可执行验收（F）保持它的单品种
-永续范围，本节的一切都排在它之后。这里不准入任何 Paper 或 Live 路径、生产写入或交易，也不新增第二个策略解释器
-或运行时：每一种形状仍然降级为 Bounded Feature Program 与共享生命周期内核。
+策略形状覆盖突破、区间、支撑/阻力、K 线形态、指标、多周期、多标的与 Fibonacci。
+每种形状沿同一 JSON 编写、BFP 与共享 Host 路径，在有界多帧回测中产生可验证报告。
+首个执行基线维持单标的永续，扩展形状有明确依赖与验收，不准入 Paper/Live 或真钱。
 
 **为什么这是重新设计而不是扩展：** 从成员数那几片起，F 的每个阻断都是改掉一条路径上的一个数来修的，之后下一条
 路径又拒绝同一个形状。它们同出一因：形状元组 - 角色、成员、窗口、周期 - 没有单一 Owner。它被编码成变体（精确
@@ -1332,7 +1299,7 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
 PIT 快照仍然是一个时刻，Market Data 的快照路径、它的封印以及 F 使用的 quote cut 端口都不变。多帧 Backtest 改读
 一份 **PIT 窗口托管**：这是 Market Data 新增的只追加聚合，把整个窗口的回补历史一次性放进托管，再由 Market Data
 逐帧从中派生出满足帧回执已经在核的那些 batch 不变式的一瞬视图。托管契约由 Market Data 的 Owner 页陈述。它取代
-下文的帧序列 profile（该 profile 没有调用方），因为那个 profile 每帧要一次外部 PIT 快照提交和一次调度提交：两年
+下文的帧序列 profile（该 profile 不作为目标路径），因为那个 profile 每帧要一次外部 PIT 快照提交和一次调度提交：两年
 日线约 730 次，一年一分钟线约 520,000 次，而且所有帧必须同一周期。
 
 - 每帧有两个时刻：`e_k` 是定义该帧的执行周期那根 bar 的收盘，`d_k` 是按 Source Binding 上声明的可得规则该帧
@@ -1347,31 +1314,28 @@ PIT 快照仍然是一个时刻，Market Data 的快照路径、它的封印以�
 - 多周期角色（切片 T2）在帧 `k` 解析为它自己周期的 Owner schedule 在 `d_k` 之前最后一次收盘的那根 bar，而且
   必须恰好是那一根；中间有缺口就拒绝该帧。binder 只对托管视图按来源放宽它的单一 trigger 检查：trigger 是执行
   角色那一行，其余每个角色各带自己的生命周期坐标，并满足 available ≤ `d_k`。
-- 成员集整次运行固定。某成员的 Instrument Master 有效期或 Universe 成员资格在窗口内开始或结束，就以
-  `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 按名拒绝整次运行；今天没有任何东西能构造出这个拒绝，因为托管还不存在。
-- 某帧没有完整截面，就以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行，并写出 `e_k` 与阻断原因；今天同样
-  无法构造，理由相同。
+- 固定标的池路径的成员集整次运行固定。某成员的 Instrument Master 有效期或 Universe 成员资格在窗口内开始或结束，就以
+  `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 按名拒绝整次运行。
+- 某帧没有完整截面，就以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行，并写出 `e_k` 与阻断原因。
 - 托管运行的 Backtest 结果托管绑定托管 identity 与有序的视图 identity。
 
-帧序列设计原先守住的每一条不变式都有新落点，只有一条例外：
+窗口托管的不变量及执行位置：
 
-| 不变式                                                                | 今天在哪里                    | 窗口托管下在哪里                                                                       |
-| --------------------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------- |
-| 一个 batch 是一个时刻                                                 | Market Data PIT 快照          | 每个派生视图在 `e_k` 上是一瞬；T2 下只有非执行角色对齐到各自最后一次收盘               |
-| 行内时间顺序与单一时钟                                                | PIT batch 校验                | 视图行：event ≤ available ≤ publication ≤ `d_k`；retrieval ≤ 铸造 cut 留在托管证据里   |
-| 每帧同一成员集、角色集、Instrument Master cut、周期、venue 与账户范围 | 帧序列 V2                     | 不变：成员集固定，有成员不能全程有效就拒绝整次运行                                     |
-| 不留缺口、不跳帧、调用方不能提供帧列表                                | 帧序列 V2                     | 帧从执行周期的 Owner schedule 枚举；缺口即 `PIT_WINDOW_FRAME_NOT_COVERED`              |
-| 取最新可见更正、绝不回退到被取代版本、有歧义的分支拒绝                | 帧序列 V2 与 quote cut census | 在 `d_k` 上按截面选版本；分支拒绝该帧                                                  |
-| 单凭 BAR 回执不能授权成交                                             | 帧序列 V2                     | 每帧仍需自己的派生 quote cut，严格落在 `(d_k, e_{k+1})` 之内                           |
-| 按准确定位重读逐字节相等                                              | 帧序列 V2                     | 托管提交后不可变；视图 identity 可重算                                                 |
-| 受验 batch 只能来自已提交的快照                                       | Market Data 封印              | 第二个受封来源 `CustodyView`，自带 `compile_fail` 与篡改测试                           |
-| 不看未来                                                              | 快照边界                      | 声明的可得规则、在 `d_k` 上选版本、binder 的 available ≤ `d_k`；该规则是声明，不是观测 |
-| **每帧各自带有铸造 cut 与可信时钟证据**                               | 帧序列 V2                     | **没有同等的新落点**：托管只铸造一次。授权见下                                         |
+| 不变量                                                                | 窗口托管与执行合同                                                                      |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 一个 batch 是一个时刻                                                 | 每个派生视图在 `e_k` 上是一瞬；T2 下只有非执行角色对齐到各自最后一次收盘                |
+| 行内时间顺序与单一时钟                                                | 视图行：event ≤ available ≤ publication ≤ `d_k`；retrieval ≤ 铸造 cut 留在托管证据里    |
+| 每帧同一成员集、角色集、Instrument Master cut、周期、venue 与账户范围 | 固定标的池路径不变：成员集固定，有成员不能全程有效就拒绝整次运行                        |
+| 不留缺口、不跳帧、调用方不能提供帧列表                                | 帧从执行周期的 Owner schedule 枚举；缺口即 `PIT_WINDOW_FRAME_NOT_COVERED`               |
+| 取最新可见更正、绝不回退到被取代版本、有歧义的分支拒绝                | 在 `d_k` 上按截面选版本；分支拒绝该帧                                                   |
+| 成交输入绑定                                                          | 当前 quote cut 严格在 `(d_k, e_{k+1})`；原生 bar execution 目标另冻结并验证完整执行配置 |
+| 按准确定位重读逐字节相等                                              | 托管提交后不可变；视图 identity 可重算                                                  |
+| 受验 batch 只能来自已提交的快照                                       | 第二个受封来源 `CustodyView`，自带 `compile_fail` 与篡改测试                            |
+| 不看未来                                                              | 声明的可得规则、在 `d_k` 上选版本、binder 的 available ≤ `d_k`；该规则是声明，不是观测  |
+| 历史证据范围                                                          | 历史窗口一次铸造，帧可得规则及修订前沿冻结；实时快照要求不变                            |
 
-最后一行收窄了一条已陈述的性质。用户于 2026-09-27 选择了下面这个选项，以此授权：「换成窗口托管。回补的历史按
-整段一次放进托管；每根 bar 何时可见，由 Source Binding 上声明的规则推导；实时交易仍然每个时刻取一次快照。用户
-授权收窄『每帧各自带有铸造证据』这一性质的适用域：在回测里，帧不再各自带铸造证据，并且只准入回补的历史。」因此
-窗口托管只准入对回补历史的回测。
+回补历史一次铸造窗口托管，帧可见时间由冻结 Source Binding 可得规则与修订前沿推导；
+仅适用于历史回测。实时交易仍逐时刻取快照，不据此移除实时证据要求。
 
 切片：**T0** 是 Market Data 托管（截面更正模型、可得规则、帧枚举、派生视图、`CustodyView` 封印）；**T1** 由它
 组合单周期 N 帧 Backtest；**T2** 在 P1 之后加入多周期角色；**T3** 按角色预热，预热期内输出中性成员目标。它们
@@ -1380,11 +1344,59 @@ PIT 快照仍然是一个时刻，Market Data 的快照路径、它的封印以�
 （Binance 不发布更正流，所以由合成源驱动）；可得规则设为铸造时刻时，每一帧都必须看不见；去掉 available ≤ `d_k`
 检查，T2 的前视测试必须变红；同一根高周期 bar 在相邻帧上必须带逐字节相同的坐标。
 
+### TARGET - 动态点时标的池
+
+用户于 2026-10-05 准入固定列表与按预登记历史规则换成员的连续组合回测两种范围。整段固定成员不变量与
+`WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 拒绝不再适用于每一种研究范围，原规则仍保留在固定范围路径。
+迫使这项设计改变的测量是 `0725a7b3f89902e27cd421a18b4b879a13268534` 上的
+`research/ronnie/trend/books_pit.py`：B3 每月只用之前的观测选至多 20 个成员，2018-2022 年累计 70 个不同币
+进入组合；整段固定列表无法表达这个实验。
+
+- **范围只有一个 Owner。** R&D 冻结 `FIXED` 成员列表或 `DYNAMIC` 选择规则，两者互斥。动态范围声明选择器与版本、
+  venue 与标的类别、上市时长、排序输入、调仓周期、并列处理、成员上限和选择数据缺口政策。Market Data 用决策前可得事实
+  推导每次成员截面，代理不能提供历史赢家名单。
+- **成员选择不看未来。** Market Data 把成员时间线与历史托管和选择输入绑定。策略只看当前合格成员与允许的数据，
+  不看未来名单。历史上市、退市或排名输入缺失时陈述不可用，不能回退到今天的幸存币。
+- **策略状态稳定。** 成员状态按 canonical 标的身份索引，不按可复用的序号。换成员不重置权益、费用、模拟持仓或挂单。
+  同一编写语义作用于每个成员；版本化 Design/Plan 声明有界动态成员与状态容量。既有固定成员 Artifact 字节与重放身份保持原样。
+- **退出行为显式。** 用户于 2026-10-06 确认默认退出名单后禁止新入场、撤销待入场订单，已有持仓继续按原止损止盈及其他
+  退出规则管理。部分成交时只撤未成交余量；实际成交及撤单生效前竞态成交继续保留并保护。旧仓生命周期结束前保留执行
+  行情、资金费、归属和风险状态；仅有撤单意图不释放承诺。Intent 在结果前冻结政策，退出名单即平仓可另行明确预登记，
+  不隐式当作调仓处理。
+  退市另有带 provenance 的可执行清算/结算规则。缺失价格可能改变处置结果时回测保持未决，不能删掉成员或记为零收益。
+- **一个连续组合。** Backtest 按封存成员转换与实际事件顺序运行同一账户和权益路径，调仓、撤单、资金费和处置成本进入报告。
+  拆成独立回测并重置持仓或资本不能满足此契约。
+- **界由测量决定。** B3 至少需要 20 个被选择成员，退出政策还可能留下名单外持仓状态。固定路径暂定的 16 不能证明此样例。
+  实现切片在准入前测量图、状态和保留持仓压力并发布唯一容量界，不能任意放宽或静默截断。
+- **验收。** 在一个连续探索组合里复现 B3 选择器：月初只取之前数据，至少 365 个日线观测，过去 30 个观测的成交额中位数，
+  前 20 与确定性并列处理。只改未来排名数据不能改变更早名单；驱动上市、退出时的挂单与持仓、退市、处置数据缺失与会话重启读回。
+  来源研究的价格与收益不能替代产品选定 venue 的标的与成本事实。
+
+这项 TARGET 依赖 Market Data 成员托管、版本化编写/Plan 支持与 Backtest 状态连续性。它们属于同一故事的有界依赖，
+不增加第二台账或第二模拟器，也不是当前实现证据。
+
+### 原生订单接入与分段保护目标
+
+Backtest 在当前仓库保留的 Nautilus 上修改，不另写回测引擎；扩展位置见
+[原生能力扩展](./capability-adoption/)。英文 [订单接入目标](./strategy-factory.md#target---resting-entries-oco-exits-and-the-intrabar-path)
+保留版本化依赖与拒绝边界，但不再规划第二个 kernel 挂单簿、到期调度器或自动恢复已取消订单。
+原生 execution/cache 是订单、成交与持仓事实来源；共享 Host/lifecycle 接入只保存声明意图、trade/leg 关联、
+已消费事件位置与段转换状态，复用原生命令与回报，并保留既有 checkpoint、身份和恢复约束。
+
+原生 bracket 默认 OUO，OCO 任意成交会取消关联腿；OUO 按已成交腿的余量更新关联腿，不保持不等量退出比例。
+因此半仓目标/全仓止损不能直接套这两类联动。共享接入按本笔实际未平数量及每段成交进度维护原生保护；
+只有整笔余量为零才清除保护，首段完成仅执行登记的止损移动。离散移止损复用 native modify，普通 trailing
+规则才复用 native trailing order；GTD 到期消费原生事件，不自产终态事实。
+
+独立同币交易优先接入原生 OMS/position ID，但现有 V1 Netting/单净仓路径不证明已支持。Binance 基线信号使用
+所需周期的原生 bars；显式登记的派生信号可复用原生聚合，但不等同于交易所原生序列，也不默认驱动撮合；局部下钻还要证明分辨率选择、全局时间与同 timestamp 批次完整性，不能在
+撮合核心接入远程取数。实施规模由这些原生边界与真实消费者测量，不沿用早期自建挂单簿的代码行数估计。
+
 ### 成员：一个参数
 
-Research scope 是成员集的唯一来源（P0）。一到两个成员的界变成一处声明的上界。用户于 2026-09-27 选择了下面这个
-选项，以此授权放宽用户路径：「放宽到 N。上界暂定 16，等 I1.5 量完 `max_edges` 再定。」冻结的程序只对它自己的成员
-数有效；换成员集就是一次新的 Research。
+Research scope 是成员集的唯一来源（P0），上界暂定 16，须在 I1.5 测量 `max_edges` 后确定。
+固定标的池下，冻结程序只对自身成员数有效，改成员创建新 Research；动态池使用独立登记的点时选择契约，
+不重释固定程序。成员集合、角色集合与范围只在各自唯一来源声明，不在接入层重复编码常数。
 
 - **I1** 把上界变成一处声明，把目标集变成有界变长，并删掉 Host 里单一与成员两条分支。Market Data 保留一成员 PIT
   请求的 preimage 域，所以已存的一成员请求 identity 不会重新定键；成员域承载两个及以上。
@@ -1579,7 +1591,7 @@ fuel：没有退出时约 86,000，有价格退出时约 205,000，这个族编�
 
 ## TARGET - Research 运行到出策略为止，由花费约束
 
-用户于 2026-09-27 决定：Research 不因试验次数停下；每次试验都记账并跨轮累计，Qualification 的折扣随这个计数增长，随机对照
+Research 不因试验次数停下；每次试验都记账并跨轮累计，Qualification 的折扣随这个计数增长，随机对照
 与留出数据保留，一个用户设定的花费上限约束 Research 的花费。[R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
 定义一次试验、它累计所跨的血缘、移除与花费上限；
 [Qualification](../owners/qualification/#target---cumulative-trial-deflation-at-candidate-intake) 定义打折。这些都不阻塞 F，

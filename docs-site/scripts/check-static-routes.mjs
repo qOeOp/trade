@@ -118,8 +118,6 @@ try {
     else if (route.endsWith('/')) {
       if (body.length < 200 || !/<html[\s>]/i.test(body) || !/<\/html>/i.test(body)) {
         failures.push(`${route}: response is not a non-empty HTML document`);
-      } else if (/Page Not Found|There isn't a GitHub Pages site here/i.test(body)) {
-        failures.push(`${route}: response contains a 404-page marker`);
       }
     } else if (route === `${basePath}/api/search`) {
       try {

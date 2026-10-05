@@ -1,86 +1,45 @@
 # Capability Adoption
 
-This page connects the existing engine to the target product architecture. It does not add an Owner, claim that a target contract is already implemented, or make a crate authoritative. The global Flow defines business authority; packages remain replaceable implementation units behind that authority.
+This page maps product requirements onto the current Nautilus foundation. The user confirmed on 2026-10-06
+that Market Data and Backtest extend Nautilus and expose separate MCP services; R&D is the custom-developed
+research service. This is an extension map, not a plan to extract native computations into replacement engines.
+Owner names identify internal responsibility, custody and permission boundaries, not additional engines or
+mandatory standalone services. Source availability remains separate from integrated product acceptance.
 
 ## Adoption rules
 
-- A crate may support more than one Owner only through separate typed ports. Shared code never implies shared write authority.
-- Direct reuse means preserving useful computation or protocol code behind the destination Owner contract, not preserving every current mutation path.
-- Foundation code owns no trading truth. It may store, transport, serialize, observe, or expose facts only on behalf of the Owner that committed them.
-- A target product surface is not considered implemented merely because the Flow names it or a low-level API is reachable.
+- Extend the retained native data, backtest, execution, cache, portfolio and analysis components in place through
+  their existing APIs and extension points. Keep native order, fill, position and account facts authoritative.
+- Add the smallest requirement-specific behavior missing from the current version. Do not copy its matcher,
+  data engine, account ledger or portfolio into parallel Owner implementations.
+- R&D owns research intent, registration, artifacts, experiment lineage and decisions; it consumes the data and
+  backtest services through typed internal APIs. Those services also expose MCP operations to external agents.
+- MCP is a protocol boundary, not a job owner or a second state machine. Native jobs and durable research
+  records outlive the caller session; all entry paths preserve the same admission, protected-data, budget and
+  unknown-result constraints.
+- A crate may support more than one responsibility only through separate typed ports. Shared native code does
+  not imply shared write authority, credentials, protected caches or database access.
+- Foundation transport and storage own no trading truth. Native trading components retain their own facts;
+  extensions commit only the additional custody or research facts assigned to them.
+- A named target, reachable native API or MCP handshake does not prove an integrated product capability.
 
-## Retired shell capability disposition
+## Product capabilities and implementation location
 
-The product shell that this contract was written against has been retired. This table is the
-normative record of where each capability went, so that removing the shell cannot silently drop one
-that was load bearing. The `Product Edge` page owns the resulting runtime rules.
+| Capability                          | Implementation                                                            | Invariant                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Data and backtest                   | Extend existing Nautilus modules, each with its domain MCP                | No copied data engine, matcher, order or account mechanism                       |
+| Research intelligence and authoring | External agent submits JSON; custom R&D validates/seals                   | No embedded model, arbitrary code or mutable Artifact                            |
+| Deterministic jobs                  | Domain service owns durable work; MCP/CLI submits/queries                 | Disconnect loses no job; backend completes internal composition                  |
+| User interface                      | Custom Dashboard consumes the same typed operations                       | UI, logs and operational success are not business facts                          |
+| Run directory and logs              | Operational RunStore and bounded reads                                    | Cache deletion cannot delete Owner results; unknown stays unknown                |
+| Workers and dependencies            | Separate lease/compatibility observations; fixed build dependencies/locks | Heartbeat does not prove readiness; no general script or publishing UI           |
+| Credentials and authority           | Private service environment, separate issuer and request admission        | No secrets in payloads; Bearer is not self‑issued authority                      |
+| Source/authoring composition        | Source Intake, R&D and current Composer/Host contracts                    | Positive flow, response loss, restart, conflict and atomicity require acceptance |
+| Telemetry and notifications         | Native extension points, committed outbox, projection and alerts          | Delivery cannot replace facts or start trading/recovery                          |
 
-| Capability the retired shell supplied                       | Where it lives now                                                                                                                                                                                                                                                                                        |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full‑code App and `viewer` execution policy                 | Absorbed. The first‑party Dashboard is a Next.js application behind a local operator session; public, anonymous and publisher execution have no surface to reach.                                                                                                                                         |
-| Scoped‑token MCP with per‑tool selection                    | Absorbed. `/api/mcp` is independently authenticated, host and origin bound, and exposes a fixed bounded tool set with no workspace mutation or preview tool.                                                                                                                                              |
-| Jobs, progress, logs, SSE, workers                          | Absorbed. The Trade‑owned RunStore records runs, the service‑log surface reads them under one repeatable‑read cut, and its contract test forbids any Owner‑fact table from appearing in RunStore SQL.                                                                                                     |
-| Schedules and flow error handling                           | Absorbed. The shadow scheduler owns due‑slot identity and the Schedules surface reads it; duplicate and overlapping delivery still join one Owner receipt.                                                                                                                                                |
-| Run‑on‑behalf and dedicated virtual users                   | Absorbed. The shadow worker, scheduler and effect worker are separate least‑privilege process roles over the RunStore, with no shared admin identity.                                                                                                                                                     |
-| Flow retry, timeout, error handler, resolver job            | Absorbed. Every disposable execution journey carries a recovery identity and resolves Owner custody before continuing; an unknown call queries the Owner receipt rather than retrying blind.                                                                                                              |
-| Data tables, resources, variables, transient flow state     | Absorbed as the RunStore, which holds operational state only. No Owner fact or durable artifact truth is stored there, and the contract test asserts it.                                                                                                                                                  |
-| Repository‑first deployment and digest compatibility cut    | Absorbed. The deployment package carries the compose manifests, image digests and their checks, which `make rd‑workbench‑check` gates.                                                                                                                                                                    |
-| CE base plus optional EE enhancements                       | **Retired with the shell.** Correctness never depended on an edition, so nothing had to move.                                                                                                                                                                                                             |
-| Separated internal AI and external chat credential planes   | Absorbed. The MCP token is distinct from the operator token, and provider keys reach no Trade authority.                                                                                                                                                                                                  |
-| Attended iteration repair through the shell's typed scripts | **Retired with the shell.** The four‑stage repair journey - repair‑input decision, repair action, Market Data repair, repaired‑replay successor - had no other driver. Its Owner routes remain implemented and unconsumed, and `docs/owners/rd.md` still carries the contract as `TARGET / NOT_ADMITTED`. |
-
-Two rows retired rather than moved. The second is the one that costs something: the sealed acceptance
-chains that drove those scripts end to end left with them, so Source Intake, Source Research and
-Composer keep unit coverage but no sealed chain until a first-party equivalent exists.
-
-## Strategy Factory capability disposition
-
-Strategy Factory is not one all-or-nothing migration. `PRESENT` means the named source facet is directly verified;
-`PARTIAL` means only the listed facet exists and the missing target semantics remain unimplemented;
-`ABSENT_TARGET_ONLY` is a target seam or prohibition, not an existing reusable capability. Adoption disposition is
-separate from source availability and never preserves a legacy writer by implication.
-
-| Capability                                          | Source truth                                                                                                                                                                                                                                                                                   | Target disposition and sole writer                                                                                | Missing target contract / first gate                                                                                                                                          |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ResearchIntent                                      | `PARTIAL` - port `strategy‑factory‑research‑intent` binds `FrozenResearchGoalIntentV2` in `crates/strategy_factory/src/product_edge.rs`, which the R&D Owner builds and commits; it carries sources, goal, independence basis, protected‑feedback projection and the TrialFamily policy digest | `ADAPT` in place; R&D remains the sole Research Intent writer                                                     | Bind the bounded alternative‑interpretation set and differentiating predictions; the frozen Intent carries one interpretation per source                                      |
-| TrialFamily                                         | `PARTIAL` - port `strategy‑factory‑intent‑family‑counters` binds `TrialFamilyRootV1` in `crates/strategy_factory/src/trial_family.rs`: one durable family per Intent, a policy digest, census members with terminal dispositions and an attempt frontier with consumed budget                  | `ADAPT` in place; R&D remains the sole `trial‑family‑census‑frontier` writer                                      | Record frontier states (the head advances in place) and enforce append‑only membership in the database, not only in the Owner's code                                          |
-| StrategyArtifact                                    | `PRESENT` - public content‑addressed `StrategyArtifact` representation and verification                                                                                                                                                                                                        | `ADAPT` into Research Strategy Artifact                                                                           | Reproduce bytes, dependency/toolchain, market semantics, capability and security admission                                                                                    |
-| ProgramHost SDK Wasm                                | `PARTIAL` - `DecisionContract`, `PreparedDecisionRuntime` and restricted Wasm execution exist; no general SDK or independent Product Host                                                                                                                                                      | `ADAPT` behind Research Artifact Security Admission                                                               | Prove bounded capabilities, process‑tree denial, deterministic failure and no account/effect authority                                                                        |
-| Trial receipt                                       | `ABSENT_TARGET_ONLY` - the formation `TrialReceipt` was retired with the legacy formation path; no source port remains                                                                                                                                                                         | `DO_NOT_CREATE_SECOND_AUTHORITY`; Backtest `exploratory‑result` alone writes Run Result                           | Add canonical request‑result correlation plus complete negative and unknown dispositions in Backtest; do not recreate a source receipt as Research or Qualification authority |
-| Formation receipt                                   | `ABSENT_TARGET_ONLY` - inspected `crates/strategy_factory/src/lib.rs`; no Formation Receipt or formation request‑result port exists, and the legacy formation path is retired                                                                                                                  | `DEFINE_TARGET_CONTRACT` for Research `strategy‑artifact`; no source facet is reusable                            | Define Formation/build correlation and complete negative/unknown dispositions before implementation                                                                           |
-| Qualification receipt                               | `ABSENT_TARGET_ONLY` - no Candidate Intake, Protected Attempt, Eligibility, or holdout‑custody source exists                                                                                                                                                                                   | `DEFINE_TARGET_CONTRACT` under Qualification; no current code to migrate                                          | Implement one‑way protected custody without any detail‑feedback path                                                                                                          |
-| Research Status                                     | `ABSENT_TARGET_ONLY` - no global status, Iteration Decision, Selection, or Research View source exists                                                                                                                                                                                         | `DEFINE_TARGET_CONTRACT` under Research; no existing authority to replace                                         | Implement explicit terminal unknown and keep Research/Qualification/Governance facts separate                                                                                 |
-| R&D product workbench                               | `ABSENT_TARGET_ONLY`; the Dashboard is the surface but no public Product Edge Research View, Run Detail/Compare, or typed user action from Source through Decision exists; the legacy Strategy Factory pilot is retired                                                                        | `DEFINE_TARGET_CONTRACT` as one Dashboard and MCP operation set over R&D, Backtest, and Qualification Owner ports | Implement the visible journey, receipts, unresolved states, and exact Qualification handoff; operational orchestration must not become a workflow truth writer                |
-| Data adapters and admission                         | `ABSENT_TARGET_ONLY` - the fixed Binance Vision pilot loader was retired with the legacy formation path; no source port remains                                                                                                                                                                | `DO_NOT_CREATE_SECOND_AUTHORITY`; Market Data alone admits market facts                                           | Add generic source binding, four‑time PIT, license and correction‑frontier semantics                                                                                          |
-| Backtest reuse                                      | `ABSENT_TARGET_ONLY` - the frozen pilot integration was retired with the legacy formation path; no source port remains                                                                                                                                                                         | `DO_NOT_CREATE_SECOND_AUTHORITY`; Backtest writes results                                                         | Prove canonical request‑result equality and exploratory/protected namespace separation                                                                                        |
-| Matching contract                                   | `ABSENT_TARGET_ONLY` - no matcher, due‑slot schedule, or complete Scanner Receipt source exists                                                                                                                                                                                                | `DEFINE_TARGET_CONTRACT` under Scanner                                                                            | Implement proposal‑only matching without hidden activation or scheduler authority                                                                                             |
-| Portfolio contract                                  | `ABSENT_TARGET_ONLY` - no Performance, Capacity, or Interaction receipt source exists in Strategy Factory                                                                                                                                                                                      | `DEFINE_TARGET_CONTRACT` under Portfolio                                                                          | Implement source‑cut projections without allocation or Risk‑headroom authority                                                                                                |
-| Protected feedback                                  | `ABSENT_TARGET_ONLY` - no protected result boundary, opaque frontier, or holdout ancestry source exists                                                                                                                                                                                        | `DO_NOT_CREATE_DIRECT_PATH`; Qualification remains sole protected writer                                          | Prove no dereferenceable protected result reaches R&D                                                                                                                         |
-| Scheduler deployment registry and service authority | `ABSENT_TARGET_ONLY` - no scheduler, registry, or deployment service source exists                                                                                                                                                                                                             | `DO_NOT_CREATE_SECOND_AUTHORITY`; native facts stay with Scanner, Governance and Runtime                          | Do not create a second scheduler, registry, lifecycle manager, or deployment service                                                                                          |
-
-The `strategy-factory-intent-family-counters` port kept its identifier when the pilot-local `IntentFamily`
-counters it once named were retired with the legacy formation path; it now binds the R&D Owner's own
-`TrialFamilyRootV1`. R&D remains the sole TrialFamily/Census writer and Qualification a read-only consumer.
-
-## R&D product-surface capability disposition
-
-The following statuses classify target product scope and priority, not current implementation. Every
-`TARGET_REQUIRED` and `DEFERRED_TARGET` row remains `ABSENT_TARGET_ONLY` until its canonical consumer satisfies the
-Product Edge acceptance contract. `NOT_ADMITTED` is a product prohibition, not a claim that engineering tools or
-strategy source code do not exist.
-
-| Capability                                                                                   | Status            | Adoption contract                                                                                                                                                                                                         |
-| -------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| External‑agent authoring through the tool surface                                            | `TARGET_REQUIRED` | An agent outside the product submits only admitted typed R&D operations through the external‑agent tool surface, which holds the credentials and returns no protected value; agent output is not business truth           |
-| Conversation and R&D Execution Agent separation                                              | `NOT_ADMITTED`    | Superseded by the user decision of 2026‑10‑03 that the agent stays outside the product: the product runs no model, so no server‑side R&D job exists to separate from a client                                             |
-| Research Source Intake application surface                                                   | `TARGET_REQUIRED` | Invoke replaceable, versioned connector flows through the common Product Edge; expose acquisition terminal, provenance, interpretation, triage, and Research Queue without a connector‑specific MCP or direct Intent path |
-| Research runs, timeline, Agent activity, iteration progress, logs, and allowed actions       | `TARGET_REQUIRED` | Compose R&D receipts, Research View, and operational progress without a shadow workflow truth                                                                                                                             |
-| Structured Artifact Review                                                                   | `TARGET_REQUIRED` | Show Artifact identity and lineage, strategy‑logic summary, parameters, dependencies, build state, permitted exploratory references, semantic change explanation, and allowed actions without requiring raw source        |
-| Exploratory comparison, bounded Qualification status, Scanner, Runtime, and Operations views | `TARGET_REQUIRED` | Preserve each native Owner and protected‑feedback boundary; operational run success is never business success                                                                                                             |
-| Full source inspection                                                                       | `DEFERRED_TARGET` | If admitted later, expose immutable Artifact source read‑only as an advanced audit surface                                                                                                                                |
-| Source‑level diff, controlled download, and source‑linked diagnostics                        | `DEFERRED_TARGET` | Derive from exact immutable Artifact identities and never create a mutation path                                                                                                                                          |
-| Notebook‑first product authoring or embedded code IDE                                        | `NOT_ADMITTED`    | External engineering tools stay outside the product contract and cannot satisfy Workbench acceptance                                                                                                                      |
-| In‑place Artifact editing or version overwrite                                               | `NOT_ADMITTED`    | Every admitted change creates a new governed attempt and immutable successor Artifact or a native terminal disposition                                                                                                    |
+Windmill is not a deployment dependency. Historical wire spellings only read immutable records; they select no
+implementation or executor. Existing MCPs, Dashboard and packages do not prove full research delivery. Validate
+data, Artifact, run, report and legal next action through the concrete user story.
 
 ## Capability map
 
@@ -239,24 +198,40 @@ source locator is inspected. Market-data ports first enter `relation:data-resear
 | `crates/adapters/scheduled_events`    | `PRESENT` - `src/lib.rs`                                     | `ABSENT` - inspected `src/lib.rs`; `STOP_SOURCE_PORT_ABSENT` |
 | `crates/adapters/tardis`              | `PRESENT` - `src/data.rs`                                    | `ABSENT` - inspected `src/lib.rs`; `STOP_SOURCE_PORT_ABSENT` |
 
-## Shared-state migration
+## Native state and product custody
 
-The existing shared Cache is a migration surface, not a future Owner. Market Data alone writes instrument and market facts; Execution alone writes raw order, fill, fee, venue, and Recovery Case facts; Portfolio alone writes account and exposure projections; Runtime alone writes generation checkpoints and readiness state. Other consumers receive read-only views.
+Retain the native Cache and its data/execution/portfolio writer paths. Other consumers receive read-only views;
+no adapter maintains independently advancing order, fill, position or account truth. The native cache is not PIT
+history: product source revisions, availability cuts, immutable custody and recovery receipts remain in their
+assigned append-only stores. Market Data writes data custody, Execution writes effect/Recovery records,
+Portfolio writes its receipt projections and Runtime writes generation/readiness records. This assigns product
+facts; it does not extract the native state machines into replacement services.
 
-The generic MessageBus may carry commands and uncommitted internal traffic. Event Rail is a narrower projection that publishes only committed Owner events. Delivery, retry, and replay never replace the source Owner fact or its terminal state.
+The native MessageBus continues carrying commands and internal events. Product Event Rail projects only committed
+custody events; bus delivery, replay or a synthetic terminal is never substituted for a committed receipt or venue
+confirmation. Native event processing is not forced through a second cross-Owner execution chain.
 
 ## Observability capability disposition
 
-The existing MessageBus and Event Store are reusable mechanisms, not an Observability authority. Adopt MessageBus only behind typed Owner ports and Event Rail; adopt Event Store only behind Owner-scoped append/read APIs and transactional outbox boundaries. Existing logging, tracing, metrics, collector, broker durability, Dashboard, or OpenTelemetry capability is not inferred from crate names.
+Reuse native logging, tracing, MessageBus and Event Store at their existing extension points. A bus or journal
+does not supply the atomic fact/outbox commit of product custody. Keep scoped append/read contracts and
+transactional outboxes for those product records; do not replace them with in-memory bus delivery. Existing
+collector, broker durability, Dashboard or OpenTelemetry support is not inferred from crate names.
 
-Product closure is not an Observability capability. A Dashboard, trace, or alert may explain the current
-stage, but it cannot close a user journey, choose its next action, or substitute for a native Owner receipt. The
-product surface therefore remains `TARGET` until the Dashboard and its MCP consumers implement the same typed
-request-and-view journey above and production deployment lands.
+Dashboard, traces and alerts explain progress but do not create source facts or terminal results. Product
+closure is verified through the real MCP/service request and result journey; Dashboard slices have their own
+browser acceptance. The telemetry gateway/status/alert targets remain governed by their own contracts, with no
+preselected external broker or observability backend implied by native reuse.
 
-The target Telemetry Gateway admits OTLP-compatible receivers, processors, and exporters behind one replaceable port. The target Status Projection consumes committed Event Wakes and policy-admitted telemetry idempotently, stores checkpoints, and can rebuild. Alert Routing wraps Telegram and future adapters without making delivery a business result. Dashboard API serves only the Global Status View. Kafka, NATS, Redpanda, OpenTelemetry Collector, ClickHouse, PostgreSQL, and vendor backends remain implementation candidates, not preselected product dependencies.
+The telemetry gateway retains replaceable OTLP receiver, processor and exporter ports. Status Projection
+consumes committed wakes and policy-admitted telemetry idempotently, checkpoints and rebuilds; alert delivery
+is not a business result and Dashboard API serves only the Global Status View.
 
 ## Authority migration gates
+
+The cross-Owner admission protocol below describes the pre-cutover contract. The user-authorized
+[trading node target](../guide/architecture-rules/#target-trading-node) relocates these properties into the native
+node; this list does not authorize a parallel engine.
 
 1. **Single order writer** - Strategy, Execution Algorithm, Risk, and adapters cannot write denial or order lifecycle state outside Execution Order Engine.
 2. **Permit-bound effects** - for add-risk, Runtime receives a terminal Risk Decision and one-use Reservation before creating an Authorized Order Command.

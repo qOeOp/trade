@@ -1,8 +1,8 @@
 # Design evidence
 
 External evidence challenges this process. It does not prove that VibeTrading is profitable, production-ready, or
-equivalent to another platform. Owner names, the permit-bound command protocol, the single Recovery Case closure
-writer, and the 14-group plus one channel / 5-module overview limit remain project design choices.
+equivalent to another platform. Owner names, the native node permission gates, the single Recovery Case closure
+writer, and the 13-group plus one channel / 5-module overview limit remain project design choices.
 
 ## Engine boundaries and one trading path
 

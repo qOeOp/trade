@@ -4,19 +4,16 @@
 
 Strategy Factory is a value-stream boundary around R&D, exploratory Backtest, and independent Qualification. R&D contains both Research and Develop capabilities; the boundary makes the R D Q separation visible without becoming another Owner. Where this page names the actor that canonicalizes, binds, validates, or lowers a Design, that actor is R&D's Develop capability; the boundary itself performs nothing.
 
-### How to read this page
+### Representation and execution design
 
-The boundary contract is short: Responsibility, Forward path, Value-stream handoffs, Protected path, Authority
-boundary, and Implementation acceptance. Those state which Owner holds which fact across R&D, Backtest, and
-Qualification, and which objects cross between them.
+R&D compiles versioned JSON into a bounded typed BFP and seals immutable Artifacts. The target Host interprets
+that program directly; native Nautilus supplies data, order lifecycle, matching, accounts and analytics.
+The current Wasm/capsule path remains a compatibility contract until R2 switches representation. It is not a second
+future execution architecture. Signal rules, sizing configuration and execution policy are frozen together.
 
-The shared lifecycle kernel section and the Bounded Feature Program section below it are the compiler
-specification: the typed Design shape, the fail-closed pipeline, the pinned primitive catalog, the graph bounds,
-the ABI, and the build capsule. They are normative for anyone implementing the compiler and are not required to
-understand the value stream. The actor throughout is R&D's Develop capability.
-
-The Strategy shape envelope section records the admitted target those Owners and the compiler grow toward, and
-which stated bounds the user has authorized it to move.
+The following chapters define authority and value flow, typed Design and primitive semantics, policy/configuration,
+Host interpretation, data/universe and native order extensions, then protected handoffs and acceptance. Precise
+schema, refusal and recovery meanings are normative in their owning chapter; target shapes are not shipped features.
 
 ## Forward path
 
@@ -55,6 +52,150 @@ Qualification projections form one append-only, acyclic principal/scope chain. I
 R&D's Develop capability returns one content-addressed Strategy Artifact and Build Receipt, then its Research capability freezes one Exploratory Replay Request binding that exact artifact, data scope, replay configuration, and model identities before the separate Backtest service accepts it. Exploratory facts return only to R&D and can create a successor Intent. R&D maintains the append-only TrialFamily Census Frontier and alone commits Iteration Decision. A terminal stop ends there with no Selection. Only a `READY_FOR_SELECTION` decision may produce the selected-only `SELECTED_FOR_QUALIFICATION` disposition and submit the Qualification Candidate.
 
 <a id="strategy-design-v2-shared-lifecycle-kernel"></a>
+
+## TARGET - Host interpretation of the Bounded Feature Program
+
+After T0 is reproduced, the generic ProgramHost interprets the frozen BFP directly. First-party source
+lowering, Cargo-to-Wasm and Composer build custody are replaced in bounded cutover slices; they are current
+representation compatibility, not a second target engine. Programs use the pinned kernel/catalog and remain
+statically bounded. Direct interpretation reduces repeated operator implementations and per-frame guest copying
+without admitting caller source, runtime plugins, Paper/Live or money effects.
+
+**What is kept unchanged.** The canonical `BoundedFeatureProgramV1` schema, its domain-separated bytes and digest,
+the R&D joint freeze, the pinned primitive catalog with its versioning and golden vectors, the description and
+resource bounds, readiness (`READY`/`WARMING`), fixed-I128 arithmetic with its frozen rounding, the absence of
+floating point, `NUMERIC_FAILURE_NO_STATE_CHANGE`, `StrategyDesignV2`, `StrategyPlanV2`, and the shared
+lifecycle kernel's sole authority over state transitions. Determinism never came from Wasm: it comes from the
+fixed-I128 kernel, which host and guest share source for source.
+
+**The TARGET forward path:**
+
+`Frozen Research -> canonical BoundedFeatureProgramV1 -> StrategyPlanV2 binding each plugin's BFP digest ->`
+`StrategyArtifactV2 package carrying the Plan and each plugin's canonical BFP bytes -> ProgramHostV2 interpreting`
+`each BFP through vibe-indicators-kernel -> shared lifecycle kernel -> Backtest`.
+
+The interpreter is one first-party module of `ProgramHostV2`. It accepts only canonical BFP bytes whose digest the
+Plan binds, re-derives that digest before its first evaluation, and evaluates nodes in canonical topological order
+by calling the catalog function each node's semantic ID names. It is the sole BFP runtime, not a second one beside
+Wasm: the Wasm runtime is retired in the same plan. Strategy meaning stays BFP. The interpreter adds no opcode, no
+node kind, and no host feature beyond the published catalog. A semantic ID the running catalog does not publish is
+refused, as today. The Artifact's identity binds the Plan, the BFP bytes, and the interpreter identity: the catalog
+semantic version and digest plus the interpreter semantic version. A program therefore re-identifies whenever the
+code that gives it meaning changes. The build receipt that bound the toolchain played this role before.
+
+**Isolation, relocated onto the program's static bounds.** Each property the Wasm boundary enforced at run time is
+enforced by a bound the canonical program already declares. That bound is checked before the Plan is issued, and
+checked again when the host is constructed:
+
+- **Fuel per invocation** is replaced by the **evaluation-cost bound**: the sum over nodes of each primitive's
+  catalog cost, where a windowed primitive costs its declared window and lag, times invocations per event. It is
+  derived from the description bounds (nodes, edges, depth, fan-out, decision branches) and the resource bounds
+  (window, lag, invocations per event). At freeze and at Plan issuance, a program whose derived cost exceeds the
+  catalog's per-event cost cap is `UNSUPPORTED`. At run time the interpreter performs exactly the derived work.
+  Nothing data-dependent can extend it, because the DAG has no loop and no unbounded window.
+- **Linear memory, the guest stack and `memory.grow`** are replaced by the **state bound**: state cells and state
+  bytes, plus window and lag. The host allocates each plugin's state once, at construction and at the declared
+  size, and never during evaluation. A state write beyond its cell, or a window beyond its declared length, is
+  refused before any state changes.
+- **No imports, no start function and no ambient effect** are replaced by the **closed catalog namespace**. A
+  program can name only published semantic IDs, and no catalog function performs I/O, reads a clock, or allocates
+  outside its state.
+- **A fresh instance per invocation with no retained guest memory** becomes host-owned state crossing each
+  evaluation as explicit bytes. This is unchanged in effect: state persists only in the canonical state the
+  checkpoint already carries.
+- **Forbidden floating-point opcodes** are replaced by the fixed-I128 catalog, unchanged.
+
+The source-byte, Wasm-byte, fuel and linear-memory bounds retire with the Wasm path. A program that declares
+them is still read back, and the interpreter ignores those four fields. The derived evaluation-cost bound
+replaces them. The catalog publishes its cost cap and each primitive's cost under the same versioning as its
+golden vectors.
+
+**Stated refusals and seals this moves.** Each is rewritten where it is stated, marked as applying until the
+retirement slice named below lands:
+
+- "not a ... interpreter, runtime" and the Wasm forward path, under the Bounded Feature Program section above;
+- "two byte-identical builds", under the V3 build capsule and the first executable corpus above;
+- "This is the sole V2 execution path", under the Wasm Artifact and its ABI below;
+- R&D's "may not ... create another interpreter or runtime", "No ... second interpreter/runtime" and "two
+  byte-identical builds";
+- Runtime's "content-addressed Wasm Artifact".
+
+These statements are relocated, not removed: the property each protected - one runtime, a reproducible
+executable identity, bounded execution cost and memory - is restated above and stays provable.
+
+**Status.** This section is TARGET. Until slice R2 lands, the Wasm path stays the CURRENT/PARTIAL path; nothing
+here is claimed as implemented.
+
+<a id="bfp-host-interpretation-retirement-plan"></a>
+
+### Representation cutover dependencies
+
+**Prerequisites.**
+
+1. *Research T0 is reproduced on the current path.* `backtest.run` reaches the Composer and the Wasm host, and
+   the T0 acceptance passes. The run this produces is the oracle for slice R1.
+2. *Backtest has one seam.* Backtest's `backtest.run` obtains its executable through exactly one function: a
+   frozen Plan maps to an executable Artifact. Under the current path it is the Composer: lower, build twice,
+   issue the Artifact. Slice R2 replaces that function's body and nothing else in the run.
+3. *Three research prerequisites, scheduled by R&D lane coordination, gate R-1u acceptance only.* They do not
+   gate R1-R3:
+   - R-1u's reference trades are re-exported with entry, stop and target prices and fill and exit times;
+   - its unbounded pivot list is bounded to the last K pivots, with research showing the bound changes no trade;
+   - the reference is regenerated on perpetual data. The user decided on 2026-10-04 that the product stays
+     perpetual and adds no spot.
+
+**Slices, in order:**
+
+- **R1 - interpreter beside Wasm.**
+  - *Adds:* the interpreter in `ProgramHostV2`, behind the same per-plugin invocation the Wasm runtime serves. It
+    takes the canonical BFP, the frame's typed inputs and the prior state, and returns the outputs, availability
+    and post-state that `PluginFrameV2` carries today. It also adds the evaluation-cost bound and the catalog's
+    per-primitive costs.
+  - *Deletes:* nothing.
+  - *Ordered chain:* unchanged. An equivalence proof is added: every authored corpus program (T0, `d1`, `w1`, `w2`,
+    the rebalance program and the rest of the authored corpus) runs both ways over the same frames. Every
+    frame's outputs, availability and post-state bytes must be identical.
+- **R2 - the Artifact carries the program.**
+  - *Adds:* a Strategy Artifact package version whose per-plugin entry is the canonical BFP bytes and the
+    interpreter identity, not a Wasm module. Composer becomes "freeze the Plan and its BFP package", with no
+    lowering and no build, and the seam from prerequisite 2 calls it.
+  - *Deletes:* lowering and building on the production Composer route.
+  - *Ordered chain:* these entries are replaced:
+    - `product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact`;
+    - `tests::the_authored_frozen_program_runs_the_production_composer`;
+    - F's H5 step in `tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported`;
+    - `tests::backtest_run_reaches_the_replay_step_over_a_catalogued_strategy`, once it runs past the replay step.
+
+    Their dependents in `scripts/ci/rd-owner-chain-needs.tsv` are re-measured, never estimated.
+- **R3 - delete the Wasm path.**
+  - *Deletes:*
+    - `bounded_feature_program_lowerer_v1` and its tests;
+    - `develop_plugin_build_v3`, and the V2 build producer and its sandbox;
+    - `lowered_guest_build_for_test`;
+    - `program_runtime_v2` and the wasmi dependency;
+    - the guest-stack rule and the guest SDK's BFP wire;
+    - the pinned toolchain and sysroot digests;
+    - the `strategy-factory-linux-a0` and `strategy-program-seal` workflows;
+    - the dead `complex_strategy_ir`/`complex_strategy_program` interpreter and compiler. Their retirement
+      condition becomes equivalence through the host interpreter.
+  - *Build-receipt tables:* they stop receiving rows. Their existing rows stay readable, because storage stays
+    append-only and content-addressed. A Wasm-backed Artifact remains a readable record and is no longer
+    executable.
+  - *Ordered chain:* entries whose only subject was the build or the lowerer leave the chain. Every other entry
+    keeps its position.
+- **R4 - the documentation states CURRENT.** The CURRENT statements of this page and of R&D's Develop compilation
+  section describe the interpreted path, and each rewritten Wasm statement listed above is removed.
+
+**Acceptance of the retirement.**
+
+- *T0, trade by trade.* Research T0 runs on the interpreted path to a Backtest report whose every trade (member,
+  side, entry and exit frame, fill price and quantity) and whose canonical result equal those of the accepted run
+  on the Wasm path.
+- *Performance, measured.* The per-frame evaluation time of T0 is recorded on the same host profile as the
+  2.2 ms baseline, with a target of at most 100 µs. If the measurement misses that target, the target is
+  restated with the measurement, not reread.
+- *Repeatability.* Repeated runs and every checkpoint restore stay byte-identical, as the first executable corpus
+  requires today.
 
 ## StrategyDesignV2 and the shared lifecycle kernel
 
@@ -727,48 +868,18 @@ canonical Result bytes after the coordinator acknowledges the Result, all 28 evi
 trace; an unacknowledged submission remains unavailable. This admission grants no disposable PostgreSQL acceptance,
 deployed or running service, production invocation, Paper/Live execution, or trading.
 
-**SUPERSEDED TARGET, Owner-sealed Native Replay frame sequence V2:** the Strategy shape envelope replaces this
-profile with PIT window custody; the profile has no caller, and in slice T1 each Owner deletes its part, tables
-through a migration. The paragraphs below remain as
-the statement of the invariants the replacement's relocation table carries forward. The existing
-`NativeReplayExecutionInputBindingV1`, its single universe frame, native scheduling receipt,
-28-component observation package, execution bundle, request and Result identities remain
-byte-for-byte unchanged. A separate `NativeReplayExecutionInputBindingV2` may bind one already
-sealed Exploratory Replay request to the window's whole sequence of complete, independently
-Owner-sealed universe frames and their native BAR plus Quote EVENT liquidity schedules. This
-profile applies only when the request window contains that dense sequence of eligible frames, never
-fewer than two. The first frame must equal the independently re-resolved V1 initial frame. Market
-Data alone derives the complete eligible sequence within the
-request's half-open replay window and decision cut; a gap in it makes this V2
-profile unavailable rather than silently truncating it, and a longer window is a longer sequence
-rather than a refusal. A run consumes every frame but the last, which is there to bound the
-liquidity of the one before it. The frames have distinct identities,
-strictly increasing canonical event order and no eligible frame between neighbours; each retains its own
-PIT snapshot/fact, observation-batch, trigger, frame, native scheduling and liquidity EVENT receipt
-identities, and one BAR schedule receipt digest per member. A frame's width therefore follows the
-member count, which the V2 bytes take from the V1 binding rather than repeat; a two-member binding
-keeps exactly its bytes, and recovery derives the count from the stored length. Each liquidity receipt binds the Owner-verified Quote row digests, source cut,
-bid/ask prices and sizes, event/initialization times and member order consumed by the real Sim
-Exchange; a BAR receipt alone cannot authorize a fill. Every frame must bind the same request,
-Plan/Design role schema, canonical members (the V1 binding's members), universe selection, Instrument
-Master cut, BAR timeframe, venue and account scope, and the instrument/economic terms must be
-valid at every frame time. Market Data verifies each frame's source and correction lineage at its
-own cut and their valid successor relationship. The caller cannot provide
-a later snapshot, frame time, member values, schedule, event order or a frame list.
+#### Execution input versioning and materialization
 
-R&D issues V2 binding, deterministic receipt and outbox atomically only after exact-locator
-readback of the V1 binding and every Market Data frame/scheduling capability. The V2 meaning
-includes the V1 binding identity, every ordered frame, native scheduling and liquidity EVENT
-receipt digest, their distinct PIT cuts and a domain-separated sequence digest covering all of
-them. Exact request/V2-locator retry or response-loss recovery returns the same stored bytes after
-re-verifying every constituent;
-changed meaning conflicts with zero append. Native preparation independently re-resolves every
-Owner cut, proves byte-for-byte equality to the stored V2 binding, and then constructs a
-move-only V2 execution bundle. The bundle validates two complete BAR signals and their later
-Owner-verified Quote EVENT liquidity for each frame. Each frame's final liquidity
-EVENT must precede the next frame's first BAR. Strict cross-frame temporal order and the request
-window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
-and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame. Market Data issues every
+Multi-frame replay uses PIT window custody and derived per-frame views. The request binds window, decision
+availability, canonical members, input roles, economic terms and execution policy. Custody contracts enforce
+complete coverage, correction selection, no future data, identical-byte recovery and atomic binding/receipt/outbox.
+Do not build a separate external snapshot-commit chain per frame, reinterpret V1, or fall back to test frames or
+caller values when a source is missing. The existing single-frame V1, 28-component evidence and request/Result bytes
+retain their meanings. Multi-frame Results bind the exact window and complete consumed inputs; old single-frame
+evidence cannot prove them. An open-position run may have a valid Result but cannot claim round-trip closure.
+Response-loss recovery reads committed results without re-execution.
+
+Market Data issues every
 BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The Instrument
 Master's tick is the venue's tick on the day it was retrieved, and a venue coarsens a tick as the price rises:
 BTCUSDT's tick is 0.10 today, while its 2021-06-01 daily bar opened at 37244.36, and SOLUSDT's is 0.0100 while its
@@ -796,51 +907,6 @@ bundle states `FUNDING_NOT_STATED`, exactly as before this read existed; a windo
 settlement gap inside it refuses the whole bundle by name rather than stating anything or filling the gap with a
 zero rate. Since nothing backfills funding settlements in production yet, every production bundle still states
 `FUNDING_NOT_STATED` today; a report must not read that as a run that paid no funding.
-
-Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
-identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set
-and actual fill evidence for each frame, and the canonical Backtest Result bytes. Its versioned evidence package includes
-the unchanged V1 constituent set plus the ordered V2 frame-sequence evidence; a V1 28-component
-package alone cannot attest a run over a sequence. A round-trip closure is present only if actual Sim
-EVENT fills entered and then exited every member, the run ended flat, and its own canonical Result
-reports those positions closed. The closure digest binds that Result digest, V2 sequence digest
-and exact fill/position facts. Entry-only, rejected, partially filled or still-open runs never
-claim closure; a reduction that cannot be reconciled to a complete run fails closed. Exact
-attempt/Result response-loss readback returns the already committed Result and evidence, never
-re-executes or fabricates a closure. This contract does not itself prove dynamic Owner issuance,
-disposable PostgreSQL acceptance, profitable strategy behavior, Paper, Live or trading authority.
-
-**Why a longer Backtest is one window custody and not a longer frame sequence:** one PIT batch is one
-instant, and nothing that resolves a member's role row filters it by event time, so a batch holding a later instant
-of the same role offers two exact rows and binds no universe frame at all;
-`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` measures exactly that. The frame-sequence profile
-answered this with one snapshot, universe frame, and native scheduling seal per instant, which costs one external
-commit per frame and fixes one timeframe for the run. Window custody keeps both facts - each frame is still bound
-from a one-instant batch through the one construction site below - but derives that batch from custody minted once,
-as the Strategy shape envelope states.
-
-**Where a run is pinned to one frame today:**
-`ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1` has one production caller, in
-`native_replay_execution_binding_consumer_v1.rs`, and that one call is where a run stops being one
-frame. The N-frame constructor beside it has exactly one call site, inside
-`compose_native_replay_execution_bundle_v2`, which has no caller at all, and every item of
-`native_replay_execution_input_binding_v2` is dead in a default library build. What a substitution
-there needs is a second `StrategyInputUniverseFrameReceipt`; that receipt has one construction site,
-in `bind_strategy_input_universe_frame`, which takes a `VerifiedPitObservationBatch`. A second frame
-is therefore not merely unwritten but unconstructible until Market Data commits a second batch, and
-`pit_snapshot/sealed_acceptance.rs` carries `compile_fail` doctests asserting that neither
-deserialization nor a struct literal forges one even with the acceptance feature on.
-
-**What that one production caller does not mean:** it is a caller count, not a statement that the
-path runs. Nothing issues a `NativeReplayExecutionInputBindingV1` in any compilable configuration
-today. Its issuance narrows to `issue_native_replay_execution_input_binding_v1`, whose single
-caller is an HTTP handler registered only under the `rd-owner-api` crate's own
-`composer-replay-issuance`, which the deployed image enables through `composer-v3-replay` and the ordered
-chain's build turns on through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
-the issuer and the resolver beside it are ungated production functions on
-`PostgresResearchGoalOwnerV1`, forty-three lines apart, taking the same collaborators. So the
-execution path is unreached rather than unreachable, and one ordered-chain entry that issues and
-then resolves would drive it without enabling a feature or widening any union.
 
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
@@ -1481,201 +1547,17 @@ authority.
 
 <a id="target-host-interpretation-of-the-bounded-feature-program"></a>
 
-## TARGET - Host interpretation of the Bounded Feature Program
-
-**Authorization.** On 2026-10-04 the user authorized this change, choosing (translated) "authorize option two":
-keep the Bounded Feature Program, retire everything between it and execution - first-party source lowering, the
-cargo build to Wasm, and the Composer's build custody - and let the generic `ProgramHostV2` interpret the frozen
-program directly, after research T0 is reproduced on the current path. The authorization moves the stated
-refusals and seals this section names; it moves nothing else, and it admits no Paper, Live, production write or
-trading path.
-
-**Why, as measured on `main` at `4c3d181fe`.**
-
-- *The untrusted-code premise no longer holds.* The Composer runs in production only from a frozen Bounded Feature
-  Program; no caller, proposer or LLM can author Rust, Wasm or a dependency. Every Wasm module is first-party
-  lowerer output that calls the same `vibe-indicators-kernel` sources the host already links - the lowerer embeds
-  them byte for byte. Wasm isolation guards code this repository generates, from a program whose cost the static
-  bounds already limit. The build sandbox is not OS confinement either: it is `env_clear` plus
-  `cargo --offline --locked`.
-- *A build is cheap; running is not.* One release build of a lowered guest takes 1.5-1.8 s on an Apple-silicon
-  host, so the required pair costs 3-4 s per plugin. A research T0 frame, by contrast, costs 1.59 ms of guest
-  execution on a cached wasmi instance. The guest is 40.9 KB of Wasm, and its 46.6 KB state crosses the guest
-  boundary in both directions on every call. The production call adds 0.63 ms: it re-validates the module
-  (0.46 ms), compiles it and instantiates it on every invocation. That totals about 2.2 ms per frame per plugin.
-- *The research workload does not fit.* Research R-1u covers 53 perpetuals over 5 years of 1-hour frames, up to
-  2.32 million frames. On the current path that is about 85 minutes on one core, against about one minute for the
-  research loop that found it. Research T0, on daily frames, costs seconds and is
-  unaffected.
-- *Every operator is written three times.* A new primitive needs a `vibe-indicators-kernel` function, its lowerer
-  emission and its guest SDK/catalog wiring. Under interpretation it needs the function and one dispatch arm.
-- *The chain carries about 13-15 thousand non-test lines that exist only for the Wasm path.* These are the
-  lowerer, the V2/V3 build producers and sandbox, the guest SDK wire, the wasmi runtime, the guest-stack rule and
-  the Composer's build custody.
-
-**What is kept unchanged.** The canonical `BoundedFeatureProgramV1` schema, its domain-separated bytes and digest,
-the R&D joint freeze, the pinned primitive catalog with its versioning and golden vectors, the description and
-resource bounds, readiness (`READY`/`WARMING`), fixed-I128 arithmetic with its frozen rounding, the absence of
-floating point, `NUMERIC_FAILURE_NO_STATE_CHANGE`, `StrategyDesignV2`, `StrategyPlanV2`, and the shared
-lifecycle kernel's sole authority over state transitions. Determinism never came from Wasm: it comes from the
-fixed-I128 kernel, which host and guest share source for source.
-
-**The TARGET forward path:**
-
-`Frozen Research -> canonical BoundedFeatureProgramV1 -> StrategyPlanV2 binding each plugin's BFP digest ->`
-`StrategyArtifactV2 package carrying the Plan and each plugin's canonical BFP bytes -> ProgramHostV2 interpreting`
-`each BFP through vibe-indicators-kernel -> shared lifecycle kernel -> Backtest`.
-
-The interpreter is one first-party module of `ProgramHostV2`. It accepts only canonical BFP bytes whose digest the
-Plan binds, re-derives that digest before its first evaluation, and evaluates nodes in canonical topological order
-by calling the catalog function each node's semantic ID names. It is the sole BFP runtime, not a second one beside
-Wasm: the Wasm runtime is retired in the same plan. Strategy meaning stays BFP. The interpreter adds no opcode, no
-node kind, and no host feature beyond the published catalog. A semantic ID the running catalog does not publish is
-refused, as today. The Artifact's identity binds the Plan, the BFP bytes, and the interpreter identity: the catalog
-semantic version and digest plus the interpreter semantic version. A program therefore re-identifies whenever the
-code that gives it meaning changes. The build receipt that bound the toolchain played this role before.
-
-**Isolation, relocated onto the program's static bounds.** Each property the Wasm boundary enforced at run time is
-enforced by a bound the canonical program already declares. That bound is checked before the Plan is issued, and
-checked again when the host is constructed:
-
-- **Fuel per invocation** is replaced by the **evaluation-cost bound**: the sum over nodes of each primitive's
-  catalog cost, where a windowed primitive costs its declared window and lag, times invocations per event. It is
-  derived from the description bounds (nodes, edges, depth, fan-out, decision branches) and the resource bounds
-  (window, lag, invocations per event). At freeze and at Plan issuance, a program whose derived cost exceeds the
-  catalog's per-event cost cap is `UNSUPPORTED`. At run time the interpreter performs exactly the derived work.
-  Nothing data-dependent can extend it, because the DAG has no loop and no unbounded window.
-- **Linear memory, the guest stack and `memory.grow`** are replaced by the **state bound**: state cells and state
-  bytes, plus window and lag. The host allocates each plugin's state once, at construction and at the declared
-  size, and never during evaluation. A state write beyond its cell, or a window beyond its declared length, is
-  refused before any state changes.
-- **No imports, no start function and no ambient effect** are replaced by the **closed catalog namespace**. A
-  program can name only published semantic IDs, and no catalog function performs I/O, reads a clock, or allocates
-  outside its state.
-- **A fresh instance per invocation with no retained guest memory** becomes host-owned state crossing each
-  evaluation as explicit bytes. This is unchanged in effect: state persists only in the canonical state the
-  checkpoint already carries.
-- **Forbidden floating-point opcodes** are replaced by the fixed-I128 catalog, unchanged.
-
-The source-byte, Wasm-byte, fuel and linear-memory bounds retire with the Wasm path. A program that declares
-them is still read back, and the interpreter ignores those four fields. The derived evaluation-cost bound
-replaces them. The catalog publishes its cost cap and each primitive's cost under the same versioning as its
-golden vectors.
-
-**Stated refusals and seals this moves.** Each is rewritten where it is stated, marked as applying until the
-retirement slice named below lands:
-
-- "not a ... interpreter, runtime" and the Wasm forward path, under the Bounded Feature Program section above;
-- "two byte-identical builds", under the V3 build capsule and the first executable corpus above;
-- "This is the sole V2 execution path", under the Wasm Artifact and its ABI below;
-- R&D's "may not ... create another interpreter or runtime", "No ... second interpreter/runtime" and "two
-  byte-identical builds";
-- Runtime's "content-addressed Wasm Artifact".
-
-These statements are relocated, not removed: the property each protected - one runtime, a reproducible
-executable identity, bounded execution cost and memory - is restated above and stays provable.
-
-**Status.** This section is TARGET. Until slice R2 lands, the Wasm path stays the CURRENT/PARTIAL path; nothing
-here is claimed as implemented.
-
-<a id="bfp-host-interpretation-retirement-plan"></a>
-
-### Retirement plan
-
-**Prerequisites.**
-
-1. *Research T0 is reproduced on the current path.* `backtest.run` reaches the Composer and the Wasm host, and
-   the T0 acceptance passes. The run this produces is the oracle for slice R1.
-2. *Backtest has one seam.* Backtest's `backtest.run` obtains its executable through exactly one function: a
-   frozen Plan maps to an executable Artifact. Under the current path it is the Composer: lower, build twice,
-   issue the Artifact. Slice R2 replaces that function's body and nothing else in the run.
-3. *Three research prerequisites, scheduled by R&D lane coordination, gate R-1u acceptance only.* They do not
-   gate R1-R3:
-   - R-1u's reference trades are re-exported with entry, stop and target prices and fill and exit times;
-   - its unbounded pivot list is bounded to the last K pivots, with research showing the bound changes no trade;
-   - the reference is regenerated on perpetual data. The user decided on 2026-10-04 that the product stays
-     perpetual and adds no spot.
-
-**Slices, in order:**
-
-- **R1 - interpreter beside Wasm.**
-  - *Adds:* the interpreter in `ProgramHostV2`, behind the same per-plugin invocation the Wasm runtime serves. It
-    takes the canonical BFP, the frame's typed inputs and the prior state, and returns the outputs, availability
-    and post-state that `PluginFrameV2` carries today. It also adds the evaluation-cost bound and the catalog's
-    per-primitive costs.
-  - *Deletes:* nothing.
-  - *Ordered chain:* unchanged. An equivalence proof is added: every authored corpus program (T0, `d1`, `w1`, `w2`,
-    the rebalance program and the rest of the authored corpus) runs both ways over the same frames. Every
-    frame's outputs, availability and post-state bytes must be identical.
-- **R2 - the Artifact carries the program.**
-  - *Adds:* a Strategy Artifact package version whose per-plugin entry is the canonical BFP bytes and the
-    interpreter identity, not a Wasm module. Composer becomes "freeze the Plan and its BFP package", with no
-    lowering and no build, and the seam from prerequisite 2 calls it.
-  - *Deletes:* lowering and building on the production Composer route.
-  - *Ordered chain:* these entries are replaced:
-    - `product_edge_postgres::tests::frozen_program_runs_the_production_composer_to_a_durable_artifact`;
-    - `tests::the_authored_frozen_program_runs_the_production_composer`;
-    - F's H5 step in `tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported`;
-    - `tests::backtest_run_reaches_the_replay_step_over_a_catalogued_strategy`, once it runs past the replay step.
-
-    Their dependents in `scripts/ci/rd-owner-chain-needs.tsv` are re-measured, never estimated.
-- **R3 - delete the Wasm path.**
-  - *Deletes:*
-    - `bounded_feature_program_lowerer_v1` and its tests;
-    - `develop_plugin_build_v3`, and the V2 build producer and its sandbox;
-    - `lowered_guest_build_for_test`;
-    - `program_runtime_v2` and the wasmi dependency;
-    - the guest-stack rule and the guest SDK's BFP wire;
-    - the pinned toolchain and sysroot digests;
-    - the `strategy-factory-linux-a0` and `strategy-program-seal` workflows;
-    - the dead `complex_strategy_ir`/`complex_strategy_program` interpreter and compiler. Their retirement
-      condition becomes equivalence through the host interpreter.
-  - *Build-receipt tables:* they stop receiving rows. Their existing rows stay readable, because storage stays
-    append-only and content-addressed. A Wasm-backed Artifact remains a readable record and is no longer
-    executable.
-  - *Ordered chain:* entries whose only subject was the build or the lowerer leave the chain. Every other entry
-    keeps its position.
-- **R4 - the documentation states CURRENT.** The CURRENT statements of this page and of R&D's Develop compilation
-  section describe the interpreted path, and each rewritten Wasm statement listed above is removed.
-
-**Acceptance of the retirement.**
-
-- *T0, trade by trade.* Research T0 runs on the interpreted path to a Backtest report whose every trade (member,
-  side, entry and exit frame, fill price and quantity) and whose canonical result equal those of the accepted run
-  on the Wasm path.
-- *Performance, measured.* The per-frame evaluation time of T0 is recorded on the same host profile as the
-  2.2 ms baseline, with a target of at most 100 µs. If the measurement misses that target, the target is
-  restated with the measurement, not reread.
-- *Repeatability.* Repeated runs and every checkpoint restore stay byte-identical, as the first executable corpus
-  requires today.
-
 ## TARGET - Strategy shape envelope
 
-The user set this target on 2026-09-27, in these words (translated): "Increase the design's expressive power: let
-the design hold the strategy shapes I may want; multi-timeframe and multi-instrument are certain," and "the current
-design is not necessarily the best; sometimes, rather than extending it, it may be overturned and redesigned." The
-shapes named are breakout and range, support and resistance, candlestick patterns and indicators, multi-timeframe and
-multi-instrument strategies, and Fibonacci levels. The consumer is the user's own corpus: every shape must compile
-through the authoring language into a Bounded Feature Program and run to a report over a multi-frame Backtest. The
-first executable acceptance (F) keeps its single-instrument perpetual scope; everything in this section follows it.
-Nothing here admits a Paper or Live path, a production write, or trading, and nothing adds a second strategy
-interpreter or runtime: every shape still lowers to a Bounded Feature Program and the shared lifecycle kernel.
+Strategy shapes cover breakout/range, support/resistance, candles, indicators, multiple timeframes/instruments
+and Fibonacci. Each shape compiles through JSON authoring into the same BFP/shared Host and produces a report over
+a bounded multi-frame backtest. The first executable baseline remains single-instrument perpetual; extensions have
+explicit dependencies and acceptance and admit no Paper/Live, production effect or second runtime.
 
-**Why this is a redesign and not an extension:** from the member-count slices onward each F blocker was fixed by
-changing one number on one path, after which the next path refused the same shape. They share one cause: the shape
-tuple - roles, members, window, and timeframe - has no single Owner. It is encoded as variants (an exact instrument
-versus a universe member; a single target versus a member target set) and as constants (one or two members, a floor
-of two frames, OPEN and CLOSE on one day, one PIT instant per composition), and it is declared again on seven
-surfaces: the Design role, the role entry, the Market Data binding request, the Composer claim, the Bounded Feature
-Program input, the Plan binding, and the Research scope with its PIT request. Extending each constant would repeat
-that pattern; the target below deletes the variants instead.
-
-Two other shapes of pressure surfaced on the same path. The envelope does not remove them, so they are recorded for
-evaluation after F. One is a consumer built against a producer that was never built, which the section on what the
-envelope assumes of F scopes. The other is a global scan in place of an exact read by identity: a Research
-submission, the current Research lock, and the historical readback each admit every Research custody in the store,
-reading them twice and the second time under a shared row lock, so one custody that fails verification blocks every
-later submission and the cost grows with the whole history.
+Roles, members, window and timeframe have single declared authorities rather than repeated variant constants at
+each producer/consumer boundary. Research scope owns members, Design owns roles and TrialFamily policy owns replay
+range. Preparation and consumption verify those values instead of inventing them. Exact-identity reads must avoid
+unrelated historical custody scans so one corrupt record cannot block every later independent request.
 
 ### Prerequisite slices
 
@@ -1739,9 +1621,7 @@ A PIT snapshot remains one instant, and the Market Data snapshot path, its seals
 are unchanged. A multi-frame Backtest instead reads one **PIT window custody**, a new append-only Market Data
 aggregate that holds backfilled history for the whole window once, and Market Data derives from it, frame by frame,
 a one-instant view that satisfies the batch invariants the frame receipt already checks. The Market Data Owner page
-states the custody contract. This replaces the frame-sequence profile below, whose code has no caller, because that
-profile commits one external PIT snapshot and one schedule per frame: two years of daily bars are about 730
-commits, one year of one-minute bars about 520,000, and every frame must share one timeframe.
+states the custody contract. Multi-frame replay uses one committed window with derived frames, rather than a per-frame external snapshot and schedule commit.
 
 - Each frame has two instants: `e_k`, the close of the execution-timeframe bar that defines it, and `d_k`, the
   instant its data becomes available under the availability rule declared on the Source Binding, with
@@ -1758,34 +1638,30 @@ commits, one year of one-minute bars about 520,000, and every frame must share o
   before `d_k`, and exactly that bar; a gap refuses the frame. The binder relaxes its single-trigger check by source
   for custody views only: the trigger is the execution role's row, and every other role carries its own lifecycle
   coordinate with available ≤ `d_k`.
-- The member set is fixed for the whole run. A member whose Instrument Master validity or Universe membership begins or
-  ends inside the window refuses the run by name as `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`; nothing constructs that refusal today, because no custody
-  exists.
+- In the fixed-universe branch, the member set is fixed for the whole run. A member whose Instrument Master validity or Universe membership begins or
+  ends inside the window refuses the run by name as `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`.
 - A frame with no complete cross-section refuses the run as `PIT_WINDOW_FRAME_NOT_COVERED`, naming `e_k` and the
-  blocker; nothing constructs it today, for the same reason.
+  blocker.
 - Backtest result custody for a custody run binds the custody identity and the ordered view identities.
 
-Every invariant the frame-sequence design held has a new home, except one:
+Window custody invariants and execution boundaries:
 
-| Invariant                                                                                            | Where it lives today                       | Where it lives under window custody                                                                                                           |
-| ---------------------------------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| A batch is one instant                                                                               | Market Data PIT snapshot                   | Each derived view is one instant at `e_k`; under T2 only roles other than the execution role align to their own last close                    |
-| Row time order and one clock                                                                         | PIT batch verification                     | View rows: event ≤ available ≤ publication ≤ `d_k`; retrieval ≤ minting cut stays in custody evidence                                         |
-| One member set, role set, Instrument Master cut, timeframe, venue, and account scope for every frame | Frame sequence V2                          | Unchanged: the member set is fixed and a member not valid throughout refuses the run                                                          |
-| No gap, no skipped frame, no frame list from the caller                                              | Frame sequence V2                          | Frames enumerated from the execution timeframe's Owner schedule; a gap is `PIT_WINDOW_FRAME_NOT_COVERED`                                      |
-| Latest visible correction, never the superseded version, ambiguous branches refused                  | Frame sequence V2 and the quote cut census | Version selection per cross section at `d_k`; a branch refuses the frame                                                                      |
-| A BAR receipt alone cannot authorize a fill                                                          | Frame sequence V2                          | Each frame still needs its derived quote cut, strictly inside `(d_k, e_{k+1})`; TARGET (user, 2026-10-05): the engine's bar execution fills   |
-| An exact locator reread returns identical bytes                                                      | Frame sequence V2                          | Custody is immutable after commit; view identities are recomputable                                                                           |
-| A verified batch comes only from a committed snapshot                                                | Market Data seal                           | A second sealed source, `CustodyView`, with its own `compile_fail` and tamper tests                                                           |
-| Nothing from the future is visible                                                                   | The snapshot boundary                      | The declared availability rule, version selection at `d_k`, and the binder's available ≤ `d_k`; the rule is a declaration, not an observation |
-| **Each frame carries its own minting cut and evidence from a trusted clock**                         | Frame sequence V2                          | **No equivalent home**: custody is minted once. Authorized below                                                                              |
+| Invariant                                                                                            | Window custody and execution contract                                                                                                         |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| A batch is one instant                                                                               | Each derived view is one instant at `e_k`; under T2 only roles other than the execution role align to their own last close                    |
+| Row time order and one clock                                                                         | View rows: event ≤ available ≤ publication ≤ `d_k`; retrieval ≤ minting cut stays in custody evidence                                         |
+| One member set, role set, Instrument Master cut, timeframe, venue, and account scope for every frame | Fixed‑universe branch: the member set is fixed and a member not valid throughout refuses the run                                              |
+| No gap, no skipped frame, no frame list from the caller                                              | Frames enumerated from the execution timeframe's Owner schedule; a gap is `PIT_WINDOW_FRAME_NOT_COVERED`                                      |
+| Latest visible correction, never the superseded version, ambiguous branches refused                  | Version selection per cross section at `d_k`; a branch refuses the frame                                                                      |
+| Fill input binding                                                                                   | Current quote cut lies inside `(d_k, e_{k+1})`; target native bar execution freezes and verifies complete execution configuration             |
+| An exact locator reread returns identical bytes                                                      | Custody is immutable after commit; view identities are recomputable                                                                           |
+| A verified batch comes only from a committed snapshot                                                | A second sealed source, `CustodyView`, with its own `compile_fail` and tamper tests                                                           |
+| Nothing from the future is visible                                                                   | The declared availability rule, version selection at `d_k`, and the binder's available ≤ `d_k`; the rule is a declaration, not an observation |
+| Historical evidence scope                                                                            | One historical window mint; frozen per‑frame visibility/correction rules; live snapshot requirements remain                                   |
 
-The last row narrows a stated property. The user authorized it on 2026-09-27 by choosing, in these words
-(translated): "Switch to window custody. Backfilled history is placed in custody once for the whole range; when each
-bar becomes visible is derived from the rule declared on the Source Binding; real-time trading still takes a
-snapshot per instant. The user authorizes narrowing the scope of the property that each frame carries its own
-minting evidence: in backtests, frames no longer each carry minting evidence, and only backfilled history is
-admitted." Window custody is therefore admitted only for backtests over backfilled history.
+Backfilled history is minted once as window custody. Per-frame visibility derives from the frozen Source
+Binding availability rule and correction frontier, only for historical backtests. Live trading still takes a
+snapshot per instant and retains its real-time evidence requirement.
 
 Slices: **T0** is the Market Data custody (cross-section correction model, availability rule, frame enumeration,
 derived view, `CustodyView` seal); **T1** composes a single-timeframe N-frame Backtest from it; **T2** adds
@@ -1977,12 +1853,57 @@ anchors as a snapshot run, so its Result can be reread against the frames it rea
 - Each gap's quote cut is Market Data's, derived from the first fill bar after `d_k` (T0-6), so a custody run fills
   on the quotes the frame readback states rather than on a quote R&D supplies.
 
+### TARGET - Dynamic point-in-time universe
+
+On 2026-10-05 the user admitted both fixed lists and a continuous portfolio replay whose members change under a
+preregistered historical selection rule. This replaces the application of the whole-run fixed-member invariant
+and `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` refusal to *every* research scope; the original rule remains on fixed
+scope. The measurement requiring this change is `research/ronnie/trend/books_pit.py` at
+`0725a7b3f89902e27cd421a18b4b879a13268534`: B3 chooses up to 20 members each month using only earlier observations,
+and 70 different symbols enter its 2018-2022 book. A whole-run fixed list cannot represent that experiment.
+
+- **One scope owner.** R&D freezes either a `FIXED` member list or a `DYNAMIC` selection rule, never both. Dynamic
+  scope names the selector/version, eligible venue and instrument class, listing-age rule, ranking inputs,
+  rebalance schedule, tie-break, member cap, and treatment of selection gaps. Market Data derives each membership
+  cut from facts available before the decision. The agent cannot supply the historical winner list.
+- **No membership look-ahead.** Market Data binds the membership timeline to its historical custody and selection
+  inputs. A strategy sees only its current eligible members and their permitted data, never future membership.
+  Missing historical listings, delistings, or ranking inputs are unavailable, with no fallback to today's survivors.
+- **Stable strategy state.** Member state is keyed by canonical instrument identity, not a reusable ordinal. A
+  membership transition never resets equity, costs, a live simulated position, or an outstanding order. The same
+  authoring semantics apply to each member; the versioned Design/Plan declares bounded dynamic membership and
+  state capacity. Existing fixed-count Artifact bytes and replay identities remain unchanged.
+- **Explicit exit behavior.** User default confirmed on 2026-10-06: selection exit prohibits new entries and cancels
+  pending entry orders, while existing positions retain their original stop/target and other exit rules. For a
+  partially filled entry, cancel only the unfilled remainder; retain/protect actual fills, including fills racing
+  effective cancellation. Keep execution data, funding, attribution and risk state for retained positions until
+  their lifecycle completes. Cancellation intent alone releases no commitment. Intent freezes this policy before
+  outcomes; selection-driven liquidation is an explicitly registered alternative, never an implicit rebalance.
+  Delisting has its own executable liquidation/settlement rule and provenance. Missing prices that can change the
+  disposal outcome leave the replay unresolved; dropping the member or booking a zero return is forbidden.
+- **One continuous portfolio.** Backtest consumes the sealed membership transitions and fills in event order with
+  one account/equity path. All rebalance, cancellation, funding, and disposal costs enter the report. Splitting time
+  into independent backtests that reset positions or capital does not satisfy this contract.
+- **Measured bounds.** B3 requires at least 20 selected members, plus any excluded members still holding state under
+  the exit policy. The provisional fixed-path bound of 16 cannot establish this example. The implementation slice
+  measures graph, state, and retained-position pressure and publishes one capacity bound before it is admitted;
+  arbitrary widening or silent truncation cannot substitute for that measurement.
+- **Acceptance.** Reproduce B3's selector (month-start selection from prior data, at least 365 daily observations,
+  trailing 30-observation median quote volume, top 20 with a deterministic tie-break) in one continuous exploratory
+  book. Changing only future ranking data must not change earlier membership. Exercise listing, selector exit with
+  pending orders and open holdings, delisting, unavailable disposal data, and session-restart readback. The source
+  study's prices and returns do not substitute for the selected product venue's instrument and cost facts.
+
+This target needs Market Data membership custody, versioned authoring/Plan support, and Backtest state continuity.
+Those are bounded dependencies of this one story, not separate registries, a second simulator, or current
+implementation evidence.
+
 ### Members: a parameter
 
-The Research scope is the only source of the member set (P0). The one-or-two bound becomes one declared upper bound.
-The user authorized widening the user route on 2026-09-27 by choosing, in these words (translated): "Widen to N. The
-upper bound is provisionally 16 and is fixed after I1.5 measures `max_edges`." A frozen program is valid only for its
-own member count; changing the member set is a new Research.
+Research scope is the only member-set source (P0), with a provisional upper bound of 16, fixed after I1.5
+measures `max_edges`. On the fixed-universe path, a frozen program is valid only for its own member count; changed
+members create new Research. Dynamic selection uses its separately registered PIT contract, never reinterprets a
+fixed program. Each shape field is declared once at its responsible authority, not repeated as adapter constants.
 
 - **I1** makes the bound one declaration and the target set bounded-variable, and deletes the Host's single-versus-
   members branch. Market Data keeps its one-member PIT request preimage domain, so stored one-member request
@@ -2013,9 +1934,7 @@ including on inputs with ties.
   Catalog version 4 publishes the first two, and its first users, `w1` and `w2`, are in the authored corpus; a row a
   later version adds is refused by the build until an authored program uses it. Covariance and correlation need a
   two-series window state and remain TARGET.
-  V4b appends natural logarithm and exponential. The user authorized their numeric rule on 2026-09-27 by choosing, in
-  these words (translated): "Introduce ln/exp with a pinned algorithm plus golden test vectors, applying only to new
-  catalog rows; this class of operation is exempt from 'one exact expression, one final rounding'." V5 adds two
+  V4b appends natural logarithm and exponential. Their algorithm and golden vectors are pinned; only these new catalog rows are exempt from exact-expression single-final-rounding. V5 adds two
   fixed-slot state rules: a bucket array, and a memory of the last N events whose slots each hold a frozen set of
   values. Bollinger variance written as `Mean(x²) − Mean(x)²` must guard its radicand with `Select`,
   because the two terms round separately.
@@ -2069,14 +1988,21 @@ including on inputs with ties.
 The orders below are in the shape the [host interpretation of the Bounded Feature
 Program](#target-host-interpretation-of-the-bounded-feature-program) leaves, so they add no Wasm ABI or guest
 SDK change. A program reaches them only through new lifecycle-output semantic IDs, appended under catalog
-versioning like the position flip. The shared lifecycle kernel owns every order's state; the target-set Host
-translates that state into native `BacktestEngine` orders; and the engine alone fills them.
+versioning like the position flip. Native execution/cache owns order, fill and position facts. The shared
+lifecycle adapter retains declarative intent, trade/leg linkage, consumed-event frontier and rule-transition
+state; the target-set Host sends native commands and consumes their feedback. It does not mirror a second
+authoritative order book or matching state machine. Existing identity, checkpoint and refusal constraints stay
+in force through the versioned migration; native events alone determine what actually filled or expired.
 
-**Authorization of 2026-10-05.** On 2026-10-05 the user authorized three changes to how those orders are placed and
-filled:
+**Native execution foundation.** Resting entries, protective orders and execution data extend native Nautilus.
+The execution policy freezes complete native venue/engine configuration bytes and their digest, using a small
+admitted field allowlist rather than a parallel configuration schema. Native bracket/OCO/trailing and bar execution
+are the base; product-specific staged-exit rules must satisfy their actual quantity semantics.
 
 - protection uses the inherited order machinery: bracket orders (`crates/common/src/factories/order.rs:1137`),
-  OCO contingency, and native trailing stops (`crates/model/src/trailing.rs:24`);
+  supported OTO/OCO/OUO contingencies where their exact behavior fits, and native trailing stops
+  (`crates/model/src/trailing.rs:24`). The default bracket uses OUO, not OCO; neither an unequal-quantity OUO nor
+  all-exit OCO implements R-1s staged protection without an event-driven rule adapter;
 - Replay runs with the engine's `bar_execution` enabled;
 - the synthesized fill quote per gap between frames is deleted.
 
@@ -2089,7 +2015,8 @@ found the Host hand-building protection as one stop-market, with trailing done b
 now come from the bar path rather than one quote; a recorded run is re-run, never reinterpreted.
 
 The first consumer is research R-1u (role-reversal retest), the only research rule in its forward stage. Its
-acceptance is a trade-by-trade reproduction of its perpetual reference trades, which needs the three research
+acceptance is a trade-by-trade comparison with its perpetual reference, separating registered product-policy
+differences (including signal-frozen rather than fill-relative targets) from matching defects. It needs the three research
 prerequisites listed in the [retirement plan](#bfp-host-interpretation-retirement-plan). R-1u itself has no
 partial exit and no breakeven move. Those belong to its variant R-1s and are covered by A2 below, not added
 here.
@@ -2112,80 +2039,221 @@ has, not adding a simulator.
   - side;
   - limit price, at Market Data's value scale. The Host rounds it onto the instrument's price grid away from
     the market: down for a buy, up for a sell;
-  - expiry, as a whole number of execution-timeframe intervals counted from the decision cut `d_k`;
+  - expiry, as a frozen elapsed duration or effective deadline from the decision cut `d_k`, independent of
+    how many adaptive execution bars are visited;
   - protective stop price and take-profit price, absolute, at the same scale;
   - quantity, as today's target units or weight.
 - *Bounds.* A member holds at most `max_resting_entries` armed entries. That is a manifest bound, part of the
   state bound. R-1u needs as many as one break per daily bar over a 10-day validity. Arming beyond the bound is
   refused by name as `RestingEntriesExhausted`.
-- *Expiry.* Entries expire deterministically in the kernel at `d_k + n · interval`. The Host mirrors the same
-  instant as the native order's GTD `expire_time`, and an engine expiry that disagrees with the kernel is refused
-  by name.
-- *While the member is flat.* Every armed entry is live in the engine as one contingent order list with
-  one-cancels-others semantics, submitted in arming order. The first entry to fill opens the position.
-- *While the member holds a position.* The other entries are *suspended*, not cancelled:
-  - an entry whose price the fill path touches while the position is open becomes `VOID`;
-  - once the position closes, every unexpired entry that is not `VOID` is resubmitted as a new list.
+- *Expiry.* Translate the frozen deadline to native GTD `expire_time`; native expiry feedback advances the
+  lifecycle. Validate the observed effective time against the registered deadline and refuse discrepancies by
+  name. No second expiry scheduler invents a terminal order fact or releases capacity before effective expiry.
+- *Conditional invalidation (target added from the user's 2026-10-05 pending-order story).* Expiry is one
+  invalidation condition. The versioned authoring successor must also express bounded predicates over closed
+  candles, indicators, and price distance from the entry, including distance divided by ATR or another admitted
+  volatility measure. Freeze the observation timeframe, predicate composition and priority, lookback, threshold,
+  price reference, and whether volatility is captured at arming or recomputed at each decision. A condition may
+  read the entry's stable identity, arming time and captured values, and sealed order/fill state; an intended
+  position latch cannot substitute for actual fills. Evaluate conditions for actually pending entries through
+  the shared rule adapter and send native cancellation commands. Signal eligibility is distinct from order state;
+  a signal invalidated before submission cannot authorize a later order.
+  A close-based condition becomes actionable only when that candle is available at the decision cut: it cannot
+  cancel an earlier intrabar fill. Native event order decides fills before cancellation becomes effective;
+  cancellation removes only the unfilled quantity and never erases prior fills or their protective exits.
+  Within the smallest unresolved time unit, seal an explicit ordering policy or retain an unresolved outcome;
+  do not choose whichever ordering improves returns. Terminal cancellation survives checkpoint restoration.
+  Creating an entry and cancelling an identified entry are independent strategy actions. A later entry is a
+  new order, not restoration of the cancelled order. Do not add product-specific recovery windows, retry
+  counts, or automatic rearming switches inside signal strategies. New economic entries are new signal
+  actions; operational recovery of a still-valid signal belongs to independently frozen Runtime/Execution
+  policy, retaining signal/order lineage and existing no-blind-retry guarantees.
+  Orders retain strategy/trial attribution; no previous-order link is mandatory for an ordinary new entry.
+  A cancelled entry is never silently revived. Record predicate identity, observed inputs, decision/effective
+  times, cancelled quantity, preceding fills and cancellation reason in the replay result.
+  Current `AuthoringActionV1` exposes `Enter`, `Flip`, and `Exit`, without a pending-entry cancellation action;
+  native Host cancellation for protection cleanup or run shutdown does not close this authoring path.
+  Acceptance adds expiry, candle/indicator invalidation, volatility-distance invalidation, partial fills,
+  fill/cancel ordering, invalidated signals and restoration cases to the same simulator.
+- *R-1u slot policy.* One filled position per coin is a strategy-specific rule, not a product-wide OCO book or
+  suspension/resubmission service. Preserve the source reference's first-fill/busy-slot outcome as a separately
+  registered policy where comparison requires it. Native contingency semantics must be validated before using
+  them to enforce exclusivity; automatic restoration of cancelled entries is not implied. A new economic order
+  requires an independent valid create action under item 15. Matching follows the native chronological price
+  path and matching priority; same-time new-intent admission ordering does not reorder already resting orders.
 
-  This is R-1u's "one slot per coin" rule: an order first touched while the slot is busy is void.
-- *Ties.* When one fill-path bar reaches two entries, the earlier-armed entry fills. The policy below makes that
-  ordering explicit rather than leaving it to the engine's iteration order.
+**Independent trades and shared resources (TARGET; user decision 2026-10-05, item 16).** Each independent entry
+keeps a stable identity through partial fills and its own stop, staged exits and realized/unrealized trade result.
+Two entries in the same instrument may coexist without cancelling or closing each other. An exit names its
+trade and may reduce only that trade's remaining quantity; sibling exits resize to that quantity. Use the
+inherited engine's position identities and supported virtual-position mapping instead of introducing a second
+fill or accounting simulator. Position linkage must be part of the sealed order meaning and survive restore.
+Portfolio owns account, valuation, exposure and capacity evidence; Risk owns shared commitment usage,
+remaining headroom and admission, not the strategy or Portfolio. Per-trade attribution cannot duplicate
+capital or conceal aggregate exposure. The research replay applies versioned accounting, capacity and Risk
+policy semantics within the Backtest run; it cannot issue production Risk Decisions or Reservations.
+See [research Owner boundaries](../scenarios/research.md#strategy-and-owner-boundaries).
+pending entry orders reserve capacity at both strategy and shared-account levels under
+the frozen margin/risk model. Partial fills transfer the corresponding amount to held-position usage; unfilled
+quantity remains reserved. Cancel/expiry releases it only when effective; a request or unknown cancellation
+cannot release headroom. Preserve native identities through restoration and avoid duplicate usage or release.
+Required margin is distinct from full notional and from product risk commitment dimensions. The public Binance
+account API exposes open-order initial margin separately from position initial margin; use historical terms
+and the account model frozen for each replay, not current API values as historical evidence.
+when an entry exceeds available capital, margin
+or the frozen risk bound, reject it with a native reason and requested quantity; do not silently resize it or
+queue automatic submission when capacity returns implicitly. Runtime/Execution owns refusal handling under
+independent frozen execution policy; signal strategies implement no broker-error recovery. A permitted successor
+uses the original still-valid signal only for safe operational recovery, with fresh Risk admission and existing
+attempt rules. A definite resource refusal is terminal under item 27 and cannot be resubmitted when capacity
+returns. Never hide quantity changes or fabricate a new economic signal. Admission reads the shared portfolio state at the applicable event cut, not a separate
+full account for each trade. Distinguish resource rejection from native partial fills and admitted instrument
+grid rounding; report requested, admitted and actually filled quantities. Acceptance includes competing entries
+against one remaining allowance, preserved existing positions after refusal, and restoration without a hidden
+retry. the versioned JSON authoring path admits quantity expressions for fixed units,
+allocation from current portfolio equity, and risk allocation based on the entry/stop distance. The user's
+2026-10-06 boundary correction locates these in an independent sizing configuration consumed by Runtime rather
+than requiring account-aware sizing and error recovery inside each signal strategy. Jointly seal signal, sizing
+and execution-policy meaning for replay/qualification without a second Owner or simulator. Compile them
+through the existing typed expression path and evaluate against sealed market and actual portfolio state at
+the declared decision cut; do not ask an external agent to recompute quantities for every simulated frame.
+Seal the expression, units, equity/price/stop inputs and instrument rounding meaning, and report the evaluated
+quantity separately from admitted and filled quantities. Refuse invalid dimensions, non-finite arithmetic,
+zero denominators, unavailable required inputs and quantities below admitted instrument bounds. Quantity
+calculation proposes requested quantity; it does not grant Risk permission, allocate Governance envelopes,
+change Qualification bounds or imply hidden resizing. evaluate quantity when creating
+the order and keep its admitted quantity fixed while pending. Equity changes do not trigger automatic
+modification; changing quantity requires an explicit cancel and a new create action. Record the cancellation's
+effective state before admitting the replacement so a still-live original cannot disappear from commitments.
+The existing V1 `Enter.units` fixed
+integer field alone does not establish this dynamic authoring capability. Acceptance covers equity changes,
+different stop distances, rounding, unavailable state and resource refusal on the same execution path.
+One-trade-per-instrument and entry exclusivity are explicit strategy
+rules, as in R-1u, rather than universal kernel behavior. Existing target-set Host methods
+`single_open_position_id` and `cached_position_native_quantity` require at most one native member position;
+independent-trade support is a versioned extension, not a current capability. Acceptance drives two same-coin
+entries with distinct stops, partial exits and cancellation, verifies that closing one preserves the other,
+and reconciles their results to one portfolio including shared costs and resource constraints. R-1u acceptance
+still reproduces its original slot rule. This target grants no Paper or Live execution route.
 
-**2. OCO exits.**
+**2. Native protective orders and staged transitions.**
 
-- An armed entry is submitted as one inherited bracket. The entry limit triggers (OTO) a reduce-only stop-market
-  leg and a reduce-only limit leg joined as OCO. The kernel arms its protection when the entry fills.
-- A trailing protection is the inherited trailing-stop order, not a stop moved by repeated modifies.
-- This is A2 ("take-profit as reduce-only limit orders"). It reuses D1's protective-fill reconciliation unchanged:
-  each FILL names the leg it advances, and a fill of either leg closes the position and clears the protection.
-- A leg may carry a quantity below the position. That is how R-1s's half at 2R would be expressed later; an OUO
-  list then resizes the sibling leg.
+- *Declarative protective transitions (user item 28).* The authored signal/protection rules declare initial
+  stops/targets, partial exit quantities and fill-triggered transitions once. The shared kernel drives them from
+  actual fills; the signal strategy does not poll broker state or emit the same modification each bar. For R-1s,
+  the stop-to-entry transition follows the registered completion condition for the first exit leg, not its
+  submission, price touch or assumed completion after one partial fill. Seal the quantity basis and transition
+  condition. Host/Execution owns native placement/modification and result feedback; remaining protective
+  quantity follows this trade's actual open quantity and cannot close a sibling trade. Native reduce-only/contingency
+  support and fill reconciliation are reused, not reimplemented as strategy-side API calls.
+- *Entry completion when exits begin (user item 29).* On this trade's first actual exit fill, shared lifecycle
+  handling cancels its still-open entry remainder; target touch/submission alone does not trigger this guard.
+  Reuse native cancellation and fill feedback, preserve pending liabilities until cancellation is effective,
+  and process racing entry fills as actual quantity requiring protection. Cancellation never blocks protective
+  stop execution. This is shared execution behavior, not another strategy parameter or API management loop.
+- *Fixed signal target (user item 30).* The first product R-1 variant freezes its target at signal generation
+  from planned entry and initial stop. Better actual entry fills do not recalculate the target. Record planned
+  R separately from actual fill-based risk/reward and costs. This intentionally differs from source R-1
+  `replay.py`'s fill-relative target; it requires a named registered variant and new artifact meaning, preserving
+  prior results. Reference acceptance must isolate this expected semantic difference from matching defects,
+  rather than silently changing old reference trades or claiming exact original-policy reproduction.
+- *Stop-to-entry reference (user item 31).* R-1s moves remaining protection to its actual average entry when
+  the registered first-exit-leg fill condition completes. Seal the referenced fill frontier and average at
+  that transition, and reuse native price-grid handling. Planned signal entry is not the stop reference, and
+  fee compensation is not implicitly added. Keep item 30's fixed target unchanged and report actual stop
+  fills/costs. Racing entry fills follow existing feedback semantics without changing recorded transitions.
+- *Staged quantity rounding (user item 32).* Floor preceding exit legs to the instrument's sealed quantity
+  step; the last receives remaining quantity. Report planned versus executable fractions and keep aggregate
+  exits within actual trade quantity. Validate applicable point-in-time reduce-only terms. Invalid nonzero
+  splits known before entry receive a named refusal, not hidden leg merging. If discovered after real partial
+  fills, retain fills/protection and report the unsupported plan through established incident handling rather
+  than pretending no position exists. Reuse shared handling and native quantity validation, not strategy code.
+- Use the inherited order factory/commands for entry LIMIT, reduce-only STOP_MARKET and target LIMIT. A full-size
+  bracket may reuse its native OTO/OUO relationships only after validating partial-entry release and protection
+  quantities in this version. Factory metadata alone does not prove protection or live adapter support.
+- Native trailing orders implement their supported trailing semantics. A discrete fill-conditioned stop move,
+  such as R-1s stop-to-entry, uses native modify commands; it is not automatically a trailing-stop order.
+- A2 reuses D1's ordered identity/fill reconciliation but extends its versioned partial-trade meaning where
+  needed. A protective fill reduces this trade; only zero actual remaining quantity closes it and clears its
+  protection. Completing a partial exit leg is not completing the trade.
+- R-1s unequal staged quantities are maintained by the shared event-driven rule adapter using actual remaining
+  position and per-leg progress. Native OCO cancels siblings on any fill; native OUO propagates the filling leg's
+  remaining quantity, not the remaining trade quantity. Linking a half-size target to a full-size stop through
+  those defaults can remove or undersize protection. Reuse native orders, fills, updates and reduce-only checks;
+  do not implement a second matcher or presume the default bracket covers this case.
 - A1's `LifecycleContext` (fill-based entry price, bars held) makes the fill visible to the program. That closes
   the first blocker under intrabar protection, so a program never proposes an exit for a member a protective fill
   already flattened.
 
 **3. The intrabar path.** The gap between frame `k` and frame `k+1` is executed on that gap's bars by the engine's
-own `bar_execution`, not on one synthesized quote. Market Data's PIT window custody already holds the bars: the
-fill timeframe, exactly one minute.
+own `bar_execution`, not on one synthesized quote. Market Data's PIT custody binds admitted bar windows;
+availability of the actual run's finer bars must be verified or prepared, not assumed. The minimum admitted
+resolution is one minute. User item 35 selects hierarchical refinement rather than executing
+every interval at one minute; signal/decision clocks remain independent of matching resolution.
 
-- *Execution policy.* A new Replay execution-policy row, `INTRABAR_EXECUTION_BAR_WITH_MINUTE_TIE_BREAK_V1`, enables
-  `bar_execution` and feeds the engine each gap as its execution-timeframe bar.
-- *Descending to minutes.* That bar's OHLC can reach more than one live order whose relative order would change
-  the outcome: an entry and its stop, a stop and a target, or two entries. In that case the Host feeds that gap
-  as its one-minute custody bars instead.
-- *Within one minute, the adverse leg first.* A minute that reaches both a stop and a target fills the stop. A
-  minute that fills an entry may also fill that entry's stop at the stop price, but never its target; the target
-  is first checked on the next minute. These are R-1u's rules. The engine's bar path visits a bar's extremes in
-  open-high-low-close or adaptive order instead. The first R-1u reproduction measures how many reference trades
-  that ordering changes. If any change, one adverse-first bar-ordering option is added to the inherited matching
-  engine's bar path, named in the policy row; if none change, nothing is added.
+- *Execution policy.* A versioned adaptive policy refines the earlier draft
+  `INTRABAR_EXECUTION_BAR_WITH_MINUTE_TIE_BREAK_V1`, enables native `bar_execution` and freezes its admitted
+  resolution hierarchy. Existing sealed profiles keep their original meaning.
+- *Hierarchical descent (user item 35).* Begin at the admitted coarse interval and descend through available
+  custody timeframes, for example daily → four-hour → finer → one-minute, only where reachable orders/events
+  cannot establish outcome order. This includes entry/stop/target, competing entries, activation/expiry,
+  protection transitions, capital contention and funding boundaries when outcome-relevant. Refine unresolved
+  subintervals recursively; replay child intervals in order against the same kernel/account state. Verify
+  parent/child consistency and complete PIT coverage. Never commit parent hypothetical fills as well as child
+  fills, and never create a second Host matching simulator. Target-before-entry is not an exit; entry-before-
+  target may be. Decision cuts limit signal availability, including no pre-close execution of a close signal.
+  Multi-member replay retains one global causal account timeline. Coarse handling is allowed only where
+  unchanged account state and economic outcome can be proved. Trace selected resolutions/inferred timing.
+- *Within one minute, the adverse leg first (user item 34).* When complete minute evidence reaches both an active stop and a target but cannot establish their order, fill the stop.
+  Mark it as policy-inferred, report affected trades/counts and preserve the mark in charts. This does not
+  admit missing-minute or invalid-input fallback. The historical R-1u reference forbids an entry-minute target
+  and checks it from the next minute; the product instead honors established entry-before-target order and
+  uses the conditional ambiguity policy below. The engine's bar path visits a bar's extremes in
+  open-high-low-close or adaptive order instead. Reuse the native path only when it provably satisfies this
+  admitted policy; otherwise add the smallest adverse-first option, bound in the policy row. Acceptance drives
+  both levels in one minute and verifies the stop wins independently of OHLC visitation/iteration order.
+  Measure source-reference differences separately; no ties in the historical sample does not prove the rule.
+- *Entry/target ambiguity (user item 36).* When complete one-minute evidence cannot establish entry before
+  target and reaches no stop, infer entry with continued holding and mark the policy; later minutes resume
+  normal execution. Known effective-open/child ordering must be honored, not delayed by a blanket rule.
+  Missing minute data is a preparation failure, not this fallback. See the research scenario's
+  [data preparation contract](../scenarios/research.md#user-story-and-acceptance-target): signal inputs and
+  independent execution hierarchy jointly define frozen dependencies; Market Data owns real finer data/
+  aggregation, Backtest consumes bounded sealed slices. No synthetic minute path from daily OHLC, ad hoc fetch
+  or silent input-identity replacement. Existing window custody and quote derivation do not prove adaptive
+  matching or preparation orchestration is implemented.
+  User item 37 requests economical base-data reuse and automatic bounded finer preparation. Binance's measured
+  native-timeframe differences prohibit silent substitution by aggregated bars: the native-bar baseline reads
+  required native signal timeframes; an explicitly derived series binds separate base/rule/source meaning. Freeze planning/rules/budget first; bind immutable prepared slices
+  before resuming and seal the final consumed-data manifest. Never rewrite a sealed input/result or duplicate
+  fills across preparation/resume. This is target architecture, not proof the current V1 route supports it.
 - *Gap prices.* A limit or target crossed at the open fills at the open when that is better than its price. A stop
   crossed at the open fills at the open when that is worse than its price.
 
-The cost stays bounded. Most gaps run as one bar. Only an ambiguous gap reads its minutes, which is how research
-walks R-1u (1-hour bars, with minutes only for ties).
+The cost stays bounded by admitted windows, hierarchy and resource caps. Resolved intervals stay coarse;
+unresolved intervals read smaller custody bars. Historical R-1u used hourly execution with minute tie breaks;
+the product policy generalizes refinement without asserting current native support or exact old-policy parity.
 
 **4. Timeframes.**
 
-- R-1u's zone, trend and arming are daily, while its execution is hourly.
-- Until slice T2 admits a second role timeframe, the program derives its daily values from the hourly frames.
-  `DecisionTime` from A1 marks the UTC day boundary, and the existing count and latch states accumulate the day's
-  open, high, low and close. Arming happens only on the frame that closes a UTC day.
-- When T2 lands, the daily role replaces that derivation without changing the order mechanics.
-- R-1u's 60-day time exit is the existing `Exit` intent, proposed when the bars held since the fill (A1) reach
-  60 × 24.
+- R-1u's zone, trend and arming are daily; source research used hourly execution. The product policy refines
+  admitted coarse intervals as needed, independently of its daily signal clock.
+- Read required native signal timeframes through Market Data's native-bar custody. Reuse DataEngine aggregation
+  for explicitly derived series only, binding distinct source meaning, time alignment and visibility. Binance's
+  measured native-timeframe disagreements rule out declaring universal native/derived equivalence. The current
+  program interface does not prove arbitrary multi-timeframe consumption is connected; role/input admission is
+  still required. Do not recreate generic aggregation inside each signal program. Internally aggregated signal
+  bars are not automatically matching inputs; preserve native aggregation-source semantics and data provenance.
+- R-1u's 60-day time exit is the existing `Exit` intent. The hourly reference counted 60 × 24 frames; the
+  adaptive target must seal elapsed-time meaning anchored to simulated entry and cannot count whichever
+  resolution is currently being visited as one equivalent holding bar.
 
-**5. Members.** R-1u's coins never interact. Each runs as its own one-member Replay, within
-`TARGET_SET_MAX_MEMBER_COUNT`.
-
-**Estimated size, in Rust lines before tests:**
-
-- the kernel resting-entry book (arm, expiry, suspend, void, resubmit) and its checkpoint codec: 600 to 1,000;
-- the Host bracket and trailing submission over the inherited order lists: 100 to 200;
-- the intrabar execution policy (engine bar execution, descent to minutes): 100 to 300, plus validation. It
-  deletes about 2-3 thousand lines of quote-cut and fill-quote code;
-- lifecycle-output semantic IDs and catalog rows: about 200;
-- authoring-language constructs: 300 to 550.
+**5. Members and measured implementation bounds.** Independent per-coin replay is useful for source-reference
+diagnosis, not acceptance of shared-capital portfolio semantics. Product acceptance uses one continuous account
+timeline, subject to the admitted `TARGET_SET_MAX_MEMBER_COUNT` or its measured versioned successor. Measure the
+smallest native adapter and bounded state only after the primitive/consumer mapping; earlier line estimates for a
+second resting-entry book or local descent are not an implementation plan. Keep state/resource refusals and old
+sealed identities until the required versioned capabilities are admitted.
 
 **Refusals stay in force until each piece lands.** The authoring language keeps refusing protection as
 `PROTECTION_NOT_SUPPORTED_IN_SLICE_1`, and stops stay judged at the frame close and filled on the next frame.
@@ -2322,12 +2390,12 @@ which needs an attempt cut whose only writer waits for the Decision composition 
 `TARGET / NOT_ADMITTED` in the R&D Owner, and the envelope neither needs nor builds them. An acceptance that iterates
 one family would depend on that producer and would be listed separately.
 
-### Order and what is asked later
+### Extension dependency order
 
 P0, P1, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member set
 and timeframes. T1 depends on all three, because it derives the custody request from the Research scope and the
 Design; its first positive case uses only CLOSE and one member, and D1, which it needs, has landed ahead of it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
-remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
+remove the invariant that every frame shares one member set, so its independently frozen dynamic-universe contract is required.
 
 Every target variant the single-threshold author accepts runs past one frame of the target-set Host. Two could not,
 each a slice after F and before T1, and both were measured on `main` 3a465a537, red as it stands and past the named
@@ -2374,7 +2442,7 @@ them.
 
 ## TARGET - Research runs until a strategy, bounded by spend
 
-The user decided on 2026-09-27 that Research does not stop on a trial count: every trial is recorded and accumulates
+Research does not stop on a trial count: every trial is recorded and accumulates
 across rounds, Qualification's discount grows with that count, the random control and holdout stay, and one
 user-set spend cap bounds what Research spends. [R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
 defines a trial, the lineage it accumulates across, the removal, and the spend cap;

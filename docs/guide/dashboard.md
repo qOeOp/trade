@@ -1,5 +1,376 @@
 # Trade Dashboard
 
+## Product role and authority
+
+The Dashboard is the first-party visual Product Edge for one local operator. It presents native Owner views,
+submits typed requests, follows long-running work, and exposes the one next legal action returned by the relevant
+Owner. It is also the read‑only surface for Observability projections and operational job state.
+
+The Dashboard is never a business-truth Owner. It may cache UI state and disposable job projections, but it must
+not own Research Intent, Artifact, Backtest Result, Qualification, Scanner Proposal, lifecycle authorization,
+Runtime application, Portfolio, Risk, order, fill, reconciliation, or Recovery truth. Every business state and
+allowed action carries its Owner identity, source cut, observed time, freshness or availability, and native
+receipt locator. Unknown, stale, partial, rebuilding, quarantined, and unavailable remain explicit.
+The Product Edge treats `UntrustedOwnerEvidenceLocatorV1` and `UntrustedLocatorDigest` as routing/integrity
+vocabulary, never as proof. It must call the identified
+source Owner's typed public resolve port and validate the canonical bytes reread returned from that Owner's durable
+store/outbox. Neither browser, BFF, shared library, nor consumer service may establish provenance with caller-supplied
+authority text, a self-canonical digest, a generic verifier, or a shared signer.
+
+```text
+User -> Dashboard typed request -> Product Edge admission -> native Owner
+User <- Dashboard projection <- Owner receipt/view or explicit unavailable state
+
+Telemetry/Event Rail -> rebuildable Dashboard projection
+Dashboard job success -X-> business success or trading authority
+```
+
+Mutating controls stay disabled until the current Owner projection admits exactly that action. Submitting creates
+a typed request; it never edits an Owner record. An unknown outcome exposes only same-identity resolve. Real
+trading and any other production write still require explicit user authority outside this design document.
+
+### Action authorization admission contract
+
+An Owner‑projected next action is necessary but not sufficient to enable a button. Before rendering an enabled
+mutating control, the Dashboard calls the typed Product Edge admission port with the stable request preview,
+effective principal and scope, target Owner, canonical operation, semantic payload identity, and audit
+correlation. The response is an `ActionAdmissionEnvelope` with exactly one state:
+
+```text
+admitted | expired | revoked | stale_head | no_active_binding |
+ambiguous_active_binding | manifest_mismatch | denied | unavailable
+```
+
+The `admitted` branch cross-binds three independently resolved, canonical records:
+
+1. `ShellDeploymentBindingEnvelope`: binding identity, generation, deployment‑history head, `ACTIVE` state,
+   principal, scope-policy/capability/audit-policy versions, cutover epoch, source cut, and valid-through time.
+2. `OperatorAuthorizationEnvelope`: authorization identity, issuer, subject/effective principal, audience, exact
+   scope, issued/expiry times with Time Evidence, revocation frontier, request-proof digest, and manifest digest.
+3. `AgentOperationManifestEnvelope`: content digest, operation identity/version/schema, target Owner, allowed
+   object classes, prohibited writes, and capability-policy digest.
+
+The Product Edge admission service reads the authoritative deployment head and requires exactly one `ACTIVE`
+binding equal to that head, resolves Operator Authorization through its trusted authority port, and fetches the
+immutable manifest by content digest. `ShellBindingHistoryStore`, the trusted `OperatorAuthorizationResolver`, and
+the content‑addressed `OperationManifestStore` remain separate authority surfaces; Dashboard session state,
+environment/default policy, local configuration, credential possession, or an object constructed by the same
+validator cannot populate them. The browser receives bounded projections only and never an issuer or signing
+operation.
+
+`POST /api/product-edge/actions/{operation_id}/admission` returns the preflight envelope for rendering. An
+`admitted` preflight enables only the exact manifest member and displays authorization identity, binding/head,
+manifest digest, scope, expiry, and revocation frontier. Submission repeats the same admission atomically at the
+business-write boundary; a previously green preflight never authorizes a later write. Every non‑admitted branch
+keeps the button disabled and supplies one stable stop predicate. Same-identity Owner resolution remains available
+only when its own read manifest member is admitted; transport credentials are neither Operator Authorization nor
+proof of admission.
+
+For an admitted operation with a domain freshness prerequisite, the visible primary control is `Check & Run`,
+not an effect authorized by cached `AVAILABLE`. Its first transition is read‑only `PREFLIGHTING`: the App resolves
+the same S1 request/Intent using the Owner's current projection only as a fail‑closed UX preflight. While pending,
+the primary reads `Checking…`, the fixed status line is an accessible live region, and Cancel is safe because no
+Artifact request has been sent. Cancel, timeout, malformed output, transport failure, or a non‑current projection
+withdraws the current‑positive Research gate, preserves the historical Research card as read‑only, creates no
+Artifact attempt, and exposes no same‑attempt Resolve.
+
+Only an exact `AVAILABLE / INTENT_FROZEN` preflight may transition atomically to `ADMITTING`, at which point the
+effect‑capable Artifact request has been sent, `Submitting…` replaces Cancel, and the UI shows no fake percentage.
+The server, not the preflight, must then validate the exact operation/schema/effect set and re‑resolve current R&D
+custody inside the locked OA → Product Edge → R&D transaction immediately before its first write. A bounded
+server receipt moves the gate to informational blue `ADMITTED`; this is request admission, never Artifact or
+business success. Timeout, disconnect, or malformed output after dispatch becomes domain
+`SUBMITTED_OR_UNKNOWN` and transfers to same‑attempt Resolve; it never returns to `PREFLIGHTING` or
+`REVALIDATION_REQUIRED`. The browser may conservatively mark an aged cached action `REVALIDATION_REQUIRED`, but
+only an Owner response may label it `STALE` or restore `Check & Run`.
+
+Historical readback and current effect authority are separate projections. A canonical admission snapshot remains
+readable after its binding is superseded or its authorization is revoked so Audit and Run Detail can explain what
+was admitted at the original cut. It never supplies the current gate. After historical authorization expires, a
+policy-equivalent current authorization is reachable only through a canonical append-only Operator Authorization
+successor issuance that binds the prior identity/scope/sequence and its new validity. If that Owner operation or
+receipt is absent, `Current authority` is `Unavailable`; the historical snapshot remains visible, while Dashboard
+offers no local renewal, replacement selector, or inferred current authorization.
+
+For an admission that has not performed its first downstream mutation, continuity is bounded to the original
+binding or exactly one **immediate** policy-equivalent successor. `successor_distance` is therefore `0 | 1`; a
+second cutover, a skipped predecessor, a branch, or an arbitrary chain head renders `Current authority` and every
+first-mutation action `Unavailable`, even when the latest scope text is equivalent. The fixed
+`AuthorizationSuccessorReadiness` geometry shows admission generation, current generation, distance, predecessor
+locator and the `DIRECT_SUCCESSOR_REQUIRED` stop. It never walks forward until something matches or promotes a
+generation-3 head on behalf of a generation-1 admission. Already committed invocation admission/claim/start facts
+remain historically resolvable from their sealed custody and do not re-enter this first-mutation gate.
+
+The stored original Operator Authorization never becomes historical authority for a new FirstMutation. At the
+final locked write cut, its own row is resolved as `CurrentAtLock`. If `successor_distance=1`, the immediate
+successor's Operator Authorization and Product Edge binding are additional current requirements, not substitutes
+for the original. `AuthorizationSuccessorReadiness` therefore renders `Original authorization at final cut` before
+`Immediate successor at final cut`; either non-current row produces `ORIGINAL_AUTHORIZATION_NOT_CURRENT` or the
+successor-specific stop and keeps every FirstMutation control disabled.
+
+Before a first provider claim, Product Edge must atomically re-read the complete current deployment and
+authorization histories and persist a distinct sealed
+invocation‑admission receipt. That receipt binds the directly resolved current authorization identity and frontier,
+Time Evidence, the policy-equivalent `ACTIVE` binding/head, exact manifest digest, the historical request‑admission
+lineage, and one final write cut sampled under the complete lock set. Its commit time cannot cross authorization or
+binding validity. Cutover, expiry, revocation, a mismatched manifest, or any malformed/missing/extra history row
+returns `unavailable` with zero invocation‑admission, claim, state, or provider effect.
+
+The invocation‑admission receipt, claim receipt, and invocation state are three separate Product Edge facts. The
+claim consumes and references the sealed invocation admission; it cannot substitute the original request admission
+or transient resolver output. The versioned public claim readback includes
+`invocation_admission_receipt_identity` and `invocation_admission_receipt_digest`; the `rd-owner-client` operation adapter and
+shared consumer projector must consume one generated/exact parser and bind both values before projecting a claim.
+That parser is discriminated by Owner resolution and follows Rust serialization exactly: `SUCCESS` carries present,
+non-null `trial_family_resolution` and `artifact_trial_family`; `CLAIMED`, `INVOCATION_STARTED`,
+`FAILED_NO_ARTIFACT`, `OUTCOME_UNKNOWN`, and `REJECTED_NO_WRITE` omit both optional family keys; verified legacy
+terminal carries `trial_family_resolution=TRIAL_FAMILY_UNAVAILABLE_LEGACY` and omits
+`artifact_trial_family`. Explicit `null` is not interchangeable with omission. Rust fixture bytes must feed both
+`rd-owner-client` verifiers in one cross-language contract test; hand-authored `null` fixtures are not acceptance.
+Missing, extra, schema-mismatched, or tampered wire fields preserve the A0/A1 geometry as `Unavailable`, expose only
+same‑attempt Resolve and operational evidence, and never enable Run. Claim disposition is
+`CLAIMED_NEW | ALREADY_CLAIMED`; state is `CLAIMED | INVOCATION_STARTED`; start disposition is
+`STARTED_NEW | OUTCOME_UNKNOWN`. Claim response loss must recover the same durable `CLAIMED` receipt and project the
+exact next action `RUN_BOUNDED_EXECUTION_AGENT` for the same build request, attempt, and claim. Only that projection
+plus direct equality to the sealed invocation‑admission receipt enables **Run bounded Agent + sandbox**; invoking it
+starts the existing claim exactly once and never creates a successor, a replacement claim, or a second provider
+invocation. Once claim commits, no upper layer may rerun R&D `prepare` or current Research freshness as a new start
+gate. Start/recovery resolves the historical Intent/attempt custody sealed by that claim; a fresh Research cut
+governs only a pre-claim admission or an explicitly admitted successor. Missing, stale, malformed, or mismatched
+invocation admission renders unavailable even when a claim row exists. Once start commits, the Run control disappears
+and every replay renders `OUTCOME_UNKNOWN` with
+`MANUALLY_RECONCILE_PROVIDER_INVOCATION`; it never invokes the provider again or fabricates a provider outcome.
+The operation adapter must resolve the same attempt before any pre-claim preparation: recovered `CLAIMED` dispatches
+the start operation directly, while only a genuinely unclaimed identity may call `prepare`. After
+`INVOCATION_STARTED`, success/failure terminalization consumes sealed attempt/claim custody without current Research
+freshness. Later Resolve returns the exact durable terminal receipt even when the linked Research View is stale;
+staleness disables review/successor actions but never deletes or rewrites the terminal business fact.
+The fixed presentation order is `Current authority`, `Admission snapshot`, `Invocation admission`,
+`Invocation claim`, `Invocation state`.
+
+Current authority readiness is conjunctive. An Operator Authorization genesis or issuance receipt may be displayed
+as sealed historical evidence, but it cannot enable an action unless the corresponding Product Edge binding, head,
+and outbox projection all resolve canonically at the same admitted cut. When the OA row exists but any Product Edge
+row is absent, unavailable, or lock-incompatible, `AuthorizationLineagePanel` keeps the two Owner rows separate,
+labels the Product Edge row `Unavailable`, shows the exact stop predicate, and `ActionAdmissionGate` renders no
+primary action. The browser never offers bootstrap, repair, permission elevation, or force-admit controls.
+
+An admitted Product Edge snapshot is still not an R&D terminal. Before the first R&D mutation, a versioned
+Product Edge-owned `DownstreamAdmissionResolver` must run inside the caller's physical PostgreSQL transaction. It
+acquires the existing OA shared locks, then locks and verifies Product Edge binding/head/manifest/admission/outbox,
+and returns sealed canonical admission bytes without exposing either Owner's tables. R&D receives execute-only
+access to that port, never OA access or Product Edge table authority. If this seam is absent, denied, stale, corrupt,
+or cannot retain the lock cut, the page renders Product Edge admission as committed and downstream custody as
+`Unavailable`; overall S1 is `SUBMITTED_OR_UNKNOWN`, S2 stays disabled, and the only business action is
+same-identity Resolve. It must not relabel the request `REJECTED_NO_WRITE` or offer Create successor merely because
+the R&D receipt is missing.
+
+The S2 error projection follows the attempt identity, not the operational job result. `artifact_product_edge_error`
+maps unavailable, storage, or unknown Product Edge authority - including an existing custody record - to
+`SUBMITTED_OR_UNKNOWN` with the sole business action `RESOLVE_SAME_ATTEMPT_IDENTITY`. It never renders
+`REJECTED_NO_WRITE`, Create successor, a new claim, or a provider action.
+
+Business outcome projection has a separate fixed precedence. A sealed R&D terminal receipt is authoritative over
+the Product Edge invocation fence: `SUCCESS` renders the canonical Artifact/Build Receipt/Review projection, while
+`FAILED_NO_ARTIFACT` renders `NoArtifactReceiptPanel` and no Artifact. Only when neither R&D terminal exists and the
+Product Edge fence is `INVOCATION_STARTED` may the page render `OUTCOME_UNKNOWN` plus
+`MANUALLY_RECONCILE_PROVIDER_INVOCATION`; it must not retry, mark success, or dismiss the stop. A verified historical
+terminal from pre-current custody renders `LEGACY_TERMINAL_QUARANTINED`, exposes its historical receipt only, and
+creates no current Research View, provider action, successor action, or TrialFamily repair action. The Owner wire
+discriminant, request/attempt identity, terminal receipt, custody generation, quarantine reason, and original
+disposition must survive the shared consumer projector as one strict legacy-only branch. Its exact accepted set is
+`SUCCESS | FAILED_NO_ARTIFACT | REJECTED_NO_WRITE | OUTCOME_UNKNOWN`; sparse legacy rejection may omit Intent
+identity/digest exactly as the Rust Owner wire does. Every variant remains read‑only with family/provider/actions
+absent. If that branch is missing or malformed, the fixed legacy slot renders `Unavailable` with same-attempt
+Resolve; it must not silently collapse into an untyped generic unknown.
+
+## Status vocabulary and evidence cut
+
+- `CURRENT/PARTIAL` means a capability is merged on current Trade main and has real consumer evidence, while the
+  complete Dashboard is still absent.
+- `ACTIVE_OBSERVATION` means an exact Hub task is still implementing, dynamically accepting, or waiting on an
+  explicit action required to prove a capability. Its evidence may revise this chapter, but it cannot establish a
+  current product fact before merge and readback.
+- `OBSERVED_CANDIDATE_NOT_CURRENT` means a capability or consumer-visible defect was observed in an active Hub
+  task or worktree but is not a shipped product capability or a current fix.
+- `RECOVERABLE_BY_RECONSTRUCTION_NOT_RESTORED` means exact surviving evidence may be sufficient for the canonical
+  Owner to reconstruct lost facts, but no trusted backup restore or Owner reconstruction has occurred. The affected
+  capability stays unavailable and no historical or positive action is inferred.
+- `RESTORED_REVALIDATION_PENDING` means canonical Owner custody reconstruction and direct Owner readback succeeded,
+  while downstream consumer revalidation has not. It is not `RESTORED`: stale facts remain unavailable at the
+  current cut, and no positive action is enabled.
+- `TARGET_DRAFT` means the current design expects the future Dashboard to provide the capability. The expectation
+  remains revisable until the relevant real consumer flow is terminal.
+- `IMPLEMENTATION_ADMITTED` means repository work may implement a documented `DRAWABLE_EXACT` route or reusable
+  atom as a bounded, separately reviewable slice. It is permission to build and verify, not evidence that the slice
+  is merged, deployed, accepted by an Owner, replacement-ready, or authorized to perform a production effect.
+- `NOT_ADMITTED` means a UI, green job, chart, log, or this document does not prove the capability or authorize a
+  related business transition.
+
+## Operations capabilities and backend responsibilities
+
+Dashboard is the first-party user interface; Windmill is not a deployment dependency. Operational views expose
+service-owned jobs, bounded logs, worker state, audit correlation and dependencies. They provide no arbitrary
+script editor, Flow, database mutation, model session or secret-manager UI. Dependencies and locks are determined
+in the build pipeline; remote dependency work is only a bounded operational job, not Dashboard publishing.
+
+Queue cancellation is available only for `kind=dependency`, `state=queued`, an empty domain-effect set and
+Dispatcher proof of no worker claim. Its immutable operational receipt changes no business fact. Provider, build,
+replay, admission, claim and other effect-capable jobs have no such Cancel action or batch cancellation. Lease
+liveness and compatibility with a job's kind/tag/runtime/isolation are separate: a heartbeat without a compatible
+executor is online/incompatible, never Ready. Deleting disposable completed cache never deletes Owner facts.
+
+### Operations API and backend state contract
+
+This is a `TARGET_DRAFT` replacement contract, not evidence that the services exist. Browser and MCP reads use the
+same typed handlers and capability checks. Page cursors are opaque and stable for one filter cut; every response
+includes `observed_at`, `projection_version`, `availability`, and a retention or expiry disclosure. A route never
+returns an Owner payload merely because the caller can read the operational run. A current view's filter cut is the
+database's statement time, the clock the rows it filters were stamped with: the browser asks for the current view
+without sending a time of its own, the server cuts at that instant and returns the cut, and a page, a download or a
+cursor carries that returned cut forward. A browser clock never becomes a cut, so one running ahead of the database
+cannot refuse the read and one running behind it cannot hide the newest rows. The browser checks `observed_at` only
+against times from the same answer, never against its own clock. An operational action's `observed_at` is the
+database's time read in the action's own transaction, the clock its receipt is stamped with, so a server clock
+running behind the database cannot make a completed cancellation or deletion read as refused.
+
+| UI read or action                 | Fixed Dashboard API                                                                                   | Backend owner and exact rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Runs list, filters, pagination    | `GET /api/operations/runs` -> `RunPage`                                                               | `RunStore` reads immutable submission metadata plus dispatcher‑owned operational state. Filter fields are status/kind/path/trigger/principal/tag/duration/time cut; the cursor embeds that filter cut. Owner outcome is a separately resolved optional envelope, never derived from exit code                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Run detail and bounded result     | `GET /api/operations/runs/{run_id}` -> `RunDetailEnvelope`                                            | `RunDetailProjection` resolves the exact operation/version manifest and returns only display‑allowed registered input/result fields, timing/worker/resource metadata, immutable operational cancellation receipt readback, retention and Owner receipt locators. It joins that path‑bound `run_id`'s dispatcher requirements to immutable worker registrations at one observation cut and returns `RunWorkerCompatibilityMatrix`; missing, stale or mismatched inputs are `unavailable`. Cancellation readback is `none / pending / receipt / unavailable`, remains read‑only after A disappears, and never changes Owner truth. Secret, protected and unknown fields are omitted behind typed withheld counts/reasons; viewport, Copy JSON and download reuse the identical redacted bounded projection. An unknown operation version or schema mismatch is `unavailable`, never raw JSON fallback. Missing disposable data with an Owner locator is `operational_data_expired`, not business absence |
+| Same‑identity Owner resolution    | `POST /api/operations/runs/{run_id}/resolve‑owner‑outcome` -> `OwnerOutcomeEnvelope`                  | Product Edge resolves the immutable request/attempt identity through the named Owner typed port. It neither dispatches a job nor retries an effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Queued dependency cancellation    | `POST /api/operations/runs/{run_id}/cancel‑dependency` -> `OperationalCancellationReceipt`            | `OperationalActionEnvelope` binds the authenticated principal, `dependency.cancel.queued` capability, exact run, current transition version, `kind=dependency`, `state=queued`, empty domain‑effect digest, no‑claim cut and short expiry. Dispatcher re‑resolves every field under its transition lock and compare‑and‑set changes only that exact operational run to `cancelled`; stale, revoked, claimed, terminal, unknown, mismatched or effect‑capable input fails closed. The receipt records run, prior state/version, principal, authorization cut, time and transition. It cannot cancel a domain request, provider/build/replay effect or Owner operation, and no batch endpoint exists                                                                                                                                                                                                                                                                                                     |
+| Disposable completed‑run deletion | `DELETE /api/operations/runs/{run_id}/cache` -> `OperationalDeletionReceipt`                          | `RunStore` accepts only terminal operational rows after capability check and confirmation. It deletes bounded result/log/cache bytes, preserves the run tombstone and Owner locator, and cannot touch Owner stores                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Run log tail or download          | `GET /api/operations/runs/{run_id}/logs` and `/logs/download` -> `RunLogPage` or bounded stream       | `BoundedRunLogStore` reads append‑only chunks by opaque cursor. Search/severity/source filters, redaction, truncation, byte limit and retention are identical for viewport, download and MCP                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Metrics, traces, run assets       | `GET /api/operations/runs/{run_id}/{metrics\|traces\|assets}` -> a discriminated tab envelope         | Until a producer is admitted, handlers return `not_collected`, `not_captured`, `empty`, or `unavailable` with a reason. They never fabricate zeros, spans, files, or success; run assets cannot resolve to a global file browser                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Workers and selected lease        | `GET /api/operations/workers` and `/workers/{worker_id}` -> `WorkerPage` or `WorkerLeaseEnvelope`     | `WorkerLeaseStore` is written only by worker registration/heartbeat/claim/release. UI reads identity/group/tags/version/start/limits/occupancy/last run/last observed plus the registered kind/tag/runtime/isolation capability set. Lease expiry yields `unavailable`; these worker‑only routes never infer readiness for an unbound run or create a UI‑authored `dead` state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Service‑log viewport or download  | `GET /api/operations/service‑logs` and `/service‑logs/download` -> `ServiceLogPage` or bounded stream | `ServiceLogGateway` requires an exact service/instance cut and applies the same time/severity/search filters, redaction, cursor, retention and byte limit to both outputs. It exposes no delete, clear, restart or health‑promotion endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Audit list and correlation detail | `GET /api/operations/audit` and `/audit/{audit_id}` -> `AuditPage` or `AuditEventEnvelope`            | `OperationAuditStore` is append‑only and written by authenticated Product Edge/Dashboard control‑plane middleware, not by this read route. Unknown/redacted target stays explicit; there is no edit, delete, dismiss or replay endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+`RunOperationalState` is exactly `queued | running | succeeded | failed | cancelled | unknown`; only Dispatcher and
+worker protocol events advance it, using compare-and-set on the last stored transition. `OwnerOutcomeState` is a
+separate `available | rejected | unknown | unavailable | not_applicable` envelope and never participates in the
+operational transition. A late terminal worker event may replace operational `unknown` for the same run identity,
+but only an Owner reread may replace Owner `unknown`. Worker liveness is computed from a stored lease deadline and
+last heartbeat. Only the path‑bound `RunDetailProjection` computes readiness by canonically matching that exact
+run's kind, tag, runtime and required isolation to worker registrations at the same observation cut. Client time,
+a missing row, process/container health, or a service-log message can
+neither promote liveness nor fabricate compatibility.
+
+The replacement is not a smaller low-code platform. It is a Trade-specific Dashboard, typed Product Edge
+gateway, narrow job dispatcher, worker protocol, disposable operational store, and optional exact-tool MCP
+channel. Native Owners and their stores remain separate services.
+
+## Product shell and layout
+
+The visual direction comes from the stopped local `vibe-trading` product, not Windmill: warm neutral canvas,
+compact icon rail, capsule navigation, white content cards, gray framed panels, dense small typography, and
+responsive Bento composition. Glass belongs only to navigation and transient overlays, never data cards or
+business-state panels.
+
+### Reference implementation anchors
+
+The visual evidence cut is the local checkout `/Users/vx/WebstormProjects/vibe-trading` at commit
+`4a6d66fb77fc144c2a013417c703db2caf401641`, tree `984c7d684dba72a6af78dc3e6cf50191bc3622ea`. The referenced
+files below were clean against that revision at observation; unrelated dirty files in the stopped checkout are not
+design evidence. This is a source reference, not a package dependency or business architecture authority. Future
+agents must inspect these anchors before changing tokens or shell geometry:
+
+| Reference path under `apps/web/src`                                              | Inherit                                                                                                                                                                  | Explicitly do not inherit                                                                                      |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `app/globals.css`                                                                | Mine warm‑neutral raw palette, Inter/JetBrains Mono, market‑direction separation, and the allowed zones/values for `glass‑heavy`, `glass‑light`, and tooltip glass       | Factor/status token names as Trade business semantics; arbitrary literal colors                                |
+| `components/layout/left‑icon‑sidebar.tsx`                                        | 52 px rail content, 40 px round targets, 18 px icons, 1 px item gap, centered/scrolling heavy‑glass capsule, dark active item                                            | Reference module identities or phase labels                                                                    |
+| `features/blueprint/components/doc‑mode‑shell.tsx`                               | Full‑viewport flex shell, 12 px sidebar padding, 16 px content gap and right/bottom gutters, bounded inner overflow                                                      | Blueprint mode, document toggle, or mock content as product features                                           |
+| `components/shared/bento‑grid.tsx`                                               | Container‑observed `wide/narrow/collapse` composition, `rowHeight=180`, `gap=16`, 560 px collapse and 700 px narrow evidence, 1/2/3/4/8 column spans and 1‑4 row spans   | Its 1/2/3/4/8 API as the routed‑page grid, or its 560/700 container thresholds as global viewport breakpoints  |
+| `components/layout/top‑nav‑bar.tsx`                                              | 56 px top bar, replaceable left context slot, light‑glass capsule tabs, notification/action zone                                                                         | Market ticker data as a universal header requirement; Dashboard uses the evidence‑bound status tape            |
+| `components/ui/card.tsx`                                                         | White 12 px card, Mine border, restrained two‑layer shadow, compact structured header, optional canonical‑detail expansion                                               | The available `frosted` card variant; Dashboard business/data cards remain opaque                              |
+| `components/ui/table.tsx`, `lib/data‑table/components/data‑table.tsx`            | Full‑width bounded scroll container, sticky 40 px dark header, 8 px cell padding, fixed‑layout percentage columns, ellipsis, row hover, and 96 px empty row              | Reference business columns, selected‑row/bulk behavior, or client‑side data authority                          |
+| `lib/data‑table/components/data‑table‑pagination.tsx`, `data‑table‑skeleton.tsx` | Compact responsive pager geometry, 32 px controls, explicit page‑size selector, first/previous/next/last order, and shape‑equivalent filter/header/body/footer skeletons | Reference selected‑row count, page‑size defaults, or unbounded in‑memory pagination                            |
+| `lib/chart‑tokens.ts`                                                            | Resolve CSS custom properties when Canvas or another JavaScript renderer cannot consume `var(...)` directly                                                              | Component‑local chart palettes or literal status colors                                                        |
+| `features/blueprint/data/modules.ts`                                             | Visual density and route‑backed capsule‑navigation pattern only                                                                                                          | The stopped product's module order, labels, phase badges, mock metrics, workflow claims, or trading capability |
+
+The Trade navigation, status vocabulary, domain components, and capability admission in this chapter override the
+reference project's information architecture. A screenshot match cannot promote a mock value or reference route
+into `CURRENT`.
+
+```text
++----------------------------------------------------------------------------------+
+| user | status tape / context                         tabs | search | notifications |
+|------|---------------------------------------------------------------------------|
+|      | page header / authority / freshness                                      |
+| side |                                                                           |
+| rail | responsive Bento: cards, panels, tables, charts, timelines               |
+|      |                                                                           |
+|      | optional right drawer: receipt, identity, evidence, action detail         |
++----------------------------------------------------------------------------------+
+```
+
+Desktop shell contracts:
+
+- full-screen viewport with no second page scrollbar;
+- 76 px left column: 12 px outer padding, 52 px rail content, 12 px inner separation;
+- 56 px top bar; 16 px right/bottom gutter and 16 px Bento gap;
+- vertically scrollable icon rail with hidden scrollbar;
+- bounded card, table, and log scrolling;
+- optional 400-520 px detail drawer that does not replace the canonical route.
+
+## Navigation contract
+
+### Side menu
+
+The side menu is workflow ordered. Icon, accessible label, route, and position are stable. A feature flag may
+disable an unavailable item but may not reorder it.
+
+| Order | Module        | Route            | Purpose                                                                         |
+| ----: | ------------- | ---------------- | ------------------------------------------------------------------------------- |
+|    01 | Overview      | `/dashboard`     | Global Status View, attention queue, recent Owner outcomes                      |
+|    02 | R&D           | `/rd`            | Sources, research requests, hypotheses, Artifacts, decisions                    |
+|    03 | Backtest      | `/backtest`      | Exploratory runs, comparison, allowed diagnostics                               |
+|    04 | Qualification | `/qualification` | Intake, opaque protected‑feedback frontiers, and bounded public outcomes        |
+|    05 | Scanner       | `/scanner`       | Schedules, attempts, receipts, proposals                                        |
+|    06 | Strategy      | `/strategy`      | Registry, lifecycle authorization, allocations                                  |
+|    07 | Runtime       | `/runtime`       | Applied generations, instances, checkpoints, incidents                          |
+|    08 | Portfolio     | `/portfolio`     | Performance, exposure, capacity, attribution                                    |
+|    09 | Risk          | `/risk`          | Decisions, reservations, claims, adapter admissions, aggregate frontier, fences |
+|    10 | Execution     | `/execution`     | Attempts, orders, fills, reconciliation, Recovery readback                      |
+|    11 | Data          | `/data`          | Sources, PIT catalog, quality, corrections, freshness                           |
+|    12 | Operations    | `/operations`    | Runs, workers, run/service logs, audit, Event Rail, telemetry, alerts           |
+|    13 | Settings      | `/settings`      | Data‑source, Agent‑provider, notification, access configuration                 |
+
+The rail starts with the user capsule and local-installation menu. The module capsule is vertically centered when
+it fits and scrolls otherwise. Active items use a dark circular fill and white icon; hover, focus, disabled, and
+attention states remain distinguishable without color.
+
+### Top menu
+
+The top bar has four zones in order:
+
+1. **Status tape** - active mode/scope, Market Data freshness, R&D queue, Scanner schedule, Runtime readiness,
+   Risk fence, and last reconciliation. Unavailable is never hidden.
+2. **Module tabs** - route-backed rounded capsule with the same active treatment as the side rail.
+3. **Global search/command** - searches identities, receipts, Artifacts, runs, strategies, orders, and docs. A
+   command may only open a route or prepare an admitted typed request.
+4. **Notifications** - unread count and alert drawer. Delivery is not an Owner outcome or acknowledgement.
+
+| Module        | Tabs in order                                                                |
+| ------------- | ---------------------------------------------------------------------------- |
+| Overview      | Status, Attention, Recent, Evidence                                          |
+| R&D           | Intake, Research, Hypotheses, Artifacts, Decisions                           |
+| Backtest      | Exploratory, Compare, Diagnostics                                            |
+| Qualification | Intake, Outcomes, Eligibility                                                |
+| Scanner       | Schedules, Runs, Proposals                                                   |
+| Strategy      | Registry, Lifecycle, Allocations                                             |
+| Runtime       | Instances, Generations, Checkpoints, Incidents                               |
+| Portfolio     | Performance, Exposure, Capacity, Attribution                                 |
+| Risk          | Decisions, Reservations, Claims & Admission, Fences                          |
+| Execution     | Attempts, Orders, Fills, Reconciliation, Recovery                            |
+| Data          | Sources, PIT Catalog, Quality, Freshness                                     |
+| Operations    | Runs, Workers, Schedules, Service Logs, Audit, Event Rail, Telemetry, Alerts |
+| Settings      | Data Sources, Agents, Notifications, Access                                  |
+
+On narrow screens the tape collapses to a status button, tabs scroll horizontally, and the rail becomes a drawer.
+Order, route identity, and authority labels remain unchanged.
+
 ## Bounded admission: local operator browser session
 
 The user admits one first-party local operator session shell and the read‑only `/settings/access` surface as
@@ -759,12 +1130,7 @@ remain behind the technical-info control instead of appearing as loose explanato
 invalid identity, configuration failure, permission denial, malformed or oversized Owner response, identity
 drift, or transport failure clears prior content and renders one shape-preserving unavailable state.
 
-**Superseded on 2026-10-03.** An accepted Research detail used to append the shared `ActionAdmissionGate` with a
-disposable Artifact-formation control (`Check & Run`, `POST /api/rd/artifacts/formations/preflight` and
-`POST /api/rd/artifacts/formations`) that ran an in-product model to generate an Artifact. The user decided that the
-R&D agent works outside the product ([Product loop](./product-loop/)), so the product
-makes no model call: the control, both routes and the `artifact_build.formation_execute.v1` effect are removed, and
-Research detail exposes no Artifact action.
+Research detail exposes no Artifact Formation, internal model generation or Artifact write action. Strategy authoring uses the domain JSON interface; this page only performs the admitted reads and navigation below.
 
 The Dashboard GET `/api/rd/research/{requestIdentity}` path-binds the identity and reuses the registered
 `research_goal.shadow_resolve.v1` Owner GET `/v2/research-goals/{request_identity}/readback`. The BFF returns only
@@ -958,769 +1324,6 @@ implementation and packaging under the exact contracts in this chapter. That adm
 does not claim that a Dashboard service is merged or available, that the capability inventory is final, or that any
 executor cutover, business acceptance, production write, provider effect, or trading action is authorized.
 
-## Status vocabulary and evidence cut
-
-- `CURRENT/PARTIAL` means a capability is merged on current Trade main and has real consumer evidence, while the
-  complete Dashboard is still absent.
-- `ACTIVE_OBSERVATION` means an exact Hub task is still implementing, dynamically accepting, or waiting on an
-  explicit action required to prove a capability. Its evidence may revise this chapter, but it cannot establish a
-  current product fact before merge and readback.
-- `OBSERVED_CANDIDATE_NOT_CURRENT` means a capability or consumer-visible defect was observed in an active Hub
-  task or worktree but is not a shipped product capability or a current fix.
-- `RECOVERABLE_BY_RECONSTRUCTION_NOT_RESTORED` means exact surviving evidence may be sufficient for the canonical
-  Owner to reconstruct lost facts, but no trusted backup restore or Owner reconstruction has occurred. The affected
-  capability stays unavailable and no historical or positive action is inferred.
-- `RESTORED_REVALIDATION_PENDING` means canonical Owner custody reconstruction and direct Owner readback succeeded,
-  while downstream consumer revalidation has not. It is not `RESTORED`: stale facts remain unavailable at the
-  current cut, and no positive action is enabled.
-- `TARGET_DRAFT` means the current design expects the future Dashboard to provide the capability. The expectation
-  remains revisable until the relevant real consumer flow is terminal.
-- `IMPLEMENTATION_ADMITTED` means repository work may implement a documented `DRAWABLE_EXACT` route or reusable
-  atom as a bounded, separately reviewable slice. It is permission to build and verify, not evidence that the slice
-  is merged, deployed, accepted by an Owner, replacement-ready, or authorized to perform a production effect.
-- `NOT_ADMITTED` means a UI, green job, chart, log, or this document does not prove the capability or authorize a
-  related business transition.
-
-### 2026-08-28 merged Source, Windmill, Scanner, and Market Data readback
-
-Current Trade main `e12adde09754e20953ac81ce86ffa5e7b3a05c99` contains the completed Source Intake,
-Windmill, and Scanner cuts. PR #356, merged as `82c4f59fc600a1d5d0a9bc94eac83234c531e490`, restored the isolated
-Source Intake acceptance through the real Windmill entry, PostgreSQL Owner custody, and cleanup/readback. PR #361,
-merged as `a7260f6563fbdf1c1b497087d638c0c406e4cefb`, made the checked-in Windmill workspace lock a deterministic,
-read‑only-verifiable projection; that is repository tooling evidence, not deployment evidence. PR #360, merged as
-`67d31f5398922680714827206ceb2583437a869b`, added a sealed Scanner terminal-receipt read boundary for Product Edge;
-it remains a static Owner contract and does not establish a Scanner operation or Windmill journey.
-
-PR #362 is the current Source Intake-to-Research cut. The default Windmill operation now sends the admitted Source
-terminal to the canonical R&D Owner API: `RUN` owns the first mutation, while `RESOLVE` is read‑only and returns
-submitted-or-unknown unless the exact durable receipt already exists. On its final tree, focused Source/Windmill
-checks passed `5/5`, Workbench default checks passed `164/164`, and focused API checks passed `5/5`. The disposable
-Windmill/PostgreSQL sealed acceptance passed on the pre-final tree, but was not rerun after the final `RESOLVE`
-correction and disjoint main-only changes. Its maturity is therefore
-`CURRENT/PARTIAL · EXACT_HEAD_COLD_ACCEPTANCE_NOT_ADMITTED`: the future Dashboard may preserve these fail-closed
-action and recovery semantics, but it must not render a positive Source-to-Research result from transport success
-alone. A deployed
-default Windmill workspace, authenticated browser or native MCP acceptance, Dashboard implementation, provider or
-network execution, production writes, and trading all remain `NOT_ADMITTED`.
-
-PR #364, merged as `e12adde09754e20953ac81ce86ffa5e7b3a05c99`, additionally moves deployment-store
-admission and revalidation behind the Market Data Owner boundary and exposes only a move-only sealed
-`ResearchPitTerminal` to Strategy Factory. Capability Adoption now places the pure
-`crates/product_edge_contracts` representations under Product Edge without granting them fact or authority
-ownership. This is `CURRENT/PARTIAL · DYNAMIC_POSTGRES_PRODUCT_COMPOSITION_NOT_ADMITTED`: downstream code cannot
-construct the terminal or read raw store, PIT, Source Binding, or clock rows, and the disposable PostgreSQL
-acceptance remains unavailable on the observed Darwin cut. The future Dashboard may show this sealed handoff as
-Owner evidence, but it cannot infer Market Data availability, default Windmill readiness, production resolution,
-or a positive Source-to-Research result from it.
-
-### 2026-08-23 merged H1 readback
-
-PR #326 is merged on Trade main as `81c519fade16810c3d9694226092c83f1f886b07`. Its merge tree
-`1760234821f2e12e3e6ea452d1b8395e69a0a34f` is byte-identical to the independently reviewed candidate tree at
-`142ba65ef069077b76106f0fe8afa853591926a3`; this is tree equality after a squash merge, not commit ancestry. The
-merged cut passed Workbench `67/67`, focused consumer projection `14/14`, artifact build `35/35`, the focused and
-manifest-scoped Rust gates, and five disposable Linux/PostgreSQL suites (fresh migration, Product Edge, retry,
-recovery, and ACL, each `1/1`). Two independent exact-head review lenses reported no finding. Those receipts admit
-the following narrow status change only:
-
-| H1 surface                                                                                                                               | Current evidence state                                     | Dashboard interpretation                                                                                                                                                                                                                                                     |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Operator Authorization, Product Edge admission, claim/start custody, R&D invocation reservation, and strict cross‑Owner readback         | `CURRENT/PARTIAL`                                          | The future UI may rely on exact locked cuts, immutable receipts, direct‑successor distance, zero‑write rejection, and fail‑closed unknown projections. These remain native Owner facts, not Dashboard storage.                                                               |
-| Repository Workbench S1/S2 consumer projection and control policy                                                                        | `CURRENT/PARTIAL · DEFAULT_WEB_NOT_REVALIDATED`            | The checked‑in three‑card App, shared exact‑key projector, action admission policy, stale‑safe terminal display, all four read‑only legacy dispositions, and same‑identity recovery are current source contracts. Focused consumer tests are not a deployed‑browser receipt. |
-| Web/MCP operation selection                                                                                                              | `CURRENT/PARTIAL · CHANNEL_ACCEPTANCE_NOT_ADMITTED`        | The repository App and narrow MCP profile both select `research_goal_v2`; `artifact_build_v1` was the S2 operation until the 2026‑10‑03 decision removed it with the in‑product model build. No token was minted or used and no native MCP parity run occurred in H1.        |
-| Runtime foundation direct consumer                                                                                                       | `CURRENT/PARTIAL · FOUNDATION_NOT_READY`                   | PR #330 admits only non‑authoritative `NotReady` plus four exact revalidation dependencies. No Runtime custody, Strategy Instance, generation application, recovery or trading surface exists; `READY` and `APPLIED` remain unavailable.                                     |
-| Market Data durable Owner foundation                                                                                                     | `CURRENT/PARTIAL · NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER` | PR #331 admits private atomic custody and sealed Source Binding/PIT Snapshot readback contracts only. No provider, ingestion, product resolver, H0/Dashboard/Workbench/Windmill consumer, default database, positive page row/action, or cutover exists.                     |
-| Portfolio R0 Owner View contract                                                                                                         | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`       | PR #332 admits deterministic request/replay validation and structured unavailable results only. PAPER and LIVE remain unavailable; positive Performance, Exposure, Capacity, Attribution, Risk, headroom, allocation, deployment and trading surfaces do not exist.          |
-| Windmill Runs, Run Detail, logs, workers, service logs, audit, and dependency jobs                                                       | `TARGET_DRAFT` from earlier authenticated observations     | H1 did not add a new default‑Windmill journey. The replacement keeps only the previously observed operational semantics and fixed empty states described below.                                                                                                              |
-| Default Windmill/PostgreSQL deployment, external provider execution, Dashboard service/code/package, real trading, and production writes | `NOT_ADMITTED`                                             | No enabled button, green Windmill job, merged backend contract, or this design document may imply these capabilities.                                                                                                                                                        |
-
-This readback supersedes the candidate-only status attached below to the historical H0/H1 defects for the exact
-contracts now present in PR #326: action-time Research admission, original-authorization continuity, sealed
-claim/start custody, resolution-discriminated wire verification, prepare-free start of an existing claim,
-stale-safe terminal custody, and legacy quarantine. The old rows remain incident and design-decision history; they
-must not be interpreted as the current status of the merged correction. Default deployment and real external
-effects remain unpromoted.
-
-### 2026-08-23 merged Observability readback
-
-PR #327 is merged on current Trade main as `3ec29c7a4662efb2d4d28e2bb3e4181570a815b7`. The new workspace-owned
-`vibe-observability` crate and root consumer test make the read‑only, rebuildable status projection source contract
-`CURRENT/PARTIAL`: it preserves per-Owner/source frontiers, freshness, partial/rebuilding/unavailable visibility,
-identity-content conflict quarantine, an opaque restart checkpoint, and a query-only `GlobalStatusReadPort`. Crate
-tests passed `18/18` and the root consumer passed `1/1`, with focused fmt/check/clippy/doc and independent review.
-Owner ingestion remains sealed until a crate-owned typed canonical outbox adapter exists; telemetry visibility is
-hard-coded `Unavailable`, and no runtime adapter or authenticated Windmill/Dashboard consumer was exercised. This
-merge therefore admits the fixed `/dashboard` and `/operations/telemetry` source projection contract only. It does
-not admit telemetry availability, Owner health inference, commands, retry, Dashboard implementation, default
-Windmill, external provider execution, or production effects.
-
-### 2026-08-23 merged Scanner and Governance readback
-
-PR #334 is merged on current Trade main as `1a3c47b06470816da4974bfb85c9a8a140c60f7e`. Scanner terminal receipts
-now require sealed Owner admission, and Governance rejects invalid or unavailable Eligibility before any receipt,
-lifecycle, outbox, Runtime handoff, or successor write. These static contracts are `CURRENT/PARTIAL ·
-STATIC_CONTRACT_CLOSED_NOT_RUNTIME`; durable Owner adapters, Qualification terminal integration, runtime/product
-readiness, Windmill, provider/network effects, LIVE, production writes, and trading remain `NOT_ADMITTED`.
-
-### 2026-08-23 merged Runtime foundation readback
-
-PR #330 is merged on current Trade main as `73edb0e32f1745cc835951a1b9bd6cb38e456c35` from reviewed head
-`96296549794b5b66fb3d730a505cc0551fe80e16`. The workspace-owned `vibe-runtime` crate and direct consumer make only
-the lower-maturity foundation contract `CURRENT/PARTIAL · FOUNDATION_NOT_READY`: `RuntimeFoundation.status()` is
-always `NotReady`, and `revalidate_after()` returns exactly Governance authorized-generation decision read,
-canonical Runtime custody, Artifact compatibility recovery read, and Execution recovery frontier read. The direct
-consumer and crate unit test each pass `1/1`; the PR also records focused checks, root pre-commit, and independent
-authority-representation review. The crate exposes no authoritative Runtime fact/custody, Strategy Instance,
-generation, checkpoint, recovery, application, order, provider, credential, network, or trading-effect surface.
-This merge therefore admits the fixed foundation `NOT_READY` card and its four dependency rows only. It does not
-admit a deployed runtime/default-Windmill consumer, `READY`, `APPLIED`, Resolve, Apply, recovery, or another effect.
-
-### 2026-08-23 merged Market Data durable foundation readback
-
-PR #331 is merged on current Trade main as `d790ae8702b1d254342ad81a82d8fc90e4b78d7a` from head
-`c07da16786f6e845794790802761ad272342b987`. Its maturity is
-`CURRENT/PARTIAL · DURABLE_MD_OWNER_POSTGRES_FOUNDATION_NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER`. Private
-PostgreSQL custody atomically commits Source Binding or PIT Snapshot fact, native outbox, lineage head, and Owner
-clock with exact replay/conflict handling. Public code exposes only `SourceBindingOwnerResolver` /
-`SourceBindingOwnerReadback` and `PitSnapshotOwnerResolver` / `PitSnapshotOwnerReadback`; callers cannot construct
-the sealed readbacks or access writers, trusted clocks, database constructors, raw envelopes, or canonical positive
-types. The disposable PostgreSQL direct-consumer scenario passed `1/1`, the `vibe-data` library passed `301` with
-one ignored disposable harness, and compile-fail doctests passed `10/10`; PR verification also records package and
-root gates plus a fresh no-HIGH/MEDIUM review.
-
-This merge admits the durable foundation contract and exact readback field geometry only. It does not admit
-provider authenticity, ingestion, a public or production writer composition, default/shared PostgreSQL, H0
-HTTP/JSON resolution, Workbench/Dashboard/Windmill consumption, LIVE provider use, trading, or cutover. Until one
-such product consumer is separately admitted, `/data` and `/data/pit-catalog` render the fixed foundation card and
-no binding/snapshot count, row, timeline, positive badge, resolver action, or mutation action.
-
-A `TARGET_DRAFT` flat `MarketHeatmap` presentation atom may be prepared without changing that route maturity. It
-accepts only an already verified, bounded server projection of stable item identity, display label, positive
-layout weight and percentage change. It preserves the source squarified layout, responsive measurement, search,
-keyboard focus and ripple hover redistribution, but deliberately has no child nodes, breadcrumb, drill-down,
-candlestick preview, synthetic series or runtime mock data. Loading, unavailable, valid empty and filtered-empty
-remain distinct; unavailable renders zero tiles. The atom cannot resolve Owner custody, read private PostgreSQL,
-authenticate a provider or promote `/data`, `/data/pit-catalog` or `/market` to available. A separately admitted
-Dashboard/H0 Market Data resolver remains required before any positive runtime item can reach it.
-
-### 2026-08-23 merged Portfolio R0 fail-closed readback
-
-PR #332 is guarded squash-merged on current Trade main as
-`0ac5f4979bdc2169931f3b260f4459b4d258794b` from exact head
-`e2de832c09811f80158ffd5c70a538f5fad6055c`; the merge tree is
-`d4713c95d22cf49bdd63b2ae3243025a6efcaacf`. `PortfolioViewRequest` binds schema version, stable request identity,
-principal claim/issuer, principal, account, Execution Scope, PAPER/LIVE mode, authorization-policy cut, common cut,
-projection/valid-through time and exactly eleven direct-source dependency classes. Its fingerprint covers every
-request, scope, source and time field; reordered equivalent dependencies are exact replay, changed meaning under the
-same identity is conflict, and a new identity is distinct.
-
-The public resolver always returns `UnavailablePortfolioView`: schema version, request identity/digest,
-`UNAVAILABLE`, `INCOMPLETE_FAIL_CLOSED`, or `STALE`, fixed disposition `SOURCE_OWNER_RESOLVE_UNAVAILABLE`, and the
-complete structured failure set. Both PAPER and LIVE direct external consumers resolve unavailable. The eleven
-ordered dependencies are Execution account/open orders/fills/fees/settlement, Market Data price/FX/contract/
-valuation/liquidity, and the prior Portfolio snapshot. Every caller-supplied principal claim and source locator
-remains untrusted; Execution, Market Data and Portfolio direct Owner resolvers are absent. The sealed positive
-`PortfolioViewReadback` has no public constructor, `Default`, or `Deserialize`, and the public resolver has no code
-path that constructs it.
-
-This merge admits the fail-closed request and unavailable-envelope contract only. It does not admit a Dashboard/H0/
-Workbench/Windmill consumer, a positive Account/Performance/Exposure/Gross Capacity projection, Attribution, Risk,
-headroom, allocation, deployment, LIVE authority, trading, or another effect. Until a private direct-source
-composition is separately admitted, all four Portfolio routes render the same fixed unavailable card and no domain
-summary, chart, table, timeline, filter, refresh, resolve, allocation or trading action.
-
-The primary evidence cut is frozen at the 2026-08-22 Dashboard baseline Origin
-`6869be69256d093c222ae6e34027077efe83adeb`, tree `b4f23739eaf52c8c8efe213567904649e6a04677`.
-This baseline identifies the source revision for the incident and downstream-resolver evidence immediately below;
-later consumer rows bind their own exact candidates and do not redefine this baseline as the current repository head.
-The stopped exact uncommitted R&D candidate `a05d76ea18e2b35d7e55d74357fbc30b971ec1a2`, tree
-`eb25b1a8325c4711ebd8d2cd012b3a87f70741c6`, tracked diff
-`a5896bb23294e00fce158eedf97a429f9f06c35b9f243264455c7877c87da6c3`, and untracked set
-`46ea5cd2ff29ef88a348a43c4d28c250b21a23ae90ac5871c8b581891567c722`, implemented the two-layer Product Edge
-downstream resolver and produced focused OA `3/3`, PE `1/1`, Qualification `1/1`, first R&D-to-TrialFamily S1 `1/1`,
-and Workbench `5/5` evidence. Before any image rebuild or new Windmill/Provider run, a destructive Qualification
-test was accidentally run against the default persistent database and dropped/recreated the protected-feedback
-projection, head, and outbox tables empty. No backup, PITR, Owner archive, or full canonical row image exists.
-Canonical Qualification Owner reconstruction and direct Owner readback have now succeeded: projection, head, and
-original outbox are `1/1/1`, with one separate recovery receipt. The incident is
-`RESTORED_REVALIDATION_PENDING / NOT_ADMITTED`, not `RESTORED`. Recovery receipt
-`qualification-owner-recovery-receipt-v1-8d4bc7a06d100b2e7fb1817a7ac3d1697412621024c34556fb8b7a8d1499a2b3`
-has digest `sha256:8d4bc7a06d100b2e7fb1817a7ac3d1697412621024c34556fb8b7a8d1499a2b3`; the exact target fingerprint is
-`sha256:cb7a0b3d7041e007d87a1afc8b9aa7204535ef64706d7293337cca3c0a1ebd7e`. This was deterministic canonical
-reconstruction without a backup: raw original JSONB storage bytes were not observed, no physical backup was
-restored, no new validity was minted, and no new domain wake was emitted. The original frontier still has
-`valid_through=1787308603208` and is stale/`UNAVAILABLE` at the current cut. Default-Web, Product Edge, and R&D
-consumer revalidation has not run; Submit, S1, S2, and provider actions remain disabled. Whole-volume rollback
-remains forbidden because Windmill and R&D share the volume. The item-1406 Product Edge admission/receipt/outbox
-remains byte-identical, while runtime/Web S1-to-S2, provider canary, full gates, candidate commit, and delivery remain
-`OBSERVED_CANDIDATE_NOT_CURRENT / NOT_ADMITTED`.
-
-The earlier authenticated default-Web S1 job `01a0258e-773e-d80b-e464-6b4cd7a20c7e` remains layout evidence: it
-rendered `REJECTED_NO_WRITE / CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST / missing Owner receipt`, with S2 disabled,
-while durable readback showed one committed Product Edge admission/outbox, zero R&D receipt/Intent/family, and zero
-provider claim. The Dashboard must still render that handoff as `SUBMITTED_OR_UNKNOWN`, never as an input rejection.
-The earlier directly relevant TrialFamily Product slice is based on Hub Origin
-`8375a7b616d18c2084bcea7012ebc878afa1a96c`, tree
-`0252b50de2951ce3e23cd4cb2b5dbe8aeb0b5b3a`. Explicit architecture authorization now defines an R&D-owned
-independence-basis/genesis contract and a separate Qualification Owner that publishes an opaque protected-feedback
-frontier from that exact basis. Product Edge carries only references/cuts; R&D re-resolves basis, Qualification
-projection, and complete local lineage before family formation. Rejected candidate
-`222c7a669aa30b9f28c2191ff14b9c9b8f24e543`, tree `3402b2e16971d1c56f9d375b5e673c4547337d05`,
-dynamically proved an isolated canonical-history default-Web chain
-`R&D basis receipt -> Qualification GENESIS_EMPTY receipt -> S1 ACCEPTED with family census -> S2 SUCCESS + time-bound binding receipt -> REVIEW_ARTIFACT`,
-plus byte-identical S1/S2 restart and Windmill page-state/cache-loss recovery without rerunning the build. Against
-the unchanged original Owner database, a successful Windmill job correctly remained business
-`SUBMITTED_OR_UNKNOWN` with only `RESOLVE_SAME_REQUEST_IDENTITY`, because incomplete historical custody failed
-closed. Authority reviewer `01a02410-4530-7010-b495-9d2a4e588239` still rejected the candidate: Qualification
-could infer `GENESIS_EMPTY` from a missing head without exhaustively verifying historical projections/outbox; a
-positive TrialFamily graph remained publicly deserializable; and Artifact custody could apply JSON selectors or
-predicates before canonical verification. Consumer review and delivery were not admitted. Hub planners are deciding
-whether all three are one candidate-local correction batch, so the successful journey remains candidate‑only design
-evidence rather than a current product fact.
-After the lock-only commits `def6b37653` and `3183d3a280`, PR #268 contributed the first business diff: the
-Strategy Factory Product Edge now treats its exclusive `valid_through` boundary as stale. That one projection is
-`CURRENT/PARTIAL`; it did not itself promote the then-unmerged F1 foundations, S3 replay, or any
-Dashboard/Windmill service. PR #327's later Observability disposition is recorded below.
-PR #269 then contributed the structural Risk-to-Model dependency edge. PR #270 changed only
-`codex-skills.lock.json`; it advances control-plane bootstrap custody but adds no Dashboard, Windmill, or business
-capability.
-S1 sourced research intake and S2 Artifact Formation remain `CURRENT/PARTIAL`. S3 Exploratory Replay remains
-`ACTIVE_OBSERVATION` and `OBSERVED_CANDIDATE_NOT_CURRENT / DEPLOYMENT_UNAVAILABLE`: its historical Web run remains
-design evidence, but the current remote operation is archived and cannot dispatch. PR #326 additionally makes the
-narrow Operator Authorization, Product Edge, Qualification custody, R&D invocation-custody, and API-composition
-contracts `CURRENT/PARTIAL`; it does not admit their default service/Windmill deployment or external effect. The F1
-Observability source projection is also `CURRENT/PARTIAL` after PR #327, while its Owner/telemetry adapters and
-runtime consumer remain unavailable. Scanner and Governance have the merged static-contract disposition bound
-above; their runtime and product consumers remain unavailable. The PR #330 Runtime
-foundation is `CURRENT/PARTIAL`, but its only state is non-authoritative `NotReady`; every authoritative Runtime
-custody, instance and application surface remains unavailable. PR #331 likewise makes the durable Market Data
-Owner foundation `CURRENT/PARTIAL`, while provider authenticity, product resolver composition, ingestion, cutover,
-and every positive Data page row/action remain unavailable.
-Exact checkout, candidate, merge-tree, and consumer identities govern every status; a future agent must re-read
-them rather than promote an observation by copying this page.
-
-### Observation custody and revision rule
-
-The observation source is Hub `01a014ef-d305-7b40-8d6b-f5c6d26fca56`, but this document is
-**event-driven, not cursor-driven**. A Hub or delegated-Task update is relevant only when it changes at least one of:
-
-- a real default Windmill/Workbench Web journey or native operation;
-- a consumer-visible route, tab, field, action, state, empty state, permission, or recovery path;
-- an Owner/backend contract directly required to render or execute that visible behavior;
-- the evidence-backed decision to keep, defer, or exclude a Windmill capability.
-
-Internal bug fixing, gate execution, rebase, candidate commit, review, PR, and merge activity does not revise this
-document by itself. Such activity matters only after it produces a changed real consumer contract or dynamic
-Windmill/Workbench observation.
-
-| Consumer line                                 | Recorded evidence state or later disposition               | Dashboard consequence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| --------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PR #326 H1 merged override                    | `CURRENT/PARTIAL · DEPLOYMENT_NOT_ADMITTED`                | This row is the latest disposition for the corrected S1/S2, Product Edge authorization, FirstMutation continuity, H0, and H1 contracts narrated below. The merged source and isolated PostgreSQL suites are current; old `OBSERVED_*_NOT_CURRENT` labels on those historical defect rows describe their rejected candidate cut only. Default Windmill, native MCP parity, external provider execution, and Dashboard implementation remain `NOT_ADMITTED`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| S1 sealed basis stage recovery                | `ACTIVE / OBSERVED_VISIBLE_DEFECT_NOT_CURRENT`             | Fresh authority review rejected `c72f44edb`: the first transaction can commit the Independence Basis Receipt, basis head and outbox while Qualification and the terminal Research receipt remain absent, yet retry still selects `FirstMutation`. Later generation‑3 cutover, revocation, or expiry can therefore strand partial custody. TARGET canonically seals that stage as `SEALED_BASIS_PENDING_QUALIFICATION`; the same request resolves or completes from historical custody without duplicate basis/head/outbox, while changed request/admission conflicts. Consumer v4 found no separate H1 static defect across 31/31 tests, but dynamic PostgreSQL, Windmill, provider, and browser acceptance remains unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| S1 Workbench resolve and terminal retention   | `ACTIVE / OBSERVED_VISIBLE_DEFECT_NOT_CURRENT`             | Fresh v5 authority and consumer reviews rejected `e5893fd550`: the public Workbench `RESOLVE` sends no request body and reaches `resolve_v2`, which only looks for terminal Research custody and cannot advance a sealed basis stage; the only Historical completion path still requires another `submit_v2`, an action the unknown‑state App forbids. A Qualification projection committed before response loss becomes permanently stale because the Owner has no successor/renewal path, and an already complete S1 receipt/TrialFamily is later hidden as `SUBMITTED_OR_UNKNOWN` when its linked view expires. TARGET seals the complete typed request meaning for body‑free same‑identity Resolve, gives Qualification Owner an explicit verified renewal/successor recovery, and preserves a complete terminal receipt/family as read‑only `STALE` while withdrawing every positive action. S2 claim/start, stale terminal and four legacy projections still passed 31/31 static checks; dynamic PostgreSQL, Windmill, provider and browser evidence remains unavailable                                                                                            |
-| S2 action‑time Research freshness             | `ACTIVE / OBSERVED_VISIBLE_DEFECT_NOT_CURRENT`             | Consumer v6 rejected `4c28bd583f`: Workbench caches an Owner `AVAILABLE` projection and validates only its interval shape, so a page left open across `valid_through` still enables S2 Run. Frozen v7 candidate `b48b588f267f8222e98659bc397e362fc70248e6` added App same‑identity S1 Resolve plus server‑locked current‑Research custody, but fresh review rejected it: a transient S1 Resolve failure kept the old S1 row `AVAILABLE` while fabricating an Artifact unknown state whose attempt did not exist; the server path also failed to require the exact canonical effect set, and no dynamic `valid_through` lock‑wait race proved zero write. TARGET separates cancellable read‑only `PREFLIGHTING` from non‑cancellable `ADMITTING`, withdraws the current‑positive Research gate without creating an attempt when preflight fails, requires exact Artifact‑mutation plus provider‑invocation effects at the locked OA → Product Edge → R&D cut, and maps only post‑dispatch ambiguity to `SUBMITTED_OR_UNKNOWN`. Workbench 34/34 and static gates are candidate evidence only; live default‑Web, dynamic PostgreSQL and provider evidence remain unavailable |
-| S1 V2 TrialFamily -> S2 Artifact binding      | `ACTIVE / OBSERVED_CANDIDATE_NOT_CURRENT`                  | Replacement candidate `3862ed8bcb` re‑proved the default‑App canonical‑history chain `basis receipt -> Qualification GENESIS_EMPTY receipt -> S1 ACCEPTED/family census -> S2 SUCCESS/time‑bound binding receipt -> REVIEW_ARTIFACT`; deleting the three task jobs and restarting Owner/worker returned byte‑identical request, attempt, basis, Qualification frontier, family, Artifact and binding identities without rerunning S2. Earlier rejected candidate `222c7a669a` also showed that unchanged original history can leave Windmill job `success` at business `SUBMITTED_OR_UNKNOWN` with only `RESOLVE_SAME_REQUEST_IDENTITY`, so operational success and Owner outcome remain separate                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| R&D freshness and no‑Artifact receipt closure | `ACTIVE / OBSERVED_CANDIDATE_NOT_CURRENT`                  | Exact‑expiry zero‑write, relational mutation/restoration, locked binding reads and stale S1/S2 resolve‑only behavior remain preserved. Authority‑unavailable S1 resolve/replay and S2 prepare normalize to non‑terminal `SUBMITTED_OR_UNKNOWN`; semantic conflict remains conflict. Invalid V2 may persist one independent rejection receipt but zero basis/projection/Research/Intent/family/member/head/outbox facts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| TrialFamily lineage/feedback authority        | `ACTIVE / OBSERVED_CANDIDATE_NOT_CURRENT`                  | Architecture now admits an R&D basis/genesis Owner fact and a Qualification opaque frontier fact. The App no longer accepts predecessor/feedback/independence authority fields; it renders sealed basis and Qualification receipts. Positive S1 must validate the complete V2 request before either prerequisite write, then under `scope -> request` locks enumerate every lineage receipt without a raw selector, canonical‑verify every row, and only then filter/form family. The positive TrialFamily graph must be sealed Owner output, never public `Deserialize`. Corrupt or unavailable history returns `SUBMITTED_OR_UNKNOWN`, never false genesis                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Product Edge action authorization             | `ACTIVE / OBSERVED_CANDIDATE_NOT_CURRENT`                  | The stopped candidate implemented the Product Edge‑owned SQL‑envelope plus Rust sealed‑readback resolver, proved OA‑to‑PE lock order, shared readers/exclusive writers, exact ACL, migration idempotency, and a first R&D S1 through the fixed port. It did not reach rebuilt‑image or default‑Web acceptance before the database incident, so the earlier UI defect remains the current observation: committed PE admission plus unavailable downstream R&D custody is `SUBMITTED_OR_UNKNOWN`, disables S2, and exposes only same‑identity Resolve. Provider, full runtime, commit, delivery, and final review remain `NOT_ADMITTED`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| FirstMutation original OA continuity          | `ACTIVE / OBSERVED_VISIBLE_DEFECT_NOT_CURRENT`             | Authority v6 rejected `4c28bd583f`: a not‑yet‑mutated admission verifies its original Operator Authorization only as historical, then lets the immediate Product Edge successor's current OA substitute at the final cut. TARGET requires `CurrentAtLock` for the stored original OA at the exact final write cut and, when an immediate successor is used, independently requires that successor OA and Product Edge binding current at the same cut. Expired/revoked original OA yields `ORIGINAL_AUTHORIZATION_NOT_CURRENT`, preserves both evidence rows read‑only, disables every FirstMutation action, and produces zero basis, rejection receipt, provider invocation admission, or claim. Historical resolution of an already committed basis/terminal remains separate. Dynamic multi‑Owner PostgreSQL and Windmill evidence remains unavailable                                                                                                                                                                                                                                                                                                                 |
-| H0 exact‑head correction set                  | `CURRENT/PARTIAL · DEFAULT_WEB_NOT_REVALIDATED`            | PR #326 closes the six rejected‑contract defects from `c224927c54`: Qualification physical authority stays with its Owner; final write‑edge freshness is locked; policy‑equivalent cutover preserves exact predecessor continuity; claimed invocation custody exposes the one resumable Run action; unavailable S2 authority remains unknown rather than input rejection; and App/MCP select `research_goal_v2`. Isolated PostgreSQL evidence is current, but default App, native MCP parity, external provider execution, and product acceptance remain `NOT_ADMITTED`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| H1 fresh invocation admission                 | `CURRENT/PARTIAL · DEFAULT_WEB_NOT_REVALIDATED`            | PR #326 closes the rejected `6bd9f627` defects with original‑or‑immediate‑successor distance, resolution‑discriminated absent/present wire fields, prepare‑free start of an existing `CLAIMED` custody, stale‑safe terminal readback, and all four read‑only legacy dispositions. Workbench `67/67`, consumer projection `14/14`, artifact build `35/35`, isolated dynamic PostgreSQL, and two independent review lenses support the merged contract. Default Windmill, external provider execution, and real‑consumer deployment acceptance remain unavailable or `NOT_ADMITTED`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Qualification protected‑feedback frontier     | `RESTORED_REVALIDATION_PENDING / NOT_ADMITTED`             | Canonical Qualification Owner reconstruction and direct Owner readback succeeded with projection/head/original outbox `1/1/1` plus one separate recovery receipt. The original frontier remains stale/`UNAVAILABLE` after `valid_through=1787308603208`; default‑Web, Product Edge, and R&D consumer revalidation has not run. The Dashboard renders the Owner store unavailable, never fresh `GENESIS_EMPTY`; hides Copy frontier and every positive Submit/S1/S2/provider action; shows the affected store/table set, last trusted cut, current `1/1/1 + receipt` readback, recovery classification, and immutable incident evidence; and offers only Open incident evidence and Copy locator. There is no Restore, Reconstruct, Clear incident, successor, or retry control                                                                                                                                                                                                                                                                                                                                                                                            |
-| S3 Exploratory Replay                         | `OBSERVED_CANDIDATE_NOT_CURRENT / DEPLOYMENT_UNAVAILABLE`  | A historical real default‑Web run proves the Run Detail information architecture and Owner readback shape, but the TrialFamily deployment sync archived the remote S3 replay operation. The Backtest route must now show capability unavailable and disable invocation until S3 is explicitly restored from its frozen candidate and revalidated. Native MCP parity remains unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Observability status projection               | `CURRENT/PARTIAL · ADAPTERS_UNAVAILABLE`                   | PR #327 merges the read‑only, rebuildable projection, per‑source frontier/freshness/completeness states, quarantine, restart checkpoint, and query‑only consumer port. Owner ingestion stays sealed without a crate‑owned typed canonical outbox adapter, telemetry is always `Unavailable`, and stale or self‑asserted telemetry cannot produce `Available`. Runtime consumer, Dashboard/Windmill integration, and operational telemetry backend remain `NOT_ADMITTED`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Scanner public terminal projection            | `CURRENT/PARTIAL · STATIC_CONTRACT_CLOSED_NOT_RUNTIME`     | PR #334 seals public terminal receipt construction behind exact Scanner Owner admission. Dashboard terminal rows, counts, badges, receipts, Matcher invocation and Proposal evidence remain unavailable until a direct Owner consumer and runtime adapter are separately admitted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Governance invalid Eligibility admission      | `CURRENT/PARTIAL · STATIC_CONTRACT_CLOSED_NOT_RUNTIME`     | PR #334 rejects invalid or unavailable Eligibility before Governance admission with zero receipt/lifecycle/outbox write, Runtime handoff or successor action. Receipt‑backed `REJECTED_NO_WRITE` remains a distinct admitted Governance decision; positive application and runtime consumers remain `NOT_ADMITTED`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Qualification intake replay                   | `ACTIVE / OBSERVED_VISIBLE_DEFECT_NOT_CURRENT`             | F1 proved that two different invalid replay meanings under one request/handoff identity could incorrectly join the first `NOT_ADMITTED` receipt. The rejected candidate must be corrected so exact semantic replay resolves the original receipt while every changed meaning returns `RequestSemanticConflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Qualification public projection               | `ACTIVE / OBSERVED_VISIBLE_DEFECT_NOT_CURRENT`             | F1 proved that legal non‑terminal `Admitted` and `Evaluating` summaries could be misreported as terminal `ClosedNotQualified`. The public projector must reject non‑terminal summaries; no terminal row, count, receipt, color, or action may be inferred                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Market Data durable Owner foundation          | `CURRENT/PARTIAL · NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER` | PR #331 admits private atomic PostgreSQL custody plus sealed read‑only Source Binding and PIT Snapshot resolver/readback contracts. No product composition, H0/Dashboard/Workbench/Windmill consumer, provider authentication, ingestion, public writer, default database, cutover, or positive Data page row/action is admitted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Portfolio R0 public resolver                  | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`       | PR #332 makes deterministic request/replay validation and the structured unavailable envelope current. PAPER/LIVE both fail closed; the four Portfolio routes expose only the fixed contract card, never positive projection data or domain actions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Risk                                          | `MECHANISM_REJECTED / NOT_ADMITTED`                        | Static schemas and test‑constructed positive paths are not real consumers. Risk routes remain target skeletons and must not render available state or enabled business actions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-
-The S3 Web observation shows a Backtest receipt and canonical result, actual Artifact/PIT/runtime/simulator
-identities, the complete diagnostic set, the R&D handoff, `EXPLORATION_ACTIVE · AVAILABLE`, explicit
-`NOT_ADMITTED` boundaries, and one correlated engine invocation without a duplicate attempt. This evidence
-supports the Run Detail layout, tabs, status treatment, receipt cards, bounded logs, and recovery copy. It does not
-prove native MCP parity or admit replay as a current shared-product capability.
-
-The remaining action-time credential boundary is also consumer-visible: native MCP verification requires a
-revocable short-lived token scoped to the replay operation and bounded read‑only job/log access, followed by
-revocation and rejection proof. The document may change when that journey is actually exercised; token planning,
-backend fixes, or task progress alone do not change it.
-
-When a directly relevant event occurs, the observing agent performs one bounded read of the Hub and affected Task,
-then inspects the exact default Web journey, native MCP operation set, job lifecycle, Owner receipt/view, recovery
-behavior, and permissions. A capability enters `TARGET_DRAFT/KEEP` only with a real consumer or an explicit
-architecture/safety requirement. No observed use remains `NOT_OBSERVED/CURRENTLY_EXCLUDE`, not a permanent
-deletion. Documentation checks prove document integrity only; they never promote backend work into Dashboard
-capability.
-
-## Product role and authority
-
-The Dashboard is the first-party visual Product Edge for one local operator. It presents native Owner views,
-submits typed requests, follows long-running work, and exposes the one next legal action returned by the relevant
-Owner. It is also the read‑only surface for Observability projections and operational job state.
-
-The Dashboard is never a business-truth Owner. It may cache UI state and disposable job projections, but it must
-not own Research Intent, Artifact, Backtest Result, Qualification, Scanner Proposal, lifecycle authorization,
-Runtime application, Portfolio, Risk, order, fill, reconciliation, or Recovery truth. Every business state and
-allowed action carries its Owner identity, source cut, observed time, freshness or availability, and native
-receipt locator. Unknown, stale, partial, rebuilding, quarantined, and unavailable remain explicit.
-The Product Edge treats `UntrustedOwnerEvidenceLocatorV1` and `UntrustedLocatorDigest` as routing/integrity
-vocabulary, never as proof. It must call the identified
-source Owner's typed public resolve port and validate the canonical bytes reread returned from that Owner's durable
-store/outbox. Neither browser, BFF, shared library, nor consumer service may establish provenance with caller-supplied
-authority text, a self-canonical digest, a generic verifier, or a shared signer.
-
-```text
-User -> Dashboard typed request -> Product Edge admission -> native Owner
-User <- Dashboard projection <- Owner receipt/view or explicit unavailable state
-
-Telemetry/Event Rail -> rebuildable Dashboard projection
-Dashboard job success -X-> business success or trading authority
-```
-
-Mutating controls stay disabled until the current Owner projection admits exactly that action. Submitting creates
-a typed request; it never edits an Owner record. An unknown outcome exposes only same-identity resolve. Real
-trading and any other production write still require explicit user authority outside this design document.
-
-### Action authorization admission contract
-
-An Owner‑projected next action is necessary but not sufficient to enable a button. Before rendering an enabled
-mutating control, the Dashboard calls the typed Product Edge admission port with the stable request preview,
-effective principal and scope, target Owner, canonical operation, semantic payload identity, and audit
-correlation. The response is an `ActionAdmissionEnvelope` with exactly one state:
-
-```text
-admitted | expired | revoked | stale_head | no_active_binding |
-ambiguous_active_binding | manifest_mismatch | denied | unavailable
-```
-
-The `admitted` branch cross-binds three independently resolved, canonical records:
-
-1. `ShellDeploymentBindingEnvelope`: binding identity, generation, deployment‑history head, `ACTIVE` state,
-   principal, scope-policy/capability/audit-policy versions, cutover epoch, source cut, and valid-through time.
-2. `OperatorAuthorizationEnvelope`: authorization identity, issuer, subject/effective principal, audience, exact
-   scope, issued/expiry times with Time Evidence, revocation frontier, request-proof digest, and manifest digest.
-3. `AgentOperationManifestEnvelope`: content digest, operation identity/version/schema, target Owner, allowed
-   object classes, prohibited writes, and capability-policy digest.
-
-The Product Edge admission service reads the authoritative deployment head and requires exactly one `ACTIVE`
-binding equal to that head, resolves Operator Authorization through its trusted authority port, and fetches the
-immutable manifest by content digest. `ShellBindingHistoryStore`, the trusted `OperatorAuthorizationResolver`, and
-the content‑addressed `OperationManifestStore` remain separate authority surfaces; Dashboard session state,
-environment/default policy, local configuration, credential possession, or an object constructed by the same
-validator cannot populate them. The browser receives bounded projections only and never an issuer or signing
-operation.
-
-`POST /api/product-edge/actions/{operation_id}/admission` returns the preflight envelope for rendering. An
-`admitted` preflight enables only the exact manifest member and displays authorization identity, binding/head,
-manifest digest, scope, expiry, and revocation frontier. Submission repeats the same admission atomically at the
-business-write boundary; a previously green preflight never authorizes a later write. Every non‑admitted branch
-keeps the button disabled and supplies one stable stop predicate. Same-identity Owner resolution remains available
-only when its own read manifest member is admitted; transport credentials are neither Operator Authorization nor
-proof of admission.
-
-S2, Artifact Formation, was retired on 2026-10-03 with the in-product model build; the pattern below remains the
-contract for any operation with a domain freshness prerequisite. For an operation with a domain freshness prerequisite such as S2, the visible primary control is `Check & Run`,
-not an effect authorized by cached `AVAILABLE`. Its first transition is read‑only `PREFLIGHTING`: the App resolves
-the same S1 request/Intent using the Owner's current projection only as a fail‑closed UX preflight. While pending,
-the primary reads `Checking…`, the fixed status line is an accessible live region, and Cancel is safe because no
-Artifact request has been sent. Cancel, timeout, malformed output, transport failure, or a non‑current projection
-withdraws the current‑positive Research gate, preserves the historical Research card as read‑only, creates no
-Artifact attempt, and exposes no same‑attempt Resolve.
-
-Only an exact `AVAILABLE / INTENT_FROZEN` preflight may transition atomically to `ADMITTING`, at which point the
-effect‑capable Artifact request has been sent, `Submitting…` replaces Cancel, and the UI shows no fake percentage.
-The server, not the preflight, must then validate the exact operation/schema/effect set and re‑resolve current R&D
-custody inside the locked OA → Product Edge → R&D transaction immediately before its first write. A bounded
-server receipt moves the gate to informational blue `ADMITTED`; this is request admission, never Artifact or
-business success. Timeout, disconnect, or malformed output after dispatch becomes domain
-`SUBMITTED_OR_UNKNOWN` and transfers to same‑attempt Resolve; it never returns to `PREFLIGHTING` or
-`REVALIDATION_REQUIRED`. The browser may conservatively mark an aged cached action `REVALIDATION_REQUIRED`, but
-only an Owner response may label it `STALE` or restore `Check & Run`.
-
-Historical readback and current effect authority are separate projections. A canonical admission snapshot remains
-readable after its binding is superseded or its authorization is revoked so Audit and Run Detail can explain what
-was admitted at the original cut. It never supplies the current gate. After historical authorization expires, a
-policy-equivalent current authorization is reachable only through a canonical append-only Operator Authorization
-successor issuance that binds the prior identity/scope/sequence and its new validity. If that Owner operation or
-receipt is absent, `Current authority` is `Unavailable`; the historical snapshot remains visible, while Dashboard
-offers no local renewal, replacement selector, or inferred current authorization.
-
-For an admission that has not performed its first downstream mutation, continuity is bounded to the original
-binding or exactly one **immediate** policy-equivalent successor. `successor_distance` is therefore `0 | 1`; a
-second cutover, a skipped predecessor, a branch, or an arbitrary chain head renders `Current authority` and every
-first-mutation action `Unavailable`, even when the latest scope text is equivalent. The fixed
-`AuthorizationSuccessorReadiness` geometry shows admission generation, current generation, distance, predecessor
-locator and the `DIRECT_SUCCESSOR_REQUIRED` stop. It never walks forward until something matches or promotes a
-generation-3 head on behalf of a generation-1 admission. Already committed invocation admission/claim/start facts
-remain historically resolvable from their sealed custody and do not re-enter this first-mutation gate.
-
-The stored original Operator Authorization never becomes historical authority for a new FirstMutation. At the
-final locked write cut, its own row is resolved as `CurrentAtLock`. If `successor_distance=1`, the immediate
-successor's Operator Authorization and Product Edge binding are additional current requirements, not substitutes
-for the original. `AuthorizationSuccessorReadiness` therefore renders `Original authorization at final cut` before
-`Immediate successor at final cut`; either non-current row produces `ORIGINAL_AUTHORIZATION_NOT_CURRENT` or the
-successor-specific stop and keeps every FirstMutation control disabled.
-
-Before a first provider claim, Product Edge must atomically re-read the complete current deployment and
-authorization histories and persist a distinct sealed
-invocation‑admission receipt. That receipt binds the directly resolved current authorization identity and frontier,
-Time Evidence, the policy-equivalent `ACTIVE` binding/head, exact manifest digest, the historical request‑admission
-lineage, and one final write cut sampled under the complete lock set. Its commit time cannot cross authorization or
-binding validity. Cutover, expiry, revocation, a mismatched manifest, or any malformed/missing/extra history row
-returns `unavailable` with zero invocation‑admission, claim, state, or provider effect.
-
-The invocation‑admission receipt, claim receipt, and invocation state are three separate Product Edge facts. The
-claim consumes and references the sealed invocation admission; it cannot substitute the original request admission
-or transient resolver output. The versioned public claim readback includes
-`invocation_admission_receipt_identity` and `invocation_admission_receipt_digest`; the `rd-owner-client` operation adapter and
-shared consumer projector must consume one generated/exact parser and bind both values before projecting a claim.
-That parser is discriminated by Owner resolution and follows Rust serialization exactly: `SUCCESS` carries present,
-non-null `trial_family_resolution` and `artifact_trial_family`; `CLAIMED`, `INVOCATION_STARTED`,
-`FAILED_NO_ARTIFACT`, `OUTCOME_UNKNOWN`, and `REJECTED_NO_WRITE` omit both optional family keys; verified legacy
-terminal carries `trial_family_resolution=TRIAL_FAMILY_UNAVAILABLE_LEGACY` and omits
-`artifact_trial_family`. Explicit `null` is not interchangeable with omission. Rust fixture bytes must feed both
-`rd-owner-client` verifiers in one cross-language contract test; hand-authored `null` fixtures are not acceptance.
-Missing, extra, schema-mismatched, or tampered wire fields preserve the A0/A1 geometry as `Unavailable`, expose only
-same‑attempt Resolve and operational evidence, and never enable Run. Claim disposition is
-`CLAIMED_NEW | ALREADY_CLAIMED`; state is `CLAIMED | INVOCATION_STARTED`; start disposition is
-`STARTED_NEW | OUTCOME_UNKNOWN`. Claim response loss must recover the same durable `CLAIMED` receipt and project the
-exact next action `RUN_BOUNDED_EXECUTION_AGENT` for the same build request, attempt, and claim. Only that projection
-plus direct equality to the sealed invocation‑admission receipt enables **Run bounded Agent + sandbox**; invoking it
-starts the existing claim exactly once and never creates a successor, a replacement claim, or a second provider
-invocation. Once claim commits, no upper layer may rerun R&D `prepare` or current Research freshness as a new start
-gate. Start/recovery resolves the historical Intent/attempt custody sealed by that claim; a fresh Research cut
-governs only a pre-claim admission or an explicitly admitted successor. Missing, stale, malformed, or mismatched
-invocation admission renders unavailable even when a claim row exists. Once start commits, the Run control disappears
-and every replay renders `OUTCOME_UNKNOWN` with
-`MANUALLY_RECONCILE_PROVIDER_INVOCATION`; it never invokes the provider again or fabricates a provider outcome.
-The operation adapter must resolve the same attempt before any pre-claim preparation: recovered `CLAIMED` dispatches
-the start operation directly, while only a genuinely unclaimed identity may call `prepare`. After
-`INVOCATION_STARTED`, success/failure terminalization consumes sealed attempt/claim custody without current Research
-freshness. Later Resolve returns the exact durable terminal receipt even when the linked Research View is stale;
-staleness disables review/successor actions but never deletes or rewrites the terminal business fact.
-The fixed presentation order is `Current authority`, `Admission snapshot`, `Invocation admission`,
-`Invocation claim`, `Invocation state`.
-
-Current authority readiness is conjunctive. An Operator Authorization genesis or issuance receipt may be displayed
-as sealed historical evidence, but it cannot enable an action unless the corresponding Product Edge binding, head,
-and outbox projection all resolve canonically at the same admitted cut. When the OA row exists but any Product Edge
-row is absent, unavailable, or lock-incompatible, `AuthorizationLineagePanel` keeps the two Owner rows separate,
-labels the Product Edge row `Unavailable`, shows the exact stop predicate, and `ActionAdmissionGate` renders no
-primary action. The browser never offers bootstrap, repair, permission elevation, or force-admit controls.
-
-An admitted Product Edge snapshot is still not an R&D terminal. Before the first R&D mutation, a versioned
-Product Edge-owned `DownstreamAdmissionResolver` must run inside the caller's physical PostgreSQL transaction. It
-acquires the existing OA shared locks, then locks and verifies Product Edge binding/head/manifest/admission/outbox,
-and returns sealed canonical admission bytes without exposing either Owner's tables. R&D receives execute-only
-access to that port, never OA access or Product Edge table authority. If this seam is absent, denied, stale, corrupt,
-or cannot retain the lock cut, the page renders Product Edge admission as committed and downstream custody as
-`Unavailable`; overall S1 is `SUBMITTED_OR_UNKNOWN`, S2 stays disabled, and the only business action is
-same-identity Resolve. It must not relabel the request `REJECTED_NO_WRITE` or offer Create successor merely because
-the R&D receipt is missing.
-
-The S2 error projection follows the attempt identity, not the operational job result. `artifact_product_edge_error`
-maps unavailable, storage, or unknown Product Edge authority - including an existing custody record - to
-`SUBMITTED_OR_UNKNOWN` with the sole business action `RESOLVE_SAME_ATTEMPT_IDENTITY`. It never renders
-`REJECTED_NO_WRITE`, Create successor, a new claim, or a provider action.
-
-Business outcome projection has a separate fixed precedence. A sealed R&D terminal receipt is authoritative over
-the Product Edge invocation fence: `SUCCESS` renders the canonical Artifact/Build Receipt/Review projection, while
-`FAILED_NO_ARTIFACT` renders `NoArtifactReceiptPanel` and no Artifact. Only when neither R&D terminal exists and the
-Product Edge fence is `INVOCATION_STARTED` may the page render `OUTCOME_UNKNOWN` plus
-`MANUALLY_RECONCILE_PROVIDER_INVOCATION`; it must not retry, mark success, or dismiss the stop. A verified historical
-terminal from pre-current custody renders `LEGACY_TERMINAL_QUARANTINED`, exposes its historical receipt only, and
-creates no current Research View, provider action, successor action, or TrialFamily repair action. The Owner wire
-discriminant, request/attempt identity, terminal receipt, custody generation, quarantine reason, and original
-disposition must survive the shared consumer projector as one strict legacy-only branch. Its exact accepted set is
-`SUCCESS | FAILED_NO_ARTIFACT | REJECTED_NO_WRITE | OUTCOME_UNKNOWN`; sparse legacy rejection may omit Intent
-identity/digest exactly as the Rust Owner wire does. Every variant remains read‑only with family/provider/actions
-absent. If that branch is missing or malformed, the fixed legacy slot renders `Unavailable` with same-attempt
-Resolve; it must not silently collapse into an untyped generic unknown.
-
-## Windmill capability evidence ledger
-
-Windmill was the borrowed application and job shell. It is retired, and `Capability Adoption` records where each
-capability went; this ledger is kept as the evidence behind that disposition. The Dashboard retains only
-capabilities proved necessary by a Trade consumer or required by an existing architecture contract.
-
-| Windmill capability                                  | Observed use or need                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Current design hypothesis                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Authenticated browser session                        | S1‑S3 use an authenticated local App; the S1 V2 -> S2 acceptance reused an already signed‑in local `admin` browser session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `TARGET_DRAFT/KEEP`: one local operator and explicit `authenticated/expired/unavailable` shell state; no anonymous mode or general role‑administration product                                                                                                                                                                                                                                                                                                                                      |
-| Credential/session bootstrap                         | The active V2 journey rejected stale `.env` login material and succeeded through the existing browser session without creating, rotating, or inspecting an API token                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | `TARGET_DRAFT/KEEP_MINIMAL`: local sign‑in/re‑auth boundary only. Exclude password import, token management, workspace credential conversion, and secret display from domain pages                                                                                                                                                                                                                                                                                                                  |
-| Workspace                                            | One `trade‑rd` workspace scopes App, scripts, and tokens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `TARGET_DRAFT/COMPRESS`: one installation profile, not a workspace product                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Full‑code Raw App and sandbox                        | Hosts the current React Workbench without frontend SDK/Data Table scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `TARGET_DRAFT/REPLACE`: first‑party routes and components                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Versioned scripts and App dependencies               | PR #326 makes the repository App and narrow MCP profile select the same `research_goal_v2` Product Edge operation; `artifact_build_v1` was S2 until the 2026‑10‑03 decision removed it. The shared empty‑input `consumer_projection_v1` exact‑key projector is imported by the App and validates resolution‑discriminated Rust wires, including explicit absent/present fields and all four legacy terminal dispositions. Existing `CLAIMED` custody starts without another freshness‑sensitive prepare. The repository projection now contains legacy `research_goal_v1`, current `research_goal_v2`, `artifact_build_v1`, the non‑business projector, and one Raw App; H1 did not deploy or revalidate that set in default Windmill. Windmill records dependency‑build jobs separately | `TARGET_DRAFT/KEEP_SEMANTICS`: one versioned operation registry entry, content digest, typed BFF gateway, and explicit dependency state. Adapter and projector consume one resolution‑discriminated parser and direct serialization fixtures; schema drift preserves fixed unavailable geometry. Projection verification compiles into the typed library with no catalog item, route, action, or user‑run record. Legacy V1 remains migration/quarantine input, never a selectable future operation |
-| Server and worker queue                              | Continues bounded provider/build/replay work after client disconnect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | `TARGET_DRAFT/KEEP`: minimal durable dispatcher and worker leases                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Run list, Run Detail, progress, result, bounded logs | Real App/webhook runs expose path, tag, trigger, timing, worker, inputs, result, memory, script hash, and `getJob`/`getJobLogs`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | `TARGET_DRAFT/CORE_OPERATIONAL`: exact Runs and Run Detail contracts; never a business terminal                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Worker status and service logs                       | One live `rd‑product‑edge` worker executes the admitted scripts; service logs expose worker/server hosts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `TARGET_DRAFT/KEEP`: worker lease/capabilities, exact‑run readiness in Run Detail, and bounded service log reads; no REPL or generic administration                                                                                                                                                                                                                                                                                                                                                 |
-| Audit log                                            | Windmill records authenticated create/update/execute/delete operations, but CE redacts the resource detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `TARGET_DRAFT/KEEP_MINIMAL`: first‑party operation audit with principal, operation, target identity, time, outcome, and correlation; no enterprise‑redaction dependency                                                                                                                                                                                                                                                                                                                             |
-| Per‑run Metrics, Traces, Assets tabs                 | The observed replay run renders all three tabs, but each is empty; metrics require jobs longer than 500 ms, HTTP tracing is disabled or unused, and no run asset exists                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `NOT_OBSERVED/CURRENTLY_EXCLUDE_AS_BACKENDS`; preserve deterministic empty states and add a backend only after a Trade consumer produces data                                                                                                                                                                                                                                                                                                                                                       |
-| Same‑identity resolve                                | S1 V2 recovered response loss and restart/cache‑loss from direct Owner facts; the default page uses exact request and build‑attempt resolve controls and returns the original receipts, Intent, TrialFamily/frontier, Artifact review, and binding. S2/S3 require the same pattern                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | `TARGET_DRAFT/CORE`: mandatory request/attempt identity, direct Owner resolution, immutable returned bytes/frontier, a separately linked replacement operational run, and no naked retry                                                                                                                                                                                                                                                                                                            |
-| Disposable completed‑job cache                       | S3 proves job deletion with recovery from Owner facts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `TARGET_DRAFT/KEEP_DISPOSABLE`: TTL/delete/readback; no business custody                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Native MCP                                           | S1‑S2 use narrow profiles; S3 A/B parity remains pending                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `TARGET_DRAFT/KEEP_AS_CHANNEL`: share the UI capability manifest                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Scoped token lifecycle                               | S1‑S2 use scoped credentials; S3 requires one short‑lived replay‑only issue/use/revoke cycle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | `TARGET_DRAFT/KEEP_NARROW_ISSUANCE`: exact operation allowlist, bounded read‑only job access, expiry, revocation, one‑time secret display, external custody                                                                                                                                                                                                                                                                                                                                         |
-
-| Schedules | Scanner now seals due‑slot attempts unavailable until real source‑Owner typed resolve; no scheduler or Windmill schedule consumer exists | `TARGET_DRAFT/DEFERRED_UNTIL_CONSUMED` |
-| Workspace Assets / files / object storage | Workspace page reports no Data Table, Ducklake, object storage, or assets; database count is zero | `NOT_OBSERVED/CURRENTLY_EXCLUDE`; Owner artifact locators are not Windmill files |
-| Workspace Resources and Variables | `trade‑rd` has no Resource or Variable; worker credentials come from Compose environment allowlists. The only database Resource belongs to the `admins` App theme | `NOT_OBSERVED/CURRENTLY_EXCLUDE`; use runtime‑injected opaque secret references, not a generic manager |
-| App/Flow builder, arbitrary Flow graph, preview tools | No admitted Trade consumer | `NOT_OBSERVED/CURRENTLY_EXCLUDE` |
-| Data Tables and Windmill business storage | Explicitly prohibited by the App contract | `NOT_ADMITTED/DROP` |
-| MCP workspace management | Explicitly excluded from current profiles | `NOT_ADMITTED/DROP` |
-| General secret‑manager UI | Secrets remain outside repository and App state | `NOT_OBSERVED/CURRENTLY_EXCLUDE`; accept opaque references only |
-| General Python/Deno/Bun/Bash runtime catalog | Trade uses exact repository operations and Owner services | `NOT_OBSERVED/CURRENTLY_EXCLUDE` |
-| Multi‑tenancy, billing, marketplace, enterprise RBAC | No single‑user consumer | `TARGET_DRAFT/EXCLUDE_BY_PRODUCT_SCOPE` |
-
-`OBSERVED_CANDIDATE_NOT_CURRENT`: a 2026-08-23 candidate-lock check adds one narrower Windmill boundary. The
-immutable observation packet is Hub thread `codex://threads/01a014ef-d305-7b40-8d6b-f5c6d26fca56`, turn
-`01a02b42-82f7-71d3-b086-339a3b0bba28`, with tool-output receipts `ctco_01a02b4d-9276-7793-bb29-691adbff2784`
-(queue/exit), `ctco_01a02b4d-d106-7b13-b965-634b8428d03c` (cancel), and
-`ctco_01a02b4e-2c82-7e60-9d02-8162cb7f91ec` (offline rehash). This packet is observation evidence, not a repository
-capability or Dashboard implementation receipt.
-`wmill sync push --dry-run --auto-metadata` for three Product Edge scripts and the Raw App did not publish, but it still enqueued dependency
-job `01a02b4b-a5bc-c91c-d964-03f47a3d1564`. The job remained first in the queue because no matching executor
-claimed it; the CLI ended with code `130`, and the exact queued job was then cancelled with HTTP `200`. The frozen
-candidate instead used offline `wmill generate-metadata` rehash for exactly three scripts and one App. The
-replacement therefore keeps deterministic dependency/lock compilation in the build pipeline and exposes remote
-dependency work only as an operational run. It does not reproduce Windmill's metadata editor, script catalog, or
-Dashboard-driven publish flow.
-
-This observation also narrows cancellation and readiness. Run Detail may expose `Cancel queued dependency` only
-for `kind=dependency`, `state=queued`, an empty domain‑effect set, and Dispatcher proof that no worker claim exists.
-It returns an immutable operational cancellation receipt and never changes Owner truth. There is no batch cancel,
-and provider, build, replay, admission, claim, or otherwise effect‑capable runs have no Cancel action. Worker status
-is two-dimensional: lease liveness plus compatibility with the selected job's kind, tag, runtime, and required
-isolation. A live heartbeat with no compatible executor is `online / incompatible` for that job, never Ready.
-
-### Native Windmill surface and backend replacement map
-
-This 2026-08-20 snapshot combines the authenticated Windmill UI, the pinned `1.791.0` Compose deployment, App and
-script source, and read‑only Windmill database counts. Counts are observation evidence, not stable product limits.
-The Dashboard implements the contract in the last two columns, not Windmill's tables or generic low-code
-models.
-
-The layout and exclusion decisions are also checked against the exact official Windmill source embedded in that
-image: version `1.791.0`, revision `ce71756c893c2ef1ea399ad50f0617015999ddd0`. These are implementation evidence
-anchors, not Trade UI dependencies:
-
-| Windmill implementation anchor                                                                              | Layout retained by the Dashboard                                                                                                   | Windmill behavior deliberately excluded                                                                          |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `RunsPage.svelte` → `RunsTable.svelte` plus `JobRunsPreview.svelte`; full route `run/[...run]/+page.svelte` | URL‑backed filters, auto‑refresh, date‑grouped table, selection drawer, Result above fixed `Logs / Metrics / Traces / Assets` tabs | Batch rerun/cancel/resolve, `Run again`, Share, Edit, Code, schedule editing, restart and public‑link controls   |
-| `workers/+page.svelte`                                                                                      | Group selection, worker table, host/IP grouping, occupancy/status, search and last‑run navigation                                  | Worker config import/edit, tag administration, HTTP‑agent creation, REPL, autoscaling and cache/restart controls |
-| `service_logs/+page.svelte` → `ServiceLogsInner.svelte`                                                     | Timeframe/error/search filters, service/group/hostname selection, responsive split pane, context drawer and auto‑refresh           | Superadmin management, unbounded file access and any inference from logs to Owner health                         |
-| `audit_logs/+page.svelte` plus `AuditLogsFilters`, `AuditLogsTable`, `AuditLogsTimeline`, `AuditLogDetails` | Filters, append‑only table, selected‑event timeline/detail and mobile drawer                                                       | Mutation, replay, dismiss and business‑truth projection from CE‑redacted resource fields                         |
-
-At that exact Workers source revision, worker and group reads refresh every five seconds; fewer than six groups
-use tabs and six or more use a selector. Search reacts case-insensitively to worker name, worker-instance identity,
-or IP. The table inserts host/IP group rows; always shows worker start, jobs ran, memory, limits, version and status;
-and conditionally adds tags, last job with four occupancy windows, and REPL. It distinguishes no workers from no search matches; initial loading is four
-generic skeleton rows. These facts justify the retained grouping, search, operational fields and explicit empty
-states only. They do **not** justify a native selected-worker detail: the source has no worker-row selection or
-worker-detail drawer. The Dashboard's future `WorkerLeaseCard` is therefore a Trade TARGET composition over the
-replacement read model. It also does not inherit Windmill's conditional admin-shaped columns, 15/60-second UI
-liveness thresholds, group-config drawer or REPL authority; the fixed Trade columns and Owner-independent lease
-policy below remain the design authority.
-
-At the exact Audit source revision, username, page, before/after, page size, operation, resource, scope and action
-kind are URL-backed filters. The route always declares a 70/30 table/detail split with 50/15 minimum pane shares
-below an upper two-sixths timeline, and separately declares an `md:hidden` table whose selection opens the same
-`AuditLogDetails` in a drawer. The source alone does not prove that the split pane is suppressed at mobile runtime.
-The split-pane initial branch has eight skeleton rows; the mobile `AuditLogsTable` instead uses its centered loading
-spinner. CE or Pro licenses show an explicit redacted-logs warning. These
-facts prove the retained filter, timeline, selection, detail and responsive-drawer layout. They do not admit the
-native default page size, missing-job-span lookup or redacted parameter bytes as Trade authority: the future
-`OperationAuditStore` and Product Edge receipt panels below remain TARGET contracts, and neither source layout nor
-extra read can create Owner business truth or an effect action.
-
-A 2026-08-22 read‑only Docker-label audit found one live Compose project whose server came from worktree `5781`,
-Backtest Owner from `dc01`, and PostgreSQL, worker, R&D Owner and build sandbox from
-`trial-family-custody-replacement`. All containers can be healthy while no canonical artifact cross-binds those
-sources, App/script hashes and Owner compatibility. The Dashboard therefore treats this as deployment provenance
-`unavailable`, not runtime success. TARGET uses one content-addressed compatibility envelope; it may intentionally
-bind multiple service artifacts, but a mixed runtime with no such envelope cannot become available.
-
-The `TARGET_DRAFT` local entry topology keeps every Owner, Dashboard and PostgreSQL container exclusively on one
-sealed internal network, with no published port or external route. The sole ingress is a credential-free,
-read‑only-filesystem TCP sidecar attached to that network and a separate bridge with IP masquerading disabled. It
-drops all Linux capabilities, runs a fixed command, and forwards only the host-bound `127.0.0.1:<port>` to the internal
-Dashboard web role. Acceptance requires dynamic proof that the host can reach the Dashboard through that loopback port while each
-business container still has no external route; any additional published address, forwarding target, credential,
-capability or business-container bridge attachment fails closed. The isolated topology experiment passed this
-boundary, but it remains design evidence only: it does not establish a default deployment, Dashboard
-implementation, provider/network execution, production write or trading authority.
-
-| Native surface / current backend                       | Exact observed state                                                                                                                                                 | Dashboard route and fixed UI                                                                                                                                                                                                                               | Replacement service/store and disposition                                                                                                                                                                                                                                                                             |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home / App and script catalog                          | One Raw App `f/trade/rd_workbench`; the current TrialFamily sync deploys S1 V2 research and S2 Artifact operations but archived the remote S3 replay entry           | Domain routes own the four‑stage journey. Backtest remains routed but renders `DEPLOYMENT_UNAVAILABLE`; no generic Home catalog                                                                                                                            | Versioned `OperationRegistry` with `available/archived/unavailable` deployment state plus built frontend routes; archive disables dispatch without deleting Owner history. `KEEP_SEMANTICS`, exclude arbitrary catalogs                                                                                               |
-| Runs / `v2_job*`                                       | UI shows 53 user‑facing jobs; database has 88 rows including 34 App dependency jobs. Real paths use App and webhook triggers and tag `rd‑product‑edge`               | Operations / Runs: status segments, schedule/future toggles only when admitted, search, duration/concurrency filters, auto‑refresh, path/trigger/tag columns, date groups, pagination                                                                      | `RunStore` + `DispatcherReadModel`; durable operational metadata with TTL, explicit dependency kind, Owner‑outcome join by identity only                                                                                                                                                                              |
-| Run Detail / completed job + result API                | Successful replay shows received/started time, duration, worker, run ID, 5 MB peak, script hash/language, App trigger, exact inputs, JSON result, and Owner receipts | `/operations/runs/:runId`; breadcrumb Back to Runs, then header actions Copy locator, Refresh, conditional Cancel queued dependency, Resolve same identity, Download bounded result/log. `Run again`, Share, Edit, and arbitrary script links are excluded | `RunDetailProjection`; schema‑allowlisted immutable input and bounded result projections, exact‑run worker compatibility, fixed operational cancellation receipt readback, explicit withheld/redacted disclosure, timing/resource metadata, and Owner receipt references; no raw payload fallback or business custody |
-| Run Logs / `job_logs` and worker log volume            | 86 log rows; exact run exposes download endpoint, auto‑scroll, job/tag/worker/host/isolation header, and bounded text                                                | Run Detail `Logs` tab: search, level/source chips, auto‑scroll switch, download bounded log, line viewport, truncation/retention notice                                                                                                                    | `BoundedRunLogStore`; append‑only chunks, byte/age limits, redaction, correlation, TTL; MCP read scope may expose only exact admitted runs                                                                                                                                                                            |
-| Run Metrics                                            | Observed 74 ms run says no metrics because collection begins above 500 ms                                                                                            | Run Detail `Metrics` tab always has fixed geometry; render `NotCollected`, `Unavailable`, or time‑series, never a fabricated zero                                                                                                                          | Deferred `RunMetricProjection`; `CURRENTLY_EXCLUDE_BACKEND` until non‑empty consumer evidence                                                                                                                                                                                                                         |
-| Run Traces                                             | Observed run says no HTTP request captured or tracing disabled                                                                                                       | Run Detail `Traces` tab: explicit not‑captured reason and no empty success graph                                                                                                                                                                           | Deferred `RunTraceProjection`; `CURRENTLY_EXCLUDE_BACKEND`                                                                                                                                                                                                                                                            |
-| Run Assets                                             | Observed run says `No assets found`; workspace asset count is zero                                                                                                   | Run Detail `Assets` tab: explicit empty state only. No global Assets route                                                                                                                                                                                 | No store now. Future entries must be disposable operational attachments that point to, never replace, Owner artifact custody                                                                                                                                                                                          |
-| Workers / `worker_ping`                                | One live `rd‑product‑edge` worker, version `1.791.0`, job count, last‑job link, memory, status, tags; other groups have zero workers                                 | Operations / Workers: group chips, search, worker table, selected‑worker panel, last‑run link. Read actions are Refresh and Open last run                                                                                                                  | `WorkerLeaseStore` + heartbeats; retain identity/group/tags/version/start/last‑run/occupancy/memory, lease liveness and registered capabilities. Exact‑run readiness exists only in Run Detail. Exclude create config, cache clean, restart, REPL, autoscaling UI until separately admitted                           |
-| Service Logs / server and worker activity              | Auto‑refresh page summarizes recent activity, attention level, business source, related object, time range and source selector                                       | Operations / Service Logs: time range, service, instance, severity, search, auto‑refresh, bounded log viewport                                                                                                                                             | `ServiceLogGateway`; read‑only, redacted, retention‑bounded. Exact implementation identities remain available through info affordances. It is operational evidence, not Owner health or a telemetry backend                                                                                                           |
-| Audit Logs / partitioned audit tables                  | Authenticated execute/update/create/delete records exist; CE exposes ID, time, principal, operation and redacts resource detail                                      | Operations / Audit: time/principal/operation/outcome filters, audit table, selected correlation panel; no mutation buttons                                                                                                                                 | `OperationAuditStore`; append‑only Dashboard/Product Edge control‑plane events with exact target/correlation/outcome. Owner business events remain in Owner/Event Rail custody                                                                                                                                        |
-| Workspace/folder/auth                                  | Folder `trade` contains three scripts and one App owned by `u/admin`; workspace and scoped tokens delimit access                                                     | Installation profile and Access settings only; no workspace/folder administration route                                                                                                                                                                    | `LocalSession` + `CapabilityManifest` + narrow token issuer; one installation, one operator profile, exact operation scopes                                                                                                                                                                                           |
-| Variables, Resources, global Assets, generic Schedules | `trade‑rd` counts are 0/0/0/0. Compose injects an allowlisted environment into the worker; Data Tables and frontend SDK access are forbidden                         | No product tabs for these Windmill stores. Settings accepts opaque runtime references; the separately admitted first‑party bounded shadow schedules live at Operations / Schedules                                                                         | Exclude Windmill generic stores. `/operations/schedules` uses only the typed zero‑effect `configuredShadowScheduleSetV1` + RunStore contract defined above                                                                                                                                                            |
-
-The native `bun` runtime is an implementation detail of the three pinned scripts, not a user-selectable runtime
-catalog. PostgreSQL persists Dashboard RunStore operational state; separate R&D and Backtest Owner databases/APIs persist
-business facts. The replacement keeps that ownership split even if all services ship in one image set.
-
-### Operations API and backend state contract
-
-This is a `TARGET_DRAFT` replacement contract, not evidence that the services exist. Browser and MCP reads use the
-same typed handlers and capability checks. Page cursors are opaque and stable for one filter cut; every response
-includes `observed_at`, `projection_version`, `availability`, and a retention or expiry disclosure. A route never
-returns an Owner payload merely because the caller can read the operational run. A current view's filter cut is the
-database's statement time, the clock the rows it filters were stamped with: the browser asks for the current view
-without sending a time of its own, the server cuts at that instant and returns the cut, and a page, a download or a
-cursor carries that returned cut forward. A browser clock never becomes a cut, so one running ahead of the database
-cannot refuse the read and one running behind it cannot hide the newest rows. The browser checks `observed_at` only
-against times from the same answer, never against its own clock. An operational action's `observed_at` is the
-database's time read in the action's own transaction, the clock its receipt is stamped with, so a server clock
-running behind the database cannot make a completed cancellation or deletion read as refused.
-
-| UI read or action                 | Fixed Dashboard API                                                                                   | Backend owner and exact rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Runs list, filters, pagination    | `GET /api/operations/runs` -> `RunPage`                                                               | `RunStore` reads immutable submission metadata plus dispatcher‑owned operational state. Filter fields are status/kind/path/trigger/principal/tag/duration/time cut; the cursor embeds that filter cut. Owner outcome is a separately resolved optional envelope, never derived from exit code                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Run detail and bounded result     | `GET /api/operations/runs/{run_id}` -> `RunDetailEnvelope`                                            | `RunDetailProjection` resolves the exact operation/version manifest and returns only display‑allowed registered input/result fields, timing/worker/resource metadata, immutable operational cancellation receipt readback, retention and Owner receipt locators. It joins that path‑bound `run_id`'s dispatcher requirements to immutable worker registrations at one observation cut and returns `RunWorkerCompatibilityMatrix`; missing, stale or mismatched inputs are `unavailable`. Cancellation readback is `none / pending / receipt / unavailable`, remains read‑only after A disappears, and never changes Owner truth. Secret, protected and unknown fields are omitted behind typed withheld counts/reasons; viewport, Copy JSON and download reuse the identical redacted bounded projection. An unknown operation version or schema mismatch is `unavailable`, never raw JSON fallback. Missing disposable data with an Owner locator is `operational_data_expired`, not business absence |
-| Same‑identity Owner resolution    | `POST /api/operations/runs/{run_id}/resolve‑owner‑outcome` -> `OwnerOutcomeEnvelope`                  | Product Edge resolves the immutable request/attempt identity through the named Owner typed port. It neither dispatches a job nor retries an effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Queued dependency cancellation    | `POST /api/operations/runs/{run_id}/cancel‑dependency` -> `OperationalCancellationReceipt`            | `OperationalActionEnvelope` binds the authenticated principal, `dependency.cancel.queued` capability, exact run, current transition version, `kind=dependency`, `state=queued`, empty domain‑effect digest, no‑claim cut and short expiry. Dispatcher re‑resolves every field under its transition lock and compare‑and‑set changes only that exact operational run to `cancelled`; stale, revoked, claimed, terminal, unknown, mismatched or effect‑capable input fails closed. The receipt records run, prior state/version, principal, authorization cut, time and transition. It cannot cancel a domain request, provider/build/replay effect or Owner operation, and no batch endpoint exists                                                                                                                                                                                                                                                                                                     |
-| Disposable completed‑run deletion | `DELETE /api/operations/runs/{run_id}/cache` -> `OperationalDeletionReceipt`                          | `RunStore` accepts only terminal operational rows after capability check and confirmation. It deletes bounded result/log/cache bytes, preserves the run tombstone and Owner locator, and cannot touch Owner stores                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Run log tail or download          | `GET /api/operations/runs/{run_id}/logs` and `/logs/download` -> `RunLogPage` or bounded stream       | `BoundedRunLogStore` reads append‑only chunks by opaque cursor. Search/severity/source filters, redaction, truncation, byte limit and retention are identical for viewport, download and MCP                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Metrics, traces, run assets       | `GET /api/operations/runs/{run_id}/{metrics\|traces\|assets}` -> a discriminated tab envelope         | Until a producer is admitted, handlers return `not_collected`, `not_captured`, `empty`, or `unavailable` with a reason. They never fabricate zeros, spans, files, or success; run assets cannot resolve to a global file browser                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Workers and selected lease        | `GET /api/operations/workers` and `/workers/{worker_id}` -> `WorkerPage` or `WorkerLeaseEnvelope`     | `WorkerLeaseStore` is written only by worker registration/heartbeat/claim/release. UI reads identity/group/tags/version/start/limits/occupancy/last run/last observed plus the registered kind/tag/runtime/isolation capability set. Lease expiry yields `unavailable`; these worker‑only routes never infer readiness for an unbound run or create a UI‑authored `dead` state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Service‑log viewport or download  | `GET /api/operations/service‑logs` and `/service‑logs/download` -> `ServiceLogPage` or bounded stream | `ServiceLogGateway` requires an exact service/instance cut and applies the same time/severity/search filters, redaction, cursor, retention and byte limit to both outputs. It exposes no delete, clear, restart or health‑promotion endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Audit list and correlation detail | `GET /api/operations/audit` and `/audit/{audit_id}` -> `AuditPage` or `AuditEventEnvelope`            | `OperationAuditStore` is append‑only and written by authenticated Product Edge/Dashboard control‑plane middleware, not by this read route. Unknown/redacted target stays explicit; there is no edit, delete, dismiss or replay endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-
-`RunOperationalState` is exactly `queued | running | succeeded | failed | cancelled | unknown`; only Dispatcher and
-worker protocol events advance it, using compare-and-set on the last stored transition. `OwnerOutcomeState` is a
-separate `available | rejected | unknown | unavailable | not_applicable` envelope and never participates in the
-operational transition. A late terminal worker event may replace operational `unknown` for the same run identity,
-but only an Owner reread may replace Owner `unknown`. Worker liveness is computed from a stored lease deadline and
-last heartbeat. Only the path‑bound `RunDetailProjection` computes readiness by canonically matching that exact
-run's kind, tag, runtime and required isolation to worker registrations at the same observation cut. Client time,
-a missing row, process/container health, or a service-log message can
-neither promote liveness nor fabricate compatibility.
-
-The replacement is not a smaller low-code platform. It is a Trade-specific Dashboard, typed Product Edge
-gateway, narrow job dispatcher, worker protocol, disposable operational store, and optional exact-tool MCP
-channel. Native Owners and their stores remain separate services.
-
-## Product shell and layout
-
-The visual direction comes from the stopped local `vibe-trading` product, not Windmill: warm neutral canvas,
-compact icon rail, capsule navigation, white content cards, gray framed panels, dense small typography, and
-responsive Bento composition. Glass belongs only to navigation and transient overlays, never data cards or
-business-state panels.
-
-### Reference implementation anchors
-
-The visual evidence cut is the local checkout `/Users/vx/WebstormProjects/vibe-trading` at commit
-`4a6d66fb77fc144c2a013417c703db2caf401641`, tree `984c7d684dba72a6af78dc3e6cf50191bc3622ea`. The referenced
-files below were clean against that revision at observation; unrelated dirty files in the stopped checkout are not
-design evidence. This is a source reference, not a package dependency or business architecture authority. Future
-agents must inspect these anchors before changing tokens or shell geometry:
-
-| Reference path under `apps/web/src`                                              | Inherit                                                                                                                                                                  | Explicitly do not inherit                                                                                      |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `app/globals.css`                                                                | Mine warm‑neutral raw palette, Inter/JetBrains Mono, market‑direction separation, and the allowed zones/values for `glass‑heavy`, `glass‑light`, and tooltip glass       | Factor/status token names as Trade business semantics; arbitrary literal colors                                |
-| `components/layout/left‑icon‑sidebar.tsx`                                        | 52 px rail content, 40 px round targets, 18 px icons, 1 px item gap, centered/scrolling heavy‑glass capsule, dark active item                                            | Reference module identities or phase labels                                                                    |
-| `features/blueprint/components/doc‑mode‑shell.tsx`                               | Full‑viewport flex shell, 12 px sidebar padding, 16 px content gap and right/bottom gutters, bounded inner overflow                                                      | Blueprint mode, document toggle, or mock content as product features                                           |
-| `components/shared/bento‑grid.tsx`                                               | Container‑observed `wide/narrow/collapse` composition, `rowHeight=180`, `gap=16`, 560 px collapse and 700 px narrow evidence, 1/2/3/4/8 column spans and 1‑4 row spans   | Its 1/2/3/4/8 API as the routed‑page grid, or its 560/700 container thresholds as global viewport breakpoints  |
-| `components/layout/top‑nav‑bar.tsx`                                              | 56 px top bar, replaceable left context slot, light‑glass capsule tabs, notification/action zone                                                                         | Market ticker data as a universal header requirement; Dashboard uses the evidence‑bound status tape            |
-| `components/ui/card.tsx`                                                         | White 12 px card, Mine border, restrained two‑layer shadow, compact structured header, optional canonical‑detail expansion                                               | The available `frosted` card variant; Dashboard business/data cards remain opaque                              |
-| `components/ui/table.tsx`, `lib/data‑table/components/data‑table.tsx`            | Full‑width bounded scroll container, sticky 40 px dark header, 8 px cell padding, fixed‑layout percentage columns, ellipsis, row hover, and 96 px empty row              | Reference business columns, selected‑row/bulk behavior, or client‑side data authority                          |
-| `lib/data‑table/components/data‑table‑pagination.tsx`, `data‑table‑skeleton.tsx` | Compact responsive pager geometry, 32 px controls, explicit page‑size selector, first/previous/next/last order, and shape‑equivalent filter/header/body/footer skeletons | Reference selected‑row count, page‑size defaults, or unbounded in‑memory pagination                            |
-| `lib/chart‑tokens.ts`                                                            | Resolve CSS custom properties when Canvas or another JavaScript renderer cannot consume `var(...)` directly                                                              | Component‑local chart palettes or literal status colors                                                        |
-| `features/blueprint/data/modules.ts`                                             | Visual density and route‑backed capsule‑navigation pattern only                                                                                                          | The stopped product's module order, labels, phase badges, mock metrics, workflow claims, or trading capability |
-
-The Trade navigation, status vocabulary, domain components, and capability admission in this chapter override the
-reference project's information architecture. A screenshot match cannot promote a mock value or reference route
-into `CURRENT`.
-
-```text
-+----------------------------------------------------------------------------------+
-| user | status tape / context                         tabs | search | notifications |
-|------|---------------------------------------------------------------------------|
-|      | page header / authority / freshness                                      |
-| side |                                                                           |
-| rail | responsive Bento: cards, panels, tables, charts, timelines               |
-|      |                                                                           |
-|      | optional right drawer: receipt, identity, evidence, action detail         |
-+----------------------------------------------------------------------------------+
-```
-
-Desktop shell contracts:
-
-- full-screen viewport with no second page scrollbar;
-- 76 px left column: 12 px outer padding, 52 px rail content, 12 px inner separation;
-- 56 px top bar; 16 px right/bottom gutter and 16 px Bento gap;
-- vertically scrollable icon rail with hidden scrollbar;
-- bounded card, table, and log scrolling;
-- optional 400-520 px detail drawer that does not replace the canonical route.
-
-## Navigation contract
-
-### Side menu
-
-The side menu is workflow ordered. Icon, accessible label, route, and position are stable. A feature flag may
-disable an unavailable item but may not reorder it.
-
-| Order | Module        | Route            | Purpose                                                                         |
-| ----: | ------------- | ---------------- | ------------------------------------------------------------------------------- |
-|    01 | Overview      | `/dashboard`     | Global Status View, attention queue, recent Owner outcomes                      |
-|    02 | R&D           | `/rd`            | Sources, research requests, hypotheses, Artifacts, decisions                    |
-|    03 | Backtest      | `/backtest`      | Exploratory runs, comparison, allowed diagnostics                               |
-|    04 | Qualification | `/qualification` | Intake, opaque protected‑feedback frontiers, and bounded public outcomes        |
-|    05 | Scanner       | `/scanner`       | Schedules, attempts, receipts, proposals                                        |
-|    06 | Strategy      | `/strategy`      | Registry, lifecycle authorization, allocations                                  |
-|    07 | Runtime       | `/runtime`       | Applied generations, instances, checkpoints, incidents                          |
-|    08 | Portfolio     | `/portfolio`     | Performance, exposure, capacity, attribution                                    |
-|    09 | Risk          | `/risk`          | Decisions, reservations, claims, adapter admissions, aggregate frontier, fences |
-|    10 | Execution     | `/execution`     | Attempts, orders, fills, reconciliation, Recovery readback                      |
-|    11 | Data          | `/data`          | Sources, PIT catalog, quality, corrections, freshness                           |
-|    12 | Operations    | `/operations`    | Runs, workers, run/service logs, audit, Event Rail, telemetry, alerts           |
-|    13 | Settings      | `/settings`      | Data‑source, Agent‑provider, notification, access configuration                 |
-
-The rail starts with the user capsule and local-installation menu. The module capsule is vertically centered when
-it fits and scrolls otherwise. Active items use a dark circular fill and white icon; hover, focus, disabled, and
-attention states remain distinguishable without color.
-
-### Top menu
-
-The top bar has four zones in order:
-
-1. **Status tape** - active mode/scope, Market Data freshness, R&D queue, Scanner schedule, Runtime readiness,
-   Risk fence, and last reconciliation. Unavailable is never hidden.
-2. **Module tabs** - route-backed rounded capsule with the same active treatment as the side rail.
-3. **Global search/command** - searches identities, receipts, Artifacts, runs, strategies, orders, and docs. A
-   command may only open a route or prepare an admitted typed request.
-4. **Notifications** - unread count and alert drawer. Delivery is not an Owner outcome or acknowledgement.
-
-| Module        | Tabs in order                                                                |
-| ------------- | ---------------------------------------------------------------------------- |
-| Overview      | Status, Attention, Recent, Evidence                                          |
-| R&D           | Intake, Research, Hypotheses, Artifacts, Decisions                           |
-| Backtest      | Exploratory, Compare, Diagnostics                                            |
-| Qualification | Intake, Outcomes, Eligibility                                                |
-| Scanner       | Schedules, Runs, Proposals                                                   |
-| Strategy      | Registry, Lifecycle, Allocations                                             |
-| Runtime       | Instances, Generations, Checkpoints, Incidents                               |
-| Portfolio     | Performance, Exposure, Capacity, Attribution                                 |
-| Risk          | Decisions, Reservations, Claims & Admission, Fences                          |
-| Execution     | Attempts, Orders, Fills, Reconciliation, Recovery                            |
-| Data          | Sources, PIT Catalog, Quality, Freshness                                     |
-| Operations    | Runs, Workers, Schedules, Service Logs, Audit, Event Rail, Telemetry, Alerts |
-| Settings      | Data Sources, Agents, Notifications, Access                                  |
-
-On narrow screens the tape collapses to a status button, tabs scroll horizontally, and the rail becomes a drawer.
-Order, route identity, and authority labels remain unchanged.
-
 ## Page and data rules
 
 Every routed page contains, in order: a header with scope/Owner/source cut/freshness; a derivable summary strip;
@@ -1844,7 +1447,7 @@ Execution and live pages are read‑only by default. Future control preserves
 `TradeIntent -> RiskDecision/Reservation -> AuthorizedOrderCommand -> EffectAttempt -> VenueReadback/Reconciliation`
 and current explicit effect authority. A visual button never shortcuts the chain.
 
-### Windmill screen evidence and route decomposition
+### Page decomposition and operational layout
 
 The observed authenticated page is `/apps_raw/get/f/trade/rd_workbench` in workspace `trade-rd`. At a 1280 px
 browser viewport, Windmill contributes an approximately 208 px workspace sidebar and a 1072 px App iframe. Inside
@@ -2377,7 +1980,7 @@ disabled for a withheld value, while Copy JSON and Download bounded result seria
 shown on screen, never the raw job payload or result bytes. If the registry entry is missing or mismatched, both
 panels preserve their geometry and render `Unavailable` with the operation/version and stop reason.
 
-#### Windmill-derived action state machine
+#### User action state machine
 
 | State                                                                    | Primary action                              | Secondary action                                                       | Quiet action                                                               | Required presentation                                                                                                                                                                                                                                                               |
 | ------------------------------------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2656,7 +2259,7 @@ owner.
 | Run Detail `/operations/runs/:runId`                              | Business‑facing result/timing summary; `P=Run inputs + worker assignment + OperationalCancellationReceiptCard` bound to `:runId`; `Q=Related source result`; `T=Logs and evidence` followed by fixed nested `Logs/Metrics/Traces/Assets` tabs. The primary path uses the registered business operation name, source result, run state, timing, request source, work type and related‑result action; exact operation/run IDs, channel, transition, terminal code, dispatch digests/reasons, source‑owner identity and protected‑field reasons stay in shared information disclosure. | Copy reference, Refresh, conditionally Cancel queued dependency, Check source result, View source result, Download result/log | Exact fixed skeleton above; Cancel occupies the third slot only for a queued, unclaimed, zero‑domain‑effect dependency run and is otherwise absent. `Cancelling…` disables it during CAS; after terminal transition the action/panel disappear while P preserves receipt or unavailable readback. Worker assignment describes only the exact historical run and cannot assert current service health. Presentation labels never alter the typed result, transition, Owner locator, action envelope, or effect boundary. No batch cancel or generic rerun/edit/share.                                               |
 | Workers `/operations/workers` and `/operations/workers/:workerId` | Exact Workers read‑only skeleton above: Capacity/Work handled summary; P/Q absent; T columns Service, Availability, Active / processed, Recent activity, Supports; identity‑bound D in four clusters                                                                                                                                                                                                                                                                                                                                                                                | Refresh, select service in context, preview recent Run in the shared sheet, Open full run details, Back to service/services   | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`; registration/lease/claim observation only, independently fail‑closed list/detail states; exact Run GET preview remains bounded and adds no Worker or Run effect; no Windmill administration, unbound‑run readiness, Owner acceptance or cutover                                                                                                                                                                                                                                                                                                        |
 | Service Logs `/operations/service‑logs`                           | Exact skeleton above: severity/instance summary; canonical filter cut; `P=ServiceInstanceList` with business source names; identity‑bound `Q=ServiceInstanceCard` with technical values behind info; `T=ServiceLogPanel` composed with `BoundedLogViewport` and a Time/Level/Activity/Source/Related scan path; explicit complete/partial/empty/filtered‑empty/unavailable states                                                                                                                                                                                                   | Refresh, Toggle auto‑refresh, Download bounded logs                                                                           | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`; real Windmill use is replaced only as a bounded operational read. One repeatable‑read PostgreSQL cut, strict echo/digest/cursor binding, no host/message invention, no administration, Owner fact, effect route or cutover                                                                                                                                                                                                                                                                                                                             |
-| Audit `/operations/audit`                                         | Execute/update/create/delete/success/failure counts; `P=OperationAuditTable`; `Q=AuditCorrelationCard + InvocationAdmissionReceipt + InvocationClaimReceipt + ProviderInvocationStateCard` in that order; `T=Timeline` for canonical operation events                                                                                                                                                                                                                                                                                                                               | Filter, Open correlation, Copy audit locator, Copy provider claim                                                             | Real Windmill audit remains append‑only control‑plane evidence, not Owner business truth. Product Edge separately shows invocation admission, claim disposition, `CLAIMED / INVOCATION_STARTED`, start disposition and state digest. `OUTCOME_UNKNOWN` is a persistent manual‑reconciliation stop; historical request admission, missing invocation admission, or claim resolution never implies a new effect or provider retry                                                                                                                                                                                    |
+| Audit `/operations/audit`                                         | Execute/update/create/delete/success/failure counts; `P=OperationAuditTable`; `Q=AuditCorrelationCard + InvocationAdmissionReceipt + InvocationClaimReceipt + ProviderInvocationStateCard` in that order; `T=Timeline` for canonical operation events                                                                                                                                                                                                                                                                                                                               | Filter, Open correlation, Copy audit locator, Copy provider claim                                                             | Real Operational audit remains append‑only control‑plane evidence, not Owner business truth. Product Edge separately shows invocation admission, claim disposition, `CLAIMED / INVOCATION_STARTED`, start disposition and state digest. `OUTCOME_UNKNOWN` is a persistent manual‑reconciliation stop; historical request admission, missing invocation admission, or claim resolution never implies a new effect or provider retry                                                                                                                                                                                 |
 | Event Rail `/operations/event‑rail`                               | Ingested/conflict/quarantined/rebuilding counts; `P=EventRailTable`; `Q=EnvelopeEvidence`; `T=RebuildTimeline`                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Filter, Open event, Copy locator                                                                                              | Static Observability foundation until real adapter consumption                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Telemetry `/operations/telemetry`                                 | Available/stale/partial/rebuilding/unavailable/quarantined counts; `P=TelemetryMatrix`; `Q=SourceFrontierCard`; `T=TelemetryTimeline`                                                                                                                                                                                                                                                                                                                                                                                                                                               | Refresh, Open source                                                                                                          | PR #327 source projection is `CURRENT/PARTIAL`; per‑source frontier, freshness, completeness, rebuild state, quarantine, and opaque checkpoint have fixed read‑only geometry. Owner and telemetry adapters are unavailable, telemetry visibility is fixed `Unavailable`, and no empty, raw, stale, replayed, or self‑asserted signal may produce `Available`                                                                                                                                                                                                                                                       |
 | Alerts `/operations/alerts`                                       | Critical/warning/info/unread counts; `P=AlertTable`; `Q=AlertDetail`; `T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Open alert, Mark presentation read, Open Owner evidence                                                                       | Read acknowledgement is not business acknowledgement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |

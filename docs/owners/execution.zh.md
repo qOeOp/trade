@@ -5,6 +5,11 @@
 独占订单生命周期 外部场所效果 权威回读 对账和 Recovery Case 闭合。Execution 在效果发生前验证
 正常许可或活动 Risk fence，并向 Runtime Risk Portfolio 和 Governance 返回事实。
 
+本职责在目标[原生交易节点](../guide/architecture-rules/#target-trading-node)内执行，与另外两个交易职责共享
+继承的引擎、cache、命令与事件，按产品 gate 保留唯一事实与权限。下文既有版本的预留、claim、adapter admission
+及 journal 字段定义读取/兼容约束，不要求新建平行服务或订单状态机。节点目标、接口可达、原有 custody 的存在
+均不准入 Paper、Live 或生产效果。
+
 ## 拥有的权威事实
 
 - 订单身份 状态转换 接受或拒绝的命令和撤销历史。

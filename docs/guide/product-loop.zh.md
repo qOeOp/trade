@@ -1,149 +1,78 @@
 # 产品闭环
 
-产品是一个学习与控制闭环。每次转换都必须改变证据、治理决定、运行权限、外部效果，或供下一次
-决策读取的事实投影。
+## 产品定位与范围
 
-## 面向用户的闭环与实现边界
+产品将带来源的市场假设转化为可复现策略、组合回测证据和研究决定，并为独立资格评估、只记录前向验证与
+受治理策略生命周期提供连续事实。支持永续合约、现货数据与回测以及现货/永续双腿研究；首个端到端验收采用
+Binance USDT 永续 R-1 挂单与分段退出故事。现货、双腿与动态组合在具体功能准入前仍是开发目标。
 
-下方 Owner 控制闭环是目标权威 Flow，本身不能证明已有可用应用。只有用户能通过
-[Product Edge](../architecture/product-edge/) 把一个有界目标从入口推进到权威结果及其下一个合法动作，
-而不需要手工拼接 Owner 数据库、回执、日志或终端输出时，面向用户的产品闭环才成立。
-
-- `CURRENT` - `crates/strategy_factory` 原先提供的从窄范围冻结 `ResearchIntent` 到 `StrategyArtifact`、
-  native replay 和 `TrialReceipt` 的 pilot，已随旧 formation 路径在 #1207 退役。
-- `TARGET` - 产品表面是 `product/dashboard` 里 Trade 自有的 Dashboard，展示 Source 与 Hypothesis、
-  冻结 Intent、Artifact 与 Build Receipt、探索 Run Detail 与 Compare、Diagnosis、Iteration Decision，
-  以及准确的停止、修复、后继或 Qualification 交接动作。Dashboard 与它的 `/api/mcp` 调用同一组带版本
-  operation。它的已准入第一方读面已经发货，但仍只在 opt-in 的 `dashboard-preview` profile 下启动；
-  生产部署保持 `TARGET`。
-- `NOT_ADMITTED` - 架构页面、preview profile 下可达的 Dashboard、MCP 握手、目标 read model 或可访问
-  底层 API 都不能让产品表面成为 `CURRENT`。
-
-目标以一套 Docker Compose 产品包在用户自己的机器上交付。它有两个入口：外部代理工具面，产品之外的代理
-通过它做研发；以及 Dashboard Web 入口，用户主要用它查看。外部代理不随产品打包，也不逐一维护 adapter。Dashboard 的 shadow scheduler 与 effect worker 调度长时间运行的
-研究与 scanner job；真实策略循环、行情会话、Risk、订单与恢复效果的权威和进程边界仍属于 Trade Runtime。
-
-[Observability](../architecture/observability/) 可以解释进度与失败，但不能闭合旅程、选择下一动作，
-或用 telemetry 替代原生 Owner 回执。
+产品通过独立领域 MCP 提供服务。用户选择连接它们的外部代理，如 Codex 或 Claude；数据和回测扩展原生
+Nautilus，R&D 管理研究，自研 Dashboard 展示和控制相同业务事实。确定性任务由所属服务持久运行，
+需要模型判断的后继研究由宿主定时器唤醒外部代理。对话或 MCP 会话断开不丢失任务与结果。
 
 ## 代理在外的 R&D 体验
 
-用户在 2026-10-03 决定：代理在产品之外，规矩在产品之内。用户的理由（译述）：手工研究依赖用户所用模型的代理能力，
-产品内置模型或干脆没有代理，开发策略都会明显变差。由用户选择的代理（例如 Claude Code 或 Codex）提供 R&D 的智能部分：
-想法、策略文档、诊断与文献检索。产品负责执行规矩：数据准入、预登记、试验计数、留出集只给结论、确定性回测、
-[研究知识台账](../owners/rd/#target---research-knowledge-ledger)以及真钱边界。
+用户给研究主题、风险容忍、允许的数据范围、资源支出上限和停止边界。代理在运行前登记比较目标、基线、
+收益口径、期限、成本与风险约束，可在冻结范围内提出新假设、新机制家族并迭代。评价优先看组合收益和回撤，
+入场优势、随机入场及单策略比较用于诊断。试验次数完整计入防过拟合台账，不代替资源支出上限。
 
-研究闭环经由外部代理工具面运行
-（[Product Edge](../architecture/product-edge/#target---external-agent-tool-surface)）：每个领域一个 MCP server，每个
-server 同时也是命令行，代理是唯一的编排者，行情数据在 server 之间按引用传递：
+产品和代理宿主各自限制并报告资源用量；不可读取的模型消耗标为不可用。代理可修复实现对冻结规则的偏离，
+保留修复血缘与受影响结果；改变通过标准、统计协议、风险容忍或研究范围需用户确认并冻结新版本。
+产品不发起模型调用。代理提交版本化 JSON 编写文档，R&D 校验并封存不可变 Artifact；代理不能修改业务事实。
 
-声明了机制与构件的研究请求 → Research Request Receipt → 冻结 Research Intent →
-由 Owner 编译的 spec 创建的策略 → 在 `dataset_ref` 上的回测运行 → Run Report → Iteration Decision → 准确的后继、停止、修复或
-Qualification 交接。
+## 从来源到研究决定
 
-代理从不持有凭据：工具面持有 R&D 凭据，只返回身份、结论与下文的有界读取，从不返回受保护的 Qualification 数值。
-策略只以 authoring 文档进入产品，由 Owner 编译并封存；产品自身不发起任何模型调用。
+| 阶段         | 用户或代理动作                         | 产品结果与责任                                                         |
+| ------------ | -------------------------------------- | ---------------------------------------------------------------------- |
+| 定义问题     | 提交来源、机制、替代解释与可证伪预测   | R&D 接纳来源，冻结 Research Intent 与永久试验血缘                      |
+| 准备数据     | 声明市场、时间、信号周期与预热         | Market Data 提供点时数据、覆盖、版本及具名缺口；服务持有准备任务       |
+| 编写策略     | 提交 JSON 信号规则、仓位配置与执行政策 | R&D 编译 BFP 并封存 Artifact、依赖与完整含义                           |
+| 运行探索     | 提交有界回测请求并查询身份             | 后端完成内部链路；Backtest 原生引擎产生订单、成交、组合结果与诊断证据  |
+| 解释并迭代   | 比较冻结目标，选择合法下一步           | R&D 提交修复、后继实验、停止或选择决定；未知运行不产生经济判断         |
+| 独立资格评估 | 提交已选择且冻结的候选                 | Qualification 消费预登记保护协议，持有保护事实，仅返回有界公开结论     |
+| 记录前向     | 查询按原执行语义持续的模拟证据         | Qualification 持有登记与决定；Backtest 跨 cut 保留模拟订单、持仓和成本 |
+| 生命周期     | 在资格、资金与权限边界内请求部署或降权 | Governance 决定授权；Runtime 独立证明应用；交易路径需单独准入          |
 
-**被该决定取代的内容。** 本节此前描述一个由对话驱动、有两个 Agent 角色的闭环：Conversation Agent 提交类型化请求
-并查询状态，服务端 R&D Execution Agent 拥有长时间运行的执行 session、生成策略代码，并在对话关闭后继续受 Dashboard
-effect worker 监督。两个角色以及生成 Artifact 的产品内模型调用都被撤回而非延后：外部代理取代第一个角色，
-authoring 文档取代第二个角色。
+一次 `backtest.run` 在后端完成声明校验、研究绑定、数据解析、Artifact 与回放组合等确定性步骤；
+代理不拼接内部回执、搬运行情或逐步驱动 Owner 链。请求、任务、结果与允许动作均可按稳定身份查询。
+同一请求与含义恢复原结果，含义改变产生后继或冲突，不能覆盖旧记录。具体契约见
+[Product Edge](../architecture/product-edge/)和[研究设计](../scenarios/research/)。
 
-用户通过可见动作发起研究、请求解释、要求修改、停止工作，或提交准确的已选 Candidate。每个会改变
-状态的动作都创建新的类型化请求。修改要么产生新的不可变 Artifact，要么产生明确的原生终态
-disposition；绝不编辑或覆盖既有 Artifact。运维 run 进度只能解释执行过程；业务阶段和允许的
-下一步动作由接收 Owner 的回执与投影决定。
+## 资格与前向证据
 
-Dashboard 通过以下应用区域闭合旅程：
+探索不是资格。Qualification 独立消费完整冻结候选、试验家族、成本、容量、embargo、预算与 holdout 规则。
+内部可区分通过、等价无效与证据不足；研究侧只看到 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`，不据公开未合格状态
+自动关闭机制。保护数值、原因和分类不能回流研究循环，也不能通过新家族、图表或直接 MCP 绕过读取与试验记录。
 
-| 区域             | 首期必需产品视图                                                                       | 权威边界                                                                                     |
-| ---------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Overview         | 活动研究、等待处理的决定、最近结果、Scanner 与 Runtime 健康状态                        | 只做摘要；每个状态都链接到原生 Owner 投影                                                    |
-| Sources / Intake | 已提交论文、笔记、媒体、工具输出、获取状态、provenance、解释、triage 与 Research Queue | R&D Source Intake 拥有准入和 provenance；外部内容保持不可信且绝不直接创建 Intent 或 Artifact |
-| Research         | Run、冻结目标、时间线、Agent 活动、迭代状态、进度、日志和允许动作                      | R&D 回执与 Research View 决定状态；日志不能                                                  |
-| Hypotheses       | 待验证、已支持、已证伪、已停止或未解析的研究假设                                       | R&D 拥有来源、血缘与 Iteration Decision                                                      |
-| Artifacts        | Identity、Intent 与迭代血缘、结构化逻辑、参数、依赖、构建状态、语义变更解释和允许动作  | Artifact 与 Build Receipt 保持权威；解释不能替代它们                                         |
-| Backtests        | 探索图表、风险指标、Run Detail 与版本比较                                              | Backtest 拥有 Run Result；比较不能创建 Selection                                             |
-| Qualification    | 有界公共状态与准确的已接纳交接动作                                                     | 保护细节保持不透明；Qualification 拥有 intake 与 eligibility                                 |
-| Scanner          | 调度、终态 Scanner Receipt、心跳和未解析状态                                           | Dashboard shadow scheduler 调度工作；Scanner 拥有提案事实且永不启动 Runtime                  |
-| Runtime          | 已应用 generation、策略循环状态、checkpoint、incident 与允许的生命周期动作             | Runtime、Governance、Risk 与 Execution 事实保持独立权威                                      |
-| Operations       | 运维 run、worker、进度、日志、重试与 incident                                          | 运维成功不等于研究、Qualification、部署或交易成功                                            |
+只记录前向是目标能力：第一个 cut 前冻结中期日、决策日、淘汰/准入线和序贯检验参数及推导。
+Backtest 使用资格时同一 Artifact、订单、决策节奏、成本、滑点与容量模型，模拟状态跨 cut 连续；
+不触碰 Runtime 实例、场所适配器、凭据或资金。所有候选均报告，越过淘汰线即撤销资格。
+正向 Forward Decision 只允许提议模拟盘，不代替其余激活授权。
 
-首个 Artifact Review 表面有意不展示原始源码。完整源码只读查看、源码 diff、受控下载和源码关联诊断
-属于延后的高级审计能力。Notebook-first 创作、内嵌代码 IDE、原地编辑 Artifact 和覆盖版本都不是
-已接纳的产品能力。修改是外部代理提交的后继 authoring 文档，用户审阅其产生的后继 Artifact。
+## 交易控制与恢复
 
-## 1. 发现并定义问题
+交易目标采用每个 Capacity Scope 一个原生进程内节点，组合 `LiveNode`、`RiskEngine`、`ExecutionEngine`
+与薄产品信任层。策略表达信号及保护规则，仓位配置计算请求数量，Risk 决定额度与准入，Execution 拥有
+订单、成交和场所对账事实。原生 cache 不被第二订单簿或账户引擎替代；Portfolio 提供版本化计量与归属。
 
-Product Edge 接受自然语言意图，但不拥有交易业务事实。Market Data 提供可追踪的 PIT 事实。
-R&D 内的 Research 能力把带来源假设转化为冻结的 Research Intent。
+Governance 决定授权 generation、资金包络和生命周期；`APPLIED` 回执才证明 Runtime 已应用。
+活动 generation 续期要求新鲜资格、表现、暴露与退化证据；缺失时阻止新增风险，保留原 decrease-only 安全路径。
+Scanner 定时评估部署条件并向 Governance 提议，逐策略隔离缺口，不启动 Runtime。宿主唤醒研究代理与
+服务持有 Scanner/前向任务是不同职责，Dashboard 不拥有这些业务状态机。
 
-## 2. 构建并探索
+未知效果不能重下、释放承诺或当成失败。Runtime readiness、事故、对账 drift 与 Risk hard stop 按各自
+权威事实进入恢复；Execution 只在完整活动 fence-set 允许的动作交集内撤单、减仓、清仓和回读。
+场所事实、Risk 结算与 Portfolio 投影一致后，Reconciler 才写 `KNOWN_CLOSED`；闭合不恢复旧交易授权。
+完整身份、授权、只减不增和恢复契约见[架构规则](./architecture-rules/)及各 Owner 正文。
+Paper、Live 与真实资金均不由研究、前向或文档自动准入。
 
-R&D 拥有 Strategy Artifact 身份并包含 Develop 能力。独立 Backtest Owner 以服务形式提供探索重放，
-并可把规范事实返回新一轮 R&D 研究迭代。
+## 用户界面与服务验收
 
-## 3. 独立资格评估
+自研 Dashboard 通过 Sources、Research、Hypotheses、Artifacts、Backtests、Qualification、Scanner、Runtime
+与 Operations 展示同一身份的事实、未决原因和允许动作。日志、图表、操作完成与代理解释不创建研究决定、
+资格或部署事实。修改提交后继 JSON，不原地编辑 Artifact。只有[Dashboard](./dashboard/)已准入的路由和原子可实现。
 
-冻结候选连同预注册试验族、成本、容量、embargo、预算和 holdout 规则进入 Qualification。
-Protected Evaluation 与研发隔离。Qualification 只发布资格或撤销事实，既不启动策略，也不把
-保护结果反馈同一个研发循环。
-
-## 4. 记录前向证据
-
-`TARGET`。一个 `QUALIFIED` 的候选还不会被提议进入模拟盘。它先经过一个由 Qualification 拥有、只做记录的前向阶段。在第一个
-前向 cut 之前，候选的 Forward Registration 固定中期日与决策日、淘汰线、准入线以及 Wald 序贯检验的参数，并写明每一项的推导
-方式。Backtest 在每个新观察到的点时 cut 上，用为它资格评估时的同一个事件驱动模拟器回放候选的 Artifact：同样的订单类型
-（限价、止损、有效期与到期、撤单）、同样的决策节奏，以及同样的成本、滑点与容量模型，模拟的订单与持仓从一个 cut 延续到
-下一个 cut。这一阶段不触碰 Runtime、Strategy Instance、Execution 适配器、凭据或资金。越过淘汰线或检验的淘汰边界即撤销
-该候选的资格。到决策日，候选被准入、被淘汰或继续记录，准入只表示它可以被提议进行模拟盘激活。每个登记过的候选，其记录
-与结果都要报告，被淘汰的也不例外。
-
-## 5. 管理策略生命周期
-
-Strategy Governance 综合资格 表现 暴露 事故 对账差异和资金政策。它拥有授权 生命周期状态 允许资金
-比例和生效时间。每个已接受 generation 决定保留完整请求 Authorization Lineage，无人值守交易还
-绑定独立 Autonomous Policy Authorization；Runtime 单独证明 `APPLIED`。降权 暂停和退役使用只减
-不增效果链，未知效果进入 Recovery。模拟盘的 `INITIAL_ACTIVATION` 另外要求该候选当前有一个正向的 Forward Decision
-（`TARGET`）；它是必要条件，从来不是充分条件，激活原本要求的每一项授权仍然适用。
-
-活动状态只有绑定新鲜必需 Eligibility Performance Exposure degradation 证据才能续期。任一证据
-丢失或过期都提交 `DE_RISK_PENDING` 并移除新增风险权限，同时保留 decrease-only 安全动作直到
-generation 降权 暂停 退役或完成恢复。
-
-## 6. 寻找部署机会
-
-Scanner 是定时运行的慢轨。它加载可部署工件引用与激活条件，冻结市场快照，匹配当前条件，
-再向 Governance 提交可审计提案。逐策略隔离评估，数据不足只阻断对应策略，其他完整匹配仍可进入同一 batch 提案。Scanner 永不启动 Runtime。
-
-## 7. 经过唯一控制链交易
-
-模拟与实盘共享同一个 Strategy Instance、交易意图、Risk 决定、一次性预留、订单命令、
-效果日志、对账和 Portfolio 反馈语义。Runtime 是正常交易意图的唯一写入者，只有 Execution
-适配器会因模拟或实盘模式而不同。每个效果都保留完整请求 Authorization Lineage；无人值守效果还
-必须从 Governance 一直保留 Autonomous Policy Authorization 到最终 Execution 回读。
-
-## 8. 恢复到已知闭合
-
-Recovery 把每个 initiating cause 分类为 `RUNTIME_NOT_READY` `RUNTIME_INCIDENT`
-`RECONCILIATION_DRIFT` 或 `RISK_HARD_STOP`。不同已准入原因同时出现时在同一 Recovery Case 组合，但不要求另一分支的证据。Runtime
-`NOT_READY` 提供本地抑制和匹配 fence；Risk hard stop 可以在 Runtime 保持 `READY` 且没有
-`RUNTIME_INCIDENT` 或 `RECONCILIATION_DRIFT` 时创建并围栏 case。`RUNTIME_INCIDENT` 与
-`RECONCILIATION_DRIFT` 是两个独立的先处置分支：分别只绑定准确不可变 `runtime-incident-fact` 或
-`reconciliation-drift-fact`。前者经 `runtime-risk-incident-fence` 到达 Risk，后者经
-`execution-risk-drift-fence` 到达 Risk，且只有 Risk 写入两类匹配 Recovery Fence。Execution 先提交一次性 `RECOVERY_ADMITTED`
-Recovery Admission
-Disposition 并准确绑定该来源；独立适用且匹配的 `ACTIVE` Risk Recovery Fence 随后才允许进入 case。
-任一单独已准入分支都能创建或加入 Recovery Case，不需要另一来源；两者同时准入时，各自 disposition
-加入同一只追加 case。闭合为
-`NO_RECOVERY_REQUIRED` 的来源，或无法准入而保持 `UNRESOLVED_NO_CASE` 的来源，都不创建 Recovery
-Case、recovery command、外部效果或 Recovery Fence。Execution Reconciler 绑定 Risk-authoritative 完整
-活动 fence-set identity/content digest 后进入 `FENCED_OPEN`。Risk 在 Aggregate Commitment Frontier
-证明集合完整性，有效动作是所有 member action set 的交集，交集为空时没有命令。Recovery 只允许 Execution 拥有的撤销
-减仓 清仓和回读。场所回读 对账 Risk 结算和 Portfolio 关闭投影一致后，只有 Reconciler 能写
-`KNOWN_CLOSED`。Governance 此后只能考虑新 generation 的新授权。
-
-## 推动下一轮的反馈
-
-Portfolio Lifecycle Evidence Receipt、Runtime Incident Fact、Execution Reconciliation Drift Fact 和 Qualification 变化作为可直接读取的已提交 Owner 事实返回 Governance。Event Rail 可以唤醒消费者并发送 Telegram 通知，但不能审批、重试、保存终态
-或执行恢复。
+MCP 研究旅程可独立验收，Dashboard 路由另验浏览器行为。当前具备独立领域工具、窄编写和回放托管接线，
+不代表完整 R-1、研究 MCP、局部递归下钻、报告链或生产部署已完成。当前缺口和开发消费者见
+[Agent 实现指南](./agent-implementation/)。验收要求正常结果、具名拒绝、未知保持、同身份恢复和边界隔离，
+不以握手、编译、局部测试或目标图证明产品交付。
