@@ -417,21 +417,18 @@ if [[ "$build_triggers" != *"schedule:"* ]] || [[ "$build_triggers" != *"cron:"*
 fi
 
 # `build` gates pull requests, but only on the events `ready-gate` can answer `run-full` for.
-# Admitting `synchronize` here would fail every push instead of validating it.
+# `ready-gate` now admits `synchronize:false`, so every push to a Ready PR validates on its own;
+# a draft's push still fails the gate (`synchronize:true` is not admitted).
 if [[ "$build_triggers" != *"pull_request:"* ]]; then
   echo "build.yml must gate pull requests" >&2
   exit 1
 fi
-for pr_type in opened reopened ready_for_review; do
+for pr_type in opened reopened ready_for_review synchronize; do
   if [[ "$build_triggers" != *"- $pr_type"* ]]; then
     echo "build.yml pull_request trigger must admit $pr_type" >&2
     exit 1
   fi
 done
-if [[ "$build_triggers" == *"- synchronize"* ]]; then
-  echo "build.yml must not admit synchronize: ready-gate cannot answer it" >&2
-  exit 1
-fi
 # A merge queue drops an entry whose required check never reports, so admitting `merge_group` is
 # what keeps a configured queue able to merge anything at all.
 if [[ "$build_triggers" != *"merge_group:"* ]] ||
