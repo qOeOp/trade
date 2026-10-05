@@ -57,6 +57,15 @@ merges as soon as it passes - you don't need anyone else to click merge, and you
 repository's own merge button for required checks `strict`: the ruleset only requires `quality` to
 be green, not every job on `main`'s tip at merge time.
 
+**A PR that needs another Owner's review waits for that review before auto-merge is enabled, not
+after.** This covers a change to `crates/data` from outside Market Data, an H-series change needing
+Lane 6's review, or a change to CI infrastructure - not every PR, just the ones whose correctness
+depends on a reviewer who isn't the PR's own author. `quality` passing is necessary but not
+sufficient there: CI can turn green before the review lands, and `--auto` does not know the
+difference - it merges the instant the check passes, review or no review. Open the PR, get the
+review, and only then run `gh pr merge --auto --squash`. Everything else - a PR scoped to one lane's
+own crate, with no other Owner's correctness at stake - follows the plain flow above.
+
 Every commit that lands on `main` - not just the tip, and not on any fixed schedule - gets a fast
 `cargo check --workspace --all-targets` from `.github/workflows/main-compile-check.yml`. It is
 queued, not cancelled, so a run behind an earlier one still completes and names its own commit (the
