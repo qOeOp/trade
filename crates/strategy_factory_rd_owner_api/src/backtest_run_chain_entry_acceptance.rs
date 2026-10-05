@@ -12,16 +12,16 @@
 //! already admitted, and named implicitly: `run_backtest_v1` resolves it itself from the
 //! dataset_ref's instrument, execution timeframe and window (`resolve_custody_run_v1`, #1400).
 //!
-//! The chain this entry mints its own Instrument Master V1 fact and Universe Selection for every
-//! run, so its own basis is structurally never the SAME record the Design's role-binding (H4)
-//! resolves from the initial PIT snapshot - `run_backtest_v1` refuses by name
-//! (`CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN`), and that is the one correct outcome today, not a
-//! softer assertion. **This is Lane 3's ruling** (10-05, cross-session): a custody run's Design
-//! universe binding should instead come from the chain's own basis selection, passed down by
-//! value through H2/H4, rather than the initial PIT snapshot's - once that lands, this entry's
-//! assertion flips to `custody_binding.is_some()`. Not done yet; see `docs/architecture/
-//! strategy-factory.md`'s custody-run section once it exists, or `lane5_handoff.md`'s memory for
-//! the current state of that slice.
+//! Per Lane 3's ruling (10-05, cross-session): a custody run's Design universe binding comes from
+//! the chain's own basis selection, passed down by value through H2/H4
+//! (`admit_published_design_over_custody_run`, T0-10 (a)/(b)/(c), #1416/#1421/#1422), not from the
+//! initial PIT snapshot's - `run_backtest_v1` wires this (#1420). The chain's own basis and the
+//! Design's role-binding (H4) are therefore the SAME record, and H8 issues a real custody-run
+//! execution-input binding every time - proven here: this entry asserts
+//! `custody_binding.is_some()` and that the issued binding names exactly the chain this entry
+//! committed (chain root, pinned head, and this run's own window). See `docs/architecture/
+//! strategy-factory.md`'s custody-run section for the full design, or `lane5_handoff.md`'s memory
+//! for this slice's history.
 
 use std::sync::Arc;
 
@@ -51,7 +51,6 @@ use vibe_product_edge::deployment_acceptance::{
     ensure_product_edge_deployment_acceptance_fixture_v1,
 };
 use vibe_strategy_factory::{
-    NativeReplayExecutionInputBindingCauseV1, NativeReplayExecutionInputBindingErrorV1,
     backtest_run_dataset_ref_v1::BacktestRunDatasetRefV1,
     bounded_feature_program_v1::BoundedFeaturePredicateV1,
     exploratory_replay::{
@@ -280,8 +279,7 @@ fn backtest_run_chain_entry_spec_v1() -> SingleThresholdStrategySpecV1 {
 }
 
 /// Runs `backtest.run`'s orchestration from a fresh catalog entry, over a real custody chain this
-/// entry commits, through to H8 - today this always refuses by name as
-/// `CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN`, see the module doc.
+/// entry commits, through to a real H8 custody-run execution-input binding - see the module doc.
 pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
 ) {
@@ -466,6 +464,8 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             run_id,
             strategy_id,
             &deployment.request_proof_digest,
+            chain.chain_root(),
+            chain.head_identity(),
             window_start_ns,
             window_end_ns_exclusive,
         )
@@ -491,11 +491,14 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     .await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn assert_run_reaches_the_replay_step_v1(
     owners: &BacktestRunOwnersV1,
     run_id: &str,
     strategy_id: StrategyIdentityV1,
     request_proof_digest: &str,
+    chain_root: BindingDigest,
+    head_identity: BindingDigest,
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
 ) {
@@ -533,33 +536,31 @@ async fn assert_run_reaches_the_replay_step_v1(
             // This entire file compiles only under `sealed-source-intake-composer-acceptance`,
             // which requires `composer-v3-replay` - `custody_binding` always exists here.
             //
-            // This entry mints its own Instrument Master V1 fact and Universe Selection fresh on
-            // every run (see the module doc), so the chain's own basis can never be the SAME
-            // record the Design's role-binding (H4) resolves from the initial PIT snapshot - H8
-            // refuses by name every time, today. That is the correct outcome, not a stand-in for
-            // one: Lane 3's ruling (10-05) moves the Design's custody-run universe binding onto
-            // the chain's own basis instead, at which point this flips to `is_some()`.
-            assert!(
-                reached.custody_binding.is_none(),
-                "backtest.run {run_id} was expected to refuse H8 by name \
-                 (CUSTODY_RUN_UNIVERSE_DIFFERS_FROM_DESIGN) over this entry's own fresh custody \
-                 chain, but issued a binding instead - either the binding is now live against a \
-                 chain basis the Design never agreed to, or the universe cross-check regressed: \
-                 {:?}",
-                describe_replay_reason(&reached.reason),
+            // Since T0-10 (Lane 2's (a)/(b)/(c), #1416/#1421/#1422) and #1420's wiring, the
+            // Design's custody-run universe binding comes from the chain's own basis instead of
+            // the initial PIT snapshot's - so the chain's basis and the Design's role-binding (H4)
+            // are now the SAME record, and H8 issues a real binding every time, proven here.
+            let binding = reached.custody_binding.as_ref().unwrap_or_else(|| {
+                panic!(
+                    "backtest.run {run_id} must issue a real custody-run execution-input binding \
+                     (H8) over a committed custody chain naming the Design's own instrument: {:?}",
+                    describe_replay_reason(&reached.reason),
+                )
+            });
+            assert_eq!(
+                binding.chain_root,
+                *chain_root.as_bytes(),
+                "the issued binding names this entry's own committed chain"
             );
-            assert!(
-                matches!(
-                    &reached.reason,
-                    BacktestRunReplayUnavailableV1::CustodyIssuanceFailed(
-                        NativeReplayExecutionInputBindingErrorV1::Unavailable(
-                            NativeReplayExecutionInputBindingCauseV1::CustodyRunUniverseDiffersFromDesign
-                        )
-                    )
-                ),
-                "backtest.run {run_id} must refuse H8 by exactly this name, not some other stop: \
-                 {}",
-                describe_replay_reason(&reached.reason),
+            assert_eq!(
+                binding.head_identity,
+                *head_identity.as_bytes(),
+                "the issued binding pins the chain's head at issuance"
+            );
+            assert_eq!(
+                (binding.run_start_ns, binding.run_end_ns_exclusive),
+                (window_start_ns, window_end_ns_exclusive),
+                "the issued binding names this run's own window"
             );
         }
         Err(e) => panic!(
