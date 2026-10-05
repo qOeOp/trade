@@ -2796,8 +2796,11 @@ Binding, Instrument Master V1, Universe Selection and custody intakes, so its ou
 synthetic inputs and never U1 evidence. Its spec's fill timeframe must be exactly one minute, as every custody's is.
 An ordered chain shares one store, so a member an earlier entry already admitted keeps its Instrument Master fact: the
 fixture submits no rival genesis fact and names no predecessor, which would correct the earlier entry's instrument. The
-custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. Its
-historical membership frontier names the window, so two fixture chains over the same members are two memberships
+custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. The custody
+intake also requires every member's fact to carry the custody binding's market semantics compatibility scope, so such a
+chain names the earlier entry's binding semantics in the spec's `source_semantics`; a held fact under another scope is
+refused by name as `HeldInstrumentSemanticsDiffer` before anything is committed. Its historical membership frontier
+names the window, so two fixture chains over the same members are two memberships
 (`postgres_a_member_already_admitted_keeps_its_fact`).
 
 Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
