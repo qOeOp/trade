@@ -661,21 +661,13 @@ async fn resolved_native_replay_commit_v1(
 
 /// Runs one exact exploratory Replay attempt and, on a committed Result, counts it in the
 /// TrialFamily census - the production composition `run_native_replay` answers over HTTP, reached
-/// here in process for a direct (non-HTTP) caller: F's chain entry today, a CLI or MCP
-/// `backtest.run` tomorrow. The same `ExploratoryResultCensusErrorV1` and recovery outcomes the
-/// route renders are returned as data instead of a `Response`.
-///
-/// `#[cfg(test)]` for now: its only caller is F's chain entry, gated on
-/// `sealed-source-intake-composer-acceptance`, which this carries too so the two can never
-/// compile apart (the sealed feature union lints `native-replay-execution` alone as its own
-/// carried feature, where F's acceptance module - and so this function's only caller - does not
-/// exist). A CLI or MCP `backtest.run` widens this to the bin target when it lands (step 4 of the
-/// backtest.run slice), rather than carrying unused production surface before anything calls it.
-#[cfg(all(
-    test,
-    feature = "native-replay-execution",
-    feature = "sealed-source-intake-composer-acceptance"
-))]
+/// here in process for a direct (non-HTTP) caller: F's chain entry, and now `backtest.run`
+/// (`commit_custody_replay_v1`, `backtest_run_v1.rs`) too. The same `ExploratoryResultCensusErrorV1`
+/// and recovery outcomes the route renders are returned as data instead of a `Response`. Counting
+/// matters even for a direct caller: an uncounted Result refuses every later read of it, so
+/// skipping this step (as `backtest.run` once did, calling `run_exploratory_replay_v2` directly)
+/// leaves a committed Result nothing can read back.
+#[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
 pub(crate) async fn run_and_count_native_replay_v1(
     service: &NativeReplayExecutionServiceV2,
     request_locator: &ExploratoryReplayRequestLocatorV2,
@@ -706,11 +698,7 @@ pub(crate) async fn run_and_count_native_replay_v1(
 }
 
 /// Why `run_and_count_native_replay_v1` did not answer a counted Result.
-#[cfg(all(
-    test,
-    feature = "native-replay-execution",
-    feature = "sealed-source-intake-composer-acceptance"
-))]
+#[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
 pub(crate) enum NativeReplayRunOutcomeErrorV1 {
     /// A step before the commit failed; no Result exists to count.
     RunFailed(NativeReplayRunErrorV2),

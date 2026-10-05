@@ -28,6 +28,8 @@
 use std::sync::Arc;
 
 use sqlx::PgPool;
+#[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+use vibe_backtest_owner_contracts::OpaqueIdentityV2;
 use vibe_data::owner::{
     bar_schedule::execution_timeframe_bar_label_v1,
     market_semantics_admission_v1::{
@@ -131,6 +133,14 @@ pub(crate) struct BacktestRunOwnersV1 {
     pub(crate) instrument_master_v2: Option<Arc<InstrumentMasterV2PostgresOwner>>,
     #[cfg(feature = "composer-v3-replay")]
     pub(crate) instrument_economic_terms: Option<Arc<InstrumentEconomicTermsPostgresOwnerV1>>,
+    /// The SAME production execution service `POST /v2/exploratory-replays` uses
+    /// (`crate::exploratory_replay::NativeReplayExecutionServiceV2`) - after H8 issues a custody
+    /// binding, this runs the committed Replay through it rather than a second execution path.
+    /// `None` in a deployment that does not configure one; see
+    /// [`BacktestRunReplayUnavailableV1::ReplayExecutionUnavailable`].
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    pub(crate) native_replay_execution:
+        Option<Arc<crate::exploratory_replay::NativeReplayExecutionServiceV2>>,
 }
 
 /// One `backtest.run` request.
@@ -157,6 +167,13 @@ pub(crate) struct BacktestRunReachedReplayV1 {
     /// for to re-read this run's bars at the pinned head.
     #[cfg(feature = "composer-v3-replay")]
     pub(crate) custody_binding: Option<ReplayCustodyRunBindingV1>,
+    /// `Some` once this run's committed Replay has actually executed and a Backtest Result
+    /// committed for it - the result identity a report reads bars and fills back from. `None`
+    /// until then, including while `custody_binding` is already `Some`: issuing the binding and
+    /// running it are separate steps. Only ever set in a deployment that builds
+    /// `native-replay-execution`; always `None` otherwise.
+    #[cfg(feature = "composer-v3-replay")]
+    pub(crate) replay_result_identity: Option<String>,
 }
 
 /// Why the replay step did not run. Each variant names exactly one missing or refusing
@@ -204,6 +221,17 @@ pub(crate) enum BacktestRunReplayUnavailableV1 {
     /// refused.
     #[cfg(feature = "composer-v3-replay")]
     CustodyIssuanceFailed(NativeReplayExecutionInputBindingErrorV1),
+    /// H8 issued the custody binding, but this deployment does not configure the native Replay
+    /// execution service (`POST /v2/exploratory-replays`'s own), so nothing ran the committed
+    /// Replay. Check [`BacktestRunReachedReplayV1::custody_binding`] - it is still `Some`.
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    ReplayExecutionUnavailable(Box<ExploratoryReplayCommitResultV2>),
+    /// H8 issued the custody binding, and the native Replay execution service ran the committed
+    /// Replay, but it did not reach a durable Result - the named cause is this attempt's own; a
+    /// caller that wants the Result learns to retry the SAME `attempt_identity`, not this run's
+    /// `run_id` directly, through `POST /v2/exploratory-replays`'s own recovery path.
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    ReplayExecutionFailed(Box<ExploratoryReplayCommitResultV2>, String),
 }
 
 /// Why `run_backtest_v1` did not reach the replay step.
@@ -360,7 +388,7 @@ pub(crate) async fn run_backtest_v1(
         .map_err(BacktestRunErrorV1::FreezeFailed)?;
 
     #[cfg_attr(not(feature = "composer-v3-replay"), allow(unused_variables))]
-    let (reason, custody_binding) = resolve_replay_v1(
+    let (reason, custody_binding, replay_result_identity) = resolve_replay_v1(
         owners,
         &request.run_id,
         &research_request_identity,
@@ -376,6 +404,8 @@ pub(crate) async fn run_backtest_v1(
         reason,
         #[cfg(feature = "composer-v3-replay")]
         custody_binding,
+        #[cfg(feature = "composer-v3-replay")]
+        replay_result_identity,
     })
 }
 
@@ -615,10 +645,12 @@ async fn resolve_replay_v1(
 ) -> (
     BacktestRunReplayUnavailableV1,
     Option<ReplayCustodyRunBindingV1>,
+    Option<String>,
 ) {
     let (Some(resolver), Some(run)) = (owners.custody_frames.as_ref(), custody_run) else {
         return (
             BacktestRunReplayUnavailableV1::CustodyFramesNotAvailable,
+            None,
             None,
         );
     };
@@ -629,6 +661,7 @@ async fn resolve_replay_v1(
         Err(refusal) => {
             return (
                 BacktestRunReplayUnavailableV1::CustodyFramesRefused(refusal),
+                None,
                 None,
             );
         }
@@ -671,9 +704,14 @@ async fn commit_custody_replay_v1(
 ) -> (
     BacktestRunReplayUnavailableV1,
     Option<ReplayCustodyRunBindingV1>,
+    Option<String>,
 ) {
     let Some(composer) = owners.develop_composer.as_ref() else {
-        return (BacktestRunReplayUnavailableV1::ComposerNotAvailable, None);
+        return (
+            BacktestRunReplayUnavailableV1::ComposerNotAvailable,
+            None,
+            None,
+        );
     };
     let response =
         match Box::pin(composer.run_bounded_feature_program(research_request_identity)).await {
@@ -682,6 +720,7 @@ async fn commit_custody_replay_v1(
                 return (
                     BacktestRunReplayUnavailableV1::ComposerBuildUnavailable(e.to_string()),
                     None,
+                    None,
                 );
             }
         };
@@ -689,6 +728,7 @@ async fn commit_custody_replay_v1(
     if response.disposition != DevelopComposerOperationDispositionV2::Success {
         return (
             BacktestRunReplayUnavailableV1::ComposerBuildRefused(response.disposition),
+            None,
             None,
         );
     }
@@ -701,12 +741,17 @@ async fn commit_custody_replay_v1(
                         "{e:?}"
                     )),
                     None,
+                    None,
                 );
             }
         };
 
     let Some(family) = accepted.trial_family() else {
-        return (BacktestRunReplayUnavailableV1::TrialFamilyUnavailable, None);
+        return (
+            BacktestRunReplayUnavailableV1::TrialFamilyUnavailable,
+            None,
+            None,
+        );
     };
 
     let replay_request_identity = format!("{run_id}-replay");
@@ -747,6 +792,7 @@ async fn commit_custody_replay_v1(
             return (
                 BacktestRunReplayUnavailableV1::ReplayAdmissionFailed(e),
                 None,
+                None,
             );
         }
     };
@@ -770,7 +816,13 @@ async fn commit_custody_replay_v1(
         .await
     {
         Ok(result) => result,
-        Err(e) => return (BacktestRunReplayUnavailableV1::ReplayCommitFailed(e), None),
+        Err(e) => {
+            return (
+                BacktestRunReplayUnavailableV1::ReplayCommitFailed(e),
+                None,
+                None,
+            );
+        }
     };
 
     let custody_binding = issue_custody_run_binding_v1(
@@ -787,18 +839,117 @@ async fn commit_custody_replay_v1(
     .await;
 
     match custody_binding {
-        Ok(binding) => (
-            BacktestRunReplayUnavailableV1::ReplayCommitted(Box::new(result)),
-            Some(binding),
-        ),
+        Ok(binding) => {
+            let (reason, replay_result_identity) =
+                execute_committed_replay_v1(owners, run_id, result).await;
+            (reason, Some(binding), replay_result_identity)
+        }
         Err(None) => (
             BacktestRunReplayUnavailableV1::ReplayCommitted(Box::new(result)),
+            None,
             None,
         ),
         Err(Some(e)) => (
             BacktestRunReplayUnavailableV1::CustodyIssuanceFailed(e),
             None,
+            None,
         ),
+    }
+}
+
+/// Runs this run's committed Replay (H7's `result`) through the SAME production execution path
+/// `POST /v2/exploratory-replays` uses - `crate::exploratory_replay::
+/// run_and_count_native_replay_v1`, not a bare `run_exploratory_replay_v2` - so the committed
+/// Result is also counted in the TrialFamily census the same way; an uncounted Result refuses
+/// every later read of it. The second element is `Some(result_identity)` only once a durable,
+/// counted Result actually commits; the first names exactly where this run stopped, same
+/// convention as every other step here.
+///
+/// Not gated the same way H5-H8 are: this needs `native-replay-execution`, a separate production
+/// surface from `composer-v3-replay` (no deployed image builds either yet) - a deployment that
+/// builds `composer-v3-replay` without it reaches H8 but stops at
+/// [`BacktestRunReplayUnavailableV1::ReplayExecutionUnavailable`], same shape as
+/// [`BacktestRunReplayUnavailableV1::ComposerNotAvailable`] for H5.
+#[cfg(feature = "composer-v3-replay")]
+async fn execute_committed_replay_v1(
+    #[cfg_attr(not(feature = "native-replay-execution"), allow(unused_variables))]
+    owners: &BacktestRunOwnersV1,
+    #[cfg_attr(not(feature = "native-replay-execution"), allow(unused_variables))] run_id: &str,
+    result: ExploratoryReplayCommitResultV2,
+) -> (BacktestRunReplayUnavailableV1, Option<String>) {
+    #[cfg(not(feature = "native-replay-execution"))]
+    {
+        (
+            BacktestRunReplayUnavailableV1::ReplayCommitted(Box::new(result)),
+            None,
+        )
+    }
+    #[cfg(feature = "native-replay-execution")]
+    {
+        let Some(service) = owners.native_replay_execution.as_ref() else {
+            return (
+                BacktestRunReplayUnavailableV1::ReplayExecutionUnavailable(Box::new(result)),
+                None,
+            );
+        };
+        let attempt_identity = match OpaqueIdentityV2::try_from(format!("{run_id}-attempt-1")) {
+            Ok(identity) => identity,
+            Err(e) => {
+                return (
+                    BacktestRunReplayUnavailableV1::ReplayExecutionFailed(
+                        Box::new(result),
+                        e.to_string(),
+                    ),
+                    None,
+                );
+            }
+        };
+        let locator = result.locator().clone();
+
+        match crate::exploratory_replay::run_and_count_native_replay_v1(
+            service,
+            &locator,
+            attempt_identity,
+        )
+        .await
+        {
+            Ok(committed) => {
+                let result_identity = committed.result().result_identity.as_str().to_owned();
+                (
+                    BacktestRunReplayUnavailableV1::ReplayCommitted(Box::new(result)),
+                    Some(result_identity),
+                )
+            }
+            Err(e) => (
+                BacktestRunReplayUnavailableV1::ReplayExecutionFailed(
+                    Box::new(result),
+                    describe_native_replay_run_outcome_error_v1(&e),
+                ),
+                None,
+            ),
+        }
+    }
+}
+
+/// Describes why `run_and_count_native_replay_v1` did not answer a counted Result, without
+/// relying on `Debug` for `NativeReplayCommitDispositionV2` (it has none) - each named cause
+/// formats through whatever of its own parts already has a `Display`.
+#[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+fn describe_native_replay_run_outcome_error_v1(
+    error: &crate::exploratory_replay::NativeReplayRunOutcomeErrorV1,
+) -> String {
+    use crate::exploratory_replay::NativeReplayRunOutcomeErrorV1;
+
+    match error {
+        NativeReplayRunOutcomeErrorV1::RunFailed(e) => format!("run failed: {e}"),
+        NativeReplayRunOutcomeErrorV1::NotCommitted(recovered) => match recovered.as_ref() {
+            Ok(Some(_)) => {
+                "not committed: recovery found a disposition that was not Committed".to_owned()
+            }
+            Ok(None) => "not committed: recovery found no attempt to resolve".to_owned(),
+            Err(e) => format!("not committed: recovery itself failed: {e}"),
+        },
+        NativeReplayRunOutcomeErrorV1::NotCounted(e) => format!("not counted: {e}"),
     }
 }
 
@@ -854,9 +1005,11 @@ async fn commit_custody_replay_v1(
 ) -> (
     BacktestRunReplayUnavailableV1,
     Option<ReplayCustodyRunBindingV1>,
+    Option<String>,
 ) {
     (
         BacktestRunReplayUnavailableV1::FramesResolvedNoConsumerYet(Box::new(frames)),
+        None,
         None,
     )
 }

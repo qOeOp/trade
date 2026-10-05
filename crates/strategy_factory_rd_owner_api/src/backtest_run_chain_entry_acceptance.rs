@@ -426,6 +426,13 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
                 .await
                 .expect("the Instrument Economic Terms Owner opens"),
         )),
+        // `None` here: wiring a real `NativeReplayExecutionServiceV2` needs a Backtest Owner
+        // pool plus the native Replay scheduling resolver and universe sample projections this
+        // entry does not open today - a follow-up slice, not this one. This entry proves H8;
+        // it stops at `ReplayExecutionUnavailable`, named and honest, rather than attempting
+        // execution against ports it never opened.
+        #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+        native_replay_execution: None,
     };
 
     let market_data_owner_url =
@@ -673,6 +680,8 @@ async fn assert_backtest_runs_are_recorded_and_read_back_v1(
         instrument_master_v2: None,
         #[cfg(feature = "composer-v3-replay")]
         instrument_economic_terms: None,
+        #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+        native_replay_execution: None,
         rd_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_url(rd_url, PostgresTls::Disabled)
             .await
@@ -852,6 +861,14 @@ fn describe_replay_reason(reason: &BacktestRunReplayUnavailableV1) -> String {
         #[cfg(feature = "composer-v3-replay")]
         BacktestRunReplayUnavailableV1::CustodyIssuanceFailed(e) => {
             format!("custody issuance failed: {e}")
+        }
+        #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+        BacktestRunReplayUnavailableV1::ReplayExecutionUnavailable(result) => {
+            format!("replay execution unavailable: {:?}", result.locator())
+        }
+        #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+        BacktestRunReplayUnavailableV1::ReplayExecutionFailed(result, cause) => {
+            format!("replay execution failed: {:?}: {cause}", result.locator())
         }
     }
 }
