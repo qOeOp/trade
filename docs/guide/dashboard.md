@@ -35,6 +35,11 @@ read-only schedule history retains accurate facts without authorizing new market
 
 ## TARGET - Trial condition selection
 
+Dashboard requires confirmation of the exact candidate and frozen trial/capital policy before initial trial entry.
+A qualified candidate may stay in R&D; a running valid strategy may be unloaded for improvement with an explicit
+user reason rather than economic failure. Read back Governance authorization and Runtime application separately;
+never show confirmation alone as running. A user stop cannot cause automatic reactivation.
+
 Before a trial starts, Dashboard offers promotion-condition selection with common defaults and user-approved
 strategy-specific choices. The available choices, parameters and page interactions remain undefined; examples such
 as one month or positive returns are not published options. Submit the chosen version and complete parameters for

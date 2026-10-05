@@ -153,14 +153,14 @@ create successors, never overwrite completed runs.
 
 ### Qualified backtest to real trial and formal operation
 
-1. Frozen backtest criteria must pass before trial entry. The user selects promotion conditions and pool policy in Dashboard and freezes them before trial; the choice set remains undefined.
+1. Frozen backtest criteria must pass before trial entry. The user confirms the exact candidate and frozen trial/pool policy in Dashboard; qualification alone never activates it. A qualified candidate may stay in R&D for improvement; the condition choice set remains undefined.
 2. Governance decides stage, effective membership, allocation and authorization. Only Runtime application receipts prove actual operation, not UI success or request submission.
 3. Runtime produces signals under shared strategy semantics; Risk admits against allocation, actual account funds and exposure; Execution uses native mechanisms to execute, record and reconcile.
 4. Portfolio produces real net-return, sample and risk measurements; Governance automatically promotes on frozen conditions. Trial and formal pools divide equally among their own running instances.
 5. Trial expiry without passing or failed formal retention unloads the strategy and returns it to R&D. Stop new entries and cancel entry orders; native residual management retains original position protections. Unload returns strategy budget immediately while actual margin still constrains new account orders.
-6. Successors qualify and trial again without inheriting old results or authority. Qualification, governance, application, risk and execution facts cannot substitute for one another.
+6. The user may unload a valid strategy for R&D improvement without inventing economic failure or revoking its qualification; no automatic reactivation follows. Changed successors requalify and receive new user-confirmed trials without inherited stage authority. Qualification, governance, application, risk and execution facts cannot substitute for one another.
 
-Automatic/manual trial entry, condition choices/thresholds, formal retention conditions and normative wire contracts
+Condition choices/thresholds, formal retention conditions and normative wire contracts
 remain unresolved. These block corresponding runtime implementation, not the service boundaries on this page.
 The [research scenario](../scenarios/research/#qualified-backtests-real-trading-trials-and-promotion) contains full business rules.
 

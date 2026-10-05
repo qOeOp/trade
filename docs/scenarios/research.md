@@ -84,6 +84,17 @@ Full discovery operations, shared Host integration and end-to-end acceptance rem
 
 ### Qualified backtests, real trading trials and promotion
 
+Backtest qualification makes a candidate eligible, not active. Dashboard requires the user to confirm trial entry
+for the exact candidate, frozen trial conditions and capital policy; valid current authority, allocation and native
+readiness remain required. The user may keep a qualified candidate in R&D to improve it. Qualification alone never
+starts a trial or causes automatic reactivation after a user stop.
+
+The user may unload an economically valid running strategy for R&D improvement. Governance records the explicit
+user reason separately from economic failure and preserves qualification and stage evidence; unloading does not
+fabricate a failed backtest or revoke qualification. Stop new entries, cancel entry orders, return running allocation
+immediately and keep residual positions under their original protections through the native path. R&D owns any
+successor; changed candidates requalify, receive a new user-confirmed trial and cannot inherit previous stage authority.
+
 The target has one promotion route: R&D iteration → meet frozen backtest qualification criteria → small real trades
 in the trial pool → meet frozen trial promotion criteria → formal strategy pool. Candidates without economic advantage,
 not yet evaluated, or with evidence insufficient to meet the backtest criteria stay in R&D; no direct trial entrance

@@ -493,7 +493,7 @@ or processes; the [service blueprint](./) defines their composition. Each remain
   [R&D discovery](../owners/rd/#target---on-demand-read-only-opportunity-discovery).
 - **`governance`**, served by Strategy Governance: `list_eligible`, `propose_activation` (Paper or Live), `pause`,
   `retire` and a read-only `capital_policy`. Red line: requests alone create no activation. The user approves applicable policy and authority in Dashboard;
-  trial promotion then follows frozen conditions automatically. The initial trial-entry approval mode remains to be defined.
+  initial trial entry needs user confirmation of the exact candidate and frozen policy. Qualified candidates may stay in R&D; valid strategies may be unloaded for improvement without recording economic failure. Promotion follows frozen conditions automatically, and a user stop never auto-reactivates.
 - **`portfolio`**, served by Portfolio: `account_state`, `exposure`, `performance` and `capacity`, all read-only.
 - **`operations`**, one server over read-only views of Runtime, Risk, Execution and observability, so an agent faces
   few servers: `instance_status`, `readiness`, `orders`, `fills`, `drift` and `alerts`. Red line: the kill switch is

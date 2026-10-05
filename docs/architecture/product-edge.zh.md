@@ -397,7 +397,7 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
   扫描结果不是激活权威。见 [R&D 按需发现](../owners/rd.zh.md#target---按需只读机会发现)。
 - **`governance`**，由 Strategy Governance 提供：`list_eligible`、`propose_activation`（Paper 或 Live）、`pause`、`retire`
   与只读的 `capital_policy`。红线：请求本身不创建激活。用户在 Dashboard 批准适用政策与权限，试盘达到冻结条件后自动转正；
-  初次进入试盘的批准方式仍待确定。
+  初次进入试盘必须由用户确认准确候选与冻结政策。合格候选可留在 R&D；有效策略可主动下架改进而不记为经济失效，用户停止后不自动重新上线。
 - **`portfolio`**，由 Portfolio 提供：`account_state`、`exposure`、`performance` 与 `capacity`，全部只读。
 - **`operations`**，一个 server 汇集 Runtime、Risk、Execution 与可观测性的只读视图，使代理面对的 server 不多：
   `instance_status`、`readiness`、`orders`、`fills`、`drift` 与 `alerts`。红线：kill switch 只可读，只有用户本人能触发它。

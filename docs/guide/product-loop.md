@@ -49,6 +49,17 @@ original results; changed meaning creates a successor or conflict, never overwri
 
 ## Backtest qualification, trials and promotion
 
+Backtest qualification makes a candidate eligible, not active. Dashboard requires the user to confirm trial entry
+for the exact candidate, frozen trial conditions and capital policy; valid current authority, allocation and native
+readiness remain required. The user may keep a qualified candidate in R&D to improve it. Qualification alone never
+starts a trial or causes automatic reactivation after a user stop.
+
+The user may unload an economically valid running strategy for R&D improvement. Governance records the explicit
+user reason separately from economic failure and preserves qualification and stage evidence; unloading does not
+fabricate a failed backtest or revoke qualification. Stop new entries, cancel entry orders, return running allocation
+immediately and keep residual positions under their original protections through the native path. R&D owns any
+successor; changed candidates requalify, receive a new user-confirmed trial and cannot inherit previous stage authority.
+
 Exploration is not qualification. Qualification independently consumes the whole frozen candidate, trial family,
 costs, capacity, embargo, budget and holdout rules. Internally it may distinguish pass, equivalence failure and
 insufficient evidence; research sees only `QUALIFIED` or `CLOSED_NOT_QUALIFIED`, and cannot close a mechanism solely
