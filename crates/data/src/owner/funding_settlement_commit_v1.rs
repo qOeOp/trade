@@ -18,6 +18,12 @@ pub struct FundingSettlementWriteRowV1 {
     pub settlement_ns: u64,
     pub interval_hours: u8,
     pub rate: Decimal,
+    /// When Market Data itself observed this row: the live recorder's own retrieval instant for
+    /// this settlement, never earlier than `settlement_ns` (B6a). For an archive-backfilled row,
+    /// this is the whole window's `retrieval_ns` - a conservative but correct bound, since the
+    /// window was never read before that instant either. Provenance, not content: a rejoin never
+    /// moves an existing row's `availability_ns` to a later call's value.
+    pub availability_ns: u64,
 }
 
 /// Why a funding settlement write was refused.

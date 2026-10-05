@@ -99,6 +99,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::funding_settlement_v1::postgres_proof_v1::an_empty_window_still_records_its_coverage
   owner::postgres::funding_settlement_v1::postgres_proof_v1::a_settlement_outside_the_stated_window_is_refused_before_any_write
   owner::postgres::funding_settlement_v1::postgres_proof_v1::no_role_but_the_owner_can_reach_the_tables_or_the_private_functions
+  owner::postgres::funding_settlement_v1::postgres_proof_v1::a_legacy_table_without_availability_ns_migrates_and_backfills_it_from_retrieval_ns
 )
 
 # Proofs of code that exists only in a build carrying `sealed-strategy-input-acceptance`. They run

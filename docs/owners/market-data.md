@@ -3801,14 +3801,24 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
   (`futures_pit_observation_source_v1.rs`), and writes the result idempotently into the funding settlement store that
   commit `#1367` already defines. Backtest, the window funding schedule read above, and the live runtime therefore all
   read one table, never two: the recorder is only ever a writer into that one surface, never a second reader path a
-  consumer could get out of sync with.
+  consumer could get out of sync with. **Built (B6a).** The endpoint states no interval, unlike the archive, so the
+  recorder derives it from the real gap to the previous settlement instead of asking for it or assuming the symbol's
+  current one - correct across an interval change by construction, since the first settlement after one has the new
+  gap (`funding_settlement_recorder_v1.rs`'s own doc: measured on real symbols, `ORDIUSDT`/`LUNA2USDT` sit on 4h,
+  `1000SHIBUSDT`/`GALAUSDT` on 8h, though no change itself fell inside the sampled window). Each row's own
+  `availability_ns` is the recorder's observed retrieval instant, never a computed `settlement + lag` - B6a adds that
+  column to the funding settlement store, with a migration for a store already holding the table in its pre-B6a
+  shape. The scheduling itself - when B6b's resident process calls the recorder - is `next_funding_poll_ns_v1`, not
+  yet wired to run on its own; B6b is what runs it.
 - **Monthly archive reconciliation, not overwrite.** Once the next month's official archive (the authenticated
   `fundingRate` archive commit `#1364` adds) is published, the recorder re-derives the same window from the archive
   and compares it row for row against what it already wrote from the live endpoint. Equal rows are left untouched. A
   mismatch is reported by name - which settlement, which field, archive value against live value - never silently
   replaced; resolving a reported mismatch is an operator decision, not the recorder's. This also closes the gap the
   archive-only path leaves open on its own: the current month, before its archive exists, has no settled-funding
-  history at all without this recorder.
+  history at all without this recorder. **Built (B6a).** `reconcile_funding_settlements_v1` compares both the rate
+  and the derived interval against the archive's own stated one, since the derivation is exactly the thing a mismatch
+  there would call into question. Not yet wired to run on an actual archive-publication schedule - that is B6b's.
 - **A forecast rate is a second, separate fact, and stays unbuilt until a strategy needs it.** The predicted
   next-settlement rate is read from the public WebSocket market stream `/market/ws/<symbol>@markPrice` - not
   `/ws/<symbol>@markPrice`, which handshakes successfully but never pushes a frame, as measured. A forecast row is
@@ -3834,9 +3844,11 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
   money needs the user's own explicit authorization, which this design neither requests nor assumes. An agent never
   holds an exchange credential to get there. A real-account funding ledger, if ever wanted, is a separate, separately
   authorized design.
-- **Status.** TARGET. This lands together with the runtime's record-only forward stage or the scan resident service,
-  whichever is built first - not now. Nothing in this change implements the recorder, the forecast stream, or the
-  reconciliation; it only fixes their shape so that later work has one documented design to build against.
+- **Status.** The recorder and the reconciliation are built, as B6a (`funding_settlement_recorder_v1.rs`, 2026-10-05) -
+  "whichever is built first" above turned out to be Market Data's own resident service (B6), so B6a is where this
+  landed, not the runtime's forward stage or the scan service. The forecast stream stays TARGET and unbuilt - nothing
+  has needed it yet. B6a is written against the design here but not yet scheduled by anything: the resident process
+  itself that calls it on a cadence is B6b, still TARGET.
 
 ### TARGET full chart timeframes and one stitched bar series
 
@@ -4113,11 +4125,40 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     full-period archive's last bar closes exactly at its window's own exclusive end, which the guard wrongly
     refused) - fixed in the store itself (B1), not here, since it was the store's own invariant that was wrong.
   - **B6 - one resident service (Lane 8, after B3 and B5).** The recorder, the verification jobs and the
-    settled-funding recorder (#1382) run in one scheduler in one resident Market Data process, never in an MCP.
+    settled-funding recorder (B6a, below) run in one scheduler in one resident Market Data process, never in an MCP.
 
     Acceptance:
     - It restarts without double writes, which is proved by rejoin counts.
     - A local soak of a few days records closed bars, verifies them on archive publication, and reports conflicts.
+
+    - **B6a - the settled-funding recorder itself (Lane 8).** Builds the recorder "TARGET live funding retrieval for
+      the strategy runtime" (above) describes but does not implement: derives each settlement's interval from the
+      gap to its predecessor (the live endpoint states none), stores each row's own observed `availability_ns`
+      (never a computed `settlement + lag`), and reconciles against the monthly archive by name, both rate and
+      interval. Separate from B6b below; B6b is what actually schedules it.
+
+      Acceptance:
+      - Unit tests for the interval derivation (on-grid, off-grid, jitter tolerance), the batch's own first-row
+        exemption, the scheduling helper, and the reconciliation (an agreeing settlement reports nothing; a rate or
+        interval mismatch is named; a settlement only one side states is not a mismatch).
+      - A local run against the live endpoint and a real store: polling the same real settlements twice derives once
+        and then rejoins.
+
+      Built. `crates/adapters/binance/src/funding_settlement_recorder_v1.rs`. `funding_settlement_facts_v1` gained
+      `availability_ns` through an idempotent migration (`ADD COLUMN IF NOT EXISTS`, backfilled from each row's own
+      `retrieval_ns` for rows committed before this column existed, then `NOT NULL`) - `CREATE TABLE IF NOT EXISTS`
+      alone would have skipped every store that already had the table.
+    - **B6b - the scheduler (Lane 8, after B6a).** The actual resident process: not `market-data-mcp` (a stateless
+      MCP shell) and not `strategy_factory_rd_owner_api` (shared infra across Owner domains, not Market-Data-
+      specific) - a new binary under `crates/`, depending only downward (`vibe-data`, the Binance adapter), the
+      first Market Data resident process. Runs B3's recorder per served instrument/timeframe, B5's verification jobs
+      on each archive's publication cadence, and B6a's recorder on `next_funding_poll_ns_v1`'s own schedule. Tracks
+      no durable "last run" state of its own; a restart just re-polls and every job's own rejoin semantics absorb
+      the duplicate. Deployment wiring (a compose service, `up.sh`) is Lane 0's surface once the binary exists.
+
+      Acceptance: the doc's B6 acceptance above, since this is what actually runs the scheduler it describes.
+
+      Status: TARGET, not implemented.
   - **B7 - custody input from the store (Lane 8, after B1 and B5).** The backfill job builds a custody's execution
     and fill bars from the store instead of fetching archives, and its rows name the REST route. Chains already
     committed are never rewritten.
@@ -4127,9 +4168,9 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     - A run over it passes.
     - A window reaching the current month backfills, which supersedes the "published months only" rule.
 - **Status.** B1 through B5 built and merged (2026-10-04 to 2026-10-05); each carries its own "Built." paragraph
-  above. B6 and B7 are TARGET, not implemented. The measurement scripts (archive aggregation, the `TimeBarAggregator`
-  harness, REST against the daily archive, and REST settling) were run locally on 2026-10-04 and 2026-10-05 and are
-  not kept in the repository. They are cheap to rerun before implementing B6/B7.
+  above. B6a is built; B6b and B7 are TARGET, not implemented. The measurement scripts (archive aggregation, the
+  `TimeBarAggregator` harness, REST against the daily archive, and REST settling) were run locally on 2026-10-04 and
+  2026-10-05 and are not kept in the repository. They are cheap to rerun before implementing B6b/B7.
 
 ## Input handoffs
 

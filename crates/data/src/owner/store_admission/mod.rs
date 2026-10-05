@@ -6862,8 +6862,8 @@ mod tests {
 
         sqlx::query(
             "INSERT INTO market_data_private.funding_settlement_facts_v1 \
-             (instrument, settlement_ns, interval_hours, rate, retrieval_ns, retrieval_route) \
-             VALUES ($1, $2, 1, 0.0001, 1, 'proof')",
+             (instrument, settlement_ns, interval_hours, rate, retrieval_ns, retrieval_route, availability_ns) \
+             VALUES ($1, $2, 1, 0.0001, 1, 'proof', $2)",
         )
         .bind(instrument)
         .bind(HOUR_NS)

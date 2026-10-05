@@ -45,6 +45,18 @@ use ReplayFundingScheduleResolutionErrorV1 as ResolutionRefused;
 pub(super) const SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.funding_settlement_facts_v1 (instrument TEXT NOT NULL CHECK (instrument<>''), settlement_ns BIGINT NOT NULL CHECK (settlement_ns>0), interval_hours SMALLINT NOT NULL CHECK (interval_hours>0), rate NUMERIC NOT NULL, retrieval_ns BIGINT NOT NULL CHECK (retrieval_ns>0), retrieval_route TEXT NOT NULL CHECK (retrieval_route<>''), PRIMARY KEY (instrument, settlement_ns))",
     "REVOKE ALL ON TABLE market_data_private.funding_settlement_facts_v1 FROM PUBLIC",
+    // B6a: a per-row availability instant (the live recorder's observed retrieval time, which
+    // varies per settlement - unlike `retrieval_ns`, the whole batch's fetch time). `CREATE TABLE
+    // IF NOT EXISTS` above skips entirely on a store that already has this table (every local,
+    // lane0 and chain deployment that has ever run the #1374/#1384 backfill), so the column has
+    // to arrive through its own idempotent statements, not by editing the `CREATE TABLE` text.
+    "ALTER TABLE market_data_private.funding_settlement_facts_v1 ADD COLUMN IF NOT EXISTS availability_ns BIGINT",
+    // Every row committed before this column existed was written by the archive backfill path,
+    // whose own `retrieval_ns` already is a conservative, correct availability bound: the whole
+    // window's fetch instant is never earlier than when Market Data actually had any row in it.
+    "UPDATE market_data_private.funding_settlement_facts_v1 SET availability_ns = retrieval_ns WHERE availability_ns IS NULL",
+    "ALTER TABLE market_data_private.funding_settlement_facts_v1 ALTER COLUMN availability_ns SET NOT NULL",
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conrelid = 'market_data_private.funding_settlement_facts_v1'::regclass AND conname = 'funding_settlement_facts_v1_availability_ns_check') THEN ALTER TABLE market_data_private.funding_settlement_facts_v1 ADD CONSTRAINT funding_settlement_facts_v1_availability_ns_check CHECK (availability_ns >= settlement_ns); END IF; END $$",
     "CREATE TABLE IF NOT EXISTS market_data_private.funding_settlement_coverage_v1 (instrument TEXT NOT NULL CHECK (instrument<>''), window_start_ns BIGINT NOT NULL CHECK (window_start_ns>=0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive>window_start_ns), committed_at_ns BIGINT NOT NULL CHECK (committed_at_ns>0), PRIMARY KEY (instrument, window_start_ns, window_end_ns_exclusive))",
     "REVOKE ALL ON TABLE market_data_private.funding_settlement_coverage_v1 FROM PUBLIC",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_funding_settlements_v1(p_instrument TEXT, p_window_start_ns BIGINT, p_window_end_ns_exclusive BIGINT) RETURNS TABLE(settlement_ns BIGINT, interval_hours SMALLINT, rate NUMERIC) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT f.settlement_ns, f.interval_hours, f.rate FROM market_data_private.funding_settlement_facts_v1 AS f WHERE f.instrument = p_instrument AND f.settlement_ns >= p_window_start_ns AND f.settlement_ns < p_window_end_ns_exclusive ORDER BY f.settlement_ns $function$",
@@ -92,7 +104,9 @@ impl MarketDataOwnerPostgres {
         }
 
         if rows.iter().any(|row| {
-            row.settlement_ns < window_start_ns || row.settlement_ns >= window_end_ns_exclusive
+            row.settlement_ns < window_start_ns
+                || row.settlement_ns >= window_end_ns_exclusive
+                || row.availability_ns < row.settlement_ns
         }) {
             return Err(Refused::InvalidRequest);
         }
@@ -107,8 +121,10 @@ impl MarketDataOwnerPostgres {
                 i64::try_from(retrieval_ns).map_err(|_| Refused::InvalidRequest)?;
             let settlement_ns_bound =
                 i64::try_from(row.settlement_ns).map_err(|_| Refused::InvalidRequest)?;
+            let availability_ns_bound =
+                i64::try_from(row.availability_ns).map_err(|_| Refused::InvalidRequest)?;
             let inserted = sqlx::query(
-                "INSERT INTO market_data_private.funding_settlement_facts_v1 (instrument, settlement_ns, interval_hours, rate, retrieval_ns, retrieval_route) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (instrument, settlement_ns) DO NOTHING",
+                "INSERT INTO market_data_private.funding_settlement_facts_v1 (instrument, settlement_ns, interval_hours, rate, retrieval_ns, retrieval_route, availability_ns) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (instrument, settlement_ns) DO NOTHING",
             )
             .bind(instrument)
             .bind(settlement_ns_bound)
@@ -116,6 +132,7 @@ impl MarketDataOwnerPostgres {
             .bind(row.rate)
             .bind(retrieval_ns_bound)
             .bind(retrieval_route)
+            .bind(availability_ns_bound)
             .execute(&mut *transaction)
             .await
             .map_err(|_| Refused::StoreUnavailable)?;
@@ -608,6 +625,7 @@ mod tests {
             settlement_ns,
             interval_hours: 8,
             rate: Decimal::from_str_exact(rate).unwrap(),
+            availability_ns: settlement_ns,
         }
     }
 
@@ -863,6 +881,7 @@ mod postgres_proof_v1 {
             settlement_ns,
             interval_hours,
             rate: Decimal::from_str_exact(rate).unwrap(),
+            availability_ns: settlement_ns,
         }
     }
 
@@ -1013,5 +1032,71 @@ mod postgres_proof_v1 {
             2,
             "both private functions have a non-default ACL with no PUBLIC grant"
         );
+    }
+
+    /// B6a's migration: a store that already has `funding_settlement_facts_v1` in its pre-B6a
+    /// shape (no `availability_ns` column at all - `CREATE TABLE IF NOT EXISTS` skips entirely on
+    /// a store like this) gets the column backfilled from each row's own `retrieval_ns`, and a
+    /// second migration is a no-op.
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    async fn a_legacy_table_without_availability_ns_migrates_and_backfills_it_from_retrieval_ns() {
+        let owner = connect().await;
+        let pool = owner.pool().clone();
+        let instrument = "BTCUSDT-PERP.BINANCE-PROOF-MIGRATE";
+
+        // Put the table back into the shape a store created before B6a holds: no column at all.
+        sqlx::query(
+            "ALTER TABLE market_data_private.funding_settlement_facts_v1 DROP CONSTRAINT funding_settlement_facts_v1_availability_ns_check",
+        )
+        .execute(&pool)
+        .await
+        .expect("the CHECK constraint drops");
+        sqlx::query(
+            "ALTER TABLE market_data_private.funding_settlement_facts_v1 DROP COLUMN availability_ns",
+        )
+        .execute(&pool)
+        .await
+        .expect("the column drops");
+        sqlx::query(
+            "INSERT INTO market_data_private.funding_settlement_facts_v1 (instrument, settlement_ns, interval_hours, rate, retrieval_ns, retrieval_route) VALUES ($1,1704067200000000000,8,0.00037409,1704067211600000000,'legacy')",
+        )
+        .bind(instrument)
+        .execute(&pool)
+        .await
+        .expect("a row commits in the legacy shape");
+
+        MarketDataOwnerPostgres::connect(&env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap())
+            .await
+            .expect("the legacy table migrates");
+
+        let backfilled: i64 = sqlx::query(
+            "SELECT availability_ns FROM market_data_private.funding_settlement_facts_v1 WHERE instrument=$1",
+        )
+        .bind(instrument)
+        .fetch_one(&pool)
+        .await
+        .expect("the row is still there")
+        .try_get("availability_ns")
+        .expect("availability_ns");
+        assert_eq!(
+            backfilled, 1_704_067_211_600_000_000,
+            "a pre-B6a row's availability backfills from its own retrieval_ns"
+        );
+
+        // A second migration against the now-current shape is a no-op, not an error.
+        MarketDataOwnerPostgres::connect(&env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap())
+            .await
+            .expect("migrating an already-migrated table is a no-op");
+        let after_second: i64 = sqlx::query(
+            "SELECT availability_ns FROM market_data_private.funding_settlement_facts_v1 WHERE instrument=$1",
+        )
+        .bind(instrument)
+        .fetch_one(&pool)
+        .await
+        .expect("the row is still there")
+        .try_get("availability_ns")
+        .expect("availability_ns");
+        assert_eq!(after_second, backfilled, "re-migrating changes nothing");
     }
 }
