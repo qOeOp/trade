@@ -26,6 +26,7 @@
 use std::sync::Arc;
 
 use sha2::{Digest as _, Sha256};
+use vibe_backtest_result_custody::ExploratoryReplayResultLocatorV2;
 use vibe_data::owner::{
     grant_pit_window_custody_acceptance_reads_v1,
     instrument_economic_terms_postgres_owner_from_environment_v1,
@@ -43,6 +44,7 @@ use vibe_data::owner::{
     revoke_pit_window_custody_acceptance_reads_v1,
     source_binding::{BindingDigest, UntrustedCompleteFrontier, UntrustedMarketSemantics},
     strategy_input_binding_admission_v1::strategy_input_binding_admission_from_environment_v1,
+    universe_sample_projection_owner_from_environment_v1,
     universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
 };
 use vibe_postgres_connect::{PgPoolOptionsExt as _, PostgresTls};
@@ -52,7 +54,9 @@ use vibe_product_edge::deployment_acceptance::{
 };
 use vibe_strategy_factory::{
     backtest_run_dataset_ref_v1::BacktestRunDatasetRefV1,
+    backtest_run_report_read_v1::{BacktestRunReportStateV1, resolve_backtest_run_report_v1},
     bounded_feature_program_v1::BoundedFeaturePredicateV1,
+    develop_composer_postgres_v2::DevelopComposerSealedReadPortV2,
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V3, EXPLORATORY_REPLAY_OPERATION_V3,
         EXPLORATORY_REPLAY_SCHEMA_V3,
@@ -77,6 +81,7 @@ use crate::backtest_run_v1::{
     run_backtest_v1,
 };
 use crate::first_composer_v3_replay_acceptance::{PERPETUAL_V1, UniverseMemberDailyBarsV1};
+use crate::native_replay_scheduling_acceptance::composed_native_replay_scheduling_resolver;
 
 const SECOND_NS: u64 = 1_000_000_000;
 const MINUTE_NS: u64 = 60 * SECOND_NS;
@@ -362,6 +367,67 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
         "the sealed acceptance reader reads the database the canonical topology admitted"
     );
 
+    let research = Arc::new(
+        PostgresResearchGoalOwnerV1::connect(
+            rd_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .expect("the Research Owner opens"),
+    );
+    #[cfg(feature = "composer-v3-replay")]
+    let develop_composer = Arc::new(
+        PostgresSourceResearchComposerProductionV2::connect(
+            rd_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+        )
+        .await
+        .expect("the production Composer opens"),
+    );
+    #[cfg(feature = "composer-v3-replay")]
+    let instrument_master_v2 = Arc::new(
+        instrument_master_v2_postgres_owner_from_environment()
+            .await
+            .expect("the Instrument Master V2 Owner opens"),
+    );
+    #[cfg(feature = "composer-v3-replay")]
+    let instrument_economic_terms = Arc::new(
+        instrument_economic_terms_postgres_owner_from_environment_v1()
+            .await
+            .expect("the Instrument Economic Terms Owner opens"),
+    );
+    let custody_frames =
+        pit_window_custody_frames_for_sealed_acceptance_v1(&custody_frames_reader_url)
+            .expect("the sealed-acceptance custody frames port opens");
+
+    // Store Admission (`B3`) admits no scheduling resolver in any deployment, so this entry
+    // composes the sealed acceptance one and passes it where production passes its own - the
+    // same pattern `native_replay_scheduling_acceptance.rs`'s own test uses.
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    let scheduling = composed_native_replay_scheduling_resolver(test_database).await;
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    let sample_projections = Arc::new(
+        universe_sample_projection_owner_from_environment_v1()
+            .await
+            .expect("the universe sample projection Owner opens"),
+    );
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    let native_replay_execution = Arc::new(
+        crate::exploratory_replay::NativeReplayExecutionServiceV2::connect(
+            rd_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::BacktestOwner),
+            research.clone(),
+            develop_composer.clone() as Arc<dyn DevelopComposerSealedReadPortV2>,
+            instrument_master_v2.clone(),
+            instrument_economic_terms.clone(),
+            scheduling.resolver(),
+            sample_projections,
+            Some(custody_frames.clone()),
+        )
+        .await
+        .expect("the production execution service opens"),
+    );
+
     let owners = BacktestRunOwnersV1 {
         catalog,
         product_edge: Arc::new(
@@ -370,14 +436,7 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
                 .await
                 .expect("the deployment's Product Edge Owner opens"),
         ),
-        research: Arc::new(
-            PostgresResearchGoalOwnerV1::connect(
-                rd_url,
-                test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
-            )
-            .await
-            .expect("the Research Owner opens"),
-        ),
+        research,
         bounded_feature_program: Arc::new(
             PostgresResearchBoundedFeatureProgramOwnerV1::connect(rd_url)
                 .await
@@ -401,38 +460,15 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             .connect_url(rd_url, PostgresTls::Disabled)
             .await
             .expect("the R&D Owner pool opens"),
-        custody_frames: Some(
-            pit_window_custody_frames_for_sealed_acceptance_v1(&custody_frames_reader_url)
-                .expect("the sealed-acceptance custody frames port opens"),
-        ),
+        custody_frames: Some(custody_frames),
         #[cfg(feature = "composer-v3-replay")]
-        develop_composer: Some(Arc::new(
-            PostgresSourceResearchComposerProductionV2::connect(
-                rd_url,
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
-            )
-            .await
-            .expect("the production Composer opens"),
-        )),
+        develop_composer: Some(develop_composer),
         #[cfg(feature = "composer-v3-replay")]
-        instrument_master_v2: Some(Arc::new(
-            instrument_master_v2_postgres_owner_from_environment()
-                .await
-                .expect("the Instrument Master V2 Owner opens"),
-        )),
+        instrument_master_v2: Some(instrument_master_v2),
         #[cfg(feature = "composer-v3-replay")]
-        instrument_economic_terms: Some(Arc::new(
-            instrument_economic_terms_postgres_owner_from_environment_v1()
-                .await
-                .expect("the Instrument Economic Terms Owner opens"),
-        )),
-        // `None` here: wiring a real `NativeReplayExecutionServiceV2` needs a Backtest Owner
-        // pool plus the native Replay scheduling resolver and universe sample projections this
-        // entry does not open today - a follow-up slice, not this one. This entry proves H8;
-        // it stops at `ReplayExecutionUnavailable`, named and honest, rather than attempting
-        // execution against ports it never opened.
+        instrument_economic_terms: Some(instrument_economic_terms),
         #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
-        native_replay_execution: None,
+        native_replay_execution: Some(native_replay_execution),
     };
 
     let market_data_owner_url =
@@ -485,6 +521,8 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     )
     .await
     .expect("the harness reader role's sealed custody grant is revoked");
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    scheduling.revoke().await;
 
     assert_backtest_runs_are_recorded_and_read_back_v1(
         test_database,
@@ -569,6 +607,44 @@ async fn assert_run_reaches_the_replay_step_v1(
                 (window_start_ns, window_end_ns_exclusive),
                 "the issued binding names this run's own window"
             );
+
+            // H8's binding only proves the Design agrees with the chain's basis; it proves
+            // nothing about whether the committed Replay actually ran. Reusing F's own
+            // production execution path (`run_and_count_native_replay_v1`) and reading the
+            // committed, counted Result back through the SAME report-assembly function a
+            // caller would is the only way to prove it did.
+            #[cfg(feature = "native-replay-execution")]
+            {
+                let result_identity = reached.replay_result_identity.clone().unwrap_or_else(|| {
+                    panic!(
+                        "backtest.run {run_id} must execute the committed Replay and commit a \
+                         counted Result: {}",
+                        describe_replay_reason(&reached.reason),
+                    )
+                });
+                let attempt_identity = format!("{run_id}-attempt-1");
+                let locator = ExploratoryReplayResultLocatorV2 {
+                    result_identity: &result_identity,
+                    request_identity: &reached.research_request_identity,
+                    attempt_identity: &attempt_identity,
+                };
+                let report = resolve_backtest_run_report_v1(&owners.rd_pool, locator)
+                    .await
+                    .expect("the report answers for this run")
+                    .expect("the run that executed is there to report");
+                assert_eq!(
+                    report.result.state,
+                    BacktestRunReportStateV1::Available,
+                    "the executed run's Result is available to read, not pending or refused"
+                );
+                assert!(
+                    report.result.fill_count > 0,
+                    "backtest.run {run_id} must produce at least one fill over {} daily frames: \
+                     fill_count={}",
+                    CUSTODY_FRAMES,
+                    report.result.fill_count
+                );
+            }
         }
         Err(e) => panic!(
             "backtest.run {run_id} must reach the replay step: {}",
