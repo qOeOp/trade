@@ -95,6 +95,7 @@ readonly -A out_of_scope_reason=(
   ["crates/infrastructure"]="pending: waiting on PostgreSQL schema completion, specifically the FK constraints"
   ["crates/live"]="slow: stress scenarios, deliberately not run by default"
   ["crates/market_data_repair_custody"]="pending: its one proof uses CanonicalOwnerPostgresTestDatabaseV1, so it belongs in a chain; vibe-market-data-repair-custody is not in the chain's nextest archive, so listing it must add the package too"
+  ["crates/market_data_resident"]="venue: reaches the live public Binance endpoint and a real Market Data store, the same reason crates/adapters/binance's own live tests are out of scope here"
   ["crates/model"]="generator: rewrites a generated table in execution.md rather than asserting anything"
   ["crates/network"]="slow: a continuous seed sweep driven by scripts/soak-network-turmoil.sh"
   ["crates/persistence"]="slow: a >120s catalog batching regression, run when catalog custody changes"

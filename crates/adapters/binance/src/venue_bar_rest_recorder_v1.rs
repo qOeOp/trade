@@ -165,20 +165,32 @@ pub struct VenueBarRestRecordSummaryV1 {
     /// `true` once a page returned fewer rows than it asked for, or an unsettled row, meaning
     /// recording has caught up to Binance's present moment for this instrument and timeframe.
     pub caught_up: bool,
+    /// Where the next call should resume from: the last committed page's own next page start, or
+    /// `resume_from_ms` unchanged if nothing committed. A caller tracking this in memory across
+    /// ticks never needs to read the store back just to find out where it left off.
+    pub resume_from_ms: i64,
 }
 
 /// Records `raw_symbol`'s bars at `venue_interval` into `store`, forward from `resume_from_ms` (a
 /// `start_ns` already read back from `read_venue_bars_v1`, or the Unix epoch on the instrument's
 /// first-ever run, letting Binance's own response begin at its actual first listed bar) up to
-/// `retrieval_ns`'s present moment. Every page is committed in one call through the store's own
-/// `commit_venue_bars_v1`, so no row this function already retrieved is ever double-counted into
-/// the summary across a resumed run: a resumed run starts its own fresh summary and only the
-/// store's rejoin counts tell the two runs apart.
+/// `retrieval_ns`'s present moment, committing at most `max_pages` pages before returning. Every
+/// page is committed in one call through the store's own `commit_venue_bars_v1`, so no row this
+/// function already retrieved is ever double-counted into the summary across a resumed run: a
+/// resumed run starts its own fresh summary and only the store's rejoin counts tell the two runs
+/// apart.
+///
+/// `max_pages` bounds how long one call can run: a cold instrument's first `1m` backfill from its
+/// first listed bar is thousands of pages, which would otherwise block a caller - B6b's resident
+/// process, one tick serving many instrument/timeframe pairs - for hours. A bounded call returns
+/// `caught_up: false` with whatever it already committed; the next call resumes from the stored
+/// close exactly as a restart would, converging over many calls instead of blocking one.
 ///
 /// # Errors
 ///
 /// [`VenueBarRestRecordErrorV1`] naming why recording stopped; every page before that point was
 /// already committed.
+#[allow(clippy::too_many_arguments)] // Each argument is a distinct, independent recording input.
 pub async fn record_venue_bars_v1(
     client: &BinanceFuturesHttpClient,
     store: &dyn VenueBarStoreV1,
@@ -187,11 +199,15 @@ pub async fn record_venue_bars_v1(
     venue_interval: &str,
     resume_from_ms: i64,
     retrieval_ns: u64,
+    max_pages: u64,
 ) -> Result<VenueBarRestRecordSummaryV1, VenueBarRestRecordErrorV1> {
-    let mut summary = VenueBarRestRecordSummaryV1::default();
+    let mut summary = VenueBarRestRecordSummaryV1 {
+        resume_from_ms,
+        ..VenueBarRestRecordSummaryV1::default()
+    };
     let mut start_ms = resume_from_ms;
 
-    loop {
+    while summary.pages < max_pages {
         let params = BinanceKlinesParams {
             symbol: raw_symbol.to_string(),
             interval: venue_interval.to_string(),
@@ -245,6 +261,7 @@ pub async fn record_venue_bars_v1(
             break;
         };
         start_ms = next;
+        summary.resume_from_ms = next;
     }
 
     Ok(summary)
@@ -435,6 +452,7 @@ mod live_tests {
                 venue_interval,
                 DAY_START_MS,
                 RETRIEVAL_NS,
+                u64::MAX,
             )
             .await
             .expect("the first run commits the day's settled bars");
@@ -452,6 +470,7 @@ mod live_tests {
                 venue_interval,
                 DAY_START_MS,
                 RETRIEVAL_NS,
+                u64::MAX,
             )
             .await
             .expect("the second run rejoins the same bars");
@@ -462,5 +481,81 @@ mod live_tests {
             assert_eq!(second.committed.rejoined, first.committed.written);
             assert!(second.committed.conflicts.is_empty());
         }
+    }
+
+    /// `max_pages` bounds one call, and the next call resumes from the stored close rather than
+    /// starting over - the exact behavior B6b's tick loop depends on to never let a cold
+    /// instrument's backfill block a tick for hours.
+    #[tokio::test]
+    #[ignore = "reaches the live public Binance endpoint and a real Market Data store"]
+    async fn a_page_budget_bounds_one_call_and_the_next_call_resumes() {
+        let client = BinanceFuturesHttpClient::new(
+            BinanceProductType::UsdM,
+            BinanceEnvironment::Live,
+            get_atomic_clock_realtime(),
+            None,
+            None,
+            None,
+            None,
+            Some(30),
+            None,
+            false,
+        )
+        .expect("the keyless public client builds");
+        let store = venue_bar_store_from_environment_v1()
+            .await
+            .expect("MARKET_DATA_OWNER_DATABASE_URL names a reachable store");
+        let instrument = "BTCUSDT-PERP.BINANCE-PROOF-MAX-PAGES";
+
+        // BTCUSDT's own 1m day is 2 pages (1,440 bars over PAGE_LIMIT=1,000); a 1-page budget must
+        // stop short of the day, not silently fetch both pages anyway.
+        let bounded = record_venue_bars_v1(
+            &client,
+            store.as_ref(),
+            instrument,
+            "BTCUSDT",
+            "1m",
+            DAY_START_MS,
+            RETRIEVAL_NS,
+            1,
+        )
+        .await
+        .expect("the bounded call commits its one page");
+        assert_eq!(bounded.pages, 1);
+        assert!(
+            !bounded.caught_up,
+            "one page of a two-page day is not caught up"
+        );
+        assert!(bounded.committed.written > 0);
+        assert!(
+            bounded.committed.written < 1_440,
+            "a single page is not the whole day"
+        );
+        assert_ne!(
+            bounded.resume_from_ms, DAY_START_MS,
+            "the summary's own resume point advanced past the committed page"
+        );
+
+        // Resuming from the summary's own resume point (not from DAY_START_MS again, and without
+        // reading the store back to find out) with a generous budget finishes the day without
+        // re-writing the first page.
+        let rest = record_venue_bars_v1(
+            &client,
+            store.as_ref(),
+            instrument,
+            "BTCUSDT",
+            "1m",
+            bounded.resume_from_ms,
+            RETRIEVAL_NS,
+            u64::MAX,
+        )
+        .await
+        .expect("the resumed call finishes the day");
+        assert!(rest.caught_up);
+        assert_eq!(
+            bounded.committed.written + rest.committed.written,
+            1_440,
+            "the two calls together wrote exactly the whole day, no overlap"
+        );
     }
 }

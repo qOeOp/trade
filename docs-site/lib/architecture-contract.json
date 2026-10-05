@@ -3040,6 +3040,20 @@
         "noAuthorityBasis": "The custody seam performs no provider transport persistence production-write or trading effect and cannot transfer R&D request authority to Market Data"
       },
       {
+        "inventoryId": "market-data-resident-process",
+        "memberPaths": [
+          "crates/market_data_resident"
+        ],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": [
+          "market-data"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Schedule the existing REST recorder archive verification and settled-funding recorder on one sequential tick in Market Data own resident process",
+        "noAuthorityBasis": "The scheduler commits nothing itself and manufactures no Owner fact; every write it drives already belongs to an existing sealed Market Data commit path"
+      },
+      {
         "inventoryId": "rd-exploratory-replay-custody",
         "memberPaths": [
           "crates/rd_exploratory_replay_custody"

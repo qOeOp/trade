@@ -10724,6 +10724,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-market-data-resident"
+version = "0.62.0"
+dependencies = [
+ "anyhow",
+ "jiff",
+ "rstest",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "vibe-binance",
+ "vibe-core",
+ "vibe-data",
+]
+
+[[package]]
 name = "vibe-model"
 version = "0.62.0"
 dependencies = [

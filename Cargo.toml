@@ -42,6 +42,7 @@ members = [
   "crates/infrastructure",
   "crates/live",
   "crates/market_data_repair_custody",
+  "crates/market_data_resident",
   "crates/model",
   "crates/network",
   "crates/observability",
