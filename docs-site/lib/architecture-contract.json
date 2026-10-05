@@ -10636,7 +10636,6 @@
     {
       "id": "research-observation-request",
       "label": "Research Observation Request",
-      "custodianId": "rd",
       "crossBindObjectIds": [
         "strategy-artifact"
       ],
@@ -10657,12 +10656,12 @@
         "Target read-only operation reuses strategy evaluation without granting execution authority",
         "Same identity and meaning joins the same job; changed meaning is conflicting replay",
         "Observation access obeys protected partitions and data exposure accounting; no scan schedules are created"
-      ]
+      ],
+      "authorityId": "rd"
     },
     {
       "id": "research-observation-result",
       "label": "Research Observation Result",
-      "custodianId": "rd",
       "crossBindObjectIds": [
         "research-observation-request",
         "strategy-artifact",
@@ -10683,7 +10682,8 @@
         "Empty completed results differ from missing data or unknown execution",
         "Reconstructed positions never assert account positions; partial coverage never asserts complete coverage",
         "Results grant no qualification activation capital commitment or order authority"
-      ]
+      ],
+      "authorityId": "rd"
     }
   ],
   "relations": [
