@@ -2027,6 +2027,12 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
         "market_data_rd_api.lock_universe_for_strategy_input_v1(bytea)",
         "market_data_rd_api.lock_market_semantics_scope_for_strategy_input_v1(bytea)",
         "market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1(bytea)",
+        // The custody reread's pass-throughs (T0-10 (c)). Custody rows are append-only but for
+        // the chain head, which the reread never reads, so these take no lock and are STABLE.
+        "market_data_rd_api.resolve_pit_window_chain_v1(bytea)",
+        "market_data_rd_api.resolve_pit_window_rows_v1(bytea,bytea[])",
+        "market_data_rd_api.resolve_pit_window_chain_basis_v1(bytea)",
+        "market_data_rd_api.resolve_pit_window_universe_selection_v1(bytea)",
     ] {
         let name = function
             .split_once('(')
@@ -2035,6 +2041,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
         let source = REPLAY_MARKET_RD_CUT_API_SCHEMA_V1
             .iter()
             .chain(super::rd_strategy_input_custody::SCHEMA_V1.iter())
+            .chain(super::custody_strategy_input_v1::RD_CUSTODY_READ_SCHEMA_V1.iter())
             .find_map(|statement| {
                 statement
                     .strip_prefix("CREATE OR REPLACE FUNCTION ")
@@ -2051,7 +2058,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
             "SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='market_data_owner'
                     AND language.lanname='sql'
                     AND procedure.prosrc=$2
-                    AND procedure.prosecdef AND procedure.provolatile='v'
+                    AND procedure.prosecdef AND procedure.provolatile::text=$4
                     AND procedure.proparallel='u' AND NOT procedure.proleakproof
                     AND procedure.prokind='f' AND procedure.proretset
                     AND procedure.pronargs=$3
@@ -2070,6 +2077,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
         .bind(function)
         .bind(source)
         .bind(i16::from(function.contains("bytea,bytea")) + 1)
+        .bind(if name.starts_with("market_data_rd_api.lock_") { "v" } else { "s" })
         .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?

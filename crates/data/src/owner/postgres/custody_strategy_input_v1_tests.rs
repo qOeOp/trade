@@ -5,7 +5,7 @@
 use super::{
     MarketDataOwnerPostgres,
     authenticated_design_registration_v1::register_custody_design_roles_v1,
-    custody_strategy_input_v1::read_custody_frame_batch_v1,
+    custody_strategy_input_v1::{read_custody_frame_batch_v1, reread_custody_batch_v1},
     pit_role_resolution_v1::{AuthenticatedDesignIdentityV1, compose_binding_request_v1},
     pit_window_custody_v1_tests::{d, owner},
     pit_window_view_v1_tests::corrected_custody_chain_fixture_v1,
@@ -291,4 +291,72 @@ async fn postgres_a_custody_request_disagreeing_with_its_chain_is_refused_by_nam
         .expect("the request as composed registers");
     transaction.rollback().await.unwrap();
     assert_eq!(declarations(&owner).await, before);
+}
+
+/// The R&D principal's custody reread (T0-10 (c)) reads through its `market_data_rd_api`
+/// pass-throughs and the admitted port's decoders, and answers exactly what the Owner's own read of
+/// its tables answers: the same sealed view and the same chain basis for a declaration made at the
+/// chain's root, found by walking past the corrected head, and the same refusal for a view the
+/// chain does not hold. The Owner owns the wrappers, so this runs them as the Owner; the grant to
+/// `rd_owner` is proved where that principal exists, by the R&D chain's custody entry.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_the_rd_owner_reread_answers_what_the_owner_reread_answers() {
+    let owner = owner().await;
+    let (root, head, fixture_run) = corrected_custody_chain_fixture_v1(&owner).await;
+    let frames = owner
+        .pit_window_custody_frames_v1()
+        .resolve_pit_window_frames_v1(UntrustedPitWindowRunV1 {
+            head_identity: Some(root.custody_identity()),
+            ..fixture_run
+        })
+        .await
+        .expect("the fixture's run reads at the root");
+    // The run's second frame: the one the fixture's correction changes, so the root's view is not
+    // the head's and the reread must walk past the head to find it.
+    let frame = UntrustedPitWindowCustodyFrameV1 {
+        custody: fixture_run.custody,
+        head_identity: root.custody_identity(),
+        event_ns: frames.frames()[1].event_ns(),
+    };
+    let roles = roles();
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let (batch, _) = read_custody_frame_batch_v1(&mut transaction, &frame)
+        .await
+        .expect("the root's view seals");
+    let at_head = read_custody_frame_batch_v1(
+        &mut transaction,
+        &UntrustedPitWindowCustodyFrameV1 {
+            head_identity: head.custody_identity(),
+            ..frame
+        },
+    )
+    .await
+    .expect("the corrected head's view seals");
+    assert_ne!(at_head.0, batch, "the correction changed this frame's view");
+    let request = compose_binding_request_v1(authenticated(d(0x6a)), &roles[0], &batch).unwrap();
+    let mut foreign = request.clone();
+
+    if let StrategyInputBatchSourceV1::CustodyView { view_identity, .. } = &mut foreign.source {
+        *view_identity = d(0x95);
+    }
+
+    let as_owner = reread_custody_batch_v1(&mut transaction, &request, false)
+        .await
+        .expect("the Owner rereads the root's view");
+    let as_rd_owner = reread_custody_batch_v1(&mut transaction, &request, true)
+        .await
+        .expect("the R&D read rereads the root's view");
+    assert_eq!(as_owner.0, batch);
+    assert_eq!(as_rd_owner, as_owner);
+
+    for read_as_rd_owner in [false, true] {
+        assert_eq!(
+            reread_custody_batch_v1(&mut transaction, &foreign, read_as_rd_owner)
+                .await
+                .map(|_| ()),
+            Err(Registry::PitUnavailable)
+        );
+    }
+    transaction.rollback().await.unwrap();
 }
