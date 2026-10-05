@@ -4,6 +4,11 @@ This page bridges the target product architecture to the current VibeTrading eng
 developer knowledge without turning legacy prose, crate layout, examples, or reachable APIs into a second
 source of product authority.
 
+The user-confirmed product foundation is native Nautilus data/backtest services extended in place and exposed
+through separate MCPs, plus a custom R&D service. Owner labels define internal fact and permission boundaries;
+they are not instructions to build replacement engines. R&D internal calls and direct MCP calls use identical
+admission, budget, protected-read and recovery checks. Follow the [capability extension map](../architecture/capability-adoption/).
+
 ## Two documentation layers
 
 The normative layer is the published `guide`, `architecture`, `owners`, and `scenarios` roots plus the canonical
@@ -13,6 +18,34 @@ behavior of a change.
 The implementation-reference layer remains in the repository. It explains the current toolchain, APIs, engine
 mechanics, test harnesses, extension points, and examples. These pages are not deleted, but they are not product
 authority and are not automatically current merely because the files exist.
+
+## Research task entry map
+
+The implementation contract requires filtering design questions first: inspect Nautilus mechanisms retained in
+the current repository, native extension points and official documentation; adopt mature existing mechanisms
+rather than turn standard engine behavior into user choices or strategy parameters. Ask only when user intent
+cannot be established from existing stories or measurements show a native capability gap; explain the available
+mechanism, exact gap and user-relevant tradeoff. Verify framework capability, current-version code and product
+consumer wiring separately. Newer official docs do not prove this candidate is implemented. Reuse preserves Owner
+authority, frozen research protocols and protected boundaries.
+
+Start with the [Research scenario](../scenarios/research/) and the exact current candidate. Select the earliest
+missing transition, then read its producer, consumer, and boundary dependencies through this map.
+
+| Bounded outcome                                                    | Owning design                                                                | Acceptance consumer                                                                                         |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Register a family and resume counted experiments within user scope | R&D Intent, census, data‑read lineage, spend cap; Product Edge authorization | Agent registers before outcome reads and resumes a trial by native identity                                 |
+| Compile R‑1u and R‑1s JSON into immutable artifacts                | R&D authoring; Strategy Factory shared lifecycle/order contract              | Real simulator exercises resting entries, expiry, protection, partial exits, fill feedback, and event order |
+| Produce an asynchronous perpetual research report                  | Market Data custody; R&D run admission; Backtest Result                      | Native report includes funding, costs, portfolio risk/return, overlap, comparisons, and trade diagnostics   |
+| Diagnose, park, stop, or review new evidence                       | R&D Iteration Decision and knowledge ledger                                  | Losing and unresolved trials remain visible; nonqualification does not close a mechanism                    |
+| Qualify and maintain record‑only forward evidence                  | Qualification; Backtest shared replay semantics                              | Binary public verdict, protected internal detail, persistent simulated orders, and no trading effect        |
+| Reproduce dynamic B3 and multi‑leg carry after R‑1                 | Strategy Factory dynamic universe; Market Data and Backtest                  | Continuous equity/state through membership changes; multi‑leg capital, funding, and margin                  |
+
+This map does not claim implemented maturity or admit a Dashboard route. Verify the chosen producer and readback
+at the current candidate; an old `CURRENT` label is not evidence. Each task names one user-visible outcome, one
+Owner, the existing path it extends or replaces, and positive/refusal readbacks. Change disproved design details
+with their measurements in the same delivery. Do not create a second registry, simulator, or task ledger to bridge
+a missing native operation.
 
 ## Required Agent workflow
 
@@ -77,13 +110,15 @@ Paper or Live effects, or replace the chunk's accepted, rejected, unknown, and r
 
 ## Conflict and staleness rules
 
-The canonical Owner contract wins when a reference conflicts with the new architecture. The current source and
-repository checks win when a reference names an obsolete symbol or command. Neither source reachability nor an
-old successful example proves the target contract is implemented.
+Read the documented Owner contract as the current design, then test it against the real consumer and current
+source. A reference naming an obsolete symbol or command is stale; reachable source or an old successful example
+does not prove the target product path. A design that cannot satisfy the requested story is changed explicitly,
+with the observation that forced that change, rather than treated as a final blueprint.
 
-Do not silently repair a stale page while implementing another chunk. Record the mismatch, keep the bounded
-implementation stopped where it depends on that mismatch, and create a separate documentation correction when
-Main admits it. This prevents an Agent from widening one task into an undocumented migration.
+Main may correct in-scope stale design and implementation in the same reviewable delivery. Record the mismatch,
+replan the dependent slice, and verify the resulting contract; a separate documentation-only PR is not required.
+The user-authorization boundaries in `AGENTS.md` still apply to a purpose or route change, production effects, and
+removing a refusal, seal, bound, or invariant. Preserve unrelated work.
 
 ## Instruments that read wrong in this repository
 
@@ -193,10 +228,20 @@ because a wrong reading here lands inside the legal range of the answer rather t
   expectations and five errors under `--all-targets` while `cargo check` stayed green, which is
   exactly where a test is the only caller.
 
-## Why the old guides stay outside product authority
+## Capability maturity and development entry
 
-Product users need stable Owner journeys rather than every engine API. Development Agents need both: the stable
-contract that constrains the change and precise current implementation knowledge that makes the change feasible.
-Keeping the layers explicit preserves the useful Developer Guide while preventing historical design or example
-code from overriding R&D, Backtest, Qualification, Market Data, Risk, Execution, Recovery, or Observability
-boundaries.
+| Capability           | Current scope                                                                                                               | Task entry                                                            |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Domain MCPs          | Data, strategy authoring and backtest have independent workspaces; research MCP remains a target                            | Product Edge service contracts and corresponding `services` source    |
+| JSON authoring       | Bounded T0 subset exists; full R‑1 orders, conditional cancel and staged exits require extension                            | R&D authoring and Strategy Factory typed BFP                          |
+| Native replay        | Input custody, execution service and Result identity branches exist; feature/wiring determines reachability                 | Backtest and R&D run composition                                      |
+| Reports              | Current run report route still returns `RUN_HAS_NO_RESULT`                                                                  | Durable Result to served report, never operational logs               |
+| Multi‑timeframe data | Native series and PIT custody have defined integration; served series do not imply execution admission                      | Market Data; execution whitelist `1w/1d/4h/1h`                        |
+| Complex strategies   | Direct BFP Host, independent trades, portfolios, dynamic universe, staged protection and local refinement have dependencies | Owning chapter prerequisites and positive/failure acceptance          |
+| UI                   | Custom Dashboard preview admits individual routes/atoms                                                                     | Exact Dashboard contract, not implicit wider implementation           |
+| Trading node         | Native node/trust layer is a target; Paper/Live not admitted                                                                | Architecture rules and unique Runtime/Risk/Execution responsibilities |
+
+Verify status against exact source, wiring and consumer results. A merged fragment, target or open PR is not a
+complete feature. Deliver the earliest missing dependency: data coverage → request/authoring → native execution →
+Result/report → research decision. Do not invert dependencies or create replacement engines. Integrate document
+changes into their owning body and direct links, retaining no revision diary or competing blueprint.

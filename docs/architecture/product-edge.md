@@ -2,25 +2,31 @@
 
 ## Responsibility
 
-Product Edge is the application and conversation boundary. It turns attended UI or natural-language intent into
-bounded requests and returns read-only product views. The product surface is the Trade-owned Dashboard in
-`product/dashboard`; its `/api/mcp` endpoint exposes the same admitted operations to optional external
-conversation clients. The deployment package in `product/rd-workbench` deploys PostgreSQL, the Owner APIs, and the Dashboard;
-the Dashboard effect worker is the only executor path, and there is no production deployment.
+Product Edge is the protocol and application boundary for bounded requests and result views. The target research
+entry is a set of MCP services: Market Data and Backtest extend the current Nautilus modules; R&D is the custom
+research service. MCP translates typed requests and identities, without becoming another data or trading engine.
+The [capability extension map](capability-adoption/) defines this foundation and its internal responsibility boundaries.
 
-## Product surface and package
+<a id="product-surface-and-package"></a>
 
-The target distribution is one VibeTrading Docker Compose package, not one monolithic image. It composes the Trade
-Runtime and Owner APIs, the Dashboard, their required persistence and
-local ingress.
+## Product surface and deployment
 
-The product entry is `product/dashboard`: one independently buildable `trade-dashboard` image carrying the
+The target package exposes the data, backtest and R&D service capabilities to an external agent. Deterministic
+jobs remain owned by the service behind each MCP, not by the caller session. R&D may call the services through
+internal typed APIs; external agents choose research hypotheses and iterations. Product correctness requires
+neither an embedded model nor a particular agent vendor. The custom Dashboard is the first-party user view and control client,
+not a prerequisite for completing a research journey through MCP.
+
+The existing Compose package and Dashboard preview below are current implementation inventory, not proof that
+this target service architecture has shipped. Deployment and real-money admission remain separate gates.
+
+**Current Dashboard preview.** The UI entry is `product/dashboard`: one independently buildable `trade-dashboard` image carrying the
 Vibe-derived shell, the shared UI atoms, and the currently admitted first-party read surfaces. It owns its browser
 session gate, the Trade-owned RunStore, and four least-privilege process roles - `dashboard-web`,
 `dashboard-effect-worker`, `dashboard-shadow-worker`, and `dashboard-shadow-scheduler`. `/api/mcp` is a stateless
 Streamable HTTP endpoint over the same typed handlers. It sits outside the browser-session gate but requires its
 own finite, scoped Bearer capability and validates Host and Origin before dispatch. Its fixed tool registry carries
-only Artifact preflight/action, Source/Research action, the Develop Composer and Replay V2 request-custody actions,
+only Source/Research action, the Develop Composer and Replay V2 request-custody actions,
 exact run detail, and bounded run-log reads; it exposes no arbitrary script, database, shell, or administrative
 tool. External conversation clients are optional consumers: they are not bundled product shells, business
 authorities, or implementation-acceptance dependencies.
@@ -38,13 +44,9 @@ image tag defaults to `preview`, the web host port defaults to `127.0.0.1:3100`,
 host port. **There is no production deployment.** The Dashboard effect worker is disabled by default, holds only
 explicit disposable-local authority, and carries no production trading authority.
 
-**The previous executor is retired.** No deployment ran it, so it left rather than waiting for a cutover: its
-typed scripts, workspace manifest and services are gone, and `product/rd-workbench` is now the **Deployment Package**
-for Postgres, the Owner APIs and the Dashboard alone. Product Edge has exactly one surface again.
-
-`Capability Adoption` records where each capability the retired shell supplied went, so that removing it did not
-quietly drop one that was load bearing. Two retired rather than moved, and the cost of the second - the sealed
-acceptance chains that only it drove - is stated there rather than left to be discovered.
+**Deployment package.** `product/rd-workbench` packages Postgres, Owner APIs and the custom Dashboard.
+Windmill is not a deployed dependency. Domain MCP workspaces are independently buildable and use their own service
+contracts. Historical sealed wire spellings retain their meanings; they do not select an active executor.
 
 Routes below the bilingual `DRAWABLE_EXACT` gate remain navigation-only placeholders; a route name or a retained
 source is not implementation authority. Production deployment remains `TARGET`. Dashboard
@@ -67,7 +69,7 @@ Dashboard's effect custody.
 | Runs, progress, logs, and streams | Operational run identity, live progress, diagnostics, and UI streaming                      | An operational run ID, percentage, result, or log is not an Owner receipt. Operational retention is bounded, so durable research artifacts and outcome facts remain with Trade Owners.                                               |
 | Schedules                         | Trigger bounded research, scanner, replay, report, and maintenance work                     | A schedule is not a deployment registry, lifecycle authority, or live strategy runtime. Correctness uses an error path and same‑request resolution at the executor level.                                                            |
 | Workers and workload isolation    | Queue‑backed execution and workload isolation by admitted role                              | Worker loss leaves the business result unresolved until the receiving Owner is queried.                                                                                                                                              |
-| Bounded reasoning step            | Optional bounded internal R&D reasoning step with explicitly admitted tools                 | Agent memory, model output, and tool‑call success are non‑authoritative. The step gets no arbitrary shell, Owner SQL, lifecycle, Risk, Execution, secret‑management, or workspace‑management capability.                             |
+| External agent tools              | Host agent submits and queries domain MCP operations                                        | Product runs no model; agent cannot write Owner SQL, mint lifecycle/risk permission or inspect secrets.                                                                                                                              |
 | Connection config and secrets     | Typed connection configuration and opaque credential custody                                | Executor secret access is not Operator Authorization. Least‑privilege paths are mandatory; secret values never enter prompts, Owner requests, logs, artifacts, or receipts.                                                          |
 | Operational state                 | UI preferences and explicitly rebuildable non‑authoritative caches only                     | Research lineage, receipts, Qualification, Governance, Runtime, Risk, Execution, and Portfolio truth, including Execution‑owned Recovery truth, are forbidden. Long‑lived artifacts use Owner storage or admitted object storage.    |
 | Deployment versions               | Repository‑first source for the application, its operations, schedules, and resource schema | Deployed state is a projection of the repository. Promotion records the Git revision, image digest, schema versions, and rollback target as one compatibility cut.                                                                   |
@@ -116,31 +118,12 @@ same-attempt resolution returns the exact `CLAIMED` claim and the sole action
 successor claim or invoke the provider a second time; after `INVOCATION_STARTED`, the only safe projection is
 manual provider reconciliation unless an authoritative terminal Owner receipt exists.
 
-### Retired sealed Source Intake acceptance topology
+### Source intake and composition acceptance
 
-Source Intake had one explicitly separate, compile-time `SEALED_ACCEPTANCE` composition. It retired with
-the product shell that deployed and transported it, because the shell was its only driver. No first-party
-equivalent exists yet, so Source Intake currently has unit coverage and no sealed chain.
-
-What that composition proved is recorded here so a replacement cannot quietly prove less. It replaced only
-the provider boundary with a sealed adapter over a fixed DOI corpus, fixed response bytes, and deterministic
-rejection cases; it used a non-public provider identity, had no external network capability, and shared no
-database, volume, workspace, or mutable state with production or another acceptance run. It still traversed
-the production Product Edge admission gateway, the same Source Intake Owner orchestrator, durable
-claim/start, move-only permit, R&D PostgreSQL atomic terminal transaction, terminal receipt, and readback.
-
-Its runner established five things, and a first-party replacement owes the same five:
-
-1. deploy one exact identity and invoke `RUN`, the same `RUN` again, and same-request `RESOLVE`;
-2. verify one full `RETRIEVED` receipt and its content-addressed locator, content digest, acquisition
-   provenance, Source Candidate, and outbox records;
-3. verify a sealed policy rejection causes zero provider invocations and zero positive records;
-4. induce loss of the first `RUN` response after provider execution and the atomic terminal commit, resolve
-   the same attempt, and prove provider invocation count is exactly one; and
-5. remove every isolated resource, then read back that each is absent and no shared target changed.
-
-Passing such a runner is `SEALED_ACCEPTANCE` evidence only. It was never evidence that production policy,
-time, DNS, rights, credentials, egress, PostgreSQL, or a live provider is ready.
+Source intake, R&D authoring and replay require composed acceptance through current service contracts. A fixed
+corpus or isolated database pass proves only that bounded chain, not provider authenticity, default deployment,
+external effects, Paper/Live or trading. Isolate executor, database, network and volumes and prove baseline
+preservation after cleanup. Response loss and restart resolve the same receipt without repeating completed effects.
 
 ### Source Intake-to-Composer D0 contract
 
@@ -306,17 +289,13 @@ policy/rights/DNS/credentials/egress, `PRODUCT_CURRENT`, Paper, Live, deployment
 trading effect remain unavailable and outside this acceptance authority. Passing the fixed-corpus, fixed-adapter,
 isolated PostgreSQL runner is `SEALED_ACCEPTANCE` evidence only and never production readiness.
 
-The external conversation client and any internal reasoning step are separate credential planes. A client may use
-its own model provider key before calling MCP; an internal step uses an independently scoped resource. Neither
-model credential authenticates to Trade, and sharing one provider account is an operator choice, not an
-architecture dependency.
-
-The vendor capability evidence that once backed this floor retired with the shell it described. A first-party
-executor is audited against its own source and deployment package, not against a vendor's documentation cut.
+Model credentials belong only to the external agent host. Domain credentials belong to the service environment;
+no tool argument, result, Artifact or log carries secret values. Model accounts do not authenticate Trade requests,
+and the product has no internal model invocation or shared model session.
 
 ## Agent-outside R&D authoring
 
-The user decided on 2026-10-03 that the agent stays outside the product and the rules stay inside it
+The agent stays outside the product and research rules stay inside it
 ([Product loop](../guide/product-loop/#agent-outside-rd-experience)). A person works with an agent of their choosing,
 such as Claude Code or Codex, and that agent invokes the admitted typed R&D operations through the external-agent
 tool surface below. The agent supplies ideas, authoring documents, diagnosis and literature; it never authors a
@@ -326,14 +305,6 @@ The tool surface carries operation requests and bounded results, not an LLM sess
 entitlement, or credential. It holds the credentials it presents to the Owners, and no tool argument or result
 carries one. Secret values never enter tool payloads, Owner facts, Artifact metadata, or logs. The product makes no
 model call: a strategy reaches it only as an authoring document an Owner compiles and seals.
-
-**Superseded by that decision.** This section previously admitted two Agent roles. A **Conversation Agent** ran in
-the attended Dashboard or an external client and submitted or queried typed operations. A server-side **R&D
-Execution Agent** ran in an executor-supervised run and the Development Sandbox, continued after the conversation
-disconnected, generated strategy code through an in-product model call, and submitted candidate outputs through R&D
-Owner ports. Both roles are withdrawn rather than deferred; the external agent takes the first one's place and the
-authoring documents take the second's. The separation they protected, no session or credential pass-through between
-a client and a long-running job, now holds because there is no in-product job that runs a model at all.
 
 An accepted revision request starts a new governed R&D attempt. It either produces a new immutable,
 content-addressed Strategy Artifact and its own build and exploratory evidence, or closes with the native
@@ -362,30 +333,48 @@ evidence.
 
 ### TARGET - External agent tool surface
 
-This section states a contract with no implementation; it grants no permission to deploy it beyond the slice that
-builds it.
+This section records the domain-tool target and the bounded slices already present. The full
+[Research scenario](../scenarios/research/) remains a target; a server handshake or an isolated authoring run does
+not prove that journey.
 
-**Today.** No command line exists. The Dashboard's `/api/mcp` registers five tools
-(`product/dashboard/lib/dashboard-mcp-server.ts:134-193`): the Source and Research action, the exploratory Replay action, the Develop Composer action, and the run detail and
-run log reads. It serves only under the opt-in `dashboard-preview` profile.
+Windmill was removed in #581; the custom Dashboard replaces its product UI. Historical identifiers such as
+`WINDMILL_PRODUCT_EDGE` in existing custody/routing contracts do not describe an active Windmill deployment.
+The external agent composes domain MCP tools; a `backtest.run` is still one server-side job, not fifteen agent
+steps. Internal service calls follow [one-way layering and value passing](../guide/architecture-rules/#owner-layering-and-inter-owner-trust).
+Strict input trust verification occurs at the outer boundary; internal consumers do not reread upper layers to
+verify their values. Budget enforcement, holdout isolation and unknown-result handling remain mandatory.
 
-**Shape: a catalog of domain MCP servers.** The user decided on 2026-10-03 that the tool surface is split by domain.
-Each domain is one MCP server, run by the service that owns the domain, and the agent is the only orchestrator:
+**Source inventory at `e71aedb332fdcbcc8a1c18e7822d355bfa19e47e`.** Dedicated stateless stdio servers exist at
+`services/market-data-mcp`, `services/strategy-authoring-mcp`, and `services/backtest-mcp`, with local deployment
+wrappers under `product/rd-workbench`. The Dashboard also retains its `/api/mcp` surface. Current acceptance and
+limits belong to the relevant Owner pages; this inventory establishes neither deployment nor operation-level CLI
+parity. It supersedes the old statement that only the preview Dashboard has tools.
 
-- no MCP server calls another one, and no tool hides a multi-domain workflow;
-- data passes between servers by reference: a backtest names its data with a `dataset_ref`, the serving side
-  resolves it by reading down into Market Data, and the values never pass through the agent;
-- every rule lives in the Owner behind the server, never in a tool. A tool sends the request that Owner already
-  admits from any channel, adds no authority and skips no check, and passes each refusal through by name;
-- each server is also a command line over the same functions, with the same tool names, so a script and an agent
-  reach the same Owner behaviour.
+**Shape: Nautilus-based services with separate MCP interfaces.** The user confirmed on 2026-10-06 that data
+and backtest services extend the existing Nautilus implementation to satisfy product requirements; R&D is the
+custom-developed service. This replaces the earlier claim that the agent must orchestrate every deterministic
+step. It does not mean one unified MCP for the entire product.
 
-This replaces the single `rd-run-research` entry this section stated before (one binary whose `run` command
-sequenced every step from instrument admission to report): the orchestration it held moves to the agent, and its
-per-domain steps move to the server of their domain.
+- Market Data MCP exposes the extended native data service; Backtest MCP exposes the extended native backtest
+  service. R&D MCP exposes research admission, authoring, experiment tracking and decisions. The current
+  `strategy-authoring-mcp` inventory does not by itself prove the full target R&D service.
+- R&D consumes data and backtest through typed internal APIs. MCP transports are external interfaces, not
+  internal service dependencies. Deterministic data preparation and job dependencies belong to the services;
+  the external agent owns research choices within frozen boundaries.
+- Data passes by reference, not through the agent. The consuming service resolves and records the exact
+  admitted custody. Job identities, status and results persist beyond an MCP disconnect.
+- All entry paths, including direct Backtest MCP calls and internal R&D calls, enforce the same scopes and
+  refusals. Research trials require registered admission and count against the frozen budget and trial ledger;
+  unknown attempts remain counted and resolve by the same identity rather than blind retry.
+- Native execution/cache/portfolio retain trading truth. Research and custody extensions add their own
+  explicitly assigned records, not an independently advancing mirror order book or account ledger.
+- Shared framework code does not combine credentials, protected caches or database permissions. Protected
+  reads and bounded public verdicts remain enforced inside the services, not only at MCP dispatch.
+- CLI parity, where provided, uses the same typed service operations and checks; it is not evidence that the
+  complete research journey is implemented.
 
-**`dataset_ref`.** A plain description of one slice of market data: the instrument, the execution timeframe (`1d` or
-`4h`) and the half-open range `[start, end)` in event nanoseconds. It is not a token anything issues: the agent writes
+**`dataset_ref`.** A plain description of one slice of market data: the instrument, the execution timeframe (`1w`, `1d`, `4h` or
+`1h`) and the half-open range `[start, end)` in event nanoseconds. It is not a token anything issues: the agent writes
 it from what `coverage` reports. The service that consumes it resolves it inside Market Data's custody at the moment
 it runs, and refuses it by name when that custody does not cover it, as `DATASET_REF_UNRESOLVED`, or when the
 timeframe is not an execution timeframe, as `TIMEFRAME_UNSUPPORTED`. The custody the run resolved is recorded with
@@ -398,7 +387,7 @@ the run, so a replay reads the same data.
   `INSTRUMENT_UNKNOWN`.
 - `admit_instrument(symbol)` → the admission receipt for the venue symbol (such as `BTCUSDT`), which Market Data maps
   to its canonical instrument, or the admission refusal by name.
-- `backfill(instrument, timeframe, range)` → a `job_id`. `timeframe` is the execution timeframe, `1d` or `4h`, and the
+- `backfill(instrument, timeframe, range)` → a `job_id`. `timeframe` is the execution timeframe, `1w`, `1d`, `4h` or `1h`, and the
   `1m` bars the fills read are backfilled with it; any other timeframe is `TIMEFRAME_UNSUPPORTED`. Other refusals:
   `INSTRUMENT_UNKNOWN`, `RANGE_INVALID`.
 - `job_status(job_id)` → the job's state, one of `QUEUED`, `RUNNING`, `SUCCEEDED` or `FAILED`; the coverage it added
@@ -421,8 +410,15 @@ the run, so a replay reads the same data.
 - It belongs to R&D's authoring layer (Strategy Artifact): it authors, compiles and checks, and keeps immutable
   versions. It does not register a qualified strategy or own its lifecycle and capital, which is Strategy Governance
   and a later `governance` server, and it does not run anything, which is Runtime.
-- A spec is the single-threshold authoring request without its three identities, including its exit fields. A
-  strategy is bound to no Research request.
+- **CURRENT bounded catalog:** a spec is a single-threshold statement without Research identities. Its independent
+  authoring acceptance remains useful, but it cannot establish the R-1 user story.
+- **TARGET research authoring:** the agent submits a versioned JSON authoring document, starting with `research.strategy-authoring.v1`. R&D compiles it to
+  Design and program meaning, validates that output with the same Owner checks, and seals an Artifact under the
+  frozen Research Intent. Final identities, bounds, receipts, and execution state are Owner-derived. The language
+  must cover R-1's resting limits, expiry, fill feedback, partial exits, stop moves, and holding limits before the
+  first complete research journey can pass. New grammar or execution semantics use a versioned successor; frozen V1
+  documents retain their original compiler and meaning. Unsupported behavior is refused, never approximated by a simpler spec.
+  See [R&D authoring](../owners/rd/#strategy-authoring-surface) and the Strategy Factory shape envelope.
 - `validate(spec)` → `VALID`, or every violation by the authoring compiler's own name, writing nothing.
 - `create(spec)` → `strategy_id`, the content digest of the canonical spec. Creating the same spec again returns the
   same id.
@@ -435,80 +431,47 @@ the run, so a replay reads the same data.
 
 **`backtest`**, served by R&D's run route, which calls Backtest:
 
-- `run(strategy_id, dataset_ref, cost_profile)` → a `run_id`. The whole replay runs on the server side in one call.
-  R&D reads the strategy's spec by value, forms the Research goal for this run, authors and freezes its Design, and
-  resolves the slice from Market Data; it passes both to Backtest by value, so Backtest never reads back into R&D and
-  every call points down the layers. The Design's identity exists only inside the run and is never exposed as a
-  strategy id. Every run is counted as a trial in R&D's census before its result is shown, as every exploratory
-  Result is today. Refusals: `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`,
-  `DATASET_REF_UNRESOLVED`, `TIMEFRAME_UNSUPPORTED`, `COST_PROFILE_UNKNOWN`.
-- `status(run_id)`, `list_runs(filter)`.
-- `report(run_id)` → the run report, including fees, funding and the random-entry control. Until Qualification
-  registers its holdout partition, every report states that no holdout partition is defined and that the result is
-  exploratory only.
-- **TARGET:** once the partition is registered, `run` refuses a window that overlaps a protected period as
-  `HOLDOUT_WINDOW_OVERLAP`.
-- Accepted on its own when one created strategy runs on one `dataset_ref` and its report reads back with fees,
-  funding and the control.
+- **CURRENT bounded route:** `run(strategy_id, dataset_ref, cost_profile)` is the existing single-threshold route.
+  It forms a goal inside the run. That shape is a limited authoring-to-report slice, not preregistration for an
+  autonomous research family, and must not be described as the full research loop.
+- **TARGET research route:** a versioned run request also names an already frozen Research Intent and its admitted
+  trial. R&D checks the Artifact, scope, execution semantics, cost profile, predecessor data reads, and resource
+  allowance before dispatching a deterministic job. It cannot invent a hypothesis after reading results. Requests
+  and failed or unknown attempts remain counted; exact retries join the same request.
+- Submission returns a durable `run_id`/job reference; `status`, `list_runs`, and `report` observe it later. The
+  serving domain owns job execution and recovery, so the MCP process or agent session can end without losing it.
+- `report` binds native Result identities and states data coverage, event-order resolution, fees, funding,
+  slippage, margin and capacity assumptions. Portfolio return, drawdown, exposure overlap, and holding/cash
+  comparisons are primary; random-entry controls and per-trade diagnostics explain causes. Exploratory detail is
+  readable, protected Qualification detail is not.
+- Before a protected partition exists, reports explicitly remain exploratory and cannot establish independent
+  qualification. Once registered, overlapping research reads and runs are refused as `HOLDOUT_WINDOW_OVERLAP`.
+- Full acceptance is the R-1 journey in the Research scenario, including session restart, losing and failed
+  trials, and native readback. Single-threshold report acceptance remains a smaller current slice.
 
-**`research`**, served by R&D's research ledger (TARGET; ready to build once Phase 3's T0 acceptance passes):
+**`research`**, served by R&D (TARGET; required for the complete R-1 journey):
 
-- It is a read-mostly ledger over facts R&D's Owner model already commits; this server adds no new storage and
-  computes no new decision. It exposes, by tool call, exactly what R&D's TrialFamily, Census Frontier
-  (`crates/strategy_factory/src/trial_family.rs`), and Iteration Decision admission path
-  (`crates/strategy_factory_rd_owner_api/src/iteration_decision.rs`,
-  `.../iteration_result_admission.rs`) already hold today - the same facts `backtest.run` already counts "every
-  run... as a trial in R&D's census before its result is shown" (above).
-- `register_hypothesis(mechanism, falsifier, smallest_effect_of_interest, variant_count, source?)` →
-  `hypothesis_id`. Forms the TrialFamily exactly as R&D's existing formation path requires: before any attempt of
-  that family runs, sealed into the family's decision-policy binding. One hypothesis is one TrialFamily, 1:1; no
-  Research Intent layer sits under it here. `variant_count` is the declared number of variants the hypothesis
-  states up front, for the multiple-testing correction - it is not a trial cap and is not
-  `TrialFamilyPolicyV1.trial_budget`, which the Owner already enforces as a hard ceiling on attempts
-  (`consumed_trial_budget > trial_budget` is refused in `crates/strategy_factory/src/trial_family.rs`); the user
-  removed the trial-budget hard cap on 2026-09-27 and kept only a spend cap, so this tool must not read as
-  reintroducing one. `variant_count` is therefore a new field this server's write forms on the hypothesis, not a
-  read of the existing budget field. Refused by name, `DATA_ALREADY_READ`, when Market Data's agent data-read
-  ledger shows this agent already read data the hypothesis's falsifier or smallest-effect claim depends on - R&D
-  already reads that ledger downward of Market Data ("Agent data-read ledger" in
-  [Market Data](../owners/market-data/)); this tool reuses that existing read, it does not add a second one.
-- `list_trials(hypothesis_id, filter?)` → every trial the family's Census Frontier counts - including losing,
-  rejected, invalid and unknown trials, because the Census Frontier already does. Each trial is the reference
-  triple (`run_id`, `strategy_id`, `dataset_ref`) exactly as the `backtest` server's `run` call formed it: R&D
-  forms and stores that triple itself before it ever calls Backtest, so answering this needs no call back into
-  `backtest` and breaks no "no MCP server calls another" rule. Each trial also carries its outcome category:
-  `COUNTED_NO_DECISION`, or the committed Iteration Decision outcome by name (`REPAIR_INPUTS`, a successor, or a
-  terminal stop) - never the Diagnosis detail behind it. The Iteration Decision's Diagnosis input stays entirely
-  inside `backtest.run`'s existing result-admission path; this server adds no separate write for it. Today's
-  TrialFamily HTTP surface answers only the family's root and one expanded member, not every member resolved to its
-  fact; this tool needs R&D's own new read, "TARGET - Trial family member readback" in [R&D](../owners/rd), landed
-  first.
-- `census(hypothesis_id)` → the family's current state, read-only: trial count, the consumed trial budget
-  (`TrialFamilyCensusFrontierV2.consumed_trial_budget`), and whether the family is open, closed, or at a terminal
-  stop. `consumed_trial_budget` counts trials, not spend - R&D's own spend cap (US dollars per UTC calendar
-  month) is a TARGET, not yet a recorded fact ("TARGET - Cumulative trial accounting and the spend cap" in
-  [R&D](../owners/rd)). Until that fact exists, this tool reports the trial count under its own name and does
-  not call it spend. The open/closed/terminal-stop state is likewise not yet answerable by any existing route; it
-  depends on the same new R&D read as `list_trials`, above.
-- **Red line (verdicts, never values).** Every output above states an outcome category or a count, never a
-  holdout measurement, a per-trade result, or Diagnosis detail - the same discipline Qualification's `verdict`
-  tool already holds for its own holdout (below): a research-ledger answer cannot leak what a later qualification
-  pass must independently prove. `docs/plans/research-knowledge-ledger-seed.md` already applies exactly this
-  discipline by hand while importing `research/ronnie`'s findings: only development-side figures are carried,
-  holdout/validation/final tiers are excluded, and only the pass/not-pass bit survives from a gatekeeper-held
-  tier. This server's red line is that same rule, enforced by the tool surface instead of by hand.
-- **Red line (no hypothesis after its data).** `register_hypothesis` is the one write this server owns; every
-  other fact here is written by `backtest.run` (through Backtest) or by R&D's own admission of that run's result,
-  never by this server directly - so the rule has exactly one enforcement point to audit.
-- **Out of scope.** The factor ledger and family-status/closure record (`knowledge`, below - a cross-loop view
-  over many families' flagged factors that R&D also holds, but a different fact than this server exposes);
-  authoring or creating strategies (`strategy-authoring`); running anything (`backtest`); any holdout or protected
-  value (Qualification, never reachable from here).
-- Accepted on its own when, using only this server plus the existing `backtest` server, an agent can register a
-  hypothesis, see it refused once already-read data is retried, run a `backtest.run` trial against it, and read
-  that trial back through `list_trials` and `census` with its correct outcome category and consumed budget -
-  reproducing, end to end, one loop of the `research/ronnie` simulation's protocol (hypothesis, register, run,
-  report; `loop/PROTOCOL.md` on `claude/inspiring-gauss-pxaril`).
+- Registration freezes a sourced hypothesis, mechanism, discriminating prediction, falsifier, smallest effect of
+  interest, declared variant-generation rule, data scope, and policy before the experiment's outcome data is read.
+  R&D computes variant cardinality from the frozen rule; a caller's hand-stated count does not become authority.
+- The response binds the Research Intent, permanent TrialFamily, and census frontier. A family can have successor
+  Intents, so hypothesis, family, and each experiment are not flattened into one identity. Prior data reads are
+  checked through Market Data's ledger and complete predecessor lineage; existing knowledge can motivate a new
+  experiment, but previously seen outcomes cannot be relabeled as independent validation.
+- The agent may open a new mechanism family within the user's frozen theme and resource allowance. A protocol or
+  scope change outside that mandate needs a new user request. Each round proposes diagnosis and a successor or
+  stop; only R&D admission creates its Iteration Decision.
+- `list_trials` and `census` resolve every admitted attempt, its native run/report references, outcome category,
+  and count, including failure and unknown. Trial count and resource spend are distinct; legacy trial-budget
+  fields remain legacy facts until their documented migration, never a new spend report.
+- No tool writes a ledger row or decision directly. Every write invokes the existing R&D operation and receives
+  its native receipt. A missing producer or readback is an implementation dependency, not something the MCP
+  adapter fabricates.
+- Protected values, verdict reasons, and per-trade protected records remain inaccessible. Public
+  `CLOSED_NOT_QUALIFIED` does not close a research mechanism. Exploration diagnostics are available through their
+  native Result references.
+- Acceptance registers an experiment, rejects an invalid preregistration, runs its frozen Artifact, and reads
+  the complete attempt and Iteration Decision back after a session restart, without any protected detail.
 
 **Later servers (TARGET).** Each is a blueprint; its details are fixed when its stage comes.
 
@@ -519,8 +482,8 @@ the run, so a replay reads the same data.
 - **`qualification`**, served by Qualification: `submit_candidate`, `status`, `verdict`, `forward_register` and
   `forward_status`. Red line: no holdout value ever leaves. Today Qualification projects every negative terminal
   byte-equivalently as `CLOSED_NOT_QUALIFIED`, so `verdict` answers `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; the
-  three-level verdict (pass, equivalent-null, inconclusive) relaxes that stated seal and needs the user's authorization
-  before it is built.
+  internal assessment may distinguish pass, equivalence to null, and insufficient evidence, but the user confirmed on
+  2026-10-05 that those categories remain protected. No public negative verdict closes a research mechanism.
 - **`scan`**, served by Scanner: `create_schedule`, `list_schedules`, `scan_now` (the discovery view) and `results`.
   Red line: a scan result is never activation authority.
 - **`governance`**, served by Strategy Governance: `list_eligible`, `propose_activation` (Paper or Live), `pause`,
@@ -582,12 +545,10 @@ work where its lifetime already is:
   once it is. Qualification answers only through its public status.
 - A refusal passes through by its name. Nothing is folded into a generic failure.
 
-**The Dashboard MCP.** The Dashboard's `/api/mcp` is not an entry for agents, and it is not extended with these
-commands. It stays for the preview interface:
-
-- its Artifact Formation preflight and Artifact action tools served the in-product model build, which the same
-  decision retired, and were removed with it;
-- its other tools stay. Whether it retires is decided once the commands above cover its reads.
+**Dashboard MCP.** `/api/mcp` is a bounded preview-operation channel, not the external research agent's domain
+entry or a research-tool aggregator. Its current tools are Source/Research, Develop Composer, Replay V2 request
+actions and exact run/log reads, using the same typed handlers and admission as the browser. It exposes no Artifact
+Formation preflight/action or internal model-build tool.
 
 ## Agent Shell deployment binding
 

@@ -340,31 +340,10 @@ request/result equality. A rejected, invalid, nonterminal, or mismatched result 
 
 ## TARGET - Trading node
 
-**Authorization.** On 2026-10-05 the user authorized building the trading side as one in-process node, assembled
-from the inherited live node, `RiskEngine` and `ExecutionEngine` plus a thin trust layer of this product's own. The
-choice was made in a structured question that listed each stated invariant this section moves. The authorization
-moves those invariants and nothing else. It admits no Paper or Live path, no production write, and no real trading:
-Paper and Live stay `TARGET / NOT_ADMITTED` exactly as Paper and live parity states.
-
-**Why, as measured on `main` at `0ae095623`.** The inherited crates already provide each mechanism the write chain
-below was going to build across Owners:
-
-- `LiveNode` (`crates/live/src/node/mod.rs:146`) starts its clients, runs startup reconciliation (`:394`, `:676`)
-  and hosts strategies through the trader (`crates/system/src/trader.rs:686`).
-- `RiskEngine` (`crates/risk/src/engine/mod.rs:68`) sits synchronously between a strategy and `ExecutionEngine`. It
-  checks each order (`check_order`, `:896`), throttles submits and modifies (`:72-73`), bounds notional per order
-  (`:74`), and switches `TradingState` between active, halted and reducing (`:402`, `:874`).
-- `ExecutionEngine` (`crates/execution/src/engine/mod.rs:99`) and `OrderManager` (`order_manager/manager.rs:24`)
-  own the order lifecycle.
-- The `reconciliation/` module (`orders.rs:296`, `:683`; `positions.rs:395`) and the live `ExecutionManager`
-  (`crates/live/src/execution/manager.rs:378`, `:475`, `:1400`) reconcile against the venue.
-
-The cross-Owner protocol below (steps 6-10: Reservation Claim, `PREPARED`, Adapter Admission, `ADMITTED_ONCE`,
-`INVOCATION_STARTED`) exists only because Risk and Execution were separate services. In one process, the risk check
-already happens exactly once, synchronously, before the engine accepts an order. About 450-550 lines of planned
-Owner design in this page and the Risk, Execution and Runtime pages describe that protocol, and none of its code
-exists: `crates/runtime` is 182 non-test lines whose only state is `NotReady`, `crates/risk_owner` is 583, and
-`crates/execution_owner` is 2,529, almost all of it adapter-binding custody.
+The trading target assembles inherited `LiveNode`, `RiskEngine` and `ExecutionEngine` with a thin product trust
+layer. The gates below relocate authorization, invocation ordering and capacity invariants inside one node rather
+than duplicating native state machines across services. This target admits no Paper/Live path, production write or
+real trading. Native startup, trader, risk checks, order lifecycle and reconciliation are the implementation base.
 
 **The node.**
 
@@ -415,24 +394,16 @@ exists: `crates/runtime` is 182 non-test lines whose only state is `NotReady`, `
   venue from outside a wedged node stays `TARGET`, unchanged;
 - the Recovery Case and its audited `KNOWN_CLOSED` closure.
 
-**What this moves.**
+**Execution authority and compatibility.** The pre-submit gate and native RiskEngine synchronously decide
+admission before an order reaches an execution client. The in-process frontier retains liability until supported
+fill/cancel/settlement replaces or releases it. Native order states and the raw event log provide invocation-order
+evidence; the projector commits product facts. No parallel Reservation/claim or cross-service execution state
+machine is a new implementation requirement.
 
-- *Steps 6-10 of the add-risk chain* move into one synchronous pre-submit gate and `RiskEngine` check. The
-  Reservation and its claim are no longer separate facts: the in-process frontier holds the liability until the
-  projector records the fill or the cancel.
-- *Risk's Adapter Admission as the sole normal adapter-invocation authority* moves into `RiskEngine` and the
-  pre-submit gate in the same process. An order reaches an execution client only after both.
-- *Execution's Effect Journal order* (`PREPARED` before admission, `INVOCATION_STARTED` after `ADMITTED_ONCE`) moves
-  into the inherited order states (initialized, submitted, accepted, and so on) and the raw event log, projected
-  into append-only Owner facts.
-- *Separate deployment of Runtime, Risk and Execution* becomes one node deployed as one module.
-
-The real-money boundary does not move. No order reaches a venue without a Governance decision, an `APPLIED`
-receipt, a passing pre-submit gate and a `RiskEngine` check, and Live stays not admitted.
-
-**Status.** This section is `TARGET`. Where Automated trading write chain, Decrease-only lifecycle chain, the Risk
-and Execution pages, or capability adoption describe the cross-Owner protocol, that text applies until the node
-lands and is not the pattern for new work.
+No order reaches a venue without a Governance decision, an `APPLIED` receipt and passing both gates. The node is
+`TARGET`; Paper and Live remain not admitted. Existing versioned Reservation, claim, adapter-admission and journal
+records retain their original immutable bytes and refusal semantics until their consumers switch. Compatibility
+never reinterprets a record as a new-node decision.
 
 ## Automated trading write chain
 
@@ -441,30 +412,25 @@ Application Receipt. Only `APPLIED`, bound to exactly one Strategy Instance, che
 Execution Scope, artifact, and fence epoch, proves running state. `REJECTED_NO_INSTANCE` proves no instance;
 `APPLICATION_UNKNOWN` blocks duplicate application and automated intent until the same attempt is reconciled.
 
-The normal add-risk chain is exact and ordered. Steps 6-10, and the Reservation Claim and Adapter Admission they
-carry, hold until the user-authorized TARGET [trading node](#target-trading-node) lands; there they become one
-synchronous pre-submit gate and `RiskEngine` check inside the node, and steps 1-5 and 11-13 keep their meaning:
+New risk passes one ordered path inside the native node:
 
-1. Governance authorizes one generation and immutable Execution Scope under an explicit authorization mode.
-   `INITIAL_ACTIVATION`, `PROMOTION`, and automated Paper or Live require
-   `UNATTENDED_REQUEST_WITH_POLICY` plus a current Autonomous Policy Authorization. `ATTENDED_REQUEST` remains
-   non-running and decrease-only. Authorization does not prove execution.
-2. Runtime applies that decision. Only its `APPLIED` Generation Application Receipt proves one Strategy Instance.
-3. The applied instance sends one Trade Intent to Risk.
-4. Risk returns terminal `ALLOW` plus a one-use Reservation, or `REJECT` with no Reservation.
-5. Runtime sends Execution an Authorized Order Command bound to that exact decision and Reservation.
-6. Execution validates the binding and sends one stable Reservation Claim Request to Risk.
-7. Risk durably and atomically serializes one immutable `CONSUMED`, `WITHDRAWN`, or `REJECTED` claim result;
-   only `CONSUMED` permits preparation.
-8. Execution durably records one stable `PREPARED` attempt, then sends one `ADAPTER_ADMISSION_REQUEST`.
-9. Risk durably and atomically serializes admission with recovery fence activation and commits one immutable
-   `ADMITTED_ONCE`, `SUPPRESSED_BY_FENCE`, or `REJECTED` result.
-10. Only matching `ADMITTED_ONCE` permits Execution to persist `INVOCATION_STARTED` and invoke the adapter.
-11. Adapter response and authoritative readback close the Effect Journal without a naked retry.
-12. Execution reports outcome and settlement lineage to Risk, and order, fill, rejection, readback, and
-    reconciliation facts to Runtime.
-13. Execution reports account, order, fill, fee, venue, and settlement lineage to Portfolio. Portfolio publishes
-    the coherent projection bundle; Risk then closes or retains Reservation liability from that same lineage.
+1. Governance decides generation, Execution Scope and capital envelopes under explicit authorization. Automated
+   INITIAL_ACTIVATION, PROMOTION and Paper/Live require current `UNATTENDED_REQUEST_WITH_POLICY` with the complete
+   Autonomous Policy Authorization. `ATTENDED_REQUEST` remains non-running or decrease-only.
+2. The generation gate applies authority; only exact `APPLIED` starts one Strategy Instance.
+3. Shared runtime combines signals, separate sizing configuration and committed account/market facts into intent.
+4. The pre-submit gate and native RiskEngine synchronously check capacity, current permission, mode and fences;
+   rejection commits a named fact without an order effect.
+5. Native ExecutionEngine admits the command and advances order state; only commands passing both gates can reach
+   a venue client.
+6. Actual orders, fills, account, fees and drift enter the same native event/readback chain with request and
+   authorization lineage. Unknown effects recover through reconciliation only.
+7. Portfolio projects attribution, exposure and measurement at one coherent cut; the commitment frontier replaces
+   or retains the same economic liability, without duplicate reservation or release.
+
+Native order states and raw events prove invocation ordering; the product outbox projector commits durable
+custody. Existing versioned Reservation, claim, `PREPARED` and adapter-admission records are validated through their
+Owner compatibility contracts, not implemented as a second future cross-service chain or rewritten as node facts.
 
 Risk never issues an order command. Execution rejects a missing, stale, mismatched, or already consumed permit.
 Governance owns one immutable Execution Scope for every generation: strategy generation, `PAPER` or `LIVE` mode,
@@ -478,7 +444,7 @@ Authorization, and operation manifest must remain resolvable through every norma
 `ATTENDED_REQUEST` never substitutes a policy identity for any request-lineage member.
 Runtime commits local suppression and immutable `NOT_READY` readiness before publication. Risk independently
 activates the matching fence without waiting for Recovery Case acknowledgement; readiness expiry also fails
-closed. Risk first arbitrates claim versus expiry, fence, or policy withdrawal; only `CONSUMED` permits a prepared
+closed. For existing versioned admission records only, Risk first arbitrates claim versus expiry, fence, or policy withdrawal; only `CONSUMED` permits a prepared
 attempt. It then arbitrates each `ADAPTER_ADMISSION_REQUEST` versus fence activation. Only `ADMITTED_ONCE` can
 reach invocation; `SUPPRESSED_BY_FENCE` and `REJECTED`
 prove no invocation. Mixed, missing, or conflicting no-effect proof variants fail closed.

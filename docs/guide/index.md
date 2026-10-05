@@ -1,38 +1,41 @@
-# Product guide
+# VibeTrading product design
 
-VibeTrading is a governed loop for turning falsifiable market ideas into managed automated trading.
-The product is not a collection of engine APIs. Its public shape is the set of owners and handoffs
-shown in the global architecture Flow.
+VibeTrading serves people conducting quantitative research with an external AI agent. The user supplies a market
+question, risk tolerance and resource boundaries. Through MCP, the agent uses data, strategy authoring, backtest
+and research services to produce reproducible strategies, portfolio evidence and explicit next decisions.
 
-## Read this guide in order
+Data and backtest extend this repository's Nautilus foundation. The custom R&D service manages research. The
+custom Dashboard views and controls the same facts. The product runs no research model, does not require a
+conversation to drive internal steps, and does not treat exploration as trading permission.
 
-1. [Install](./install/) establishes a reproducible local foundation without granting trading authority.
-2. [Quickstart](./quickstart/) walks through the shortest safe product journey.
-3. [Product loop](./product-loop/) explains how evidence, strategies, capital, execution, and feedback connect.
-4. [Architecture rules](./architecture-rules/) defines the invariants future implementation must preserve.
-5. [Design evidence](./design-evidence/) states what mature platforms and research support and what remains our choice.
-6. [Development Chunk Contract](./development-chunk-contract/) turns one architecture contract into a bounded agent implementation loop.
-7. [Agent Implementation Guide](./agent-implementation/) connects a bounded chunk to verified current engine references without restoring legacy prose as authority.
-8. [Source Intake Playbook](./source-intake/) gives Research a high-ROI, provider-neutral external-source admission baseline.
-9. [Market Data Intake Playbook](./market-data-intake/) turns credentials and provider endpoints into rights-bound, point-in-time facts.
-10. [Observability Playbook](./observability/) defines trace, telemetry, outbox, persistence, and Dashboard projections without creating another business authority.
-11. [Trade Dashboard](./dashboard/) defines the first-party visual shell, navigation, component system, and the bounded capability set it inherited from the retired shell.
-12. [Architecture boundaries](../architecture/) separates authority Owners from shells stages and channels.
-13. [Owners](../owners/) defines the ten writers of business truth.
-14. [Scenarios](../scenarios/) describes the seven observable end-to-end stories.
+## Design chapters
 
-## What the architecture Flow means
+| Chapter                               | Content                                                                             | Canonical body                                                       |
+| ------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Product and user journey              | User inputs, agent autonomy, research, qualification and lifecycle                  | [Product loop](./product-loop/)                                      |
+| Service architecture                  | Domain MCPs, internal calls, native extensions and unique facts                     | [Architecture](../architecture/)                                     |
+| Product interface                     | Requests, jobs, status, results, credentials and Dashboard channels                 | [Product Edge](../architecture/product-edge/)                        |
+| Strategy representation and execution | JSON authoring, BFP, Artifacts, shared execution and data dependencies              | [Strategy Factory](../architecture/strategy-factory/)                |
+| Research requirements and acceptance  | R‑1 orders/staged exits, portfolio capital, dynamic universe and execution fidelity | [Research design](../scenarios/research/)                            |
+| Responsibilities and invariants       | Research, data, backtest, qualification and trading‑control authority               | [Architecture rules](./architecture-rules/) and [Owners](../owners/) |
+| User interface                        | Routes, components, interaction, states and implementation admission                | [Dashboard](./dashboard/)                                            |
+| Development and acceptance            | Current capabilities, dependencies, native reuse and bounded tasks                  | [Agent implementation](./agent-implementation/)                      |
 
-The Flow is the global projection of this documentation. A box is either a business owner, a product
-boundary, a delivery channel, a stage, or a value-stream boundary. An arrow is a directional contract:
-request, fact, policy, proposal, intent, command, effect, handoff, event, or read model.
+## Using this design
 
-The top-level map is intentionally bounded to 13 groups plus one non-authoritative Event Rail channel node,
-with no more than five modules in any group. Details that do not change authority or an owner handoff belong in the corresponding text page,
-not in the overview.
+Read the user behavior first, then the responsible service's contract. Entry chapters do not define a second
+schema or refusal policy. Target capabilities describe the complete product; `CURRENT/PARTIAL` identifies existing
+integration, `TARGET` identifies development work, and `NOT_ADMITTED` identifies missing implementation or effect
+admission. A target is not a claim of callable capability.
 
-## What this guide does not promise
+The design is revisable. When measurements or a user decision change it, update the responsible chapter and its
+direct consumers and remove superseded descriptions. Do not append competing rules for readers to reconcile.
+Immutable business records and version compatibility retain their contractual meanings.
 
-The documentation defines product responsibilities and observable contracts. It does not freeze class
-names, database schemas, network protocols, deployment topology, or implementation language. Existing
-engine capabilities are admitted only behind the owner that is responsible for their business result.
+## Setup and operation
+
+[Installation](./install/) prepares the local environment; [Quickstart](./quickstart/) describes safe research.
+[Source intake](./source-intake/), [market-data intake](./market-data-intake/) and
+[observability](./observability/) define their boundaries. [Development chunks](./development-chunk-contract/)
+implement individual features; [design evidence](./design-evidence/) explains key design grounds. They are parts of
+this same current design. [User scenarios](../scenarios/) organize its acceptance journeys.

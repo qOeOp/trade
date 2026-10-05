@@ -6,6 +6,12 @@ Exclusively own order lifecycle, external venue effects, authoritative readback,
 Case closure. Execution validates normal permits or active Risk fences before effects and reports facts to
 Runtime, Risk, Portfolio, and Governance.
 
+This responsibility runs inside the target [native trading node](../guide/architecture-rules/#target-trading-node),
+sharing inherited engines, cache, commands and events with the other trading responsibilities. Product gates retain
+unique facts and permissions. Existing versioned reservation, claim, adapter-admission and journal fields below
+are read/compatibility contracts, not requirements for parallel services or order state machines. The node target,
+reachable APIs and existing custody admit no Paper/Live or production effect.
+
 ## Authoritative facts owned
 
 - Order identity, state transitions, commands accepted or rejected, and cancellation history.

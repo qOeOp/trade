@@ -4,6 +4,12 @@
 
 Independently gate every normal Trade Intent against current policy, account exposure, and aggregate commitments. Risk owns the terminal decision, one-use reservation, same-scope commitment frontier, and emergency fence; it never owns order commands, Portfolio projections, or external effects.
 
+This responsibility runs inside the target [native trading node](../guide/architecture-rules/#target-trading-node),
+sharing inherited engines, cache, commands and events with the other trading responsibilities. Product gates retain
+unique facts and permissions. Existing versioned reservation, claim, adapter-admission and journal fields below
+are read/compatibility contracts, not requirements for parallel services or order state machines. The node target,
+reachable APIs and existing custody admit no Paper/Live or production effect.
+
 ## Authoritative facts owned
 
 - Risk Decision bound to one intent and digest, Execution Scope, policy version and cut, Portfolio account and

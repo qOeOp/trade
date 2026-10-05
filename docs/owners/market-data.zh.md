@@ -2172,34 +2172,20 @@ request window，Market Data 才返回 frame 与 schedule readback。missing、d
 或 corrupt candidate 不返回任何正向 readback。caller 不提供 schedule locator、account scope、latest selector、
 raw row、SQL、pool、credential 或 replacement store。
 
-**SUPERSEDED TARGET，Native Replay 帧序列 V2：** 下文的 PIT 窗口托管在多帧 Backtest 上取代这个 profile；序列签发
-与它的表没有调用方，由 Market Data 随 Strategy Factory 切片 T1 删除，表经迁移删除而不只是删代码，而帧 census 与
-报价 cut census 继续服务快照路径。本段文字
-保留，作为托管所继承的那些不变式的陈述。现有初始帧 resolver、
-`StrategyInputUniverseFrameReceipt` V1、BAR schedule readback 和 `NativeReplaySchedulingReadbackV1`
-保持逐字节不变。新增只能由 Owner 签发的 move-only `NativeReplayFrameSequenceReadbackV2`；该档接纳
-封存请求窗口内整条相邻且完整的双成员 frame 序列。第一帧是准确重解的 V1 初始帧，其后每一帧都来自另一份经
-Owner 验证的 PIT snapshot/batch，不得复制数值或使用测试 successor。Market Data 独立枚举窗口与决策 cut
-内的完整可用 frame，证明各帧身份不同、顺序严格递增、中间无漏帧；帧数少于两个时该档不可用。一次运行消费
-除最后一帧以外的每一帧，最后那帧只用来给它前一帧的流动性划界，所以窗口里只有一帧时一帧也不消费，而更长的
-窗口是更长的一次运行而不是一次拒绝。每帧各自保存 PIT
-cut、batch、trigger、frame、source/correction lineage、BAR schedule 和 Quote EVENT 流动性 receipt，
-后者绑定原始 Quote row digest、bid/ask 价量、事件和初始化时间及成员顺序，取自该帧的报价 cut：一份独立的、
-经 Owner 验证的 PIT snapshot，其时刻严格晚于本帧 BAR cut、严格早于下一帧的 BAR cut。一份 PIT snapshot
-只有一个时刻，所以跟在 BAR 之后的 Quote 不可能放进那个 BAR 的 cut。报价 cut 不是帧：它不取 frame 序号，
-每个被消费的帧与其后继之间恰有一个。其中两个成员的 Quote 共用它的时刻并按 canonical 成员顺序排列，Backtest
-对 `ts_init` 相同的元素按原顺序消费。sequence digest 覆盖这些证据、请求身份、窗口与准确顺序。每帧的流动性
-EVENT 在 native schedule 顺序中必须先于下一帧的第一个 BAR。各帧必须共用 canonical universe、Design/role set、Instrument Master cut、
-timeframe、venue 与 account scope，并逐一校验半开有效期和相邻时间关系。
+#### 快照与窗口执行输入
 
-Resolver 只接收由封存请求推导的首帧坐标与 Owner 认证的 Plan roles；其后每个 PIT cut、历史 schedule 和
-流动性证据都必须由 Owner 自己的持久事实解析。调用方不得提交第二 snapshot/时间、frame 清单、价量、SQL、
-pool 或替代 resolver。缺失、多出、重复、部分、乱序、跨请求/成员/lineage、过期、篡改或 ACL 漂移都不得
-签发正向 V2 能力。V2 receipt/outbox 与序列托管必须原子追加；同意义重试和响应丢失只能重新核验并回读
-原字节，意义冲突零写入。Market Data 不签发 R&D binding、Backtest Result、合成出场信号或交易指令。
+单帧快照保留 initial-frame resolver、`StrategyInputUniverseFrameReceipt` V1、BAR schedule 和 native scheduling
+的既有字节与含义；多帧历史回放使用下文的 PIT 窗口托管，不建立每帧独立 snapshot 提交链。
+Owner 枚举完整窗口与规范成员/角色/条款，拒绝缺口、乱序、跨 scope、未来、过期、更正歧义、篡改或 ACL 漂移。
+调用方不能提供 frame 列表、替代 locator、价量、schedule、pool 或 resolver。绑定、receipt 与 outbox 原子追加，
+同含义恢复相同字节，冲突零写入；Market Data 不签发 R&D binding、Backtest Result 或交易命令。
 
-这个目标所需的请求窗口 frame census 已经存在：每次 PIT snapshot fact 提交都会在其 scope 内取下一个稠密
-frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方，而且如本段末尾所记，光有调用方还不够。只有核验过的 batch 含 BAR 行的 snapshot 才取
+当前快照路径的 frame 与 quote-cut census 独立：BAR 输入用于策略，之后的已验证 Quote 用于当前成交路径，
+父/子或 BAR/Quote 不能重复产生相同成交。原生 bar execution 是独立执行目标，须冻结完整配置并验证；
+不把 BAR 回执或未经绑定的行情自行当作成交许可。快照与窗口的输入语义不相互重释。
+
+当前快照路径已有请求窗口 frame census：每次 PIT snapshot fact 提交都会在其 scope 内取下一个稠密
+frame 序号，窗口读回与序列解析按同一顺序读出它。该 census 不等于端到端运行验收。只有核验过的 batch 含 BAR 行的 snapshot 才取
 frame 序号；只含 Quote 行的是报价 cut，记入它自己的 census，永不取序号；两者都不是的不进任何 census。
 Owner 凭自己核验过的 batch 判定这一点，而不是凭请求方的 scope 声明，并且只从那份 census 为帧解析报价
 cut。每个报价 cut lineage 只在一个 cut 上读取：帧自身的 decision cut，即已封存请求所指名的那一个；若 Owner
@@ -2779,10 +2765,11 @@ U1 的历史以 T0 窗口托管的形式进入：每个成员在整个窗口上�
   层，绝不放进 R&D，那样就成了上层替下层摄入。同一个函数之上还有一个命令行，供运维使用。U1 的验收在部署镜像里对 BTC、ETH 与 SOL
   各跑一次，然后读每个成员的覆盖范围。
 
-### TARGET market-data MCP server
+### CURRENT_PARTIAL market-data MCP server
 
 [领域 MCP 目录](../architecture/product-edge#target---external-agent-tool-surface)里的 `market-data` 服务由 Market Data 提供。它是
-一个无状态的 stdio 进程，在自己的环境里持有 Market Data 的 API token，只访问 Market Data 的路由。每条规则都在路由背后的 Market
+一个无状态的 stdio 进程，位于 `services/market-data-mcp`，有独立 Cargo workspace 与 lock，不依赖 Owner crate。
+它在自己的环境里持有 Market Data 的 API token，只访问 Market Data 的路由。每条规则都在路由背后的 Market
 Data 里；一个工具只发一个请求，按名原样传回它的应答或拒绝，不做任何编排。同一组函数也是一个同名的命令行。
 
 | 工具                                     | 路由                                                    | 按名拒绝                                                                         |
@@ -2793,15 +2780,16 @@ Data 里；一个工具只发一个请求，按名原样传回它的应答或拒
 | `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`、`TIMEFRAME_UNSUPPORTED`、`RANGE_INVALID`                   |
 | `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                                    |
 | `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                                             |
-| `get_bars(instrument, timeframe, range)` | T0-5 之后，基于运行窗口托管视图                         | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
-| `get_funding(instrument, range)`         | 在下面的 funding schedule 读面之后                      | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
+| `get_bars(instrument, timeframe, range)` | `POST /v1/market-data/bars`                             | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
+| `get_funding(instrument, range)`         | `POST /v1/market-data/funding`                          | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
 
 - **列出与描述读取的是 Market Data 当前持有的。** `GET /v1/market-data/instruments` 与
   `GET /v1/market-data/instruments/{instrument}` 已是 `CURRENT`：`crates/data/src/owner/instrument_catalog_v1.rs` 读取每个标的最新的
   Instrument Master V2 fact，其链上每一环都经解码与校验，并读取为它准入的每个 economic terms 版本。交易所没有陈述的值按名写出
   （`UNBOUNDED`、`NOT_APPLICABLE` 或 `UNAVAILABLE`），绝不写成数字。这些是发现性读取，绝不是 Replay 的输入：Replay 仍然绑定一个确切的
   Instrument Master cut 并从中解析它的 terms，所以没有消费方因此获得「最新」选择器。链路条目 121 经 HTTP 读取 F 准入的永续合约。基于
-  这些路由的 MCP 服务尚未构建。
+  这些路由的 MCP 服务已构建；`get_bars` 与 `get_funding` 也已注册，但在保护分区定义之前始终拒绝。
+  实现与最新数据接入切片详见[英文现状](./market-data.md#current-market-data-mcp-server)。
 - **准入是一个 Market Data 操作。** `POST /v1/market-data/binance-perpetual-admissions` 接收一个 Binance USD-M symbol。Market
   Data 取该 symbol 公开的 `exchangeInfo` 条目，按顺序提交第一个 `COMPOSER_V3` Replay 的验收今天经各自路由提交的那些事实：kline
   Source Binding、Instrument Master fact、`exchangeInfo` Source Binding、Instrument Master V2 fact、economic terms 与历史成员资格。
@@ -2809,7 +2797,7 @@ Data 里；一个工具只发一个请求，按名原样传回它的应答或拒
   提案连同它的可用性规则只在这里构造，该标的的每次回填都读同一个提案来定位 fill 缺口。六个步骤都留在数据层。
 - **回填是 Market Data 运行的 job。** `backfill` 记录一条 `QUEUED` 的 job 事实并返回它的 `job_id`。Market Data 服务里的 worker
   取归档月份与 fill bar，构造成员的托管请求并提交，记录 `RUNNING`，然后是带托管回执与新增覆盖范围的 `SUCCEEDED`，或带拒绝名字的
-  `FAILED`。job 事实只追加，MCP 服务不持有任何 job 状态。周期是托管的执行周期：U1 支持 `1d` 与 `4h`，`1m` fill 周期随之带上，其他
+  `FAILED`。job 事实只追加，MCP 服务不持有任何 job 状态。周期是托管的执行周期：U1 支持 `1w`、`1d`、`4h` 与 `1h`，`1m` fill 周期随之带上，其他
   周期为 `TIMEFRAME_UNSUPPORTED`。
 - **覆盖范围就是托管所持有的。** `coverage` 对每个执行周期回答成员已提交的托管窗口所覆盖的半开区间，从托管链读取。它不陈述任何市场
   数值。
@@ -2827,6 +2815,16 @@ Data 里；一个工具只发一个请求，按名原样传回它的应答或拒
   结果就会泄露 holdout。分区登记之前，每份回测报告都写明没有定义 holdout 分区、结果仅作探索。
 - **单独验收**：在部署镜像里只通过这个服务，准入 BTC、ETH 与 SOL，各自回填 `1d` 及其 `1m` fill，`coverage` 显示这些窗口，并把上面每种
   拒绝各驱动一次。
+
+### 原生周期数据与执行准入的区别
+
+数据测量记录了分钟聚合与交易所原生大周期在事故日的字段差异、归档缺日、未收盘周线快照及 REST 收盘后修订。
+因此 Binance 基线按各周期取原生 REST bars，归档用于核验；不能把分钟聚合当成相同输入。派生序列必须另登记来源、
+字段语义及可得时间。细节与测量见[原生周期决策](./market-data.md#target-full-chart-timeframes-and-one-stitched-bar-series)。
+
+数据服务的周期扩展为 `1m`、`15m`、`30m`、`1h`、`2h`、`4h`、`6h`、`8h`、`12h`、`1d`、`1w`；
+不包含 calendar `1mo`。数据周期可服务不等于已准入作为执行周期：执行托管仍按上述四项白名单，
+`1m` 执行需要另行证明成交与成本模型。现有 T0 的 `1m` fill 数据不因局部下钻目标而删除。
 
 ### TARGET window funding schedule read
 

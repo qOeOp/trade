@@ -6,6 +6,12 @@ Apply Governance-authorized generations, consume live market facts, and produce 
 authorization never proves an instance is running; Runtime's Generation Application Receipt does. Runtime binds
 an approved Risk permit into an order command but owns no order, fill, account effect, Recovery Case, or closure.
 
+This responsibility runs inside the target [native trading node](../guide/architecture-rules/#target-trading-node),
+sharing inherited engines, cache, commands and events with the other trading responsibilities. Product gates retain
+unique facts and permissions. Existing versioned reservation, claim, adapter-admission and journal fields below
+are read/compatibility contracts, not requirements for parallel services or order state machines. The node target,
+reachable APIs and existing custody admit no Paper/Live or production effect.
+
 ## Authoritative facts owned
 
 - Strategy Instance identity, generation, governed deployment binding, and internal checkpoint.

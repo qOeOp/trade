@@ -1,82 +1,38 @@
 # 能力采用
 
-本页把现有交易引擎连接到目标产品架构。它不会新增 Owner，不会声称目标契约已经实现，也不会让 crate 成为权威。全局 Flow 定义业务权威，package 只是权威背后可替换的实现单元。
+本页把产品需求映射到当前 Nautilus 基础。用户于 2026-10-06 确认：数据与回测在 Nautilus 基础上扩展，
+分别包装为 MCP 服务；R&D 是自行开发的研究服务。这里是扩展职责图，不是把原生计算搬到替代引擎的迁移计划。
+Owner 名称表示内部职责、托管与权限边界，不表示额外引擎或必须独立部署的服务。源码能力与产品集成验收分别记录。
 
 ## 采用规则
 
-- 一个 crate 只有通过相互独立的有类型端口才能支撑多个 Owner。共享代码绝不代表共享写入权威。
-- 直接复用表示在目标 Owner 契约后保留有用计算或协议代码，不表示保留当前所有修改路径。
-- 基础设施不拥有交易事实。它只能代表已提交事实的 Owner 存储 传输 序列化 观测或暴露事实。
-- Flow 命名了目标产品表面或底层 API 可以访问，都不能证明该产品表面已经实现。
+- 通过已有 API 与扩展点，在保留的原生 data、backtest、execution、cache、portfolio、analysis 组件上扩展。
+  原生订单、成交、持仓与账户事实继续保持唯一权威。
+- 只补当前版本缺少的需求行为，不把撮合器、数据引擎、账户总账或组合复制到平行 Owner 实现。
+- R&D 负责研究意图、预登记、Artifact、实验谱系与研究决定，通过内部类型化 API 消费数据与回测服务。
+  数据与回测服务同时通过各自 MCP 向外部代理提供能力。
+- MCP 是协议入口，不是任务所有者或第二套状态机。原生任务与持久研究记录独立于调用会话存续；
+  全部入口执行相同的准入、保护数据、预算与未知结果约束。
+- 一个 crate 只有通过相互独立的类型化端口才能支撑多项职责。共享原生代码不表示共享写权、凭据、保护缓存或数据库访问。
+- 基础设施传输与存储不拥有交易事实；原生交易组件继续拥有自己的事实，扩展只提交分配给它的附加托管或研究事实。
+- 目标名称、可达原生 API 或 MCP 握手都不能证明产品能力已集成。
 
-## 退役产品壳的能力处置
+## 产品能力与实现位置
 
-本合同当初所针对的产品壳已经退役。本表是每项能力去向的规范记录，确保移除产品壳时不会静默
-丢掉一项本来承重的能力。`Product Edge` 页面拥有由此产生的运行规则。
+| 能力           | 实现位置                                    | 不变量                                       |
+| -------------- | ------------------------------------------- | -------------------------------------------- |
+| 数据与回测     | 在现有 Nautilus 模块扩展，分别提供领域 MCP  | 不复制数据引擎、撮合、订单或账户机制         |
+| 研究智能与编写 | 外部代理提交 JSON，自研 R&D 校验并封存      | 无产品内模型、任意代码或原地 Artifact 修改   |
+| 确定性任务     | 领域服务持久运行，MCP/CLI 提交与查询        | 会话消失不丢失任务；后端完成内部链路         |
+| 用户界面       | 第一方 Dashboard 读取和控制相同类型化操作   | UI、日志与运维成功不成为业务事实             |
+| 运行目录与日志 | 运维 RunStore 与有界只读 API                | 缓存删除不能删除 Owner 结果；未知保持未知    |
+| worker 与依赖  | 租约/兼容性分别观察，构建固定依赖与 lock    | 心跳不证明 readiness；无通用脚本或发布界面   |
+| 凭据与授权     | 服务私有环境、独立授权发行者与请求准入      | 秘密不进入 payload；Bearer 不成为自签权威    |
+| 来源和编写组合 | Source Intake、R&D、当前 Composer/Host 合同 | 正向链、响应丢失、重启、冲突与原子性独立验收 |
+| 遥测与通知     | 原生扩展点、提交 outbox、状态投影和告警     | 投递不代替事实；告警不发起交易或恢复         |
 
-| 退役产品壳提供的能力                                   | 现在归属何处                                                                                                                                                                                                |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full‑code App 与 `viewer` execution policy             | 已吸收。第一方 Dashboard 是本地 operator session 之后的 Next.js 应用；public、anonymous 与 publisher 执行没有可达表面。                                                                                     |
-| Scoped‑token MCP 与 per‑tool selection                 | 已吸收。`/api/mcp` 独立认证、绑定 host 与 origin，暴露固定的受限工具集，没有 workspace mutation 或 preview 工具。                                                                                           |
-| Job、progress、log、SSE 与 worker                      | 已吸收。Trade 自有 RunStore 记录 run，service‑log 表面在一个 repeatable‑read 截面下读取，其契约测试禁止任何 Owner 事实表出现在 RunStore SQL 里。                                                            |
-| Schedule 与 flow error handling                        | 已吸收。shadow scheduler 拥有 due‑slot 身份，Schedules 表面读取它；重复与重叠投递仍然汇入同一条 Owner receipt。                                                                                             |
-| Run‑on‑behalf 与专用 virtual user                      | 已吸收。shadow worker、scheduler 与 effect worker 是 RunStore 之上三个独立的最小权限进程角色，没有共享管理身份。                                                                                            |
-| Flow retry、timeout、error handler 与 resolver job     | 已吸收。每条一次性执行旅程都携带 recovery identity，继续之前先解析 Owner custody；未知调用去查 Owner receipt 而不是盲目重试。                                                                               |
-| Data table、resource、variable 与 transient flow state | 已吸收为 RunStore，只保存运维状态。那里不存任何 Owner 事实或持久 artifact 真相，契约测试对此有断言。                                                                                                        |
-| Repository‑first deployment 与 digest 兼容截面         | 已吸收。部署包携带 compose 清单、镜像摘要及其检查，由 `make rd‑workbench‑check` 把关。                                                                                                                      |
-| CE base 与可选 EE enhancement                          | **随产品壳退役。** 正确性从未依赖 edition，所以没有东西需要迁移。                                                                                                                                           |
-| 分离的内部 AI 与外部 chat credential plane             | 已吸收。MCP token 与 operator token 相互独立，provider key 到不了任何 Trade 权限。                                                                                                                          |
-| 通过产品壳有类型脚本进行的有人值守迭代修复             | **随产品壳退役。** 四阶段修复旅程--修复输入决策、修复动作、Market Data 修复、修复后继回放--没有别的驱动者。它的 Owner 路由仍然实现且无人调用，`docs/owners/rd.md` 仍以 `TARGET / NOT_ADMITTED` 记载该契约。 |
-
-有两行是退役而非迁移。第二行是有代价的那个：端到端驱动那些脚本的密封验收链路随它们一起离开，
-所以 Source Intake、Source Research 与 Composer 保留单元覆盖，但在出现第一方等价物之前没有密封链路。
-
-## Strategy Factory 能力处置
-
-Strategy Factory 不是整体一次性迁移。`PRESENT` 表示已直接核实具名来源 facet；`PARTIAL` 表示仅列出的
-facet 存在，缺失的目标语义仍未实现；`ABSENT_TARGET_ONLY` 是目标 seam 或禁止规则，不是现有可复用能力。
-目标采用处置与来源可用性相互独立，也不会默认为旧 writer 续权。
-
-| 能力                                            | 来源事实                                                                                                                                                                                                                                  | 目标处置与唯一写入者                                                                                                         | 缺失目标契约 / 首个门禁                                                                                                               |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| ResearchIntent                                  | `PARTIAL` - port `strategy‑factory‑research‑intent` 绑定 `crates/strategy_factory/src/product_edge.rs` 的 `FrozenResearchGoalIntentV2`，由 R&D Owner 构造并提交；它带来源 goal 独立性依据 受保护反馈投影和 TrialFamily policy 摘要        | 就地 `ADAPT`；Research Intent 仍由 R&D 唯一写入                                                                              | 绑定有界备选解释集与 differentiating prediction；冻结的 Intent 每个来源只带一条解释                                                   |
-| TrialFamily                                     | `PARTIAL` - port `strategy‑factory‑intent‑family‑counters` 绑定 `crates/strategy_factory/src/trial_family.rs` 的 `TrialFamilyRootV1`：每个 Intent 一个持久 family policy 摘要 带终态处置的 census 成员和记录已消耗预算的 attempt frontier | 就地 `ADAPT`；`trial‑family‑census‑frontier` 仍由 R&D 唯一写入                                                               | 记录 frontier 状态（head 原地推进）并在数据库层强制成员 append‑only，而不只靠 Owner 代码                                              |
-| StrategyArtifact                                | `PRESENT` - 公共 content‑addressed `StrategyArtifact` 表示与验证                                                                                                                                                                          | `ADAPT` 到 Research Strategy Artifact                                                                                        | 复现 bytes dependency/toolchain market semantics capability 与 security admission                                                     |
-| ProgramHost SDK Wasm                            | `PARTIAL` - 已有 `DecisionContract` `PreparedDecisionRuntime` 和受限 Wasm；没有通用 SDK 或独立 Product Host                                                                                                                               | `ADAPT` 到 Research Artifact Security Admission 后                                                                           | 证明能力有界 process‑tree 禁止 确定失败及无账户效果权威                                                                               |
-| Trial receipt                                   | `ABSENT_TARGET_ONLY` - formation 的 `TrialReceipt` 已随旧 formation 路径退役；不再有来源 port                                                                                                                                             | `DO_NOT_CREATE_SECOND_AUTHORITY`；只有 Backtest `exploratory‑result` 写 Run Result                                           | 在 Backtest 增加规范 request‑result correlation 及完整负例与 unknown disposition；不得重建来源回执作为 Research 或 Qualification 权威 |
-| Formation receipt                               | `ABSENT_TARGET_ONLY` - 已检查 `crates/strategy_factory/src/lib.rs`；不存在 Formation Receipt 或 formation request‑result port，旧 formation 路径已退役                                                                                    | 为 Research `strategy‑artifact` 执行 `DEFINE_TARGET_CONTRACT`；不存在可复用来源 facet                                        | 实现前定义 Formation/build correlation 和完整负例/unknown disposition                                                                 |
-| Qualification receipt                           | `ABSENT_TARGET_ONLY` - 不存在 Candidate Intake Protected Attempt Eligibility 或 holdout‑custody 来源                                                                                                                                      | 在 Qualification 下 `DEFINE_TARGET_CONTRACT`；当前无代码可迁移                                                               | 实现单向保护托管且不存在细节反馈路径                                                                                                  |
-| Research Status                                 | `ABSENT_TARGET_ONLY` - 不存在 global status Iteration Decision Selection 或 Research View 来源                                                                                                                                            | 在 Research 下 `DEFINE_TARGET_CONTRACT`；不存在可替换的旧权威                                                                | 实现明确终态 unknown 并分离 Research Qualification Governance 事实                                                                    |
-| R&D 产品工作台                                  | `ABSENT_TARGET_ONLY`；表面是 Dashboard，但不存在公共 Product Edge Research View、Run Detail/Compare 或从 Source 到 Decision 的类型化用户动作；旧 Strategy Factory pilot 已退役                                                            | 在 Product Edge 以同一组 Dashboard 与 MCP operation 通过 R&D Backtest Qualification Owner port 执行 `DEFINE_TARGET_CONTRACT` | 实现可见旅程 回执 未解析状态和准确 Qualification 交接；运维编排不得成为 workflow truth writer                                         |
-| Data adapters 与 admission                      | `ABSENT_TARGET_ONLY` - 固定 Binance Vision pilot 加载器已随旧 formation 路径退役；不再有来源 port                                                                                                                                         | `DO_NOT_CREATE_SECOND_AUTHORITY`；只有 Market Data 接纳市场事实                                                              | 增加通用 source binding 四时间 PIT license 与 correction frontier                                                                     |
-| Backtest reuse                                  | `ABSENT_TARGET_ONLY` - 冻结 pilot 集成已随旧 formation 路径退役；不再有来源 port                                                                                                                                                          | `DO_NOT_CREATE_SECOND_AUTHORITY`；Backtest 写结果                                                                            | 证明规范 request‑result equality 和探索保护 namespace 隔离                                                                            |
-| Matching contract                               | `ABSENT_TARGET_ONLY` - 不存在 matcher due‑slot schedule 或完整 Scanner Receipt 来源                                                                                                                                                       | 在 Scanner 下 `DEFINE_TARGET_CONTRACT`                                                                                       | 实现 proposal‑only 匹配且无隐藏激活或 scheduler 权威                                                                                  |
-| Portfolio contract                              | `ABSENT_TARGET_ONLY` - Strategy Factory 中不存在 Performance Capacity Interaction receipt 来源                                                                                                                                            | 在 Portfolio 下 `DEFINE_TARGET_CONTRACT`                                                                                     | 实现来源截面投影且不拥有分配或 Risk headroom                                                                                          |
-| Protected feedback                              | `ABSENT_TARGET_ONLY` - 不存在保护结果边界 opaque frontier 或 holdout ancestry 来源                                                                                                                                                        | `DO_NOT_CREATE_DIRECT_PATH`；Qualification 仍是唯一保护 writer                                                               | 证明没有可解引用保护结果返回 R&D                                                                                                      |
-| Scheduler deployment registry service authority | `ABSENT_TARGET_ONLY` - 不存在 scheduler registry 或 deployment service 来源                                                                                                                                                               | `DO_NOT_CREATE_SECOND_AUTHORITY`；原生事实仍归 Scanner Governance Runtime                                                    | 不创建第二 scheduler registry lifecycle manager 或 deployment service                                                                 |
-
-`strategy-factory-intent-family-counters` port 在它原先指向的 pilot‑local `IntentFamily` 计数器随旧 formation
-路径退役时保留了标识；它现在绑定 R&D Owner 自己的 `TrialFamilyRootV1`。Research 仍是 TrialFamily/Census 唯一
-writer，Qualification 只读。
-
-## R&D 产品表面能力处置
-
-下列状态分类的是目标产品范围与优先级，不是当前实现。每个 `TARGET_REQUIRED` 与
-`DEFERRED_TARGET` 行都保持 `ABSENT_TARGET_ONLY`，直到规范 consumer 满足 Product Edge 验收契约。
-`NOT_ADMITTED` 是产品禁止项，并不声称工程工具或策略源码不存在。
-
-| 能力                                                                   | 状态              | 采用契约                                                                                                                                                          |
-| ---------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 经工具面的外部代理创作                                                 | `TARGET_REQUIRED` | 产品之外的代理只经外部代理工具面提交已接纳的 R&D 类型化 operation；工具面持有凭据且不返回任何受保护数值；代理输出不是业务事实                                     |
-| Conversation 与 R&D Execution Agent 分离                               | `NOT_ADMITTED`    | 被用户 2026‑10‑03 「代理在产品之外」的决定取代：产品不运行任何模型，因此没有需要与客户端分开的服务端 R&D job                                                      |
-| Research Source Intake 应用表面                                        | `TARGET_REQUIRED` | 通过共同 Product Edge 调用可替换、带版本的 connector flow；展示获取终态、provenance、解释、triage 与 Research Queue，不建立 connector 专属 MCP 或直接 Intent 路径 |
-| Research run、时间线、Agent 活动、迭代进度、日志与允许动作             | `TARGET_REQUIRED` | 组合 R&D 回执、Research View 与运维进度，但不建立影子 workflow 事实                                                                                               |
-| 结构化 Artifact Review                                                 | `TARGET_REQUIRED` | 无需原始源码即可展示 Artifact identity 与血缘、策略逻辑摘要、参数、依赖、构建状态、允许的探索引用、语义变更解释和允许动作                                         |
-| 探索比较、有界 Qualification 状态、Scanner、Runtime 与 Operations 视图 | `TARGET_REQUIRED` | 保留各原生 Owner 与保护反馈边界；运维 run 成功绝不是业务成功                                                                                                      |
-| 完整源码查看                                                           | `DEFERRED_TARGET` | 以后若准入，只能把不可变 Artifact 源码作为高级审计表面只读展示                                                                                                    |
-| 源码级 diff、受控下载与源码关联诊断                                    | `DEFERRED_TARGET` | 从准确不可变 Artifact identity 派生，绝不产生修改路径                                                                                                             |
-| Notebook‑first 产品创作或内嵌代码 IDE                                  | `NOT_ADMITTED`    | 外部工程工具留在产品契约之外，不能满足 Workbench 验收                                                                                                             |
-| 原地编辑 Artifact 或覆盖版本                                           | `NOT_ADMITTED`    | 每个已接纳修改都创建新的受治理 attempt 和不可变后继 Artifact，或产生原生终态 disposition                                                                          |
+Windmill 不属于部署依赖。原有 wire spelling 仅用于读取不可变记录，不是实施或执行器选择。
+MCP、Dashboard 和包的存在不证明完整研究旅程；按照具体用户故事验收数据、Artifact、运行、报告及合法下一步。
 
 ## 能力映射
 
@@ -232,23 +188,33 @@ unavailable 且有条件。
 | `crates/adapters/scheduled_events`    | `PRESENT` - `src/lib.rs`                                  | `ABSENT` - 已检查 `src/lib.rs`；`STOP_SOURCE_PORT_ABSENT` |
 | `crates/adapters/tardis`              | `PRESENT` - `src/data.rs`                                 | `ABSENT` - 已检查 `src/lib.rs`；`STOP_SOURCE_PORT_ABSENT` |
 
-## 共享状态迁移
+## 原生状态与产品托管
 
-现有共享 Cache 是迁移表面，不是未来 Owner。只有 Market Data 写入标的和行情事实，只有 Execution 写入原始订单 成交 费用 场所和 Recovery Case 事实，只有 Portfolio 写入账户和暴露投影，只有 Runtime 写入 generation checkpoint 和 readiness。其他消费者只取得只读视图。
+保留原生 Cache 及 data/execution/portfolio 写入路径，其他消费者使用只读视图；适配层不维护能独立推进的
+订单、成交、持仓或账户真值。原生 Cache 不是 PIT 历史：产品来源修订、可得截面、不可变托管与恢复回执仍由
+所属追加存储保存。Market Data 写数据托管，Execution 写效果/Recovery 记录，Portfolio 写回执投影，Runtime
+写 generation/readiness 记录。这是附加产品事实的职责划分，不是把原生状态机拆成替代服务。
 
-通用 MessageBus 可以承载命令和未提交内部流量。Event Rail 是更窄的投影，只发布已经提交的 Owner 事件。投递 重试和重放都不能替代来源 Owner 事实或其终态。
+原生 MessageBus 继续承载命令与内部事件；产品 Event Rail 只投影已提交托管事件。总线投递、重放或合成终态
+都不能替代已提交回执或场所确认，不把原生事件处理强行绕进第二条跨 Owner 执行链。
 
 ## Observability 能力处置
 
-现有 MessageBus 与 Event Store 是可复用机制，不是 Observability 权威。MessageBus 只能放在 typed Owner port 与 Event Rail 后；Event Store 只能放在 Owner-scoped append/read API 与 transactional outbox 边界后。不能从 crate 名称推断现有 logging、tracing、metrics、collector、broker durability、Dashboard 或 OpenTelemetry 能力已经实现。
+在已有扩展点复用原生日志、tracing、MessageBus 与 Event Store。总线或日志不提供产品托管的事实/outbox
+原子提交；这类产品记录保留 scoped append/read 合同与事务 outbox，不能替换为内存消息投递。不能从 crate
+名称推断已有 collector、broker durability、Dashboard 或 OpenTelemetry 集成。
 
-产品闭环不是 Observability 能力。Dashboard、trace 或 alert 可以解释当前阶段，但不能闭合用户
-旅程、选择下一动作或替代原生 Owner 回执。因此在 Dashboard 与 MCP consumer 实现相同的上述类型化
-请求与视图旅程、并完成生产部署前，产品表面保持 `TARGET`。
+Dashboard、trace、alert 可以解释进度，不产生来源事实或终态结果。产品闭环由真实 MCP/服务请求和结果旅程
+验证；Dashboard 切片另有浏览器验收。遥测网关、状态投影与告警目标仍遵循自身合同，原生复用不预选外部 broker
+或观测后端。
 
-目标 Telemetry Gateway 在一个可替换端口后接纳 OTLP-compatible receiver、processor 与 exporter。目标 Status Projection 幂等消费已提交 Event Wake 与策略接纳 telemetry，保存 checkpoint 并支持重建。Alert Routing 封装 Telegram 与未来适配器，但投递不是业务结果。Dashboard API 只提供 Global Status View。Kafka、NATS、Redpanda、OpenTelemetry Collector、ClickHouse、PostgreSQL 与 vendor backend 都保持实现候选，不是预选产品依赖。
+遥测网关保留可替换的 OTLP receiver、processor、exporter 接口。状态投影幂等消费已提交 wake 与政策准入遥测，
+保存 checkpoint 并可重建；告警投递不成为业务结果，Dashboard API 只服务 Global Status View。
 
 ## 权威迁移门禁
+
+以下跨 Owner 授权协议描述切换前契约。用户已授权的进程内节点目标按
+[原生交易节点](../guide/architecture-rules.md#target-trading-node) 迁移这些性质；不据此继续建设平行引擎。
 
 1. **订单唯一写入者** - Strategy Execution Algorithm Risk 和 adapter 不能在 Execution Order Engine 外写入拒单或订单生命周期状态。
 2. **许可绑定效果** - 对新增风险，Runtime 必须先取得明确终态 Risk Decision 和一次性 Reservation，再创建 Authorized Order Command。

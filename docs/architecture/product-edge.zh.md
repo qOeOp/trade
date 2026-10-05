@@ -2,17 +2,22 @@
 
 ## 职责
 
-Product Edge 是应用与对话边界，把有人值守 UI 或自然语言意图转成受限请求，并返回只读产品视图。
-产品表面是 `product/dashboard` 里由 Trade 自有的 Dashboard；它的 `/api/mcp` endpoint 把同一组已准入
-操作暴露给可选外部对话客户端。`product/rd-workbench` 是部署包，部署 PostgreSQL、Owner API 与 Dashboard；
-Dashboard effect worker 是唯一的执行器路径，且不存在生产部署。
+Product Edge 是有界请求与结果视图的协议和应用边界。目标研究入口是一组 MCP 服务：数据与回测扩展当前
+Nautilus 模块，R&D 是自研研究服务。MCP 转换类型化请求与身份，不成为另一套数据或交易引擎。
+[能力扩展图](capability-adoption/)定义这一基础与内部职责边界。
 
-## 产品表面与安装包
+<a id="产品表面与安装包"></a>
 
-目标发行物是一套 VibeTrading Docker Compose 安装包，而不是一个单体镜像。它组合 Trade Runtime 与
-Owner API、Dashboard、所需持久化和本地入口。
+## 产品表面与部署
 
-产品入口是 `product/dashboard`--一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享
+目标产品包通过数据、回测和 R&D 服务向外部代理提供能力。确定性任务由各 MCP 背后的服务持有，不属于调用会话。
+R&D 可经内部类型化 API 调用数据与回测服务；外部代理决定研究假设与迭代。产品正确性不依赖内置模型或某个代理供应商。
+自研 Dashboard 是第一方用户查看与控制客户端，经 MCP 完成研究旅程不以 Dashboard 为前提。
+
+下文已有 Compose 包与 Dashboard preview 是当前实现清单，不证明目标服务架构已经交付。
+部署与真钱准入仍有独立门禁。
+
+**当前 Dashboard 预览。** 已有 UI 入口是产品入口是 `product/dashboard`--一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享
 UI 原子，以及当前已准入的第一方读面。它自带浏览器会话网关、Trade 自有的 RunStore，以及
 `dashboard-web`、`dashboard-effect-worker`、`dashboard-shadow-worker`、`dashboard-shadow-scheduler`
 四个最小权限进程角色。`/api/mcp` 是一个无状态 Streamable HTTP endpoint，走同一批有类型 handler，在
@@ -31,34 +36,28 @@ Trade Runtime、Risk 与 Execution 拥有，Recovery 归 Execution；产品表�
 `preview`，web 主机端口默认 `127.0.0.1:3100`，运行时角色不暴露主机端口。**尚无生产部署。** Dashboard 的
 effect worker 默认禁用，只有明确的一次性本地权限，且不具备任何生产交易权威。
 
-**此前的执行器已退役。** 没有任何部署在跑它，所以它是直接离开而不是等待切换：它的有类型 script、
-workspace 清单与服务都已移除，`product/rd-workbench` 现在只是 Postgres、Owner API 与 Dashboard 的
-**Deployment Package**（部署包）。Product Edge 重新只有一个表面。
-
-`Capability Adoption` 记录了退役产品壳提供的每项能力的去向，确保移除它没有静默丢掉一项本来承重的
-能力。有两项是退役而非迁移，其中第二项的代价--只有它驱动的那些密封验收链路--写在那份文档里，
-而不是留给别人去发现。
+**部署包。** `product/rd-workbench` 只打包 Postgres、Owner APIs 和自研 Dashboard；Windmill 不是部署依赖。
+领域 MCP 使用独立 workspace 与服务合同。旧 wire spelling 保持原记录含义，不选择活动执行器。
 
 已准入读面之下的路由由双语 `DRAWABLE_EXACT` 闸门约束，闸门以下仍是只能导航的占位符；路由名或保留的
 源码都不是实现权威。生产部署保持 `TARGET`。Dashboard 在 preview profile 下可达或 MCP
 握手成功，都不能让产品表面成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、
-共同操作、Owner 回执、未解析状态以及直接浏览器证据。
+共同操作、Owner 回执与未解析状态。Dashboard 切片另需直接浏览器证据；MCP 旅程需实际服务请求与结果回读。
 
 ## 执行器能力合同
 
-本节治理**第一方执行器路径**，不是产品入口--产品入口见上一节。曾经执行这些效应的产品壳已退役；
-`Capability Adoption` 记录了它每项能力的去向。下面这些边界比它活得久，因为它们约束的是任何执行器，
-现在它们约束 Dashboard 的效应托管。
+本节治理第一方确定性任务执行器；产品入口使用上一节的领域服务合同。
+`Capability Adoption` 记录了它每项能力的去向。以下合同约束确定性服务任务和 Dashboard 已准入的效应托管，不引入产品内模型。
 
 | 执行器原语          | Product Edge 角色                                                      | 强制边界                                                                                                                                                                               |
 | ------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 产品应用            | Dashboard 是产品入口                                                   | 只允许已认证 operator 执行。禁止 public、anonymous 与 publisher 执行，因为它们抹掉调用者的有效权限边界。                                                                               |
+| 产品应用            | Dashboard 是第一方用户客户端                                           | 只允许已认证 operator 执行。禁止 public、anonymous 与 publisher 执行，因为它们抹掉调用者的有效权限边界。                                                                               |
 | MCP endpoint        | 通往同一组带版本 operation 的可选对话通道                              | scoped token 暴露准确 allowlist，默认拒绝。不得暴露对应用、script、resource、variable、schedule 或 worker 的 preview 或增删改工具。仅靠 folder 过滤不充分。                            |
 | 有类型适配器与编排  | Owner port 之上的有类型适配器与有界编排                                | 可以路由、等待、重试与组合；绝不写 Owner 存储、不发明业务状态、不把编排成功变成 Owner 结果。                                                                                           |
 | run、进度、日志与流 | 运维 run 身份、实时进度、诊断与 UI 流                                  | 运维 run id、百分比、结果或日志都不是 Owner receipt。运维保留期有界，所以持久研究 artifact 与结果事实留在 Trade Owner。                                                                |
 | Schedule            | 触发有界的研究、扫描、回放、报告与维护工作                             | schedule 不是部署注册表、生命周期权威或实时策略运行时。正确性依靠执行器层的错误路径与同请求解析。                                                                                      |
 | worker 与负载隔离   | 队列支撑的执行与按准入角色的负载隔离                                   | worker 丢失会让业务结果保持未解析，直到查询接收方 Owner。                                                                                                                              |
-| 有界推理步骤        | 使用明确准入工具的可选内部 R&D 推理步骤                                | Agent 记忆、模型输出与工具调用成功都不具权威。该步骤不获得任意 shell、Owner SQL、生命周期、Risk、Execution、secret 管理或 workspace 管理能力。                                         |
+| 外部代理工具        | 宿主侧代理经领域 MCP 提交和查询                                        | 产品不运行模型；代理不能直接写 Owner SQL、签发生命周期/风险许可或访问秘密。                                                                                                            |
 | 连接配置与 secret   | 有类型连接配置与不透明凭据托管                                         | 执行器的 secret 访问不是 Operator Authorization。最小权限路径是强制的；secret 值绝不进入 prompt、Owner 请求、日志、artifact 或 receipt。                                               |
 | 运维状态            | 只保存 UI 偏好与可明确重建的非权威缓存                                 | 禁止存放研究血缘、receipt、Qualification、Governance、Runtime、Risk、Execution 与 Portfolio 真相，含 Execution 拥有的 Recovery 真相。长寿命 artifact 使用 Owner 存储或已准入对象存储。 |
 | 部署版本            | 应用及其 operation、schedule 与 resource schema 的 repository‑first 源 | 已部署状态是仓库的投影。晋级要把 Git revision、镜像摘要、schema 版本与回滚目标记录为一个兼容截面。                                                                                     |
@@ -92,29 +91,11 @@ Product Edge 只有在规范 authorization、deployment binding、manifest 与 a
 
 Provider invocation claim 本身是持久且一次性的 custody。若 claim 已提交但响应丢失，同 attempt 解析必须返回准确 `CLAIMED` claim 与唯一动作 `RUN_BOUNDED_EXECUTION_AGENT`。App 与脚本随后只能启动这一个既有 claim 一次；不得创建 successor claim 或第二次调用 provider。进入 `INVOCATION_STARTED` 后，除非已有权威终态 Owner receipt，否则唯一安全投影是人工 provider 对账。
 
-### 已退役的 Sealed Source Intake 验收拓扑
+### 来源接入与组合验收
 
-Source Intake 曾有一个明确独立、编译期的 `SEALED_ACCEPTANCE` 组合。它随部署并传输它的产品壳一起退役，
-因为那个壳是它唯一的驱动者。目前还没有第一方等价物，所以 Source Intake 现在只有单元覆盖、没有密封链路。
-
-那个组合当初证明了什么，记录在这里，以免替代物悄悄证明得更少。它只把 provider 边界换成固定 DOI 语料、
-固定响应字节与确定性拒绝用例之上的密封适配器；使用非公开 provider 身份，没有外部网络能力，与生产或
-另一次验收运行不共享任何数据库、卷、workspace 或可变状态。它仍然穿过生产 Product Edge 准入网关、
-同一个 Source Intake Owner 编排器、持久 claim/start、move-only permit、R&D PostgreSQL 原子终端事务、
-终端 receipt 与读回。
-
-它的 runner 确立了五件事，第一方替代物欠同样的五件：
-
-1. 部署一个准确身份并调用 `RUN`、再次同一个 `RUN`、以及同请求 `RESOLVE`；
-2. 验证一条完整 `RETRIEVED` receipt 及其内容寻址 locator、内容摘要、获取来源、Source Candidate 与
-   outbox 记录；
-3. 验证密封策略拒绝导致零次 provider 调用与零条正向记录；
-4. 在 provider 执行与原子终端提交之后诱发首次 `RUN` 响应丢失，解析同一 attempt，并证明 provider 调用
-   次数恰好是一；
-5. 移除每一项隔离资源，然后读回确认各项均不存在且没有共享目标发生变化。
-
-通过这样的 runner 只构成 `SEALED_ACCEPTANCE` 证据。它从来不是生产策略、时间、DNS、权利、凭据、egress、
-PostgreSQL 或实时 provider 就绪的证据。
+来源接入、R&D 编写与回放必须通过当前服务合同组合验收。固定语料或隔离数据库通过，只证明该有界链路，
+不证明 provider 真实性、默认部署、外部效果、Paper/Live 或交易可用。验收隔离 executor、数据库、网络与 volume，
+清理后证明原基线未变；同身份响应丢失和重启应恢复相同回执，不能重新执行已完成的副作用。
 
 ### Source Intake-to-Composer D0 合同
 
@@ -266,16 +247,12 @@ live OpenAlex policy/rights/DNS/credentials/egress、`PRODUCT_CURRENT`、Paper�
 Live、deployment 与任何 trading effect 都保持不可用，也不在本验收权威内。固定 corpus、固定 adapter、
 隔离 PostgreSQL runner 即使通过也只构成 `SEALED_ACCEPTANCE` 证据，绝不代表生产 readiness。
 
-外部对话 client 与任何内部推理步骤是两个 credential plane。client 可以先使用自己的 model provider key
-再调用 MCP；内部步骤使用单独 scoped 的 resource。两种 model credential 都不向 Trade 认证，共用一个
-provider 账户是运维选择，不是架构依赖。
-
-曾经支撑该下限的厂商能力证据随它所描述的产品壳一起退役。第一方执行器按自己的源码与部署包审计，
-不按厂商的文档截面。
+代理的模型凭据只属于宿主，领域服务凭据只属于运行环境。工具参数、结果、Artifact 和日志不携带秘密。
+模型账户不认证 Trade 请求；产品没有内部模型调用或共享模型会话。
 
 ## 代理在外的 R&D 创作
 
-用户在 2026-10-03 决定：代理在产品之外，规矩在产品之内
+代理在产品之外，规矩在产品之内
 （[产品闭环](../guide/product-loop/#agent-outside-rd-experience)）。用户与自己选择的代理（例如 Claude Code 或
 Codex）一起工作，由该代理经下文的外部代理工具面调用已接纳的 R&D 类型化 operation。代理提供想法、authoring 文档、
 诊断与文献；它绝不创作业务事实或编辑 Artifact，Owner 执行的每条规矩对它和对其他任何 channel 一样适用。
@@ -283,12 +260,6 @@ Codex）一起工作，由该代理经下文的外部代理工具面调用已接
 工具面只传递 operation 请求与有界结果，不传递 LLM session、隐藏推理、模型 entitlement 或 credential。它持有自己向
 Owner 出示的凭据，任何工具参数或结果都不携带凭据。Secret 值绝不能进入工具 payload、Owner 事实、Artifact metadata
 或日志。产品不发起任何模型调用：策略只以 authoring 文档进入产品，由 Owner 编译并封存。
-
-**被该决定取代的内容。** 本节此前接纳两个 Agent 角色。**Conversation Agent** 运行在有人值守的 Dashboard 或外部客户端中，
-提交或查询类型化 operation。服务端 **R&D Execution Agent** 在执行器监督的 run 和 Development Sandbox 中运行，对话断开后仍
-继续执行，经产品内模型调用生成策略代码，再通过 R&D Owner port 提交候选输出。两个角色都被撤回而非延后；外部代理取代第一个
-角色，authoring 文档取代第二个角色。它们保护的分离（客户端与长时间运行的 job 之间不穿透 session 或凭据）如今成立，是因为
-产品内根本没有运行模型的 job。
 
 已接受的修改请求会启动一个新的受治理 R&D attempt。它要么产生新的不可变、内容寻址 Strategy
 Artifact 及其自身构建和探索证据，要么以原生无 Artifact、失败、拒绝或未知 disposition 闭合。它绝不
@@ -312,26 +283,36 @@ Qualification 细节。
 
 ### TARGET - 外部代理工具面
 
-本节陈述一份尚无实现的契约；除构建它的切片外，它不授予部署它的许可。
+本节记录领域工具面的目标与已经存在的有界切片。完整[研究场景](../scenarios/research/)仍是目标；
+server 握手或一次独立编写运行不能证明整条旅程。
 
-**今天。** 不存在命令行。Dashboard 的 `/api/mcp` 注册了五个工具
-（`product/dashboard/lib/dashboard-mcp-server.ts:134-193`）：Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作，以及 run detail 与 run log 读取。它只在 opt-in 的
-`dashboard-preview` profile 下提供服务。
+自研 Dashboard 提供产品 UI，Windmill 不是部署依赖。现有托管/路由合同中的 `WINDMILL_PRODUCT_EDGE`
+等历史标识，不表示仍有 Windmill 部署。外部代理组合各领域 MCP；一次 `backtest.run` 仍由服务端完成，
+不能把十几个内部步骤重新交给代理。内部调用遵循[单向分层与跨层传值](../guide/architecture-rules/#owner-layering-and-inter-owner-trust)：
+在外边界严格验证输入，内部消费者不回读上层再次核验其值；预算执行、保护样本隔离与未知结果处理继续成立。
 
-**形态：按领域划分的 MCP server 目录。** 用户在 2026-10-03 决定把工具面按领域拆分。每个领域是一个 MCP server，由拥有该领域的
-服务运行，代理是唯一的编排者：
+**源码截面 `e71aedb332fdcbcc8a1c18e7822d355bfa19e47e`。** `services/market-data-mcp`、
+`services/strategy-authoring-mcp` 与 `services/backtest-mcp` 已有独立无状态 stdio server，
+`product/rd-workbench` 有本地部署 wrapper；Dashboard 也保留 `/api/mcp`。当前验收与限制以对应 Owner 页的
+记录为准。这里的源码清单不证明部署或操作级 CLI parity，取代旧文「只有 preview Dashboard 有工具」的描述。
 
-- 没有 MCP server 调用另一个 MCP server，也没有工具把跨领域的工作流藏在自己里面；
-- 数据在 server 之间按引用传递：回测用一个 `dataset_ref` 指明它的数据，服务端向下读取 Market Data 来解析它，数值从不经过
-  代理；
-- 每条规矩都在 server 背后的 Owner 里，从不在工具里。工具发送的是该 Owner 已经从任何 channel 接纳的请求，不增加任何权威，
-  不跳过任何检查，并按名透传每个拒绝；
-- 每个 server 同时也是基于同一组函数的命令行，工具名相同，因此脚本与代理到达同样的 Owner 行为。
+**形态：以 Nautilus 为基础的服务，分别提供 MCP。** 用户于 2026-10-06 确认：数据与回测服务扩展现有
+Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确定性步骤都由代理编排"的旧约束，
+也不表示整个产品只能有一个统一 MCP。
 
-这取代了本节此前陈述的单一 `rd-run-research` 入口（一个二进制，其 `run` 命令从标的准入到报告串接每一步）：它承担的编排
-移到代理，它的各领域步骤移到所属领域的 server。
+- Market Data MCP 暴露扩展后的原生数据服务；Backtest MCP 暴露扩展后的原生回测服务；R&D MCP 暴露研究准入、
+  编写、实验记录与研究决定。当前 `strategy-authoring-mcp` 清单本身不证明完整目标 R&D 服务。
+- R&D 经内部类型化 API 消费数据与回测。MCP 是外部协议入口，不是内部服务依赖；确定性数据准备与任务依赖由服务执行，
+  外部代理在冻结边界内决定研究方向。
+- 数据按引用传递，不经代理搬运。消费服务解析并记录准确的已准入托管；任务身份、状态和结果独立于 MCP 断连存续。
+- 直接调用 Backtest MCP 或由 R&D 内部调用，都执行相同的范围与拒绝规则。研究试验须绑定已登记准入，计入冻结预算
+  与试验台账；未知尝试仍计数，并按同一身份解析，不能盲目重试。
+- 原生 execution/cache/portfolio 保持交易事实权威。研究与托管扩展只增加明确分配给自己的记录，
+  不维护能独立推进的镜像订单簿或账户总账。
+- 共享框架代码不合并凭据、保护缓存或数据库权限。保护读取与有界公开结论在服务内部执行，不能只守 MCP dispatch。
+- 已提供的 CLI 与 MCP 使用同一类型化服务操作和检查；CLI parity 不证明完整研究旅程已经实现。
 
-**`dataset_ref`。** 对一段行情数据的纯描述：标的、执行周期（`1d` 或 `4h`）与以事件纳秒计的半开区间 `[start, end)`。
+**`dataset_ref`。** 对一段行情数据的纯描述：标的、执行周期（`1w`、`1d`、`4h` 或 `1h`）与以事件纳秒计的半开区间 `[start, end)`。
 它不是任何一方签发的令牌：代理照 `coverage` 报告的结果自己写。消费它的服务在运行那一刻于 Market Data 的托管里解析它；
 托管不覆盖时以 `DATASET_REF_UNRESOLVED` 按名拒绝，周期不是执行周期时以 `TIMEFRAME_UNSUPPORTED` 拒绝。运行解析到的托管随
 运行一起记录，因此重放读到同样的数据。
@@ -342,7 +323,7 @@ Qualification 细节。
 - `describe_instrument(instrument)` → tick size、lot size 与当前经济条款（费率与保证金），或 `INSTRUMENT_UNKNOWN`。
 - `admit_instrument(symbol)` → 交易所 symbol（例如 `BTCUSDT`）的准入回执，由 Market Data 映射到其 canonical 标的；
   或按名给出的准入拒绝。
-- `backfill(instrument, timeframe, range)` → 一个 `job_id`。`timeframe` 是执行周期 `1d` 或 `4h`，成交读取的 `1m` bar 随之
+- `backfill(instrument, timeframe, range)` → 一个 `job_id`。`timeframe` 是执行周期 `1w`、`1d`、`4h` 或 `1h`，成交读取的 `1m` bar 随之
   一起回填；其他周期为 `TIMEFRAME_UNSUPPORTED`。其他拒绝：`INSTRUMENT_UNKNOWN`、`RANGE_INVALID`。
 - `job_status(job_id)` → 任务状态，取 `QUEUED`、`RUNNING`、`SUCCEEDED` 或 `FAILED` 之一；`SUCCEEDED` 时给出新增的覆盖；
   `FAILED` 时按名给出成因。未知任务为 `JOB_UNKNOWN`。
@@ -361,7 +342,12 @@ Qualification 细节。
 
 - 它属于 R&D 的编写层（Strategy Artifact）：负责编写、编译检查并保存不可变版本。它不登记已合格的策略，也不负责其生命周期与
   资金，那是 Strategy Governance 与以后的 `governance` server；它也不运行任何东西，那是 Runtime。
-- spec 是去掉三个 identity 的单阈值 authoring 请求，含其出场字段。策略不绑定任何 Research 请求。
+- **CURRENT 有界目录：** spec 是去掉 Research 身份的单阈值陈述。独立编写验收仍有价值，但不能证明 R-1 用户故事。
+- **TARGET 研究编写：** 代理提交版本化 JSON 编写文档，从 `research.strategy-authoring.v1` 开始。R&D 把它编译为 Design 与 program meaning，
+  用同一 Owner 检查校验产物，并在冻结 Research Intent 下封存 Artifact。最终身份、界、回执和执行状态由 Owner 推导。
+  首条完整研究旅程验收前，语言必须承载 R-1 的限价挂单、到期、成交反馈、分段退出、止损移动与持仓时限；
+  新语法或执行语义采用版本化后继，冻结 V1 文档保留原编译器与含义；不支持的行为按名拒绝，不能近似成简单 spec。
+  见 R&D 的「策略编写面」与 Strategy Factory 策略形状包络。
 - `validate(spec)` → `VALID`，或按 authoring 编译器自己的名字给出全部违规，不写入任何东西。
 - `create(spec)` → `strategy_id`，即规范化 spec 的内容摘要。同一份 spec 再次创建返回同一个 id。
 - `get(strategy_id)` 逐字节返回 spec；`list(filter)`。
@@ -372,27 +358,40 @@ Qualification 细节。
 
 **`backtest`**，由调用 Backtest 的 R&D 运行路由提供：
 
-- `run(strategy_id, dataset_ref, cost_profile)` → 一个 `run_id`。整个回放在服务端一次调用内完成。R&D 按值读取策略的 spec，
-  为这次运行形成 Research goal，编写并冻结其 Design，并从 Market Data 解析数据段；它把两者按值传给 Backtest，因此 Backtest
-  从不回读 R&D，每次调用都指向下层。Design 的身份只存在于运行内部，从不作为策略 id 暴露。每次运行在其结果被展示之前都作为
-  一次试验计入 R&D 的 census，与今天每个探索性 Result 一样。拒绝：`STRATEGY_UNKNOWN`、`STRATEGY_ARCHIVED`、
-  `DATASET_REF_UNRESOLVED`、`TIMEFRAME_UNSUPPORTED`、`COST_PROFILE_UNKNOWN`。
-- `status(run_id)`、`list_runs(filter)`。
-- `report(run_id)` → 运行报告，包括费用、资金费与随机进场对照。在 Qualification 登记其 holdout 分区之前，每份报告都写明
-  没有定义 holdout 分区、结果仅作探索。
-- **TARGET：** 分区登记之后，`run` 对与受保护时段重叠的窗口以 `HOLDOUT_WINDOW_OVERLAP` 拒绝。
-- 单独验收的条件：一个已创建的策略在一个 `dataset_ref` 上运行，其报告读回时带有费用、资金费与对照。
+- **CURRENT 有界路由：** `run(strategy_id, dataset_ref, cost_profile)` 是现有单阈值路由，在 run 内形成 goal。
+  它是有限的编写到报告切片，不是自主研究家族的预登记，不能被描述为完整研究闭环。
+- **TARGET 研究路由：** 版本化运行请求还须点名已冻结 Research Intent 与被接纳的试验。R&D 在派发确定性任务前
+  核对 Artifact、范围、执行语义、成本、前驱数据读取与资源额度；不能在读取结果后发明假设。失败与未知尝试仍计数，
+  准确重试加入同一请求。
+- 提交返回持久 `run_id`/job 引用；`status`、`list_runs` 与 `report` 在之后观察它。所属领域持有执行与恢复，
+  所以 MCP 进程或代理会话结束不丢失任务。
+- `report` 绑定原生 Result 身份，陈述覆盖、事件排序分辨率、手续费、资金费、滑点、保证金与容量假设。
+  组合收益、回撤、重叠敞口及持有/现金基线是主报告，随机入场对照与逐交易诊断解释原因；探索细节可读，保护细节不可读。
+- 保护分区不存在时报告明确只作探索，不证明独立资格；分区登记后重叠的研究读取与运行以 `HOLDOUT_WINDOW_OVERLAP` 拒绝。
+- 完整验收是研究场景的 R-1 旅程，含会话重启、亏损与失败试验和原生读回；单阈值报告验收仍是更小的当前切片。
 
-**以后的 server（TARGET）。** 每一个都只是蓝图；细节到它的阶段再定。
+**`research`**，由 R&D 提供（TARGET；完整 R-1 旅程的前置能力）：
 
-- **`research`**，由 R&D 研究台账提供：`register_hypothesis`（在读取任何数据之前：机制、证伪条件、最小关注效应、变体数）、
-  `list_trials` 与只读的 `census`。红线：假设绝不在它所检验的数据被读过之后登记。
+- 在实验结果数据被读取之前，登记冻结带来源假设、机制、可区分预测、证伪条件、最小关注效应、变体生成规则、数据范围与政策。
+  R&D 从冻结规则计算变体数，调用方手报的次数不是权威。
+- 响应绑定 Research Intent、永久 TrialFamily 与 census frontier。一个 family 有后继 Intent，所以假设、家族与每个实验
+  不能被压成一个身份。Market Data 台账与完整前驱血缘核对已有读取；旧知识能推动新实验，旧结果不能被改名成独立验证。
+- 代理可在用户冻结主题与资源额度内开立新机制家族。越出该范围的协议或主题变更需要新用户请求。每轮提出诊断与后继/停止，
+  只有 R&D 准入才创建 Iteration Decision。
+- `list_trials` 与 `census` 完整解析每个已接纳 attempt、原生 run/report 引用、结果类别与计数，含失败和未知。
+  试验次数与资源支出分别陈述；legacy 预算字段在完成已记录迁移前仍是 legacy 事实，不能被称为新支出报告。
+- 工具不直接写台账或决定；每次写都调用 R&D 原生 operation 并取得回执。缺少生产者或读回是实现依赖，MCP adapter 不能补造。
+- 保护数值、判决原因与逐交易保护记录不可访问；公开 `CLOSED_NOT_QUALIFIED` 不关闭研究机制。探索诊断经原生 Result 引用读取。
+- 验收登记实验、拒绝无效预登记、运行其冻结 Artifact，并在会话重启后读回完整 attempt 与 Iteration Decision，且没有保护细节。
+
+**其余 server（TARGET）。** 细节在对应 Owner 的阶段规定。
+
 - **`knowledge`**，由 R&D 知识台账提供：`family_status`、`record_conclusion` 与 `check_before_research`。红线：条目只追加，
   不持有任何受保护数值。
 - **`qualification`**，由 Qualification 提供：`submit_candidate`、`status`、`verdict`、`forward_register` 与
   `forward_status`。红线：任何 holdout 数值都不出去。今天 Qualification 把每个负向终态都按字节相同地投影为
-  `CLOSED_NOT_QUALIFIED`，因此 `verdict` 只答 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`；三级裁决（通过、等价为零、不确定）
-  放宽了这条已陈述的封口，建之前需要用户授权。
+  `CLOSED_NOT_QUALIFIED`，因此 `verdict` 只答 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`。内部评估可区分通过、等价无效与
+  证据不足，但用户于 2026-10-05 确认这些类别保持受保护；任何公开负向判决都不关闭研究机制。
 - **`scan`**，由 Scanner 提供：`create_schedule`、`list_schedules`、`scan_now`（发现视图）与 `results`。红线：扫描结果从不是
   激活权威。
 - **`governance`**，由 Strategy Governance 提供：`list_eligible`、`propose_activation`（Paper 或 Live）、`pause`、`retire`
@@ -430,10 +429,9 @@ Qualification 细节。
   `get_funding` 拒绝一切，登记之后 `backtest.run` 拒绝重叠的窗口。Qualification 只通过其公开状态作答。
 - 拒绝按名透传。没有任何拒绝被折叠成泛化失败。
 
-**Dashboard MCP。** Dashboard 的 `/api/mcp` 不是面向代理的入口，也不扩展这些命令。它保留给预览界面使用：
-
-- 它的 Artifact Formation preflight 与 Artifact 动作工具曾服务于产品内模型构建，同一决定使该构建退役，这两个工具已随之删除；
-- 它的其他工具保留。等上面的命令覆盖它的读取之后，再决定它是否退役。
+**Dashboard MCP。** `/api/mcp` 是 preview 界面的有界操作通道，不是外部研究代理的领域入口，
+不扩展为研究工具聚合器。当前工具为 Source/Research、Develop Composer、Replay V2 请求动作及精确 run/log 读取，
+与浏览器使用相同类型化 handler 和准入。没有 Artifact Formation preflight/action 或内部模型构建工具。
 
 ## Agent Shell 部署绑定
 

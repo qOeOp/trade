@@ -4,6 +4,11 @@
 
 根据当前政策 账户暴露和聚合承诺独立检查每个正常 Trade Intent。Risk 拥有明确终态决定 一次性预留 同 scope 承诺前沿和紧急围栏，永不拥有订单命令 Portfolio 投影或外部效果。
 
+本职责在目标[原生交易节点](../guide/architecture-rules/#target-trading-node)内执行，与另外两个交易职责共享
+继承的引擎、cache、命令与事件，按产品 gate 保留唯一事实与权限。下文既有版本的预留、claim、adapter admission
+及 journal 字段定义读取/兼容约束，不要求新建平行服务或订单状态机。节点目标、接口可达、原有 custody 的存在
+均不准入 Paper、Live 或生产效果。
+
 ## 拥有的权威事实
 
 - 绑定单个意图及摘要 Execution Scope 政策版本与截面 Portfolio 账户与暴露截面 决定时间 authorization
