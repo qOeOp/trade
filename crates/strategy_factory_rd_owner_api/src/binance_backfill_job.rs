@@ -556,6 +556,10 @@ async fn backfill_funding_v1(
                 settlement_ns: row.settlement_ns,
                 interval_hours: row.interval_hours,
                 rate: row.rate,
+                // The archive backfill path has no per-row observation instant - the whole
+                // month's own retrieval_ns is a conservative, correct bound (see
+                // FundingSettlementWriteRowV1::availability_ns's own doc).
+                availability_ns: month.retrieval_ns,
             })
             .collect();
         funding_commit
