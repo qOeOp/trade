@@ -5,7 +5,7 @@
 //! frame's instant followed by each member's complete Quote at the quote cut's instant, both in
 //! member order. Callers cannot supply prices, quantities, event order, or timestamps.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -180,10 +180,109 @@ impl NativeReplayQuoteCutReadbackV1 {
     }
 }
 
+/// Which Owner read a native Replay scheduling readback could not complete.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OwnerReadV1 {
+    /// A snapshot frame's PIT evaluation evidence.
+    SnapshotEvaluation,
+    /// A snapshot frame's verified observation batch.
+    SnapshotBatch,
+    /// A member's admitted BAR schedule candidates.
+    BarScheduleCandidates,
+    /// A BAR schedule candidate's stored evidence.
+    BarScheduleEvidence,
+    /// The read transaction itself: its begin, isolation or end.
+    ReadTransaction,
+    /// The Source Binding a batch names.
+    SourceBinding,
+    /// The batch's declared bar timeframe.
+    DeclaredTimeframe,
+    /// The gap's quote cut.
+    QuoteCut,
+    /// A custody frame's view at the pinned head.
+    CustodyView,
+    /// The custody view sealed as a batch.
+    CustodyViewSeal,
+    /// The custody view's window schedule.
+    CustodyWindowSchedule,
+    /// The stored Universe Selection record the custody root's locator resolves to.
+    CustodyUniverseRecord,
+    /// The timeframe of a version a custody view selects.
+    CustodyVersionTimeframe,
+    /// A frame of a kind this resolver serves no read for.
+    FrameKind,
+}
+
+/// Why an Owner read could not complete: the store's own refusal, never a guess.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OwnerReadCauseV1 {
+    /// The database refused the statement with this SQLSTATE (for example `42501`, insufficient
+    /// privilege).
+    Database { sqlstate: [u8; 5] },
+    /// The connection or transaction could not be used, and the database stated no SQLSTATE.
+    Connection,
+    /// The row the read names is absent.
+    RowAbsent,
+    /// The stored bytes do not decode, or do not verify against their own digest.
+    Untrusted,
+    /// The answer is not the one the request named: another chain, head, frame or locator.
+    Disagrees,
+    /// The read port refused before or after the read, under its own bounded category.
+    PortRefused,
+    /// The Owner store refused under its own bounded category, recorded by its diagnostic.
+    StoreRefused,
+    /// This resolver serves no such read.
+    NotServed,
+}
+
+impl Display for OwnerReadV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::SnapshotEvaluation => "snapshot_evaluation",
+            Self::SnapshotBatch => "snapshot_batch",
+            Self::BarScheduleCandidates => "bar_schedule_candidates",
+            Self::BarScheduleEvidence => "bar_schedule_evidence",
+            Self::ReadTransaction => "read_transaction",
+            Self::SourceBinding => "source_binding",
+            Self::DeclaredTimeframe => "declared_timeframe",
+            Self::QuoteCut => "quote_cut",
+            Self::CustodyView => "custody_view",
+            Self::CustodyViewSeal => "custody_view_seal",
+            Self::CustodyWindowSchedule => "custody_window_schedule",
+            Self::CustodyUniverseRecord => "custody_universe_record",
+            Self::CustodyVersionTimeframe => "custody_version_timeframe",
+            Self::FrameKind => "frame_kind",
+        })
+    }
+}
+
+impl Display for OwnerReadCauseV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Database { sqlstate } => write!(
+                formatter,
+                "database refused, SQLSTATE {}",
+                std::str::from_utf8(sqlstate).unwrap_or("?????")
+            ),
+            Self::Connection => formatter.write_str("connection unavailable"),
+            Self::RowAbsent => formatter.write_str("row absent"),
+            Self::Untrusted => formatter.write_str("stored bytes untrusted"),
+            Self::Disagrees => formatter.write_str("answer disagrees with the request"),
+            Self::PortRefused => formatter.write_str("read port refused"),
+            Self::StoreRefused => formatter.write_str("Owner store refused"),
+            Self::NotServed => formatter.write_str("not served by this resolver"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum NativeReplaySchedulingErrorV1 {
-    #[error("native Replay scheduling Owner readback is unavailable")]
-    OwnerReadbackUnavailable,
+    /// An Owner read failed: `read` names which, `cause` why.
+    #[error("native Replay scheduling Owner readback is unavailable: {read} ({cause})")]
+    OwnerReadbackUnavailable {
+        read: OwnerReadV1,
+        cause: OwnerReadCauseV1,
+    },
     /// A member has no admitted BAR schedule cut at the frame.
     ///
     /// The candidates were read; none is this member's at this frame. A read that failed is
@@ -205,10 +304,6 @@ pub enum NativeReplaySchedulingErrorV1 {
     SourceBindingDeclaresNoBarTimeframe,
     #[error("no schedule, role or row states the bar the frame's Source Binding declares")]
     DeclaredBarTimeframeMismatch,
-    /// The frame's declared bar is a `CalendarMonth` cadence, which no window schedule can
-    /// enumerate as an execution timeframe yet.
-    #[error("a CalendarMonth cadence cannot be an execution timeframe")]
-    CalendarMonthNotAnExecutionTimeframe,
     /// The Replay names another Universe Selection Record than the one the frame's batch binds.
     ///
     /// A request names two different universe selections, and each is checked against the same

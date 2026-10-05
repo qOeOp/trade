@@ -1,8 +1,8 @@
-//! Folds already-verified `1d` bars into one `1w` or `1M` bar: the "Built here" item
-//! `docs/owners/market-data.md`'s B5 names for those two timeframes, since a monthly archive
-//! file's own `1w`/`1M` row holds a snapshot of a bar still forming (its own measurement: the
-//! 2021-07 `1w` file closes the week of 2021-07-26 at a price neither the 2021-07-31 nor the
-//! 2021-08-01 close agrees with) and can never verify them directly.
+//! Folds already-verified `1d` bars into one `1w` bar: the "Built here" item
+//! `docs/owners/market-data.md`'s B5 names for that timeframe, since a monthly archive file's own
+//! `1w` row holds a snapshot of a bar still forming (its own measurement: the 2021-07 `1w` file
+//! closes the week of 2021-07-26 at a price neither the 2021-07-31 nor the 2021-08-01 close
+//! agrees with) and can never verify it directly.
 //!
 //! The fold is treated as any other archive once built, tagged
 //! [`VenueBarArchiveKindV1::DerivedFromVerified`], and handed to the store's own
@@ -24,7 +24,7 @@ use vibe_data::owner::{
 /// Why a fold could not be built. Every refusal returns nothing.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum VenueBarFoldErrorV1 {
-    /// Only `1w` and `1M` fold from daily bars; every other timeframe is served directly.
+    /// Only `1w` folds from daily bars; every other timeframe is served directly.
     #[error("{venue_interval} does not fold from daily bars")]
     UnsupportedTimeframe { venue_interval: String },
     #[error("no daily bars were given to fold")]
@@ -36,7 +36,7 @@ pub enum VenueBarFoldErrorV1 {
     )]
     NotContiguous { open_ns: u64 },
     /// The folded window's own open and close do not land on `venue_interval`'s grid - the given
-    /// bars do not span exactly one week or one calendar month.
+    /// bars do not span exactly one week.
     #[error("the folded window does not match {venue_interval}'s own grid")]
     OffGrid { venue_interval: String },
 }
@@ -52,7 +52,7 @@ pub fn fold_daily_bars_v1(
     venue_interval: &str,
     daily_bars: &[VenueBarV1],
 ) -> Result<VenueBarV1, VenueBarFoldErrorV1> {
-    if venue_interval != "1w" && venue_interval != "1M" {
+    if venue_interval != "1w" {
         return Err(VenueBarFoldErrorV1::UnsupportedTimeframe {
             venue_interval: venue_interval.to_string(),
         });
@@ -218,28 +218,6 @@ mod tests {
         assert_eq!(folded.low, dec!(84));
         assert_eq!(folded.volume, dec!(70));
         assert_eq!(folded.trade_count, 35);
-    }
-
-    #[rstest]
-    fn folds_a_calendar_month_of_daily_bars() {
-        // 2021-01-01T00:00:00Z, a 31-day January.
-        const JAN_2021_NS: u64 = 1_609_459_200_000_000_000;
-        let month: Vec<VenueBarV1> = (0..31)
-            .map(|i| {
-                day(
-                    JAN_2021_NS + i * DAY,
-                    dec!(100),
-                    dec!(101),
-                    dec!(99),
-                    dec!(100),
-                )
-            })
-            .collect();
-
-        let folded = fold_daily_bars_v1("1M", &month).unwrap();
-
-        assert_eq!(folded.open_ns, JAN_2021_NS);
-        assert_eq!(folded.close_ns_exclusive, JAN_2021_NS + 31 * DAY);
     }
 
     #[rstest]

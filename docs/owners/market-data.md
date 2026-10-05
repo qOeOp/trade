@@ -4143,7 +4143,7 @@ Dropping the month (user decision, 2026-10-05):
     Built. `crates/adapters/binance/src/common/offline.rs` grew a daily-archive path alongside the existing monthly
     one (`BinanceVisionArchiveBinding::new_daily`, `authenticate_daily_klines`, a refusal for `1m` on the monthly
     path - monthly `1m` archives exceed this binding's size limit, so `1m` is served from daily archives only).
-    `venue_bar_derived_archive_v1.rs` folds verified `1d` bars into `1w`/`1M` and `venue_bar_archive_verifier_v1.rs`
+    `venue_bar_derived_archive_v1.rs` folds verified `1d` bars into `1w` and `venue_bar_archive_verifier_v1.rs`
     wires a fetched archive (or a fold) into B2's `verify_venue_bars_v1`
     (`verify_execution_month_v1`/`verify_execution_day_v1`/`verify_derived_from_daily_v1`).
 

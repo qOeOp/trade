@@ -783,7 +783,10 @@ async fn postgres_the_sealed_acceptance_custody_resolver_reads_a_frame_with_its_
             .resolve_native_replay_initial_market_inputs_v1(&snapshot)
             .await
             .map(|_| ()),
-        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable),
+        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: crate::owner::native_replay_scheduling_v1::OwnerReadV1::FrameKind,
+            cause: crate::owner::native_replay_scheduling_v1::OwnerReadCauseV1::NotServed,
+        }),
         "a custody frame resolver reads no snapshot frame"
     );
 }

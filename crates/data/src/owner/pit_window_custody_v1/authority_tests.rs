@@ -474,8 +474,7 @@ fn a_custody_timeframe_is_the_one_the_schedule_path_states() {
     let declared = DeclaredBarTimeframeV1::from_declaration(
         d(3),
         &continuous("1D", 24, UntrustedSourceBarUnitV1::Hour),
-    )
-    .expect("a fixed-interval declaration is never refused");
+    );
 
     assert!(declared.admits_schedule(&schedule));
     assert_eq!(
