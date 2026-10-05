@@ -94,7 +94,8 @@ never runs in CI.
   `native_replay_scheduling_resolver_for_sealed_acceptance_v1` runs the native Replay scheduling read path with the
   admitted resolver's raw reads, verification and selection, but with no admission before a read and no revalidation
   after one. It connects as a least-privilege test principal that the disposable database grants exactly
-  `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, and its evidence carries the marker
+  `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, plus, for a custody frame,
+  `PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1`. Its evidence carries the marker
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
   port accepts the marker. Admission itself is still `B3`: nothing leases its principal yet. That principal is
   `market_data_admitted_reader`. `database/postgres-init/25-market-data-admitted-reader.sh` provisions it as
@@ -2908,9 +2909,19 @@ Built so far (T0-9): the H6 checks a custody run needs and the accessors T1 cons
   Store Admission before or after a read, so it proves the segment after admission; the admission itself is `B3`.
   - **Store.** It opens only on a disposable loopback `vibe_test_` database.
   - **Grants.** The principal holds exactly `grant_pit_window_custody_acceptance_reads_v1`: `USAGE` on
-    `market_data_admitted_read` and `EXECUTE` on the chain, chain basis, Universe Selection and
+    `market_data_admitted_read` and `EXECUTE` on the chain, chain basis, rows, Universe Selection and
     chains-for-instrument wrappers, with nothing on `market_data_private`. Its proof revokes each grant alone and
-    requires exactly the read that needs it to be refused.
+    requires exactly the read that needs it to be refused: the frames, the coverage lookup, or one frame's view.
+  - **Custody frames through the sealed scheduling resolver.**
+    - **What it does.** `native_replay_scheduling_resolver_for_sealed_acceptance_v1` reads a custody frame through
+      the same unadmitted port. It reads the view at the pinned head, the record its root's locator resolves to, and
+      the quote cut production derives from the gap's fill bar (`resolve_custody_quote_cut_v1`), exactly as the
+      admitted resolver reads one.
+    - **What changed.** It used to refuse every custody frame. That held only while no sealed acceptance run read
+      one; the T0 custody route reads frame 1 and later. The refusal is relocated to the grants: the principal reads
+      a custody frame only under these custody grants, beside the scheduling ones.
+    - **The rows wrapper.** It is the same pass-through of the private rows function that the admitted custody port
+      reads. Its scope is one chain root and the versions a view selects, no wider.
 - **Availability rule (H7).** `PitWindowChainBasisV1::availability_rule_digest()` returns the root custody record's
   rule digest, which the read has already checked against the chain R0 record's.
 - **Pinned-head run read.** `UntrustedPitWindowRunV1` takes an optional `head_identity` (serde-defaulted, omitted when
@@ -3027,6 +3038,20 @@ Built (T0-10 (c)):
   owns them. It shows they return the same sealed view and basis as the Owner's own table read, walking past a
   corrected head, and the same refusal for a view the chain does not hold.
 - **The grant path.** The path as `rd_owner` itself is proved by the R&D chain's custody entry.
+
+Relocated (Ruling Q11, custody frames):
+
+- **What a custody frame compares.** A custody frame checks the Universe Selection Record a Replay names against the
+  stored record pair, `(record identity, record digest)`. That is the pair a chain's basis exposes as
+  `universe_selection_record`, and the one H7, H8 and the Design cross-check all name.
+- **What it compared before.** The check used the root custody's locator, `(request identity, request meaning digest)`,
+  a different pair by construction. So every frame of a run that names its basis's record was refused with
+  `UNIVERSE_SELECTION_RECORD_MISMATCH`.
+- **The property is kept.** Both frame reads, on the pool and through the admitted port, read the record under the
+  root's locator. They take its pair only after checking its request identity and meaning digest against the locator,
+  exactly as the basis does. The view's own Universe Selection digest is still checked against the locator.
+- **Proofs.** The unit test names distinct locator and record pairs. The sealed acceptance chain's frame proof sends
+  `basis.universe_selection_record()`.
 - **The reread.** The reread under `rd_owner` returns the custody frame the declaration was made over.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
@@ -3853,11 +3878,21 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
 ### TARGET full chart timeframes and one stitched bar series
 
 The user decided on 2026-10-05 that Market Data serves the timeframes a charting tool offers - `1m`, `15m`, `30m`, `1h`,
-`2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `1w` and `1M` (one calendar month) - and that the latest closed bars, the current
-month included, are available. The user also chose how (2026-10-05, following Nautilus): public REST is the primary
+`2h`, `4h`, `6h`, `8h`, `12h`, `1d` and `1w` - and that the latest closed bars, the current month included, are
+available. A monthly timeframe was in the first list; the user dropped it later the same day, so no monthly bar is
+served. The user also chose how (2026-10-05, following Nautilus): public REST is the primary
 source for every month, and the official archives only verify it afterwards. A consumer reads one series per instrument
 and timeframe and never sees which source a bar came from, except through two marks on each bar. This section states the
 design and the measurements behind it. Nothing in it is implemented yet; Lane 8 implements it.
+
+Dropping the month (user decision, 2026-10-05):
+
+- **No monthly timeframe is served.** It is not a public timeframe and has no custody row label, no calendar-month
+  cadence and no derivation.
+- **Monthly archives stay.** Binance's one-file-per-month downloads still verify every served timeframe's bars. A
+  *monthly archive* is a file, not a *monthly timeframe*.
+- **Binance's own enum is untouched.** The adapter's inherited `BinanceKlineInterval::Month1` stays as it is.
+- **Measurements below that mention Binance's `1M` interval are kept** as the record of what was measured.
 
 - **Measured: Binance's own bars at different timeframes do not always agree with each other.** The question was
   whether every timeframe can be derived from `1m` alone, so that `1m` is the one source of truth. Every USD-M monthly
@@ -3955,11 +3990,11 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     an append-only successor version of the bar, as T0 custody already corrects a cross-section.
   - **An archive that is incomplete for its grid** verifies only the bars it holds. It never verifies an absent bar,
     and it never deletes a stored one.
-  - **`1w` and `1M` bars are never verified against a monthly archive**, because of the forming-bar snapshot above.
+  - **`1w` bars are never verified against a monthly archive**, because of the forming-bar snapshot above.
     They are verified against the daily archive's file for that bar where one exists. Otherwise they are verified
     against their derivation from already-verified `1d` bars - built as a direct fold (open/high/low/close/sums over
-    the window's own daily bars, grid-checked against the `1w`/`1M` schedule), not through `TimeBarAggregator` for
-    either grid; see "Not usable as is" below for why. A mismatch there is reported by name like any other.
+    the window's own daily bars, grid-checked against the `1w` schedule), not through `TimeBarAggregator`; see "Not
+    usable as is" below for why. A mismatch there is reported by name like any other.
   - **Conflicts are expected on real history.** The measured venue incidents and the 2025-01-29 archive correction
     will each surface as one, so this is a normal path that operators acknowledge, not an error path.
   - **One service.** One resident Market Data service runs this recorder and verifier together with the
@@ -3981,19 +4016,15 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     - **Append-only correction versions.**
     - **The verifier**, with named conflicts, and the `verified_only` read.
     - **The daily-archive reader**, for early verification and for days a monthly file omits.
-    - **Calendar-month cadence.** `UntrustedSourceBarCadenceV1` has only `FixedInterval` and `ExchangeSessionDay`,
-      so `1M` needs a new `CalendarMonth` cadence on the UTC month anchor.
     - **New labels in the label mapping** (`execution_timeframe_bar_label_v1`, #1386): `15M`, `30M`, `2H`, `6H`,
-      `8H` and `12H`, `1m` as `1M` (already the fill label), and a distinct month label. `1M` is taken by the
-      minute, so the month cannot reuse it.
+      `8H` and `12H`, and `1m` as `1M` (already the fill label).
   - **Not usable as is:**
     - **`request_bars`**, because its `Bar` drops columns (above).
-    - **`TimeBarAggregator`, for either `1w` or `1M`.** In historical mode its monthly path produced 0 bars from six
-      years of `1m`, because it schedules a time alert that historical replay never fires - measured, not assumed,
-      before deciding against it. Rather than fix that bug for `1M` alone and keep relying on it for `1w`, the
-      derivation check folds already-verified `1d` bars directly for both grids: a manual accumulator over the
-      window's own daily bars, checked against the `1w`/`1M` schedule's own grid (`NotContiguous`/`OffGrid` refusals
-      cover a mismatched window), with no dependency on `TimeBarAggregator`'s replay-clock machinery at all.
+    - **`TimeBarAggregator`, for `1w`.** In historical mode its monthly path produced 0 bars from six years of `1m`,
+      because it schedules a time alert that historical replay never fires - measured, not assumed. Rather than rely
+      on its replay-clock machinery for `1w`, the derivation check folds already-verified `1d` bars directly: a manual
+      accumulator over the window's own daily bars, checked against the `1w` schedule's own grid
+      (`NotContiguous`/`OffGrid` refusals cover a mismatched window).
     - **The DataEngine's composite bars**, which aggregate inside a running engine rather than over stored history.
 - **Migration from today's archive-first backfill.**
   - **The archive path #1384 completed stays, as the verifier.** Today's backfill job reads execution bars from
@@ -4016,8 +4047,7 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
   - **T0 custody.** It still holds one window over one execution timeframe and the fixed `1m` fill timeframe.
   - **Admitted execution timeframes.** Serving a timeframe as a bar series does not admit it as a custody execution
     timeframe. `1m` stays gated on a per-trade fill model and `15m` on an intraday cost model, as "TARGET Binance
-    backfill fetch for T0 window custody" states. `1M` additionally needs the window schedule to enumerate calendar
-    intervals, which it does not today: frames are `phase + n * interval`.
+    backfill fetch for T0 window custody" states.
 - **Constraints.**
   - **Public data only.** Every client refuses a credential, as the existing Binance clients do (`CredentialPresent`).
   - **REST tests run locally.** A GitHub-hosted runner reaches `fapi.binance.com` as `451`, so tests that call REST
@@ -4088,7 +4118,10 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     close through `served_timeframe_v1`. `request_raw_klines`, a new thin passthrough to the adapter's already-
     rate-limited raw kline rows, is called directly instead - keyed by the raw venue symbol string, with no
     `BarType` or instrument cache in the loop at all.
-  - **B4 - the calendar-month cadence (Lane 8).** `CalendarMonth` cadence on the UTC month anchor in
+  - **B4 - the calendar-month cadence (Lane 8). Dropped** with the monthly timeframe (user, 2026-10-05). The code it
+    added (`CalendarMonth`, the `1MO` row label, the `1M` served entry) is removed in Lane 8's follow-up, which also
+    updates B5's "Built" note; this entry's acceptance no longer applies.
+    `CalendarMonth` cadence on the UTC month anchor in
     `UntrustedSourceBarCadenceV1`, with its codec, refused as an execution timeframe. The served label table is B1's.
 
     Acceptance:
@@ -4099,8 +4132,8 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
       09:30 UTC, the monthly archive from the 2nd at about 12:00 UTC), and verify through B2. The existing
       authenticated readers (`authenticate_monthly_klines`, `funding_archive_v1`) are reused unchanged.
     - **Coverage:** a month whose file omits days is verified from the daily files for those days.
-    - **`1w` and `1M`:** verified from their daily files, or by a direct fold of already-verified `1d` bars - not
-      `TimeBarAggregator` for either grid; see "Not usable as is" above for the measured reason.
+    - **`1w`:** verified by a direct fold of already-verified `1d` bars - not `TimeBarAggregator`; see "Not usable as
+      is" above for the measured reason.
 
     Acceptance:
     - A narrow local run reproduces the doc's own measurement on a bounded slice, not the full six-year sweep across
@@ -4110,7 +4143,7 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     Built. `crates/adapters/binance/src/common/offline.rs` grew a daily-archive path alongside the existing monthly
     one (`BinanceVisionArchiveBinding::new_daily`, `authenticate_daily_klines`, a refusal for `1m` on the monthly
     path - monthly `1m` archives exceed this binding's size limit, so `1m` is served from daily archives only).
-    `venue_bar_derived_archive_v1.rs` folds verified `1d` bars into `1w`/`1M` and `venue_bar_archive_verifier_v1.rs`
+    `venue_bar_derived_archive_v1.rs` folds verified `1d` bars into `1w` and `venue_bar_archive_verifier_v1.rs`
     wires a fetched archive (or a fold) into B2's `verify_venue_bars_v1`
     (`verify_execution_month_v1`/`verify_execution_day_v1`/`verify_derived_from_daily_v1`).
 

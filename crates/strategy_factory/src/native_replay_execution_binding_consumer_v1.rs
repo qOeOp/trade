@@ -56,19 +56,31 @@ impl ResolvedNativeReplayExecutionBundleV1 {
     }
 }
 
-/// The single refusal this consumer returns, for any of eighteen distinct failures.
+/// The single refusal this consumer returns, for any of its distinct failures.
 ///
-/// It stays a unit struct on purpose: a caller learns that the bundle is unavailable and nothing
-/// else, and that is the contract. What changes is that the Owner can now say why. Every site that
-/// produces it first records its cause through [`crate::storage_diagnostic::refused_by_store`]
-/// under a coordinate naming the exact stage, so a reader holding this refusal can grep
-/// `native_replay_execution_binding.` and find which of the eighteen it was.
+/// It carries the stage that refused, as the coordinate it is also recorded under through
+/// [`crate::storage_diagnostic::refused_by_store`], and that stage's own cause. A caller reading
+/// the refusal (`backtest.run`'s answer, a run error) therefore learns which stage refused and
+/// why, without needing to search the server log for the coordinate.
 ///
-/// One refusal in this function is deliberately not recorded: a stored V1 binding that is simply
-/// absent is a lookup that found no row, not a refusal, and it has no cause to report.
+/// One refusal is deliberately not recorded: a stored V1 binding that is simply absent is a lookup
+/// that found no row, not a refusal. It still names its coordinate and says the binding is absent.
 #[derive(Debug, Error)]
-#[error("Native Replay execution bundle is unavailable")]
-pub(crate) struct NativeReplayExecutionBindingConsumerErrorV1;
+#[error("Native Replay execution bundle is unavailable at {coordinate}: {cause}")]
+pub(crate) struct NativeReplayExecutionBindingConsumerErrorV1 {
+    coordinate: &'static str,
+    cause: String,
+}
+
+impl NativeReplayExecutionBindingConsumerErrorV1 {
+    /// No execution-input binding was issued for the request.
+    fn binding_absent() -> Self {
+        Self {
+            coordinate: "native_replay_execution_binding.v1_binding.resolve",
+            cause: "no execution-input binding was issued for this Replay request".to_owned(),
+        }
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn resolve_native_replay_execution_bundle_v1_in_transaction<P, R>(
@@ -94,25 +106,18 @@ where
         .execute(&mut *transaction)
         .await
         .map_err(|e| {
-            crate::storage_diagnostic::refused_by_store(
+            refused(
                 "native_replay_execution_binding.transaction.set_isolation",
                 &e,
-            );
-            NativeReplayExecutionBindingConsumerErrorV1
+            )
         })?;
     let stored = resolve_native_replay_execution_input_binding_for_request_v1_in_transaction(
         &mut transaction,
         locator,
     )
     .await
-    .map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
-            "native_replay_execution_binding.v1_binding.resolve",
-            &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
-    })?
-    .ok_or(NativeReplayExecutionBindingConsumerErrorV1)?;
+    .map_err(|e| refused("native_replay_execution_binding.v1_binding.resolve", &e))?
+    .ok_or_else(NativeReplayExecutionBindingConsumerErrorV1::binding_absent)?;
     let binding_bytes = stored.binding().canonical_bytes().to_vec();
     let preparation = resolve_native_replay_preparation_inputs_v2_in_transaction(
         &mut transaction,
@@ -120,28 +125,15 @@ where
         composer,
     )
     .await
-    .map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
-            "native_replay_execution_binding.preparation.resolve",
-            &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
-    })?;
+    .map_err(|e| refused("native_replay_execution_binding.preparation.resolve", &e))?;
     let projected_plan =
         StrategyPlanV2::decode_owner_resolution_projection(preparation.composer().plan_bytes())
-            .map_err(|e| {
-                crate::storage_diagnostic::refused_by_store(
-                    "native_replay_execution_binding.plan.decode_projection",
-                    &e,
-                );
-                NativeReplayExecutionBindingConsumerErrorV1
-            })?;
+            .map_err(|e| refused("native_replay_execution_binding.plan.decode_projection", &e))?;
     let economic_locators = stored.instrument_economic_terms_locators().map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
+        refused(
             "native_replay_execution_binding.economic_terms.locators",
             &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
+        )
     })?;
     let mut terms = Vec::with_capacity(economic_locators.len());
     for (ordinal, locator) in economic_locators.iter().enumerate() {
@@ -150,11 +142,10 @@ where
                 .resolve(*locator)
                 .await
                 .map_err(|e| {
-                    crate::storage_diagnostic::refused_by_store(
+                    refused(
                         "native_replay_execution_binding.economic_terms.resolve",
                         &format!("member {ordinal}: {e}"),
-                    );
-                    NativeReplayExecutionBindingConsumerErrorV1
+                    )
                 })?,
         );
     }
@@ -165,11 +156,10 @@ where
         &term_readbacks,
     )
     .map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
+        refused(
             "native_replay_execution_binding.profile_authority.issue",
             &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
+        )
     })?;
     // A binding that names a custody run reads every frame of that run at its pinned head; the
     // snapshot path below never runs for it.
@@ -208,11 +198,10 @@ where
         .resolve_instrument_master_v2_for_native_replay_request(request.request_identity.as_str())
         .await
         .map_err(|e| {
-            crate::storage_diagnostic::refused_by_store(
+            refused(
                 "native_replay_execution_binding.instrument_master.resolve",
                 &e,
-            );
-            NativeReplayExecutionBindingConsumerErrorV1
+            )
         })?;
     // `market_request` is retained unused for now: it is the input that produced this readback, and
     // the window's whole frame sequence is resolved from it once Market Data supplies the
@@ -225,13 +214,7 @@ where
         market_data,
     )
     .await
-    .map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
-            "native_replay_execution_binding.market_inputs.resolve",
-            &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
-    })?;
+    .map_err(|e| refused("native_replay_execution_binding.market_inputs.resolve", &e))?;
     let plan = StrategyPlanV2::parse_and_revalidate_durable_with_owner_universe(
         preparation.composer().plan_bytes(),
         market.universe_frame(),
@@ -239,11 +222,10 @@ where
         projected_plan.design_identity(),
     )
     .map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
+        refused(
             "native_replay_execution_binding.plan.revalidate_with_universe",
             &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
+        )
     })?;
     let artifact = StrategyArtifactV2::parse_and_revalidate_durable(
         preparation.composer().artifact_package_bytes(),
@@ -254,13 +236,7 @@ where
             .collect(),
         &plan,
     )
-    .map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
-            "native_replay_execution_binding.artifact.revalidate",
-            &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
-    })?;
+    .map_err(|e| refused("native_replay_execution_binding.artifact.revalidate", &e))?;
     verify_re_resolved_native_replay_execution_inputs_v1(
         &stored,
         &preparation,
@@ -272,13 +248,7 @@ where
         market.universe_frame(),
         &market.schedules().iter().collect::<Vec<_>>(),
     )
-    .map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
-            "native_replay_execution_binding.re_resolution.verify",
-            &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
-    })?;
+    .map_err(|e| refused("native_replay_execution_binding.re_resolution.verify", &e))?;
     // A Plan that reads member coordinates takes them from Market Data's sample projection over this
     // very frame, which R&D issued when it bound the request. A frame never issued one is refused
     // here rather than admitted without the coordinates its Plan reads.
@@ -287,18 +257,16 @@ where
             .resolve_by_subject_v1(market.universe_frame().digest())
             .await
             .map_err(|e| {
-                crate::storage_diagnostic::refused_by_store(
+                refused(
                     "native_replay_execution_binding.sample_projection.resolve",
                     &e,
-                );
-                NativeReplayExecutionBindingConsumerErrorV1
+                )
             })?
             .ok_or_else(|| {
-                crate::storage_diagnostic::refused_by_store(
+                refused(
                     "native_replay_execution_binding.sample_projection.resolve",
                     &"no sample projection was issued for the frame",
-                );
-                NativeReplayExecutionBindingConsumerErrorV1
+                )
             })?;
         Some(projection)
     } else {
@@ -314,42 +282,36 @@ where
                 .fact()
                 .validate_native_crypto_perpetual_public_terms()
                 .map_err(|e| {
-                    crate::storage_diagnostic::refused_by_store(
+                    refused(
                         "native_replay_execution_binding.public_terms.validate",
                         &format!("member {ordinal}: {e}"),
-                    );
-                    NativeReplayExecutionBindingConsumerErrorV1
+                    )
                 })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let (universe_frame, scheduling) = market.into_execution_parts().map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
+        refused(
             "native_replay_execution_binding.market_inputs.into_execution_parts",
             &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
+        )
     })?;
     let owner_frame = match &projection {
         Some(projection) => {
             OwnerUniverseFrameV1::from_owner_projection_v1(universe_frame, projection).map_err(
                 |e| {
-                    crate::storage_diagnostic::refused_by_store(
+                    refused(
                         "native_replay_execution_binding.sample_projection.attach",
                         &e,
-                    );
-                    NativeReplayExecutionBindingConsumerErrorV1
+                    )
                 },
             )?
         }
         None => OwnerUniverseFrameV1::uncoordinated(universe_frame),
     };
-    transaction.commit().await.map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
-            "native_replay_execution_binding.transaction.commit",
-            &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
-    })?;
+    transaction
+        .commit()
+        .await
+        .map_err(|e| refused("native_replay_execution_binding.transaction.commit", &e))?;
     let funding_window = profile.request_window();
     let funding_members = instrument_master
         .cut()
@@ -364,13 +326,7 @@ where
             funding_window.end_event_ns_exclusive,
         )
         .await
-        .map_err(|e| {
-            crate::storage_diagnostic::refused_by_store(
-                "native_replay_execution_binding.funding.resolve",
-                &e,
-            );
-            NativeReplayExecutionBindingConsumerErrorV1
-        })?;
+        .map_err(|e| refused("native_replay_execution_binding.funding.resolve", &e))?;
     let execution = ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1(
         profile,
         plan,
@@ -386,11 +342,10 @@ where
         funding_schedule,
     )
     .map_err(|e| {
-        crate::storage_diagnostic::refused_by_store(
+        refused(
             "native_replay_execution_binding.execution_bundle.compose",
             &e,
-        );
-        NativeReplayExecutionBindingConsumerErrorV1
+        )
     })?;
     let design_bytes = preparation.composer().design_bytes().to_vec();
     let plan_bytes = preparation.composer().plan_bytes().to_vec();
@@ -413,7 +368,10 @@ fn refused(
     cause: &impl Display,
 ) -> NativeReplayExecutionBindingConsumerErrorV1 {
     crate::storage_diagnostic::refused_by_store(coordinate, cause);
-    NativeReplayExecutionBindingConsumerErrorV1
+    NativeReplayExecutionBindingConsumerErrorV1 {
+        coordinate,
+        cause: cause.to_string(),
+    }
 }
 
 /// The custody branch: every frame of the bound run, read at its pinned head under the chain's

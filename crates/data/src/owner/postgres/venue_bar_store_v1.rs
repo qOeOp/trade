@@ -874,9 +874,9 @@ mod tests {
         );
     }
 
-    /// A week opens Monday 00:00 UTC, a month on the 1st, and the close is the next open.
+    /// A week opens Monday 00:00 UTC, and the close is the next open.
     #[rstest]
-    fn the_week_and_month_grids_follow_their_anchors() {
+    fn the_week_grid_follows_its_anchor() {
         let week = served_timeframe_v1("1w").unwrap();
         let monday_2024_01_01 = 1_704_067_200_000_000_000;
         assert_eq!(
@@ -884,11 +884,6 @@ mod tests {
             Some(monday_2024_01_01 + 7 * DAY)
         );
         assert_eq!(week.close_of(monday_2024_01_01 + DAY), None);
-        let month = served_timeframe_v1("1M").unwrap();
-        let feb_2024 = 1_706_745_600_000_000_000;
-        assert_eq!(month.close_of(feb_2024), Some(feb_2024 + 29 * DAY));
-        assert_eq!(month.close_of(feb_2024 + DAY), None);
-        assert_eq!(month.label, "1MO");
         assert_eq!(served_timeframe_v1("1m").unwrap().label, "1M");
     }
 }

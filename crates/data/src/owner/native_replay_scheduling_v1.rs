@@ -205,10 +205,6 @@ pub enum NativeReplaySchedulingErrorV1 {
     SourceBindingDeclaresNoBarTimeframe,
     #[error("no schedule, role or row states the bar the frame's Source Binding declares")]
     DeclaredBarTimeframeMismatch,
-    /// The frame's declared bar is a `CalendarMonth` cadence, which no window schedule can
-    /// enumerate as an execution timeframe yet.
-    #[error("a CalendarMonth cadence cannot be an execution timeframe")]
-    CalendarMonthNotAnExecutionTimeframe,
     /// The Replay names another Universe Selection Record than the one the frame's batch binds.
     ///
     /// A request names two different universe selections, and each is checked against the same
@@ -1489,18 +1485,28 @@ fn custody_quote_cut_instant(
     Ok(instant_ns)
 }
 
+/// The Universe Selection a custody's root names, in both its forms: the locator `(request
+/// identity, request meaning digest)` its views bind, and the stored record `(record identity,
+/// record digest)` that locator resolves to, read and checked against it in the same read. A
+/// Replay names the record, as every R&D consumer of a chain's basis does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CustodyUniverseV1 {
+    pub(crate) locator: (BindingDigest, BindingDigest),
+    pub(crate) record: (BindingDigest, BindingDigest),
+}
+
 /// Issues the readback of one custody frame from the Owner's view, quote cut and window
 /// schedules of the head its request pins.
 ///
-/// `universe` is the custody's Universe Selection locator, `(request_identity,
-/// request_meaning_digest)`: the Record a custody request names is checked as that pair. `custody`
-/// is the rows the view was sealed from, from which the frame's sample projection is derived.
+/// `universe` is the custody's Universe Selection: the Record a custody request names is checked
+/// against its stored record pair, and the view against its locator. `custody` is the rows the
+/// view was sealed from, from which the frame's sample projection is derived.
 pub(crate) fn issue_native_replay_custody_frame_readback_v1(
     view: VerifiedPitObservationBatch,
     quote_cut: VerifiedPitObservationBatch,
     schedules: Vec<PitWindowScheduleFactV1>,
     declared: DeclaredBarTimeframeV1,
-    universe: (BindingDigest, BindingDigest),
+    universe: CustodyUniverseV1,
     custody: &CustodyFrameRowsV1,
     request: &NativeReplayInitialMarketRequestV1,
 ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
@@ -1544,10 +1550,12 @@ pub(crate) fn issue_native_replay_custody_frame_readback_v1(
         request.window_end_ns_exclusive,
     )?;
 
-    // Ruling Q11: the Record is the locator pair, identity and meaning digest each compared.
-    if request.universe_selection_record_identity != universe.0
-        || request.universe_selection_record_digest != universe.1
-        || view.universe_selection_digest() != universe.0
+    // Ruling Q11, relocated by T0-10's follow-up: the Record a request names is the stored record
+    // pair the root's locator resolves to, identity and digest each compared - the pair every R&D
+    // consumer of the chain's basis names. The view binds the locator, an Owner-internal check.
+    if request.universe_selection_record_identity != universe.record.0
+        || request.universe_selection_record_digest != universe.record.1
+        || view.universe_selection_digest() != universe.locator.0
     {
         return Err(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch);
     }
@@ -4286,10 +4294,7 @@ pub(crate) mod tests {
         fn custody_request(
             members: &[&str],
             close_label: &str,
-        ) -> (
-            NativeReplayInitialMarketRequestV1,
-            (BindingDigest, BindingDigest),
-        ) {
+        ) -> (NativeReplayInitialMarketRequestV1, CustodyUniverseV1) {
             custody_request_with(
                 members,
                 &[(42, MarketDataFieldSemantic::BarClosePrice, close_label)],
@@ -4299,12 +4304,14 @@ pub(crate) mod tests {
         fn custody_request_with(
             members: &[&str],
             roles: &[(u8, MarketDataFieldSemantic, &str)],
-        ) -> (
-            NativeReplayInitialMarketRequestV1,
-            (BindingDigest, BindingDigest),
-        ) {
+        ) -> (NativeReplayInitialMarketRequestV1, CustodyUniverseV1) {
             let selection = derive_universe_selection(&frame(members, view_source())).unwrap();
-            let universe = (digest(6), digest(66));
+            // The locator the view binds and the stored record it resolves to are different pairs,
+            // as they are in a store: the request names the record.
+            let universe = CustodyUniverseV1 {
+                locator: (digest(6), digest(66)),
+                record: (digest(8), digest(88)),
+            };
             let request = NativeReplayInitialMarketRequestV1::for_custody_frame(
                 UntrustedPitWindowCustodyFrameV1 {
                     custody: UntrustedPitWindowCustodyClaimV1 {
@@ -4317,8 +4324,8 @@ pub(crate) mod tests {
                 digest(2),
                 selection.selection_identity(),
                 selection.selection_digest(),
-                universe.0,
-                universe.1,
+                universe.record.0,
+                universe.record.1,
                 digest(5),
                 digest(14),
                 digest(7),
@@ -4346,7 +4353,7 @@ pub(crate) mod tests {
             quote_cut: VerifiedPitObservationBatch,
             members: &[&str],
             request: &NativeReplayInitialMarketRequestV1,
-            universe: (BindingDigest, BindingDigest),
+            universe: CustodyUniverseV1,
         ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
             let custody = custody_rows_restating_view_for_acceptance_v1(&view, b"unit");
             issue_with(view, quote_cut, members, request, universe, &custody)
@@ -4357,7 +4364,7 @@ pub(crate) mod tests {
             quote_cut: VerifiedPitObservationBatch,
             members: &[&str],
             request: &NativeReplayInitialMarketRequestV1,
-            universe: (BindingDigest, BindingDigest),
+            universe: CustodyUniverseV1,
             custody: &CustodyFrameRowsV1,
         ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
             issue_native_replay_custody_frame_readback_v1(
@@ -4644,8 +4651,23 @@ pub(crate) mod tests {
             assert_eq!(universe_frame.selection().members().len(), 2);
             assert_eq!(scheduling.frame_time_ns(), E);
 
-            // Ruling Q11: the Record is the locator pair; each half is compared on its own.
-            for wrong in [(digest(6), digest(67)), (digest(68), digest(66))] {
+            // Ruling Q11: the Record a request names is the stored record pair, each half compared on
+            // its own; a store whose record is another pair, or whose locator is not the one the
+            // view binds, refuses the frame by name.
+            for wrong in [
+                CustodyUniverseV1 {
+                    record: (digest(8), digest(87)),
+                    ..universe
+                },
+                CustodyUniverseV1 {
+                    record: (digest(9), digest(88)),
+                    ..universe
+                },
+                CustodyUniverseV1 {
+                    locator: (digest(7), digest(66)),
+                    ..universe
+                },
+            ] {
                 assert_eq!(
                     issue(
                         frame(members, view_source()),

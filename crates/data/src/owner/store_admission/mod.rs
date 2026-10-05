@@ -1856,6 +1856,9 @@ pub(super) const PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1: &[AcceptanceGrantV1] =
         "market_data_admitted_read.resolve_pit_window_chains_for_instrument_v1(text)",
     ),
     AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_pit_window_rows_v1(bytea,bytea[])",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
         "market_data_admitted_read.resolve_pit_window_universe_selection_v1(bytea)",
     ),
 ];
@@ -7229,7 +7232,12 @@ mod tests {
             event_ns: through_port.frames()[1].event_ns(),
         };
         let view = owner.resolve_pit_window_view_v1(&frame).await.unwrap();
-        let request = frame_fixture::custody_request(&view, frame, run.run_end_ns_exclusive);
+        let request = frame_fixture::custody_request(
+            &view,
+            frame_fixture::custody_universe_record(&owner, &view).await,
+            frame,
+            run.run_end_ns_exclusive,
+        );
         let rows = frame_fixture::quote_rows(&view.chain.root.members);
         let admitted = custody_frame::resolve_native_replay_custody_frame_through_port_v1(
             &port,
@@ -7415,7 +7423,11 @@ mod tests {
     async fn run_sealed_custody_frames_scenario() {
         use crate::owner::{
             pit_window_custody_v1::{PitWindowCoverageRefusalV1, PitWindowRunRefusalV1},
-            postgres::pit_window_custody_v1 as custody,
+            postgres::{
+                native_replay_custody_frame_v1 as custody_frame,
+                native_replay_custody_frame_v1_tests as frame_fixture,
+                pit_window_custody_v1 as custody,
+            },
         };
 
         const READER: &str = "vibe_test_role_market_data_reader";
@@ -7468,6 +7480,23 @@ mod tests {
             (frames, coverage)
         };
         assert!(pooled.0.is_ok(), "the fixture's run is covered");
+        // A frame's view, read through the same unadmitted port a sealed scheduling resolver reads
+        // custody frames through: the chain, then the rows of the versions the view selects.
+        let read = pooled.0.as_ref().expect("the fixture's run is covered");
+        let frame = crate::owner::pit_window_custody_v1::UntrustedPitWindowCustodyFrameV1 {
+            custody: run.custody,
+            head_identity: read.head_identity(),
+            event_ns: read.frames()[0].event_ns(),
+        };
+        let view_port = UnadmittedAcceptanceSnapshotPortV1::from_database_url(&reader_url)
+            .expect("a disposable reader URL opens the port");
+        let view_refused = || async {
+            custody::resolve_pit_window_view_through_port_v1(&view_port, &frame)
+                .await
+                .map(|_| ())
+                == Err(custody::PitWindowViewRefusalV1::StoreUnavailable)
+        };
+        assert!(view_refused().await, "an ungranted principal reads no view");
 
         assert_eq!(
             frames.resolve_pit_window_frames_v1(run).await,
@@ -7495,6 +7524,10 @@ mod tests {
         .await;
         assert_eq!(frames.resolve_pit_window_frames_v1(run).await, pooled.0);
         assert_eq!(lookup().await, pooled.1, "the lookup answers as the pool's");
+        assert!(
+            !view_refused().await,
+            "the granted principal reads the frame's view"
+        );
         assert_eq!(
             pooled.1,
             Err(PitWindowCoverageRefusalV1::CustodyNotFound),
@@ -7521,22 +7554,79 @@ mod tests {
                 == Err(PitWindowRunRefusalV1::StoreUnavailable);
             let lookup_refused =
                 lookup().await == Err(PitWindowCoverageRefusalV1::StoreUnavailable);
+            // The view reads the chain and its rows; the frames read the chain, its basis and its
+            // Universe Selection; the lookup reads the coverage function alone.
             let expected = match revoked {
-                AcceptanceGrantV1::SchemaUsage(_) => (true, true),
+                AcceptanceGrantV1::SchemaUsage(_) => (true, true, true),
                 AcceptanceGrantV1::FunctionExecute(function)
                     if function.contains("chains_for_instrument") =>
                 {
-                    (false, true)
+                    (false, true, false)
                 }
-                AcceptanceGrantV1::FunctionExecute(_) => (true, false),
+                AcceptanceGrantV1::FunctionExecute(function) if function.contains("rows") => {
+                    (false, false, true)
+                }
+                AcceptanceGrantV1::FunctionExecute(function)
+                    if function.contains("resolve_pit_window_chain_v1") =>
+                {
+                    (true, false, true)
+                }
+                AcceptanceGrantV1::FunctionExecute(_) => (true, false, false),
             };
             assert_eq!(
-                (frames_refused, lookup_refused),
+                (frames_refused, lookup_refused, view_refused().await),
                 expected,
                 "revoking {revoked:?} alone refuses exactly the read that needs it"
             );
             grant(alone, AcceptanceGrantV1::grant_to).await;
         }
+        // The sealed scheduling resolver reads a custody frame through the same unadmitted port,
+        // under the custody grants beside its own scheduling ones, with the quote cut production
+        // derives from the gap's fill bar, and answers what the pool's read answers.
+        grant(
+            NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1,
+            AcceptanceGrantV1::grant_to,
+        )
+        .await;
+        let view = owner.resolve_pit_window_view_v1(&frame).await.unwrap();
+        let request = frame_fixture::custody_request(
+            &view,
+            frame_fixture::custody_universe_record(&owner, &view).await,
+            frame,
+            run.run_end_ns_exclusive,
+        );
+        let scheduling =
+            crate::owner::native_replay_scheduling_resolver_for_sealed_acceptance_v1(&reader_url)
+                .expect("a disposable reader URL opens the scheduling resolver");
+        let read_by_scheduling = scheduling
+            .resolve_native_replay_custody_frame_inputs_v1(&request)
+            .await
+            .expect("the sealed scheduling resolver reads a custody frame");
+        let read_on_pool = custody_frame::resolve_native_replay_custody_frame_from_pool_v1(
+            owner.pool(),
+            &request,
+            custody_frame::resolve_custody_quote_cut_v1,
+        )
+        .await
+        .expect("custody reads the custody frame");
+        assert_eq!(read_by_scheduling.source(), read_on_pool.source());
+        assert_eq!(
+            read_by_scheduling.universe_frame().digest(),
+            read_on_pool.universe_frame().digest()
+        );
+        assert_eq!(
+            read_by_scheduling.window_schedules(),
+            read_on_pool.window_schedules()
+        );
+        assert_eq!(
+            read_by_scheduling.quote_cut_for_test().source(),
+            read_on_pool.quote_cut_for_test().source()
+        );
+        grant(
+            NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1,
+            AcceptanceGrantV1::revoke_from,
+        )
+        .await;
         grant(
             PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1,
             AcceptanceGrantV1::revoke_from,
