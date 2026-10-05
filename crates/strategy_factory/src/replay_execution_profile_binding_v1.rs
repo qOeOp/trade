@@ -1516,6 +1516,7 @@ mod tests {
         let frame_time = crate::program_host_v2::admit_owner_universe_program_event_v2(
             &plan,
             &crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+            crate::program_host_v2::UniverseSelectionPinV2::SnapshotReceipt,
         )
         .unwrap()
         .envelope()

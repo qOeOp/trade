@@ -50,7 +50,7 @@ use crate::{
     artifact_v2::StrategyArtifactV2,
     program_host_v2::{
         AdmittedProgramEventV2, OwnerUniverseFrameV1, PreparedBacktestTargetSetV2, ProgramHostV2,
-        ProgramHostV2Error, admit_owner_universe_program_event_v2,
+        ProgramHostV2Error, UniverseSelectionPinV2, admit_owner_universe_program_event_v2,
     },
     strategy_plan_v2::{StrategyPlanV2, TargetSetBarFieldV2},
     target_set_members::{BoundedMembers, update_member_count_domain},
@@ -620,9 +620,11 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         bars: &BoundedMembers<Bar>,
     ) -> anyhow::Result<()> {
         let admitted = match frame {
-            BacktestUniverseFrameV2::Owner(frame) => {
-                admit_owner_universe_program_event_v2(&self.plan, frame)?
-            }
+            BacktestUniverseFrameV2::Owner(frame) => admit_owner_universe_program_event_v2(
+                &self.plan,
+                frame,
+                UniverseSelectionPinV2::SnapshotReceipt,
+            )?,
             #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
             BacktestUniverseFrameV2::Admitted(event) => (**event).clone(),
         };
