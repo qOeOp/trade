@@ -162,7 +162,8 @@ async fn postgres_the_sealed_acceptance_chain_reads_every_frame_with_its_derived
                 chain.universe_selection().request_meaning_digest()
             )
         );
-        let request = custody_request(&view, frame, run_end);
+        // The request names the basis's stored record pair, exactly as R&D's Replay does.
+        let request = custody_request(&view, basis.universe_selection_record(), frame, run_end);
         let readback = resolve_native_replay_custody_frame_from_pool_v1(
             owner.pool(),
             &request,

@@ -7229,7 +7229,12 @@ mod tests {
             event_ns: through_port.frames()[1].event_ns(),
         };
         let view = owner.resolve_pit_window_view_v1(&frame).await.unwrap();
-        let request = frame_fixture::custody_request(&view, frame, run.run_end_ns_exclusive);
+        let request = frame_fixture::custody_request(
+            &view,
+            frame_fixture::custody_universe_record(&owner, &view).await,
+            frame,
+            run.run_end_ns_exclusive,
+        );
         let rows = frame_fixture::quote_rows(&view.chain.root.members);
         let admitted = custody_frame::resolve_native_replay_custody_frame_through_port_v1(
             &port,
