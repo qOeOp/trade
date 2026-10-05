@@ -30,8 +30,8 @@ use crate::{
     common::{
         enums::{BinanceKlineInterval, BinanceProductType},
         offline::{
-            BinanceVisionArchiveBinding, archive_digest, authenticate_monthly_klines,
-            sidecar_digest,
+            BinanceVisionArchiveBinding, Sha256Digest, archive_digest, authenticate_daily_klines,
+            authenticate_monthly_klines, is_valid_binance_symbol, sidecar_digest,
         },
     },
     funding_archive_v1::{FundingArchiveRowV1, authenticate_monthly_funding},
@@ -42,6 +42,9 @@ use crate::{
 
 /// The route a row fetched from the public archive names in its custody evidence.
 pub const ARCHIVE_ROUTE: &str = "binance-vision-archive";
+/// The route a row fetched from the public daily archive names in its custody evidence: Market
+/// Data's B5 verifier reads a bar earlier this way, or covers a day a monthly file omits.
+pub const DAILY_ARCHIVE_ROUTE: &str = "binance-vision-daily-archive";
 /// The route a row fetched from the public `klines` endpoint names in its custody evidence.
 pub const ENDPOINT_ROUTE: &str = "binance-usdm-endpoint";
 /// The route a settlement fetched from the public monthly funding-rate archive names in its
@@ -81,6 +84,10 @@ pub enum VisionBackfillErrorV1 {
     /// `PRIOR_BAR_UNAVAILABLE`: the bar closing at a grid-aligned window's start - the window's
     /// first frame - is in neither the archive nor the public endpoint. `open_ms` names it.
     PriorBarUnavailable { open_ms: i64 },
+    /// Not a canonical Binance symbol (non-empty, every byte an ASCII uppercase letter or
+    /// digit). Refused before a shard path or an archive URL is built from it - the archive
+    /// binding would refuse it too, but only after both already exist.
+    InvalidSymbol,
 }
 
 impl Display for VisionBackfillErrorV1 {
@@ -107,6 +114,7 @@ impl Display for VisionBackfillErrorV1 {
                 "the binding's availability rule is not a lag after the bar's close"
             }
             Self::WindowBeforeEpoch => "the requested window lies before the Unix epoch",
+            Self::InvalidSymbol => "not a canonical Binance symbol",
         })
     }
 }
@@ -207,6 +215,9 @@ impl VisionBackfillFetcherV1 {
         year: i32,
         month: u8,
     ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
+        if !is_valid_binance_symbol(symbol) {
+            return Err(VisionBackfillErrorV1::InvalidSymbol);
+        }
         let stem = format!("{symbol}-{}-{year:04}-{month:02}", interval.as_str());
         let archive_name = format!("{stem}.zip");
         let shard = self.shard_dir.join(symbol).join(interval.as_str());
@@ -257,6 +268,85 @@ impl VisionBackfillFetcherV1 {
                 route: ARCHIVE_ROUTE,
             })
             .collect())
+    }
+
+    /// The archive's own verified content digest, and every ordinary bar of one archived UTC
+    /// day, from its shard or from the archive. Market Data's B5 verifier calls this for a bar
+    /// earlier than its month's own file is published, and for a day a monthly file omits, and
+    /// carries the digest as `VenueBarArchiveV1::identity`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisionBackfillErrorV1`] for an archive that is unavailable, does not match its
+    /// sidecar, or is not a USD-M kline day the reader admits, and for a shard directory that
+    /// cannot be read or written.
+    pub async fn execution_day(
+        &self,
+        symbol: &str,
+        interval: BinanceKlineInterval,
+        year: i32,
+        month: u8,
+        day: u8,
+    ) -> Result<(Sha256Digest, Vec<FetchedBarV1>), VisionBackfillErrorV1> {
+        if !is_valid_binance_symbol(symbol) {
+            return Err(VisionBackfillErrorV1::InvalidSymbol);
+        }
+        let stem = format!(
+            "{symbol}-{}-{year:04}-{month:02}-{day:02}",
+            interval.as_str()
+        );
+        let archive_name = format!("{stem}.zip");
+        let shard = self.shard_dir.join(symbol).join(interval.as_str());
+
+        let (archive, sidecar, retrieval_ns) =
+            if let Some(found) = verified_shard(&shard, &archive_name)? {
+                found
+            } else {
+                let url = format!(
+                    "{}/data/futures/um/daily/klines/{symbol}/{}/{archive_name}",
+                    self.archive_base_url,
+                    interval.as_str()
+                );
+                let retrieval_ns = self.clock.get_time_ns().as_u64();
+                let archive = self.fetch(url.clone()).await?;
+                let sidecar = self.fetch(format!("{url}.CHECKSUM")).await?;
+                let declared = sidecar_digest(&sidecar, &archive_name)
+                    .map_err(|_| VisionBackfillErrorV1::ArchiveMismatch)?;
+
+                if archive_digest(&archive) != declared {
+                    return Err(VisionBackfillErrorV1::ArchiveMismatch);
+                }
+                write_shard(&shard, &archive_name, &archive, &sidecar, retrieval_ns)?;
+                (archive, sidecar, retrieval_ns)
+            };
+        let declared = sidecar_digest(&sidecar, &archive_name)
+            .map_err(|_| VisionBackfillErrorV1::ArchiveMismatch)?;
+        let binding = BinanceVisionArchiveBinding::new_daily(
+            archive_name,
+            format!("{stem}.csv"),
+            &declared.to_hex(),
+            None,
+            BinanceProductType::UsdM,
+            symbol,
+            interval,
+        )
+        .map_err(|_| VisionBackfillErrorV1::ArchiveUnreadable)?;
+        let (identity, read) = authenticate_daily_klines(&binding, &archive, &sidecar)
+            .map_err(|_| VisionBackfillErrorV1::ArchiveUnreadable)?;
+        let klines = read
+            .usdm_klines()
+            .ok_or(VisionBackfillErrorV1::ArchiveUnreadable)?;
+        Ok((
+            identity,
+            klines
+                .iter()
+                .map(|kline| FetchedBarV1 {
+                    kline: kline.clone(),
+                    retrieval_ns,
+                    route: DAILY_ARCHIVE_ROUTE,
+                })
+                .collect(),
+        ))
     }
 
     /// Every ordinary bar whose interval-close instant lies in `[window_start_ns,
@@ -990,6 +1080,113 @@ mod tests {
             .execution_month("BTCUSDT", BinanceKlineInterval::Day1, 2021, 6)
             .await
             .unwrap();
+        assert_eq!(
+            again, first,
+            "the shard answers, with the instant it was retrieved"
+        );
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            2,
+            "a verified shard is not fetched again"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_day_is_fetched_once_and_its_verified_shard_is_reused() {
+        const DAY_STEM: &str = "BTCUSDT-1h-2021-06-01";
+        let csv = format!(
+            "{JUNE_2021_MS},36000.00,36100.00,35900.00,36050.00,10.000,{},900000.00,100,5.000,450000.00,0\n",
+            JUNE_2021_MS + 3_600_000 - 1
+        );
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file(
+            format!("{DAY_STEM}.csv"),
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        zip.write_all(csv.as_bytes()).unwrap();
+        let zip = zip.finish().unwrap().into_inner();
+        let sidecar = format!("{}  {DAY_STEM}.zip\n", archive_digest(&zip).to_hex()).into_bytes();
+
+        let shards = ShardDir::new();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let path = format!("/data/futures/um/daily/klines/BTCUSDT/1h/{DAY_STEM}.zip");
+        let router = Router::new()
+            .route(
+                &path,
+                get({
+                    let zip = zip.clone();
+                    let requests = requests.clone();
+                    move || {
+                        let zip = zip.clone();
+                        let requests = requests.clone();
+                        async move {
+                            requests.fetch_add(1, Ordering::SeqCst);
+                            (StatusCode::OK, zip).into_response()
+                        }
+                    }
+                }),
+            )
+            .route(
+                &format!("{path}.CHECKSUM"),
+                get({
+                    let sidecar = sidecar.clone();
+                    let requests = requests.clone();
+                    move || {
+                        let sidecar = sidecar.clone();
+                        let requests = requests.clone();
+                        async move {
+                            requests.fetch_add(1, Ordering::SeqCst);
+                            (StatusCode::OK, sidecar).into_response()
+                        }
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let endpoint = BinanceFuturesHttpClient::new(
+            BinanceProductType::UsdM,
+            BinanceEnvironment::Live,
+            get_atomic_clock_realtime(),
+            None,
+            None,
+            Some(format!("http://{address}")),
+            None,
+            Some(10),
+            None,
+            false,
+        )
+        .unwrap();
+        let clock: &'static AtomicTime =
+            Box::leak(Box::new(AtomicTime::new(false, UnixNanos::from(NOW_NS))));
+        let fetcher = VisionBackfillFetcherV1::new(endpoint, shards.path())
+            .unwrap()
+            .with_stand_ins(format!("http://{address}"), clock);
+
+        let (identity, first) = fetcher
+            .execution_day("BTCUSDT", BinanceKlineInterval::Hour1, 2021, 6, 1)
+            .await
+            .expect("a headerless 2021 day is read");
+        assert_eq!(identity, archive_digest(&zip));
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].kline.open_time, JUNE_2021_MS);
+        assert!(
+            first
+                .iter()
+                .all(|bar| bar.route == DAILY_ARCHIVE_ROUTE && bar.retrieval_ns == NOW_NS)
+        );
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            2,
+            "the zip and its sidecar"
+        );
+
+        let (again_identity, again) = fetcher
+            .execution_day("BTCUSDT", BinanceKlineInterval::Hour1, 2021, 6, 1)
+            .await
+            .unwrap();
+        assert_eq!(again_identity, identity);
         assert_eq!(
             again, first,
             "the shard answers, with the instant it was retrieved"
