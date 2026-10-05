@@ -754,6 +754,10 @@ pub enum ComposerReplayShapeRefusalV1 {
     /// The Market Data facts' replay window does not lie within the TrialFamily's sealed Replay
     /// policy window, which bounds every Replay of the family.
     FactsWindowOutsidePolicyRange,
+    /// A schema 5 (custody run) source carries an Instrument Master field, or is missing one of
+    /// its four custody fields (`chain_root`/`head_identity`/`run_start_ns`/
+    /// `run_end_ns_exclusive`).
+    CustodyRunSourceFieldsInvalid,
 }
 
 #[cfg(test)]
