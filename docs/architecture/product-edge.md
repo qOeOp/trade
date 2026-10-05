@@ -451,13 +451,72 @@ the run, so a replay reads the same data.
 - Accepted on its own when one created strategy runs on one `dataset_ref` and its report reads back with fees,
   funding and the control.
 
+**`research`**, served by R&D's research ledger (TARGET; ready to build once Phase 3's T0 acceptance passes):
+
+- It is a read-mostly ledger over facts R&D's Owner model already commits; this server adds no new storage and
+  computes no new decision. It exposes, by tool call, exactly what R&D's TrialFamily, Census Frontier
+  (`crates/strategy_factory/src/trial_family.rs`), and Iteration Decision admission path
+  (`crates/strategy_factory_rd_owner_api/src/iteration_decision.rs`,
+  `.../iteration_result_admission.rs`) already hold today - the same facts `backtest.run` already counts "every
+  run... as a trial in R&D's census before its result is shown" (above).
+- `register_hypothesis(mechanism, falsifier, smallest_effect_of_interest, variant_count, source?)` →
+  `hypothesis_id`. Forms the TrialFamily (or its next successor Research Intent) exactly as R&D's existing
+  formation path requires: before any attempt of that family runs, sealed into the family's decision-policy
+  binding. Refused by name, `DATA_ALREADY_READ`, when Market Data's agent data-read ledger shows this agent
+  already read data the hypothesis's falsifier or smallest-effect claim depends on - R&D already reads that
+  ledger downward of Market Data ("Agent data-read ledger" in [Market Data](../owners/market-data/)); this tool
+  reuses that existing read, it does not add a second one.
+- `list_trials(hypothesis_id, filter?)` → every trial the family's Census Frontier counts - including losing,
+  rejected, invalid and unknown trials, because the Census Frontier already does. Each trial is the reference
+  triple (`run_id`, `strategy_id`, `dataset_ref`) exactly as the `backtest` server's `run` call formed it: R&D
+  forms and stores that triple itself before it ever calls Backtest, so answering this needs no call back into
+  `backtest` and breaks no "no MCP server calls another" rule. Each trial also carries its outcome category:
+  `COUNTED_NO_DECISION`, or the committed Iteration Decision outcome by name (`REPAIR_INPUTS`, a successor, or a
+  terminal stop) - never the Diagnosis detail behind it.
+- `census(hypothesis_id)` → the family's current state, read-only: trial count, the consumed trial budget
+  (`TrialFamilyCensusFrontierV2.consumed_trial_budget`), and whether the family is open, closed, or at a terminal
+  stop. This is the brief's "spend"; R&D already tracks it per family, this tool only reads it.
+- **Red line (verdicts, never values).** Every output above states an outcome category or a count, never a
+  holdout measurement, a per-trade result, or Diagnosis detail - the same discipline Qualification's `verdict`
+  tool already holds for its own holdout (below): a research-ledger answer cannot leak what a later qualification
+  pass must independently prove. `docs/plans/research-knowledge-ledger-seed.md` already applies exactly this
+  discipline by hand while importing `research/ronnie`'s findings: only development-side figures are carried,
+  holdout/validation/final tiers are excluded, and only the pass/not-pass bit survives from a gatekeeper-held
+  tier. This server's red line is that same rule, enforced by the tool surface instead of by hand.
+- **Red line (no hypothesis after its data).** `register_hypothesis` is the one write this server owns; every
+  other fact here is written by `backtest.run` (through Backtest) or by R&D's own admission of that run's result,
+  never by this server directly - so the rule has exactly one enforcement point to audit.
+- **Out of scope.** The factor ledger and family-status/closure record (`knowledge`, below - a cross-loop view
+  over many families' flagged factors that R&D also holds, but a different fact than this server exposes);
+  authoring or creating strategies (`strategy-authoring`); running anything (`backtest`); any holdout or protected
+  value (Qualification, never reachable from here).
+- Accepted on its own when, using only this server plus the existing `backtest` server, an agent can register a
+  hypothesis, see it refused once already-read data is retried, run a `backtest.run` trial against it, and read
+  that trial back through `list_trials` and `census` with its correct outcome category and consumed budget -
+  reproducing, end to end, one loop of the `research/ronnie` simulation's protocol (hypothesis, register, run,
+  report; `loop/PROTOCOL.md` on `claude/inspiring-gauss-pxaril`).
+
+**Open questions for the user, not decided in this doc:**
+
+1. Whether `register_hypothesis`'s `variant_count` can reuse the TrialFamily's already-sealed decision-policy
+   budget field, or needs a new R&D-owned field: the existing type seals a budget at formation but does not
+   separately name a declared variant count up front.
+2. Whether a hypothesis is one TrialFamily or one Research Intent within a family - the simulation's "loop" sits
+   below a whole family, closer to a successor Intent. This changes what `hypothesis_id` identifies and whether
+   `register_hypothesis` can be called more than once per family.
+3. Whether the Iteration Decision's Diagnosis input (loss decomposition, competing explanations, the diagnostic
+   R&D's own rules require before a decision commits) needs its own agent-facing write tool, or stays entirely
+   inside `backtest.run`'s existing result-admission path with no separate ledger-side input. This doc assumes
+   the latter - no new write tool - because R&D's stated decision rule is self-derived from frozen policy, not
+   caller-supplied, but that assumption should be confirmed before this server's outcome categories are built
+   against.
+
 **Later servers (TARGET).** Each is a blueprint; its details are fixed when its stage comes.
 
-- **`research`**, served by R&D's research ledger: `register_hypothesis` (before any data is read: mechanism,
-  falsifier, smallest effect of interest, variant count), `list_trials`, and a read-only `census`. Red line: no
-  hypothesis is registered after the data it tests was read.
 - **`knowledge`**, served by R&D's knowledge ledger: `family_status`, `record_conclusion` and
   `check_before_research`. Red line: entries are append-only and hold no protected value.
+  `docs/plans/research-knowledge-ledger-seed.md` is a draft first-entries import from `research/ronnie`
+  (constructs, mechanism statuses, the development-only leak rule) for whoever builds this server next.
 - **`qualification`**, served by Qualification: `submit_candidate`, `status`, `verdict`, `forward_register` and
   `forward_status`. Red line: no holdout value ever leaves. Today Qualification projects every negative terminal
   byte-equivalently as `CLOSED_NOT_QUALIFIED`, so `verdict` answers `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; the
