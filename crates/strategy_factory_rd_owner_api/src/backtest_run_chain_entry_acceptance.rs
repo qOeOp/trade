@@ -25,11 +25,14 @@
 
 use std::sync::Arc;
 
+use sha2::{Digest as _, Sha256};
 use vibe_data::owner::{
     grant_pit_window_custody_acceptance_reads_v1,
     instrument_economic_terms_postgres_owner_from_environment_v1,
     instrument_master_v2_postgres_owner_from_environment,
-    market_semantics_admission_v1::market_semantics_admission_from_environment_v1,
+    market_semantics_admission_v1::{
+        MarketSemanticsValueSubmissionV1, market_semantics_admission_from_environment_v1,
+    },
     pit_market_snapshot_intake_v1::pit_market_snapshot_intake_from_environment_v1,
     pit_window_custody_frames_for_sealed_acceptance_v1,
     pit_window_custody_v1::sealed_acceptance_chain::{
@@ -38,7 +41,7 @@ use vibe_data::owner::{
         commit_sealed_acceptance_custody_chain_v1,
     },
     revoke_pit_window_custody_acceptance_reads_v1,
-    source_binding::UntrustedMarketSemantics,
+    source_binding::{BindingDigest, UntrustedMarketSemantics},
     strategy_input_binding_admission_v1::strategy_input_binding_admission_from_environment_v1,
     universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
 };
@@ -85,6 +88,30 @@ const SEALED_ACCEPTANCE_READER_PRINCIPAL: &str = "vibe_test_role_market_data_rea
 
 fn chain_entry_decimal(text: &str) -> SealedAcceptanceDecimalV1 {
     SealedAcceptanceDecimalV1::parse(text).expect("a decimal")
+}
+
+/// F's own registry meaning digest (`first_composer_v3_digest`,
+/// `first_composer_v3_replay_acceptance.rs`) - replicated here byte for byte, same domain prefix
+/// and meaning keys, so this entry names the exact same Market Semantics value F's own H2b
+/// already admitted as the binding scope's head, rather than a synthetic one of its own.
+fn chain_entry_first_composer_v3_digest(meaning: &str) -> BindingDigest {
+    BindingDigest::from_untrusted_bytes(
+        Sha256::digest(format!("first-composer-v3-replay.{meaning}").as_bytes()).into(),
+    )
+}
+
+/// F's own Market Semantics value for its binding's compatibility scope, verbatim
+/// (`first_composer_v3_replay_acceptance.rs`'s H2b default) - a scope that already has a head
+/// admits only the value it carries, and F's is the first and only submission against this
+/// chain's own scope (named via [`chain_entry_source_semantics`]).
+fn chain_entry_market_semantics_value() -> MarketSemanticsValueSubmissionV1 {
+    MarketSemanticsValueSubmissionV1 {
+        normalization_identity: chain_entry_first_composer_v3_digest("normalization"),
+        price_adjustment: "RAW".to_owned(),
+        timestamp_basis: "EVENT_EFFECTIVE".to_owned(),
+        price_unit_identity: chain_entry_first_composer_v3_digest("price-unit"),
+        size_unit_identity: chain_entry_first_composer_v3_digest("size-unit"),
+    }
 }
 
 /// One daily bar on the perpetual's own tick, at `open_ns`.
@@ -153,7 +180,7 @@ fn chain_entry_spec_v1(start: u64) -> SealedAcceptanceCustodyChainSpecV1 {
         },
         lag_ns: CUSTODY_LAG_NS,
         instrument_increments: None,
-        market_semantics_value: None,
+        market_semantics_value: Some(chain_entry_market_semantics_value()),
         source_semantics: Some(chain_entry_source_semantics()),
     }
 }
@@ -519,7 +546,6 @@ async fn assert_backtest_runs_are_recorded_and_read_back_v1(
 ) {
     use axum::http::StatusCode;
     use serde_json::json;
-    use sha2::{Digest as _, Sha256};
     use vibe_strategy_factory::backtest_run_registry_postgres_v1::PostgresBacktestRunRegistryV1;
 
     let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
