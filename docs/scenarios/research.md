@@ -52,11 +52,19 @@ become backtest market facts.
 The target has one promotion route: R&D iteration → meet frozen backtest qualification criteria → small real trades
 in the trial pool → meet frozen trial promotion criteria → formal strategy pool. Candidates without economic advantage,
 not yet evaluated, or with evidence insufficient to meet the backtest criteria stay in R&D; no direct trial entrance
-exists. Trials are real trading too; the formal pool is the allocation after promotion. Trial entry adds no separate
+exists. If the maximum observation period frozen before the trial expires without meeting promotion conditions,
+end the trial and return the candidate to R&D. Stop new entries, cancel unfilled entry orders and manage existing
+positions with their original stops and targets; do not force liquidation or omit remaining risk to improve the
+expiry result. Positions still exiting and unresolved orders retain their capital commitments until the owning
+service confirms release. Trials are real trading too; the formal pool is the allocation after promotion. Trial entry adds no separate
 research qualification process: backtest qualification is its research prerequisite, while existing account, capital
 and execution safety constraints govern every real order. Trials validate actual fills and returns; small amounts do
-not bypass backtest qualification. Freeze promotion criteria before trials; one month with positive returns is currently
-a user example, not a complete agreed rule. Never fabricate existing `QUALIFIED` or permit facts; bind backtest
+not bypass backtest qualification. The user approves and freezes promotion criteria before trials; meeting them triggers automatic promotion without
+case-by-case confirmation. Governance updates the stage and applicable capital allocation; the strategy does not
+request promotion or take on execution duties. Promotion also requires a minimum trade sample; elapsed time and
+positive returns from a few trades are insufficient. Count independent trades, not each staged exit as a new sample.
+The duration, minimum sample size and complete return/risk rules remain to be frozen; one month with positive returns
+is a user example, not a complete agreed rule. Never fabricate existing `QUALIFIED` or permit facts; bind backtest
 qualification, trial progress and promotion to readable stage facts and Owner contracts in the target implementation.
 Capital is expressed as margin committed: 20U margin
 at 5x leverage corresponds to approximately 100U notional exposure before fees. This illustrates units, not default
