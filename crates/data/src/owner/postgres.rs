@@ -1080,6 +1080,7 @@ impl MarketDataOwnerPostgres {
             .chain(universe_member_composition_basis_v1::SCHEMA_V1)
             .chain(universe_selection::RD_READ_SCHEMA_V1)
             .chain(pit_window_custody_v1::SCHEMA_V1)
+            .chain(custody_strategy_input_v1::RD_CUSTODY_READ_SCHEMA_V1)
             .chain(backfill_job_v1::SCHEMA_V1)
             .chain(source_binding_dataset_anchor_v1::SCHEMA_V1)
             .chain(venue_bar_store_v1::SCHEMA_V1)

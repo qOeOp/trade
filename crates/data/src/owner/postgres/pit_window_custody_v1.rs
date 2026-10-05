@@ -2646,64 +2646,89 @@ pub(in crate::owner) async fn resolve_pit_window_view_through_port_v1<P>(
 where
     P: crate::owner::store_admission::PitWindowCustodyReadPortV1 + ?Sized,
 {
-    let chain_root = frame.custody.chain_root;
+    let chain_root = *frame.custody.chain_root.as_bytes();
     let raw = port
-        .resolve_pit_window_chain_v1(*chain_root.as_bytes())
+        .resolve_pit_window_chain_v1(chain_root)
         .await
         .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
+    resolve_pit_window_view_from_raw_v1(frame, &raw, &mut PortRowsReadV1 { port, chain_root }).await
+}
+
+/// Reads the row facts of a chain's versions, for [`resolve_pit_window_view_from_raw_v1`].
+pub(in crate::owner) trait PitWindowRowsReadV1 {
+    fn read_rows(
+        &mut self,
+        versions: &[[u8; 32]],
+    ) -> impl Future<Output = Result<Vec<crate::owner::store_admission::RawPitWindowRowV1>, ()>> + Send;
+}
+
+struct PortRowsReadV1<'a, P: ?Sized> {
+    port: &'a P,
+    chain_root: [u8; 32],
+}
+
+impl<P> PitWindowRowsReadV1 for PortRowsReadV1<'_, P>
+where
+    P: crate::owner::store_admission::PitWindowCustodyReadPortV1 + ?Sized,
+{
+    async fn read_rows(
+        &mut self,
+        versions: &[[u8; 32]],
+    ) -> Result<Vec<crate::owner::store_admission::RawPitWindowRowV1>, ()> {
+        self.port
+            .resolve_pit_window_rows_v1(self.chain_root, versions)
+            .await
+            .map_err(|_| ())
+    }
+}
+
+/// The view of `frame` at the head it pins, from its chain as one read returned it and the row
+/// facts `rows` reads for the versions the view selects. The admitted port and the R&D principal's
+/// reread (T0-10 (c)) both read through here, so each verifies exactly what the other does.
+pub(in crate::owner) async fn resolve_pit_window_view_from_raw_v1<R: PitWindowRowsReadV1 + Send>(
+    frame: &UntrustedPitWindowCustodyFrameV1,
+    raw: &crate::owner::store_admission::RawPitWindowChainV1,
+    rows: &mut R,
+) -> Result<ResolvedPitWindowViewV1, PitWindowViewRefusalV1> {
     let evidence =
-        chain_evidence_from_raw_v1(&raw).ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
+        chain_evidence_from_raw_v1(raw).ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
     let (verified, selection, fill_versions) = view_selection_from_evidence_v1(frame, evidence)?;
-    let selected = selection
-        .selected
-        .iter()
-        .map(|version| *version.identity.as_bytes())
-        .collect::<Vec<_>>();
-    let rows = port
-        .resolve_pit_window_rows_v1(*chain_root.as_bytes(), &selected)
-        .await
-        .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?
-        .into_iter()
-        .map(|row| {
-            view_row_v1(
-                &row.version_identity,
-                row.member_ordinal,
-                row.field,
-                &row.fact_digest,
-                &row.fact_bytes,
-            )
-        })
-        .collect::<Option<Vec<_>>>()
-        .ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
-    let fill_identities = fill_versions
-        .iter()
-        .map(|version| *version.identity.as_bytes())
-        .collect::<Vec<_>>();
-    let fill_rows = port
-        .resolve_pit_window_rows_v1(*chain_root.as_bytes(), &fill_identities)
-        .await
-        .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?
-        .into_iter()
-        .map(|row| {
-            view_row_v1(
-                &row.version_identity,
-                row.member_ordinal,
-                row.field,
-                &row.fact_digest,
-                &row.fact_bytes,
-            )
-        })
-        .collect::<Option<Vec<_>>>()
-        .ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
+    let view_rows = read_view_rows_from_raw_v1(rows, &selection.selected).await?;
+    let fill_rows = read_view_rows_from_raw_v1(rows, &fill_versions).await?;
     let fill_candidates =
         resolved_fill_candidates_v1(&verified.chain.root, &fill_versions, &fill_rows)?;
     Ok(ResolvedPitWindowViewV1 {
         chain: verified.chain,
         selection,
-        rows,
+        rows: view_rows,
         schedules: verified.schedules,
         fill_candidates,
     })
+}
+
+async fn read_view_rows_from_raw_v1<R: PitWindowRowsReadV1 + Send>(
+    rows: &mut R,
+    versions: &[ChainVersionV1],
+) -> Result<Vec<StoredViewRowV1>, PitWindowViewRefusalV1> {
+    let identities = versions
+        .iter()
+        .map(|version| *version.identity.as_bytes())
+        .collect::<Vec<_>>();
+    rows.read_rows(&identities)
+        .await
+        .map_err(|()| PitWindowViewRefusalV1::StoreUnavailable)?
+        .into_iter()
+        .map(|row| {
+            view_row_v1(
+                &row.version_identity,
+                row.member_ordinal,
+                row.field,
+                &row.fact_digest,
+                &row.fact_bytes,
+            )
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(PitWindowViewRefusalV1::StoreUnavailable)
 }
 
 /// One chain holding a window schedule for an instrument: its root and current head, the
