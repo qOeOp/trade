@@ -31,7 +31,7 @@ use crate::{
         enums::{BinanceKlineInterval, BinanceProductType},
         offline::{
             BinanceVisionArchiveBinding, Sha256Digest, archive_digest, authenticate_daily_klines,
-            authenticate_monthly_klines, sidecar_digest,
+            authenticate_monthly_klines, is_valid_binance_symbol, sidecar_digest,
         },
     },
     funding_archive_v1::{FundingArchiveRowV1, authenticate_monthly_funding},
@@ -84,6 +84,10 @@ pub enum VisionBackfillErrorV1 {
     /// `PRIOR_BAR_UNAVAILABLE`: the bar closing at a grid-aligned window's start - the window's
     /// first frame - is in neither the archive nor the public endpoint. `open_ms` names it.
     PriorBarUnavailable { open_ms: i64 },
+    /// Not a canonical Binance symbol (non-empty, every byte an ASCII uppercase letter or
+    /// digit). Refused before a shard path or an archive URL is built from it - the archive
+    /// binding would refuse it too, but only after both already exist.
+    InvalidSymbol,
 }
 
 impl Display for VisionBackfillErrorV1 {
@@ -110,6 +114,7 @@ impl Display for VisionBackfillErrorV1 {
                 "the binding's availability rule is not a lag after the bar's close"
             }
             Self::WindowBeforeEpoch => "the requested window lies before the Unix epoch",
+            Self::InvalidSymbol => "not a canonical Binance symbol",
         })
     }
 }
@@ -210,6 +215,9 @@ impl VisionBackfillFetcherV1 {
         year: i32,
         month: u8,
     ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
+        if !is_valid_binance_symbol(symbol) {
+            return Err(VisionBackfillErrorV1::InvalidSymbol);
+        }
         let stem = format!("{symbol}-{}-{year:04}-{month:02}", interval.as_str());
         let archive_name = format!("{stem}.zip");
         let shard = self.shard_dir.join(symbol).join(interval.as_str());
@@ -280,6 +288,9 @@ impl VisionBackfillFetcherV1 {
         month: u8,
         day: u8,
     ) -> Result<(Sha256Digest, Vec<FetchedBarV1>), VisionBackfillErrorV1> {
+        if !is_valid_binance_symbol(symbol) {
+            return Err(VisionBackfillErrorV1::InvalidSymbol);
+        }
         let stem = format!(
             "{symbol}-{}-{year:04}-{month:02}-{day:02}",
             interval.as_str()

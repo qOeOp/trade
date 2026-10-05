@@ -994,6 +994,19 @@ fn date_midnight_millis(
         .map_err(|_| BinanceVisionArchiveError::InvalidBinding(overflow_message.to_string()))
 }
 
+/// Whether `symbol` is a canonical Binance symbol: non-empty, every byte an ASCII uppercase
+/// letter or digit. The same check [`BinanceVisionArchiveBinding::new`]/`new_daily` already
+/// enforce before accepting a symbol into a binding - exposed so a caller building a filesystem
+/// path or URL from a symbol can refuse it by this same name before either exists, rather than
+/// after.
+#[must_use]
+pub(crate) fn is_valid_binance_symbol(symbol: &str) -> bool {
+    !symbol.is_empty()
+        && symbol
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+}
+
 fn validate_binding_names(
     archive_name: &str,
     member_name: &str,
@@ -1004,16 +1017,18 @@ fn validate_binding_names(
 ) -> Result<(i64, i64), BinanceVisionArchiveError> {
     if interval_millis(interval).is_none() {
         return Err(BinanceVisionArchiveError::InvalidBinding(format!(
-            "only 1m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, and 1w contracts are supported, received {}",
+            "only 1m (daily only), 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, and 1w contracts are supported, received {}",
             interval.as_str()
         )));
     }
 
-    if symbol.is_empty()
-        || !symbol
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
-    {
+    if matches!(period, ArchivePeriodV1::Month) && interval == BinanceKlineInterval::Minute1 {
+        return Err(BinanceVisionArchiveError::InvalidBinding(
+            "1m is served from daily archives only: a real monthly 1m archive exceeds MAX_ARCHIVE_BYTES".to_string(),
+        ));
+    }
+
+    if !is_valid_binance_symbol(symbol) {
         return Err(BinanceVisionArchiveError::InvalidBinding(format!(
             "invalid canonical Binance symbol {symbol:?}"
         )));
@@ -2562,6 +2577,34 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[rstest]
+    fn rejects_a_monthly_1m_binding_by_name() {
+        let err = BinanceVisionArchiveBinding::new(
+            "ETHUSDT-1m-2023-03.zip",
+            "ETHUSDT-1m-2023-03.csv",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            None,
+            BinanceProductType::UsdM,
+            "ETHUSDT",
+            BinanceKlineInterval::Minute1,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, BinanceVisionArchiveError::InvalidBinding(_)));
+    }
+
+    #[rstest]
+    fn accepts_a_daily_1m_binding() {
+        let csv = row(T0, T0 + 59_999, "1.00000000");
+        let (binding, archive, sidecar) = bound_usdm_daily_fixture(
+            BinanceKlineInterval::Minute1,
+            "2023-03-01",
+            &format!("{USD_M_HEADER}\n{csv}"),
+        );
+
+        authenticate_daily_klines(&binding, &archive, &sidecar).unwrap();
     }
 
     #[rstest]

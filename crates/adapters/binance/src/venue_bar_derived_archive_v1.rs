@@ -117,20 +117,24 @@ pub fn fold_daily_bars_v1(
 
 fn derived_identity_v1(daily_bars: &[VenueBarV1]) -> BindingDigest {
     let mut canonical = String::new();
+
     for bar in daily_bars {
+        // normalize() first: "100.5" and "100.500" are the same value (B1's store already
+        // rejoins a differently-spelled respelling as identical content), so the identity must
+        // not depend on which spelling a particular fetch happened to carry.
         canonical.push_str(&format!(
             "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}\n",
             bar.open_ns,
             bar.close_ns_exclusive,
-            bar.open,
-            bar.high,
-            bar.low,
-            bar.close,
-            bar.volume,
-            bar.quote_volume,
+            bar.open.normalize(),
+            bar.high.normalize(),
+            bar.low.normalize(),
+            bar.close.normalize(),
+            bar.volume.normalize(),
+            bar.quote_volume.normalize(),
             bar.trade_count,
-            bar.taker_buy_volume,
-            bar.taker_buy_quote_volume,
+            bar.taker_buy_volume.normalize(),
+            bar.taker_buy_quote_volume.normalize(),
         ));
     }
     let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, canonical.as_bytes());
@@ -325,5 +329,18 @@ mod tests {
         let second = derived_archive_v1("1w", MONDAY_NS, MONDAY_NS + 7 * DAY, &corrected).unwrap();
 
         assert_ne!(first.identity, second.identity);
+    }
+
+    #[rstest]
+    fn a_differently_spelled_but_equal_value_derives_the_same_identity() {
+        let mut respelled = vec![day(MONDAY_NS, dec!(100), dec!(101), dec!(99), dec!(100))];
+        let mut canonical = respelled.clone();
+        respelled[0].close = dec!(100.500);
+        canonical[0].close = dec!(100.5);
+
+        let first = derived_identity_v1(&canonical);
+        let second = derived_identity_v1(&respelled);
+
+        assert_eq!(first, second);
     }
 }
