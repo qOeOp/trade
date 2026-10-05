@@ -63,7 +63,9 @@ changes affect subsequent trading requests without automatically resizing existi
 retains its budget. Both stages are real trading. Dashboard supports choosing promotion conditions: common defaults with user-approved strategy-specific choices
 before trial start; the choice set remains undefined. Freeze the chosen version and parameters, including a
 minimum independent trade sample; duration and complete net-return/risk rules remain to be defined. Meeting them
-triggers automatic promotion through Governance stage/allocation updates. Maximum-period failure returns to R&D,
+triggers automatic promotion through Governance stage/allocation updates. A formal strategy that fails frozen
+retention criteria is unloaded and returned to R&D, without direct downgrade into trial trading. A successor must
+qualify through backtesting and a new trial; old stage results and authorization cannot be inherited. Maximum-period failure returns to R&D,
 stops new entries and cancels unfilled entry orders while existing positions retain their original protections;
 unloading immediately returns the strategy allocation for redistribution among running strategies. The exit path owns
 residual position management. Actual residual margin remains an account fact checked by Risk at order admission,

@@ -65,7 +65,12 @@ research qualification process: backtest qualification is its research prerequis
 and execution safety constraints govern every real order. Trials validate actual fills and returns; small amounts do
 not bypass backtest qualification. The user approves and freezes promotion criteria before trials; meeting them triggers automatic promotion without
 case-by-case confirmation. Governance updates the stage and applicable capital allocation; the strategy does not
-request promotion or take on execution duties. Dashboard supports selecting trial promotion conditions, with common
+request promotion or take on execution duties. If a formal strategy no longer meets retention criteria frozen before
+operation, unload it and return it to R&D; direct downgrade into the trial pool is not allowed. Stop new entries,
+cancel unfilled entry orders and hand existing positions to the exit-management path; unloading returns its allocation
+immediately. Retain old Artifacts, trial/formal evidence and exit facts without reset or overwrite. A successor must
+qualify through backtesting again and start a new trial, without inheriting old trial success or reusing old stage
+authorization. Dashboard supports selecting trial promotion conditions, with common
 default conditions and user-approved strategy-specific choices before the trial begins. The available choices and
 parameter sets are not yet defined; examples such as one month and positive returns are neither published options nor
 fixed defaults. At start, persist the chosen version and full parameters. Later edits cannot rewrite the active trial
