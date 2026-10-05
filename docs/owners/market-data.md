@@ -3945,8 +3945,9 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     and it never deletes a stored one.
   - **`1w` and `1M` bars are never verified against a monthly archive**, because of the forming-bar snapshot above.
     They are verified against the daily archive's file for that bar where one exists. Otherwise they are verified
-    against their derivation from already verified `1m` bars, through `TimeBarAggregator` for `1w` and a calendar
-    bucketing for `1M`. A mismatch there is reported by name like any other.
+    against their derivation from already-verified `1d` bars - built as a direct fold (open/high/low/close/sums over
+    the window's own daily bars, grid-checked against the `1w`/`1M` schedule), not through `TimeBarAggregator` for
+    either grid; see "Not usable as is" below for why. A mismatch there is reported by name like any other.
   - **Conflicts are expected on real history.** The measured venue incidents and the 2025-01-29 archive correction
     will each surface as one, so this is a normal path that operators acknowledge, not an error path.
   - **One service.** One resident Market Data service runs this recorder and verifier together with the
@@ -3960,8 +3961,7 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     - `request_binance_bars` and the klines query and model (`futures/http/query.rs`, `futures/http/models.rs`);
     - the WebSocket kline stream (`futures/websocket/streams/handler.rs`), whose message carries the closed flag;
     - the authenticated archive readers (`authenticate_monthly_klines`, and the funding archive reader), now on the
-      verifying side;
-    - `TimeBarAggregator`, for the `1w` derivation check.
+      verifying side.
   - **Built here:**
     - **Forward pagination** over `request_binance_bars`.
     - **The settle delay.**
@@ -3976,9 +3976,12 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
       minute, so the month cannot reuse it.
   - **Not usable as is:**
     - **`request_bars`**, because its `Bar` drops columns (above).
-    - **`TimeBarAggregator` for calendar months.** In historical mode it produced 0 bars from six years of `1m`,
-      because its monthly path schedules a time alert that historical replay never fires. The `1M` derivation check
-      needs that fixed, or does its own month bucketing.
+    - **`TimeBarAggregator`, for either `1w` or `1M`.** In historical mode its monthly path produced 0 bars from six
+      years of `1m`, because it schedules a time alert that historical replay never fires - measured, not assumed,
+      before deciding against it. Rather than fix that bug for `1M` alone and keep relying on it for `1w`, the
+      derivation check folds already-verified `1d` bars directly for both grids: a manual accumulator over the
+      window's own daily bars, checked against the `1w`/`1M` schedule's own grid (`NotContiguous`/`OffGrid` refusals
+      cover a mismatched window), with no dependency on `TimeBarAggregator`'s replay-clock machinery at all.
     - **The DataEngine's composite bars**, which aggregate inside a running engine rather than over stored history.
 - **Migration from today's archive-first backfill.**
   - **The archive path #1384 completed stays, as the verifier.** Today's backfill job reads execution bars from
@@ -4084,12 +4087,31 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
       09:30 UTC, the monthly archive from the 2nd at about 12:00 UTC), and verify through B2. The existing
       authenticated readers (`authenticate_monthly_klines`, `funding_archive_v1`) are reused unchanged.
     - **Coverage:** a month whose file omits days is verified from the daily files for those days.
-    - **`1w` and `1M`:** verified from their daily files, or by derivation from verified `1m` bars. Derivation uses
-      `TimeBarAggregator` for `1w`, and for `1M` either its fixed month path or an explicit month bucketing.
+    - **`1w` and `1M`:** verified from their daily files, or by a direct fold of already-verified `1d` bars - not
+      `TimeBarAggregator` for either grid; see "Not usable as is" above for the measured reason.
 
     Acceptance:
-    - A local run over BTCUSDT, ETHUSDT and SOLUSDT reproduces the measurement: the incident days surface as the
-      named conflicts listed above, and SOLUSDT's omitted days are verified from the daily files.
+    - A narrow local run reproduces the doc's own measurement on a bounded slice, not the full six-year sweep across
+      BTCUSDT/ETHUSDT/SOLUSDT: one documented incident day and one of SOLUSDT's documented monthly-omission days,
+      against a real store and the live endpoint.
+
+    Built. `crates/adapters/binance/src/common/offline.rs` grew a daily-archive path alongside the existing monthly
+    one (`BinanceVisionArchiveBinding::new_daily`, `authenticate_daily_klines`, a refusal for `1m` on the monthly
+    path - monthly `1m` archives exceed this binding's size limit, so `1m` is served from daily archives only).
+    `venue_bar_derived_archive_v1.rs` folds verified `1d` bars into `1w`/`1M` and `venue_bar_archive_verifier_v1.rs`
+    wires a fetched archive (or a fold) into B2's `verify_venue_bars_v1`
+    (`verify_execution_month_v1`/`verify_execution_day_v1`/`verify_derived_from_daily_v1`).
+
+    The narrow acceptance run (BTCUSDT `1d` on the 2021-01-12 incident day against the monthly archive; SOLUSDT `1m`
+    on the 2022-02-27 omission day against the daily archive) revealed the acceptance criterion above was wrong as
+    first written, not just narrower than the doc's six-year sweep: the doc's own incident-day measurement is a
+    `1m`-derived-vs-native disagreement, and this design never derives a fixed-interval timeframe from `1m` (the
+    whole point of "Decision: public REST is the primary source for every timeframe" above) - so an incident day
+    verifies clean here, by design, rather than surfacing as a conflict. The real, reachable proof on an incident
+    day is that REST's native bar and the archive's native bar for the same timeframe agree, which the acceptance
+    run confirms. Running it also surfaced a real off-by-one in the store's verification boundary check (a
+    full-period archive's last bar closes exactly at its window's own exclusive end, which the guard wrongly
+    refused) - fixed in the store itself (B1), not here, since it was the store's own invariant that was wrong.
   - **B6 - one resident service (Lane 8, after B3 and B5).** The recorder, the verification jobs and the
     settled-funding recorder (#1382) run in one scheduler in one resident Market Data process, never in an MCP.
 
@@ -4104,9 +4126,10 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     - A backfill over a window the store holds commits a custody whose rows equal the store's bars.
     - A run over it passes.
     - A window reaching the current month backfills, which supersedes the "published months only" rule.
-- **Status.** TARGET, not implemented. The measurement scripts (archive aggregation, the `TimeBarAggregator` harness,
-  REST against the daily archive, and REST settling) were run locally on 2026-10-04 and 2026-10-05 and are not kept in
-  the repository. They are cheap to rerun before implementation.
+- **Status.** B1 through B5 built and merged (2026-10-04 to 2026-10-05); each carries its own "Built." paragraph
+  above. B6 and B7 are TARGET, not implemented. The measurement scripts (archive aggregation, the `TimeBarAggregator`
+  harness, REST against the daily archive, and REST settling) were run locally on 2026-10-04 and 2026-10-05 and are
+  not kept in the repository. They are cheap to rerun before implementing B6/B7.
 
 ## Input handoffs
 
