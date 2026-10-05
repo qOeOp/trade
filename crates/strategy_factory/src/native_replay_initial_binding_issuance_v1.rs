@@ -141,9 +141,6 @@ const fn market_inputs_cause(error: &NativeReplayInitialOwnerInputsErrorV1) -> C
             NativeReplaySchedulingErrorV1::ExecutionTimeframeNotDeclared => {
                 Cause::ExecutionTimeframeNotDeclared
             }
-            NativeReplaySchedulingErrorV1::CalendarMonthNotAnExecutionTimeframe => {
-                Cause::CalendarMonthNotAnExecutionTimeframe
-            }
             NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable { .. }
             | NativeReplaySchedulingErrorV1::OwnerBindingMismatch
             | NativeReplaySchedulingErrorV1::FieldCensusMismatch

@@ -674,12 +674,10 @@ impl VisionBackfillFetcherV1 {
 
 /// The open of the bar of `interval` that closes exactly at `instant_ns`, when `instant_ns` is a
 /// bar close of the interval's grid (the Unix epoch, or Monday 00:00 UTC for a week); `None`
-/// otherwise, and for a calendar month, which no backfill executes on.
+/// otherwise.
 fn grid_bar_closing_at_v1(interval: BinanceKlineInterval, instant_ns: u64) -> Option<u64> {
     let timeframe = served_timeframe_v1(interval.as_str())?;
-    let ServedBarGridV1::Fixed { interval_ns, .. } = timeframe.grid else {
-        return None;
-    };
+    let ServedBarGridV1::Fixed { interval_ns, .. } = timeframe.grid;
     let open_ns = instant_ns.checked_sub(interval_ns)?;
     (timeframe.close_of(open_ns) == Some(instant_ns)).then_some(open_ns)
 }

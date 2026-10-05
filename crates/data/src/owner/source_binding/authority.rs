@@ -1153,13 +1153,6 @@ fn validate_bar_timeframe(
             timeframe.anchor == UntrustedSourceBarAnchorV1::SessionOpen
                 && timeframe.clock == UntrustedSourceBarClockV1::ScheduleBounded
         }
-        // The UTC month anchor is the Unix epoch's own grid, continuous like every other
-        // Unix-epoch-anchored cadence here; a trading-schedule-bounded calendar month has no
-        // session to be bounded by.
-        UntrustedSourceBarCadenceV1::CalendarMonth => {
-            timeframe.anchor == UntrustedSourceBarAnchorV1::UnixEpoch
-                && timeframe.clock == UntrustedSourceBarClockV1::Continuous
-        }
     };
 
     if !combination || !is_bar_row_timeframe(&timeframe.row_timeframe) {
@@ -1206,7 +1199,6 @@ fn encode_bar_timeframe(encoder: &mut Encoder, timeframe: &UntrustedSourceBarTim
             });
         }
         UntrustedSourceBarCadenceV1::ExchangeSessionDay => encoder.u8(2),
-        UntrustedSourceBarCadenceV1::CalendarMonth => encoder.u8(3),
     }
     encoder.u8(match timeframe.anchor {
         UntrustedSourceBarAnchorV1::UnixEpoch => 1,
