@@ -1969,27 +1969,65 @@ fn admit_universe_frame_values_v2(
             line!()
         )))?;
     let selection = frame.selection();
-    if selection.selection_identity() != projection.selection_identity()
-        || selection.selection_digest() != projection.selection_digest()
-        || selection.instrument_master_digest() != projection.instrument_master_digest()
-        || selection.source_binding_lineage_root() != projection.source_binding_lineage_root()
-        || selection.market_semantics_identity() != projection.market_semantics_identity()
-        || selection.digest() != projection.selection_receipt_digest()
-        || selection.members().len() != projection.members().len()
-        || selection
-            .members()
-            .iter()
-            .zip(projection.members())
-            .any(|(actual, expected)| {
-                actual.member_key() != expected.member_key()
-                    || actual.instrument() != expected.instrument()
-            })
+
+    // Split into one refusal per field (not one `||` chain refusing by line alone): the frame and
+    // the Plan's compiled projection must agree on EVERY one of these independently, and a caller
+    // reading the refusal's coordinate should see which field disagreed, not just that the whole
+    // selection did.
+    if selection.selection_identity() != projection.selection_identity() {
+        return Err(ProgramHostV2Error::InputCoverage(
+            "universe_selection.selection_identity",
+        ));
+    }
+
+    if selection.selection_digest() != projection.selection_digest() {
+        return Err(ProgramHostV2Error::InputCoverage(
+            "universe_selection.selection_digest",
+        ));
+    }
+
+    if selection.instrument_master_digest() != projection.instrument_master_digest() {
+        return Err(ProgramHostV2Error::InputCoverage(
+            "universe_selection.instrument_master_digest",
+        ));
+    }
+
+    if selection.source_binding_lineage_root() != projection.source_binding_lineage_root() {
+        return Err(ProgramHostV2Error::InputCoverage(
+            "universe_selection.source_binding_lineage_root",
+        ));
+    }
+
+    if selection.market_semantics_identity() != projection.market_semantics_identity() {
+        return Err(ProgramHostV2Error::InputCoverage(
+            "universe_selection.market_semantics_identity",
+        ));
+    }
+
+    if selection.digest() != projection.selection_receipt_digest() {
+        return Err(ProgramHostV2Error::InputCoverage(
+            "universe_selection.selection_receipt_digest",
+        ));
+    }
+
+    if selection.members().len() != projection.members().len() {
+        return Err(ProgramHostV2Error::InputCoverage(
+            "universe_selection.members.len",
+        ));
+    }
+
+    if selection
+        .members()
+        .iter()
+        .zip(projection.members())
+        .any(|(actual, expected)| {
+            actual.member_key() != expected.member_key()
+                || actual.instrument() != expected.instrument()
+        })
     {
-        return Err(ProgramHostV2Error::InputCoverage(concat!(
-            file!(),
-            ":",
-            line!()
-        )));
+        return Err(ProgramHostV2Error::InputCoverage(
+            "universe_selection.members.pair",
+        ));
     }
     let trigger = frame.trigger();
     let lifecycle = trigger.lifecycle();
