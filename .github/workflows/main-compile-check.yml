@@ -22,6 +22,20 @@ on:
     branches:
       - main
 
+env:
+  # Mirrors build.yml's own AUDIT_PR exactly: this repository has no COMMON_ALLOWED_ENDPOINTS/
+  # CI_ALLOWED_ENDPOINTS variables configured (checked via `gh variable list`; it is a personal,
+  # not organization, repository, so there is no org-level scope for them either), so
+  # harden-runner's 'block' fallback below has an empty allow-list and blocks ALL outbound traffic,
+  # including the checkout step's own clone of github.com - confirmed the hard way on this
+  # workflow's first real run (#1429's merge): "Connection refused" at checkout, with
+  # harden-runner's own log saying so plainly ("No outbound traffic will be allowed for job
+  # steps"). Every build.yml job avoids this because AUDIT_PR is unconditionally true for
+  # `qOeOp/trade`, routing every one of them to 'audit' (log, don't block) instead - this workflow
+  # needs the same default, not a block policy nothing has ever actually configured endpoints for.
+  AUDIT_PR: >-
+    ${{ github.repository == 'qOeOp/trade' }}
+
 # Queued, not cancelled: the whole point is that every merged commit gets checked, not just
 # whichever one happens to be the tip when a runner frees up. A commit's own job staying queued
 # behind an earlier one is the cost of that; `cargo check` is fast enough that the queue should not
@@ -41,7 +55,10 @@ jobs:
       # https://github.com/step-security/harden-runner
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
-          egress-policy: ${{ vars.STEP_SECURITY_EGRESS_POLICY || 'block' }}
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
           allowed-endpoints: >-
             ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
             ${{ vars.CI_ALLOWED_ENDPOINTS }}
