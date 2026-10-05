@@ -94,7 +94,8 @@ never runs in CI.
   `native_replay_scheduling_resolver_for_sealed_acceptance_v1` runs the native Replay scheduling read path with the
   admitted resolver's raw reads, verification and selection, but with no admission before a read and no revalidation
   after one. It connects as a least-privilege test principal that the disposable database grants exactly
-  `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, and its evidence carries the marker
+  `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, plus, for a custody frame,
+  `PIT_WINDOW_CUSTODY_ACCEPTANCE_GRANTS_V1`. Its evidence carries the marker
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
   port accepts the marker. Admission itself is still `B3`: nothing leases its principal yet. That principal is
   `market_data_admitted_reader`. `database/postgres-init/25-market-data-admitted-reader.sh` provisions it as
@@ -2908,9 +2909,19 @@ Built so far (T0-9): the H6 checks a custody run needs and the accessors T1 cons
   Store Admission before or after a read, so it proves the segment after admission; the admission itself is `B3`.
   - **Store.** It opens only on a disposable loopback `vibe_test_` database.
   - **Grants.** The principal holds exactly `grant_pit_window_custody_acceptance_reads_v1`: `USAGE` on
-    `market_data_admitted_read` and `EXECUTE` on the chain, chain basis, Universe Selection and
+    `market_data_admitted_read` and `EXECUTE` on the chain, chain basis, rows, Universe Selection and
     chains-for-instrument wrappers, with nothing on `market_data_private`. Its proof revokes each grant alone and
-    requires exactly the read that needs it to be refused.
+    requires exactly the read that needs it to be refused: the frames, the coverage lookup, or one frame's view.
+  - **Custody frames through the sealed scheduling resolver.**
+    - **What it does.** `native_replay_scheduling_resolver_for_sealed_acceptance_v1` reads a custody frame through
+      the same unadmitted port. It reads the view at the pinned head, the record its root's locator resolves to, and
+      the quote cut production derives from the gap's fill bar (`resolve_custody_quote_cut_v1`), exactly as the
+      admitted resolver reads one.
+    - **What changed.** It used to refuse every custody frame. That held only while no sealed acceptance run read
+      one; the T0 custody route reads frame 1 and later. The refusal is relocated to the grants: the principal reads
+      a custody frame only under these custody grants, beside the scheduling ones.
+    - **The rows wrapper.** It is the same pass-through of the private rows function that the admitted custody port
+      reads. Its scope is one chain root and the versions a view selects, no wider.
 - **Availability rule (H7).** `PitWindowChainBasisV1::availability_rule_digest()` returns the root custody record's
   rule digest, which the read has already checked against the chain R0 record's.
 - **Pinned-head run read.** `UntrustedPitWindowRunV1` takes an optional `head_identity` (serde-defaulted, omitted when
