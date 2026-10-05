@@ -1603,7 +1603,7 @@ pub(super) async fn read_pit_window_chain_snapshot_v1(
     .bind(chain_root.as_slice())
     .fetch_all(&mut *transaction)
     .await
-    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    .map_err(|e| custody_read_refused_v1("store_admission.read_pit_window_chain_snapshot_v1", &e))?;
 
     if rows.len() > MAX_PIT_WINDOW_ENTRIES
         || rows
@@ -1654,7 +1654,7 @@ pub(super) async fn read_pit_window_chains_for_instrument_snapshot_v1(
     .bind(instrument)
     .fetch_all(&mut *transaction)
     .await
-    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    .map_err(|e| custody_read_refused_v1("store_admission.read_pit_window_chains_for_instrument_snapshot_v1", &e))?;
 
     if rows.len() > MAX_PIT_WINDOW_ENTRIES {
         return Err(PostgresMeasurementError::SnapshotUnavailable);
@@ -1705,6 +1705,16 @@ pub(crate) fn bounded_universe_selection_aggregate_v1(
 /// The most row facts one rows read returns, for a reader outside Store Admission.
 pub(crate) const MAX_PIT_WINDOW_ROWS_V1: usize = MAX_PIT_WINDOW_ENTRIES;
 
+/// A custody read's query refused by the store: the cause is recorded before it becomes the bare
+/// `SnapshotUnavailable` a caller sees, so a refused acceptance read names its cause in the log.
+fn custody_read_refused_v1(
+    coordinate: &'static str,
+    cause: &sqlx::Error,
+) -> PostgresMeasurementError {
+    crate::owner::storage_diagnostic::refused_by_store(coordinate, cause);
+    PostgresMeasurementError::SnapshotUnavailable
+}
+
 /// The entries of one chain read, refused when there are too many or one is too large.
 fn bounded_pit_window_entries(
     rows: Vec<(i16, String)>,
@@ -1752,14 +1762,14 @@ pub(super) async fn read_pit_window_run_chain_snapshot_v1(
     .bind(chain_root.as_slice())
     .fetch_all(&mut *transaction)
     .await
-    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    .map_err(|e| custody_read_refused_v1("store_admission.read_pit_window_run_chain_snapshot_v1", &e))?;
     let basis: Vec<(i16, String)> = sqlx::query_as(
         "SELECT entry_kind, payload::text FROM market_data_admitted_read.resolve_pit_window_chain_basis_v1($1)",
     )
     .bind(chain_root.as_slice())
     .fetch_all(&mut *transaction)
     .await
-    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    .map_err(|e| custody_read_refused_v1("store_admission.read_pit_window_run_chain_snapshot_v1", &e))?;
     let chain = RawPitWindowChainV1 {
         entries: bounded_pit_window_entries(chain)?,
     };
@@ -1772,7 +1782,7 @@ pub(super) async fn read_pit_window_run_chain_snapshot_v1(
             .bind(request_identity.as_slice())
             .fetch_all(&mut *transaction)
             .await
-            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+            .map_err(|e| custody_read_refused_v1("store_admission.read_pit_window_run_chain_snapshot_v1", &e))?;
             bounded_universe_selection_aggregate(rows)?
         }
         None => None,
@@ -1874,7 +1884,7 @@ pub(super) async fn read_pit_window_rows_snapshot_v1(
     .bind(&versions)
     .fetch_all(&mut *transaction)
     .await
-    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    .map_err(|e| custody_read_refused_v1("store_admission.read_pit_window_rows_snapshot_v1", &e))?;
 
     if rows.len() > MAX_PIT_WINDOW_ENTRIES {
         return Err(PostgresMeasurementError::SnapshotUnavailable);
