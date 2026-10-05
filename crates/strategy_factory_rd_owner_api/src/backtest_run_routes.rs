@@ -498,8 +498,8 @@ async fn get_backtest_run(
 ///
 /// A recorded run that committed no Result answers `RUN_HAS_NO_RESULT` with the replay state it
 /// stopped at. The report reads the Result back through the Backtest Owner's own readback, keyed by
-/// the run's Result, its Replay request (`{run_id}-replay`) and its one attempt
-/// (`{run_id}-attempt-1`), all three named by `backtest.run` itself.
+/// the locator the run's answer recorded verbatim from the committed Result
+/// (`replay_result_locator`), never one rebuilt from the run id: a retried run's attempt differs.
 async fn get_backtest_run_report(
     State(state): State<BacktestRunRoutesApiState>,
     Path(run_id): Path<String>,
@@ -519,10 +519,9 @@ async fn get_backtest_run_report(
     };
     let answer = serde_json::from_slice::<serde_json::Value>(&recorded.answer_bytes)
         .unwrap_or(serde_json::Value::Null);
-    let Some(result_identity) = answer
-        .get("replay_result_identity")
-        .and_then(serde_json::Value::as_str)
-    else {
+    let Some(locator) = answer.get("replay_result_locator").and_then(|locator| {
+        serde_json::from_value::<RecordedReplayResultLocatorV1>(locator.clone()).ok()
+    }) else {
         return (
             StatusCode::CONFLICT,
             Json(serde_json::json!({
@@ -574,12 +573,10 @@ async fn get_backtest_run_report(
             );
         }
     };
-    let request_identity = format!("{run_id}-replay");
-    let attempt_identity = format!("{run_id}-attempt-1");
     let locator = ExploratoryReplayResultLocatorV2 {
-        result_identity,
-        request_identity: &request_identity,
-        attempt_identity: &attempt_identity,
+        result_identity: &locator.result_identity,
+        request_identity: &locator.request_identity,
+        attempt_identity: &locator.attempt_identity,
     };
 
     match resolve_backtest_run_report_for_statement_v1(
@@ -608,6 +605,15 @@ async fn get_backtest_run_report(
             backtest_run_rejection(status, refusal.code(), &run_id)
         }
     }
+}
+
+/// The committed Result's locator as a run's answer records it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordedReplayResultLocatorV1 {
+    result_identity: String,
+    request_identity: String,
+    attempt_identity: String,
 }
 
 fn backtest_run_error_response(error: &BacktestRunErrorV1, request_identity: &str) -> Response {
