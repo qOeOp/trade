@@ -342,8 +342,10 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 
 - 它属于 R&D 的编写层（Strategy Artifact）：负责编写、编译检查并保存不可变版本。它不登记已合格的策略，也不负责其生命周期与
   资金，那是 Strategy Governance 与以后的 `governance` server；它也不运行任何东西，那是 Runtime。
-- **CURRENT 有界目录：** spec 是去掉 Research 身份的单阈值陈述。独立编写验收仍有价值，但不能证明 R-1 用户故事。
-- **TARGET 研究编写：** 代理提交版本化 JSON 编写文档，从 `research.strategy-authoring.v1` 开始。R&D 把它编译为 Design 与 program meaning，
+- **CURRENT 有界目录：** `spec` 接受单阈值陈述，或语言为 `research.strategy-authoring.v1` 的 JSON 文档，
+  与工具公布输入及 R&D 的封闭 `StrategyStatementV1` 一致。两族保留各自规范内容/hash domain，独立于 Research 身份。
+  编写面存在不证明完整 R-1 执行。
+- **TARGET 完整研究编写：** 沿现有 JSON 路线扩展完整 R-1 语义。R&D 把它编译为 Design 与 program meaning，
   用同一 Owner 检查校验产物，并在冻结 Research Intent 下封存 Artifact。最终身份、界、回执和执行状态由 Owner 推导。
   首条完整研究旅程验收前，语言必须承载 R-1 的限价挂单、到期、成交反馈、分段退出、止损移动与持仓时限；
   新语法或执行语义采用版本化后继，冻结 V1 文档保留原编译器与含义；不支持的行为按名拒绝，不能近似成简单 spec。

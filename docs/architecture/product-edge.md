@@ -410,9 +410,11 @@ the run, so a replay reads the same data.
 - It belongs to R&D's authoring layer (Strategy Artifact): it authors, compiles and checks, and keeps immutable
   versions. It does not register a qualified strategy or own its lifecycle and capital, which is Strategy Governance
   and a later `governance` server, and it does not run anything, which is Runtime.
-- **CURRENT bounded catalog:** a spec is a single-threshold statement without Research identities. Its independent
-  authoring acceptance remains useful, but it cannot establish the R-1 user story.
-- **TARGET research authoring:** the agent submits a versioned JSON authoring document, starting with `research.strategy-authoring.v1`. R&D compiles it to
+- **CURRENT bounded catalog:** `spec` accepts either a single-threshold statement or a JSON document with language
+  `research.strategy-authoring.v1`, as the tool's advertised input and R&D's closed `StrategyStatementV1` define.
+  Each family keeps its own canonical content/hash domain independently of Research identities. This authoring
+  surface does not establish complete R-1 execution.
+- **TARGET complete research authoring:** extend the existing JSON route to the full R-1 semantics. R&D compiles it to
   Design and program meaning, validates that output with the same Owner checks, and seals an Artifact under the
   frozen Research Intent. Final identities, bounds, receipts, and execution state are Owner-derived. The language
   must cover R-1's resting limits, expiry, fill feedback, partial exits, stop moves, and holding limits before the
