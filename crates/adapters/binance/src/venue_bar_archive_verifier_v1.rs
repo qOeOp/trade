@@ -291,7 +291,6 @@ mod live_tests {
             "1d",
             BTC_DAY_START_MS,
             BTC_RETRIEVAL_NS,
-            u64::MAX,
         )
         .await
         .expect("BTCUSDT's incident day settles and commits");
@@ -323,7 +322,6 @@ mod live_tests {
             "1m",
             SOL_DAY_START_MS,
             SOL_RETRIEVAL_NS,
-            u64::MAX,
         )
         .await
         .expect("SOLUSDT's omission day settles and commits");
