@@ -1871,45 +1871,35 @@ reproducible anchor the single-frame path already gives F - not a second, parall
   one, per the standing rule that this entry grows as its dependencies land rather than being
   recreated each time.
 
-**After H7/H8: nothing yet executes the committed Replay (TARGET; not built)**. Confirmed by
-reading `commit_custody_replay_v1` (`backtest_run_v1.rs`) end to end: once H7 commits the
-Composer-backed Replay request and H8 issues the custody-run execution-input binding, the
-function returns `(BacktestRunReplayUnavailableV1::ReplayCommitted(result), Some(binding))` and
-stops there - `result` is only H7's own commit result, whose `.locator()` is the sealed Replay
-request's locator (`ExploratoryReplayRequestLocatorV2`), not a Result. Nothing in `run_backtest_v1`
-or its callers runs the Sim, commits a `ReplayResultReadbackV2`, or writes a result locator into
-the run's registered answer (`BacktestRunRecordV1::answer_bytes`,
-`crates/strategy_factory/src/backtest_run_registry_postgres_v1.rs`) - a report assembled from
-today's registered answer has no fills to read, by construction, regardless of how correct H7/H8
-are.
+**After H7/H8: executing the committed Replay (DONE)**. Once H8 issues the custody-run
+execution-input binding, `commit_custody_replay_v1` (`backtest_run_v1.rs`) calls
+`execute_committed_replay_v1`, which reuses the SAME production execution path F's own
+`POST /v2/exploratory-replays` route uses - `vibe_backtest_owner::native_replay::
+run_exploratory_replay_v2(preparation_owner, result_owner, &locator, attempt_identity)` - rather
+than a second one. `BacktestRunOwnersV1` gains `native_replay_execution: Option<Arc<
+exploratory_replay::NativeReplayExecutionServiceV2>>` (gated `all(composer-v3-replay,
+native-replay-execution)`, threaded through `backtest_run_routes.rs`/`server.rs` from the SAME
+`NativeReplayExecutionServiceV2` instance the HTTP route already builds - two new `pub(crate)`
+accessors, `preparation_owner()`/`result_owner()`, expose it without a second construction).
+`attempt_identity` is `{run_id}-attempt-1` (backtest.run does not retry an attempt today, so there
+is only ever one).
 
-The one production execution path that exists today is the one F uses:
-`POST /v2/exploratory-replays` (`crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs`,
-feature `native-replay-execution`) decodes a `{request_locator, attempt_identity}` body and calls
-`vibe_backtest_owner::native_replay::run_exploratory_replay_v2(preparation_owner, result_owner,
-&request_locator, attempt_identity)`, which prepares the bundle, runs it through the Sim, commits
-the `ReplayResultReadbackV2`/evidence/outcome, and answers a `NativeReplayCommitDispositionV2`.
-`backtest.run` does not call this function or its HTTP route at all.
+On `NativeReplayCommitDispositionV2::Committed`, `BacktestRunReachedReplayV1` gains
+`replay_result_identity: Option<String>` - the committed Result's own identity, written into the
+registered HTTP answer (`BacktestRunReachedReplayBodyV1`, `backtest_run_routes.rs`) alongside the
+existing `custody_binding_issued` flag, so a report reads the Result to read bars and fills from.
+On `SubmittedOrUnknown` or an execution error, `BacktestRunReplayUnavailableV1` gains
+`ReplayExecutionFailed(result, cause)` - named, not silent; on a deployment that does not
+configure `native_replay_execution`, `ReplayExecutionUnavailable(result)` stops the same way
+`ComposerNotAvailable` does for H5. Neither state regresses `custody_binding` - H8's own binding
+stays issued regardless of whether execution that follows succeeds.
 
-**Ruling (10-05, Lane 3, cross-session)**: after H8 issues a binding, `run_backtest_v1` must reuse
-this SAME production execution path - not a second one - to actually run the committed Replay,
-commit its Result, and write the result's locator into the registered answer so a report can read
-it. Concretely:
-
-- `run_backtest_v1` gains the Owner handles `run_exploratory_replay_v2` needs
-  (`NativeReplayPreparationOwnerV2`, `PostgresReplayResultOwnerV2`) on `BacktestRunOwnersV1`,
-  threaded through `backtest_run_routes.rs`/`server.rs` the same way `develop_composer`/
-  `instrument_master_v2`/`instrument_economic_terms` already were for H5/H8.
-- After H8 succeeds, call `run_exploratory_replay_v2` with H7's committed `result.locator()` and a
-  fresh `attempt_identity` derived from the run (the same way the HTTP route derives one from its
-  own request today - naming the exact derivation is part of this slice, not assumed here).
-- On `NativeReplayCommitDispositionV2::Committed`, extend `BacktestRunReachedReplayV1` with the
-  committed Result's own locator/identity so the registered answer carries it; on
-  `SubmittedOrUnknown`, follow the same recovery path the HTTP route already has
-  (`recovered_commit_response` in `exploratory_replay.rs`) rather than inventing a second one.
-- This can be built in parallel with Lane 2's custody-view admission work above (independent
-  seams), but doc first per the usual rule - this section is that doc, implementation is the next
-  slice.
+**Not yet proven against a real custody chain**: `backtest_run_chain_entry_acceptance.rs`'s
+ordered-chain entry still passes `native_replay_execution: None` - wiring a real
+`NativeReplayExecutionServiceV2` into that entry needs a Backtest Owner pool plus the native
+Replay scheduling resolver and universe sample projections it does not open today. That entry
+proves H8; proving execution end to end against a real committed custody run is a follow-up
+slice, not blocking - production deployment testing (`trade-rd-lane0`) is the nearer-term proof.
 
 **H2/H4 for a custody run: the Design's universe binding must come from the chain's own basis
 (TARGET; not built)**. `run_backtest_v1` admits every run's Design role-binding the same way

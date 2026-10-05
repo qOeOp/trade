@@ -80,6 +80,9 @@ pub(crate) struct BacktestRunRoutesApiState {
     pub(crate) instrument_master_v2: Option<Arc<InstrumentMasterV2PostgresOwner>>,
     #[cfg(feature = "composer-v3-replay")]
     pub(crate) instrument_economic_terms: Option<Arc<InstrumentEconomicTermsPostgresOwnerV1>>,
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    pub(crate) native_replay_execution:
+        Option<Arc<crate::exploratory_replay::NativeReplayExecutionServiceV2>>,
     pub(crate) rd_pool: PgPool,
     pub(crate) request_proof_digest: String,
     pub(crate) token_digest: [u8; 32],
@@ -135,6 +138,10 @@ enum BacktestRunReplayStateV1 {
     ReplayCommitted,
     #[cfg(feature = "composer-v3-replay")]
     CustodyIssuanceFailed,
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    ReplayExecutionUnavailable,
+    #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+    ReplayExecutionFailed,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,6 +156,11 @@ struct BacktestRunReachedReplayBodyV1 {
     /// this run's bars at the pinned head.
     #[cfg(feature = "composer-v3-replay")]
     custody_binding_issued: bool,
+    /// The committed Backtest Result's own identity, once this run's committed Replay has
+    /// actually executed - the locator report assembly reads bars and fills back from. `None`
+    /// until then, including while `custody_binding_issued` is already `true`.
+    #[cfg(feature = "composer-v3-replay")]
+    replay_result_identity: Option<String>,
 }
 
 fn reached_replay_body(reached: &BacktestRunReachedReplayV1) -> BacktestRunReachedReplayBodyV1 {
@@ -208,6 +220,16 @@ fn reached_replay_body(reached: &BacktestRunReachedReplayV1) -> BacktestRunReach
             BacktestRunReplayStateV1::CustodyIssuanceFailed,
             Some(e.to_string()),
         ),
+        #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+        BacktestRunReplayUnavailableV1::ReplayExecutionUnavailable(result) => (
+            BacktestRunReplayStateV1::ReplayExecutionUnavailable,
+            Some(format!("{:?}", result.locator())),
+        ),
+        #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+        BacktestRunReplayUnavailableV1::ReplayExecutionFailed(result, cause) => (
+            BacktestRunReplayStateV1::ReplayExecutionFailed,
+            Some(format!("{:?}: {cause}", result.locator())),
+        ),
     };
     BacktestRunReachedReplayBodyV1 {
         schema_version: 1,
@@ -218,6 +240,8 @@ fn reached_replay_body(reached: &BacktestRunReachedReplayV1) -> BacktestRunReach
         replay_detail,
         #[cfg(feature = "composer-v3-replay")]
         custody_binding_issued: reached.custody_binding.is_some(),
+        #[cfg(feature = "composer-v3-replay")]
+        replay_result_identity: reached.replay_result_identity.clone(),
     }
 }
 
@@ -308,6 +332,8 @@ async fn submit_backtest_run(
         instrument_master_v2: state.instrument_master_v2,
         #[cfg(feature = "composer-v3-replay")]
         instrument_economic_terms: state.instrument_economic_terms,
+        #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+        native_replay_execution: state.native_replay_execution,
     };
     let backtest_request = BacktestRunRequestV1 {
         run_id: run_id.clone(),

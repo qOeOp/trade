@@ -252,6 +252,21 @@ impl NativeReplayExecutionServiceV2 {
             census_owner: research_owner,
         })
     }
+
+    /// The preparation Owner, for a caller that runs its own exploratory Replay attempt through
+    /// the SAME production execution path this service's own HTTP route uses (`backtest.run`'s
+    /// `commit_custody_replay_v1`, not a second one).
+    #[cfg(feature = "composer-v3-replay")]
+    pub(crate) fn preparation_owner(&self) -> Arc<PostgresNativeReplayPreparationOwnerV2> {
+        Arc::clone(&self.preparation_owner)
+    }
+
+    /// The Backtest Result Owner this service's execution commits to - see
+    /// [`Self::preparation_owner`]'s doc.
+    #[cfg(feature = "composer-v3-replay")]
+    pub(crate) fn result_owner(&self) -> Arc<PostgresReplayResultOwnerV2> {
+        Arc::clone(&self.result_owner)
+    }
 }
 
 #[cfg(feature = "native-replay-execution")]

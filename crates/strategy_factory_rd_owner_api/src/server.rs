@@ -677,6 +677,8 @@ pub async fn run() -> anyhow::Result<()> {
                 instrument_master_v2: backtest_run_instrument_master_v2,
                 #[cfg(feature = "composer-v3-replay")]
                 instrument_economic_terms: backtest_run_instrument_economic_terms,
+                #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+                native_replay_execution: native_replay_execution.clone(),
                 rd_pool: backtest_run_rd_pool,
                 request_proof_digest: request_proof_digest.clone(),
                 token_digest,
