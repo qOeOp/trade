@@ -162,6 +162,19 @@ pub async fn custody_inputs_from_store_v1(
     let UntrustedSourceVisibilityV1::AfterBarClose { lag_ns } = availability.visibility else {
         return Err(Refused::InvalidRequest);
     };
+    // The window is [first execution open, last execution close + one interval): the final
+    // interval is the pad that holds only the last gap's fill bar, never a custody execution
+    // input. A lag at or past that whole interval would make the last gap empty by construction,
+    // not merely unmet by the store.
+    let span = window_end_ns_exclusive.saturating_sub(window_start_ns);
+
+    if !span.is_multiple_of(execution_interval_ns)
+        || span < 2 * execution_interval_ns
+        || lag_ns >= execution_interval_ns
+    {
+        return Err(Refused::InvalidRequest);
+    }
+    let execution_end_ns_exclusive = window_end_ns_exclusive - execution_interval_ns;
 
     refuse_open_conflicts_in_window(
         store,
@@ -169,10 +182,13 @@ pub async fn custody_inputs_from_store_v1(
         execution_timeframe,
         execution_interval_ns,
         window_start_ns,
-        window_end_ns_exclusive,
+        execution_end_ns_exclusive,
     )
     .await?;
-    let execution_bars = store
+    // The store read may still answer with a bar from the pad interval (the forming or
+    // just-closed bar beyond the execution grid); that bar is not a custody input, so it is
+    // filtered out here rather than refused.
+    let execution_bars: Vec<_> = store
         .read_venue_bars_v1(
             instrument,
             execution_timeframe,
@@ -182,10 +198,19 @@ pub async fn custody_inputs_from_store_v1(
             false,
         )
         .await
-        .map_err(|_| Refused::StoreUnavailable)?;
-    let expected = window_end_ns_exclusive.saturating_sub(window_start_ns) / execution_interval_ns;
+        .map_err(|_| Refused::StoreUnavailable)?
+        .into_iter()
+        .filter(|read| {
+            read.bar.open_ns >= window_start_ns
+                && read.bar.close_ns_exclusive <= execution_end_ns_exclusive
+        })
+        .collect();
 
-    if (execution_bars.len() as u64) < expected {
+    if !execution_bars_are_contiguous_v1(
+        &execution_bars,
+        window_start_ns,
+        execution_end_ns_exclusive,
+    ) {
         return Err(Refused::WindowIncomplete);
     }
 
@@ -216,6 +241,30 @@ pub async fn custody_inputs_from_store_v1(
             .map(|read| cross_section_from_venue_bar_v1(instrument, fill_label, read))
             .collect(),
     })
+}
+
+/// Whether `bars` are exactly the execution grid's own bars, in order, with no interior
+/// substitution: the first opens at `window_start_ns`, each opens at the previous one's close,
+/// and the last closes at `execution_end_ns_exclusive`. A count that happens to match without
+/// this holding (a hole papered over by a bar from outside the grid) is refused here, not passed
+/// through.
+fn execution_bars_are_contiguous_v1(
+    bars: &[VenueBarReadV1],
+    window_start_ns: u64,
+    execution_end_ns_exclusive: u64,
+) -> bool {
+    if bars.is_empty() {
+        return window_start_ns == execution_end_ns_exclusive;
+    }
+    let mut expected_open = window_start_ns;
+
+    for read in bars {
+        if read.bar.open_ns != expected_open {
+            return false;
+        }
+        expected_open = read.bar.close_ns_exclusive;
+    }
+    expected_open == execution_end_ns_exclusive
 }
 
 /// Refuses [`VenueBarCustodyRefusalV1::ConflictOpen`] when `instrument`'s `venue_interval` has an
@@ -302,7 +351,10 @@ async fn read_fill_bars_v1(
 mod tests {
     use rstest::rstest;
 
-    use super::{FILL_VENUE_INTERVAL_V1, cross_section_from_venue_bar_v1, fill_bar_gaps_ns_v1};
+    use super::{
+        FILL_VENUE_INTERVAL_V1, cross_section_from_venue_bar_v1, execution_bars_are_contiguous_v1,
+        fill_bar_gaps_ns_v1,
+    };
     use crate::owner::{
         bar_schedule::{
             SUPPORTED_EXECUTION_TIMEFRAMES_V1, execution_timeframe_bar_label_v1,
@@ -401,5 +453,41 @@ mod tests {
             served_timeframe_v1(FILL_VENUE_INTERVAL_V1).unwrap().label,
             "1M"
         );
+    }
+
+    #[rstest]
+    fn a_fully_contiguous_chain_is_accepted() {
+        let bars = [read(0, 3600), read(3600, 7200), read(7200, 10800)];
+
+        assert!(execution_bars_are_contiguous_v1(&bars, 0, 10800));
+    }
+
+    /// Three bars is the same count a window of width `3 * 3600` expects, but the chain is not
+    /// contiguous from the window's own start: a count-only check would have missed this.
+    #[rstest]
+    fn a_missing_middle_bar_is_refused_even_when_the_count_matches() {
+        let bars = [read(0, 3600), read(7200, 10800), read(10800, 14400)];
+
+        assert!(!execution_bars_are_contiguous_v1(&bars, 0, 14400));
+    }
+
+    #[rstest]
+    fn a_chain_not_starting_at_the_windows_own_start_is_refused() {
+        let bars = [read(3600, 7200)];
+
+        assert!(!execution_bars_are_contiguous_v1(&bars, 0, 7200));
+    }
+
+    #[rstest]
+    fn a_chain_not_reaching_the_execution_end_is_refused() {
+        let bars = [read(0, 3600)];
+
+        assert!(!execution_bars_are_contiguous_v1(&bars, 0, 7200));
+    }
+
+    #[rstest]
+    fn an_empty_chain_is_contiguous_only_when_the_window_has_no_execution_bars() {
+        assert!(execution_bars_are_contiguous_v1(&[], 0, 0));
+        assert!(!execution_bars_are_contiguous_v1(&[], 0, 3600));
     }
 }
