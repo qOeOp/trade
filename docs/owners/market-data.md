@@ -2801,7 +2801,11 @@ intake also requires every member's fact to carry the custody binding's market s
 chain names the earlier entry's binding semantics in the spec's `source_semantics`; a held fact under another scope is
 refused by name as `HeldInstrumentSemanticsDiffer` before anything is committed. Sharing that scope, the chain also
 states the earlier entry's value in `market_semantics_value`, or the custody intake refuses it as
-`MarketSemanticsScopeValueConflict`. Its historical membership frontier
+`MarketSemanticsScopeValueConflict`. A run over the member resolves its Source Binding from the current eligible
+frontier, which the fixture's own membership makes the fixture's binding, and Market Semantics admission requires that
+binding's source and correction frontiers to equal the kept fact's; so the chain also names the earlier entry's
+frontiers in `source_frontiers`, and a held fact under other frontiers is refused by name as
+`HeldInstrumentFrontiersDiffer`. Its historical membership frontier
 names the window, so two fixture chains over the same members are two memberships
 (`postgres_a_member_already_admitted_keeps_its_fact`).
 
