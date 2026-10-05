@@ -27,7 +27,10 @@ use crate::{
     exploratory_replay::ExploratoryReplayRequestLocatorV2,
     native_replay_custody_frames_v1::ResolvedNativeReplayCustodyFramesV1,
     native_replay_execution_input_binding_v2::NativeReplayExecutionInputBindingReadbackV2,
-    program_host_v2::{OwnerUniverseFrameV1, admit_owner_universe_program_event_v2},
+    program_host_v2::{
+        OwnerUniverseFrameV1, admit_owner_universe_program_event_for_custody_run_v2,
+        admit_owner_universe_program_event_v2,
+    },
     replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, ReplayFixedDecimalV1},
     replay_execution_profile_binding_v1::{
         BoundInstrumentEconomicTermsV1, InstrumentMarginModelSelectionV1,
@@ -857,7 +860,16 @@ impl ReplayTargetSetExecutionBundleV1 {
         let mut admitted_frame_times = Vec::with_capacity(universe_frames.len());
 
         for owner_frame in &universe_frames {
-            let admitted = admit_owner_universe_program_event_v2(&plan, owner_frame)?;
+            // A custody-run frame's own per-batch selection_receipt_digest necessarily differs
+            // from the single batch H4 bound against - see admit_universe_frame_values_v2's doc
+            // for why that comparison is skipped here, and what already proves this frame's
+            // provenance instead (the custody resolver's own chain_root/head_identity pin, plus
+            // the Owner-sealed, no-public-constructor frame/receipt types).
+            let admitted = if custody.is_some() {
+                admit_owner_universe_program_event_for_custody_run_v2(&plan, owner_frame)?
+            } else {
+                admit_owner_universe_program_event_v2(&plan, owner_frame)?
+            };
             let universe_frame = owner_frame.frame();
             anyhow::ensure!(
                 matches!(
