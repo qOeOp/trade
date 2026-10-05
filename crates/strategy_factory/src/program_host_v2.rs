@@ -825,6 +825,22 @@ pub enum ProgramHostV2Error {
     Artifact(String),
     #[error("caller input frame does not exactly cover Plan-declared Owner-bound roles")]
     InputCoverage,
+    /// `InputCoverage`, named for a universe Bar/Event frame specifically: the (role, member)
+    /// pairs admission required but the frame did not carry, and the pairs the frame carried
+    /// that no required role names, each capped and paired with its true count - so a refusal
+    /// is readable without a live repro to see which pair diverged. Role keys are the Plan's own
+    /// `semantic_id` string when a required role matches the frame value's identity, or the raw
+    /// identity otherwise (an identity no required role names at all).
+    #[error(
+        "universe frame does not cover the required (role, member) pairs: missing \
+         {missing_total} ({missing:?}), extra {extra_total} ({extra:?})"
+    )]
+    InputCoverageDiff {
+        missing: Vec<(String, String)>,
+        missing_total: usize,
+        extra: Vec<(String, String)>,
+        extra_total: usize,
+    },
     #[error("typed value mismatch at {0}")]
     Type(String),
     #[error("reaction graph resolution failed at {0}")]
@@ -1631,6 +1647,61 @@ fn attach_universe_member_sample_coordinates_v1(
     Ok(event)
 }
 
+/// How many (role, member) pairs [`ProgramHostV2Error::InputCoverageDiff`] names on each side -
+/// enough to see the shape of a divergence (one role, one member, systematic) without the
+/// refusal growing with the universe's size.
+const MAX_INPUT_COVERAGE_DIFF_ENTRIES: usize = 5;
+
+/// The exact (role, member) coverage diff a universe Bar/Event frame's refusal names: pairs
+/// `required` and every member of `members` call for that `frame` does not carry, and pairs
+/// `frame` carries that no required role names. A frame value's role prints as the Plan's own
+/// `semantic_id` when it matches one of `required` by identity, or its raw identity otherwise -
+/// an identity no required role names at all is still visible, not silently dropped.
+fn universe_frame_coverage_diff_v1(
+    required: &[&crate::strategy_design_v2::InputRoleV2],
+    members: &[crate::strategy_plan_v2::UniverseMemberProjectionV2],
+    frame: &StrategyInputUniverseFrameReceipt,
+) -> ProgramHostV2Error {
+    let required_pairs: BTreeSet<(String, String)> = required
+        .iter()
+        .flat_map(|role| {
+            members
+                .iter()
+                .map(move |member| (role.semantic_id.clone(), member.member_key().to_owned()))
+        })
+        .collect();
+    let frame_pairs: BTreeSet<(String, String)> = frame
+        .values()
+        .iter()
+        .map(|value| {
+            let role_key = required
+                .iter()
+                .find(|role| strategy_input_role_identity_v2(role) == value.input_role_identity())
+                .map_or_else(
+                    || format!("{:?}", value.input_role_identity()),
+                    |role| role.semantic_id.clone(),
+                );
+            (role_key, value.member_key().to_owned())
+        })
+        .collect();
+    let missing: Vec<_> = required_pairs.difference(&frame_pairs).cloned().collect();
+    let extra: Vec<_> = frame_pairs.difference(&required_pairs).cloned().collect();
+    let missing_total = missing.len();
+    let extra_total = extra.len();
+    ProgramHostV2Error::InputCoverageDiff {
+        missing: missing
+            .into_iter()
+            .take(MAX_INPUT_COVERAGE_DIFF_ENTRIES)
+            .collect(),
+        missing_total,
+        extra: extra
+            .into_iter()
+            .take(MAX_INPUT_COVERAGE_DIFF_ENTRIES)
+            .collect(),
+        extra_total,
+    }
+}
+
 fn admit_universe_frame_values_v2(
     plan: &StrategyPlanV2,
     frame: &StrategyInputUniverseFrameReceipt,
@@ -1679,8 +1750,9 @@ fn admit_universe_frame_values_v2(
     let envelope =
         LifecycleEnvelopeV1::new_bound(order_key, payload).map_err(ProgramHostV2Error::Kernel)?;
     let required = reaction_input_roles(plan, kind)?;
+    let coverage_diff = || universe_frame_coverage_diff_v1(&required, projection.members(), frame);
     if frame.values().len() != required.len().saturating_mul(projection.members().len()) {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(coverage_diff());
     }
     let mut prior = None;
 
@@ -1729,7 +1801,7 @@ fn admit_universe_frame_values_v2(
                 .count()
                 != 1
             {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(coverage_diff());
             }
         }
     }
