@@ -673,7 +673,7 @@ async fn assert_the_report_read_holds_only_what_it_names(
     let mut transaction = begin_report_read_v1(rd_pool, REPORT_STATEMENT_TIMEOUT_MS_V1)
         .await
         .expect("the report's read-only transaction");
-    let refusal = read_report_in_transaction(&mut transaction, locator)
+    let refusal = read_report_in_transaction(&mut transaction, locator, None)
         .await
         .expect_err("the run is outside the family");
     assert_eq!(refusal.code(), "NO_STRATEGY_STATEMENT_FOR_FAMILY");

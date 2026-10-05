@@ -35,6 +35,7 @@ use vibe_data::owner::{
     universe_selection_admission_v1::UniverseSelectionAdmissionV1,
 };
 use vibe_product_edge::ProductEdgePostgresOwnerV1;
+use vibe_strategy_factory::ExploratoryReplayResultLocatorV2;
 #[cfg(feature = "composer-v3-replay")]
 use vibe_strategy_factory::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2;
 use vibe_strategy_factory::{
@@ -43,13 +44,16 @@ use vibe_strategy_factory::{
         BacktestRunRecordV1, BacktestRunRegistryErrorV1, MAX_BACKTEST_RUN_LIST_V1,
         PostgresBacktestRunRegistryV1,
     },
+    backtest_run_report_read_v1::{
+        BacktestRunCatalogStatementV1, resolve_backtest_run_report_for_statement_v1,
+    },
     product_edge::ProductEdgeResolution,
     product_edge_postgres::{
         PostgresResearchGoalOwnerV1, research_initial_pit::MarketDataInitialPitPortsV1,
     },
     rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
     strategy_catalog_postgres_v1::PostgresStrategyCatalogV1,
-    strategy_catalog_v1::StrategyIdentityV1,
+    strategy_catalog_v1::{StrategyIdentityV1, StrategyStatementV1},
 };
 
 use crate::backtest_run_v1::{
@@ -487,9 +491,13 @@ async fn get_backtest_run(
     }
 }
 
-/// A run's report. No run reaches a Result yet - every recorded run stopped at its replay step -
-/// so a recorded run answers `RUN_HAS_NO_RESULT` with the replay state it stopped at, and the
-/// report is assembled here once a run can produce one.
+/// A run's report: the four-question report of the Result the run committed, stating the strategy
+/// its registry row names.
+///
+/// A recorded run that committed no Result answers `RUN_HAS_NO_RESULT` with the replay state it
+/// stopped at. The report reads the Result back through the Backtest Owner's own readback, keyed by
+/// the run's Result, its Replay request (`{run_id}-replay`) and its one attempt
+/// (`{run_id}-attempt-1`), all three named by `backtest.run` itself.
 async fn get_backtest_run_report(
     State(state): State<BacktestRunRoutesApiState>,
     Path(run_id): Path<String>,
@@ -507,19 +515,97 @@ async fn get_backtest_run_report(
         Ok(None) => return backtest_run_rejection(StatusCode::NOT_FOUND, "RUN_UNKNOWN", &run_id),
         Err(e) => return registry_error_response(&e, &run_id),
     };
-    let replay_state = serde_json::from_slice::<serde_json::Value>(&recorded.answer_bytes)
-        .ok()
-        .and_then(|answer| answer.get("replay_state").cloned())
+    let answer = serde_json::from_slice::<serde_json::Value>(&recorded.answer_bytes)
         .unwrap_or(serde_json::Value::Null);
-    (
-        StatusCode::CONFLICT,
-        Json(serde_json::json!({
-            "request_identity": run_id,
-            "code": "RUN_HAS_NO_RESULT",
-            "replay_state": replay_state,
-        })),
+    let Some(result_identity) = answer
+        .get("replay_result_identity")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "request_identity": run_id,
+                "code": "RUN_HAS_NO_RESULT",
+                "replay_state": answer.get("replay_state").cloned().unwrap_or(serde_json::Value::Null),
+            })),
+        )
+            .into_response();
+    };
+
+    // The registry wrote the request it was submitted with; a row whose request does not name a
+    // strategy is not one this route recorded.
+    let Some(strategy_id) =
+        serde_json::from_slice::<BacktestRunRequestBodyV1>(&recorded.request_bytes)
+            .ok()
+            .and_then(|request| StrategyIdentityV1::parse(&request.strategy_id))
+    else {
+        return backtest_run_rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "BACKTEST_RUN_RECORD_UNREADABLE",
+            &run_id,
+        );
+    };
+    let statement = match state.catalog.get(strategy_id).await {
+        Ok(Some(record)) => match serde_json::from_slice::<StrategyStatementV1>(&record.spec_bytes)
+        {
+            Ok(statement) => statement,
+            Err(_) => {
+                return backtest_run_rejection(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "STRATEGY_SPEC_UNDECODABLE",
+                    &run_id,
+                );
+            }
+        },
+        Ok(None) => {
+            return backtest_run_rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "STRATEGY_UNKNOWN",
+                &run_id,
+            );
+        }
+        Err(_) => {
+            return backtest_run_rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CATALOG_UNAVAILABLE",
+                &run_id,
+            );
+        }
+    };
+    let request_identity = format!("{run_id}-replay");
+    let attempt_identity = format!("{run_id}-attempt-1");
+    let locator = ExploratoryReplayResultLocatorV2 {
+        result_identity,
+        request_identity: &request_identity,
+        attempt_identity: &attempt_identity,
+    };
+
+    match resolve_backtest_run_report_for_statement_v1(
+        &state.rd_pool,
+        locator,
+        Some(BacktestRunCatalogStatementV1 {
+            strategy_id,
+            statement: &statement,
+        }),
     )
-        .into_response()
+    .await
+    {
+        Ok(Some(report)) => (StatusCode::OK, Json(report)).into_response(),
+        Ok(None) => backtest_run_rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "BACKTEST_RUN_RESULT_ABSENT",
+            &run_id,
+        ),
+        Err(refusal) => {
+            tracing::warn!(request_identity = %run_id, code = refusal.code(), detail = %refusal, "backtest.run report refused");
+            let status = if refusal.is_owner_judgement() {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            };
+            backtest_run_rejection(status, refusal.code(), &run_id)
+        }
+    }
 }
 
 fn backtest_run_error_response(error: &BacktestRunErrorV1, request_identity: &str) -> Response {

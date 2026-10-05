@@ -324,9 +324,13 @@ clock.
   declares for the execution timeframe; start and exclusive end are the binding's run window; the cut is the pinned
   head identity, and the count is the one custody cut the run binds. A chain that has since moved on still states
   the window the run read.
-- **What it waits on.** The route answers `RUN_HAS_NO_RESULT`, with the replay state the run stopped at, until the
-  run records a Result. H8 records the custody binding in the run's answer; executing that bound replay and
-  committing its Result is the next `backtest.run` step, and the report is assembled from the Result it commits.
+- **What it serves today.** The route answers `RUN_HAS_NO_RESULT`, with the replay state the run stopped at, until the
+  run's answer names a committed Result (`replay_result_identity`). It then reads the Result back through the
+  Backtest Owner's readback, keyed by that Result, the run's Replay request `{run_id}-replay` and its one attempt
+  `{run_id}-attempt-1`, and answers the four-question report with the statement and window above. A refusal keeps
+  the reader's own code: `409` for the Owner's judgement about the run, `503` for a read that could not be made.
+  Pricing, fees and the control, which need the bars the pinned head reads back, are assembled by the next slice.
+  No run has committed a Result yet, so the answer above is not yet exercised against one.
 
 ## Research T0 replication comparison
 

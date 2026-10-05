@@ -25,6 +25,7 @@ use crate::{
         ComposerBackedExploratoryReplayProposalV3, ComposerReplayMarketDataLocatorV3,
         ComposerReplayShapeRefusalV1, ExploratoryReplayOwnerError,
     },
+    native_replay_execution_input_binding_v1::ReplayCustodyRunBindingV1,
     product_edge::{
         ResearchExplorationViewV1, ResearchViewAvailability, ResearchViewV1,
         canonical_research_view_identity_v2, project_composer_exploration_research_view_v3,
@@ -171,6 +172,19 @@ impl StoredComposerReplaySourceV3 {
             };
         }
         self.shape().map(|_| ())
+    }
+
+    /// The custody run a custody-run source read, or `None` for a source of any other schema.
+    pub(super) fn custody_run(&self) -> Option<ReplayCustodyRunBindingV1> {
+        if self.schema_version != CUSTODY_RUN_SOURCE_SCHEMA_V3 {
+            return None;
+        }
+        Some(ReplayCustodyRunBindingV1 {
+            chain_root: *self.custody_chain_root?.as_bytes(),
+            head_identity: *self.custody_head_identity?.as_bytes(),
+            run_start_ns: self.custody_run_start_ns?,
+            run_end_ns_exclusive: self.custody_run_end_ns_exclusive?,
+        })
     }
 }
 

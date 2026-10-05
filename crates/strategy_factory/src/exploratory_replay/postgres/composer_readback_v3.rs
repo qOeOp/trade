@@ -46,6 +46,7 @@ use crate::{
         },
         exploratory_replay_admission_payload_v3,
     },
+    native_replay_execution_input_binding_v1::ReplayCustodyRunBindingV1,
     native_replay_rd_sources_v2::{
         REPLAY_OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1, REPLAY_OUTBOX_STORAGE_DOMAIN_V1,
         REPLAY_RECEIPT_STORAGE_DOMAIN_V1, REPLAY_REQUEST_STORAGE_DOMAIN_V1, owner_storage_digest,
@@ -206,12 +207,19 @@ async fn load_stored_frozen(
 /// [`read_self_verified_composer_v3_claim_in_transaction`] is the only way to build one.
 pub(crate) struct SelfVerifiedComposerV3ClaimV1 {
     request: ReplayRequestV2,
+    custody_run: Option<ReplayCustodyRunBindingV1>,
 }
 
 impl SelfVerifiedComposerV3ClaimV1 {
     /// The Replay request the claim sealed, parsed from its canonical bytes.
     pub(crate) const fn request(&self) -> &ReplayRequestV2 {
         &self.request
+    }
+
+    /// The custody run the claim's frozen source read - its chain root, the head pinned at
+    /// issuance and the run's own window - or `None` when the source read a PIT snapshot.
+    pub(crate) const fn custody_run(&self) -> Option<ReplayCustodyRunBindingV1> {
+        self.custody_run
     }
 }
 
@@ -251,7 +259,10 @@ pub(crate) async fn read_self_verified_composer_v3_claim_in_transaction(
     let request_dto: ReplayRequestDtoV2 =
         serde_json::from_slice(&claim.canonical_request_bytes).map_err(unavailable)?;
     let request = ReplayRequestV2::try_from(request_dto).map_err(unavailable)?;
-    Ok(Some(SelfVerifiedComposerV3ClaimV1 { request }))
+    Ok(Some(SelfVerifiedComposerV3ClaimV1 {
+        request,
+        custody_run: frozen.source.custody_run(),
+    }))
 }
 
 /// Called under the Replay request advisory lock, before any new admission is attempted.

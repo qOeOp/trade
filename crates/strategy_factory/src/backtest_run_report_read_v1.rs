@@ -76,7 +76,11 @@ use vibe_core::{UnixNanos, datetime::unix_nanos_to_iso8601};
 use vibe_data::owner::{read_universe_selection_members_for_rd_v1, source_binding::BindingDigest};
 
 use crate::{
+    bounded_feature_program_derivation_v1::redeclare_frozen_bounded_feature_program_v1,
     bounded_feature_program_v1::BoundedFeaturePredicateV1,
+    bounded_feature_program_v1::{
+        CanonicalBoundedFeatureProgramV1, prepare_bounded_feature_program_v1,
+    },
     develop_composer_postgres_v2::{
         ComposerArtifactBuildReceiptSchemaV1, ComposerArtifactBuildReceiptV1,
         ComposerArtifactBuildReceiptsErrorV1, resolve_artifact_build_receipts_v1_in_transaction,
@@ -86,6 +90,7 @@ use crate::{
         ExploratoryReplayRecoverySelectorV2,
         postgres::{ReportRequestReadV2, read_for_report_in_transaction_v2},
     },
+    native_replay_execution_input_binding_v1::ReplayCustodyRunBindingV1,
     owner_backtest_report_v1::{OwnerBacktestFillV1, OwnerBacktestReportV1},
     rd_bounded_feature_program_v1::read_frozen_design_program_in_transaction_v1,
     rd_owner_postgres_custody::resolve_exploratory_replay_outcome_for_rd_in_transaction,
@@ -93,7 +98,9 @@ use crate::{
         SingleThresholdChannelV1, SingleThresholdOutcomeV1, recover_single_threshold_request_v1,
         threshold_coefficient_v1,
     },
-    strategy_design_v2::StrategyDesignV2,
+    strategy_authoring_v1::{StrategyAuthoringDocumentV1, author_strategy_document_v1},
+    strategy_catalog_v1::{StrategyIdentityV1, StrategyStatementV1},
+    strategy_design_v2::{InputScopeV2, StrategyDesignV2},
 };
 
 /// Why a committed run's report could not be read.
@@ -174,6 +181,15 @@ pub enum BacktestRunReportRefusalV1 {
     /// nothing can prove or disprove that the frozen program is the one the run executed.
     #[error("the build receipts of the run's artifact are unavailable")]
     ArtifactBuildReceiptsUnavailable,
+    /// The catalog document the run's registry names does not recompile, under the run's Research
+    /// identities and declared timeframe, to the frozen Design and program. An integrity failure:
+    /// the report never falls back to another statement.
+    #[error("the run's catalog document does not reproduce its frozen Design and program")]
+    AuthoredStatementNotReproduced,
+    /// The program's input roles do not share one instrument and one granularity, so the report
+    /// has no single data window to state.
+    #[error("the program's inputs span more than one instrument or granularity")]
+    ReportDataWindowNotSingle,
 }
 
 impl BacktestRunReportRefusalV1 {
@@ -204,7 +220,9 @@ impl BacktestRunReportRefusalV1 {
             | Self::ReplayRequestV3NotYetReported
             | Self::NoStrategyStatementForFamily
             | Self::StrategyNotAnchoredToRun
-            | Self::UniverseSelectionNotOneMember => true,
+            | Self::UniverseSelectionNotOneMember
+            | Self::AuthoredStatementNotReproduced
+            | Self::ReportDataWindowNotSingle => true,
         }
     }
 
@@ -232,6 +250,8 @@ impl BacktestRunReportRefusalV1 {
             Self::UniverseSelectionNotOneMember => "UNIVERSE_SELECTION_NOT_ONE_MEMBER",
             Self::UniverseSelectionUnavailable => "UNIVERSE_SELECTION_UNAVAILABLE",
             Self::ArtifactBuildReceiptsUnavailable => "ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE",
+            Self::AuthoredStatementNotReproduced => "AUTHORED_STATEMENT_NOT_REPRODUCED",
+            Self::ReportDataWindowNotSingle => "REPORT_DATA_WINDOW_NOT_SINGLE",
         }
     }
 }
@@ -387,8 +407,34 @@ pub struct BacktestRunChannelV1 {
     pub scale: u8,
 }
 
-/// The one strategy family this report can state.
+/// The single-threshold family's name in a statement.
 pub const SINGLE_THRESHOLD_FAMILY_V1: &str = "SINGLE_THRESHOLD_V1";
+/// The authoring-language family's name in a statement.
+pub const AUTHORED_DOCUMENT_FAMILY_V1: &str = "AUTHORED_DOCUMENT_V1";
+
+/// The strategy a run executed, in whichever family states it.
+///
+/// Untagged: each variant carries its own `family`, so a single-threshold statement keeps exactly
+/// the bytes it had before documents could be stated.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum BacktestRunStatementV1 {
+    SingleThreshold(Box<BacktestRunStrategyV1>),
+    Authored(BacktestRunAuthoredStrategyV1),
+}
+
+/// An authoring-language document a run executed, stated as its canonical document. It is stated
+/// only for a run `backtest.run` submitted, whose registry names it by `strategy_id`, and only
+/// once recompiling it reproduces the run's frozen pair.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BacktestRunAuthoredStrategyV1 {
+    /// Always [`AUTHORED_DOCUMENT_FAMILY_V1`].
+    pub family: &'static str,
+    /// The catalog identity the run named.
+    pub strategy_id: String,
+    /// The document, in its canonical form; it names its own language.
+    pub document: StrategyAuthoringDocumentV1,
+}
 
 /// The data a run consumed, as its replay request bound it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -402,9 +448,10 @@ pub struct BacktestRunDataWindowV1 {
     /// Canonical UTC of the window's end. The end is exclusive: no event at this instant is in
     /// the window.
     pub end_exclusive: String,
-    /// How many PIT snapshots the request binds.
+    /// How many data cuts the request binds: its PIT snapshots, or one for a custody run.
     pub snapshot_count: u64,
-    /// The identity of the PIT snapshot the request binds, which is the data cut the run consumed.
+    /// The data cut the run consumed: the PIT snapshot the request binds, or a custody run's pinned
+    /// head.
     pub cut_identity: String,
 }
 
@@ -417,7 +464,7 @@ pub struct BacktestRunDataWindowV1 {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct BacktestRunReportProjectionV1 {
     pub run: BacktestRunIdentityV1,
-    pub strategy: BacktestRunStrategyV1,
+    pub strategy: BacktestRunStatementV1,
     pub data_window: BacktestRunDataWindowV1,
     #[serde(flatten)]
     pub result: BacktestRunResultV1,
@@ -480,8 +527,24 @@ pub async fn resolve_backtest_run_report_v1(
     pool: &sqlx::PgPool,
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
+    resolve_backtest_run_report_for_statement_v1(pool, locator, None).await
+}
+
+/// [`resolve_backtest_run_report_v1`] for a run `backtest.run` submitted, which also states the
+/// catalog document the run named once it reproduces the run's frozen pair.
+///
+/// # Errors
+///
+/// As [`resolve_backtest_run_report_v1`], plus
+/// [`BacktestRunReportRefusalV1::AuthoredStatementNotReproduced`] and
+/// [`BacktestRunReportRefusalV1::ReportDataWindowNotSingle`] for a document.
+pub async fn resolve_backtest_run_report_for_statement_v1(
+    pool: &sqlx::PgPool,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+    catalog: Option<BacktestRunCatalogStatementV1<'_>>,
+) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
     let mut transaction = begin_report_read_v1(pool, REPORT_STATEMENT_TIMEOUT_MS_V1).await?;
-    let report = read_report_in_transaction(&mut transaction, locator).await;
+    let report = read_report_in_transaction(&mut transaction, locator, catalog).await;
     // Nothing a read-only transaction did can need keeping, and a refusal is still a completed
     // read, so the transaction ends the same way on every path.
     transaction
@@ -543,6 +606,7 @@ pub(crate) async fn begin_report_read_v1(
 pub(crate) async fn read_report_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     locator: ExploratoryReplayResultLocatorV2<'_>,
+    catalog: Option<BacktestRunCatalogStatementV1<'_>>,
 ) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
     let Some(read) = resolve_backtest_run_result_v1(transaction, locator).await? else {
         return Ok(None);
@@ -568,9 +632,9 @@ pub(crate) async fn read_report_in_transaction(
     )
     .await
     .map_err(|e| BacktestRunReportRefusalV1::ReplayRequestUnavailable(e.to_string()))?;
-    let request = request_to_report(&read_request)?;
+    let (request, custody_run) = request_to_report(&read_request)?;
     let (strategy, data_window) =
-        resolve_strategy_and_window(transaction, request.as_dto()).await?;
+        resolve_strategy_and_window(transaction, request.as_dto(), custody_run, catalog).await?;
 
     Ok(Some(BacktestRunReportProjectionV1 {
         run: read.run,
@@ -628,11 +692,25 @@ pub(crate) async fn resolve_backtest_run_result_v1(
     }))
 }
 
+/// The catalog statement a `backtest.run` run named, which its report states when it is a
+/// document: the run's registry records the `strategy_id`, and the catalog holds the statement.
+#[derive(Clone, Copy, Debug)]
+pub struct BacktestRunCatalogStatementV1<'a> {
+    pub strategy_id: StrategyIdentityV1,
+    pub statement: &'a StrategyStatementV1,
+}
+
 /// States the strategy and data window of the run a replay request describes.
+///
+/// A document the catalog names is stated when it reproduces the frozen pair; every other run is
+/// stated through the single-threshold recovery. A custody run's window is its pinned run, not a
+/// PIT snapshot.
 async fn resolve_strategy_and_window(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     request: &ReplayRequestDtoV2,
-) -> Result<(BacktestRunStrategyV1, BacktestRunDataWindowV1), BacktestRunReportRefusalV1> {
+    custody_run: Option<ReplayCustodyRunBindingV1>,
+    catalog: Option<BacktestRunCatalogStatementV1<'_>>,
+) -> Result<(BacktestRunStatementV1, BacktestRunDataWindowV1), BacktestRunReportRefusalV1> {
     // Composer-backed requests name their Design as `sha256:` identity and digest. A Design named
     // any other way was not frozen with a bounded program, so no program of this family exists.
     let (Some(design_identity), Some(design_digest)) = (
@@ -646,14 +724,137 @@ async fn resolve_strategy_and_window(
             .await
             .map_err(|_| BacktestRunReportRefusalV1::FrozenDesignUnavailable)?
             .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
+
+    let (strategy, instrument, granularity) = match catalog {
+        Some(BacktestRunCatalogStatementV1 {
+            strategy_id,
+            statement: StrategyStatementV1::Authored(document),
+        }) => {
+            let timeframe = single_universe_timeframe(&frozen.design)?;
+
+            if !authored_reproduces_freeze(document, &frozen.design, &frozen.program, &timeframe) {
+                return Err(BacktestRunReportRefusalV1::AuthoredStatementNotReproduced);
+            }
+            anchor_frozen_program_to_run(transaction, request, frozen.joint_freeze_digest).await?;
+            let members = read_universe_members(transaction, request).await?;
+            let [instrument] = members.as_slice() else {
+                return Err(BacktestRunReportRefusalV1::UniverseSelectionNotOneMember);
+            };
+            let strategy = BacktestRunStatementV1::Authored(BacktestRunAuthoredStrategyV1 {
+                family: AUTHORED_DOCUMENT_FAMILY_V1,
+                strategy_id: strategy_id.to_string(),
+                document: document.clone(),
+            });
+            (strategy, instrument.clone(), timeframe)
+        }
+        _ => {
+            let strategy = single_threshold_statement(transaction, request, &frozen).await?;
+            let (instrument, granularity) = (
+                strategy.channel.instrument.clone(),
+                strategy.channel.timeframe.clone(),
+            );
+            (
+                BacktestRunStatementV1::SingleThreshold(Box::new(strategy)),
+                instrument,
+                granularity,
+            )
+        }
+    };
+
+    let data_window = match custody_run {
+        Some(run) => BacktestRunDataWindowV1 {
+            instrument,
+            granularity,
+            start: canonical_utc_v1(run.run_start_ns),
+            end_exclusive: canonical_utc_v1(run.run_end_ns_exclusive),
+            // One custody run binds one pinned cut.
+            snapshot_count: 1,
+            cut_identity: format!(
+                "sha256:{}",
+                crate::composer_replay_intent_v3::hex(BindingDigest::from_untrusted_bytes(
+                    run.head_identity
+                ))
+            ),
+        },
+        None => {
+            // Typed on purpose. The request binds one PIT snapshot today; when it binds several,
+            // this field changes type and the annotation stops compiling, instead of `from_ref`
+            // quietly counting one collection as one snapshot.
+            let snapshots: &[ContentIdentityV2] = std::slice::from_ref(&request.pit_snapshot);
+            BacktestRunDataWindowV1 {
+                instrument,
+                granularity,
+                start: canonical_utc_v1(request.window.start_event_ns),
+                end_exclusive: canonical_utc_v1(request.window.end_event_ns_exclusive),
+                snapshot_count: u64::try_from(snapshots.len()).unwrap_or(u64::MAX),
+                cut_identity: request.pit_snapshot.identity.as_str().to_owned(),
+            }
+        }
+    };
+    Ok((strategy, data_window))
+}
+
+/// The one timeframe every input of a Design reads at, when every input is a universe-member role:
+/// the only shape whose window is one instrument at one granularity.
+fn single_universe_timeframe(
+    design: &StrategyDesignV2,
+) -> Result<String, BacktestRunReportRefusalV1> {
+    let mut timeframes = design.inputs.iter().map(|input| {
+        (input.scope == InputScopeV2::UniverseMembers)
+            .then_some(input.timeframe.as_str())
+            .ok_or(BacktestRunReportRefusalV1::ReportDataWindowNotSingle)
+    });
+    let first = timeframes
+        .next()
+        .ok_or(BacktestRunReportRefusalV1::ReportDataWindowNotSingle)??;
+
+    for timeframe in timeframes {
+        if timeframe? != first {
+            return Err(BacktestRunReportRefusalV1::ReportDataWindowNotSingle);
+        }
+    }
+    Ok(first.to_owned())
+}
+
+/// Whether compiling `document` under the frozen Design's own Research identities, at
+/// `timeframe`, reproduces the frozen program exactly. The redeclared program is assembled against
+/// the compiled Design, so its canonical bytes equal the frozen program's only if the compiled
+/// Design is also the frozen one, as in `recover_single_threshold_request_v1`.
+fn authored_reproduces_freeze(
+    document: &StrategyAuthoringDocumentV1,
+    design: &StrategyDesignV2,
+    program: &CanonicalBoundedFeatureProgramV1,
+    timeframe: &str,
+) -> bool {
+    let Ok((authored_design, authored_meaning)) = author_strategy_document_v1(
+        document,
+        design.research_request_identity,
+        design.intent_identity,
+        design.intent_digest,
+        timeframe,
+    ) else {
+        return false;
+    };
+    redeclare_frozen_bounded_feature_program_v1(
+        &authored_design,
+        program.program(),
+        &authored_meaning,
+    )
+    .ok()
+    .and_then(|redeclared| prepare_bounded_feature_program_v1(redeclared, &authored_design).ok())
+    .is_some_and(|reprepared| reprepared.canonical_bytes() == program.canonical_bytes())
+}
+
+/// The single-threshold statement of a frozen pair the family authors, anchored to the run.
+async fn single_threshold_statement(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: &ReplayRequestDtoV2,
+    frozen: &crate::rd_bounded_feature_program_v1::FrozenDesignProgramV1,
+) -> Result<BacktestRunStrategyV1, BacktestRunReportRefusalV1> {
     let authored = recover_single_threshold_request_v1(&frozen.design, &frozen.program)
         .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
     anchor_frozen_program_to_run(transaction, request, frozen.joint_freeze_digest).await?;
 
-    // Typed on purpose. The request binds one PIT snapshot today; when it binds several, this
-    // field changes type and the annotation stops compiling, instead of `from_ref` quietly
-    // counting one collection as one snapshot.
-    let snapshots: &[ContentIdentityV2] = std::slice::from_ref(&request.pit_snapshot);
     let channel = match authored.channel {
         SingleThresholdChannelV1::ExactInstrument {
             role_semantic_id,
@@ -678,15 +879,7 @@ async fn resolve_strategy_and_window(
             universe_member_channel(&frozen.design, &close_role_semantic_id, &members)?
         }
     };
-    let data_window = BacktestRunDataWindowV1 {
-        instrument: channel.instrument.clone(),
-        granularity: channel.timeframe.clone(),
-        start: canonical_utc_v1(request.window.start_event_ns),
-        end_exclusive: canonical_utc_v1(request.window.end_event_ns_exclusive),
-        snapshot_count: u64::try_from(snapshots.len()).unwrap_or(u64::MAX),
-        cut_identity: request.pit_snapshot.identity.as_str().to_owned(),
-    };
-    let strategy = BacktestRunStrategyV1 {
+    Ok(BacktestRunStrategyV1 {
         family: SINGLE_THRESHOLD_FAMILY_V1,
         // Stated at the channel's scale, as the program compares it; the recovered request spells it
         // canonically, which reads back exactly at that scale.
@@ -709,8 +902,7 @@ async fn resolve_strategy_and_window(
             judged: EXITS_JUDGED_AT_CLOSE_V1,
         }),
         falsifier: authored.falsifier,
-    };
-    Ok((strategy, data_window))
+    })
 }
 
 /// The included members' instruments of the Universe Selection a request binds, read in the
@@ -781,11 +973,11 @@ fn universe_member_channel(
 /// at the meaning the outcome evidence binds.
 fn request_to_report(
     read: &ReportRequestReadV2,
-) -> Result<&ReplayRequestV2, BacktestRunReportRefusalV1> {
+) -> Result<(&ReplayRequestV2, Option<ReplayCustodyRunBindingV1>), BacktestRunReportRefusalV1> {
     match read {
-        ReportRequestReadV2::Found(readback) => Ok(readback.request()),
+        ReportRequestReadV2::Found(readback) => Ok((readback.request(), None)),
         #[cfg(feature = "composer-v3-replay")]
-        ReportRequestReadV2::ComposerV3(claim) => Ok(claim.request()),
+        ReportRequestReadV2::ComposerV3(claim) => Ok((claim.request(), claim.custody_run())),
         #[cfg(not(feature = "composer-v3-replay"))]
         ReportRequestReadV2::ComposerV3 => {
             Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported)
@@ -1812,7 +2004,7 @@ pub(crate) mod tests {
     pub(crate) fn sample_projection_v1() -> BacktestRunReportProjectionV1 {
         BacktestRunReportProjectionV1 {
             run: run(),
-            strategy: strategy(),
+            strategy: BacktestRunStatementV1::SingleThreshold(Box::new(strategy())),
             data_window: data_window(),
             result: project_engine_result_v1(&engine_bytes()).expect("result projection"),
         }
@@ -1834,7 +2026,7 @@ pub(crate) mod tests {
         let projection = |result: BacktestRunResultV1| {
             serde_json::to_value(BacktestRunReportProjectionV1 {
                 run: run(),
-                strategy: strategy(),
+                strategy: BacktestRunStatementV1::SingleThreshold(Box::new(strategy())),
                 data_window: data_window(),
                 result,
             })
@@ -1983,7 +2175,7 @@ pub(crate) mod tests {
             let bytes = std::fs::read(input).expect("a committed engine result");
             serde_json::to_value(BacktestRunReportProjectionV1 {
                 run: run(),
-                strategy: strategy(),
+                strategy: BacktestRunStatementV1::SingleThreshold(Box::new(strategy())),
                 data_window: data_window(),
                 result: project_engine_result_v1(&bytes).expect("result projection"),
             })
@@ -2262,5 +2454,69 @@ pub(crate) mod tests {
         let distinct = codes.iter().collect::<std::collections::BTreeSet<_>>();
 
         assert_eq!(distinct.len(), codes.len());
+    }
+
+    /// T0's catalog document, compiled for one run at the perpetual's daily label and frozen.
+    fn frozen_t0(
+        timeframe: &str,
+    ) -> (
+        StrategyAuthoringDocumentV1,
+        StrategyDesignV2,
+        CanonicalBoundedFeatureProgramV1,
+    ) {
+        let document: StrategyAuthoringDocumentV1 = serde_json::from_str(include_str!(
+            "../test_data/strategy_authoring_v1/t0-daily-trend.json"
+        ))
+        .expect("T0's document decodes");
+        let digest = BindingDigest::from_untrusted_bytes([7; 32]);
+        let (design, meaning) =
+            author_strategy_document_v1(&document, digest, digest, digest, timeframe)
+                .expect("T0 compiles");
+        let proposal = crate::bounded_feature_program_derivation_v1::assemble_bounded_feature_program_for_self_check_v1(
+            &design,
+            vibe_indicators_kernel::PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+            &meaning,
+        )
+        .expect("T0 assembles");
+        let program = prepare_bounded_feature_program_v1(proposal, &design).expect("T0 prepares");
+        (document, design, program)
+    }
+
+    /// The document the catalog holds reproduces the pair the run froze, and only at the run's own
+    /// label and only as written: a document stated for a run must be the one that run executed.
+    #[rstest]
+    fn an_authored_statement_is_stated_only_when_it_reproduces_the_freeze() {
+        let (document, design, program) = frozen_t0("24H");
+        assert_eq!(single_universe_timeframe(&design), Ok("24H".to_owned()));
+        assert!(authored_reproduces_freeze(
+            &document, &design, &program, "24H"
+        ));
+        assert!(!authored_reproduces_freeze(
+            &document, &design, &program, "1D"
+        ));
+
+        let mut edited = document;
+        edited.falsifier = format!("{} (edited)", edited.falsifier);
+        assert!(!authored_reproduces_freeze(
+            &edited, &design, &program, "24H"
+        ));
+    }
+
+    /// A Design whose inputs do not read one universe member at one label has no single window.
+    #[rstest]
+    fn a_design_spanning_two_granularities_has_no_single_window() {
+        let (_, mut design, _) = frozen_t0("24H");
+        design.inputs[0].timeframe = "4H".to_owned();
+        assert_eq!(
+            single_universe_timeframe(&design),
+            Err(BacktestRunReportRefusalV1::ReportDataWindowNotSingle)
+        );
+
+        let (_, mut design, _) = frozen_t0("24H");
+        design.inputs[0].scope = InputScopeV2::ExactInstrument;
+        assert_eq!(
+            single_universe_timeframe(&design),
+            Err(BacktestRunReportRefusalV1::ReportDataWindowNotSingle)
+        );
     }
 }
