@@ -439,7 +439,11 @@ impl MarketDataOwnerPostgres {
                 });
             }
 
-            if bar.close_ns_exclusive < window.0 || bar.close_ns_exclusive >= window.1 {
+            // window.1 is the window's own exclusive end, which for any archive that tiles
+            // exactly to its window (a full calendar month or day, the normal case) is also the
+            // last bar's own close: that bar closes AT window.1, not before it, so the close
+            // check must accept window.1 itself and only refuse a close that overruns it.
+            if bar.close_ns_exclusive < window.0 || bar.close_ns_exclusive > window.1 {
                 return Err(Refused::InvalidRequest);
             }
         }
