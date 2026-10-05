@@ -296,6 +296,25 @@ pub(crate) fn admit_owner_universe_program_event_v2(
     admit_market_data_coordinated_universe_program_event_v2(plan, &frame.frame, &frame.coordinates)
 }
 
+/// The custody-run counterpart of [`admit_owner_universe_program_event_v2`]: identical except it
+/// names `frame` as one frame of a bound PIT window custody run rather than a single committed
+/// snapshot, so it does not compare `frame`'s own per-batch `selection_receipt_digest` against the
+/// Plan's pinned one - see the comment at the skip inside `admit_universe_frame_values_v2` for
+/// why that comparison is wrong for a custody run and what already proves the frame's provenance
+/// instead.
+pub(crate) fn admit_owner_universe_program_event_for_custody_run_v2(
+    plan: &StrategyPlanV2,
+    frame: &OwnerUniverseFrameV1,
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    let event = admit_universe_frame_values_v2(plan, &frame.frame, true)?;
+    attach_universe_member_sample_coordinates_v1(
+        plan,
+        event,
+        frame.frame.digest(),
+        &frame.coordinates,
+    )
+}
+
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 impl UniverseMemberSampleCoordinateV1 {
     /// A coordinate for one member and role of `frame`, standing in for the one Market Data's
@@ -1781,7 +1800,7 @@ pub(crate) fn admit_market_data_coordinated_universe_program_event_v2(
     frame: &StrategyInputUniverseFrameReceipt,
     coordinates: &[UniverseMemberSampleCoordinateV1],
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    let event = admit_universe_frame_values_v2(plan, frame)?;
+    let event = admit_universe_frame_values_v2(plan, frame, false)?;
     attach_universe_member_sample_coordinates_v1(plan, event, frame.digest(), coordinates)
 }
 
@@ -1957,9 +1976,16 @@ fn universe_frame_coverage_diff_v1(
     }
 }
 
+/// `is_custody_frame` is `false` for a single committed PIT snapshot (the Plan's pinned
+/// `selection_receipt_digest` is checked bit-for-bit), `true` for one frame of a PIT window
+/// custody run (that check is skipped - see the comment at the skip for why). Callers never pass
+/// this directly; use [`admit_market_data_coordinated_universe_program_event_v2`]/
+/// [`admit_owner_universe_program_event_v2`] for the snapshot path and
+/// [`admit_owner_universe_program_event_for_custody_run_v2`] for the custody path.
 fn admit_universe_frame_values_v2(
     plan: &StrategyPlanV2,
     frame: &StrategyInputUniverseFrameReceipt,
+    is_custody_frame: bool,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
     let projection = plan
         .universe_selection()
@@ -2004,7 +2030,23 @@ fn admit_universe_frame_values_v2(
         ));
     }
 
-    if selection.digest() != projection.selection_receipt_digest() {
+    // `selection.digest()` bakes in `batch.digest()` - the verified PIT batch's own content
+    // digest (`derive_universe_selection`, `crates/data/src/owner/strategy_input_binding.rs`:
+    // `receipt_bytes.digest(batch.digest())`) - so it is NECESSARILY different for every batch a
+    // multi-frame custody run reads, while the Plan's `selection_receipt_digest` pins the single
+    // batch H4 bound against (`UniverseSelectionProjectionV2::from_owner_receipt`,
+    // `strategy_plan_v2.rs`). Comparing them bit-for-bit is correct only for a single committed
+    // snapshot. On the custody path this frame's own provenance is already proven before it
+    // reaches here: (a) the custody resolver reads every frame under the binding's own pinned
+    // `chain_root`/`head_identity` (`native_replay_custody_frames_v1.rs`'s
+    // `resolve_native_replay_custody_frames_v1`, via `for_custody_event`, which carries both
+    // through unchanged from the first frame's own pin); (b) `StrategyInputUniverseSelectionReceipt`
+    // and `StrategyInputUniverseFrameReceipt` are Owner-sealed with no public constructor and no
+    // `Deserialize`, so a frame reaching this call can only have come from that read, never from a
+    // caller. Re-deriving and re-checking a view identity here would be internal re-validation of
+    // an already-sealed value, against the rule that validates at the outer boundary and passes
+    // sealed values inward from there.
+    if !is_custody_frame && selection.digest() != projection.selection_receipt_digest() {
         return Err(ProgramHostV2Error::InputCoverage(
             "universe_selection.selection_receipt_digest",
         ));
