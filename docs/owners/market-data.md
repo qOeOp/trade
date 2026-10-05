@@ -3833,8 +3833,7 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
   `1000SHIBUSDT`/`GALAUSDT` on 8h, though no change itself fell inside the sampled window). Each row's own
   `availability_ns` is the recorder's observed retrieval instant, never a computed `settlement + lag` - B6a adds that
   column to the funding settlement store, with a migration for a store already holding the table in its pre-B6a
-  shape. The scheduling itself - when B6b's resident process calls the recorder - is `next_funding_poll_ns_v1`, not
-  yet wired to run on its own; B6b is what runs it.
+  shape. The scheduling itself is `next_funding_poll_ns_v1`; B6b's resident process calls the recorder on it.
 - **Monthly archive reconciliation, not overwrite.** Once the next month's official archive (the authenticated
   `fundingRate` archive commit `#1364` adds) is published, the recorder re-derives the same window from the archive
   and compares it row for row against what it already wrote from the live endpoint. Equal rows are left untouched. A
@@ -3843,7 +3842,8 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
   archive-only path leaves open on its own: the current month, before its archive exists, has no settled-funding
   history at all without this recorder. **Built (B6a).** `reconcile_funding_settlements_v1` compares both the rate
   and the derived interval against the archive's own stated one, since the derivation is exactly the thing a mismatch
-  there would call into question. Not yet wired to run on an actual archive-publication schedule - that is B6b's.
+  there would call into question. Not yet wired to run on an actual archive-publication schedule - not B6b's scope
+  either; a separate follow-up.
 - **A forecast rate is a second, separate fact, and stays unbuilt until a strategy needs it.** The predicted
   next-settlement rate is read from the public WebSocket market stream `/market/ws/<symbol>@markPrice` - not
   `/ws/<symbol>@markPrice`, which handshakes successfully but never pushes a frame, as measured. A forecast row is
@@ -3872,8 +3872,8 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
 - **Status.** The recorder and the reconciliation are built, as B6a (`funding_settlement_recorder_v1.rs`, 2026-10-05) -
   "whichever is built first" above turned out to be Market Data's own resident service (B6), so B6a is where this
   landed, not the runtime's forward stage or the scan service. The forecast stream stays TARGET and unbuilt - nothing
-  has needed it yet. B6a is written against the design here but not yet scheduled by anything: the resident process
-  itself that calls it on a cadence is B6b, still TARGET.
+  has needed it yet. B6b's resident process now calls B6a's recorder on `next_funding_poll_ns_v1`'s own schedule;
+  the archive reconciliation (`reconcile_funding_settlements_v1`) is still not called from anywhere.
 
 ### TARGET full chart timeframes and one stitched bar series
 
@@ -4189,9 +4189,20 @@ Dropping the month (user decision, 2026-10-05):
       no durable "last run" state of its own; a restart just re-polls and every job's own rejoin semantics absorb
       the duplicate. Deployment wiring (a compose service, `up.sh`) is Lane 0's surface once the binary exists.
 
+      Each tick's own REST recorder pages a given instrument/timeframe pair until caught up, bounded only by the
+      venue's own `X-MBX-USED-WEIGHT-1M` response header rather than a fixed page count per tick: the client reads
+      the real used weight after every page and backs off once it crosses 80% of the account's per-minute request-
+      weight quota (2,400), leaving headroom for every other pair, instrument, and job the account's weight is
+      shared with. A cold instrument's backfill converges over however many ticks that takes, never blocking one
+      tick for hours.
+
       Acceptance: the doc's B6 acceptance above, since this is what actually runs the scheduler it describes.
 
-      Status: TARGET, not implemented.
+      Built. `crates/market_data_resident`. Measured catch-up cost (2026-10-05, BTCUSDT-PERP.BINANCE, `1m`, one
+      continuous run against the live endpoint - not the resident's own throttled tick cadence, which spreads the
+      same work over many ticks): 2,631 pages, 2,630,010 bars, 0 rejoined, 0 conflicts, 901 s (~15 minutes) wall
+      clock, 703 MB for `venue_bar_versions_v1` alone (716 MB total database) for one instrument's full five-year
+      `1m` history.
   - **B7 - custody input from the store (Lane 8, after B1 and B5).** The backfill job builds a custody's execution
     and fill bars from the store instead of fetching archives, and its rows name the REST route. Chains already
     committed are never rewritten.
@@ -4200,10 +4211,10 @@ Dropping the month (user decision, 2026-10-05):
     - A backfill over a window the store holds commits a custody whose rows equal the store's bars.
     - A run over it passes.
     - A window reaching the current month backfills, which supersedes the "published months only" rule.
-- **Status.** B1 through B5 built and merged (2026-10-04 to 2026-10-05); each carries its own "Built." paragraph
-  above. B6a is built; B6b and B7 are TARGET, not implemented. The measurement scripts (archive aggregation, the
-  `TimeBarAggregator` harness, REST against the daily archive, and REST settling) were run locally on 2026-10-04 and
-  2026-10-05 and are not kept in the repository. They are cheap to rerun before implementing B6b/B7.
+- **Status.** B1 through B6b built and merged (2026-10-04 to 2026-10-05); each carries its own "Built." paragraph
+  above. B7 is TARGET, not implemented. The measurement scripts (archive aggregation, the `TimeBarAggregator`
+  harness, REST against the daily archive, and REST settling) were run locally on 2026-10-04 and 2026-10-05 and are
+  not kept in the repository. They are cheap to rerun before implementing B7.
 
 ## Input handoffs
 

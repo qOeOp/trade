@@ -171,26 +171,37 @@ pub struct VenueBarRestRecordSummaryV1 {
     pub resume_from_ms: i64,
 }
 
+/// The account-wide Binance futures request-weight quota per minute
+/// ([`vibe_binance::common::consts::BINANCE_FAPI_RATE_LIMITS`]'s `RequestWeight` entry).
+const ACCOUNT_REQUEST_WEIGHT_PER_MINUTE: u32 = 2_400;
+
+/// Stop paging once the client's own most recent `X-MBX-USED-WEIGHT-1M` observation reaches this
+/// fraction of the account's per-minute budget, leaving headroom for every other job this
+/// account's weight is shared with (other instrument/timeframe pairs, the funding recorder,
+/// archive verification) rather than running this one page loop right up to the venue's own
+/// refusal.
+const USED_WEIGHT_1M_BACKOFF_THRESHOLD: u32 = ACCOUNT_REQUEST_WEIGHT_PER_MINUTE * 4 / 5;
+
 /// Records `raw_symbol`'s bars at `venue_interval` into `store`, forward from `resume_from_ms` (a
 /// `start_ns` already read back from `read_venue_bars_v1`, or the Unix epoch on the instrument's
 /// first-ever run, letting Binance's own response begin at its actual first listed bar) up to
-/// `retrieval_ns`'s present moment, committing at most `max_pages` pages before returning. Every
-/// page is committed in one call through the store's own `commit_venue_bars_v1`, so no row this
-/// function already retrieved is ever double-counted into the summary across a resumed run: a
-/// resumed run starts its own fresh summary and only the store's rejoin counts tell the two runs
-/// apart.
+/// `retrieval_ns`'s present moment. Every page is committed in one call through the store's own
+/// `commit_venue_bars_v1`, so no row this function already retrieved is ever double-counted into
+/// the summary across a resumed run: a resumed run starts its own fresh summary and only the
+/// store's rejoin counts tell the two runs apart.
 ///
-/// `max_pages` bounds how long one call can run: a cold instrument's first `1m` backfill from its
-/// first listed bar is thousands of pages, which would otherwise block a caller - B6b's resident
-/// process, one tick serving many instrument/timeframe pairs - for hours. A bounded call returns
-/// `caught_up: false` with whatever it already committed; the next call resumes from the stored
-/// close exactly as a restart would, converging over many calls instead of blocking one.
+/// Pages until caught up, or until `client`'s own most recent `X-MBX-USED-WEIGHT-1M` observation
+/// crosses 80% of the account's per-minute request-weight quota - read after every page, not
+/// assumed from a fixed page budget, since the account's weight is shared with whatever else this
+/// client's caller also runs. A cold instrument's first `1m` backfill from its first listed bar is
+/// thousands of pages; backing off on the real weight still returns `caught_up: false` with
+/// whatever it already committed, and the next call resumes from the stored close exactly as a
+/// restart would, converging over many calls instead of blocking one for hours.
 ///
 /// # Errors
 ///
 /// [`VenueBarRestRecordErrorV1`] naming why recording stopped; every page before that point was
 /// already committed.
-#[allow(clippy::too_many_arguments)] // Each argument is a distinct, independent recording input.
 pub async fn record_venue_bars_v1(
     client: &BinanceFuturesHttpClient,
     store: &dyn VenueBarStoreV1,
@@ -199,7 +210,6 @@ pub async fn record_venue_bars_v1(
     venue_interval: &str,
     resume_from_ms: i64,
     retrieval_ns: u64,
-    max_pages: u64,
 ) -> Result<VenueBarRestRecordSummaryV1, VenueBarRestRecordErrorV1> {
     let mut summary = VenueBarRestRecordSummaryV1 {
         resume_from_ms,
@@ -207,7 +217,7 @@ pub async fn record_venue_bars_v1(
     };
     let mut start_ms = resume_from_ms;
 
-    while summary.pages < max_pages {
+    while client.used_weight_1m() < USED_WEIGHT_1M_BACKOFF_THRESHOLD {
         let params = BinanceKlinesParams {
             symbol: raw_symbol.to_string(),
             interval: venue_interval.to_string(),
@@ -452,7 +462,6 @@ mod live_tests {
                 venue_interval,
                 DAY_START_MS,
                 RETRIEVAL_NS,
-                u64::MAX,
             )
             .await
             .expect("the first run commits the day's settled bars");
@@ -470,7 +479,6 @@ mod live_tests {
                 venue_interval,
                 DAY_START_MS,
                 RETRIEVAL_NS,
-                u64::MAX,
             )
             .await
             .expect("the second run rejoins the same bars");
@@ -483,12 +491,14 @@ mod live_tests {
         }
     }
 
-    /// `max_pages` bounds one call, and the next call resumes from the stored close rather than
-    /// starting over - the exact behavior B6b's tick loop depends on to never let a cold
-    /// instrument's backfill block a tick for hours.
+    /// The client's own `used_weight_1m` starts at 0 and is set from the venue's real
+    /// `X-MBX-USED-WEIGHT-1M` response header once it has made a request - the mechanism
+    /// `record_venue_bars_v1`'s own paging loop backs off on. Verified live on 2026-10-05: a
+    /// single `klines` call set it to a small positive weight, confirming the header is actually
+    /// captured end to end, not just plumbed through unused.
     #[tokio::test]
-    #[ignore = "reaches the live public Binance endpoint and a real Market Data store"]
-    async fn a_page_budget_bounds_one_call_and_the_next_call_resumes() {
+    #[ignore = "reaches the live public Binance endpoint"]
+    async fn the_clients_own_used_weight_updates_from_a_real_response() {
         let client = BinanceFuturesHttpClient::new(
             BinanceProductType::UsdM,
             BinanceEnvironment::Live,
@@ -502,60 +512,23 @@ mod live_tests {
             false,
         )
         .expect("the keyless public client builds");
-        let store = venue_bar_store_from_environment_v1()
+        assert_eq!(client.used_weight_1m(), 0);
+
+        let params = BinanceKlinesParams {
+            symbol: "BTCUSDT".to_string(),
+            interval: "1m".to_string(),
+            start_time: Some(DAY_START_MS),
+            end_time: None,
+            limit: Some(1),
+        };
+        client
+            .request_raw_klines(&params)
             .await
-            .expect("MARKET_DATA_OWNER_DATABASE_URL names a reachable store");
-        let instrument = "BTCUSDT-PERP.BINANCE-PROOF-MAX-PAGES";
+            .expect("the live endpoint answers");
 
-        // BTCUSDT's own 1m day is 2 pages (1,440 bars over PAGE_LIMIT=1,000); a 1-page budget must
-        // stop short of the day, not silently fetch both pages anyway.
-        let bounded = record_venue_bars_v1(
-            &client,
-            store.as_ref(),
-            instrument,
-            "BTCUSDT",
-            "1m",
-            DAY_START_MS,
-            RETRIEVAL_NS,
-            1,
-        )
-        .await
-        .expect("the bounded call commits its one page");
-        assert_eq!(bounded.pages, 1);
         assert!(
-            !bounded.caught_up,
-            "one page of a two-page day is not caught up"
-        );
-        assert!(bounded.committed.written > 0);
-        assert!(
-            bounded.committed.written < 1_440,
-            "a single page is not the whole day"
-        );
-        assert_ne!(
-            bounded.resume_from_ms, DAY_START_MS,
-            "the summary's own resume point advanced past the committed page"
-        );
-
-        // Resuming from the summary's own resume point (not from DAY_START_MS again, and without
-        // reading the store back to find out) with a generous budget finishes the day without
-        // re-writing the first page.
-        let rest = record_venue_bars_v1(
-            &client,
-            store.as_ref(),
-            instrument,
-            "BTCUSDT",
-            "1m",
-            bounded.resume_from_ms,
-            RETRIEVAL_NS,
-            u64::MAX,
-        )
-        .await
-        .expect("the resumed call finishes the day");
-        assert!(rest.caught_up);
-        assert_eq!(
-            bounded.committed.written + rest.committed.written,
-            1_440,
-            "the two calls together wrote exactly the whole day, no overlap"
+            client.used_weight_1m() > 0,
+            "a real response names the account's real used weight"
         );
     }
 }

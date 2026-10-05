@@ -104,17 +104,16 @@ pub struct TickMemoryV1 {
     pub last_weekly_derivation_week_start_ns: std::collections::HashMap<String, u64>,
 }
 
-/// Runs every due job, for every tracked instrument, once. `max_pages_per_pair` bounds B3's
-/// recorder per (instrument, timeframe) pair so a cold instrument's backfill never blocks this
-/// call for more than that many pages.
-#[allow(clippy::too_many_arguments)]
+/// Runs every due job, for every tracked instrument, once. B3's recorder per (instrument,
+/// timeframe) pair is bounded only by `client`'s own `used_weight_1m` backoff
+/// (`record_venue_bars_v1`'s own doc), so a cold instrument's backfill never runs this account's
+/// shared weight budget past the point every other job in this tick also needs.
 pub async fn run_tick_v1(
     client: &BinanceFuturesHttpClient,
     bar_store: &dyn VenueBarStoreV1,
     funding_store: &dyn FundingSettlementCommitV1,
     fetcher: &VisionBackfillFetcherV1,
     instruments: &[TrackedInstrumentV1],
-    max_pages_per_pair: u64,
     now_ns: u64,
     memory: &mut TickMemoryV1,
 ) {
@@ -125,7 +124,6 @@ pub async fn run_tick_v1(
                 bar_store,
                 instrument,
                 venue_interval,
-                max_pages_per_pair,
                 now_ns,
                 memory,
             )
@@ -144,7 +142,6 @@ async fn run_recorder_pair(
     bar_store: &dyn VenueBarStoreV1,
     instrument: &TrackedInstrumentV1,
     venue_interval: &'static str,
-    max_pages: u64,
     now_ns: u64,
     memory: &mut TickMemoryV1,
 ) {
@@ -172,7 +169,6 @@ async fn run_recorder_pair(
         venue_interval,
         resume_from_ms,
         now_ns,
-        max_pages,
     )
     .await
     {
@@ -542,7 +538,6 @@ mod live_tests {
             funding_store.as_ref(),
             &fetcher,
             &instruments,
-            1,
             now_ns,
             &mut memory,
         )
@@ -562,7 +557,6 @@ mod live_tests {
             funding_store.as_ref(),
             &fetcher,
             &instruments,
-            1,
             now_ns + 1,
             &mut restarted_memory,
         )

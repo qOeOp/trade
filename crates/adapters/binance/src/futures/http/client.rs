@@ -3,7 +3,10 @@
 use std::{
     collections::HashMap,
     num::NonZeroU32,
-    sync::{Arc, LazyLock, Mutex, Weak},
+    sync::{
+        Arc, LazyLock, Mutex, Weak,
+        atomic::{AtomicU32, Ordering},
+    },
     time::Duration,
 };
 
@@ -148,6 +151,9 @@ struct BatchCancelParams {
     orig_client_order_id_list: Option<String>,
 }
 
+/// The response header naming Binance's used request weight over its trailing one-minute window.
+const USED_WEIGHT_1M_HEADER: &str = "X-MBX-USED-WEIGHT-1M";
+
 /// Raw HTTP client for Binance Futures REST API.
 #[derive(Debug, Clone)]
 pub struct BinanceRawFuturesHttpClient {
@@ -157,6 +163,10 @@ pub struct BinanceRawFuturesHttpClient {
     credential: Option<SigningCredential>,
     recv_window: Option<u64>,
     order_rate_keys: Vec<String>,
+    /// The most recent `X-MBX-USED-WEIGHT-1M` this client observed, shared across every clone:
+    /// every clone issues requests against the same account-level weight budget, so they must
+    /// read one another's most recent observation rather than each tracking its own.
+    used_weight_1m: Arc<AtomicU32>,
 }
 
 impl BinanceRawFuturesHttpClient {
@@ -170,6 +180,15 @@ impl BinanceRawFuturesHttpClient {
     #[must_use]
     pub const fn has_credentials(&self) -> bool {
         self.credential.is_some()
+    }
+
+    /// The most recent `X-MBX-USED-WEIGHT-1M` a response reported, or `0` before this client has
+    /// made a request that carried the header. A caller paging through many requests reads this
+    /// after each one to back off before the venue itself refuses the next call, rather than
+    /// assuming a fixed page budget is always safely under the account's weight limit.
+    #[must_use]
+    pub fn used_weight_1m(&self) -> u32 {
+        self.used_weight_1m.load(Ordering::Relaxed)
     }
 
     /// Creates a new Binance raw futures HTTP client.
@@ -216,7 +235,10 @@ impl BinanceRawFuturesHttpClient {
 
         let client = HttpClient::new_with_rate_limiters(
             headers,
-            vec![BINANCE_API_KEY_HEADER.to_string()],
+            vec![
+                BINANCE_API_KEY_HEADER.to_string(),
+                USED_WEIGHT_1M_HEADER.to_string(),
+            ],
             timeout_secs,
             proxy_url,
             rate_limiters,
@@ -229,6 +251,7 @@ impl BinanceRawFuturesHttpClient {
             credential,
             recv_window,
             order_rate_keys: order_keys,
+            used_weight_1m: Arc::new(AtomicU32::new(0)),
         })
     }
 
@@ -504,6 +527,7 @@ impl BinanceRawFuturesHttpClient {
                 Some(keys),
             )
             .await?;
+        self.record_used_weight_1m(&response);
 
         if !response.status.is_success() {
             return self.parse_error_response(&response);
@@ -594,6 +618,7 @@ impl BinanceRawFuturesHttpClient {
                 Some(keys),
             )
             .await?;
+        self.record_used_weight_1m(&response);
 
         if !response.status.is_success() {
             return self.parse_error_response(&response);
@@ -617,6 +642,7 @@ impl BinanceRawFuturesHttpClient {
             .client
             .request(Method::GET, url, None, None, None, None, Some(keys))
             .await?;
+        self.record_used_weight_1m(&response);
 
         if !response.status.is_success() {
             return self.parse_error_response(&response);
@@ -655,6 +681,19 @@ impl BinanceRawFuturesHttpClient {
             keys
         } else {
             vec![BINANCE_GLOBAL_RATE_KEY.to_string()]
+        }
+    }
+
+    /// Records the response's own `X-MBX-USED-WEIGHT-1M`, if it carried one. Called for every
+    /// response, success or not: a 429/418 carries the header too, and is exactly the response a
+    /// caller backing off on it most needs to see.
+    fn record_used_weight_1m(&self, response: &HttpResponse) {
+        if let Some(weight) = response
+            .headers
+            .get(USED_WEIGHT_1M_HEADER)
+            .and_then(|value| value.parse().ok())
+        {
+            self.used_weight_1m.store(weight, Ordering::Relaxed);
         }
     }
 
@@ -1488,6 +1527,13 @@ impl BinanceFuturesHttpClient {
             instruments: Arc::new(DashMap::new()),
             treat_expired_as_canceled,
         })
+    }
+
+    /// The most recent `X-MBX-USED-WEIGHT-1M` a response reported, or `0` before this client has
+    /// made a request that carried the header.
+    #[must_use]
+    pub fn used_weight_1m(&self) -> u32 {
+        self.inner.used_weight_1m()
     }
 
     /// Returns the product type (UsdM or CoinM).

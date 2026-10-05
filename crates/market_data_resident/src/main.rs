@@ -24,11 +24,6 @@ const DEFAULT_INSTRUMENTS: &str = "BTCUSDT-PERP.BINANCE,ETHUSDT-PERP.BINANCE,SOL
 /// `MARKET_DATA_RESIDENT_TICK_SECONDS`: the tick interval. Default 60s.
 const DEFAULT_TICK_SECONDS: u64 = 60;
 
-/// `MARKET_DATA_RESIDENT_MAX_PAGES_PER_PAIR`: B3's own per-(instrument, timeframe) page budget,
-/// per tick. Default 10 - a cold instrument's backfill converges over many ticks rather than
-/// blocking one.
-const DEFAULT_MAX_PAGES_PER_PAIR: u64 = 10;
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -49,10 +44,6 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_TICK_SECONDS);
-    let max_pages_per_pair: u64 = std::env::var("MARKET_DATA_RESIDENT_MAX_PAGES_PER_PAIR")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_MAX_PAGES_PER_PAIR);
 
     let client = BinanceFuturesHttpClient::new(
         BinanceProductType::UsdM,
@@ -104,7 +95,6 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(
         instruments = ?canonical_instruments,
         tick_seconds,
-        max_pages_per_pair,
         "market-data-resident starting"
     );
 
@@ -119,7 +109,6 @@ async fn main() -> anyhow::Result<()> {
                     funding_store.as_ref(),
                     &fetcher,
                     &instruments,
-                    max_pages_per_pair,
                     now_ns,
                     &mut memory,
                 )
