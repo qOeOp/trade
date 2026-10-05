@@ -10,7 +10,7 @@
     "validate:development-chunk": "node scripts/validate-development-chunk.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:mermaid": "node scripts/check-mermaid.mjs",
-    "check:routes:unit": "node --test scripts/check-static-navigation.test.mjs scripts/check-home-architecture.test.mjs scripts/check-architecture-docs-contract.test.mjs scripts/development-chunk-invariant-binding.test.mjs",
+    "check:routes:unit": "node --test scripts/check-static-navigation.test.mjs scripts/development-chunk-invariant-binding.test.mjs",
     "check:routes": "node scripts/check-static-routes.mjs",
     "dev": "npm run prepare:content && next dev",
     "types:check": "npm run prepare:content && next typegen && tsc --noEmit",

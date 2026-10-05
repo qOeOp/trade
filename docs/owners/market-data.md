@@ -3027,6 +3027,20 @@ Built (T0-10 (c)):
   owns them. It shows they return the same sealed view and basis as the Owner's own table read, walking past a
   corrected head, and the same refusal for a view the chain does not hold.
 - **The grant path.** The path as `rd_owner` itself is proved by the R&D chain's custody entry.
+
+Relocated (Ruling Q11, custody frames):
+
+- **What a custody frame compares.** A custody frame checks the Universe Selection Record a Replay names against the
+  stored record pair, `(record identity, record digest)`. That is the pair a chain's basis exposes as
+  `universe_selection_record`, and the one H7, H8 and the Design cross-check all name.
+- **What it compared before.** The check used the root custody's locator, `(request identity, request meaning digest)`,
+  a different pair by construction. So every frame of a run that names its basis's record was refused with
+  `UNIVERSE_SELECTION_RECORD_MISMATCH`.
+- **The property is kept.** Both frame reads, on the pool and through the admitted port, read the record under the
+  root's locator. They take its pair only after checking its request identity and meaning digest against the locator,
+  exactly as the basis does. The view's own Universe Selection digest is still checked against the locator.
+- **Proofs.** The unit test names distinct locator and record pairs. The sealed acceptance chain's frame proof sends
+  `basis.universe_selection_record()`.
 - **The reread.** The reread under `rd_owner` returns the custody frame the declaration was made over.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later

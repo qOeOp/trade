@@ -1344,6 +1344,19 @@ pub(in crate::owner) async fn read_pit_window_chain_basis_v1(
         .ok_or(Refused::StoreUnavailable)
 }
 
+/// The stored record pair `(record identity, record digest)` a root custody's Universe Selection
+/// locator resolves to, once the record read under that locator agrees with it on request identity
+/// and request meaning digest - exactly the check the basis makes before it exposes the same pair.
+pub(crate) fn custody_universe_record_v1(
+    root_universe: (BindingDigest, BindingDigest),
+    selection: &UniverseSelectionReadbackV1,
+) -> Option<(BindingDigest, BindingDigest)> {
+    let record = selection.record();
+    (record.request_identity() == root_universe.0
+        && record.request_meaning_digest() == root_universe.1)
+        .then(|| (record.identity(), record.digest()))
+}
+
 /// The basis of a chain verified at a head, from its readback and the Universe Selection read for
 /// it: the root custody's Universe Selection, Instrument Master cut and Market Semantics, each only
 /// when the readback's records name the root custody and agree with what its record binds - its
@@ -2277,7 +2290,7 @@ pub(crate) fn root_universe_request_v1(
 
 /// [`root_universe_request_v1`] over a chain as an admitted read returned it, for the port to read
 /// the selection in the chain's snapshot.
-fn raw_root_universe_request_v1(
+pub(in crate::owner) fn raw_root_universe_request_v1(
     raw: &crate::owner::store_admission::RawPitWindowChainV1,
     chain_root: &[u8; 32],
 ) -> Option<[u8; 32]> {

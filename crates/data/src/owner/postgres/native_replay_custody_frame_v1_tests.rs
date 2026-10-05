@@ -9,7 +9,7 @@
 use vibe_model::identifiers::InstrumentId;
 
 use super::{
-    MarketDataReadPostgres, SourceBindingCommit,
+    MarketDataOwnerPostgres, MarketDataReadPostgres, SourceBindingCommit,
     native_replay_custody_frame_v1::resolve_native_replay_custody_frame_from_pool_v1,
     pit_window_custody_v1::ResolvedPitWindowViewV1,
     pit_window_custody_v1_tests::{
@@ -104,10 +104,31 @@ fn frame_at(
     }
 }
 
+/// The stored Universe Selection record pair the custody's root locator resolves to: the pair a
+/// chain's basis exposes as `universe_selection_record`, which R&D names in a Replay.
+pub(in crate::owner) async fn custody_universe_record(
+    owner: &MarketDataOwnerPostgres,
+    view: &ResolvedPitWindowViewV1,
+) -> (BindingDigest, BindingDigest) {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let selection = super::universe_selection::read_universe_selection_by_request_v1(
+        &mut transaction,
+        view.chain.root.universe.0,
+    )
+    .await
+    .expect("the store reads")
+    .expect("the root's locator names a stored record");
+    transaction.rollback().await.unwrap();
+    super::pit_window_custody_v1::custody_universe_record_v1(view.chain.root.universe, &selection)
+        .expect("the record agrees with the root's locator")
+}
+
 /// A Research request for `frame` whose roles read the execution bar's close and open, on the
-/// coordinates the custody's root records and the universe its view derives.
+/// coordinates the custody's root records, the stored record `record` its locator resolves to, and
+/// the universe its view derives.
 pub(in crate::owner) fn custody_request(
     view: &ResolvedPitWindowViewV1,
+    record: (BindingDigest, BindingDigest),
     frame: UntrustedPitWindowCustodyFrameV1,
     run_end_ns_exclusive: u64,
 ) -> NativeReplayInitialMarketRequestV1 {
@@ -120,8 +141,8 @@ pub(in crate::owner) fn custody_request(
         d(2),
         selection.selection_identity(),
         selection.selection_digest(),
-        root.universe.0,
-        root.universe.1,
+        record.0,
+        record.1,
         root.instrument_master_key,
         root.lineage_root,
         root.market_semantics_identity,
@@ -208,7 +229,12 @@ async fn custody_frame(
         .resolve_pit_window_view_v1(&frame)
         .await
         .expect("the view resolves");
-    let request = custody_request(&view, frame, run_end_ns_exclusive);
+    let request = custody_request(
+        &view,
+        custody_universe_record(owner, &view).await,
+        frame,
+        run_end_ns_exclusive,
+    );
     let rows = quote_rows(&view.chain.root.members);
     let readback = resolve_native_replay_custody_frame_from_pool_v1(
         owner.pool(),
@@ -546,7 +572,12 @@ async fn postgres_a_custody_frame_refuses_a_foreign_head_and_never_mixes_two_hea
         .unwrap();
 
     for foreign in [other.custody_identity(), d(7)] {
-        let request = custody_request(&template, frame_at(&root, foreign, event), run_end);
+        let request = custody_request(
+            &template,
+            custody_universe_record(&owner, &template).await,
+            frame_at(&root, foreign, event),
+            run_end,
+        );
         let rows = quote_rows(&template.chain.root.members);
         assert_eq!(
             resolve_native_replay_custody_frame_from_pool_v1(
@@ -563,6 +594,7 @@ async fn postgres_a_custody_frame_refuses_a_foreign_head_and_never_mixes_two_hea
     // A frame off the chain's grid has no execution cross-section to read.
     let request = custody_request(
         &template,
+        custody_universe_record(&owner, &template).await,
         frame_at(&root, head.custody_identity(), event + 1),
         run_end,
     );
@@ -804,7 +836,12 @@ async fn postgres_a_fill_bar_that_opens_after_d_k_derives_the_gaps_quote_cut() {
         .expect("the custody");
     let frame = frame_at(&receipt, receipt.custody_identity(), WINDOW_START + DAY);
     let view = owner.resolve_pit_window_view_v1(&frame).await.unwrap();
-    let native_request = custody_request(&view, frame, WINDOW_START + 3 * DAY);
+    let native_request = custody_request(
+        &view,
+        custody_universe_record(&owner, &view).await,
+        frame,
+        WINDOW_START + 3 * DAY,
+    );
 
     let readback = resolve_native_replay_custody_frame_from_pool_v1(
         owner.pool(),
@@ -918,7 +955,12 @@ async fn produced_frame_3(
         .resolve_pit_window_view_v1(&frame)
         .await
         .expect("frame 3's view resolves");
-    let request = custody_request(&view, frame, WINDOW_START + 4 * DAY);
+    let request = custody_request(
+        &view,
+        custody_universe_record(owner, &view).await,
+        frame,
+        WINDOW_START + 4 * DAY,
+    );
     MarketDataReadPostgres {
         pool: owner.pool().clone(),
     }
