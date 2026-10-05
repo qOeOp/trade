@@ -1573,6 +1573,19 @@ impl UnadmittedAcceptanceSnapshotPortV1 {
             AdmissionFailureCode::DirectMeasurementUnavailable,
         )
     }
+
+    /// [`Self::unavailable`] for a custody read, recording which bounded category refused it: the
+    /// sealed acceptance custody port is otherwise silent about why a read answered nothing.
+    fn custody_read_unavailable(
+        &self,
+        cause: postgres::PostgresMeasurementError,
+    ) -> DeploymentStoreAdmissionError {
+        crate::owner::storage_diagnostic::refused_by_store(
+            "store_admission.sealed_acceptance_custody_read",
+            &cause,
+        );
+        self.unavailable()
+    }
 }
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -1661,7 +1674,7 @@ impl PitWindowCustodyReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
             &chain_root,
         )
         .await
-        .map_err(|_| self.unavailable())
+        .map_err(|e| self.custody_read_unavailable(e))
     }
 
     async fn resolve_pit_window_run_chain_v1(
@@ -1676,7 +1689,7 @@ impl PitWindowCustodyReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
             universe_request_of,
         )
         .await
-        .map_err(|_| self.unavailable())
+        .map_err(|e| self.custody_read_unavailable(e))
     }
 
     async fn resolve_pit_window_rows_v1(
@@ -1691,7 +1704,7 @@ impl PitWindowCustodyReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
             versions,
         )
         .await
-        .map_err(|_| self.unavailable())
+        .map_err(|e| self.custody_read_unavailable(e))
     }
 
     async fn resolve_pit_window_chains_for_instrument_v1(
@@ -1704,7 +1717,7 @@ impl PitWindowCustodyReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
             instrument,
         )
         .await
-        .map_err(|_| self.unavailable())
+        .map_err(|e| self.custody_read_unavailable(e))
     }
 }
 
