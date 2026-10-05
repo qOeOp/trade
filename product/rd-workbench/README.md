@@ -19,15 +19,19 @@ executor path, and it starts only under the `dashboard-preview` profile.
 make rd-workbench-up
 ```
 
-`scripts/up.sh` brings up PostgreSQL and `rd-owner-api` as the compose project `trade-rd-local`,
-on that project's own volumes, and publishes the API on `127.0.0.1:18080` only
-(`RD_LOCAL_API_PORT` changes the port; `local/docker-compose.local.yml` is the only addition to the
-compose file). It runs the administrative steps below in their order: environment file, images,
-sealed Catalog commands, Product Edge genesis configuration, `postgres`, `schema-materialize`,
-`authority-custody-migrate` (which also gives `market_data_reader` and `instrument_owner` their
-passwords), `authority-schema-materialize`, `authority-bootstrap`,
-`replay-policy-catalog-bootstrap`, the `replay-policy-catalog-owner-readback` check, and
-`rd-owner-api`, ending with `GET /health`.
+`scripts/up.sh` brings up PostgreSQL, `rd-owner-api` and `market-data-resident` as the compose
+project `trade-rd-local`, on that project's own volumes, and publishes the API on
+`127.0.0.1:18080` only (`RD_LOCAL_API_PORT` changes the port; `local/docker-compose.local.yml` is
+the only addition to the compose file). It runs the administrative steps below in their order:
+environment file, images, sealed Catalog commands, Product Edge genesis configuration, `postgres`,
+`schema-materialize`, `authority-custody-migrate` (which also gives `market_data_reader` and
+`instrument_owner` their passwords), `authority-schema-materialize`, `authority-bootstrap`,
+`replay-policy-catalog-bootstrap`, the `replay-policy-catalog-owner-readback` check, `rd-owner-api`
+(ending with `GET /health`), then `market-data-resident` (B6's own scheduler: the REST recorder,
+archive verification and the settled-funding recorder for `MARKET_DATA_RESIDENT_INSTRUMENTS`, one
+tick every `MARKET_DATA_RESIDENT_TICK_SECONDS`; it depends on `rd-owner-api` being healthy for the
+same database roles/schema, not on `rd-owner-api`'s routes, and exposes no port of its own - it
+writes only to Market Data's own store, independent of every request/response route above).
 
 Every value it needs is generated on this machine into `product/rd-workbench/.local` (ignored by
 Git; `RD_LOCAL_STATE_DIR` moves it): random database passwords and tokens in `.env`, the Catalog

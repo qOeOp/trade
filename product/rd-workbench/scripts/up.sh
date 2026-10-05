@@ -32,7 +32,8 @@ catalog_dir=$state_dir/catalog
 owner_image=$project-rd-owner-api
 owner_services=(rd-owner-api schema-materialize authority-schema-materialize authority-additive-table-migrate
   replay-policy-catalog-bootstrap replay-policy-catalog-owner-readback authority-bootstrap
-  deployment-store-publication-author deployment-store-publication-publish deployment-store-grant)
+  deployment-store-publication-author deployment-store-publication-publish deployment-store-grant
+  market-data-resident)
 
 log() { printf '%s\n' "$*"; }
 skip() { log "skip $1: $2"; }
@@ -606,6 +607,20 @@ if [ "$health" != 200 ]; then
   exit 1
 fi
 log "ready rd-owner-api http://127.0.0.1:$api_port"
+
+# 12. Market Data's resident process (B6): no port, no health endpoint of its own - it is ready
+# once it starts, since every write it makes is per-page/per-call transactional and the next tick
+# just continues where the last one left off.
+resident_container=$(compose ps -q market-data-resident 2> /dev/null || true)
+if [ -n "$resident_container" ] &&
+  [ "$(dock inspect --format '{{.Image}}' "$resident_container")" = "$image_id" ] &&
+  [ "$(dock inspect --format '{{.State.Running}}' "$resident_container")" = true ]; then
+  skip market-data-resident "running on the current image"
+else
+  run market-data-resident
+  compose up -d --no-deps market-data-resident
+fi
+log "ready market-data-resident"
 
 if [ -n "${RD_LOCAL_ACCEPTANCE_SCRIPT:-}" ]; then
   RD_OWNER_API_TOKEN=$(env_value RD_OWNER_API_TOKEN) \

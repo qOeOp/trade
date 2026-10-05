@@ -167,7 +167,7 @@ CORE_SELECTED_FEATURES := $(subst $(space),$(comma),$(strip $(CORE_SELECTED_FEAT
 # no longer checked at standard precision: the product runs at 16 alone.
 # scripts/ci/check-production-features.py --standard-precision resolves this selection and fails
 # if vibe-model comes out with high-precision.
-STANDARD_PRECISION_EXCLUDES := --exclude vibe-blockchain --exclude vibe-strategy-factory --exclude vibe-backtest-owner --exclude vibe-strategy-factory-rd-owner-api
+STANDARD_PRECISION_EXCLUDES := --exclude vibe-blockchain --exclude vibe-strategy-factory --exclude vibe-backtest-owner --exclude vibe-strategy-factory-rd-owner-api --exclude vibe-market-data-resident
 STANDARD_PRECISION_ARGS := --workspace $(STANDARD_PRECISION_EXCLUDES) --no-default-features --lib --tests --features "ffi,python"
 
 CARGO_BUILD_JOB_TARGETS := install install-debug build build-debug build-wheel py-stubs check-code \
