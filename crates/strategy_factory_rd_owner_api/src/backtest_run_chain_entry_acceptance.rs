@@ -38,6 +38,7 @@ use vibe_data::owner::{
         commit_sealed_acceptance_custody_chain_v1,
     },
     revoke_pit_window_custody_acceptance_reads_v1,
+    source_binding::UntrustedMarketSemantics,
     strategy_input_binding_admission_v1::strategy_input_binding_admission_from_environment_v1,
     universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
 };
@@ -153,6 +154,29 @@ fn chain_entry_spec_v1(start: u64) -> SealedAcceptanceCustodyChainSpecV1 {
         lag_ns: CUSTODY_LAG_NS,
         instrument_increments: None,
         market_semantics_value: None,
+        source_semantics: Some(chain_entry_source_semantics()),
+    }
+}
+
+/// F's own Source Binding semantics for `PERPETUAL_V1`, verbatim
+/// (`first_composer_v3_replay_acceptance.rs`'s `perpetual_source_proposal`'s `semantics` field) -
+/// this chain keeps F's already-admitted Instrument Master fact (#1418), and the custody intake
+/// requires every member's fact to carry the custody binding's compatibility scope, which these
+/// rules derive. Any field that didn't match F's exactly would refuse by name as
+/// `HeldInstrumentSemanticsDiffer`, before the custody commit itself ever ran.
+fn chain_entry_source_semantics() -> UntrustedMarketSemantics {
+    UntrustedMarketSemantics {
+        normalization: "binance/usdm-kline".to_owned(),
+        adjustment: "raw".to_owned(),
+        price_meaning: "decimal-string/usdt".to_owned(),
+        calendar_rules: "crypto/continuous".to_owned(),
+        session_rules: "crypto/continuous".to_owned(),
+        timezone_rules: "etc-utc".to_owned(),
+        instrument_lifecycle_rules: "binance/usdm-perpetual".to_owned(),
+        corporate_action_rules: "crypto/none".to_owned(),
+        membership_rules: "binance/static".to_owned(),
+        universe_rules: "requester-owned".to_owned(),
+        correction_policy: "provider-revision".to_owned(),
     }
 }
 
