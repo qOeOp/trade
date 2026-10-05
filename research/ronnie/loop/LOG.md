@@ -2614,6 +2614,19 @@ Validation (2,788 trades): base +0.097, 271R, Sharpe 1.10, drawdown -84R; X6 +0.
 within noise and shown on the data that chose its threshold. Nothing is adopted; X6 may enter the forward record as
 a paired exit if wanted.
 
+## R-1 by coin size (2026-10-05, descriptive; the user's question: trade only large caps, at double size?)
+
+Realistic R-1 trades (f = 0, slot by first fill hour, 1h/1m walks). Size is the coin's trailing 30-day dollar volume
+rank among the period's universe on the fill day (known at the time). Development (53 coins): all 4,932 trades avg R
++0.158, 783R, weekly Sharpe 1.77, drawdown -67R; top half by volume +0.138, 381R, Sharpe 1.47; bottom half +0.182,
+402R, Sharpe 1.71; top quarter +0.097, Sharpe 0.87; BTC and ETH alone +0.082, Sharpe 0.45; the fixed 17 majors +0.165,
+Sharpe 1.63. Validation (20 coins): all +0.103, 286R, Sharpe 1.17, drawdown -81R; top half +0.079, Sharpe 0.80; bottom
+half +0.123, Sharpe 1.18; top quarter +0.023. Larger coins are not better per trade (the most traded quarter is the
+worst in both periods; by year the top half wins only in 2018, 2021 and 2026), and halving the universe at double size
+keeps total R (763R / 203R) while the Sharpe falls (1.47 / 0.80) and the drawdown deepens (-78R / -107R): the loss of
+diversification is not paid back. Caveat: both universes are lists of coins that survived and stayed liquid; much
+smaller coins (DIA-like) were never in them, and their slippage would exceed the 0.05% charged here.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R
