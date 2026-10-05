@@ -54,6 +54,10 @@ use vibe_strategy_factory::{
     NativeReplayExecutionInputBindingCauseV1, NativeReplayExecutionInputBindingErrorV1,
     backtest_run_dataset_ref_v1::BacktestRunDatasetRefV1,
     bounded_feature_program_v1::BoundedFeaturePredicateV1,
+    exploratory_replay::{
+        EXPLORATORY_REPLAY_MUTATION_EFFECT_V3, EXPLORATORY_REPLAY_OPERATION_V3,
+        EXPLORATORY_REPLAY_SCHEMA_V3,
+    },
     product_edge::{RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3, RESEARCH_OWNER_V1},
     product_edge_postgres::{
         PostgresResearchGoalOwnerV1, research_initial_pit::MarketDataInitialPitPortsV1,
@@ -294,11 +298,18 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             fixture_key: "backtest-run-chain-entry-v1".to_owned(),
             audience: RESEARCH_OWNER_V1.to_owned(),
             permissions: vec!["research:submit".to_owned()],
-            operations: vec![DeploymentAcceptanceOperationV1 {
-                operation: RESEARCH_GOAL_OPERATION_V3.to_owned(),
-                operation_schema: RESEARCH_GOAL_SCHEMA_V3.to_owned(),
-                allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_owned()],
-            }],
+            operations: vec![
+                DeploymentAcceptanceOperationV1 {
+                    operation: RESEARCH_GOAL_OPERATION_V3.to_owned(),
+                    operation_schema: RESEARCH_GOAL_SCHEMA_V3.to_owned(),
+                    allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_owned()],
+                },
+                DeploymentAcceptanceOperationV1 {
+                    operation: EXPLORATORY_REPLAY_OPERATION_V3.to_owned(),
+                    operation_schema: EXPLORATORY_REPLAY_SCHEMA_V3.to_owned(),
+                    allowed_effects: vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V3.to_owned()],
+                },
+            ],
         },
     )
     .await
