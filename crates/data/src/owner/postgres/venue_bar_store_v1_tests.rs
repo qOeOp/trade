@@ -215,7 +215,9 @@ async fn postgres_an_archive_verifies_bars_and_a_correction_appends_a_version() 
     let archive = VenueBarArchiveV1 {
         kind: VenueBarArchiveKindV1::MonthlyArchive,
         identity: BindingDigest::from_untrusted_bytes([7; 32]),
-        window_start_ns: START + DAY,
+        // The window must cover every archive bar's open, not only its close: the first bar
+        // opens at START, so the window starts there too.
+        window_start_ns: START,
         window_end_ns_exclusive: START + 5 * DAY,
         bars: vec![
             bar(START, "100"),
@@ -350,4 +352,96 @@ async fn postgres_an_archive_verifies_bars_and_a_correction_appends_a_version() 
         "the corrected version now matches the archive"
     );
     assert!(reverified.conflicts.is_empty());
+}
+
+/// A bar must lie wholly inside `[window_start_ns, window_end_ns_exclusive)`: it may close
+/// exactly AT the window's exclusive end (the normal case for a full calendar month or day, whose
+/// last bar always closes there), but it may not open before the window starts.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_bar_closing_at_the_window_end_verifies_and_one_opening_before_it_refuses() {
+    use crate::owner::{
+        source_binding::BindingDigest,
+        venue_bar_store_v1::{
+            VenueBarArchiveKindV1, VenueBarArchiveV1, VenueBarVerificationErrorV1,
+        },
+    };
+
+    let url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let store = VenueBarStorePostgresV1 {
+        owner: MarketDataOwnerPostgres::connect(&url).await.unwrap(),
+    };
+    let window_start_ns = START;
+    let window_end_ns_exclusive = START + 3 * DAY;
+    let retrieved = START + 3 * DAY + VENUE_BAR_SETTLE_DELAY_NS_V1;
+    store
+        .commit_venue_bars_v1(
+            INSTRUMENT,
+            "1d",
+            VenueBarAvailabilityV1::AtRetrieval,
+            retrieved,
+            &[
+                bar(START, "100"),
+                bar(START + DAY, "200"),
+                // This bar's close lands exactly on window_end_ns_exclusive.
+                bar(START + 2 * DAY, "300"),
+            ],
+        )
+        .await
+        .expect("the REST page commits");
+    let rows_before = rows(&store.owner).await;
+
+    // Every stored bar, including the one closing exactly at the window end, verifies clean.
+    let whole_window = VenueBarArchiveV1 {
+        kind: VenueBarArchiveKindV1::MonthlyArchive,
+        identity: BindingDigest::from_untrusted_bytes([11; 32]),
+        window_start_ns,
+        window_end_ns_exclusive,
+        bars: vec![
+            bar(START, "100"),
+            bar(START + DAY, "200"),
+            bar(START + 2 * DAY, "300"),
+        ],
+    };
+    let verified_at = retrieved + DAY;
+    let summary = store
+        .verify_venue_bars_v1(INSTRUMENT, "1d", &whole_window, verified_at)
+        .await
+        .expect("a bar closing at the window end verifies");
+    assert_eq!(summary.verified, 3);
+    assert!(summary.conflicts.is_empty());
+    assert!(summary.archive_only.is_empty());
+    assert!(summary.store_only.is_empty());
+
+    // An archive omitting the bar that closes at the window end reports it as store_only, not as
+    // silently out of range.
+    let missing_the_last_bar = VenueBarArchiveV1 {
+        bars: vec![bar(START, "100"), bar(START + DAY, "200")],
+        ..whole_window.clone()
+    };
+    let summary = store
+        .verify_venue_bars_v1(INSTRUMENT, "1d", &missing_the_last_bar, verified_at + 1)
+        .await
+        .expect("the narrower archive verifies the bars it does state");
+    assert_eq!(
+        summary.store_only,
+        [START + 2 * DAY],
+        "the bar closing at the window end is reported, not dropped"
+    );
+
+    // A bar that opens before the window starts is refused, even though its close lands inside
+    // the window: an archive's window bounds its bars' opens, not only their closes.
+    let opens_before_the_window = VenueBarArchiveV1 {
+        window_start_ns: START + DAY,
+        window_end_ns_exclusive: START + 2 * DAY,
+        bars: vec![bar(START, "100")],
+        ..whole_window
+    };
+    assert_eq!(
+        store
+            .verify_venue_bars_v1(INSTRUMENT, "1d", &opens_before_the_window, verified_at + 2)
+            .await,
+        Err(VenueBarVerificationErrorV1::InvalidRequest)
+    );
+    assert_eq!(rows_before, rows(&store.owner).await, "nothing was written");
 }
