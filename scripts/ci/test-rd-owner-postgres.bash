@@ -1635,8 +1635,6 @@ check_trial_family_candidate_experiment_cutover() {
     "$repository_root/crates/strategy_factory/src/trial_family_postgres.rs" \
     "$repository_root/crates/strategy_factory/src/iteration_decision_postgres.rs" \
     "$repository_root/database/postgres-init/10-migrate-authority-custody.sh" \
-    "$repository_root/docs/owners/rd.md" \
-    "$repository_root/docs/owners/rd.zh.md" \
     "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
 from pathlib import Path
 import re
@@ -1645,9 +1643,7 @@ import sys
 trial_family = Path(sys.argv[1]).read_text(encoding="utf-8")
 iteration_decision = Path(sys.argv[2]).read_text(encoding="utf-8")
 migration = Path(sys.argv[3]).read_text(encoding="utf-8")
-owner_doc = Path(sys.argv[4]).read_text(encoding="utf-8")
-owner_doc_zh = Path(sys.argv[5]).read_text(encoding="utf-8")
-test_script = Path(sys.argv[6]).read_text(encoding="utf-8")
+test_script = Path(sys.argv[4]).read_text(encoding="utf-8")
 table = "rd_trial_family_candidate_experiments_v1"
 
 if f'table!("{table}", &[], [' not in trial_family:
