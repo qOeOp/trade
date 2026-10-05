@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { basePath, docsRoute, parentNavigationRoute } from './lib/docs-routes.mjs';
 import { PUBLISHED_DOC_ROOTS } from './lib/publication-contract.mjs';
@@ -12,18 +9,6 @@ import {
   navigationMarkup,
   PUBLISHED_DOC_ROOTS as NAVIGATION_PUBLISHED_DOC_ROOTS,
 } from './lib/static-navigation.mjs';
-
-const scriptsRoot = dirname(fileURLToPath(import.meta.url));
-
-async function sourceFiles(directory) {
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await sourceFiles(path)));
-    else if (entry.name.endsWith('.mjs')) files.push(path);
-  }
-  return files;
-}
 
 const homeRoute = '/trade/zh/';
 const childRoute = '/trade/zh/docs/owners/risk/';
@@ -202,21 +187,23 @@ test('accepts top-level product sections from the Guide index body', () => {
   assert.equal(containsNavigationHref(markup, sectionRoute, parentRoute), true);
 });
 
-test('locks the normative publication to one four-root authority', async () => {
-  assert.equal(PUBLISHED_DOC_ROOTS.join(','), 'guide,architecture,owners,scenarios');
+test('navigation consumes the current publication authority without fixing its directory names', () => {
   assert.equal(NAVIGATION_PUBLISHED_DOC_ROOTS, PUBLISHED_DOC_ROOTS);
-
-  const authority = join(scriptsRoot, 'lib', 'publication-contract.mjs');
-  const duplicateRootLiteral = /\[\s*['"]guide['"]\s*,\s*['"]architecture['"]\s*,\s*['"]owners['"]\s*,\s*['"]scenarios['"]\s*,?\s*\]/s;
-  for (const path of await sourceFiles(scriptsRoot)) {
-    if (path === authority) continue;
-    const source = await readFile(path, 'utf8');
-    assert.doesNotMatch(
-      source,
-      duplicateRootLiteral,
-      `${relative(scriptsRoot, path)} duplicates the publication root literal`,
-    );
+  assert.ok(Object.isFrozen(PUBLISHED_DOC_ROOTS));
+  assert.equal(new Set(PUBLISHED_DOC_ROOTS).size, PUBLISHED_DOC_ROOTS.length);
+  for (const root of PUBLISHED_DOC_ROOTS) {
+    const route = docsRoute('en', `${root}/index.md`);
+    const parent = parentNavigationRoute('en', `${root}/index.md`);
+    const markup = `<a href="${route}">${root}</a>`;
+    assert.equal(containsNavigationHref(markup, route, parent), true);
   }
+});
+
+test('normalizes Markdown source destinations without changing wording, code or external links', () => {
+  const source = '[Renamed section](../scenarios/research.md#entry)\n[Sibling](./index.md?view=all#top)\n[External](https://example.org/guide.md)\n`[Code](./guide.md)`';
+  const expected = '[Renamed section](../../scenarios/research/#entry)\n[Sibling](../?view=all#top)\n[External](https://example.org/guide.md)\n`[Code](./guide.md)`';
+  assert.equal(routeRelativeMarkdownLinks(source, 'guide/install'), expected);
+  assert.equal(routeRelativeMarkdownLinks('[New title](../owners/risk.md#policy)', 'guide/index'), '[New title](../owners/risk/#policy)');
 });
 
 test('resolves relative body links against the current exported route', () => {

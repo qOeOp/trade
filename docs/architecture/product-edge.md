@@ -5,7 +5,7 @@
 Product Edge is the protocol and application boundary for bounded requests and result views. The target research
 entry is a set of MCP services: Market Data and Backtest extend the current Nautilus modules; R&D is the custom
 research service. MCP translates typed requests and identities, without becoming another data or trading engine.
-The [capability extension map](capability-adoption/) defines this foundation and its internal responsibility boundaries.
+The [capability extension map](./capability-adoption/) defines this foundation and its internal responsibility boundaries.
 
 <a id="product-surface-and-package"></a>
 
