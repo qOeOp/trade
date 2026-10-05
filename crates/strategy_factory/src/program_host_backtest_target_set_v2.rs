@@ -238,7 +238,11 @@ impl BacktestReconciliationCapabilityV2 {
                     &self.derived_grid_targets,
                 )?
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         Ok(self.derived_grid_targets)
     }
@@ -1702,7 +1706,7 @@ fn reconciliation_capability_identity(
     hasher.update(
         target_set
             .encode()
-            .map_err(|_| ProgramHostV2Error::InputCoverage)?,
+            .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?,
     );
 
     for target in derived_grid_targets {

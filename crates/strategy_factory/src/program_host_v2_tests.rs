@@ -1821,7 +1821,7 @@ fn a_one_member_universe_refuses_an_input_at_ordinal_one() {
     moved.move_member_ordinal_and_reseal_for_test(&plan, "research.input.open.v1", 1);
     assert!(matches!(
         started().apply_event(&moved),
-        Err(ProgramHostV2Error::InputCoverage)
+        Err(ProgramHostV2Error::InputCoverage(_))
     ));
 }
 
@@ -2006,17 +2006,17 @@ fn a_universe_frame_without_its_member_coordinates_is_refused() {
 
     let (plan, artifact, frame) = universe_bfp_fixture();
 
-    assert_eq!(
+    assert!(matches!(
         admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, &[]),
-        Err(ProgramHostV2Error::InputCoverage)
-    );
+        Err(ProgramHostV2Error::InputCoverage(_))
+    ));
     let mut host = started_universe_host(&plan, &artifact);
-    assert_eq!(
+    assert!(matches!(
         admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
             .and_then(|event| host.apply_event(&event))
             .err(),
-        Some(ProgramHostV2Error::InputCoverage)
-    );
+        Some(ProgramHostV2Error::InputCoverage(_))
+    ));
     assert_eq!(host.plugin_calls(), 0);
 }
 
@@ -2046,9 +2046,8 @@ fn coordinates_other_than_the_plan_pairs_are_refused() {
     twice.push(coordinates[0].clone());
 
     for (case, supplied) in [("fewer", fewer), ("more", &more[..]), ("twice", &twice[..])] {
-        assert_eq!(
-            admit(supplied),
-            Err(ProgramHostV2Error::InputCoverage),
+        assert!(
+            matches!(admit(supplied), Err(ProgramHostV2Error::InputCoverage(_))),
             "{case}"
         );
     }
@@ -2103,9 +2102,8 @@ fn a_member_coordinate_names_this_frame_and_its_bar_schedule() {
             }),
         ),
     ] {
-        assert_eq!(
-            admit(&changed),
-            Err(ProgramHostV2Error::InputCoverage),
+        assert!(
+            matches!(admit(&changed), Err(ProgramHostV2Error::InputCoverage(_))),
             "{case}"
         );
     }
@@ -2140,7 +2138,7 @@ fn a_plan_without_coordinate_rows_refuses_a_supplied_coordinate() {
         )
         .is_ok()
     );
-    assert_eq!(
+    assert!(matches!(
         admit_market_data_coordinated_universe_program_event_v2(
             &plan,
             &frame,
@@ -2148,8 +2146,8 @@ fn a_plan_without_coordinate_rows_refuses_a_supplied_coordinate() {
                 &frame, 0, role
             )],
         ),
-        Err(ProgramHostV2Error::InputCoverage)
-    );
+        Err(ProgramHostV2Error::InputCoverage(_))
+    ));
 }
 
 /// Market Data's sample projection over `frame`, sealed by the real codec, with a BAR schedule
@@ -2200,10 +2198,10 @@ fn a_coordinate_plan_refuses_its_frame_paired_without_coordinates() {
 
     let (plan, _, frame) = universe_bfp_fixture();
 
-    assert_eq!(
+    assert!(matches!(
         admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame)),
-        Err(ProgramHostV2Error::InputCoverage)
-    );
+        Err(ProgramHostV2Error::InputCoverage(_))
+    ));
 }
 
 /// A projection Market Data issued for another frame pairs with no frame but its own.
@@ -2217,11 +2215,11 @@ fn another_frames_projection_does_not_pair_with_this_frame() {
         .expect("the two-member target-set fixture");
     assert_ne!(other.digest(), frame.digest());
 
-    assert_eq!(
+    assert!(matches!(
         OwnerUniverseFrameV1::from_owner_projection_v1(frame, &market_data_projection(&other))
             .err(),
-        Some(ProgramHostV2Error::InputCoverage)
-    );
+        Some(ProgramHostV2Error::InputCoverage(_))
+    ));
 }
 
 /// Market Data's custody projection, derived at read time for a custody frame, pairs through the
@@ -2253,15 +2251,20 @@ fn a_custody_projection_pairs_with_its_own_frame_and_no_other() {
     let paired = OwnerUniverseFrameV1::from_owner_projection_v1(own.frame().clone(), &projection)
         .expect("the custody projection pairs with its own frame");
     assert_eq!(paired.frame(), own.frame());
-    assert_eq!(
-        OwnerUniverseFrameV1::from_owner_projection_v1(other.frame().clone(), &projection).err(),
-        Some(ProgramHostV2Error::InputCoverage),
+    assert!(
+        matches!(
+            OwnerUniverseFrameV1::from_owner_projection_v1(other.frame().clone(), &projection)
+                .err(),
+            Some(ProgramHostV2Error::InputCoverage(_))
+        ),
         "a custody projection pairs with no foreign frame"
     );
-    assert_eq!(
-        OwnerUniverseFrameV1::from_owner_projection_v1(own.frame().clone(), &other_projection)
-            .err(),
-        Some(ProgramHostV2Error::InputCoverage),
+    assert!(
+        matches!(
+            OwnerUniverseFrameV1::from_owner_projection_v1(own.frame().clone(), &other_projection)
+                .err(),
+            Some(ProgramHostV2Error::InputCoverage(_))
+        ),
         "a foreign custody projection pairs with no frame but its own"
     );
 }
@@ -2299,10 +2302,10 @@ fn a_projection_changed_in_one_field_does_not_pair_with_its_frame(#[case] tamper
         tamper,
     );
 
-    assert_eq!(
+    assert!(matches!(
         OwnerUniverseFrameV1::from_owner_projection_v1(frame, &tampered).err(),
-        Some(ProgramHostV2Error::InputCoverage)
-    );
+        Some(ProgramHostV2Error::InputCoverage(_))
+    ));
 }
 
 /// A projection naming another member key, or another instrument, for one of the frame's values
@@ -2335,9 +2338,9 @@ fn a_projection_naming_another_member_key_or_instrument_does_not_pair() {
             &market_data_projection(&frame),
             tamper,
         );
-        assert_eq!(
+        assert!(matches!(
             OwnerUniverseFrameV1::from_owner_projection_v1(frame.clone(), &tampered).err(),
-            Some(ProgramHostV2Error::InputCoverage)
-        );
+            Some(ProgramHostV2Error::InputCoverage(_))
+        ));
     }
 }
