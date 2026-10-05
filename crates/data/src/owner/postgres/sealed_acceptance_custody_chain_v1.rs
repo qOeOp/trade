@@ -30,7 +30,8 @@ use crate::owner::{
         sealed_acceptance_chain::{
             SealedAcceptanceCustodyChainErrorV1 as Error, SealedAcceptanceCustodyChainSpecV1,
             SealedAcceptanceCustodyChainV1, SealedAcceptanceDecimalV1,
-            SealedAcceptanceInstrumentIncrementsV1, SealedAcceptanceTimeframeV1,
+            SealedAcceptanceInstrumentIncrementsV1, SealedAcceptanceSourceFrontiersV1,
+            SealedAcceptanceTimeframeV1,
         },
     },
     research_instrument_scope_v1::ResearchInstrumentScopeV1,
@@ -236,6 +237,28 @@ impl<'a> ChainPlanV1<'a> {
         fixture_digest(&[label.as_bytes()])
     }
 
+    /// The binding's source and correction frontiers: the spec's, or fixture-named ones.
+    fn frontiers(&self) -> SealedAcceptanceSourceFrontiersV1 {
+        self.spec
+            .source_frontiers
+            .clone()
+            .unwrap_or_else(|| SealedAcceptanceSourceFrontiersV1 {
+                source: UntrustedCompleteFrontier {
+                    stream_identity: "sealed-acceptance-custody-chain-v1/source-stream".to_owned(),
+                    cut_identity: "sealed-acceptance-custody-chain-v1/source-cut-1".to_owned(),
+                    sequence: 1,
+                    digest: self.digest("source-frontier"),
+                },
+                correction: UntrustedCompleteFrontier {
+                    stream_identity: "sealed-acceptance-custody-chain-v1/correction-stream"
+                        .to_owned(),
+                    cut_identity: "sealed-acceptance-custody-chain-v1/correction-cut-1".to_owned(),
+                    sequence: 1,
+                    digest: self.digest("correction-frontier"),
+                },
+            })
+    }
+
     /// A synthetic schema 2 binding: its adapter, semantics and license named for the fixture, its
     /// rule the spec's lag after bar close with no corrections, and its two timeframes declared.
     fn source_proposal(&self) -> UntrustedSourceBindingProposal {
@@ -297,18 +320,8 @@ impl<'a> ChainPlanV1<'a> {
                 retention_policy: named("disposable-database"),
                 redaction_policy: named("synthetic-payload"),
             },
-            source_frontier: UntrustedCompleteFrontier {
-                stream_identity: named("source-stream"),
-                cut_identity: named("source-cut-1"),
-                sequence: 1,
-                digest: self.digest("source-frontier"),
-            },
-            correction_frontier: UntrustedCompleteFrontier {
-                stream_identity: named("correction-stream"),
-                cut_identity: named("correction-cut-1"),
-                sequence: 1,
-                digest: self.digest("correction-frontier"),
-            },
+            source_frontier: self.frontiers().source,
+            correction_frontier: self.frontiers().correction,
             // The admission stamps the clock coordinates and observation; these four instants
             // are the submitter's.
             time_evidence: UntrustedMarketDataAsOf {
@@ -474,13 +487,21 @@ impl<'a> ChainPlanV1<'a> {
     }
 }
 
+/// What a kept fact carries of the binding it was admitted under.
+struct HeldInstrumentFactV1 {
+    digest: BindingDigest,
+    market_semantics: BindingDigest,
+    source_frontier: BindingDigest,
+    correction_frontier: BindingDigest,
+}
+
 /// The latest fact the store holds for `member`, the one no other of its facts corrects, with the
-/// market semantics compatibility scope it carries; `None` if it holds none. A member with two
-/// uncorrected facts has no single fact to keep and is refused.
+/// binding coordinates it carries; `None` if it holds none. A member with two uncorrected facts has
+/// no single fact to keep and is refused.
 async fn held_instrument_fact_v1(
     owner: &MarketDataOwnerPostgres,
     member: &str,
-) -> Result<Option<(BindingDigest, BindingDigest)>, Error> {
+) -> Result<Option<HeldInstrumentFactV1>, Error> {
     let mut transaction = owner
         .pool
         .begin()
@@ -500,7 +521,12 @@ async fn held_instrument_fact_v1(
                 .iter()
                 .all(|fact| fact.predecessor_fact_digest() != Some(head.digest()))
         })
-        .map(|head| (head.digest(), head.market_semantics_identity()));
+        .map(|head| HeldInstrumentFactV1 {
+            digest: head.digest(),
+            market_semantics: head.market_semantics_identity(),
+            source_frontier: head.source_frontier(),
+            correction_frontier: head.correction_frontier(),
+        });
 
     match (heads.next(), heads.next()) {
         (None, _) => Ok(None),
@@ -551,10 +577,17 @@ pub(in crate::owner) async fn commit_sealed_acceptance_custody_chain_in_store_v1
     let mut instrument_fact_digests = Vec::with_capacity(spec.members.len());
 
     for member in &spec.members {
-        if let Some((held, held_semantics)) = held_instrument_fact_v1(&owner, member).await? {
-            if held_semantics != binding.market_semantics_identity() {
+        if let Some(held) = held_instrument_fact_v1(&owner, member).await? {
+            if held.market_semantics != binding.market_semantics_identity() {
                 return Err(Error::HeldInstrumentSemanticsDiffer);
             }
+
+            if held.source_frontier != locator.source_frontier.digest
+                || held.correction_frontier != locator.correction_frontier.digest
+            {
+                return Err(Error::HeldInstrumentFrontiersDiffer);
+            }
+            let held = held.digest;
             instrument_fact_digests.push(held);
             continue;
         }
