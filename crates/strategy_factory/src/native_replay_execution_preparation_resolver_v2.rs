@@ -4,7 +4,7 @@
     reason = "native Replay preparation retains its complete typed custody cut across the transactional resolve"
 )]
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{fmt::Display, future::Future, pin::Pin, sync::Arc};
 
 use vibe_backtest_owner_contracts::{ObservationComponentV2, OpaqueIdentityV2, ReplayRequestV2};
 use vibe_data::owner::{
@@ -288,6 +288,6 @@ fn hash_field(hasher: &mut blake3::Hasher, value: &[u8]) {
     hasher.update(value);
 }
 
-fn unavailable<T>(_: T) -> NativeReplayExecutionPreparationErrorV2 {
-    NativeReplayExecutionPreparationErrorV2
+fn unavailable<T: Display>(cause: T) -> NativeReplayExecutionPreparationErrorV2 {
+    NativeReplayExecutionPreparationErrorV2::from_cause(&cause)
 }
