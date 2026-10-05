@@ -739,15 +739,16 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
 持有的仓位，只在 kernel 接受某一侧的仓位上提议该侧。这次改动时没有任何部署冻结过这个族的程序，按更早字节冻结
 的程序在这个族之外。
 
-**CURRENT - 策略目录：** 编写出的单阈值策略作为一份不可变的陈述保存，按内容命名，不绑定任何 Research 请求。
-陈述就是去掉三个 Research 身份的 `SingleThresholdAuthoringRequestV1`（`SingleThresholdStrategySpecV1`）。它的 `strategy_id`
-是其规范字节带域分隔的 SHA-256，而不是 Design 的身份：Design 会把它所回答的 Research 请求与 Intent 一起哈希，所以同一份
-陈述在每个请求下都会得到不同的 Design。陈述里每一个能有多种写法的值，在哈希之前都先规范成唯一的写法，所以一个策略只有
-一个身份。陈述只有能编写成功才会被收录，所以目录里永远不会有一份在运行时会被编写器拒绝的策略。
+**CURRENT - 策略目录：** 不可变 `StrategyStatementV1` 同时支持单阈值规格（`SingleThresholdStrategySpecV1`）
+与 JSON 编写文档（`StrategyAuthoringDocumentV1`），以封闭的 `channel` 与 `language` 形状区分。
+`strategy_id` 以各族 domain 对规范字节做 SHA-256，独立于 Research 身份；Design 仍绑定 Research request 与 Intent，
+所以每个请求的 Design 可以不同。原单阈值 domain 与字节保持原义。文档的 inputs、definitions、states 按名称排序，
+rules 保留表达优先级的原顺序，小数字面量规范化。目录准入只验证所属编写器，不证明数据可用或完整回放/部署验收。
+此描述依据 `strategy_catalog_v1.rs` 与 `/v1/strategies` 类型化 handler，不创建新的身份方案。
 
 - `rd-owner-api` 在 `/v1/strategies` 下提供它：validate（编写一遍，不写入任何东西）、create（同一份陈述就是同一个策略）、
   get（读回存储的字节，这些字节哈希回它的身份，所以字节被改过的行会被拒绝而不是被送出）、list、revise（一份点名其前驱的
-  新陈述）与 archive（策略仍可读取，但不能再被修订或运行）。编写器的拒绝保留编写器自己的名字（`SINGLE_THRESHOLD_*`）。
+  新陈述）与 archive（策略仍可读取，但不能再被修订或运行）。编写拒绝保留所选族自身的具名拒绝。
 - 它由两张只追加的 R&D 表保存：`rd_strategy_specs_v1` 与 `rd_strategy_archives_v1`。两张表都不点名 Research 请求，没有任何
   更新或删除，也没有授权给任何其他 Owner。
 - 目录不冻结任何东西，也不读任何行情数据。回测运行按值读取一份陈述，自己开一个 Research goal，用那个 goal 的身份编写

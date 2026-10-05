@@ -904,20 +904,19 @@ second bar above the threshold. Each program now carries the position it believe
 from a position the kernel accepts it at. No deployment had frozen a program of the family when this changed, and a
 program frozen from the earlier bytes is outside the family.
 
-**CURRENT - strategy catalog:** an authored single-threshold strategy is held as an immutable statement, named by
-its content and bound to no Research request. The statement is `SingleThresholdAuthoringRequestV1` without its three
-Research identities (`SingleThresholdStrategySpecV1`). Its `strategy_id` is the domain-separated SHA-256 of its
-canonical bytes, not a Design identity: a Design hashes the Research request and Intent it answers, so one statement
-makes a different Design under every request. Every value a statement can spell more than one way is brought to its
-one spelling before it is hashed, so one strategy has one identity: the threshold is rewritten to its one decimal
-spelling at the channel's scale. A statement is admitted only if it authors, so the
-catalog never holds a strategy a run would refuse at authoring.
+**CURRENT - strategy catalog:** an immutable `StrategyStatementV1` is either a single-threshold specification
+(`SingleThresholdStrategySpecV1`) or a JSON authoring document (`StrategyAuthoringDocumentV1`), distinguished by
+closed `channel` versus `language` shapes. Its `strategy_id` hashes canonical bytes under the family's domain,
+independently of Research identities; a Design still binds the Research request and Intent and differs per request.
+The existing single-threshold domain and bytes retain their meaning. Documents sort inputs, definitions and states
+by name, preserve rule order because it expresses priority, and canonicalize decimal literals. Catalog admission
+validates its family compiler; it proves neither data availability nor complete replay/deployment acceptance.
+This description follows `strategy_catalog_v1.rs` and the typed `/v1/strategies` handlers, not a new identity design.
 
 - `rd-owner-api` serves it under `/v1/strategies`: validate (authors and writes nothing), create (the same statement is
   the same strategy), get (the stored bytes, which hash to the identity, so a row whose bytes changed is refused rather
   than served), list, revise (a new statement naming its predecessor) and archive (the strategy stays readable and can
-  no longer be revised or run). An authoring refusal keeps the author's name (`SINGLE_THRESHOLD_*`, or `THRESHOLD_*` for a threshold the
-  channel cannot hold).
+  no longer be revised or run). An authoring refusal preserves the selected family's own named refusal.
 - Two append-only R&D tables hold it, `rd_strategy_specs_v1` and `rd_strategy_archives_v1`. Neither names a Research
   request, nothing is updated or deleted, and no other Owner is granted either.
 - The catalog freezes nothing and reads no market data. A backtest run reads a statement by value, opens a Research goal
