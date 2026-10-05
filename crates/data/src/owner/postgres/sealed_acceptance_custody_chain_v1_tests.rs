@@ -17,10 +17,13 @@ use crate::owner::pit_window_custody_v1::{
         SealedAcceptanceBarV1, SealedAcceptanceCustodyChainErrorV1,
         SealedAcceptanceCustodyChainSpecV1, SealedAcceptanceDecimalV1,
         SealedAcceptanceInstrumentIncrementsV1, SealedAcceptanceOhlcvV1,
-        SealedAcceptanceTimeframeV1, commit_sealed_acceptance_custody_chain_v1,
+        SealedAcceptanceSourceFrontiersV1, SealedAcceptanceTimeframeV1,
+        commit_sealed_acceptance_custody_chain_v1,
     },
 };
-use crate::owner::source_binding::UntrustedMarketSemantics;
+use crate::owner::source_binding::{
+    BindingDigest, UntrustedCompleteFrontier, UntrustedMarketSemantics,
+};
 
 const SECOND: u64 = 1_000_000_000;
 const MINUTE: u64 = 60 * SECOND;
@@ -76,6 +79,7 @@ fn spec() -> SealedAcceptanceCustodyChainSpecV1 {
         instrument_increments: None,
         market_semantics_value: None,
         source_semantics: None,
+        source_frontiers: None,
     }
 }
 
@@ -306,13 +310,28 @@ fn earlier_entry_semantics() -> UntrustedMarketSemantics {
     }
 }
 
+/// Source and correction frontiers another entry's binding states.
+fn earlier_entry_frontiers() -> SealedAcceptanceSourceFrontiersV1 {
+    let frontier = |stream: &str, byte: u8| UntrustedCompleteFrontier {
+        stream_identity: format!("an-earlier-entry/{stream}"),
+        cut_identity: format!("an-earlier-entry/{stream}/cut-1"),
+        sequence: 1,
+        digest: BindingDigest::from_untrusted_bytes([byte; 32]),
+    };
+    SealedAcceptanceSourceFrontiersV1 {
+        source: frontier("source", 0x51),
+        correction: frontier("correction", 0x52),
+    }
+}
+
 /// An ordered chain shares one store, so the fixture can meet a member an earlier entry already
 /// admitted. It keeps that member's fact rather than submitting a rival genesis fact, which the
 /// Instrument Master intake refuses: a second chain whose own fact would differ - a finer price
 /// increment - over a shorter window commits, and binds the first chain's fact. The custody
-/// intake requires that fact to carry the custody binding's market semantics scope, so a second
-/// chain under other semantics than the fact's binding is refused by name before any custody is
-/// committed, and commits once its spec names the fact's binding's semantics.
+/// intake requires that fact to carry the custody binding's market semantics scope, and a run over
+/// the member requires its binding's frontiers to be the fact's, so a second chain under other
+/// semantics or other frontiers than the fact's binding is refused by name before any custody is
+/// committed, and commits once its spec names the fact's binding's semantics and frontiers.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_a_member_already_admitted_keeps_its_fact() {
@@ -320,6 +339,7 @@ async fn postgres_a_member_already_admitted_keeps_its_fact() {
         &owner_url(),
         &SealedAcceptanceCustodyChainSpecV1 {
             source_semantics: Some(earlier_entry_semantics()),
+            source_frontiers: Some(earlier_entry_frontiers()),
             ..spec()
         },
     )
@@ -339,6 +359,13 @@ async fn postgres_a_member_already_admitted_keeps_its_fact() {
         Err(SealedAcceptanceCustodyChainErrorV1::HeldInstrumentSemanticsDiffer)
     );
     second_spec.source_semantics = Some(earlier_entry_semantics());
+    assert_eq!(
+        commit_sealed_acceptance_custody_chain_v1(&owner_url(), &second_spec)
+            .await
+            .map(|_| ()),
+        Err(SealedAcceptanceCustodyChainErrorV1::HeldInstrumentFrontiersDiffer)
+    );
+    second_spec.source_frontiers = Some(earlier_entry_frontiers());
     let second = commit_sealed_acceptance_custody_chain_v1(&owner_url(), &second_spec)
         .await
         .expect("the second chain keeps the member's fact under its binding's semantics");

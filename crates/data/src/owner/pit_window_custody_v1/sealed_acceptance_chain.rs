@@ -32,7 +32,10 @@ use crate::owner::{
     instrument_master_admission_v1::InstrumentMasterAdmissionErrorV1,
     market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     pit_window_custody_v1::{PitWindowCustodyRefusalV1, PitWindowRunRefusalV1},
-    source_binding::{BindingDigest, UntrustedMarketSemantics, UntrustedSourceBindingLocator},
+    source_binding::{
+        BindingDigest, UntrustedCompleteFrontier, UntrustedMarketSemantics,
+        UntrustedSourceBindingLocator,
+    },
     source_binding_admission_v1::{
         SourceBindingAdmissionDispositionV1, SourceBindingAdmissionErrorV1,
     },
@@ -155,6 +158,23 @@ pub struct SealedAcceptanceCustodyChainSpecV1 {
     /// earlier entry's semantics here, or the fixture refuses it as
     /// [`SealedAcceptanceCustodyChainErrorV1::HeldInstrumentSemanticsDiffer`].
     pub source_semantics: Option<UntrustedMarketSemantics>,
+    /// The Source Binding's source and correction frontiers; fixture-named frontiers when `None`.
+    ///
+    /// A kept fact carries the frontiers of the binding it was admitted under, and a run over the
+    /// member resolves its Source Binding from the current eligible frontier, which the fixture's
+    /// own membership makes this binding. Market Semantics admission requires that run's binding
+    /// frontiers to equal the kept fact's (`R0InstrumentFactSourceFrontier` and
+    /// `R0InstrumentFactCorrectionFrontier`), so a chain that keeps an earlier entry's fact names
+    /// that entry's frontiers here, or the fixture refuses it as
+    /// [`SealedAcceptanceCustodyChainErrorV1::HeldInstrumentFrontiersDiffer`].
+    pub source_frontiers: Option<SealedAcceptanceSourceFrontiersV1>,
+}
+
+/// The source and correction frontiers a fixture's Source Binding states.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SealedAcceptanceSourceFrontiersV1 {
+    pub source: UntrustedCompleteFrontier,
+    pub correction: UntrustedCompleteFrontier,
 }
 
 /// The chain [`commit_sealed_acceptance_custody_chain_v1`] committed, as the Owner's intakes and its
@@ -279,6 +299,11 @@ pub enum SealedAcceptanceCustodyChainErrorV1 {
     /// binding's semantics in `source_semantics`.
     #[error("a member's held Instrument Master fact carries another market semantics scope")]
     HeldInstrumentSemanticsDiffer,
+    /// A member's Instrument Master fact is already held under other source or correction
+    /// frontiers than the fixture's binding states: the spec must name that fact's binding's
+    /// frontiers in `source_frontiers`.
+    #[error("a member's held Instrument Master fact carries other source or correction frontiers")]
+    HeldInstrumentFrontiersDiffer,
     #[error("the Instrument Master admission refused: {0:?}")]
     InstrumentMasterAdmission(InstrumentMasterAdmissionErrorV1),
     #[error("the historical membership admission refused: {0:?}")]
@@ -350,6 +375,7 @@ mod tests {
             instrument_increments: None,
             market_semantics_value: None,
             source_semantics: None,
+            source_frontiers: None,
         };
         assert_eq!(
             commit_sealed_acceptance_custody_chain_v1(url, &spec)

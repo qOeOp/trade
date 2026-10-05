@@ -214,6 +214,140 @@ pub enum VerifyDerivedErrorV1 {
 }
 
 #[cfg(test)]
+mod live_tests {
+    use vibe_core::time::get_atomic_clock_realtime;
+    use vibe_data::owner::venue_bar_store_v1::{
+        VENUE_BAR_SETTLE_DELAY_NS_V1, venue_bar_store_from_environment_v1,
+    };
+
+    use super::*;
+    use crate::{
+        common::enums::{BinanceEnvironment, BinanceKlineInterval, BinanceProductType},
+        futures::http::client::BinanceFuturesHttpClient,
+        venue_bar_rest_recorder_v1::record_venue_bars_v1,
+    };
+
+    fn client() -> BinanceFuturesHttpClient {
+        BinanceFuturesHttpClient::new(
+            BinanceProductType::UsdM,
+            BinanceEnvironment::Live,
+            get_atomic_clock_realtime(),
+            None,
+            None,
+            None,
+            None,
+            Some(30),
+            None,
+            false,
+        )
+        .expect("the keyless public client builds")
+    }
+
+    fn fetcher() -> VisionBackfillFetcherV1 {
+        let shard_dir = std::env::temp_dir().join("lane8-b5-narrow-acceptance");
+        VisionBackfillFetcherV1::new(client(), shard_dir)
+            .expect("a keyless client builds a fetcher")
+    }
+
+    /// B5's narrow acceptance (`docs/owners/market-data.md`): not the doc's own six-year sweep
+    /// across BTCUSDT/ETHUSDT/SOLUSDT, but one day from the doc's own incident table and one of
+    /// SOLUSDT's own documented `1m` gap days, run against a real store and the live endpoint.
+    ///
+    /// BTCUSDT `1d` on 2021-01-12 is one of the doc's listed incident windows, but the doc itself
+    /// states the discrepancy there is between a `1m`-derived day and the native `1d` bar, not
+    /// between REST and the archive for the same timeframe: this store never derives `1d` from
+    /// `1m`, so the real, reachable proof here is that REST's native `1d` bar and the monthly
+    /// archive's native `1d` bar for that day verify clean (`conflicts` empty) - confirming the
+    /// pipeline reads straight through an incident day without needing the derivation this design
+    /// deliberately avoids.
+    ///
+    /// SOLUSDT `1m` on 2022-02-27 is one of the doc's documented monthly-archive omission days:
+    /// the monthly archive has no rows for it at all, only the daily archive does. Recording it
+    /// via REST and verifying it against [`verify_execution_day_v1`] (not
+    /// [`verify_execution_month_v1`]) demonstrates the daily-archive path this slice adds exists
+    /// to cover exactly that omission.
+    #[tokio::test]
+    #[ignore = "reaches the live public Binance endpoint, the live archive, and a real Market Data store"]
+    async fn narrow_acceptance_reproduces_the_docs_own_incident_and_omission_days() {
+        // BTCUSDT 1d, 2021-01-12 (an incident day; see the doc comment above for why this proves
+        // a REST/archive agreement, not a conflict).
+        const BTC_DAY_START_MS: i64 = 1_610_409_600_000;
+        const BTC_RETRIEVAL_NS: u64 = 1_610_496_000_000_000_000 + VENUE_BAR_SETTLE_DELAY_NS_V1;
+        // SOLUSDT 1m, 2022-02-27 (a day the monthly archive omits entirely; only the daily
+        // archive has it).
+        const SOL_DAY_START_MS: i64 = 1_645_920_000_000;
+        const SOL_RETRIEVAL_NS: u64 = 1_646_006_400_000_000_000 + VENUE_BAR_SETTLE_DELAY_NS_V1;
+
+        let store = venue_bar_store_from_environment_v1()
+            .await
+            .expect("MARKET_DATA_OWNER_DATABASE_URL names a reachable store");
+        let fetcher = fetcher();
+
+        let recorded = record_venue_bars_v1(
+            &client(),
+            store.as_ref(),
+            "BTCUSDT-PERP.BINANCE",
+            "BTCUSDT",
+            "1d",
+            BTC_DAY_START_MS,
+            BTC_RETRIEVAL_NS,
+        )
+        .await
+        .expect("BTCUSDT's incident day settles and commits");
+        assert!(recorded.committed.written > 0 || recorded.committed.rejoined > 0);
+        assert!(recorded.committed.conflicts.is_empty());
+
+        let request = VerifyArchiveRequestV1 {
+            canonical_instrument: "BTCUSDT-PERP.BINANCE",
+            raw_symbol: "BTCUSDT",
+            venue_interval: "1d",
+            interval: BinanceKlineInterval::Day1,
+            verified_ns: BTC_RETRIEVAL_NS,
+        };
+        let summary = verify_execution_month_v1(&fetcher, store.as_ref(), &request, 2021, 1)
+            .await
+            .expect("January 2021's monthly archive authenticates and verifies");
+        assert!(
+            summary.conflicts.is_empty(),
+            "BTCUSDT 2021-01-12's native 1d bar disagrees with the monthly archive: {:?}",
+            summary.conflicts
+        );
+        assert!(summary.verified >= 1);
+
+        let recorded = record_venue_bars_v1(
+            &client(),
+            store.as_ref(),
+            "SOLUSDT-PERP.BINANCE",
+            "SOLUSDT",
+            "1m",
+            SOL_DAY_START_MS,
+            SOL_RETRIEVAL_NS,
+        )
+        .await
+        .expect("SOLUSDT's omission day settles and commits");
+        assert!(recorded.committed.written > 0 || recorded.committed.rejoined > 0);
+        assert!(recorded.committed.conflicts.is_empty());
+
+        let request = VerifyArchiveRequestV1 {
+            canonical_instrument: "SOLUSDT-PERP.BINANCE",
+            raw_symbol: "SOLUSDT",
+            venue_interval: "1m",
+            interval: BinanceKlineInterval::Minute1,
+            verified_ns: SOL_RETRIEVAL_NS,
+        };
+        let summary = verify_execution_day_v1(&fetcher, store.as_ref(), &request, 2022, 2, 27)
+            .await
+            .expect("the daily archive covers the day the monthly archive omits");
+        assert!(
+            summary.conflicts.is_empty(),
+            "SOLUSDT 2022-02-27's REST 1m bars disagree with the daily archive: {:?}",
+            summary.conflicts
+        );
+        assert_eq!(summary.verified, 1440);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
 

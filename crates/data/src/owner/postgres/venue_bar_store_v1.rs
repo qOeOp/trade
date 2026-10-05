@@ -439,7 +439,12 @@ impl MarketDataOwnerPostgres {
                 });
             }
 
-            if bar.close_ns_exclusive < window.0 || bar.close_ns_exclusive >= window.1 {
+            // A bar must lie wholly inside the window: it opens no earlier than window.0, and
+            // closes no later than window.1. window.1 is the window's own exclusive end, which
+            // for any archive that tiles exactly to its window (a full calendar month or day,
+            // the normal case) is also the last bar's own close - that bar closes AT window.1,
+            // not before it, so the close check must accept window.1 itself.
+            if bar.open_ns < window.0 || bar.close_ns_exclusive > window.1 {
                 return Err(Refused::InvalidRequest);
             }
         }
@@ -501,7 +506,7 @@ impl MarketDataOwnerPostgres {
             }
         }
         let stored: Vec<i64> = sqlx::query_scalar(
-            "SELECT DISTINCT open_ns FROM market_data_private.venue_bar_versions_v1 WHERE instrument=$1 AND timeframe=$2 AND close_ns>=$3 AND close_ns<$4 ORDER BY open_ns",
+            "SELECT DISTINCT open_ns FROM market_data_private.venue_bar_versions_v1 WHERE instrument=$1 AND timeframe=$2 AND open_ns>=$3 AND close_ns<=$4 ORDER BY open_ns",
         )
         .bind(instrument)
         .bind(timeframe.label)

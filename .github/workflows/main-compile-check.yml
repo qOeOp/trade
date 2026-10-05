@@ -1,0 +1,89 @@
+name: main-compile-check
+
+# User-decided CI model, 2026-10-05 (relayed cross-session by Lane 3): no `strict` required
+# checks and no self-written merge queue - lanes merge their own green PRs with GitHub's own
+# `gh pr merge --auto --squash`. What that model is missing is a check that every commit actually
+# landing on `main` still compiles together: two PRs can each pass their own PR-branch build and
+# still conflict once both are on `main`, and nothing short of checking `main` itself after each
+# merge catches that. `build.yml`'s own `main` verification is deliberately a 6-times-a-day
+# schedule, not push-triggered (see its own comment: 53 of 60 pushes in one twenty-hour window were
+# cancelled by each other, leaving 39 commits with no verdict at all) - that trigger answers "is
+# the current tip of main good", not "which commit broke it", and a full build/test run is far
+# more than a quick compile-sanity check needs. This workflow is deliberately separate from it: a
+# fast `cargo check` (no build, no tests, no Owner chain) that runs for every push to `main`,
+# queued rather than cancelled, so every merged commit gets its own verdict naming its own commit.
+
+permissions:
+  contents: read
+  actions: read
+
+on:
+  push:
+    branches:
+      - main
+
+# Queued, not cancelled: the whole point is that every merged commit gets checked, not just
+# whichever one happens to be the tip when a runner frees up. A commit's own job staying queued
+# behind an earlier one is the cost of that; `cargo check` is fast enough that the queue should not
+# grow unbounded in practice, and if it does, that itself is a sign main is taking checks faster
+# than they can run.
+concurrency:
+  group: main-compile-check
+  cancel-in-progress: false
+
+jobs:
+  cargo-check:
+    name: >-
+      main compile check (${{ github.sha }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ vars.STEP_SECURITY_EGRESS_POLICY || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Name the commit this run checks
+        # Printed before the check itself runs, so a failure's log and the job's own name (which
+        # GitHub truncates in some views) both say unambiguously which merge is red. %an/%ae name
+        # whichever account made the merge commit (the lane's own git identity), and the subject
+        # line carries the PR number for a squash merge (gh pr merge --auto --squash's default
+        # format is "<title> (#<N>)").
+        run: |-
+          set -euo pipefail
+          echo "Checking main@${GITHUB_SHA}"
+          git log -1 --format='Subject: %s%nAuthor:  %an <%ae>%nDate:    %aI' "$GITHUB_SHA"
+
+      - name: Common setup
+        timeout-minutes: 5
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          # Its own target directory and cache key: a cold `cargo check` here is still far cheaper
+          # than the `rust-tests`/doctests entries, and giving it a separate key means a stale or
+          # evicted entry here can never invalidate theirs (see rust-tests-linux-x86's own comment
+          # on why CARGO_/RUST_-prefixed job inputs must never be named here).
+          rust-cache-key: main-compile-check
+          rust-cache-workspaces: . -> target/main-compile-check
+
+      - name: cargo check --workspace --all-targets
+        env:
+          CARGO_TARGET_DIR: target/main-compile-check
+          # main always wants ci-pr's profile - the same rule rust-tests-linux-x86 and rust
+          # doctests use for `github.ref_name == 'main'`.
+          CARGO_CI_PROFILE: ci-pr
+        run: make cargo-check-main
+
+      - name: Report disk space after cargo check
+        if: always()
+        run: bash scripts/ci/report-disk-space.bash "after main compile check"
