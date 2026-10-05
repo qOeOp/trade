@@ -111,6 +111,37 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # Market Data's resident process (B6): one scheduler running the REST recorder, archive
+  # verification and the settled-funding recorder, independent of rd-owner-api's request/response
+  # routes. Keyless (no Binance credentials) and writes only to Market Data's own store, so it
+  # starts once rd-owner-api is healthy (same DB roles/schema, already proven ready at that point)
+  # and needs none of rd-owner-api's other owner database URLs or Product Edge/Deployment Store
+  # configuration.
+  market-data-resident:
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/market-data-resident"]
+    environment:
+      MARKET_DATA_OWNER_DATABASE_URL: >-
+        ${MARKET_DATA_OWNER_DATABASE_URL:?set MARKET_DATA_OWNER_DATABASE_URL}
+      INSTRUMENT_OWNER_DATABASE_URL: >-
+        ${INSTRUMENT_OWNER_DATABASE_URL:?set INSTRUMENT_OWNER_DATABASE_URL}
+      MARKET_DATA_RESIDENT_INSTRUMENTS: >-
+        ${MARKET_DATA_RESIDENT_INSTRUMENTS:-BTCUSDT-PERP.BINANCE,ETHUSDT-PERP.BINANCE,SOLUSDT-PERP.BINANCE}
+      MARKET_DATA_RESIDENT_TICK_SECONDS: ${MARKET_DATA_RESIDENT_TICK_SECONDS:-60}
+      # Shares rd-owner-api's own archive shard cache rather than opening a second one.
+      MARKET_DATA_RESIDENT_SHARD_DIR: /var/lib/trade/binance-vision-shards
+      RUST_LOG: info
+    depends_on:
+      rd-owner-api:
+        condition: service_healthy
+    volumes:
+      - binance-vision-shards:/var/lib/trade/binance-vision-shards
+    security_opt:
+      - no-new-privileges:true
+
   rd-dashboard-owner-read-api:
     profiles: ["dashboard-preview"]
     build:

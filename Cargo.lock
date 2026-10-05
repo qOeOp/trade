@@ -10736,6 +10736,7 @@ dependencies = [
  "vibe-binance",
  "vibe-core",
  "vibe-data",
+ "vibe-model",
 ]
 
 [[package]]
