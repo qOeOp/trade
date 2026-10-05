@@ -900,7 +900,9 @@ impl ReplayTargetSetExecutionBundleV1 {
         // ordinal, and every per-frame check below would still pass.
         anyhow::ensure!(
             admitted_frame_times == frame_times,
-            "request execution bundle universe frames and schedules are admitted at different instants"
+            "request execution bundle universe frames and schedules are admitted at different \
+             instants: admitted(logical_time_ns)={admitted_frame_times:?} \
+             schedule(frame_time_ns)={frame_times:?}"
         );
         let frame_time = frame_times[0];
         let plan_digest = *plan.canonical_plan_digest().as_bytes();
