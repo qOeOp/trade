@@ -2799,7 +2799,9 @@ fixture submits no rival genesis fact and names no predecessor, which would corr
 custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. The custody
 intake also requires every member's fact to carry the custody binding's market semantics compatibility scope, so such a
 chain names the earlier entry's binding semantics in the spec's `source_semantics`; a held fact under another scope is
-refused by name as `HeldInstrumentSemanticsDiffer` before anything is committed. Its historical membership frontier
+refused by name as `HeldInstrumentSemanticsDiffer` before anything is committed. Sharing that scope, the chain also
+states the earlier entry's value in `market_semantics_value`, or the custody intake refuses it as
+`MarketSemanticsScopeValueConflict`. Its historical membership frontier
 names the window, so two fixture chains over the same members are two memberships
 (`postgres_a_member_already_admitted_keeps_its_fact`).
 
