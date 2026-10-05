@@ -15,16 +15,20 @@ after every earlier one, as the standing check on those declarations; GitHub dro
 without notice, so when no serial run has reached a verdict on `main` in 48 hours, dispatch one:
 `gh workflow run build.yml --ref main -f rd-chain=serial`.
 
-## Architecture authority
+## Architecture and design records
 
-The documentation is the highest-level architecture authority for this project. Every implementation
-must strictly conform to the architecture and design described in the documentation.
+The documentation records the project's current design, decisions, and intended user route. It is a
+working design, not an infallible or final blueprint. Read it before implementation, but check its
+claims against the current code, real consumers, and measurements. Neither an old document nor an
+implementation by itself settles a conflict between them.
 
-When a documented design cannot be implemented as written, or implementation reveals that the
-documented design must change, the agent decides the change, makes it in the documentation, and
-delivers it with the measurement that forced it. Reinterpreting documented text so an implementation
-fits it is not that decision: text an implementation cannot satisfy is changed, not re-read, and the
-change stays reviewable because the measurement that forced it arrives with it.
+Implementation may reveal a better or necessary design. Within the requested outcome and the
+authorization boundaries below, the agent decides the change and updates the documentation and
+implementation in the same reviewable delivery. The delivery names the observation or measurement
+that changed the design and shows how the resulting behavior was verified. Do not force code to fit
+outdated text, silently let code supersede the design record, or reinterpret text to hide a mismatch.
+An unverified target remains a target; documentation and a passing build alone do not establish a
+working product path.
 
 Three changes still require explicit user authorization before either the documentation or the
 implementation moves:
@@ -36,16 +40,16 @@ implementation moves:
   implementable. Relocating a property leaves it provable somewhere; removing it does not, and an
   agent cannot tell from inside one delivery what the removed property was protecting.
 
-Everything else is the agent's to decide. Recording what the repository has reached, and making an
-already documented design implementable without weakening it, need no authorization and are not
-escalated.
+Everything else is the agent's to decide. Recording what the repository has reached, revising a
+design as implementation teaches us more, and making a design implementable without weakening a
+protected property need no separate authorization or documentation-only PR.
 
 ## Dashboard implementation status
 
 The Dashboard documentation under `docs/guide/dashboard.md` and `docs/guide/dashboard.zh.md` is the
-governing route, component, and geometry contract for `product/dashboard`. It is no longer a
-blueprint-only artifact: it now carries per-slice admission status, and the user has admitted specific
-routes as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`.
+current route, component, geometry, and per-slice admission record for `product/dashboard`. Its
+design details may change with implementation evidence under the rule above. The user has admitted
+specific routes as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`.
 
 Dashboard work is admitted only for a route or reusable atom that document marks
 `IMPLEMENTATION_ADMITTED`, and only as the bounded, separately reviewable slice described there.
@@ -53,8 +57,9 @@ Everything below that gate stays blueprint-only and must not be developed, scaff
 packaged; a route name, a navigation entry, or retained upstream source is not implementation
 authority. `IMPLEMENTATION_ADMITTED` is permission to build and verify. It never proves that a backend,
 Owner consumer, or effect path exists, and it never authorizes a production effect, an executor cutover,
-or real trading. Widening the admitted set requires changing that document first under the Architecture
-authority rule above.
+or real trading. Widening the admitted set requires an explicit, reviewable update to those documents
+as part of the bounded slice before the newly admitted surface is delivered; it does not require a
+separate documentation-only PR. The authorization boundaries above still apply.
 
 ## Local API keys
 
