@@ -479,13 +479,17 @@ the run, so a replay reads the same data.
   `backtest` and breaks no "no MCP server calls another" rule. Each trial also carries its outcome category:
   `COUNTED_NO_DECISION`, or the committed Iteration Decision outcome by name (`REPAIR_INPUTS`, a successor, or a
   terminal stop) - never the Diagnosis detail behind it. The Iteration Decision's Diagnosis input stays entirely
-  inside `backtest.run`'s existing result-admission path; this server adds no separate write for it.
+  inside `backtest.run`'s existing result-admission path; this server adds no separate write for it. Today's
+  TrialFamily HTTP surface answers only the family's root and one expanded member, not every member resolved to its
+  fact; this tool needs R&D's own new read, "TARGET - Trial family member readback" in [R&D](../owners/rd), landed
+  first.
 - `census(hypothesis_id)` → the family's current state, read-only: trial count, the consumed trial budget
   (`TrialFamilyCensusFrontierV2.consumed_trial_budget`), and whether the family is open, closed, or at a terminal
   stop. `consumed_trial_budget` counts trials, not spend - R&D's own spend cap (US dollars per UTC calendar
   month) is a TARGET, not yet a recorded fact ("TARGET - Cumulative trial accounting and the spend cap" in
   [R&D](../owners/rd)). Until that fact exists, this tool reports the trial count under its own name and does
-  not call it spend.
+  not call it spend. The open/closed/terminal-stop state is likewise not yet answerable by any existing route; it
+  depends on the same new R&D read as `list_trials`, above.
 - **Red line (verdicts, never values).** Every output above states an outcome category or a count, never a
   holdout measurement, a per-trade result, or Diagnosis detail - the same discipline Qualification's `verdict`
   tool already holds for its own holdout (below): a research-ledger answer cannot leak what a later qualification
