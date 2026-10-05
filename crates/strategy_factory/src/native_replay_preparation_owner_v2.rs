@@ -4,7 +4,7 @@
 //! bundle together with producer-owned observation bytes; Backtest can reconcile and persist those
 //! bytes, but callers cannot manufacture a positive preparation handoff.
 
-use std::{future::Future, pin::Pin};
+use std::{fmt::Display, future::Future, pin::Pin};
 
 use vibe_backtest_owner_contracts::{CanonicalDigestV2, ObservationComponentV2, OpaqueIdentityV2};
 
@@ -124,9 +124,21 @@ impl NativeReplayExecutionPreparationV2 {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("Strategy Factory Native Replay preparation is unavailable")]
-pub struct NativeReplayExecutionPreparationErrorV2;
+/// Why Strategy Factory could not prepare one Native Replay execution. It carries the cause of
+/// the stage that refused, so a caller reading the run error learns why without the server log.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("Strategy Factory Native Replay preparation is unavailable: {cause}")]
+pub struct NativeReplayExecutionPreparationErrorV2 {
+    cause: String,
+}
+
+impl NativeReplayExecutionPreparationErrorV2 {
+    pub(crate) fn from_cause(cause: &impl Display) -> Self {
+        Self {
+            cause: cause.to_string(),
+        }
+    }
+}
 
 pub(crate) mod sealed {
     pub trait Sealed {}
