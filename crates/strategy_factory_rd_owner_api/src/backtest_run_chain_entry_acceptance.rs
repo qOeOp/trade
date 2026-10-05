@@ -90,23 +90,19 @@ fn chain_entry_decimal(text: &str) -> SealedAcceptanceDecimalV1 {
     SealedAcceptanceDecimalV1::parse(text).expect("a decimal")
 }
 
-/// THROWAWAY (Lane 2's diagnostic, 10-05): pins down where the reader's `USAGE` on
-/// `market_data_admitted_read` disappears between the grant and the run. Drop once the cause is
-/// known.
-async fn chain_entry_schema_usage_probe_v1(market_data_owner_url: &str, label: &str) {
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_url(market_data_owner_url, PostgresTls::Disabled)
-        .await
-        .expect("the probe pool opens");
-    let (usage, owner): (bool, String) = sqlx::query_as(
-        "SELECT pg_catalog.has_schema_privilege('vibe_test_role_market_data_reader','market_data_admitted_read','USAGE'), \
-                pg_catalog.pg_get_userbyid(nspowner)::text FROM pg_catalog.pg_namespace WHERE nspname='market_data_admitted_read'",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("the probe query answers");
-    eprintln!("PROBE {label}: reader usage={usage} schema owner={owner}");
-    pool.close().await;
+/// The connection URL's user and database, read without connecting - the same parse
+/// `native_replay_scheduling_acceptance.rs`'s `user_and_database` uses, replicated here since
+/// that one is private to its own module.
+fn chain_entry_user_and_database(url: &str) -> (&str, &str) {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let user = rest.split([':', '@']).next().unwrap_or_default();
+    let database = rest
+        .rsplit_once('/')
+        .map_or("", |(_, database)| database)
+        .split('?')
+        .next()
+        .unwrap_or_default();
+    (user, database)
 }
 
 /// F's own registry meaning digest (`first_composer_v3_digest`,
@@ -313,6 +309,30 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             .expect("the chain entry's strategies are new to this chain database");
     }
 
+    // `CanonicalOwnerTestRoleV1::MarketDataReader` is the canonical R&D role-set reader
+    // (`market_data_reader`), which `10-migrate-authority-custody.sh` explicitly revokes from
+    // `market_data_admitted_read` - the sealed-acceptance custody frames port must instead read
+    // as the acceptance-only principal this entry grants
+    // (`SEALED_ACCEPTANCE_READER_PRINCIPAL`/`vibe_test_role_market_data_reader`), over its own
+    // credential, the same pattern `native_replay_scheduling_acceptance.rs`'s
+    // `composed_native_replay_scheduling_resolver` uses (Lane 2, cross-session, 10-05, caught by
+    // reading the probe this entry's own earlier debugging added and then dropped).
+    let custody_frames_reader_url = std::env::var("MARKET_DATA_READER_TEST_DATABASE_URL")
+        .expect("the chain exports the sealed acceptance reader's credential");
+    assert_eq!(
+        chain_entry_user_and_database(&custody_frames_reader_url).0,
+        SEALED_ACCEPTANCE_READER_PRINCIPAL,
+        "the sealed acceptance custody frames reader is the test-only principal this entry grants"
+    );
+    assert_eq!(
+        chain_entry_user_and_database(&custody_frames_reader_url).1,
+        chain_entry_user_and_database(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner)
+        )
+        .1,
+        "the sealed acceptance reader reads the database the canonical topology admitted"
+    );
+
     let owners = BacktestRunOwnersV1 {
         catalog,
         product_edge: Arc::new(
@@ -353,10 +373,8 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             .await
             .expect("the R&D Owner pool opens"),
         custody_frames: Some(
-            pit_window_custody_frames_for_sealed_acceptance_v1(
-                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
-            )
-            .expect("the sealed-acceptance custody frames port opens"),
+            pit_window_custody_frames_for_sealed_acceptance_v1(&custody_frames_reader_url)
+                .expect("the sealed-acceptance custody frames port opens"),
         ),
         #[cfg(feature = "composer-v3-replay")]
         develop_composer: Some(Arc::new(
@@ -389,7 +407,6 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     )
     .await
     .expect("the harness reader role is granted the sealed custody reads it needs");
-    chain_entry_schema_usage_probe_v1(market_data_owner_url, "after grant").await;
 
     let chain = commit_sealed_acceptance_custody_chain_v1(
         market_data_owner_url,
@@ -397,14 +414,12 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     )
     .await
     .expect("the sealed-acceptance custody chain commits over the production intakes");
-    chain_entry_schema_usage_probe_v1(market_data_owner_url, "after commit").await;
     assert_eq!(
         chain.window(),
         chain_entry_window(chain_start_ns),
         "the committed chain's own window is the one this entry anchored it at"
     );
     let (window_start_ns, window_end_ns_exclusive) = chain_entry_run_window(chain_start_ns);
-    chain_entry_schema_usage_probe_v1(market_data_owner_url, "before run loop").await;
 
     // Both statement families run through the one orchestration: each is authored by its own
     // family into the Design the freeze takes.
