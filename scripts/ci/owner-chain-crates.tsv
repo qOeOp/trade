@@ -43,6 +43,7 @@ crates/indicators/kernel	in
 crates/infrastructure	out
 crates/live	in
 crates/market_data_repair_custody	in
+crates/market_data_resident	out
 crates/model	in
 crates/network	in
 crates/observability	out
