@@ -194,7 +194,11 @@ impl OwnerUniverseFrameV1 {
             || !schedule_set_agrees
             || projection.components().len() != frame.values().len()
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let members = frame.selection().members();
         let mut coordinates = Vec::with_capacity(frame.values().len());
@@ -204,10 +208,18 @@ impl OwnerUniverseFrameV1 {
                 .iter()
                 .position(|member| member.member_key() == value.member_key())
                 .and_then(|ordinal| u8::try_from(ordinal).ok())
-                .ok_or(ProgramHostV2Error::InputCoverage)?;
+                .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )))?;
             let component = projection
                 .component(member_ordinal, value.input_role_identity())
-                .ok_or(ProgramHostV2Error::InputCoverage)?;
+                .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )))?;
 
             if component.member_key() != value.member_key()
                 || component.instrument() != value.instrument()
@@ -215,7 +227,11 @@ impl OwnerUniverseFrameV1 {
                 || component.value_receipt_digest() != value.digest()
                 || component.trigger_digest() != value.trigger_digest()
             {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
             coordinates.push(UniverseMemberSampleCoordinateV1 {
                 member_ordinal,
@@ -592,14 +608,20 @@ pub(crate) fn admit_backtest_lifecycle_event_v2(
     plan: &StrategyPlanV2,
     envelope: LifecycleEnvelopeV1,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    lifecycle_v1::encode_envelope_v1(envelope).map_err(|_| ProgramHostV2Error::InputCoverage)?;
+    lifecycle_v1::encode_envelope_v1(envelope)
+        .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?;
+
     if !matches!(
         envelope.payload,
         lifecycle_v1::EnvelopePayloadV1::Start
             | lifecycle_v1::EnvelopePayloadV1::Fill(_)
             | lifecycle_v1::EnvelopePayloadV1::Stop
     ) {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let inputs = Vec::new();
     let identity = admitted_event_identity(plan, envelope, &inputs, &[], None, None);
@@ -717,13 +739,21 @@ impl PreparedBacktestTargetSetV2 {
                 lifecycle_v1::TargetProposalV1::Position(units)
                 | lifecycle_v1::TargetProposalV1::RebalancePosition { units, .. } => {
                     if grid_target != units || target.reconciliation_target_units != Some(units) {
-                        return Err(ProgramHostV2Error::InputCoverage);
+                        return Err(ProgramHostV2Error::InputCoverage(concat!(
+                            file!(),
+                            ":",
+                            line!()
+                        )));
                     }
                 }
                 lifecycle_v1::TargetProposalV1::WeightMicros(_)
                 | lifecycle_v1::TargetProposalV1::RebalanceWeightMicros { .. } => {
                     if target.reconciliation_target_units.is_some() {
-                        return Err(ProgramHostV2Error::InputCoverage);
+                        return Err(ProgramHostV2Error::InputCoverage(concat!(
+                            file!(),
+                            ":",
+                            line!()
+                        )));
                     }
                     target.reconciliation_target_units = Some(grid_target);
                 }
@@ -731,7 +761,11 @@ impl PreparedBacktestTargetSetV2 {
                     if target.reconciliation_target_units.is_some()
                         || grid_target != member.kernel.checkpoint().reconciled_position_units
                     {
-                        return Err(ProgramHostV2Error::InputCoverage);
+                        return Err(ProgramHostV2Error::InputCoverage(concat!(
+                            file!(),
+                            ":",
+                            line!()
+                        )));
                     }
                 }
             }
@@ -823,8 +857,35 @@ pub struct ProgramHostV2 {
 pub enum ProgramHostV2Error {
     #[error("plan and artifact mismatch: {0}")]
     Artifact(String),
-    #[error("caller input frame does not exactly cover Plan-declared Owner-bound roles")]
-    InputCoverage,
+    /// The caller input frame does not exactly cover the Plan-declared Owner-bound roles, at the
+    /// named coordinate (`concat!(file!(), ":", line!())` at every construction site) - every
+    /// producer names where it refused, so a refusal is never bare. `InputCoverageDiff` below
+    /// names the (role, member) pairs too, where the refusing check has them.
+    #[error(
+        "INPUT_COVERAGE at {0}: caller input frame does not exactly cover Plan-declared Owner-bound roles"
+    )]
+    InputCoverage(&'static str),
+    /// `InputCoverage`, named for a universe Bar/Event frame specifically: the (role, member)
+    /// pairs admission required but the frame did not carry, and the pairs the frame carried
+    /// that no required role names, each capped and paired with its true count - so a refusal
+    /// is readable without a live repro to see which pair diverged. Role keys are the Plan's own
+    /// `semantic_id` string when a required role matches the frame value's identity, or the raw
+    /// identity otherwise (an identity no required role names at all). `duplicate_total` counts
+    /// (role, member) pairs the frame carries MORE THAN ONCE - collapsed into `missing`/`extra`'s
+    /// own set difference otherwise invisible, since a duplicate pair still satisfies "this pair
+    /// is present" there even though the frame is still wrong.
+    #[error(
+        "universe frame does not cover the required (role, member) pairs: missing \
+         {missing_total} ({missing:?}), extra {extra_total} ({extra:?}), duplicate \
+         {duplicate_total}"
+    )]
+    InputCoverageDiff {
+        missing: Vec<(String, String)>,
+        missing_total: usize,
+        extra: Vec<(String, String)>,
+        extra_total: usize,
+        duplicate_total: usize,
+    },
     #[error("typed value mismatch at {0}")]
     Type(String),
     #[error("reaction graph resolution failed at {0}")]
@@ -862,7 +923,11 @@ pub(crate) fn admit_market_data_program_event_v2(
             || value.trigger_digest() != trigger.digest()
             || value.observation_batch_digest() != trigger.observation_batch_digest()
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         prior_role = Some(role_identity);
     }
@@ -874,7 +939,13 @@ pub(crate) fn admit_market_data_program_event_v2(
     let payload = match kind {
         lifecycle_v1::LifecycleKind::Bar => lifecycle_v1::EnvelopePayloadV1::Bar,
         lifecycle_v1::LifecycleKind::Event => lifecycle_v1::EnvelopePayloadV1::Event,
-        _ => return Err(ProgramHostV2Error::InputCoverage),
+        _ => {
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
+        }
     };
     let order_key = lifecycle_v1::EventOrderKeyV1::new(
         lifecycle.logical_time(),
@@ -889,11 +960,19 @@ pub(crate) fn admit_market_data_program_event_v2(
     let required = reaction_input_roles(plan, kind)?;
 
     if join_for_roles(plan, &required).is_some() {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
 
     if required.len() != frame.values().len() {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let mut inputs = Vec::with_capacity(required.len());
     let mut source_binding_lineage = None;
@@ -904,12 +983,20 @@ pub(crate) fn admit_market_data_program_event_v2(
             .input_bindings()
             .iter()
             .find(|binding| binding.input_role_identity() == role_identity)
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
         let value = frame
             .values()
             .iter()
             .find(|value| value.input_role_identity() == role_identity)
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
 
         if value.binding_receipt_digest() != binding.receipt_digest()
             || value.value_type_semantic_id() != STRATEGY_INPUT_FIXED_I128_LE_V1
@@ -923,7 +1010,11 @@ pub(crate) fn admit_market_data_program_event_v2(
             || value.correction_sequence() == 0
             || role.value_type != ValueTypeV2::I128
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let lineage = SourceBindingLineageVersionV2 {
             root: value.source_binding_lineage_root(),
@@ -934,13 +1025,17 @@ pub(crate) fn admit_market_data_program_event_v2(
             .replace(lineage)
             .is_some_and(|prior| prior != lineage)
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         inputs.push(ProgramEventInputV2 {
             role_semantic_id: role.semantic_id.clone(),
             member_ordinal: None,
             value: TypedValueV2::new(ValueTypeV2::I128, value.value_bytes().as_slice())
-                .map_err(|_| ProgramHostV2Error::InputCoverage)?,
+                .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?,
             owner_event: OwnerEventEvidenceV2 {
                 input_role_identity: role_identity,
                 binding_receipt_digest: value.binding_receipt_digest(),
@@ -985,13 +1080,21 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
         || receipt.selection_basis_digest() == BindingDigest::from_untrusted_bytes([0; 32])
         || receipt.frontier_digest() == BindingDigest::from_untrusted_bytes([0; 32])
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let join = plan
         .input_joins()
         .iter()
         .find(|join| input_join_identity_v2(join) == receipt.join_identity())
-        .ok_or(ProgramHostV2Error::InputCoverage)?;
+        .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )))?;
 
     if join.alignment_semantic_id != INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1
         || receipt.alignment_semantic_id() != join.alignment_semantic_id
@@ -1004,7 +1107,11 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
             .zip(&join.inputs)
             .any(|(component, expected)| component.role_semantic_id() != expected)
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
 
     let mut components = Vec::with_capacity(receipt.components().len());
@@ -1013,24 +1120,40 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
     for component in receipt.components() {
         let frame = component.frame();
         let [value] = frame.values() else {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         };
         let Some(role) = plan.input_roles().iter().find(|role| {
             role.semantic_id == component.role_semantic_id()
                 && strategy_input_role_identity_v2(role) == value.input_role_identity()
         }) else {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         };
 
         if !role_ids.insert(role.semantic_id.clone()) {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let Some(binding) = plan
             .input_bindings()
             .iter()
             .find(|binding| binding.input_role_identity() == value.input_role_identity())
         else {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         };
         let trigger = frame.trigger();
 
@@ -1044,7 +1167,11 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
                 &frame_bytes,
             )
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
 
         if value.binding_receipt_digest() != binding.receipt_digest()
@@ -1059,7 +1186,11 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
             || value.correction_sequence() == 0
             || role.value_type != ValueTypeV2::I128
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let lifecycle = trigger.lifecycle();
         let kind = match lifecycle.kind() {
@@ -1074,7 +1205,13 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
             {
                 lifecycle_v1::LifecycleKind::Event
             }
-            _ => return Err(ProgramHostV2Error::InputCoverage),
+            _ => {
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
+            }
         };
         let payload = match kind {
             lifecycle_v1::LifecycleKind::Bar => lifecycle_v1::EnvelopePayloadV1::Bar,
@@ -1098,7 +1235,9 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
                 role_semantic_id: role.semantic_id.clone(),
                 member_ordinal: None,
                 value: TypedValueV2::new(ValueTypeV2::I128, value.value_bytes().as_slice())
-                    .map_err(|_| ProgramHostV2Error::InputCoverage)?,
+                    .map_err(|_| {
+                        ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!()))
+                    })?,
                 owner_event: OwnerEventEvidenceV2 {
                     input_role_identity: value.input_role_identity(),
                     binding_receipt_digest: value.binding_receipt_digest(),
@@ -1120,20 +1259,37 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
     }
 
     if role_ids != join.inputs.iter().cloned().collect() {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let driver = components
         .iter()
         .find(|(role, _, _, _)| role.semantic_id == join.trigger_input_id)
         .map(|(_, envelope, _, _)| *envelope)
-        .ok_or(ProgramHostV2Error::InputCoverage)?;
+        .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )))?;
     let trigger_component = receipt
         .components()
         .iter()
         .find(|component| component.role_semantic_id() == join.trigger_input_id)
-        .ok_or(ProgramHostV2Error::InputCoverage)?;
+        .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )))?;
+
     if trigger_component.frame().trigger().digest() != receipt.trigger_digest() {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let driver_time = driver.order_key.logical_time_ns;
     if components.iter().any(|(_, envelope, _, _)| {
@@ -1142,7 +1298,11 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
             || driver_time.saturating_sub(envelope.order_key.logical_time_ns)
                 > join.max_staleness_ns
     }) {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
 
     if receipt
@@ -1154,7 +1314,11 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
                 != driver_time.saturating_sub(envelope.order_key.logical_time_ns)
         })
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     // Owner canonical component order is the sole ordering authority. The Host only verifies it.
     if components
@@ -1167,7 +1331,11 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
             })
         })
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let inputs = components
         .iter()
@@ -1183,7 +1351,11 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
         .windows(2)
         .any(|pair| pair[0].root == pair[1].root && pair[0].version != pair[1].version)
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let input_join_identity = Some(receipt.join_identity());
     let identity = admitted_event_identity(
@@ -1222,7 +1394,11 @@ fn admit_market_data_resolved_sample_event_v1(
         || readback.projection_receipt_digest() == zero
         || readback.projection_subject_identity() == [0; 32]
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
 
     let lifecycle = readback.lifecycle();
@@ -1237,11 +1413,18 @@ fn admit_market_data_resolved_sample_event_v1(
     let driver = LifecycleEnvelopeV1::new_bound(order_key, lifecycle_v1::EnvelopePayloadV1::Event)
         .map_err(ProgramHostV2Error::Kernel)?;
     let required = reaction_input_roles(plan, lifecycle_v1::LifecycleKind::Event)?;
-    let join = join_for_roles(plan, &required).ok_or(ProgramHostV2Error::InputCoverage)?;
+    let join = join_for_roles(plan, &required).ok_or(ProgramHostV2Error::InputCoverage(
+        concat!(file!(), ":", line!()),
+    ))?;
+
     if join.alignment_semantic_id != INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1
         || readback.values().len() != join.inputs.len()
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
 
     let mut inputs = Vec::with_capacity(required.len());
@@ -1252,12 +1435,20 @@ fn admit_market_data_resolved_sample_event_v1(
             .input_bindings()
             .iter()
             .find(|binding| binding.input_role_identity() == role_identity)
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
         let value = readback
             .values()
             .iter()
             .find(|value| value.role_identity() == *role_identity.as_bytes())
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
 
         if value.binding_receipt_digest() != *binding.receipt_digest().as_bytes()
             || value.value_scale() != role.scale
@@ -1283,7 +1474,11 @@ fn admit_market_data_resolved_sample_event_v1(
                 > join.max_staleness_ns
             || value.event_time() > lifecycle.event_time()
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let component_key = lifecycle_v1::EventOrderKeyV1::new(
             value.logical_time(),
@@ -1300,7 +1495,11 @@ fn admit_market_data_resolved_sample_event_v1(
         if role.semantic_id == join.trigger_input_id
             && (component != driver || value.value_trigger_digest() == zero)
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
 
         let coordinate = resolved_sample_coordinate_v1(value)?;
@@ -1309,7 +1508,7 @@ fn admit_market_data_resolved_sample_event_v1(
             role_semantic_id: role.semantic_id.clone(),
             member_ordinal: None,
             value: TypedValueV2::new(ValueTypeV2::I128, value.value_bytes().as_slice())
-                .map_err(|_| ProgramHostV2Error::InputCoverage)?,
+                .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?,
             owner_event: OwnerEventEvidenceV2 {
                 input_role_identity: role_identity,
                 binding_receipt_digest: binding.receipt_digest(),
@@ -1349,7 +1548,11 @@ fn admit_market_data_resolved_sample_event_v1(
         .iter()
         .any(|input| input.role_semantic_id == join.trigger_input_id)
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     source_binding_lineages.sort();
     source_binding_lineages.dedup();
@@ -1357,7 +1560,11 @@ fn admit_market_data_resolved_sample_event_v1(
         .windows(2)
         .any(|pair| pair[0].root == pair[1].root && pair[0].version != pair[1].version)
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let input_join_identity = Some(input_join_identity_v2(join));
     let identity = admitted_event_identity(
@@ -1400,7 +1607,7 @@ fn resolved_sample_coordinate_v1(
     bytes.extend_from_slice(&value.sample_receipt_digest());
     bytes
         .try_into()
-        .map_err(|_| ProgramHostV2Error::InputCoverage)
+        .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))
 }
 
 #[cfg(feature = "isolated-event-replay-acceptance")]
@@ -1467,7 +1674,11 @@ fn attach_owner_sample_coordinates_v4(
         || usize::try_from(projection.component_count()).ok() != Some(event.inputs.len())
         || projection.components().len() != event.inputs.len()
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
 
     for input in &mut event.inputs {
@@ -1483,16 +1694,28 @@ fn attach_owner_sample_coordinates_v4(
                 .iter()
                 .any(|binding| binding.kind() == BfpRoleBindingKindV1::Value)
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let coordinate_binding = role_rows
             .iter()
             .find(|binding| binding.kind() == BfpRoleBindingKindV1::Coordinate)
             .copied()
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
         let component = projection
             .component_for_role(*input.owner_event.input_role_identity.as_bytes())
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
 
         if coordinate_binding.input_role_id() != input.role_semantic_id
             || coordinate_binding.static_binding_receipt_digest()
@@ -1507,7 +1730,11 @@ fn attach_owner_sample_coordinates_v4(
             || component.binding_receipt_digest()
                 != *input.owner_event.binding_receipt_digest.as_bytes()
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         input.owner_event.sample_coordinate = Some(OwnerSampleCoordinateEvidenceV2 {
             canonical: *component.coordinate(),
@@ -1571,19 +1798,31 @@ fn attach_universe_member_sample_coordinates_v1(
         .map(|row| {
             row.member_ordinal()
                 .map(|member_ordinal| (member_ordinal, row.input_role_identity()))
-                .ok_or(ProgramHostV2Error::InputCoverage)
+                .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )))
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
     let mut supplied = BTreeSet::new();
 
     for coordinate in coordinates {
         if !supplied.insert((coordinate.member_ordinal, coordinate.input_role_identity)) {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
     }
 
     if supplied != required {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
 
     if coordinates.is_empty() {
@@ -1595,7 +1834,11 @@ fn attach_universe_member_sample_coordinates_v1(
     // resolves BAR frames. So a coordinated EVENT frame is still refused rather than admitted by a
     // rule no consumer exercises; admitting it means requiring an absent schedule set here.
     if event.envelope.order_key.kind != lifecycle_v1::LifecycleKind::Bar {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let zero = BindingDigest::from_untrusted_bytes([0; 32]);
 
@@ -1607,7 +1850,11 @@ fn attach_universe_member_sample_coordinates_v1(
                 input.member_ordinal == Some(coordinate.member_ordinal)
                     && input.owner_event.input_role_identity == coordinate.input_role_identity
             })
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
         let evidence = &coordinate.evidence;
 
         if evidence.projection_receipt_digest == zero
@@ -1616,7 +1863,11 @@ fn attach_universe_member_sample_coordinates_v1(
                 .schedule_dependency_set_digest
                 .is_none_or(|digest| digest == zero)
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         input.owner_event.sample_coordinate = Some(evidence.clone());
     }
@@ -1631,13 +1882,92 @@ fn attach_universe_member_sample_coordinates_v1(
     Ok(event)
 }
 
+/// How many (role, member) pairs [`ProgramHostV2Error::InputCoverageDiff`] names on each side -
+/// enough to see the shape of a divergence (one role, one member, systematic) without the
+/// refusal growing with the universe's size.
+const MAX_INPUT_COVERAGE_DIFF_ENTRIES: usize = 5;
+
+/// The exact (role, member) coverage diff a universe Bar/Event frame's refusal names: pairs
+/// `required` and every member of `members` call for that `frame` does not carry, and pairs
+/// `frame` carries that no required role names. A frame value's role prints as the Plan's own
+/// `semantic_id` when it matches one of `required` by identity, or its raw identity otherwise -
+/// an identity no required role names at all is still visible, not silently dropped.
+fn universe_frame_coverage_diff_v1(
+    required: &[&crate::strategy_design_v2::InputRoleV2],
+    members: &[crate::strategy_plan_v2::UniverseMemberProjectionV2],
+    frame: &StrategyInputUniverseFrameReceipt,
+) -> ProgramHostV2Error {
+    let required_pairs: BTreeSet<(String, String)> = required
+        .iter()
+        .flat_map(|role| {
+            members
+                .iter()
+                .map(move |member| (role.semantic_id.clone(), member.member_key().to_owned()))
+        })
+        .collect();
+    let frame_pairs: BTreeSet<(String, String)> = frame
+        .values()
+        .iter()
+        .map(|value| {
+            let role_key = required
+                .iter()
+                .find(|role| strategy_input_role_identity_v2(role) == value.input_role_identity())
+                .map_or_else(
+                    || format!("{:?}", value.input_role_identity()),
+                    |role| role.semantic_id.clone(),
+                );
+            (role_key, value.member_key().to_owned())
+        })
+        .collect();
+    let missing: Vec<_> = required_pairs.difference(&frame_pairs).cloned().collect();
+    let extra: Vec<_> = frame_pairs.difference(&required_pairs).cloned().collect();
+    let missing_total = missing.len();
+    let extra_total = extra.len();
+    let mut pair_counts: BTreeMap<(String, String), usize> = BTreeMap::new();
+
+    for value in frame.values() {
+        let role_key = required
+            .iter()
+            .find(|role| strategy_input_role_identity_v2(role) == value.input_role_identity())
+            .map_or_else(
+                || format!("{:?}", value.input_role_identity()),
+                |role| role.semantic_id.clone(),
+            );
+        *pair_counts
+            .entry((role_key, value.member_key().to_owned()))
+            .or_insert(0) += 1;
+    }
+    let duplicate_total = pair_counts
+        .values()
+        .filter(|&&count| count > 1)
+        .map(|&count| count - 1)
+        .sum();
+    ProgramHostV2Error::InputCoverageDiff {
+        missing: missing
+            .into_iter()
+            .take(MAX_INPUT_COVERAGE_DIFF_ENTRIES)
+            .collect(),
+        missing_total,
+        extra: extra
+            .into_iter()
+            .take(MAX_INPUT_COVERAGE_DIFF_ENTRIES)
+            .collect(),
+        extra_total,
+        duplicate_total,
+    }
+}
+
 fn admit_universe_frame_values_v2(
     plan: &StrategyPlanV2,
     frame: &StrategyInputUniverseFrameReceipt,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
     let projection = plan
         .universe_selection()
-        .ok_or(ProgramHostV2Error::InputCoverage)?;
+        .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )))?;
     let selection = frame.selection();
     if selection.selection_identity() != projection.selection_identity()
         || selection.selection_digest() != projection.selection_digest()
@@ -1655,7 +1985,11 @@ fn admit_universe_frame_values_v2(
                     || actual.instrument() != expected.instrument()
             })
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     let trigger = frame.trigger();
     let lifecycle = trigger.lifecycle();
@@ -1666,7 +2000,13 @@ fn admit_universe_frame_values_v2(
     let payload = match kind {
         lifecycle_v1::LifecycleKind::Bar => lifecycle_v1::EnvelopePayloadV1::Bar,
         lifecycle_v1::LifecycleKind::Event => lifecycle_v1::EnvelopePayloadV1::Event,
-        _ => return Err(ProgramHostV2Error::InputCoverage),
+        _ => {
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
+        }
     };
     let order_key = lifecycle_v1::EventOrderKeyV1::new(
         lifecycle.logical_time(),
@@ -1679,8 +2019,9 @@ fn admit_universe_frame_values_v2(
     let envelope =
         LifecycleEnvelopeV1::new_bound(order_key, payload).map_err(ProgramHostV2Error::Kernel)?;
     let required = reaction_input_roles(plan, kind)?;
+    let coverage_diff = || universe_frame_coverage_diff_v1(&required, projection.members(), frame);
     if frame.values().len() != required.len().saturating_mul(projection.members().len()) {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(coverage_diff());
     }
     let mut prior = None;
 
@@ -1709,7 +2050,11 @@ fn admit_universe_frame_values_v2(
                 value.instrument(),
             ) != Some(value.binding_digest())
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         prior = Some(coordinate);
     }
@@ -1729,15 +2074,15 @@ fn admit_universe_frame_values_v2(
                 .count()
                 != 1
             {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(coverage_diff());
             }
         }
     }
     let mut inputs = Vec::with_capacity(frame.values().len());
 
     for (member_ordinal, member) in projection.members().iter().enumerate() {
-        let member_ordinal =
-            u8::try_from(member_ordinal).map_err(|_| ProgramHostV2Error::InputCoverage)?;
+        let member_ordinal = u8::try_from(member_ordinal)
+            .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?;
 
         for role in &required {
             let role_identity = strategy_input_role_identity_v2(role);
@@ -1749,19 +2094,29 @@ fn admit_universe_frame_values_v2(
                         && value.instrument() == member.instrument()
                         && value.input_role_identity() == role_identity
                 })
-                .ok_or(ProgramHostV2Error::InputCoverage)?;
+                .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )))?;
 
             if value.value_type_semantic_id() != STRATEGY_INPUT_FIXED_I128_LE_V1
                 || value.value_scale() != role.scale
                 || role.value_type != ValueTypeV2::I128
             {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
             inputs.push(ProgramEventInputV2 {
                 role_semantic_id: role.semantic_id.clone(),
                 member_ordinal: Some(member_ordinal),
                 value: TypedValueV2::new(ValueTypeV2::I128, value.value_bytes().as_slice())
-                    .map_err(|_| ProgramHostV2Error::InputCoverage)?,
+                    .map_err(|_| {
+                        ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!()))
+                    })?,
                 owner_event: OwnerEventEvidenceV2 {
                     input_role_identity: role_identity,
                     binding_receipt_digest: value.binding_digest(),
@@ -1811,7 +2166,7 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
     );
     let event_identity = identity_digest.as_bytes()[..16]
         .try_into()
-        .map_err(|_| ProgramHostV2Error::InputCoverage)?;
+        .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?;
     let order_key = lifecycle_v1::EventOrderKeyV1::new(
         logical_time_ns,
         logical_time_ns,
@@ -1819,7 +2174,11 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
         prior
             .owner_sequence
             .checked_add(1)
-            .ok_or(ProgramHostV2Error::InputCoverage)?,
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?,
         event_identity,
     )
     .map_err(ProgramHostV2Error::Kernel)?;
@@ -1828,18 +2187,22 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
             .map_err(ProgramHostV2Error::Kernel)?;
 
     for input in &mut event.inputs {
-        let ordinal = usize::from(
-            input
-                .member_ordinal
-                .ok_or(ProgramHostV2Error::InputCoverage)?,
-        );
+        let ordinal = usize::from(input.member_ordinal.ok_or(
+            ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())),
+        )?);
         let value = match input.role_semantic_id.as_str() {
             "research.input.open.v1" => member_open_close[ordinal][0],
             "research.input.close.v1" => member_open_close[ordinal][1],
-            _ => return Err(ProgramHostV2Error::InputCoverage),
+            _ => {
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
+            }
         };
         input.value = TypedValueV2::new(ValueTypeV2::I128, value.to_le_bytes().as_slice())
-            .map_err(|_| ProgramHostV2Error::InputCoverage)?;
+            .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?;
         input.owner_event.event_receipt_digest = test_event_receipt_digest(
             event.envelope,
             input.owner_event.binding_receipt_digest,
@@ -2019,7 +2382,7 @@ impl ProgramHostV2 {
         let readback = resolver
             .resolve()
             .await
-            .map_err(|_| ProgramHostV2Error::InputCoverage)?;
+            .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?;
         let event = admit_market_data_resolved_sample_event_v1(&self.plan, &readback)?;
         self.apply_event(&event)
     }
@@ -2070,7 +2433,11 @@ impl ProgramHostV2 {
             || event.envelope.order_key.kind != lifecycle_v1::LifecycleKind::Bar
             || !is_admitted_member_count(self.member_kernels.len())
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let input_map =
             self.validate_inputs(event.envelope, &event.inputs, event.input_join_identity)?;
@@ -2082,7 +2449,11 @@ impl ProgramHostV2 {
                 .admit_envelope(event.envelope)
                 .map_err(ProgramHostV2Error::Kernel)?;
             if !matches!(admission, EnvelopeAdmissionV1::ProposalRequired(_)) {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
             admissions.push(admission);
         }
@@ -2146,13 +2517,21 @@ impl ProgramHostV2 {
             || event.input_join_identity.is_some()
             || event.universe_frame.is_some()
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let index = self
             .member_kernels
             .iter()
             .position(|member| member.instrument == instrument)
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
         let mut scratch = self.clone_for_scratch();
         let member = &mut scratch.member_kernels[index];
         let admission = member
@@ -2169,7 +2548,11 @@ impl ProgramHostV2 {
                     .trace
             }
             EnvelopeAdmissionV1::ProposalRequired(_) => {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
         };
         scratch.checkpoint = scratch.encode_checkpoint()?;
@@ -2191,7 +2574,11 @@ impl ProgramHostV2 {
             event.universe_frame,
         ) != event.identity
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
 
         if event
@@ -2199,7 +2586,11 @@ impl ProgramHostV2 {
             .iter()
             .any(|lineage| lineage.version == 0)
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let envelope = event.envelope;
         let inputs = event.inputs.as_slice();
@@ -2218,7 +2609,11 @@ impl ProgramHostV2 {
                     lifecycle_v1::LifecycleKind::Bar | lifecycle_v1::LifecycleKind::Event
                 )
             {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
             return self.apply_shared_kernel_event(event, &input_map, input_binding_digest);
         }
@@ -2229,7 +2624,11 @@ impl ProgramHostV2 {
 
         if let EnvelopeAdmissionV1::Joined(outcome) = admission {
             if input_binding_digest != self.last_input_binding_digest {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
             return Ok(outcome.trace);
         }
@@ -2239,7 +2638,11 @@ impl ProgramHostV2 {
                 .get(&lineage.root)
                 .is_some_and(|prior| lineage.version < *prior)
         }) {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let mut scratch = self.clone_for_scratch();
         let outcome = match admission {
@@ -2252,7 +2655,11 @@ impl ProgramHostV2 {
                 let EvaluatedProposalV2::Single(proposal) =
                     scratch.evaluate(envelope, &input_map)?
                 else {
-                    return Err(ProgramHostV2Error::InputCoverage);
+                    return Err(ProgramHostV2Error::InputCoverage(concat!(
+                        file!(),
+                        ":",
+                        line!()
+                    )));
                 };
                 scratch
                     .kernel
@@ -2282,7 +2689,11 @@ impl ProgramHostV2 {
             // The current Owner envelope has no canonical instrument coordinate. B3 Backtest (and
             // future Execution Runtime) must provide that sealed routing contract before fills can
             // advance one member of a combination.
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
 
         if event.source_binding_lineages.iter().any(|lineage| {
@@ -2290,7 +2701,11 @@ impl ProgramHostV2 {
                 .get(&lineage.root)
                 .is_some_and(|prior| lineage.version < *prior)
         }) {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
 
         let mut admissions = Vec::with_capacity(self.member_kernels.len());
@@ -2323,7 +2738,11 @@ impl ProgramHostV2 {
             if joined_count != self.member_kernels.len()
                 || input_binding_digest != self.last_input_binding_digest
             {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
             return Ok(trace);
         }
@@ -2369,11 +2788,19 @@ impl ProgramHostV2 {
                     event.envelope,
                     &member.instrument,
                     target_set
-                        .ok_or(ProgramHostV2Error::InputCoverage)?
+                        .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                            file!(),
+                            ":",
+                            line!()
+                        )))?
                         .members()
                         .get(index)
                         .copied()
-                        .ok_or(ProgramHostV2Error::InputCoverage)?,
+                        .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                            file!(),
+                            ":",
+                            line!()
+                        )))?,
                     strategy_digest,
                     plugin_digest,
                 )?)
@@ -2445,12 +2872,20 @@ impl ProgramHostV2 {
                 .pending_target_set
                 .is_some_and(|prior| target_set.sequence <= prior.target_set.sequence)
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
 
         for (member, target) in self.member_kernels.iter().zip(target_set.members()) {
             if member.instrument.as_bytes() != target.instrument.as_bytes() {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
         }
 
@@ -2459,7 +2894,11 @@ impl ProgramHostV2 {
                 == BindingDigest::from_untrusted_bytes([0; 32])
             || event.identity == BindingDigest::from_untrusted_bytes([0; 32])
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         Ok(())
     }
@@ -2548,7 +2987,11 @@ impl ProgramHostV2 {
             return if inputs.is_empty() && input_join_identity.is_none() {
                 Ok(BTreeMap::new())
             } else {
-                Err(ProgramHostV2Error::InputCoverage)
+                Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )))
             };
         }
         let declared = reaction_input_roles(&self.plan, envelope.order_key.kind)?;
@@ -2556,7 +2999,11 @@ impl ProgramHostV2 {
             join_for_roles(&self.plan, &declared).map(input_join_identity_v2);
 
         if input_join_identity != expected_join_identity {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let universe = self.plan.universe_selection().is_some();
         let member_count = self
@@ -2569,7 +3016,11 @@ impl ProgramHostV2 {
         };
 
         if inputs.len() != expected_len {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let mut values = BTreeMap::new();
         let mut frame = None;
@@ -2579,7 +3030,11 @@ impl ProgramHostV2 {
             let role = declared
                 .iter()
                 .find(|role| role.semantic_id == input.role_semantic_id)
-                .ok_or(ProgramHostV2Error::InputCoverage)?;
+                .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )))?;
             let role_identity = strategy_input_role_identity_v2(role);
             let binding = (!universe)
                 .then(|| {
@@ -2594,7 +3049,11 @@ impl ProgramHostV2 {
                 || (!universe
                     && input.owner_event.binding_receipt_digest
                         != binding
-                            .ok_or(ProgramHostV2Error::InputCoverage)?
+                            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                                file!(),
+                                ":",
+                                line!()
+                            )))?
                             .receipt_digest())
                 || input.owner_event.binding_receipt_digest
                     == BindingDigest::from_untrusted_bytes([0; 32])
@@ -2626,7 +3085,11 @@ impl ProgramHostV2 {
                     )
                     .is_some()
             {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
         }
 
@@ -2641,7 +3104,11 @@ impl ProgramHostV2 {
                 !values.contains_key(&(role.semantic_id.as_str(), None))
             }
         }) {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         Ok(values)
     }
@@ -3507,7 +3974,11 @@ pub(crate) fn assign_rebalance_sequence_v2(
     match target {
         TargetProposalV1::RebalancePosition { sequence: 0, units } => {
             Ok(TargetProposalV1::RebalancePosition {
-                sequence: assigned().ok_or(ProgramHostV2Error::InputCoverage)?,
+                sequence: assigned().ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )))?,
                 units,
             })
         }
@@ -3846,13 +4317,21 @@ pub(crate) fn lift_single_instrument_proposal(
     proposal: lifecycle_v1::ProposalV1,
 ) -> Result<InstrumentTargetSetV2, ProgramHostV2Error> {
     let [instrument] = member_instruments else {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     };
     let sequence = pending_sequence
         .map_or(Some(1), |sequence| sequence.checked_add(1))
-        .ok_or(ProgramHostV2Error::InputCoverage)?;
+        .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )))?;
     let instrument = InstrumentKeyV2::new(instrument.as_bytes())
-        .map_err(|_| ProgramHostV2Error::InputCoverage)?;
+        .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?;
     InstrumentTargetSetV2::new(
         sequence,
         &[MemberTargetV2 {
@@ -3899,7 +4378,7 @@ fn backtest_prepared_target_set_identity(
     bytes.extend(
         target_set
             .encode()
-            .map_err(|_| ProgramHostV2Error::InputCoverage)?,
+            .map_err(|_| ProgramHostV2Error::InputCoverage(concat!(file!(), ":", line!())))?,
     );
     Ok(domain_digest(BACKTEST_PREPARED_TARGET_SET_DOMAIN, &bytes))
 }
@@ -3996,7 +4475,11 @@ fn reaction_input_roles(
                 != plan.universe_selection().is_some()
         })
     {
-        return Err(ProgramHostV2Error::InputCoverage);
+        return Err(ProgramHostV2Error::InputCoverage(concat!(
+            file!(),
+            ":",
+            line!()
+        )));
     }
     Ok(roles)
 }

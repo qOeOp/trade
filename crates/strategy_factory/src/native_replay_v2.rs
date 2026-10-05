@@ -246,7 +246,11 @@ impl PreparedProgramHostBarCapabilityV1 {
         } = self;
 
         if base.artifact != artifact.identity() {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
 
         for member in &members {
@@ -258,7 +262,11 @@ impl PreparedProgramHostBarCapabilityV1 {
                 &member.sample_projection,
                 &member.native_join,
             ) {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
         }
         let host = construct_prepared_program_host_v2(plan, artifact)?;
@@ -306,7 +314,11 @@ impl PreparedProgramHostCapabilityV2 {
             sample_projection.subject_identity(),
             sample_projection.component_count(),
         ) {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let host = construct_prepared_program_host_v2(plan, artifact)?;
         Ok(PreparedProgramHostHandoffV2 {
@@ -359,7 +371,11 @@ impl PreparedProgramHostEventCorpusCapabilityV2 {
             || binding.event_corpus_digest != event_package.corpus().digest()
             || binding.event_corpus_count != event_package.corpus().expected_count()
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let host = construct_prepared_program_host_v2(plan, artifact)?;
         Ok(PreparedProgramHostHandoffV2 {
@@ -519,7 +535,11 @@ impl PreparedProgramHostBarHandoffV1 {
         } = self;
 
         if members.is_empty() {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         let mut events = Vec::with_capacity(members.len());
 
@@ -532,7 +552,11 @@ impl PreparedProgramHostBarHandoffV1 {
                 &member.sample_projection,
                 &member.native_join,
             ) {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
             events.push(AdmittedBarMemberV1 {
                 event: admit_market_data_bar_joined_cut_program_event_v4(
@@ -574,7 +598,11 @@ impl PreparedProgramHostBarHandoffV1 {
             if later.logical_time_ns <= earlier.logical_time_ns
                 || later.event_identity == earlier.event_identity
             {
-                return Err(ProgramHostV2Error::InputCoverage);
+                return Err(ProgramHostV2Error::InputCoverage(concat!(
+                    file!(),
+                    ":",
+                    line!()
+                )));
             }
         }
         Ok((host, events))
@@ -620,13 +648,21 @@ impl PreparedProgramHostHandoffV2 {
     ) -> Result<(ProgramHostV2, StrategyInputEventReplayPackageV1), ProgramHostV2Error> {
         let package = self
             .event_package
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+            .ok_or(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )))?;
 
         if !package.has_valid_digest()
             || package.corpus().digest() != self.binding.event_corpus_digest
             || package.corpus().expected_count() != self.binding.event_corpus_count
         {
-            return Err(ProgramHostV2Error::InputCoverage);
+            return Err(ProgramHostV2Error::InputCoverage(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         Ok((self.host, package))
     }
