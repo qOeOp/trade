@@ -1490,6 +1490,17 @@ impl ReplayCompositionOwnerV1 {
         &self,
         design_identity: BindingDigest,
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        self.declare_published_design_v1(design_identity, None)
+            .await
+    }
+
+    /// Reads one published Design's role intent as the admitted reader and declares its roles: over
+    /// its initial PIT snapshot, or over a custody run's first frame when `run` names one.
+    async fn declare_published_design_v1(
+        &self,
+        design_identity: BindingDigest,
+        run: Option<crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1>,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
         let mut reader_transaction = self
             .rd_role_set_pool
             .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -1553,12 +1564,77 @@ impl ReplayCompositionOwnerV1 {
                 return Err(reader_error);
             }
         };
-        let outcome = self.register_design_intent_declarations_v1(&intent).await;
+        let outcome = match run {
+            None => self.register_design_intent_declarations_v1(&intent).await,
+            Some(run) => {
+                self.register_custody_design_declarations_v1(&intent, run)
+                    .await
+            }
+        };
         reader_transaction
             .rollback()
             .await
             .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
         outcome
+    }
+
+    /// Declares every input role of one published Design over its custody run's first frame
+    /// (T0-10), reading the Design's role intent exactly as the snapshot path does.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same bounded categories as the snapshot path; a run with no pinned head is
+    /// `CUSTODY_HEAD_UNPINNED`, one whose frames cannot be read `CUSTODY_RUN_UNAVAILABLE`, and
+    /// nothing is written on any refusal.
+    pub async fn declare_strategy_input_bindings_over_custody_run_v1(
+        &self,
+        design_identity: BindingDigest,
+        run: crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        self.declare_published_design_v1(design_identity, Some(run))
+            .await
+    }
+
+    /// Resolves and stores one published Design's roles over a custody run's first frame inside a
+    /// single Owner transaction.
+    async fn register_custody_design_declarations_v1(
+        &self,
+        intent: &StrategyDesignRoleIntentV1,
+        run: crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+        let composed =
+            super::authenticated_design_registration_v1::register_custody_design_roles_v1(
+                &mut transaction,
+                super::pit_role_resolution_v1::AuthenticatedDesignIdentityV1::from_role_intent(
+                    intent,
+                ),
+                intent.roles(),
+                run,
+            )
+            .await;
+
+        match composed {
+            Ok(terminal) => {
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+                Ok(terminal)
+            }
+            Err(operation_error) => {
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+                Err(operation_error)
+            }
+        }
     }
 
     /// Refuses a connection that is not the admitted reader principal, and says so in the log.
@@ -1951,6 +2027,12 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
         "market_data_rd_api.lock_universe_for_strategy_input_v1(bytea)",
         "market_data_rd_api.lock_market_semantics_scope_for_strategy_input_v1(bytea)",
         "market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1(bytea)",
+        // The custody reread's pass-throughs (T0-10 (c)). Custody rows are append-only but for
+        // the chain head, which the reread never reads, so these take no lock and are STABLE.
+        "market_data_rd_api.resolve_pit_window_chain_v1(bytea)",
+        "market_data_rd_api.resolve_pit_window_rows_v1(bytea,bytea[])",
+        "market_data_rd_api.resolve_pit_window_chain_basis_v1(bytea)",
+        "market_data_rd_api.resolve_pit_window_universe_selection_v1(bytea)",
     ] {
         let name = function
             .split_once('(')
@@ -1959,6 +2041,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
         let source = REPLAY_MARKET_RD_CUT_API_SCHEMA_V1
             .iter()
             .chain(super::rd_strategy_input_custody::SCHEMA_V1.iter())
+            .chain(super::custody_strategy_input_v1::RD_CUSTODY_READ_SCHEMA_V1.iter())
             .find_map(|statement| {
                 statement
                     .strip_prefix("CREATE OR REPLACE FUNCTION ")
@@ -1975,7 +2058,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
             "SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='market_data_owner'
                     AND language.lanname='sql'
                     AND procedure.prosrc=$2
-                    AND procedure.prosecdef AND procedure.provolatile='v'
+                    AND procedure.prosecdef AND procedure.provolatile::text=$4
                     AND procedure.proparallel='u' AND NOT procedure.proleakproof
                     AND procedure.prokind='f' AND procedure.proretset
                     AND procedure.pronargs=$3
@@ -1994,6 +2077,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
         .bind(function)
         .bind(source)
         .bind(i16::from(function.contains("bytea,bytea")) + 1)
+        .bind(if name.starts_with("market_data_rd_api.lock_") { "v" } else { "s" })
         .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?

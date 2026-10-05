@@ -4081,9 +4081,10 @@ mod tests {
     }
 
     /// A custody view request crosses JSON as one field beside the snapshot's two, which it never
-    /// states; a request naming both sources, or neither, is refused. No declaration stores one.
+    /// states; a request naming both sources, or neither, is refused. A declaration stores one under
+    /// its own codec version and decodes it back exactly (T0-10).
     #[rstest]
-    fn a_custody_view_request_has_its_own_wire_and_is_never_stored() {
+    fn a_custody_view_request_has_its_own_wire_and_storage() {
         let mut custody = request();
         custody.source = custody_view();
         let value = serde_json::to_value(&custody).unwrap();
@@ -4113,10 +4114,9 @@ mod tests {
         neither.as_object_mut().unwrap().remove("custody_view");
         assert!(serde_json::from_value::<UntrustedStrategyInputBindingRequest>(neither).is_err());
 
-        assert_eq!(
-            codec::encode_request_v1(&custody),
-            Err(codec::CodecError::InvalidRequest)
-        );
+        let stored = codec::encode_request_v1(&custody).unwrap();
+        assert_eq!(codec::decode_request_v1(&stored), Ok(custody));
+        assert_ne!(stored, codec::encode_request_v1(&request()).unwrap());
     }
 
     #[rstest]

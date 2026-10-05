@@ -1350,13 +1350,6 @@ pub(crate) struct RecordedTimeframeV1 {
 }
 
 /// A stored custody record, read back from the canonical bytes its identity is the digest of.
-#[cfg_attr(
-    not(any(test, feature = "sealed-strategy-input-acceptance")),
-    expect(
-        dead_code,
-        reason = "read back by the derived view's chain verifier (T0-5 C6)"
-    )
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CustodyRecordV1 {
     pub(crate) identity: BindingDigest,
@@ -1384,13 +1377,6 @@ pub(crate) struct CustodyRecordV1 {
     pub(crate) version_identities: BTreeSet<BindingDigest>,
 }
 
-#[cfg_attr(
-    not(any(test, feature = "sealed-strategy-input-acceptance")),
-    expect(
-        dead_code,
-        reason = "read back by the derived view's chain verifier (T0-5 C6)"
-    )
-)]
 impl CustodyRecordV1 {
     /// The root of the chain this custody belongs to.
     pub(crate) fn chain_root(&self) -> BindingDigest {
@@ -1436,13 +1422,6 @@ impl CustodyRecordV1 {
 /// canonical bytes of `identity`: the digest under the custody domain, no trailing byte, inputs
 /// strictly ascending with the execution timeframe among them and the fill never among them, and
 /// a chain position a commit can write.
-#[cfg_attr(
-    not(any(test, feature = "sealed-strategy-input-acceptance")),
-    expect(
-        dead_code,
-        reason = "read back by the derived view's chain verifier (T0-5 C6)"
-    )
-)]
 pub(crate) fn decode_custody_record_v1(
     bytes: &[u8],
     identity: BindingDigest,
@@ -1535,24 +1514,10 @@ pub(crate) fn decode_custody_record_v1(
     })
 }
 
-#[cfg_attr(
-    not(any(test, feature = "sealed-strategy-input-acceptance")),
-    expect(
-        dead_code,
-        reason = "read back by the derived view's chain verifier (T0-5 C6)"
-    )
-)]
 struct RecordReader<'a> {
     bytes: &'a [u8],
 }
 
-#[cfg_attr(
-    not(any(test, feature = "sealed-strategy-input-acceptance")),
-    expect(
-        dead_code,
-        reason = "read back by the derived view's chain verifier (T0-5 C6)"
-    )
-)]
 impl<'a> RecordReader<'a> {
     fn take(&mut self, length: usize) -> Option<&'a [u8]> {
         if self.bytes.len() < length {

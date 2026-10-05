@@ -82,6 +82,67 @@ pub(super) async fn register_authenticated_design_roles_v1(
     Ok(terminal)
 }
 
+/// Composes and registers every declared role over a custody run's first frame inside the
+/// caller's open transaction (T0-10): the frame view at the head `run` pins, sealed, so each role's
+/// universe selection is the one every later frame of the run derives.
+pub(super) async fn register_custody_design_roles_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    design: AuthenticatedDesignIdentityV1,
+    roles: &[StrategyDesignRoleEntryV1],
+    run: crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+    if roles.is_empty() {
+        return Err(StrategyInputBindingAdmissionErrorV1::UnsupportedRole);
+    }
+
+    // An unpinned run would read whatever head is current, and two admissions of one Design could
+    // then compose over different views.
+    if run.head_identity.is_none() {
+        return Err(StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+            cause: "CUSTODY_HEAD_UNPINNED",
+        });
+    }
+    let run_unavailable = StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+        cause: "CUSTODY_RUN_UNAVAILABLE",
+    };
+    let frames =
+        super::pit_window_custody_v1::resolve_pit_window_frames_in_transaction_v1(transaction, run)
+            .await
+            .map_err(|_| run_unavailable)?;
+    let first = frames.frames().first().ok_or(run_unavailable)?;
+    let frame = crate::owner::pit_window_custody_v1::UntrustedPitWindowCustodyFrameV1 {
+        custody: run.custody,
+        head_identity: frames.head_identity(),
+        event_ns: first.event_ns(),
+    };
+    let (batch, basis) =
+        super::custody_strategy_input_v1::read_custody_frame_batch_v1(transaction, &frame)
+            .await
+            .map_err(|e| map_admission_registry_error(&e))?;
+    let mut requests = Vec::with_capacity(roles.len());
+
+    for role in roles {
+        let request = compose_binding_request_v1(design, role, &batch)
+            .map_err(map_admission_resolution_error)?;
+        super::custody_strategy_input_v1::check_custody_request_against_basis_v1(
+            &request, &batch, &basis,
+        )
+        .map_err(|e| map_admission_registry_error(&e))?;
+        requests.push(request);
+    }
+    let terminal = StrategyInputBindingAdmissionTerminalV1::seal(
+        design.design_identity(),
+        design.research_request_identity(),
+        batch.request_identity(),
+        batch.time_evidence().decision_cut.value,
+        requests.len() as u64,
+    );
+    register_authenticated_role_declarations_v1(transaction, design, roles, &requests)
+        .await
+        .map_err(|e| map_admission_registry_error(&e))?;
+    Ok(terminal)
+}
+
 pub(super) fn map_admission_resolution_error(
     error: PitRoleResolutionErrorV1,
 ) -> StrategyInputBindingAdmissionErrorV1 {

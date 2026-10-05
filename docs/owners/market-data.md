@@ -2796,8 +2796,11 @@ Binding, Instrument Master V1, Universe Selection and custody intakes, so its ou
 synthetic inputs and never U1 evidence. Its spec's fill timeframe must be exactly one minute, as every custody's is.
 An ordered chain shares one store, so a member an earlier entry already admitted keeps its Instrument Master fact: the
 fixture submits no rival genesis fact and names no predecessor, which would correct the earlier entry's instrument. The
-custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. Its
-historical membership frontier names the window, so two fixture chains over the same members are two memberships
+custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. The custody
+intake also requires every member's fact to carry the custody binding's market semantics compatibility scope, so such a
+chain names the earlier entry's binding semantics in the spec's `source_semantics`; a held fact under another scope is
+refused by name as `HeldInstrumentSemanticsDiffer` before anything is committed. Its historical membership frontier
+names the window, so two fixture chains over the same members are two memberships
 (`postgres_a_member_already_admitted_keeps_its_fact`).
 
 Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
@@ -2963,14 +2966,21 @@ The work, in order:
   - **What it serves.** `reread_persisted_strategy_input_universe_custody_for_update_v1`, which H8 reaches through
     `reread_design_input_custody_v1`, re-resolves the declarations' batch through the same custody arm.
   - **Under `rd_owner`.** That principal reads only `market_data_rd_api`, so the arm needs that schema's
-    custody-view and chain-basis read functions and their grants. The deployment's role grants in
-    `database/postgres-init` change with them.
+    custody-view and chain-basis read functions and their grants.
+  - **No deployment script change.** `database/postgres-init` already grants `rd_owner` `USAGE` on
+    `market_data_rd_api` and strips that schema's functions only from other roles. Each function's `EXECUTE` comes
+    from the Owner migration's own `GRANT ... TO rd_owner`, as every other `market_data_rd_api` function's does.
 - **(d) The run's own check (Lane 5).**
   - **What it compares.** H8's check compares the Design's bound Instrument Master digest, Market Semantics identity
     and members with the chain basis's.
   - **What it does not compare.** It does not compare the strategy-input selection hash with the Universe Selection
     record's identity, which is another domain.
   - **When it passes.** Once (a) to (c) hold, the custody run's chain entry answers `custody_binding.is_some()`.
+  - **Where the universe property now lives.** The property that a custody run's strategy universe selection is the
+    chain's selection is relocated, not removed. The H8 cross-domain comparison #1411 deleted held it before.
+    Per-frame custody resolution now proves it: every frame requires the Design's strategy-input `selection_identity`
+    to equal the one derived from that frame's custody view. (a) makes that identity the first frame's own, so a
+    Design whose universe differs from the chain's is refused at its first frame.
 
 Proofs:
 
@@ -2978,6 +2988,39 @@ Proofs:
 - **Survives a later head.** A declaration made at one head re-resolves after a correction moved the head.
 - **Refusals.** A request whose view, Universe Selection record, Source Binding, Market Semantics fact or Instrument
   Master cut disagrees with the chain is refused by name, and nothing is written.
+
+Built (T0-10 (a) and (b)):
+
+- **The entry.** `admit_published_design_over_custody_run` reads the Design's role intent as the snapshot path does.
+  It then composes over the first frame of the run at its pinned head (`register_custody_design_roles_v1`).
+- **Refusals before composing.**
+  - A run with no pinned head is refused as `CUSTODY_HEAD_UNPINNED`, because two admissions could otherwise compose
+    over different views.
+  - A run whose frames cannot be read is refused as `CUSTODY_RUN_UNAVAILABLE`.
+- **The storage codec.** A custody-view declaration is stored under its own codec version, 2, whose layout differs from
+  version 1 only in the source. Snapshot declarations keep their bytes and every digest over them.
+- **One declaration per view.** A declaration is keyed by its view's request identity. The same Design over another
+  run or head is therefore another declaration at that view's coordinate, not a conflict.
+- **The registry's custody arm.** It re-reads the view by walking the chain's custodies from the head toward the root,
+  and checks the Universe Selection record, Instrument Master key and Market Semantics identity against the chain
+  basis. The Source Binding is checked when the role binds against the sealed view.
+- **Proofs.** The three `custody_strategy_input_v1_tests` PG proofs.
+
+Built (T0-10 (c)):
+
+- **The wrappers.** Four `market_data_rd_api` functions pass through to the private chain, rows, chain-basis and
+  Universe Selection functions the admitted port reads through `market_data_admitted_read`. They are granted to
+  `rd_owner`.
+- **Why no lock.** Custody rows are append-only but for the chain head, and the reread walks custodies rather than
+  reading the head, so the wrappers are `STABLE` and take no lock.
+- **The transport check.** `verify_rd_replay_cut_transport_v1` verifies them as it verifies the locking functions:
+  owner, definer, exact source, volatility, and `EXECUTE` held by `rd_owner` alone.
+- **One decoder.** The reread decodes their rows with the admitted port's decoders, and the view through the same
+  `resolve_pit_window_view_from_raw_v1` the port uses, so both principals verify the same evidence the same way.
+- **Proof.** `postgres_the_rd_owner_reread_answers_what_the_owner_reread_answers` runs the wrappers as the Owner, which
+  owns them. It shows they return the same sealed view and basis as the Owner's own table read, walking past a
+  corrected head, and the same refusal for a view the chain does not hold.
+- **The grant path.** The path as `rd_owner` itself is proved by the R&D chain's custody entry.
 - **The reread.** The reread under `rd_owner` returns the custody frame the declaration was made over.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
@@ -4005,16 +4048,25 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     Built (with B1). `verify_venue_bars_v1` reports archive-only and store-only bars. `open_venue_bar_conflicts_v1`
     lists the conflicts no correction resolves. `correct_venue_bar_v1` refuses an unknown conflict
     (`BAR_CONFLICT_UNKNOWN`) or one whose bar has moved on (`BAR_CONFLICT_SUPERSEDED`).
-  - **B3 - the REST recorder (Lane 8, after B1).** Forward pagination over `request_binance_bars`, for every
-    timeframe label in the served set, from an instrument's first listed bar, or the last stored close, to the
-    present. Every page is committed through B1's writer, and a bar is admitted only after the settle delay. It is
-    paced inside the public rate limit and resumable.
+  - **B3 - the REST recorder (Lane 8, after B1).** Forward pagination over Binance's kline rows, for every
+    timeframe label in the served set, from an instrument's first listed bar (Binance's own response to a
+    `startTime` of the Unix epoch, ascending), or the last stored close, to the present. Every page is committed
+    through B1's writer, and a bar is admitted only after the settle delay. It is paced inside the public rate
+    limit (the adapter's own built-in `RateLimiter`, already shared by every Binance call) and resumable.
 
     Acceptance:
     - Unit tests for paging boundaries and the settle filter.
     - A local test against live REST: one day of BTCUSDT `1m` and `1d`, recorded twice, writes once and then
       rejoins.
     - The counts against the archive equal the measurements above.
+
+    Built. `crates/adapters/binance/src/venue_bar_rest_recorder_v1.rs`. The Lane 8 design decision Lane 3 flagged -
+    how the recorder resolves and caches an instrument to satisfy `request_binance_bars`'s `BarType` - turned out
+    not to be needed: that wrapper keeps only its bar's nautilus event timestamp (Binance's `closeTime`),
+    discarding `openTime`, which `VenueBarV1` needs independently of `closeTime` to derive its own grid-exact
+    close through `served_timeframe_v1`. `request_raw_klines`, a new thin passthrough to the adapter's already-
+    rate-limited raw kline rows, is called directly instead - keyed by the raw venue symbol string, with no
+    `BarType` or instrument cache in the loop at all.
   - **B4 - the calendar-month cadence (Lane 8).** `CalendarMonth` cadence on the UTC month anchor in
     `UntrustedSourceBarCadenceV1`, with its codec, refused as an execution timeframe. The served label table is B1's.
 

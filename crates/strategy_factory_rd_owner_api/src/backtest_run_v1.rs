@@ -336,11 +336,18 @@ pub(crate) async fn run_backtest_v1(
         .map_err(BacktestRunErrorV1::RoleIntentPublicationFailed)?;
     let design_identity = role_intent.design_identity();
 
-    let _bindings: StrategyInputBindingAdmissionTerminalV1 = owners
-        .strategy_input_bindings
-        .admit_published_design(design_identity)
-        .await
-        .map_err(BacktestRunErrorV1::StrategyInputBindingFailed)?;
+    let _bindings: StrategyInputBindingAdmissionTerminalV1 = match custody_run {
+        Some(run) => owners
+            .strategy_input_bindings
+            .admit_published_design_over_custody_run(design_identity, run)
+            .await
+            .map_err(BacktestRunErrorV1::StrategyInputBindingFailed)?,
+        None => owners
+            .strategy_input_bindings
+            .admit_published_design(design_identity)
+            .await
+            .map_err(BacktestRunErrorV1::StrategyInputBindingFailed)?,
+    };
 
     let freeze = owners
         .bounded_feature_program

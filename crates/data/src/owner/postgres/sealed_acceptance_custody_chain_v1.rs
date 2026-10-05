@@ -18,7 +18,6 @@ use super::{
     universe_selection::recover_universe_selection_in_transaction_v1,
 };
 use crate::owner::{
-    instrument_master::InstrumentMasterFactV1,
     instrument_master_admission_v1::{
         InstrumentDecimalSubmissionV1, InstrumentMasterAdmissionV1,
         InstrumentMasterFactSubmissionV1, InstrumentVenueSourceMappingSubmissionV1,
@@ -277,19 +276,21 @@ impl<'a> ChainPlanV1<'a> {
                 identity: named("trust-policy"),
                 version: 1,
             },
-            semantics: UntrustedMarketSemantics {
-                normalization: named("normalization"),
-                adjustment: named("raw"),
-                price_meaning: named("quote-currency-per-base"),
-                calendar_rules: named("continuous-calendar"),
-                session_rules: named("continuous-session"),
-                timezone_rules: named("etc-utc"),
-                instrument_lifecycle_rules: named("instrument-lifecycle"),
-                corporate_action_rules: named("no-corporate-actions"),
-                membership_rules: named("fixed-membership"),
-                universe_rules: named("fixed-member-selection"),
-                correction_policy: named("no-corrections"),
-            },
+            semantics: self.spec.source_semantics.clone().unwrap_or_else(|| {
+                UntrustedMarketSemantics {
+                    normalization: named("normalization"),
+                    adjustment: named("raw"),
+                    price_meaning: named("quote-currency-per-base"),
+                    calendar_rules: named("continuous-calendar"),
+                    session_rules: named("continuous-session"),
+                    timezone_rules: named("etc-utc"),
+                    instrument_lifecycle_rules: named("instrument-lifecycle"),
+                    corporate_action_rules: named("no-corporate-actions"),
+                    membership_rules: named("fixed-membership"),
+                    universe_rules: named("fixed-member-selection"),
+                    correction_policy: named("no-corrections"),
+                }
+            }),
             license: UntrustedLicensePolicy {
                 use_scope: named("acceptance-only"),
                 redistribution_scope: named("none"),
@@ -473,12 +474,13 @@ impl<'a> ChainPlanV1<'a> {
     }
 }
 
-/// The latest fact the store holds for `member`, the one no other of its facts corrects, or `None`
-/// if it holds none. A member with two uncorrected facts has no single fact to keep and is refused.
+/// The latest fact the store holds for `member`, the one no other of its facts corrects, with the
+/// market semantics compatibility scope it carries; `None` if it holds none. A member with two
+/// uncorrected facts has no single fact to keep and is refused.
 async fn held_instrument_fact_v1(
     owner: &MarketDataOwnerPostgres,
     member: &str,
-) -> Result<Option<BindingDigest>, Error> {
+) -> Result<Option<(BindingDigest, BindingDigest)>, Error> {
     let mut transaction = owner
         .pool
         .begin()
@@ -493,12 +495,12 @@ async fn held_instrument_fact_v1(
         .map_err(|_| Error::StoreUnavailable)?;
     let mut heads = facts
         .iter()
-        .map(InstrumentMasterFactV1::digest)
-        .filter(|digest| {
+        .filter(|head| {
             facts
                 .iter()
-                .all(|fact| fact.predecessor_fact_digest() != Some(*digest))
-        });
+                .all(|fact| fact.predecessor_fact_digest() != Some(head.digest()))
+        })
+        .map(|head| (head.digest(), head.market_semantics_identity()));
 
     match (heads.next(), heads.next()) {
         (None, _) => Ok(None),
@@ -549,7 +551,10 @@ pub(in crate::owner) async fn commit_sealed_acceptance_custody_chain_in_store_v1
     let mut instrument_fact_digests = Vec::with_capacity(spec.members.len());
 
     for member in &spec.members {
-        if let Some(held) = held_instrument_fact_v1(&owner, member).await? {
+        if let Some((held, held_semantics)) = held_instrument_fact_v1(&owner, member).await? {
+            if held_semantics != binding.market_semantics_identity() {
+                return Err(Error::HeldInstrumentSemanticsDiffer);
+            }
             instrument_fact_digests.push(held);
             continue;
         }

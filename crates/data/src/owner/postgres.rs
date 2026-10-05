@@ -22,6 +22,9 @@ pub mod bar_joined_cut_acceptance_v1;
 pub mod bar_schedule_acceptance_v1;
 #[cfg(test)]
 mod bar_schedule_acceptance_v1_tests;
+mod custody_strategy_input_v1;
+#[cfg(test)]
+mod custody_strategy_input_v1_tests;
 mod source_binding_dataset_anchor_v1;
 mod venue_bar_store_v1;
 pub(in crate::owner) use venue_bar_store_v1::venue_bar_store_from_environment_v1;
@@ -1077,6 +1080,7 @@ impl MarketDataOwnerPostgres {
             .chain(universe_member_composition_basis_v1::SCHEMA_V1)
             .chain(universe_selection::RD_READ_SCHEMA_V1)
             .chain(pit_window_custody_v1::SCHEMA_V1)
+            .chain(custody_strategy_input_v1::RD_CUSTODY_READ_SCHEMA_V1)
             .chain(backfill_job_v1::SCHEMA_V1)
             .chain(source_binding_dataset_anchor_v1::SCHEMA_V1)
             .chain(venue_bar_store_v1::SCHEMA_V1)
@@ -13352,6 +13356,16 @@ impl StrategyInputBindingAdmissionV1 for StrategyInputBindingAdmissionPostgresV1
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
         self.binding
             .declare_strategy_input_bindings_from_design_intent_v1(design_identity)
+            .await
+    }
+
+    async fn admit_published_design_over_custody_run(
+        &self,
+        design_identity: BindingDigest,
+        run: crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
+        self.binding
+            .declare_strategy_input_bindings_over_custody_run_v1(design_identity, run)
             .await
     }
 }

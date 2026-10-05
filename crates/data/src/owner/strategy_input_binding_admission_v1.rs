@@ -186,6 +186,23 @@ pub trait StrategyInputBindingAdmissionV1: Send + Sync + sealed::Sealed {
         &self,
         design_identity: BindingDigest,
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1>;
+
+    /// Declares every input role of a published Design over its custody run's first frame (T0-10).
+    ///
+    /// A custody run's Design binds its universe from the chain, never from the initial PIT
+    /// snapshot: every role is composed over the run's first custody frame at the head `run` pins,
+    /// so its strategy-input universe selection is the one each later frame of the run derives.
+    /// The terminal's coordinate is that frame's view identity and its decision cut.
+    ///
+    /// # Errors
+    ///
+    /// Returns a bounded category. A role set is declared whole or not at all, and re-admitting the
+    /// same Design over the same run rejoins the same declarations.
+    async fn admit_published_design_over_custody_run(
+        &self,
+        design_identity: BindingDigest,
+        run: crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+    ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1>;
 }
 
 pub(crate) mod sealed {
