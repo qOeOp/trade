@@ -157,6 +157,7 @@ jobs:
       run-tests: ${{ steps.plan.outputs.run_tests }}
       run-rust-tests: ${{ steps.plan.outputs.run_rust_tests }}
       run-owner-chain: ${{ steps.plan.outputs.run_owner_chain }}
+      rust-test-filter: ${{ steps.plan.outputs.rust_test_filter }}
       run-generated-drift: ${{ steps.plan.outputs.run_generated_drift }}
       run-full-pre-commit: ${{ steps.plan.outputs.run_full_pre_commit }}
       run-capnp-check: ${{ steps.plan.outputs.run_capnp_check }}
@@ -654,6 +655,20 @@ jobs:
       RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
       RUST_BACKTRACE: 1
       VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+      # scripts/ci/plan.sh's own nextest filterset expression - one `rdeps(=<package>)` clause per
+      # changed crate, ORed together - or the literal ALL when it cannot attribute every changed
+      # file to a crate it can name. This narrows which already-identically-built tests *run*,
+      # never what gets built or which features it builds with: the build step below still
+      # compiles the whole workspace regardless, and `rd owner archive` / the chain jobs further
+      # down always build and run their own full archive.
+      # Deliberately not named with a CARGO_/RUST* prefix: rust-cache folds every variable with
+      # one into its cache key (check-chain-channel-environment.py enforces this everywhere that
+      # matters), and this value is different on almost every pull request - giving it one would
+      # make every such PR pay for a cold cache instead of restoring main's, the opposite of this
+      # change's own point. The "Run Rust tests" step below renames it into the Makefile's own
+      # NEXTEST_FILTER_EXPR on that one command line, which rust-cache's own setup step - an
+      # earlier step in this same job - never sees.
+      TEST_FILTER_EXPR: ${{ needs.plan.outputs.rust-test-filter }}
     # yamllint disable rule:line-length
     services:
       redis:
@@ -840,6 +855,7 @@ jobs:
         run: >-
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+          NEXTEST_FILTER_EXPR="${TEST_FILTER_EXPR}"
 
       # `cargo nextest run` rewrites junit.xml, and the proofs below are a second invocation, so
       # this copy has to happen between them or only the proofs survive. `always()`: a failing run

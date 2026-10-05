@@ -32,7 +32,7 @@ use crate::owner::{
     instrument_master_admission_v1::InstrumentMasterAdmissionErrorV1,
     market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     pit_window_custody_v1::{PitWindowCustodyRefusalV1, PitWindowRunRefusalV1},
-    source_binding::{BindingDigest, UntrustedSourceBindingLocator},
+    source_binding::{BindingDigest, UntrustedMarketSemantics, UntrustedSourceBindingLocator},
     source_binding_admission_v1::{
         SourceBindingAdmissionDispositionV1, SourceBindingAdmissionErrorV1,
     },
@@ -142,6 +142,14 @@ pub struct SealedAcceptanceCustodyChainSpecV1 {
     pub instrument_increments: Option<SealedAcceptanceInstrumentIncrementsV1>,
     /// A raw, interval-close value with fixture-named unit identities when `None`.
     pub market_semantics_value: Option<MarketSemanticsValueSubmissionV1>,
+    /// The Source Binding's market semantics; fixture-named rules when `None`.
+    ///
+    /// A member an earlier entry of an ordered chain already admitted keeps that entry's
+    /// Instrument Master fact, and the custody intake requires every member's fact to carry the
+    /// custody binding's compatibility scope, which these rules derive. Such a chain names the
+    /// earlier entry's semantics here, or the fixture refuses it as
+    /// [`SealedAcceptanceCustodyChainErrorV1::HeldInstrumentSemanticsDiffer`].
+    pub source_semantics: Option<UntrustedMarketSemantics>,
 }
 
 /// The chain [`commit_sealed_acceptance_custody_chain_v1`] committed, as the Owner's intakes and its
@@ -261,6 +269,11 @@ pub enum SealedAcceptanceCustodyChainErrorV1 {
     SourceBindingAdmission(SourceBindingAdmissionErrorV1),
     #[error("the Source Binding admission did not admit the binding: {0:?}")]
     SourceBindingNotAdmitted(SourceBindingAdmissionDispositionV1),
+    /// A member's Instrument Master fact is already held under another market semantics
+    /// compatibility scope than the fixture's binding derives: the spec must name that fact's
+    /// binding's semantics in `source_semantics`.
+    #[error("a member's held Instrument Master fact carries another market semantics scope")]
+    HeldInstrumentSemanticsDiffer,
     #[error("the Instrument Master admission refused: {0:?}")]
     InstrumentMasterAdmission(InstrumentMasterAdmissionErrorV1),
     #[error("the historical membership admission refused: {0:?}")]
@@ -331,6 +344,7 @@ mod tests {
             lag_ns: 0,
             instrument_increments: None,
             market_semantics_value: None,
+            source_semantics: None,
         };
         assert_eq!(
             commit_sealed_acceptance_custody_chain_v1(url, &spec)

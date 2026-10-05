@@ -26,8 +26,10 @@ pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
 pub(super) use postgres::{
-    PitWindowChainCandidateColumnsV1, PitWindowUniverseRequestOfV1, RawPitWindowChainBasisV1,
-    RawPitWindowChainV1, RawUniverseSelectionAggregateV1,
+    MAX_PIT_WINDOW_ROWS_V1, PitWindowChainCandidateColumnsV1, PitWindowUniverseRequestOfV1,
+    RawPitWindowChainBasisV1, RawPitWindowChainV1, RawPitWindowRowV1,
+    RawUniverseSelectionAggregateV1, UniverseSelectionAggregateTupleV1,
+    bounded_pit_window_entries_v1, bounded_universe_selection_aggregate_v1,
 };
 #[cfg(unix)]
 pub use publication::author_deployment_store_publication_v1;

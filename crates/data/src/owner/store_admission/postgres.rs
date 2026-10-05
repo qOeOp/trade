@@ -1547,7 +1547,7 @@ pub(crate) type PitWindowUniverseRequestOfV1 =
     fn(&RawPitWindowChainV1, &[u8; 32]) -> Option<[u8; 32]>;
 
 /// One Universe Selection aggregate as the selection function returns it.
-type UniverseSelectionAggregateTupleV1 = (
+pub(crate) type UniverseSelectionAggregateTupleV1 = (
     Option<Vec<u8>>,
     Option<Vec<u8>>,
     Option<Vec<u8>>,
@@ -1686,6 +1686,24 @@ pub(super) async fn read_pit_window_chains_for_instrument_snapshot_v1(
         )
         .collect())
 }
+
+/// [`bounded_pit_window_entries`] for a reader outside Store Admission: the R&D principal's custody
+/// reread (T0-10 (c)) bounds its chain and basis reads exactly as an admitted read does.
+pub(crate) fn bounded_pit_window_entries_v1(
+    rows: Vec<(i16, String)>,
+) -> Result<Vec<(i16, Vec<u8>)>, ()> {
+    bounded_pit_window_entries(rows).map_err(|_| ())
+}
+
+/// [`bounded_universe_selection_aggregate`] for a reader outside Store Admission.
+pub(crate) fn bounded_universe_selection_aggregate_v1(
+    rows: Vec<UniverseSelectionAggregateTupleV1>,
+) -> Result<Option<RawUniverseSelectionAggregateV1>, ()> {
+    bounded_universe_selection_aggregate(rows).map_err(|_| ())
+}
+
+/// The most row facts one rows read returns, for a reader outside Store Admission.
+pub(crate) const MAX_PIT_WINDOW_ROWS_V1: usize = MAX_PIT_WINDOW_ENTRIES;
 
 /// The entries of one chain read, refused when there are too many or one is too large.
 fn bounded_pit_window_entries(

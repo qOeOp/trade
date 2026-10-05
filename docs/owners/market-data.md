@@ -2796,8 +2796,11 @@ Binding, Instrument Master V1, Universe Selection and custody intakes, so its ou
 synthetic inputs and never U1 evidence. Its spec's fill timeframe must be exactly one minute, as every custody's is.
 An ordered chain shares one store, so a member an earlier entry already admitted keeps its Instrument Master fact: the
 fixture submits no rival genesis fact and names no predecessor, which would correct the earlier entry's instrument. The
-custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. Its
-historical membership frontier names the window, so two fixture chains over the same members are two memberships
+custody binds the fact in force at its window's start, and the spec's bars must fit that fact's increments. The custody
+intake also requires every member's fact to carry the custody binding's market semantics compatibility scope, so such a
+chain names the earlier entry's binding semantics in the spec's `source_semantics`; a held fact under another scope is
+refused by name as `HeldInstrumentSemanticsDiffer` before anything is committed. Its historical membership frontier
+names the window, so two fixture chains over the same members are two memberships
 (`postgres_a_member_already_admitted_keeps_its_fact`).
 
 Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
@@ -2963,8 +2966,10 @@ The work, in order:
   - **What it serves.** `reread_persisted_strategy_input_universe_custody_for_update_v1`, which H8 reaches through
     `reread_design_input_custody_v1`, re-resolves the declarations' batch through the same custody arm.
   - **Under `rd_owner`.** That principal reads only `market_data_rd_api`, so the arm needs that schema's
-    custody-view and chain-basis read functions and their grants. The deployment's role grants in
-    `database/postgres-init` change with them.
+    custody-view and chain-basis read functions and their grants.
+  - **No deployment script change.** `database/postgres-init` already grants `rd_owner` `USAGE` on
+    `market_data_rd_api` and strips that schema's functions only from other roles. Each function's `EXECUTE` comes
+    from the Owner migration's own `GRANT ... TO rd_owner`, as every other `market_data_rd_api` function's does.
 - **(d) The run's own check (Lane 5).**
   - **What it compares.** H8's check compares the Design's bound Instrument Master digest, Market Semantics identity
     and members with the chain basis's.
@@ -2999,9 +3004,23 @@ Built (T0-10 (a) and (b)):
 - **The registry's custody arm.** It re-reads the view by walking the chain's custodies from the head toward the root,
   and checks the Universe Selection record, Instrument Master key and Market Semantics identity against the chain
   basis. The Source Binding is checked when the role binds against the sealed view.
-- **Under `rd_owner`.** A custody declaration read under that principal is refused as `PIT_UNAVAILABLE` until (c)
-  adds its read functions.
 - **Proofs.** The three `custody_strategy_input_v1_tests` PG proofs.
+
+Built (T0-10 (c)):
+
+- **The wrappers.** Four `market_data_rd_api` functions pass through to the private chain, rows, chain-basis and
+  Universe Selection functions the admitted port reads through `market_data_admitted_read`. They are granted to
+  `rd_owner`.
+- **Why no lock.** Custody rows are append-only but for the chain head, and the reread walks custodies rather than
+  reading the head, so the wrappers are `STABLE` and take no lock.
+- **The transport check.** `verify_rd_replay_cut_transport_v1` verifies them as it verifies the locking functions:
+  owner, definer, exact source, volatility, and `EXECUTE` held by `rd_owner` alone.
+- **One decoder.** The reread decodes their rows with the admitted port's decoders, and the view through the same
+  `resolve_pit_window_view_from_raw_v1` the port uses, so both principals verify the same evidence the same way.
+- **Proof.** `postgres_the_rd_owner_reread_answers_what_the_owner_reread_answers` runs the wrappers as the Owner, which
+  owns them. It shows they return the same sealed view and basis as the Owner's own table read, walking past a
+  corrected head, and the same refusal for a view the chain does not hold.
+- **The grant path.** The path as `rd_owner` itself is proved by the R&D chain's custody entry.
 - **The reread.** The reread under `rd_owner` returns the custody frame the declaration was made over.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
