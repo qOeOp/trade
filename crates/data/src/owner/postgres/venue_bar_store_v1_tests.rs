@@ -445,3 +445,46 @@ async fn postgres_a_bar_closing_at_the_window_end_verifies_and_one_opening_befor
     );
     assert_eq!(rows_before, rows(&store.owner).await, "nothing was written");
 }
+
+/// A resumable recorder (B6b) seeds its own forward cursor from this instead of walking from the
+/// epoch on every restart: `None` when nothing is stored, `Some` of the latest close once
+/// something is, across versions.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_the_latest_close_is_none_then_the_last_committed_bars_own_close() {
+    let url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let store = VenueBarStorePostgresV1 {
+        owner: MarketDataOwnerPostgres::connect(&url).await.unwrap(),
+    };
+    let instrument = "BTCUSDT-PERP.BINANCE-PROOF-LATEST-CLOSE";
+
+    assert_eq!(
+        store
+            .latest_venue_bar_close_ns_v1(instrument, "1d")
+            .await
+            .unwrap(),
+        None,
+        "nothing is stored yet"
+    );
+
+    let retrieved = START + 3 * DAY + VENUE_BAR_SETTLE_DELAY_NS_V1;
+    store
+        .commit_venue_bars_v1(
+            instrument,
+            "1d",
+            VenueBarAvailabilityV1::AtRetrieval,
+            retrieved,
+            &[bar(START, "100"), bar(START + DAY, "200")],
+        )
+        .await
+        .expect("the page commits");
+
+    assert_eq!(
+        store
+            .latest_venue_bar_close_ns_v1(instrument, "1d")
+            .await
+            .unwrap(),
+        Some(START + 2 * DAY),
+        "the latest bar's own close, not its open"
+    );
+}

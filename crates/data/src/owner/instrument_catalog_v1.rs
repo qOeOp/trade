@@ -26,6 +26,9 @@ pub struct InstrumentListingV1 {
     /// The canonical instrument, the name every other Market Data tool takes.
     pub instrument: String,
     pub venue: String,
+    /// The venue's own raw symbol, as `exchangeInfo` states it (e.g. `BTCUSDT`) - never derived
+    /// by string munging from `instrument`.
+    pub raw_symbol: String,
     pub quote_currency: String,
     pub contract_status: String,
 }
@@ -35,6 +38,9 @@ pub struct InstrumentListingV1 {
 pub struct InstrumentDescriptionV1 {
     pub instrument: String,
     pub venue: String,
+    /// The venue's own raw symbol, as `exchangeInfo` states it (e.g. `BTCUSDT`) - never derived
+    /// by string munging from `instrument`.
+    pub raw_symbol: String,
     /// The Instrument Master V2 fact these terms are read from, as lowercase hex.
     pub fact_identity: String,
     pub quote_currency: String,
@@ -168,6 +174,7 @@ fn listing(fact: &InstrumentMasterFactV2) -> InstrumentListingV1 {
     InstrumentListingV1 {
         instrument: fact.canonical_identity().to_string(),
         venue: fact.venue_identity().to_string(),
+        raw_symbol: fact.raw_symbol().to_string(),
         quote_currency: text_value(&terms.quote_currency),
         contract_status: text_value(&terms.contract_status),
     }
@@ -181,6 +188,7 @@ fn description(
     InstrumentDescriptionV1 {
         instrument: fact.canonical_identity().to_string(),
         venue: fact.venue_identity().to_string(),
+        raw_symbol: fact.raw_symbol().to_string(),
         fact_identity: lower_hex(fact.identity().as_bytes()),
         quote_currency: text_value(&terms.quote_currency),
         settlement_currency: text_value(&terms.settlement_currency),

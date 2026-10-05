@@ -291,6 +291,19 @@ pub trait VenueBarStoreV1: Send + Sync + sealed::Sealed {
         corrected: VenueBarV1,
         available_ns: u64,
     ) -> Result<u32, VenueBarCorrectionErrorV1>;
+
+    /// The latest stored bar's `close_ns_exclusive` for `instrument` at `venue_interval`, across
+    /// every version, or `None` when nothing is stored for it yet. A resumable recorder (B6b)
+    /// seeds its own forward cursor from this instead of walking from the epoch on every restart.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidRequest` for an unserved interval, `StoreUnavailable` otherwise.
+    async fn latest_venue_bar_close_ns_v1(
+        &self,
+        instrument: &str,
+        venue_interval: &str,
+    ) -> Result<Option<u64>, VenueBarReadErrorV1>;
 }
 
 pub(crate) mod sealed {

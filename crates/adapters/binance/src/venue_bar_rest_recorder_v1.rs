@@ -165,7 +165,22 @@ pub struct VenueBarRestRecordSummaryV1 {
     /// `true` once a page returned fewer rows than it asked for, or an unsettled row, meaning
     /// recording has caught up to Binance's present moment for this instrument and timeframe.
     pub caught_up: bool,
+    /// Where the next call should resume from: the last committed page's own next page start, or
+    /// `resume_from_ms` unchanged if nothing committed. A caller tracking this in memory across
+    /// ticks never needs to read the store back just to find out where it left off.
+    pub resume_from_ms: i64,
 }
+
+/// The account-wide Binance futures request-weight quota per minute
+/// ([`vibe_binance::common::consts::BINANCE_FAPI_RATE_LIMITS`]'s `RequestWeight` entry).
+const ACCOUNT_REQUEST_WEIGHT_PER_MINUTE: u32 = 2_400;
+
+/// Stop paging once the client's own most recent `X-MBX-USED-WEIGHT-1M` observation reaches this
+/// fraction of the account's per-minute budget, leaving headroom for every other job this
+/// account's weight is shared with (other instrument/timeframe pairs, the funding recorder,
+/// archive verification) rather than running this one page loop right up to the venue's own
+/// refusal.
+const USED_WEIGHT_1M_BACKOFF_THRESHOLD: u32 = ACCOUNT_REQUEST_WEIGHT_PER_MINUTE * 4 / 5;
 
 /// Records `raw_symbol`'s bars at `venue_interval` into `store`, forward from `resume_from_ms` (a
 /// `start_ns` already read back from `read_venue_bars_v1`, or the Unix epoch on the instrument's
@@ -174,6 +189,14 @@ pub struct VenueBarRestRecordSummaryV1 {
 /// `commit_venue_bars_v1`, so no row this function already retrieved is ever double-counted into
 /// the summary across a resumed run: a resumed run starts its own fresh summary and only the
 /// store's rejoin counts tell the two runs apart.
+///
+/// Pages until caught up, or until `client`'s own most recent `X-MBX-USED-WEIGHT-1M` observation
+/// crosses 80% of the account's per-minute request-weight quota - read after every page, not
+/// assumed from a fixed page budget, since the account's weight is shared with whatever else this
+/// client's caller also runs. A cold instrument's first `1m` backfill from its first listed bar is
+/// thousands of pages; backing off on the real weight still returns `caught_up: false` with
+/// whatever it already committed, and the next call resumes from the stored close exactly as a
+/// restart would, converging over many calls instead of blocking one for hours.
 ///
 /// # Errors
 ///
@@ -188,10 +211,13 @@ pub async fn record_venue_bars_v1(
     resume_from_ms: i64,
     retrieval_ns: u64,
 ) -> Result<VenueBarRestRecordSummaryV1, VenueBarRestRecordErrorV1> {
-    let mut summary = VenueBarRestRecordSummaryV1::default();
+    let mut summary = VenueBarRestRecordSummaryV1 {
+        resume_from_ms,
+        ..VenueBarRestRecordSummaryV1::default()
+    };
     let mut start_ms = resume_from_ms;
 
-    loop {
+    while client.used_weight_1m() < USED_WEIGHT_1M_BACKOFF_THRESHOLD {
         let params = BinanceKlinesParams {
             symbol: raw_symbol.to_string(),
             interval: venue_interval.to_string(),
@@ -245,6 +271,7 @@ pub async fn record_venue_bars_v1(
             break;
         };
         start_ms = next;
+        summary.resume_from_ms = next;
     }
 
     Ok(summary)
@@ -462,5 +489,46 @@ mod live_tests {
             assert_eq!(second.committed.rejoined, first.committed.written);
             assert!(second.committed.conflicts.is_empty());
         }
+    }
+
+    /// The client's own `used_weight_1m` starts at 0 and is set from the venue's real
+    /// `X-MBX-USED-WEIGHT-1M` response header once it has made a request - the mechanism
+    /// `record_venue_bars_v1`'s own paging loop backs off on. Verified live on 2026-10-05: a
+    /// single `klines` call set it to a small positive weight, confirming the header is actually
+    /// captured end to end, not just plumbed through unused.
+    #[tokio::test]
+    #[ignore = "reaches the live public Binance endpoint"]
+    async fn the_clients_own_used_weight_updates_from_a_real_response() {
+        let client = BinanceFuturesHttpClient::new(
+            BinanceProductType::UsdM,
+            BinanceEnvironment::Live,
+            get_atomic_clock_realtime(),
+            None,
+            None,
+            None,
+            None,
+            Some(30),
+            None,
+            false,
+        )
+        .expect("the keyless public client builds");
+        assert_eq!(client.used_weight_1m(), 0);
+
+        let params = BinanceKlinesParams {
+            symbol: "BTCUSDT".to_string(),
+            interval: "1m".to_string(),
+            start_time: Some(DAY_START_MS),
+            end_time: None,
+            limit: Some(1),
+        };
+        client
+            .request_raw_klines(&params)
+            .await
+            .expect("the live endpoint answers");
+
+        assert!(
+            client.used_weight_1m() > 0,
+            "a real response names the account's real used weight"
+        );
     }
 }

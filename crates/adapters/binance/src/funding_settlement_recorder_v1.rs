@@ -163,6 +163,19 @@ pub fn funding_settlement_rows_from_fetched_v1(
     (rows, errors)
 }
 
+/// What one poll of [`record_funding_settlements_v1`] did.
+#[derive(Clone, Debug, Default)]
+pub struct FundingSettlementRecordSummaryV1 {
+    /// `None` when nothing in this batch had a predecessor to derive from - nothing was
+    /// committed.
+    pub digest: Option<BindingDigest>,
+    /// Every row this poll derived and committed (or rejoined), in ascending settlement order.
+    /// The caller's own scheduling (B6b: [`next_funding_poll_ns_v1`]) reads its own last entry's
+    /// `settlement_ns`/`interval_hours` from here - this function keeps no schedule of its own.
+    pub rows: Vec<FundingSettlementWriteRowV1>,
+    pub errors: Vec<FundingSettlementRecordRowErrorV1>,
+}
+
 /// Polls `client`'s `/fapi/v1/fundingRate` for `raw_symbol`'s most recent settlements, derives
 /// every row it can, and commits them through `store`. `fetch_limit` should comfortably exceed
 /// one interval's worth of settlements (at least 2, so the batch's newest row always has a real
@@ -179,13 +192,7 @@ pub async fn record_funding_settlements_v1(
     raw_symbol: &str,
     fetch_limit: u32,
     retrieval_ns: u64,
-) -> Result<
-    (
-        Option<BindingDigest>,
-        Vec<FundingSettlementRecordRowErrorV1>,
-    ),
-    FundingSettlementRecordErrorV1,
-> {
+) -> Result<FundingSettlementRecordSummaryV1, FundingSettlementRecordErrorV1> {
     use crate::futures::http::query::BinanceFundingRateParams;
 
     let params = BinanceFundingRateParams {
@@ -208,7 +215,11 @@ pub async fn record_funding_settlements_v1(
         rows.first().map(|row| row.settlement_ns),
         rows.last().map(|row| row.settlement_ns),
     ) else {
-        return Ok((None, errors));
+        return Ok(FundingSettlementRecordSummaryV1 {
+            digest: None,
+            rows,
+            errors,
+        });
     };
     let window_end_ns_exclusive = last + 1;
 
@@ -222,7 +233,11 @@ pub async fn record_funding_settlements_v1(
             window_end_ns_exclusive,
         )
         .await?;
-    Ok((Some(digest), errors))
+    Ok(FundingSettlementRecordSummaryV1 {
+        digest: Some(digest),
+        rows,
+        errors,
+    })
 }
 
 /// Why a recording poll failed before any commit was attempted.
@@ -525,7 +540,7 @@ mod live_tests {
         let retrieval_ns = get_atomic_clock_realtime().get_time_ns().into();
         let instrument = "BTCUSDT-PERP.BINANCE";
 
-        let (first_digest, first_errors) = record_funding_settlements_v1(
+        let first = record_funding_settlements_v1(
             &client,
             store.as_ref(),
             instrument,
@@ -536,16 +551,17 @@ mod live_tests {
         .await
         .expect("the first poll commits what it can derive");
         assert!(
-            first_digest.is_some(),
+            first.digest.is_some(),
             "ten real settlements give at least one derivable row"
         );
         assert_eq!(
-            first_errors.len(),
+            first.errors.len(),
             1,
-            "only the batch's own oldest row has no predecessor: {first_errors:?}"
+            "only the batch's own oldest row has no predecessor: {:?}",
+            first.errors
         );
 
-        let (second_digest, second_errors) = record_funding_settlements_v1(
+        let second = record_funding_settlements_v1(
             &client,
             store.as_ref(),
             instrument,
@@ -555,7 +571,12 @@ mod live_tests {
         )
         .await
         .expect("the second poll rejoins the same settlements");
-        assert_eq!(second_digest, first_digest, "the same rows rejoin exactly");
-        assert_eq!(second_errors, first_errors);
+        assert_eq!(second.digest, first.digest, "the same rows rejoin exactly");
+        assert_eq!(
+            second.rows.len(),
+            first.rows.len(),
+            "the second poll derives the same settlements, just with its own retrieval_ns"
+        );
+        assert_eq!(second.errors, first.errors);
     }
 }
