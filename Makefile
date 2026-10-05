@@ -762,7 +762,21 @@ CARGO_TEST_EXCLUDED_PACKAGES ?= \
 CARGO_TEST_EXCLUDE_FLAGS := $(addprefix --exclude ,$(CARGO_TEST_EXCLUDED_PACKAGES))
 # The packages and targets `cargo-test` builds. `cargo-test-toolchain-proofs` runs in the same build,
 # so it takes these flags, CARGO_FEATURES and CARGO_CI_PROFILE from here rather than spelling its own.
+# Always the whole workspace: scripts/ci/plan.sh's `rust_test_filter` output (below) narrows which
+# already-identically-built tests *run*, never which packages *build* - cargo unifies a shared
+# dependency's features differently when only some workspace members are selected to build
+# (measured: rust_decimal's own `maths` feature is on under --workspace, off under
+# `-p vibe-fred` alone), so a package-selection scope could pass against a feature set the
+# unscoped run never ships, silently masking a real failure. Narrowing the build itself is not
+# worth that risk.
 CARGO_TEST_SCOPE_FLAGS := --workspace $(CARGO_TEST_EXCLUDE_FLAGS) --lib --tests
+# A nextest filterset expression (https://nexte.st/docs/filtersets/) that narrows which already-
+# built tests run, without touching what gets built or which features it builds with - scripts/ci/
+# plan.sh's `rust_test_filter` output, one `rdeps(=<package>)` clause per changed crate, ORed
+# together, or the literal ALL. Unset (the default) or ALL both mean "run everything":
+# `make cargo-test NEXTEST_FILTER_EXPR='rdeps(=vibe-foo)'` to use it directly.
+NEXTEST_FILTER_EXPR ?=
+NEXTEST_FILTER_ARGS := $(if $(filter-out ALL,$(strip $(NEXTEST_FILTER_EXPR))),-E '$(NEXTEST_FILTER_EXPR)',)
 # The features `cargo-test` tests with: CARGO_FEATURES plus the package features that gate tests
 # and nothing else. `vibe-qualification/owner-recovery` gates the incident reconstruction module,
 # whose unit tests no job ran before. It is added here and not to CARGO_FEATURES, so clippy, the
@@ -787,10 +801,10 @@ cargo-test: check-nextest-installed cargo-fetch-strategy-factory-programs
 cargo-test:  #-- Run all Rust tests (use EXTRA_FEATURES="feature1 feature2" or HYPERSYNC=true)
 ifeq ($(NEXTEST_VERBOSE),true)
 	$(info $(M) Running Rust tests with verbose output...)
-	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS) $(NEXTEST_FILTER_ARGS)
 else
 	$(info $(M) Running Rust tests (showing summary and failures only)...)
-	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS) $(NEXTEST_FILTER_ARGS)
 endif
 
 .PHONY: cargo-test-extras
