@@ -74,8 +74,16 @@ Capital is expressed as margin committed: 20U margin
 at 5x leverage corresponds to approximately 100U notional exposure before fees. This illustrates units, not default
 order size, recommended leverage or guaranteed maximum loss. Freeze actual allocation ratios and bounds approved by
 the user. Split account allocatable margin capacity by approved ratios between a common trial pool and the formal
-strategy pool; 20%/80% or 30%/70% illustrate configuration, not a selected default. Each trial strategy also has an
-allocation cap, and all trial strategies share the pool ceiling. This allocates capital budgets rather than dividing
+strategy pool; 20%/80% or 30%/70% illustrate configuration, not a selected default. Each pool divides its budget
+equally among actually running strategy instances: per-strategy allocation = pool budget / running instance count.
+For a 100U trial pool, five strategies each receive 20U; unloading one leaves four allocations of 25U. Agent counts,
+historical strategies and order counts do not determine allocation. On entry, unload or promotion, Governance updates
+affected pool membership and allocations at one effective allocation cut; Portfolio retains measurements and historical
+attribution. Promotion moves membership from trial to formal, recalculating each pool independently. An empty pool
+retains its budget rather than transferring it automatically to the other pool. New allocations govern subsequent
+signal sizing and risk admission; they do not automatically resize existing positions, resting orders or frozen order
+quantities. Every strategy is bounded by its current equal share, with pool ceilings and actual account funds/risk
+constraints still applying. This allocates capital budgets rather than dividing
 actual positions: positions, resting orders and fee commitments still reconcile at account level. Ratio changes cannot
 automatically liquidate positions or reuse existing commitments; apply capital allocation change rules.
 Leverage/aggregate exposure caps, loss/stop/exit rules, expiry and explicit authorization contracts still require
