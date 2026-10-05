@@ -214,7 +214,7 @@ impl ReplayNativeExecutionProfileV1 {
         data: &[Data],
     ) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
         let mut signal_time = vec![None; self.instrument_ids.len()];
-        let mut event_time = vec![None; self.instrument_ids.len()];
+        let mut has_later_event = vec![false; self.instrument_ids.len()];
 
         for datum in data {
             let instrument_id = datum.instrument_id();
@@ -231,28 +231,29 @@ impl ReplayNativeExecutionProfileV1 {
 
             match datum {
                 Data::Bar(_) => {
-                    if signal_time[ordinal].replace(ts_event).is_some() {
+                    if signal_time[ordinal]
+                        .is_some_and(|previous| !has_later_event[ordinal] || ts_event <= previous)
+                    {
                         return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch);
                     }
+                    signal_time[ordinal] = Some(ts_event);
+                    has_later_event[ordinal] = false;
                 }
                 Data::Delta(_)
                 | Data::Deltas(_)
                 | Data::Depth10(_)
                 | Data::Quote(_)
                 | Data::Trade(_) => {
-                    event_time[ordinal] = Some(
-                        event_time[ordinal].map_or(ts_event, |current: i128| current.max(ts_event)),
-                    );
+                    if !signal_time[ordinal].is_some_and(|signal| ts_event > signal) {
+                        return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch);
+                    }
+                    has_later_event[ordinal] = true;
                 }
                 _ => return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch),
             }
         }
 
-        if signal_time
-            .iter()
-            .zip(event_time)
-            .any(|(signal, event)| !matches!((*signal, event), (Some(signal), Some(event)) if event > signal))
-        {
+        if has_later_event.iter().any(|matched| !matched) {
             return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch);
         }
         Ok(())
@@ -1798,6 +1799,35 @@ mod tests {
         assert_eq!(
             profile.validate_data(&bars_only),
             Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch)
+        );
+    }
+
+    #[rstest]
+    fn every_custody_bar_requires_its_own_later_execution_event() {
+        let (economic, runner) = fixture_profiles();
+        let profile = materialize_event_replay_execution_profile_v1(
+            fixture_binding(&economic, &runner, [4; 32]),
+            &economic,
+            &runner,
+        )
+        .unwrap();
+        let instruments = matching_instruments();
+        let mut data = event_data(&instruments, 2);
+        let mut next = event_data(&instruments, 4);
+        for datum in &mut next {
+            if let Data::Bar(bar) = datum {
+                bar.ts_event = 3_u64.into();
+                bar.ts_init = 3_u64.into();
+            }
+        }
+        data.extend(next);
+        assert_eq!(profile.validate_data(&data), Ok(()));
+
+        data.remove(1);
+        assert_eq!(
+            profile.validate_data(&data),
+            Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch),
+            "the next BAR cannot hide a missing event for the previous round"
         );
     }
 

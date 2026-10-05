@@ -1978,6 +1978,8 @@ anchors as a snapshot run, so its Result can be reread against the frames it rea
   `d_k`. The bundle checks `e_k < d_k < e_{k+1}` (or the run end for the last frame), matches that cut to the admitted
   universe frame, and requires the fill quote after `d_k`. Snapshot runs retain their one-instant timing. This
   delivery mapping needs an ordered Owner-chain pass before it is a proven product path.
+- The native execution profile checks each member's BAR and later EVENT for every round. A later BAR cannot make up
+  for an earlier round's missing EVENT, and every event remains inside the sealed Instrument Owner validity window.
 - Each gap's quote cut is Market Data's, derived from the first fill bar after `d_k` (T0-6), so a custody run fills
   on the quotes the frame readback states rather than on a quote R&D supplies.
 
