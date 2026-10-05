@@ -29,10 +29,6 @@ use std::sync::Arc;
 
 use sqlx::PgPool;
 #[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
-use vibe_backtest_owner::native_replay::{
-    NativeReplayCommitDispositionV2, run_exploratory_replay_v2,
-};
-#[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
 use vibe_backtest_owner_contracts::OpaqueIdentityV2;
 use vibe_data::owner::{
     bar_schedule::execution_timeframe_bar_label_v1,
@@ -862,10 +858,12 @@ async fn commit_custody_replay_v1(
 }
 
 /// Runs this run's committed Replay (H7's `result`) through the SAME production execution path
-/// `POST /v2/exploratory-replays` uses (`vibe_backtest_owner::native_replay::
-/// run_exploratory_replay_v2`), rather than a second one, and commits its Backtest Result. The
-/// second element is `Some(result_identity)` only once a durable Result actually commits; the
-/// first names exactly where this run stopped, same convention as every other step here.
+/// `POST /v2/exploratory-replays` uses - `crate::exploratory_replay::
+/// run_and_count_native_replay_v1`, not a bare `run_exploratory_replay_v2` - so the committed
+/// Result is also counted in the TrialFamily census the same way; an uncounted Result refuses
+/// every later read of it. The second element is `Some(result_identity)` only once a durable,
+/// counted Result actually commits; the first names exactly where this run stopped, same
+/// convention as every other step here.
 ///
 /// Not gated the same way H5-H8 are: this needs `native-replay-execution`, a separate production
 /// surface from `composer-v3-replay` (no deployed image builds either yet) - a deployment that
@@ -908,38 +906,50 @@ async fn execute_committed_replay_v1(
         };
         let locator = result.locator().clone();
 
-        match run_exploratory_replay_v2(
-            service.preparation_owner().as_ref(),
-            service.result_owner().as_ref(),
+        match crate::exploratory_replay::run_and_count_native_replay_v1(
+            service,
             &locator,
             attempt_identity,
         )
         .await
         {
-            Ok(NativeReplayCommitDispositionV2::Committed {
-                result: committed, ..
-            }) => {
+            Ok(committed) => {
                 let result_identity = committed.result().result_identity.as_str().to_owned();
                 (
                     BacktestRunReplayUnavailableV1::ReplayCommitted(Box::new(result)),
                     Some(result_identity),
                 )
             }
-            Ok(NativeReplayCommitDispositionV2::SubmittedOrUnknown(_)) => (
-                BacktestRunReplayUnavailableV1::ReplayExecutionFailed(
-                    Box::new(result),
-                    "the attempt was submitted but its outcome was not acknowledged".to_owned(),
-                ),
-                None,
-            ),
             Err(e) => (
                 BacktestRunReplayUnavailableV1::ReplayExecutionFailed(
                     Box::new(result),
-                    e.to_string(),
+                    describe_native_replay_run_outcome_error_v1(&e),
                 ),
                 None,
             ),
         }
+    }
+}
+
+/// Describes why `run_and_count_native_replay_v1` did not answer a counted Result, without
+/// relying on `Debug` for `NativeReplayCommitDispositionV2` (it has none) - each named cause
+/// formats through whatever of its own parts already has a `Display`.
+#[cfg(all(feature = "composer-v3-replay", feature = "native-replay-execution"))]
+fn describe_native_replay_run_outcome_error_v1(
+    error: &crate::exploratory_replay::NativeReplayRunOutcomeErrorV1,
+) -> String {
+    use crate::exploratory_replay::NativeReplayRunOutcomeErrorV1;
+
+    match error {
+        NativeReplayRunOutcomeErrorV1::RunFailed(e) => format!("run failed: {e}"),
+        NativeReplayRunOutcomeErrorV1::NotCommitted(recovered) => match recovered.as_ref() {
+            Ok(Some(_)) => {
+                "not committed: recovery found a disposition that was not Committed".to_owned()
+            }
+            Ok(None) => "not committed: recovery found no attempt to resolve".to_owned(),
+            Err(e) => format!("not committed: recovery itself failed: {e}"),
+        },
+        NativeReplayRunOutcomeErrorV1::NotCounted(e) => format!("not counted: {e}"),
     }
 }
 

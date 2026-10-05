@@ -1871,7 +1871,7 @@ reproducible anchor the single-frame path already gives F - not a second, parall
   one, per the standing rule that this entry grows as its dependencies land rather than being
   recreated each time.
 
-**After H7/H8: executing the committed Replay (DONE)**. Once H8 issues the custody-run
+**After H7/H8: executing the committed Replay (CURRENT_PARTIAL)**. Once H8 issues the custody-run
 execution-input binding, `commit_custody_replay_v1` (`backtest_run_v1.rs`) calls
 `execute_committed_replay_v1`, which reuses the SAME production execution path F's own
 `POST /v2/exploratory-replays` route uses - `vibe_backtest_owner::native_replay::
@@ -1894,12 +1894,17 @@ configure `native_replay_execution`, `ReplayExecutionUnavailable(result)` stops 
 `ComposerNotAvailable` does for H5. Neither state regresses `custody_binding` - H8's own binding
 stays issued regardless of whether execution that follows succeeds.
 
-**Not yet proven against a real custody chain**: `backtest_run_chain_entry_acceptance.rs`'s
-ordered-chain entry still passes `native_replay_execution: None` - wiring a real
-`NativeReplayExecutionServiceV2` into that entry needs a Backtest Owner pool plus the native
-Replay scheduling resolver and universe sample projections it does not open today. That entry
-proves H8; proving execution end to end against a real committed custody run is a follow-up
-slice, not blocking - production deployment testing (`trade-rd-lane0`) is the nearer-term proof.
+**Not yet CI-proven, so not DONE**: per AGENTS.md, an Owner implementation is accepted when its
+entries in the ordered Owner PostgreSQL chains pass on Linux CI - a local or `trade-rd-lane0`
+deployment pass is a working state, not acceptance.
+`backtest_run_chain_entry_acceptance.rs`'s ordered-chain entry still passes
+`native_replay_execution: None`, so no CI run has ever driven an execution attempt through this
+code; the chain proves H8's binding issuance only. **Still needed before this flips to DONE**:
+wire a real `NativeReplayExecutionServiceV2` into that entry - it needs a Backtest Owner pool
+plus the native Replay scheduling resolver and universe sample projections, none of which the
+entry opens today - and actually execute the committed Replay once, over the ordered chain's
+PostgreSQL. This is the next slice (Lane 5), after the report-assembly wiring that reads
+`replay_result_identity` lands.
 
 **H2/H4 for a custody run: the Design's universe binding must come from the chain's own basis
 (TARGET; not built)**. `run_backtest_v1` admits every run's Design role-binding the same way
