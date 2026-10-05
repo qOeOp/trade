@@ -1,8 +1,8 @@
 //! The remaining piece of B5 ("TARGET full chart timeframes and one stitched bar series",
 //! `docs/owners/market-data.md`): turns one fetched archive (monthly or daily) into a
-//! [`VenueBarArchiveV1`] and hands it to B1/B2's own `verify_venue_bars_v1`. The fold for `1w`/
-//! `1M` lives in [`crate::venue_bar_derived_archive_v1`]; this module is the fixed-interval path
-//! that actually reads an official file.
+//! [`VenueBarArchiveV1`] and hands it to B1/B2's own `verify_venue_bars_v1`. The fold for `1w`
+//! lives in [`crate::venue_bar_derived_archive_v1`]; this module is the fixed-interval path that
+//! actually reads an official file.
 
 use vibe_data::owner::{
     source_binding::BindingDigest,
@@ -158,7 +158,7 @@ pub async fn verify_execution_day_v1(
 }
 
 /// Folds `store`'s already-verified `1d` bars over `[window_start_ns, window_end_ns_exclusive)`
-/// into a `1w` or `1M` bar and verifies it the same way a real archive is verified -
+/// into a `1w` bar and verifies it the same way a real archive is verified -
 /// [`crate::venue_bar_derived_archive_v1::derived_archive_v1`] builds the
 /// `DerivedFromVerified`-tagged archive this calls `verify_venue_bars_v1` with.
 ///
@@ -190,8 +190,8 @@ pub async fn verify_derived_from_daily_v1(
         .collect::<Vec<_>>();
     // window_start_ns/window_end_ns_exclusive are not checked against the read daily_bars here:
     // derived_archive_v1's own fold already refuses by name (NotContiguous, OffGrid) whenever the
-    // given bars do not land on exactly one 1w/1M grid window, so a mismatched window can only
-    // ever end in one of those two refusals, never a silently wrong archive.
+    // given bars do not land on exactly one 1w grid window, so a mismatched window can only ever
+    // end in one of those two refusals, never a silently wrong archive.
     let archive = crate::venue_bar_derived_archive_v1::derived_archive_v1(
         venue_interval,
         window_start_ns,

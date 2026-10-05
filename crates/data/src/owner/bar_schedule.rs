@@ -78,8 +78,6 @@ pub enum ServedBarGridV1 {
     /// Fixed-length bars on a grid `anchor_ns + n * interval_ns`: the Unix epoch, or Monday
     /// 00:00 UTC for a week.
     Fixed { interval_ns: u64, anchor_ns: u64 },
-    /// One bar per UTC calendar month, from the 1st 00:00 to the next 1st 00:00.
-    CalendarMonth,
 }
 
 /// One timeframe Market Data serves as a bar series: its row-timeframe label and its grid.
@@ -105,34 +103,17 @@ impl ServedTimeframeV1 {
                     .then(|| open_ns.checked_add(interval_ns))
                     .flatten()
             }
-            ServedBarGridV1::CalendarMonth => {
-                let open = jiff::Timestamp::from_nanosecond(i128::from(open_ns))
-                    .ok()?
-                    .to_zoned(jiff::tz::TimeZone::UTC);
-
-                if open.day() != 1
-                    || open.hour() != 0
-                    || open.minute() != 0
-                    || open.second() != 0
-                    || open.subsec_nanosecond() != 0
-                {
-                    return None;
-                }
-                let close = open.checked_add(jiff::Span::new().months(1)).ok()?;
-                u64::try_from(close.timestamp().as_nanosecond()).ok()
-            }
         }
     }
 }
 
 /// The timeframe Market Data serves for one venue kline interval (`1m`, `15m`, `30m`, `1h`, `2h`,
-/// `4h`, `6h`, `8h`, `12h`, `1d`, `1w`, `1M`), the charting set the user chose on 2026-10-05; `None`
-/// for any other interval.
+/// `4h`, `6h`, `8h`, `12h`, `1d`, `1w`), the charting set the user chose on 2026-10-05, minus the
+/// monthly timeframe the user dropped the same day (B4); `None` for any other interval.
 ///
 /// Labels follow the Source Binding declarations: `1d` is `24H`, never `1D`, which names an
-/// exchange session day; the venue's `1M` is a calendar month, labelled `1MO` because `1M` is the
-/// minute. Serving a timeframe does not admit it as a custody execution timeframe, which stays
-/// [`SUPPORTED_EXECUTION_TIMEFRAMES_V1`].
+/// exchange session day. Serving a timeframe does not admit it as a custody execution timeframe,
+/// which stays [`SUPPORTED_EXECUTION_TIMEFRAMES_V1`].
 #[must_use]
 pub const fn served_timeframe_v1(venue_interval: &str) -> Option<ServedTimeframeV1> {
     const MINUTE: u64 = 60_000_000_000;
@@ -165,10 +146,6 @@ pub const fn served_timeframe_v1(venue_interval: &str) -> Option<ServedTimeframe
                 interval_ns: 7 * 1_440 * MINUTE,
                 anchor_ns: MONDAY_NS,
             },
-        },
-        b"1M" => ServedTimeframeV1 {
-            label: "1MO",
-            grid: ServedBarGridV1::CalendarMonth,
         },
         _ => return None,
     })
