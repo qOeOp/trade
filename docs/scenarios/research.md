@@ -47,10 +47,18 @@ resetting census or independence. See [R&D project admission](../owners/rd/#targ
 and [Market Data imports](../guide/market-data-intake/#target---external-historical-file-imports). Files cannot directly
 become backtest market facts.
 
-### Restricted real trading trial target
+### Qualified backtests, real trading trials and promotion
 
-A strategy without formal qualification may use a separately designed restricted real trading trial path; it cannot
-fabricate `QUALIFIED` or reuse a formal qualification permit. Capital is expressed as margin committed: 20U margin
+The target has one promotion route: R&D iteration → meet frozen backtest qualification criteria → small real trades
+in the trial pool → meet frozen trial promotion criteria → formal strategy pool. Candidates without economic advantage,
+not yet evaluated, or with evidence insufficient to meet the backtest criteria stay in R&D; no direct trial entrance
+exists. Trials are real trading too; the formal pool is the allocation after promotion. Trial entry adds no separate
+research qualification process: backtest qualification is its research prerequisite, while existing account, capital
+and execution safety constraints govern every real order. Trials validate actual fills and returns; small amounts do
+not bypass backtest qualification. Freeze promotion criteria before trials; one month with positive returns is currently
+a user example, not a complete agreed rule. Never fabricate existing `QUALIFIED` or permit facts; bind backtest
+qualification, trial progress and promotion to readable stage facts and Owner contracts in the target implementation.
+Capital is expressed as margin committed: 20U margin
 at 5x leverage corresponds to approximately 100U notional exposure before fees. This illustrates units, not default
 order size, recommended leverage or guaranteed maximum loss. Freeze actual allocation ratios and bounds approved by
 the user. Split account allocatable margin capacity by approved ratios between a common trial pool and the formal
@@ -63,9 +71,10 @@ completion; absent required conditions admit no trial.
 Real account/fill facts require native node, Governance/Risk/Execution admission and reconciliation; neither strategy
 nor R&D calls trading APIs directly. Research and qualification evidence retain provenance, exposure and trial counts.
 
-This admits target design only, not Paper/Live implementation, credential access or actual orders. Existing formal
-trading qualification floors remain. The new trial route needs independently versioned, testable authorization facts;
-small size cannot bypass capital, risk, recovery or protected-data contracts.
+This admits target design only, not Paper/Live implementation, credential access or actual orders. Existing
+implementation and sealed contracts do not change automatically with this target route. Migration requires versioned
+stage facts, permissions and acceptance before connecting the corresponding Owners; small size cannot bypass capital,
+risk, recovery or protected-data contracts.
 
 ## R-1 resting entries and staged exits
 
