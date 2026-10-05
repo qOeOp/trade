@@ -90,6 +90,25 @@ fn chain_entry_decimal(text: &str) -> SealedAcceptanceDecimalV1 {
     SealedAcceptanceDecimalV1::parse(text).expect("a decimal")
 }
 
+/// THROWAWAY (Lane 2's diagnostic, 10-05): pins down where the reader's `USAGE` on
+/// `market_data_admitted_read` disappears between the grant and the run. Drop once the cause is
+/// known.
+async fn chain_entry_schema_usage_probe_v1(market_data_owner_url: &str, label: &str) {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(market_data_owner_url, PostgresTls::Disabled)
+        .await
+        .expect("the probe pool opens");
+    let (usage, owner): (bool, String) = sqlx::query_as(
+        "SELECT pg_catalog.has_schema_privilege('vibe_test_role_market_data_reader','market_data_admitted_read','USAGE'), \
+                pg_catalog.pg_get_userbyid(nspowner)::text FROM pg_catalog.pg_namespace WHERE nspname='market_data_admitted_read'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the probe query answers");
+    eprintln!("PROBE {label}: reader usage={usage} schema owner={owner}");
+    pool.close().await;
+}
+
 /// F's own registry meaning digest (`first_composer_v3_digest`,
 /// `first_composer_v3_replay_acceptance.rs`) - replicated here byte for byte, same domain prefix
 /// and meaning keys, so this entry names the exact same Market Semantics value F's own H2b
@@ -370,6 +389,7 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     )
     .await
     .expect("the harness reader role is granted the sealed custody reads it needs");
+    chain_entry_schema_usage_probe_v1(market_data_owner_url, "after grant").await;
 
     let chain = commit_sealed_acceptance_custody_chain_v1(
         market_data_owner_url,
@@ -377,12 +397,14 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     )
     .await
     .expect("the sealed-acceptance custody chain commits over the production intakes");
+    chain_entry_schema_usage_probe_v1(market_data_owner_url, "after commit").await;
     assert_eq!(
         chain.window(),
         chain_entry_window(chain_start_ns),
         "the committed chain's own window is the one this entry anchored it at"
     );
     let (window_start_ns, window_end_ns_exclusive) = chain_entry_run_window(chain_start_ns);
+    chain_entry_schema_usage_probe_v1(market_data_owner_url, "before run loop").await;
 
     // Both statement families run through the one orchestration: each is authored by its own
     // family into the Design the freeze takes.
