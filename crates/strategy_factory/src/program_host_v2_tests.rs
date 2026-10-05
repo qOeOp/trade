@@ -20,7 +20,8 @@ use vibe_data::owner::{
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use super::program_host_v2::{
-    OwnerUniverseFrameV1, UniverseMemberSampleCoordinateV1, admit_owner_universe_program_event_v2,
+    OwnerUniverseFrameV1, UniverseMemberSampleCoordinateV1, UniverseSelectionPinV2,
+    admit_owner_universe_program_event_v2,
 };
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use super::strategy_plan_v2::{
@@ -440,6 +441,7 @@ fn two_member_frame_invokes_once_is_causal_canonical_and_restart_equal() {
         &admit_owner_universe_program_event_v2(
             &plan,
             &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+            UniverseSelectionPinV2::SnapshotReceipt,
         )
         .unwrap(),
     )
@@ -470,9 +472,12 @@ fn two_member_frame_invokes_once_is_causal_canonical_and_restart_equal() {
 
     let checkpoint = host.checkpoint().clone();
     let replay = frame;
-    let replay_event =
-        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(replay))
-            .unwrap();
+    let replay_event = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(replay),
+        UniverseSelectionPinV2::SnapshotReceipt,
+    )
+    .unwrap();
     assert_eq!(
         host.apply_event(&replay_event).unwrap().encode(),
         ProgramHostV2::restore(plan, artifact, &checkpoint)
@@ -490,8 +495,12 @@ fn universe_frame_binding_digest_must_match_the_plan_projection() {
     let (mut plan, _artifact, frame) = universe_fixture(universe_design(), None);
     corrupt_universe_binding_digest_for_test(&mut plan);
     assert!(
-        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
-            .is_err()
+        admit_owner_universe_program_event_v2(
+            &plan,
+            &OwnerUniverseFrameV1::uncoordinated(frame),
+            UniverseSelectionPinV2::SnapshotReceipt
+        )
+        .is_err()
     );
 }
 
@@ -524,7 +533,8 @@ fn partial_duplicate_and_unknown_member_sets_fail_atomically() {
         assert!(
             admit_owner_universe_program_event_v2(
                 &plan,
-                &OwnerUniverseFrameV1::uncoordinated(frame.clone())
+                &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+                UniverseSelectionPinV2::SnapshotReceipt,
             )
             .and_then(|event| host.apply_event(&event))
             .is_err()
@@ -1381,8 +1391,12 @@ fn two_member_canonical_bytes_are_unchanged_by_the_member_count_widening() {
     host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
         .unwrap();
     host.apply_event(
-        &admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
-            .unwrap(),
+        &admit_owner_universe_program_event_v2(
+            &plan,
+            &OwnerUniverseFrameV1::uncoordinated(frame),
+            UniverseSelectionPinV2::SnapshotReceipt,
+        )
+        .unwrap(),
     )
     .unwrap();
     let produced = host
@@ -1783,6 +1797,7 @@ fn a_one_member_universe_frame_is_admitted_at_ordinal_zero() {
         &admit_owner_universe_program_event_v2(
             &plan,
             &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+            UniverseSelectionPinV2::SnapshotReceipt,
         )
         .unwrap(),
     )
@@ -1808,9 +1823,12 @@ fn a_one_member_universe_refuses_an_input_at_ordinal_one() {
             .unwrap();
         host
     };
-    let admitted_event =
-        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
-            .unwrap();
+    let admitted_event = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame),
+        UniverseSelectionPinV2::SnapshotReceipt,
+    )
+    .unwrap();
 
     // The reseal itself is sound: the same helper keeping ordinal 0 yields an admitted event.
     let mut kept = admitted_event.clone();
@@ -1986,9 +2004,13 @@ fn a_universe_frame_with_its_member_coordinates_runs_the_program() {
     let coordinates = plan_member_coordinates(&plan, &frame);
     assert_eq!(coordinates.len(), 2, "one coordinate per role at member 0");
 
-    let event =
-        admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, &coordinates)
-            .expect("the coordinated frame is admitted");
+    let event = admit_market_data_coordinated_universe_program_event_v2(
+        &plan,
+        &frame,
+        &coordinates,
+        UniverseSelectionPinV2::SnapshotReceipt,
+    )
+    .expect("the coordinated frame is admitted");
     let mut host = started_universe_host(&plan, &artifact);
     host.apply_event(&event)
         .expect("the program runs on the coordinated frame");
@@ -2007,14 +2029,23 @@ fn a_universe_frame_without_its_member_coordinates_is_refused() {
     let (plan, artifact, frame) = universe_bfp_fixture();
 
     assert!(matches!(
-        admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, &[]),
+        admit_market_data_coordinated_universe_program_event_v2(
+            &plan,
+            &frame,
+            &[],
+            UniverseSelectionPinV2::SnapshotReceipt
+        ),
         Err(ProgramHostV2Error::InputCoverage(_))
     ));
     let mut host = started_universe_host(&plan, &artifact);
     assert!(matches!(
-        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
-            .and_then(|event| host.apply_event(&event))
-            .err(),
+        admit_owner_universe_program_event_v2(
+            &plan,
+            &OwnerUniverseFrameV1::uncoordinated(frame),
+            UniverseSelectionPinV2::SnapshotReceipt
+        )
+        .and_then(|event| host.apply_event(&event))
+        .err(),
         Some(ProgramHostV2Error::InputCoverage(_))
     ));
     assert_eq!(host.plugin_calls(), 0);
@@ -2032,7 +2063,12 @@ fn coordinates_other_than_the_plan_pairs_are_refused() {
     let (plan, _, frame) = universe_bfp_fixture();
     let coordinates = plan_member_coordinates(&plan, &frame);
     let admit = |coordinates: &[UniverseMemberSampleCoordinateV1]| {
-        admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, coordinates)
+        admit_market_data_coordinated_universe_program_event_v2(
+            &plan,
+            &frame,
+            coordinates,
+            UniverseSelectionPinV2::SnapshotReceipt,
+        )
     };
     assert!(
         admit(&coordinates).is_ok(),
@@ -2066,7 +2102,12 @@ fn a_member_coordinate_names_this_frame_and_its_bar_schedule() {
     let (plan, _, frame) = universe_bfp_fixture();
     let coordinates = plan_member_coordinates(&plan, &frame);
     let admit = |coordinates: &[UniverseMemberSampleCoordinateV1]| {
-        admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, coordinates)
+        admit_market_data_coordinated_universe_program_event_v2(
+            &plan,
+            &frame,
+            coordinates,
+            UniverseSelectionPinV2::SnapshotReceipt,
+        )
     };
     let with_first =
         |change: &dyn Fn(UniverseMemberSampleCoordinateV1) -> UniverseMemberSampleCoordinateV1| {
@@ -2134,7 +2175,8 @@ fn a_plan_without_coordinate_rows_refuses_a_supplied_coordinate() {
     assert!(
         admit_owner_universe_program_event_v2(
             &plan,
-            &OwnerUniverseFrameV1::uncoordinated(frame.clone())
+            &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+            UniverseSelectionPinV2::SnapshotReceipt,
         )
         .is_ok()
     );
@@ -2145,6 +2187,7 @@ fn a_plan_without_coordinate_rows_refuses_a_supplied_coordinate() {
             &[UniverseMemberSampleCoordinateV1::for_frame_test(
                 &frame, 0, role
             )],
+            UniverseSelectionPinV2::SnapshotReceipt,
         ),
         Err(ProgramHostV2Error::InputCoverage(_))
     ));
@@ -2179,8 +2222,12 @@ fn a_frame_paired_with_its_market_data_projection_runs_the_program() {
     let paired = OwnerUniverseFrameV1::from_owner_projection_v1(frame, &projection)
         .expect("the projection Market Data issued for this frame pairs with it");
 
-    let event = admit_owner_universe_program_event_v2(&plan, &paired)
-        .expect("the paired frame is admitted");
+    let event = admit_owner_universe_program_event_v2(
+        &plan,
+        &paired,
+        UniverseSelectionPinV2::SnapshotReceipt,
+    )
+    .expect("the paired frame is admitted");
     let mut host = started_universe_host(&plan, &artifact);
     host.apply_event(&event)
         .expect("the program runs on the paired frame");
@@ -2199,7 +2246,11 @@ fn a_coordinate_plan_refuses_its_frame_paired_without_coordinates() {
     let (plan, _, frame) = universe_bfp_fixture();
 
     assert!(matches!(
-        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame)),
+        admit_owner_universe_program_event_v2(
+            &plan,
+            &OwnerUniverseFrameV1::uncoordinated(frame),
+            UniverseSelectionPinV2::SnapshotReceipt
+        ),
         Err(ProgramHostV2Error::InputCoverage(_))
     ));
 }

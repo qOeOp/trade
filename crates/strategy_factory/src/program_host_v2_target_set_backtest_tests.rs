@@ -45,8 +45,8 @@ use super::{
         seal_reconciliation_capability_for_test,
     },
     program_host_v2::{
-        OwnerUniverseFrameV1, ProgramHostV2, admit_owner_universe_program_event_v2,
-        issue_backtest_universe_successor_for_test,
+        OwnerUniverseFrameV1, ProgramHostV2, UniverseSelectionPinV2,
+        admit_owner_universe_program_event_v2, issue_backtest_universe_successor_for_test,
     },
     program_host_v2_tests::universe_design,
     strategy_design_v2::{PluginManifestV2, PortContractV2, ValueTypeV2},
@@ -91,6 +91,7 @@ fn a_bundle_takes_a_replay_that_names_its_universe_selection_record() {
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )
     .unwrap();
     let time = admitted.envelope().order_key.logical_time_ns;
@@ -141,6 +142,7 @@ fn a_bundle_expresses_canonical_scale_data_at_its_instruments_precision() {
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )
     .unwrap();
     let time = admitted.envelope().order_key.logical_time_ns;
@@ -217,6 +219,7 @@ fn a_member_whose_data_is_finer_than_its_tick_runs_on_the_datas_grid() {
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )
     .unwrap();
     let time = admitted.envelope().order_key.logical_time_ns;
@@ -282,6 +285,7 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )
     .unwrap();
     let time = admitted.envelope().order_key.logical_time_ns;
@@ -459,6 +463,7 @@ fn self_consistent_plan_artifact_splice_fails_before_execution() {
     let request_time = admit_owner_universe_program_event_v2(
         &request_plan,
         &OwnerUniverseFrameV1::uncoordinated(request_frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )
     .unwrap()
     .envelope()
@@ -478,6 +483,7 @@ fn self_consistent_plan_artifact_splice_fails_before_execution() {
     let foreign_time = admit_owner_universe_program_event_v2(
         &foreign_plan,
         &OwnerUniverseFrameV1::uncoordinated(foreign_frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )
     .unwrap()
     .envelope()
@@ -1298,6 +1304,7 @@ fn run_two_frame_corpus_with_exit(
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )?;
     let entry_time = admitted.envelope().order_key.logical_time_ns;
     let exit_time = entry_time + 100;
@@ -1496,6 +1503,7 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )?;
     let time = admitted.envelope().order_key.logical_time_ns;
     let bars = [
@@ -1685,6 +1693,7 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )?;
     let time = admitted.envelope().order_key.logical_time_ns;
     let data = vec![
@@ -1832,6 +1841,7 @@ fn run_fill_quote_corpus_with(
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )?;
     let time = admitted.envelope().order_key.logical_time_ns;
     let mut data = vec![
@@ -2309,6 +2319,7 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )?;
     let first_time = admitted.envelope().order_key.logical_time_ns;
     let second_time = first_time + 100;
@@ -3093,6 +3104,7 @@ fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widenin
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        UniverseSelectionPinV2::SnapshotReceipt,
     )
     .unwrap();
     let time = admitted.envelope().order_key.logical_time_ns;
@@ -3328,11 +3340,15 @@ fn authored_universe_member_program(
         .expect("ABI3 strategy artifact");
     let owner_frame =
         OwnerUniverseFrameV1::with_plan_coordinates_for_test(&plan, sealed_frame.frame().clone());
-    let time = admit_owner_universe_program_event_v2(&plan, &owner_frame)
-        .expect("the coordinated frame is admitted")
-        .envelope()
-        .order_key
-        .logical_time_ns;
+    let time = admit_owner_universe_program_event_v2(
+        &plan,
+        &owner_frame,
+        UniverseSelectionPinV2::SnapshotReceipt,
+    )
+    .expect("the coordinated frame is admitted")
+    .envelope()
+    .order_key
+    .logical_time_ns;
     AuthoredUniverseMemberProgram {
         plan: *plan,
         artifact,

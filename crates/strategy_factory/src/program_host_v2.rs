@@ -288,30 +288,46 @@ pub(crate) fn plan_reads_universe_member_coordinates_v1(plan: &StrategyPlanV2) -
         .any(|row| row.kind() == BfpRoleBindingKindV1::Coordinate)
 }
 
+/// Which batch a universe frame's own `selection_receipt_digest` is pinned against, and so
+/// whether the host can check it bit-for-bit against the Plan's compiled projection.
+///
+/// `SnapshotReceipt`: `frame` is the single committed PIT snapshot the Plan was bound against (H4
+/// binding time) - the Plan's pinned `selection_receipt_digest` and `frame`'s own must be the
+/// exact same value, and the host checks that.
+///
+/// `CustodyRun`: `frame` is one frame of a bound PIT window custody run. Its own
+/// `selection_receipt_digest` bakes in the verified batch's own content digest
+/// (`derive_universe_selection`, `crates/data/src/owner/strategy_input_binding.rs`:
+/// `receipt_bytes.digest(batch.digest())`), so it is necessarily different for every batch the
+/// run reads - comparing it against the Plan's single pinned value would refuse every frame past
+/// the first. The host skips that one check instead, because the frame's provenance is already
+/// proven before it reaches here, not re-derived at this boundary: (a)
+/// `crates/strategy_factory/src/native_replay_custody_frames_v1.rs`'s
+/// `resolve_native_replay_custody_frames_v1` reads every frame through `for_custody_event`, which
+/// carries the custody binding's own pinned `chain_root`/`head_identity` through unchanged from
+/// the first frame's pin; (b) `StrategyInputUniverseSelectionReceipt` and
+/// `StrategyInputUniverseFrameReceipt` (`crates/data/src/owner/strategy_input_binding.rs`) are
+/// Owner-sealed with no public constructor and no `Deserialize`, so a frame reaching this call can
+/// only have come from that read, never from a caller. Re-deriving and re-checking a view
+/// identity at the host would be internal re-validation of an already-sealed value, against the
+/// rule that validates at the outer boundary and passes sealed values inward from there.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum UniverseSelectionPinV2 {
+    SnapshotReceipt,
+    CustodyRun,
+}
+
 /// Admits one Owner-sealed universe frame with exactly the coordinates it was paired with.
 pub(crate) fn admit_owner_universe_program_event_v2(
     plan: &StrategyPlanV2,
     frame: &OwnerUniverseFrameV1,
+    pin: UniverseSelectionPinV2,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    admit_market_data_coordinated_universe_program_event_v2(plan, &frame.frame, &frame.coordinates)
-}
-
-/// The custody-run counterpart of [`admit_owner_universe_program_event_v2`]: identical except it
-/// names `frame` as one frame of a bound PIT window custody run rather than a single committed
-/// snapshot, so it does not compare `frame`'s own per-batch `selection_receipt_digest` against the
-/// Plan's pinned one - see the comment at the skip inside `admit_universe_frame_values_v2` for
-/// why that comparison is wrong for a custody run and what already proves the frame's provenance
-/// instead.
-pub(crate) fn admit_owner_universe_program_event_for_custody_run_v2(
-    plan: &StrategyPlanV2,
-    frame: &OwnerUniverseFrameV1,
-) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    let event = admit_universe_frame_values_v2(plan, &frame.frame, true)?;
-    attach_universe_member_sample_coordinates_v1(
+    admit_market_data_coordinated_universe_program_event_v2(
         plan,
-        event,
-        frame.frame.digest(),
+        &frame.frame,
         &frame.coordinates,
+        pin,
     )
 }
 
@@ -1799,8 +1815,9 @@ pub(crate) fn admit_market_data_coordinated_universe_program_event_v2(
     plan: &StrategyPlanV2,
     frame: &StrategyInputUniverseFrameReceipt,
     coordinates: &[UniverseMemberSampleCoordinateV1],
+    pin: UniverseSelectionPinV2,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    let event = admit_universe_frame_values_v2(plan, frame, false)?;
+    let event = admit_universe_frame_values_v2(plan, frame, pin)?;
     attach_universe_member_sample_coordinates_v1(plan, event, frame.digest(), coordinates)
 }
 
@@ -1976,16 +1993,12 @@ fn universe_frame_coverage_diff_v1(
     }
 }
 
-/// `is_custody_frame` is `false` for a single committed PIT snapshot (the Plan's pinned
-/// `selection_receipt_digest` is checked bit-for-bit), `true` for one frame of a PIT window
-/// custody run (that check is skipped - see the comment at the skip for why). Callers never pass
-/// this directly; use [`admit_market_data_coordinated_universe_program_event_v2`]/
-/// [`admit_owner_universe_program_event_v2`] for the snapshot path and
-/// [`admit_owner_universe_program_event_for_custody_run_v2`] for the custody path.
+/// `pin` says which batch `frame`'s own `selection_receipt_digest` is pinned against - see
+/// [`UniverseSelectionPinV2`] for what that changes and why.
 fn admit_universe_frame_values_v2(
     plan: &StrategyPlanV2,
     frame: &StrategyInputUniverseFrameReceipt,
-    is_custody_frame: bool,
+    pin: UniverseSelectionPinV2,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
     let projection = plan
         .universe_selection()
@@ -2030,23 +2043,11 @@ fn admit_universe_frame_values_v2(
         ));
     }
 
-    // `selection.digest()` bakes in `batch.digest()` - the verified PIT batch's own content
-    // digest (`derive_universe_selection`, `crates/data/src/owner/strategy_input_binding.rs`:
-    // `receipt_bytes.digest(batch.digest())`) - so it is NECESSARILY different for every batch a
-    // multi-frame custody run reads, while the Plan's `selection_receipt_digest` pins the single
-    // batch H4 bound against (`UniverseSelectionProjectionV2::from_owner_receipt`,
-    // `strategy_plan_v2.rs`). Comparing them bit-for-bit is correct only for a single committed
-    // snapshot. On the custody path this frame's own provenance is already proven before it
-    // reaches here: (a) the custody resolver reads every frame under the binding's own pinned
-    // `chain_root`/`head_identity` (`native_replay_custody_frames_v1.rs`'s
-    // `resolve_native_replay_custody_frames_v1`, via `for_custody_event`, which carries both
-    // through unchanged from the first frame's own pin); (b) `StrategyInputUniverseSelectionReceipt`
-    // and `StrategyInputUniverseFrameReceipt` are Owner-sealed with no public constructor and no
-    // `Deserialize`, so a frame reaching this call can only have come from that read, never from a
-    // caller. Re-deriving and re-checking a view identity here would be internal re-validation of
-    // an already-sealed value, against the rule that validates at the outer boundary and passes
-    // sealed values inward from there.
-    if !is_custody_frame && selection.digest() != projection.selection_receipt_digest() {
+    // Only the single-batch snapshot pin can be checked bit-for-bit - see UniverseSelectionPinV2's
+    // doc for why a custody run's own per-frame receipt digest is never compared here.
+    if pin == UniverseSelectionPinV2::SnapshotReceipt
+        && selection.digest() != projection.selection_receipt_digest()
+    {
         return Err(ProgramHostV2Error::InputCoverage(
             "universe_selection.selection_receipt_digest",
         ));
@@ -2238,7 +2239,11 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
     logical_time_ns: u64,
     member_open_close: &[[i128; 2]],
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    let mut event = admit_owner_universe_program_event_v2(plan, frame)?;
+    let mut event = admit_owner_universe_program_event_v2(
+        plan,
+        frame,
+        UniverseSelectionPinV2::SnapshotReceipt,
+    )?;
     let prior = event.envelope.order_key;
     let identity_digest = domain_digest(
         b"strategy.backtest.test-successor-event.v2\0",
@@ -2487,6 +2492,7 @@ impl ProgramHostV2 {
         let event = admit_owner_universe_program_event_v2(
             &self.plan,
             &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+            UniverseSelectionPinV2::SnapshotReceipt,
         )?;
         self.prepare_backtest_admitted_universe_event(&event)
     }
