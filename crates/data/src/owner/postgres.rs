@@ -8749,16 +8749,21 @@ impl NativeReplaySchedulingResolverV1 for SealedAcceptanceNativeReplayScheduling
         resolve_native_replay_initial_market_through_port_v1(&self.port, request).await
     }
 
-    /// The sealed acceptance port holds no custody read: a custody frame is never read here.
+    /// A custody frame read through the unadmitted port, exactly as the admitted resolver reads
+    /// one through its admitted custody port: the view at the pinned head, the record its root's
+    /// locator resolves to, and the quote cut production derives from the gap's fill bar. The
+    /// principal reads under the custody acceptance grants
+    /// (`grant_pit_window_custody_acceptance_reads_v1`) beside the scheduling ones.
     async fn resolve_native_replay_custody_frame_inputs_v1(
         &self,
         request: &NativeReplayInitialMarketRequestV1,
     ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
-        request.custody_frame()?;
-        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
-            read: OwnerReadV1::FrameKind,
-            cause: OwnerReadCauseV1::NotServed,
-        })
+        native_replay_custody_frame_v1::resolve_native_replay_custody_frame_through_port_v1(
+            &self.port,
+            request,
+            native_replay_custody_frame_v1::resolve_custody_quote_cut_v1,
+        )
+        .await
     }
 
     async fn resolve_replay_funding_schedule_v1(
