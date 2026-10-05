@@ -147,7 +147,7 @@ Owners form one stack. From the bottom up:
 3. R&D: orchestration. It calls Market Data and Backtest downward; its census reading Backtest Results is a
    downward read.
 4. Qualification and the forward stage: they call Backtest downward and receive R&D Candidates by value.
-5. Governance and the trading side: Governance, Runtime, Risk, Execution, Portfolio, and Scanner.
+5. Governance and the trading side: Governance, Runtime, Risk, Execution, Portfolio, with legacy Scanner compatibility.
 
 Product Edge and Operator Authorization are the outer boundary above the stack, not a layer inside it.
 `vibe-strategy-factory-rd-owner-api` is the composition root: it links every Owner it wires, and its crate
@@ -519,11 +519,16 @@ namespace derive from the exact Execution Scope and belong to Execution, not Run
 can never equal or alias, and cross-mode facts are rejected rather than merged, including after replay or restart.
 Runtime and Execution reject a missing, opposite-mode, or mismatched scope and cannot override Governance mode.
 
-## Scheduled scanner
+## Opportunity discovery and legacy Scanner compatibility
 
-Scanner is a scheduled proposal producer. It reads governed deployable strategies, Market Data facts, and an
-optional bounded Portfolio capacity view. It records insufficient data and submits matched evidence to
-Governance. It never activates a strategy or sends a trade intent.
+The target has R&D on-demand read-only discovery, not a scheduled Scanner department or deployment-proposal route.
+Running strategies continuously consume market data; Governance directly evaluates frozen lifecycle conditions.
+Discovery reuses native evaluation while isolating mutable state and grants no deployment or order authority.
+
+Existing Scanner schedules, matched dispositions and proposals below are sealed legacy compatibility facts only.
+They retain original identity, capacity and refusal rules without gaining new implementation or effect admission.
+They are not required inputs to the target route. See [R&D discovery](../owners/rd/#target---on-demand-read-only-opportunity-discovery)
+and [Scanner migration](../owners/scanner/#target-role-and-legacy-contract-migration).
 
 Capacity View identity binds its immutable account-plus-mode economic-pool Capacity Scope, exact account and collateral fact cut, gross ceilings by dimension and unit, valuation version, liquidity input
 cut, candidate-neutral pool methodology and assumption versions, measurement time,

@@ -133,7 +133,7 @@ Governance 拥有部署与生命周期决定，Runtime 拥有策略实例 checkp
 2. Backtest：一个服务，只读数据层。
 3. R&D：编排层。向下调用 Market Data 与 Backtest；census 读取 Backtest Results 属于向下读。
 4. Qualification 与前向阶段：向下调用 Backtest，R&D 的 Candidate 以值的形式传入。
-5. Governance 与交易侧：Governance、Runtime、Risk、Execution、Portfolio 与 Scanner。
+5. Governance 与交易侧：Governance、Runtime、Risk、Execution、Portfolio；Scanner 只保留旧契约兼容。
 
 Product Edge 与 Operator Authorization 是栈之上的外边界，不是栈内的一层。
 `vibe-strategy-factory-rd-owner-api` 是组装根：它链接自己装配的每个 Owner，它的 crate 依赖不算层间边。继承来的引擎
@@ -406,10 +406,14 @@ Aggregate Commitment Frontier 证明准确当前完整 `ACTIVE` fence set；只�
 Execution，不属于 Runtime。Paper 与 Live 命名空间不得相等或互为别名，跨模式事实即使重放或重启也
 必须拒绝。Runtime 与 Execution 拒绝缺失 相反模式或不匹配 scope，不能覆盖 Governance 模式。
 
-## 定时 Scanner
+## 机会发现与旧 Scanner 兼容
 
-Scanner 是定时提案生产者。它读取受治理的可部署策略、Market Data 事实，以及可选且受限的
-Portfolio 容量视图。数据不足时记录原因，匹配成功时向 Governance 提交证据。它永不激活策略
+目标由 R&D 提供按需只读发现，不设置定时 Scanner 部门或部署提案路线。运行策略持续消费行情，
+Governance 直接判定冻结生命周期条件。发现复用原生判断并隔离可变状态，不产生部署或订单权限。
+
+下述 Scanner 计划、匹配及提案只是封存的旧兼容事实，保留原身份、容量和拒绝规则，
+不获得新实现或效果准入，也不是目标路线的必需输入。见 [R&D 按需发现](../owners/rd.zh.md#target---按需只读机会发现)
+与 [Scanner 迁移](../owners/scanner.zh.md#目标定位与旧契约迁移)。旧提案读取可选且受限的 Portfolio 容量视图。数据不足时记录原因，匹配成功时向 Governance 提交证据。它永不激活策略
 或发送交易意图。
 
 Capacity View 身份绑定不可变账户加模式经济池 Capacity Scope、准确账户与抵押品事实截面 各维度与单位的 gross ceiling 估值版本 流动性输入截面 候选无关资金池

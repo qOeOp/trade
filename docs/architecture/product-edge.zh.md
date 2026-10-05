@@ -409,16 +409,16 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 
 - MCP server 是代理会话的 stdio 子进程。它随该会话启停，不保存状态，不托管任何长任务，也不启动容器：启动容器需要
   Docker socket，而那等于主机 root。
-- 长时间运行的确定性工作运行在 compose 包里常驻的服务中，由该服务自己的调度器与 worker 执行。计划（例如「每 4 小时扫描
-  这几个策略」）是该服务持有的只追加记录；代理经该服务的 MCP server 增删改查这条计划并读取其结果。
+- 长时间运行的确定性工作由所属领域服务持久执行，使用 worker 与该领域已准入的调度。回测、数据准备和按需发现
+  均可在 MCP 会话退出后继续。市场扫描不另设定时任务，运行策略通过原生节点持续消费和判断行情。
 - 每个长任务都是异步 job：提交得到 `job_id`，然后代理读取其状态，再读取其结果。回测、回填、扫描与前向记录都是这个形状，
   其结果只追加、可重放。
 - 唯一常驻的隔离容器是 `rd-build-sandbox`，它在断网与只读文件系统下把策略程序编译成 Wasm，经其 socket 被调用。它不按任务
   启动。
 - 需要模型、不确定的工作，例如代理定期做研究，由宿主侧的定时器唤醒一个代理会话，再由该会话调用各个 MCP server。产品里不放
   任何代理。
-- **TARGET，U1 之后：** 今天 Dashboard 的 shadow scheduler 与 effect worker 在调度研究与扫描任务（产品闭环中的「面向用户的
-  闭环与实现边界」）。按分层规则，每条计划归其领域的服务，Dashboard 只负责查看与控制。
+- 既有 Dashboard shadow/effect-worker 接线是兼容入口，不拥有业务调度权威。领域服务持有持久 job，Dashboard 提交请求并
+  回读事实。旧 Scanner 的调度不作为目标能力迁入新服务。
 
 **权限。**
 
@@ -669,6 +669,9 @@ Decision、Qualification 状态、生命周期状态或外部效果闭合。Obse
 或新 TrialFamily 不能静默擦除已经观察到的反馈。
 
 ## 交接
+
+历史 ScheduledScanId/Scanner Receipt 的读面仅用于旧契约兼容，不要求新建扫描计划、生成部署提案或将其作为新目标上线前置。
+按需发现返回 R&D observation job/result，遵守其冻结工件、数据截面、授权范围和未知状态。
 
 研究与生命周期 admission 请求只能通过接收 Owner 的终态回执闭合；已接受 D-only admission 与后续由
 R&D 拥有的 D-only Repair Disposition 保持分离。只有 Runtime 的 Generation Application
