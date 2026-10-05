@@ -83,6 +83,12 @@ impl Sha256Digest {
     pub fn to_hex(self) -> String {
         hex::encode(self.0)
     }
+
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn to_bytes(self) -> [u8; SHA256_BYTES] {
+        self.0
+    }
 }
 
 impl Display for Sha256Digest {

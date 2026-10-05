@@ -4,7 +4,6 @@
 //! `1M` lives in [`crate::venue_bar_derived_archive_v1`]; this module is the fixed-interval path
 //! that actually reads an official file.
 
-use vibe_core::hex;
 use vibe_data::owner::{
     source_binding::BindingDigest,
     venue_bar_store_v1::{
@@ -14,6 +13,7 @@ use vibe_data::owner::{
 };
 
 use crate::{
+    common::offline::Sha256Digest,
     venue_bar_rest_recorder_v1::{VenueBarRestRowErrorV1, venue_bar_from_kline_row_v1},
     vision_backfill_v1::{
         FetchedBarV1, VisionBackfillErrorV1, VisionBackfillFetcherV1, day_bounds_ns,
@@ -21,15 +21,12 @@ use crate::{
     },
 };
 
-/// Turns a Sha256-style archive digest into the opaque [`BindingDigest`]
-/// [`VenueBarArchiveV1::identity`] carries. Infallible: both are 32-byte digests, and the hex
-/// round-trip only ever re-encodes bytes this crate already produced.
-fn archive_identity(digest_hex: &str) -> BindingDigest {
-    let bytes: [u8; 32] = hex::decode(digest_hex)
-        .ok()
-        .and_then(|v| v.try_into().ok())
-        .unwrap_or([0u8; 32]);
-    BindingDigest::from_untrusted_bytes(bytes)
+/// Turns the archive's own verified [`Sha256Digest`] into the opaque [`BindingDigest`]
+/// [`VenueBarArchiveV1::identity`] carries - a plain byte copy, no hex round-trip and no fallback,
+/// so an identity is always exactly the digest that was actually verified.
+#[must_use]
+pub fn archive_identity(digest: Sha256Digest) -> BindingDigest {
+    BindingDigest::from_untrusted_bytes(digest.to_bytes())
 }
 
 /// Why a fetched archive could not be turned into a [`VenueBarArchiveV1`].
@@ -47,7 +44,7 @@ pub enum VenueBarArchiveBuildErrorV1 {
 /// [`VenueBarArchiveBuildErrorV1`] naming why a row could not become a bar.
 pub fn venue_bar_archive_from_fetched_v1(
     kind: VenueBarArchiveKindV1,
-    identity_hex: &str,
+    identity: BindingDigest,
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
     venue_interval: &str,
@@ -59,7 +56,7 @@ pub fn venue_bar_archive_from_fetched_v1(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(VenueBarArchiveV1 {
         kind,
-        identity: archive_identity(identity_hex),
+        identity,
         window_start_ns,
         window_end_ns_exclusive,
         bars,
@@ -107,7 +104,7 @@ pub async fn verify_execution_month_v1(
     let (window_start_ns, window_end_ns_exclusive) = month_bounds_ns(year, month)?;
     let archive = venue_bar_archive_from_fetched_v1(
         VenueBarArchiveKindV1::MonthlyArchive,
-        &digest.to_hex(),
+        archive_identity(digest),
         window_start_ns,
         window_end_ns_exclusive,
         request.venue_interval,
@@ -144,7 +141,7 @@ pub async fn verify_execution_day_v1(
     let (window_start_ns, window_end_ns_exclusive) = day_bounds_ns(year, month, day)?;
     let archive = venue_bar_archive_from_fetched_v1(
         VenueBarArchiveKindV1::DailyArchive,
-        &digest.to_hex(),
+        archive_identity(digest),
         window_start_ns,
         window_end_ns_exclusive,
         request.venue_interval,
@@ -191,6 +188,10 @@ pub async fn verify_derived_from_daily_v1(
         .into_iter()
         .map(|read| read.bar)
         .collect::<Vec<_>>();
+    // window_start_ns/window_end_ns_exclusive are not checked against the read daily_bars here:
+    // derived_archive_v1's own fold already refuses by name (NotContiguous, OffGrid) whenever the
+    // given bars do not land on exactly one 1w/1M grid window, so a mismatched window can only
+    // ever end in one of those two refusals, never a silently wrong archive.
     let archive = crate::venue_bar_derived_archive_v1::derived_archive_v1(
         venue_interval,
         window_start_ns,
@@ -238,20 +239,25 @@ mod tests {
 
     const MINUTE: u64 = 60_000_000_000;
 
-    #[rstest]
-    fn archive_identity_round_trips_a_real_sha256_hex_string() {
-        let digest_hex = "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355";
-        let identity = archive_identity(digest_hex);
+    fn digest(hex_str: &str) -> Sha256Digest {
+        Sha256Digest::parse(hex_str).unwrap()
+    }
 
-        assert_eq!(identity, archive_identity(digest_hex));
+    #[rstest]
+    fn archive_identity_is_a_plain_copy_of_the_verified_digests_bytes() {
+        let a_digest = digest("2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355");
+
+        assert_eq!(archive_identity(a_digest), archive_identity(a_digest));
     }
 
     #[rstest]
     fn two_different_digests_derive_two_different_identities() {
-        let a =
-            archive_identity("2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355");
-        let b =
-            archive_identity("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let a = archive_identity(digest(
+            "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355",
+        ));
+        let b = archive_identity(digest(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ));
 
         assert_ne!(a, b);
     }
@@ -273,7 +279,9 @@ mod tests {
 
         let archive = venue_bar_archive_from_fetched_v1(
             VenueBarArchiveKindV1::MonthlyArchive,
-            "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355",
+            archive_identity(digest(
+                "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355",
+            )),
             0,
             2 * MINUTE,
             "1m",
@@ -299,7 +307,9 @@ mod tests {
 
         let err = venue_bar_archive_from_fetched_v1(
             VenueBarArchiveKindV1::DailyArchive,
-            "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355",
+            archive_identity(digest(
+                "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355",
+            )),
             0,
             MINUTE,
             "1m",
