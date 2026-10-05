@@ -20,6 +20,7 @@ use crate::owner::pit_window_custody_v1::{
         SealedAcceptanceTimeframeV1, commit_sealed_acceptance_custody_chain_v1,
     },
 };
+use crate::owner::source_binding::UntrustedMarketSemantics;
 
 const SECOND: u64 = 1_000_000_000;
 const MINUTE: u64 = 60 * SECOND;
@@ -74,6 +75,7 @@ fn spec() -> SealedAcceptanceCustodyChainSpecV1 {
         lag_ns: LAG,
         instrument_increments: None,
         market_semantics_value: None,
+        source_semantics: None,
     }
 }
 
@@ -286,16 +288,43 @@ async fn postgres_a_bar_the_custody_intake_refuses_is_refused_under_its_name() {
     );
 }
 
+/// Market semantics another entry's binding states, every rule named for it.
+fn earlier_entry_semantics() -> UntrustedMarketSemantics {
+    let named = |rule: &str| format!("an-earlier-entry/{rule}");
+    UntrustedMarketSemantics {
+        normalization: named("normalization"),
+        adjustment: named("raw"),
+        price_meaning: named("quote-currency-per-base"),
+        calendar_rules: named("continuous-calendar"),
+        session_rules: named("continuous-session"),
+        timezone_rules: named("etc-utc"),
+        instrument_lifecycle_rules: named("instrument-lifecycle"),
+        corporate_action_rules: named("no-corporate-actions"),
+        membership_rules: named("fixed-membership"),
+        universe_rules: named("fixed-member-selection"),
+        correction_policy: named("no-corrections"),
+    }
+}
+
 /// An ordered chain shares one store, so the fixture can meet a member an earlier entry already
 /// admitted. It keeps that member's fact rather than submitting a rival genesis fact, which the
 /// Instrument Master intake refuses: a second chain whose own fact would differ - a finer price
-/// increment - over a shorter window commits, and binds the first chain's fact.
+/// increment - over a shorter window commits, and binds the first chain's fact. The custody
+/// intake requires that fact to carry the custody binding's market semantics scope, so a second
+/// chain under other semantics than the fact's binding is refused by name before any custody is
+/// committed, and commits once its spec names the fact's binding's semantics.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_a_member_already_admitted_keeps_its_fact() {
-    let first = commit_sealed_acceptance_custody_chain_v1(&owner_url(), &spec())
-        .await
-        .expect("the first chain admits the member");
+    let first = commit_sealed_acceptance_custody_chain_v1(
+        &owner_url(),
+        &SealedAcceptanceCustodyChainSpecV1 {
+            source_semantics: Some(earlier_entry_semantics()),
+            ..spec()
+        },
+    )
+    .await
+    .expect("the first chain admits the member");
     let mut second_spec = spec();
     second_spec.execution_timeframe.bars.pop();
     second_spec.fill_timeframe.bars.pop();
@@ -303,9 +332,16 @@ async fn postgres_a_member_already_admitted_keeps_its_fact() {
         price: decimal("0.01"),
         quantity: decimal("0.001"),
     });
+    assert_eq!(
+        commit_sealed_acceptance_custody_chain_v1(&owner_url(), &second_spec)
+            .await
+            .map(|_| ()),
+        Err(SealedAcceptanceCustodyChainErrorV1::HeldInstrumentSemanticsDiffer)
+    );
+    second_spec.source_semantics = Some(earlier_entry_semantics());
     let second = commit_sealed_acceptance_custody_chain_v1(&owner_url(), &second_spec)
         .await
-        .expect("the second chain keeps the member's fact");
+        .expect("the second chain keeps the member's fact under its binding's semantics");
 
     assert_ne!(second.chain_root(), first.chain_root());
     assert_eq!(
