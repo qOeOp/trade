@@ -3867,11 +3867,24 @@ settlement. Both stay inside Market Data; neither widens what may reach real mon
 ### TARGET full chart timeframes and one stitched bar series
 
 The user decided on 2026-10-05 that Market Data serves the timeframes a charting tool offers - `1m`, `15m`, `30m`, `1h`,
-`2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `1w` and `1M` (one calendar month) - and that the latest closed bars, the current
+`2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `1w` and `1mo` (one calendar month) - and that the latest closed bars, the current
 month included, are available. The user also chose how (2026-10-05, following Nautilus): public REST is the primary
 source for every month, and the official archives only verify it afterwards. A consumer reads one series per instrument
 and timeframe and never sees which source a bar came from, except through two marks on each bar. This section states the
 design and the measurements behind it. Nothing in it is implemented yet; Lane 8 implements it.
+
+Naming the month (user decision, 2026-10-05):
+
+- **The public label is `1mo`.** The month is a calendar month split at 00:00 UTC on the 1st, the same bar as Binance's
+  native `1M`, so Binance data checks it directly. Every surface outside Market Data names it `1mo`: a request's
+  timeframe, a `dataset_ref` whitelist, an MCP schema, and these documents' public lists.
+- **Why not `1M` or `4w`.** `1M` folds into `1m` (the minute) under case-insensitive handling. `4w` reads literally as
+  28 days.
+- **Binance's own name stays inside the adapter.** Market Data uses `1M` only where it talks to Binance: the REST
+  `interval` parameter and the archives' file names.
+- **The custody row label is `1MO`** (`served_timeframe_v1("1M").label`), distinct from the minute's `1M` row label.
+- **Reading this section.** Below, `1M` written beside Binance's REST or archive files means Binance's interval. The
+  timeframe served to consumers is `1mo`.
 
 - **Measured: Binance's own bars at different timeframes do not always agree with each other.** The question was
   whether every timeframe can be derived from `1m` alone, so that `1m` is the one source of truth. Every USD-M monthly
@@ -3998,7 +4011,7 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     - **Calendar-month cadence.** `UntrustedSourceBarCadenceV1` has only `FixedInterval` and `ExchangeSessionDay`,
       so `1M` needs a new `CalendarMonth` cadence on the UTC month anchor.
     - **New labels in the label mapping** (`execution_timeframe_bar_label_v1`, #1386): `15M`, `30M`, `2H`, `6H`,
-      `8H` and `12H`, `1m` as `1M` (already the fill label), and a distinct month label. `1M` is taken by the
+      `8H` and `12H`, `1m` as `1M` (already the fill label), and the month as `1MO`. `1M` is taken by the
       minute, so the month cannot reuse it.
   - **Not usable as is:**
     - **`request_bars`**, because its `Bar` drops columns (above).
