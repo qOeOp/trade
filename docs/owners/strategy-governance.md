@@ -4,6 +4,24 @@
 
 Own the deployable strategy registry, lifecycle decision, and permitted capital policy from qualification through retirement. Governance decides whether a strategy generation may run; it does not design artifacts, judge individual trades, or own order effects.
 
+## TARGET - Trial and formal strategy lifecycle
+
+The promotion route is R&D iteration, qualified backtest, real trading trial, and automatic promotion on frozen
+conditions. Governance owns stage decisions, trial/formal membership, user-approved condition versions and capital
+allocation; it does not produce backtest qualification, fills or profit measurements.
+
+- Qualification consumes Backtest evidence and owns backtest eligibility and protected assessments; failures stay in R&D.
+- Portfolio provides returns, NAV, fees, funding, capital-flow and attribution facts; Runtime/Execution provide actual operation, orders and fills.
+- Governance consumes these facts under conditions frozen before operation to decide promotion, maximum-period trial termination and formal retention. A Dashboard selection is not a passing result.
+- Approved ratios divide the common trial and formal pools; each pool allocates equally among actually running instances, recalculating on entry, unload or promotion. Unloading returns allocation immediately. Actual residual margin and exposure remain account facts checked by Risk at order admission, without retaining the unloaded strategy's running allocation.
+- Trial expiry without promotion or failure of formal retention conditions unloads the strategy and returns it to R&D. Stop new entries, cancel unfilled entry orders and hand existing positions to the existing native Runtime/Risk/Execution path under original protections. Direct downgrade from formal to trial trading is forbidden.
+- R&D owns diagnosis, successor changes and new backtests; successors qualify again and start new trials without inheriting old results, stage decisions or authorization.
+- Strategies express signals and necessary protection rules, not their own eligibility, promotion, unload, pool membership or allocation. Dashboard provides selection and readback.
+
+This is target business policy. Condition choices, normative stage facts and versioned handoffs still need completion.
+It cannot silently rewrite sealed contracts, authorization modes or effect admission below. Implementation must connect
+the corresponding Owners without a second order, account or qualification engine.
+
 ## Authoritative facts owned
 
 - Governed Strategy Entry binding ArtifactRef, exact Eligibility Fact and generation-specific economic-condition
