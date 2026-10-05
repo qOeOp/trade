@@ -125,8 +125,8 @@ use super::declared_bar_timeframe_v1::{DeclaredBarTimeframeErrorV1, DeclaredBarT
 use super::native_replay_scheduling_v1::{
     NativeReplayCustodyFrameReadbackV1, NativeReplayInitialMarketReadbackV1,
     NativeReplayInitialMarketRequestV1, NativeReplaySchedulingErrorV1,
-    NativeReplaySchedulingResolverV1, issue_native_replay_initial_market_readback_v1,
-    select_native_replay_schedule_v1,
+    NativeReplaySchedulingResolverV1, OwnerReadCauseV1, OwnerReadV1,
+    issue_native_replay_initial_market_readback_v1, select_native_replay_schedule_v1,
 };
 use super::pit_snapshot::{
     PitObservationBatchOwnerResolver, PitSnapshotFact, VerifiedPitObservationBatch,
@@ -8755,7 +8755,10 @@ impl NativeReplaySchedulingResolverV1 for SealedAcceptanceNativeReplayScheduling
         request: &NativeReplayInitialMarketRequestV1,
     ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
         request.custody_frame()?;
-        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::FrameKind,
+            cause: OwnerReadCauseV1::NotServed,
+        })
     }
 
     async fn resolve_replay_funding_schedule_v1(
@@ -8798,13 +8801,23 @@ where
     let evidence = port
         .resolve_pit_evaluation(*snapshot_identity.as_bytes())
         .await
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        .map_err(
+            |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: OwnerReadV1::SnapshotEvaluation,
+                cause: OwnerReadCauseV1::PortRefused,
+            },
+        )?;
     let (batch, source) = verify_admitted_pit_evidence_with_source_by_identity_v1(
         snapshot_identity,
         snapshot_fact_digest,
         &evidence,
     )
-    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    .map_err(
+        |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::SnapshotEvaluation,
+            cause: OwnerReadCauseV1::Untrusted,
+        },
+    )?;
     // The bar the frame's schedules must state is the one its own Source Binding declares for the
     // roles' row label, taken from the lineage rows the evidence verified the batch against: no
     // further read.
@@ -8817,7 +8830,12 @@ where
         let candidates = port
             .resolve_bar_schedule_candidates_v1(&instrument.to_string())
             .await
-            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+            .map_err(
+                |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                    read: OwnerReadV1::BarScheduleCandidates,
+                    cause: OwnerReadCauseV1::PortRefused,
+                },
+            )?;
         let verified = candidates
             .iter()
             .map(verify_admitted_bar_schedule_candidate_v1)
@@ -8990,7 +9008,10 @@ fn native_replay_scheduling_error_of_quote_cut_refusal(
 ) -> NativeReplaySchedulingErrorV1 {
     match refusal {
         NativeReplayQuoteCutRefusalV2::CustodyUnavailable => {
-            NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+            NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: OwnerReadV1::QuoteCut,
+                cause: OwnerReadCauseV1::StoreRefused,
+            }
         }
         NativeReplayQuoteCutRefusalV2::QuoteCutMissing => {
             NativeReplaySchedulingErrorV1::EventOrderUnavailable
@@ -9014,15 +9035,20 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
     let batch =
         load_verified_observation_batch_from_pool(pool, snapshot_identity, snapshot_fact_digest)
             .await
-            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+            .map_err(
+                |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                    read: OwnerReadV1::SnapshotBatch,
+                    cause: OwnerReadCauseV1::StoreRefused,
+                },
+            )?;
     let mut transaction = pool
         .begin()
         .await
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        .map_err(|e| owner_read_of_sqlx_v1(OwnerReadV1::ReadTransaction, &e))?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         .execute(&mut *transaction)
         .await
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        .map_err(|e| owner_read_of_sqlx_v1(OwnerReadV1::ReadTransaction, &e))?;
     let timeframe = request.execution_timeframe()?;
     let declared = declared_bar_timeframe_of_batch_v1(&mut transaction, &batch, timeframe).await?;
     let mut schedules = Vec::with_capacity(request.member_instruments().len());
@@ -9030,7 +9056,12 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
     for instrument in request.member_instruments() {
         let candidates = load_bar_schedule_candidates(&mut transaction, &instrument.to_string())
             .await
-            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+            .map_err(
+                |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                    read: OwnerReadV1::BarScheduleCandidates,
+                    cause: OwnerReadCauseV1::StoreRefused,
+                },
+            )?;
         schedules.push(select_native_replay_schedule_v1(
             candidates,
             &batch,
@@ -9049,11 +9080,34 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
     transaction
         .commit()
         .await
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        .map_err(|e| owner_read_of_sqlx_v1(OwnerReadV1::ReadTransaction, &e))?;
     issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, declared, request)
 }
 
 /// The bar timeframe that the exact Source Binding fact `batch` was taken under declares for its
+/// The scheduling refusal for `read` when a `sqlx` call refused: its SQLSTATE where the database
+/// stated one, an absent row, or an unusable connection.
+fn owner_read_of_sqlx_v1(read: OwnerReadV1, error: &sqlx::Error) -> NativeReplaySchedulingErrorV1 {
+    NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+        read,
+        cause: owner_read_cause_of_sqlx_v1(error),
+    }
+}
+
+/// The cause a refused `sqlx` call states.
+pub(crate) fn owner_read_cause_of_sqlx_v1(error: &sqlx::Error) -> OwnerReadCauseV1 {
+    match error {
+        sqlx::Error::RowNotFound => OwnerReadCauseV1::RowAbsent,
+        sqlx::Error::Database(database) => database
+            .code()
+            .and_then(|code| <[u8; 5]>::try_from(code.as_bytes()).ok())
+            .map_or(OwnerReadCauseV1::Connection, |sqlstate| {
+                OwnerReadCauseV1::Database { sqlstate }
+            }),
+        _ => OwnerReadCauseV1::Connection,
+    }
+}
+
 /// BAR rows labelled `row_timeframe`, read in the caller's transaction without locks.
 ///
 /// # Errors
@@ -9068,16 +9122,27 @@ pub(super) async fn declared_bar_timeframe_of_batch_v1(
 ) -> Result<DeclaredBarTimeframeV1, NativeReplaySchedulingErrorV1> {
     let source = load_source(transaction, batch.source_binding_identity(), false)
         .await
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        .map_err(
+            |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: OwnerReadV1::SourceBinding,
+                cause: OwnerReadCauseV1::StoreRefused,
+            },
+        )?
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::SourceBinding,
+            cause: OwnerReadCauseV1::RowAbsent,
+        })?;
     let declared = DeclaredBarTimeframeV1::from_binding(
         &SourceBindingOwnerReadback::from_verified(&source),
         row_timeframe,
     )
     .map_err(native_replay_scheduling_error_of_declaration)?;
-    declared
-        .for_batch(batch)
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    declared.for_batch(batch).map_err(|_| {
+        NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::DeclaredTimeframe,
+            cause: OwnerReadCauseV1::Disagrees,
+        }
+    })?;
     Ok(declared)
 }
 
@@ -9402,17 +9467,34 @@ fn verify_admitted_bar_schedule_v1(
 fn verify_admitted_bar_schedule_candidate_v1(
     evidence: &BarScheduleStorageEvidenceV1,
 ) -> Result<BarScheduleReadbackV1, NativeReplaySchedulingErrorV1> {
-    let value: Value = serde_json::from_slice(evidence.readback_row())
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let value: Value = serde_json::from_slice(evidence.readback_row()).map_err(|_| {
+        NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::BarScheduleEvidence,
+            cause: OwnerReadCauseV1::Untrusted,
+        }
+    })?;
     let identity = value
         .as_object()
         .and_then(|object| object.get("readback_identity"))
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::BarScheduleEvidence,
+            cause: OwnerReadCauseV1::Untrusted,
+        })
         .and_then(|value| {
-            raw_digest(value).map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+            raw_digest(value).map_err(
+                |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                    read: OwnerReadV1::BarScheduleEvidence,
+                    cause: OwnerReadCauseV1::Untrusted,
+                },
+            )
         })?;
     verify_bar_schedule_storage_evidence(identity, evidence.readback_row(), evidence.history_rows())
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        .map_err(
+            |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: OwnerReadV1::BarScheduleEvidence,
+                cause: OwnerReadCauseV1::Untrusted,
+            },
+        )
 }
 
 #[cfg(test)]
