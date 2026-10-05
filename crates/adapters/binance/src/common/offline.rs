@@ -83,6 +83,12 @@ impl Sha256Digest {
     pub fn to_hex(self) -> String {
         hex::encode(self.0)
     }
+
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn to_bytes(self) -> [u8; SHA256_BYTES] {
+        self.0
+    }
 }
 
 impl Display for Sha256Digest {
@@ -91,7 +97,7 @@ impl Display for Sha256Digest {
     }
 }
 
-/// Immutable trusted identity for one Binance Vision monthly kline archive.
+/// Immutable trusted identity for one Binance Vision kline archive, monthly or daily.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BinanceVisionArchiveBinding {
     archive_name: String,
@@ -101,12 +107,15 @@ pub struct BinanceVisionArchiveBinding {
     product: BinanceProductType,
     symbol: String,
     interval: BinanceKlineInterval,
-    month_start_millis: i64,
-    next_month_start_millis: i64,
+    /// The bound archive's own covered instant range, `[window_start_millis,
+    /// window_end_millis)`: one calendar month for [`Self::new`], one UTC day for
+    /// [`Self::new_daily`].
+    window_start_millis: i64,
+    window_end_millis: i64,
 }
 
 impl BinanceVisionArchiveBinding {
-    /// Constructs and validates an explicit archive binding.
+    /// Constructs and validates an explicit monthly archive binding.
     ///
     /// # Errors
     ///
@@ -120,27 +129,80 @@ impl BinanceVisionArchiveBinding {
         symbol: impl Into<String>,
         interval: BinanceKlineInterval,
     ) -> Result<Self, BinanceVisionArchiveError> {
+        Self::new_for_period(
+            (archive_name.into(), member_name.into()),
+            Sha256Digest::parse(archive_sha256)?,
+            sidecar_sha256.map(Sha256Digest::parse).transpose()?,
+            product,
+            symbol.into(),
+            interval,
+            ArchivePeriodV1::Month,
+        )
+    }
+
+    /// Constructs and validates an explicit daily archive binding: `{SYMBOL}-{INTERVAL}-
+    /// {YYYY-MM-DD}.zip`, covering `[that UTC day, the next)`. The daily archive verifies a bar
+    /// earlier than its month's own file is published, and covers a day a monthly file omits
+    /// (`docs/owners/market-data.md`'s B5).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed names, digests, symbols, or unsupported interval semantics.
+    pub fn new_daily(
+        archive_name: impl Into<String>,
+        member_name: impl Into<String>,
+        archive_sha256: &str,
+        sidecar_sha256: Option<&str>,
+        product: BinanceProductType,
+        symbol: impl Into<String>,
+        interval: BinanceKlineInterval,
+    ) -> Result<Self, BinanceVisionArchiveError> {
+        Self::new_for_period(
+            (archive_name.into(), member_name.into()),
+            Sha256Digest::parse(archive_sha256)?,
+            sidecar_sha256.map(Sha256Digest::parse).transpose()?,
+            product,
+            symbol.into(),
+            interval,
+            ArchivePeriodV1::Day,
+        )
+    }
+
+    fn new_for_period(
+        names: (String, String),
+        archive_sha256: Sha256Digest,
+        sidecar_sha256: Option<Sha256Digest>,
+        product: BinanceProductType,
+        symbol: String,
+        interval: BinanceKlineInterval,
+        period: ArchivePeriodV1,
+    ) -> Result<Self, BinanceVisionArchiveError> {
+        let (archive_name, member_name) = names;
+
         if !matches!(product, BinanceProductType::Spot | BinanceProductType::UsdM) {
             return Err(BinanceVisionArchiveError::InvalidBinding(
                 "Vision product must be Spot or USD-M".to_string(),
             ));
         }
-        let archive_name = archive_name.into();
-        let member_name = member_name.into();
-        let symbol = symbol.into();
-        let (month_start_millis, next_month_start_millis) =
-            validate_binding_names(&archive_name, &member_name, &symbol, product, interval)?;
+        let (window_start_millis, window_end_millis) = validate_binding_names(
+            &archive_name,
+            &member_name,
+            &symbol,
+            product,
+            interval,
+            period,
+        )?;
 
         Ok(Self {
             archive_name,
             member_name,
-            archive_sha256: Sha256Digest::parse(archive_sha256)?,
-            sidecar_sha256: sidecar_sha256.map(Sha256Digest::parse).transpose()?,
+            archive_sha256,
+            sidecar_sha256,
             product,
             symbol,
             interval,
-            month_start_millis,
-            next_month_start_millis,
+            window_start_millis,
+            window_end_millis,
         })
     }
 
@@ -852,6 +914,37 @@ pub fn authenticate_monthly_klines(
     archive_bytes: &[u8],
     sidecar_bytes: &[u8],
 ) -> Result<AuthenticatedBinanceVisionKlines, BinanceVisionArchiveError> {
+    authenticate_vision_klines(binding, archive_bytes, sidecar_bytes).map(|(_, klines)| klines)
+}
+
+/// Authenticates and parses one product-bound official Binance Vision daily kline archive
+/// (`BinanceVisionArchiveBinding::new_daily`): the same checks as
+/// [`authenticate_monthly_klines`], bound to one UTC day instead of one UTC month. Market Data's
+/// B5 verification reads a bar earlier this way, and covers a day a monthly file omits.
+///
+/// Also returns the archive's own verified content digest - the actual SHA-256 the ZIP bytes
+/// hashed to, already checked against the trusted `archive_sha256` the binding carries and the
+/// sidecar's own declared value - as `VenueBarArchiveV1::identity`: it has to change if Binance
+/// ever republishes a file under the same name with different bytes, which a digest derived from
+/// the name alone could not detect.
+///
+/// # Errors
+///
+/// Returns a typed error for any binding, checksum, ZIP, CSV, ordering, temporal, numeric, or
+/// normalization failure. No partial result is returned.
+pub fn authenticate_daily_klines(
+    binding: &BinanceVisionArchiveBinding,
+    archive_bytes: &[u8],
+    sidecar_bytes: &[u8],
+) -> Result<(Sha256Digest, AuthenticatedBinanceVisionKlines), BinanceVisionArchiveError> {
+    authenticate_vision_klines(binding, archive_bytes, sidecar_bytes)
+}
+
+fn authenticate_vision_klines(
+    binding: &BinanceVisionArchiveBinding,
+    archive_bytes: &[u8],
+    sidecar_bytes: &[u8],
+) -> Result<(Sha256Digest, AuthenticatedBinanceVisionKlines), BinanceVisionArchiveError> {
     if archive_bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(BinanceVisionArchiveError::ArchiveTooLarge {
             actual: archive_bytes.len(),
@@ -886,7 +979,38 @@ pub fn authenticate_monthly_klines(
     }
 
     let csv_bytes = read_single_csv_member(binding, archive_bytes)?;
-    parse_authenticated_csv(binding, actual_sidecar_sha256, &csv_bytes)
+    let klines = parse_authenticated_csv(binding, actual_sidecar_sha256, &csv_bytes)?;
+    Ok((actual_archive_sha256, klines))
+}
+
+/// Which calendar window a bound archive covers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ArchivePeriodV1 {
+    /// `{SYMBOL}-{INTERVAL}-{YYYY-MM}`, covering that whole UTC calendar month.
+    Month,
+    /// `{SYMBOL}-{INTERVAL}-{YYYY-MM-DD}`, covering that one UTC day.
+    Day,
+}
+
+fn date_midnight_millis(
+    date: Date,
+    overflow_message: &str,
+) -> Result<i64, BinanceVisionArchiveError> {
+    i64::try_from(date.midnight().assume_utc().unix_timestamp_nanos() / 1_000_000)
+        .map_err(|_| BinanceVisionArchiveError::InvalidBinding(overflow_message.to_string()))
+}
+
+/// Whether `symbol` is a canonical Binance symbol: non-empty, every byte an ASCII uppercase
+/// letter or digit. The same check [`BinanceVisionArchiveBinding::new`]/`new_daily` already
+/// enforce before accepting a symbol into a binding - exposed so a caller building a filesystem
+/// path or URL from a symbol can refuse it by this same name before either exists, rather than
+/// after.
+#[must_use]
+pub(crate) fn is_valid_binance_symbol(symbol: &str) -> bool {
+    !symbol.is_empty()
+        && symbol
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
 }
 
 fn validate_binding_names(
@@ -895,19 +1019,22 @@ fn validate_binding_names(
     symbol: &str,
     product: BinanceProductType,
     interval: BinanceKlineInterval,
+    period: ArchivePeriodV1,
 ) -> Result<(i64, i64), BinanceVisionArchiveError> {
     if interval_millis(interval).is_none() {
         return Err(BinanceVisionArchiveError::InvalidBinding(format!(
-            "only 15m, 1h, 4h, 1d, and 1w monthly contracts are supported, received {}",
+            "only 1m (daily only), 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, and 1w contracts are supported, received {}",
             interval.as_str()
         )));
     }
 
-    if symbol.is_empty()
-        || !symbol
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
-    {
+    if matches!(period, ArchivePeriodV1::Month) && interval == BinanceKlineInterval::Minute1 {
+        return Err(BinanceVisionArchiveError::InvalidBinding(
+            "1m is served from daily archives only: a real monthly 1m archive exceeds MAX_ARCHIVE_BYTES".to_string(),
+        ));
+    }
+
+    if !is_valid_binance_symbol(symbol) {
         return Err(BinanceVisionArchiveError::InvalidBinding(format!(
             "invalid canonical Binance symbol {symbol:?}"
         )));
@@ -928,73 +1055,111 @@ fn validate_binding_names(
         ));
     }
     let prefix = format!("{symbol}-{}-", interval.as_str());
-    let month = stem.strip_prefix(&prefix).ok_or_else(|| {
+    let period_text = stem.strip_prefix(&prefix).ok_or_else(|| {
         BinanceVisionArchiveError::InvalidBinding(
             "archive name does not bind the declared symbol and interval".to_string(),
         )
     })?;
-    let numeric_year = month.get(0..4).and_then(|value| value.parse::<i32>().ok());
-    let numeric_month = month.get(5..7).and_then(|value| value.parse::<u8>().ok());
-    let valid_month = month.len() == 7
-        && month.as_bytes()[0..4].iter().all(u8::is_ascii_digit)
-        && month.as_bytes()[4] == b'-'
-        && month.as_bytes()[5..7].iter().all(u8::is_ascii_digit)
-        && numeric_month.is_some_and(|value| (1..=12).contains(&value));
 
-    if !valid_month {
-        return Err(BinanceVisionArchiveError::InvalidBinding(
-            "archive name must contain a canonical YYYY-MM month".to_string(),
-        ));
-    }
+    let (year, month, day) = match period {
+        ArchivePeriodV1::Month => {
+            let numeric_year = period_text.get(0..4).and_then(|v| v.parse::<i32>().ok());
+            let numeric_month = period_text.get(5..7).and_then(|v| v.parse::<u8>().ok());
+            let valid = period_text.len() == 7
+                && period_text.as_bytes()[0..4].iter().all(u8::is_ascii_digit)
+                && period_text.as_bytes()[4] == b'-'
+                && period_text.as_bytes()[5..7].iter().all(u8::is_ascii_digit)
+                && numeric_month.is_some_and(|value| (1..=12).contains(&value));
 
-    if numeric_year.is_none_or(|year| product == BinanceProductType::Spot && year >= 2025) {
+            if !valid {
+                return Err(BinanceVisionArchiveError::InvalidBinding(
+                    "archive name must contain a canonical YYYY-MM month".to_string(),
+                ));
+            }
+            (numeric_year, numeric_month, None)
+        }
+        ArchivePeriodV1::Day => {
+            let numeric_year = period_text.get(0..4).and_then(|v| v.parse::<i32>().ok());
+            let numeric_month = period_text.get(5..7).and_then(|v| v.parse::<u8>().ok());
+            let numeric_day = period_text.get(8..10).and_then(|v| v.parse::<u8>().ok());
+            let valid = period_text.len() == 10
+                && period_text.as_bytes()[0..4].iter().all(u8::is_ascii_digit)
+                && period_text.as_bytes()[4] == b'-'
+                && period_text.as_bytes()[5..7].iter().all(u8::is_ascii_digit)
+                && period_text.as_bytes()[7] == b'-'
+                && period_text.as_bytes()[8..10].iter().all(u8::is_ascii_digit)
+                && numeric_month.is_some_and(|value| (1..=12).contains(&value))
+                && numeric_day.is_some_and(|value| (1..=31).contains(&value));
+
+            if !valid {
+                return Err(BinanceVisionArchiveError::InvalidBinding(
+                    "archive name must contain a canonical YYYY-MM-DD day".to_string(),
+                ));
+            }
+            (numeric_year, numeric_month, numeric_day)
+        }
+    };
+
+    if year.is_none_or(|year| product == BinanceProductType::Spot && year >= 2025) {
         return Err(BinanceVisionArchiveError::InvalidBinding(
             "millisecond Spot archive binding is limited to pre-2025 months".to_string(),
         ));
     }
-    let year = numeric_year.ok_or_else(|| {
+    let year = year.ok_or_else(|| {
         BinanceVisionArchiveError::InvalidBinding("archive year is invalid".to_string())
     })?;
-    let month = Month::try_from(numeric_month.expect("validated month number")).map_err(|_| {
+    let month = Month::try_from(month.expect("validated month number")).map_err(|_| {
         BinanceVisionArchiveError::InvalidBinding("archive month is invalid".to_string())
     })?;
-    let start = Date::from_calendar_date(year, month, 1)
-        .map_err(|e| BinanceVisionArchiveError::InvalidBinding(e.to_string()))?;
-    let (next_year, next_month) = if month == Month::December {
-        (
-            year.checked_add(1).ok_or_else(|| {
-                BinanceVisionArchiveError::InvalidBinding("archive year overflowed".to_string())
-            })?,
-            Month::January,
-        )
-    } else {
-        (
-            year,
-            Month::try_from(u8::from(month) + 1).expect("next month is valid"),
-        )
+
+    let (start, next) = match day {
+        None => {
+            let start = Date::from_calendar_date(year, month, 1)
+                .map_err(|e| BinanceVisionArchiveError::InvalidBinding(e.to_string()))?;
+            let (next_year, next_month) = if month == Month::December {
+                (
+                    year.checked_add(1).ok_or_else(|| {
+                        BinanceVisionArchiveError::InvalidBinding(
+                            "archive year overflowed".to_string(),
+                        )
+                    })?,
+                    Month::January,
+                )
+            } else {
+                (
+                    year,
+                    Month::try_from(u8::from(month) + 1).expect("next month is valid"),
+                )
+            };
+            let next = Date::from_calendar_date(next_year, next_month, 1)
+                .map_err(|e| BinanceVisionArchiveError::InvalidBinding(e.to_string()))?;
+            (start, next)
+        }
+        Some(day) => {
+            let start = Date::from_calendar_date(year, month, day)
+                .map_err(|e| BinanceVisionArchiveError::InvalidBinding(e.to_string()))?;
+            let next = start.next_day().ok_or_else(|| {
+                BinanceVisionArchiveError::InvalidBinding("archive day overflowed".to_string())
+            })?;
+            (start, next)
+        }
     };
-    let next = Date::from_calendar_date(next_year, next_month, 1)
-        .map_err(|e| BinanceVisionArchiveError::InvalidBinding(e.to_string()))?;
-    let start_millis = i64::try_from(
-        start.midnight().assume_utc().unix_timestamp_nanos() / 1_000_000,
-    )
-    .map_err(|_| {
-        BinanceVisionArchiveError::InvalidBinding("archive month start overflowed".to_string())
-    })?;
-    let next_millis = i64::try_from(
-        next.midnight().assume_utc().unix_timestamp_nanos() / 1_000_000,
-    )
-    .map_err(|_| {
-        BinanceVisionArchiveError::InvalidBinding("archive month end overflowed".to_string())
-    })?;
+    let start_millis = date_midnight_millis(start, "archive window start overflowed")?;
+    let next_millis = date_midnight_millis(next, "archive window end overflowed")?;
     Ok((start_millis, next_millis))
 }
 
 const fn interval_millis(interval: BinanceKlineInterval) -> Option<i64> {
     match interval {
+        BinanceKlineInterval::Minute1 => Some(60 * 1_000),
         BinanceKlineInterval::Minute15 => Some(15 * 60 * 1_000),
+        BinanceKlineInterval::Minute30 => Some(30 * 60 * 1_000),
         BinanceKlineInterval::Hour1 => Some(60 * 60 * 1_000),
+        BinanceKlineInterval::Hour2 => Some(2 * 60 * 60 * 1_000),
         BinanceKlineInterval::Hour4 => Some(4 * 60 * 60 * 1_000),
+        BinanceKlineInterval::Hour6 => Some(6 * 60 * 60 * 1_000),
+        BinanceKlineInterval::Hour8 => Some(8 * 60 * 60 * 1_000),
+        BinanceKlineInterval::Hour12 => Some(12 * 60 * 60 * 1_000),
         BinanceKlineInterval::Day1 => Some(DAY_MILLIS),
         BinanceKlineInterval::Week1 => Some(7 * DAY_MILLIS),
         _ => None,
@@ -1163,7 +1328,14 @@ fn parse_authenticated_csv(
         BinanceVisionArchiveError::InvalidBinding("unsupported interval".to_string())
     })?;
     let interval_phase_millis = interval_phase_millis(binding.interval);
-    let max_monthly_rows = usize::try_from(31 * DAY_MILLIS / interval_millis)
+    let window_millis = binding
+        .window_end_millis
+        .checked_sub(binding.window_start_millis)
+        .filter(|&span| span > 0)
+        .ok_or_else(|| {
+            BinanceVisionArchiveError::InvalidBinding("archive window is empty".to_string())
+        })?;
+    let max_window_rows = usize::try_from(window_millis / interval_millis)
         .expect("supported interval row bound fits usize");
 
     for (index, record) in reader.records().enumerate() {
@@ -1186,10 +1358,10 @@ fn parse_authenticated_csv(
             continue;
         }
         total_rows += 1;
-        if total_rows > max_monthly_rows {
+        if total_rows > max_window_rows {
             return Err(BinanceVisionArchiveError::InvalidCsv {
                 row,
-                message: format!("monthly row count exceeds {max_monthly_rows}"),
+                message: format!("archive row count exceeds {max_window_rows}"),
             });
         }
 
@@ -1225,14 +1397,14 @@ fn parse_authenticated_csv(
             });
         }
 
-        if open_millis < binding.month_start_millis
-            || open_millis >= binding.next_month_start_millis
-            || close_millis < binding.month_start_millis
-            || close_millis >= binding.next_month_start_millis
+        if open_millis < binding.window_start_millis
+            || open_millis >= binding.window_end_millis
+            || close_millis < binding.window_start_millis
+            || close_millis >= binding.window_end_millis
         {
             return Err(BinanceVisionArchiveError::InvalidTemporalSemantics {
                 row,
-                message: "source row lies outside the bound archive month".to_string(),
+                message: "source row lies outside the bound archive window".to_string(),
             });
         }
 
@@ -1717,8 +1889,13 @@ mod tests {
 
     #[rstest]
     #[case(BinanceKlineInterval::Minute15, 15, BarAggregation::Minute)]
+    #[case(BinanceKlineInterval::Minute30, 30, BarAggregation::Minute)]
     #[case(BinanceKlineInterval::Hour1, 1, BarAggregation::Hour)]
+    #[case(BinanceKlineInterval::Hour2, 2, BarAggregation::Hour)]
     #[case(BinanceKlineInterval::Hour4, 4, BarAggregation::Hour)]
+    #[case(BinanceKlineInterval::Hour6, 6, BarAggregation::Hour)]
+    #[case(BinanceKlineInterval::Hour8, 8, BarAggregation::Hour)]
+    #[case(BinanceKlineInterval::Hour12, 12, BarAggregation::Hour)]
     #[case(BinanceKlineInterval::Day1, 1, BarAggregation::Day)]
     fn authenticates_usdm_intervals_with_product_bound_native_consumer(
         #[case] interval: BinanceKlineInterval,
@@ -2299,5 +2476,174 @@ mod tests {
         assert_eq!(authenticated.metadata().total_rows(), 744);
         assert_eq!(authenticated.metadata().gaps(), []);
         assert_eq!(bars.len(), 744);
+    }
+
+    fn bound_usdm_daily_fixture(
+        interval: BinanceKlineInterval,
+        date: &str,
+        csv: &str,
+    ) -> (BinanceVisionArchiveBinding, Vec<u8>, Vec<u8>) {
+        let stem = format!("ETHUSDT-{}-{date}", interval.as_str());
+        let archive_name = format!("{stem}.zip");
+        let member_name = format!("{stem}.csv");
+        let archive = zip_members(&[(&member_name, csv)]);
+        let archive_digest = sha256(&archive).to_hex();
+        let sidecar = format!("{archive_digest}  {archive_name}").into_bytes();
+        let binding = BinanceVisionArchiveBinding::new_daily(
+            archive_name,
+            member_name,
+            &archive_digest,
+            Some(&sha256(&sidecar).to_hex()),
+            BinanceProductType::UsdM,
+            "ETHUSDT",
+            interval,
+        )
+        .unwrap();
+        (binding, archive, sidecar)
+    }
+
+    #[rstest]
+    fn authenticates_a_daily_archive_within_its_one_day_window() {
+        let csv = row(T0, T0 + CLOSED_HOUR_MILLIS, "1.00000000");
+        let (binding, archive, sidecar) = bound_usdm_daily_fixture(
+            BinanceKlineInterval::Hour1,
+            "2023-03-01",
+            &format!("{USD_M_HEADER}\n{csv}"),
+        );
+        let (identity, authenticated) =
+            authenticate_daily_klines(&binding, &archive, &sidecar).unwrap();
+        assert_eq!(identity, archive_digest(&archive));
+        let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
+        let bars = authenticated
+            .parse_bars(
+                bar_type(&instrument, BarAggregation::Hour),
+                &instrument,
+                UnixNanos::default(),
+            )
+            .unwrap();
+
+        assert_eq!(bars.len(), 1);
+    }
+
+    #[rstest]
+    fn rejects_a_daily_row_outside_its_one_day_window() {
+        // T0 - 1ms: the last millisecond of the day before the bound 2023-03-01 day.
+        let csv = row(T0 - 1, T0 - 1 + CLOSED_HOUR_MILLIS, "1.00000000");
+        let (binding, archive, sidecar) = bound_usdm_daily_fixture(
+            BinanceKlineInterval::Hour1,
+            "2023-03-01",
+            &format!("{USD_M_HEADER}\n{csv}"),
+        );
+
+        let e = authenticate_daily_klines(&binding, &archive, &sidecar).unwrap_err();
+
+        assert!(matches!(
+            e,
+            BinanceVisionArchiveError::InvalidTemporalSemantics { .. }
+        ));
+    }
+
+    #[rstest]
+    fn rejects_a_daily_archive_hash_mismatch() {
+        let csv = row(T0, T0 + CLOSED_HOUR_MILLIS, "1.00000000");
+        let (binding, mut archive, sidecar) = bound_usdm_daily_fixture(
+            BinanceKlineInterval::Hour1,
+            "2023-03-01",
+            &format!("{USD_M_HEADER}\n{csv}"),
+        );
+        archive[0] ^= 1;
+
+        let e = authenticate_daily_klines(&binding, &archive, &sidecar).unwrap_err();
+
+        assert!(matches!(
+            e,
+            BinanceVisionArchiveError::ArchiveDigestMismatch { .. }
+        ));
+    }
+
+    #[rstest]
+    fn rejects_a_malformed_daily_archive_name() {
+        let csv = format!(
+            "{USD_M_HEADER}\n{}",
+            row(T0, T0 + CLOSED_HOUR_MILLIS, "1.00000000")
+        );
+        let archive = zip_members(&[("ETHUSDT-1h-2023-03-01.csv", &csv)]);
+        let digest = sha256(&archive).to_hex();
+
+        // A 2023-03 month, not a 2023-03-01 day: `new_daily` refuses the mismatched name shape.
+        assert!(
+            BinanceVisionArchiveBinding::new_daily(
+                "ETHUSDT-1h-2023-03.zip",
+                "ETHUSDT-1h-2023-03.csv",
+                &digest,
+                None,
+                BinanceProductType::UsdM,
+                "ETHUSDT",
+                BinanceKlineInterval::Hour1,
+            )
+            .is_err()
+        );
+    }
+
+    #[rstest]
+    fn rejects_a_monthly_1m_binding_by_name() {
+        let err = BinanceVisionArchiveBinding::new(
+            "ETHUSDT-1m-2023-03.zip",
+            "ETHUSDT-1m-2023-03.csv",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            None,
+            BinanceProductType::UsdM,
+            "ETHUSDT",
+            BinanceKlineInterval::Minute1,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, BinanceVisionArchiveError::InvalidBinding(_)));
+    }
+
+    #[rstest]
+    fn accepts_a_daily_1m_binding() {
+        let csv = row(T0, T0 + 59_999, "1.00000000");
+        let (binding, archive, sidecar) = bound_usdm_daily_fixture(
+            BinanceKlineInterval::Minute1,
+            "2023-03-01",
+            &format!("{USD_M_HEADER}\n{csv}"),
+        );
+
+        authenticate_daily_klines(&binding, &archive, &sidecar).unwrap();
+    }
+
+    #[rstest]
+    #[ignore = "requires the separately downloaded official Binance Vision daily USD-M archive"]
+    fn accepts_official_solusdt_daily_archive_covering_a_monthly_omission() {
+        // SOLUSDT's monthly USD-M `1m` archives have no rows at all for 2022-02-26 to 28
+        // (docs/owners/market-data.md's B5 measurement); the daily archive is the only official
+        // source that can ever verify those days. `1m` is not yet in `interval_millis`'s
+        // supported set - raised with Lane 2 (2026-10-05) as a follow-up, since this file is
+        // exactly what B5 needs to verify that omission and real file it reads is downloaded and
+        // confirmed to parse with that gap closed.
+        let archive =
+            std::fs::read(std::env::var("BINANCE_VISION_DAILY_ARCHIVE_PATH").unwrap()).unwrap();
+        let sidecar =
+            std::fs::read(std::env::var("BINANCE_VISION_DAILY_SIDECAR_PATH").unwrap()).unwrap();
+        let binding = BinanceVisionArchiveBinding::new_daily(
+            "SOLUSDT-1m-2022-02-27.zip",
+            "SOLUSDT-1m-2022-02-27.csv",
+            "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355",
+            None,
+            BinanceProductType::UsdM,
+            "SOLUSDT",
+            BinanceKlineInterval::Minute1,
+        )
+        .unwrap();
+        let (identity, authenticated) =
+            authenticate_daily_klines(&binding, &archive, &sidecar).unwrap();
+
+        assert_eq!(
+            identity.to_hex(),
+            "2c27849bc6b152578ec54ad8cbc4c418f7653cd3e0f712de0107b289bbe0c355"
+        );
+        assert_eq!(authenticated.metadata().total_rows(), 1440);
+        assert_eq!(authenticated.metadata().gaps(), []);
     }
 }
