@@ -1572,6 +1572,63 @@ refuses a stated one that differs as `ITERATION_RESULT_ADMISSION_IDENTITY_MISMAT
 when the authoring layer generates candidates another way, a parameter sweep for instance, that is a new kind of
 member with its own named expansion, never a string the Owner takes as stated.
 
+### TARGET - Trial family member readback
+
+This section states a contract with no implementation; it grants no permission to build or deploy it.
+
+`/v1/trial-families/by-intent/{intent_identity}` and `/v1/trial-families/by-artifact` (resolved by
+`resolve_trial_family_by_intent`/`resolve_trial_family_by_artifact`, `crates/strategy_factory_rd_owner_api/src/server.rs`)
+answer the TrialFamily's root and its Census Frontier's digests and `consumed_trial_budget`
+(`TrialFamilyReadbackV1`/`TrialFamilyCensusFrontierV1`, `crates/strategy_factory/src/trial_family.rs`) and one expanded
+member, the initial intent. They answer no open/closed/terminal-stop state, and no member beyond the digest its row
+already carries - a caller who already holds `trial_family_identity` cannot read any later member back.
+
+**The read.** Given `trial_family_identity`, read every row the family already has in
+`rd_trial_family_members_v1`, ordered by `ordinal`, exactly as `trial_family_postgres.rs`'s own internal loaders
+already query it (`SELECT ... FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal`).
+Each row's `member_json` already deserializes to `TrialFamilyCensusMemberV2`: `member_kind` (`INTENT`, `REQUEST`, or
+`RESULT`), `fact_identity`, `attempt_ordinal`, and `terminal_disposition` (set only on a `RESULT` member). No new
+column and no new write: every field this read answers is already stored by the committed TrialFamily and Decision
+writes it reads back.
+
+For each member, this read resolves the fact `fact_identity` names, by kind, from facts the Owner already
+stores - never by re-deriving or guessing an identity:
+
+- `INTENT`: the family's own forming intent. No further resolution; `fact_identity` is the `intent_identity` itself.
+- `REQUEST`: `fact_identity` is the Backtest run request's identity, stored as `backtest-run:{run_id}`
+  (`crates/strategy_factory_rd_owner_api/src/backtest_run_v1.rs:314`). Strips that prefix to the `run_id`, then reads
+  the run's `strategy_id` and `dataset_ref` through the existing Backtest run registry
+  (`PostgresBacktestRunRegistryV1::get`, `crates/strategy_factory/src/backtest_run_registry_postgres_v1.rs`) - the
+  same registry `GET /v1/backtests/{run_id}` already reads, called rather than re-implemented. Answers the reference
+  triple `(run_id, strategy_id, dataset_ref)`.
+- `RESULT`: `fact_identity` is the Backtest Result's `result_identity`. When `terminal_disposition` is not
+  `TERMINAL_RESULT` (that is, `REJECTED`, `INVALID`, or `UNKNOWN`), the outcome is `COUNTED_NO_DECISION` - a failed,
+  rejected, or unknown run is counted but never decided, by the same rule "CURRENT - every committed exploratory
+  Result is counted" states above. When `terminal_disposition` is `TERMINAL_RESULT`, this read looks up
+  `rd_iteration_decisions_v1` by `result_identity` (`UNIQUE` in that table, so at most one decision), reads the
+  stored `decision_json`'s outcome discriminator the same way `resolve_iteration_decision_v1` already reads it
+  (`decision_json.get("outcome").get("outcome")`, `crates/strategy_factory/src/iteration_decision_postgres.rs`), and
+  answers it by name: `REPAIR_INPUTS`, `SUCCESSOR_EXPERIMENT`, `TERMINAL_STOP`, or `READY_FOR_SELECTION`. No row yet
+  for a `TERMINAL_RESULT` member answers `COUNTED_NO_DECISION`: the Result is counted and no decision has been taken
+  over it yet.
+
+**Red line (verdicts, never values).** This read answers only an outcome category, a reference triple, and counts -
+never a holdout measurement, a per-trade result, or the Decision's Diagnosis content (loss decomposition, competing
+explanations). It resolves the committed outcome discriminator only; it never opens `decision_json` beyond that one
+field.
+
+**Family state.** Open, closed, or at a terminal stop is read the same way: a family is at a terminal stop once a
+`TRIAL_BUDGET_EXHAUSTED` `TERMINAL_STOP` decision is committed for one of its `RESULT` members (the same
+`decision_json.outcome.reason` check `resolve_iteration_decision_v1` already makes); otherwise it is open while
+`consumed_trial_budget < trial_budget` and closed once `consumed_trial_budget == trial_budget` with no terminal-stop
+decision outstanding.
+
+**Scope.** Read only, over facts already committed by the TrialFamily, Backtest run registry, and Iteration Decision
+admission paths; this adds no table, no column, and no write path. Composes `crates/strategy_factory/src/trial_family.rs`,
+`backtest_run_registry_postgres_v1.rs`, and `iteration_decision_postgres.rs`'s own existing reads; it does not modify
+`backtest_run_v1.rs` or `backtest_run_routes.rs` and depends on their stored convention (the `backtest-run:` request
+identity prefix) rather than their code.
+
 ### TARGET - Production trial ledger and data-read ledger
 
 This section states a contract with no implementation; it grants no permission to build or deploy it.
