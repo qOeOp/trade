@@ -21,7 +21,7 @@ use crate::owner::{
     declared_bar_timeframe_v1::DeclaredBarTimeframeV1,
     native_replay_quote_cut_v2::NativeReplayQuoteCutRefusalV2,
     native_replay_scheduling_v1::{
-        NativeReplayCustodyFrameReadbackV1, NativeReplayInitialMarketRequestV1,
+        CustodyUniverseV1, NativeReplayCustodyFrameReadbackV1, NativeReplayInitialMarketRequestV1,
         NativeReplaySchedulingErrorV1, issue_native_replay_custody_frame_readback_v1,
     },
     pit_snapshot::{
@@ -32,6 +32,7 @@ use crate::owner::{
         PitObservationBatchSourceV1,
         quote_cut::{CustodyQuoteCutRequestV1, FillBarCandidateV1, custody_quote_cut_bound_v1},
     },
+    source_binding::BindingDigest,
     store_admission::PitWindowCustodyReadPortV1,
     universe_sample_projection_v1::{CustodyFrameRowsV1, CustodyFrameVersionV1},
 };
@@ -72,6 +73,7 @@ pub(crate) const fn native_replay_scheduling_error_of_view_refusal_v1(
 /// `EventOrderUnavailable`); then whatever the custody frame issuance refuses.
 pub(crate) fn custody_frame_readback_from_view_v1<Q>(
     view: Result<ResolvedPitWindowViewV1, PitWindowViewRefusalV1>,
+    universe_record: Option<(BindingDigest, BindingDigest)>,
     request: &NativeReplayInitialMarketRequestV1,
     quote_cut: Q,
 ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1>
@@ -144,7 +146,12 @@ where
         &root.execution.label,
         schedule.shape,
     );
-    let universe = root.universe;
+    // The record the root's locator resolves to, read beside the view; a store that holds none, or
+    // one that disagrees with the locator, is the store's fault.
+    let universe = CustodyUniverseV1 {
+        locator: root.universe,
+        record: universe_record.ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?,
+    };
     // The rows the view was sealed from, each located by its member and selected version, from
     // which the frame's sample projection is derived.
     let custody = CustodyFrameRowsV1 {
@@ -203,11 +210,27 @@ where
         &frame,
     )
     .await;
+    let universe_record = match &view {
+        Ok(view) => {
+            let locator = view.chain.root.universe;
+            super::universe_selection::read_universe_selection_by_request_v1(
+                &mut transaction,
+                locator.0,
+            )
+            .await
+            .ok()
+            .flatten()
+            .and_then(|selection| {
+                super::pit_window_custody_v1::custody_universe_record_v1(locator, &selection)
+            })
+        }
+        Err(_) => None,
+    };
     transaction
         .rollback()
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-    custody_frame_readback_from_view_v1(view, request, quote_cut)
+    custody_frame_readback_from_view_v1(view, universe_record, request, quote_cut)
 }
 
 /// One custody frame read through an admitted custody port.
@@ -229,7 +252,24 @@ where
 {
     let frame = request.custody_frame()?;
     let view = resolve_pit_window_view_through_port_v1(port, &frame).await;
-    custody_frame_readback_from_view_v1(view, request, quote_cut)
+    let universe_record = match &view {
+        Ok(view) => {
+            let locator = view.chain.root.universe;
+            port.resolve_pit_window_run_chain_v1(
+                *frame.custody.chain_root.as_bytes(),
+                super::pit_window_custody_v1::raw_root_universe_request_v1,
+            )
+            .await
+            .ok()
+            .and_then(|raw| raw.universe_selection)
+            .and_then(|raw| super::universe_selection::universe_selection_from_raw_v1(&raw).ok())
+            .and_then(|selection| {
+                super::pit_window_custody_v1::custody_universe_record_v1(locator, &selection)
+            })
+        }
+        Err(_) => None,
+    };
+    custody_frame_readback_from_view_v1(view, universe_record, request, quote_cut)
 }
 
 /// The custody frame resolver sealed acceptance composes before slice T0-6 derives quote cuts.
