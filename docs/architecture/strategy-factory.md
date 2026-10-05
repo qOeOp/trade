@@ -1974,6 +1974,10 @@ anchors as a snapshot run, so its Result can be reread against the frames it rea
 - **Current:** the execution bundle carries every frame by value (`new_from_custody_frames_v1`, which takes only the
   resolved frames). Its census pins the chain, the head and the ordered view identities, and they enter the census
   digest only for a custody run, so a snapshot run keeps its digest.
+- The native BAR retains its Market Data event time `e_k`, but reaches the engine at the Owner-sealed decision cut
+  `d_k`. The bundle checks `e_k < d_k < e_{k+1}` (or the run end for the last frame), matches that cut to the admitted
+  universe frame, and requires the fill quote after `d_k`. Snapshot runs retain their one-instant timing. This
+  delivery mapping needs an ordered Owner-chain pass before it is a proven product path.
 - Each gap's quote cut is Market Data's, derived from the first fill bar after `d_k` (T0-6), so a custody run fills
   on the quotes the frame readback states rather than on a quote R&D supplies.
 

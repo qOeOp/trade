@@ -780,7 +780,27 @@ impl ReplayTargetSetExecutionBundleV1 {
             );
             frame_times.push(scheduling.frame_time_ns());
             receipt_digests.push(*scheduling.receipt_digest().as_bytes());
-            let (frame_bar_types, frame_data) = scheduling.into_native_schedule();
+            let (frame_bar_types, mut frame_data) = scheduling.into_native_schedule();
+            // The custody BAR closes at e_k, but its values cannot drive a decision before
+            // the Owner's availability cut d_k. Keep the source event stamp and deliver the
+            // native BAR to the engine at that sealed cut.
+            let decision_time = universe_frame.frame().trigger().lifecycle().logical_time();
+
+            for value in frame_data.iter_mut().take(instrument_ids.len()) {
+                let Data::Bar(bar) = value else {
+                    anyhow::bail!("request execution bundle custody schedule has no BAR signal");
+                };
+                *bar = Bar::new_checked(
+                    bar.bar_type,
+                    bar.open,
+                    bar.high,
+                    bar.low,
+                    bar.close,
+                    bar.volume,
+                    bar.ts_event,
+                    decision_time.into(),
+                )?;
+            }
             let frame_bar_types = BoundedMembers::try_from(frame_bar_types)?;
 
             if let Some(expected) = &bar_types {
@@ -857,6 +877,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             .checked_mul(instruments.len())
             .ok_or_else(|| anyhow::anyhow!("request execution bundle value census overflows"))?;
         let mut admitted_frame_times = Vec::with_capacity(universe_frames.len());
+        let mut admitted_event_times = Vec::with_capacity(universe_frames.len());
 
         // A custody-run frame's own per-batch selection_receipt_digest necessarily differs from
         // the single batch H4 bound against - see UniverseSelectionPinV2's doc for why that
@@ -894,16 +915,35 @@ impl ReplayTargetSetExecutionBundleV1 {
                 "request execution bundle has an incomplete Owner universe frame"
             );
             admitted_frame_times.push(admitted.envelope().order_key.logical_time_ns);
+            admitted_event_times.push(admitted.envelope().order_key.event_time_ns);
         }
         // The two sides are paired, not merely equal in length: a universe receipt admitted at one
         // instant paired with a schedule for another instant is two different frames wearing one
         // ordinal, and every per-frame check below would still pass.
-        anyhow::ensure!(
-            admitted_frame_times == frame_times,
-            "request execution bundle universe frames and schedules are admitted at different \
-             instants: admitted(logical_time_ns)={admitted_frame_times:?} \
-             schedule(frame_time_ns)={frame_times:?}"
-        );
+        if custody.is_some() {
+            anyhow::ensure!(
+                admitted_frame_times
+                    .iter()
+                    .enumerate()
+                    .all(|(index, decision_time)| {
+                        admitted_event_times[index] == frame_times[index]
+                            && frame_times[index] < *decision_time
+                            && *decision_time
+                                < frame_times
+                                    .get(index + 1)
+                                    .copied()
+                                    .unwrap_or(authority.request_window().end_event_ns_exclusive)
+                    }),
+                "request execution bundle custody decision cuts must follow their BAR and precede the next frame"
+            );
+        } else {
+            anyhow::ensure!(
+                admitted_frame_times == frame_times,
+                "request execution bundle universe frames and schedules are admitted at different \
+                 instants: admitted(logical_time_ns)={admitted_frame_times:?} \
+                 schedule(frame_time_ns)={frame_times:?}"
+            );
+        }
         let frame_time = frame_times[0];
         let plan_digest = *plan.canonical_plan_digest().as_bytes();
         let artifact_digest = *artifact.identity().as_bytes();
@@ -944,6 +984,15 @@ impl ReplayTargetSetExecutionBundleV1 {
         let (instruments, price_grids) = widen_price_grids_to_data(instruments, &data)?;
         let data = align_native_data_to_instruments(data, &instruments)?;
         ensure_native_data_at_instrument_precision(&data, &instruments)?;
+        let round_len = instruments.len() * 2;
+        anyhow::ensure!(
+            data.chunks_exact(round_len)
+                .zip(&admitted_frame_times)
+                .all(|(round, decision_time)| round[..instruments.len()].iter().all(
+                    |value| matches!(value, Data::Bar(bar) if bar.ts_init.as_u64() == *decision_time)
+                )),
+            "request execution bundle BAR delivery time mismatches its Owner decision cut"
+        );
         let scheduling_data_digest = validate_and_digest_scheduling_data(
             &data,
             &instruments,
@@ -1004,7 +1053,8 @@ impl ReplayTargetSetExecutionBundleV1 {
             census_digest: [0; 32],
         };
         census.census_digest = digest_census(&census)?;
-        let fill_quote_instants = fill_quote_instants(&data, instruments.len(), frame_times);
+        let fill_quote_instants =
+            fill_quote_instants(&data, instruments.len(), &admitted_frame_times);
         Ok(Self {
             plan,
             artifact,
@@ -1467,7 +1517,7 @@ fn ensure_native_data_at_instrument_precision(
 
 /// Each frame's fill-quote instant per member, in member order, from data
 /// `validate_and_digest_scheduling_data` has accepted: every round is one BAR per member then one
-/// Quote per member, each after the frame's instant.
+/// Quote per member, each after the frame's decision instant.
 fn fill_quote_instants(
     data: &[Data],
     member_count: usize,
@@ -1540,6 +1590,7 @@ fn validate_and_digest_scheduling_data(
                 "request execution bundle requires one canonical BAR signal per member followed by one Quote EVENT per member in every round"
             );
         };
+        let decision_time = bars[0].ts_init.as_u64();
 
         for ordinal in 0..member_count {
             let instrument_id = instruments[ordinal].id();
@@ -1547,14 +1598,15 @@ fn validate_and_digest_scheduling_data(
                 bars[ordinal].bar_type == bar_types[ordinal]
                     && bars[ordinal].instrument_id() == instrument_id
                     && bars[ordinal].ts_event.as_u64() == *frame_time
-                    && bars[ordinal].ts_init.as_u64() == *frame_time
+                    && bars[ordinal].ts_init.as_u64() == decision_time
+                    && decision_time >= *frame_time
                     && bars[ordinal].ts_event.as_u64() >= window_start_event_ns
                     && bars[ordinal].ts_event.as_u64() < window_end_event_ns_exclusive,
                 "request execution bundle BAR scheduling order or time mismatches"
             );
             anyhow::ensure!(
                 events[ordinal].instrument_id == instrument_id
-                    && events[ordinal].ts_event.as_u64() > *frame_time
+                    && events[ordinal].ts_event.as_u64() > decision_time
                     && events[ordinal].ts_event.as_u64() >= window_start_event_ns
                     && events[ordinal].ts_event.as_u64() < window_end_event_ns_exclusive
                     && events[ordinal].ts_init.as_u64() >= events[ordinal].ts_event.as_u64()
@@ -1574,11 +1626,8 @@ fn validate_and_digest_scheduling_data(
             "request execution bundle EVENT order is not canonical"
         );
     }
-    // Frames that do not advance are refused here rather than by a rule of their own: every round
-    // stamps its BARs at its frame time, so a frame that did not advance puts a BAR before the
-    // previous round's EVENTs and breaks this order. A separate frame-time comparison was written
-    // first and removed, because mutation testing showed it could be deleted with no test noticing:
-    // it could never fire on its own.
+    // Native data must reach the engine in delivery order. A custody BAR keeps its source event
+    // at e_k and is delivered at d_k; the following quote must still arrive after that decision.
     anyhow::ensure!(
         data.windows(2)
             .all(|pair| pair[0].ts_init() <= pair[1].ts_init()),
@@ -1840,6 +1889,52 @@ mod tests {
             data,
             vec![FRAME_TIME, SECOND_FRAME_TIME],
         )
+    }
+
+    #[rstest::rstest]
+    fn a_custody_bar_is_delivered_at_its_decision_cut_before_its_fill_quote() {
+        let (instruments, _, mut data) = scheduling_fixture();
+        for value in data.iter_mut().take(instruments.len()) {
+            let Data::Bar(bar) = value else {
+                unreachable!("the fixture starts with one BAR per member")
+            };
+            bar.ts_init = (FRAME_TIME + 2).into();
+        }
+        data[2] = quote(&instruments[0], FRAME_TIME + 3, "100");
+        data[3] = quote(&instruments[1], FRAME_TIME + 3, "100.0");
+        let bar_types = instruments.each_ref().map(|instrument| {
+            BarType::new(
+                instrument.id(),
+                BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+                AggregationSource::External,
+            )
+        });
+        assert!(
+            validate_and_digest_scheduling_data(
+                &data,
+                &instruments,
+                &bar_types,
+                &[FRAME_TIME],
+                FRAME_TIME,
+                FRAME_TIME + 10,
+            )
+            .is_ok(),
+            "the source BAR remains at e_k and reaches the engine at d_k"
+        );
+
+        data[2] = quote(&instruments[0], FRAME_TIME + 1, "100");
+        assert!(
+            validate_and_digest_scheduling_data(
+                &data,
+                &instruments,
+                &bar_types,
+                &[FRAME_TIME],
+                FRAME_TIME,
+                FRAME_TIME + 10,
+            )
+            .is_err(),
+            "a fill quote before the decision cut cannot execute the decision"
+        );
     }
 
     #[rstest::rstest]
