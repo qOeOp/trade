@@ -135,19 +135,6 @@ pub fn weekly_gate_due(now_ns: u64, last_done_week_start_ns: Option<u64>) -> boo
     last_done_week_start_ns != Some(week_start)
 }
 
-/// Once per closed UTC calendar month, keyed the same way as [`weekly_gate_due`]. Distinct from
-/// [`month_archive_plausibly_published`] plus [`verification_retry_due`]: those gate archive
-/// verification against the archive's own publication delay (not before the 2nd) and a retry
-/// cadence; this one gates a derivation from the store's own already-verified `1d` bars, which
-/// needs neither - a derivation is cheap enough to retry every tick until it succeeds.
-#[must_use]
-pub fn monthly_derivation_gate_due(now_ns: u64, last_done_month_start_ns: Option<u64>) -> bool {
-    let Some((month_start, _)) = last_month_bounds_ns(now_ns) else {
-        return false;
-    };
-    last_done_month_start_ns != Some(month_start)
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -269,15 +256,5 @@ mod tests {
         assert!(weekly_gate_due(MID_JAN_NS, None));
         assert!(!weekly_gate_due(MID_JAN_NS, Some(week_start)));
         assert!(weekly_gate_due(MID_JAN_NS + 7 * DAY, Some(week_start)));
-    }
-
-    #[rstest]
-    fn the_monthly_derivation_gate_fires_once_per_closed_month() {
-        let (month_start, _) = last_month_bounds_ns(MID_JAN_NS).unwrap();
-        assert!(monthly_derivation_gate_due(MID_JAN_NS, None));
-        assert!(!monthly_derivation_gate_due(MID_JAN_NS, Some(month_start)));
-        // Unlike monthly_gate_due, this one doesn't wait for the 2nd.
-        let feb_1 = MID_JAN_NS + 17 * DAY;
-        assert!(monthly_derivation_gate_due(feb_1, Some(month_start)));
     }
 }

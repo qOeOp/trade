@@ -22,8 +22,7 @@ use vibe_data::owner::{
 
 use crate::scheduling::{
     funding_poll_due, last_month_bounds_ns, last_week_bounds_ns, month_archive_plausibly_published,
-    monthly_derivation_gate_due, verification_retry_due, weekly_gate_due, yesterday_bounds_ns,
-    yesterday_utc,
+    verification_retry_due, weekly_gate_due, yesterday_bounds_ns, yesterday_utc,
 };
 
 /// How long after a failed archive-verification attempt (the archive isn't published yet) before
@@ -33,7 +32,7 @@ const ARCHIVE_VERIFICATION_RETRY_NS: u64 = 3_600_000_000_000;
 /// A served venue interval B3 records for every tracked instrument. Every timeframe
 /// `served_timeframe_v1` admits (`docs/owners/market-data.md`'s charting set).
 pub const SERVED_VENUE_INTERVALS: &[&str] = &[
-    "1m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "1w", "1M",
+    "1m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "1w",
 ];
 
 /// A tracked instrument, resolved from Market Data's own admitted Instrument Master fact - never
@@ -103,7 +102,6 @@ pub struct TickMemoryV1 {
     /// derivation reads only the store's own already-verified `1d` bars, so `NotVerified` is
     /// cheap to retry every tick - no attempt-throttle map needed, unlike the archive jobs above.
     pub last_weekly_derivation_week_start_ns: std::collections::HashMap<String, u64>,
-    pub last_monthly_derivation_month_start_ns: std::collections::HashMap<String, u64>,
 }
 
 /// Runs every due job, for every tracked instrument, once. `max_pages_per_pair` bounds B3's
@@ -138,7 +136,6 @@ pub async fn run_tick_v1(
         run_daily_verification(fetcher, bar_store, instrument, now_ns, memory).await;
         run_monthly_verification(fetcher, bar_store, instrument, now_ns, memory).await;
         run_weekly_derivation(bar_store, instrument, now_ns, memory).await;
-        run_monthly_derivation(bar_store, instrument, now_ns, memory).await;
     }
 }
 
@@ -427,56 +424,6 @@ async fn run_weekly_derivation(
             instrument = instrument.canonical_instrument,
             error = %e,
             "1w derivation failed this tick"
-        ),
-    }
-}
-
-async fn run_monthly_derivation(
-    bar_store: &dyn VenueBarStoreV1,
-    instrument: &TrackedInstrumentV1,
-    now_ns: u64,
-    memory: &mut TickMemoryV1,
-) {
-    let last_done = memory
-        .last_monthly_derivation_month_start_ns
-        .get(&instrument.canonical_instrument)
-        .copied();
-
-    if !monthly_derivation_gate_due(now_ns, last_done) {
-        return;
-    }
-    let Some((window_start_ns, window_end_ns_exclusive)) = last_month_bounds_ns(now_ns) else {
-        return;
-    };
-
-    match verify_derived_from_daily_v1(
-        bar_store,
-        &instrument.canonical_instrument,
-        "1M",
-        window_start_ns,
-        window_end_ns_exclusive,
-        now_ns,
-        now_ns,
-    )
-    .await
-    {
-        Ok(summary) => {
-            // Marked done only now, on actual success - see run_weekly_derivation's own comment
-            // for why marking it before trying would mean this derivation essentially never runs.
-            memory
-                .last_monthly_derivation_month_start_ns
-                .insert(instrument.canonical_instrument.clone(), window_start_ns);
-            warn_on_conflicts(instrument, "1M derivation", &summary);
-        }
-        Err(vibe_binance::venue_bar_archive_verifier_v1::VerifyDerivedErrorV1::Read(
-            vibe_data::owner::venue_bar_store_v1::VenueBarReadErrorV1::NotVerified { .. },
-        )) => {
-            // The month's own 1d bars are not all verified yet - come back next tick.
-        }
-        Err(e) => tracing::warn!(
-            instrument = instrument.canonical_instrument,
-            error = %e,
-            "1M derivation failed this tick"
         ),
     }
 }
