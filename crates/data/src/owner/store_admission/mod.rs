@@ -8126,7 +8126,7 @@ mod tests {
         assert!(
             matches!(
                 rejected,
-                crate::owner::native_replay_scheduling_v1::NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+                crate::owner::native_replay_scheduling_v1::NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable { .. }
             ),
             "the refusal names the readback, not the binding: {rejected:?}"
         );

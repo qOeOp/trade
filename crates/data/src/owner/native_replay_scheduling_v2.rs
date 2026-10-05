@@ -1418,7 +1418,11 @@ mod frame_sequence_resolver_tests {
             };
 
             if self.unreadable_at == Some(index) {
-                return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable);
+                return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                    read: crate::owner::native_replay_scheduling_v1::OwnerReadV1::SnapshotBatch,
+                    cause:
+                        crate::owner::native_replay_scheduling_v1::OwnerReadCauseV1::StoreRefused,
+                });
             }
             Ok(frame_readback(
                 request.snapshot_source()?.0.as_bytes()[0],
@@ -1434,7 +1438,10 @@ mod frame_sequence_resolver_tests {
             crate::owner::native_replay_scheduling_v1::NativeReplayCustodyFrameReadbackV1,
             NativeReplaySchedulingErrorV1,
         > {
-            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: crate::owner::native_replay_scheduling_v1::OwnerReadV1::FrameKind,
+                cause: crate::owner::native_replay_scheduling_v1::OwnerReadCauseV1::NotServed,
+            })
         }
 
         /// Not exercised by this recorder's own tests: no case here asks for funding.
@@ -1533,7 +1540,11 @@ mod frame_sequence_resolver_tests {
         assert_eq!(
             resolve(&resolver, &three()).err(),
             Some(NativeReplaySequenceResolveRefusalV2::Frame(
-                NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+                NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                    read: crate::owner::native_replay_scheduling_v1::OwnerReadV1::SnapshotBatch,
+                    cause:
+                        crate::owner::native_replay_scheduling_v1::OwnerReadCauseV1::StoreRefused,
+                }
             ))
         );
         // It stopped at the frame that failed rather than reading the rest of the window.

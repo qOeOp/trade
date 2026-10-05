@@ -22,7 +22,8 @@ use crate::owner::{
     native_replay_quote_cut_v2::NativeReplayQuoteCutRefusalV2,
     native_replay_scheduling_v1::{
         CustodyUniverseV1, NativeReplayCustodyFrameReadbackV1, NativeReplayInitialMarketRequestV1,
-        NativeReplaySchedulingErrorV1, issue_native_replay_custody_frame_readback_v1,
+        NativeReplaySchedulingErrorV1, OwnerReadCauseV1, OwnerReadV1,
+        issue_native_replay_custody_frame_readback_v1,
     },
     pit_snapshot::{
         VerifiedPitObservationBatch,
@@ -54,7 +55,10 @@ pub(crate) const fn native_replay_scheduling_error_of_view_refusal_v1(
             NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame
         }
         PitWindowViewRefusalV1::StoreUnavailable => {
-            NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+            NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: OwnerReadV1::CustodyView,
+                cause: OwnerReadCauseV1::StoreRefused,
+            }
         }
     }
 }
@@ -73,7 +77,7 @@ pub(crate) const fn native_replay_scheduling_error_of_view_refusal_v1(
 /// `EventOrderUnavailable`); then whatever the custody frame issuance refuses.
 pub(crate) fn custody_frame_readback_from_view_v1<Q>(
     view: Result<ResolvedPitWindowViewV1, PitWindowViewRefusalV1>,
-    universe_record: Option<(BindingDigest, BindingDigest)>,
+    universe_record: Result<(BindingDigest, BindingDigest), OwnerReadCauseV1>,
     request: &NativeReplayInitialMarketRequestV1,
     quote_cut: Q,
 ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1>
@@ -90,7 +94,10 @@ where
         || view.chain.head_identity != frame.head_identity
         || view.selection.event_ns != frame.event_ns
     {
-        return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable);
+        return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::CustodyView,
+            cause: OwnerReadCauseV1::Disagrees,
+        });
     }
     let root = &view.chain.root;
     let batch = verify_custody_view_batch_v1(CustodyViewInputsV1 {
@@ -100,14 +107,25 @@ where
         selection: &view.selection,
         rows: &view.rows,
     })
-    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    .map_err(
+        |_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::CustodyViewSeal,
+            cause: OwnerReadCauseV1::Untrusted,
+        },
+    )?;
     let PitObservationBatchSourceV1::CustodyView { view_identity, .. } = batch.source() else {
-        return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable);
+        return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::CustodyViewSeal,
+            cause: OwnerReadCauseV1::Disagrees,
+        });
     };
-    let schedule = view
-        .schedules
-        .first()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let schedule =
+        view.schedules
+            .first()
+            .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: OwnerReadV1::CustodyWindowSchedule,
+                cause: OwnerReadCauseV1::RowAbsent,
+            })?;
     let bound_ns_exclusive = custody_quote_cut_bound_v1(
         view.selection.event_ns,
         schedule.interval_ns,
@@ -150,7 +168,12 @@ where
     // one that disagrees with the locator, is the store's fault.
     let universe = CustodyUniverseV1 {
         locator: root.universe,
-        record: universe_record.ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?,
+        record: universe_record.map_err(|cause| {
+            NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: OwnerReadV1::CustodyUniverseRecord,
+                cause,
+            }
+        })?,
     };
     // The rows the view was sealed from, each located by its member and selected version, from
     // which the frame's sample projection is derived.
@@ -169,7 +192,10 @@ where
                         timeframe_identity: version.timeframe_identity,
                         label: timeframe.label.clone(),
                     })
-                    .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+                    .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                        read: OwnerReadV1::CustodyVersionTimeframe,
+                        cause: OwnerReadCauseV1::RowAbsent,
+                    })
             })
             .collect::<Result<_, _>>()?,
         rows: view.rows,
@@ -204,7 +230,12 @@ where
     let mut transaction = pool
         .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         .await
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        .map_err(
+            |e| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                read: OwnerReadV1::ReadTransaction,
+                cause: super::owner_read_cause_of_sqlx_v1(&e),
+            },
+        )?;
     let view = super::pit_window_custody_v1::resolve_pit_window_view_in_transaction_v1(
         &mut transaction,
         &frame,
@@ -213,23 +244,30 @@ where
     let universe_record = match &view {
         Ok(view) => {
             let locator = view.chain.root.universe;
-            super::universe_selection::read_universe_selection_by_request_v1(
+
+            match super::universe_selection::read_universe_selection_by_request_v1(
                 &mut transaction,
                 locator.0,
             )
             .await
-            .ok()
-            .flatten()
-            .and_then(|selection| {
-                super::pit_window_custody_v1::custody_universe_record_v1(locator, &selection)
-            })
+            {
+                Err(_) => Err(OwnerReadCauseV1::StoreRefused),
+                Ok(None) => Err(OwnerReadCauseV1::RowAbsent),
+                Ok(Some(selection)) => {
+                    super::pit_window_custody_v1::custody_universe_record_v1(locator, &selection)
+                        .ok_or(OwnerReadCauseV1::Disagrees)
+                }
+            }
         }
-        Err(_) => None,
+        // The view's own refusal is issued first; this answer is never read.
+        Err(_) => Err(OwnerReadCauseV1::NotServed),
     };
-    transaction
-        .rollback()
-        .await
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    transaction.rollback().await.map_err(|e| {
+        NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+            read: OwnerReadV1::ReadTransaction,
+            cause: super::owner_read_cause_of_sqlx_v1(&e),
+        }
+    })?;
     custody_frame_readback_from_view_v1(view, universe_record, request, quote_cut)
 }
 
@@ -255,19 +293,30 @@ where
     let universe_record = match &view {
         Ok(view) => {
             let locator = view.chain.root.universe;
-            port.resolve_pit_window_run_chain_v1(
-                *frame.custody.chain_root.as_bytes(),
-                super::pit_window_custody_v1::raw_root_universe_request_v1,
-            )
-            .await
-            .ok()
-            .and_then(|raw| raw.universe_selection)
-            .and_then(|raw| super::universe_selection::universe_selection_from_raw_v1(&raw).ok())
-            .and_then(|selection| {
-                super::pit_window_custody_v1::custody_universe_record_v1(locator, &selection)
-            })
+
+            match port
+                .resolve_pit_window_run_chain_v1(
+                    *frame.custody.chain_root.as_bytes(),
+                    super::pit_window_custody_v1::raw_root_universe_request_v1,
+                )
+                .await
+            {
+                Err(_) => Err(OwnerReadCauseV1::PortRefused),
+                Ok(raw) => match raw.universe_selection {
+                    None => Err(OwnerReadCauseV1::RowAbsent),
+                    Some(raw) => super::universe_selection::universe_selection_from_raw_v1(&raw)
+                        .map_err(|_| OwnerReadCauseV1::Untrusted)
+                        .and_then(|selection| {
+                            super::pit_window_custody_v1::custody_universe_record_v1(
+                                locator, &selection,
+                            )
+                            .ok_or(OwnerReadCauseV1::Disagrees)
+                        }),
+                },
+            }
         }
-        Err(_) => None,
+        // The view's own refusal is issued first; this answer is never read.
+        Err(_) => Err(OwnerReadCauseV1::NotServed),
     };
     custody_frame_readback_from_view_v1(view, universe_record, request, quote_cut)
 }
@@ -315,7 +364,7 @@ where
         NativeReplaySchedulingErrorV1,
     > {
         request.snapshot_source()?;
-        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable { read: OwnerReadV1::FrameKind, cause: OwnerReadCauseV1::NotServed })
     }
 
     async fn resolve_native_replay_custody_frame_inputs_v1(
@@ -377,7 +426,7 @@ mod tests {
     )]
     #[case(
         PitWindowViewRefusalV1::StoreUnavailable,
-        NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+        NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable { read: OwnerReadV1::CustodyView, cause: OwnerReadCauseV1::StoreRefused }
     )]
     fn each_view_refusal_keeps_its_name(
         #[case] refusal: PitWindowViewRefusalV1,

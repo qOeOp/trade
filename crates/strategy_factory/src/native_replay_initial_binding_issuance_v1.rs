@@ -141,7 +141,7 @@ const fn market_inputs_cause(error: &NativeReplayInitialOwnerInputsErrorV1) -> C
             NativeReplaySchedulingErrorV1::ExecutionTimeframeNotDeclared => {
                 Cause::ExecutionTimeframeNotDeclared
             }
-            NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+            NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable { .. }
             | NativeReplaySchedulingErrorV1::OwnerBindingMismatch
             | NativeReplaySchedulingErrorV1::FieldCensusMismatch
             | NativeReplaySchedulingErrorV1::EventOrderUnavailable
@@ -444,7 +444,10 @@ mod tests {
         );
         assert_eq!(
             market_inputs_cause(&NativeReplayInitialOwnerInputsErrorV1::MarketData(
-                NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+                NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable {
+                    read: vibe_data::owner::native_replay_scheduling_v1::OwnerReadV1::SnapshotBatch,
+                    cause: vibe_data::owner::native_replay_scheduling_v1::OwnerReadCauseV1::StoreRefused,
+                }
             )),
             Cause::MarketInputsUnresolved
         );
