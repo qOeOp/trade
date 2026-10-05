@@ -2984,6 +2984,23 @@ impl BinanceFuturesHttpClient {
             .collect()
     }
 
+    /// Fetches raw kline rows for `params.symbol` at `params.interval`, exactly as Binance
+    /// returned them: each row's own `open_time`/`close_time` in milliseconds and its decimal
+    /// strings, unparsed. Unlike [`Self::request_binance_bars`], this keeps `open_time` and does
+    /// not require the symbol's precision to already be cached - a caller deriving a bar's exact
+    /// open and close from the venue's own clock, rather than from a nautilus `BarType`'s event
+    /// timestamp, wants this one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn request_raw_klines(
+        &self,
+        params: &BinanceKlinesParams,
+    ) -> BinanceFuturesHttpResult<Vec<BinanceFuturesKline>> {
+        self.inner.klines(params).await
+    }
+
     /// Requests bar (kline/candlestick) data for an instrument.
     ///
     /// # Errors
