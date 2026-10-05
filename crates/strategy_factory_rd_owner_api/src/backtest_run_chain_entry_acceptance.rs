@@ -87,7 +87,9 @@ const SECOND_NS: u64 = 1_000_000_000;
 const MINUTE_NS: u64 = 60 * SECOND_NS;
 const DAY_NS: u64 = 24 * 60 * MINUTE_NS;
 /// Daily frames, enough that a short-window run comfortably sits inside the TrialFamily's sealed
-/// Replay policy window; this entry never executes bars, so it needs no warm-up length.
+/// Replay policy window. Under `native-replay-execution` this entry's committed Replay actually
+/// executes over these frames - enough for the single-threshold statement's fill, but short of
+/// T0's 50-bar warm-up, which is exactly what the T0 run's `ExpectedFillCountV1::Zero` proves.
 const CUSTODY_FRAMES: u64 = 5;
 const CUSTODY_LAG_NS: u64 = 2 * MINUTE_NS;
 /// The harness's own disposable-database reader role, granted the sealed custody reads this
@@ -495,11 +497,21 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
 
     // Both statement families run through the one orchestration: each is authored by its own
     // family into the Design the freeze takes.
-    for (run_id, strategy_id) in [
-        ("backtest-run-chain-entry-v1", strategy_id),
+    for (run_id, strategy_id, expected_fill_count) in [
+        // The single-threshold statement's channel is ready from the first bar - no warm-up.
+        (
+            "backtest-run-chain-entry-v1",
+            strategy_id,
+            ExpectedFillCountV1::Positive,
+        ),
+        // T0's authored document needs 50 bars of max warm-up before its channel is READY
+        // (`t0-daily-trend.json`) - this chain's `CUSTODY_FRAMES` (5) never reaches it. Zero
+        // fills still proves execution ran and committed a counted Result; it does not prove
+        // T0 ever fills on this chain.
         (
             "backtest-run-chain-entry-authored-t0-v1",
             authored.identity(),
+            ExpectedFillCountV1::Zero,
         ),
     ] {
         assert_run_reaches_the_replay_step_v1(
@@ -511,6 +523,7 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             chain.head_identity(),
             window_start_ns,
             window_end_ns_exclusive,
+            expected_fill_count,
         )
         .await;
     }
@@ -536,6 +549,16 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
     .await;
 }
 
+/// Whether a statement family is expected to produce a fill over this entry's `CUSTODY_FRAMES`
+/// window - T0's authored document needs more warm-up than this chain's window ever supplies, so
+/// `Zero` is its own entry's correct, proven expectation, not a looser assertion.
+#[cfg(feature = "native-replay-execution")]
+#[derive(Clone, Copy)]
+enum ExpectedFillCountV1 {
+    Positive,
+    Zero,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn assert_run_reaches_the_replay_step_v1(
     owners: &BacktestRunOwnersV1,
@@ -546,6 +569,7 @@ async fn assert_run_reaches_the_replay_step_v1(
     head_identity: BindingDigest,
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
+    #[cfg(feature = "native-replay-execution")] expected_fill_count: ExpectedFillCountV1,
 ) {
     let request = BacktestRunRequestV1 {
         run_id: run_id.to_owned(),
@@ -615,35 +639,45 @@ async fn assert_run_reaches_the_replay_step_v1(
             // caller would is the only way to prove it did.
             #[cfg(feature = "native-replay-execution")]
             {
-                let result_identity = reached.replay_result_identity.clone().unwrap_or_else(|| {
+                let locator = reached.replay_result_locator.as_ref().unwrap_or_else(|| {
                     panic!(
                         "backtest.run {run_id} must execute the committed Replay and commit a \
                          counted Result: {}",
                         describe_replay_reason(&reached.reason),
                     )
                 });
-                let attempt_identity = format!("{run_id}-attempt-1");
-                let locator = ExploratoryReplayResultLocatorV2 {
-                    result_identity: &result_identity,
-                    request_identity: &reached.research_request_identity,
-                    attempt_identity: &attempt_identity,
-                };
-                let report = resolve_backtest_run_report_v1(&owners.rd_pool, locator)
-                    .await
-                    .expect("the report answers for this run")
-                    .expect("the run that executed is there to report");
+                let report = resolve_backtest_run_report_v1(
+                    &owners.rd_pool,
+                    ExploratoryReplayResultLocatorV2 {
+                        result_identity: &locator.result_identity,
+                        request_identity: &locator.request_identity,
+                        attempt_identity: &locator.attempt_identity,
+                    },
+                )
+                .await
+                .expect("the report answers for this run")
+                .expect("the run that executed is there to report");
                 assert_eq!(
                     report.result.state,
                     BacktestRunReportStateV1::Available,
                     "the executed run's Result is available to read, not pending or refused"
                 );
-                assert!(
-                    report.result.fill_count > 0,
-                    "backtest.run {run_id} must produce at least one fill over {} daily frames: \
-                     fill_count={}",
-                    CUSTODY_FRAMES,
-                    report.result.fill_count
-                );
+
+                match expected_fill_count {
+                    ExpectedFillCountV1::Positive => assert!(
+                        report.result.fill_count > 0,
+                        "backtest.run {run_id} must produce at least one fill over {} daily \
+                         frames: fill_count={}",
+                        CUSTODY_FRAMES,
+                        report.result.fill_count
+                    ),
+                    ExpectedFillCountV1::Zero => assert_eq!(
+                        report.result.fill_count, 0,
+                        "backtest.run {run_id}'s statement needs more warm-up than this entry's \
+                         {} daily frames provide, so it must produce no fills: fill_count={}",
+                        CUSTODY_FRAMES, report.result.fill_count
+                    ),
+                }
             }
         }
         Err(e) => panic!(
