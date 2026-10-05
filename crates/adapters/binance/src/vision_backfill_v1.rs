@@ -215,6 +215,27 @@ impl VisionBackfillFetcherV1 {
         year: i32,
         month: u8,
     ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
+        self.execution_month_with_digest(symbol, interval, year, month)
+            .await
+            .map(|(_, bars)| bars)
+    }
+
+    /// The archive's own verified content digest, and every ordinary bar of one archived month,
+    /// from its shard or from the archive. Market Data's B5 verifier carries the digest as
+    /// `VenueBarArchiveV1::identity`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisionBackfillErrorV1`] for an archive that is unavailable, does not match its
+    /// sidecar, or is not a USD-M kline month the reader admits, and for a shard directory that
+    /// cannot be read or written.
+    pub async fn execution_month_with_digest(
+        &self,
+        symbol: &str,
+        interval: BinanceKlineInterval,
+        year: i32,
+        month: u8,
+    ) -> Result<(Sha256Digest, Vec<FetchedBarV1>), VisionBackfillErrorV1> {
         if !is_valid_binance_symbol(symbol) {
             return Err(VisionBackfillErrorV1::InvalidSymbol);
         }
@@ -260,14 +281,17 @@ impl VisionBackfillFetcherV1 {
         let klines = read
             .usdm_klines()
             .ok_or(VisionBackfillErrorV1::ArchiveUnreadable)?;
-        Ok(klines
-            .iter()
-            .map(|kline| FetchedBarV1 {
-                kline: kline.clone(),
-                retrieval_ns,
-                route: ARCHIVE_ROUTE,
-            })
-            .collect())
+        Ok((
+            declared,
+            klines
+                .iter()
+                .map(|kline| FetchedBarV1 {
+                    kline: kline.clone(),
+                    retrieval_ns,
+                    route: ARCHIVE_ROUTE,
+                })
+                .collect(),
+        ))
     }
 
     /// The archive's own verified content digest, and every ordinary bar of one archived UTC
@@ -436,6 +460,9 @@ impl VisionBackfillFetcherV1 {
         year: i32,
         month: u8,
     ) -> Result<FetchedFundingMonthV1, VisionBackfillErrorV1> {
+        if !is_valid_binance_symbol(symbol) {
+            return Err(VisionBackfillErrorV1::InvalidSymbol);
+        }
         let archive_name = format!("{symbol}-fundingRate-{year:04}-{month:02}.zip");
         let shard = self.shard_dir.join(symbol).join("funding");
 
@@ -727,7 +754,7 @@ fn calendar_months(
 ///
 /// Returns [`VisionBackfillErrorV1::WindowBeforeEpoch`] for a month entirely before the Unix
 /// epoch.
-fn month_bounds_ns(year: i32, month: u8) -> Result<(u64, u64), VisionBackfillErrorV1> {
+pub(crate) fn month_bounds_ns(year: i32, month: u8) -> Result<(u64, u64), VisionBackfillErrorV1> {
     let (next_year, next_month) = if month == 12 {
         (year + 1, 1)
     } else {
@@ -742,6 +769,23 @@ fn month_bounds_ns(year: i32, month: u8) -> Result<(u64, u64), VisionBackfillErr
     let end_ns = end_day
         .checked_mul(86_400_000_000_000)
         .and_then(|ns| u64::try_from(ns).ok())
+        .ok_or(VisionBackfillErrorV1::WindowBeforeEpoch)?;
+    Ok((start_ns, end_ns))
+}
+
+/// The `[start, end)` UTC day window a daily archive covers, in nanoseconds since the Unix epoch.
+pub(crate) fn day_bounds_ns(
+    year: i32,
+    month: u8,
+    day: u8,
+) -> Result<(u64, u64), VisionBackfillErrorV1> {
+    let start_day = days_from_civil(i64::from(year), u32::from(month), u32::from(day));
+    let start_ns = start_day
+        .checked_mul(86_400_000_000_000)
+        .and_then(|ns| u64::try_from(ns).ok())
+        .ok_or(VisionBackfillErrorV1::WindowBeforeEpoch)?;
+    let end_ns = start_ns
+        .checked_add(86_400_000_000_000)
         .ok_or(VisionBackfillErrorV1::WindowBeforeEpoch)?;
     Ok((start_ns, end_ns))
 }
@@ -1343,6 +1387,17 @@ mod tests {
                 .execution_month("BTCUSDT", BinanceKlineInterval::Day1, 2021, 6)
                 .await,
             Err(VisionBackfillErrorV1::ArchiveUnavailable)
+        );
+    }
+
+    #[tokio::test]
+    async fn funding_month_refuses_an_invalid_symbol_before_building_any_path() {
+        let shards = ShardDir::new();
+        let fetcher = fetcher(archive(None, Vec::new()), shards.path()).await;
+
+        assert_eq!(
+            fetcher.funding_month("../x", 2021, 6).await,
+            Err(VisionBackfillErrorV1::InvalidSymbol)
         );
     }
 
