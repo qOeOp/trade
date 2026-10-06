@@ -44,5 +44,8 @@
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "unified": "11.0.5"
+  },
+  "overrides": {
+    "katex": "0.18.2"
   }
 }
