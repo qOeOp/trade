@@ -18,15 +18,42 @@ producer="${2:?producing job name}"
 timeout_seconds="${3:?timeout in seconds}"
 interval="${WAIT_FOR_RUN_ARTIFACT_INTERVAL:-10}"
 run="repos/${GITHUB_REPOSITORY:?}/actions/runs/${GITHUB_RUN_ID:?}"
+api_error_file="$(mktemp)"
+trap 'rm -f "$api_error_file"' EXIT
+
+# A temporary Actions API failure says nothing about the artifact or its producer. Retry that
+# read before deciding; a permission/configuration error still fails immediately.
+api_query() {
+  local attempt output
+  for attempt in 1 2 3; do
+    if output="$(gh api "$@" 2> "$api_error_file")"; then
+      printf '%s\n' "$output"
+      return 0
+    fi
+    if ! grep -Eqi '\(HTTP (429|5[0-9][0-9])\)|timed? out|connection reset' "$api_error_file" ||
+      ((attempt == 3)); then
+      cat "$api_error_file" >&2
+      return 1
+    fi
+    echo "Actions API read failed temporarily; retrying (${attempt}/3)" >&2
+    sleep "${WAIT_FOR_RUN_ARTIFACT_RETRY_DELAY:-$attempt}"
+  done
+}
 
 started=$SECONDS
 while :; do
-  if gh api "${run}/artifacts" --paginate --jq '.artifacts[].name' | grep -Fxq -- "$artifact"; then
+  if ! artifacts="$(api_query "${run}/artifacts" --paginate --jq '.artifacts[].name')"; then
+    exit 1
+  fi
+  if grep -Fxq -- "$artifact" <<< "$artifacts"; then
     echo "artifact ${artifact} is published ($((SECONDS - started))s waited)"
     exit 0
   fi
-  state="$(gh api "${run}/attempts/${GITHUB_RUN_ATTEMPT:?}/jobs" --paginate \
-    --jq ".jobs[] | select(.name == \"${producer}\") | \"\\(.status) \\(.conclusion)\"" | head -1)"
+  if ! states="$(api_query "${run}/attempts/${GITHUB_RUN_ATTEMPT:?}/jobs" --paginate \
+    --jq ".jobs[] | select(.name == \"${producer}\") | \"\\(.status) \\(.conclusion)\"")"; then
+    exit 1
+  fi
+  state="${states%%$'\n'*}"
   if [[ "$state" == completed\ * && "$state" != "completed success" ]]; then
     echo "ERROR: ${producer} ended as '${state#completed }' without publishing ${artifact}." >&2
     exit 1
