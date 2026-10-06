@@ -11,18 +11,23 @@ WAITER="${WAIT_FOR_RUN_ARTIFACT_SCRIPT:-${SCRIPT_DIR}/wait-for-run-artifact.bash
 root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
 export GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=1 GITHUB_RUN_ATTEMPT=1 WAIT_FOR_RUN_ARTIFACT_INTERVAL=0
+export WAIT_FOR_RUN_ARTIFACT_RETRY_DELAY=0
 export PATH="${root}/bin:${PATH}"
 mkdir -p "${root}/bin"
 
-# The stand-in reads, per call, one line of the scenario: "<artifact names> | <producer state>".
+# Each endpoint reads its own next scenario line: "<artifact names> | <producer state>".
 cat > "${root}/bin/gh" << 'EOF'
 #!/usr/bin/env bash
-calls=$(($(cat "$SCENARIO.n" 2>/dev/null || echo 0) + 1)); echo "$calls" > "$SCENARIO.n"
-line="$(sed -n "$(((calls + 1) / 2))p" "$SCENARIO")"; [[ -n "$line" ]] || line="$(tail -1 "$SCENARIO")"
 case "$*" in
-  *"/artifacts "*) tr ' ' '\n' <<< "${line%%|*}" | sed '/^$/d' ;;
-  *"/jobs "*) echo "${line#*| }" ;;
+  *"/artifacts "*) kind=artifacts ;;
+  *"/jobs "*) kind=jobs ;;
+  *) exit 2 ;;
 esac
+calls=$(($(cat "$SCENARIO.$kind.n" 2>/dev/null || echo 0) + 1)); echo "$calls" > "$SCENARIO.$kind.n"
+line="$(sed -n "${calls}p" "$SCENARIO")"; [[ -n "$line" ]] || line="$(tail -1 "$SCENARIO")"
+if [[ "$kind" == artifacts ]]; then answer="${line%%|*}"; else answer="${line#*| }"; fi
+if [[ "$answer" == HTTP* ]]; then echo "gh: temporary or permanent failure (${answer% })" >&2; exit 1; fi
+if [[ "$kind" == artifacts ]]; then tr ' ' '\n' <<< "$answer" | sed '/^$/d'; else echo "$answer"; fi
 EOF
 chmod +x "${root}/bin/gh"
 
@@ -54,5 +59,11 @@ run_case producer-skipped 1 "ended as 'skipped'" 60 " | completed skipped"
 run_case never 1 "was not published within 0s" 0 " | in_progress "
 # A near-miss name is not the artifact.
 run_case prefix-is-not-a-match 1 "was not published within 0s" 0 "rd-owner-archive-old | in_progress "
+run_case transient-artifact-api 0 "artifact rd-owner-archive is published" 60 \
+  "HTTP 502 | in_progress " "rd-owner-archive | in_progress "
+run_case transient-producer-api 0 "artifact rd-owner-archive is published" 60 \
+  " | HTTP 502" "rd-owner-archive | in_progress "
+run_case permanent-api-error 1 "HTTP 403" 60 "HTTP 403 | in_progress "
+run_case exhausted-api-retry 1 "HTTP 502" 60 "HTTP 502 | in_progress "
 
-echo "wait-for-run-artifact: returns once published, fails by name on a dead producer and at the timeout"
+echo "wait-for-run-artifact: handles temporary API errors, published artifacts, dead producers and timeouts"
