@@ -24,10 +24,11 @@ authority and are not automatically current merely because the files exist.
 The implementation contract requires filtering design questions first: inspect Nautilus mechanisms retained in
 the current repository, native extension points and official documentation; adopt mature existing mechanisms
 rather than turn standard engine behavior into user choices or strategy parameters. Ask only when user intent
-cannot be established from existing stories or measurements show a native capability gap; explain the available
-mechanism, exact gap and user-relevant tradeoff. Verify framework capability, current-version code and product
-consumer wiring separately. Newer official docs do not prove this candidate is implemented. Reuse preserves Owner
-authority, frozen research protocols and protected boundaries.
+cannot be established from existing stories or measurements show a native capability gap; explain the
+available mechanism, exact gap and user-relevant tradeoff. Verify framework capability, current-version code
+and product consumer wiring separately. Newer official docs do not prove this candidate is implemented.
+
+Reuse preserves Owner authority, frozen research protocols and protected boundaries.
 
 Start with the [Research scenario](../scenarios/research/) and the exact current candidate. Select the earliest
 missing transition, then read its producer, consumer, and boundary dependencies through this map.
@@ -35,7 +36,7 @@ missing transition, then read its producer, consumer, and boundary dependencies 
 | Bounded outcome                                                    | Owning design                                                                | Acceptance consumer                                                                                         |
 | ------------------------------------------------------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | Register a family and resume counted experiments within user scope | R&D Intent, census, data‑read lineage, spend cap; Product Edge authorization | Agent registers before outcome reads and resumes a trial by native identity                                 |
-| Compile R‑1u and R‑1s JSON into immutable artifacts                | R&D authoring; Strategy Factory shared lifecycle/order contract              | Real simulator exercises resting entries, expiry, protection, partial exits, fill feedback, and event order |
+| Seal and load native R‑1u and R‑1s Strategies                      | R&D authoring; Strategy Factory shared lifecycle/order contract              | Real simulator exercises resting entries, expiry, protection, partial exits, fill feedback, and event order |
 | Produce an asynchronous perpetual research report                  | Market Data custody; R&D run admission; Backtest Result                      | Native report includes funding, costs, portfolio risk/return, overlap, comparisons, and trade diagnostics   |
 | Diagnose, park, stop, or review new evidence                       | R&D Iteration Decision and knowledge ledger                                  | Losing and unresolved trials remain visible; nonqualification does not close a mechanism                    |
 | Qualify and maintain record‑only forward evidence                  | Qualification; Backtest shared replay semantics                              | Binary public verdict, protected internal detail, persistent simulated orders, and no trading effect        |
@@ -230,16 +231,16 @@ because a wrong reading here lands inside the legal range of the answer rather t
 
 ## Capability maturity and development entry
 
-| Capability           | Current scope                                                                                                               | Task entry                                                            |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Domain MCPs          | Data, strategy authoring and backtest have independent workspaces; research MCP remains a target                            | Product Edge service contracts and corresponding `services` source    |
-| JSON authoring       | Bounded T0 subset exists; full R‑1 orders, conditional cancel and staged exits require extension                            | R&D authoring and Strategy Factory typed BFP                          |
-| Native replay        | Input custody, execution service and Result identity branches exist; feature/wiring determines reachability                 | Backtest and R&D run composition                                      |
-| Reports              | Current run report route still returns `RUN_HAS_NO_RESULT`                                                                  | Durable Result to served report, never operational logs               |
-| Multi‑timeframe data | Native series and PIT custody have defined integration; served series do not imply execution admission                      | Market Data; execution whitelist `1w/1d/4h/1h`                        |
-| Complex strategies   | Direct BFP Host, independent trades, portfolios, dynamic universe, staged protection and local refinement have dependencies | Owning chapter prerequisites and positive/failure acceptance          |
-| UI                   | Custom Dashboard preview admits individual routes/atoms                                                                     | Exact Dashboard contract, not implicit wider implementation           |
-| Trading node         | Native node/trust layer is a target; Paper/Live not admitted                                                                | Architecture rules and unique Runtime/Risk/Execution responsibilities |
+| Capability             | Current scope                                                                                                                           | Task entry                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Domain MCPs            | Data, strategy authoring and backtest have independent workspaces; research MCP remains a target                                        | Product Edge service contracts and corresponding `services` source    |
+| Current JSON authoring | Bounded T0 subset exists; full R‑1 orders, conditional cancel and staged exits require extension                                        | Current R&D authoring; target native Strategy package                 |
+| Native replay          | Input custody, execution service and Result identity branches exist; feature/wiring determines reachability                             | Backtest and R&D run composition                                      |
+| Reports                | Current run report route still returns `RUN_HAS_NO_RESULT`                                                                              | Durable Result to served report, never operational logs               |
+| Multi‑timeframe data   | Native series and PIT custody have defined integration; served series do not imply execution admission                                  | Market Data; execution whitelist `1w/1d/4h/1h`                        |
+| Complex strategies     | Native Strategy integration, independent trades, portfolios, dynamic universe, staged protection and local refinement have dependencies | Owning chapter prerequisites and positive/failure acceptance          |
+| UI                     | Custom Dashboard preview admits individual routes/atoms                                                                                 | Exact Dashboard contract, not implicit wider implementation           |
+| Trading node           | Native node/trust layer is a target; Paper/Live not admitted                                                                            | Architecture rules and unique Runtime/Risk/Execution responsibilities |
 
 Verify status against exact source, wiring and consumer results. A merged fragment, target or open PR is not a
 complete feature. Deliver the earliest missing dependency: data coverage → request/authoring → native execution →

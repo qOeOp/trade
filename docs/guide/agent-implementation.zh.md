@@ -27,7 +27,7 @@ Owner 名称表示内部事实与权限边界，不是重写引擎的任务。R&
 | 有界交付结果                       | 所属设计                                                  | 验收消费者                                                   |
 | ---------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------ |
 | 在用户范围内登记家族并恢复计数实验 | R&D Intent、census、读取血缘、支出上限；Product Edge 授权 | 代理在结果读取前登记，并按原生身份恢复试验                   |
-| 将 R‑1u/R‑1s JSON 编译成不可变工件 | R&D 编写；Strategy Factory 共享生命周期/订单契约          | 真实模拟器驱动挂单、到期、保护、分段退出、成交反馈与事件顺序 |
+| 封存并加载 R‑1u/R‑1s 原生 Strategy | R&D 编写；Strategy Factory 共享生命周期/订单契约          | 真实模拟器驱动挂单、到期、保护、分段退出、成交反馈与事件顺序 |
 | 异步产出永续研究报告               | Market Data 托管；R&D 运行准入；Backtest Result           | 原生报告含资金费、成本、组合风险收益、重叠、比较与逐交易诊断 |
 | 诊断、暂停、停止或复核新证据       | R&D Iteration Decision 与知识台账                         | 亏损与未决试验可见，未合格不关闭机制                         |
 | 资格评估与只记录前向证据           | Qualification；Backtest 共享回放语义                      | 二级公开判决、内部保护细节、持久模拟订单且没有交易效果       |
@@ -57,11 +57,9 @@ Owner 名称表示内部事实与权限边界，不是重写引擎的任务。R&
 - `LEGACY_REFERENCE` 必须使用 `MISMATCHED_OR_SUPERSEDED`，保留同样的 typed immutable receipt，
   revision 与 receipt 严格相等，并采用终态处置 `DO_NOT_USE_AND_REPLAN`。
 
-"checked"这类自由文字不是证据。Typed receipt 重复已解析 candidate revision，把准确规范化仓库相对
-locator 绑定到 Git blob 与 SHA-256 内容身份，并且对 `PATHS`、`SYMBOLS`、`COMMANDS`、
-`PREREQUISITES` 各包含恰好一个结果。Locator identity 的严格格式为
-`tree-path:<locator>@git-blob:<40 lowercase hex>@content-sha256:<64 lowercase hex>`；
-`contentSha256` 以 `sha256:<64 lowercase hex>` 重复同一 digest。
+"checked"这类自由文字不是证据。 Typed receipt 重复已解析 candidate revision，把准确规范化仓库相对 locator 绑定到 Git blob 与 SHA-256 内容身份，并且对
+`PATHS`、`SYMBOLS`、`COMMANDS`、 `PREREQUISITES` 各包含恰好一个结果。 Locator
+identity 的严格格式为 `tree-path:<locator>@git-blob:<40 lowercase hex>@content-sha256:<64 lowercase hex>`； `contentSha256` 以 `sha256:<64 lowercase hex>` 重复同一 digest。
 
 Record 不能自证。Main 必须另行提供 immutable 40-hex Git tree 与逐 locator verification-context digest。
 公共校验器先证明对象确为 tree，再用 `git ls-tree` 解析准确 path、用 `git cat-file` 读取 blob，并根据
@@ -203,16 +201,16 @@ Main 可把范围内的过时设计与实现一起修正并交付审阅。记录
 
 ## 能力成熟度与开发入口
 
-| 产品能力   | 当前范围                                                                      | 任务入口                                       |
-| ---------- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
-| 领域 MCP   | 数据、策略编写与回测有独立 workspace；研究 MCP 仍待开发                       | Product Edge 服务合同与对应 `services` 源码    |
-| JSON 编写  | 有界 T0 子集已实现；完整 R‑1 挂单、条件撤单及分段退出待扩展                   | R&D authoring 与 Strategy Factory typed BFP    |
-| 原生回放   | 已有输入托管、执行服务与 Result 身份分支；接通范围由 feature/实际 wiring 决定 | Backtest 与 R&D run composition                |
-| 报告链     | 当前回测 run report 路由仍返回 `RUN_HAS_NO_RESULT`                            | 从真实持久 Result 到报告读回，不用运维日志代替 |
-| 多周期数据 | 原生周期数据与点时托管有具体接线；数据服务周期不等于执行白名单                | Market Data，执行白名单 `1w/1d/4h/1h`          |
-| 复杂策略   | 直接 BFP Host、多笔/多策略、动态选币、分段保护与局部下钻是有依赖的目标        | 所属章节的前置条件与正向/失败验收              |
-| 用户界面   | 自研 Dashboard preview 有按路由准入的切片                                     | Dashboard 精确路由/组件合同，不默认扩大实现集  |
-| 交易节点   | 原生节点和产品信任层是目标；Paper/Live 未准入                                 | 架构规则与 Runtime/Risk/Execution 的唯一职责   |
+| 产品能力       | 当前范围                                                                      | 任务入口                                       |
+| -------------- | ----------------------------------------------------------------------------- | ---------------------------------------------- |
+| 领域 MCP       | 数据、策略编写与回测有独立 workspace；研究 MCP 仍待开发                       | Product Edge 服务合同与对应 `services` 源码    |
+| 当前 JSON 编写 | 有界 T0 子集已实现；完整 R‑1 挂单、条件撤单及分段退出待扩展                   | 当前 R&D 编写；目标为原生 Strategy 包          |
+| 原生回放       | 已有输入托管、执行服务与 Result 身份分支；接通范围由 feature/实际 wiring 决定 | Backtest 与 R&D run composition                |
+| 报告链         | 当前回测 run report 路由仍返回 `RUN_HAS_NO_RESULT`                            | 从真实持久 Result 到报告读回，不用运维日志代替 |
+| 多周期数据     | 原生周期数据与点时托管有具体接线；数据服务周期不等于执行白名单                | Market Data，执行白名单 `1w/1d/4h/1h`          |
+| 复杂策略       | 原生策略接入、多笔/多策略、动态选币、分段保护与局部下钻是有依赖的目标         | 所属章节的前置条件与正向/失败验收              |
+| 用户界面       | 自研 Dashboard preview 有按路由准入的切片                                     | Dashboard 精确路由/组件合同，不默认扩大实现集  |
+| 交易节点       | 原生节点和产品信任层是目标；Paper/Live 未准入                                 | 架构规则与 Runtime/Risk/Execution 的唯一职责   |
 
 状态以准确源码版本、服务接线和消费者结果核对。已合并局部代码、当前目标或开放 PR 都不是完整产品能力。
 按最早缺口交付：数据覆盖 → 请求/编写 → 原生执行 → Result/报告 → 研究决定；不能倒置依赖或另造替代引擎。

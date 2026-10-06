@@ -14,16 +14,18 @@ An event can wake Strategy Governance to read committed facts from Qualification
 
 ## Alert use
 
-Committed Event Wakes may be routed to Observability. The wake is Observability input; Alert Delivery is an Alert
-Routing output and receipt, never an input or business fact. Qualification wakes expose exactly
-`CLOSED_NOT_QUALIFIED`, `QUALIFIED`, `EXPIRED`, or `REVOKED`, using only public attempt correlation, public state,
-effective cut, sequence, and one type-opaque non-dereferenceable reference. Every `REPLAY_REJECTED`,
-`REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, and `INELIGIBLE` terminal
-emits the same normalized `CLOSED_NOT_QUALIFIED` event shape. Event presence, state, effective cut, opaque-reference
-class, and sequence are therefore indistinguishable across all six; no internal `INELIGIBLE` event is published.
-Those protected measurements, parameters, results, holdout details, evaluation outputs, timing differences, and
-category-specific references never enter Event Rail. Delivery success means a message arrived, not that the
-underlying business transition succeeded.
+Committed Event Wakes may be routed to Observability. The wake is Observability input; Alert Delivery is an
+Alert Routing output and receipt, never an input or business fact. Qualification wakes expose exactly
+`CLOSED_NOT_QUALIFIED`, `QUALIFIED`, `EXPIRED`, or `REVOKED`, using only public
+attempt correlation, public state, effective cut, sequence, and one type-opaque non-dereferenceable reference.
+Every `REPLAY_REJECTED`, `REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`,
+`ASSESSMENT_INVALID`, and `INELIGIBLE` terminal emits the same normalized `CLOSED_NOT_QUALIFIED` event
+shape.
+
+Event presence, state, effective cut, opaque-reference class, and sequence are therefore indistinguishable
+across all six; no internal `INELIGIBLE` event is published. Those protected measurements, parameters,
+results, holdout details, evaluation outputs, timing differences, and category-specific references never enter
+Event Rail. Delivery success means a message arrived, not that the underlying business transition succeeded.
 
 ## Implementation acceptance
 

@@ -2,96 +2,97 @@
 
 ## Product purpose and scope
 
-The product turns sourced market hypotheses into reproducible strategies, portfolio backtest evidence and research
-decisions, with continuous facts for independent qualification, record-only forward evaluation and governed
-strategy lifecycles. It supports perpetuals, spot data/backtests and spot/perpetual two-leg research. The first
-end-to-end acceptance is the Binance USDT perpetual R-1 resting-entry/staged-exit story. Spot, multi-leg and dynamic
-portfolio capabilities remain development targets until their individual admission and integration.
+One individual uses one replaceable external Agent to turn sourced market hypotheses into reproducible strategies and portfolio evidence, then independently qualified, governed real trading. Binance is the target venue: perpetuals first, spot later, including the venue's actual equity/commodity-referencing products. A complete strategy may contain multiple instruments or hedge legs; an account composition combines independently eligible complete strategies.
 
-Independent domain MCPs expose the services. The user chooses an external agent such as Codex or Claude; data and
-backtest extend native Nautilus, R&D manages research, and the custom Dashboard views and controls the same facts.
-Each service durably owns its deterministic jobs. A host timer wakes the external agent for model-based research
-decisions. A disconnected conversation or MCP session loses neither jobs nor results.
+Market Data and Backtest extend Nautilus; R&D supplies research management. The six responsibility groups, native foundation, client interfaces and V0.1-V0.6 delivery sequence are defined once in the [service blueprint](../architecture/). V0.1 closes R-1 data, native package sealing and replay with minimal durable research custody; sustained research iteration follows in V0.2. Later capabilities remain part of the target without becoming first-release prerequisites.
 
-## Agent-outside R&D experience
+The external Agent initiates research through domain MCPs. Server services own admitted jobs and results; a disconnected conversation or unavailable laptop does not cancel them while the server remains available. New model-based decisions wait for the Agent, optionally awakened by its host timer. Dashboard reads research progress/evidence and exposes approved Governance controls; it cannot initiate, pause or terminate research or control the local Agent. The product runs no research model.
 
-The user supplies the theme, risk tolerance, data scope, resource-spend ceiling and stop boundaries. Before running,
-the agent registers comparisons, baselines, return units, horizon, costs and risk constraints. It may propose new
-hypotheses and mechanism families and iterate inside those frozen bounds. Portfolio return and drawdown determine
-continuation; entry advantage, randomized entries and individual-strategy comparisons diagnose causes. Every trial
-enters the anti-overfitting ledger; trial counts do not replace spend limits.
+## Research and evidence
 
-The product and agent host independently bound and report resource use; unreadable model consumption is unavailable.
-The agent may repair deviations from frozen rules while retaining repair lineage and affected results. Changing
-passing criteria, statistical protocol, risk tolerance or scope requires user confirmation and a new frozen version.
-The product makes no model call. The agent submits versioned JSON authoring documents; R&D validates and seals
-immutable Artifacts. The agent cannot edit business facts.
+The user approves theme, risk tolerance, data scope, resource-spend ceiling and stops. Before running, the Agent registers comparisons, baselines, return units, horizon, costs and risk constraints. It may propose hypotheses and mechanism families inside those frozen boundaries. Portfolio return and drawdown guide continuation; entry advantage and randomized-entry comparisons diagnose causes. All attempts enter the trial and exposure ledger; spend caps do not impose a fixed experiment-round limit.
 
-## From source to research decision
+The product and Agent host separately cap/report consumption; unavailable model usage is not zero. Implementation repairs retain lineage and affected results. Changing passing criteria, statistical protocol, risk tolerance or scope needs user confirmation and a new frozen version. Replacing an Agent does not reset research budgets, exposure or results.
 
-| Stage                 | User or agent action                                                                 | Product result and responsibility                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| Define the question   | Submit source, mechanism, alternatives and falsifiable prediction                    | R&D admits source, freezes Research Intent and permanent trial lineage                                            |
-| Prepare data          | Declare market, time, signal timeframes and warm‑up                                  | Market Data supplies PIT coverage, versions and named gaps; services own preparation jobs                         |
-| Author strategy       | Submit JSON signal rules, sizing configuration and execution policy                  | R&D compiles BFP and seals Artifact, dependencies and complete meaning                                            |
-| Explore               | Submit bounded backtest and query identities                                         | Backend completes internal composition; native Backtest produces orders, fills, portfolio results and diagnostics |
-| Diagnose and iterate  | Compare frozen objectives and choose a legal next action                             | R&D commits repair, successor experiment, stop or selection; an unknown run produces no economic judgment         |
-| Qualify independently | Submit selected, frozen candidate                                                    | Qualification consumes the preregistered protected protocol and returns only bounded public conclusions           |
-| Record forward        | Query continuous simulation under the same execution semantics                       | Qualification owns registration/decision; Backtest preserves simulated orders, positions and costs across cuts    |
-| Govern lifecycle      | Request deployment or de‑risking within qualification, capital and permission bounds | Governance authorizes; Runtime independently proves application; trading paths require separate admission         |
+| Stage         | Client action                                                       | Owning result                                                                                   |
+| ------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Register      | Agent submits sources, experiment plans and chosen research context | R&D freezes research boundaries and trial lineage                                               |
+| Prepare       | Declare instruments, history, signal windows and warmup             | Market Data admits PIT coverage, versions and named gaps                                        |
+| Author        | Submit native Strategy signal/protection and sizing rules           | R&D seals the Artifact with its dependencies and approved execution policy references           |
+| Replay        | Submit one bounded Backtest request                                 | Native Backtest returns orders, fills, portfolio evidence and diagnostics                       |
+| Iterate       | Compare frozen objectives and choose the next legal action          | R&D records repair, successor, stop or selection and reusable findings                          |
+| Qualify       | Submit an exact selected candidate or composition                   | Qualification independently evaluates protected evidence and returns bounded public eligibility |
+| Confirm trial | User confirms the candidate and frozen policy in Dashboard          | Governance admits first real trial only with authority, capacity and native readiness           |
+| Operate       | Query trial/formal stage and applied state                          | Governance evaluates frozen stage rules; native node executes authorized trading                |
 
-One `backtest.run` completes validation, research binding, dataset resolution, Artifact and replay composition inside
-the backend. The agent does not assemble internal receipts, move market rows or drive each Owner step. Requests,
-jobs, results and legal actions are addressable by stable identities. Same-identity/same-meaning recovery rejoins
-original results; changed meaning creates a successor or conflict, never overwrites old records. See
-[Product Edge](../architecture/product-edge/) and [research design](../scenarios/research/).
+One `backtest.run` performs deterministic request validation, research binding, data resolution and replay composition inside the backend. The Agent does not move market rows or assemble internal receipts. Same identity and meaning recover the original operation; changed meaning creates a successor or conflict. Unknown results never become economic judgments. See [Product Edge](../architecture/product-edge/) and [research acceptance](../scenarios/research/).
 
-## Qualification and forward evidence
+Positive and negative factor/rule findings belong to R&D knowledge, with exact versions, applicability, costs and counterexamples. Reuse supplies a new research input, never inherited qualification. Discovery is an on-demand read-only R&D request; running strategies already consume market data continuously and need no Scanner schedule or deployment-proposal service.
 
-Exploration is not qualification. Qualification independently consumes the whole frozen candidate, trial family,
-costs, capacity, embargo, budget and holdout rules. Internally it may distinguish pass, equivalence failure and
-insufficient evidence; research sees only `QUALIFIED` or `CLOSED_NOT_QUALIFIED`, and cannot close a mechanism solely
-from a public nonqualified result. Protected numbers, reasons and categories do not return to research. New
-families, charts or direct MCP calls do not bypass reads or trial accounting.
+## Qualification and operating lifecycle
 
-Record-only forward is a target: before its first cut, freeze interim/decision dates, elimination/admission lines,
-sequential-test parameters and derivations. Backtest uses the same qualified Artifact, orders, cadence, costs,
-slippage and capacity model, carrying simulated state across cuts. It touches no Runtime instance, venue adapter,
-credential or money. Report every candidate and revoke qualification on elimination. A positive Forward Decision
-allows proposing paper activation; it replaces none of the other activation authorities.
+```mermaid
+flowchart LR
+  Research --> Replay
+  Replay --> Qualification
+  Qualification -->|Eligible| Confirmation
+  Confirmation --> Trial
+  Trial -->|Current conditions + capacity| Formal
+  Trial -->|Failed deadline or authorized stop| Unload
+  Formal -->|Retention failure or authorized stop| Unload
+  Unload -->|Stop entries and cancel entry orders| Exit
+  Unload -->|Return research status| Research
+  Exit -->|Protected positions remain| Native
+```
 
-## Trading control and recovery
+Exploration is not qualification. Qualification independently consumes the frozen candidate, complete trial family, cost/capacity assumptions, embargo and protected protocol. Internally it may distinguish pass, equivalence failure and insufficient evidence. Research sees only `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; protected numbers, reasons, timing and categories never return to research or its knowledge store. Public nonqualification alone cannot close a mechanism. New families, clients or direct MCP calls cannot bypass exposure accounting.
 
-The trading target uses one native in-process node per Capacity Scope, assembling `LiveNode`, `RiskEngine`,
-`ExecutionEngine` and a thin product trust layer. Signals and protection rules belong to the strategy; sizing
-configuration computes requested quantity; Risk decides capacity/admission; Execution owns orders, fills and venue
-reconciliation. No second order book or account engine replaces native cache. Portfolio provides versioned
-measurement and attribution.
+Only independently eligible candidates can be offered for real trial. The user confirms exact candidate, finite named condition template, exposed parameters, capital policy and authority in Dashboard. Qualification alone starts nothing; the user may keep a qualified candidate in R&D. Trial conditions freeze before operation, including observation period, net economic/risk rules and minimum independent trade samples. Concrete templates and thresholds are detailed in their owning design slice.
 
-Governance owns generation authorization, capital envelopes and lifecycle. Only an `APPLIED` receipt proves Runtime
-application. Active-generation renewal requires fresh eligibility, performance, exposure and degradation evidence;
-missing evidence stops new risk while preserving the decrease-only safety path. Scanner periodically evaluates
-deployment conditions and proposes to Governance, isolates individual-strategy gaps and never starts Runtime.
-Host research wake-ups and service-owned Scanner/forward jobs are separate responsibilities; Dashboard owns no
-business state machine.
+Trial and formal pools both use real money. Promotion automatically rechecks current frozen conditions, authority and allocation feasibility at actual transition time. A qualified capacity waiter continues under trial authority, including beyond the maximum observation period while still satisfying conditions. A currently failing strategy at that deadline ends trial and returns to R&D. Formal retention failure unloads to R&D, never directly downgrades into trial.
 
-Unknown effects permit no blind resubmit, commitment release or failure claim. Runtime readiness, incidents,
-reconciliation drift and Risk hard stops enter recovery through their authoritative facts. Execution cancels,
-reduces, flattens and reads back only within the intersection allowed by the complete active fence set. Only the
-Reconciler writes `KNOWN_CLOSED` once venue facts, Risk settlement and Portfolio projections agree; closure restores
-no old trading authority. [Architecture rules](./architecture-rules/) and Owner chapters define the complete
-identity, authorization, decrease-only and recovery contracts. Research, forward evidence and documentation admit
-no Paper, Live or real-money effect.
+A user or Agent acting within previously approved bounds may unload a valid strategy for improvement. Stop new entries, cancel unfilled entry orders and release running allocation; residual fills keep their original protection and actual account exposure. Unloading records its actual reason, not an invented economic failure. Changed strategy content hash means a new version and complete qualification/trial lifecycle. Unchanged content still needs current eligibility, stage evidence and explicit restart confirmation.
 
-## User interface and service acceptance
+Qualification's record-only Forward Record is optional isolated simulation evidence. It creates no orders or capital commitments, replaces no real-trial evidence and cannot promote a strategy. Paper adapter verification is supporting evidence rather than a user promotion phase. Existing sealed protocols retain their meanings; design alone grants no implementation, deployment, trading credential or order permission.
 
-The custom Dashboard presents Sources, Research, Hypotheses, Artifacts, Backtests, Qualification, Scanner, Runtime
-and Operations under the same identities, unresolved reasons and allowed actions. Logs, charts, operational success
-and agent explanation create no research decision, qualification or deployment fact. Changes submit successor JSON,
-never edit an Artifact in place. Implement only routes and atoms admitted by [Dashboard](./dashboard/).
+## Composition and account funds
 
-MCP research journeys have independent acceptance; Dashboard routes separately prove browser behavior. Existing
-domain tools, narrow authoring and replay custody wiring do not establish complete R-1, research MCP, recursive
-local refinement, report delivery or production deployment. [Agent implementation](./agent-implementation/) names
-current gaps and consumers. Acceptance requires positive results, named refusals, unknown-state preservation,
-same-identity recovery and isolation; a handshake, build, local test or target diagram is not product delivery.
+R&D owns a separately hashed composition configuration referencing exact member Artifacts, joint rules, policy
+references, capital/risk scope and frozen ordinary exit plans. It evaluates joint operation, either-alone
+continuation and continuous exits including residual positions. Qualification independently validates the
+composition and exit plans; individually eligible members do not establish joint eligibility. Governance owns
+the approved effective binding and transition authority. There is one account-wide effective composition;
+members retain independent trial/formal/unload stages.
+
+See [composition custody](../owners/rd/#composition-configuration-custody) and
+[Governance](../owners/strategy-governance/).
+
+Approved formulas use current net equity; exchange free margin constrains execution. Trial/formal pool ratios and equal allocation among actually running members create logical envelopes, not independent wallets. Admission, promotion or configuration adoption applies a new allocation atomically only if existing positions, orders and pending reservations fit all reduced envelopes and account limits. Otherwise wait in the capacity queue without starting the new member or forcing liquidation. An empty pool retains its budget. Deposits/withdrawals update the approved formulas within assessed limits; residual margin remains an account fact after logical allocation is released.
+
+The product uses a dedicated trading account. Product orders and positions are reconciled against venue facts; unknown ownership blocks affected new risk rather than inventing attribution. Portfolio measures account facts, Governance allocates, Risk reserves/adopts capacity and Execution reconciles. No strategy or service keeps a competing balance ledger.
+
+## Native trading and recovery
+
+One native in-process node per Capacity Scope composes Runtime, Risk, Execution and Portfolio with a thin product trust layer. Strategies own signals/protection rules and bounded requested sizing; Risk decides admission, Execution owns orders, fills, retries and venue reconciliation. Signal target prices stay frozen at creation. Native cache, order lifecycle and accounting are reused rather than reimplemented.
+
+Only an `APPLIED` receipt proves Runtime application of Governance authorization. Renewal needs
+fresh eligibility, performance, exposure and degradation evidence; missing evidence stops new risk while
+preserving the decrease-only path. Recovery consumes authoritative readiness, incident, drift or hard-stop
+facts. Execution acts only inside the complete active fence set. Only the Reconciler writes
+`KNOWN_CLOSED` after venue facts, Risk settlement and Portfolio projections agree; closure restores no
+old trading authority.
+
+Unknown effects permit no blind resubmit, commitment release or failure claim. [Architecture
+rules](./architecture-rules/) and Owner chapters define exact permits, namespaces and refusal contracts.
+
+## Acceptance
+
+MCP research journeys and Dashboard read/control routes have separate acceptance. A reachable tool, chart,
+local test or build is not complete R-1 or production acceptance. R-1 requires actual ordered fills, staged
+exits, costs, retained open positions and durable result readback. Finer chronology is prepared by Market Data
+outside matching and then replayed by Nautilus under a successor binding; no matching callback fetches data or
+rewinds itself. [Agent implementation](./agent-implementation/) defines verified source use, and
+[Dashboard](./dashboard/) governs admitted UI slices.
+
+Each delivery proves positive results, named refusals, unknown-state preservation, same-identity recovery and
+isolation.

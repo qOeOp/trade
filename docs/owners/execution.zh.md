@@ -47,6 +47,13 @@
 
 ## 模块
 
+复用 `crates/execution` 的 engine、order_manager、order_emulator、protection、trailing、reconciliation 和
+`crates/trading` 原生 Strategy/算法命令。 先采用修改、撤销、GTD、contingent 与对账，再补授权和效果托管， 不另建订单状态机。 算法主单/子单保留原生归属、Risk
+路由及去重后的资金责任，不能每个 slice 重复预留原金额。 按笔管理绑定 `StrategyId`、client order ID、内部 position ID 和场所 position ID。
+
+原生 HEDGING 不等于 Binance Hedge Mode：当前场所持仓 ID 按标的加 LONG/SHORT/BOTH 聚合， positionSide/reduce-only 受场所模式约束。 R-1
+验收须证明退出归属、部分成交、聚合持仓变化及外部活动的对账， 不能只切换 OMS 枚举就声称支持。 GTD 依赖场所支持或原生 `manage_gtd_expiry`；GTD→GTC 配置不具有场所到期保证。
+
 - **Order Engine** - 验证许可或恢复围栏，并独占订单创建 修改 撤销和终态管理。
 - **Execution Adapters** - 只准入 Execution Scope 固定的 adapter binding，再转换请求 回执 成交 错误和
   回读；重启时不能改变 endpoint 账户 capability 或 trust policy。
@@ -184,14 +191,15 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 
 ## 失败与恢复
 
-正常调用前 Execution 先发送一个稳定 Reservation Claim Request。只有匹配不可变 `CONSUMED` 结果
-才允许准备：Execution 可以持久记录一个 `PREPARED` attempt，再发送绑定该 attempt 命令 Risk Decision
-Reservation 和不可变 adapter binding 的 `ADAPTER_ADMISSION_REQUEST`，但还不能外部调用。Risk 持久原子
-序列化 admission 与同 scope recovery fence activation，再提交唯一不可变 `ADMITTED_ONCE`
-`SUPPRESSED_BY_FENCE` 或 `REJECTED`。Execution 只有拿到匹配 `ADMITTED_ONCE` 才能在外部调用前
-持久化 `INVOCATION_STARTED`。响应丢失 崩溃 重启或重放只能加入同一身份，不能改变 adapter binding
-或调用第二个 attempt。`SUPPRESSED_BY_FENCE` 与 `REJECTED` 是持久未调用结果。调用开始后只有权威
-回读能证明 `VENUE_READBACK` 无效果或结算。超时或含义不明响应保持 `UNKNOWN_EFFECT`，不能裸重试。
+正常调用前 Execution 先发送一个稳定 Reservation Claim Request。 只有匹配不可变 `CONSUMED` 结果 才允许准备：Execution 可以持久记录一个
+`PREPARED` attempt，再发送绑定该 attempt 命令 Risk Decision Reservation 和不可变 adapter binding 的
+`ADAPTER_ADMISSION_REQUEST`，但还不能外部调用。
+
+Risk 持久原子 序列化 admission 与同 scope recovery fence activation，再提交唯一不可变 `ADMITTED_ONCE` `SUPPRESSED_BY_FENCE`
+或 `REJECTED`。 Execution 只有拿到匹配 `ADMITTED_ONCE` 才能在外部调用前 持久化 `INVOCATION_STARTED`。 响应丢失 崩溃
+重启或重放只能加入同一身份，不能改变 adapter binding 或调用第二个 attempt。 `SUPPRESSED_BY_FENCE` 与 `REJECTED` 是持久未调用结果。
+
+调用开始后只有权威 回读能证明 `VENUE_READBACK` 无效果或结算。 超时或含义不明响应保持 `UNKNOWN_EFFECT`，不能裸重试。
 
 正常 decrease-only 命令携带 `PERMIT_DECREASE_ONLY`，Reservation 与 claim lineage 明确为空。Execution
 保留相同稳定 `PREPARED` 边界，不创建 claim 而请求 adapter admission；Risk 仍把 admission 与 fence
@@ -204,23 +212,22 @@ plan 绑定一个准确 open-order 暴露 回读截面，以及同一稳定经�
 效果。fence 先发生不产生正常调用；admission 先发生则等待或消费该 attempt 的权威回读。任一顺序对
 同一剩余数量都最多产生一个外部减仓效果。
 
-Effect Closure View 投影 `UNKNOWN_EFFECT` `NO_EFFECT` 或 `SETTLED`，并绑定准确 attempt adapter binding
-effect frontier 回读与对账截面 freshness blocker 和责任 Owner。每个 view 还绑定请求 principal 授权
-scope authorization-policy cut 账户 mode effect namespace 稳定 request identity projection cut
-valid-through replay meaning，以及适用时的 Recovery Case 与 fence。跨 principal 账户 mode、政策过期、
-含义变化或 Recovery 不匹配的重放必须拒绝，不能返回旧 view。它只用于解释，权威仍来自 Effect Journal
-和来源 Owner 事实。
+Effect Closure View 投影 `UNKNOWN_EFFECT` `NO_EFFECT` 或 `SETTLED`，并绑定准确 attempt adapter
+binding effect frontier 回读与对账截面 freshness blocker 和责任 Owner。
 
-恢复减仓或清仓由 Reconciler 根据权威场所仓位截面规划，Order Engine 在适配器调用前立即重验同一
-方向与数量并要求可强制 reduce-only。较新截面 部分或并发成交 零暴露 方向翻转 不支持 reduce-only
-或可能穿越零点都会提交持久无效果拒绝。Reconciler 只能基于新回读构建后继命令，不能重试旧命令。
-Recovery 不复用普通 claim 仲裁。Reconciler 对完整受影响效果集合使用版本化确定政策：任何变更前先
-回读 先撤销 open order 再减仓 先减仓再清仓 当前截面证明零暴露时不动作；以稳定 instrument 与 order
-身份打破 tie。成员缺失或 tie 未解析时不产生外部动作。每个选中动作都在调用前提交 Recovery Effect
-Attempt `PREPARED`，紧邻外部调用前提交 `INVOCATION_STARTED`。两个截面之间崩溃时只用权威回读解析
-同一 attempt，不能盲目创建新重试。只有完整原因与受影响效果集合联结活动 Risk fence Runtime checkpoint
-与当前 readiness 权威 Execution 回读 完整 Risk closure Portfolio closure 和共同时间前沿后，Reconciler
-才能写 `KNOWN_CLOSED`。闭合不会解除围栏或恢复交易。
+每个 view 还绑定请求 principal 授权 scope authorization-policy cut 账户 mode effect namespace 稳定 request identity
+projection cut valid-through replay meaning，以及适用时的 Recovery Case 与 fence。 跨 principal 账户 mode、政策过期、 含义变化或
+Recovery 不匹配的重放必须拒绝，不能返回旧 view。 它只用于解释，权威仍来自 Effect Journal 和来源 Owner 事实。
+
+恢复减仓或清仓由 Reconciler 根据权威场所仓位截面规划，Order Engine 在适配器调用前立即重验同一 方向与数量并要求可强制 reduce-only。 较新截面 部分或并发成交 零暴露 方向翻转 不支持
+reduce-only 或可能穿越零点都会提交持久无效果拒绝。 Reconciler 只能基于新回读构建后继命令，不能重试旧命令。 Recovery 不复用普通 claim 仲裁。 Reconciler
+对完整受影响效果集合使用版本化确定政策：任何变更前先 回读 先撤销 open order 再减仓 先减仓再清仓 当前截面证明零暴露时不动作；以稳定 instrument 与 order 身份打破 tie。
+
+成员缺失或 tie 未解析时不产生外部动作。 每个选中动作都在调用前提交 Recovery Effect Attempt `PREPARED`，紧邻外部调用前提交
+`INVOCATION_STARTED`。 两个截面之间崩溃时只用权威回读解析 同一 attempt，不能盲目创建新重试。 只有完整原因与受影响效果集合联结活动 Risk fence Runtime checkpoint
+与当前 readiness 权威 Execution 回读 完整 Risk closure Portfolio closure 和共同时间前沿后，Reconciler 才能写 `KNOWN_CLOSED`。
+
+闭合不会解除围栏或恢复交易。
 
 ## 决策契约
 
@@ -286,4 +293,11 @@ Attempt `PREPARED`，紧邻外部调用前提交 `INVOCATION_STARTED`。两个�
 
 ## 可观测性与持久化
 
-Execution 持久化 command admission、Effect Journal、adapter attempt、invocation boundary、order/fill/fee/readback fact、reconciliation drift、Recovery Case 与 effect-attempt closure。Telemetry 用准确 account/scope/mode/effect namespace 记录 queue、admission、adapter/venue 时延、retry suppression、partial fill、readback failure、unknown effect、drift 与 recovery duration。Dashboard 的 command、attempt、order、fill、rejection、unknown effect 与 recovery 次数必须从这些身份推导；span、transport acknowledgement、log 或 alert 永远不能证明外部效果或允许 retry。
+Execution 持久化 command admission、Effect Journal、adapter attempt、invocation boundary、order/fill/fee/readback
+fact、reconciliation drift、Recovery Case 与 effect-attempt closure。
+
+Telemetry 用准确 account/scope/mode/effect namespace 记录 queue、admission、adapter/venue 时延、retry
+suppression、partial fill、readback failure、unknown effect、drift 与 recovery duration。
+
+Dashboard 的 command、attempt、order、fill、rejection、unknown effect 与 recovery 次数必须从这些身份推导；span、transport
+acknowledgement、log 或 alert 永远不能证明外部效果或允许 retry。

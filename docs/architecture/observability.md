@@ -39,17 +39,19 @@ Large payloads remain in a content-addressed object store behind digest referenc
 ## Global Status View
 
 Dashboard API exposes a bounded read-only Global Status View. It may summarize R&D source use and iteration
-history, Backtest runs under their disclosure class, Qualification outcomes, Market Data freshness, Scanner
-proposals, active generations, Runtime uptime and incidents, Risk reservations/fences, Execution
-orders/fills/unknown effects, and Portfolio exposure/performance/capacity. Exploratory Backtest projections may
-include their diagnostic category set. Protected projections may include only the public terminal outcome
-`CLOSED_NOT_QUALIFIED` or `QUALIFIED`, a type-opaque non-dereferenceable result reference, and source-frontier
-freshness. Protected phase, latency, terminal timing, and timing-derived fields are forbidden. Internal replay,
-diagnostic, assessment, and ineligibility dispositions and every
-category- or reason-derived aggregate remain indistinguishable and Qualification-only. Specifically,
-`REPLAY_REJECTED`, `REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, and
-`INELIGIBLE` all project byte-equivalently as `CLOSED_NOT_QUALIFIED`; `QUALIFIED` remains exact. Event Rail never
-publishes an internal `INELIGIBLE` or other protected-terminal event.
+history, Backtest runs under their disclosure class, Qualification outcomes, Market Data freshness, R&D
+observation coverage/results, legacy Scanner receipts, active generations, Runtime uptime and incidents, Risk
+reservations/fences, Execution orders/fills/unknown effects, and Portfolio exposure/performance/capacity.
+Exploratory Backtest projections may include their diagnostic category set. Protected projections may include
+only the public terminal outcome `CLOSED_NOT_QUALIFIED` or `QUALIFIED`, a type-opaque
+non-dereferenceable result reference, and source-frontier freshness.
+
+Protected phase, latency, terminal timing, and timing-derived fields are forbidden. Internal replay,
+diagnostic, assessment, and ineligibility dispositions and every category- or reason-derived aggregate remain
+indistinguishable and Qualification-only. Specifically, `REPLAY_REJECTED`, `REPLAY_INVALID`,
+`DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, and `INELIGIBLE` all project
+byte-equivalently as `CLOSED_NOT_QUALIFIED`; `QUALIFIED` remains exact. Event Rail never publishes an
+internal `INELIGIBLE` or other protected-terminal event.
 
 Every field cites its source Owner facts or telemetry frontier and exposes `observed-at`, `valid-through`, completeness, lag, and rebuild state. `STALE`, `PARTIAL`, `REBUILDING`, and `UNAVAILABLE` remain visible; they cannot render as healthy or complete. A Dashboard click that requests a mutation starts a separately admitted Product Edge → Owner request and never writes through the view.
 

@@ -1379,17 +1379,17 @@
           "research-selection-disposition"
         ],
         "requiredGuarantees": [
-          "typed-nine-change-dimensions",
-          "correlated-five-category-repair-closure",
-          "finite-preregistered-joint-mode",
-          "ordinal-ranking-with-tie-break",
-          "ready-selection-stop-exclusivity"
+          "agent-authored-research-judgment",
+          "immutable-version-and-evidence-links",
+          "complete-trial-and-exposure-frontier",
+          "mechanical-budget-data-and-authority-admission",
+          "independent-protected-assessment"
         ],
         "semantics": {
-          "accepted": "A request-equal terminal result yields one replayable iteration stop repair or ready decision and only READY_FOR_SELECTION may create Selection",
-          "rejected": "Rejected invalid incomplete or mismatched evidence yields only REPAIR_INPUTS and creates no Selection",
-          "unknown": "Unknown run state creates no Iteration Decision Selection or successor Intent",
-          "replay": "The same Intent Census result policy and evidence cut join the same decision and selection disposition"
+          "accepted": "R&D records Agent decisions and exact evidence while independently checking mechanical authority input and budget bounds",
+          "rejected": "Invalid scope budget identity or evidence grants no task qualification or trading authority",
+          "unknown": "Unknown execution stays unresolved by the same task identity and cannot attest economic success or qualification",
+          "replay": "Same request and content resolve the same record without rerunning or resetting trials exposures or resource commitments"
         }
       },
       {
@@ -1542,12 +1542,11 @@
       },
       {
         "id": "scanner-due-slot-attempt",
-        "authorityId": "scanner",
         "docsRoute": "owners/scanner",
         "objectId": "scanner-schedule-definition",
         "observableConsumerId": "scanner",
-        "scenarioId": "scan",
-        "businessOwnerDisposition": "OWNER",
+        "scenarioId": "overview",
+        "businessOwnerDisposition": "NONE_NON_BUSINESS_BOUNDARY",
         "requiredRelatedObjectIds": [
           "scanner-receipt"
         ],
@@ -1558,11 +1557,13 @@
           "unknown-clock-no-attempt"
         ],
         "semantics": {
-          "accepted": "One schedule version and due slot derive one stable scan attempt and one terminal Scanner Receipt",
-          "rejected": "Conflicting schedule version slot derivation or reused identity creates no scan attempt",
-          "unknown": "Unknown clock epoch due slot or schedule policy creates no scan attempt or proposal",
-          "replay": "Duplicate delivery concurrency crash and restart join the same due-slot attempt and terminal receipt"
-        }
+          "accepted": "Compatibility-only interpretation of retained records: One schedule version and due slot derive one stable scan attempt and one terminal Scanner Receipt",
+          "rejected": "Compatibility-only interpretation of retained records: Conflicting schedule version slot derivation or reused identity creates no scan attempt",
+          "unknown": "Compatibility-only interpretation of retained records: Unknown clock epoch due slot or schedule policy creates no scan attempt or proposal",
+          "replay": "Compatibility-only interpretation of retained records: Duplicate delivery concurrency crash and restart join the same due-slot attempt and terminal receipt"
+        },
+        "custodianId": "scanner",
+        "noBusinessOutcomeBasis": "Retained immutable Scanner compatibility records preserve original due-slot and receipt identity/refusal meanings; current product discovery is R&D-owned and this boundary creates no new schedules proposals or activation authority."
       },
       {
         "id": "portfolio-degradation-attribution",
@@ -1631,15 +1632,14 @@
           "research-intent"
         ],
         "requiredGuarantees": [
-          "prefetch-network-and-credential-admission",
-          "eight-terminal-acquisition-attempt",
+          "product-hosted-prefetch-network-and-credential-admission",
+          "product-hosted-acquisition-terminal-custody",
           "external-content-is-data-only",
           "embedded-instructions-have-zero-effects",
-          "bounded-alternatives",
-          "differentiating-prediction-and-falsifier"
+          "agent-authored-interpretation-and-traceable-source"
         ],
         "semantics": {
-          "accepted": "Research records external content only as untrusted evidence with bounded interpretation alternatives predictions and falsifiers",
+          "accepted": "R&D records external content as untrusted evidence with exact provenance and Agent-authored interpretation; research alternatives and predictions are not adequacy gates",
           "rejected": "Embedded prompts commands tool calls role claims or effect requests remain inert data and create zero Owner submissions or external effects",
           "unknown": "Unknown origin digest trust class or interpretation creates no frozen Research Intent",
           "replay": "The same source digest and bounded interpretation join one provenance record without gaining instruction authority"
@@ -2131,7 +2131,7 @@
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "artifact-security-admission",
-        "singleWriterOrNoAuthority": "R&D owns artifact security admission while the Wasm runtime remains a replaceable Develop implementation boundary",
+        "singleWriterOrNoAuthority": "R&D owns package admission; native Strategy execution and ordinary task infrastructure remain implementation boundaries with no research judgment or credential authority",
         "readerOwnerIds": [
           "backtest",
           "runtime"
@@ -2888,28 +2888,28 @@
         "memberPaths": [
           "crates/scanner"
         ],
-        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "disposition": "COMPATIBILITY_IMPLEMENTATION_REFERENCE",
         "destinationIds": [
           "scanner"
         ],
         "capabilityPortIds": [],
         "providerMemberPortEvidence": [],
-        "adoptionRule": "Own sealed Scanner attempt admission and receipt production while failing closed before effects when time membership or source authority is unavailable",
-        "noAuthorityBasis": "Scanner receipts grant no Qualification Governance Runtime provider effect or trading authority"
+        "adoptionRule": "Compatibility only: preserve immutable Scanner records, original due-slot/receipt identity and refusal semantics. Do not extend schedule admission, proposal production or activation; target on-demand discovery is R&D-owned.",
+        "noAuthorityBasis": "Retained Scanner implementation and receipt custody grant no new business Owner department, schedule, proposal, Governance/Runtime activation, provider effect or trading authority."
       },
       {
         "inventoryId": "scanner-terminal-receipt-custody",
         "memberPaths": [
           "crates/scanner_custody"
         ],
-        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "disposition": "COMPATIBILITY_IMPLEMENTATION_REFERENCE",
         "destinationIds": [
           "scanner"
         ],
         "capabilityPortIds": [],
         "providerMemberPortEvidence": [],
-        "adoptionRule": "Hold Scanner-owned terminal receipts and issue the read-only Product Edge terminal-read capability only from a Scanner-owned store",
-        "noAuthorityBasis": "The read capability exposes no write operation or store access and cannot make a downstream receipt store a positive-read authority or authorize a provider effect production write or trading"
+        "adoptionRule": "Compatibility only: preserve immutable Scanner records, original due-slot/receipt identity and refusal semantics. Do not extend schedule admission, proposal production or activation; target on-demand discovery is R&D-owned.",
+        "noAuthorityBasis": "Retained Scanner implementation and receipt custody grant no new business Owner department, schedule, proposal, Governance/Runtime activation, provider effect or trading authority."
       },
       {
         "inventoryId": "strategy-governance-owner",
@@ -3506,11 +3506,10 @@
           "restricted Wasm candidate validation"
         ],
         "missingSourceFacets": [
-          "independent ProgramHost product boundary",
-          "general-purpose SDK",
-          "production process-tree and effect-port admission proof"
+          "native Strategy package integration",
+          "verified protected-worker and authorized-runtime isolation"
         ],
-        "disposition": "ADAPT",
+        "disposition": "REFERENCE",
         "destinationOwnerIds": [
           "rd"
         ],
@@ -3518,7 +3517,7 @@
           "artifact-security-admission"
         ],
         "forbiddenAuthority": "host-sdk-or-sandbox-owning-process-account-or-effect-truth",
-        "admissionGate": "behavior-parity-bounded-capability-process-tree-denial-and-deterministic-failure-evidence"
+        "admissionGate": "current restricted SDK is compatibility inventory only; new native packages preserve permissions input provenance and actual execution evidence without extending this SDK"
       },
       {
         "capabilityId": "trial-receipt",
@@ -4207,8 +4206,8 @@
             "research"
           ],
           "description": {
-            "en": "Freezes mechanism budget and falsifier\nChecks the knowledge ledger before it freezes\nPreserves predecessors and opaque feedback cut",
-            "zh": "冻结机制 数据 成本 预算 证伪与停止规则\n冻结前先对照研究知识台账检查\n保留完整前驱与不透明保护反馈前沿"
+            "en": "Records Agent plans and approved bounds\nPreserves predecessor and exposure frontiers\nDoes not approve scientific adequacy",
+            "zh": "记录 Agent 方案与批准边界\n保留前驱与试验暴露前沿\n不审批科学方法充分性"
           }
         },
         {
@@ -4221,21 +4220,8 @@
             "backtest"
           ],
           "description": {
-            "en": "Stores content addressed strategy build output\nBinds intent code dependencies and runtime version\nRemains Research owned across replay and review",
-            "zh": "保存内容寻址的策略构建产物并绑定唯一版本身份\n关联冻结意图 代码 依赖和可复现运行环境版本\n由 Research 持有权威供回测和资格流程只读消费"
-          }
-        },
-        {
-          "id": "code-sandbox",
-          "label": "Development Sandbox",
-          "kind": "protected",
-          "emphasis": "support",
-          "scenarios": [
-            "research"
-          ],
-          "description": {
-            "en": "Builds the program an Owner lowers an authoring document into\nAlso builds attended repair code without market or account access\nCannot deploy trade or mutate governed state",
-            "zh": "构建 Owner 从 authoring 文档降级出的程序\n也构建有人值守的修复代码 不访问行情或账户权限\n不能部署策略 发送交易意图或修改治理状态"
+            "en": "Seals native Strategy source parameters and environment\nSeparates package identity from experiment inputs\nNo JSON language BFP or Wasm compiler",
+            "zh": "封存原生 Strategy 源码 参数与环境\n区分包身份与实验输入\n不建立 JSON 语言 BFP 或 Wasm 编译器"
           }
         }
       ]
@@ -4353,67 +4339,6 @@
           "description": {
             "en": "Stores eligibility evidence conditions and interval\nPublishes ineligible qualified expired or revoked facts\nRevocation records cause time candidate and affected instances without owning recovery",
             "zh": "保存资格证据 生效条件和区间\n发布不合格 合格 过期或撤销事实\n撤销记录原因 时间 候选和受影响实例但不拥有恢复"
-          }
-        }
-      ]
-    },
-    {
-      "id": "scanner",
-      "groupId": "group-program",
-      "label": "Scanner",
-      "badge": "EXE",
-      "docsRoute": "owners/scanner",
-      "modules": [
-        {
-          "id": "strategy-loader",
-          "label": "Strategy Loader",
-          "kind": "adapter",
-          "emphasis": "support",
-          "scenarios": [
-            "scan"
-          ],
-          "description": {
-            "en": "Reads deployable ArtifactRefs each scheduled tick\nLoads rules data needs versions and lifecycle caps\nBuilds the check list without starting Runtime",
-            "zh": "每轮定时扫描开始时从策略注册表读取所有可部署 ArtifactRef\n同时加载每个策略的激活条件 数据要求 版本和当前生命周期限制\n只形成待检查策略清单 不启动 Runtime 也不修改治理状态"
-          }
-        },
-        {
-          "id": "market-snapshot",
-          "label": "Market Snapshot",
-          "kind": "protected",
-          "emphasis": "standard",
-          "scenarios": [
-            "scan"
-          ],
-          "description": {
-            "en": "Derives symbols fields windows and quality needs\nReads one timestamped market view and versions\nFreezes one input and records insufficient data",
-            "zh": "根据待检查策略声明汇总所需标的 行情字段 回看窗口和数据质量要求\n从 Market Data 获取同一时点的行情事实 覆盖范围和数据版本\n冻结为本轮可复现输入 数据不足时记录原因但不生成部署提案"
-          }
-        },
-        {
-          "id": "strategy-matcher",
-          "label": "Strategy Matcher",
-          "kind": "authority",
-          "emphasis": "core",
-          "scenarios": [
-            "scan"
-          ],
-          "description": {
-            "en": "Runs each activation rule on the replay kernel\nChecks regime history quality and lifecycle limits\nReturns matches reasons and evidence only",
-            "zh": "在 Native Replay 的单帧评估内核上逐个执行策略激活条件 并使用同一份市场快照进行判断\n同时检查市场状态 历史窗口 数据质量和治理生命周期是否允许候选\n输出匹配结果 未匹配原因和证据引用 不批准部署也不启动 Runtime"
-          }
-        },
-        {
-          "id": "proposal-builder",
-          "label": "Proposal Builder",
-          "kind": "authority",
-          "emphasis": "core",
-          "scenarios": [
-            "scan"
-          ],
-          "description": {
-            "en": "Collects matched strategies symbols and evidence\nAdds capital hints metrics stops and scan identity\nSends auditable proposal without starting Runtime",
-            "zh": "收集所有通过匹配的策略 标的 条件版本 市场快照和证据引用\n补充建议资金档位 观察指标 停止条件和本轮扫描身份\n封装为可审计部署提案提交 Strategy Governance 不直接启动策略"
           }
         }
       ]
@@ -4717,6 +4642,60 @@
         "group-qualification"
       ],
       "modules": []
+    },
+    {
+      "id": "scanner",
+      "groupId": "group-program",
+      "label": "Scanner Compatibility",
+      "badge": "EXE",
+      "docsRoute": "owners/scanner",
+      "modules": [
+        {
+          "id": "strategy-loader",
+          "label": "Strategy Loader",
+          "kind": "adapter",
+          "emphasis": "support",
+          "scenarios": [],
+          "description": {
+            "en": "Legacy compatibility: Reads deployable ArtifactRefs each scheduled tick\nLoads rules data needs versions and lifecycle caps\nBuilds the check list without starting Runtime",
+            "zh": "旧契约兼容：读取受治理工件与条件版本\n保留已封存成员及生命周期依据\n不作为新产品的部署前置或调度能力"
+          }
+        },
+        {
+          "id": "market-snapshot",
+          "label": "Market Snapshot",
+          "kind": "protected",
+          "emphasis": "standard",
+          "scenarios": [],
+          "description": {
+            "en": "Legacy compatibility: Derives symbols fields windows and quality needs\nReads one timestamped market view and versions\nFreezes one input and records insufficient data",
+            "zh": "旧契约兼容：保留已绑定行情与覆盖身份\n缺失输入不伪装为完整匹配\n新按需发现由 R&D 消费 Market Data 接口"
+          }
+        },
+        {
+          "id": "strategy-matcher",
+          "label": "Strategy Matcher",
+          "kind": "authority",
+          "emphasis": "core",
+          "scenarios": [],
+          "description": {
+            "en": "Legacy compatibility: Runs each activation rule on the replay kernel\nChecks regime history quality and lifecycle limits\nReturns matches reasons and evidence only",
+            "zh": "旧契约兼容：保留准确匹配与负面处置\n不能授予治理或交易权限\n目标治理直接评估冻结生命周期条件"
+          }
+        },
+        {
+          "id": "proposal-builder",
+          "label": "Proposal Builder",
+          "kind": "authority",
+          "emphasis": "core",
+          "scenarios": [],
+          "description": {
+            "en": "Legacy compatibility: Collects matched strategies symbols and evidence\nAdds capital hints metrics stops and scan identity\nSends auditable proposal without starting Runtime",
+            "zh": "旧契约兼容：保留历史提案与唯一终态回执\n旧提案不创建运行实例或资金权限\n新产品不再设置独立部署提案部门"
+          }
+        }
+      ],
+      "role": "stage"
     }
   ],
   "channels": [
@@ -4809,16 +4788,16 @@
       },
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Source to frozen strategy artifact",
-        "zh": "从来源到冻结策略工件"
+        "en": "Source through native evidence to a recorded research decision",
+        "zh": "从来源经原生证据到已记录研究决定"
       },
       "entry": {
         "en": "Sourced hypothesis",
         "zh": "带来源假设"
       },
       "proof": {
-        "en": "Intent + Artifact",
-        "zh": "意图 + 工件"
+        "en": "Intent + Artifact + Result + Decision",
+        "zh": "意图 + 工件 + 结果 + 决定"
       },
       "primaryRelationIds": [
         "product-rd",
@@ -4882,42 +4861,36 @@
     {
       "id": "scan",
       "label": {
-        "en": "Scan",
-        "zh": "扫描"
+        "en": "Discovery",
+        "zh": "按需发现"
       },
       "docsRoute": "scenarios/scan",
       "description": {
-        "en": "Scheduled matching to one terminal Scanner Receipt",
-        "zh": "定时匹配并生成唯一终态 Scanner Receipt"
+        "en": "On-demand read-only market opportunity discovery",
+        "zh": "按需只读市场机会发现"
       },
       "entry": {
-        "en": "Scheduled tick",
-        "zh": "定时触发"
+        "en": "Artifact and requested market scope",
+        "zh": "工件与请求市场范围"
       },
       "proof": {
-        "en": "Terminal receipt",
-        "zh": "终态回执"
+        "en": "Bounded discovery result",
+        "zh": "有界发现结果"
       },
       "primaryRelationIds": [
-        "governance-program",
-        "data-program",
-        "portfolio-program",
-        "program-governance"
+        "product-rd-observation",
+        "data-rd-observation",
+        "rd-product-observation"
       ],
       "supportingRelationIds": [
-        "data-portfolio",
-        "governance-product",
-        "portfolio-governance",
-        "portfolio-governance-interaction",
-        "program-product",
         "observability-product-status"
       ]
     },
     {
       "id": "paper",
       "label": {
-        "en": "Paper",
-        "zh": "模拟"
+        "en": "Simulation verification",
+        "zh": "模拟验证"
       },
       "docsRoute": "scenarios/paper",
       "description": {
@@ -4973,8 +4946,8 @@
     {
       "id": "live",
       "label": {
-        "en": "Live",
-        "zh": "实盘"
+        "en": "Trial and formal operation",
+        "zh": "试盘与正式运行"
       },
       "docsRoute": "scenarios/live",
       "description": {
@@ -5911,7 +5884,8 @@
         "R&D alone commits the result for its Artifact or Replay Configuration repair without changing the consumed Iteration Decision",
         "REPAIRED permits only a new identity and a separately frozen Replay Request while UNAVAILABLE may support only the exact correlated STOP_INPUT_UNAVAILABLE",
         "OUTCOME_UNKNOWN creates no retry successor request Iteration Decision Selection or stop",
-        "Same category predecessor correlation evidence and time cut replay joins one result while any changed meaning requires a successor attempt identity"
+        "Same category predecessor correlation evidence and time cut replay joins one result while any changed meaning requires a successor attempt identity",
+        "A repair-task UNAVAILABLE terminal closes that repair identity without treating it as repaired; it does not forbid the Agent from separately preregistering another experiment or source within approved project bounds"
       ]
     },
     {
@@ -7252,7 +7226,7 @@
         "WITHDRAWN"
       ],
       "invariants": [
-        "Scanner evaluates the exact published activation condition version",
+        "Governance evaluates the exact frozen activation condition version; retained Scanner records grant no target activation authority",
         "The published capital envelope cannot exceed the bound carried by the exact Eligibility Fact",
         "A condition change outside qualified bounds requires new Qualification"
       ]
@@ -9389,16 +9363,13 @@
       "visibility": "contract-only",
       "identityBinds": [
         "source-provenance-record-identity",
-        "source-acquisition-binding-identity-and-version-when-external",
+        "source-acquisition-binding-identity-and-version-when-product-hosted",
         "immutable-source-content-digest",
         "source-trust-class",
         "source-origin-owner-or-external-system-identity",
         "source-location-and-retrieval-cut",
         "time-evidence-identity-and-valid-through",
         "bounded-interpretation-identity-and-digest",
-        "bounded-alternative-interpretation-set",
-        "differentiating-prediction-set",
-        "falsifier-set",
         "license-and-attribution-basis"
       ],
       "trustClasses": [
@@ -9414,9 +9385,9 @@
         "A recorded source is immutable and a changed content digest retrieval cut interpretation or license basis requires a successor record",
         "A repeated identity with conflicting content provenance or interpretation is rejected rather than merged",
         "UNTRUSTED_EXTERNAL_DATA is evidence input only and every embedded prompt command tool request role claim or instruction is inert data with zero instruction or effect authority",
-        "UNTRUSTED_EXTERNAL_DATA is recordable only from an ADMITTED Source Acquisition Binding matching the exact Research Request Agent Operation Manifest source origin and retrieval cut",
+        "Product hosted acquisition requires an ADMITTED Source Acquisition Binding matching exact request manifest origin and retrieval cut; Agent host acquired material is recorded with provenance and host attribution without granting product acquisition credentials or certified data authority",
         "OWNER_COMMITTED_FACT binds its exact source Owner fact identity and evidence cut and never impersonates an external source",
-        "Every source-to-hypothesis interpretation freezes a finite alternative set at least one differentiating prediction and an explicit falsifier before exploratory execution",
+        "The Agent authors source interpretations research hypotheses alternatives predictions and falsifiers as appropriate; R&D records their content and provenance without judging methodological adequacy",
         "The record proves traceability only and never proves Alpha deployability protected eligibility or trading authority"
       ]
     },
@@ -9431,7 +9402,6 @@
         "research-source-provenance-record-identity-and-content-digest",
         "source-location-and-retrieval-cut",
         "bounded-interpretation-identity-and-digest",
-        "bounded-alternative-interpretation-set-and-differentiating-predictions",
         "pit-rule",
         "cost-and-capacity-assumptions",
         "cost-model-version",
@@ -9444,50 +9414,6 @@
         "origin-protected-feedback-observation-frontier",
         "qualification-owned-opaque-protected-feedback-projection-ref-digest-and-cut",
         "precommitted-rd-independence-basis-receipt-identity-and-digest"
-      ],
-      "changeDimensions": [
-        "RETURN_MECHANISM",
-        "MARKET_REGIME",
-        "INSTRUMENT_SCOPE",
-        "FEATURE_SIGNAL",
-        "ENTRY_RULE",
-        "EXIT_RULE",
-        "POSITION_AND_HOLDING",
-        "FREQUENCY_AND_COST",
-        "CAPACITY_AND_PORTFOLIO_ROLE"
-      ],
-      "changeDimensionBindings": {
-        "RETURN_MECHANISM": [
-          "economic-mechanism-and-differentiating-prediction"
-        ],
-        "MARKET_REGIME": [
-          "regime-definition-and-applicability-boundary"
-        ],
-        "INSTRUMENT_SCOPE": [
-          "instrument-universe-and-PIT-membership-rule"
-        ],
-        "FEATURE_SIGNAL": [
-          "feature-transform-and-signal-rule"
-        ],
-        "ENTRY_RULE": [
-          "entry-condition-and-timing"
-        ],
-        "EXIT_RULE": [
-          "exit-condition-and-timing"
-        ],
-        "POSITION_AND_HOLDING": [
-          "position-sizing-holding-period-and-rebalancing-rule"
-        ],
-        "FREQUENCY_AND_COST": [
-          "decision-frequency-cost-and-slippage-model-versions"
-        ],
-        "CAPACITY_AND_PORTFOLIO_ROLE": [
-          "capacity-model-and-portfolio-interaction-role"
-        ]
-      },
-      "experimentModes": [
-        "SINGLE_DIMENSION",
-        "PREREGISTERED_FINITE_JOINT"
       ],
       "states": [
         "DRAFT_NOT_HANDOFFABLE",
@@ -9503,24 +9429,24 @@
         "Trial family identity survives candidate and artifact renames",
         "A successor created after bounded Qualification feedback preserves the complete semantic predecessor frontier even when it uses another TrialFamily",
         "Research may declare lineage and an independence basis but cannot reset or author Qualification holdout budget",
-        "Every successor declares one canonical experiment mode and either changes exactly one typed dimension or binds a finite preregistered joint dimension set interaction rationale and attribution plan",
-        "Exploratory evidence creates a successor intent and never mutates a frozen predecessor"
+        "Exploratory evidence creates a successor intent and never mutates a frozen predecessor",
+        "The Agent authors research methods and comparison goals while R&D checks exact identities data scope resource bounds and user authority rather than scientific adequacy",
+        "Changing exploratory methods creates a successor record without rewriting previous evidence approved pass criteria or protected ancestry"
       ]
     },
     {
       "id": "strategy-artifact",
-      "label": "Strategy Artifact and Build Receipt",
+      "label": "Native Strategy Package and Admission Receipt",
       "authorityId": "rd",
       "crossBindObjectIds": [
         "artifact-security-admission"
       ],
       "identityBinds": [
-        "origin-kind-and-branch-bindings",
-        "research-intent",
-        "trial-family",
-        "source-and-dependency-identity",
+        "native-source-and-imported-module-digests",
+        "entrypoint-and-parameters",
         "dependency-lock-and-provenance-attestation",
-        "toolchain-and-runtime-identity",
+        "native-runtime-and-environment-identity",
+        "declared-data-requirements-and-interface-capabilities",
         "artifact-digest",
         "artifact-security-admission-identity"
       ],
@@ -9562,8 +9488,8 @@
         "BUILT_IMMUTABLE"
       ],
       "invariants": [
-        "The Development Sandbox generates build evidence while R&D remains the sole Artifact and admission authority",
-        "A new build is a new immutable artifact identity",
+        "Agent authored native source is sealed by R&D; ordinary build or container tools provide environment evidence without owning Artifact or admission authority",
+        "Changed source parameters dependencies environment or declared data requirements creates a new immutable package identity; experiment windows and actual dataset versions bind separately",
         "D0_NON_EXECUTABLE creates no new Strategy Artifact while every D1 executable repair creates a new immutable Artifact identity and preserves the predecessor",
         "A D-only Artifact binds byte-level allowed-surface delta and complete semantic equality and any hypothesis parameter universe PIT market semantics or economic-model change is rejected as not D-only",
         "BUILT_IMMUTABLE is not runnable or reviewable until the exact Artifact Security Admission is ADMITTED"
@@ -9598,8 +9524,8 @@
         "UNKNOWN"
       ],
       "invariants": [
-        "R&D owns the immutable admission fact while the Development Sandbox may produce evidence without gaining Strategy Artifact or admission authority",
-        "Only ADMITTED artifacts with exact provenance sandbox runtime capabilities and ambient-denial bindings may enter Backtest Qualification Scanner or Runtime",
+        "R&D owns the immutable admission fact while the isolated task infrastructure may produce evidence without gaining Strategy Artifact or admission authority",
+        "Only ADMITTED artifacts with exact provenance sandbox runtime capabilities and ambient-denial bindings may enter Backtest Qualification read-only discovery or Runtime",
         "Missing stale revoked unknown digest-mismatched dependency-drifted capability-broadened or ambient-access evidence fails closed",
         "Every emitted file resolves inside the single declared output root and traversal symlink hardlink special-file undeclared-media excess-count excess-size or incomplete-manifest evidence is REJECTED before packaging or loading",
         "The admitted sandbox denies subprocess and process-tree escape inherited file descriptors environment credentials tokens account identities deployment controls control-plane access and every undeclared external effect capability",
@@ -9725,7 +9651,7 @@
         "Market W3 must consume only the additive StrategyInputSampleProjectionV4 JOINED_CUT whose subject is the exact unchanged V1 joined-cut digest and whose receipt identity binds the exact schedule-dependency-set digest; V2 EVENT and V3 BAR remain byte-and-semantic unchanged, every V4 component strictly equals its Owner-resolved V3 BAR FRAME source, and the six-role 1m-OHLC 1h-CLOSE exchange-session-1d-CLOSE corpus uses 1m CLOSE as trigger, one 1m slot and batch, and complete latest-closed not-after 1h and non-UTC-day 1d samples",
         "Every request binds the exact Strategy Artifact requested PIT scope PIT Market Snapshot Universe Selection Record snapshot and correction rule replay configuration Runtime kernel simulator and cost slippage and capacity model versions before Backtest accepts it",
         "Changing any artifact PIT snapshot universe selection correction configuration runtime simulator cost slippage or capacity binding creates a successor request identity",
-        "EXPLORATION alone may enter the TrialFamily Census diagnosis iteration ranking or Selection path",
+        "EXPLORATION alone may enter the TrialFamily Census Agent diagnosis iteration or Selection path",
         "REPAIR_VALIDATION is non-adaptive and proves only the declared defect repair plus unchanged frozen semantics and never creates an Iteration Decision Selection or Research hypothesis",
         "An R&D replay request never consumes Qualification holdout and can never join a protected result",
         "A native repair re-entry Replay Request exists only for a request-equal REPAIRED result and binds the exact REPAIR_INPUTS predecessor category request result original proof stable correlation predecessor native identity successor native identity and category-specific source cuts including the successor Backtest operational profile for BACKTEST_OPERATIONAL",
@@ -9841,69 +9767,17 @@
         "targetOwnerId": "backtest",
         "targetSurfaceId": "native-replay",
         "targetServiceRole": "BACKTEST_RUNNER_SERVICE",
-        "misroutingRule": "BACKTEST_OPERATIONAL is Backtest runner or service evidence and cannot be relabeled as RUNTIME_KERNEL SIMULATOR or economic failure",
-        "economicInterpretationGate": "CLOSED_UNTIL_BACKTEST_OPERATIONAL_AND_ALL_OTHER_EXECUTION_DEFECTS_ARE_EXCLUDED"
+        "misroutingRule": "BACKTEST_OPERATIONAL is Backtest runner or service evidence and cannot be relabeled as RUNTIME_KERNEL SIMULATOR or economic failure"
       },
-      "diagnosticCategories": [
-        "NO_EXECUTION_DEFECT",
-        "MARKET_DATA",
-        "ARTIFACT",
-        "RUNTIME_KERNEL",
-        "BACKTEST_OPERATIONAL",
-        "SIMULATOR",
-        "REPLAY_CONFIGURATION",
-        "VALID_ECONOMIC_FAILURE",
-        "UNRESOLVED_FAILURE"
-      ],
-      "diagnosticClassificationContract": {
-        "requiredBindings": [
-          "diagnostic-policy-identity-and-version",
-          "complete-supported-diagnostic-category-set",
-          "per-category-decisive-evidence-identities-and-cuts-or-complete-non-isolating-evidence-set",
-          "classified-at-time-evidence"
-        ],
-        "duplicateDisposition": "INVALID_REPLAY_EVIDENCE",
-        "nonIsolatingDisposition": "UNRESOLVED_FAILURE"
-      },
-      "diagnosticSetContract": {
-        "field": "diagnosticCategorySet",
-        "membership": "UNIQUE_NON_EMPTY_SUBSET_OF_DIAGNOSTIC_CATEGORIES",
-        "preservationRule": "Every independently supported defect and economic category is retained with its decisive evidence under one policy and common evidence cut",
-        "defectPrecedenceRule": "Any supported execution defect preempts economic interpretation and READY_FOR_SELECTION but does not erase supported economic or additional defect facts",
-        "unresolvedRule": "UNRESOLVED_FAILURE is singleton-only and valid only from a complete non-isolating evidence set",
-        "mutualExclusionRule": "NO_EXECUTION_DEFECT cannot coexist with a supported execution-defect category"
-      },
-      "researchDispositionByDiagnosticCategory": {
-        "NO_EXECUTION_DEFECT": "ECONOMIC_INTERPRETATION_ALLOWED",
-        "MARKET_DATA": "REPAIR_INPUTS_MARKET_DATA",
-        "ARTIFACT": "REPAIR_INPUTS_ARTIFACT",
-        "RUNTIME_KERNEL": "REPAIR_INPUTS_RUNTIME_KERNEL",
-        "BACKTEST_OPERATIONAL": "REPAIR_INPUTS_BACKTEST_OPERATIONAL",
-        "SIMULATOR": "REPAIR_INPUTS_SIMULATOR",
-        "REPLAY_CONFIGURATION": "REPAIR_INPUTS_REPLAY_CONFIGURATION",
-        "VALID_ECONOMIC_FAILURE": "ECONOMIC_INTERPRETATION_ALLOWED",
-        "UNRESOLVED_FAILURE": "NO_DECISION"
-      },
-      "repairCategoryPrecedence": [
-        "MARKET_DATA",
-        "ARTIFACT",
-        "RUNTIME_KERNEL",
-        "BACKTEST_OPERATIONAL",
-        "SIMULATOR",
-        "REPLAY_CONFIGURATION"
-      ],
       "invariants": [
         "Every consumed replay field exactly equals its frozen Exploratory Replay Request field and any omission substitution or mismatch commits INVALID_REPLAY_EVIDENCE",
         "Research Selection may consume only a request-equal TERMINAL_RESULT while RUN_REJECTED IN_PROGRESS_OR_UNKNOWN and INVALID_REPLAY_EVIDENCE remain visible in the Trial Family Census but cannot support selection",
-        "Research may use request-equal terminal exploratory evidence only to create a successor intent or Research Selection Disposition",
+        "The Agent may interpret actual permitted evidence and record findings iterations stops or candidate selection while R&D preserves references and authority",
         "An exploratory result is never qualification or deployment evidence",
         "A REPAIR_VALIDATION terminal result is Backtest-owned execution proof for the exact repair only and never enters TrialFamily Census Research Iteration Decision ranking Selection or adaptive hypothesis generation",
         "Only a request-equal passing REPAIR_VALIDATION result may support an ATTENDED_REPAIR Qualification Candidate and a failing invalid rejected or unknown result creates no Candidate",
-        "Every terminal exploratory result commits the complete unique non-empty set of supported diagnostic categories under one bound policy version common cut and per-category decisive evidence or the singleton UNRESOLVED_FAILURE with a complete non-isolating evidence set",
-        "BACKTEST_OPERATIONAL requires the exact Backtest operational profile run attempt runner or service readiness backpressure resource exhaustion or outage evidence and Time Evidence and is resolved before any economic interpretation",
-        "Backtest runner or service failure is never misrouted to Runtime Kernel Sim Exchange or Simulator and incomplete operational evidence remains UNRESOLVED_FAILURE rather than valid economics",
-        "Research preserves every supported diagnostic fact and when one or more execution defects exist selects exactly one repair target by the declared total repair-category precedence while all defect categories preempt economic interpretation",
-        "Only a defect-free set containing NO_EXECUTION_DEFECT or VALID_ECONOMIC_FAILURE permits economic interpretation and singleton UNRESOLVED_FAILURE produces no decision"
+        "Backtest records actual operational errors and execution gaps with exact run and evidence references without classifying scientific adequacy",
+        "Agent interpretation is stored by R&D and cannot convert missing unknown mismatched or failed execution into successful economic evidence"
       ]
     },
     {
@@ -9913,270 +9787,25 @@
       "authorityId": "rd",
       "visibility": "contract-only",
       "identityBinds": [
-        "research-iteration-decision-identity",
-        "research-intent-identity-and-falsifier-stop-rule",
-        "trial-family-census-frontier-identity-and-cut",
-        "exploratory-replay-request-and-result-identity-and-verified-request-equality",
-        "cost-model-version",
-        "slippage-model-version",
-        "capacity-model-version",
-        "diagnosis-dimension-assessments-and-bounded-evidence-references",
-        "decision-policy-identity-and-version",
-        "remaining-trial-budget-and-stop-condition-evaluation",
-        "triggered-hard-stop-set-primary-hard-stop-state-and-winner-precedence",
-        "finite-ranked-next-change-set-with-replayable-ordinal-comparison-basis-and-tie-break",
-        "complete-nine-dimension-candidate-or-structural-non-applicability-census",
-        "successor-research-intent-identity-experiment-mode-and-typed-change-dimensions-when-iterating",
-        "committed-at-time-evidence"
+        "agent-authored-decision-content-and-attribution",
+        "research-project-and-frozen-authority",
+        "referenced-experiments-results-and-content-versions",
+        "trial-and-exposure-frontier",
+        "successor-or-selected-candidate-reference-when-present",
+        "recorded-at-time-evidence"
       ],
       "states": [
-        "ITERATE_ONE_CHANGE",
-        "REPAIR_INPUTS",
-        "STOP_INPUT_UNAVAILABLE",
-        "STOP_FALSIFIED",
-        "STOP_BY_RULE",
-        "STOP_BUDGET_EXHAUSTED",
-        "STOP_LOW_INFORMATION_VALUE",
-        "READY_FOR_SELECTION"
-      ],
-      "repairCategories": [
-        "MARKET_DATA",
-        "ARTIFACT",
-        "RUNTIME_KERNEL",
-        "BACKTEST_OPERATIONAL",
-        "SIMULATOR",
-        "REPLAY_CONFIGURATION"
-      ],
-      "repairCategoryBindings": {
-        "MARKET_DATA": [
-          "market-data-repair-request-identity",
-          "original-pit-market-snapshot-request-identity-and-proof-digest"
-        ],
-        "ARTIFACT": [
-          "strategy-artifact-identity-and-security-admission",
-          "artifact-defect-category-and-reproduction-evidence"
-        ],
-        "RUNTIME_KERNEL": [
-          "runtime-kernel-version",
-          "kernel-defect-category-and-reproduction-evidence"
-        ],
-        "BACKTEST_OPERATIONAL": [
-          "backtest-operational-profile-identity-and-version",
-          "backtest-run-attempt-identity",
-          "runner-service-readiness-backpressure-resource-exhaustion-or-outage-evidence",
-          "time-evidence-identity-clock-epoch-and-valid-through"
-        ],
-        "SIMULATOR": [
-          "simulator-version",
-          "simulator-defect-category-and-reproduction-evidence"
-        ],
-        "REPLAY_CONFIGURATION": [
-          "replay-configuration-digest",
-          "replay-configuration-defect-category-and-reproduction-evidence"
-        ]
-      },
-      "repairCategoryTargets": {
-        "MARKET_DATA": {
-          "targetOwnerId": "market-data",
-          "targetSurfaceId": "rd-data-repair",
-          "allowedAction": "COMMIT_ONE_CORRELATED_MARKET_DATA_REPAIR_REQUEST"
-        },
-        "ARTIFACT": {
-          "targetOwnerId": "rd",
-          "targetSurfaceId": "strategy-artifact",
-          "allowedAction": "REBUILD_IN_R_AND_D_WITH_NEW_ARTIFACT_IDENTITY"
-        },
-        "RUNTIME_KERNEL": {
-          "targetOwnerId": "runtime",
-          "targetSurfaceId": "strategy-instance",
-          "allowedAction": "REPAIR_KERNEL_AND_REPLAY_WITH_NEW_KERNEL_IDENTITY"
-        },
-        "BACKTEST_OPERATIONAL": {
-          "targetOwnerId": "backtest",
-          "targetSurfaceId": "native-replay",
-          "targetServiceRole": "BACKTEST_RUNNER_SERVICE",
-          "allowedAction": "REPAIR_RUNNER_SERVICE_AND_REPLAY_WITH_NEW_OPERATIONAL_PROFILE"
-        },
-        "SIMULATOR": {
-          "targetOwnerId": "backtest",
-          "targetSurfaceId": "sim-exchange",
-          "allowedAction": "REPAIR_SIMULATOR_AND_REPLAY_WITH_NEW_SIMULATOR_IDENTITY"
-        },
-        "REPLAY_CONFIGURATION": {
-          "targetOwnerId": "rd",
-          "targetSurfaceId": "exploratory-replay-request",
-          "allowedAction": "COMMIT_NEW_REPLAY_REQUEST_WITH_NEW_CONFIGURATION_DIGEST"
-        }
-      },
-      "repairTransitionRule": "REPAIR_INPUTS is an immutable terminal disposition for the consumed result and creates no Selection successor Intent Artifact Replay Request or repair effect; only a separately authorized owner repair plus a new identity and Replay Request may re-enter the loop",
-      "stopInputUnavailableBindings": [
-        "predecessor-research-iteration-decision-identity-in-repair-inputs-state",
-        "matching-repair-category-and-request-identity",
-        "matching-terminal-unavailable-result-identity-category-and-decisive-source-cuts",
-        "original-request-proof-digest-and-stable-correlation-identity",
-        "time-evidence-identity-clock-epoch-and-valid-through"
-      ],
-      "rankedNextChangeSelectionContract": {
-        "comparison": "LEXICOGRAPHIC_ASCENDING",
-        "requiredCensusBindings": [
-          "complete-finite-preregistered-change-candidate-identity-set-and-content-digest",
-          "per-candidate-admissibility-state-and-typed-reason",
-          "per-candidate-precommitted-information-value-threshold-comparison-and-evidence",
-          "per-candidate-replayable-information-value-comparison-rationale-and-evidence-references",
-          "comparison-policy-identity-and-version",
-          "common-evidence-cut-and-time-evidence"
-        ],
-        "requiredCandidateFields": [
-          "change-dimension",
-          "admissibility-state-and-typed-reason",
-          "decision-uncertainty-identity",
-          "distinguishing-observation-or-falsifier",
-          "possible-result-to-next-action-mapping",
-          "bounded-acquisition-cost-and-remaining-budget-effect",
-          "competing-alternative-basis",
-          "information-value-threshold-comparison-and-evidence",
-          "ordinal-uncertainty-reduction-rank",
-          "ordinal-comparison-rationale-and-evidence-references-at-common-cut",
-          "bounded-deterministic-tie-break-key",
-          "change-candidate-identity-and-content-digest"
-        ],
-        "rankEvidenceRule": "Every ordinal rank is replayable from the declared uncertainty distinction possible-result actions bounded acquisition cost remaining-budget effect competing alternatives policy and common evidence cut; an unexplained or unsupported ordinal is not admissible",
-        "winnerRule": "The winner is exactly the admissible candidate with the minimum ordinal uncertainty-reduction rank then minimum deterministic tie-break key then minimum collision-free change-candidate identity and content digest",
-        "duplicateKeyDisposition": "NO_DECISION_INVALID_CANDIDATE_SET",
-        "unknownOrIncompleteDisposition": "NO_ITERATION_DECISION",
-        "inadmissibleCandidateSetDisposition": "NO_ITERATION_DECISION_INVALID_CANDIDATE_SET",
-        "lowInformationStopRule": "STOP_LOW_INFORMATION_VALUE only when the non-empty observed candidate identity set and digest exactly equal the complete preregistered census every one of the nine change dimensions has a terminal coverage disposition and every admitted candidate has a supported BELOW_PRECOMMITTED_THRESHOLD comparison under the bound policy and common cut"
-      },
-      "hardStopStates": [
-        "STOP_INPUT_UNAVAILABLE",
-        "STOP_FALSIFIED",
-        "STOP_BY_RULE",
-        "STOP_BUDGET_EXHAUSTED"
-      ],
-      "hardStopWinnerPrecedence": [
-        "STOP_INPUT_UNAVAILABLE",
-        "STOP_FALSIFIED",
-        "STOP_BY_RULE",
-        "STOP_BUDGET_EXHAUSTED"
-      ],
-      "changeDimensionCoverageStates": [
-        "COMPLETE_CANDIDATE_SUBSET",
-        "STRUCTURALLY_NOT_APPLICABLE_WITH_PRECOMMITTED_BASIS"
-      ],
-      "completeChangeDimensionCoverageContract": {
-        "requiredDimensions": [
-          "RETURN_MECHANISM",
-          "MARKET_REGIME",
-          "INSTRUMENT_SCOPE",
-          "FEATURE_SIGNAL",
-          "ENTRY_RULE",
-          "EXIT_RULE",
-          "POSITION_AND_HOLDING",
-          "FREQUENCY_AND_COST",
-          "CAPACITY_AND_PORTFOLIO_ROLE"
-        ],
-        "requiredBindings": [
-          "dimension-coverage-policy-identity-and-version",
-          "exact-nine-entry-dimension-coverage-map",
-          "per-dimension-complete-candidate-subset-or-precommitted-structural-non-applicability-basis",
-          "expected-and-observed-candidate-membership-and-content-digests",
-          "common-evidence-cut-and-time-evidence"
-        ],
-        "missingUnknownOrExtraDisposition": "NO_ITERATION_DECISION"
-      },
-      "totalActionPrecedence": [
-        "REPAIR_INPUTS",
-        "PRIMARY_HARD_STOP_BY_DECLARED_PRECEDENCE",
-        "READY_FOR_SELECTION",
-        "STOP_LOW_INFORMATION_VALUE",
-        "ITERATE_ONE_UNIQUE_CHANGE"
-      ],
-      "diagnosisDimensions": [
-        "EVIDENCE_INTEGRITY",
-        "MECHANISM_VALIDITY",
-        "ECONOMIC_VIABILITY",
-        "ROBUSTNESS",
-        "FAILURE_ATTRIBUTION",
-        "INFORMATION_VALUE"
-      ],
-      "changeDimensions": [
-        "RETURN_MECHANISM",
-        "MARKET_REGIME",
-        "INSTRUMENT_SCOPE",
-        "FEATURE_SIGNAL",
-        "ENTRY_RULE",
-        "EXIT_RULE",
-        "POSITION_AND_HOLDING",
-        "FREQUENCY_AND_COST",
-        "CAPACITY_AND_PORTFOLIO_ROLE"
-      ],
-      "changeDimensionBindings": {
-        "RETURN_MECHANISM": [
-          "economic-mechanism-and-differentiating-prediction"
-        ],
-        "MARKET_REGIME": [
-          "regime-definition-and-applicability-boundary"
-        ],
-        "INSTRUMENT_SCOPE": [
-          "instrument-universe-and-PIT-membership-rule"
-        ],
-        "FEATURE_SIGNAL": [
-          "feature-transform-and-signal-rule"
-        ],
-        "ENTRY_RULE": [
-          "entry-condition-and-timing"
-        ],
-        "EXIT_RULE": [
-          "exit-condition-and-timing"
-        ],
-        "POSITION_AND_HOLDING": [
-          "position-sizing-holding-period-and-rebalancing-rule"
-        ],
-        "FREQUENCY_AND_COST": [
-          "decision-frequency-cost-and-slippage-model-versions"
-        ],
-        "CAPACITY_AND_PORTFOLIO_ROLE": [
-          "capacity-model-and-portfolio-interaction-role"
-        ]
-      },
-      "experimentModes": [
-        "SINGLE_DIMENSION",
-        "PREREGISTERED_FINITE_JOINT"
-      ],
-      "iterationPriority": [
-        "REPAIR_INVALID_OR_INCOMPLETE_EVIDENCE",
-        "APPLY_FALSIFIER_AND_STOP_RULE",
-        "TEST_MECHANISM_BEFORE_PARAMETER_REFINEMENT",
-        "TEST_COST_SLIPPAGE_CAPACITY_VIABILITY",
-        "TEST_TIME_INSTRUMENT_AND_REGIME_ROBUSTNESS",
-        "CHOOSE_HIGHEST_INFORMATION_VALUE_SINGLE_CHANGE"
-      ],
-      "stopConditions": [
-        "FALSIFIER_TRIGGERED",
-        "PRECOMMITTED_STOP_RULE_TRIGGERED",
-        "TRIAL_BUDGET_EXHAUSTED",
-        "ECONOMIC_VIABILITY_IMPOSSIBLE_WITHIN_BOUND_ASSUMPTIONS",
-        "EXPECTED_INFORMATION_VALUE_BELOW_PRECOMMITTED_THRESHOLD",
-        "READY_FOR_QUALIFICATION_SELECTION"
+        "RECORDED",
+        "SUPERSEDED"
       ],
       "invariants": [
-        "R&D alone commits the diagnosis and iteration decision and neither Backtest nor Product Edge chooses the next research change",
-        "The decision evaluates all canonical diagnosis dimensions against the exact frozen Intent falsifier stop rule exhaustive Trial Family Census and bounded cost slippage and capacity assumptions",
-        "Only a request-equal TERMINAL_RESULT may produce ITERATE_ONE_CHANGE or READY_FOR_SELECTION while rejected invalid or incomplete evidence produces a typed REPAIR_INPUTS category and target and an unknown run produces no decision",
-        "REPAIR_INPUTS selects exactly one of MARKET_DATA ARTIFACT RUNTIME_KERNEL BACKTEST_OPERATIONAL SIMULATOR or REPLAY_CONFIGURATION as an owner-facing target but transfers no authority and creates no repair effect successor Intent Selection Artifact or Replay Request",
-        "Source provenance defects fail Intent admission economic model changes remain typed successor hypotheses replay configuration changes require a new Replay Request and unresolved evidence produces no decision rather than a fifth repair category",
-        "The frozen Intent Request consumed Result Iteration Decision and any successor Intent bind exactly equal cost slippage and capacity model versions unless the typed declared change is FREQUENCY_AND_COST or CAPACITY_AND_PORTFOLIO_ROLE and names that bounded subchange",
-        "ITERATE_ONE_CHANGE binds one successor Research Intent in SINGLE_DIMENSION mode with exactly one of the nine typed dimensions or in PREREGISTERED_FINITE_JOINT mode with a finite dimension set interaction rationale attribution plan and precommitted budget",
-        "Priority is total and deterministic: repair inputs then hard stops then READY_FOR_SELECTION then STOP_LOW_INFORMATION_VALUE then exactly one unique change candidate",
-        "All simultaneously triggered hard-stop predicates remain in the triggered set while exactly one primary hard-stop state is chosen by STOP_INPUT_UNAVAILABLE then STOP_FALSIFIED then STOP_BY_RULE then STOP_BUDGET_EXHAUSTED independent of input order",
-        "Selection iteration or STOP_LOW_INFORMATION_VALUE requires exactly one terminal coverage entry for each of the nine canonical change dimensions and a missing unknown extra or post-result omission basis creates no Iteration Decision",
-        "Priority repairs evidence before interpreting performance tests mechanism before parameter refinement and selects exactly the highest-ranked admissible member of the complete finite preregistered alternative census by replayable ordinal uncertainty-reduction evidence deterministic tie-break and collision-free candidate identity plus content digest rather than an opaque score or caller order",
-        "STOP_LOW_INFORMATION_VALUE requires a non-empty exact candidate-census identity and digest equality complete nine-dimension coverage plus supported below-precommitted-threshold evidence for every admitted candidate while missing extra duplicate unknown unevaluated or incomparable candidates create no Iteration Decision and an inadmissible candidate cannot be relabeled below threshold to manufacture the stop",
-        "Duplicate change-candidate identities content digests or complete comparison keys invalidate the candidate set and produce no successor Intent Selection or repair effect",
-        "STOP_INPUT_UNAVAILABLE may follow only the exact REPAIR_INPUTS predecessor and matching terminal UNAVAILABLE result with equal category request proof correlation source cuts and fresh Time Evidence and creates no successor Intent or Selection",
-        "A triggered falsifier stop rule exhausted budget impossible bounded economics or information value below the precommitted threshold commits a stop state only in Research Iteration Decision and creates no successor Intent or Selection Disposition",
-        "READY_FOR_SELECTION ends exploratory iteration but does not itself create Qualification admission deployment authority or protected evidence",
-        "Protected Qualification measurements outcomes and holdout detail never enter diagnosis ranking or successor Intent"
+        "The Agent decides research diagnosis comparison iteration selection or stopping and R&D alone persists the exact attributed record",
+        "R&D checks referenced facts scope budget permissions and complete lineage without fixed diagnostic enums nine-dimension coverage or a unique ranked winner",
+        "An explanation of unknown or failed execution cannot attest successful execution or qualify a candidate",
+        "A next experiment requires its own mechanical admission and cannot be launched by a narrative decision alone",
+        "Changed pass criteria require prior user approval and frozen predecessors remain immutable",
+        "Protected Qualification details never enter Agent diagnosis knowledge or successor research",
+        "Duplicate request and content join the same record while changed content under the same request is conflict"
       ]
     },
     {
@@ -10214,8 +9843,8 @@
       "visibility": "contract-only",
       "identityBinds": [
         "research-selection-disposition-identity",
-        "ready-for-selection-research-iteration-decision-identity",
-        "research-iteration-decision-policy-identity-and-version",
+        "agent-selection-record-identity",
+        "frozen-assessment-policy-identity-and-version",
         "research-intent-identity-and-frozen-falsifier-and-stop-rule",
         "trial-family-census-frontier-identity-and-cut",
         "complete-exploratory-intent-request-result-cut",
@@ -10250,13 +9879,13 @@
         }
       ],
       "invariants": [
-        "R&D alone commits selection for exactly one READY_FOR_SELECTION Research Iteration Decision with the same policy version exhaustive Census Frontier cut frozen Intent and exploratory evidence cut",
-        "A stop or REPAIR_INPUTS Iteration Decision is mutually exclusive with Research Selection and creates no Selection Disposition",
-        "SELECTED_FOR_QUALIFICATION requires every consumed exploratory member used by the decision to be a request-equal TERMINAL_RESULT while rejected invalid unknown and losing members remain in the exhaustive Census Frontier",
+        "R&D records an Agent-selected candidate with exact frozen policy version Census Frontier cut Intent Artifact and actual exploratory evidence",
+        "One selection request binds one candidate but a project need not have one unique winner and no scientific ranking enum grants or blocks selection",
+        "SELECTED_FOR_QUALIFICATION requires referenced supporting runs to be request-equal TERMINAL_RESULT while rejected invalid unknown and losing members remain in the exhaustive Census Frontier",
         "The frozen Intent Request consumed Result and Selection Disposition bind exactly equal cost slippage and capacity model versions and any substitution creates no selection",
         "Only SELECTED_FOR_QUALIFICATION binds one immutable Strategy Artifact and may support a Qualification Candidate",
         "Changed Intent falsifier stop rule Census Frontier exploratory cut cost model capacity assumption or Artifact requires a successor disposition identity",
-        "Replay joins the same selection and cannot create selection from a stopped repair unknown or non-ready Iteration Decision"
+        "Duplicate selection requests resolve the same record without consuming holdout twice or inventing missing evidence"
       ]
     },
     {
@@ -10281,7 +9910,7 @@
         "purge-and-embargo-derivation-policy-identity-and-version",
         "purge-and-embargo-source-window-and-derived-boundaries",
         "family-aware-multiplicity-policy-census-and-attempt-frontier-basis",
-        "bounded-alternative-hypothesis-set-and-decision-thresholds",
+        "preapproved-protected-comparison-and-decision-thresholds",
         "complete-preregistration",
         "protected-decision-policy-identity-and-version"
       ],
@@ -10311,7 +9940,7 @@
             "unchanged-protected-robustness-plan-identity-and-content-digest"
           ],
           "forbidden": [
-            "new-ready-for-selection-iteration-decision",
+            "manufactured-agent-selection-record",
             "new-adaptive-ranking-or-trial-family-census-member",
             "protected-measurements-holdout-detail-or-qualification-outcome"
           ]
@@ -10327,7 +9956,7 @@
         "An ATTENDED_REPAIR Candidate cross-binds the exact predecessor selection Candidate Eligibility Artifact repair admission new Artifact passing repair validation and complete unchanged semantic field set without creating a new Research Iteration Decision or Selection",
         "Any executable repair Artifact that is intended to replace a governed generation requires an ATTENDED_REPAIR Candidate independent Qualification and a separate later Governance decision",
         "A BUILD_ONLY or VALIDATE_NOT_ADMITTED repair creates no Qualification Candidate Eligibility lifecycle transition or deployment authority",
-        "Any Iteration Decision other than READY_FOR_SELECTION creates no RESEARCH_SELECTION Candidate and no repair request may manufacture READY_FOR_SELECTION",
+        "A RESEARCH_SELECTION candidate requires its exact Agent selection record immutable package complete census and preapproved assessment policy; repair delivery or unknown execution cannot manufacture selection evidence",
         "Candidate replay never resets trial budget or holdout consumption",
         "A new TrialFamily after bounded protected feedback remains bound to its complete predecessor and feedback ancestry",
         "A family member after the bound census cut requires a successor Candidate and cannot alter this Candidate"
@@ -10418,7 +10047,7 @@
     },
     {
       "id": "capital-allocation-disposition",
-      "label": "Capital Allocation Disposition",
+      "label": "Capital Allocation Compatibility",
       "timeEvidenceCutKind": "RESEARCH_AND_GOVERNANCE_DECISION",
       "authorityId": "strategy-governance",
       "visibility": "contract-only",
@@ -10509,6 +10138,7 @@
       },
       "allocationAlgorithm": "FILTER_EXACT_REJECTED_THEN_LEXICOGRAPHICALLY_SORT_ADMISSIBLE_BY_THREE_ATTRIBUTES_AND_UNIQUE_GENERATION_ID_THEN_CAPPED_PRIORITY_FILL_WITH_NO_ARRIVAL_ORDER_INPUT",
       "invariants": [
+        "Sealed capped-priority allocation records retain the following original algorithm; it is compatibility only and is not the target equal-pool allocator. Target Governance uses approved pool ratios and equal actually-running member shares; capacity waiters are excluded, and reduced-envelope admission applies atomically only when existing occupancy fits.",
         "Governance alone commits one set-wide disposition for a stable complete contender set at one decision cut and every contender receives exactly one member state",
         "Every allocation attempt reaches one terminal allocation state so unavailable evidence is durably INPUT_INCOMPLETE_NO_WRITE rather than disappearing as absence",
         "Allocation is a deterministic function of the unordered contender set bounded policy Portfolio Interaction Receipt capacity and capital evidence so any input arrival permutation produces the same per-member dispositions",
@@ -10646,6 +10276,62 @@
         "Crash restart response loss timeout and replay join the same attempt identity and never issue a naked retry",
         "NO_EFFECT and SETTLED require authoritative adapter or venue readback bound to the same action target and effect frontier"
       ]
+    },
+    {
+      "id": "research-observation-request",
+      "label": "Research Observation Reference",
+      "crossBindObjectIds": [
+        "strategy-artifact"
+      ],
+      "identityBinds": [
+        "stable-request-identity",
+        "trusted-principal-and-admitted-read-scope",
+        "artifact-identity-and-digest",
+        "universe-rule-and-version",
+        "input-window-and-evaluation-clock",
+        "resource-cap-and-protected-read-policy",
+        "executing-backtest-job-reference"
+      ],
+      "states": [
+        "SUBMITTED_OR_UNKNOWN",
+        "ADMITTED",
+        "REJECTED_NO_WRITE"
+      ],
+      "invariants": [
+        "R&D records the stateful observation plan and executing Backtest job reference without its own evaluator; ordinary Market Data queries need no observation record or Strategy Artifact",
+        "Same identity and meaning joins the same job; changed meaning is conflicting replay",
+        "Observation access obeys protected partitions and data exposure accounting; no scan schedules are created"
+      ],
+      "authorityId": "rd"
+    },
+    {
+      "id": "research-observation-result",
+      "label": "Research Observation Evidence Reference",
+      "crossBindObjectIds": [
+        "research-observation-request",
+        "strategy-artifact",
+        "pit-market-snapshot",
+        "exploratory-result"
+      ],
+      "identityBinds": [
+        "request-and-job-identity",
+        "artifact-and-input-cut",
+        "evaluation-time",
+        "expected-completed-excluded-and-incomplete-members",
+        "per-member-signal-or-unavailable-disposition",
+        "exact-backtest-owned-result-reference"
+      ],
+      "states": [
+        "SUBMITTED_OR_UNKNOWN",
+        "TERMINAL_RESULT"
+      ],
+      "invariants": [
+        "Empty completed results differ from missing data or unknown execution",
+        "Reconstructed positions never assert account positions; partial coverage never asserts complete coverage",
+        "Results grant no qualification activation capital commitment or order authority",
+        "Backtest owns raw replay results and task completion; R&D retains exact evidence references and Agent interpretation without a second observation engine or result ledger"
+      ],
+      "authorityId": "rd"
     }
   ],
   "relations": [
@@ -10797,7 +10483,6 @@
       "relation": "read-model",
       "objectId": "governance-decision-view",
       "scenarios": [
-        "scan",
         "paper",
         "live",
         "recovery"
@@ -10914,9 +10599,7 @@
       "targetId": "group-product",
       "relation": "fact",
       "objectId": "scanner-receipt",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "light",
       "docsRoute": "architecture/product-edge",
@@ -11193,7 +10876,6 @@
       "relation": "fact",
       "objectId": "portfolio-lifecycle-evidence-receipt",
       "scenarios": [
-        "scan",
         "paper",
         "live",
         "recovery"
@@ -11250,9 +10932,7 @@
       "targetId": "group-program",
       "relation": "fact",
       "objectId": "pit-market-snapshot",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": true,
       "weight": "standard",
       "docsRoute": "scenarios/scan",
@@ -11277,9 +10957,7 @@
       "targetId": "group-program",
       "relation": "fact",
       "objectId": "deployable-strategy-set",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": true,
       "weight": "light",
       "docsRoute": "scenarios/scan",
@@ -11304,9 +10982,7 @@
       "targetId": "group-governance",
       "relation": "fact",
       "objectId": "scanner-receipt",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": true,
       "weight": "light",
       "docsRoute": "scenarios/scan",
@@ -11473,9 +11149,7 @@
       "targetId": "group-program",
       "relation": "fact",
       "objectId": "capacity-view",
-      "scenarios": [
-        "scan"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "standard",
       "docsRoute": "owners/scanner",
@@ -11529,7 +11203,6 @@
       "relation": "fact",
       "objectId": "valuation-facts",
       "scenarios": [
-        "scan",
         "paper",
         "live",
         "recovery"
@@ -12366,8 +12039,8 @@
       },
       "semantics": {
         "accepted": "Research may use only a request-equal TERMINAL_RESULT whose consumed artifact PIT snapshot and scope Universe Selection Record correction replay Runtime simulator cost slippage and capacity fields exactly equal the frozen request",
-        "rejected": "Omitted substituted mismatched rejected invalid or non-reproducible terminal evidence remains in the Trial Family Census and may produce only REPAIR_INPUTS with no Selection or successor hypothesis",
-        "unknown": "Unknown replay state supports no research conclusion or artifact mutation",
+        "rejected": "Omitted substituted mismatched rejected invalid or non-reproducible evidence remains in the Trial Family Census and cannot support economic Selection or qualification; within approved bounds the Agent chooses repair a newly frozen experiment or stopping without reinterpreting the failed run",
+        "unknown": "Unresolved replay supports no economic conclusion or mutation of its frozen Artifact; the Agent may record uncertainty or plan separate work while first resolving any potentially duplicated task identity",
         "replay": "Reading the same result never creates a successor intent automatically"
       },
       "sourceRole": "backtest",
@@ -12409,7 +12082,6 @@
       "relation": "fact",
       "objectId": "portfolio-interaction-receipt",
       "scenarios": [
-        "scan",
         "paper",
         "live"
       ],
@@ -12421,7 +12093,7 @@
         "zh": "Portfolio 提供组合交互事实但不分配资金"
       },
       "semantics": {
-        "accepted": "Governance consumes one current same-scope Portfolio Interaction Receipt for the exact complete contender set and decision cut before set-wide allocation",
+        "accepted": "The applicable frozen policy selects its required current Portfolio/composition evidence. For sealed capped-priority compatibility records only: Governance consumes one current same-scope Portfolio Interaction Receipt for the exact complete contender set and decision cut before set-wide allocation",
         "rejected": "Missing stale mixed-cut incomplete or contender-mismatched interaction evidence commits INPUT_INCOMPLETE_NO_WRITE and creates no allocation",
         "unknown": "Unknown interaction or valuation evidence cannot be treated as diversification or available capital",
         "replay": "Any permutation of the same complete contender set and cuts joins the same receipt and allocation input"
@@ -12610,7 +12282,7 @@
         "zh": "已提交绩效事实只能成为后继 Research Intent 的来源"
       },
       "semantics": {
-        "accepted": "Research records the exact Portfolio Owner fact as OWNER_COMMITTED_FACT provenance for a successor-only sourced hypothesis with bounded alternatives predictions and falsifier",
+        "accepted": "Research records the exact Portfolio Owner fact as OWNER_COMMITTED_FACT provenance for an Agent-authored successor plan or finding within approved bounds; scientific content is chosen by the Agent",
         "rejected": "Protected detail mixed cuts stale facts or attempts to mutate the active Intent are rejected with no Research transition",
         "unknown": "Unknown attribution or evidence cut creates no diagnosis selection or successor Intent",
         "replay": "The same Portfolio fact and interpretation join one provenance record and cannot mutate a frozen predecessor"
@@ -12637,8 +12309,8 @@
         "zh": "已提交 Runtime 事故事实只能成为后继 Research Intent 的来源"
       },
       "semantics": {
-        "accepted": "Research records the exact immutable Runtime Incident Fact and source frontier as OWNER_COMMITTED_FACT provenance for a successor-only hypothesis with bounded alternatives predictions and falsifier",
-        "rejected": "Mutable readiness state protected detail stale cross-generation facts or attempts to modify diagnose or rerank the active Intent are rejected with no Research transition",
+        "accepted": "Research records the exact immutable Runtime Incident Fact and source frontier as OWNER_COMMITTED_FACT provenance for an Agent-authored successor plan or finding within approved bounds; scientific content is chosen by the Agent",
+        "rejected": "Mutable readiness state protected detail stale cross-generation facts or attempts to rewrite frozen content or its committed evidence are rejected with no Research transition",
         "unknown": "Unknown incident identity generation scope source frontier or closure context creates no diagnosis selection or successor Intent",
         "replay": "The same incident fact and bounded interpretation join one provenance record and cannot mutate a frozen predecessor or open another Research lineage"
       },
@@ -12664,14 +12336,96 @@
         "zh": "已提交执行观测事实只能成为后继 Research Intent 的来源"
       },
       "semantics": {
-        "accepted": "Research records the exact immutable Execution Account Facts identity complete observation-category set per-category evidence and common source cut with local successor-only context as OWNER_COMMITTED_FACT provenance for a new bounded hypothesis",
-        "rejected": "Protected detail mutable Effect Closure View stale mixed-scope mixed-effect or policy-mismatched observations and any attempt to modify diagnose or rerank the active Intent are rejected with no Research transition",
+        "accepted": "Research records the exact immutable Execution Account Facts identity complete observation-category set per-category evidence and common source cut with local successor-only context as OWNER_COMMITTED_FACT provenance for an Agent-authored plan or finding within approved bounds without a required scientific template",
+        "rejected": "Protected detail mutable Effect Closure View stale mixed-scope mixed-effect or policy-mismatched observations and any attempt to rewrite frozen content or its committed evidence are rejected with no Research transition",
         "unknown": "Unknown effect readback observation category evidence or source cut creates no diagnosis selection or successor Intent",
         "replay": "The same immutable Execution Account Facts identity cut and bounded interpretation join one provenance record and cannot mutate a frozen predecessor or imply a repaired external effect"
       },
       "sourceRole": "execution",
       "objectAuthority": "execution",
       "businessOutcomeOwnerId": "rd"
+    },
+    {
+      "id": "product-rd-observation",
+      "class": "owner",
+      "sourceId": "group-product",
+      "targetId": "group-rd",
+      "relation": "request",
+      "objectId": "research-observation-request",
+      "scenarios": [
+        "scan"
+      ],
+      "overview": false,
+      "weight": "light",
+      "docsRoute": "scenarios/scan",
+      "description": {
+        "en": "R&D records stateful observation plans and native replay job references",
+        "zh": "R&D 记录有状态观察方案与原生回放任务引用"
+      },
+      "semantics": {
+        "accepted": "For stateful research observation R&D records trusted principal scope Artifact input-clock resource bindings and the executing Backtest job reference; ordinary Market Data queries require no R&D observation job",
+        "rejected": "Malformed changed-meaning or unauthorized scope produces no job or trading authority",
+        "unknown": "Missing admission remains unknown and cannot be treated as query failure or success",
+        "replay": "Same request identity and meaning joins the original job; conflicting meaning is rejected"
+      },
+      "sourceRole": "product-edge",
+      "objectAuthority": "rd",
+      "businessOutcomeOwnerId": "rd"
+    },
+    {
+      "id": "data-rd-observation",
+      "class": "owner",
+      "sourceId": "group-data",
+      "targetId": "group-rd",
+      "relation": "fact",
+      "objectId": "pit-market-snapshot",
+      "scenarios": [
+        "scan"
+      ],
+      "overview": false,
+      "weight": "light",
+      "docsRoute": "scenarios/scan",
+      "description": {
+        "en": "Verified data references support native observation replay",
+        "zh": "验证数据引用支持原生观察回放"
+      },
+      "semantics": {
+        "accepted": "Market Data supplies exact admitted input references to native Backtest replay under availability license revision and protected-read policy with exposure recorded; R&D retains the corresponding research references",
+        "rejected": "Future stale incomplete unlicensed or protected inputs cannot be evaluated as complete observations",
+        "unknown": "Missing or unknown input custody retains per-member unavailable state rather than no signal",
+        "replay": "Same requested input cut resolves the same immutable data identity; changed data requires a successor query"
+      },
+      "sourceRole": "market-data",
+      "objectAuthority": "market-data",
+      "businessOutcomeOwnerId": "rd"
+    },
+    {
+      "id": "rd-product-observation",
+      "class": "owner",
+      "sourceId": "group-rd",
+      "targetId": "group-product",
+      "relation": "read-model",
+      "objectId": "research-observation-result",
+      "scenarios": [
+        "scan"
+      ],
+      "overview": false,
+      "weight": "light",
+      "docsRoute": "scenarios/scan",
+      "description": {
+        "en": "Callers read research references to native observation results",
+        "zh": "调用方读取原生观察结果的研究引用"
+      },
+      "semantics": {
+        "accepted": "Authorized callers read R&D observation references and Agent interpretation linked to the exact Backtest-owned result Artifact input cut and complete member dispositions; R&D does not execute or duplicate replay results",
+        "rejected": "Cross-principal or protected values and inferred account positions are never projected",
+        "unknown": "Absent result stays unknown; stale or missing market inputs do not mean no opportunity",
+        "replay": "Readback retains the original job result and creates no new observation or trading effect"
+      },
+      "sourceRole": "rd",
+      "objectAuthority": "rd",
+      "businessOutcomeOwnerId": null,
+      "noBusinessOutcomeBasis": "Product Edge only reads a committed Owner result and creates no business transition"
     }
   ],
   "executorProductEdgeContract": {

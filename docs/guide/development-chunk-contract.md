@@ -192,17 +192,19 @@ The command also accepts record JSON on standard input when the same required fl
 valid result; malformed JSON, unknown fields, missing keys, selector disagreement, or changed canonical semantics
 returns `INVALID` and a nonzero exit.
 
-The chunk must state one consumer-visible outcome, the relation `sourceRole` and exact action kind that send the handoff, the authority
-that produces the request or object, the authority that owns the carried object, and the Owner of the observable
-business outcome. These roles are separate fields and may differ. R&D is the single Owner for its internal Research
-and Develop capabilities, while Backtest is a separate service Owner that consumes the R&D-owned Strategy Artifact.
-A boundary may produce a typed request object, but only a business Owner may commit the correlated
-receipt or transition. An Owner-produced read model keeps that Owner even when its consumer is a boundary.
-Boundary-only presentation or delivery work may declare no business fact only with an explicit basis and remains
-prohibited from committing any business transition; its declared business-write set is empty and
+The chunk must state one consumer-visible outcome, the relation `sourceRole` and exact action kind
+that send the handoff, the authority that produces the request or object, the authority that owns the carried
+object, and the Owner of the observable business outcome. These roles are separate fields and may differ. R&D
+is the single Owner for its internal Research and Develop capabilities, while Backtest is a separate service
+Owner that consumes the R&D-owned Strategy Artifact. A boundary may produce a typed request object, but only a
+business Owner may commit the correlated receipt or transition. An Owner-produced read model keeps that Owner
+even when its consumer is a boundary.
+
+Boundary-only presentation or delivery work may declare no business fact only with an explicit basis and
+remains prohibited from committing any business transition; its declared business-write set is empty and
 `business-transition` is listed as prohibited. Owner-local work names the same business Owner in both roles.
-Inputs may be read only from declared inbound dependencies. Prohibited writes include every fact owned by another
-Owner, treating transport or stage custody as carried-object authority, direct storage bypasses,
+Inputs may be read only from declared inbound dependencies. Prohibited writes include every fact owned by
+another Owner, treating transport or stage custody as carried-object authority, direct storage bypasses,
 notification-as-proof, and any external or live effect without explicit authority.
 
 Each accepted rejected unknown and replay oracle uses `Given / When / Then` and names a committed observation,
@@ -218,15 +220,21 @@ kill observations, and the common-cut domain must match the selected migration s
 namespaced by that domain. Evidence from another surface is invalid.
 Missing, foreign, or non-adjacent migration context stops planning.
 
-The `agent-shell-cutover` boundary invariant binds the Agent Shell Deployment Binding, authoritative history head,
-the shared mutating Owner request gate, all three outbound request objects, and their three receiving-Owner receipts. Its proof preserves the effective principal, scope,
-capability, and audit-policy versions. It allows a fail-closed zero-`ACTIVE` interval, requires the exact predecessor
-to commit irreversible `SUPERSEDED` before the policy-equivalent successor commits `ACTIVE`, rejects dual writers,
-requires every mutating request admission to bind the exact head whose unique `ACTIVE` member is selected, and
-resolves every already admitted in-flight request under its original request and binding identities. A business outcome exists only when the matching Research, Governance, or
-Qualification Owner receipt is independently committed. It has no business Owner and cannot commit a business transition.
-Its chunk also declares the canonical `accepted`, `rejected`, `unknown`, and `replay` branches in full; a missing,
-partial, or changed branch stops planning.
+The `agent-shell-cutover` boundary invariant binds the Agent Shell Deployment Binding, authoritative history
+head, the shared mutating Owner request gate, all three outbound request objects, and their three
+receiving-Owner receipts. Its proof preserves the effective principal, scope, capability, and audit-policy
+versions.
+
+It allows a fail-closed zero-`ACTIVE` interval, requires the exact predecessor to commit
+irreversible `SUPERSEDED` before the policy-equivalent successor commits `ACTIVE`, rejects
+dual writers, requires every mutating request admission to bind the exact head whose unique
+`ACTIVE` member is selected, and resolves every already admitted in-flight request under its
+original request and binding identities. A business outcome exists only when the matching Research,
+Governance, or Qualification Owner receipt is independently committed. It has no business Owner and cannot
+commit a business transition.
+
+Its chunk also declares the canonical `accepted`, `rejected`, `unknown`, and
+`replay` branches in full; a missing, partial, or changed branch stops planning.
 
 ## Effective relation semantics
 

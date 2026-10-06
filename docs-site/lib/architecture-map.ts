@@ -1,7 +1,143 @@
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
-import architectureContract from './architecture-contract.json' with { type: 'json' };
+import type { Locale } from '@/lib/i18n';
 
-export type ScenarioId = 'overview' | 'research' | 'backtest' | 'scan' | 'paper' | 'live' | 'recovery';
+export type Copy = Record<Locale, string>;
+export type ServiceId = 'market-data' | 'backtest' | 'rd' | 'qualification' | 'governance' | 'native';
+export type ScenarioId = 'overview' | 'research' | 'r1' | 'discovery' | 'trial' | 'improvement' | 'recovery';
+export type FlowStep = { label: Copy; route: string };
+export type Service = {
+  id: ServiceId;
+  label: string;
+  summary: Copy;
+  entrance: Copy;
+  route: string;
+  steps: FlowStep[];
+  apis: Copy[];
+  boundary: Copy;
+};
+const copy = (zh: string, en: string): Copy => ({ zh, en });
+const step = (zh: string, en: string, route: string): FlowStep => ({ label: copy(zh, en), route });
+
+// A presentation of the product blueprint; these labels do not create Owner or wire identities.
+export const services: Service[] = [
+  {
+    id: 'market-data', label: 'Market Data', route: 'owners/market-data',
+    summary: copy('行情、标的与输入准备', 'Markets, instruments and input preparation'),
+    entrance: copy('数据 MCP / 内部 API', 'Data MCP / internal API'),
+    steps: [
+      step('来源与标的准入', 'Admit source and instruments', 'owners/market-data'),
+      step('原生类型、DataClient/DataEngine 与 Catalog 接入', 'Native types, DataClient/DataEngine and Catalog integration', 'owners/market-data'),
+      step('按冻结需求准备原生或派生输入', 'Prepare native or derived inputs under frozen requirements', 'owners/market-data'),
+      step('绑定准确版本、可得截面与缺口', 'Bind exact versions, availability cuts and gaps', 'owners/market-data'),
+      step('Agent 按需读取；策略实时订阅', 'Agent queries; strategy streams', 'owners/market-data'),
+    ],
+    apis: [copy('来源/标的、导入、准备与任务读回', 'Sources/instruments, imports, preparation and job readback'), copy('覆盖、修订、成员时间线与保护读取', 'Coverage, revisions, membership timelines and protected reads')],
+    boundary: copy('接入并扩展原生 DataClient/DataEngine/Catalog；节点保留数据引擎，不经 MCP 逐根取 K。', 'Integrates native DataClient/DataEngine/Catalog; nodes retain DataEngine without per-bar MCP calls.'),
+  },
+  {
+    id: 'rd', label: 'R&D', route: 'owners/rd',
+    summary: copy('研究、策略编写与知识', 'Research, authoring and knowledge'),
+    entrance: copy('research / authoring / knowledge / scan', 'research / authoring / knowledge / scan'),
+    steps: [
+      step('项目、来源与冻结边界', 'Project, sources and frozen bounds', 'owners/rd'),
+      step('记录 Agent 实验方案与比较目标', 'Record Agent experiments and comparison goals', 'owners/rd'),
+      step('原生源码包与封存 Artifact', 'Native source package and sealed Artifact', 'owners/rd'),
+      step('资源准入、数据准备与回测任务', 'Resource admission, data preparation and replay jobs', 'owners/rd'),
+      step('记录 Agent 诊断、迭代与候选选择', 'Record Agent diagnosis, iteration and selection', 'owners/rd'),
+      step('知识沉淀、复核与代理接管', 'Knowledge, review and Agent takeover', 'owners/rd'),
+    ],
+    apis: [copy('项目、家族、编写、实验与迭代', 'Projects, families, authoring, experiments and iteration'), copy('知识检索、按需发现与接管', 'Knowledge retrieval, on-demand discovery and takeover')],
+    boundary: copy('Agent 负责模型判断，R&D 持有事实；不撮合、不读取保护详情。', 'Agents provide model judgments; R&D owns facts, not matching or protected details.'),
+  },
+  {
+    id: 'backtest', label: 'Backtest', route: 'owners/backtest',
+    summary: copy('原生回放、撮合与报告', 'Native replay, matching and reports'),
+    entrance: copy('回测 MCP / 内部 API', 'Backtest MCP / internal API'),
+    steps: [
+      step('接纳单策略或冻结组合、实验与输入', 'Admit a strategy or frozen composition, experiment and inputs', 'owners/backtest'),
+      step('校验覆盖与执行配置', 'Validate coverage and execution configuration', 'owners/backtest'),
+      step('Nautilus 共享账户回放与订单撮合', 'Nautilus shared-account replay and order matching', 'owners/backtest'),
+      step('费用、资金费、保证金与组合计量', 'Fees, funding, margin and portfolio measurement', 'owners/backtest'),
+      step('封存结果、逐交易证据与报告', 'Seal results, trade evidence and reports', 'owners/backtest'),
+    ],
+    apis: [copy('运行、状态、报告与确定差值', 'Runs, status, reports and deterministic differences'), copy('取消、未知解析与后继回放', 'Cancellation, unknown resolution and successor replay')],
+    boundary: copy('扩展 Nautilus 回放；Agent 作研究判断，Qualification 判资格。', 'Extends Nautilus replay; Agents judge research and Qualification owns eligibility.'),
+  },
+  {
+    id: 'qualification', label: 'Qualification', route: 'owners/qualification',
+    summary: copy('隔离评估与资格', 'Isolated assessment and eligibility'),
+    entrance: copy('资格 MCP / 有界视图', 'Qualification MCP / bounded views'),
+    steps: [
+      step('接纳独立选定的策略或组合候选', 'Admit independently selected strategy or composition', 'owners/qualification'),
+      step('冻结保护协议与隔离输入', 'Bind protected protocol and isolated inputs', 'owners/qualification'),
+      step('用同一原生回测语义评估', 'Assess with the same native replay semantics', 'owners/qualification'),
+      step('提交资格或有界公开负结论', 'Commit eligibility or bounded public negative conclusion', 'owners/qualification'),
+    ],
+    apis: [copy('候选接纳、状态、资格与撤销', 'Candidate admission, status, eligibility and revocation'), copy('可选只记录前向任务', 'Optional record-only forward jobs')],
+    boundary: copy('保护数值与内部原因留在私有域；不部署或分配资金。', 'Protected values and private reasons stay isolated; no deployment or allocation.'),
+  },
+  {
+    id: 'governance', label: 'Governance', route: 'owners/strategy-governance',
+    summary: copy('阶段、上下架与两池分配', 'Stages, lifecycle and two-pool allocation'),
+    entrance: copy('Dashboard 确认 / 治理 API', 'Dashboard confirmation / governance API'),
+    steps: [
+      step('核验成员及共享账户组合资格', 'Check member and shared-account composition eligibility', 'owners/strategy-governance'),
+      step('用户确认试盘条件与资金政策', 'User confirms trial conditions and capital policy', 'owners/strategy-governance'),
+      step('额度不满足则排队；满足后统一分配并授权', 'Queue until usage fits; then apply allocation and authorize', 'owners/strategy-governance'),
+      step('按真实表现自动转正或下架', 'Promote or unload from actual performance', 'owners/strategy-governance'),
+      step('下架事实交回 R&D 改进', 'Return unload facts to R&D for improvement', 'scenarios/research'),
+    ],
+    apis: [copy('合格目录、阶段、条件模板与资金政策', 'Eligible catalog, stages, condition templates and capital policy'), copy('生命周期请求、决定与授权读回', 'Lifecycle requests, decisions and authority readback')],
+    boundary: copy('授权不证明 Runtime 已应用，更不证明实际成交。', 'Authorization proves neither Runtime application nor actual fills.'),
+  },
+  {
+    id: 'native', label: 'Trading Node', route: 'architecture',
+    summary: copy('原生交易节点：运行、风险、执行、组合', 'Runtime, risk, execution and portfolio'),
+    entrance: copy('portfolio / operations 只读', 'Read-only portfolio / operations'),
+    steps: [
+      step('Runtime 应用授权并产生信号', 'Runtime applies authority and produces signals', 'owners/runtime'),
+      step('Risk 准入资金、额度与新增风险', 'Risk admits funds, bounds and new exposure', 'owners/risk'),
+      step('Execution 执行、成交、对账与恢复', 'Execution owns orders, fills, reconciliation and recovery', 'owners/execution'),
+      step('Portfolio 计量净值、暴露与表现', 'Portfolio measures NAV, exposure and performance', 'owners/portfolio'),
+      step('表现与运行事实返回 Governance', 'Return operation and performance facts to Governance', 'owners/strategy-governance'),
+    ],
+    apis: [copy('内部：应用、风险准入、执行与恢复', 'Internal: application, risk admission, execution and recovery'), copy('外部只读：账户、表现、实例、订单与告警', 'External reads: account, performance, instances, orders and alerts')],
+    boundary: copy('四种职责共享同一原生节点，各自保留写权；没有第二账户或订单簿。', 'Four responsibilities share one native node with separate write authority, never a second account or order book.'),
+  },
+];
+
+export type Handoff = { id: string; source: string; target: string; label: Copy };
+const handoff = (id: string, source: string, target: string, zh: string, en: string): Handoff => ({ id, source, target, label: copy(zh, en) });
+export const handoffs: Handoff[] = [
+  handoff('agent-rd', 'agent', 'rd', '领域 MCP', 'Domain MCP'),
+  handoff('agent-data', 'agent', 'market-data', '数据 MCP', 'Data MCP'),
+  handoff('agent-backtest', 'agent', 'backtest', '回测 MCP', 'Replay MCP'),
+  handoff('dashboard-governance', 'dashboard', 'governance', '确认、配置与控制', 'Confirm, configure, control'),
+  handoff('dashboard-native', 'dashboard', 'native', '只读运行与账户', 'Read-only operation/account'),
+  handoff('rd-data', 'rd', 'market-data', '准备需求', 'Preparation needs'),
+  handoff('rd-backtest', 'rd', 'backtest', '已登记实验', 'Registered experiment'),
+  handoff('data-backtest', 'market-data', 'backtest', '已验证输入', 'Verified inputs'),
+  handoff('backtest-rd', 'backtest', 'rd', '结果与证据', 'Results/evidence'),
+  handoff('rd-qualification', 'rd', 'qualification', '冻结候选', 'Frozen candidate'),
+  handoff('qualification-backtest', 'qualification', 'backtest', '隔离评估', 'Isolated assessment'),
+  handoff('qualification-governance', 'qualification', 'governance', '资格事实', 'Eligibility facts'),
+  handoff('data-native', 'market-data', 'native', '实时行情', 'Live data'),
+  handoff('governance-native', 'governance', 'native', '授权与资金边界', 'Authority/capital bounds'),
+  handoff('native-governance', 'native', 'governance', '真实表现与状态', 'Actual performance/status'),
+  handoff('governance-rd', 'governance', 'rd', '下架与后继来源', 'Unload/successor sources'),
+];
+
+export type Scenario = { id: ScenarioId; label: Copy; summary: Copy; relations: string[]; steps: FlowStep[] };
+export const productScenarios: Scenario[] = [
+  { id: 'overview', label: copy('全景', 'Overview'), summary: copy('六组后端职责。点击服务展开内部流程；MCP 和 API 是入口，不是新部门。', 'Six backend responsibility groups. Select a service for its flow; MCP/API are entrances, not departments.'), relations: handoffs.map((edge) => edge.id), steps: [] },
+  { id: 'research', label: copy('研究迭代', 'Research'), summary: copy('Agent 在冻结边界内提案，服务持久执行，R&D 保留完整实验与决定。', 'Agents propose within frozen bounds; services execute durably and R&D retains complete trials and decisions.'), relations: ['agent-rd', 'rd-data', 'data-backtest', 'rd-backtest', 'backtest-rd', 'rd-qualification'], steps: [step('主题、来源与预登记', 'Theme, sources and registration', 'owners/rd'), step('原生策略版本与封存 Artifact', 'Native strategy version and sealed Artifact', 'owners/rd'), step('数据准备与原生回测', 'Data preparation and native replay', 'scenarios/research'), step('诊断、知识与后继或停止', 'Diagnosis, knowledge, successor or stop', 'owners/rd'), step('Agent 选择候选后交独立资格评估', 'Agent selection before independent assessment', 'owners/qualification')] },
+  { id: 'r1', label: copy('R-1 回测', 'R-1 replay'), summary: copy('冻结挂单与分段退出，用原生订单、成本与实际输入顺序验证。', 'Freeze limits and staged exits; verify native orders, costs and actual input chronology.'), relations: ['agent-rd', 'rd-data', 'data-backtest', 'rd-backtest', 'backtest-rd'], steps: [step('声明挂单、撤单、止损止盈与窗口', 'Declare entries, cancellation, stops, exits and windows', 'owners/rd'), step('准备信号、预热与 fill 输入', 'Prepare signals, warmup and fill inputs', 'owners/market-data'), step('原生撮合与逐笔退出', 'Native matching and per-entry exits', 'owners/backtest'), step('歧义交数据后继，重新准入回放', 'Ambiguity creates a data successor and readmitted replay', 'scenarios/research'), step('组合报告与实现忠实性对照', 'Portfolio reports and fidelity checks', 'scenarios/research')] },
+  { id: 'discovery', label: copy('按需找币', 'Discovery'), summary: copy('Agent 直接查询数据；有状态策略观察复用原生回放，R&D 保存研究引用。', 'Agents query data directly; stateful observation reuses native replay and R&D retains references.'), relations: ['agent-data', 'agent-rd', 'rd-data', 'rd-backtest', 'data-backtest', 'backtest-rd'], steps: [step('Agent 选择查询条件或准确策略版本', 'Agent chooses filters or exact strategy version', 'scenarios/scan'), step('数据查询返回截面、覆盖与缺口', 'Data queries return cuts, coverage and gaps', 'owners/market-data'), step('需状态暖机时复用原生回放', 'Reuse native replay for state and warmup', 'owners/backtest'), step('Agent 解释结果；按需保存研究引用', 'Agent interprets; retain research references as needed', 'owners/rd')] },
+  { id: 'trial', label: copy('试盘转正', 'Trial promotion'), summary: copy('成员及适用组合资格有效后用户确认试盘；达到冻结条件且组合证据覆盖时自动转正。', 'User confirms trial after member and composition eligibility; frozen conditions and composition coverage govern promotion.'), relations: ['rd-qualification', 'qualification-backtest', 'qualification-governance', 'dashboard-governance', 'governance-native', 'data-native', 'native-governance'], steps: [step('准确成员版本与共享账户组合资格', 'Exact member versions and shared-account composition eligibility', 'owners/qualification'), step('Dashboard 确认条件模板与两池政策', 'Confirm condition template and two-pool policy', 'owners/strategy-governance'), step('治理授权，Runtime 应用', 'Governance authorizes; Runtime applies', 'owners/runtime'), step('真实试盘、费用与表现计量', 'Real trial, costs and performance measurement', 'owners/portfolio'), step('达标转正；到期未达标下架回 R&D', 'Promote on passing; unload to R&D on expiry without passing', 'owners/strategy-governance')] },
+  { id: 'improvement', label: copy('下架改进', 'Improvement'), summary: copy('有效策略也可主动下架；内容 hash 变更后重新走完整生命周期。', 'Valid strategies may be unloaded for improvement; changed content hashes repeat the complete lifecycle.'), relations: ['dashboard-governance', 'governance-native', 'native-governance', 'governance-rd', 'rd-backtest', 'backtest-rd'], steps: [step('用户主动下架，记录真实原因', 'User unloads with the actual reason', 'owners/strategy-governance'), step('停止新入场、撤入场挂单、归还预算', 'Stop new entries, cancel entry orders, return allocation', 'owners/strategy-governance'), step('剩余持仓继续原保护，实际风险仍计入', 'Residual positions retain protection and actual exposure', 'owners/execution'), step('表现作为 R&D 后继来源', 'Use performance as successor research sources', 'owners/rd'), step('新 hash 重新回测并由用户确认试盘', 'New hash requalifies and receives user-confirmed trial', 'scenarios/research')] },
+  { id: 'recovery', label: copy('故障恢复', 'Recovery'), summary: copy('未知结果先围栏并按原身份读回；对账完成不会复活旧授权。', 'Fence unknown outcomes and resolve original identities; reconciliation does not revive old authority.'), relations: ['governance-native', 'native-governance'], steps: [step('Runtime/Risk 限制新增风险', 'Runtime/Risk restrict new exposure', 'owners/risk'), step('Execution 回读订单、成交与账户并对账', 'Execution resolves orders, fills and account facts', 'owners/execution'), step('核对当前治理授权与资金边界', 'Check current governance authority and capital bounds', 'owners/strategy-governance'), step('由原生应用与恢复回执证明闭合', 'Native application and recovery receipts prove closure', 'scenarios/recovery')] },
+];
+
 export type NodeKind = 'authority' | 'adapter' | 'protected' | 'safety';
 export type NodeEmphasis = 'core' | 'standard' | 'support';
 export type OwnerBadge = 'SKILL' | 'MCP' | 'EXE';
@@ -56,630 +192,88 @@ export type OwnerNodeData = {
 
 export type DiagramNodeData = ArchitectureNodeData | OwnerNodeData;
 
-type ContractModule = {
-  id: string;
-  label: string;
-  kind: NodeKind;
-  emphasis: NodeEmphasis;
-  scenarios: ScenarioId[];
-  description: { en: string; zh: string };
-};
 
-type ContractGroup = {
-  id: string;
-  groupId: string;
-  label: string;
-  badge?: OwnerBadge;
-  role?: OwnerNodeData['role'];
-  authorityOwnerId?: string;
-  memberGroupIds?: string[];
-  docsRoute: string;
-  modules: ContractModule[];
+// The product blueprint uses the existing workflow renderer and visual primitives.
+export const scenarios = productScenarios.map((entry) => ({ ...entry, description: entry.summary, entry: entry.steps[0]?.label ?? entry.label, proof: entry.steps.at(-1)?.label ?? entry.label }));
+export const relationVisibleInScenario = (relation: { id: string; scenarios: ScenarioId[]; overview: boolean }, scenario: ScenarioId) => scenario === 'overview' || relation.scenarios.includes(scenario);
+export const relationRoleInScenario = (_id: string, _scenario: ScenarioId): 'primary' => 'primary';
+type Component = { label: string; description: Copy; route?: string };
+const component = (label: string, zh: string, en: string, route?: string): Component => ({ label, description: copy(zh, en), route });
+// Internal responsibilities, not new services or deployment units.
+export const serviceComponents: Record<ServiceId, Component[]> = {
+  'market-data': [
+    component('Sources', '来源准入、外部导入与来源依据', 'Source admission, imports and provenance'),
+    component('Instruments', '标的语义与点时成员时间线', 'Instrument semantics and point-in-time membership'),
+    component('Catalog', '原生存储、覆盖、版本与修订', 'Native storage, coverage, versions and revisions'),
+    component('Preparation', '按冻结需求准备、聚合和绑定输入', 'Prepare, aggregate and bind inputs under frozen requirements'),
+    component('Streams', '运行策略消费原生实时行情；Agent 按需读取', 'Native live data for running strategies; on-demand reads for agents'),
+  ],
+  rd: [
+    component('Projects', '主题、来源、授权、预算与接管', 'Themes, sources, authority, budget and takeover'),
+    component('Authoring', 'Agent 编写原生 Strategy；服务封存内容与环境', 'Agent authored native Strategy; sealed content and environment'),
+    component('Experiments', '实验、任务、完整试验台账及 Agent 决定', 'Experiments, jobs, complete trial census and Agent decisions'),
+    component('Knowledge', '构件与机制的证据、检索、复用和复核', 'Construct and mechanism evidence, retrieval, reuse and review'),
+  ],
+  backtest: [
+    component('Admission', '冻结请求、工件、输入与执行配置准入', 'Admit frozen requests, artifacts, inputs and execution configuration'),
+    component('Replay', 'Nautilus 原生回放、撮合、费用与账户语义', 'Native Nautilus replay, matching, costs and account semantics'),
+    component('Results', '任务终态、取消、未知解析与不可变证据', 'Run completion, cancellation, unknown resolution and immutable evidence'),
+    component('Reports', '从封存结果生成逐交易报告；Agent 比较实验', 'Trade reports from sealed results; Agents compare experiments'),
+  ],
+  qualification: [
+    component('Intake', '接纳独立选定的准确冻结候选', 'Admit the exact independently selected frozen candidate'),
+    component('Protocol', '保护协议、样本隔离与暴露限制', 'Protected protocol, sample isolation and exposure bounds'),
+    component('Assessment', '调度隔离回测并核验保护证据', 'Request isolated replay and verify protected evidence'),
+    component('Eligibility', '资格、撤销与有界公开结论', 'Eligibility, revocation and bounded public conclusions'),
+  ],
+  governance: [
+    component('Policy', '用户确认、有限条件模板与冻结政策', 'User confirmation, finite condition templates and frozen policies'),
+    component('Lifecycle', '阶段、上线、转正、下架与运行授权', 'Stages, activation, promotion, unloading and runtime authority'),
+    component('Allocation', '账户两池、逐策略额度与分配事实', 'Account pools, per-strategy limits and allocation facts'),
+  ],
+  native: [
+    component('Runtime', '应用有效授权，运行与停止策略实例', 'Apply current authority, run and stop strategy instances', 'owners/runtime'),
+    component('Risk', '资金与风险准入、预留和新增风险围栏', 'Capital and risk admission, reservations and exposure fences', 'owners/risk'),
+    component('Execution', '订单、成交、重试、对账与恢复', 'Orders, fills, retries, reconciliation and recovery', 'owners/execution'),
+    component('Portfolio', '真实净值、资金占用、暴露与表现', 'Actual NAV, capital use, exposure and performance', 'owners/portfolio'),
+  ],
 };
-
-const groupSemanticIdentity = (current: ContractGroup) => {
-  const role = current.role ?? 'authority';
-  if (role === 'authority') {
-    return { sourceRole: current.id, objectAuthority: current.id };
-  }
-  if (role === 'stage') {
-    return { sourceRole: `${current.id}-stage`, objectAuthority: current.authorityOwnerId ?? 'none' };
-  }
-  if (role === 'factory') {
-    return { sourceRole: `${current.id}-value-stream`, objectAuthority: 'none' };
-  }
-  if (role === 'channel') {
-    return { sourceRole: `${current.id}-custodian`, objectAuthority: 'none' };
-  }
-  return { sourceRole: current.id, objectAuthority: current.id };
+const layout: Record<ServiceId, [number, number]> = {
+  'market-data': [0, 230], rd: [760, 230], backtest: [1520, 230],
+  qualification: [0, 790], governance: [760, 790], native: [1520, 790],
 };
-
-type RecoveryTriggerBranch = {
-  id: string;
-  applicability: string;
-  admissionDispositionObjectId?: string;
-  caseCreationRule?: string;
-  forbiddenEvidenceAssumptions: string[];
-  primaryRelationIds: string[];
-  supportingRelationIds: string[];
+export const architectureNodes: Node<DiagramNodeData>[] = services.flatMap((service) => {
+  const [x, y] = layout[service.id];
+  const groupId = `group-${service.id}`;
+  const components = serviceComponents[service.id];
+  const serviceScenarios = productScenarios.filter((scenario) => handoffs.some((edge) => scenario.relations.includes(edge.id) && [edge.source, edge.target].includes(service.id))).map((scenario) => scenario.id);
+  const group: Node<OwnerNodeData> = {
+    id: groupId, type: 'ownerGroup', position: { x, y }, width: 660, height: 360, style: { width: 660, height: 360 },
+    data: { nodeType: 'owner', label: service.label, count: components.length, tone: ['rd', 'qualification', 'governance'].includes(service.id) ? 'violet' : 'cyan', badge: ['market-data', 'backtest', 'rd', 'qualification'].includes(service.id) ? 'MCP' : 'EXE', role: 'authority', roleLabel: 'OWNER', docsRoute: service.route, sourceRole: service.id, objectAuthority: service.id, canonicalInvariantIds: [], memberGroupIds: [] },
+  };
+  const children = components.map((entry, index): Node<ArchitectureNodeData> => ({
+    id: `${service.id}-${entry.label.toLowerCase()}`, parentId: groupId, type: 'architectureNode',
+    position: { x: 25 + (index % 3) * 210, y: 65 + Math.floor(index / 3) * 95 }, width: 190, height: 65, style: { width: 190, height: 65 },
+    data: { nodeType: 'architecture', title: entry.label, owner: service.id, kind: service.id === 'qualification' ? 'protected' : 'authority', emphasis: 'standard', scenarios: serviceScenarios, description: entry.description, docsRoute: entry.route ?? service.route, sourceRole: service.id, objectAuthority: service.id, canonicalInvariantIds: [] },
+  }));
+  return [group, ...children];
+});
+architectureNodes.push(...[
+  { id: 'agent', title: 'Agent', position: { x: 30, y: 0 }, description: { en: 'Codex / Claude: admitted domain MCPs', zh: 'Codex / Claude：获准的领域 MCP' } },
+  { id: 'dashboard', title: 'Dashboard', position: { x: 1790, y: 0 }, description: { en: 'Same domain APIs, user confirmation and readback', zh: '同一套领域 API、用户确认与读回' } },
+].map((client): Node<ArchitectureNodeData> => ({ id: client.id, type: 'architectureNode', position: client.position, width: 360, height: 80, style: { width: 360, height: 80 }, data: { nodeType: 'architecture', title: client.title, owner: 'none', kind: 'adapter', emphasis: 'support', variant: 'client', scenarios: productScenarios.filter((story) => handoffs.some((edge) => story.relations.includes(edge.id) && edge.source === client.id)).map((story) => story.id), description: client.description, docsRoute: 'architecture', sourceRole: client.id, objectAuthority: 'none', canonicalInvariantIds: [] } })));
+const pinSides: Record<string, [string, string]> = {
+  'agent-rd': ['right', 'top'], 'agent-data': ['bottom', 'top'], 'agent-backtest': ['right', 'top'],
+  'dashboard-governance': ['left', 'top'], 'dashboard-native': ['right', 'right'],
+  'rd-data': ['left', 'right'], 'rd-backtest': ['right', 'left'], 'data-backtest': ['bottom', 'bottom'],
+  'backtest-rd': ['left', 'right'], 'rd-qualification': ['bottom', 'top'],
+  'qualification-backtest': ['right', 'bottom'], 'qualification-governance': ['right', 'left'],
+  'data-native': ['left', 'bottom'], 'governance-native': ['right', 'left'],
+  'native-governance': ['top', 'top'], 'governance-rd': ['top', 'bottom'],
 };
-
-type ContractScenario = (typeof architectureContract.scenarios)[number] & {
-  primaryRelationIds: string[];
-  supportingRelationIds: string[];
-  triggerBranchSelectionRule?: string;
-  triggerBranches?: RecoveryTriggerBranch[];
-};
-
-export const scenarios = (architectureContract.scenarios as ContractScenario[]).map((scenario) => ({
-  id: scenario.id as ScenarioId,
-  label: scenario.label,
-  description: scenario.description,
-  entry: scenario.entry,
-  proof: scenario.proof,
-  primaryRelationIds: scenario.primaryRelationIds,
-  supportingRelationIds: scenario.supportingRelationIds,
-  triggerBranchSelectionRule: scenario.triggerBranchSelectionRule ?? null,
-  triggerBranches: scenario.triggerBranches ?? [],
+export const fullArchitectureEdges: Edge[] = handoffs.map((entry) => ({
+  id: entry.id, source: entry.source === 'agent' || entry.source === 'dashboard' ? entry.source : `group-${entry.source}`,
+  target: `group-${entry.target}`, type: 'architectureEdge', sourceHandle: `out-${pinSides[entry.id][0]}`, targetHandle: `in-${pinSides[entry.id][1]}`,
+  markerEnd: { type: MarkerType.ArrowClosed, color: '#2563eb', width: 11, height: 11 },
+  data: { scenarios: productScenarios.filter((story) => story.relations.includes(entry.id)).map((story) => story.id), overview: true, relation: 'handoff', relationKind: 'owner', description: entry.label, docsRoute: 'architecture', laneOffset: entry.id === 'backtest-rd' ? 42 : entry.id === 'data-native' ? 80 : 0 },
 }));
-
-const scenarioById = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
-
-export const relationVisibleInScenario = (
-  relation: { id: string; scenarios: ScenarioId[]; overview: boolean },
-  scenario: ScenarioId,
-) => {
-  const projection = scenarioById.get(scenario);
-  if (!projection) throw new Error(`Unknown architecture scenario: ${scenario}`);
-  return projection.primaryRelationIds.includes(relation.id)
-    || projection.supportingRelationIds.includes(relation.id);
-};
-
-export const relationRoleInScenario = (
-  relationId: string,
-  scenario: ScenarioId,
-): ScenarioRelationRole => {
-  const projection = scenarioById.get(scenario);
-  if (!projection) throw new Error(`Unknown architecture scenario: ${scenario}`);
-  if (projection.primaryRelationIds.includes(relationId)) return 'primary';
-  if (projection.supportingRelationIds.includes(relationId)) return 'supporting';
-  throw new Error(`Relation is not projected in scenario: ${scenario}:${relationId}`);
-};
-
-const architectureDetailsMutable = new Map<string, ArchitectureNodeData>();
-const contractGroups = [
-  ...architectureContract.authorityOwners,
-  ...architectureContract.boundaries,
-] as ContractGroup[];
-const authorityLabelById = new Map(architectureContract.authorityOwners.map((owner) => [owner.id, owner.label]));
-const authorityLocalInvariants = architectureContract.developmentChunkContract.authorityLocalInvariants;
-const invariantIdsBySurface = new Map<string, string[]>();
-const surfaceDocsRouteById = new Map([
-  ...contractGroups.map((surface) => [surface.id, surface.docsRoute] as const),
-  ...architectureContract.channels.map((surface) => [surface.id, surface.docsRoute] as const),
-]);
-const scenarioDocsRouteById = new Map(architectureContract.scenarios.map((scenario) => [scenario.id, scenario.docsRoute]));
-for (const invariant of authorityLocalInvariants) {
-  const surfaceId = 'authorityId' in invariant ? invariant.authorityId : invariant.custodianId;
-  if (!surfaceId) throw new Error(`Authority-local invariant has no authority or custodian: ${invariant.id}`);
-  if (typeof invariant.docsRoute !== 'string' || invariant.docsRoute.length === 0) {
-    throw new Error(`Authority-local invariant has no canonical docs route: ${invariant.id}`);
-  }
-  if (
-    surfaceDocsRouteById.get(surfaceId) !== invariant.docsRoute
-    && scenarioDocsRouteById.get(invariant.scenarioId) !== invariant.docsRoute
-  ) {
-    throw new Error(`Authority-local invariant docs route diverges from its surface: ${invariant.id}`);
-  }
-  const ids = invariantIdsBySurface.get(surfaceId) ?? [];
-  ids.push(invariant.id);
-  invariantIdsBySurface.set(surfaceId, ids);
-}
-
-for (const currentGroup of contractGroups) {
-  const ownerLabel = currentGroup.authorityOwnerId
-    ? authorityLabelById.get(currentGroup.authorityOwnerId)
-    : currentGroup.label;
-  if (!ownerLabel) throw new Error(`Unknown authority owner for boundary: ${currentGroup.id}`);
-  const semanticIdentity = groupSemanticIdentity(currentGroup);
-  for (const current of currentGroup.modules) {
-    const zhLines = current.description.zh.split('\n');
-    if (
-      current.description.zh.length < 12
-      || current.description.zh.length > 150
-      || zhLines.length > 3
-      || zhLines.some((line) => line.length > 50)
-    ) {
-      throw new Error(`Chinese node description must contain 12-150 characters across at most three 50-character lines: ${current.id}`);
-    }
-    architectureDetailsMutable.set(current.id, {
-      nodeType: 'architecture',
-      title: current.label,
-      owner: ownerLabel,
-      kind: current.kind,
-      emphasis: current.emphasis,
-      scenarios: current.scenarios,
-      description: current.description,
-      docsRoute: currentGroup.docsRoute,
-      ...semanticIdentity,
-      canonicalInvariantIds: [...(invariantIdsBySurface.get(currentGroup.id) ?? [])],
-    });
-  }
-}
-
-for (const channel of architectureContract.channels) {
-  architectureDetailsMutable.set(channel.id, {
-    nodeType: 'architecture',
-    title: channel.label,
-    owner: 'CHANNEL',
-    kind: channel.kind as NodeKind,
-    emphasis: channel.emphasis as NodeEmphasis,
-    variant: 'bus',
-    scenarios: channel.scenarios as ScenarioId[],
-    description: channel.description,
-    docsRoute: channel.docsRoute,
-    sourceRole: `${channel.id}-custodian`,
-    objectAuthority: channel.id,
-    canonicalInvariantIds: [...(invariantIdsBySurface.get(channel.id) ?? [])],
-    displayRole: 'CHANNEL · NOT AN OWNER',
-    eventLines: channel.eventLines,
-  });
-}
-
-export const architectureDetails = architectureDetailsMutable;
-
-type FullPlacement = {
-  id: string;
-  position: { x: number; y: number };
-  width: number;
-  height: number;
-  variant: NonNullable<ArchitectureNodeData['variant']>;
-};
-
-const place = (id: string, x: number, y: number, width: number, height: number, variant: FullPlacement['variant']): FullPlacement => ({
-  id,
-  position: { x, y },
-  width,
-  height,
-  variant,
-});
-const fullPlacements: FullPlacement[] = [
-  place('workspace', 50, 25, 210, 52, 'client'),
-  place('agent-shell', 50, 92, 210, 52, 'client'),
-
-  place('strategy-registry', 348, 45, 145, 68, 'engine'),
-  place('lifecycle', 503, 45, 145, 68, 'engine'),
-  place('capital-tier', 658, 45, 145, 68, 'strategy'),
-
-  place('portfolio', 891, 25, 235, 52, 'engine'),
-  place('exposure', 1141, 25, 230, 52, 'engine'),
-  place('performance', 891, 92, 235, 52, 'engine'),
-  place('capacity', 1141, 92, 230, 52, 'client'),
-
-  place('telemetry-gateway', 1451, 30, 267, 52, 'client'),
-  place('status-projection', 1728, 30, 267, 52, 'store'),
-  place('alert-routing', 1451, 94, 267, 52, 'client'),
-  place('dashboard-api', 1728, 94, 267, 52, 'client'),
-
-  place('data-clients', 50, 325, 140, 65, 'client'),
-  place('data-engine', 205, 325, 135, 65, 'engine'),
-  place('pit-catalog', 50, 410, 140, 65, 'engine'),
-  place('instrument-master', 205, 410, 135, 65, 'engine'),
-
-  place('source-intake', 428, 325, 330, 65, 'client'),
-  place('research-intent', 428, 410, 330, 65, 'engine'),
-
-  place('artifact', 846, 325, 330, 65, 'engine'),
-  place('code-sandbox', 846, 410, 330, 65, 'strategy'),
-
-  place('native-replay', 1264, 325, 270, 65, 'engine'),
-  place('sim-exchange', 1264, 410, 128, 65, 'client'),
-  place('run-result', 1406, 410, 128, 65, 'engine'),
-
-  place('candidate', 1622, 325, 145, 65, 'strategy'),
-  place('protected-test', 1782, 325, 165, 65, 'strategy'),
-  place('forward-record', 1622, 410, 130, 65, 'strategy'),
-  place('eligibility', 1767, 410, 180, 65, 'engine'),
-
-  place('event-rail', 408, 594, 1146, 104, 'bus'),
-
-  place('strategy-loader', 50, 815, 190, 58, 'client'),
-  place('market-snapshot', 255, 815, 195, 58, 'store'),
-  place('strategy-matcher', 50, 895, 190, 52, 'engine'),
-  place('proposal-builder', 255, 895, 195, 52, 'store'),
-
-  place('native-strategy', 538, 815, 390, 58, 'engine'),
-  place('runtime-readiness', 538, 895, 390, 52, 'strategy'),
-
-  place('headroom', 1016, 895, 360, 52, 'client'),
-  place('risk-engine', 1206, 815, 170, 58, 'engine'),
-  place('kill-switch', 1016, 815, 175, 58, 'strategy'),
-
-  place('effect-record', 1464, 815, 142, 58, 'strategy'),
-  place('order-engine', 1619, 815, 145, 58, 'engine'),
-  place('trade-clients', 1779, 815, 150, 58, 'client'),
-  place('reconcile', 1464, 895, 460, 52, 'store'),
-];
-
-const group = (
-  id: string,
-  label: string,
-  badge: OwnerBadge | undefined,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  tone: OwnerNodeData['tone'] = 'neutral',
-  role: OwnerNodeData['role'] = 'authority',
-  docsRoute: string,
-  sourceRole: string,
-  objectAuthority: string,
-  moduleCount: number,
-  canonicalInvariantIds: string[],
-  memberGroupIds: string[],
-): Node<OwnerNodeData> => ({
-  id,
-  type: 'ownerGroup',
-  position: { x, y },
-  data: {
-    nodeType: role === 'authority' ? 'owner' : 'boundary',
-    label,
-    count: moduleCount,
-    tone,
-    badge,
-    role,
-    roleLabel: role === 'authority'
-      ? 'OWNER'
-      : role === 'stage'
-        ? 'STAGE · RESEARCH'
-        : role === 'factory'
-          ? 'VALUE STREAM · NOT AN OWNER'
-          : role === 'channel'
-            ? 'CHANNEL'
-            : 'BOUNDARY',
-    docsRoute,
-    sourceRole,
-    objectAuthority,
-    canonicalInvariantIds,
-    memberGroupIds,
-  },
-  width,
-  height,
-  style: { width, height },
-  selectable: true,
-  draggable: false,
-  zIndex: role === 'factory' ? 1 : 3,
-});
-
-type GroupLayout = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  tone: OwnerNodeData['tone'];
-};
-
-const groupLayouts = new Map<string, GroupLayout>([
-  ['group-factory', { x: 388, y: 250, width: 1600, height: 290, tone: 'violet' }],
-  ['group-product', { x: 30, y: -10, width: 250, height: 170, tone: 'neutral' }],
-  ['group-governance', { x: 328, y: -10, width: 495, height: 170, tone: 'violet' }],
-  ['group-portfolio', { x: 871, y: -10, width: 520, height: 170, tone: 'cyan' }],
-  ['group-observability', { x: 1439, y: -10, width: 569, height: 170, tone: 'neutral' }],
-  ['group-data', { x: 30, y: 280, width: 330, height: 240, tone: 'cyan' }],
-  ['group-rd', { x: 408, y: 280, width: 788, height: 240, tone: 'violet' }],
-  ['group-backtest', { x: 1244, y: 280, width: 310, height: 240, tone: 'cyan' }],
-  ['group-qualification', { x: 1602, y: 280, width: 365, height: 240, tone: 'violet' }],
-  ['group-program', { x: 30, y: 770, width: 440, height: 215, tone: 'violet' }],
-  ['group-runtime', { x: 518, y: 770, width: 430, height: 215, tone: 'cyan' }],
-  ['group-risk', { x: 996, y: 770, width: 400, height: 215, tone: 'amber' }],
-  ['group-execution', { x: 1444, y: 770, width: 500, height: 215, tone: 'amber' }],
-]);
-
-type Rect = Pick<GroupLayout, 'x' | 'y' | 'width' | 'height'>;
-
-const containsRect = (outer: Rect, inner: Rect, minimumPadding: number) => (
-  inner.x - outer.x >= minimumPadding
-  && inner.y - outer.y >= minimumPadding
-  && outer.x + outer.width - (inner.x + inner.width) >= minimumPadding
-  && outer.y + outer.height - (inner.y + inner.height) >= minimumPadding
-);
-
-const overlapsRect = (a: Rect, b: Rect) => (
-  a.x < b.x + b.width
-  && a.x + a.width > b.x
-  && a.y < b.y + b.height
-  && a.y + a.height > b.y
-);
-
-const factoryBoundaries = contractGroups.filter((current) => current.role === 'factory');
-if (factoryBoundaries.length !== 1) throw new Error('Architecture must declare exactly one Strategy Factory');
-const [factoryBoundary] = factoryBoundaries;
-if (!factoryBoundary?.memberGroupIds?.length) {
-  throw new Error('Strategy Factory must declare memberGroupIds');
-}
-const factoryLayout = groupLayouts.get(factoryBoundary.groupId);
-if (!factoryLayout) throw new Error('Missing Strategy Factory visual layout');
-const declaredFactoryMembers = new Set(factoryBoundary.memberGroupIds);
-if (declaredFactoryMembers.size !== factoryBoundary.memberGroupIds.length) {
-  throw new Error('Strategy Factory memberGroupIds must be unique');
-}
-const geometricFactoryMembers = new Set<string>();
-for (const [groupId, layout] of groupLayouts) {
-  if (groupId === factoryBoundary.groupId) continue;
-  if (containsRect(factoryLayout, layout, 16)) geometricFactoryMembers.add(groupId);
-  if (overlapsRect(factoryLayout, layout) && !declaredFactoryMembers.has(groupId)) {
-    throw new Error(`Non-member overlaps Strategy Factory: ${groupId}`);
-  }
-}
-if (
-  geometricFactoryMembers.size !== declaredFactoryMembers.size
-  || [...geometricFactoryMembers].some((groupId) => !declaredFactoryMembers.has(groupId))
-) {
-  throw new Error('Strategy Factory geometry diverges from memberGroupIds');
-}
-
-const fullGroups: Node<OwnerNodeData>[] = contractGroups.map((current) => {
-  const layout = groupLayouts.get(current.groupId);
-  if (!layout) throw new Error(`Missing visual layout for architecture group: ${current.groupId}`);
-  const role = current.role ?? 'authority';
-  const semanticIdentity = groupSemanticIdentity(current);
-  return group(
-    current.groupId,
-    current.label,
-    current.badge,
-    layout.x,
-    layout.y,
-    layout.width,
-    layout.height,
-    layout.tone,
-    role,
-    current.docsRoute,
-    semanticIdentity.sourceRole,
-    semanticIdentity.objectAuthority,
-    current.modules.length,
-    [...(invariantIdsBySurface.get(current.id) ?? [])],
-    [...(current.memberGroupIds ?? [])],
-  );
-});
-
-const parentByNode = new Map<string, string>(contractGroups.flatMap((current) => (
-  current.modules.map((module) => [module.id, current.groupId] as const)
-)));
-const groupById = new Map(fullGroups.map((node) => [node.id, node]));
-
-const fullItemNodes = fullPlacements.map<Node<ArchitectureNodeData>>((placement) => {
-  const data = architectureDetails.get(placement.id);
-  if (!data) throw new Error(`Unknown full architecture node: ${placement.id}`);
-  const parentId = parentByNode.get(placement.id);
-  const parent = parentId ? groupById.get(parentId) : undefined;
-  return {
-    id: placement.id,
-    type: 'architectureNode',
-    position: parent ? {
-      x: placement.position.x - parent.position.x,
-      y: placement.position.y - parent.position.y,
-    } : placement.position,
-    parentId,
-    extent: parent ? 'parent' : undefined,
-    data: { ...data, variant: placement.variant },
-    width: placement.width,
-    height: placement.height,
-    style: { width: placement.width, height: placement.height },
-    draggable: false,
-    zIndex: 4,
-  };
-});
-
-type RelationKind = 'request' | 'proposal' | 'policy' | 'intent' | 'command' | 'handoff' | 'fact' | 'effect' | 'event' | 'read-model';
-type EdgeWeight = 'standard' | 'light';
-
-const edgeVisuals = new Map<string, { sourceHandle: string; targetHandle: string; laneOffset?: number }>([
-  ['product-rd', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['rd-product-request-receipt', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['product-governance', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['governance-product-lifecycle-receipt', { sourceHandle: 'source-left', targetHandle: 'target-right' }],
-  ['rd-product', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['governance-product', { sourceHandle: 'source-left', targetHandle: 'target-right' }],
-  ['backtest-product', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['qualification-product-intake-receipt', { sourceHandle: 'source-top', targetHandle: 'target-bottom', laneOffset: -24 }],
-  ['qualification-product', { sourceHandle: 'source-top', targetHandle: 'target-bottom', laneOffset: -8 }],
-  ['program-product', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['execution-product', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['data-rd', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['data-rd-successor-feedback', { sourceHandle: 'source-right', targetHandle: 'target-left', laneOffset: 24 }],
-  ['rd-data-snapshot-request', { sourceHandle: 'source-left', targetHandle: 'target-right', laneOffset: -16 }],
-  ['rd-data-repair', { sourceHandle: 'source-left', targetHandle: 'target-right', laneOffset: 16 }],
-  ['product-qualification', { sourceHandle: 'source-bottom', targetHandle: 'target-top', laneOffset: 8 }],
-  ['qualification-backtest', { sourceHandle: 'source-left', targetHandle: 'target-right' }],
-  ['data-backtest', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['backtest-qualification', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['qualification-governance', { sourceHandle: 'source-top', targetHandle: 'target-bottom', laneOffset: 24 }],
-  ['portfolio-governance', { sourceHandle: 'source-left', targetHandle: 'target-right' }],
-  ['portfolio-governance-capacity-scope', { sourceHandle: 'source-left', targetHandle: 'target-right', laneOffset: 16 }],
-  ['portfolio-governance-interaction', { sourceHandle: 'source-left', targetHandle: 'target-right', laneOffset: -16 }],
-  ['data-program', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['governance-program', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['program-governance', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['governance-runtime', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['runtime-governance-application', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['runtime-product-application', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['governance-risk', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['portfolio-program', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['data-runtime', { sourceHandle: 'source-bottom', targetHandle: 'target-left' }],
-  ['data-portfolio', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['portfolio-risk', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['runtime-risk', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['risk-runtime', { sourceHandle: 'source-left', targetHandle: 'target-right' }],
-  ['runtime-execution', { sourceHandle: 'source-top', targetHandle: 'target-top' }],
-  ['execution-risk', { sourceHandle: 'source-left', targetHandle: 'target-right' }],
-  ['execution-risk-recovery', { sourceHandle: 'source-left', targetHandle: 'target-right' }],
-  ['risk-execution-claim', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['runtime-risk-fence', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['runtime-risk-incident-fence', { sourceHandle: 'source-bottom', targetHandle: 'target-top', laneOffset: -20 }],
-  ['execution-risk-drift-fence', { sourceHandle: 'source-left', targetHandle: 'target-right', laneOffset: 20 }],
-  ['risk-execution-fence', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['risk-execution-recovery-facts', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['runtime-execution-readiness', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['runtime-execution-incident', { sourceHandle: 'source-right', targetHandle: 'target-left', laneOffset: 16 }],
-  ['portfolio-execution-closure', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['execution-governance-closed', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['execution-governance-adapter-binding', { sourceHandle: 'source-top', targetHandle: 'target-bottom', laneOffset: 32 }],
-  ['execution-portfolio', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['execution-runtime', { sourceHandle: 'source-top', targetHandle: 'target-top' }],
-  ['runtime-governance-incident', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['runtime-rd-successor-feedback', { sourceHandle: 'source-top', targetHandle: 'target-bottom', laneOffset: -24 }],
-  ['runtime-rd-kernel-repair', { sourceHandle: 'source-top', targetHandle: 'target-bottom', laneOffset: 24 }],
-  ['rd-runtime-native-repair-request', { sourceHandle: 'source-bottom', targetHandle: 'target-top', laneOffset: -24 }],
-  ['execution-governance-drift', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['portfolio-product', { sourceHandle: 'source-top', targetHandle: 'target-top' }],
-  ['portfolio-rd-successor-feedback', { sourceHandle: 'source-bottom', targetHandle: 'target-top', laneOffset: -16 }],
-  ['execution-rd-successor-feedback', { sourceHandle: 'source-top', targetHandle: 'target-bottom', laneOffset: 16 }],
-  ['runtime-events', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['execution-events', { sourceHandle: 'source-top', targetHandle: 'target-right' }],
-  ['qualification-events', { sourceHandle: 'source-bottom', targetHandle: 'target-top' }],
-  ['events-governance', { sourceHandle: 'source-top', targetHandle: 'target-bottom' }],
-  ['events-observability', { sourceHandle: 'source-right', targetHandle: 'target-bottom' }],
-  ['observability-product-status', { sourceHandle: 'source-left', targetHandle: 'target-right', laneOffset: -24 }],
-  ['rd-backtest-artifact', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['backtest-rd-simulator-repair', { sourceHandle: 'source-left', targetHandle: 'target-right', laneOffset: 24 }],
-  ['rd-backtest-native-repair-request', { sourceHandle: 'source-right', targetHandle: 'target-left', laneOffset: -24 }],
-  ['rd-backtest-request', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-  ['backtest-rd', { sourceHandle: 'source-left', targetHandle: 'target-right' }],
-  ['rd-qualification', { sourceHandle: 'source-right', targetHandle: 'target-left' }],
-]);
-
-export const architectureNodes: Node<DiagramNodeData>[] = [...fullGroups, ...fullItemNodes];
-const architectureObjectCustody = new Map(
-  architectureContract.architectureObjects.map((current) => [current.id, {
-    authorityId: 'authorityId' in current ? current.authorityId : undefined,
-    custodianId: 'custodianId' in current ? current.custodianId : undefined,
-  }]),
-);
-export const fullArchitectureEdges: Edge[] = architectureContract.relations.map((contract) => {
-  const visual = edgeVisuals.get(contract.id);
-  if (!visual) throw new Error(`Missing visual route for architecture relation: ${contract.id}`);
-  const custody = architectureObjectCustody.get(contract.objectId);
-  if (!custody || Boolean(custody.authorityId) === Boolean(custody.custodianId) || !contract.docsRoute) {
-    throw new Error(`Incomplete canonical binding for architecture relation: ${contract.id}`);
-  }
-  if (contract.description.zh.length > 50 || contract.description.zh.includes('\n')) {
-    throw new Error(`Chinese edge description must be one line of at most 50 characters: ${contract.id}`);
-  }
-  const businessOutcomeOwnerId = 'businessOutcomeOwnerId' in contract && typeof contract.businessOutcomeOwnerId === 'string'
-    ? contract.businessOutcomeOwnerId
-    : undefined;
-  const noBusinessOutcomeBasis = 'noBusinessOutcomeBasis' in contract && typeof contract.noBusinessOutcomeBasis === 'string'
-    ? contract.noBusinessOutcomeBasis
-    : undefined;
-  if (Boolean(businessOutcomeOwnerId) === Boolean(noBusinessOutcomeBasis)) {
-    throw new Error(`Architecture relation must declare one business outcome binding: ${contract.id}`);
-  }
-  const stage = contract.class === 'stage';
-  return {
-    id: contract.id,
-    source: contract.sourceId,
-    target: contract.targetId,
-    sourceHandle: visual.sourceHandle,
-    targetHandle: visual.targetHandle,
-    type: 'architectureEdge',
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: stage ? '#8b5cf6' : '#2563eb',
-      width: stage ? 10 : 11,
-      height: stage ? 10 : 11,
-    },
-    data: {
-      relationKind: contract.class,
-      relation: contract.relation as RelationKind,
-      scenarios: contract.scenarios as ScenarioId[],
-      overview: contract.overview,
-      weight: contract.weight as EdgeWeight,
-      description: contract.description,
-      laneOffset: visual.laneOffset,
-      authorityId: custody.authorityId,
-      custodianId: custody.custodianId,
-      objectId: contract.objectId,
-      contractId: contract.id,
-      docsRoute: contract.docsRoute,
-      sourceRole: contract.sourceRole,
-      objectAuthority: contract.objectAuthority,
-      businessOutcomeOwnerId,
-      noBusinessOutcomeBasis,
-    },
-    zIndex: stage ? 2 : undefined,
-  };
-});
-
-const relationIds = new Set(fullArchitectureEdges.map((edge) => edge.id));
-for (const scenario of scenarios) {
-  const primaryIds = new Set(scenario.primaryRelationIds);
-  const supportingIds = new Set(scenario.supportingRelationIds);
-  if (primaryIds.size !== scenario.primaryRelationIds.length) {
-    throw new Error(`Scenario primaryRelationIds must be unique: ${scenario.id}`);
-  }
-  if (supportingIds.size !== scenario.supportingRelationIds.length) {
-    throw new Error(`Scenario supportingRelationIds must be unique: ${scenario.id}`);
-  }
-  if ([...primaryIds].some((relationId) => supportingIds.has(relationId))) {
-    throw new Error(`Scenario primary and supporting relations must be disjoint: ${scenario.id}`);
-  }
-  const declaredIds = new Set([...primaryIds, ...supportingIds]);
-  const metadataVisibleIds = new Set(fullArchitectureEdges.filter((relation) => {
-    const visibility = relation.data as { scenarios?: ScenarioId[]; overview?: boolean } | undefined;
-    return scenario.id === 'overview'
-      ? visibility?.overview === true
-      : visibility?.scenarios?.includes(scenario.id) === true;
-  }).map((relation) => relation.id));
-  if (
-    declaredIds.size !== metadataVisibleIds.size
-    || [...declaredIds].some((relationId) => !metadataVisibleIds.has(relationId))
-  ) {
-    throw new Error(`Scenario primary and supporting relations must completely partition visibility: ${scenario.id}`);
-  }
-  for (const relationId of declaredIds) {
-    const relation = fullArchitectureEdges.find((edge) => edge.id === relationId);
-    if (!relation || !relationIds.has(relationId)) {
-      throw new Error(`Scenario references an unknown relation: ${scenario.id}:${relationId}`);
-    }
-    const visibility = relation.data as { scenarios?: ScenarioId[]; overview?: boolean } | undefined;
-    if (!visibility?.scenarios || typeof visibility.overview !== 'boolean') {
-      throw new Error(`Scenario relation lacks visibility metadata: ${scenario.id}:${relationId}`);
-    }
-  }
-}
-
-for (let index = 0; index < fullGroups.length; index += 1) {
-  const a = fullGroups[index];
-  if (a.data.role === 'factory') continue;
-  const aWidth = Number(a.style?.width ?? 0);
-  const aHeight = Number(a.style?.height ?? 0);
-  for (const b of fullGroups.slice(index + 1)) {
-    if (b.data.role === 'factory') continue;
-    const bWidth = Number(b.style?.width ?? 0);
-    const bHeight = Number(b.style?.height ?? 0);
-    const sharesBand = a.position.y < b.position.y + bHeight
-      && a.position.y + aHeight > b.position.y;
-    if (!sharesBand) continue;
-    const horizontalGap = a.position.x <= b.position.x
-      ? b.position.x - (a.position.x + aWidth)
-      : a.position.x - (b.position.x + bWidth);
-    if (horizontalGap < 48) throw new Error(`Owner gap below 48px: ${a.id}, ${b.id}`);
-  }
-}
-
-const fullIds = new Set(architectureNodes.map((node) => node.id));
-for (const current of fullArchitectureEdges) {
-  if (!fullIds.has(current.source) || !fullIds.has(current.target)) {
-    throw new Error(`Dangling full architecture edge: ${current.id}`);
-  }
-}
-for (let index = 0; index < fullPlacements.length; index += 1) {
-  const a = fullPlacements[index];
-  for (const b of fullPlacements.slice(index + 1)) {
-    const overlaps = a.position.x < b.position.x + b.width
-      && a.position.x + a.width > b.position.x
-      && a.position.y < b.position.y + b.height
-      && a.position.y + a.height > b.position.y;
-    if (overlaps) throw new Error(`Overlapping full architecture nodes: ${a.id}, ${b.id}`);
-  }
-}

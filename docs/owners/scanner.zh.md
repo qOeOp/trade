@@ -1,5 +1,17 @@
 # Scanner
 
+## 目标定位与旧契约迁移
+
+产品目标不再保留独立 Scanner 部门或由它产生部署提案的路线。按需找币归
+[R&D 只读机会发现](./rd.zh.md#on-demand-read-only-opportunity-discovery)，复用封存策略与原生判断能力；
+策略上线、试盘转正、保留与下架由 Strategy Governance 直接根据资格、账户/表现事实和冻结条件决定。
+不为 Governance 新设一个扫描提案生产者，也不将市场机会信号作为策略上线的必要前置。
+
+以下正文描述旧 Scanner 的封存契约和局部实现，供兼容与迁移使用，不是新的产品部门蓝图。
+当前 Governance 的 `ScannerConditional` 路径明确返回 `ConditionalScannerNotAdmitted`，未接通生产消费者。
+移除目标部门不把这个旧路径静默改为无条件激活；迁移用版本化治理条件和原有资格、授权、资金及恢复约束承接，
+旧回执和尝试身份保留，未准入的调度与效果不会因本次设计变成已准入。
+
 ## 职责
 
 按固定周期在受治理策略和当前市场条件之间执行慢轨匹配，再向 Strategy Governance 提交绑定证据的部署提案。Scanner 永不激活 Runtime，也不拥有策略生命周期状态。
@@ -124,31 +136,27 @@
 
 ## 失败与恢复
 
-单个策略输入不可用或条件错误只把该策略闭合为 `INPUT_UNAVAILABLE` 或 `CONDITION_FAILED`，两者都
-不能制造 batch operational failure。完整集合没有 `MATCHED` 且至少一个 `CONDITION_FAILED` 时闭合为
-`COMPLETED_NO_PROPOSAL`，并保留每个成员。batch `FAILED` 只保留给 `INCOMPLETE_FAILED` 或有独立证据的
-`BATCH_OPERATIONAL_FAILED`；后者准确绑定 `SCHEDULER_ORCHESTRATION_FAILURE`
-`SCANNER_SERVICE_FAILURE` 或 `SHARED_DEPENDENCY_OPERATIONAL_FAILURE` 之一，以及 failure identity、证据
-source cut 与 Time Evidence。expected 已知且不完整时记录准确缺失成员；expected 未解析时记录成员
-不可用原因且绝不编造 missing 集。任何失败分支即使已有局部匹配也不含提案。总优先级为独立证明的
-batch `FAILED`、完整 `PROPOSED`、完整 `COMPLETED_NO_PROPOSAL`、`INSUFFICIENT_DATA`、`NO_MATCH`。
+单个策略输入不可用或条件错误只把该策略闭合为 `INPUT_UNAVAILABLE` 或 `CONDITION_FAILED`，两者都 不能制造 batch operational failure。 完整集合没有
+`MATCHED` 且至少一个 `CONDITION_FAILED` 时闭合为 `COMPLETED_NO_PROPOSAL`，并保留每个成员。
+
+batch `FAILED` 只保留给 `INCOMPLETE_FAILED` 或有独立证据的 `BATCH_OPERATIONAL_FAILED`；后者准确绑定 `SCHEDULER_ORCHESTRATION_FAILURE`
+`SCANNER_SERVICE_FAILURE` 或 `SHARED_DEPENDENCY_OPERATIONAL_FAILURE` 之一，以及 failure identity、证据 source cut 与 Time Evidence。 expected
+已知且不完整时记录准确缺失成员；expected 未解析时记录成员 不可用原因且绝不编造 missing 集。 任何失败分支即使已有局部匹配也不含提案。
+
+总优先级为独立证明的 batch `FAILED`、完整 `PROPOSED`、完整
+`COMPLETED_NO_PROPOSAL`、`INSUFFICIENT_DATA`、`NO_MATCH`。
 
 调度定义在执行前决定 due slot。相同 definition version、scan-scope 身份与版本和规范 boundary 始终
 解析到同一 attempt 与终态回执。cadence calendar time zone 时区规则 fold/gap misfire 或 backfill rule
 变化时创建后继 definition。clock continuity 缺失，或 scope/slot 证据冲突 无法解析时，不创建 attempt；
 基于墙钟的重试不能发明新 slot，也不能把新 clock epoch 写入稳定身份。
 
-**终态回执的读回是时间无关的，而且必须保持如此。** 准入所消费的那次时钟观测不是回执的一部分，
-所以读回无法重跑准入的时钟谓词，也不得被改成重跑：一份今天这样读、明天那样读的回执，
-已经不是终态记录。读回真正重算的，是那些两侧都仍然由回执持有的检查：source、frontier、scope
-与 requirement 各项检查、六条 market cross-cut 与一条 capacity cross-cut，
-以及由保留下来的 boundary 决定的到期时刻。
-一个回执携带、而它的对侧不携带的字段，比如每条 fact 的观测时刻，不被重查；
-为它导出一个替代的对侧，会让这项检查的强度取决于那次扫描恰好需要什么。
-读回还能够到一条准入够不到的不变量：同一份回执里的每条 fact 共用同一个到期槽，
-因此它们的 clock epoch 与 Time Evidence 必须全体相等。
-准入一条 fact 时看不到第二条 fact，所以准入路径上没有任何东西能查这一条；
-只有整份回执回来之后才查得了。
+**终态回执的读回是时间无关的，而且必须保持如此。** 准入所消费的那次时钟观测不是回执的一部分， 所以读回无法重跑准入的时钟谓词，也不得被改成重跑：一份今天这样读、明天那样读的回执， 已经不是终态记录。
+读回真正重算的，是那些两侧都仍然由回执持有的检查：source、frontier、scope 与 requirement 各项检查、六条 market cross-cut 与一条 capacity cross-cut，
+以及由保留下来的 boundary 决定的到期时刻。 一个回执携带、而它的对侧不携带的字段，比如每条 fact 的观测时刻，不被重查； 为它导出一个替代的对侧，会让这项检查的强度取决于那次扫描恰好需要什么。
+
+读回还能够到一条准入够不到的不变量：同一份回执里的每条 fact 共用同一个到期槽， 因此它们的 clock epoch 与 Time Evidence 必须全体相等。 准入一条 fact 时看不到第二条
+fact，所以准入路径上没有任何东西能查这一条； 只有整份回执回来之后才查得了。
 
 ## 决策契约
 
@@ -191,9 +199,9 @@ batch `FAILED`、完整 `PROPOSED`、完整 `COMPLETED_NO_PROPOSAL`、`INSUFFICI
 
 ## 可观测性与持久化
 
-Scanner 原生持久化 Schedule Definition、稳定 due-slot Attempt、准确输入 frontier、逐策略 disposition、
-终态 Scanner Receipt 与 Proposal；`BATCH_OPERATIONAL_FAILED` 还持久化 batch failure identity、唯一已准入
-类别、证据 source cut 与 Time Evidence。Telemetry 覆盖调度延迟、attempt 时长、逐策略隔离、缺失输入
-类别、聚合完整性和类型化独立 batch operational failure。Dashboard 分别统计 condition-failed member、
-`COMPLETED_NO_PROPOSAL` 与类型化 batch `FAILED` receipt；retry 必须 join 同一稳定 attempt，不能重复
-增加 scan 或 proposal。
+Scanner 原生持久化 Schedule Definition、稳定 due-slot Attempt、准确输入 frontier、逐策略 disposition、 终态 Scanner Receipt 与
+Proposal；`BATCH_OPERATIONAL_FAILED` 还持久化 batch failure identity、唯一已准入 类别、证据 source cut 与 Time Evidence。 Telemetry
+覆盖调度延迟、attempt 时长、逐策略隔离、缺失输入 类别、聚合完整性和类型化独立 batch operational failure。
+
+Dashboard 分别统计 condition-failed member、 `COMPLETED_NO_PROPOSAL` 与类型化 batch `FAILED` receipt；retry 必须
+join 同一稳定 attempt，不能重复 增加 scan 或 proposal。

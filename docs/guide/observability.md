@@ -2,7 +2,7 @@
 
 ## Goal
 
-This playbook turns one Owner or node into a diagnosable participant without coupling it to one vendor, broker, database, or Dashboard. It applies to R&D, Market Data, Backtest, Qualification, Scanner, Strategy Governance, Runtime, Risk, Execution, and Portfolio.
+This playbook turns one Owner or node into a diagnosable participant without coupling it to one vendor, broker, database, or Dashboard. It applies to R&D, Market Data, Backtest, Qualification, Strategy Governance, Runtime, Risk, Execution, and Portfolio.
 
 The rule is simple: Owners persist business facts; Observability persists operational copies and projections. If Observability disappears, Owner correctness and Recovery obligations remain unchanged.
 
@@ -25,31 +25,32 @@ Never place API keys, opaque credential values, protected Qualification evidence
 
 ## Owner persistence and Dashboard matrix
 
-| Owner               | Authoritative records                                                 | Dashboard projections                                                                                                                                                                                       |
-| ------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R&D                 | source provenance, Research Intent, Artifact, iteration and selection | sources consumed, hypotheses, development attempts, failure reasons, iterations to selected version, D-only repair history                                                                                  |
-| Backtest            | replay request, exploratory/protected result and diagnosis            | exploratory run purpose, terminal, duration, costs, capacity, and diagnostic distribution; protected public terminal outcome, type‑opaque non‑dereferenceable reference, and source‑frontier freshness only |
-| Qualification       | intake, protected assessment, attempt disposition, Eligibility        | attempts by public terminal outcome only: `QUALIFIED`/`CLOSED_NOT_QUALIFIED`/expiry/revocation                                                                                                              |
-| Market Data         | source binding, PIT snapshot, stream, correction and valuation facts  | source freshness, gaps, corrections, rights/semantics rejections, provider latency                                                                                                                          |
-| Scanner             | due‑slot attempt, per‑strategy disposition, receipt, proposal         | scheduled attempts, candidates scanned, matched/failed, proposals, latency                                                                                                                                  |
-| Strategy Governance | registry, lifecycle, allocation and authorized generation decision    | current deployed generations, start/stop time, active duration, pause/retire/resume and capital changes                                                                                                     |
-| Runtime             | application, readiness, checkpoint and incident facts                 | current applied generation, uptime/downtime, restarts, incidents and use duration                                                                                                                           |
-| Risk                | decision/reservation, aggregate commitment, fence and closure         | allow/reject/decrease‑only, reservation latency, liabilities, fences and duration                                                                                                                           |
-| Execution           | journal, command, order/fill/readback, account and Recovery facts     | attempts, orders, fills, adapter latency, unknown effects, drift and recovery duration                                                                                                                      |
-| Portfolio           | performance, exposure, capacity, interaction and lifecycle evidence   | PnL/drawdown, exposure, capacity, interaction degradation and evidence freshness                                                                                                                            |
+| Owner               | Authoritative records                                                                           | Dashboard projections                                                                                                                                                                                       |
+| ------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R&D                 | source provenance, Research Intent, Artifact, iteration, selection and observation jobs/results | sources consumed, hypotheses, development attempts, failure reasons, iterations to selected version, D-only repair history                                                                                  |
+| Backtest            | replay request, exploratory/protected result and diagnosis                                      | exploratory run purpose, terminal, duration, costs, capacity, and diagnostic distribution; protected public terminal outcome, type‑opaque non‑dereferenceable reference, and source‑frontier freshness only |
+| Qualification       | intake, protected assessment, attempt disposition, Eligibility                                  | attempts by public terminal outcome only: `QUALIFIED`/`CLOSED_NOT_QUALIFIED`/expiry/revocation                                                                                                              |
+| Market Data         | source binding, PIT snapshot, stream, correction and valuation facts                            | source freshness, gaps, corrections, rights/semantics rejections, provider latency                                                                                                                          |
+| Strategy Governance | registry, lifecycle, allocation and authorized generation decision                              | current deployed generations, start/stop time, active duration, pause/retire/resume and capital changes                                                                                                     |
+| Runtime             | application, readiness, checkpoint and incident facts                                           | current applied generation, uptime/downtime, restarts, incidents and use duration                                                                                                                           |
+| Risk                | decision/reservation, aggregate commitment, fence and closure                                   | allow/reject/decrease‑only, reservation latency, liabilities, fences and duration                                                                                                                           |
+| Execution           | journal, command, order/fill/readback, account and Recovery facts                               | attempts, orders, fills, adapter latency, unknown effects, drift and recovery duration                                                                                                                      |
+| Portfolio           | performance, exposure, capacity, interaction and lifecycle evidence                             | PnL/drawdown, exposure, capacity, interaction degradation and evidence freshness                                                                                                                            |
 
 Counts are derived from immutable identities and explicit states, never incremented as an unrelated mutable counter. For example, strategy-use count derives from distinct applied-generation or invocation facts; downtime derives from paired readiness/incident intervals under one clock epoch.
 
 Backtest disclosure is asymmetric by design. Exploratory projections may expose their diagnostic category set.
-Protected projections may expose the public terminal outcome `CLOSED_NOT_QUALIFIED` or `QUALIFIED`, a type-opaque
-non-dereferenceable result reference, and source-frontier freshness only. Protected phase, run latency, terminal
-timing, and timing-derived fields are forbidden. Never group,
-filter, label, count, alert, derive a health score, or populate a research funnel from a protected diagnostic category,
-internal terminal disposition, or negative reason. All negative terminals share the same public outcome and aggregate
-labels: `REPLAY_REJECTED`, `REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`,
-`ASSESSMENT_INVALID`, and `INELIGIBLE` are byte-equivalently `CLOSED_NOT_QUALIFIED`, while `QUALIFIED` remains
-exact. Event Rail never emits an internal `INELIGIBLE` or another protected-terminal event, so protected failures
-remain indistinguishable outside Qualification.
+Protected projections may expose the public terminal outcome `CLOSED_NOT_QUALIFIED` or `QUALIFIED`, a
+type-opaque non-dereferenceable result reference, and source-frontier freshness only. Protected phase, run
+latency, terminal timing, and timing-derived fields are forbidden. Never group, filter, label, count, alert,
+derive a health score, or populate a research funnel from a protected diagnostic category, internal terminal
+disposition, or negative reason.
+
+All negative terminals share the same public outcome and aggregate labels: `REPLAY_REJECTED`,
+`REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, and
+`INELIGIBLE` are byte-equivalently `CLOSED_NOT_QUALIFIED`, while `QUALIFIED` remains exact.
+Event Rail never emits an internal `INELIGIBLE` or another protected-terminal event, so protected
+failures remain indistinguishable outside Qualification.
 
 ## Logical data model
 

@@ -8,34 +8,38 @@ guarantee a maximum realized loss.
 ## Entry
 
 Strategy Governance authorizes an eligible strategy generation for live mode with an effective capital policy;
-it does not start Runtime.
-The decision binds a `LIVE` Execution Scope with venue-backed account and effect namespaces. The required market,
-account, risk, execution, reconciliation, and recovery facts are available. `INITIAL_ACTIVATION` also binds a fresh
-Portfolio Lifecycle Evidence Receipt containing a candidate-neutral gross Capacity View
-compatible with that pre-existing Capacity Scope; later `PROMOTION` also requires fresh exact Performance and
-Exposure Receipts under the `PROMOTION` transition-evidence key. Runtime commits an `APPLIED`
-Generation Application Receipt binding exactly one Strategy Instance and checkpoint to that decision, generation,
-scope, artifact, fence epoch, complete request Authorization Lineage, and explicit Autonomous Policy Authorization
-before automated intent production begins. This policy authorizes bounded unattended intent production; a bare
-Governance decision does not.
-`INITIAL_ACTIVATION`, `PROMOTION`, `APPLIED`, and normal automated Live add-risk or venue effects
-require `UNATTENDED_REQUEST_WITH_POLICY`. An `ATTENDED_REQUEST` is non-running and decrease-only; it cannot enter
-Live unless a future separately specified attended-effect contract exists.
+it does not start Runtime. The decision binds a `LIVE` Execution Scope with venue-backed account
+and effect namespaces. The required market, account, risk, execution, reconciliation, and recovery facts are
+available. `INITIAL_ACTIVATION` also binds a fresh Portfolio Lifecycle Evidence Receipt containing a
+candidate-neutral gross Capacity View compatible with that pre-existing Capacity Scope; later
+`PROMOTION` also requires fresh exact Performance and Exposure Receipts under the
+`PROMOTION` transition-evidence key.
+
+Runtime commits an `APPLIED` Generation Application Receipt binding exactly one Strategy Instance
+and checkpoint to that decision, generation, scope, artifact, fence epoch, complete request Authorization
+Lineage, and explicit Autonomous Policy Authorization before automated intent production begins. This policy
+authorizes bounded unattended intent production; a bare Governance decision does not. `INITIAL_ACTIVATION`,
+`PROMOTION`, `APPLIED`, and normal automated Live add-risk or venue effects require
+`UNATTENDED_REQUEST_WITH_POLICY`.
+
+An `ATTENDED_REQUEST` is non-running and decrease-only; it cannot enter Live unless a future separately
+specified attended-effect contract exists.
 
 ## Value path
 
 Strategy Instance consumes live Market Data and emits Trade Intents automatically when strategy conditions
-hold. Risk evaluates every intent and returns either a terminal rejection or a decision plus one-use reservation.
-Runtime binds an allowed permit into an order command. Execution validates the exact binding and submits one stable
-Reservation Claim Request. Only Risk `CONSUMED` permits Execution to journal one `PREPARED` attempt and send
-`ADAPTER_ADMISSION_REQUEST`. Risk commits one immutable admission result in the same frontier
-mutation that orders recovery fence activation; only `ADMITTED_ONCE` permits `INVOCATION_STARTED` and reaches the venue adapter.
-Execution then writes the order lifecycle, reads back effects, and reconciles them. Execution reports settlement
-facts to Risk and account facts to Portfolio. Risk alone transitions the Reservation; Portfolio
-alone updates its account projection.
-The request, principal, scope, admitted shell binding and history head, Operator Authorization, operation manifest,
-and Autonomous Policy Authorization remain identical through Governance decision, Runtime intent, Risk permit,
-Execution Effect Journal, and venue readback.
+hold. Risk evaluates every intent and returns either a terminal rejection or a decision plus one-use
+reservation. Runtime binds an allowed permit into an order command. Execution validates the exact binding and
+submits one stable Reservation Claim Request. Only Risk `CONSUMED` permits Execution to journal one
+`PREPARED` attempt and send `ADAPTER_ADMISSION_REQUEST`. Risk commits one immutable admission result in the
+same frontier mutation that orders recovery fence activation; only `ADMITTED_ONCE` permits
+`INVOCATION_STARTED` and reaches the venue adapter.
+
+Execution then writes the order lifecycle, reads back effects, and reconciles them. Execution reports
+settlement facts to Risk and account facts to Portfolio. Risk alone transitions the Reservation; Portfolio
+alone updates its account projection. The request, principal, scope, admitted shell binding and history head,
+Operator Authorization, operation manifest, and Autonomous Policy Authorization remain identical through
+Governance decision, Runtime intent, Risk permit, Execution Effect Journal, and venue readback.
 
 Normal decrease-only Live work uses a separate exact path: Governance decision → Runtime local suppression → Risk
 `PERMIT_DECREASE_ONLY` → a command with explicit-none Reservation/claim → Execution `PREPARED` →
@@ -45,18 +49,21 @@ exists on this path, but preparation and same-frontier fence arbitration remain 
 
 ## Owner handoffs
 
-Governance authorizes activation and controls Risk policy; Portfolio supplies the required capacity and lifecycle
-evidence to Governance. Runtime returns the Generation Application Receipt
-that alone proves application to Governance and Product Edge. Market Data supplies Runtime and Portfolio. Portfolio supplies
-the exact candidate-neutral gross Capacity View and coherent Portfolio Risk Evidence Bundle to Risk. Its immutable Capacity Scope is account plus `LIVE` mode plus economic
-pool and contains no strategy or generation. Risk durably serializes each add-risk decision against the one same-scope
-Aggregate Commitment Frontier whose usage combines that bundle with held Reservation liabilities by economic lineage.
-Runtime → Risk → Runtime is the intent and permit exchange.
-Runtime → Execution is the authorized command. Execution → Risk requests the Reservation claim, then adapter admission,
-and reports settlement lineage; Risk → Execution returns the sole immutable claim and admission results. Execution → Runtime reports order, fill, rejection,
-readback, and reconciliation facts. Execution →
-Portfolio reports account, order, fill, fee, and venue facts. Risk closes Reservation state; Portfolio updates
-its projection and → Governance closes feedback.
+Governance authorizes activation and controls Risk policy; Portfolio supplies the required capacity and
+lifecycle evidence to Governance. Runtime returns the Generation Application Receipt that alone proves
+application to Governance and Product Edge. Market Data supplies Runtime and Portfolio. Portfolio supplies the
+exact candidate-neutral gross Capacity View and coherent Portfolio Risk Evidence Bundle to Risk. Its immutable
+Capacity Scope is account plus `LIVE` mode plus economic pool and contains no strategy or
+generation.
+
+Risk durably serializes each add-risk decision against the one same-scope Aggregate Commitment Frontier whose
+usage combines that bundle with held Reservation liabilities by economic lineage. Runtime → Risk → Runtime is
+the intent and permit exchange. Runtime → Execution is the authorized command. Execution → Risk requests the
+Reservation claim, then adapter admission, and reports settlement lineage; Risk → Execution returns the sole
+immutable claim and admission results. Execution → Runtime reports order, fill, rejection, readback, and
+reconciliation facts. Execution → Portfolio reports account, order, fill, fee, and venue facts.
+
+Risk closes Reservation state; Portfolio updates its projection and → Governance closes feedback.
 
 ## Proof
 

@@ -10,6 +10,33 @@ unique facts and permissions. Existing versioned reservation, claim, adapter-adm
 are read/compatibility contracts, not requirements for parallel services or order state machines. The node target,
 reachable APIs and existing custody admit no Paper/Live or production effect.
 
+## TARGET - Funding admission within allocated limits
+
+Native RiskEngine checks orders, trading state, quantity/notional bounds and submission rates using native
+accounts and Portfolio. Product quotas, authorization and commitment extensions belong in the same node's
+native admission chain, without replacing those checks or recalculating balances/margin. All add-risk paths,
+including algorithm slices, pass this boundary. Native fixed-risk sizing still binds prices, stop distance,
+contract units and increments; planned stop risk cannot guarantee maximum gap loss.
+
+Preallocated strategy limits isolate budgets but do not replace order admission. Each new-risk decision uses
+the exact effective allocation version, checks instance usage and unsettled reservations, and checks shared
+account free margin and all commitments with matching fact bases, currencies and units. Reuse existing
+Capacity Scope atomic serialization for check-and-reserve, covering consecutive intents, allocation
+transitions and requests not yet reflected in account state. Accounted usage replaces Reservation liability
+through settlement lineage rather than adding a duplicate deduction.
+
+For member-entry allocation transitions, recheck every affected member against successor limits and exact
+allocation versions at the same serialization boundary. Old-limit orders that invalidate readiness prevent the
+transition; Governance retains the waiting request. Never allow new-member risk before narrowing existing
+limits. No distributed lock service is required; logical limits do not physically segregate exchange funds.
+When usage exceeds a reduced limit, stop new risk, retain actual liability and original protection, and
+preserve existing decrease-only and recovery rules.
+
+Kelly policies supply requested-size inputs under an approved version, not trading permission. Risk neither trains
+nor independently refreshes win-rate/return models. Reuse native sizing and check funds, risk, units, precision and
+limits. Margin proportion is not loss-risk proportion. Kelly proposals cannot bypass reservations, shared-account
+bounds or allocation-transition conditions for waiting members.
+
 ## Authoritative facts owned
 
 - Risk Decision bound to one intent and digest, Execution Scope, policy version and cut, Portfolio account and
@@ -60,8 +87,7 @@ reachable APIs and existing custody admit no Paper/Live or production effect.
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted on
-2026-09-19 as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
+permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
 and a production path that depends on no testkit or acceptance feature; every other row grants nothing, and
 widening the admitted set requires changing this document first.
 
@@ -203,23 +229,30 @@ exists.
 
 ## Failure and recovery
 
-A rejected normal intent has a terminal result and creates no external attempt. Every add-risk decision durably and
-atomically serializes against the exact Capacity Scope Aggregate Commitment Frontier. Capacity View supplies the
-candidate-neutral gross pool ceiling; the Portfolio Risk Evidence Bundle supplies coherent projected exposure,
-open orders, and incorporated settlement lineages; held Reservation liabilities complete usage. A stale attempt,
-overlapping unknown scope, or missing, stale, mismatched member rejects without a Reservation. Each intent is checked
-against its own `POOL_ROOT` → `STRATEGY_GENERATION` applicability chain while all sibling usage shares the root pool
-ceiling. A narrowed policy below usage commits `OVERCOMMITTED_NO_NEW_RISK` without preserving add-risk authority.
+A rejected normal intent has a terminal result and creates no external attempt. Every add-risk decision
+durably and atomically serializes against the exact Capacity Scope Aggregate Commitment Frontier. Capacity
+View supplies the candidate-neutral gross pool ceiling; the Portfolio Risk Evidence Bundle supplies coherent
+projected exposure, open orders, and incorporated settlement lineages; held Reservation liabilities complete
+usage. A stale attempt, overlapping unknown scope, or missing, stale, mismatched member rejects without a
+Reservation.
 
-Execution first submits one stable Reservation Claim Request. Risk durably serializes `CONSUMED`, `WITHDRAWN`,
-or `REJECTED`. Only matching `CONSUMED` admits one `PREPARED` attempt and `ADAPTER_ADMISSION_REQUEST`; it still
-permits no external call. Risk serializes admission with recovery fence activation and returns one immutable result. Only
-`ADMITTED_ONCE` permits `INVOCATION_STARTED`; response loss or restart joins the same result and attempt.
-`SUPPRESSED_BY_FENCE` or `REJECTED` proves no invocation. The Reservation graph is strict: pre-claim expiry,
-withdrawal, or proven no invocation ends as `WITHDRAWN`; only `CONSUMED` can advance to `UNKNOWN_EFFECT`,
-authoritative `NO_EFFECT`, or `SETTLED`. `UNKNOWN_EFFECT` can later advance only to authoritative `NO_EFFECT` or
-`SETTLED`. `SETTLED` stays held until a coherent Portfolio Risk Evidence Bundle contains the exact settlement
-lineage and one serialized transition replaces, rather than adds, that liability.
+Each intent is checked against its own `POOL_ROOT` → `STRATEGY_GENERATION` applicability chain while
+all sibling usage shares the root pool ceiling. A narrowed policy below usage commits `OVERCOMMITTED_NO_NEW_RISK`
+without preserving add-risk authority.
+
+Execution first submits one stable Reservation Claim Request. Risk durably serializes `CONSUMED`,
+`WITHDRAWN`, or `REJECTED`. Only matching `CONSUMED` admits one
+`PREPARED` attempt and `ADAPTER_ADMISSION_REQUEST`; it still permits no external call. Risk serializes
+admission with recovery fence activation and returns one immutable result. Only `ADMITTED_ONCE` permits
+`INVOCATION_STARTED`; response loss or restart joins the same result and attempt. `SUPPRESSED_BY_FENCE` or
+`REJECTED` proves no invocation.
+
+The Reservation graph is strict: pre-claim expiry, withdrawal, or proven no invocation ends as
+`WITHDRAWN`; only `CONSUMED` can advance to `UNKNOWN_EFFECT`, authoritative
+`NO_EFFECT`, or `SETTLED`. `UNKNOWN_EFFECT` can later advance only to authoritative
+`NO_EFFECT` or `SETTLED`. `SETTLED` stays held until a coherent Portfolio Risk
+Evidence Bundle contains the exact settlement lineage and one serialized transition replaces, rather than
+adds, that liability.
 
 For exact decrease-only, Risk accepts either a Governance-authorized lifecycle reduction or an unattended
 `DECREASE_ONLY_STRATEGY_PROTECTIVE` intent bound to the applied Artifact's protective-exit rule, trigger evidence,
@@ -228,20 +261,24 @@ lineage, and a durable `PREPARED` attempt. Risk creates no claim result, but ser
 same-scope fence exactly as for add-risk. Only `ADMITTED_ONCE` permits invocation; suppression, rejection,
 restart, and replay retain the same attempt and admission identity.
 
-Risk independently and atomically activates one fence on its same-scope frontier from exactly one source branch,
-without waiting for a Recovery Case acknowledgement. `RUNTIME_NOT_READY` requires Runtime's local suppression and
-immutable `NOT_READY` Readiness Fact. `RUNTIME_INCIDENT` requires the exact committed `runtime-incident-fact` from
-`runtime-risk-incident-fence`; `RECONCILIATION_DRIFT` requires the exact committed `reconciliation-drift-fact`
-from `execution-risk-drift-fence`. Those relations supply source evidence only. `RISK_HARD_STOP` instead requires
-the bound Risk cause, decisive evidence, policy, and frontier cut and may activate while Runtime remains `READY`. Fence
-activation and every in-flight normal adapter admission have one total order. Fence first returns
-`SUPPRESSED_BY_FENCE`; normal admission first returns one `ADMITTED_ONCE` attempt that enters the Recovery effect
-frontier. When an Artifact protective stop and `RISK_HARD_STOP` are simultaneous, the fence wins every not-yet-admitted
-normal permit or command while the protective intent, trigger, and terminal suppression remain causal evidence.
-An admission that already won remains exactly one attempt for authoritative readback; it does not mint Recovery
-authority. Risk supplies the active fence to Execution Reconciler, which alone owns the case and bounded Recovery
-Commands. Risk alone owns Reservation membership and its nonempty, explicitly empty, or unresolved result.
-Execution alone writes `KNOWN_CLOSED` after matching Risk and Portfolio closure facts.
+Risk independently and atomically activates one fence on its same-scope frontier from exactly one source
+branch, without waiting for a Recovery Case acknowledgement. `RUNTIME_NOT_READY` requires Runtime's local
+suppression and immutable `NOT_READY` Readiness Fact. `RUNTIME_INCIDENT` requires the exact
+committed `runtime-incident-fact` from `runtime-risk-incident-fence`; `RECONCILIATION_DRIFT` requires the exact committed
+`reconciliation-drift-fact` from `execution-risk-drift-fence`. Those relations supply source evidence only.
+`RISK_HARD_STOP` instead requires the bound Risk cause, decisive evidence, policy, and frontier cut and
+may activate while Runtime remains `READY`.
+
+Fence activation and every in-flight normal adapter admission have one total order. Fence first returns
+`SUPPRESSED_BY_FENCE`; normal admission first returns one `ADMITTED_ONCE` attempt that enters the Recovery
+effect frontier. When an Artifact protective stop and `RISK_HARD_STOP` are simultaneous, the fence wins
+every not-yet-admitted normal permit or command while the protective intent, trigger, and terminal suppression
+remain causal evidence. An admission that already won remains exactly one attempt for authoritative readback;
+it does not mint Recovery authority. Risk supplies the active fence to Execution Reconciler, which alone owns
+the case and bounded Recovery Commands.
+
+Risk alone owns Reservation membership and its nonempty, explicitly empty, or unresolved result. Execution
+alone writes `KNOWN_CLOSED` after matching Risk and Portfolio closure facts.
 
 ## Decision contract
 

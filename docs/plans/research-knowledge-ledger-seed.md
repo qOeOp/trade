@@ -141,7 +141,7 @@ F6. **"Touches" has opposite signs for range edges and swing levels; one name is
     (`STRATEGIES.md:213`).
   - Excluded: 69-coin holdout read; keep "stage 2: PASS".
 
-Rulings (Lane 3, 2026-10-03):
+Import rules:
 
 1. A row whose only closing evidence is a held-out read is imported as PARKED, with the note "the original research
    closed it on a held-out read; in the product the closure must be established again from development-side

@@ -1,29 +1,32 @@
 # 设计证据
 
 外部证据用于挑战本流程，不用于宣称 VibeTrading 已经盈利、可投产或等同于其他平台。Owner 命名、
-原生节点中的权限 gate、唯一 Recovery Case 闭合写入者以及 13 分组加一个通道 / 5 模块上限，仍是本项目的设计选择。
+原生节点中的权限 gate、唯一 Recovery Case 闭合写入者以及 六组职责及各组内部组件边界，仍是本项目的设计选择。
 
 ## 引擎边界与唯一交易路径
 
-[NautilusTrader 架构](https://nautilustrader.io/docs/latest/concepts/architecture/)分离市场数据、风控、执行、
-缓存和组合职责。其订单路径在路由到场所前验证风险，再把执行事实返回策略和组合状态。
-[QuantConnect LEAN Algorithm Framework](https://www.quantconnect.com/docs/v2/writing-algorithms/algorithm-framework/overview)
-用类型化交接分离标的选择、信号生产、组合构建、风险管理和执行。这些成熟设计支持明确所有权和
-唯一可观察交易路径，但不能证明 VibeTrading 的具体 Owner 切分或 permit 协议。
+[NautilusTrader 架构](https://nautilustrader.io/docs/latest/concepts/architecture/)分离市场数据、风控、执行、 缓存和组合职责。
+其订单路径在路由到场所前验证风险，再把执行事实返回策略和组合状态。 [QuantConnect LEAN Algorithm
+Framework](https://www.quantconnect.com/docs/v2/writing-algorithms/algorithm-framework/overview)
+用类型化交接分离标的选择、信号生产、组合构建、风险管理和执行。
+
+这些成熟设计支持明确所有权和 唯一可观察交易路径，但不能证明 VibeTrading 的具体 Owner 切分或 permit 协议。
 
 ## 研究主张与保护性评估
 
 [The Probability of Backtest Overfitting](https://escholarship.org/uc/item/4w1110bb)把在历史数据上反复筛选
-策略视为多重测试问题，并提出估计过拟合概率。[The Deflated Sharpe Ratio](https://papers.ssrn.com/sol3/Delivery.cfm/SSRN_ID2460551_code87814.pdf?abstractid=2460551)
-对选择偏差和非正态收益下的表现做校正。它们共同支持记录试验族、在保护评估前冻结资格规则、
-禁止保护结果反馈同一研发循环。单次 holdout 或单一指标不足以证明经济有效性。
+策略视为多重测试问题，并提出估计过拟合概率。 [The Deflated Sharpe
+Ratio](https://papers.ssrn.com/sol3/Delivery.cfm/SSRN_ID2460551_code87814.pdf?abstractid=2460551)
+对选择偏差和非正态收益下的表现做校正。 它们共同支持记录试验族、在保护评估前冻结资格规则、 禁止保护结果反馈同一研发循环。
 
-## 回测 模拟与实盘递进
+单次 holdout 或单一指标不足以证明经济有效性。
+
+## 模拟与实盘的共享语义
 
 [Freqtrade 策略测试](https://www.freqtrade.io/en/stable/strategy-101/)区分历史回测与实时 dry run，并说明
 两者结果为何不同。[NautilusTrader 环境](https://nautilustrader.io/docs/latest/concepts/architecture/)
 在共用交易组件周围提供历史模拟、实时模拟和实盘上下文。这些实践支持在回测、模拟和实盘之间
-保持 Runtime、Risk 和 Execution 语义稳定，只改变适配器和证据强度。
+保持 Runtime、Risk 和 Execution 语义稳定，只改变适配器和证据强度。这些是原生环境，不构成产品必经晋级阶梯；产品试盘和正式阶段都是真实交易。
 
 ## 恢复与外部事实
 

@@ -41,16 +41,19 @@ source Incident, Readiness, and Drift facts never acquire a case back-reference 
 
 ## Value path
 
-Only `RECOVERY_ADMITTED` may enter this path for a `RUNTIME_INCIDENT` or `RECONCILIATION_DRIFT` source. For a case with an independently
-applicable `ACTIVE` fence, Risk totally orders fence activation with every in-flight normal `ADAPTER_ADMISSION_REQUEST`. If the fence wins,
-Risk returns `SUPPRESSED_BY_FENCE`; if normal admission wins, exactly one immutable `ADMITTED_ONCE` attempt enters
-the Recovery effect frontier. Risk alone proves the complete active fence set at its Aggregate Commitment
-Frontier; Execution cannot infer completeness from delivered fence messages. Execution binds the exact set
-identity, content digest, and every source-specific member identity, epoch, policy, action set, and source cut to
-the `OPEN` case before advancing it to `FENCED_OPEN`. Runtime emits no normal intent on the `RUNTIME_NOT_READY`
-branch; on a hard-stop branch Risk blocks new risk even if Runtime remains `READY`. Only Execution Reconciler may
-create a Recovery Command. The effective allowed actions are the deterministic intersection of every member
-fence action set, never their union; an empty intersection permits no command.
+Only `RECOVERY_ADMITTED` may enter this path for a `RUNTIME_INCIDENT` or `RECONCILIATION_DRIFT` source. For a
+case with an independently applicable `ACTIVE` fence, Risk totally orders fence activation with
+every in-flight normal `ADAPTER_ADMISSION_REQUEST`. If the fence wins, Risk returns `SUPPRESSED_BY_FENCE`; if normal
+admission wins, exactly one immutable `ADMITTED_ONCE` attempt enters the Recovery effect frontier. Risk
+alone proves the complete active fence set at its Aggregate Commitment Frontier; Execution cannot infer
+completeness from delivered fence messages.
+
+Execution binds the exact set identity, content digest, and every source-specific member identity, epoch,
+policy, action set, and source cut to the `OPEN` case before advancing it to
+`FENCED_OPEN`. Runtime emits no normal intent on the `RUNTIME_NOT_READY` branch; on a hard-stop branch
+Risk blocks new risk even if Runtime remains `READY`. Only Execution Reconciler may create a
+Recovery Command. The effective allowed actions are the deterministic intersection of every member fence
+action set, never their union; an empty intersection permits no command.
 
 Case fence membership is append-only at each causal frontier. Every plan, command, effect attempt, Execution fact,
 Portfolio/Risk closure fact, Product Edge closure view, and Runtime recovery fact binds the same immutable complete
@@ -59,13 +62,15 @@ preserves the original attempt identity and expands only the subsequent case fro
 
 Order Engine validates each command, Execution Adapters perform the bounded action, Effect Journal records the
 attempt and outcome, and Reconciler reads authoritative venue or simulator state. Recovery uses a versioned
-deterministic order over the complete affected set: readback before mutation, cancel before reduce, reduce before
-flatten, no mutation at zero exposure, and stable instrument and order identities for ties. Missing membership or
-an unresolved tie causes no mutation. Every selected action commits a Recovery Effect Attempt `PREPARED` before
-invocation and `INVOCATION_STARTED` immediately before the call. A normal attempt already in
-flight must have durable `PREPARED` and `INVOCATION_STARTED` records; crash, response loss, and restart join those
-records and authoritative readback rather than retrying. Recovery commands never use ordinary Trade Intent,
-add-risk Reservation Claim, normal adapter-admission protocols, or the normal lifecycle `PERMIT_DECREASE_ONLY`.
+deterministic order over the complete affected set: readback before mutation, cancel before reduce, reduce
+before flatten, no mutation at zero exposure, and stable instrument and order identities for ties. Missing
+membership or an unresolved tie causes no mutation. Every selected action commits a Recovery Effect Attempt
+`PREPARED` before invocation and `INVOCATION_STARTED` immediately before the call.
+
+A normal attempt already in flight must have durable `PREPARED` and `INVOCATION_STARTED` records;
+crash, response loss, and restart join those records and authoritative readback rather than retrying. Recovery
+commands never use ordinary Trade Intent, add-risk Reservation Claim, normal adapter-admission protocols, or
+the normal lifecycle `PERMIT_DECREASE_ONLY`.
 
 Reduce or flatten binds the authoritative Execution exposure readback cut, side, absolute quantity, bounded
 target, and reduce-only policy. Execution revalidates the same cut immediately before invocation. A newer cut,
@@ -74,15 +79,17 @@ crossing commits a durable no-effect rejection. Reconciler may build a successor
 authoritative readback; the stale command is never retried.
 
 Execution reports case-, complete-fence-set-, command-, and effect-bound facts to Risk. A committed
-`reconciliation-drift-fact.UNKNOWN_EFFECT` binds its effect journal frontier, invocation or uncertain-effect
-lineage, uncertainty observation, last authoritative readback attempt or proven absence, and complete source and
-Time Evidence frontier. This complete fact may activate its own `RECONCILIATION_DRIFT` fence without fabricating
-an external outcome. Missing, ambiguous, uncommitted, or state-binding-incomplete evidence activates no fence.
-Only successor `NO_EFFECT` or `SETTLED` facts bind an authoritative terminal readback and reconciliation cut.
+`reconciliation-drift-fact.UNKNOWN_EFFECT` binds its effect journal frontier, invocation or uncertain-effect lineage, uncertainty
+observation, last authoritative readback attempt or proven absence, and complete source and Time Evidence
+frontier. This complete fact may activate its own `RECONCILIATION_DRIFT` fence without fabricating an external
+outcome. Missing, ambiguous, uncommitted, or state-binding-incomplete evidence activates no fence. Only
+successor `NO_EFFECT` or `SETTLED` facts bind an authoritative terminal readback and
+reconciliation cut.
+
 Risk alone resolves Reservation membership and liability, including an explicit resolved-empty set for a
 proven orphan external effect. Portfolio alone updates the account and exposure projection. Reconciler joins
-those independent facts and writes `KNOWN_CLOSED` only when every cause and affected effect is covered at one
-common evidence frontier.
+those independent facts and writes `KNOWN_CLOSED` only when every cause and affected effect is covered
+at one common evidence frontier.
 
 ## Owner handoffs
 
@@ -110,26 +117,30 @@ terminal authority.
 
 ## Proof
 
-Each `RUNTIME_INCIDENT` or `RECONCILIATION_DRIFT` source first proves its own Execution-owned Recovery Admission
-Disposition bound only to the exact `runtime-incident-fact` or `reconciliation-drift-fact`. Exact replay by
-source fact, generation, scope, policy, evidence frontier, and meaning joins that write-once fact; changed source,
-scope, policy, or evidence needs a successor disposition and never rewrites or fabricates a case.
-When the disposition is `RECOVERY_ADMITTED`, the terminal proof is Execution-owned immutable
-`RecoveryCase.KNOWN_CLOSED`. It binds one case, generation,
-scope, complete active Risk fence-set identity/digest and member set, complete cause set, exhaustive affected-effect set, Runtime checkpoint/readiness frontier,
-Execution readback and reconciliation cut, Risk Reservation closure, and Portfolio account projection at a
-common valid time frontier. A later cause opens a successor case; it never rewrites closure.
-`KNOWN_CLOSED` is a hard terminal proof, not a status summary: every listed cause and affected effect must resolve
-from the case frontier, and any missing, stale, unknown, mixed-cut, or non-dereferenceable member blocks it.
-The proof binds the same complete set of still-`ACTIVE` source-specific Risk Fences used for every Recovery action.
-Closure does not supersede, deactivate, lift, or mutate any member: the old generation remains permanently fenced and each fence has no
-`SUPERSEDED` or inactive transition. Any later generation requires a fresh Governance decision and the ordinary
-add-risk gates; it never changes or reuses the predecessor fence. The later generation has no Recovery Fence
-until one of its own four exact Recovery source branches independently activates one.
+Each `RUNTIME_INCIDENT` or `RECONCILIATION_DRIFT` source first proves its own Execution-owned Recovery
+Admission Disposition bound only to the exact `runtime-incident-fact` or `reconciliation-drift-fact`. Exact replay by
+source fact, generation, scope, policy, evidence frontier, and meaning joins that write-once fact; changed
+source, scope, policy, or evidence needs a successor disposition and never rewrites or fabricates a case. When
+the disposition is `RECOVERY_ADMITTED`, the terminal proof is Execution-owned immutable `RecoveryCase.KNOWN_CLOSED`.
+
+It binds one case, generation, scope, complete active Risk fence-set identity/digest and member set, complete
+cause set, exhaustive affected-effect set, Runtime checkpoint/readiness frontier, Execution readback and
+reconciliation cut, Risk Reservation closure, and Portfolio account projection at a common valid time
+frontier. A later cause opens a successor case; it never rewrites closure. `KNOWN_CLOSED` is a hard
+terminal proof, not a status summary: every listed cause and affected effect must resolve from the case
+frontier, and any missing, stale, unknown, mixed-cut, or non-dereferenceable member blocks it.
+
+The proof binds the same complete set of still-`ACTIVE` source-specific Risk Fences used for every
+Recovery action. Closure does not supersede, deactivate, lift, or mutate any member: the old generation
+remains permanently fenced and each fence has no `SUPERSEDED` or inactive transition. Any later
+generation requires a fresh Governance decision and the ordinary add-risk gates; it never changes or reuses
+the predecessor fence. The later generation has no Recovery Fence until one of its own four exact Recovery
+source branches independently activates one.
+
 For every affected normal effect, the proof also preserves its original request Authorization Lineage and
 Autonomous Policy Authorization through the Effect Journal and readback. The Recovery Command itself derives
-only from the Execution-owned case plus the complete active Risk fence set; it is not a new
-normal-trading authorization.
+only from the Execution-owned case plus the complete active Risk fence set; it is not a new normal-trading
+authorization.
 
 ## Development outcome
 

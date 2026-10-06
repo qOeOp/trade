@@ -14,14 +14,15 @@ Event Rail 是唤醒通道和传输托管者，为已提交资格变化 运行�
 
 ## 通知用途
 
-已提交 Event Wake 可以路由到 Observability。wake 是 Observability 输入；Alert Delivery 是 Alert Routing
-输出与回执，不能成为输入或业务事实。Qualification wake 只暴露 `CLOSED_NOT_QUALIFIED` `QUALIFIED`
-`EXPIRED` 或 `REVOKED`，且只使用公共 attempt correlation、公共 state、effective cut、sequence 和一个
-类型不透明且不可解引用的 reference。`REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID`
-`DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 与 `INELIGIBLE` 六种终态都发出相同归一化
-`CLOSED_NOT_QUALIFIED` event 形状；event 是否存在、state、effective cut、opaque-reference class 和
-sequence 在六者间都不可区分，绝不发布内部 `INELIGIBLE` event。保护测量 参数 结果 holdout 细节
-评估输出 timing difference 与 category-specific reference 绝不进入 Event Rail。投递成功只表示消息
+已提交 Event Wake 可以路由到 Observability。 wake 是 Observability 输入；Alert Delivery 是 Alert Routing 输出与回执，不能成为输入或业务事实。
+Qualification wake 只暴露 `CLOSED_NOT_QUALIFIED` `QUALIFIED` `EXPIRED` 或
+`REVOKED`，且只使用公共 attempt correlation、公共 state、effective cut、sequence 和一个 类型不透明且不可解引用的 reference。
+
+`REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 与
+`INELIGIBLE` 六种终态都发出相同归一化 `CLOSED_NOT_QUALIFIED` event 形状；event 是否存在、state、effective
+cut、opaque-reference class 和 sequence 在六者间都不可区分，绝不发布内部 `INELIGIBLE` event。
+
+保护测量 参数 结果 holdout 细节 评估输出 timing difference 与 category-specific reference 绝不进入 Event Rail。 投递成功只表示消息
 到达，不表示底层业务转换成功。
 
 ## 实现验收

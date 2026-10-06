@@ -1,6 +1,6 @@
 # Quickstart
 
-This is the research operating sequence and end-to-end acceptance target. Check [current capabilities](./agent-implementation/)
+This is the research operating sequence and end-to-end acceptance target. The [delivery roadmap](../architecture/) starts with V0.1 R-1 data/authoring/replay and extends sustained iteration in V0.2; the full research loop is not a first-release prerequisite. Check [current capabilities](./agent-implementation/)
 and deployment first. Stop at a named unavailable step; the sequence assumes no target has shipped and requires no
 Paper or Live session.
 
@@ -18,7 +18,7 @@ and window; the backend resolves exact custody. The agent does not transport bar
 
 ## 3. Author and seal
 
-Submit JSON `research.strategy-authoring.v1`, validate signal rules, sizing and execution policy, then read the
+Submit JSON `research.strategy-authoring.v1`, validate signal/protection rules, bounded sizing and approved execution-policy references, then read the
 immutable Artifact. R&D defines the current subset; a target description does not implement full R-1 orders/exits.
 
 ## 4. Run and read results
@@ -36,5 +36,5 @@ optimize the strategy; qualification authorizes no trading.
 ## Completion
 
 The agent recovers sources, Artifact, data, run and decision by original identities; the user can inspect facts and
-named failures. Report-route and other gaps remain explicit in the implementation guide; logs/charts cannot
+named failures. Verify each step's integration and admission against the implementation guide and owning chapter; logs/charts cannot
 substitute for results. [Research design](../scenarios/research/) defines full R-1 acceptance.

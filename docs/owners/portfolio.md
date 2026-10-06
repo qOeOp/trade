@@ -4,6 +4,26 @@
 
 Project current account, position, exposure, performance, and capacity facts from committed execution and market valuation inputs. Portfolio is account truth for product decisions; it does not allocate capital, permit trades, or own venue effects.
 
+## TARGET - Account facts for dynamic allocation
+
+The target trading account is dedicated to product-managed orders and positions. Deposits and withdrawals are
+account funding events, not strategy trades. Unexpected orders/positions or missing ownership are reconciliation
+evidence; Portfolio includes their actual account exposure without inventing strategy attribution. Reconciliation
+and effect custody use native account/Execution paths; this does not establish a parallel ledger or manual-trading
+management capability.
+
+Valuation and margin reads first reuse `crates/portfolio/src/portfolio.rs`, native account models and cache.
+The current target-set Host manually totals snapshot equity under one Margin account/currency; this does not
+prove general multi-currency valuation integration. Extend via native accounts/Portfolio with explicit missing
+price, FX and margin-model refusals, without promoting that local formula into another ledger.
+
+Reuse native accounts, cache, events and valuation for one fresh account view. Net equity supplies Governance
+allocation inputs; account free margin and actual usage constrain Risk admission. Do not interchange these values.
+Execution adapters and reconciliation admit account updates. Funding decisions read exact versions, times and scopes;
+stale or conflicting facts restrict new risk under existing rules. Each strategy or module need not query the exchange
+independently; refresh through the common adapter path when needed. Portfolio neither computes strategy headroom
+nor duplicates deductions for accounted orders or Risk reservations, and adds no second account ledger.
+
 ## Authoritative facts owned
 
 - Versioned measurement methodology: the definitions Portfolio applies to turn committed Execution facts and
@@ -84,8 +104,7 @@ non-isolating evidence set; it cannot coexist with a named cause.
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted on
-2026-09-18 as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
+permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
 entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
 grants nothing, and widening the admitted set requires changing this document first.
 
@@ -149,7 +168,7 @@ grants nothing, and widening the admitted set requires changing this document fi
 - To [Strategy Governance](./strategy-governance/): one Portfolio Interaction Receipt for every set-wide Capital
   Allocation Disposition and the same Portfolio Lifecycle Evidence Receipt for lifecycle attribution. Governance
   owns contender ranking and lifecycle action; Portfolio supplies only coherent source facts and attribution.
-- To [Scanner](./scanner/): a bounded Capacity View used only as a proposal hint.
+- Legacy handoff to [Scanner](./scanner/): a bounded Capacity View used only as a proposal hint. This preserves old receipts, not a new scheduled discovery or deployment path.
 - To [Execution](./execution/) during recovery: the reconciled account closure projection for the Recovery Case.
 - To Product Edge: one bounded Portfolio View keyed by stable request, trusted principal, authorized account and Execution Scope, authorization-policy cut, and Portfolio
   snapshot cut plus projection and valid-through times. It reports `AVAILABLE`, `INCOMPLETE_FAIL_CLOSED`, `STALE`, or `UNAVAILABLE` account, exposure, performance, and

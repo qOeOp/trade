@@ -4,9 +4,9 @@ These rules are the stable contract between the global Flow, this documentation,
 
 ## Bounded overview
 
-- The global Flow contains exactly 13 top-level groups plus one non-authoritative Event Rail channel node.
-- Each group contains no more than five modules.
-- Strategy Factory is a value-stream boundary. R&D is one business Owner containing both Research and Develop capabilities; Backtest remains a separate evidence-producing service Owner.
+- The product overview contains six responsibility groups: Market Data, Backtest, R&D, Qualification, Governance and Native Trading Node. The native node contains Runtime, Risk, Execution and Portfolio, giving nine business Owners.
+- A group expands into its internal components; visual grouping does not require a separate process or duplicate native engine.
+- Strategy Factory describes strategy representation and the cross-Owner value stream. R&D owns Research, Develop, knowledge and discovery; Backtest remains the independent replay-evidence Owner.
 - Product Edge, Observability, and Event Rail are boundaries or channels, not business-truth owners.
 - New detail belongs in prose unless it changes authority or an owner handoff.
 
@@ -28,12 +28,14 @@ to infer a hidden contract from test names.
 
 Each target deployment has exactly one `ACTIVE` Agent Shell binding selecting the canonical
 `TRADE_PRODUCT_EDGE` admission gateway in steady state, and admits the sealed `WINDMILL_PRODUCT_EDGE` spelling
-for records written before it. App and MCP are channels behind that
-gateway, not separate writers. A client- or transport-only change preserves the same effective principal, scope
-policy, approved Skill/MCP capability policy, and audit policy. During cutover, zero `ACTIVE` bindings is allowed only as a fail-closed interval. The exact
-predecessor commits `SUPERSEDED` before the policy-equivalent successor commits `ACTIVE`; multiple, stale, or
-policy-mismatched bindings admit no mutating Owner request. In-flight work retains its original request and
-binding identities across that transition.
+for records written before it. App and MCP are channels behind that gateway, not separate writers. A client-
+or transport-only change preserves the same effective principal, scope policy, approved Skill/MCP capability
+policy, and audit policy. During cutover, zero `ACTIVE` bindings is allowed only as a fail-closed
+interval.
+
+The exact predecessor commits `SUPERSEDED` before the policy-equivalent successor commits
+`ACTIVE`; multiple, stale, or policy-mismatched bindings admit no mutating Owner request.
+In-flight work retains its original request and binding identities across that transition.
 
 Each commit binds the authoritative deployment-history head before and after commit. Genesis is allowed only for
 an empty history at generation one. Every later successor durably and atomically serializes against the exact current head, names that
@@ -50,11 +52,13 @@ in-flight request continues to resolve under its original binding even after a n
 Product Edge is the unique writer of content-addressed Agent Operation Manifests, Agent Shell Deployment
 Bindings and their history head, immutable request admissions, and the matching outbox. A separately named
 **Operator Authorization Issuer** is the unique writer of authorization issuance and its revocation frontier.
-Product Edge may only direct-resolve the Issuer's canonical facts; the Dashboard, an API, R&D, a token, configuration,
-or Product Edge admission code cannot issue or self-assert them. Both writers use distinct PostgreSQL roles in
-one authority database. Admission holds a shared lock on the exact issuance and revocation frontier while it
-commits, and revocation takes the conflicting update lock. This common cut, rather than a copied DTO, cache, or
-signature checked by the same caller, decides whether an authorization is current.
+Product Edge may only direct-resolve the Issuer's canonical facts; the Dashboard, an API, R&D, a token,
+configuration, or Product Edge admission code cannot issue or self-assert them. Both writers use distinct
+PostgreSQL roles in one authority database.
+
+Admission holds a shared lock on the exact issuance and revocation frontier while it commits, and revocation
+takes the conflicting update lock. This common cut, rather than a copied DTO, cache, or signature checked by
+the same caller, decides whether an authorization is current.
 
 Deployment genesis is an explicit one-time administrative operation, never a service-start or request-path
 default. It requires completely verified empty binding and head history, expected head `EMPTY`, generation one,
@@ -63,28 +67,34 @@ the same bytes; concurrent or changed meaning conflicts without creating another
 commits the exact predecessor `SUPERSEDED` fence and only then may commit its policy-equivalent successor
 `ACTIVE`; the zero-active interval is fail closed and no request may recreate genesis.
 
-An expired predecessor cannot use ordinary authorization or deployment successor paths. Its only forward recovery is
-one explicit `ExpiredManifestRecoveryEpochV1` binding exact authorization and deployment heads, the current revocation
-frontier, and a complete sorted `RETAINED`/`ADDED`/`REMOVED` manifest transition set. Retained capabilities only narrow;
-added capabilities stay inside unchanged principal, audience, scope, proof, scope-policy and audit-policy bounds and
-retain the live-trading, real-trading and protected-feedback prohibition floor; removal grants nothing. The Issuer may
-append OA2 before Product Edge commits B2, but OA2 alone grants no Product Edge authority. Product Edge commits one
-irreversible B1 fence and then B2 by head compare-and-swap; exact retry rejoins the same epoch, partial recovery stays
-fail closed, and no old issuance, binding, manifest, admission, receipt, outbox, or Owner fact is rewritten.
-The recovery config also content-binds the exact authority database name, PostgreSQL system identifier, and distinct
-Operator Authorization and Product Edge roles. Before either Owner write, the command read-only connects both supplied
-endpoints and requires their database, role, and system-identifier readbacks to match the config and the same database
-cluster. Ambient endpoints, cross-splices, empty identities, or equal roles fail closed; URLs and secrets are not logged.
+An expired predecessor cannot use ordinary authorization or deployment successor paths. Its only forward
+recovery is one explicit `ExpiredManifestRecoveryEpochV1` binding exact authorization and deployment heads, the current
+revocation frontier, and a complete sorted `RETAINED`/`ADDED`/`REMOVED`
+manifest transition set. Retained capabilities only narrow; added capabilities stay inside unchanged
+principal, audience, scope, proof, scope-policy and audit-policy bounds and retain the live-trading,
+real-trading and protected-feedback prohibition floor; removal grants nothing.
+
+The Issuer may append OA2 before Product Edge commits B2, but OA2 alone grants no Product Edge authority.
+Product Edge commits one irreversible B1 fence and then B2 by head compare-and-swap; exact retry rejoins the
+same epoch, partial recovery stays fail closed, and no old issuance, binding, manifest, admission, receipt,
+outbox, or Owner fact is rewritten. The recovery config also content-binds the exact authority database name,
+PostgreSQL system identifier, and distinct Operator Authorization and Product Edge roles.
+
+Before either Owner write, the command read-only connects both supplied endpoints and requires their database,
+role, and system-identifier readbacks to match the config and the same database cluster. Ambient endpoints,
+cross-splices, empty identities, or equal roles fail closed; URLs and secrets are not logged.
 
 An immutable Product Edge Request Admission binds the stable request identity and typed-payload digest, exact
 deployment binding and head, effective principal and scope, authorization identity, issuer and key version,
 validity and revocation frontier, manifest identity and digest, operation, schema, target and effects, time
 evidence, request-proof digest, and audit correlation. R&D receives only its locator and directly resolves the
 complete canonical admission before S1 or S2 mutation. If no downstream custody has committed, later expiry or
-revocation forbids the first submission. A committed downstream receipt remains resolvable under its original
-admission cut, but recovery cannot start a new provider or external-effect invocation without a new one-use
-invocation admission at a current authorization cut. Supersession, expiry, and revocation never rewrite an
-admission or downstream Owner receipt.
+revocation forbids the first submission.
+
+A committed downstream receipt remains resolvable under its original admission cut, but recovery cannot start
+a new provider or external-effect invocation without a new one-use invocation admission at a current
+authorization cut. Supersession, expiry, and revocation never rewrite an admission or downstream Owner
+receipt.
 
 Rows previously accepted only from environment-constructed authority are never backfilled or retroactively
 blessed. Terminal legacy rows are read-only and quarantined; an identity collision fails closed, and activation
@@ -92,29 +102,35 @@ stops while any legacy nonterminal S2 custody remains undrained. Missing, dual, 
 wrong-issuer, wrong-audience, cross-principal, cross-scope, proof-mismatched, manifest-mismatched, digest-mismatched,
 or mixed-cut authority creates no Product Edge admission and no downstream Owner write or provider call.
 
-`LegacyPreparedAttemptDrainV1` is the only bounded exception for an exact historical schema-v1 `PREPARED`
-APP or MCP request. The original attempt bytes remain immutable. An explicit bounded admin may append an
+`LegacyPreparedAttemptDrainV1` is the only bounded exception for an exact historical schema-v1 `PREPARED` APP
+or MCP request. The original attempt bytes remain immutable. An explicit bounded admin may append an
 Owner-only canonical receipt and its Owner outbox event in the same transaction only when they bind the exact
 attempt and column digests, build and attempt identities, canonical Product Edge admission, target database,
 and exhaustive zero canonical effect-admission, claim, state, artifact, provider-start custody, and non-drain
-attempt/build outbox facts. Startup, request handling, and `Resolve` cannot create this receipt. The exact
-all-target operation is idempotent; a partial completed set, changed or extra target, digest mismatch, effect,
-or fault writes nothing. A verified receipt projects only legacy-quarantined `OUTCOME_UNKNOWN` with
-`PROVIDER_NEVER_STARTED` and permits only same-identity read and `Resolve`; it never creates current custody,
-freshness, authorization, artifact, family, successor, provider retry, or effect authority. Startup may ignore
-that exact row only after the canonical receipt and outbox both verify; every undrained, malformed, mismatched,
-or unknown row still blocks activation. Isolated local recovery evidence is not production authority and does
-not establish default-database, Dashboard, or product maturity acceptance.
+attempt/build outbox facts. Startup, request handling, and `Resolve` cannot create this receipt.
 
-The request's Authorization Lineage is the indivisible tuple of stable request identity, effective principal and
-scope, admitted `ACTIVE` shell binding and exact deployment-history head, Operator Authorization, and Agent
-Operation Manifest. Every accepted Governance lifecycle decision declares either `ATTENDED_REQUEST` or
-`UNATTENDED_REQUEST_WITH_POLICY`, and both modes cross-bind and preserve that complete request lineage.
-`UNATTENDED_REQUEST_WITH_POLICY` additionally requires a separate Autonomous Policy Authorization, admitted by
-the lifecycle request and bounded to one policy version, generation, Execution Scope, allowed intent/action
-classes, capital bounds, validity, revocation frontier, and operation manifest. It augments rather than replaces
-the request lineage. A bare decision is not automatic-trading authority. Application, intent, Risk permit,
-command, Effect Journal, and readback preserve the mode and every identity required by that mode end to end.
+The exact all-target operation is idempotent; a partial completed set, changed or extra target, digest
+mismatch, effect, or fault writes nothing. A verified receipt projects only legacy-quarantined
+`OUTCOME_UNKNOWN` with `PROVIDER_NEVER_STARTED` and permits only same-identity read and `Resolve`;
+it never creates current custody, freshness, authorization, artifact, family, successor, provider retry, or
+effect authority. Startup may ignore that exact row only after the canonical receipt and outbox both verify;
+every undrained, malformed, mismatched, or unknown row still blocks activation.
+
+Isolated local recovery evidence is not production authority and does not establish default-database,
+Dashboard, or product maturity acceptance.
+
+The request's Authorization Lineage is the indivisible tuple of stable request identity, effective principal
+and scope, admitted `ACTIVE` shell binding and exact deployment-history head, Operator
+Authorization, and Agent Operation Manifest. Every accepted Governance lifecycle decision declares either
+`ATTENDED_REQUEST` or `UNATTENDED_REQUEST_WITH_POLICY`, and both modes cross-bind and preserve that complete request
+lineage.
+
+`UNATTENDED_REQUEST_WITH_POLICY` additionally requires a separate Autonomous Policy Authorization, admitted by the
+lifecycle request and bounded to one policy version, generation, Execution Scope, allowed intent/action
+classes, capital bounds, validity, revocation frontier, and operation manifest. It augments rather than
+replaces the request lineage. A bare decision is not automatic-trading authority. Application, intent, Risk
+permit, command, Effect Journal, and readback preserve the mode and every identity required by that mode end
+to end.
 
 `ATTENDED_REQUEST` is non-running authority. It may inspect state or request a decrease-only `REDUCTION`, `PAUSE`,
 `RETIREMENT`, `DE_RISK`, or `RECOVERY` action, but it cannot create `ACTIVE_GENERATION`, `APPLIED`, normal Paper
@@ -147,7 +163,7 @@ Owners form one stack. From the bottom up:
 3. R&D: orchestration. It calls Market Data and Backtest downward; its census reading Backtest Results is a
    downward read.
 4. Qualification and the forward stage: they call Backtest downward and receive R&D Candidates by value.
-5. Governance and the trading side: Governance, Runtime, Risk, Execution, Portfolio, and Scanner.
+5. Governance and the trading side: Governance, Runtime, Risk, Execution, Portfolio, with legacy Scanner compatibility.
 
 Product Edge and Operator Authorization are the outer boundary above the stack, not a layer inside it.
 `vibe-strategy-factory-rd-owner-api` is the composition root: it links every Owner it wires, and its crate
@@ -165,8 +181,7 @@ Four rules govern the stack:
   them. The digest gives the value its content address and append identity; it is not evidence against the
   caller.
 - **The only trust boundary is the outer one.** Input is verified strictly once, where it enters the product:
-  agent input at the `rd-owner-api` HTTP layer, and external market data at Market Data intake. Inside the
-  product, one Owner does not re-verify another Owner's values.
+  agent input at the `rd-owner-api` HTTP layer, and external market data at Market Data intake. Inside the product, consumers do not redo another Owner's business judgment or reread upper-layer custody. Each consumer still checks its own applicability, exact binding, current authority, expiry, fences and capacity at its admission/effect cut. Trusted producer values never bypass those checks.
 - **Each Owner is an independent module.** With only its own crates, its own schemas, and the public contracts of
   the Owners below it (or stubs of those contracts), an Owner builds, migrates a fresh database, runs its tests,
   and deploys and runs on its own. Any two adjacent Owners can be picked out and combined to test one stretch of
@@ -174,152 +189,84 @@ Four rules govern the stack:
   change; only its public contract can. The measurable form: the normal-dependency closure of an Owner's crate
   holds only that Owner's crates, crates of lower-layer Owners, crates of same-layer Owners it calls one-way, and
   ownerless libraries; and each Owner's contract lives in a leaf crate that holds types only and depends on
-  nothing but ownerless libraries. Under the user-authorized TARGET [trading node](#target-trading-node)
-  (2026-10-05), Runtime, Risk and Execution are parts of one such module rather than three: the node as a whole
-  satisfies this rule, and its parts are not deployed apart.
+  nothing but ownerless libraries. For the TARGET [trading node](#target-trading-node), Runtime, Risk, Execution and Portfolio are parts of one module: independent assembly/deployment applies to the node as a whole. Its four fact responsibilities retain distinct write authority and test boundaries without requiring separate engines.
 
-The fourth rule adds a bound; the user stated it on 2026-10-03. The third rule relaxes an invariant the
-documentation stated before: that each Owner reads the original record itself
-before it trusts another Owner's value. The user authorized the relaxation on 2026-10-03 (AskUserQuestion,
-chosen option "relax: verify only at the outer boundary"). The reason is the measured baseline below: re-reading
-across Owners produced five two-way Owner pairs, and every one of them is a dependency cycle.
+### Integration obligations
 
-The relaxation does not change:
+The dependency direction and value-passing rules above apply to the native product extensions. Native engine crates are reusable libraries, not competing business Owners. External validation, protected-data isolation, effect permits, append-only identities and one authoritative writer remain required.
 
-- strict, single verification at the outer boundary;
-- Qualification holdout isolation. It is information isolation, not trust between Owners: protected results and
-  cell detail still never return to R&D, and Qualification alone still resolves cumulative holdout history;
-- the real-money, Risk, and Execution boundaries stated under Automated trading write chain and Paper and live
-  parity. The user-authorized TARGET [trading node](#target-trading-node) (2026-10-05) later moves the boundary
-  between Risk and Execution into one process; the real-money boundary stays where it is;
-- append-only facts, content addressing, and one authority per mutable fact.
+| Boundary                          | Target handoff                                         | Implementation proof                                                                                           |
+| --------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| R&D → Market Data                 | Frozen scope and role/input values                     | Market Data resolves its own admitted data, without reading R&D or Composer tables                             |
+| R&D → Backtest                    | Frozen candidate, execution inputs and data references | Backtest produces native replay facts, without a reverse R&D dependency                                        |
+| Qualification → Backtest          | Protected request and immutable inputs                 | Protected outputs remain isolated; research receives no protected detail                                       |
+| R&D → Qualification               | Selected candidate and Independence Basis              | Qualification owns exposure/eligibility facts; lower layers do not reread upper layer custody                  |
+| Product Edge → domain Owner       | Admitted typed request values                          | Outer admission verifies identity/current authority; the Owner receives values, not cross Owner SQL privileges |
+| Execution/Market Data → Portfolio | Committed execution and valuation facts                | Portfolio owns measurement; Risk/Governance consume its public facts without becoming balance writers          |
 
-New designs follow these rules now. Where another section of this documentation tells a lower Owner to read or
-lock a higher Owner's record to check a value, that text describes the `CURRENT` implementation and has a row in
-the teardown list below; it is not a pattern for a new design. The existing edges are removed one row at a time
-after U1.
+Each Owner owns its schema/migrations and exposes a leaf public contract. Its normal dependency closure contains only itself, lower Owners, one-way peers and Owner-free libraries. Composition roots assemble services without becoming domain dependencies. Contract fixtures and isolated acceptance helpers cannot pull upper-layer custody into a production data/engine module. Any reverse crate edge, cross-schema grant or upper-layer canonical reread is a migration obligation, not the target architecture.
 
-### Baseline at `80e9497a8`
-
-The baseline was measured on `main` at `80e9497a8`:
-
-- Crate edges: `cargo metadata --format-version 1 --no-deps`, normal dependencies only (dev and build dependencies
-  excluded), with each crate assigned to its Owner.
-- Database edges: every `GRANT` to an Owner role in `database/postgres-init/`, in migrations, and in
-  crate DDL; every `CREATE FUNCTION` body that names another Owner's schema; and every production Rust SQL string
-  that names another Owner's schema. Grants to `vibe_test_*` roles and grants in test or CI harness files (36
-  sites) are reported separately and are not edges.
-- Positive control: the scan finds the known `market_data_rd_api` to `rd_owner` grant at
-  `crates/data/src/owner/postgres/rd_strategy_input_custody.rs:24`.
-- Coverage: the function-body parser read 199 of 212 production `CREATE FUNCTION` definitions. The 6 missed in
-  Rust files are covered by the SQL-string scan. The 7 missed in `10-migrate-authority-custody.sh` were read by
-  hand; all of them name only R&D schemas.
-
-The two-way pairs are Backtest and R&D, Market Data and R&D, Backtest and Qualification, R&D and Qualification,
-and R&D and Product Edge. Downward edges (R&D to Market Data and Backtest, Qualification to Market Data, Backtest,
-and R&D, Product Edge to the stack) and the one-way calls inside layer 5 conform and are not listed.
-
-### Dependency closures at `80e9497a8`
-
-Each Owner crate's closure is `cargo tree -p <crate> -e normal`, which resolves the crate with its own default
-features exactly as `cargo build -p <crate>` builds it; a second run with `--all-features` surfaces what an
-optional feature pulls in. The table lists every crate in a closure that the fourth rule excludes. Every crate
-not listed conforms: `vibe-data`, `vibe-binance`, `vibe-databento`, `vibe-qualification`, the trading-side Owner
-crates, the Scanner crates, and the one-way same-layer uses (Runtime of Execution,
-Product Edge of Operator Authorization).
-`vibe-strategy-factory-rd-owner-api` is the composition root and is exempt.
-
-| Owner crate                                | Workspace crates in closure | Crates the fourth rule excludes                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vibe-data` with `--all-features`          | 16                          | `vibe-rd-exploratory-replay-custody`, `vibe-rd-artifact-invocation-custody`, `vibe-rd-source-intake-invocation-custody`, `strategy-factory-program-sdk`, `vibe-backtest-owner-contracts`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`, all through the `isolated-event-replay-acceptance` feature |
-| `vibe-market-data-repair-custody`          | 6                           | `vibe-rd-market-data-repair-custody`                                                                                                                                                                                                                                                                                                                                       |
-| `vibe-backtest-owner`                      | 30                          | `vibe-strategy-factory`, `strategy-factory-program-sdk`, `vibe-rd-artifact-invocation-custody`, `vibe-rd-exploratory-replay-custody`, `vibe-rd-market-data-repair-custody`, `vibe-rd-source-intake-invocation-custody`, `vibe-qualification`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`         |
-| `vibe-backtest-owner-contracts`            | 1                           | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                             |
-| `vibe-backtest-result-custody`             | 2                           | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                             |
-| `vibe-strategy-factory`                    | 29                          | `vibe-qualification`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`                                                                                                                                                                                                                                 |
-| `vibe-rd-exploratory-replay-custody`       | 10                          | `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`                                                                                                                                                                                                                                                       |
-| `vibe-rd-artifact-invocation-custody`      | 1                           | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                          |
-| `vibe-rd-source-intake-invocation-custody` | 1                           | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                          |
-
-Two further facts block independence outside the crate graph. One script,
-`database/postgres-init/10-migrate-authority-custody.sh` (5869 lines), creates the schemas of every
-Owner, so no Owner migrates a database on its own. Of the four core Owners, only Backtest has a contract crate
-(`vibe-backtest-owner-contracts`); Market Data, R&D, and Qualification are consumed through their whole crates.
-
-### Teardown list
-
-Each row is `TARGET` and is removed by its own reviewable change after U1. A row closes when its crate edge,
-grants, and call sites are all gone and a fresh run of the baseline shows the pair one-way. Paths are at
-`80e9497a8`; `10-migrate` is `database/postgres-init/10-migrate-authority-custody.sh`.
-
-| Reverse edge              | Status   | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                             | Removal                                                                                                                                       |
-| ------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backtest to R&D           | `TARGET` | crate `vibe-backtest-owner` to `vibe-strategy-factory`, `crates/backtest_owner/Cargo.toml:26`; `rd_owner_api` granted to `backtest_owner` at `10-migrate:225`, `:1255` and `crates/strategy_factory/src/exploratory_replay/postgres.rs:1669`, `:2256`, `:2263`, `:2277`; call `rd_owner_api.lock_ready_for_selection_for_qualification_v1` at `crates/backtest_owner/src/lib.rs:1464`                                                                | The caller puts the Candidate value in the replay request; Backtest stops reading R&D.                                                        |
-| Market Data to R&D        | `TARGET` | crate `vibe-data` to `vibe-rd-exploratory-replay-custody` (optional), `crates/data/Cargo.toml:52`; crate `vibe-market-data-repair-custody` to `vibe-rd-market-data-repair-custody`, `crates/market_data_repair_custody/Cargo.toml:19`; 22 grants of `composer_owner_api` and `rd_owner_api` to `market_data_owner` and `market_data_reader`, from `10-migrate:228`; calls at `crates/data/src/owner/postgres/replay_market_facts_v2.rs:90` to `:96`  | R&D puts the role intent, role set, and native join values in the market facts request; Market Data stops resolving R&D and Composer records. |
-| R&D to Qualification      | `TARGET` | crate `vibe-strategy-factory` to `vibe-qualification`, `crates/strategy_factory/Cargo.toml:84`; `qualification_api` granted to `rd_owner` at `10-migrate:2200`, `:2767`, `:2827`                                                                                                                                                                                                                                                                     | Qualification takes the Candidate and Independence Basis by value or reads R&D's appended facts; the change must keep holdout isolation.      |
-| R&D to Product Edge       | `TARGET` | crates to `vibe-product-edge-claim-custody` at `crates/rd_artifact_invocation_custody/Cargo.toml:19` and `crates/rd_source_intake_invocation_custody/Cargo.toml:19`; crates to `vibe-product-edge` at `crates/rd_exploratory_replay_custody/Cargo.toml:22` and `crates/strategy_factory/Cargo.toml:83`; `product_edge_api` granted to `rd_owner` from `10-migrate:221`; calls at `crates/rd_source_intake_invocation_custody/src/lib.rs:264`, `:546` | Product Edge puts the claim values in the request it sends R&D; R&D stops locking Product Edge records.                                       |
-| Backtest to Qualification | `TARGET` | `qualification_api` granted to `backtest_owner` at `10-migrate:2200`, `:2593`, `:2676`; calls `qualification_api.lock_protected_replay_request_v1` and `_set_v1` at `crates/backtest_owner/src/protected_replay_postgres.rs:1128`, `:1205`, `:1282`                                                                                                                                                                                                  | Qualification puts the Protected Replay Request value in the call; Backtest stops locking it. Holdout isolation is unchanged.                 |
-| Backtest to Product Edge  | `TARGET` | `product_edge_api` granted to `backtest_owner` at `10-migrate:221`, `:4188`, `:4279` and `crates/strategy_factory/src/exploratory_replay/postgres.rs:1671`; no call site in a Backtest crate, and the only Rust caller of `lock_downstream_admission_v1` is `crates/product_edge/src/postgres.rs:4914`                                                                                                                                               | Find the connection that exercises the grants, then pass the value or revoke them.                                                            |
-| Portfolio to Product Edge | `TARGET` | `product_edge_api` granted to `portfolio_owner` at `10-migrate:221`, `:4478`; no call site in a Portfolio crate, and the only Rust caller of `lock_portfolio_read_policy_v1` is `crates/product_edge/src/postgres.rs:5011`                                                                                                                                                                                                                           | Find the connection that exercises the grants, then pass the read policy value or revoke them.                                                |
-
-Module independence adds these `TARGET` rows. A row closes when the named Owner builds and runs its tests with
-`cargo test -p` on its own crates and a fresh database migrated by its own script, with stubs standing in for
-the contracts of the Owners below it.
-
-| Independence target                                  | Status   | Evidence                                                                                      | Work                                                                                                                                    |
-| ---------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Market Data builds and tests alone                   | `TARGET` | the `vibe-data` and `vibe-market-data-repair-custody` rows of the closure table               | Move the `isolated-event-replay-acceptance` acceptance out of `vibe-data`; remove the repair custody's R&D dependency.                  |
-| Backtest builds and tests alone                      | `TARGET` | the `vibe-backtest-owner` row of the closure table                                            | Remove the `vibe-strategy-factory` dependency; the program SDK becomes an ownerless library or leaves the contract.                     |
-| R&D builds and tests alone                           | `TARGET` | the `vibe-strategy-factory` and `vibe-rd-*` rows of the closure table                         | Remove the Qualification, Product Edge, and Operator Authorization dependencies.                                                        |
-| Qualification builds and tests alone                 | `TARGET` | no excluded crate today; it consumes `vibe-data` and Backtest whole                           | Depend on the lower Owners' contract crates instead of their whole crates.                                                              |
-| Each core Owner's contract is a leaf crate           | `TARGET` | only `vibe-backtest-owner-contracts` exists, and it depends on `strategy-factory-program-sdk` | Add contract crates for Market Data, R&D, and Qualification, holding types only and depending only on ownerless libraries.              |
-| Each Owner migrates its own schemas                  | `TARGET` | `10-migrate-authority-custody.sh` (5869 lines) creates every Owner's schemas                  | Split the migration per Owner, ordered from the bottom up, each creating only its own schemas and the grants its callers above it need. |
-| Each Owner's routes and storage run without the root | `TARGET` | `rd-owner-api` hosts the routes of several Owners in one process                              | Keep `rd-owner-api` as the composition root; make each Owner's routes and storage start on their own.                                   |
+Measure the exact candidate's normal/default-feature and relevant optional-feature closures, migrations/grants and production call sites before changing a seam. Replace the dependent consumers in one bounded slice, retain immutable record compatibility and verify accepted/rejected/unknown/replay behavior. Do not copy a dated edge inventory into a current development task. Exact binary formats and sealed-record compatibility below remain binding until a versioned cutover replaces their implementation.
 
 ## Research, development, and qualification
 
 Exploratory replay is accepted for selection only when request and result are exactly equal. A terminal
-Exploratory Run Result repeats the Strategy Artifact, requested PIT scope, PIT Market Snapshot identity, Universe
-Selection Record identity and correction rule, replay configuration, Runtime kernel, simulator, and cost, slippage,
-and capacity-model versions exactly. Only a request-equal terminal result may enter Research Selection. Rejected,
-invalid, unknown, nonterminal, or mismatched attempts remain TrialFamily Census facts only.
-The exact cost, slippage, and capacity-model identities also remain equal from Research Intent through Exploratory
-Replay Request and Result, Diagnosis, Iteration Decision, Research Selection, and Candidate. A model change is one
-explicit successor-Intent hypothesis change, never a silent replay or selection reinterpretation.
+Exploratory Run Result repeats the Strategy Artifact, requested PIT scope, PIT Market Snapshot identity,
+Universe Selection Record identity and correction rule, replay configuration, Runtime kernel, simulator, and
+cost, slippage, and capacity-model versions exactly. Only a request-equal terminal result may enter Research
+Selection. Rejected, invalid, unknown, nonterminal, or mismatched attempts remain TrialFamily Census facts
+only.
+
+The exact cost, slippage, and capacity-model identities also remain equal from Research Intent through
+Exploratory Replay Request and Result, Diagnosis, Iteration Decision, Research Selection, and Candidate. A
+model or parameter change creates an explicitly frozen successor experiment declaring all changed inputs,
+never a silent replay or selection reinterpretation. Agents choose whether to change one or multiple inputs;
+services validate inputs, record changes and count attempts without approving scientific adequacy. Failed or
+unresolved attempts cannot enter economic selection or qualification, but do not freeze the whole project.
+Within approved bounds, Agents may repair, revise plans, select other candidates with valid evidence or stop;
+failures cannot be represented as return evidence.
 
 Exploratory results may return from Backtest to Research. Research commits one terminal Research Selection
 Disposition cross-bound to the exact Intent falsifier, stop rule, exploratory frontier, Candidate, and Census
-Frontier. Only `SELECTED_FOR_QUALIFICATION` enters the independent protected path. Protected results never return
-to the same R&D loop. Eligibility is a fact consumed by Governance, not permission to bypass Governance. Before a
+Frontier. Only `SELECTED_FOR_QUALIFICATION` enters the independent protected path. Protected results never return to
+the same R&D loop. Eligibility is a fact consumed by Governance, not permission to bypass Governance. Before a
 fresh Research program, R&D first commits a sealed principal/request-scope Independence Basis Receipt.
+
 Qualification directly resolves that receipt and its own complete durable history to publish only
-`GENESIS_EMPTY`, an opaque current `FRONTIER(ref, cut)`, or `UNAVAILABLE`. Product Edge transports that
-principal/scope-bound projection and cannot assert genesis, emptiness, disposition, basis identity, or a frontier.
-Physical custody follows the same boundary: R&D has no raw Qualification table read or write privilege and may
-only invoke the Qualification-owned locked admission function; Qualification Rust must canonically verify its raw
-envelope before producing a sealed positive readback. After that final reread, the consuming R&D transaction
-samples one final cut immediately before its first write and rechecks every half-open authority interval there.
-R&D then resolves its own locked local history as `GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or `UNAVAILABLE`; only
-current canonical reads from both Owners may commit the Intent and TrialFamily. Research preserves semantic
-predecessors without receiving protected detail; Qualification alone resolves cross-family ancestry and cumulative
-holdout disposition. Changing TrialFamily, Candidate, Artifact, shell, or request identity cannot reset either history.
-A terminal Research stop creates no Selection or Candidate and therefore never reaches Qualification. A missing or
-mismatched selected-only disposition produces `NOT_ADMITTED` before protected replay and consumes no holdout.
-Every selected Candidate also binds one pre-result Protected Robustness Plan. It fixes the complete finite set of
-required time-window, regime, instrument-slice, perturbation, and reasonable parameter-neighborhood cells plus
-coverage, metric, tolerance, threshold, aggregation, missing-cell, and stop policies. An axis may require multiple
-cells. The plan, every per-cell request and result, and the assessment repeat the exact plan-cell-set digest.
+`GENESIS_EMPTY`, an opaque current `FRONTIER(ref, cut)`, or `UNAVAILABLE`. Product Edge transports
+that principal/scope-bound projection and cannot assert genesis, emptiness, disposition, basis identity, or a
+frontier. Physical custody follows the same boundary: R&D has no raw Qualification table read or write
+privilege and may only invoke the Qualification-owned locked admission function; Qualification Rust must
+canonically verify its raw envelope before producing a sealed positive readback.
+
+After that final reread, the consuming R&D transaction samples one final cut immediately before its first
+write and rechecks every half-open authority interval there. R&D then resolves its own locked local history as
+`GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or `UNAVAILABLE`; only current canonical reads from both
+Owners may commit the Intent and TrialFamily. Research preserves semantic predecessors without receiving
+protected detail; Qualification alone resolves cross-family ancestry and cumulative holdout disposition.
+Changing TrialFamily, Candidate, Artifact, shell, or request identity cannot reset either history.
+
+A terminal Research stop creates no Selection or Candidate and therefore never reaches Qualification. A
+missing or mismatched selected-only disposition produces `NOT_ADMITTED` before protected replay and
+consumes no holdout. Every selected Candidate also binds one pre-result Protected Robustness Plan. It fixes
+the complete finite set of required time-window, regime, instrument-slice, perturbation, and reasonable
+parameter-neighborhood cells plus coverage, metric, tolerance, threshold, aggregation, missing-cell, and stop
+policies. An axis may require multiple cells. The plan, every per-cell request and result, and the assessment
+repeat the exact plan-cell-set digest.
+
 Qualification resolves the sealed Backtest per-cell results against its frozen plan into one complete result
-census; that census and the assessment must account for every frozen cell exactly once. The assessment atomically
-embeds Qualification's census-finalization proof, bound to the frozen stop and missing-cell policies, its
-assessment-stage Time Evidence, and a sealed Backtest attempt frontier proving that no requested cell remains
-nonterminal. Until that proof exists, there is no assessment and an absent result remains unfinished rather than
-`MISSING`. Qualification owns the resulting categorical assessment;
-protected measurements and cell detail never return to R&D. One attractive aggregate, one cell
-per axis, or one protected terminal result cannot substitute for the complete plan.
-For a qualified Candidate, the Eligibility Fact also binds one downstream-enforceable economic-condition version,
-evaluated cost/capacity-model version, and qualified capacity ceiling. Governance and Risk preserve that exact
-provenance; no candidate Capital Envelope exceeds the Qualification ceiling, lifecycle ceiling, or current compatible Capacity View estimate.
+census; that census and the assessment must account for every frozen cell exactly once. The assessment
+atomically embeds Qualification's census-finalization proof, bound to the frozen stop and missing-cell
+policies, its assessment-stage Time Evidence, and a sealed Backtest attempt frontier proving that no requested
+cell remains nonterminal. Until that proof exists, there is no assessment and an absent result remains
+unfinished rather than `MISSING`. Qualification owns the resulting categorical assessment;
+protected measurements and cell detail never return to R&D.
+
+One attractive aggregate, one cell per axis, or one protected terminal result cannot substitute for the
+complete plan. For a qualified Candidate, the Eligibility Fact also binds one downstream-enforceable
+economic-condition version, evaluated cost/capacity-model version, and qualified capacity ceiling. Governance
+and Risk preserve that exact provenance; no candidate Capital Envelope exceeds the Qualification ceiling,
+lifecycle ceiling, or current compatible Capacity View estimate.
 
 A frozen Candidate and its Candidate Intake Receipt bind one preregistered protected decision-policy identity and
 version. The `ADMITTED` intake, Protected Replay Request, and initial or renewed Eligibility Fact must repeat that
@@ -328,20 +275,22 @@ requires a successor protected evaluation, never reinterpretation of prior evide
 
 A Protected Replay Request freezes the exact Strategy Artifact, requested PIT scope, exact PIT Market Snapshot
 identity, snapshot and correction rule, replay-configuration digest, Runtime kernel, simulator, and cost,
-slippage, and capacity model versions.
-The Protected Run Result repeats the consumed counterpart of every field, and each pair must be exactly equal.
-Any omission, substitution, or mismatch is `INVALID_REPLAY_EVIDENCE`, closes the attempt under Qualification's
-preregistered holdout treatment, and can produce no Eligibility Fact.
+slippage, and capacity model versions. The Protected Run Result repeats the consumed counterpart of every
+field, and each pair must be exactly equal. Any omission, substitution, or mismatch is `INVALID_REPLAY_EVIDENCE`,
+closes the attempt under Qualification's preregistered holdout treatment, and can produce no Eligibility Fact.
+
 An initial or renewed Eligibility Fact cross-binds that exact Protected Replay Request, the exact
-`TERMINAL_RESULT` Protected Run Result, the protected decision-policy identity and version, and Qualification's verified
-request/result equality. A rejected, invalid, nonterminal, or mismatched result can never produce Eligibility.
+`TERMINAL_RESULT` Protected Run Result, the protected decision-policy identity and version, and
+Qualification's verified request/result equality. A rejected, invalid, nonterminal, or mismatched result can
+never produce Eligibility.
 
 <a id="target-trading-node"></a>
 
 ## TARGET - Trading node
 
-The trading target assembles inherited `LiveNode`, `RiskEngine` and `ExecutionEngine` with a thin product trust
-layer. The gates below relocate authorization, invocation ordering and capacity invariants inside one node rather
+The trading target assembles inherited `LiveNode`/kernel, DataEngine, Trader, RiskEngine, ExecutionEngine,
+Portfolio, cache, clock/msgbus and a thin product trust layer. The gates below relocate authorization,
+invocation ordering and capacity invariants inside one node rather
 than duplicating native state machines across services. This target admits no Paper/Live path, production write or
 real trading. Native startup, trader, risk checks, order lifecycle and reconciliation are the implementation base.
 
@@ -349,10 +298,9 @@ real trading. Native startup, trader, risk checks, order lifecycle and reconcili
 
 - *Scope.* There is one node per Capacity Scope: account, mode and economic pool. Every generation Governance
   applies to that account runs as one strategy inside it. The Aggregate Commitment Frontier, the shared capacity
-  every strategy on the account draws from, is therefore one in-process value rather than a durable cross-service
-  serialization.
-- *A module.* The node is one module in the sense of "Each Owner is an independent module" above. Runtime, Risk
-  and Execution are its parts, not separately deployed Owners. It builds, migrates its own schema, tests and runs
+  every strategy on the account draws from, is arbitrated inside the node. Its unique atomic frontier, reservations, held liabilities, claim/admission evidence and unknown-effect obligations remain durable and recoverable. In-process arbitration changes deployment, not persistence. Recovery validates native state plus product evidence before new risk; Portfolio exposure alone cannot reconstruct pending or unknown commitments. No second account ledger is created.
+- *A module.* The node is one module in the sense of "Each Owner is an independent module" above. Runtime, Risk,
+  Execution and Portfolio are its parts, not separately deployed Owners. It builds, migrates its own schema, tests and runs
   on its own.
 - *Dependencies point down.* The node reads Market Data and Instrument Master only through their public contracts
   and live data clients. It receives from Governance, by value with digests, the generation decision, the
@@ -383,7 +331,7 @@ real trading. Native startup, trader, risk checks, order lifecycle and reconcili
 4. *Reconciliation hook.* Each reconciliation result becomes a committed Reconciliation Drift Fact. Unknown external
    effects open a Recovery Case.
 5. *Readiness publisher.* It publishes `READY`, `NOT_READY` and incident facts tied to the node's state and
-   `TradingState`. `NOT_READY` is committed before the node stops intent.
+   `TradingState`. The node synchronously suppresses local new intents and commands before committing `NOT_READY` and its frontier. Publication failure never releases that suppression; Risk fences from authoritative facts or expiry independently.
 
 **What stays this product's own**, because the inherited engine has no such property:
 
@@ -432,41 +380,48 @@ Native order states and raw events prove invocation ordering; the product outbox
 custody. Existing versioned Reservation, claim, `PREPARED` and adapter-admission records are validated through their
 Owner compatibility contracts, not implemented as a second future cross-service chain or rewritten as node facts.
 
-Risk never issues an order command. Execution rejects a missing, stale, mismatched, or already consumed permit.
-Governance owns one immutable Execution Scope for every generation: strategy generation, `PAPER` or `LIVE` mode,
-account namespace, and effect namespace. Portfolio separately owns the immutable Capacity Scope key: account,
-mode, and economic pool only, never strategy or generation. Every shared indivisible gross constraint maps to
-one key; Paper and Live differ, and unresolved overlap fails closed. Intent, decision, reservation, command,
-effect, account, and feedback facts must repeat compatible identities.
+Risk never issues an order command. Execution rejects a missing, stale, mismatched, or already consumed
+permit. Governance owns one immutable Execution Scope for every generation: strategy generation,
+`PAPER` or `LIVE` mode, account namespace, and effect namespace. Portfolio
+separately owns the immutable Capacity Scope key: account, mode, and economic pool only, never strategy or
+generation. Every shared indivisible gross constraint maps to one key; Paper and Live differ, and unresolved
+overlap fails closed. Intent, decision, reservation, command, effect, account, and feedback facts must repeat
+compatible identities.
+
 The same authorization mode, request, principal, scope, admitted shell binding and history head, Operator
 Authorization, and operation manifest must remain resolvable through every normal write-chain fact.
 `UNATTENDED_REQUEST_WITH_POLICY` additionally preserves and revalidates the same Autonomous Policy Authorization;
-`ATTENDED_REQUEST` never substitutes a policy identity for any request-lineage member.
-Runtime commits local suppression and immutable `NOT_READY` readiness before publication. Risk independently
-activates the matching fence without waiting for Recovery Case acknowledgement; readiness expiry also fails
-closed. For existing versioned admission records only, Risk first arbitrates claim versus expiry, fence, or policy withdrawal; only `CONSUMED` permits a prepared
-attempt. It then arbitrates each `ADAPTER_ADMISSION_REQUEST` versus fence activation. Only `ADMITTED_ONCE` can
-reach invocation; `SUPPRESSED_BY_FENCE` and `REJECTED`
-prove no invocation. Mixed, missing, or conflicting no-effect proof variants fail closed.
+`ATTENDED_REQUEST` never substitutes a policy identity for any request-lineage member. Runtime commits local
+suppression and immutable `NOT_READY` readiness before publication. Risk independently activates the
+matching fence without waiting for Recovery Case acknowledgement; readiness expiry also fails closed.
+
+For existing versioned admission records only, Risk first arbitrates claim versus expiry, fence, or policy
+withdrawal; only `CONSUMED` permits a prepared attempt. It then arbitrates each `ADAPTER_ADMISSION_REQUEST`
+versus fence activation. Only `ADMITTED_ONCE` can reach invocation; `SUPPRESSED_BY_FENCE` and
+`REJECTED` prove no invocation. Mixed, missing, or conflicting no-effect proof variants fail closed.
 
 The normal decrease-only chain is separate and equally ordered. Governance commits the lifecycle decision,
-Runtime stops new strategy intent, Risk returns exact `PERMIT_DECREASE_ONLY`, and Runtime sends a bounded command
-whose Reservation and Reservation Claim fields are explicit-none. Execution validates that shape, durably records
-one `PREPARED` attempt, and sends one `ADAPTER_ADMISSION_REQUEST` without creating a Reservation Claim Request.
-Risk atomically orders that request against same-scope fence activation and returns exactly one immutable
-`ADMITTED_ONCE`, `SUPPRESSED_BY_FENCE`, or `REJECTED`. Only matching `ADMITTED_ONCE` permits
-`INVOCATION_STARTED` and an adapter call. Replay or restart joins the same attempt and admission result; the
-absence of Reservation and claim never bypasses preparation, admission, or fence arbitration.
+Runtime stops new strategy intent, Risk returns exact `PERMIT_DECREASE_ONLY`, and Runtime sends a bounded
+command whose Reservation and Reservation Claim fields are explicit-none. Execution validates that shape,
+durably records one `PREPARED` attempt, and sends one `ADAPTER_ADMISSION_REQUEST` without creating a
+Reservation Claim Request. Risk atomically orders that request against same-scope fence activation and returns
+exactly one immutable `ADMITTED_ONCE`, `SUPPRESSED_BY_FENCE`, or `REJECTED`.
 
-For every Capacity Scope, Risk owns one durably and atomically serialized Aggregate Commitment Frontier. Portfolio
-supplies a candidate-neutral gross Capacity View and a coherent Portfolio Risk Evidence Bundle containing
-projected exposure, open orders, account/valuation cuts, and incorporated Execution settlement lineages. Portfolio
-never reads Risk state or computes remaining headroom. Risk joins that bundle with every held Reservation liability,
-deduplicates stable economic lineages, and alone computes usage and headroom. Unknown effect consumes worst-case
-capacity. A stale serialization attempt or missing, stale, incomplete, overlapping-unknown, or mismatched member
-rejects without a Reservation. `WITHDRAWN` and authoritative `NO_EFFECT` may release liability. `SETTLED` alone
-does not: liability remains held until the same serialized transition replaces it with a Portfolio bundle that
-covers the exact Execution settlement/readback lineage, without counting both.
+Only matching `ADMITTED_ONCE` permits `INVOCATION_STARTED` and an adapter call. Replay or restart joins
+the same attempt and admission result; the absence of Reservation and claim never bypasses preparation,
+admission, or fence arbitration.
+
+For every Capacity Scope, Risk owns one durably and atomically serialized Aggregate Commitment Frontier.
+Portfolio supplies a candidate-neutral gross Capacity View and a coherent Portfolio Risk Evidence Bundle
+containing projected exposure, open orders, account/valuation cuts, and incorporated Execution settlement
+lineages. Portfolio never reads Risk state or computes remaining headroom. Risk joins that bundle with every
+held Reservation liability, deduplicates stable economic lineages, and alone computes usage and headroom.
+Unknown effect consumes worst-case capacity.
+
+A stale serialization attempt or missing, stale, incomplete, overlapping-unknown, or mismatched member rejects
+without a Reservation. `WITHDRAWN` and authoritative `NO_EFFECT` may release liability.
+`SETTLED` alone does not: liability remains held until the same serialized transition replaces it
+with a Portfolio bundle that covers the exact Execution settlement/readback lineage, without counting both.
 
 Governance publishes a Capital Envelope applicability chain with one `POOL_ROOT` envelope for the Capacity Scope
 and one `STRATEGY_GENERATION` envelope for the intent generation. The intent is bounded only by its own chain;
@@ -484,25 +439,30 @@ Risk consumes those facts but never creates or repairs them.
 ## Active generation retention
 
 `ACTIVE_GENERATION` is retained only by an explicit Governance renewal bound to current Eligibility and every
-required Performance, Exposure, and degradation-evidence cut. Eligibility that is expired, revoked, missing, or
-unknown, or any required retention evidence that is stale or unavailable, immediately supersedes add-risk
-authority with `DE_RISK_PENDING`. Runtime stops new intent and Risk rejects new risk from that successor cut.
-Governance then drives the decrease-only chain until the generation is reduced, paused, retired, or its effects
-enter Recovery. Missing Capacity View, performance, or exposure evidence must never block pause, reduction, or
-retirement because those transitions do not add risk. A later return of evidence cannot silently revive the old
-generation; resume requires a fresh Authorized Generation Decision and, when unattended, Autonomous Policy Authorization.
+required Performance, Exposure, and degradation-evidence cut. Eligibility that is expired, revoked, missing,
+or unknown, or any required retention evidence that is stale or unavailable, immediately supersedes add-risk
+authority with `DE_RISK_PENDING`. Runtime stops new intent and Risk rejects new risk from that successor
+cut. Governance then drives the decrease-only chain until the generation is reduced, paused, retired, or its
+effects enter Recovery.
+
+Missing Capacity View, performance, or exposure evidence must never block pause, reduction, or retirement
+because those transitions do not add risk. A later return of evidence cannot silently revive the old
+generation; resume requires a fresh Authorized Generation Decision and, when unattended, Autonomous Policy
+Authorization.
 
 ## Decrease-only lifecycle chain
 
 A reduction, pause, or retirement is not a normal add-risk trade. Governance commits a decrease-only lifecycle
-decision. Runtime first stops new strategy intents and applies the decision, then proposes only cancel, reduce-only,
-flatten, or readback work. Risk validates non-increasing exposure and returns a decrease-only decision without an
-add-risk Reservation, expressed only as exact `PERMIT_DECREASE_ONLY`. Runtime creates a bounded command bound to
-that permit and explicit-none Reservation/claim lineage. Execution records the stable attempt as `PREPARED`, then
-requests adapter admission; Risk orders that request against fence activation without creating a claim. The
-Execution adapter gate invokes only after `ADMITTED_ONCE`, admits only cancel, reduce, flatten, or readback, and
-rejects any add-risk shape. Execution enforces the admitted adapter binding and reduce-only capability, journals
-the effect, and reads back the external state. Portfolio projection and Execution
+decision. Runtime first stops new strategy intents and applies the decision, then proposes only cancel,
+reduce-only, flatten, or readback work. Risk validates non-increasing exposure and returns a decrease-only
+decision without an add-risk Reservation, expressed only as exact `PERMIT_DECREASE_ONLY`. Runtime creates a
+bounded command bound to that permit and explicit-none Reservation/claim lineage. Execution records the stable
+attempt as `PREPARED`, then requests adapter admission; Risk orders that request against fence
+activation without creating a claim.
+
+The Execution adapter gate invokes only after `ADMITTED_ONCE`, admits only cancel, reduce, flatten, or
+readback, and rejects any add-risk shape. Execution enforces the admitted adapter binding and reduce-only
+capability, journals the effect, and reads back the external state. Portfolio projection and Execution
 reconciliation prove the resulting exposure before Governance closes the transition. An unknown effect never
 becomes a successful reduction: it opens Recovery and keeps the generation fenced.
 
@@ -519,11 +479,16 @@ namespace derive from the exact Execution Scope and belong to Execution, not Run
 can never equal or alias, and cross-mode facts are rejected rather than merged, including after replay or restart.
 Runtime and Execution reject a missing, opposite-mode, or mismatched scope and cannot override Governance mode.
 
-## Scheduled scanner
+## Opportunity discovery and legacy Scanner compatibility
 
-Scanner is a scheduled proposal producer. It reads governed deployable strategies, Market Data facts, and an
-optional bounded Portfolio capacity view. It records insufficient data and submits matched evidence to
-Governance. It never activates a strategy or sends a trade intent.
+The target has R&D on-demand read-only discovery, not a scheduled Scanner department or deployment-proposal route.
+Running strategies continuously consume market data; Governance directly evaluates frozen lifecycle conditions.
+Discovery reuses native evaluation while isolating mutable state and grants no deployment or order authority.
+
+Existing Scanner schedules, matched dispositions and proposals below are sealed legacy compatibility facts only.
+They retain original identity, capacity and refusal rules without gaining new implementation or effect admission.
+They are not required inputs to the target route. See [R&D discovery](../owners/rd/#on-demand-read-only-opportunity-discovery)
+and [Scanner migration](../owners/scanner/#target-role-and-legacy-contract-migration).
 
 Capacity View identity binds its immutable account-plus-mode economic-pool Capacity Scope, exact account and collateral fact cut, gross ceilings by dimension and unit, valuation version, liquidity input
 cut, candidate-neutral pool methodology and assumption versions, measurement time,
@@ -531,31 +496,38 @@ and validity deadline. It remains optional unless a
 published activation condition requires it; when required, missing, stale, unavailable, or mismatched identity
 commits `INPUT_UNAVAILABLE` and cannot become `MATCHED`.
 
-Capacity View is also the current Portfolio-owned read-only gross economic ceiling for deployment and add-risk control.
-`INITIAL_ACTIVATION` requires a fresh compatible Portfolio Lifecycle Evidence Receipt. `PROMOTION` additionally
-requires fresh exact Performance and Exposure Receipts under the `PROMOTION` transition-evidence key.
-`PAUSE`, `REDUCTION`, and `RETIREMENT` remain available when capacity evidence is absent. Governance
-binds the compatible evidence into its generation decision and policy. Risk binds a fresh exact Capacity View at
-each add-risk decision and terminally rejects missing, expired, scope-, condition-, methodology-, assumption-, or
-liquidity-mismatched evidence without creating a Reservation. Risk additionally admits the decision only against
-its same-scope Aggregate Commitment Frontier usage. Portfolio never allocates capital, tracks commitment, reads Risk, or grants permission.
+Capacity View is also the current Portfolio-owned read-only gross economic ceiling for deployment and add-risk
+control. `INITIAL_ACTIVATION` requires a fresh compatible Portfolio Lifecycle Evidence Receipt.
+`PROMOTION` additionally requires fresh exact Performance and Exposure Receipts under the
+`PROMOTION` transition-evidence key. `PAUSE`, `REDUCTION`, and
+`RETIREMENT` remain available when capacity evidence is absent. Governance binds the compatible
+evidence into its generation decision and policy.
+
+Risk binds a fresh exact Capacity View at each add-risk decision and terminally rejects missing, expired,
+scope-, condition-, methodology-, assumption-, or liquidity-mismatched evidence without creating a
+Reservation. Risk additionally admits the decision only against its same-scope Aggregate Commitment Frontier
+usage. Portfolio never allocates capital, tracks commitment, reads Risk, or grants permission.
 
 ## Security bindings
 
-Product Edge mutating requests bind a non-self-assertable Operator Authorization issued for the exact principal,
-audience, scope, expiry, revocation frontier, request proof, and content-addressed Agent Operation Manifest.
-Research Strategy Artifacts bind code bytes, dependency provenance, runtime and sandbox policy, capability manifest,
-Artifact Security Admission, and explicit denial of ambient filesystem, network, secret, and effect-port access.
-Market Data admits each source through an immutable Market Data Source Binding covering implementation and configuration digests,
-authenticated endpoint, dataset/account mapping, normalization policy, trust policy, license scope, and opaque
-least-privilege credential handle. Execution Scope binds the equivalent adapter identity, venue or simulator
-endpoint, account mapping, capability and reduce-only policy, trust policy, and opaque credential handle. A secret
-value is never copied into an artifact, request, command, journal, or read model.
+Product Edge mutating requests bind a non-self-assertable Operator Authorization issued for the exact
+principal, audience, scope, expiry, revocation frontier, request proof, and content-addressed Agent Operation
+Manifest. Research Strategy Artifacts bind code bytes, dependency provenance, runtime and sandbox policy,
+capability manifest, Artifact Security Admission, and explicit denial of ambient filesystem, network, secret,
+and effect-port access.
+
+Market Data admits each source through an immutable Market Data Source Binding covering implementation and
+configuration digests, authenticated endpoint, dataset/account mapping, normalization policy, trust policy,
+license scope, and opaque least-privilege credential handle. Execution Scope binds the equivalent adapter
+identity, venue or simulator endpoint, account mapping, capability and reduce-only policy, trust policy, and
+opaque credential handle. A secret value is never copied into an artifact, request, command, journal, or read
+model.
+
 Security verification traces the authorization mode and complete Authorization Lineage from the accepted
-Governance receipt through Runtime, Risk, Execution, and authoritative readback. For
-`UNATTENDED_REQUEST_WITH_POLICY`, it additionally traces and revalidates the Autonomous Policy Authorization.
-A missing, expired, revoked, scope-mismatched, or history-head-mismatched required member fails before Reservation
-creation or adapter invocation.
+Governance receipt through Runtime, Risk, Execution, and authoritative readback. For `UNATTENDED_REQUEST_WITH_POLICY`, it
+additionally traces and revalidates the Autonomous Policy Authorization. A missing, expired, revoked,
+scope-mismatched, or history-head-mismatched required member fails before Reservation creation or adapter
+invocation.
 
 ## Readiness, time, and effect closure
 
@@ -614,64 +586,77 @@ facts. The implementation supports exact replay and same-epoch advancement and r
 neither a canonical cross-Owner handoff nor a current epoch-successor proof.
 
 **TARGET:** Market Data remains the Owner-local producer; there is no global Time Owner. Its sealed read-only
-clock-head handoff is immutable, content-addressed, and exactly resolvable. It binds the head identity and digest,
-clock identity and epoch, monotonic sequence, wall observation, decision cut, exclusive `valid-through`,
-restart-continuity digest, uncertainty and skew bounds, and the comparison rule. A same-epoch successor strictly
-advances every required cut while preserving epoch-stable semantics. A new epoch is consumable only with one direct,
-immutable Epoch Successor Proof committed atomically with the new head. The proof binds the exact predecessor and
-successor head digests, prior and successor epoch identities, successor continuity digest, proof identity, commit cut,
-and comparison rule. Consumers cannot walk a chain, skip a predecessor, or compare sequences across epochs. Each
-consumer supplies its exact prior sealed handoff and alone decides its own transition. After producer closure,
-Portfolio `PORTFOLIO_FRESHNESS` is the first TARGET real consumer.
+clock-head handoff is immutable, content-addressed, and exactly resolvable. It binds the head identity and
+digest, clock identity and epoch, monotonic sequence, wall observation, decision cut, exclusive
+`valid-through`, restart-continuity digest, uncertainty and skew bounds, and the comparison rule. A
+same-epoch successor strictly advances every required cut while preserving epoch-stable semantics. A new epoch
+is consumable only with one direct, immutable Epoch Successor Proof committed atomically with the new head.
+
+The proof binds the exact predecessor and successor head digests, prior and successor epoch identities,
+successor continuity digest, proof identity, commit cut, and comparison rule. Consumers cannot walk a chain,
+skip a predecessor, or compare sequences across epochs. Each consumer supplies its exact prior sealed handoff
+and alone decides its own transition. After producer closure, Portfolio `PORTFOLIO_FRESHNESS` is the first
+TARGET real consumer.
 
 ### Deployment Store Admission
 
-**CURRENT:** `crates/data/src/owner/store_admission` keeps the non-business PostgreSQL admission mechanism and its
-pre/post revalidation inside the Market Data crate. The fixed `rd-owner-api` bootstrap requests that private seam;
-a production port the deployment's configuration cannot build - custody store, signer, anti-rollback mode,
-credential resolver or direct measurer - fails closed before repository construction. Market Data then rereads current PIT, Source Binding, and clock heads and seals
-`ResearchPitTerminal`. R&D receives only the sealed terminal resolver: no raw receipt, capability, query,
-DTO, evidence accessor, or caller-authored positive authority crosses the Owner boundary. The generic S3 catalog
-remains mechanism, not authority.
+**CURRENT:** `crates/data/src/owner/store_admission` keeps the non-business PostgreSQL admission mechanism and its pre/post
+revalidation inside the Market Data crate. The fixed `rd-owner-api` bootstrap requests that private
+seam; a production port the deployment's configuration cannot build - custody store, signer, anti-rollback
+mode, credential resolver or direct measurer - fails closed before repository construction. Market Data then
+rereads current PIT, Source Binding, and clock heads and seals `ResearchPitTerminal`. R&D receives only the
+sealed terminal resolver: no raw receipt, capability, query, DTO, evidence accessor, or caller-authored
+positive authority crosses the Owner boundary.
+
+The generic S3 catalog remains mechanism, not authority.
 
 **TARGET:** One Market Data-private, non-business Deployment Store Admission Custodian, absent from business
-`authorityOwners`, Flow, and Dashboard, owns only a signed append-only store manifest and history, one unique signed current head, direct target
-measurements, immutable admission receipts, rotation fencing, and custody incidents. The manifest binds environment,
-deployment, consumer Owner, backend, endpoint, TLS, server and database or bucket and prefix identities; PostgreSQL
-schema, migration, function, role, and ACL identity or S3 capability and version semantics; an opaque credential-handle
-identity, audience, and version; and predecessor, generation, validity, and recovery. A positive receipt requires the
-signature, current head, anti-rollback witness, direct measurement, credential lease, and closed rotation fence. It
-cannot be assembled from caller-authored positive evidence. **On a deployment whose only trust domain is one machine,
-the anti-rollback property does not hold:** a witness kept on that machine rolls back with the custody store it would
-watch, so the custodian runs the named mode `SingleTrustDomainNoRollbackWitness` instead. It observes nothing, bounds
-nothing and detects no rollback of the whole machine, and the receipt names it in place of a witness proof. The user
-authorized this downgrade for a single-machine deployment only (user, 2026-09-27, AskUserQuestion, translated from the
-Chinese original quoted in the Chinese edition: "Only this machine, authorize the downgrade", described
-as "Accept no rollback protection on a single-machine deployment: the docs state that this property does not hold on a single machine, and the witness is either not implemented or only recorded as a formality"). A deployment with a second trust domain keeps a witness there and drops the mode by name. Restart or cache loss re-verifies signatures and the head
-and remeasures the target. Ambiguity yields no Owner repository and no business retry.
+`authorityOwners`, Flow, and Dashboard, owns only a signed append-only store manifest and history, one
+unique signed current head, direct target measurements, immutable admission receipts, rotation fencing, and
+custody incidents. The manifest binds environment, deployment, consumer Owner, backend, endpoint, TLS, server
+and database or bucket and prefix identities; PostgreSQL schema, migration, function, role, and ACL identity
+or S3 capability and version semantics; an opaque credential-handle identity, audience, and version; and
+predecessor, generation, validity, and recovery.
 
-The intended default consumer is the `product/rd-workbench` `rd-owner-api` bootstrap composition. Before Market Data
-constructs the governed PostgreSQL repository, its private seam must consume one sealed store-admission receipt for the
-exact Market Data Owner, PostgreSQL backend, environment, deployment, and consumer identity. S3 remains TARGET and
-`UNAVAILABLE` until a real catalog consumer and pinned disposable S3-compatible test authority exist. Receipt and raw
-store/PIT/source/clock evidence stay inside Market Data; the first ordinary-consumer value is a sealed
-`ResearchPitTerminal`. The default product entry composes its distinct production custody store, signer,
-anti-rollback mode, credential resolver and direct measurer from the deployment's configuration, and admits only a
-store a published head names as measured.
+A positive receipt requires the signature, current head, anti-rollback witness, direct measurement, credential
+lease, and closed rotation fence. It cannot be assembled from caller-authored positive evidence. **On a
+deployment whose only trust domain is one machine, the anti-rollback property does not hold:** a witness kept
+on that machine rolls back with the custody store it would watch, so the custodian runs the named mode
+`SingleTrustDomainNoRollbackWitness` instead. It observes nothing, bounds nothing and detects no rollback of the whole
+machine, and the receipt names it in place of a witness proof.
+
+This mode is limited to a single-machine trust domain and supplies no whole-machine rollback protection. A deployment with a second trust domain retains its independent witness and cannot select this mode.
+
+Restart or cache loss re-verifies signatures and the head and remeasures the target. Ambiguity yields no Owner
+repository and no business retry.
+
+The intended default consumer is the `product/rd-workbench` `rd-owner-api` bootstrap composition. Before
+Market Data constructs the governed PostgreSQL repository, its private seam must consume one sealed
+store-admission receipt for the exact Market Data Owner, PostgreSQL backend, environment, deployment, and
+consumer identity. S3 remains TARGET and `UNAVAILABLE` until a real catalog consumer and pinned
+disposable S3-compatible test authority exist. Receipt and raw store/PIT/source/clock evidence stay inside
+Market Data; the first ordinary-consumer value is a sealed `ResearchPitTerminal`.
+
+The default product entry composes its distinct production custody store, signer, anti-rollback mode,
+credential resolver and direct measurer from the deployment's configuration, and admits only a store a
+published head names as measured.
 
 **`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET:** This explicitly selected profile is the only admitted non-default,
-non-production dynamic acceptance topology. An immutable acceptance trust bundle is
-provisioned by the canonical management plane outside the repository, candidate, caller, consumer, and tested process and pins the environment, signer key
-fingerprint, witness, credential-resolver, and direct-measurer identities. Separately executed principals issue the
-signed append-only manifest/history and exact current head, maintain the witness, lease the opaque credential handle,
-measure the disposable PostgreSQL target, and close rotation; the candidate and caller have none of those write or
-secret authorities. The admission receipt cross-binds that bundle and every observation. The remaining stages are:
-Market Data-private admission and custodian; an Owner-issued
-request-to-projection/event locator and durable readback; sealed read-only `StrategyInputSampleEventResolverV1`;
-`ProgramHost`; the real BacktestEngine and Sim Exchange; and a Backtest Owner terminal-result receipt with restart
-readback. Raw custody evidence never crosses to the consumer. Backtest atomically commits the exact request, attempt,
-actual-consumption record, diagnosis, and result; byte-identical retry joins the same canonical bytes, while changed
-meaning conflicts and performs no write.
+non-production dynamic acceptance topology. An immutable acceptance trust bundle is provisioned by the
+canonical management plane outside the repository, candidate, caller, consumer, and tested process and pins
+the environment, signer key fingerprint, witness, credential-resolver, and direct-measurer identities.
+
+Separately executed principals issue the signed append-only manifest/history and exact current head, maintain
+the witness, lease the opaque credential handle, measure the disposable PostgreSQL target, and close rotation;
+the candidate and caller have none of those write or secret authorities. The admission receipt cross-binds
+that bundle and every observation. The remaining stages are: Market Data-private admission and custodian; an
+Owner-issued request-to-projection/event locator and durable readback; sealed read-only `StrategyInputSampleEventResolverV1`;
+`ProgramHost`; the real BacktestEngine and Sim Exchange; and a Backtest Owner terminal-result receipt
+with restart readback.
+
+Raw custody evidence never crosses to the consumer. Backtest atomically commits the exact request, attempt,
+actual-consumption record, diagnosis, and result; byte-identical retry joins the same canonical bytes, while
+changed meaning conflicts and performs no write.
 
 The profile fails closed before `ProgramHost` or Backtest mutation when any signature, head, rotation, ACL, credential,
 measurement, request, locator, projection, event, role, or readback binding is missing or mismatched. A raw DSN, caller
@@ -723,61 +708,75 @@ storage or middleware may not collapse Owner write credentials, schemas, retenti
 
 ## Recovery terminal
 
-Recovery classifies every committed initiating cause into exactly one of `RUNTIME_NOT_READY`, `RUNTIME_INCIDENT`,
-`RECONCILIATION_DRIFT`, or `RISK_HARD_STOP`. Distinct simultaneous causes retain separate branch membership and join
-one case; no branch requires evidence owned only by another. `RUNTIME_NOT_READY` binds local suppression and the
-immutable `NOT_READY` fact. `RUNTIME_INCIDENT` binds only the exact `runtime-incident-fact`, carried to Risk by
-`runtime-risk-incident-fence`; `RECONCILIATION_DRIFT` binds only the exact `reconciliation-drift-fact`, carried
-to Risk by `execution-risk-drift-fence`. Both relations carry committed source evidence only, and Risk remains
-the sole Recovery Fence writer. Either singleton proceeds
-without the other source, but may create or join a case only after Execution commits its distinct write-once
-`RECOVERY_ADMITTED` disposition and matching `ACTIVE` Risk Recovery Fence. When both are admitted, the two
-dispositions join one append-only case. When Runtime
-is `READY` and no matching fence exists, authoritative no-effect or fully reconciled no-residual-liability proof closes
-as `NO_RECOVERY_REQUIRED`; missing, mixed-cut, or non-isolating evidence closes as `UNRESOLVED_NO_CASE`. Neither
-no-case state creates a case, command, effect attempt, or fence. `RISK_HARD_STOP` may open and fence the case while
-Runtime is `READY` and neither `RUNTIME_INCIDENT` nor `RECONCILIATION_DRIFT` exists. Risk independently activates each applicable fence on its same-scope
-frontier and never waits for case acknowledgement. Fence activation and every normal
-`ADAPTER_ADMISSION_REQUEST` are totally ordered: if the fence wins, `SUPPRESSED_BY_FENCE` proves no invocation;
-if admission wins, exactly one `ADMITTED_ONCE` attempt enters the Recovery effect frontier. Execution Reconciler
-also preserves a simultaneous applied-Artifact `DECREASE_ONLY_STRATEGY_PROTECTIVE` cause without treating it as
-Recovery authority, and deduplicates that normal attempt against the same open-order/exposure/readback cut so
-all arrival orders permit at most one external decrease effect for the remaining quantity. Execution Reconciler
-opens one case as `OPEN` and binds the Risk-authoritative complete active fence-set identity/content digest to
-advance it to `FENCED_OPEN`. Execution cannot infer completeness from delivered members. Only Reconciler creates
-Recovery Commands, which may cancel, reduce, flatten, or read back. Reduce and flatten also bind
-the authoritative Execution exposure readback cut, side, quantity, bounded target, and reduce-only policy. Execution
-revalidates the same cut immediately before adapter invocation; partial or concurrent fills, a newer cut, zero or
-flipped exposure, unsupported reduce-only semantics, or possible zero crossing reject without invocation. Runtime,
-Risk, Execution, and Portfolio facts must close before Reconciler writes `KNOWN_CLOSED`. Unknown external effect keeps
-the case open and prevents a new generation.
+Recovery classifies every committed initiating cause into exactly one of `RUNTIME_NOT_READY`,
+`RUNTIME_INCIDENT`, `RECONCILIATION_DRIFT`, or `RISK_HARD_STOP`. Distinct simultaneous causes retain
+separate branch membership and join one case; no branch requires evidence owned only by another.
+`RUNTIME_NOT_READY` binds local suppression and the immutable `NOT_READY` fact. `RUNTIME_INCIDENT`
+binds only the exact `runtime-incident-fact`, carried to Risk by `runtime-risk-incident-fence`; `RECONCILIATION_DRIFT` binds
+only the exact `reconciliation-drift-fact`, carried to Risk by `execution-risk-drift-fence`. Both relations carry committed
+source evidence only, and Risk remains the sole Recovery Fence writer.
 
-Before requesting admission, Execution persists the attempt as `PREPARED`; only `ADMITTED_ONCE` allows it to persist
-`INVOCATION_STARTED` before the external call. A crash, lost response, or restart joins those records and proceeds by
-readback; it never issues a naked retry. Recovery actions do not submit a normal adapter-admission request. Risk alone owns the
-Reservation membership frontier, its three-state resolution, and the complete affected set or explicit empty set.
-Execution reports common case, complete fence-set, command, and effect identity plus state-specific evidence. A
-committed drift `UNKNOWN_EFFECT` binds effect journal, uncertain-effect lineage, uncertainty observation, last
-readback attempt or proven absence, and complete source/time frontier without fabricating an outcome; only
-`NO_EFFECT` and `SETTLED` bind authoritative terminal readback
-and reconciliation cuts. Execution never reads or proves Reservation membership. Risk joins the facts to its own frontier. A Risk-owned set may be `RESOLVED_EMPTY`
-for an orphan external effect only after the complete Risk frontier joins authoritative Execution readback. Implicit
-empty or `UNRESOLVED` membership remains `UNKNOWN_EFFECT`, keeps Reservations non-reusable, and keeps the case fenced.
+Either singleton proceeds without the other source, but may create or join a case only after Execution commits
+its distinct write-once `RECOVERY_ADMITTED` disposition and matching `ACTIVE` Risk Recovery
+Fence. When both are admitted, the two dispositions join one append-only case. When Runtime is
+`READY` and no matching fence exists, authoritative no-effect or fully reconciled
+no-residual-liability proof closes as `NO_RECOVERY_REQUIRED`; missing, mixed-cut, or non-isolating evidence
+closes as `UNRESOLVED_NO_CASE`. Neither no-case state creates a case, command, effect attempt, or fence.
+
+`RISK_HARD_STOP` may open and fence the case while Runtime is `READY` and neither
+`RUNTIME_INCIDENT` nor `RECONCILIATION_DRIFT` exists. Risk independently activates each applicable fence on
+its same-scope frontier and never waits for case acknowledgement. Fence activation and every normal
+`ADAPTER_ADMISSION_REQUEST` are totally ordered: if the fence wins, `SUPPRESSED_BY_FENCE` proves no invocation; if
+admission wins, exactly one `ADMITTED_ONCE` attempt enters the Recovery effect frontier.
+
+Execution Reconciler also preserves a simultaneous applied-Artifact `DECREASE_ONLY_STRATEGY_PROTECTIVE` cause without
+treating it as Recovery authority, and deduplicates that normal attempt against the same
+open-order/exposure/readback cut so all arrival orders permit at most one external decrease effect for the
+remaining quantity. Execution Reconciler opens one case as `OPEN` and binds the
+Risk-authoritative complete active fence-set identity/content digest to advance it to `FENCED_OPEN`.
+Execution cannot infer completeness from delivered members. Only Reconciler creates Recovery Commands, which
+may cancel, reduce, flatten, or read back.
+
+Reduce and flatten also bind the authoritative Execution exposure readback cut, side, quantity, bounded
+target, and reduce-only policy. Execution revalidates the same cut immediately before adapter invocation;
+partial or concurrent fills, a newer cut, zero or flipped exposure, unsupported reduce-only semantics, or
+possible zero crossing reject without invocation. Runtime, Risk, Execution, and Portfolio facts must close
+before Reconciler writes `KNOWN_CLOSED`. Unknown external effect keeps the case open and prevents a new
+generation.
+
+Before requesting admission, Execution persists the attempt as `PREPARED`; only `ADMITTED_ONCE`
+allows it to persist `INVOCATION_STARTED` before the external call. A crash, lost response, or restart joins
+those records and proceeds by readback; it never issues a naked retry. Recovery actions do not submit a normal
+adapter-admission request. Risk alone owns the Reservation membership frontier, its three-state resolution,
+and the complete affected set or explicit empty set. Execution reports common case, complete fence-set,
+command, and effect identity plus state-specific evidence.
+
+A committed drift `UNKNOWN_EFFECT` binds effect journal, uncertain-effect lineage, uncertainty
+observation, last readback attempt or proven absence, and complete source/time frontier without fabricating an
+outcome; only `NO_EFFECT` and `SETTLED` bind authoritative terminal readback and
+reconciliation cuts. Execution never reads or proves Reservation membership. Risk joins the facts to its own
+frontier. A Risk-owned set may be `RESOLVED_EMPTY` for an orphan external effect only after the complete
+Risk frontier joins authoritative Execution readback.
+
+Implicit empty or `UNRESOLVED` membership remains `UNKNOWN_EFFECT`, keeps Reservations
+non-reusable, and keeps the case fenced.
 
 Execution Reconciler keeps at most one nonterminal Recovery Case for an exact generation and affected scope.
 Matching branch causes join its append-only causal set without manufacturing another branch's prerequisite.
-Closure binds the source-owner
-frontiers and must include every cause at those cuts, the exact complete fence set, reconciled Execution readback, complete
-Risk reservation coverage, and the matching Portfolio projection. A new cause invalidates pending closure.
-Only a `FENCED_OPEN` case bound to the matching complete `ACTIVE` fence set may issue decrease-only Recovery
-Commands. Every plan, attempt, and closure binds one immutable set snapshot; a new member before invocation
-invalidates the old command while a new member after invocation preserves the started attempt and advances only a
-successor frontier.
-`KNOWN_CLOSED` is Execution-owned append-only, never resumes the old generation, and only permits Governance to
-consider a fresh authorization. The predecessor fence remains `ACTIVE` and bound to that predecessor generation.
+Closure binds the source-owner frontiers and must include every cause at those cuts, the exact complete fence
+set, reconciled Execution readback, complete Risk reservation coverage, and the matching Portfolio projection.
+A new cause invalidates pending closure. Only a `FENCED_OPEN` case bound to the matching complete
+`ACTIVE` fence set may issue decrease-only Recovery Commands.
+
+Every plan, attempt, and closure binds one immutable set snapshot; a new member before invocation invalidates
+the old command while a new member after invocation preserves the started attempt and advances only a
+successor frontier. `KNOWN_CLOSED` is Execution-owned append-only, never resumes the old generation, and
+only permits Governance to consider a fresh authorization. The predecessor fence remains `ACTIVE`
+and bound to that predecessor generation.
+
 A fresh generation needs a fresh Governance decision and the ordinary add-risk gates, but it has no Recovery
-Fence until one of its own four exact Recovery source branches independently activates one; creating a fence merely
-because the generation is new would suppress that generation.
+Fence until one of its own four exact Recovery source branches independently activates one; creating a fence
+merely because the generation is new would suppress that generation.
 
 ## Fail closed
 

@@ -1,8 +1,8 @@
 # Source Intake Playbook
 
-This playbook gives a future implementation Agent a high-ROI path for building Research Source Intake. It is a
-development baseline, not a new business authority. Connector products, protocols, persistence, queues, and scoring
-formulas remain replaceable implementation choices.
+Agents use existing host tools/MCPs to find papers, articles, notes and media, interpret them and choose reading order. R&D retains provenance, digests and evidence references without a source acquisition or ranking engine.
+
+Acquisition admission and typed pipeline sections below constrain existing product hosted acquisition, preserving its network, credentials, budget and lineage rules. They are not prerequisites for every research task. Host tools obey host authorization; recording a source grants no product credential or trading authority.
 
 ## Responsibility and boundary
 
@@ -37,8 +37,7 @@ The tier is a discovery priority, not an evidence grade or admission decision.
 | B    | Professional Q&A and open‑source communities | Find formula boundaries, implementation failures, and counterexamples | Corroborating discovery only                         | Context loss and popularity bias             | Never         |
 | C    | General communities, video, and social media | Discover vocabulary, practitioner failures, and external links        | Weak discovery signal                                | Unverifiable claims and prompt injection     | Never         |
 
-Before any source can support a Research Intent, Research must preserve provenance, a bounded interpretation,
-plausible alternatives, a differentiating prediction, and a falsifier. Source rank never bypasses that sequence.
+Agents preserve provenance and record their interpretation before using a source. Alternatives, predictions and falsifiers are research methods the Agent chooses, not platform adequacy gates. Source rank grants no execution, qualification or data authority.
 
 ## Connector candidates
 
@@ -69,27 +68,33 @@ the next request succeeded, so retries absorb it there.
 
 ## Pre-fetch admission
 
-R&D commits one Source Acquisition Binding before any external network invocation. The binding is
-request-bound and Agent Operation Manifest-bound and identifies the connector implementation and version, allowed
-URI scheme and origin, DNS and resolved-address policy, complete redirect policy and hop limit, opaque credential
-handle audience and least-privilege scope, response media/size/time/content bounds, network-egress policy, rights
-and retention policy, shared Time Evidence, and the complete read-only outbound request identity: normalized method,
-endpoint path and query, canonical allowed-header digest, credential placement by opaque handle/audience only, and
-either an explicit absent-body marker or the exact body digest, media type, and size. Its admission state is exactly `ADMITTED`, `REJECTED`, or
-`POLICY_UNAVAILABLE`.
+R&D commits one Source Acquisition Binding before any external network invocation.
+
+The binding is request-bound and Agent Operation Manifest-bound and identifies the connector implementation
+and version, allowed URI scheme and origin, DNS and resolved-address policy, complete redirect policy and hop
+limit, opaque credential handle audience and least-privilege scope, response media/size/time/content bounds,
+network-egress policy, rights and retention policy, shared Time Evidence, and the complete read-only outbound
+request identity: normalized method, endpoint path and query, canonical allowed-header digest, credential
+placement by opaque handle/audience only, and either an explicit absent-body marker or the exact body digest,
+media type, and size.
+
+Its admission state is exactly `ADMITTED`, `REJECTED`, or `POLICY_UNAVAILABLE`.
 
 Rights and retention are admission inputs, not post-fetch annotations. Research decides whether the requested
 bytes may be acquired and retained before opening the network path. `REJECTED`, `POLICY_UNAVAILABLE`, or later
 rights drift therefore produces zero invocation, zero response bytes, and zero provenance.
 
-Only exact `ADMITTED` permits one bounded acquisition attempt. Every redirect hop creates and admits a new
-normalized successor request binding, repeating scheme, origin, DNS, resolved address, method, endpoint path/query,
-header/body disposition, credential audience, response bounds, egress, and rights checks before the next invocation.
-Loopback, private, link-local, disallowed or changed addresses, DNS rebinding, unlisted redirects, cross-origin
-credential forwarding, unknown policy, and rights uncertainty invoke no network request and create no provenance.
-Credentials remain opaque and never enter source content, logs, prompts, receipts, or generated artifacts. A
-changed connector, method, endpoint, query, header/body digest, origin, resolution, redirect sequence, credential audience, response bound, rights policy, or
-time cut requires a successor binding; conflicting replay is rejected.
+Only exact `ADMITTED` permits one bounded acquisition attempt. Every redirect hop creates and admits
+a new normalized successor request binding, repeating scheme, origin, DNS, resolved address, method, endpoint
+path/query, header/body disposition, credential audience, response bounds, egress, and rights checks before
+the next invocation. Loopback, private, link-local, disallowed or changed addresses, DNS rebinding, unlisted
+redirects, cross-origin credential forwarding, unknown policy, and rights uncertainty invoke no network
+request and create no provenance. Credentials remain opaque and never enter source content, logs, prompts,
+receipts, or generated artifacts.
+
+A changed connector, method, endpoint, query, header/body digest, origin, resolution, redirect sequence,
+credential audience, response bound, rights policy, or time cut requires a successor binding; conflicting
+replay is rejected.
 
 ### Acquisition authority classes
 
@@ -116,15 +121,16 @@ every locator from a `SEALED_` constant, and the port that resolves them calls a
 constructor and then overwrites the shared-time fields with literals. The port has no production
 implementation at all - its other implementation is inside a `#[cfg(test)]` module.
 
-Reading the two halves separates the gap into parts that are not the same size. On a replay the
-locators have a source: the stored acquisition binding carries every policy identity and version,
-and the doc comment on the sealed query builder states the rule that makes this safe - the binding
-is an untrusted locator source and the port still re-resolves and seals each referenced fact. On a
-**first** acquisition they have none. `AgentOperationManifestProposalV1` is the nearest thing that
-could carry them and does not: it binds the operation, its allowed and prohibited effects, a
-capability policy digest and a validity window, which is effect authority rather than acquisition
-policy. So the first question a production implementation answers is not how to resolve a locator
-but where a first acquisition's locators come from at all.
+Reading the two halves separates the gap into parts that are not the same size. On a replay the locators have
+a source: the stored acquisition binding carries every policy identity and version, and the doc comment on the
+sealed query builder states the rule that makes this safe - the binding is an untrusted locator source and the
+port still re-resolves and seals each referenced fact. On a **first** acquisition they have none.
+`AgentOperationManifestProposalV1` is the nearest thing that could carry them and does not: it binds the operation, its
+allowed and prohibited effects, a capability policy digest and a validity window, which is effect authority
+rather than acquisition policy.
+
+So the first question a production implementation answers is not how to resolve a locator but where a first
+acquisition's locators come from at all.
 
 **CURRENT - rights and retention are two families here and one structure in Market Data, and that is
 deliberate.** `SourceIntakePolicyEvidenceV1` carries `rights_basis_identity` with its own
@@ -154,7 +160,7 @@ API handler, script, flow, fixture adapter, or caller may split or reproduce Own
 commit the R&D PostgreSQL claim, raw payload, terminal receipt, provenance, Source Candidate, and outbox; positive
 records commit atomically only for `ADMITTED` plus `RETRIEVED`.
 
-## Internal capability sequence
+## Current hosted acquisition sequence
 
 The following are capabilities inside Source Intake, not new Flow nodes or Owners:
 
@@ -201,7 +207,7 @@ Use the existing Research Source Provenance Record; do not create a second regis
 - retrieval cut, shared Time Evidence, `valid-through`, connector identity and version, and the exact `RETRIEVED`
   acquisition terminal;
 - license and attribution basis, including the allowed acquisition and retention scope;
-- bounded interpretation identity and digest, plausible alternative set, differentiating predictions, and falsifier.
+- Agent interpretation identity and digest, with optional research alternatives, predictions and falsifiers.
 
 A change to content, retrieval cut, license basis, or interpretation produces a successor record. A Source Candidate
 without its record is not handoffable.
@@ -235,23 +241,22 @@ Product Edge D0 contract remain unpassed.
 
 ## Triage and admission
 
-Triage orders reading and experimentation; it never measures strategy quality. A policy may compare falsifiability,
-expected decision value, data availability, reproducibility, economic relevance, novelty, acquisition cost, rights
-risk, and implementation cost. The policy version and deterministic tie-break must be recorded, while the formula
-and transport remain implementation choices.
+Agents choose reading and experiment order using data availability, economic relevance, evidence quality and costs as appropriate. R&D records their proposals rather than computing information value rankings or deterministic tie breaks; service permission and budget checks remain enforceable.
 
 The handoff is:
 
-`Source Candidate → provenance and interpretation → alternatives → differentiating prediction → falsifier → frozen Research Intent`
+`Source Candidate → Agent interpretation → provenance record → frozen experiment`
 
-If market observations are needed, Research requests them from Market Data and correlates the terminal result to
-the same Research lineage. Before the first handoff, Research freezes one PIT Market Snapshot Request binding its
-Research Request, Intent, TrialFamily, instrument or universe scope, four-time decision cut, required provenance,
-license, correction frontier, stable correlation, and Time Evidence. `PREPARED` and `SUBMITTED_OR_UNKNOWN` are not
-market facts. Market Data alone returns the correlated snapshot disposition, repeating the exact request identity,
-content digest, scope, cut, provenance, license, correction, and correlation bindings. Changed meaning requires a
-successor request; transport success, silence, or a prior snapshot never implies `AVAILABLE` or a terminal negative.
-Source Intake never repairs or stores those market facts itself.
+If market observations are needed, Research requests them from Market Data and correlates the terminal result
+to the same Research lineage. Before the first handoff, Research freezes one PIT Market Snapshot Request
+binding its Research Request, Intent, TrialFamily, instrument or universe scope, four-time decision cut,
+required provenance, license, correction frontier, stable correlation, and Time Evidence. `PREPARED`
+and `SUBMITTED_OR_UNKNOWN` are not market facts. Market Data alone returns the correlated snapshot disposition,
+repeating the exact request identity, content digest, scope, cut, provenance, license, correction, and
+correlation bindings.
+
+Changed meaning requires a successor request; transport success, silence, or a prior snapshot never implies
+`AVAILABLE` or a terminal negative. Source Intake never repairs or stores those market facts itself.
 
 ## Failure cases
 
@@ -263,7 +268,7 @@ Source Intake never repairs or stores those market facts itself.
 - Copying price, filing, macro, or instrument facts into Source Intake creates a forbidden second Market Data store.
 - Advancing a popular source directly to artifact, replay, Qualification, Governance, or trading is an authority failure.
 
-## Development acceptance
+## Acceptance boundary
 
 - Contract tests cover every acquisition terminal, exact replay, successor content, connector unavailability, and rights change.
 - Contract tests prove only exact `ADMITTED` plus `RETRIEVED` creates or joins provenance; every other acquisition

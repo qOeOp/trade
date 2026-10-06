@@ -38,17 +38,19 @@ Observability 是不拥有业务事实的运行观测边界，统一处理 trace
 
 ## Global Status View
 
-Dashboard API 提供受限的只读 Global Status View。它可以按 disclosure class 汇总 R&D 使用的数据来源与
-迭代历史、Backtest 运行、Qualification 结果、Market Data 新鲜度、Scanner proposal、活跃 generation、
-Runtime uptime 与 incident、Risk reservation/fence、Execution order/fill/unknown effect，以及 Portfolio
-exposure/performance/capacity。探索 Backtest 投影可以包含 diagnostic category set；保护投影只能包含
-公共终态 `CLOSED_NOT_QUALIFIED` 或 `QUALIFIED`、类型不透明且不可解引用的 result reference 和
-source-frontier freshness。保护 phase、latency、terminal timing 与 timing-derived field 明确禁止公开。
-内部 replay、diagnostic、assessment、ineligibility disposition 及
-全部 category/reason-derived aggregate 必须不可区分且只由 Qualification 持有。准确而言，
-`REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 与
-`INELIGIBLE` 都以字节等价方式投影为 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。Event Rail 永不
-发布内部 `INELIGIBLE` 或其他保护终态事件。
+Dashboard API 提供受限的只读 Global Status View。 它可以按 disclosure class 汇总 R&D 使用的数据来源与 迭代历史、Backtest 运行、Qualification
+结果、Market Data 新鲜度、R&D 发现覆盖/结果、旧 Scanner 回执、活跃 generation、 Runtime uptime 与 incident、Risk
+reservation/fence、Execution order/fill/unknown effect，以及 Portfolio exposure/performance/capacity。
+
+探索 Backtest 投影可以包含 diagnostic category set；保护投影只能包含 公共终态 `CLOSED_NOT_QUALIFIED` 或
+`QUALIFIED`、类型不透明且不可解引用的 result reference 和 source-frontier freshness。 保护 phase、latency、terminal
+timing 与 timing-derived field 明确禁止公开。
+
+内部 replay、diagnostic、assessment、ineligibility disposition 及 全部 category/reason-derived aggregate 必须不可区分且只由
+Qualification 持有。 准确而言， `REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED`
+`ASSESSMENT_INVALID` 与 `INELIGIBLE` 都以字节等价方式投影为 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。
+
+Event Rail 永不 发布内部 `INELIGIBLE` 或其他保护终态事件。
 
 每个字段都引用来源 Owner 事实或 telemetry frontier，并显示 `observed-at`、`valid-through`、完整性、lag 与重建状态。`STALE`、`PARTIAL`、`REBUILDING`、`UNAVAILABLE` 必须明确显示，不能伪装成健康或完整。Dashboard 上触发变更的操作必须另行发起并接纳 Product Edge → Owner 请求，绝不能直接写入视图。
 

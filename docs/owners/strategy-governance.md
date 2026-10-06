@@ -4,6 +4,176 @@
 
 Own the deployable strategy registry, lifecycle decision, and permitted capital policy from qualification through retirement. Governance decides whether a strategy generation may run; it does not design artifacts, judge individual trades, or own order effects.
 
+## TARGET - Joint-operation admission
+
+Joint operation requires each complete strategy's own eligibility and matching composition eligibility, without
+composition-only activation for independently ineligible members. One complete strategy may contain return and
+hedging rules and multiple legs; it has one strategy version, lifecycle and allocation identity. Internal legs create
+no separate trial/formal members or pool shares; actual usage remains account facts. Governance cannot waive
+member eligibility or reinterpret its assessed scope based on correlations, hedging labels or composition metrics.
+
+Governance maintains one effective composition binding per trading account, covering all running members
+across trial and formal pools and the obligations for protected residual positions. It does not manage separate
+AB/CD subgroup configurations. Applying a researched subset requires matching evidence for the resulting
+whole-account composition; subset eligibility alone cannot justify additional members. Approved transitions
+record current state under the frozen plan rather than inventing another research configuration.
+
+Trial, promotion, unloading and return to research belong to each member strategy separately. Composition
+definitions and joint eligibility constrain which members may operate together; the composition is not another
+stage object requiring all members to pass, promote or unload together. A member change still requires checking
+successor assessment applicability; unchanged stages of other members cannot justify mismatched joint eligibility.
+
+Joint operation requires member eligibility and matching composition eligibility, valid user authority,
+current capital/risk facts and native readiness. For already running strategies, an Agent may request adoption
+of an assessed successor composition version within explicit prior user-approved change bounds. Governance
+validates the exact configuration and evidence scope, authority and current facts before applying it; wider
+changes require user confirmation. Research resource approval does not grant this operational authority.
+Initial trial entry for a new strategy version still requires Dashboard confirmation; composition-change
+authority cannot bypass it.
+
+Governance records the approved active binding to the exact R&D composition configuration and matching
+Qualification evidence. It owns operational authorization and capital policy, not the research configuration;
+it neither rewrites that definition nor issues research eligibility. Governance consumes Qualification
+evidence rather than running backtests. Current Portfolio interaction/account facts do not replace historical
+composition eligibility, and historical evidence does not replace live Risk admission. Members and allocation
+states must match the assessed applicability scope; unknown scope cannot expand authority.
+
+On entry, unload or automatic promotion, check whether changed membership or equal allocation remains covered
+before authorizing subsequent joint operation. Uncovered expansion requires reassessment. Stopping new
+entries, cancelling entry orders and retaining existing protection cannot be blocked by reassessment. Before
+admitting a new strategy to joint operation, require approved versioned rules and exit plans with
+Qualification coverage for ordinary membership/allocation changes, including protected residual exposure.
+Apply covered plans against current account facts without requiring a new assessment for each occurrence.
+
+Changed members, policy or unsupported states require assessment before admitting new risk; unchanged formulas
+alone do not prove coverage. Governance checks evidence and applies plans, not backtests or economic
+optimization. Detailed normative bindings remain to be completed; no separate composition governance service.
+
+## TARGET - Trial and formal strategy lifecycle
+
+Strategy versions follow the R&D canonical content hash (`strategy_id`), not run or Research request IDs. A new
+hash follows the complete lifecycle. An unchanged version may return to its original stage only through user
+confirmation and resolution of the original qualified Artifact and stage evidence, with current eligibility,
+authority, capital and risk checks. A stop never reactivates it automatically; missing or changed qualification
+bindings cannot be repaired by hash equality. Pool reallocations alone do not change the strategy version.
+
+Backtest qualification makes a candidate eligible, not active. Dashboard requires the user to confirm trial entry
+for the exact candidate, frozen trial conditions and capital policy; valid current authority, allocation and native
+readiness remain required. The user may keep a qualified candidate in R&D to improve it. Qualification alone never
+starts a trial or causes automatic reactivation after a user stop.
+
+The user may unload an economically valid strategy for improvement; an external Agent may also request this
+autonomously within prior user-approved frozen boundaries. Governance verifies the affected strategy,
+authority scope and current facts before applying it; missing valid authority produces no unload effect. This
+permission covers unloading and R&D handoff, not activation of successors or changes to eligibility, capital
+policy or existing protection. Governance records the user or admitted Agent improvement reason and authority
+basis separately from economic failure and preserves qualification and stage evidence; unloading does not
+fabricate a failed backtest or revoke qualification.
+
+Stop new entries, cancel entry orders, return running allocation immediately and keep residual positions under
+their original protections through the native path. R&D owns any successor; changed candidates requalify,
+receive a new user-confirmed trial and cannot inherit previous stage authority.
+
+The promotion route is R&D iteration, qualified backtest, real trading trial, and automatic promotion on frozen
+conditions. Governance owns stage decisions, trial/formal membership, user-approved condition versions and capital
+allocation; it does not produce backtest qualification, fills or profit measurements.
+
+- Qualification consumes Backtest evidence and owns backtest eligibility and protected assessments; failures stay in R&D.
+- Portfolio provides returns, NAV, fees, funding, capital-flow and attribution facts; Runtime/Execution provide actual operation, orders and fills.
+- Governance consumes these facts under conditions frozen before operation to decide promotion, maximum-period trial termination and formal retention. A Dashboard selection is not a passing result.
+- Approved ratios divide the common trial and formal pools; each pool allocates equally among actually running instances, recalculating on entry, unload or promotion. Unloading returns allocation immediately. Actual residual margin and exposure remain account facts checked by Risk at order admission, without retaining the unloaded strategy's running allocation.
+- Trial expiry without meeting frozen promotion conditions or failure of formal retention conditions unloads the strategy and returns it to R&D. Stop new entries, cancel unfilled entry orders and hand existing positions to the existing native Runtime/Risk/Execution path under original protections. Direct downgrade from formal to trial trading is forbidden.
+- R&D owns diagnosis, successor changes and new backtests; successors qualify again and start new trials without inheriting old results, stage decisions or authorization.
+- Strategies express signals and necessary protection rules, not their own eligibility, promotion, unload, pool membership or allocation. Dashboard provides selection and readback.
+
+Provide two finite per-trade sizing templates: fixed margin proportion and fixed planned-stop-risk proportion.
+There is no default. Dashboard creation requires explicit template/exposed-parameter selection; APIs require
+the same selection or an exact frozen configuration reference. Missing selection cannot produce a runnable
+policy or operation authority, and previous selections are not automatically inherited. Reuse preserves an
+explicit selection; existing frozen versions are not rewritten. The first derives a margin budget from
+allocated capital, then calculates requested quantity using leverage and instrument specifications.
+
+The second derives quantity from planned risk budget and entry/stop distance using native fixed-risk sizing,
+subject to margin, leverage and quantity constraints. Planned stop loss is not a maximum actual loss; include
+fees and gap/slippage assumptions. Freeze template, proportion, capital base, leverage, bounds and
+effective/update rules before experiments and operation. Strategies express entry, stop and related rules;
+shared sizing uses approved policy rather than private balances or policy changes. Both retain instance
+limits, account Risk and queued-entry constraints.
+
+Equal pool division remains the default. Fractional Kelly or unequal allocation is an optional named policy version
+requiring R&D registration, independent assessment and explicit user approval of the exact version. A passing replay
+or new estimate does not automatically change policy. Governance manages approved formulas, parameter bounds and
+update conditions rather than training probability models. Operation must match policy eligibility and capacity scope;
+queued member admission and shared-account/instance limits remain binding.
+
+Allocation uses current account net equity under the approved measurement method, not exchange free margin
+after position usage as a repeatedly shrinking pool base. Governance applies approved trial/formal proportions and
+the effective running-member count to calculate instance limits. A limit is neither a private strategy wallet nor a
+copied balance. Portfolio provides versioned, fresh equity, actual usage and account free-margin facts; strategies
+do not maintain or reconcile another account balance.
+
+Before entry or promotion, Governance calculates a complete successor allocation for affected instances from one
+consistent equity/member cut. Risk/Runtime must admit that allocation version before the new member can add risk.
+Do not start the member before asynchronously reducing existing limits, or admit both old and new limits together.
+Equity changes update limits under the same frozen formula, subject to eligibility applicability, economic capacity
+and policy hard bounds. Changing the formula or expanding beyond assessed scope is not an ordinary balance refresh.
+
+When adding a strategy would reduce existing member limits, every affected member's actual usage must first
+fit its successor limit. Usage includes positions, valid orders and unsettled reservations, deduplicated through
+existing settlement lineage; checking only positions or one member is insufficient. If any member exceeds its proposed
+limit, Governance refuses immediate entry and durably queues the user-confirmed request. Existing membership and
+allocation stay effective. Unstarted waiting candidates receive no target-pool allocation and do not count as running members.
+Do not force position reductions or cancel existing valid orders to make room for the candidate.
+
+A passing trial waiting for formal capacity continues trading under its effective trial policy. It remains
+counted in trial membership/allocation and account usage, receives no formal allocation, and does not stop
+entries or cancel valid entry orders merely because promotion waits. Amounts still update through approved
+formulas/current account facts rather than freezing enqueue-time balances. Eligibility, authorization and Risk
+constraints remain effective. Capacity waiting alone does not invent economic failure or reset evidence. A
+currently passing trial may continue waiting beyond its maximum observation period.
+
+If current promotion conditions fail and the frozen maximum observation period has ended, terminate trial and
+return to R&D: stop entries, cancel unfilled entry orders and retain existing position protection. Neither a
+previous pass nor waiting starts a new observation clock. One successor allocation removes trial membership,
+adds formal membership and recalculates both pools; node application receipts prove transition. At actual
+promotion, re-evaluate the frozen economic conditions using current, traceable trial evidence as well as
+capital, eligibility, authorization and readiness.
+
+An earlier pass is not perpetual promotion authority: if current conditions fail, retain trial membership and
+policy without formal allocation. Do not reset evidence or silently change criteria to preserve the earlier
+pass.
+
+Account, usage or membership changes wake Governance to reread facts and recalculate successor limits, rather
+than reuse fixed amounts from enqueue time. Once all affected members fit, composition eligibility, user
+confirmation, account capacity, authority and readiness must still be valid. Risk rechecks usage and
+allocation versions at the same scope serialization boundary before admitting the complete successor
+allocation and allowing entry. Concurrent old allocation orders may invalidate readiness; keep waiting instead
+of starting and repairing afterward. Waiting is a Governance request state, not another queue service or
+perpetual authority.
+
+Dashboard exposes reasons and cancellation; cancelled requests or withdrawn authority cannot activate
+automatically.
+
+Existing usage cannot disappear through allocation arithmetic. If declining equity or other account changes make
+current effective limits insufficient, rather than a pending member transition, stop new risk under existing rules
+and retain original protection. A new instance limit does not establish executable account funds: insufficient actual
+availability prevents new-risk admission. Strategies do not automatically borrow each other's unused limits.
+
+The target no longer depends on a separate Scanner deployment proposal or periodic match. Governance evaluates
+approved frozen conditions directly from bounded Qualification, Portfolio and Runtime/Risk/Execution facts; R&D
+on-demand discovery is neither deployment evidence nor authority. The legacy `ScannerConditional` contract below
+is migration compatibility and remains rejected as `ConditionalScannerNotAdmitted` today. A named target policy version
+keeps eligibility, capital, authority and recovery constraints rather than lifting evidence requirements on old paths
+or silently reinterpreting fields.
+
+Equal pool division uses a new target policy version; sealed priority ranking/capped allocation below retains its
+original meaning. Do not reinterpret old fields for equal division or let each node allocate the whole pool again.
+Governance publishes allocation from one effective membership cut.
+
+This is target business policy. Condition choices, normative stage facts and versioned handoffs still need completion.
+It cannot silently rewrite sealed contracts, authorization modes or effect admission below. Implementation must connect
+the corresponding Owners without a second order, account or qualification engine.
+
 ## Authoritative facts owned
 
 - Governed Strategy Entry binding ArtifactRef, exact Eligibility Fact and generation-specific economic-condition
@@ -63,8 +233,7 @@ Own the deployable strategy registry, lifecycle decision, and permitted capital 
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted on
-2026-09-18 as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
+permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
 entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
 grants nothing, and widening the admitted set requires changing this document first.
 
@@ -218,13 +387,14 @@ projection. A rejection or unavailable fact keeps the preceding lifecycle state;
 opens Recovery instead of fabricating a successful pause or retirement.
 
 When contenders exceed the shared pool, Governance waits for the declared contender-set frontier, applies the
-versioned allocation policy to the complete set plus one coherent Portfolio Interaction Receipt, and commits one
-Capital Allocation Disposition. It first removes exact policy-rejected members, then lexicographically sorts the
-admissible set by declared ordinal policy priority, Portfolio interaction class, requested capital fraction, and
-finally unique canonical generation bytes before capped priority fill. A missing member or attribute, duplicate
-generation identity, duplicate complete comparator key, unresolved overlap, stale or mixed cut, or ambiguous policy
-commits `INPUT_INCOMPLETE_NO_WRITE`; it never produces a partial allocation. Risk then enforces, but never
-recomputes, those envelopes.
+versioned allocation policy to the complete set plus one coherent Portfolio Interaction Receipt, and commits
+one Capital Allocation Disposition. It first removes exact policy-rejected members, then lexicographically
+sorts the admissible set by declared ordinal policy priority, Portfolio interaction class, requested capital
+fraction, and finally unique canonical generation bytes before capped priority fill.
+
+A missing member or attribute, duplicate generation identity, duplicate complete comparator key, unresolved
+overlap, stale or mixed cut, or ambiguous policy commits `INPUT_INCOMPLETE_NO_WRITE`; it never produces a partial
+allocation. Risk then enforces, but never recomputes, those envelopes.
 
 ## Decision contract
 

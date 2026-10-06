@@ -187,15 +187,12 @@ Main 提供的 context 独立于 record，准确形状如下：
 `{"outcome":"VALID","reasons":[]}` 才有效；JSON 格式错误 未知字段 缺失键 selector 不一致或修改
 规范语义都会返回 `INVALID` 与非零退出码。
 
-切片必须写明一个消费者可观察结果、发送交接的 relation `sourceRole`、生产 request 或 object 的
-authority、拥有 carried object 的 authority，以及拥有可观察业务结果的 Owner。这些是独立字段且可以
-不同。R&D 是同时包含 Research 与 Develop 能力的唯一 Owner；Backtest 是消费 R&D-owned Strategy
-Artifact 的独立服务 Owner。边界可以生产
-类型化请求对象，但只有业务 Owner 能提交相关回执或状态转换。Owner 生产的读模型即使由边界消费，
-仍由该 Owner 拥有。纯边界展示或投递只有给出明确依据才能声明没有业务事实，其业务写入集合必须
-为空并把 `business-transition` 列为禁止项。Owner 内部工作在两个角色中填写同一个业务 Owner。禁止
-写入包括其他 Owner 拥有的任何事实、把传输或 stage custody 误当 carried-object authority、绕过 Owner 的存储访问、把通知当证明，以及未经明确授权的
-外部或实盘效果。
+切片必须写明一个消费者可观察结果、发送交接的 relation `sourceRole`、生产 request 或 object 的 authority、拥有 carried object 的
+authority，以及拥有可观察业务结果的 Owner。 这些是独立字段且可以 不同。 R&D 是同时包含 Research 与 Develop 能力的唯一 Owner；Backtest 是消费 R&D-owned
+Strategy Artifact 的独立服务 Owner。 边界可以生产 类型化请求对象，但只有业务 Owner 能提交相关回执或状态转换。 Owner 生产的读模型即使由边界消费， 仍由该 Owner 拥有。
+
+纯边界展示或投递只有给出明确依据才能声明没有业务事实，其业务写入集合必须 为空并把 `business-transition` 列为禁止项。 Owner 内部工作在两个角色中填写同一个业务 Owner。 禁止 写入包括其他
+Owner 拥有的任何事实、把传输或 stage custody 误当 carried-object authority、绕过 Owner 的存储访问、把通知当证明，以及未经明确授权的 外部或实盘效果。
 
 每个 accepted rejected unknown replay oracle 都用 `Given / When / Then` 描述，并且必须命名一个已提交
 观察结果，而不是方法调用 日志或只存在于文字的期望。并发约束只规定持久原子序列化及其获胜后的可观察
@@ -207,14 +204,15 @@ Artifact 的独立服务 Owner。边界可以生产
 必须匹配所选迁移表面；截面身份由该域命名。其他表面的证据无效。迁移上下文缺失、来自其他表面
 或阶段不相邻时停止规划。
 
-`agent-shell-cutover` 边界不变量绑定 Agent Shell Deployment Binding、权威 history head、共享的可变 Owner 请求门禁、
-三个出站请求对象及其三个接收 Owner 回执。证明必须保持有效主体、权限范围、能力与审计政策版本一致，
-允许失败关闭的零 `ACTIVE` 窗口，要求准确前驱先提交不可逆 `SUPERSEDED`，政策等价后继再提交
-`ACTIVE`，拒绝双写，要求每个写请求准入绑定准确 head 且其中唯一 `ACTIVE` 被选中，并按原 request
-与 binding 身份解析全部已准入在途请求。只有 Research、Governance 或 Qualification
-独立提交匹配回执才形成业务结果。它没有业务 Owner，也不能提交业务转换。
-切片还必须完整声明规范 `accepted` `rejected` `unknown` `replay` 四个分支；缺失、部分或被修改的
-分支都会停止规划。
+`agent-shell-cutover` 边界不变量绑定 Agent Shell Deployment Binding、权威 history head、共享的可变 Owner 请求门禁、 三个出站请求对象及其三个接收
+Owner 回执。
+
+证明必须保持有效主体、权限范围、能力与审计政策版本一致， 允许失败关闭的零 `ACTIVE` 窗口，要求准确前驱先提交不可逆 `SUPERSEDED`，政策等价后继再提交
+`ACTIVE`，拒绝双写，要求每个写请求准入绑定准确 head 且其中唯一 `ACTIVE` 被选中，并按原 request 与 binding
+身份解析全部已准入在途请求。 只有 Research、Governance 或 Qualification 独立提交匹配回执才形成业务结果。 它没有业务 Owner，也不能提交业务转换。
+
+切片还必须完整声明规范 `accepted` `rejected` `unknown` `replay`
+四个分支；缺失、部分或被修改的 分支都会停止规划。
 
 ## 有效关系语义
 

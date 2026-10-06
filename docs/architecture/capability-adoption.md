@@ -1,7 +1,7 @@
 # Capability Adoption
 
-This page maps product requirements onto the current Nautilus foundation. The user confirmed on 2026-10-06
-that Market Data and Backtest extend Nautilus and expose separate MCP services; R&D is the custom-developed
+This page maps product requirements onto the current Nautilus foundation.
+Market Data and Backtest extend Nautilus and expose separate MCP services; R&D is the custom-developed
 research service. This is an extension map, not a plan to extract native computations into replacement engines.
 Owner names identify internal responsibility, custody and permission boundaries, not additional engines or
 mandatory standalone services. Source availability remains separate from integrated product acceptance.
@@ -25,10 +25,41 @@ mandatory standalone services. Source availability remains separate from integra
 
 ## Product capabilities and implementation location
 
+### Native integration constraints
+
+Design starts with the repository's native types, entry points and extension seams, then defines product APIs.
+Latest upstream documentation helps discover capabilities; local source determines callable compatibility.
+Rust and Python entry points are not interchangeable evidence. This mapping governs every service flow.
+
+| Product requirement                         | Native entry and representation                                                                                      | Product addition and admission boundary                                                                                                                              |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| History, streams and imports                | Provider `DataClient` / adapter → `DataEngine`; native `Instrument`, `Bar`, `QuoteTick`, `TradeTick` and book events | Convert files into native types; attach source, rights, availability, revision and coverage evidence without another data engine                                     |
+| Persistence and reads                       | Typed Parquet catalog in `crates/persistence/src/backend/catalog.rs`; dedicated instrument writes                    | Bind admission and immutable references to actual files/versions; catalog presence does not prove PIT availability, protected partitions or coverage                 |
+| Multiple timeframes                         | `crates/data/src/aggregation.rs`, `BarType` / composite bars; `INTERNAL` derived versus `EXTERNAL` source series     | Freeze base inputs, price type, anchors and lineage; aggregated small bars cannot impersonate venue original large bars                                              |
+| Native strategy package                     | Agent authored Nautilus Strategy; R&D seals source, parameters, dependencies and environment; native nodes load it   | No JSON strategy language/BFP/Wasm; current chain does not prove target integration                                                                                  |
+| Pending orders, protection and staged exits | `OrderFactory`, native commands/events, GTD, contingent orders and `reduce_only`                                     | Frozen prices and cancellation rules become native commands; cache / Execution owns actual lifecycle without a parallel order machine                                |
+| Multiple strategies and algorithms          | `BacktestEngine::add_strategies`, `add_exec_algorithm`, native TWAP                                                  | Bind members, instances, algorithm parameters and shared accounts; native availability does not prove MCP integration                                                |
+| Independent entries                         | Native OMS, position IDs, client order IDs and venue adapter                                                         | NETTING differs from HEDGING; prove internal entry attribution and venue aggregate reconciliation without another position ledger                                    |
+| Capital and costs                           | Native RiskEngine, accounts/Portfolio, Fee/Fill/Latency/Margin models and funding settlement                         | Governance supplies logical allocation policy; add authorization, custody and research evidence without replacing balances, margin or fee calculations               |
+| Finer execution chronology                  | Native granular event replay and explicit bar execution configuration                                                | OHLC heuristics are not observed chronology; Market Data prepares successors and new bindings default to full replay, not automatic native recursive fetching/rewind |
+
+Native entry points include `crates/model`, `crates/data/src/engine/`, `crates/backtest/src/engine.rs`,
+`crates/backtest/src/exchange.rs`, `crates/common/src/factories/order.rs` and `crates/system/src/kernel.rs`.
+Current JSON/Host limits are specified in [R&D](../owners/rd/#implementation-status-ledger) and
+[Backtest](../owners/backtest/). Requirements without native mapping and integration evidence remain targets;
+parallel implementations cannot bypass that boundary.
+
+Market Data's Source, Preparation and Streams components extend native data entry points. Trading Node's
+Runtime, Risk, Execution and Portfolio represent product boundaries around native components. Research decisions,
+protected assessment and lifecycle policies in R&D, Qualification and Governance are product additions.
+Evidence tables can index native facts, but cannot become another authority for market, order, position or account state.
+
+### Product entrances and custody
+
 | Capability                          | Implementation                                                            | Invariant                                                                        |
 | ----------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Data and backtest                   | Extend existing Nautilus modules, each with its domain MCP                | No copied data engine, matcher, order or account mechanism                       |
-| Research intelligence and authoring | External agent submits JSON; custom R&D validates/seals                   | No embedded model, arbitrary code or mutable Artifact                            |
+| Research intelligence and authoring | External Agents judge and write native source; R&D records/seals          | No embedded model, scientific decision interpreter or mutable Artifact           |
 | Deterministic jobs                  | Domain service owns durable work; MCP/CLI submits/queries                 | Disconnect loses no job; backend completes internal composition                  |
 | User interface                      | Custom Dashboard consumes the same typed operations                       | UI, logs and operational success are not business facts                          |
 | Run directory and logs              | Operational RunStore and bounded reads                                    | Cache deletion cannot delete Owner results; unknown stays unknown                |
@@ -42,6 +73,26 @@ implementation or executor. Existing MCPs, Dashboard and packages do not prove f
 data, Artifact, run, report and legal next action through the concrete user story.
 
 ## Capability map
+
+### Native capability families and product use
+
+Inventory components and integration paths; do not turn every upstream feature into a product module.
+
+| Native capability family   | Retained components                                                                                              | Product use                                                                                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Representation/instruments | model instruments, accounts, orders, position, data, events, reports, Price/Quantity/Money                       | Shared semantics/precision; Owner metadata binds native types without another trading representation system                                              |
+| Data                       | DataClient, DataEngine, aggregation, books, options chains, catalog                                              | Market Data intake/custody and node consumption; native options/DeFi support does not widen product scope automatically                                  |
+| Execution                  | ExecutionClient/Engine, matching, OrderManager/Emulator, protection, trailing, reconciliation                    | Simulation/venue clients share commands/events; unwired emulation or advanced orders are not available product capabilities                              |
+| Runtime                    | system kernel/Trader, LiveNode/AsyncRunner, BacktestEngine/Node, Strategy/Actor, Controller, ExecutionAlgorithm  | Native lifecycle/registration; research orchestration does not create another trading runtime                                                            |
+| Risk/accounts              | RiskEngine, fixed risk sizing, Portfolio, account/margin models                                                  | Native economic facts/checks; product allocation/authorization adds policy and evidence                                                                  |
+| Numerics/reports           | indicators/kernel, analysis analyzer/statistics                                                                  | Admitted compiled indicator calls and result projections; new factor estimation/knowledge belongs to R&D, without copying existing indicators/statistics |
+| State/recovery             | cache, Event Store, snapshots, typed replay, native reconciliation                                               | Adopt proven restoration scope; cache restoration is not full engine rewind, venue confirmation or restored governance authority                         |
+| Supporting capabilities    | clock/timers, msgbus, network, serialization, persistence, crypto, logging/observability, plugin/Python bindings | Native infrastructure; verify Rust/Python differences, plugin hosts and feature flags per entry without new departments                                  |
+
+The detailed crate mapping below governs permissions and handoffs; provider history, streams and execution ports
+remain distinct capabilities. Every development slice binds native entry points, input types/configuration, added
+product facts and final-consumer acceptance. Only a demonstrated requirement gap warrants a bounded extension;
+a feature name without its integration chain is not an implementation plan.
 
 | Existing crate or capability                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Destination                                                        | Adoption contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -90,7 +141,7 @@ data, Artifact, run, report and legal next action through the concrete user stor
   Portfolio's `BOUND` Capacity Scope and current Capacity View through that Owner's own API and seals them with
   the evidence cut; it makes no Risk decision, commits no Reservation, writes no fence, and consumes no Trade Intent.
 - `crates/runtime` → **Runtime foundation.** Keep the non-authoritative `NOT_READY` status and exact revalidation dependencies. Canonical Runtime custody, generation, checkpoint, readiness, deployment, and effects remain `TARGET`.
-- `crates/scanner` → **Scanner Owner.** Adopt the fail-closed Scanner core for sealed attempt admission and receipt production. Unavailable time or source authority fails before attempt admission. Unavailable membership after sealed admission commits a terminal `Failed(MembershipUnresolved)` receipt while suppressing matcher, proposal, and downstream effects.
+- `crates/scanner` → **Legacy Scanner compatibility.** Retain the fail-closed Scanner core for sealed attempt admission and receipt production. Unavailable time or source authority fails before attempt admission. Unavailable membership after sealed admission commits a terminal `Failed(MembershipUnresolved)` receipt while suppressing matcher, proposal, and downstream effects.
 - `crates/strategy_governance` → **Strategy Governance Owner.** Adopt the static fail-closed Governance core for exact authorization and lifecycle receipts. Adapter evidence remains untrusted until canonical Owner reread, and authorization never proves Runtime application.
 - `crates/product_edge_claim_custody` → **Product Edge provider-invocation custody.** `CURRENT` is the Owner-local storage and locked-resolution seam for claim and start custody. Caller records are proposals only; provider execution and trading remain `NOT_ADMITTED`.
 - `crates/rd_source_intake_invocation_custody` → **R&D Source Intake invocation custody.** `CURRENT` locks and verifies exact Product Edge claim/start evidence and seals and resolves one R&D-owned Source Intake reservation without transferring either Owner's authority. Provider execution, production writes, and trading remain `NOT_ADMITTED`.
@@ -133,7 +184,7 @@ data, Artifact, run, report and legal next action through the concrete user stor
   predecessor/generation/validity/recovery, signature, head, anti-rollback witness, direct measurement, credential
   lease, and closed rotation fence. On a single-machine deployment the anti-rollback witness is the named mode
   `SingleTrustDomainNoRollbackWitness`, under which no rollback of the whole machine is detected; see the
-  architecture rules for the user's 2026-09-27 authorization. Restart or cache loss repeats signature/head verification and direct measurement;
+  architecture rules for the exact single-trust-domain scope. Restart or cache loss repeats signature/head verification and direct measurement;
   ambiguity constructs no Owner repository and triggers no business retry. The receipt and raw store evidence remain
   private; the first ordinary-consumer value is the Market Data-sealed `ResearchPitTerminal`. That default product
   entry composes its distinct production custody store, signer, anti-rollback mode, credential resolver and direct
