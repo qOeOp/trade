@@ -68,7 +68,7 @@ test('preserves links in blockquote and list fences while rewriting body links',
   assert.equal(routeRelativeMarkdownLinks(source, 'guide/install'), expected);
 });
 
-test('rejects a docs link that exists only outside the Fumadocs sidebar', () => {
+test('rejects route text outside navigable content', () => {
   const body = `<aside id="nd-sidebar"><a href="/other/">Other</a></aside><script>${childRoute}</script>`;
   const markup = navigationMarkup({
     body,
@@ -147,6 +147,14 @@ test('checks the visible header CTA for the first product guide', () => {
   assert.equal(containsNavigationHref(markup, sectionRoute), true);
 });
 
+test('accepts a compatibility reference from the parent article without requiring a sidebar slot', () => {
+  const body = `<aside id="nd-sidebar"><a href="/other/">Other</a></aside><article id="nd-page"><a href="${childRoute}">Reference</a></article>`;
+  const markup = navigationMarkup({ body, parentRoute: '/trade/zh/docs/owners/', localeHomeRoute: homeRoute });
+  assert.equal(containsNavigationHref(markup, childRoute), true);
+  const hidden = body.replace('<article id="nd-page">', '<article id="nd-page" hidden>');
+  assert.equal(containsNavigationHref(navigationMarkup({ body: hidden, parentRoute: '/trade/zh/docs/owners/', localeHomeRoute: homeRoute }), childRoute), false);
+});
+
 test('checks sibling top-level sections from the first docs sidebar', () => {
   assert.equal(
     parentNavigationRoute('zh', 'owners/index.md'),
@@ -158,7 +166,7 @@ test('checks sibling top-level sections from the first docs sidebar', () => {
   );
 });
 
-test('rejects a guide child linked only from the page body when the persistent sidebar is missing', () => {
+test('rejects a guide link outside canonical article and navigation containers', () => {
   const parentRoute = '/trade/en/docs/guide/';
   const childRoute = '/trade/en/docs/guide/quickstart/';
   const body = '<body><main><a href="./quickstart">Quickstart</a></main></body>';
@@ -226,4 +234,13 @@ test('accepts base-path-qualified Flow detail links and rejects root bypasses', 
     [nodeRoute, relationRoute].sort(),
   );
   assert.deepEqual(internalDocumentRoutes(bypassed, '/trade/zh/', basePath), []);
+});
+
+
+test('rejects external navigation links with the expected local pathname', () => {
+  for (const href of [`https://invalid.example${childRoute}`, `//invalid.example${childRoute}`]) {
+    assert.equal(containsNavigationHref(`<a href="${href}">Risk</a>`, childRoute), false);
+  }
+  assert.equal(containsNavigationHref(`<a href="${childRoute}">Risk</a>`, childRoute), true);
+  assert.equal(containsNavigationHref('<a>Risk</a>', childRoute), false);
 });

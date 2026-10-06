@@ -23,8 +23,8 @@
   不可变且永不增加 Recovery Case 反向引用；Execution 只在 case 原因集合中记录 incident 身份
 - Runtime Readiness Fact，绑定实例 generation checkpoint 影响范围 原因前沿 `READY` 或 `NOT_READY`
   本地抑制回执和 `valid-through`
-- **TARGET：** generation-scoped shared-kernel semantic trace 与版本化 strategy checkpoint，绑定准确 Plan、
-  Artifact、ordered lifecycle frontier、strategy/plugin state、target、protection 与 fill reconciliation
+- **TARGET：** generation-scoped 原生事件/命令记录与版本化策略 checkpoint，绑定准确源码包、
+  环境、事件前沿、策略状态、保护规则及成交对账
 - Runtime Kernel Repair Result，绑定一个 R&D-owned `native-repair-request`、稳定 correlation、前驱
   `REPAIR_INPUTS` 决定、原始 proof digest、旧 kernel version、决定性证据、repair policy 与新鲜 Time
   Evidence；只有 Runtime 能为该 attempt 提交 `REPAIRED` `UNAVAILABLE` 或 `OUTCOME_UNKNOWN`
@@ -85,20 +85,22 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
 - Paper 与 Live 等价性仍为下文共享策略生命周期契约所述的 **TARGET / NOT_ADMITTED**；没有任何 Paper 或 Live Execution
   adapter 绑定到 Runtime。
 
-## 共享策略生命周期契约
+## 原生策略生命周期契约
 
-Runtime 只能应用 governed generation 携带的准确 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)：
-`StrategyPlanV2`、内容寻址 Wasm Artifact、Owner binding、`ProgramHost`、lifecycle/checkpoint/kernel/plugin
-版本及 Market Semantics Compatibility 身份。只有共享内核能消费全序 `START` `BAR` `EVENT` `FILL`
-`TIMER` `STOP` envelope，并拥有 `ENTER` `ADD` `REDUCE` `EXIT` `HOLD`、target position/weight/rebalance、
-protection adjustment 和 fill reconciliation。plugin 只能返回其有界 typed value 或 state proposal；它没有
-raw-order、Risk、Execution、Portfolio、account 或 external-effect 权威。
+Runtime 只加载 Governance 当前授权的准确[原生策略包](../architecture/strategy-factory/#strategy-package-and-content-identity)、运行环境、参数和数据绑定。
+原生 Trader/Strategy 生命周期消费市场、订单、成交及 timer 事件；Strategy 通过原生订单接口表达规则，Risk 与 Execution 保留授权和订单事实。
+不引入产品 BFP、plugin 内核或第二套动作状态机。
 
-在 Paper 与 Live adapter 存在并被另行接纳前，二者等价性均为 **TARGET / NOT_ADMITTED**。获准后，两种
-mode 必须消费相同 Plan、Artifact、ordering、checkpoint 与 kernel，并对相同 normalized event prefix 在
-Risk/Execution adapter boundary 之前产生相同 semantic trace。只能替换 adapter、account namespace 与
-effect namespace。Risk 仍是最终 intent admission，Execution 拥有 order/fill/effect，Portfolio 拥有 position
-与 account truth；Runtime 绝不能把 kernel target 或 plugin output 直接提升为 order 或 account state。
+checkpoint 必须绑定策略包、generation、完整事件前沿及实际策略状态。
+原生策略状态保存并非完整节点恢复：clock、cache、订单/持仓/账户、执行算法、定时器和模型状态都要按各自权威恢复与对账。
+没有完整恢复证据时保持 NOT_READY，不用一个策略快照证明可以继续交易。
+
+Backtest 与获准运行使用同一策略源码/配置和原生版本，比较相同输入前缀的信号、命令与实际事件。
+场所、延迟和事件顺序差异须有证据，不能承诺实盘结果必然等于回测。
+Paper/Live adapter 的准入仍独立；源码加载不扩大当前交易权限。
+
+Risk 是最终风险准入，Execution 拥有订单/成交/效果，Portfolio 拥有账户/持仓事实。
+Runtime 不把策略内存状态、目标数量或 Agent 解释升级为账户事实。
 
 ## 输入交接
 
@@ -158,15 +160,15 @@ effect namespace。Risk 仍是最终 intent admission，Execution 拥有 order/f
 
 ## 失败与恢复
 
-就绪丢失时，Runtime 先停止本地意图与命令，再为准确 generation checkpoint Execution Scope Capacity
-Scope 原因前沿和时间有效性提交不可变 `NOT_READY`。Risk 根据该事实或其过期独立设共享活动 fence。
-Runtime 事故则提交不可变 `runtime-incident-fact`，Runtime 可以保持 `READY`；
-`runtime-risk-incident-fence` 把该准确事实提交给 Risk，只有 Risk 能提交匹配的 `RUNTIME_INCIDENT`
-Recovery Fence；Execution 只解析独立
-`RUNTIME_INCIDENT` Recovery Admission Disposition，只有带匹配活动 fence 的 `RECOVERY_ADMITTED` 才创建
-或加入 case，绝不要求或替换 Execution drift 来源。对已接纳 case，
-Execution Reconciler 拥有它，生成有界恢复动作，联结场所 Risk Portfolio 终态并独占 `KNOWN_CLOSED`。
-Runtime 可以从 checkpoint 重启，但不能解除 fence 闭合 case 或恢复旧 generation；Governance 必须重新决定。
+就绪丢失时，Runtime 先停止本地意图与命令，再为准确 generation checkpoint Execution Scope Capacity Scope 原因前沿和时间有效性提交不可变
+`NOT_READY`。 Risk 根据该事实或其过期独立设共享活动 fence。
+
+Runtime 事故则提交不可变 `runtime-incident-fact`，Runtime 可以保持 `READY`； `runtime-risk-incident-fence` 把该准确事实提交给
+Risk，只有 Risk 能提交匹配的 `RUNTIME_INCIDENT` Recovery Fence；Execution 只解析独立 `RUNTIME_INCIDENT` Recovery
+Admission Disposition，只有带匹配活动 fence 的 `RECOVERY_ADMITTED` 才创建 或加入 case，绝不要求或替换 Execution drift 来源。
+
+对已接纳 case， Execution Reconciler 拥有它，生成有界恢复动作，联结场所 Risk Portfolio 终态并独占 `KNOWN_CLOSED`。 Runtime 可以从
+checkpoint 重启，但不能解除 fence 闭合 case 或恢复旧 generation；Governance 必须重新决定。
 
 ## 决策契约
 
@@ -202,4 +204,8 @@ Runtime 可以从 checkpoint 重启，但不能解除 fence 闭合 case 或恢�
 
 ## 可观测性与持久化
 
-Runtime 持久化 application、Strategy Instance checkpoint、readiness、lifecycle observation 与不可变 Incident fact。Telemetry 覆盖 load/start/stop 时延、heartbeat/readiness、重启、queue pressure、策略 invocation 次数和有界 incident 类别。Dashboard 的 uptime、downtime、running-since、重启次数、applied-generation 次数与使用时长必须从同一 Time Evidence epoch 下准确 application/readiness/incident 区间推导；缺失 heartbeat 不能单独宣告 incident 已解决、generation 已停止或 Recovery 已闭合。
+Runtime 持久化 application、Strategy Instance checkpoint、readiness、lifecycle observation 与不可变 Incident fact。
+Telemetry 覆盖 load/start/stop 时延、heartbeat/readiness、重启、queue pressure、策略 invocation 次数和有界 incident 类别。
+
+Dashboard 的 uptime、downtime、running-since、重启次数、applied-generation 次数与使用时长必须从同一 Time Evidence epoch 下准确
+application/readiness/incident 区间推导；缺失 heartbeat 不能单独宣告 incident 已解决、generation 已停止或 Recovery 已闭合。

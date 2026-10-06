@@ -1,5 +1,11 @@
 # Product Edge
 
+<Callout type="info" title="客户端边界，不是新的业务部门">
+
+先看部署与领域工具，再查准确协议。客户端接纳请求并展示结果，各领域持有任务、事实与拒绝状态；兼容 transport 不改变已批准用户路径。
+
+</Callout>
+
 ## 职责
 
 Product Edge 是有界请求与结果视图的协议和应用边界。目标研究入口是一组 MCP 服务：数据与回测扩展当前
@@ -10,27 +16,36 @@ Nautilus 模块，R&D 是自研研究服务。MCP 转换类型化请求与身份
 
 ## 产品表面与部署
 
-目标产品包通过数据、回测和 R&D 服务向外部代理提供能力。确定性任务由各 MCP 背后的服务持有，不属于调用会话。
-R&D 可经内部类型化 API 调用数据与回测服务；外部代理决定研究假设与迭代。产品正确性不依赖内置模型或某个代理供应商。
-自研 Dashboard 是第一方用户查看与控制客户端，经 MCP 完成研究旅程不以 Dashboard 为前提。
+目标产品包服务一个个人用户和一个外部 Agent；Agent 可以更换，持久研究记录仍由产品保留。 当前不要求多用户共享托管或并行多 Agent 协作。 通过数据、回测和 R&D
+服务向外部代理提供单策略与投资组合的研究能力，包括多标的策略、 多策略共同账户回测和组合调整研究，目标平台是币安，覆盖加密现货与合约及其股票、大宗等标的产品；先交付合约，现货后续支持。
+研究、验证与受治理运行的完整范围见[服务架构](./index/)，首个 Binance 永续验收不限制完整目标范围。 确定性任务由各 MCP 背后的服务持有，不属于调用会话。 R&D 可经内部类型化 API
+调用数据与回测服务；外部代理决定研究假设与迭代。
+
+产品正确性不依赖内置模型或某个代理供应商。 研究需求由用户直接向外部 Agent 提出，经 MCP 发起与推进研究。 自研 Dashboard 是研究进度、证据和结果的
+只读查看入口，以及上线确认、政策配置与策略运行控制客户端。 Dashboard 不发起、暂停、恢复或终止研究， 不派发或控制外部 Agent；产品服务不提供远程控制用户本地 Codex/Claude 会话的链路。
+目标后台与 Web Dashboard 部署服务器，保留本地开发方式。 本地 Agent/电脑的可用性不决定服务端数据/ 回测任务与已授权策略运行的生命周期；服务器可用时，已接纳工作依既有边界继续，新研究编排等待外部
+Agent。
+
+恢复调用者先解析原 job/request 身份，再发起后继工作。 六组职责不要求六个进程。
 
 下文已有 Compose 包与 Dashboard preview 是当前实现清单，不证明目标服务架构已经交付。
 部署与真钱准入仍有独立门禁。
 
-**当前 Dashboard 预览。** 已有 UI 入口是产品入口是 `product/dashboard`--一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享
-UI 原子，以及当前已准入的第一方读面。它自带浏览器会话网关、Trade 自有的 RunStore，以及
-`dashboard-web`、`dashboard-effect-worker`、`dashboard-shadow-worker`、`dashboard-shadow-scheduler`
-四个最小权限进程角色。`/api/mcp` 是一个无状态 Streamable HTTP endpoint，走同一批有类型 handler，在
-浏览器会话闸门之外但需要自己的有限 scoped Bearer capability，并在 dispatch 前校验 Host 与 Origin。
-它的固定工具表只含 Artifact preflight/action、Source/Research action、Develop Composer 与 Replay V2 的
-request-custody action、准确 run detail 与有界 run-log 读，不暴露任意 script、database、shell 或管理工具。
+**当前 Dashboard 预览。** 已有 UI 入口是产品入口是 `product/dashboard`--一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享 UI
+原子，以及当前已准入的第一方读面。 它自带浏览器会话网关、Trade 自有的 RunStore，以及
+`dashboard-web`、`dashboard-effect-worker`、`dashboard-shadow-worker`、`dashboard-shadow-scheduler` 四个最小权限进程角色。
+
+`/api/mcp` 是一个无状态 Streamable HTTP endpoint，走同一批有类型 handler，在 浏览器会话闸门之外但需要自己的有限 scoped Bearer
+capability，并在 dispatch 前校验 Host 与 Origin。 它的固定工具表只含 Artifact preflight/action、Source/Research action、Develop
+Composer 与 Replay V2 的 request-custody action、准确 run detail 与有界 run-log 读，不暴露任意 script、database、shell 或管理工具。
+
 外部对话客户端只是可选 consumer，不随产品打包，不拥有业务权威，也不作为实现验收依赖。
 
-Dashboard 与 MCP 调用同一组经过挑选、带版本的操作，并且只能通过有类型 Owner port 工作。它们不能执行
-任意 Owner SQL、产生业务事实或保存影子 workflow truth。Operations API 只读 Trade 自有的 RunStore 运维
-数据；有类型的 R&D 与 Backtest 读走各自准确的 Owner 合同。它们绝不复制运维 run 行或原始 Owner
-payload，运维完成也绝不被重新解释成业务成功。真实策略循环、行情会话、订单状态机与恢复效果仍由
-Trade Runtime、Risk 与 Execution 拥有，Recovery 归 Execution；产品表面只能监督和展示，永远不是交易运行内核。
+Dashboard 与 MCP 调用同一组经过挑选、带版本的操作，并且只能通过有类型 Owner port 工作。 它们不能执行 任意 Owner SQL、产生业务事实或保存影子 workflow truth。
+Operations API 只读 Trade 自有的 RunStore 运维 数据；有类型的 R&D 与 Backtest 读走各自准确的 Owner 合同。 它们绝不复制运维 run 行或原始 Owner
+payload，运维完成也绝不被重新解释成业务成功。
+
+真实策略循环、行情会话、订单状态机与恢复效果仍由 Trade Runtime、Risk 与 Execution 拥有，Recovery 归 Execution；产品表面只能监督和展示，永远不是交易运行内核。
 
 **当前部署状态：** Dashboard 的全部服务只在 opt-in 的 `dashboard-preview` profile 下启动，镜像 tag 默认
 `preview`，web 主机端口默认 `127.0.0.1:3100`，运行时角色不暴露主机端口。**尚无生产部署。** Dashboard 的
@@ -66,28 +81,36 @@ Operator UI 可见性不是授权边界。可分发的 MCP profile 默认拒绝�
 operation 加上只读的运维 run 读取。应用与 MCP 调用绑定同一 operation 版本与语义请求；任一通道都不得
 部署或编辑它正在使用的 operation。
 
-无人值守执行从规范 due-slot identity 开始，并在第一次调用 Owner 前派生唯一稳定 Product Edge request
-identity。retry、worker restart、timeout recovery 与 manual resolution 复用该 identity 和 meaning。如果
-执行器不能证明 Owner 是否接受调用，run 保持 `SUBMITTED_OR_UNKNOWN`，resolver 查询 Owner receipt；
-不得提交裸 successor。并行或重叠 schedule delivery 只有在 due-slot 与 Owner idempotency contract 汇合到
-同一 receipt 时才无害。Flow error handling 可以通知并排队解析，但只有 Owner receipt 能闭合业务操作。
+无人值守执行从规范 due-slot identity 开始，并在第一次调用 Owner 前派生唯一稳定 Product Edge request identity。 retry、worker
+restart、timeout recovery 与 manual resolution 复用该 identity 和 meaning。 如果 执行器不能证明 Owner 是否接受调用，run 保持
+`SUBMITTED_OR_UNKNOWN`，resolver 查询 Owner receipt； 不得提交裸 successor。
 
-due slot 只提供 identity，不提供权威。无人值守提交就是普通的变更提交，绑定同一条完整 Authorization
-Lineage，其中包括在该次运行自身截面上解析出的、当前有效且不能自我声明的 Operator Authorization。schedule、
-due slot、worker 角色、它的传输 credential 与它的环境都不提供这些成员，因此无法解析出当前 Operator
+并行或重叠 schedule delivery 只有在 due-slot 与 Owner idempotency contract 汇合到 同一 receipt 时才无害。 Flow error handling
+可以通知并排队解析，但只有 Owner receipt 能闭合业务操作。
+
+due slot 只提供 identity，不提供权威。 无人值守提交就是普通的变更提交，绑定同一条完整 Authorization Lineage，其中包括在该次运行自身截面上解析出的、当前有效且不能自我声明的
+Operator Authorization。 schedule、 due slot、worker 角色、它的传输 credential 与它的环境都不提供这些成员，因此无法解析出当前 Operator
 Authorization 的无人值守运行在第一次调用 Owner 之前就 fail closed，不创建 admission、run 或 provider claim。
-**TARGET / NOT_ADMITTED：** 在该授权的签发路径被单独规定并准入之前，无人值守的非交易执行保持关闭；
-无人值守交易还额外需要下文定义的 Autonomous Policy Authorization。
 
-Artifact Formation 除冻结 Research Intent identity 外，还使用稳定 build-request identity 与稳定 attempt
-identity。相同语义 tuple 的重放汇合到同一 Owner attempt；任一 identity 被不同语义复用都形成 identity
-conflict。穷尽的 Owner disposition 是 `SUCCESS`、`FAILED_NO_ARTIFACT`、`REJECTED_NO_WRITE` 与
-`OUTCOME_UNKNOWN`；`SUBMITTED_OR_UNKNOWN` 只是查询状态，不是业务 disposition。只有 `SUCCESS` 才原子
-提交新的不可变 Artifact、Build Receipt、Artifact Review 与 `ARTIFACT_AVAILABLE` projection；其他处置
-均不产生 Artifact。commit 后响应丢失会解析到准确回执，commit 前 timeout 只能以 unknown 且无 Artifact
-闭合。App 与 MCP 调用同一个带版本 Formation operation，绝不以运维 run state 代替它。
+**TARGET / NOT_ADMITTED：** 在该授权的签发路径被单独规定并准入之前，无人值守的非交易执行保持关闭； 无人值守交易还额外需要下文定义的 Autonomous Policy
+Authorization。
 
-Product Edge 只有在规范 authorization、deployment binding、manifest 与 admission 锁全部持有后，才会在第一笔写入前立即采样 request-admission commit cut。四项权威必须在同一个半开 cut 重新验证，该 cut 同时绑定 admission identity 与 receipt。如果锁等待期间跨过到期边界，请求必须零写入。Product Edge unavailable 或 storage unknown（包括 admission custody 可能已存在）必须返回 `SUBMITTED_OR_UNKNOWN`，且只有 `RESOLVE_SAME_ATTEMPT_IDENTITY`；绝不能转成 `REJECTED_NO_WRITE` 或 successor 权威。
+Artifact Formation 除冻结 Research Intent identity 外，还使用稳定 build-request identity 与稳定 attempt identity。 相同语义
+tuple 的重放汇合到同一 Owner attempt；任一 identity 被不同语义复用都形成 identity conflict。
+
+穷尽的 Owner disposition 是 `SUCCESS`、`FAILED_NO_ARTIFACT`、`REJECTED_NO_WRITE` 与
+`OUTCOME_UNKNOWN`；`SUBMITTED_OR_UNKNOWN` 只是查询状态，不是业务 disposition。 只有 `SUCCESS` 才原子 提交新的不可变
+Artifact、Build Receipt、Artifact Review 与 `ARTIFACT_AVAILABLE` projection；其他处置 均不产生 Artifact。
+
+commit 后响应丢失会解析到准确回执，commit 前 timeout 只能以 unknown 且无 Artifact 闭合。 App 与 MCP 调用同一个带版本 Formation operation，绝不以运维
+run state 代替它。
+
+Product Edge 只有在规范 authorization、deployment binding、manifest 与 admission 锁全部持有后，才会在第一笔写入前立即采样
+request-admission commit cut。 四项权威必须在同一个半开 cut 重新验证，该 cut 同时绑定 admission identity 与 receipt。
+如果锁等待期间跨过到期边界，请求必须零写入。
+
+Product Edge unavailable 或 storage unknown（包括 admission custody 可能已存在）必须返回 `SUBMITTED_OR_UNKNOWN`，且只有
+`RESOLVE_SAME_ATTEMPT_IDENTITY`；绝不能转成 `REJECTED_NO_WRITE` 或 successor 权威。
 
 Provider invocation claim 本身是持久且一次性的 custody。若 claim 已提交但响应丢失，同 attempt 解析必须返回准确 `CLAIMED` claim 与唯一动作 `RUN_BOUNDED_EXECUTION_AGENT`。App 与脚本随后只能启动这一个既有 claim 一次；不得创建 successor claim 或第二次调用 provider。进入 `INVOCATION_STARTED` 后，除非已有权威终态 Owner receipt，否则唯一安全投影是人工 provider 对账。
 
@@ -97,7 +120,9 @@ Provider invocation claim 本身是持久且一次性的 custody。若 claim 已
 不证明 provider 真实性、默认部署、外部效果、Paper/Live 或交易可用。验收隔离 executor、数据库、网络与 volume，
 清理后证明原基线未变；同身份响应丢失和重启应恢复相同回执，不能重新执行已完成的副作用。
 
-### Source Intake-to-Composer D0 合同
+### CURRENT - 有界 Source Intake-to-Composer D0 合同
+
+此节限定现有已准入链路的读回、权限和原子性，不定义目标策略表达路线。新原生包保留同一权威/证据属性，不能要求继续扩展 Wasm 编译器。
 
 本节冻结下一实现 DAG 的顶层合同，不会让任何目标能力成为当前能力。成熟度边界必须准确区分：
 
@@ -112,112 +137,127 @@ Provider invocation claim 本身是持久且一次性的 custody。若 claim 已
 - **SEALED_ACCEPTANCE：** 只有完成所有动态 gate 的 A2 runner 才能宣称组合验收拓扑。该证据仍仅用于
   验收，不能建立 `PRODUCT_CURRENT` 或生产 readiness。
 
-Replay Policy V2 只能来自 [R&D Owner 合同](../owners/rd)定义的密封 版本化且内容寻址的 R&D Catalog。
-紧接第一笔 TrialFamily-formation write 前，私有 R&D formation resolver 在其既有 transaction 上锁定并重读
-显式 current 且未撤销的 head，再把 policy 与 Catalog cross-binding 永久密封进 family。后续 Composer 与
-Replay composition 只使用该 family-sealed policy 与 cross-binding，绝不把 Catalog 重读为 authority。可选
-Catalog reread 仅用于 audit，不能影响 admissibility，因此后续 Catalog revocation、deletion、unavailability
-或 tamper 不能使已形成 family 失效。公开 Composer 或 Research request 不携带 policy selector。Product
-Edge、caller、provider、environment value、default、migration 与 deployment configuration 都不能
-创建或选择 version、推进 head、撤销 version、seed Catalog 或合成 fallback。只有私有且受审计的 R&D
-Catalog Administration Port 拥有这些写入。
+Replay Policy V2 只能来自 [R&D Owner 合同](../owners/rd)定义的密封 版本化且内容寻址的 R&D Catalog。 紧接第一笔 TrialFamily-formation
+write 前，私有 R&D formation resolver 在其既有 transaction 上锁定并重读 显式 current 且未撤销的 head，再把 policy 与 Catalog
+cross-binding 永久密封进 family。
 
-另行授权的 Catalog bootstrap composition 始终位于 Product Edge 之外。它是独立、显式启用、
-单次运行的 `authority-admin` unit，不提供 HTTP route。Rust composition 使用 Ed25519 和另行
-信任的 verifier identity/key 认证拒绝未知字段的密封 V1 request 后，才使用 broker-only
-`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL`。PostgreSQL 不重复该 cryptographic verification，而是只信任
-独占的 `replay_policy_catalog_admin_writer` broker principal。把该 credential 分发或用于 Product Edge、
-ordinary service、operator workflow 或 generic SQL client 都是 trust-boundary breach。
-`authentication_fact_digest` 在 database access 之前从已验证 evidence 派生。Product Edge 不得提供
-request、verifier、key、administrator identity、policy bytes、command identity、event time、signature 或
-canonical Owner readback，也不得启动 R&D API。product startup boundary 只有在 schema materialization、
-custody cutover、显式 Catalog bootstrap 或准确解析，以及 byte-identical Owner readback 验证完成后，
-才准许 API 启动。该 byte-identical typed Owner readback 由准确 sealed request 与 immutable audited
-record/head state 重建。首次 success 与准确 response-loss 或 restart replay 返回相同 bytes；不得使用
-attempt-local `CREATED`/`RESOLVED` field 区分两者。immutable audit fact 是持久 command receipt，该 typed
-readback 是唯一 projection，不存在 administration receipt 或 outbox。bootstrap custody 缺失或 conflict 时，
-startup 必须在无 default 的情况下 fail closed。
+后续 Composer 与 Replay composition 只使用该 family-sealed policy 与 cross-binding，绝不把 Catalog 重读为 authority。 可选
+Catalog reread 仅用于 audit，不能影响 admissibility，因此后续 Catalog revocation、deletion、unavailability 或 tamper 不能使已形成
+family 失效。 公开 Composer 或 Research request 不携带 policy selector。
+
+Product Edge、caller、provider、environment value、default、migration 与 deployment configuration 都不能 创建或选择
+version、推进 head、撤销 version、seed Catalog 或合成 fallback。 只有私有且受审计的 R&D Catalog Administration Port 拥有这些写入。
+
+另行授权的 Catalog bootstrap composition 始终位于 Product Edge 之外。 它是独立、显式启用、 单次运行的 `authority-admin` unit，不提供 HTTP
+route。 Rust composition 使用 Ed25519 和另行 信任的 verifier identity/key 认证拒绝未知字段的密封 V1 request 后，才使用 broker-only
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL`。
+
+PostgreSQL 不重复该 cryptographic verification，而是只信任 独占的 `replay_policy_catalog_admin_writer` broker principal。 把该 credential
+分发或用于 Product Edge、 ordinary service、operator workflow 或 generic SQL client 都是 trust-boundary breach。
+`authentication_fact_digest` 在 database access 之前从已验证 evidence 派生。
+
+Product Edge 不得提供 request、verifier、key、administrator identity、policy bytes、command identity、event
+time、signature 或 canonical Owner readback，也不得启动 R&D API。 product startup boundary 只有在 schema materialization、
+custody cutover、显式 Catalog bootstrap 或准确解析，以及 byte-identical Owner readback 验证完成后， 才准许 API 启动。
+
+该 byte-identical typed Owner readback 由准确 sealed request 与 immutable audited record/head state 重建。 首次 success
+与准确 response-loss 或 restart replay 返回相同 bytes；不得使用 attempt-local `CREATED`/`RESOLVED`
+field 区分两者。
+
+immutable audit fact 是持久 command receipt，该 typed readback 是唯一 projection，不存在 administration receipt 或 outbox。
+bootstrap custody 缺失或 conflict 时， startup 必须在无 default 的情况下 fail closed。
 
 公开 Composer `RUN` 只接收一个不受信的规范 Research request locator，并拒绝 caller request identity、
-Design、digest、binding request、plugin-source capsule、provider selector、build receipt 或其他字段。在正向
-commit 使用的同一个 Owner lock/write transaction 内，R&D 规范重读该 locator 指向的 current Research
-custody，并独自派生 Composer request identity/digest、Research/Intent 与 Design identity/digest、Design、
-binding set、source capsule 和 provider identity。该派生保留准确 Product Edge Operator Authorization
-frontier 与最终 commit cut；执行器与 caller 均不得替换、省略或重算。Owner-internal exact commit-cut
-capability 只锁定该 request 及其 aggregate row，绝不取得 table-wide lock。
+Design、digest、binding request、plugin-source capsule、provider selector、build receipt 或其他字段。
 
-在 `RUN` 前，已认证只读 `GET /v2/develop-composer/request-projections` 可以从同一规范 Research locator
-投影派生 request identity 与完整 identity/digest tuple。该 projection 仅用于在发送前获知 identity，并在
-response loss 后执行 bodyless same-identity `RESOLVE`；它不写入也不授予 custody。
-`POST /v2/develop-composer/runs` 只接收 locator，并独立重读、派生全部含义，绝不信任或接收 caller 回灌
-的 projection field。
+在正向 commit 使用的同一个 Owner lock/write transaction 内，R&D 规范重读该 locator 指向的 current Research custody，并独自派生 Composer
+request identity/digest、Research/Intent 与 Design identity/digest、Design、 binding set、source capsule 和 provider
+identity。
 
-operation 在同一进程调用已接纳的 A0 确定性 build 边界，在进程内保留其不透明 verified build，并以 move
-消费该 token。该正向类型既不可 `Clone`，也不可序列化或反序列化。私有规范 A0 Build Receipt bytes 是
-与 Research request 和 Artifact 解耦的 intrinsic content-addressed sealed build fact。每个 Artifact 通过独立、
-immutable 且规范排序的 use relation 引用它，因此两个不同 Research 派生 Artifact 可以共享一份 byte-identical
-sealed build fact，同时保留两条 use row 与完整 Research/Design/Artifact lineage。只有准确 legacy schema 可
-执行一次 byte-preserving normalization；其他 legacy shape、partial relation、byte mismatch 或 ambiguous
-duplicate 均 fail closed。不存在公开 verified-build locator、verified-build read port、数据库或 API token
-representation；provider、caller、执行器或重启路径都不得从 bytes、digest、receipt 或 label 重建
-verified token。
+该派生保留准确 Product Edge Operator Authorization frontier 与最终 commit cut；执行器与 caller 均不得替换、省略或重算。 Owner-internal
+exact commit-cut capability 只锁定该 request 及其 aggregate row，绝不取得 table-wide lock。
 
-A0 完成后且正向提交前，A1 在同一个已准入 R&D PostgreSQL transaction 内锁定并规范重读最终已接纳
-Research custody、派生全部 Composer 含义并重读每份准确 fact-Owner binding。A1 把其既有 transaction
-capability 传给每个适用且由 Owner 拥有的密封 Composer 或 Market Data read method。每个 Owner 都在该准确
-transaction 上 lock、规范回读、校验并密封自己的事实。任何 method 都不能打开另一个 pool、
-connection 或 transaction；caller 与执行器都不能读取 raw Owner table、重建 sealed evidence 或取得
-Owner 的 fact authority。Composer 或 Market Data evidence 缺失、不可用、过期、不匹配、跨 cut 或
-wrong-owner，或 family-sealed policy cross-binding 无效时，都必须在第一笔正向写入前失败。该同一个 R&D
-transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、
-`StrategyArtifactV2` package 与私有
-module bytes、intrinsic 私有规范 A0 Build Receipt bytes、ordered Artifact-build use relation，以及 Composer
-receipt、host-admission receipt、operation receipt 和 R&D outbox。JSON 仅为 projection，不能作为规范回读或 hash 来源。重启和 `RESOLVE` 重读并解析
-规范 Build Receipt，校验其 capsule、toolchain、linker、configuration 与确定性 two-build provenance，
-把该 receipt 与 Artifact 和 Composer receipts 绑定，再重新计算并比较每个 content 与 binding digest，
-然后把 Artifact 重新接纳到 `ProgramHostV2`。该校验绝不重建 move-only verified token。raw Wasm 与规范
-Build Receipt bytes 保持私有；公开正向 Artifact projection 只包含 immutable Artifact locator 与 public
-digest。operation envelope 单独携带 terminal disposition 与 receipt identity。
+在 `RUN` 前，已认证只读 `GET /v2/develop-composer/request-projections` 可以从同一规范 Research locator 投影派生 request identity 与完整
+identity/digest tuple。 该 projection 仅用于在发送前获知 identity，并在 response loss 后执行 bodyless same-identity
+`RESOLVE`；它不写入也不授予 custody。
 
-持久 operation 只序列化一个 semantic attempt。并发的准确相同 request 与 meaning 加入同一份字节一致
-终态 receipt。request、Research/Intent、build-attempt 或 artifact identity 中任一 identity 被用于不同
-meaning 或规范 byte 时都返回 `CONFLICT` 且零写入。只有一个 transaction 提交全部规范 bytes、receipts 与
-outbox 后才可见正向终态；任何 rejection、unsupported/refinement、evidence unavailable、A0 failure、
-reread drift、host rejection、serialization/storage failure 或 rollback 都留下零 partial positive row，且
-不授予 successor authority。`REJECTED_NO_WRITE`、`UNSUPPORTED` 与 `NEEDS_RESEARCH_REFINEMENT` 只能返回
-证明该缺失状态的权威 negative operation receipt；必需 evidence 缺失、过期或不可用时返回
-`UNAVAILABLE`，只允许 same-attempt resolution，且不授予 successor authority。提交后 response 丢失保持
-`SUBMITTED_OR_UNKNOWN`；同 request `RESOLVE` 直接返回已提交 receipt，不重新 build、不重新调用
-provider，也不创建 successor attempt。无法证明 commit 的 storage uncertainty 保持 unresolved，绝不能
-伪造 rejection 或 success。
+`POST /v2/develop-composer/runs` 只接收 locator，并独立重读、派生全部含义，绝不信任或接收 caller 回灌 的 projection field。
 
-来源 ancestry 是另一个由 R&D 拥有的类型化 operation。它锁定并重读准确 Source Intake `RETRIEVED`
-terminal receipt、acquisition provenance record、Source Candidate 和匹配的 transition outbox，校验它们共享
-request/attempt/content/retrieval/policy/rights lineage，并且只返回 sealed ancestry evidence。Source content
-保持不受信，绝不授予 accepted Research custody。后续类型化 Research `RUN` 把不受信 Research proposal
-与单独验证的 ancestry evidence 交给规范 R&D Research admission。R&D 仍是唯一 Intent owner：只有该
-admission 可以解析 Independence Basis、当前 Qualification frontier 与本地 semantic-predecessor lineage，
-再冻结 Intent、falsifier、永久 TrialFamily authority、receipts 和 Composer 消费的 current Research
-custody。仅凭 Source attempt 绝不能派生 `CurrentResearchDevelopCustodyV2`。复制 caller 字段、只接收
-provenance locator 而不执行 Owner 重读，或仅把 Source Intake 与 Composer 部署在一起，都不构成
-composition。任一 ancestry member 缺失、不匹配、过期、不是 `RETRIEVED` 或不可用，或规范 Research
-admission 失败时，都不得创建 accepted Research custody，并使该 ancestry 的 Composer 保持不可用。
+operation 在同一进程调用已接纳的 A0 确定性 build 边界，在进程内保留其不透明 verified build，并以 move 消费该 token。 该正向类型既不可
+`Clone`，也不可序列化或反序列化。 私有规范 A0 Build Receipt bytes 是 与 Research request 和 Artifact 解耦的 intrinsic
+content-addressed sealed build fact。
+
+每个 Artifact 通过独立、 immutable 且规范排序的 use relation 引用它，因此两个不同 Research 派生 Artifact 可以共享一份 byte-identical sealed
+build fact，同时保留两条 use row 与完整 Research/Design/Artifact lineage。 只有准确 legacy schema 可 执行一次 byte-preserving
+normalization；其他 legacy shape、partial relation、byte mismatch 或 ambiguous duplicate 均 fail closed。
+
+不存在公开 verified-build locator、verified-build read port、数据库或 API token
+representation；provider、caller、执行器或重启路径都不得从 bytes、digest、receipt 或 label 重建 verified token。
+
+A0 完成后且正向提交前，A1 在同一个已准入 R&D PostgreSQL transaction 内锁定并规范重读最终已接纳 Research custody、派生全部 Composer 含义并重读每份准确
+fact-Owner binding。 A1 把其既有 transaction capability 传给每个适用且由 Owner 拥有的密封 Composer 或 Market Data read method。 每个
+Owner 都在该准确 transaction 上 lock、规范回读、校验并密封自己的事实。
+
+任何 method 都不能打开另一个 pool、 connection 或 transaction；caller 与执行器都不能读取 raw Owner table、重建 sealed evidence 或取得
+Owner 的 fact authority。 Composer 或 Market Data evidence 缺失、不可用、过期、不匹配、跨 cut 或 wrong-owner，或 family-sealed
+policy cross-binding 无效时，都必须在第一笔正向写入前失败。
+
+该同一个 R&D transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、 `StrategyArtifactV2` package 与私有 module
+bytes、intrinsic 私有规范 A0 Build Receipt bytes、ordered Artifact-build use relation，以及 Composer
+receipt、host-admission receipt、operation receipt 和 R&D outbox。 JSON 仅为 projection，不能作为规范回读或 hash 来源。
+
+重启和 `RESOLVE` 重读并解析 规范 Build Receipt，校验其 capsule、toolchain、linker、configuration 与确定性 two-build
+provenance， 把该 receipt 与 Artifact 和 Composer receipts 绑定，再重新计算并比较每个 content 与 binding digest， 然后把 Artifact
+重新接纳到 `ProgramHostV2`。 该校验绝不重建 move-only verified token。
+
+raw Wasm 与规范 Build Receipt bytes 保持私有；公开正向 Artifact projection 只包含 immutable Artifact locator 与 public digest。
+operation envelope 单独携带 terminal disposition 与 receipt identity。
+
+持久 operation 只序列化一个 semantic attempt。 并发的准确相同 request 与 meaning 加入同一份字节一致 终态 receipt。
+request、Research/Intent、build-attempt 或 artifact identity 中任一 identity 被用于不同 meaning 或规范 byte 时都返回
+`CONFLICT` 且零写入。
+
+只有一个 transaction 提交全部规范 bytes、receipts 与 outbox 后才可见正向终态；任何 rejection、unsupported/refinement、evidence
+unavailable、A0 failure、 reread drift、host rejection、serialization/storage failure 或 rollback 都留下零 partial
+positive row，且 不授予 successor authority。
+
+`REJECTED_NO_WRITE`、`UNSUPPORTED` 与 `NEEDS_RESEARCH_REFINEMENT` 只能返回 证明该缺失状态的权威 negative operation receipt；必需
+evidence 缺失、过期或不可用时返回 `UNAVAILABLE`，只允许 same-attempt resolution，且不授予 successor authority。
+
+提交后 response 丢失保持 `SUBMITTED_OR_UNKNOWN`；同 request `RESOLVE` 直接返回已提交 receipt，不重新 build、不重新调用
+provider，也不创建 successor attempt。 无法证明 commit 的 storage uncertainty 保持 unresolved，绝不能 伪造 rejection 或 success。
+
+来源 ancestry 是另一个由 R&D 拥有的类型化 operation。 它锁定并重读准确 Source Intake `RETRIEVED` terminal
+receipt、acquisition provenance record、Source Candidate 和匹配的 transition outbox，校验它们共享
+request/attempt/content/retrieval/policy/rights lineage，并且只返回 sealed ancestry evidence。 Source content
+保持不受信，绝不授予 accepted Research custody。
+
+后续类型化 Research `RUN` 把不受信 Research proposal 与单独验证的 ancestry evidence 交给规范 R&D Research
+admission。
+
+R&D 仍是唯一 Intent owner：只有该 admission 可以解析 Independence Basis、当前 Qualification frontier 与本地 semantic-predecessor
+lineage， 再冻结 Intent、falsifier、永久 TrialFamily authority、receipts 和 Composer 消费的 current Research custody。 仅凭
+Source attempt 绝不能派生 `CurrentResearchDevelopCustodyV2`。
+
+复制 caller 字段、只接收 provenance locator 而不执行 Owner 重读，或仅把 Source Intake 与 Composer 部署在一起，都不构成 composition。 任一
+ancestry member 缺失、不匹配、过期、不是 `RETRIEVED` 或不可用，或规范 Research admission 失败时，都不得创建 accepted Research
+custody，并使该 ancestry 的 Composer 保持不可用。
 
 A2 只把执行器用作以下固定顺序的 transport：
 
 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE -> Composer RUN/RESOLVE`。
 
-每个已部署 script 只解析类型化 request 或 receipt 并调用下一个 Owner operation；它不拥有 lifecycle、
-verified build、规范 bytes 或业务结果。验收 binary 在编译期选择 sealed adapter，使用固定 Source Intake
-corpus 与固定 A0 source/build corpus，并且不暴露 runtime provider selector、provider URL、credential、
-fixture path、DSN、header 或 environment switch。每次 run 都获得唯一内部 PostgreSQL instance/schema、
-执行器 workspace、network、ingress allocation 与 volumes，不能与生产或另一 run 共享 route 或
-mutable state。固定且内容寻址的 Replay Policy Catalog fixture 仅用于测试：隔离 harness 通过私有
-administration port 创建它并显式推进其 head，再形成 disposable TrialFamily；后续验收步骤只消费
-family-sealed policy。fixture、administration hook 与 policy bytes 只存在于编译期 `SEALED_ACCEPTANCE`
-composition；它们不是 runtime default、migration seed、production artifact 或 deployment selector。该固定 fixture
-hook 与密封的单次 product bootstrap 彼此独立；两条路径都不向 Product Edge 或执行器授予 Catalog
-authority。
+每个已部署 script 只解析类型化 request 或 receipt 并调用下一个 Owner operation；它不拥有 lifecycle、 verified build、规范 bytes 或业务结果。 验收
+binary 在编译期选择 sealed adapter，使用固定 Source Intake corpus 与固定 A0 source/build corpus，并且不暴露 runtime provider
+selector、provider URL、credential、 fixture path、DSN、header 或 environment switch。
+
+每次 run 都获得唯一内部 PostgreSQL instance/schema、 执行器 workspace、network、ingress allocation 与 volumes，不能与生产或另一 run 共享
+route 或 mutable state。 固定且内容寻址的 Replay Policy Catalog fixture 仅用于测试：隔离 harness 通过私有 administration port
+创建它并显式推进其 head，再形成 disposable TrialFamily；后续验收步骤只消费 family-sealed policy。
+
+fixture、administration hook 与 policy bytes 只存在于编译期 `SEALED_ACCEPTANCE` composition；它们不是 runtime
+default、migration seed、production artifact 或 deployment selector。 该固定 fixture hook 与密封的单次 product bootstrap
+彼此独立；两条路径都不向 Product Edge 或执行器授予 Catalog authority。
 
 组合 runner 必须针对已部署 operation 与规范 Owner 回读证明以下全部事项：
 
@@ -241,45 +281,28 @@ authority。
 8. cleanup 删除唯一执行器 workspace、PostgreSQL state、network、ingress allocation 与所有
    volume，然后证明 byte-for-byte 或枚举 baseline equality、零隔离 residue 与零 shared-target change。
 
-在这些 gate 全部通过前，持久 Composer custody、公开 API composition、类型化 Source
-Intake-to-Research handoff 与 A2 topology 都保持 `TARGET`。生产 Market Data binding resolver、
-live OpenAlex policy/rights/DNS/credentials/egress、`PRODUCT_CURRENT`、Paper、
-Live、deployment 与任何 trading effect 都保持不可用，也不在本验收权威内。固定 corpus、固定 adapter、
-隔离 PostgreSQL runner 即使通过也只构成 `SEALED_ACCEPTANCE` 证据，绝不代表生产 readiness。
+在这些 gate 全部通过前，持久 Composer custody、公开 API composition、类型化 Source Intake-to-Research handoff 与 A2 topology 都保持
+`TARGET`。 生产 Market Data binding resolver、 live OpenAlex
+policy/rights/DNS/credentials/egress、`PRODUCT_CURRENT`、Paper、 Live、deployment 与任何 trading effect
+都保持不可用，也不在本验收权威内。
+
+固定 corpus、固定 adapter、 隔离 PostgreSQL runner 即使通过也只构成 `SEALED_ACCEPTANCE` 证据，绝不代表生产 readiness。
 
 代理的模型凭据只属于宿主，领域服务凭据只属于运行环境。工具参数、结果、Artifact 和日志不携带秘密。
 模型账户不认证 Trade 请求；产品没有内部模型调用或共享模型会话。
 
 ## 代理在外的 R&D 创作
 
-代理在产品之外，规矩在产品之内
-（[产品闭环](../guide/product-loop/#agent-outside-rd-experience)）。用户与自己选择的代理（例如 Claude Code 或
-Codex）一起工作，由该代理经下文的外部代理工具面调用已接纳的 R&D 类型化 operation。代理提供想法、authoring 文档、
-诊断与文献；它绝不创作业务事实或编辑 Artifact，Owner 执行的每条规矩对它和对其他任何 channel 一样适用。
+用户通过自己选择的外部 Agent 发起研究。Agent 写原生 Nautilus Strategy，提出实验、解释结果并决定迭代。
+产品不发起模型调用，也不建立研究判断解释器。R&D 封存源码/参数/依赖/数据需求，记录实验、预算与证据；详见 [R&D](../owners/rd/) 和[原生策略包](./strategy-factory/)。
 
-工具面只传递 operation 请求与有界结果，不传递 LLM session、隐藏推理、模型 entitlement 或 credential。它持有自己向
-Owner 出示的凭据，任何工具参数或结果都不携带凭据。Secret 值绝不能进入工具 payload、Owner 事实、Artifact metadata
-或日志。产品不发起任何模型调用：策略只以 authoring 文档进入产品，由 Owner 编译并封存。
+MCP 仅适配 Owner API；传递请求和获准结果，不传递模型 entitlement、凭据或受保护样本。
+提交新内容产生新版本；未知结果保持 `SUBMITTED_OR_UNKNOWN` 并解析同一请求，不覆盖 Artifact 或以重跑猜结果。
+机械条件成立即可研究，不要求固定诊断、唯一优胜者或平台认可的研究指标。
 
-已接受的修改请求会启动一个新的受治理 R&D attempt。它要么产生新的不可变、内容寻址 Strategy
-Artifact 及其自身构建和探索证据，要么以原生无 Artifact、失败、拒绝或未知 disposition 闭合。它绝不
-在既有 Artifact identity 下修改字节。策略语义变化必须经过适用的后继假设与 Research Intent 路径；
-attended D-only repair 仍受独立 repair 契约约束。代理提交的修改就是该类型化请求，
-在 R&D-owned 回执到达前始终为 `SUBMITTED_OR_UNKNOWN`。
-
-首个已接纳 Artifact Review 表面不要求访问原始源码。它展示 Artifact identity、Research Intent 与
-迭代血缘、结构化策略逻辑摘要、参数和依赖 identity、构建状态、Agent 变更解释、探索结果引用、
-有界 Qualification 状态与允许的下一步动作。每一项都绑定原生 Owner 事实，或被明确标记为非权威
-解释；Agent 摘要不能替代 Artifact 字节、Build Receipt、Run Result、Iteration Decision 或
-Qualification 事实。R&D Owner 以版本化类型 projection 发布下一动作准入：只有穷尽定义的已知动作
-才是 `ADMITTED`，未知和 legacy 动作一律为 `NOT_ADMITTED`；Web 与 MCP 展示同一 projection，
-不得从动作名称推断权威。语义变更摘要只能使用 R&D-owned 血缘和允许的探索证据，绝不能使用受保护的
-Qualification 细节。
-
-完整源码查看、源码级 diff、受控源码下载和源码关联诊断属于 `DEFERRED_TARGET` 高级审计能力。
-即使以后引入也只能只读，且不作为首期 Workbench 验收条件。产品内代码编辑器、Notebook-first
-创作、原地修改 Artifact 和覆盖 Artifact 版本属于 `NOT_ADMITTED`。外部 IDE 或 notebook 可以继续
-作为工程工具存在，但不属于产品契约，也不能建立 Product Edge 请求、Owner 事实或验收证据。
+Dashboard 只读研究事实和 Agent 解释；来源、摘要与运行状态的权威清楚区分。
+浏览器不编译/运行策略，不编辑或覆盖工件，不控制用户电脑 Agent。
+已有只读源码查看切片保持原准入范围；新原生包展示需要准确 Owner 投影，不以现有 Wasm preview 证明已经接线。
 
 ### TARGET - 外部代理工具面
 
@@ -296,7 +319,7 @@ server 握手或一次独立编写运行不能证明整条旅程。
 `product/rd-workbench` 有本地部署 wrapper；Dashboard 也保留 `/api/mcp`。当前验收与限制以对应 Owner 页的
 记录为准。这里的源码清单不证明部署或操作级 CLI parity，取代旧文「只有 preview Dashboard 有工具」的描述。
 
-**形态：以 Nautilus 为基础的服务，分别提供 MCP。** 用户于 2026-10-06 确认：数据与回测服务扩展现有
+**形态：以 Nautilus 为基础的服务，分别提供 MCP。** 数据与回测服务扩展现有
 Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确定性步骤都由代理编排"的旧约束，
 也不表示整个产品只能有一个统一 MCP。
 
@@ -311,6 +334,8 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
   不维护能独立推进的镜像订单簿或账户总账。
 - 共享框架代码不合并凭据、保护缓存或数据库权限。保护读取与有界公开结论在服务内部执行，不能只守 MCP dispatch。
 - 已提供的 CLI 与 MCP 使用同一类型化服务操作和检查；CLI parity 不证明完整研究旅程已经实现。
+
+**CURRENT T0/U1 兼容入口。** 下列数据描述、周期白名单及全窗口分钟回填保留当前有界协议。目标准备入口消费声明的信号/执行要求与冻结时序政策；细输入形成不可变后继并完整原生重放。现有列表不是目标周期上限。
 
 **`dataset_ref`。** 对一段行情数据的纯描述：标的、执行周期（`1w`、`1d`、`4h` 或 `1h`）与以事件纳秒计的半开区间 `[start, end)`。
 它不是任何一方签发的令牌：代理照 `coverage` 报告的结果自己写。消费它的服务在运行那一刻于 Market Data 的托管里解析它；
@@ -328,7 +353,7 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 - `job_status(job_id)` → 任务状态，取 `QUEUED`、`RUNNING`、`SUCCEEDED` 或 `FAILED` 之一；`SUCCEEDED` 时给出新增的覆盖；
   `FAILED` 时按名给出成因。未知任务为 `JOB_UNKNOWN`。
 - `coverage(instrument)` → 每个周期已覆盖的区间。
-- `get_bars(instrument, timeframe, range, format)` → 内联且有界地返回 bar。拒绝：`RANGE_NOT_COVERED`、
+- `get_bars(instrument, execution_timeframe, range)` → 内联且有界地返回 bar。拒绝：`RANGE_NOT_COVERED`、
   `RANGE_TOO_LARGE_FOR_INLINE` 与 `HOLDOUT_PARTITION_UNDEFINED`。回测从不经它读取数据：回测接收 `dataset_ref`。
 - `get_funding(instrument, range)` → 资金费率，同样有界、同一组拒绝。
 - 在 Qualification 按值、向下把其 holdout 分区登记到 Market Data 之前，这两个工具对每个请求都以
@@ -345,11 +370,9 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 - **CURRENT 有界目录：** `spec` 接受单阈值陈述，或语言为 `research.strategy-authoring.v1` 的 JSON 文档，
   与工具公布输入及 R&D 的封闭 `StrategyStatementV1` 一致。两族保留各自规范内容/hash domain，独立于 Research 身份。
   编写面存在不证明完整 R-1 执行。
-- **TARGET 完整研究编写：** 沿现有 JSON 路线扩展完整 R-1 语义。R&D 把它编译为 Design 与 program meaning，
-  用同一 Owner 检查校验产物，并在冻结 Research Intent 下封存 Artifact。最终身份、界、回执和执行状态由 Owner 推导。
-  首条完整研究旅程验收前，语言必须承载 R-1 的限价挂单、到期、成交反馈、分段退出、止损移动与持仓时限；
-  新语法或执行语义采用版本化后继，冻结 V1 文档保留原编译器与含义；不支持的行为按名拒绝，不能近似成简单 spec。
-  见 R&D 的「策略编写面」与 Strategy Factory 策略形状包络。
+- **TARGET 原生策略接入：** Agent 直接提交 Nautilus Strategy 源码包、参数、依赖与数据需求；R&D 核验机械条件并封存内容与环境。
+  R-1 使用原生订单接口表达挂单、失效、保护及分段退出，缺失接口列为接入/扩展缺口，不增加 JSON 策略语言或 BFP/Wasm 编译链。
+  当前六个 statement 工具不证明源码包入口已经交付；原生包另按最小纵向切片准入。见 [R&D](../owners/rd/) 与[策略包契约](./strategy-factory/)。
 - `validate(spec)` → `VALID`，或按 authoring 编译器自己的名字给出全部违规，不写入任何东西。
 - `create(spec)` → `strategy_id`，即规范化 spec 的内容摘要。同一份 spec 再次创建返回同一个 id。
 - `get(strategy_id)` 逐字节返回 spec；`list(filter)`。
@@ -360,12 +383,13 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 
 **`backtest`**，由调用 Backtest 的 R&D 运行路由提供：
 
-- **CURRENT 有界路由：** `run(strategy_id, dataset_ref, cost_profile)` 是现有单阈值路由，在 run 内形成 goal。
+- **CURRENT 有界路由：** `run(run_id, strategy_id, instrument, execution_timeframe, window_start_ns, window_end_ns_exclusive)` 是现有单阈值路由，在 run 内形成 goal。
   它是有限的编写到报告切片，不是自主研究家族的预登记，不能被描述为完整研究闭环。
+  当前工具不接受 `dataset_ref` 或 `cost_profile` 字段，执行在一次调用内完成；准确参数以工具公布 schema 为准。
 - **TARGET 研究路由：** 版本化运行请求还须点名已冻结 Research Intent 与被接纳的试验。R&D 在派发确定性任务前
   核对 Artifact、范围、执行语义、成本、前驱数据读取与资源额度；不能在读取结果后发明假设。失败与未知尝试仍计数，
   准确重试加入同一请求。
-- 提交返回持久 `run_id`/job 引用；`status`、`list_runs` 与 `report` 在之后观察它。所属领域持有执行与恢复，
+- 提交返回持久 `run_id`/job 引用；`status`、`list` 与 `report` 在之后观察它。所属领域持有执行与恢复，
   所以 MCP 进程或代理会话结束不丢失任务。
 - `report` 绑定原生 Result 身份，陈述覆盖、事件排序分辨率、手续费、资金费、滑点、保证金与容量假设。
   组合收益、回撤、重叠敞口及持有/现金基线是主报告，随机入场对照与逐交易诊断解释原因；探索细节可读，保护细节不可读。
@@ -374,8 +398,8 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 
 **`research`**，由 R&D 提供（TARGET；完整 R-1 旅程的前置能力）：
 
-- 在实验结果数据被读取之前，登记冻结带来源假设、机制、可区分预测、证伪条件、最小关注效应、变体生成规则、数据范围与政策。
-  R&D 从冻结规则计算变体数，调用方手报的次数不是权威。
+- 在实验结果数据被读取之前，登记 Agent 实验方案、比较目标、策略包、数据范围、配置、资源和批准政策。
+  R&D 按实际接纳任务和参数组记账，不从调用方手报次数推断完整普查。
 - 响应绑定 Research Intent、永久 TrialFamily 与 census frontier。一个 family 有后继 Intent，所以假设、家族与每个实验
   不能被压成一个身份。Market Data 台账与完整前驱血缘核对已有读取；旧知识能推动新实验，旧结果不能被改名成独立验证。
 - 代理可在用户冻结主题与资源额度内开立新机制家族。越出该范围的协议或主题变更需要新用户请求。每轮提出诊断与后继/停止，
@@ -386,17 +410,23 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 - 保护数值、判决原因与逐交易保护记录不可访问；公开 `CLOSED_NOT_QUALIFIED` 不关闭研究机制。探索诊断经原生 Result 引用读取。
 - 验收登记实验、拒绝无效预登记、运行其冻结 Artifact，并在会话重启后读回完整 attempt 与 Iteration Decision，且没有保护细节。
 
+**组合入口与读回（TARGET）。** `research` 登记封存的多策略组合实验，`backtest` 接纳其成员集合与共享账户配置，
+`qualification` 接纳独立选定的组合并返回受限资格结论，`governance` 生命周期请求引用准确组合资格与用户确认。
+状态/结果读回必须区分成员资格和组合资格，展示组合配置身份与评估范围；不把单 `strategy_id` 请求隐式解释成成员列表。
+继续复用现有 MCP/API 能力目录，组合是输入和证据形状的扩展，不新增 server 或直接交易工具。
+
 **其余 server（TARGET）。** 细节在对应 Owner 的阶段规定。
 
 - **`knowledge`**，由 R&D 知识台账提供：`family_status`、`record_conclusion` 与 `check_before_research`。红线：条目只追加，
   不持有任何受保护数值。构件检索返回准确规则版本、适用范围、证据等级与反例；正向发现和负向结论同样保存，
-  复用进入新 Intent，不继承策略资格。完整契约见 [研究知识台账](../owners/rd.zh.md#target---研究知识台账)。
+  复用进入新 Intent，不继承策略资格。完整契约见 [研究知识台账](../owners/rd.zh.md#knowledge-reuse)。
 - **`qualification`**，由 Qualification 提供：`submit_candidate`、`status`、`verdict`、`forward_register` 与
   `forward_status`。红线：任何 holdout 数值都不出去。今天 Qualification 把每个负向终态都按字节相同地投影为
   `CLOSED_NOT_QUALIFIED`，因此 `verdict` 只答 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`。内部评估可区分通过、等价无效与
-  证据不足，但用户于 2026-10-05 确认这些类别保持受保护；任何公开负向判决都不关闭研究机制。
-- **`scan`**，由 R&D 提供按需只读机会发现与结果读取，不提供扫描计划 CRUD；运行策略自行持续消费行情判断机会。
-  扫描结果不是激活权威。见 [R&D 按需发现](../owners/rd.zh.md#target---按需只读机会发现)。
+  证据不足，这些类别保持受保护；任何公开负向判决都不关闭研究机制。
+- **按需找币**复用 Market Data 的直接查询；有状态策略观察复用 Backtest 原生回放。
+  R&D 按需保存研究请求与结果引用，不提供另一个观察 Host 或必经扫描路由，也不提供扫描计划 CRUD；运行策略持续消费原生行情判断机会。
+  扫描结果不是激活权威。见 [R&D 按需发现](../owners/rd.zh.md#on-demand-read-only-opportunity-discovery)。
 - **`governance`**，由 Strategy Governance 提供：`list_eligible`、`propose_activation`（Paper 或 Live）、`pause`、`retire`
   与只读的 `capital_policy`。红线：请求本身不创建激活。用户在 Dashboard 批准适用政策与权限，试盘达到冻结条件后自动转正；
   初次进入试盘必须由用户确认准确候选与冻结政策。合格候选可留在 R&D；有效策略可主动下架改进而不记为经济失效，用户停止后不自动重新上线。
@@ -407,20 +437,20 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 **真钱红线。** MCP 不直接下单或接触交易凭据。生命周期效果必须在用户批准的政策与授权内，
 符合冻结条件的自动转正由 Governance 决定，不要求每次重复人工批准；当前真实效果仍未准入。
 
-**长时间运行的工作。** 用户问到超出一次工具调用的工作在哪里运行。答案是让每种工作留在它的生命周期本来所在的地方：
+**长时间运行的工作。** 任务生命周期与托管属于对应领域服务：
 
 - MCP server 是代理会话的 stdio 子进程。它随该会话启停，不保存状态，不托管任何长任务，也不启动容器：启动容器需要
   Docker socket，而那等于主机 root。
 - 长时间运行的确定性工作由所属领域服务持久执行，使用 worker 与该领域已准入的调度。回测、数据准备和按需发现
   均可在 MCP 会话退出后继续。市场扫描不另设定时任务，运行策略通过原生节点持续消费和判断行情。
-- 每个长任务都是异步 job：提交得到 `job_id`，然后代理读取其状态，再读取其结果。回测、回填、扫描与前向记录都是这个形状，
-  其结果只追加、可重放。
-- 唯一常驻的隔离容器是 `rd-build-sandbox`，它在断网与只读文件系统下把策略程序编译成 Wasm，经其 socket 被调用。它不按任务
+- **TARGET：** 长任务提交返回持久 job/run 身份，代理之后读状态与结果；回测、准备、按需发现和可选前向记录按所属领域恢复。
+  当前有界 backfill 和 backtest.run 在单次请求内执行并记录结果，不证明完整异步 worker 已实现。
+  服务目标与[当前及目标 API 清单](./index.zh.md#后台服务清单与-api-能力目录)分别验收。
+- 当前 `rd-build-sandbox` 是既有编译链的容器。目标原生包复用普通 Docker/任务资源上限；该容器不构成新增源码路线或真实交易隔离证明。它不按任务
   启动。
 - 需要模型、不确定的工作，例如代理定期做研究，由宿主侧的定时器唤醒一个代理会话，再由该会话调用各个 MCP server。产品里不放
   任何代理。
-- 既有 Dashboard shadow/effect-worker 接线是兼容入口，不拥有业务调度权威。领域服务持有持久 job，Dashboard 提交请求并
-  回读事实。旧 Scanner 的调度不作为目标能力迁入新服务。
+- 既有 Dashboard shadow/effect-worker 接线是兼容入口，不拥有业务调度权威。领域服务持有持久 job；Dashboard 只读研究事实，只提交获准的 Governance 控制。旧 Scanner 的调度不作为目标能力迁入新服务。
 
 **权限。**
 
@@ -440,60 +470,102 @@ Nautilus 实现以满足产品需求，R&D 是自研服务。这取代"每个确
 
 ## Agent Shell 部署绑定
 
-Product Edge 为每个部署拥有一个非业务 Agent Shell Deployment Binding。目标 binding 指向规范
-`TRADE_PRODUCT_EDGE` 准入网关；在该名字存在之前封存的每条准入仍带着
-`WINDMILL_PRODUCT_EDGE`。App 与 MCP 调用是同一网关后的 channel，不是竞争 Shell
-writer。binding 记录选择 generation、有效 principal、scope policy 版本、已批准 Skill/MCP 能力集版本、
-审计政策版本和 cutover epoch。不同 channel 可以使用不同凭证，但有效 principal 与政策必须完全相同；
-切换外部对话客户端或 transport 只改变归因，不改变权限。
+Product Edge 为每个部署拥有一个非业务 Agent Shell Deployment Binding。 目标 binding 指向规范 `TRADE_PRODUCT_EDGE`
+准入网关；在该名字存在之前封存的每条准入仍带着 `WINDMILL_PRODUCT_EDGE`。 App 与 MCP 调用是同一网关后的 channel，不是竞争 Shell writer。 binding 记录选择
+generation、有效 principal、scope policy 版本、已批准 Skill/MCP 能力集版本、 审计政策版本和 cutover epoch。
+
+不同 channel 可以使用不同凭证，但有效 principal 与政策必须完全相同； 切换外部对话客户端或 transport 只改变归因，不改变权限。
 
 每次 binding 提交还必须绑定提交前后的权威 deployment history head。只有部署从未存在 binding
 历史时才允许 genesis，且必须是 generation 一并且没有 predecessor。历史一旦存在，后继必须以
 在准确当前 head 上持久原子序列化，引用已 `SUPERSEDED` 的前驱，generation 只增加一，cutover
 epoch 严格递增，并使用历史中从未出现过的 binding identity。零 `ACTIVE` 窗口不会清空 history head。
 
-规范绑定状态只有 `ACTIVE` 和 `SUPERSEDED`，且 `SUPERSEDED` 单调不可逆。切换期间允许短暂没有 `ACTIVE` Shell，但此时必须失败
-关闭且不得向 Owner 提交写请求；同时存在两个 `ACTIVE`、generation 过期或政策不匹配也不得写入。
-准确前驱必须先提交 `SUPERSEDED`，以此形成持久请求来源围栏，政策完全等价的后继才能提交
-`ACTIVE`。每个写请求原子读取并绑定权威 history head，且准入要求唯一 `ACTIVE` binding 等于该
-head。已由合法前驱准入的请求保留原 request 与 binding 身份，新 head 生效后仍按该原绑定解析，
-不会发生写入重叠或裸重试。如果其首次 downstream mutation 尚无回执，则只有在直接政策等价 successor 已成为 `ACTIVE`、原始存储 lineage 仍准确匹配且原 Operator Authorization 在 final write cut 仍 current 时才可继续。零 `ACTIVE` fence 会阻断这种连续性，所有新 admission 仍必须使用当前 `ACTIVE` head。
+规范绑定状态只有 `ACTIVE` 和 `SUPERSEDED`，且 `SUPERSEDED` 单调不可逆。 切换期间允许短暂没有
+`ACTIVE` Shell，但此时必须失败 关闭且不得向 Owner 提交写请求；同时存在两个 `ACTIVE`、generation 过期或政策不匹配也不得写入。
+准确前驱必须先提交 `SUPERSEDED`，以此形成持久请求来源围栏，政策完全等价的后继才能提交 `ACTIVE`。
 
-Product Edge 只读一个时钟。它检查或记录的每个时刻，即 binding 的 genesis、successor 的激活及其 fence、admission 或 claim 的 read cut 与 final write cut、invocation 的 start，都取自在其自身事务内读取的 `pg_catalog.clock_timestamp()`，从不取自应用进程时钟。binding 的有效窗口来自操作员，操作员不代 Product Edge 读取任何时钟，因此 genesis 与之后每次 admission 都用同一个时钟比较该窗口。在 admission 的 cut 上，研究窗口与 R&D Owner 的 `owner_cut` 和投影时间比较，而 R&D 用同一数据库时钟为它们盖戳，因此每次比较的两侧都来自同一个时钟。研究 View 的 `valid_through` 不属于这个窗口：它是读者的新鲜度，R&D Owner 在它自己的每一次变更上证明该 Research 仍可在其准入时所依据的权威下继续。Qualification 对其 Owner cut 持有同一权威。Operator Authorization Issuer 判定或盖戳的一切都读取同一个 store 时钟：授权的签发、撤销、后继与过期 manifest 恢复，以及 grant 的签发、后继与撤销。授权的窗口在签发时由 Issuer 判定，在 genesis 与每次 admission 时再由 Product Edge 判定；两个判官读取同一个时钟，因此任何时钟偏差都不会让某个窗口对一方 current 而对另一方不是。每次调用都带 schema 限定，因此经 `search_path` 可达的任何函数都无法取代它。
+每个写请求原子读取并绑定权威 history head，且准入要求唯一 `ACTIVE` binding 等于该 head。 已由合法前驱准入的请求保留原 request 与 binding
+身份，新 head 生效后仍按该原绑定解析， 不会发生写入重叠或裸重试。 如果其首次 downstream mutation 尚无回执，则只有在直接政策等价 successor 已成为
+`ACTIVE`、原始存储 lineage 仍准确匹配且原 Operator Authorization 在 final write cut 仍 current 时才可继续。
+
+零 `ACTIVE` fence 会阻断这种连续性，所有新 admission 仍必须使用当前 `ACTIVE` head。
+
+Product Edge 只读一个时钟。 它检查或记录的每个时刻，即 binding 的 genesis、successor 的激活及其 fence、admission 或 claim 的 read cut 与
+final write cut、invocation 的 start，都取自在其自身事务内读取的 `pg_catalog.clock_timestamp()`，从不取自应用进程时钟。 binding 的有效窗口来自操作员，操作员不代
+Product Edge 读取任何时钟，因此 genesis 与之后每次 admission 都用同一个时钟比较该窗口。
+
+在 admission 的 cut 上，研究窗口与 R&D Owner 的 `owner_cut` 和投影时间比较，而 R&D 用同一数据库时钟为它们盖戳，因此每次比较的两侧都来自同一个时钟。 研究
+View 的 `valid_through` 不属于这个窗口：它是读者的新鲜度，R&D Owner 在它自己的每一次变更上证明该 Research 仍可在其准入时所依据的权威下继续。 Qualification
+对其 Owner cut 持有同一权威。
+
+Operator Authorization Issuer 判定或盖戳的一切都读取同一个 store 时钟：授权的签发、撤销、后继与过期 manifest 恢复，以及 grant 的签发、后继与撤销。
+授权的窗口在签发时由 Issuer 判定，在 genesis 与每次 admission 时再由 Product Edge 判定；两个判官读取同一个时钟，因此任何时钟偏差都不会让某个窗口对一方 current
+而对另一方不是。 每次调用都带 schema 限定，因此经 `search_path` 可达的任何函数都无法取代它。
 
 ### 管理员 bootstrap 与控制面 writer
 
-Product Edge 是 deployment binding 与 head、内容寻址 operation manifest、不可变 request admission 及其
-outbox 的唯一 writer。独立命名的 **Operator Authorization Issuer** 是授权签发与 revocation frontier 的唯一
-writer。它是 Product Edge 边界内独立控制面 writer，不是另一个业务 Owner，也不是 Product Edge admission
-helper。Product Edge 只能直接解析其事实而不能写入；执行器、API、R&D、配置和持有 token 都不能签发
-authorization。
+Product Edge 是 deployment binding 与 head、内容寻址 operation manifest、不可变 request admission 及其 outbox 的唯一 writer。
+独立命名的 **Operator Authorization Issuer** 是授权签发与 revocation frontier 的唯一 writer。 它是 Product Edge 边界内独立控制面
+writer，不是另一个业务 Owner，也不是 Product Edge admission helper。
+
+Product Edge 只能直接解析其事实而不能写入；执行器、API、R&D、配置和持有 token 都不能签发 authorization。
 
 两个 writer 在同一 authority database 使用不同 PostgreSQL role。Request-admission transaction 在写入
 admission 前以共享读锁锁定准确 issuance 与当前 revocation frontier；issuance 或 revocation 使用冲突的更新
 锁。因此两个 writer 的提交截面可被强制执行，不需要第三 verifier、cache、Event Store 或复制的 caller
 assertion。
 
-第一个 deployment binding 只能由显式且执行一次的管理员 bootstrap 创建。Bootstrap 禁止出现在服务
-启动和任何产品请求路径。它验证完整 binding 与 head 历史为空，要求 expected head 为 `EMPTY`、generation
-为一、有限有效区间、内容寻址 manifest 和已预先签发且当前有效的 Operator Authorization。Binding、head、
-manifest receipt 与 outbox 原子提交。准确重放加入原字节；含义改变或并发失败的 genesis 尝试发生冲突且
-没有部分写入。后继属于独立管理员 cutover：先提交准确前驱的 `SUPERSEDED` fence，随后且仅随后政策
-等价后继才能以 generation 加一成为 `ACTIVE`。
+第一个 deployment binding 只能由显式且执行一次的管理员 bootstrap 创建。 Bootstrap 禁止出现在服务 启动和任何产品请求路径。 它验证完整 binding 与 head
+历史为空，要求 expected head 为 `EMPTY`、generation 为一、有限有效区间、内容寻址 manifest 和已预先签发且当前有效的 Operator
+Authorization。 Binding、head、 manifest receipt 与 outbox 原子提交。 准确重放加入原字节；含义改变或并发失败的 genesis 尝试发生冲突且 没有部分写入。
+
+后继属于独立管理员 cutover：先提交准确前驱的 `SUPERSEDED` fence，随后且仅随后政策 等价后继才能以 generation 加一成为 `ACTIVE`。
 
 ### Store provisioning 顺序
 
-Product Edge store 按两个有序步骤 provision，且都在任何 Owner 连接之前运行：`10-migrate-authority-custody.sh` 创建 Owner 的 schema、核心 relation 及其授权，然后 `product-edge-authority-bootstrap materialize-schema` 创建 Owner 自行物化的 relation（到期 manifest 恢复 epoch 与操作路由历史）。`connect_existing` 不运行任何 DDL，并以 `TopologyNotAdmitted` 拒绝缺少其十五个 relation 中任何一个的 store。两个步骤都是幂等的，部署包在每次启动时重跑两者，因此新增 relation 的升级会在任何服务连接之前完成 provision。
+Product Edge store 按两个有序步骤 provision，且都在任何 Owner 连接之前运行：`10-migrate-authority-custody.sh` 创建 Owner 的 schema、核心 relation
+及其授权，然后 `product-edge-authority-bootstrap materialize-schema` 创建 Owner 自行物化的 relation（到期 manifest 恢复 epoch 与操作路由历史）。 `connect_existing` 不运行任何
+DDL，并以 `TopologyNotAdmitted` 拒绝缺少其十五个 relation 中任何一个的 store。
+
+两个步骤都是幂等的，部署包在每次启动时重跑两者，因此新增 relation 的升级会在任何服务连接之前完成 provision。
 
 ### 操作路由
 
-Product Edge 是部署所准入的类型化变更操作的唯一路由权威。对每个路由 key（部署身份、类型化操作、其版本，以及其请求被封存于其下的准入网关 channel；今天每个准入都携带 `WINDMILL_PRODUCT_EDGE`），Product Edge 维护一段 operation routing binding 历史。binding 指名对该 key 而言哪个 dispatcher 是新鲜的业务 writer：`WINDMILL`（遗留 effect runner）或 `TRADE_DASHBOARD`（第一方 Dashboard effect worker）。部署 flag 与凭据从不选择 dispatcher，只有这段历史决定。key 的 version 就是操作名的 `.vN` 后缀（`research_goal.submit_or_resolve.v2` 的 version 为 2）；version 与该后缀不一致的 key 不指名任何操作，会被拒绝。
+Product Edge 是部署所准入的类型化变更操作的唯一路由权威。 对每个路由 key（部署身份、类型化操作、其版本，以及其请求被封存于其下的准入网关 channel；今天每个准入都携带
+`WINDMILL_PRODUCT_EDGE`），Product Edge 维护一段 operation routing binding 历史。 binding 指名对该 key 而言哪个 dispatcher 是新鲜的业务
+writer：`WINDMILL`（遗留 effect runner）或 `TRADE_DASHBOARD`（第一方 Dashboard effect worker）。
 
-binding 记录其 key、generation、前驱 binding（恰在 generation 一时没有）、它提交时所依据的 `ACTIVE` 部署绑定（identity 与 digest）、它路由的 operation manifest（identity 与 digest；该部署绑定必须为此操作与版本准入该 manifest）、其 dispatcher，以及以 store 时钟记录的提交时间。其 digest 是 `canonical_digest("product-edge.operation-routing-binding.v1", content)`，按此顺序恰好覆盖这些字段：`schema_version`（1）、`key`（`deployment_identity`、`operation`、`version`、`channel`）、`generation`、`predecessor_binding_identity`、`deployment_binding_identity`、`deployment_binding_digest`、`manifest_identity`、`manifest_digest`、`dispatcher`、`committed_at_epoch_ms`。其 identity 是 `identity("product-edge-operation-routing-binding-v1", [digest])`。Dashboard 从收到的每个 observation 重算这两者，因此一份共享向量文件为两边实现钉住编码。
+部署 flag 与凭据从不选择 dispatcher，只有这段历史决定。 key 的 version 就是操作名的 `.vN` 后缀（`research_goal.submit_or_resolve.v2` 的
+version 为 2）；version 与该后缀不一致的 key 不指名任何操作，会被拒绝。
 
-路由 key 的历史遵循部署绑定的规则。genesis 只对没有历史的 key 有效，generation 为一且没有前驱。每个 successor 都对确切的当前 head 串行化，将其指名为前驱，generation 加一，并引入该 key 从未使用过的 binding identity。状态只有 `ACTIVE` 与 `SUPERSEDED`，且 `SUPERSEDED` 单调。撤回 head 会使其 superseded 而没有 successor；此时该 key 有一个零 `ACTIVE` 的 head，下一个 successor 将其指名为前驱。一旦 binding 所指名的部署绑定不再是该部署的 `ACTIVE` head，该 binding 即为过期；在新部署绑定下的路由需要在其下提交一个路由 successor。只有显式管理员 writer `product-edge-authority-bootstrap route` 提交路由 binding，每次调用一个 proposal；任何服务启动或产品请求路径都不提交。在已部署或共享环境中提交 `TRADE_DASHBOARD` binding，是 Dashboard 合同所指名的单独显式效果，本合同不授权它。
+binding 记录其 key、generation、前驱 binding（恰在 generation 一时没有）、它提交时所依据的 `ACTIVE` 部署绑定（identity 与
+digest）、它路由的 operation manifest（identity 与 digest；该部署绑定必须为此操作与版本准入该 manifest）、其 dispatcher，以及以 store
+时钟记录的提交时间。
 
-读端口是 `GET /v1/operation-routing?operation=...&version=...&channel=...`，带 bearer token，由 `product-edge-routing-read-api` 提供，针对服务所配置的部署作答。它在只读事务中读取，不取行锁。当 head 为 `ACTIVE` 且当前时，它以 head binding 与来自 store 时钟的 `observed_at_epoch_ms` 答 `ACTIVE`；当 head 已被撤回时，以 key、generation 与 head identity 答 `ZERO_ACTIVE`。其余每种情形都是具名拒绝：没有历史的 key 为 `OPERATION_ROUTING_ABSENT`（404），过期 head 为 `OPERATION_ROUTING_STALE`（409），`OPERATION_ROUTING_QUERY_INVALID`（400），缺失或错误的 token 为 `OPERATION_ROUTING_UNAUTHORIZED`（401），store 无法作答为 `OPERATION_ROUTING_UNAVAILABLE`（503）。Dashboard 只在 dispatcher 为 `TRADE_DASHBOARD` 的 `ACTIVE` 上准入新鲜 `RUN`；其余每个回答在那里都 fail closed。
+其 digest 是
+`canonical_digest("product-edge.operation-routing-binding.v1", content)`，按此顺序恰好覆盖这些字段：`schema_version`（1）、`key`（`deployment_identity`、`operation`、`version`、`channel`）、`generation`、`predecessor_binding_identity`、`deployment_binding_identity`、`deployment_binding_digest`、`manifest_identity`、`manifest_digest`、`dispatcher`、`committed_at_epoch_ms`。
+
+其 identity 是 `identity("product-edge-operation-routing-binding-v1", [digest])`。 Dashboard 从收到的每个 observation 重算这两者，因此一份共享向量文件为两边实现钉住编码。
+
+路由 key 的历史遵循部署绑定的规则。 genesis 只对没有历史的 key 有效，generation 为一且没有前驱。 每个 successor 都对确切的当前 head
+串行化，将其指名为前驱，generation 加一，并引入该 key 从未使用过的 binding identity。 状态只有 `ACTIVE` 与 `SUPERSEDED`，且
+`SUPERSEDED` 单调。
+
+撤回 head 会使其 superseded 而没有 successor；此时该 key 有一个零 `ACTIVE` 的 head，下一个 successor 将其指名为前驱。 一旦
+binding 所指名的部署绑定不再是该部署的 `ACTIVE` head，该 binding 即为过期；在新部署绑定下的路由需要在其下提交一个路由 successor。 只有显式管理员
+writer `product-edge-authority-bootstrap route` 提交路由 binding，每次调用一个 proposal；任何服务启动或产品请求路径都不提交。
+
+在已部署或共享环境中提交 `TRADE_DASHBOARD` binding，是 Dashboard 合同所指名的单独显式效果，本合同不授权它。
+
+读端口是 `GET /v1/operation-routing?operation=...&version=...&channel=...`，带 bearer token，由 `product-edge-routing-read-api` 提供，针对服务所配置的部署作答。 它在只读事务中读取，不取行锁。 当 head 为
+`ACTIVE` 且当前时，它以 head binding 与来自 store 时钟的 `observed_at_epoch_ms` 答 `ACTIVE`；当 head
+已被撤回时，以 key、generation 与 head identity 答 `ZERO_ACTIVE`。
+
+其余每种情形都是具名拒绝：没有历史的 key 为 `OPERATION_ROUTING_ABSENT`（404），过期 head 为
+`OPERATION_ROUTING_STALE`（409），`OPERATION_ROUTING_QUERY_INVALID`（400），缺失或错误的 token 为 `OPERATION_ROUTING_UNAUTHORIZED`（401），store 无法作答为
+`OPERATION_ROUTING_UNAVAILABLE`（503）。 Dashboard 只在 dispatcher 为 `TRADE_DASHBOARD` 的 `ACTIVE` 上准入新鲜
+`RUN`；其余每个回答在那里都 fail closed。
 
 ### 到期 manifest 恢复 epoch
 
@@ -502,27 +574,30 @@ binding 记录其 key、generation、前驱 binding（恰在 generation 一时�
 Authorization issuance head 与 revocation frontier、准确 Product Edge deployment head 与 generation，以及
 完整前驱和后继 manifest 集。它绝不是 rollback、第二次 genesis、服务启动动作或请求路径 fallback。
 
-recovery 命令只接受一份内容绑定的 PostgreSQL target，其中声明准确 authority database、PostgreSQL system
-identifier、Operator Authorization role，以及与其不同的 Product Edge role。在任一 Owner 写入前，命令以
-只读方式连接两个给定 endpoint，并要求 `current_database()`、`current_user` 与 `pg_control_system()` system
-identifier 回读匹配该 target，同时证明两个 role 到达同一 database cluster。缺失、空值、相同 role、环境
-默认或交叉拼接 binding 一律失败关闭且不产生 Owner 写入；URL 与 secret 绝不记录。
+recovery 命令只接受一份内容绑定的 PostgreSQL target，其中声明准确 authority database、PostgreSQL system identifier、Operator
+Authorization role，以及与其不同的 Product Edge role。
 
-epoch 必须把每个 manifest semantic key 准确枚举一次，并标为 `RETAINED`、`ADDED` 或 `REMOVED`，同时
-绑定该处置对应的准确旧/新内容寻址 binding。保留项只能收窄 allowed effect，且必须保留前驱的全部
-prohibited effect。新增项必须处于不变的 principal、audience、Operator Authorization scope、request proof、
-scope policy 与 audit policy 内；必须保留不可变的 `LIVE_TRADING_V1`、`REAL_TRADING_V1` 和
-`PROTECTED_FEEDBACK_DETAIL_V1` 禁止下限，且不能声明 live 或 trading target/allowed effect。删除项不授予
-任何后继权威。只有内容寻址 epoch 含新增或删除项时 capability-policy 版本才可改变，且每个后继 manifest
-必须绑定该准确版本。遗漏、重复、交叉拼接、陈旧或含义不同的 transition 全部失败关闭。
+在任一 Owner 写入前，命令以 只读方式连接两个给定 endpoint，并要求 `current_database()`、`current_user` 与 `pg_control_system()`
+system identifier 回读匹配该 target，同时证明两个 role 到达同一 database cluster。 缺失、空值、相同 role、环境 默认或交叉拼接 binding 一律失败关闭且不产生
+Owner 写入；URL 与 secret 绝不记录。
 
-恢复有意保持两个 Owner 且只向前推进。Operator Authorization Issuer 先锁定到期 issuance head 与当前
-frontier，再追加或准确重放 OA2；只有 OA2 不能形成 Product Edge 请求权威。Product Edge 随后在自己的
-提交截面验证该规范 OA2，不可逆追加准确 B1 `SUPERSEDED` fence，进入零 `ACTIVE` 的失败关闭区间，并在
-同一事务追加 B2、其 manifests、receipt 与 outbox，同时以 compare-and-swap 推进 deployment head。OA2 或
-fence 之后崩溃时，只能使用同一 epoch 与完整相同字节续跑；改变 epoch 会冲突。该协议不声称跨 Owner
-事务原子性，也绝不重写 OA1、B1、旧 manifest、admission、receipt、outbox 或 downstream Owner 事实。
-从未在 B1 下准入的请求必须等 B2 current 后使用新 identity；恢复不能追认或完成它们。
+epoch 必须把每个 manifest semantic key 准确枚举一次，并标为 `RETAINED`、`ADDED` 或
+`REMOVED`，同时 绑定该处置对应的准确旧/新内容寻址 binding。 保留项只能收窄 allowed effect，且必须保留前驱的全部 prohibited effect。
+
+新增项必须处于不变的 principal、audience、Operator Authorization scope、request proof、 scope policy 与 audit policy
+内；必须保留不可变的 `LIVE_TRADING_V1`、`REAL_TRADING_V1` 和 `PROTECTED_FEEDBACK_DETAIL_V1` 禁止下限，且不能声明 live 或 trading
+target/allowed effect。 删除项不授予 任何后继权威。 只有内容寻址 epoch 含新增或删除项时 capability-policy 版本才可改变，且每个后继 manifest 必须绑定该准确版本。
+
+遗漏、重复、交叉拼接、陈旧或含义不同的 transition 全部失败关闭。
+
+恢复有意保持两个 Owner 且只向前推进。 Operator Authorization Issuer 先锁定到期 issuance head 与当前 frontier，再追加或准确重放 OA2；只有 OA2 不能形成
+Product Edge 请求权威。 Product Edge 随后在自己的 提交截面验证该规范 OA2，不可逆追加准确 B1 `SUPERSEDED` fence，进入零
+`ACTIVE` 的失败关闭区间，并在 同一事务追加 B2、其 manifests、receipt 与 outbox，同时以 compare-and-swap 推进 deployment
+head。
+
+OA2 或 fence 之后崩溃时，只能使用同一 epoch 与完整相同字节续跑；改变 epoch 会冲突。 该协议不声称跨 Owner 事务原子性，也绝不重写 OA1、B1、旧
+manifest、admission、receipt、outbox 或 downstream Owner 事实。 从未在 B1 下准入的请求必须等 B2 current 后使用新
+identity；恢复不能追认或完成它们。
 
 本地 API token 只是 opaque request proof。Bootstrap 绑定其 digest，既不记录也不发布 secret；request
 admission 将该 proof 与规范 issuance 和 binding 比较。环境值、默认值、同对象比较或有效 transport session
@@ -535,48 +610,48 @@ audit authority。
 政策版本、目标 Owner 与规范操作、类型化业务含义身份和审计关联。Shell 不能自行声明身份或扩大
 权限。目标或含义不明确时必须在提交前失败关闭。
 
-请求还必须绑定受信 authority 签发且不能自我声明的 Operator Authorization，包括 issuer、
-subject/effective principal、audience、准确 scope、共享 Time Evidence 下的签发与到期时间、revocation
-frontier、request-proof 摘要和内容寻址 Agent Operation Manifest。manifest 声明准确 operation
-schema 目标 Owner 允许 object class 禁止写入和 capability-policy 摘要。Shell 只能选择 manifest 成员；
-自然语言 本地配置或持有 credential 都不能自行产生授权。MCP 工具表与那组经过挑选的 operation 都是传输面，
-不是权威：每个成员都必须解析到在该请求自身截面上已准入的 manifest 成员，注册表里没有当前 manifest 成员的
-条目在提交前 fail closed。注册表比 manifest 窄是合法的且不授予任何权限；比 manifest 宽的条目不准入任何请求。secret 只存在于不透明最小权限 handle 后，
-永不进入请求。
+请求还必须绑定受信 authority 签发且不能自我声明的 Operator Authorization，包括 issuer、 subject/effective principal、audience、准确
+scope、共享 Time Evidence 下的签发与到期时间、revocation frontier、request-proof 摘要和内容寻址 Agent Operation Manifest。 manifest
+声明准确 operation schema 目标 Owner 允许 object class 禁止写入和 capability-policy 摘要。
+
+Shell 只能选择 manifest 成员； 自然语言 本地配置或持有 credential 都不能自行产生授权。 MCP 工具表与那组经过挑选的 operation 都是传输面，
+不是权威：每个成员都必须解析到在该请求自身截面上已准入的 manifest 成员，注册表里没有当前 manifest 成员的 条目在提交前 fail closed。 注册表比 manifest
+窄是合法的且不授予任何权限；比 manifest 宽的条目不准入任何请求。 secret 只存在于不透明最小权限 handle 后， 永不进入请求。
 
 稳定请求身份 有效 principal 与 scope 已准入的 `ACTIVE` Shell binding 及准确 deployment history head
 Operator Authorization 和 Agent Operation Manifest 共同组成请求的 Authorization Lineage。Strategy
 Governance 接受生命周期请求时，必须把完整 lineage 交叉绑定进结果 Authorized Generation Decision。
 Scanner 证据 自然语言 Agent 计划或裸 Governance 决定都不能替代其中任何成员。
 
-Product Edge 必须在任何 R&D mutation 前把该完整元组持久化为一份不可变 Request Admission。Admission
-还绑定规范 typed-payload digest、operation schema、target Owner、允许与禁止的 effect、time evidence、
-request-proof digest 和 audit correlation。R&D 只接收 opaque admission locator，并在锁内直接解析完整规范
-字节；locator、序列化 readback 或 caller 可计算 digest 都不是 authority。相同 request 与含义加入原
-admission；含义改变或 authority cut 改变会发生冲突且不得 downstream 写入。
+Product Edge 必须在任何 R&D mutation 前把该完整元组持久化为一份不可变 Request Admission。 Admission 还绑定规范 typed-payload
+digest、operation schema、target Owner、允许与禁止的 effect、time evidence、 request-proof digest 和 audit correlation。
+R&D 只接收 opaque admission locator，并在锁内直接解析完整规范 字节；locator、序列化 readback 或 caller 可计算 digest 都不是 authority。
 
-Deployment binding 取代绝不重写已准入 request；其原 binding、head、authorization、frontier、manifest 与
-cut 始终可直接解析。Authorization 到期或撤销同样绝不重写 admission 或已经提交的 downstream Owner
-receipt。若尚无 downstream custody 提交，当前到期或撤销禁止第一次提交。若 R&D 已经提交 receipt 或
-prepared attempt，recovery 可以解析或终态化该 custody；但新的 provider 或 effect invocation 必须取得一份
-持久且只用一次、与当时当前 authorization frontier 序列化的 invocation admission。该 claim 响应丢失后
-绝不允许第二次 invocation。Product Edge 持久区分 claim 与 `INVOCATION_STARTED`；start fence 提交后，
-若 provider 没有可验证的幂等 key 或权威回读，只能返回 `OUTCOME_UNKNOWN` 并进行人工对账。该窗口的
-自动恢复与 `ACTUAL_PROVIDER_CALL_AT_MOST_ONCE` 仍为 `NOT_ADMITTED`；start fact 绝不证明 provider 已经
-执行或返回结果。
+相同 request 与含义加入原 admission；含义改变或 authority cut 改变会发生冲突且不得 downstream 写入。
 
-由环境授权的 legacy 行没有 Product Edge admission，绝不回填。终态 legacy 行只读并 quarantine；identity
-碰撞失败关闭；只要存在 legacy 非终态 S2 attempt，R&D API 就拒绝 activation。authority 缺失、双重、过期、
-畸形、失效、被撤销、issuer 错误、audience 错误、跨 principal、跨 scope、proof 不匹配、manifest 不匹配、
-digest 不匹配或混合截面时，返回 `SUBMITTED_OR_UNKNOWN`，且不得创建 Product Edge admission、R&D/
-Qualification/TrialFamily/attempt/Artifact 写入、outbox 或 provider 调用。
+Deployment binding 取代绝不重写已准入 request；其原 binding、head、authorization、frontier、manifest 与 cut 始终可直接解析。
+Authorization 到期或撤销同样绝不重写 admission 或已经提交的 downstream Owner receipt。 若尚无 downstream custody 提交，当前到期或撤销禁止第一次提交。
 
-无人值守交易使用由该生命周期请求准入的独立显式 Autonomous Policy Authorization，不能伪装成每笔
-订单都由用户或 Agent 再次授权。它绑定 policy 身份与版本 principal 与 scope strategy generation 与
-Execution Scope、允许的 intent 和 action 类别、Capital Policy 边界、生效与到期时间、revocation
-frontier 和已准入 operation manifest。Runtime Risk Execution 必须让该身份贯穿 application intent
-decision reservation command Effect Journal 和权威回读。任一成员过期 撤销 scope 漂移或 lineage
-断裂都必须阻止新增风险。
+若 R&D 已经提交 receipt 或 prepared attempt，recovery 可以解析或终态化该 custody；但新的 provider 或 effect invocation 必须取得一份
+持久且只用一次、与当时当前 authorization frontier 序列化的 invocation admission。 该 claim 响应丢失后 绝不允许第二次 invocation。
+
+Product Edge 持久区分 claim 与 `INVOCATION_STARTED`；start fence 提交后， 若 provider 没有可验证的幂等 key 或权威回读，只能返回
+`OUTCOME_UNKNOWN` 并进行人工对账。 该窗口的 自动恢复与 `ACTUAL_PROVIDER_CALL_AT_MOST_ONCE` 仍为 `NOT_ADMITTED`；start fact 绝不证明 provider
+已经 执行或返回结果。
+
+由环境授权的 legacy 行没有 Product Edge admission，绝不回填。 终态 legacy 行只读并 quarantine；identity 碰撞失败关闭；只要存在 legacy 非终态 S2
+attempt，R&D API 就拒绝 activation。
+
+authority 缺失、双重、过期、 畸形、失效、被撤销、issuer 错误、audience 错误、跨 principal、跨 scope、proof 不匹配、manifest 不匹配、 digest
+不匹配或混合截面时，返回 `SUBMITTED_OR_UNKNOWN`，且不得创建 Product Edge admission、R&D/ Qualification/TrialFamily/attempt/Artifact
+写入、outbox 或 provider 调用。
+
+无人值守交易使用由该生命周期请求准入的独立显式 Autonomous Policy Authorization，不能伪装成每笔 订单都由用户或 Agent 再次授权。 它绑定 policy 身份与版本 principal
+与 scope strategy generation 与 Execution Scope、允许的 intent 和 action 类别、Capital Policy 边界、生效与到期时间、revocation
+frontier 和已准入 operation manifest。
+
+Runtime Risk Execution 必须让该身份贯穿 application intent decision reservation command Effect Journal 和权威回读。 任一成员过期
+撤销 scope 漂移或 lineage 断裂都必须阻止新增风险。
 
 Shell 或传输成功只表示 `SUBMITTED_OR_UNKNOWN`。只有接收 Owner 的关联回执才是权威结果。
 相同身份和含义的重放加入同一回执；相同身份但含义改变必须拒绝，新动作必须使用后继身份。
@@ -586,19 +661,20 @@ Research 用只写一次的 `ACCEPTED` 或 `REJECTED_NO_WRITE` Research Request 
 请求；接受回执必须绑定唯一 Authorized Generation Decision 身份及完整 Authorization Lineage。Owner 回执出现前 Product Edge
 始终保留原请求的未知状态，不从 Shell 确认、只读视图或没有错误中推断接受。
 
-**TARGET / IMPLEMENTATION_ADMITTED，请求的品种范围：** 研究请求陈述它研究的品种。Product Edge 接纳
-`ProductEdgeResearchGoalRequestV3`，它携带用户必填的 `instrument_scope`（一到两个规范 Instrument Master 身份），并把范围
-作为请求含义的一部分经 `sourced-research-goal-v3` operation 原样转交；它从不填写、默认、补全或修改范围。V2 请求保持原样接纳。范围的形状、它驱动的初始 PIT
-请求以及用户的授权，陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：无。
+**TARGET / IMPLEMENTATION_ADMITTED，请求的品种范围：** 研究请求陈述它研究的品种。 Product Edge 接纳 `ProductEdgeResearchGoalRequestV3`，它携带用户必填的
+`instrument_scope`（一到两个规范 Instrument Master 身份），并把范围 作为请求含义的一部分经 `sourced-research-goal-v3` operation
+原样转交；它从不填写、默认、补全或修改范围。 V2 请求保持原样接纳。 范围的形状、它驱动的初始 PIT 请求以及用户的授权，陈述于 [R&D Owner 契约](../owners/rd)。 目前已建成：无。
 
-`ATTENDED_D_ONLY_REPAIR` 使用同一请求 lineage 与 receipt 规则，但已接受的 R&D Request Receipt 只绑定
-D-only repair admission，不证明修复完成。admission 前的 `REJECTED_NO_WRITE` receipt 不创建 repair
-attempt，因此也没有 D-only Repair Disposition。R&D 随后准确提交一个关联请求与 attempt 的 D-only Repair
-Disposition：`D0_COMPLETED_NO_ARTIFACT` `D1_VALIDATED` `D1_VALIDATION_FAILED` `D1_BUILD_FAILED`
-`REJECTED_NOT_D_ONLY` 或 `OUTCOME_UNKNOWN`。Product Edge 只能通过现有 Research View 显示该事实；
-它不拥有 disposition，不能从 Shell 投递推断结果，也不能把 `D1_VALIDATED` 提升为 Qualification
-Governance 部署或交易权威。相同请求重放加入同一个只写一次 disposition；新 attempt 必须有新的显式
-用户请求和后继 R&D admission。
+`ATTENDED_D_ONLY_REPAIR` 使用同一请求 lineage 与 receipt 规则，但已接受的 R&D Request Receipt 只绑定 D-only repair
+admission，不证明修复完成。 admission 前的 `REJECTED_NO_WRITE` receipt 不创建 repair attempt，因此也没有 D-only Repair
+Disposition。
+
+R&D 随后准确提交一个关联请求与 attempt 的 D-only Repair Disposition：`D0_COMPLETED_NO_ARTIFACT` `D1_VALIDATED`
+`D1_VALIDATION_FAILED` `D1_BUILD_FAILED` `REJECTED_NOT_D_ONLY` 或 `OUTCOME_UNKNOWN`。 Product Edge 只能通过现有
+Research View 显示该事实； 它不拥有 disposition，不能从 Shell 投递推断结果，也不能把 `D1_VALIDATED` 提升为 Qualification Governance
+部署或交易权威。
+
+相同请求重放加入同一个只写一次 disposition；新 attempt 必须有新的显式 用户请求和后继 R&D admission。
 
 Qualification Review Request 通过 Qualification 现有且只写一次的 Candidate Intake Receipt 闭合。
 该回执绑定稳定评估请求身份 规范类型化含义 准确 Candidate 和 intake attempt。相同请求重放加入
@@ -610,23 +686,25 @@ eligibility 阶段的独立有界只读模型。摘要 事件 Shell 确认或没
 
 ## 只读视图
 
-每个 Product Edge 只读模型都是有界 Owner 投影，不是影子存储。共同 envelope 绑定稳定 read-request
-身份 trusted principal、准确授权 scope 或账户与 Execution Scope、authorization-policy 身份与截面、
-来源 Owner、完整权威 source frontier 或 snapshot cut、observed/projection time、新鲜度和 valid-through。
+每个 Product Edge 只读模型都是有界 Owner 投影，不是影子存储。 共同 envelope 绑定稳定 read-request 身份 trusted principal、准确授权 scope 或账户与
+Execution Scope、authorization-policy 身份与截面、 来源 Owner、完整权威 source frontier 或 snapshot cut、observed/projection
+time、新鲜度和 valid-through。
+
 可用结果明确为 `AVAILABLE` `STALE` 或 `UNAVAILABLE`；完整性要求更严格的模型还可额外失败关闭。
-同一请求在同一来源截面重放返回同一投影身份；新来源截面创建后继视图。跨 principal scope 账户 mode、
-政策过期 时间过期或同请求冲突重放都不返回缓存视图，也不创建 Owner transition。
+同一请求在同一来源截面重放返回同一投影身份；新来源截面创建后继视图。 跨 principal scope 账户 mode、 政策过期 时间过期或同请求冲突重放都不返回缓存视图，也不创建 Owner transition。
 
 Research View 状态为 `AVAILABLE` `STALE` 或 `UNAVAILABLE`，并暴露一个阶段：
-`REQUEST_UNRESOLVED` `INTENT_FROZEN` `ARTIFACT_AVAILABLE` `EXPLORATION_ACTIVE` 或
-`SELECTION_TERMINAL`。它只包含 R&D 拥有的来源血缘 Research Intent 状态 Strategy Artifact 与 Build
-Receipt 引用 探索请求结果摘要 Research Selection Disposition，以及已授权请求的有界 D-only Repair
-Disposition。它不包含保护重放测量 参数 结果 holdout 消耗或可解引用 Qualification 证据。
+`REQUEST_UNRESOLVED` `INTENT_FROZEN` `ARTIFACT_AVAILABLE` `EXPLORATION_ACTIVE` 或 `SELECTION_TERMINAL`。
 
-Exploratory Run Result View 只从完整 Backtest frontier 向已授权 Research scope 投影 Backtest-owned
-探索结果。Governance Decision View 只从完整 Governance frontier 投影 lifecycle state、policy bounds、
-effective interval、有界 rationale 和不透明已提交事实引用。两者读取可用性均为 `AVAILABLE` `STALE`
-或 `UNAVAILABLE`，都不暴露保护评估细节；Governance view 也不证明 Runtime application 或外部效果。
+它只包含 R&D 拥有的来源血缘 Research Intent 状态 Strategy Artifact 与 Build Receipt 引用 探索请求结果摘要 Research Selection
+Disposition，以及已授权请求的有界 D-only Repair Disposition。 它不包含保护重放测量 参数 结果 holdout 消耗或可解引用 Qualification 证据。
+
+Exploratory Run Result View 只从完整 Backtest frontier 向已授权 Research scope 投影 Backtest-owned 探索结果。 Governance
+Decision View 只从完整 Governance frontier 投影 lifecycle state、policy bounds、 effective interval、有界 rationale
+和不透明已提交事实引用。
+
+两者读取可用性均为 `AVAILABLE` `STALE` 或 `UNAVAILABLE`，都不暴露保护评估细节；Governance view 也不证明
+Runtime application 或外部效果。
 
 Qualification Status Summary 只暴露 `NOT_ADMITTED` `ADMITTED` `EVALUATING` `CLOSED_NOT_QUALIFIED`
 `QUALIFIED` `EXPIRED` `REVOKED` 或 `UNAVAILABLE`。内部 replay 拒绝或无效、diagnostic 无效或未解析、
@@ -638,13 +716,13 @@ Portfolio View 状态为 `AVAILABLE` `INCOMPLETE_FAIL_CLOSED` `STALE` 或 `UNAVA
 Risk Reservation Aggregate Commitment Frontier usage 剩余 headroom Risk Decision 或部署交易权限。
 来源截面缺失 未授权 过期或混合时保持明确不可用，不能拼接或推断。
 
-Effect Closure View 由 Product Edge 针对稳定 effect-view request 与已授权 Execution Scope 直接向
-Execution 请求。`AVAILABLE` 只返回一个 `UNKNOWN_EFFECT` `NO_EFFECT` 或 `SETTLED` 投影，并绑定 attempt
-账户 mode effect namespace Effect Journal frontier 回读/对账截面 blocker 责任 Owner projection cut 和
-valid-through。政策缺失或过期、跨 principal/账户/mode、请求含义变化或 case/fence 不匹配时不返回
-view。source frontier 或权威回读未解析时，同一请求保持 `UNAVAILABLE`，不能推断闭合。同一来源截面
-准确重放加入同一投影，较新截面创建后继 view。Product Edge 可以用该 view 解释进度，但效果与
-Recovery 状态只能由已提交 Execution 及其他来源 Owner 事实建立，Research 永不把该 view 当 provenance。
+Effect Closure View 由 Product Edge 针对稳定 effect-view request 与已授权 Execution Scope 直接向 Execution 请求。
+`AVAILABLE` 只返回一个 `UNKNOWN_EFFECT` `NO_EFFECT` 或 `SETTLED` 投影，并绑定 attempt 账户
+mode effect namespace Effect Journal frontier 回读/对账截面 blocker 责任 Owner projection cut 和 valid-through。
+
+政策缺失或过期、跨 principal/账户/mode、请求含义变化或 case/fence 不匹配时不返回 view。 source frontier 或权威回读未解析时，同一请求保持
+`UNAVAILABLE`，不能推断闭合。 同一来源截面 准确重放加入同一投影，较新截面创建后继 view。 Product Edge 可以用该 view 解释进度，但效果与 Recovery
+状态只能由已提交 Execution 及其他来源 Owner 事实建立，Research 永不把该 view 当 provenance。
 
 ## 产品闭环与应用层
 
@@ -653,10 +731,8 @@ Recovery 状态只能由已提交 Execution 及其他来源 Owner 事实建立�
 模型组合这段旅程，但不拥有旅程中展示的业务转换。
 
 R&D 应用旅程展示 `Source / Hypothesis → Frozen Research Intent → Strategy Artifact and Build
-Receipt → Exploratory Run → Run Detail or Compare → Diagnosis → Iteration Decision`。它的终态动作是停止、提交准确的
-类型化输入修复请求、创建唯一已接纳后继，或把准确已选择 Candidate 交给 Qualification。每个阶段都
-绑定原生 Owner 事实、来源 frontier、新鲜度和未解析状态。可见按钮只提交一个新的类型化请求，绝不
-直接修改投影或推进阶段；原生 Owner 回执出现前，动作保持 `SUBMITTED_OR_UNKNOWN`。
+Receipt → Exploratory Run → Run Detail or Compare → Diagnosis → Iteration Decision`。 它的终态动作是停止、提交准确的 类型化输入修复请求、创建唯一已接纳后继，或把准确已选择 Candidate 交给 Qualification。 每个阶段都
+绑定原生 Owner 事实、来源 frontier、新鲜度和未解析状态。 可见按钮只提交一个新的类型化请求，绝不 直接修改投影或推进阶段；原生 Owner 回执出现前，动作保持 `SUBMITTED_OR_UNKNOWN`。
 
 Product Edge 可以拥有筛选、布局和未提交表单等短暂交互细节，但不拥有 Research 血缘、Iteration
 Decision、Qualification 状态、生命周期状态或外部效果闭合。Observability 可以为旅程标注进度与诊断；
@@ -679,7 +755,25 @@ Decision、Qualification 状态、生命周期状态或外部效果闭合。Obse
 R&D 拥有的 D-only Repair Disposition 保持分离。只有 Runtime 的 Generation Application
 Receipt 才能把策略显示为正在运行，Governance 授权本身不能证明已运行。
 
-Product Edge 可以请求 Research 工作、独立 Qualification 评估，或准确一个 Strategy Governance 规范生命周期动作：`INITIAL_ACTIVATION` `PROMOTION` `REDUCTION` `PAUSE` `RETIREMENT` `DE_RISK` 或 `RECOVERY`。冲突按 `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION` 解析；`PROMOTION` 要求无人值守政策，并按自身 evidence key 绑定新鲜兼容的 Capacity View、Performance 与 Exposure 证据。它可以读取 Research View Portfolio View 探索 Backtest 结果 有界 Qualification Status Summary 每个 ScheduledScanId 的唯一终态 Scanner Receipt，以及有界 Governance Decision View。Research View 的终态停止只来自 Iteration Decision，只有存在仅选择 `SELECTED_FOR_QUALIFICATION` disposition 才显示 Selection。Intake 状态保留只写一次的 `NOT_ADMITTED` 或 `ADMITTED` 回执；`EVALUATING` 是 `ADMITTED` 回执加上进行中或未知保护请求派生的摘要，不是 Intake Receipt 状态。所有负面保护终态只显示为 `CLOSED_NOT_QUALIFIED`，不投影内部 replay、diagnostic、assessment 或 ineligibility 原因。已提交正向 Eligibility Fact 以 `QUALIFIED` 取代视图阶段，但不改写先前事实。Product Edge 直接读取 Scanner Receipt，不保存竞争的 Scanner-owned 投影。回执显示准确完成状态和一个 expected-set 分支。已解析分支包含准确 expected observed 与 missing，未解析分支包含权威未解析 disposition observed 事实 missing-members-unavailable 标记和终态原因。只有完整 `PROPOSED` 回执含准确 proposal members，不完整 `FAILED` 不能宣称集合完整。Qualification 和 Governance 视图只含公共状态 条件或政策边界 生效区间和类型不透明且不可解引用的已提交事实引用，绝不暴露保护测量 负面原因或评估细节。Event Rail 通知不是终态证明。
+Product Edge 可以请求 Research 工作、独立 Qualification 评估，或准确一个 Strategy Governance 规范生命周期动作：`INITIAL_ACTIVATION`
+`PROMOTION` `REDUCTION` `PAUSE` `RETIREMENT` `DE_RISK` 或
+`RECOVERY`。
+
+冲突按 `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION` 解析；`PROMOTION` 要求无人值守政策，并按自身 evidence key 绑定新鲜兼容的 Capacity View、Performance
+与 Exposure 证据。 它可以读取 Research View Portfolio View 探索 Backtest 结果 有界 Qualification Status Summary 每个
+ScheduledScanId 的唯一终态 Scanner Receipt，以及有界 Governance Decision View。
+
+Research View 的终态停止只来自 Iteration Decision，只有存在仅选择 `SELECTED_FOR_QUALIFICATION` disposition 才显示 Selection。 Intake
+状态保留只写一次的 `NOT_ADMITTED` 或 `ADMITTED` 回执；`EVALUATING` 是 `ADMITTED`
+回执加上进行中或未知保护请求派生的摘要，不是 Intake Receipt 状态。
+
+所有负面保护终态只显示为 `CLOSED_NOT_QUALIFIED`，不投影内部 replay、diagnostic、assessment 或 ineligibility 原因。 已提交正向 Eligibility
+Fact 以 `QUALIFIED` 取代视图阶段，但不改写先前事实。 Product Edge 直接读取 Scanner Receipt，不保存竞争的 Scanner-owned 投影。
+回执显示准确完成状态和一个 expected-set 分支。
+
+已解析分支包含准确 expected observed 与 missing，未解析分支包含权威未解析 disposition observed 事实 missing-members-unavailable
+标记和终态原因。 只有完整 `PROPOSED` 回执含准确 proposal members，不完整 `FAILED` 不能宣称集合完整。 Qualification 和
+Governance 视图只含公共状态 条件或政策边界 生效区间和类型不透明且不可解引用的已提交事实引用，绝不暴露保护测量 负面原因或评估细节。 Event Rail 通知不是终态证明。
 
 ## 禁止事项
 
@@ -704,11 +798,13 @@ Product Edge 可以请求 Research 工作、独立 Qualification 评估，或准
 
 ## 实现验收
 
-切换外部对话客户端或 Product Edge transport 时必须保持相同的有效主体、权限范围、能力与审计政策
-和 Owner 权威规则。测试必须证明只选择一个准入网关、允许失败关闭的零活动切换窗口、前驱先
-`SUPERSEDED` 后继再 `ACTIVE`、取代不可逆、双写或政策漂移被拒、每个请求按准确权威 head 准入，
-以及所有已准入在途请求身份被保留。Dashboard 与 MCP 测试还必须证明相同语义请求到达相同带
-版本 operation 与 Owner 回执，不兼容客户端在业务写入前失败关闭。每个写操作都有类型 可归因 可安全重放且绑定接收 Owner 回执。Qualification review 复用 Candidate Intake Receipt 作为关联请求终态回执，并独立于有界状态视图返回它。仅含义相同不能加入 Candidate 尝试 状态 结果或身份不同的回执。Research 与生命周期接受回执绑定准确结果事实，拒绝回执证明没有写入。Runtime 在证明 `APPLIED` 或 `REJECTED_NO_INSTANCE` 前必须显式保持 `APPLICATION_UNKNOWN`。自然语言存在歧义时必须在业务写入前失败关闭。
+切换外部对话客户端或 Product Edge transport 时必须保持相同的有效主体、权限范围、能力与审计政策 和 Owner 权威规则。 测试必须证明只选择一个准入网关、允许失败关闭的零活动切换窗口、前驱先
+`SUPERSEDED` 后继再 `ACTIVE`、取代不可逆、双写或政策漂移被拒、每个请求按准确权威 head 准入， 以及所有已准入在途请求身份被保留。 Dashboard 与
+MCP 测试还必须证明相同语义请求到达相同带 版本 operation 与 Owner 回执，不兼容客户端在业务写入前失败关闭。 每个写操作都有类型 可归因 可安全重放且绑定接收 Owner 回执。
+
+Qualification review 复用 Candidate Intake Receipt 作为关联请求终态回执，并独立于有界状态视图返回它。 仅含义相同不能加入 Candidate 尝试 状态
+结果或身份不同的回执。 Research 与生命周期接受回执绑定准确结果事实，拒绝回执证明没有写入。 Runtime 在证明 `APPLIED` 或 `REJECTED_NO_INSTANCE`
+前必须显式保持 `APPLICATION_UNKNOWN`。 自然语言存在歧义时必须在业务写入前失败关闭。
 
 只读模型测试必须证明每个视图保留稳定请求 principal scope 授权政策截面 来源 Owner 来源截面
 observed/projection time 新鲜度 valid-through 和明确可用状态；拒绝混合截面 过期政策 冲突重放和未授权
@@ -722,8 +818,9 @@ Product Edge 请求，绝不能直接写入 projection。
 切换测试还必须拒绝历史存在后的伪 genesis 过期 history head 重用 binding identity 不递增的
 generation 或 epoch，以及并发竞争同一 head 时除唯一序列化获胜者以外的所有后继。
 
-安全测试还必须在提交前拒绝错误 issuer audience subject scope expiry revocation frontier proof digest
-manifest operation schema 或 target Owner，并证明任何 Shell 都不能扩大已准入 operation。
-Lineage 测试必须证明每个已接受生命周期决定及其最终效果与回读都解析到同一 request principal scope
-已准入 Shell binding 与 history head Operator Authorization operation manifest 和授权模式；无人值守
-lineage 还必须解析到同一 Autonomous Policy Authorization。任一必需成员缺失或不匹配时必须在新增风险前失败。
+安全测试还必须在提交前拒绝错误 issuer audience subject scope expiry revocation frontier proof digest manifest operation
+schema 或 target Owner，并证明任何 Shell 都不能扩大已准入 operation。
+
+Lineage 测试必须证明每个已接受生命周期决定及其最终效果与回读都解析到同一 request principal scope 已准入 Shell binding 与 history head Operator
+Authorization operation manifest 和授权模式；无人值守 lineage 还必须解析到同一 Autonomous Policy Authorization。
+任一必需成员缺失或不匹配时必须在新增风险前失败。

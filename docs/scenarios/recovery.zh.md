@@ -39,16 +39,16 @@ case。case 保存不可变原因引用；来源 Incident Readiness 和 Drift �
 
 ## Value path / 价值路径
 
-`RUNTIME_INCIDENT` 或 `RECONCILIATION_DRIFT` 来源只有 `RECOVERY_ADMITTED` 才能进入本路径。对已具备独立适用 `ACTIVE` fence
-的 case，Risk 在同 scope 前沿给 fence activation 与每个在途正常
-`ADAPTER_ADMISSION_REQUEST` 排出唯一顺序。
-fence 先获胜时返回 `SUPPRESSED_BY_FENCE`；正常 admission 先获胜时，只有一个不可变
-`ADMITTED_ONCE` attempt 进入 Recovery effect frontier。只有 Risk 能在 Aggregate Commitment Frontier
-证明完整活动 fence set；Execution 不能根据收到的 fence 消息推断完整性。Execution 把准确 set identity、
-content digest 与每个来源独立 member 的 identity、epoch、policy、action set 和 source cut 绑定到
-`OPEN` case 后才推进到 `FENCED_OPEN`。`RUNTIME_NOT_READY` 分支中 Runtime 不再生成正常意图；hard-stop
-分支即使 Runtime 仍为 `READY`，Risk 也阻止新增风险。只有 Execution Reconciler 能创建 Recovery
-Command。有效 allowed action 是所有 member fence action set 的确定性交集，绝不是并集；交集为空时
+`RUNTIME_INCIDENT` 或 `RECONCILIATION_DRIFT` 来源只有 `RECOVERY_ADMITTED` 才能进入本路径。 对已具备独立适用 `ACTIVE`
+fence 的 case，Risk 在同 scope 前沿给 fence activation 与每个在途正常 `ADAPTER_ADMISSION_REQUEST` 排出唯一顺序。 fence 先获胜时返回
+`SUPPRESSED_BY_FENCE`；正常 admission 先获胜时，只有一个不可变 `ADMITTED_ONCE` attempt 进入 Recovery effect frontier。
+
+只有 Risk 能在 Aggregate Commitment Frontier 证明完整活动 fence set；Execution 不能根据收到的 fence 消息推断完整性。 Execution 把准确 set
+identity、 content digest 与每个来源独立 member 的 identity、epoch、policy、action set 和 source cut 绑定到
+`OPEN` case 后才推进到 `FENCED_OPEN`。
+
+`RUNTIME_NOT_READY` 分支中 Runtime 不再生成正常意图；hard-stop 分支即使 Runtime 仍为 `READY`，Risk 也阻止新增风险。 只有
+Execution Reconciler 能创建 Recovery Command。 有效 allowed action 是所有 member fence action set 的确定性交集，绝不是并集；交集为空时
 不允许任何命令。
 
 每个 case causal frontier 的 fence membership 只追加。每个 plan、command、effect attempt、Execution
@@ -56,27 +56,23 @@ fact、Portfolio/Risk closure fact、Product Edge closure view 与 Runtime recov
 完整集合快照。调用前新增 fence 会使旧 plan 和 command 失效；调用后新增 fence 保留原 attempt 身份，
 只扩展后续 case frontier。
 
-Order Engine 验证命令，Execution Adapters 执行有界动作，Effect Journal 记录 attempt 与结果，
-Reconciler 读取权威场所或模拟器状态。Recovery 对完整 affected set 使用版本化确定顺序：变更前先
-回读 先撤单再减仓 先减仓再清仓 零暴露不变更，并用稳定 instrument 与 order 身份打破 tie。成员缺失
-或 tie 未解析时不变更。每个选中动作在调用前提交 Recovery Effect Attempt `PREPARED`，紧邻调用前
-提交 `INVOCATION_STARTED`。已经在途的正常 attempt 必须具备持久 `PREPARED` 和
-`INVOCATION_STARTED` 记录；崩溃 响应丢失和重启只加入原记录与权威回读，不进行裸重试。恢复命令
-不使用普通 Trade Intent add-risk Reservation Claim 正常 adapter admission 协议或正常生命周期
-`PERMIT_DECREASE_ONLY`。
+Order Engine 验证命令，Execution Adapters 执行有界动作，Effect Journal 记录 attempt 与结果， Reconciler 读取权威场所或模拟器状态。 Recovery
+对完整 affected set 使用版本化确定顺序：变更前先 回读 先撤单再减仓 先减仓再清仓 零暴露不变更，并用稳定 instrument 与 order 身份打破 tie。 成员缺失 或 tie 未解析时不变更。
+每个选中动作在调用前提交 Recovery Effect Attempt `PREPARED`，紧邻调用前 提交 `INVOCATION_STARTED`。
+
+已经在途的正常 attempt 必须具备持久 `PREPARED` 和 `INVOCATION_STARTED` 记录；崩溃 响应丢失和重启只加入原记录与权威回读，不进行裸重试。 恢复命令 不使用普通
+Trade Intent add-risk Reservation Claim 正常 adapter admission 协议或正常生命周期 `PERMIT_DECREASE_ONLY`。
 
 减仓或清仓绑定 Execution 权威暴露回读截面 方向 绝对数量 有界目标和 reduce-only 政策。Execution
 在调用前立即重验同一截面。较新截面 部分或并发成交 零或翻转暴露 不支持 reduce-only 或可能穿越
 零点时提交持久无效果拒绝。Reconciler 只能根据新的权威回读构建后继命令，绝不重试旧命令。
 
-Execution 向 Risk 回报绑定 case 完整 fence set command effect 的事实。已提交
-`reconciliation-drift-fact.UNKNOWN_EFFECT` 绑定 effect journal frontier、invocation 或 uncertain-effect
-lineage、不确定性观察、最后一次权威回读尝试或已证明缺失，以及完整 source 与 Time Evidence frontier。
-这个完整事实可激活自身 `RECONCILIATION_DRIFT` fence，但绝不编造外部结果。缺失 含义不明 未提交或
-state binding 不完整的证据不激活 fence。只有后继 `NO_EFFECT` 与 `SETTLED` 绑定权威终态回读与对账
-截面。Risk 独占 Reservation 成员与
-liability 解析，包括已证明孤儿外部效果的显式空集合。Portfolio 独占账户和暴露投影更新。Reconciler
-只有在一个共同证据前沿覆盖全部原因和受影响效果时才写 `KNOWN_CLOSED`。
+Execution 向 Risk 回报绑定 case 完整 fence set command effect 的事实。 已提交 `reconciliation-drift-fact.UNKNOWN_EFFECT` 绑定 effect journal
+frontier、invocation 或 uncertain-effect lineage、不确定性观察、最后一次权威回读尝试或已证明缺失，以及完整 source 与 Time Evidence frontier。
+这个完整事实可激活自身 `RECONCILIATION_DRIFT` fence，但绝不编造外部结果。 缺失 含义不明 未提交或 state binding 不完整的证据不激活 fence。
+
+只有后继 `NO_EFFECT` 与 `SETTLED` 绑定权威终态回读与对账 截面。 Risk 独占 Reservation 成员与 liability
+解析，包括已证明孤儿外部效果的显式空集合。 Portfolio 独占账户和暴露投影更新。 Reconciler 只有在一个共同证据前沿覆盖全部原因和受影响效果时才写 `KNOWN_CLOSED`。
 
 ## Owner handoffs / Owner 交接
 
@@ -102,25 +98,21 @@ Event Rail 只能唤醒 Governance 与 Observability 读取已提交 Owner 事�
 
 ## Proof / 证明
 
-每个 `RUNTIME_INCIDENT` 或 `RECONCILIATION_DRIFT` 来源先证明自己的 Execution-owned Recovery Admission
-Disposition，并只绑定准确 `runtime-incident-fact` 或 `reconciliation-drift-fact`。source fact
-generation scope policy evidence frontier 与含义准确相同的 replay 加入该只写一次事实；来源 scope
-policy 或 evidence 改变时需要后继 disposition，且绝不改写或编造 case。
-当 disposition 为 `RECOVERY_ADMITTED` 时，终态证明是 Execution 独占的不可变
-`RecoveryCase.KNOWN_CLOSED`。它绑定唯一 case generation scope
-完整活动 Risk fence-set identity/digest 与 member set 完整原因集合 全部受影响效果 Runtime checkpoint 与就绪前沿 Execution 回读与对账截面
-Risk Reservation 闭合和 Portfolio 账户投影，并要求共同有效时间前沿。更晚原因创建后继案例，不能
-改写既有闭合。
-`KNOWN_CLOSED` 是硬终态证明而非状态摘要：case 前沿中的每个原因与受影响效果都必须可解析，任一
-缺失 过期 未知 混合截面或不可解引用成员都会阻止闭合。
-该证明绑定所有 Recovery 动作使用的同一完整仍为 `ACTIVE` 的来源独立 Risk Fence 集合。闭合不取代
-不停用 不解除也不修改任何 member：旧 generation 永久被围栏，每个 fence 都没有 `SUPERSEDED` 或
-inactive 转换。任何后续
-generation 都必须取得新的 Governance 决定并通过普通新增风险门禁，绝不改变或复用前驱 fence；该
-generation 在自身四种准确 Recovery 来源分支之一独立激活前没有 Recovery Fence。
-每个受影响正常效果还必须经 Effect Journal 与回读保留其原始请求 Authorization Lineage 和
-Autonomous Policy Authorization。Recovery Command 只从 Execution-owned case 与完整活动 Risk fence set 派生，
-不是新的正常交易授权。
+每个 `RUNTIME_INCIDENT` 或 `RECONCILIATION_DRIFT` 来源先证明自己的 Execution-owned Recovery Admission Disposition，并只绑定准确
+`runtime-incident-fact` 或 `reconciliation-drift-fact`。 source fact generation scope policy evidence frontier 与含义准确相同的
+replay 加入该只写一次事实；来源 scope policy 或 evidence 改变时需要后继 disposition，且绝不改写或编造 case。
+
+当 disposition 为 `RECOVERY_ADMITTED` 时，终态证明是 Execution 独占的不可变 `RecoveryCase.KNOWN_CLOSED`。 它绑定唯一 case generation
+scope 完整活动 Risk fence-set identity/digest 与 member set 完整原因集合 全部受影响效果 Runtime checkpoint 与就绪前沿 Execution
+回读与对账截面 Risk Reservation 闭合和 Portfolio 账户投影，并要求共同有效时间前沿。 更晚原因创建后继案例，不能 改写既有闭合。
+
+`KNOWN_CLOSED` 是硬终态证明而非状态摘要：case 前沿中的每个原因与受影响效果都必须可解析，任一 缺失 过期 未知 混合截面或不可解引用成员都会阻止闭合。 该证明绑定所有 Recovery
+动作使用的同一完整仍为 `ACTIVE` 的来源独立 Risk Fence 集合。 闭合不取代 不停用 不解除也不修改任何 member：旧 generation 永久被围栏，每个 fence
+都没有 `SUPERSEDED` 或 inactive 转换。
+
+任何后续 generation 都必须取得新的 Governance 决定并通过普通新增风险门禁，绝不改变或复用前驱 fence；该 generation 在自身四种准确 Recovery 来源分支之一独立激活前没有
+Recovery Fence。 每个受影响正常效果还必须经 Effect Journal 与回读保留其原始请求 Authorization Lineage 和 Autonomous Policy
+Authorization。 Recovery Command 只从 Execution-owned case 与完整活动 Risk fence set 派生， 不是新的正常交易授权。
 
 ## Development outcome / 开发结果
 

@@ -9,6 +9,23 @@
 及 journal 字段定义读取/兼容约束，不要求新建平行服务或订单状态机。节点目标、接口可达、原有 custody 的存在
 均不准入 Paper、Live 或生产效果。
 
+## TARGET - 分配额度内的资金准入
+
+原生 RiskEngine 已检查订单、交易状态、数量/名义上限和发送速率，使用原生账户及 Portfolio。
+产品额度、授权与承诺扩展位于同节点原生准入链，不替代原生检查，也不重复计算余额/保证金。
+包括算法子单在内的新增风险路径均经过该边界。原生固定风险规模计算仍须绑定价格、止损距离、
+合约单位和数量步长，计划止损风险不保证跳空最大损失。
+
+策略预先分配额度可隔离跨策略预算，不替代订单的资金准入。 每次新增风险使用准确有效的分配版本， 检查该实例实际占用与尚未结算的预留，同时检查共享账户可用保证金及全部承诺；事实口径与币种/单位必须匹配。
+检查与预留复用现有同 Capacity Scope 原子序列化路径，防止同一策略连续意图、版本切换或未反映到账户的请求重复占用。 已在账户/订单事实中体现的占用与 Reservation 按 settlement
+lineage 替换而非重复扣除。 新增成员引起额度切换时，在同一序列化边界核验全部受影响成员已满足后继额度及准确分配版本； 任何旧额度订单使条件失效时不接纳切换，由 Governance 保留等待请求。
+
+不能先让新成员新增风险再收窄旧额度。 不要求引入分布式锁服务，不能把逻辑额度当作交易所已经隔离的实物资金。 额度收窄而占用超限时停止新增风险， 保留实际责任和原保护；既有 decrease-only 与恢复规则保持有效。
+
+凯利类政策只能提供已批准版本下的请求规模输入，Risk 不训练或自行刷新胜率/收益模型，
+也不把估计建议当作许可。复用原生仓位规模计算并检查资金、风险、单位、精度及额度；
+保证金比例不等于预期损失比例。凯利建议不能绕过预留、共享账户总约束或等待成员的分配切换条件。
+
 ## 拥有的权威事实
 
 - 绑定单个意图及摘要 Execution Scope 政策版本与截面 Portfolio 账户与暴露截面 决定时间 authorization
@@ -175,42 +192,47 @@ Risk 的沉默从不等同批准。消费者只能在收到一个终态之后推
 
 ## 失败与恢复
 
-正常意图被拒后得到明确终态且不创建外部 attempt。每次新增风险决定都在准确 Capacity Scope
-Aggregate Commitment Frontier 上持久原子序列化。Capacity View 提供候选无关 gross pool ceiling；
-Portfolio Risk Evidence Bundle 提供一致 exposure open order 与已纳入 settlement lineage；held Reservation
-liability 补足 usage。序列化过期、scope 重叠未知或成员缺失 过期 不匹配时拒绝且不创建 Reservation。
-每个 intent 只检查自身 `POOL_ROOT` → `STRATEGY_GENERATION` applicability chain，但全部兄弟 usage 共享
-root pool ceiling。政策收窄到小于 usage 时提交 `OVERCOMMITTED_NO_NEW_RISK`，不保留新增风险权限。
+正常意图被拒后得到明确终态且不创建外部 attempt。 每次新增风险决定都在准确 Capacity Scope Aggregate Commitment Frontier 上持久原子序列化。 Capacity View
+提供候选无关 gross pool ceiling； Portfolio Risk Evidence Bundle 提供一致 exposure open order 与已纳入 settlement
+lineage；held Reservation liability 补足 usage。 序列化过期、scope 重叠未知或成员缺失 过期 不匹配时拒绝且不创建 Reservation。
 
-Execution 先提交一个稳定 Reservation Claim Request。Risk 持久序列化 `CONSUMED` `WITHDRAWN` 或
-`REJECTED`。只有匹配 `CONSUMED` 才允许一个 `PREPARED` attempt 与 `ADAPTER_ADMISSION_REQUEST`，仍不能
-外部调用。Risk 把 admission 与 recovery fence activation 序列化后返回唯一不可变结果。只有 `ADMITTED_ONCE`
-允许 `INVOCATION_STARTED`；响应丢失或重启只能加入同一结果和 attempt。`SUPPRESSED_BY_FENCE` 或
-`REJECTED` 证明没有调用。Reservation 图严格固定：
-claim 前过期 撤回或证明未调用都以 `WITHDRAWN` 结束；只有 `CONSUMED` 能进入 `UNKNOWN_EFFECT`
-权威 `NO_EFFECT` 或 `SETTLED`；`UNKNOWN_EFFECT` 之后只能进入权威 `NO_EFFECT` 或 `SETTLED`。
-`SETTLED` 保持 held，直到一致 Portfolio Risk Evidence Bundle 含准确 settlement lineage，并由一次
-序列化转换以该投影替换而非叠加 liability。
+每个 intent 只检查自身 `POOL_ROOT` → `STRATEGY_GENERATION` applicability chain，但全部兄弟 usage 共享 root pool
+ceiling。 政策收窄到小于 usage 时提交 `OVERCOMMITTED_NO_NEW_RISK`，不保留新增风险权限。
 
-准确 decrease-only 可以来自 Governance 授权的生命周期减仓，也可以来自无人值守
-`DECREASE_ONLY_STRATEGY_PROTECTIVE` intent；后者必须绑定已应用 Artifact 的保护退出规则 触发证据和
-当前暴露 open-order 截面。两者都要求 `PERMIT_DECREASE_ONLY`、明确空 Reservation 与 claim lineage，以及持久
-`PREPARED` attempt。Risk 不创建 claim result，但把 `ADAPTER_ADMISSION_REQUEST` 与同 scope fence
-按新增风险相同方式序列化。只有 `ADMITTED_ONCE` 允许调用；抑制 拒绝 重启与重放都保留同一 attempt
-和 admission identity。
+Execution 先提交一个稳定 Reservation Claim Request。 Risk 持久序列化 `CONSUMED` `WITHDRAWN` 或
+`REJECTED`。 只有匹配 `CONSUMED` 才允许一个 `PREPARED` attempt 与 `ADAPTER_ADMISSION_REQUEST`，仍不能
+外部调用。 Risk 把 admission 与 recovery fence activation 序列化后返回唯一不可变结果。
 
-Risk 在同 scope frontier 从准确一个来源分支独立原子激活 fence，不等待 Recovery Case 确认。
-`RUNTIME_NOT_READY` 要求 Runtime 本地停止和不可变 `NOT_READY` Readiness Fact；`RUNTIME_INCIDENT`
-要求来自 `runtime-risk-incident-fence` 的准确已提交 `runtime-incident-fact`；`RECONCILIATION_DRIFT`
-要求来自 `execution-risk-drift-fence` 的准确已提交 `reconciliation-drift-fact`。这两条关系只提供来源
-证据。`RISK_HARD_STOP` 改为绑定 Risk 原因 决定性证据 政策和 frontier cut，并可在 Runtime 仍为 `READY` 时激活。Fence
-activation 与每个在途正常 adapter admission 只有一个顺序。
-fence 先发生时返回 `SUPPRESSED_BY_FENCE`；正常 admission 先发生时返回一个 `ADMITTED_ONCE` attempt
-并纳入 Recovery effect frontier。Artifact 保护止损与 `RISK_HARD_STOP` 同时成立时，fence 压过所有尚未
-准入的正常 permit 或 command，同时保留保护 intent 触发与终态抑制作为原因证据。已经先获准入的路径
-保持准确一个 attempt 等待权威回读，但不产生 Recovery 权威。Risk 向 Execution Reconciler 提供活动 fence，只有 Reconciler 拥有
-case 和有界 Recovery Command。Risk 独占 Reservation 成员的非空 显式空 未解析结果；Execution 在
-匹配 Risk 与 Portfolio 闭合事实后独占写 `KNOWN_CLOSED`。
+只有 `ADMITTED_ONCE` 允许 `INVOCATION_STARTED`；响应丢失或重启只能加入同一结果和 attempt。 `SUPPRESSED_BY_FENCE` 或
+`REJECTED` 证明没有调用。
+
+Reservation 图严格固定： claim 前过期 撤回或证明未调用都以 `WITHDRAWN` 结束；只有 `CONSUMED` 能进入
+`UNKNOWN_EFFECT` 权威 `NO_EFFECT` 或 `SETTLED`；`UNKNOWN_EFFECT` 之后只能进入权威
+`NO_EFFECT` 或 `SETTLED`。
+
+`SETTLED` 保持 held，直到一致 Portfolio Risk Evidence Bundle 含准确 settlement lineage，并由一次 序列化转换以该投影替换而非叠加
+liability。
+
+准确 decrease-only 可以来自 Governance 授权的生命周期减仓，也可以来自无人值守 `DECREASE_ONLY_STRATEGY_PROTECTIVE` intent；后者必须绑定已应用 Artifact 的保护退出规则
+触发证据和 当前暴露 open-order 截面。 两者都要求 `PERMIT_DECREASE_ONLY`、明确空 Reservation 与 claim lineage，以及持久 `PREPARED`
+attempt。 Risk 不创建 claim result，但把 `ADAPTER_ADMISSION_REQUEST` 与同 scope fence 按新增风险相同方式序列化。
+
+只有 `ADMITTED_ONCE` 允许调用；抑制 拒绝 重启与重放都保留同一 attempt 和 admission identity。
+
+Risk 在同 scope frontier 从准确一个来源分支独立原子激活 fence，不等待 Recovery Case 确认。 `RUNTIME_NOT_READY` 要求 Runtime 本地停止和不可变
+`NOT_READY` Readiness Fact；`RUNTIME_INCIDENT` 要求来自 `runtime-risk-incident-fence` 的准确已提交
+`runtime-incident-fact`；`RECONCILIATION_DRIFT` 要求来自 `execution-risk-drift-fence` 的准确已提交 `reconciliation-drift-fact`。 这两条关系只提供来源
+证据。
+
+`RISK_HARD_STOP` 改为绑定 Risk 原因 决定性证据 政策和 frontier cut，并可在 Runtime 仍为 `READY` 时激活。 Fence
+activation 与每个在途正常 adapter admission 只有一个顺序。 fence 先发生时返回 `SUPPRESSED_BY_FENCE`；正常 admission 先发生时返回一个
+`ADMITTED_ONCE` attempt 并纳入 Recovery effect frontier。
+
+Artifact 保护止损与 `RISK_HARD_STOP` 同时成立时，fence 压过所有尚未 准入的正常 permit 或 command，同时保留保护 intent 触发与终态抑制作为原因证据。
+已经先获准入的路径 保持准确一个 attempt 等待权威回读，但不产生 Recovery 权威。 Risk 向 Execution Reconciler 提供活动 fence，只有 Reconciler 拥有 case
+和有界 Recovery Command。
+
+Risk 独占 Reservation 成员的非空 显式空 未解析结果；Execution 在 匹配 Risk 与 Portfolio 闭合事实后独占写 `KNOWN_CLOSED`。
 
 ## 决策契约
 
@@ -273,4 +295,9 @@ case 和有界 Recovery Command。Risk 独占 Reservation 成员的非空 显式
 
 ## 可观测性与持久化
 
-Risk 持久化 policy、decision、Reservation、claim membership、aggregate commitment frontier、Kill Switch/Fence、liability 与 closure fact。Telemetry 覆盖决策与序列化时延、有界 supported rejection set 与确定 primary category、reservation age、frontier contention、fence 状态和 policy/readiness failure。Dashboard 的 allow/reject/decrease-only 次数、rejection-set/primary 分布、未清 liability、aggregate commitment、fence 次数与持续时间必须从准确事实推导；metric 或 alert delivery 不能释放 Reservation、解除 fence、授权 Execution 或证明 closure。
+Risk 持久化 policy、decision、Reservation、claim membership、aggregate commitment frontier、Kill
+Switch/Fence、liability 与 closure fact。 Telemetry 覆盖决策与序列化时延、有界 supported rejection set 与确定 primary
+category、reservation age、frontier contention、fence 状态和 policy/readiness failure。
+
+Dashboard 的 allow/reject/decrease-only 次数、rejection-set/primary 分布、未清 liability、aggregate commitment、fence
+次数与持续时间必须从准确事实推导；metric 或 alert delivery 不能释放 Reservation、解除 fence、授权 Execution 或证明 closure。

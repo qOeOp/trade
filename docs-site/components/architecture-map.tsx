@@ -28,8 +28,8 @@ import {
   viewportTargetChanged,
 } from '@/lib/viewport-gate.mjs';
 import {
-  architectureDetails,
   architectureNodes,
+  services,
   fullArchitectureEdges,
   moduleActiveInScenario,
   ownerGroupActiveInScenario,
@@ -183,19 +183,13 @@ function OwnerGroup({ id, data, selected }: NodeProps<Node<OwnerNodeData>>) {
       data-owner-id={id}
       data-owner-role={data.role}
       data-module-count={data.count}
-      aria-label={`${data.label} ${data.roleLabel} ${data.count} modules`}
+      aria-label={`${data.label} ${data.roleLabel} ${data.count} components`}
     >
       <header>
         <span>{data.label}</span>
         {data.badge ? <i className="docs-owner-badge" data-owner-badge={data.badge}>{data.badge}</i> : null}
         <small>{data.roleLabel}</small>
       </header>
-      {id === 'group-rd' ? (
-        <span className="docs-rd-lanes" aria-hidden="true">
-          <span data-lane-label="RESEARCH" />
-          <span data-lane-label="DEVELOP" />
-        </span>
-      ) : null}
       <NodePins nodeId={id} activeHandles={data.activeHandles} />
     </button>
   );
@@ -222,7 +216,7 @@ function ArchitectureEdge({
 }: EdgeProps) {
   const edgeInteraction = useContext(EdgeInteractionContext);
   const laneOffset = (data as { laneOffset?: number } | undefined)?.laneOffset ?? 0;
-  const [path] = getSmoothStepPath({
+  const [smoothPath] = getSmoothStepPath({
     sourceX,
     sourceY,
     targetX,
@@ -233,6 +227,29 @@ function ArchitectureEdge({
     offset: 22,
     centerY: laneOffset === 0 ? undefined : (sourceY + targetY) / 2 + laneOffset,
   });
+  const bends = id === 'dashboard-governance'
+    ? [[1470, sourceY], [1470, 690], [targetX, 690]]
+    : id === 'dashboard-native'
+      ? [[2260, sourceY], [2260, targetY]]
+      : id === 'qualification-backtest'
+        ? [[710, sourceY], [710, 690], [targetX, 690]]
+        : null;
+  let path = smoothPath;
+  if (bends) {
+    const points = [[sourceX, sourceY], ...bends, [targetX, targetY]];
+    path = `M ${sourceX} ${sourceY}`;
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const before = points[index - 1], corner = points[index], after = points[index + 1];
+      const incoming = Math.hypot(corner[0] - before[0], corner[1] - before[1]);
+      const outgoing = Math.hypot(after[0] - corner[0], after[1] - corner[1]);
+      if (!incoming || !outgoing) continue;
+      const radius = Math.min(12, incoming / 2, outgoing / 2);
+      const entry = corner.map((value, axis) => value + (before[axis] - value) * radius / incoming);
+      const exit = corner.map((value, axis) => value + (after[axis] - value) * radius / outgoing);
+      path += ` L ${entry[0]} ${entry[1]} Q ${corner[0]} ${corner[1]} ${exit[0]} ${exit[1]}`;
+    }
+    path += ` L ${targetX} ${targetY}`;
+  }
   const edgeData = data as {
     relation?: 'request' | 'proposal' | 'policy' | 'intent' | 'command' | 'handoff' | 'fact' | 'effect' | 'event' | 'read-model';
     relationKind?: 'owner' | 'stage';
@@ -304,11 +321,6 @@ function ArchitectureEdge({
 const edgeTypes = { architectureEdge: ArchitectureEdge };
 type DiagramNode = Node<DiagramNodeData>;
 
-const overviewCue: Record<Locale, string> = {
-  en: 'Qualification → eligibility · Governance → deployment/capital · Trade Intent → Risk · Recovery → Execution',
-  zh: 'Qualification → 资格 · Governance → 部署/资金 · 交易意图 → Risk · 恢复 → Execution',
-};
-
 const architectureBounds = (() => {
   const topLevelNodes = architectureNodes.filter((node) => !node.parentId);
   const left = Math.min(...topLevelNodes.map((node) => node.position.x));
@@ -342,7 +354,6 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
       ? `${selectedData.label} · ${selectedData.roleLabel}`
       : undefined;
   const selectedRoute = selectedData?.docsRoute;
-  const selectedInvariantIds = selectedData?.canonicalInvariantIds ?? [];
   const canPan = viewport.zoom > minimumZoom + 0.01;
   const focusedEdgeId = hoveredEdgeId ?? selectedEdgeId;
   const edgeInteraction = useMemo(() => ({
@@ -596,24 +607,12 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
     restoreFit();
   };
 
-  const scenarioMeta = scenarios.find((entry) => entry.id === scenario) ?? scenarios[0];
-  const executionMode = scenario === 'overview'
-    ? 'PAPER · LIVE'
-    : scenario === 'paper'
-      ? 'PAPER'
-      : scenario === 'live'
-        ? 'LIVE'
-        : undefined;
+  const selectedService = services.find((service) => selectedId === `group-${service.id}`);
 
   return (
     <section className="docs-architecture-shell" aria-label={locale === 'zh' ? 'Trader 系统全景' : 'Trader system map'}>
       <div className="docs-architecture">
         <div className="docs-architecture-body">
-          {executionMode ? (
-            <span className="docs-execution-mode-cue" aria-label={`${executionMode} execution mode`}>
-              {executionMode}
-            </span>
-          ) : null}
           <div
             ref={canvasRef}
             className={`docs-flow-canvas${canvasReady ? ' is-ready' : ''}${canPan ? ' is-zoomed' : ''}`}
@@ -649,21 +648,21 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
             >
             </ReactFlow>
             </EdgeInteractionContext.Provider>
-            <div
+            {selectedDescription || edgeDescription ? <div
               className="docs-scenario-brief"
               data-detail={selectedDescription || edgeDescription ? 'true' : undefined}
-              data-overview-cue={scenario === 'overview' && !selectedDescription && !edgeDescription ? 'true' : undefined}
               aria-live="polite"
             >
               {selectedDescription ? (
                 <span className="docs-selected-detail">
                   <b>{selectedDescription}</b>
                   <span className="docs-detail-meta">
-                    <code>{selectedInvariantIds.length > 0 ? `${selectedInvariantIds.length} canonical invariants` : 'canonical owner surface'}</code>
+                    <code>{selectedService?.entrance[locale] ?? ''}</code>
                     <Link href={`/${locale}/docs/${selectedRoute}`} onClick={(event) => event.stopPropagation()}>
                       {selectedRoute}
                     </Link>
                   </span>
+                  {selectedService ? <><span className="docs-internal-flow">{selectedService.steps.map((step, index) => <span key={index}><Link href={`/${locale}/docs/${step.route}`}>{index + 1}. {step.label[locale]}</Link>{index < selectedService.steps.length - 1 ? <i>→</i> : null}</span>)}</span><small>{selectedService.apis.map((api) => api[locale]).join(' · ')}</small></> : null}
                 </span>
               ) : edgeDescription ? (
                 <span className="docs-edge-detail">
@@ -677,17 +676,8 @@ export function ArchitectureMap({ locale: initialLocale }: { locale: Locale }) {
                     ) : null}
                   </span>
                 </span>
-              ) : (
-                <>
-                  <b>{scenarioMeta.description[locale]}</b>
-                  <small className="docs-overview-cues">
-                    {scenario === 'overview'
-                      ? overviewCue[locale]
-                      : `${scenarioMeta.entry[locale]} → ${scenarioMeta.proof[locale]}`}
-                  </small>
-                </>
-              )}
-            </div>
+              ) : null}
+            </div> : null}
           </div>
         </div>
       </div>

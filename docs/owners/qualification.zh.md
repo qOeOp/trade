@@ -4,6 +4,34 @@
 
 独立判断冻结候选是否满足预注册证据 holdout 成本 容量和运行条件。Qualification 拥有可部署资格证据，不拥有策略设计 激活或恢复。
 
+## TARGET - 组合资格
+
+成员经济资格评估完整冻结策略；对冲规则与其他交易腿可以是该策略内部组成部分，不要求各腿单独盈利。
+例如现货多、永续空的 carry，按整体净收益、风险、成本与资本占用评估；完整策略须独立具有经济优势。
+各成员自身资格与联合组合资格分别绑定准确评估对象和范围，不能从对方结果推导；不提供单独不合格成员的
+组合限定上线资格，也不让内部对冲腿取得独立运行授权。
+
+在成员自身资格之外，独立接纳 R&D 选定的冻结组合方案，用同一 Backtest 原生共享账户语义评估。 共同运行与冻结成员退出预案还须在未向研究侧暴露的保护数据上独立验证，不能用研究挑选组合时的回测 替代资格证据。
+Qualification 拥有保护协议与评估引用，Market Data 提供已验证输入和暴露沿革，隔离 Backtest 负责运行。 成员研发、组合搜索、按需发现和导入来源的既有暴露均须核对；换请求或重新下载
+不把已见数据变成独立数据，成员通过也不证明组合验证的独立性。 缺少可准入的保护证据时保留不可用状态， 不授予组合资格；不因此自动重做每个成员的完整资格流程，也不向研究侧公开保护回测与结果。
+
+消费准确、不可变的 R&D 组合配置引用；Qualification 拥有独立评估与资格事实，不拥有配置定义。 组合资格绑定其版本/hash、成员
+hash/Artifact、账户和分配/风险配置、评估协议、数据/成本/执行版本及适用范围； 候选子集与其他运行成员共同采用前，评估变更后的账户整体组合；只评估 AB 的证据不能授权 AB 与 C/D
+共同运行，除非有匹配的账户整体范围覆盖。 账户试盘/正式池共用一份生效组合配置，转换评估包含下架后 受保护的残余敞口。 单策略通过不能拼成组合通过。 组合内容身份不改写成员策略版本，也不授予上线或分配资金权限。
+保护评估继续使用独立凭据、输入、缓存和输出空间，研究侧只见允许的二级结论。
+
+目标须扩展当前单 Artifact 候选绑定，不能把其现有资格解释成任意多策略组合资格。
+
+新成员加入前评估预登记的共同运行与成员退出预案，资格覆盖须明确成员版本、允许转换、分配规则与
+资金/风险边界，并有回放证据支持，包括下架后的残余持仓保护。共同运行的比较目标与退出后继续运行的
+约束分别登记；安全退出不要求优于完整组合。分别完成几个终态回测不证明转换过程有效，未验证状态
+不能继承资格，公式相同也不证明可复用范围。研究反馈保持二级，向 Governance 提供允许范围与证据绑定。
+
+部署环境证据还绑定规模模板/参数、成员加入/等待规则、初始资金与账户风险及执行配置，
+不能仅凭策略 hash 把某种资金条件下的通过结果用于另一种条件。单策略诊断仍可用于研究，
+不替代所声明部署环境的评估；未覆盖政策/范围须另行评估。试盘偏差证据依冻结方法与判定条件处理，
+不自动修改门槛、资格或真实授权，也不公开保护数值。
+
 ## Eligibility 终端状态
 
 本节是实现状态记录，不是契约。它本身不授予任何权限，列在这里的步骤也不构成建造 部署或驱动保护评估的权威。
@@ -22,21 +50,19 @@ Qualification 与 Backtest 的那些条目，那里始终是它们唯一的清�
 它们跑在提交第一条 Eligibility Fact 的那条条目之前。**在第 `n` 条断言的缺席，是第 `n` 条处的缺席，
 不是本 Owner 的性质**。把那两条读成「Eligibility 永不存在」，正是这一段过去所编码的误读。
 
-这些步骤严格串联。V2 请求是 V1 提案加一个 `ClockHeadHandoff`，而生产的共享时钟 resolver 由
-`DEPLOYMENT_STORE_ADMISSION_MODE` 构造，它保持 `disabled`。门禁不使用那个 resolver，也不需要它：
-`issue_protected_evaluation_shared_time_v1` 在 sealed-acceptance 面上签发该交接，
-所以 V2 请求、非空请求集、终态结果、已关闭的 frontier 与一份评估，全都在那里被构造出来。
-set 封存只接纳 `schema_version=2` 成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅--
-而门禁提供的正是 `schema_version=2` 成员。
+这些步骤严格串联。 V2 请求是 V1 提案加一个 `ClockHeadHandoff`，而生产的共享时钟 resolver 由 `DEPLOYMENT_STORE_ADMISSION_MODE` 构造，它保持
+`disabled`。 门禁不使用那个 resolver，也不需要它： `issue_protected_evaluation_shared_time_v1` 在 sealed-acceptance 面上签发该交接， 所以 V2
+请求、非空请求集、终态结果、已关闭的 frontier 与一份评估，全都在那里被构造出来。
+
+set 封存只接纳 `schema_version=2` 成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅-- 而门禁提供的正是 `schema_version=2` 成员。
 
 因此把共享时钟证据准入到一次**部署**，仍然是部署驱动该终端的前置。它不再是驱动该终端本身的前置。
 
-**TARGET - 需要部署授权的终端，以及它在等什么：** 这条终端是 TARGET，不是未完成的工作。
-`DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，直到存在一个部署授权方能够签发 `required`
-所要求的东西：custodian 签名历史、反回滚 witness、凭据租约与直接测量。这些在本仓库都不存在，
-也未授权任何真实交易或生产写入，因此 resolver 返回空是正确的关闭状态而非缺陷。
-Qualification 的其余部分并不排在它后面：attempt frontier、候选与评估规则，
-以及上文的 protected-replay custody 都是可分离的工作；把这条终端当成它们的阻塞，
+**TARGET - 需要部署授权的终端，以及它在等什么：** 这条终端是 TARGET，不是未完成的工作。 `DEPLOYMENT_STORE_ADMISSION_MODE` 保持
+`disabled`，直到存在一个部署授权方能够签发 `required` 所要求的东西：custodian 签名历史、反回滚 witness、凭据租约与直接测量。
+这些在本仓库都不存在， 也未授权任何真实交易或生产写入，因此 resolver 返回空是正确的关闭状态而非缺陷。
+
+Qualification 的其余部分并不排在它后面：attempt frontier、候选与评估规则， 以及上文的 protected-replay custody 都是可分离的工作；把这条终端当成它们的阻塞，
 是对依赖关系的误读，而不是依赖本身的性质。
 
 ## 拥有的权威事实
@@ -128,70 +154,21 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 - **TARGET - 前向记录：** 尚不存在 Forward Registration、Forward Replay 请求、Forward Decision 或前向普查，Eligibility
   也没有前向淘汰这一撤销原因。契约见下文 TARGET - 前向记录 一节。
 
-## 有序门禁到达不了的行为
+## 验证覆盖与限制
 
-本节是实现状态记录，不是契约。下面两项行为都已实现；缺的是证明，而每一处缺失都是实测出来的，不是假定的。
+### 保护反馈解析
 
-- **首次创建与 `GENESIS_EMPTY`。** 没有任何一个已准入的 R&D 请求能在缺少自己 frontier 的情况下存在：R&D 在形成
-  TrialFamily 策略时，就已经通过 Qualification 的密封准入 API 取得了那份投影，所以门禁手上的每一个 basis 都已经
-  被投影过，也就没有哪个 Qualification 条目自己会是那次首次创建。一条跳过 Qualification 解析的血缘会立刻失败，
-  这就是该结论的实测方式。该分支提交出来的形状不再是无证明的：保护反馈读回那一条现在断言它读回的投影是
-  `GENESIS_EMPTY`、序号为零、落在规范的 genesis 切上、且没有 source frontier -- 这四项只有创建分支会写，
-  把第一项改反，该条目对着门禁填充过的存储就会红。本机跑完整条链路留下二十份投影，每一份都是这个形状，
-  一次续期也没有。仍然够不着的是该分支的条件 -- frontier 只在历史为空时才提交 -- 因为驱动它需要一个
-  仍然够不着的是该分支的条件。解析有三条路径而不是两条：本 basis 的投影仍然新鲜时直接重放、什么都不写；
-  本 basis 没有投影且该 scope 没有 frontier 时走 genesis 那一臂；本 basis 没有投影但该 scope 已有 frontier 时
-  走 `FRONTIER` 那一臂。门禁走过 genesis 那一臂二十次，走过 `FRONTIER` 那一臂零次，所以从来没有任何东西产生过
-  那个 resolution、它存下来的编码、或者一份 source frontier 的身份与摘要。在有东西产生它之前，
-  「选了 genesis 那一臂」和「没有别的臂可选」是同一个观察。驱动另一臂需要同一 principal 与
-  authorized scope 下的第二个研究请求。闸门从来没有过的是两个请求共享一个 principal：每条条目各自
-  bootstrap 自己的准入，principal 是 `admin-{suffix}`，所以每条各带一个自己的 principal，每个 scope
-  只见过一个请求。这是语料的性质，不是生产路径的性质；它下面还压着一个生产路径的性质：一个 scope 的
-  第一份授权是 genesis，之后每一份都必须是 successor，所以两份共享 scope 的准入需要 `issue_successor`，
-  而准入 bootstrap 只会 `issue_genesis`。两者都是驱动出来的：同一 suffix 下的两份准入被拒为冲突重放，
-  因为授权身份是按 suffix 派生的；一份准入服务不了两个请求，因为准入绑定它被签发时的那个请求身份；
-  而同一 principal 下的两份准入被拒，因为该 scope 已经有了 genesis。
+解析有三条路径：同 basis 的新鲜投影无写入重放；scope 为空且 basis 未投影时走 `GENESIS_EMPTY`；scope 已有规范 frontier 且 basis 未投影时走 `FRONTIER`。Genesis 在规范 genesis cut 提交序号零，且没有 source frontier。
 
-  但让那一臂走不到的不是这两条。本台账此前记的是这两条，并且记着第二份 basis 会由第一份用过的那个
-  `load_or_create_basis_in_transaction` 自己写出来。那是读代码读出来的，不是驱动出来的，而驱动它就推翻了它。
-  `second_request_under_one_principal_resolves_through_the_frontier_arm`
-  供上了此前缺的那个配置（一个 deployment、一个 principal、一个 authorized scope、两个请求，各自一份准入），
-  而第二份 basis 并没有被写出来。第二个请求撞上的是那个函数的 `head_lineage == lineage_digest` 分支，
-  而那一支是为「创建了 head 的那个请求的重放」写的：它拿收到的请求身份去查 basis-stage 托管，
-  对一个它没见过的请求当然查不到，于是以 `Owner storage unavailable: R&D basis-stage custody missing` 拒绝。
-  `FRONTIER` 那一臂在该分支之后，只有 lineage 前进了才到得了，而 lineage 前进需要第一个请求走完。
-  **那一臂已经到达。** 在有序闸门上两个请求都是 `Accepted`，第二个写出自己的 basis，
-  一个 principal 下有两份 protected-feedback 投影，且第二份投影的 resolution state 是 `FRONTIER`
-  （owner-chains 35654451152，190 通过，94 条目）。在那一轮之前，从来没有任何东西产生过那个 resolution、
-  它存下来的编码、或一份 source frontier 的身份与摘要；所以「选了 genesis 那一臂」和「没有别的臂可选」
-  曾经是同一个观察，现在它们可以分开了。
+`second_request_under_one_principal_resolves_through_the_frontier_arm` 覆盖一个 deployment、principal 与授权 scope 下两个各自准入的请求。两者均为 `Accepted`，各有自己的 basis，第二份投影为 `FRONTIER`。证据为 owner-chains run `35654451152`：190 通过，94 条目。其有序前置 `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds` 提供 Catalog head；省略它的本机子集不证明完整路径。
 
-  此处早先的写法两次说了相反的话，而两次都源自同一处。它先说第二份 basis 不会被写出来，
-  又说第一个请求也走不完、因为没人发布 Catalog V3 head、所以那一臂的前置是一个运维动作。
-  两者都是在一个四条目的本机子集上测的，而该子集跳过了第 69 条
-  `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds`，它在本条目之前发布该 head。
-  跳步的产物没有自报家门：它被记录下来的症状是「panic 落在读上游表的那一行」，
-  而这次的拒绝读起来是一个干净的领域结论。
+scope 首份授权为 genesis，后继使用 `issue_successor`。准入绑定准确请求身份，同 suffix 不得创建不同授权含义。不能凭 `Result::is_ok` 判成功：`SubmittedOrUnknown` 必须走 `ResolveSameRequestIdentity` 并读回权威 resolution/存储；日志或传输成功不证明准入。
 
-  这两处拒绝都不是以错误的形式到达调用方的。它们都被返回成 `Ok(unresolved_result_v2(..))`，
-  是 `product_edge_postgres.rs` 里二十八处同形返回之一，于是 `submit_v2` 答的是 `SubmittedOrUnknown`
-  并带 `next_legal_action = ResolveSameRequestIdentity`，而理由只进了一条 `tracing::warn!`，
-  闸门并不为它装订阅者。一个按 `Result::is_ok` 断言的调用方，看到的是一次它完全有理由读成「已接受」的提交。
-  所以上面那条条目把断言挂在 resolution 与库上，绝不挂在 `Ok` 上；并且它是被写成「情况变好时会失败」的：
-  凡是让 lineage 得以前进的改动都会把它变红，而那个红就是把它改写成断言那一臂、而不是断言这次拒绝的信号。
-- **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
-  `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
-  `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
-  那个仅为此存在的测试专用计时钩子已经被删掉，而不是留成死代码。缺的不是前提条件。有序门禁本来就常走创建分支：
-  本机跑它的前五十七个条目，留下了十七份投影，每一份都是某个 principal 与 scope 的 `GENESIS_EMPTY` 首次创建，
-  所以「缺席的 frontier」是常态，不是器具需要制造的东西。器具管不了的是那个越界。回滚只在响应切离开投影那个
-  半开有效窗口时才触发，而该窗口可达的那一边是 `valid_through`；另一边是响应切早于投影本身，
-  那需要服务器时钟往回跳。两个切都由
-  `owner_clock_epoch_ms_in_transaction` 采样，它在同一个事务里读两次 `pg_catalog.clock_timestamp()`；该调用限定了
-  schema，所以任何经 `search_path` 可达的函数都顶不掉它，而有序门禁另外断言了 `qualification_writer` 不是超级用户、
-  且对 `public` 与 `rd_owner_api` 都不持有 `CREATE`，因此该角色也装不了影子时钟。窗口是私有的
-  `PROJECTION_VALIDITY_MS`，十分钟，没有覆盖入口。于是器具还能变动的只剩事务内的真实流逝时间，每次尝试十分钟；
-  比这更便宜的一切都是生产改动，而本 Owner 没有可供这样改动的已准入切片。
+### Response-cut 回滚
+
+响应 cut 离开投影半开有效窗口才触发回滚。到期边界为 `valid_through`，早于投影的 cut 需要服务器时钟倒退；创建或续期提供分支前置。改写 `valid_through_epoch_ms` 破坏规范投影相等，按 `Qualification admission envelope projection mismatch` 拒绝。
+
+`owner_clock_epoch_ms_in_transaction` 在同一事务内两次读取限定 schema 的 `pg_catalog.clock_timestamp()`。`qualification_writer` 非超级用户，对 `public` 和 `rd_owner_api` 无 `CREATE`，不能安装影子时钟。`PROJECTION_VALIDITY_MS` 为十分钟且没有覆盖入口。测试只能改变真实流逝时间；注入时钟、篡改规范行或生产改动不是已准入替代。这是覆盖限制，不授予修改时钟契约的权限。
 
 ## Research 前保护反馈解析
 
@@ -200,12 +177,13 @@ Receipt，锁定受信 principal 与 Research request scope 的完整持久历�
 genesis frontier。已有历史返回完整当前不透明 frontier；缺失 过期 畸形 冲突 跨 principal 跨 scope 或
 跨 basis 输入都返回 `UNAVAILABLE`，且不创建 frontier 转换。
 
-普通 create、resolve 与事务内 admission 不接收任何调用方时间。直接解析 basis、取得 principal/scope advisory
-lock 并完整 canonical verification Qualification history 后，Qualification 在同一事务内采样 PostgreSQL
-`clock_timestamp()`；已有 read 的 freshness 使用该 Owner cut。新 projection 在最终写入边缘只采样一次，
-并只用该 cut 形成 projection time、半开 `valid_through`、receipt commit time 及其 identity 与 digest。持久化并
-canonical reread 新 history 后，Qualification 在 freshness validation 与 commit 紧前采样独立 Owner response
-cut；跨越 `valid_through` 会原子 rollback projection、head 与 outbox。
+普通 create、resolve 与事务内 admission 不接收任何调用方时间。 直接解析 basis、取得 principal/scope advisory lock 并完整 canonical
+verification Qualification history 后，Qualification 在同一事务内采样 PostgreSQL `clock_timestamp()`；已有 read 的
+freshness 使用该 Owner cut。
+
+新 projection 在最终写入边缘只采样一次， 并只用该 cut 形成 projection time、半开 `valid_through`、receipt commit time 及其 identity
+与 digest。 持久化并 canonical reread 新 history 后，Qualification 在 freshness validation 与 commit 紧前采样独立 Owner
+response cut；跨越 `valid_through` 会原子 rollback projection、head 与 outbox。
 
 投影只公开 resolution state 不透明 frontier reference 与 digest basis reference 与 digest principal scope
 source sequence/cut clock epoch projection time 和半开有效期。它不包含保护 payload outcome measurement
@@ -258,31 +236,31 @@ Qualification 只能执行为 2026-08-21 本地保护反馈丢失授权并封闭
 证据 session 资源定位符、事故身份、授权定位符和目标数据库资源定位符；projection row、JSON 值、时间戳、
 摘要、genesis 状态和当前有效性都不能由调用方输入。
 
-任何插入前，Qualification 严格重验绑定的 JSONL record 字节、call/output/turn 配对、冻结规范生成器身份、
-完整预期语义向量、存续 R&D basis/receipt/head/outbox、全局空 Qualification 历史、缺失的 recovery receipt
-与未运行的 outbox publisher。封闭事故契约把 PostgreSQL cluster `system_identifier`、database name/OID 与
-role name/OID 绑定为类型化字段及 domain-separated 摘要；Qualification 在任何 DDL 或写入前于事务 custody
-内比较该语义目标，并在第一次 DDL 紧前再次比较。一个 serializable 事务取得 principal/scope advisory lock 和表
-exclusive lock，随后依次插入原 projection、head、原 domain outbox row 与独立的 Qualification custody/audit
-receipt。该 receipt 不发 domain wake，并明确没有恢复物理备份、没有观察原 JSONB 存储字节、没有铸造新
-有效期。准确完成后的重放只返回相同 receipt 而不写入；partial、冲突、过期、畸形或非空状态全部 fail
-closed。重建 projection 保留原半开区间，因此普通 resolver 在当前 cut 仍为 `UNAVAILABLE`。
+任何插入前，Qualification 严格重验绑定的 JSONL record 字节、call/output/turn 配对、冻结规范生成器身份、 完整预期语义向量、存续 R&D
+basis/receipt/head/outbox、全局空 Qualification 历史、缺失的 recovery receipt 与未运行的 outbox publisher。
+
+封闭事故契约把 PostgreSQL cluster `system_identifier`、database name/OID 与 role name/OID 绑定为类型化字段及 domain-separated
+摘要；Qualification 在任何 DDL 或写入前于事务 custody 内比较该语义目标，并在第一次 DDL 紧前再次比较。
+
+一个 serializable 事务取得 principal/scope advisory lock 和表 exclusive lock，随后依次插入原 projection、head、原 domain outbox
+row 与独立的 Qualification custody/audit receipt。 该 receipt 不发 domain wake，并明确没有恢复物理备份、没有观察原 JSONB 存储字节、没有铸造新 有效期。
+准确完成后的重放只返回相同 receipt 而不写入；partial、冲突、过期、畸形或非空状态全部 fail closed。
+
+重建 projection 保留原半开区间，因此普通 resolver 在当前 cut 仍为 `UNAVAILABLE`。
 
 Executable provenance 是独立的效果边界。Qualification 记录实际使用的 executable hash 并验证数据库语义，
 但不声称仓库代码能够独立证明自身 executable bytes。Hub 拥有的外部 effect controller 在释放数据库能力并
 执行该 worker 前，绑定已审查的 Origin ancestry、candidate commit/tree、executable path 与 SHA-256。
 
-本节以下是实现状态记录，不是契约，上文契约不因它改变。绑定的证据 session 资源已经不存在，所以本仓库既不能
-再次执行这项重建，也不能重新证明它。两项实测让这件事是永久的而不是暂时的。该资源定位符是某个开发者主目录下的
-绝对路径，而 `verify_evidence` 拒绝任何其它路径，因此这条证明从来只能在那一台机器上跑，在 Linux CI 上从不可能
-通过。同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。而文件本身已从那台机器上消失：
-没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件，
-该产物也从未提交进仓库。于是它的证明
-`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过；用同一个文件重算封存向量的
-`frozen_evidence_recomputes_exact_canonical_vector` 也一样。两者都以 unrunnable 标记为 ignore。该模块的其它测试不读
-这个文件：`make cargo-test` 以 `vibe-qualification/owner-recovery` 构建，所以 workspace 测试 job 会运行它们。上文契约继续作为
-一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代
-被封存的证据。
+本节以下是实现状态记录，不是契约，上文契约不因它改变。 绑定的证据 session 资源已经不存在，所以本仓库既不能 再次执行这项重建，也不能重新证明它。 两项实测让这件事是永久的而不是暂时的。
+该资源定位符是某个开发者主目录下的 绝对路径，而 `verify_evidence` 拒绝任何其它路径，因此这条证明从来只能在那一台机器上跑，在 Linux CI 上从不可能 通过。
+同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。
+
+而文件本身已从那台机器上消失： 没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件， 该产物也从未提交进仓库。 于是它的证明
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过；用同一个文件重算封存向量的 `frozen_evidence_recomputes_exact_canonical_vector` 也一样。 两者都以 unrunnable 标记为 ignore。 该模块的其它测试不读
+这个文件：`make cargo-test` 以 `vibe-qualification/owner-recovery` 构建，所以 workspace 测试 job 会运行它们。
+
+上文契约继续作为 一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代 被封存的证据。
 
 ## 输入交接
 
@@ -302,25 +280,20 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
   以及这条交接为何是 TARGET，在 Eligibility 终端状态一节已述一次，此处不重复。
 - 已提交证据变化可以触发重评，唤醒通道不能替代读取 Owner 事实。
 
-以下是这些交接的实现状态记录，不是契约。只有 Product Edge 这条有生产调用者：
-`resolve_or_create_for_basis` 与 `admit_in_transaction` 由 vibe-strategy-factory 的生产代码调用，
-`admit_historical_projection_in_transaction` 由它的 R&D custody 路径调用。R&D 的 Candidate 那条没有：
-本 Owner 之外每一处 `submit_candidate_intake_v1` 调用都位于一个密封验收测试模块里。
-Backtest 在经济测量中属于它的那一半现在有了交付路径，却没有任何东西驱动它。
-冻结的度量与覆盖策略引用连同单位与标度随请求集合的封存一起交付：
-`ProtectedReplayRequestSetSealDtoV1` 携带本 Owner 封存的 `ProtectedEconomicPolicyBundleV1`，
-而 `ResolvedProtectedReplayRequestSetV1::economic_computation` 从它解析出计算。这正是此缺口先前被记录为需要的
-两条交接里的第一条。没有东西驱动它：`economic_computation` 有两个调用者，都在一个测试模块里，
-而有序门禁并不经由封存走到测量。它之所以能走到，只是因为门禁步骤以本 Owner 自己的角色读取 Candidate，
-那是夹具发现，不是 Backtest 拥有的路径，且该步骤在它自己的注释里这样说明。能让 Backtest 直接读取
-`qualification_protected_economic_policy_bundles_v1` 的授权仍被撤销，而封存使它不再必要。
-上游剩下的是：没有任何生产代码构造 `ProtectedEconomicPolicyBundleV1`，它的四个构造点都位于测试模块里。
-与探索路径的分离在三层上都是封闭的，这是实测不是假定。本 Owner 的源码没有任何一处提到
-`backtest_replay_results_v2` `backtest_replay_result_receipts_v1` 或
-`resolve_exploratory_replay_result_v2`/`_v3`，而 `backtest_protected_replay_results_v1` 被提到四次。
-两个探索解析函数的 `EXECUTE` 只授予 `rd_owner`，而对应的保护函数授予 `qualification_writer`。
-并且 `backtest_replay_results_v2` 有六个读取者，其中没有本 Owner，
-所以它在这里的缺席是一条边界而不是一张死表。
+以下是这些交接的实现状态记录，不是契约。 只有 Product Edge 这条有生产调用者： `resolve_or_create_for_basis` 与 `admit_in_transaction` 由
+vibe-strategy-factory 的生产代码调用， `admit_historical_projection_in_transaction` 由它的 R&D custody 路径调用。 R&D 的 Candidate 那条没有： 本 Owner 之外每一处
+`submit_candidate_intake_v1` 调用都位于一个密封验收测试模块里。 Backtest 在经济测量中属于它的那一半现在有了交付路径，却没有任何东西驱动它。
+
+冻结的度量与覆盖策略引用连同单位与标度随请求集合的封存一起交付： `ProtectedReplayRequestSetSealDtoV1` 携带本 Owner 封存的 `ProtectedEconomicPolicyBundleV1`， 而
+`ResolvedProtectedReplayRequestSetV1::economic_computation` 从它解析出计算。 这正是此缺口先前被记录为需要的 两条交接里的第一条。 没有东西驱动它：`economic_computation` 有两个调用者，都在一个测试模块里，
+而有序门禁并不经由封存走到测量。 它之所以能走到，只是因为门禁步骤以本 Owner 自己的角色读取 Candidate， 那是夹具发现，不是 Backtest 拥有的路径，且该步骤在它自己的注释里这样说明。
+
+能让 Backtest 直接读取 `qualification_protected_economic_policy_bundles_v1` 的授权仍被撤销，而封存使它不再必要。 上游剩下的是：没有任何生产代码构造
+`ProtectedEconomicPolicyBundleV1`，它的四个构造点都位于测试模块里。 与探索路径的分离在三层上都是封闭的，这是实测不是假定。 本 Owner 的源码没有任何一处提到 `backtest_replay_results_v2`
+`backtest_replay_result_receipts_v1` 或 `resolve_exploratory_replay_result_v2`/`_v3`，而 `backtest_protected_replay_results_v1` 被提到四次。
+
+两个探索解析函数的 `EXECUTE` 只授予 `rd_owner`，而对应的保护函数授予 `qualification_writer`。 并且
+`backtest_replay_results_v2` 有六个读取者，其中没有本 Owner， 所以它在这里的缺席是一条边界而不是一张死表。
 
 ## 输出交接
 
@@ -366,20 +339,27 @@ Backtest 在经济测量中属于它的那一半现在有了交付路径，却�
 
 ## 失败与恢复
 
-预注册缺失或可变 TrialFamily Census Frontier 缺失 可变 不穷尽或冻结后分叉 前驱关联未解析 独立性依据过晚 或反馈 尝试 累计 holdout 前沿不完整时，在评估前生成 `NOT_ADMITTED` 且不消耗 holdout。保护决策政策身份 版本或 Protected Robustness Plan 缺失或不匹配时同样为 `NOT_ADMITTED`。Qualification 只有在关联请求且只写一次的 `ADMITTED` 回执和 holdout 预留后才创建冻结 Protected Replay Request，并重复 Candidate Intake 的准确政策 pair 与 plan identity。请求不允许原地拒绝，创建后任何 Backtest 接入拒绝都必须提交绑定同一请求的 `RUN_REJECTED` Protected Run Result。Qualification 逐项校验请求与结果的 Artifact PIT 范围 PIT Market Snapshot 身份 快照规则 重放配置 Runtime 内核 模拟器 成本 滑点 容量模型 Protected Robustness Plan 与 plan-cell 身份；任何缺失 替换或不匹配都成为 `INVALID_REPLAY_EVIDENCE`，按预注册 holdout 处理闭合且不生成 Eligibility Fact。
+预注册缺失或可变 TrialFamily Census Frontier 缺失 可变 不穷尽或冻结后分叉 前驱关联未解析 独立性依据过晚 或反馈 尝试 累计 holdout 前沿不完整时，在评估前生成
+`NOT_ADMITTED` 且不消耗 holdout。 保护决策政策身份 版本或 Protected Robustness Plan 缺失或不匹配时同样为 `NOT_ADMITTED`。
+
+Qualification 只有在关联请求且只写一次的 `ADMITTED` 回执和 holdout 预留后才创建冻结 Protected Replay Request，并重复 Candidate
+Intake 的准确政策 pair 与 plan identity。 请求不允许原地拒绝，创建后任何 Backtest 接入拒绝都必须提交绑定同一请求的 `RUN_REJECTED` Protected
+Run Result。
+
+Qualification 逐项校验请求与结果的 Artifact PIT 范围 PIT Market Snapshot 身份 快照规则 重放配置 Runtime 内核 模拟器 成本 滑点 容量模型 Protected
+Robustness Plan 与 plan-cell 身份；任何缺失 替换或不匹配都成为 `INVALID_REPLAY_EVIDENCE`，按预注册 holdout 处理闭合且不生成 Eligibility Fact。
 
 holdout 预留前，Candidate Intake 先用准确且由 Qualification 拥有的版本化 robustness-adequacy policy
 校验计划：时间覆盖至少两个不重叠预注册窗口；市场状态至少两个实质不同状态且含一个不利状态；只有
 冻结单标的 scope 才能让 instrument 不适用；perturbation 覆盖每个重要输入类；每个可调参数都有有界
 邻域或被接受的无可调参数依据。计划不足或政策不匹配时为 `NOT_ADMITTED`，绝不预留 holdout。
 
-计划还携带一个同宇宙随机对照，而本 Owner 定义它。同宇宙指的是一个确切的
-`vibe-indicators-kernel` 目录摘要、一组输入角色、一组图界。这三个量仓库已经冻结，所以该对照不引入任何新概念。
-Qualification 固定种子、标的宇宙、预注册窗口与抽取规模；R&D 依该定义合成比较程序，因为 Composer 与 lowerer
-在它手里而不在本 Owner 手里；Backtest 回放它们并返回其序列。这个分工不是为了方便：被评估方能影响的对照集不是对照，
-所以定义不能出自那一侧，而合成可以，因为一个种子加一个宇宙不留任何可选余地。充分性要求版本化策略规定的抽取规模，
-以及一个以该指标自身单位与标度表示的预注册裕度。凡计划缺少该对照、其定义来自本 Owner 以外、抽自不同的目录摘要、
-宇宙或窗口集合、或在观察到任何结果之后才固定其裕度，一律 `NOT_ADMITTED`，且从不预留 holdout。
+计划还携带一个同宇宙随机对照，而本 Owner 定义它。 同宇宙指的是一个确切的 `vibe-indicators-kernel` 目录摘要、一组输入角色、一组图界。 这三个量仓库已经冻结，所以该对照不引入任何新概念。
+Qualification 固定种子、标的宇宙、预注册窗口与抽取规模；R&D 依该定义合成比较程序，因为 Composer 与 lowerer 在它手里而不在本 Owner 手里；Backtest 回放它们并返回其序列。
+这个分工不是为了方便：被评估方能影响的对照集不是对照， 所以定义不能出自那一侧，而合成可以，因为一个种子加一个宇宙不留任何可选余地。
+
+充分性要求版本化策略规定的抽取规模， 以及一个以该指标自身单位与标度表示的预注册裕度。 凡计划缺少该对照、其定义来自本 Owner 以外、抽自不同的目录摘要、 宇宙或窗口集合、或在观察到任何结果之后才固定其裕度，一律
+`NOT_ADMITTED`，且从不预留 holdout。
 
 该对照的强度以那一版目录为界，而这个界是写明的，不是暗含的。目录自版本 3 起含定点平方根，
 自版本 4 起含 trailing window percent rank，但不含相关，也不含跨品种的秩，因此横截面因子在该宇宙内不可表达：通过该对照的 Candidate 被证明的是优于自一个目录中抽取的样本，
@@ -394,52 +374,57 @@ Qualification 固定种子、标的宇宙、预注册窗口与抽取规模；R&D
 Eligibility 终端的每一步都在任何调用者之前合入，并一直维持到有序门禁的条目被写出来为止。
 
 对请求相等的 `TERMINAL_RESULT`，Qualification 先消费 Backtest 完整 有限 非空的保护
-`diagnosticCategorySet`、内容摘要和逐类别决定性证据，并保留全部独立支持成员。随后先校验它是
-canonical 类别集合的无重复子集，再应用逐类别 disposition。空集合 重复 未知类别
-`NO_EXECUTION_DEFECT` 混合集合或 `UNRESOLVED_FAILURE` 混合集合都闭合为
-`DIAGNOSTIC_UNRESOLVED`。只有结构合法且包含 `MARKET_DATA` `ARTIFACT` `RUNTIME_KERNEL`
-`BACKTEST_OPERATIONAL` `SIMULATOR`
-或 `REPLAY_CONFIGURATION` 的集合闭合为 `DIAGNOSTIC_INVALID`，单元素 `UNRESOLVED_FAILURE` 闭合为
-`DIAGNOSTIC_UNRESOLVED`；二者都不生成 assessment 或 Eligibility Fact。`BACKTEST_OPERATIONAL` 保持
-密封 Backtest runner/service 类别：Qualification 闭合 holdout custody，但不向 R&D Product Edge 或
-Governance 返回 operational evidence 或保护细节。不含缺陷但含 `VALID_ECONOMIC_FAILURE` 的集合必须进入失败 assessment 和
-`INELIGIBLE`；`UNRESOLVED_FAILURE` 与 `NO_EXECUTION_DEFECT` 各自只能作为单元素集合，且只有单元素
-`NO_EXECUTION_DEFECT` 才可能进入通过 assessment。Qualification 先按自身冻结 plan 把准确密封 Backtest
-per-cell result 解析成一个完整且无重复的 result census。生成的 assessment 原子嵌入自身 census-finalization
-proof；该 proof 绑定冻结 stop 与 missing-cell policy、assessment-stage Time Evidence，以及证明没有请求
-单元仍处于非终态的密封 Backtest attempt frontier。缺少该 proof 时不存在 assessment，attempt 保持
-`IN_PROGRESS_OR_UNKNOWN`。随后完整 assessment 在冻结 adjudication 与保护决策政策版本下重复准确
-plan-cell-set digest，并对每个计划必需单元准确交代一次；同一轴可以包含多个单元。只有政策接受
-结果前已冻结的不适用依据时，该 cell 才是 `NOT_APPLICABLE_ACCEPTED`；依据缺失 过期 被拒或政策
-不匹配时为 `NOT_APPLICABLE_REJECTED`。任一 cell 缺失 重复 未知 请求结果不匹配 政策不匹配，或
-全部 cell 均不适用，都成为 `INCOMPLETE_INVALID`，提交 `ASSESSMENT_INVALID`，按预注册规则闭合 holdout
-且不生成 Eligibility Fact。只有计划已被接纳为 `PLAN_ADEQUATE`、诊断集合为单元素 `NO_EXECUTION_DEFECT`、至少一个 cell 适用、
-全部适用 cell 为 PASS、全部不适用 cell 获接受时才是 `COMPLETE_PASS`；任一适用 cell 失败或不适用
-依据被拒时为 `COMPLETE_FAIL`。`COMPLETE_PASS` 按冻结政策生成 `QUALIFIED`，`COMPLETE_FAIL` 生成
-`INELIGIBLE`，并重复准确 intake 政策 pair plan request result cell census 与判定字段。
+`diagnosticCategorySet`、内容摘要和逐类别决定性证据，并保留全部独立支持成员。 随后先校验它是 canonical 类别集合的无重复子集，再应用逐类别 disposition。 空集合 重复 未知类别
+`NO_EXECUTION_DEFECT` 混合集合或 `UNRESOLVED_FAILURE` 混合集合都闭合为 `DIAGNOSTIC_UNRESOLVED`。
 
-Protected Robustness Assessment 声明 `PROTECTED_EVALUATION` 为规范 `timeEvidenceCutKind`，直接绑定每个
-已接纳 result-stage Time Evidence，并密封一个 assessment-stage cut。Qualification 在 categorical
-assessment、holdout closure 或 Eligibility 写入前拒绝缺失、过期、epoch 无证明或互不可比、跳过阶段或
-未推进的 Time Evidence。具有直接证明的 request-to-result epoch 转换有效，但同一 assessment 的全部
-result 必须共享一个 result epoch，assessment 在该 epoch 内推进。
+只有结构合法且包含 `MARKET_DATA` `ARTIFACT` `RUNTIME_KERNEL` `BACKTEST_OPERATIONAL`
+`SIMULATOR` 或 `REPLAY_CONFIGURATION` 的集合闭合为 `DIAGNOSTIC_INVALID`，单元素 `UNRESOLVED_FAILURE` 闭合为
+`DIAGNOSTIC_UNRESOLVED`；二者都不生成 assessment 或 Eligibility Fact。
 
-终态 `RUN_REJECTED` 或 `INVALID_REPLAY_EVIDENCE` 生成 `REPLAY_REJECTED` 或 `REPLAY_INVALID`：
-Qualification 绑定 intake 请求 结果和预注册 holdout 闭合，不生成 Eligibility Fact，也不称为
-`INELIGIBLE`。只有 `IN_PROGRESS_OR_UNKNOWN` 从未改变的 `ADMITTED` 回执和保护请求派生
-`EVALUATING`，同时保留并计入累计前沿中的 holdout 托管。`REVOKED` 只用于曾生效后失效的资格。
-Eligibility State 模块拥有 `INELIGIBLE` `QUALIFIED` `EXPIRED` 和 `REVOKED`；仅属于 attempt 的
-`ASSESSMENT_INVALID` 不是 Eligibility 状态。revocation transition 通知 Governance，但不自行撤单。
+`BACKTEST_OPERATIONAL` 保持 密封 Backtest runner/service 类别：Qualification 闭合 holdout custody，但不向 R&D Product Edge 或
+Governance 返回 operational evidence 或保护细节。
 
-Eligibility replay 必须绑定 frontier。同一 Fact 身份与内容摘要只加入原事实，不能延长 effective interval
-或 `valid-through`；同一身份下状态 区间 前驱 政策 证据或 frontier 改变都是冲突重放。续期创建绑定前驱
-和新区间的新不可变 Fact；一旦后继 过期或撤销成为 Qualification head，前驱永远不能重新成为 current。
-Governance 可在每个不同的已授权 lifecycle request evaluation 与 decision frontier 中消费一次仍 current
-的 Fact，而同一 frontier 内重复只加入，绝不恢复资金。
+不含缺陷但含 `VALID_ECONOMIC_FAILURE` 的集合必须进入失败 assessment 和 `INELIGIBLE`；`UNRESOLVED_FAILURE` 与
+`NO_EXECUTION_DEFECT` 各自只能作为单元素集合，且只有单元素 `NO_EXECUTION_DEFECT` 才可能进入通过 assessment。 Qualification 先按自身冻结 plan
+把准确密封 Backtest per-cell result 解析成一个完整且无重复的 result census。
+
+生成的 assessment 原子嵌入自身 census-finalization proof；该 proof 绑定冻结 stop 与 missing-cell policy、assessment-stage Time
+Evidence，以及证明没有请求 单元仍处于非终态的密封 Backtest attempt frontier。 缺少该 proof 时不存在 assessment，attempt 保持
+`IN_PROGRESS_OR_UNKNOWN`。
+
+随后完整 assessment 在冻结 adjudication 与保护决策政策版本下重复准确 plan-cell-set digest，并对每个计划必需单元准确交代一次；同一轴可以包含多个单元。 只有政策接受
+结果前已冻结的不适用依据时，该 cell 才是 `NOT_APPLICABLE_ACCEPTED`；依据缺失 过期 被拒或政策 不匹配时为 `NOT_APPLICABLE_REJECTED`。
+
+任一 cell 缺失 重复 未知 请求结果不匹配 政策不匹配，或 全部 cell 均不适用，都成为 `INCOMPLETE_INVALID`，提交 `ASSESSMENT_INVALID`，按预注册规则闭合
+holdout 且不生成 Eligibility Fact。 只有计划已被接纳为 `PLAN_ADEQUATE`、诊断集合为单元素 `NO_EXECUTION_DEFECT`、至少一个 cell 适用、 全部适用
+cell 为 PASS、全部不适用 cell 获接受时才是 `COMPLETE_PASS`；任一适用 cell 失败或不适用 依据被拒时为 `COMPLETE_FAIL`。
+
+`COMPLETE_PASS` 按冻结政策生成 `QUALIFIED`，`COMPLETE_FAIL` 生成 `INELIGIBLE`，并重复准确 intake 政策
+pair plan request result cell census 与判定字段。
+
+Protected Robustness Assessment 声明 `PROTECTED_EVALUATION` 为规范 `timeEvidenceCutKind`，直接绑定每个 已接纳 result-stage Time
+Evidence，并密封一个 assessment-stage cut。 Qualification 在 categorical assessment、holdout closure 或 Eligibility
+写入前拒绝缺失、过期、epoch 无证明或互不可比、跳过阶段或 未推进的 Time Evidence。
+
+具有直接证明的 request-to-result epoch 转换有效，但同一 assessment 的全部 result 必须共享一个 result epoch，assessment 在该 epoch 内推进。
+
+终态 `RUN_REJECTED` 或 `INVALID_REPLAY_EVIDENCE` 生成 `REPLAY_REJECTED` 或 `REPLAY_INVALID`： Qualification
+绑定 intake 请求 结果和预注册 holdout 闭合，不生成 Eligibility Fact，也不称为 `INELIGIBLE`。 只有 `IN_PROGRESS_OR_UNKNOWN` 从未改变的
+`ADMITTED` 回执和保护请求派生 `EVALUATING`，同时保留并计入累计前沿中的 holdout 托管。
+
+`REVOKED` 只用于曾生效后失效的资格。 Eligibility State 模块拥有 `INELIGIBLE` `QUALIFIED`
+`EXPIRED` 和 `REVOKED`；仅属于 attempt 的 `ASSESSMENT_INVALID` 不是 Eligibility 状态。 revocation
+transition 通知 Governance，但不自行撤单。
+
+Eligibility replay 必须绑定 frontier。 同一 Fact 身份与内容摘要只加入原事实，不能延长 effective interval 或 `valid-through`；同一身份下状态
+区间 前驱 政策 证据或 frontier 改变都是冲突重放。 续期创建绑定前驱 和新区间的新不可变 Fact；一旦后继 过期或撤销成为 Qualification head，前驱永远不能重新成为 current。
+
+Governance 可在每个不同的已授权 lifecycle request evaluation 与 decision frontier 中消费一次仍 current 的 Fact，而同一 frontier
+内重复只加入，绝不恢复资金。
 
 ## TARGET - 在 Candidate Intake 处按累计试验打折
 
-Research 不再在某个试验次数上停下（[R&D](./rd/#target---cumulative-trial-accounting-and-the-spend-cap)，用户 2026-09-27
+Research 不再在某个试验次数上停下（[R&D](./rd/#cumulative-trial-accounting-and-spend-ceilings)，用户 2026-09-27
 的决定）；取而代之的是，一条血缘试得越多，它的 Candidate 在这里要过的门槛就越高。Qualification 用的是它自己推导出的试验
 次数，从不是别人告诉它的。
 
@@ -497,12 +482,12 @@ Governance 消费它的决策，它自己从不运行 Governance 的控制链。
 上。越过 ln(β / (1 − α)) 即淘汰，越过 ln((1 − β) / α) 即到达扩大边界：在 α = 5%、检验力 80% 时为 −1.56 与 +2.77。登记写明
 α、β、折扣、σ 和观测单位。越过扩大边界本身并不准入候选，而是把准入复核提前到那个 cut。
 
-Backtest 在每个新观察到的点时 cut 上（Forward Replay）按登记的确切身份回放冻结的 Artifact，使用让它取得资格的那一套订单类型
-（限价、止损、有效期与到期、撤单）与决策节奏。挂单与未平仓位在 Backtest 的托管中从一个 cut 延续到下一个 cut，成交只能来自
-订单存在之后观察到的数据，持仓槽位与占用按成交顺序决定，因为为回测决定它们的是同一个模拟器。一份信号日志不是 Forward
-Record：它无法持有挂单，还会给止损或目标早已成交的信号计分。一个与回测分开决定占用的前向工具也不是：按挂单顺序而不是成交
-顺序分配槽位，曾把一条规则的回测优势从 +0.22 抬到 +0.34，而前向工具无声地给出了不同结果。Forward Replay 是由每个
-Market Data cut 驱动，还是按记录自己的节奏批量驱动，仍是开放问题；契约只固定：节奏所消费的每个 cut 都恰好重放一次、按顺序。
+Backtest 在每个新观察到的点时 cut 上（Forward Replay）按登记的确切身份回放冻结的 Artifact，使用让它取得资格的那一套订单类型 （限价、止损、有效期与到期、撤单）与决策节奏。
+挂单与未平仓位在 Backtest 的托管中从一个 cut 延续到下一个 cut，成交只能来自 订单存在之后观察到的数据，持仓槽位与占用按成交顺序决定，因为为回测决定它们的是同一个模拟器。 一份信号日志不是
+Forward Record：它无法持有挂单，还会给止损或目标早已成交的信号计分。
+
+一个与回测分开决定占用的前向工具也不是：按挂单顺序而不是成交 顺序分配槽位，曾把一条规则的回测优势从 +0.22 抬到 +0.34，而前向工具无声地给出了不同结果。 Forward Replay 是由每个 Market
+Data cut 驱动，还是按记录自己的节奏批量驱动，仍是开放问题；契约只固定：节奏所消费的每个 cut 都恰好重放一次、按顺序。
 
 每份记录以一个终态 Forward Decision 结束：
 
@@ -524,7 +509,7 @@ Forward Replay 需要产品在部署中尚未提供的东西：随数据到达�
 
 ## 决策契约
 
-- **输入** - 带准确 `READY_FOR_SELECTION` 血缘的唯一 selected Candidate、穷尽 TrialFamily Census、
+- **输入** - 带准确 Agent 选择记录和冻结版本血缘的 selected Candidate、穷尽 TrialFamily Census、
   预注册保护政策 holdout ancestry 冻结 Replay Request 和密封 Run Result。
 - **诊断与决定** - 接纳或拒绝 intake，隔离保护评估，校验请求结果完全相等，应用冻结政策并提交
   attempt disposition 或 Eligibility State 转换。
@@ -576,4 +561,13 @@ Forward Replay 需要产品在部署中尚未提供的东西：随数据到达�
 
 ## 可观测性与持久化
 
-Qualification 把 intake、holdout reservation/consumption、保护 request/result 关联、robustness assessment、attempt disposition、Eligibility、expiry 与 revocation 持久化为原生审计链。共享 telemetry 只能含公共终态、类型不透明且不可解引用的事实引用和 source-frontier freshness；保护 phase、latency、terminal timing 与 timing-derived field 明确禁止公开。`REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 与 `INELIGIBLE` 都以字节等价方式投影为 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。保护测量、参数、cell outcome、holdout 内容、内部终态 disposition、负面原因与 evaluator 细节绝不能进入 Event Rail、trace、log、metric、alert 或 Dashboard；Qualification 外尤其不存在内部 `INELIGIBLE` event。Dashboard 统计只区分 `QUALIFIED`、`CLOSED_NOT_QUALIFIED`、expired 与 revoked；全部负面保护终态共享字节等价的 label 和 aggregate。
+Qualification 把 intake、holdout reservation/consumption、保护 request/result 关联、robustness assessment、attempt
+disposition、Eligibility、expiry 与 revocation 持久化为原生审计链。 共享 telemetry 只能含公共终态、类型不透明且不可解引用的事实引用和 source-frontier
+freshness；保护 phase、latency、terminal timing 与 timing-derived field 明确禁止公开。
+
+`REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 与
+`INELIGIBLE` 都以字节等价方式投影为 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。
+
+保护测量、参数、cell outcome、holdout 内容、内部终态 disposition、负面原因与 evaluator 细节绝不能进入 Event Rail、trace、log、metric、alert 或
+Dashboard；Qualification 外尤其不存在内部 `INELIGIBLE` event。 Dashboard 统计只区分
+`QUALIFIED`、`CLOSED_NOT_QUALIFIED`、expired 与 revoked；全部负面保护终态共享字节等价的 label 和 aggregate。

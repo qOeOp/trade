@@ -264,15 +264,16 @@ function inspect(task, document) {
 
   if (task.navigation.length > 0) {
     for (const requirement of task.navigation) {
-      const container = document.querySelector(requirement.container);
-      if (!container) {
+      const containers = [...document.querySelectorAll(requirement.container)];
+      if (containers.length === 0) {
         waiting = true;
         continue;
       }
-      const anchors = [...container.querySelectorAll('a[href]')];
+      const anchors = containers.flatMap((container) => [...container.querySelectorAll('a[href]')]);
       const found = anchors.some((anchor) => {
         try {
-          return new URL(anchor.href, document.location.href).pathname === requirement.route && visible(anchor);
+          const url = new URL(anchor.href, document.location.href);
+          return url.origin === document.location.origin && url.pathname === requirement.route && visible(anchor);
         } catch {
           return false;
         }

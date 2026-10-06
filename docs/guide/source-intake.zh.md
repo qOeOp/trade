@@ -1,7 +1,8 @@
 # 研究来源接入指南
 
-本指南为未来开发 Agent 提供实现 Research Source Intake 的高 ROI 路径。它是开发基线，不是新的业务
-权威。Connector 产品 协议 持久化 队列和评分公式仍是可替换的实现选择。
+Agent 使用宿主已有工具/MCP 查找论文、文章、笔记和视频，自己解释与安排阅读顺序。R&D 保存来源、内容摘要和证据关联，不建立资料采集或排序引擎。
+
+下文获取准入和类型化流水线限定现有产品托管的采集入口，保留其网络、凭据、预算及血缘约束；它们不是每次研究的必经前置。宿主工具遵守宿主授权，不能借来源记录取得产品凭据或交易权限。
 
 ## 职责与边界
 
@@ -32,8 +33,7 @@ Intent 后，解释后的来源才能进入正式研究循环。来源可以启�
 | B    | 专业问答与开源社区      | 公式边界 实现失败和反例      | 仅作交叉发现                 | 上下文丢失与热度偏差    | 永不            |
 | C    | 一般社区 视频与社交媒体 | 术语 实务失败与外部链接      | 弱发现信号                   | 不可验证论断与提示注入  | 永不            |
 
-任何来源支持 Research Intent 前，Research 都必须保留 provenance 有界解释 合理替代解释 能区分
-机制的预测和证伪条件。来源排名不能绕过这条顺序。
+Agent 使用来源前保留 provenance 并记录解释。替代解释、区分预测与证伪条件由 Agent 按研究需要选择，不是平台审批方法充分性的门槛。来源等级不授予执行、资格或数据权限。
 
 ## Connector 候选
 
@@ -54,33 +54,33 @@ Intent 后，解释后的来源才能进入正式研究循环。来源可以启�
 机构来源和媒体提取，只有在具体研究瓶颈足以覆盖获取与权利成本时才进入后续阶段。优先使用官方 API
 feed repository 或作者维护索引；通用抓取只是后备方案，并且必须保留同等身份 权利与终态证据。
 
-研究来源 canary `scripts/ci/source_canary.py` 从 GitHub-hosted runner 探测这些 connector，而不是从产品运行的位置
-探测：生产环境是用户自己的机器，PostgreSQL 在本机 compose 部署里。runner 上的读数说明的是 runner 的地址能到达
-什么，不是生产环境能到达什么。自 2026-09-22 起 arXiv 对 runner 回 HTTP 406，2026-09-28 三次尝试全是 406；
-canary 把重试后仍是 406 的结果记为 `BLOCKED` 而不是 `FAILED`。2026-09-28 在用户机器上十次请求只有一次得到 406，
-下一次请求即成功，所以在那里重试可以吸收它。
+研究来源 canary `scripts/ci/source_canary.py` 从 GitHub-hosted runner 探测这些 connector，而不是从产品运行的位置 探测：生产环境是用户自己的机器，PostgreSQL
+在本机 compose 部署里。 runner 上的读数说明的是 runner 的地址能到达 什么，不是生产环境能到达什么。 自 2026-09-22 起 arXiv 对 runner 回 HTTP
+406，2026-09-28 三次尝试全是 406； canary 把重试后仍是 406 的结果记为 `BLOCKED` 而不是 `FAILED`。
 
-## 获取前准入
+2026-09-28 在用户机器上十次请求只有一次得到 406， 下一次请求即成功，所以在那里重试可以吸收它。
 
-R&D 在任何外部网络调用前先提交一个 Source Acquisition Binding。该 binding 同时绑定请求和 Agent
-Operation Manifest，并标识 connector 实现与版本、允许 URI scheme 与 origin、DNS 与解析地址政策、
-完整 redirect 政策与 hop 上限、不透明 credential handle 的 audience 与最小权限 scope、响应媒体 大小
-时间 内容边界、network egress policy、权利与保留政策和共享 Time Evidence，以及完整只读 outbound
-request 身份：规范 method endpoint path/query、允许 header 的规范摘要、只以 opaque handle/audience 表达的
-credential placement，以及明确 absent-body marker 或准确 body digest media type 与 size。准入状态只能是
-`ADMITTED` `REJECTED` 或 `POLICY_UNAVAILABLE`。
+## 当前产品托管采集的获取前准入
+
+R&D 在任何外部网络调用前先提交一个 Source Acquisition Binding。
+
+该 binding 同时绑定请求和 Agent Operation Manifest，并标识 connector 实现与版本、允许 URI scheme 与 origin、DNS 与解析地址政策、 完整 redirect
+政策与 hop 上限、不透明 credential handle 的 audience 与最小权限 scope、响应媒体 大小 时间 内容边界、network egress policy、权利与保留政策和共享 Time
+Evidence，以及完整只读 outbound request 身份：规范 method endpoint path/query、允许 header 的规范摘要、只以 opaque handle/audience
+表达的 credential placement，以及明确 absent-body marker 或准确 body digest media type 与 size。
+
+准入状态只能是 `ADMITTED` `REJECTED` 或 `POLICY_UNAVAILABLE`。
 
 权利与保留是获取前准入输入，不是获取后的补充标注。Research 必须在打开网络路径前决定请求内容
 是否允许获取与保留。因此 `REJECTED` `POLICY_UNAVAILABLE` 或后续权利漂移都产生零调用 零响应字节
 和零 provenance。
 
-只有准确 `ADMITTED` 可以发起一次有界获取。每个 redirect hop 都先创建并准入新的规范 successor request
-binding，再检查 scheme origin DNS 解析地址 method endpoint path/query header/body disposition credential
-audience 响应边界 egress 和权利。loopback private link-local 禁止或变化
-地址 DNS rebinding 未列出 redirect 跨 origin credential 转发 政策未知和权利不确定都不调用网络，也不
-创建 provenance。credential 始终不透明，不能进入来源内容 日志 prompt 回执或生成工件。connector
-method endpoint query header/body digest origin 解析结果 redirect 序列 credential audience 响应边界 权利政策或时间截面改变时必须创建后继
-binding；冲突重放必须拒绝。
+只有准确 `ADMITTED` 可以发起一次有界获取。 每个 redirect hop 都先创建并准入新的规范 successor request binding，再检查 scheme origin
+DNS 解析地址 method endpoint path/query header/body disposition credential audience 响应边界 egress 和权利。
+
+loopback private link-local 禁止或变化 地址 DNS rebinding 未列出 redirect 跨 origin credential 转发 政策未知和权利不确定都不调用网络，也不 创建
+provenance。 credential 始终不透明，不能进入来源内容 日志 prompt 回执或生成工件。 connector method endpoint query header/body digest
+origin 解析结果 redirect 序列 credential audience 响应边界 权利政策或时间截面改变时必须创建后继 binding；冲突重放必须拒绝。
 
 ### 获取权威类别
 
@@ -98,26 +98,24 @@ binding；冲突重放必须拒绝。
 receipt 和 readback。类别不匹配是 identity conflict，不是准确重放。验收 endpoint 必须使用非公开 fixture
 身份，绝不能伪装成 `api.openalex.org`；fixture 结果永远不是 live-provider 证据。
 
-**CURRENT - 生产的政策解析还缺什么，这是读出来的而不是扫出来的。**
-`SourceIntakePolicyEvidencePort` 把五个 policy locator 加一个 shared-time head 变成
-`SourceIntakePolicyEvidenceV1` 的四十四个字段。这件事的两半都只存在于
-`sealed-source-intake-research-acceptance` 之后:决定*哪些*政策适用的那个查询，
-把每一个 locator 都填成 `SEALED_` 常量;而解析它们的那个端口调用一个 fixture 构造函数，
-再用字面量覆盖掉 shared-time 字段。这个端口完全没有生产实现，它的另一个实现在
-`#[cfg(test)]` 模块里。
+**CURRENT - 生产的政策解析还缺什么，这是读出来的而不是扫出来的。** `SourceIntakePolicyEvidencePort` 把五个 policy locator 加一个 shared-time head 变成
+`SourceIntakePolicyEvidenceV1` 的四十四个字段。 这件事的两半都只存在于 `sealed-source-intake-research-acceptance` 之后:决定*哪些*政策适用的那个查询， 把每一个 locator 都填成
+`SEALED_` 常量;而解析它们的那个端口调用一个 fixture 构造函数， 再用字面量覆盖掉 shared-time 字段。
 
-把两半分开读，缺口就不是一整块了。重放路径上 locator 是有来源的:已存的 acquisition binding
-带着每一条政策的 identity 与 version，而密封查询构造函数的文档注释写明了让这件事安全的规则，
-binding 只是不可信的 locator 源，端口仍然要重新解析并封印每一个被引用的事实。**首次**采集则没有
-来源。`AgentOperationManifestProposalV1` 是最像能承载它们的东西，而它不承载:它绑定的是操作、
-允许与禁止的 effect、一个 capability policy 摘要和一个有效期窗口，那是 effect 授权而不是采集政策。
+这个端口完全没有生产实现，它的另一个实现在 `#[cfg(test)]` 模块里。
+
+把两半分开读，缺口就不是一整块了。 重放路径上 locator 是有来源的:已存的 acquisition binding 带着每一条政策的 identity 与
+version，而密封查询构造函数的文档注释写明了让这件事安全的规则， binding 只是不可信的 locator 源，端口仍然要重新解析并封印每一个被引用的事实。 **首次**采集则没有 来源。
+`AgentOperationManifestProposalV1` 是最像能承载它们的东西，而它不承载:它绑定的是操作、 允许与禁止的 effect、一个 capability policy 摘要和一个有效期窗口，那是 effect
+授权而不是采集政策。
+
 所以生产实现要回答的第一个问题不是怎么解析一个 locator，而是首次采集的 locator 究竟从哪里来。
 
-**CURRENT - rights 与 retention 在这里是两族、在 Market Data 是一个结构，而这是有意的。**
-`SourceIntakePolicyEvidenceV1` 带着 `rights_basis_identity` 及其自己的 `effective_at`、
-`valid_through` 与一个 `acquisition_scope`，另外分开带着 `retention_policy_identity`
-及其自己的 `effective_at`、`valid_through` 与 `retention_scope`。Market Data 的
-`UntrustedLicensePolicy` 则把 `use_scope`、`redistribution_scope`、`retention_policy`、
+**CURRENT - rights 与 retention 在这里是两族、在 Market Data 是一个结构，而这是有意的。** `SourceIntakePolicyEvidenceV1` 带着
+`rights_basis_identity` 及其自己的 `effective_at`、 `valid_through` 与一个 `acquisition_scope`，另外分开带着
+`retention_policy_identity` 及其自己的 `effective_at`、`valid_through` 与 `retention_scope`。
+
+Market Data 的 `UntrustedLicensePolicy` 则把 `use_scope`、`redistribution_scope`、`retention_policy`、
 `redaction_policy` 作为四个自由字符串携带，那个结构的两侧都没有任何窗口字段。
 
 保持两族的理由是 Source Intake 需要、而一个自由字符串陈述不了的一件事：**一份研究来源可以
@@ -138,7 +136,7 @@ flow、fixture adapter 或 caller 都不得拆分或复制 Owner custody。只�
 claim、raw payload、终态 receipt、provenance、Source Candidate 与 outbox；只有 `ADMITTED` 加
 `RETRIEVED` 才能原子提交 positive record。
 
-## 内部能力序列
+## 当前托管采集的内部能力序列
 
 以下是 Source Intake 内部能力，不是新的 Flow 节点或 Owner：
 
@@ -185,31 +183,33 @@ connector policy retrieval cut 或内容摘要变化时创建新 attempt 身份�
 - retrieval cut 共享 Time Evidence `valid-through` connector 身份与版本，以及准确 `RETRIEVED`
   获取终态；
 - license 和 attribution basis，包括允许获取与保留的范围；
-- 有界解释身份与摘要 合理替代解释集合 能区分机制的预测和证伪条件。
+- Agent 解释身份与摘要；按研究需要记录替代解释、预测和证伪条件。
 
 内容 retrieval cut license basis 或解释变化时创建后继记录。没有关联记录的 Source Candidate 不能交接。
 
 ## 类型化 Source Intake-to-Research custody
 
-目标 composition 在 Source Intake 与 Research 之间只有一个由 R&D 拥有的类型化 ancestry operation。
-它接收不受信的 Source Intake attempt reference，然后从 Owner custody 锁定并重读准确 `RETRIEVED`
-terminal receipt、Research Source Provenance Record、Source Candidate 与匹配的 transition outbox。它校验
-这些成员共享的 request 与 attempt identity、规范 source 与 content digest、retrieval cut、connector 与
-acquisition-class identity、policy/Time Evidence 以及 rights/retention basis，然后只返回 sealed ancestry
-evidence。Source content 保持不受信，绝不授予 accepted Research custody。
+目标 composition 在 Source Intake 与 Research 之间只有一个由 R&D 拥有的类型化 ancestry operation。 它接收不受信的 Source Intake attempt
+reference，然后从 Owner custody 锁定并重读准确 `RETRIEVED` terminal receipt、Research Source Provenance
+Record、Source Candidate 与匹配的 transition outbox。
 
-类型化 Research `RUN` 另行把不受信 Research proposal 与该 verified ancestry evidence 交给规范 R&D
-Research admission。R&D 是唯一 Intent owner：只有该 admission 可以解析 Independence Basis、当前
-Qualification frontier 与本地 semantic-predecessor lineage，再冻结 Intent、falsifier、永久 TrialFamily
-authority、receipts 和 Develop Composer 可消费的 current Research custody。仅凭 Source Intake attempt
-绝不能派生 `CurrentResearchDevelopCustodyV2`。
+它校验 这些成员共享的 request 与 attempt identity、规范 source 与 content digest、retrieval cut、connector 与 acquisition-class
+identity、policy/Time Evidence 以及 rights/retention basis，然后只返回 sealed ancestry evidence。 Source content
+保持不受信，绝不授予 accepted Research custody。
 
-caller 不能提供或修复任何 verified member。把 receipt 字段复制到 Research DTO、信任未经 Owner 重读的
-locator、把 JSON projection 当作规范 record，或把 Source Intake 与 Composer 共同部署，都不构成
-handoff。任一 ancestry member 缺失、不匹配、过期、不是 `RETRIEVED`、为负面终态或不可用，或规范
-Research admission 失败时，都不得创建 accepted Research custody、Research Intent、Design、Plan、
-Artifact 或 successor authority。相同 request 与 meaning 加入字节一致的 R&D operation receipt；identity
-被用于 changed meaning 时发生 conflict 且零正向写入，response loss 只能解析同一 attempt。
+类型化 Research `RUN` 另行把不受信 Research proposal 与该 verified ancestry evidence 交给规范 R&D Research
+admission。
+
+R&D 是唯一 Intent owner：只有该 admission 可以解析 Independence Basis、当前 Qualification frontier 与本地 semantic-predecessor
+lineage，再冻结 Intent、falsifier、永久 TrialFamily authority、receipts 和 Develop Composer 可消费的 current Research
+custody。 仅凭 Source Intake attempt 绝不能派生 `CurrentResearchDevelopCustodyV2`。
+
+caller 不能提供或修复任何 verified member。 把 receipt 字段复制到 Research DTO、信任未经 Owner 重读的 locator、把 JSON projection 当作规范
+record，或把 Source Intake 与 Composer 共同部署，都不构成 handoff。
+
+任一 ancestry member 缺失、不匹配、过期、不是 `RETRIEVED`、为负面终态或不可用，或规范 Research admission 失败时，都不得创建 accepted
+Research custody、Research Intent、Design、Plan、 Artifact 或 successor authority。 相同 request 与 meaning 加入字节一致的 R&D
+operation receipt；identity 被用于 changed meaning 时发生 conflict 且零正向写入，response loss 只能解析同一 attempt。
 
 该 operation 及其持久 PostgreSQL custody 是 `TARGET`，不是当前能力。crate-local Source Intake 合同与
 回归证据和 crate-local Composer 证明继续作为相互分离的 `CURRENT/PARTIAL` evidence。当前没有证据建立
@@ -217,21 +217,19 @@ Artifact 或 successor authority。相同 request 与 meaning 加入字节一致
 
 ## Triage 与准入
 
-Triage 只安排阅读和实验顺序，不衡量策略质量。政策可以比较可证伪性 预期决策价值 数据可得性
-可复现性 经济相关性 新颖性 获取成本 权利风险与实现成本。必须记录政策版本和确定性 tie-break，
-公式与传输仍属于实现选择。
+Agent 自行安排阅读和实验顺序，可考虑数据可得性、经济相关性、证据质量及成本。R&D 记录 Agent 方案，不计算信息价值排序或确定性 tie-break；获取权限与预算仍由对应服务核验。
 
 交接顺序为：
 
-`Source Candidate → provenance and interpretation → alternatives → differentiating prediction → falsifier → frozen Research Intent`
+`Source Candidate → Agent interpretation → provenance record → frozen experiment`
 
-需要市场观测时，Research 向 Market Data 发出请求，并把终态结果关联到同一 Research lineage。
-第一次交接前，Research 冻结一个 PIT Market Snapshot Request，绑定 Research Request Intent TrialFamily、
-标的或 universe scope、四时间决定截面、必需 provenance license correction frontier、稳定 correlation
-和 Time Evidence。`PREPARED` 与 `SUBMITTED_OR_UNKNOWN` 都不是市场事实。只有 Market Data 可以返回
-关联 snapshot disposition，并重复准确请求身份 内容摘要 scope cut provenance license correction 和
-correlation binding。含义改变必须创建后继请求；传输成功 静默或旧 snapshot 都不能表示 `AVAILABLE`
-或终态负例。Source Intake 不自行修复或保存这些市场事实。
+需要市场观测时，Research 向 Market Data 发出请求，并把终态结果关联到同一 Research lineage。 第一次交接前，Research 冻结一个 PIT Market Snapshot
+Request，绑定 Research Request Intent TrialFamily、 标的或 universe scope、四时间决定截面、必需 provenance license correction
+frontier、稳定 correlation 和 Time Evidence。 `PREPARED` 与 `SUBMITTED_OR_UNKNOWN` 都不是市场事实。
+
+只有 Market Data 可以返回 关联 snapshot disposition，并重复准确请求身份 内容摘要 scope cut provenance license correction 和
+correlation binding。 含义改变必须创建后继请求；传输成功 静默或旧 snapshot 都不能表示 `AVAILABLE` 或终态负例。 Source Intake
+不自行修复或保存这些市场事实。
 
 ## 失败案例
 
@@ -243,7 +241,7 @@ correlation binding。含义改变必须创建后继请求；传输成功 静默
 - 把价格 filing 宏观或标的事实复制进 Source Intake 会产生禁止的第二套 Market Data 存储。
 - 把热门来源直接推进工件 重放 Qualification Governance 或交易属于权威失败。
 
-## 开发验收
+## 验收边界
 
 - 契约测试覆盖全部获取终态 准确重放 后继内容 connector 不可用与权利变化。
 - 契约测试证明只有准确 `ADMITTED` 加 `RETRIEVED` 创建或加入 provenance；其他每种获取终态都保持 provenance 缺失。

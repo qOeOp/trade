@@ -1,10 +1,10 @@
 # VibeTrading 产品设计
 
-VibeTrading 面向使用外部 AI 代理开展量化研究的用户。用户给出市场问题、风险容忍和资源边界，代理通过 MCP
+VibeTrading 面向一个个人用户，由一个可更换的外部 AI 代理协助量化研究。用户给出市场问题、风险容忍和资源边界，代理通过 MCP
 调用数据、策略编写、回测与研究服务，把假设变成可复现策略、组合证据和明确的下一步决定。
 
 数据与回测以本仓库的 Nautilus 为基础扩展；研究管理由自研 R&D 服务承担。自研 Dashboard 提供同一事实的
-查看与控制界面。产品不内置研究模型，不要求用户用对话手工驱动内部步骤，也不把探索结果当作交易许可。
+只读研究视图与获准的 Governance 控制界面。产品不内置研究模型，不要求用户用对话手工驱动内部步骤，也不把探索结果当作交易许可。
 
 ## 设计章节
 
@@ -13,7 +13,7 @@ VibeTrading 面向使用外部 AI 代理开展量化研究的用户。用户给�
 | 产品定位与用户流程 | 用户输入、代理自主边界、研究到资格和生命周期的完整旅程         | [产品闭环](./product-loop/)                             |
 | 服务架构           | 领域 MCP、内部调用、原生 Nautilus 扩展与唯一事实来源           | [架构](../architecture/)                                |
 | 产品接口           | 请求、任务、状态、结果、凭据与 Dashboard 通道                  | [Product Edge](../architecture/product-edge/)           |
-| 策略表达与运行     | JSON 编写、BFP、Artifact、共享执行和数据依赖                   | [Strategy Factory](../architecture/strategy-factory/)   |
+| 策略表达与运行     | 原生 Strategy 包、执行和数据依赖                               | [Strategy Factory](../architecture/strategy-factory/)   |
 | 研究功能与验收     | R‑1 挂单/分段退出、组合资金、动态选币、执行精度与失败路径      | [研究设计](../scenarios/research/)                      |
 | 职责与不变量       | R&D、Market Data、Backtest、Qualification 及交易控制的权威边界 | [架构规则](./architecture-rules/)与[Owners](../owners/) |
 | 用户界面           | 路由、组件、交互、状态与实现准入                               | [Dashboard](./dashboard/)                               |
@@ -30,7 +30,7 @@ VibeTrading 面向使用外部 AI 代理开展量化研究的用户。用户给�
 
 ## 接入与操作
 
-[安装](./install/)准备本地环境，[快速开始](./quickstart/)说明安全的研究操作。
+[安装](./install/)说明开发前提与服务器部署边界，[快速开始](./quickstart/)说明安全的研究操作。
 [来源接入](./source-intake/)、[市场数据接入](./market-data-intake/)与[可观测性](./observability/)
 定义各自边界。[开发切片契约](./development-chunk-contract/)用于落实具体功能，
 [设计证据](./design-evidence/)解释关键设计依据；它们与以上章节共同构成当前设计。[用户场景](../scenarios/)组织各条验收旅程。

@@ -5,12 +5,7 @@ and known-safe recovery. It shows owner contracts; scenario pages contain the de
 
 ## Entry
 
-A person submits a sourced, falsifiable market idea through Product Edge. The Trade-owned Dashboard and
-optional external conversation clients connected through its Dashboard MCP endpoint invoke the same versioned,
-bounded Owner operations behind one admission gateway, whose channel constant is `TRADE_PRODUCT_EDGE`. Records
-sealed before that name keep the `WINDMILL_PRODUCT_EDGE` spelling from when Windmill was the surface, and the
-gateway admits both. Neither UI, MCP transport, nor workflow stores
-business truth or trades directly.
+One individual gives a sourced, falsifiable market idea to an external Agent. The Agent calls the domain MCPs through bounded, versioned Owner operations. Server services persist admitted jobs and results independently of that conversation. Dashboard reads research progress and evidence; it exposes approved Governance controls, including first trial confirmation, but neither starts research nor controls the local Agent. Product Edge admits requests without owning business truth or trading directly.
 
 ## Value path
 
@@ -22,9 +17,9 @@ business truth or trades directly.
    Lineage, and an explicit Autonomous Policy Authorization into deployment decisions.
 6. R&D offers on-demand discovery using the same strategy judgments without deployment proposals. Running strategies
    consume market data continuously; Governance evaluates frozen lifecycle conditions directly.
-7. Runtime, Risk, and Execution perform automated paper or live trading through one permit-bound write chain.
+7. After the user confirms first trial entry, Runtime, Risk and Execution perform real trial/formal trading through one permit-bound native write chain. Promotion rechecks frozen conditions and capacity.
 8. Portfolio projects read-only account, exposure, performance, capacity, interaction, and degradation facts.
-   Governance deterministically allocates a complete contender set; Risk enforces generation envelopes and joins
+   Governance applies the approved trial/formal pool ratios and equal running-member allocation only when existing occupancy fits; otherwise admission waits; Risk enforces generation envelopes and joins
    account facts, open orders, and liabilities without becoming an allocator.
 9. Committed feedback returns to Governance; Recovery fences incidents until external effects are known closed.
 
@@ -45,7 +40,7 @@ history head, Operator Authorization, operation manifest, and Autonomous Policy 
 
 ## Development outcome
 
-- **Beneficiary** - quantitative researchers, strategy operators, and capital owners who need one traceable path from an idea to automated trading.
+- **Beneficiary** - the individual user researching and operating strategies with a replaceable external Agent.
 - **Observable outcome** - every accepted transition has one Owner fact and every automated effect joins a governed generation, permit, execution record, account projection, and feedback loop.
 - **Harm if unchanged** - teams would build competing authorities, promote attractive but unqualified results, and lose the ability to explain capital or external effects.
 - **Terminal negative** - any incomplete handoff ends in its Owner's explicit negative or unresolved state; an open Recovery Case, missing receipt, or unknown effect is never inferred as success.

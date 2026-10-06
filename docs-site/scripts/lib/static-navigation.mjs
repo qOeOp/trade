@@ -14,19 +14,26 @@ export function navigationContainerSelector({ parentRoute, localeHomeRoute, chil
   if (parentRoute === localeHomeRoute) return 'body';
   const guideRoot = `${localeHomeRoute}docs/guide/`;
   if (parentRoute === guideRoot && childRoute && !childRoute.startsWith(guideRoot)) return '#nd-page';
-  return '#nd-sidebar';
+  return '#nd-sidebar, #nd-page';
 }
 
 export function navigationMarkup({ body, parentRoute, localeHomeRoute, childRoute }) {
   const selector = navigationContainerSelector({ parentRoute, localeHomeRoute, childRoute });
   if (selector === 'body') return elementMarkup(body, '<body', '</body>');
   if (selector === '#nd-page') return elementMarkup(body, '<article id="nd-page"', '</article>');
-  return elementMarkup(body, '<aside id="nd-sidebar"', '</aside>');
+  const containers = [
+    elementMarkup(body, '<aside id="nd-sidebar"', '</aside>'),
+    elementMarkup(body, '<article id="nd-page"', '</article>'),
+  ].filter(Boolean);
+  return containers.length > 0 ? containers.join('') : null;
 }
 
 function normalizedPathname(href, parentRoute) {
+  if (typeof href !== 'string' || href.trim() === '') return null;
   try {
-    const pathname = new URL(href, `https://navigation.test${parentRoute}`).pathname;
+    const url = new URL(href, `https://navigation.test${parentRoute}`);
+    if (url.origin !== 'https://navigation.test') return null;
+    const pathname = url.pathname;
     return pathname.endsWith('/') ? pathname : `${pathname}/`;
   } catch {
     return null;

@@ -6,48 +6,50 @@
 
 ## Entry / 入口
 
-Strategy Governance 以生效资金政策为实盘模式授权具有资格的策略 generation，但不启动 Runtime。所需行情、账户、
-风控、执行、对账和恢复事实都可用。该决定绑定一个使用场所账户和效果命名空间的 `LIVE` Execution Scope。
-`INITIAL_ACTIVATION` 还绑定包含新鲜候选无关 gross Capacity View 的 Portfolio Lifecycle Evidence
-Receipt；它必须兼容预先存在 Capacity Scope。后续 `PROMOTION` 还要求按 `PROMOTION`
-transition-evidence key 绑定新鲜准确 Performance 与 Exposure 回执。
-自动产生意图前 Runtime 提交 `APPLIED` Generation Application Receipt，把唯一 Strategy Instance 和
-checkpoint 绑定到该决定 generation scope 工件 fence epoch 完整请求 Authorization Lineage 与显式
-Autonomous Policy Authorization。该 policy 才允许有界无人值守意图，裸 Governance 决定不能授权。
-`INITIAL_ACTIVATION` `PROMOTION` `APPLIED` 以及正常自动 Live 新增风险或场所效果都要求
-`UNATTENDED_REQUEST_WITH_POLICY`。`ATTENDED_REQUEST` 只能处于未运行和 decrease-only 状态；除非未来
-另行定义独立 attended-effect 契约，否则不能进入 Live。
+Strategy Governance 以生效资金政策为实盘模式授权具有资格的策略 generation，但不启动 Runtime。 所需行情、账户、 风控、执行、对账和恢复事实都可用。
+该决定绑定一个使用场所账户和效果命名空间的 `LIVE` Execution Scope。 `INITIAL_ACTIVATION` 还绑定包含新鲜候选无关 gross Capacity
+View 的 Portfolio Lifecycle Evidence Receipt；它必须兼容预先存在 Capacity Scope。
+
+后续 `PROMOTION` 还要求按 `PROMOTION` transition-evidence key 绑定新鲜准确 Performance 与 Exposure 回执。
+自动产生意图前 Runtime 提交 `APPLIED` Generation Application Receipt，把唯一 Strategy Instance 和 checkpoint
+绑定到该决定 generation scope 工件 fence epoch 完整请求 Authorization Lineage 与显式 Autonomous Policy Authorization。
+
+该 policy 才允许有界无人值守意图，裸 Governance 决定不能授权。 `INITIAL_ACTIVATION` `PROMOTION` `APPLIED`
+以及正常自动 Live 新增风险或场所效果都要求 `UNATTENDED_REQUEST_WITH_POLICY`。 `ATTENDED_REQUEST` 只能处于未运行和 decrease-only 状态；除非未来 另行定义独立
+attended-effect 契约，否则不能进入 Live。
 
 ## Value path / 价值路径
 
-Strategy Instance 消费实时 Market Data，并在策略条件成立时自动生成 Trade Intent。Risk 对每个意图
-返回明确拒绝终态，或决定与一次性预留。Runtime 把获准许可绑定进订单命令。Execution 验证同一绑定并
-提交一个稳定 Reservation Claim Request。只有 Risk `CONSUMED` 才允许 Execution 记录一个 `PREPARED` attempt
-再发送 `ADAPTER_ADMISSION_REQUEST`。Risk 在与 recovery fence activation 排序的同一 frontier mutation 中提交唯一
-不可变 admission result；只有 `ADMITTED_ONCE` 允许 `INVOCATION_STARTED` 并触达场所适配器。
-Execution 随后写入订单生命周期 回读外部效果并完成对账。Execution 向 Risk 回报结算事实，
-向 Portfolio 回报账户事实。Risk 独占 Reservation 状态迁移，Portfolio 独占账户投影更新。
-request principal scope 已准入 Shell binding 与 history head Operator Authorization operation manifest
-和 Autonomous Policy Authorization 必须在 Governance 决定 Runtime 意图 Risk 许可 Execution Effect
-Journal 与场所回读中保持完全一致。
+Strategy Instance 消费实时 Market Data，并在策略条件成立时自动生成 Trade Intent。 Risk 对每个意图 返回明确拒绝终态，或决定与一次性预留。 Runtime
+把获准许可绑定进订单命令。 Execution 验证同一绑定并 提交一个稳定 Reservation Claim Request。 只有 Risk `CONSUMED` 才允许 Execution
+记录一个 `PREPARED` attempt 再发送 `ADAPTER_ADMISSION_REQUEST`。
 
-正常 decrease-only Live 工作使用独立准确路径：Governance 决定 → Runtime 本地停止 → Risk
-`PERMIT_DECREASE_ONLY` → Reservation/claim 明确为空的命令 → Execution `PREPARED` →
-`ADAPTER_ADMISSION_REQUEST` → Risk `ADMITTED_ONCE` 或终态抑制/拒绝。只有 `ADMITTED_ONCE` 允许
-`INVOCATION_STARTED` 并触达场所适配器。该路径没有 Reservation Claim Result 或 `CONSUMED`，但
-preparation 和同 frontier fence arbitration 仍为必需门禁。
+Risk 在与 recovery fence activation 排序的同一 frontier mutation 中提交唯一 不可变 admission result；只有 `ADMITTED_ONCE`
+允许 `INVOCATION_STARTED` 并触达场所适配器。 Execution 随后写入订单生命周期 回读外部效果并完成对账。 Execution 向 Risk 回报结算事实， 向 Portfolio
+回报账户事实。 Risk 独占 Reservation 状态迁移，Portfolio 独占账户投影更新。
+
+request principal scope 已准入 Shell binding 与 history head Operator Authorization operation manifest 和
+Autonomous Policy Authorization 必须在 Governance 决定 Runtime 意图 Risk 许可 Execution Effect Journal 与场所回读中保持完全一致。
+
+正常 decrease-only Live 工作使用独立准确路径：Governance 决定 → Runtime 本地停止 → Risk `PERMIT_DECREASE_ONLY` → Reservation/claim
+明确为空的命令 → Execution `PREPARED` → `ADAPTER_ADMISSION_REQUEST` → Risk `ADMITTED_ONCE` 或终态抑制/拒绝。 只有
+`ADMITTED_ONCE` 允许 `INVOCATION_STARTED` 并触达场所适配器。
+
+该路径没有 Reservation Claim Result 或 `CONSUMED`，但 preparation 和同 frontier fence arbitration 仍为必需门禁。
 
 ## Owner handoffs / Owner 交接
 
-Governance 授权激活并控制 Risk 政策；Portfolio 向 Governance 提供必需容量与生命周期证据。Runtime 向 Governance 与 Product Edge 返回唯一能证明实际
-应用结果的 Generation Application Receipt。Market Data 向 Runtime 与 Portfolio 提供事实。Portfolio 向 Risk
-提供准确候选无关 gross Capacity View 与一致 Portfolio Risk Evidence Bundle。其不可变 Capacity Scope
-是账户加 `LIVE` 模式加经济资金池，不含策略或 generation。Risk 在同 scope 唯一 Aggregate Commitment
-Frontier 上持久序列化每个新增风险决定，usage 按经济 lineage 合并该 bundle 与 held Reservation liability。
-Runtime → Risk → Runtime 交换意图与许可。Runtime → Execution 发送授权命令。
-Execution → Risk 依次请求 Reservation claim 与 adapter admission 并回报 settlement lineage，Risk → Execution 返回唯一不可变 claim 与 admission result，Execution → Runtime 回报订单 成交 拒绝 回读和对账事实，
-Execution → Portfolio 回报账户 订单 成交 费用和场所事实。Risk 闭合 Reservation 状态，Portfolio
-更新投影并 → Governance 闭合反馈。
+Governance 授权激活并控制 Risk 政策；Portfolio 向 Governance 提供必需容量与生命周期证据。 Runtime 向 Governance 与 Product Edge 返回唯一能证明实际
+应用结果的 Generation Application Receipt。 Market Data 向 Runtime 与 Portfolio 提供事实。 Portfolio 向 Risk 提供准确候选无关 gross
+Capacity View 与一致 Portfolio Risk Evidence Bundle。
+
+其不可变 Capacity Scope 是账户加 `LIVE` 模式加经济资金池，不含策略或 generation。 Risk 在同 scope 唯一 Aggregate Commitment
+Frontier 上持久序列化每个新增风险决定，usage 按经济 lineage 合并该 bundle 与 held Reservation liability。 Runtime → Risk → Runtime
+交换意图与许可。 Runtime → Execution 发送授权命令。
+
+Execution → Risk 依次请求 Reservation claim 与 adapter admission 并回报 settlement lineage，Risk → Execution 返回唯一不可变
+claim 与 admission result，Execution → Runtime 回报订单 成交 拒绝 回读和对账事实， Execution → Portfolio 回报账户 订单 成交 费用和场所事实。
+Risk 闭合 Reservation 状态，Portfolio 更新投影并 → Governance 闭合反馈。
 
 ## Proof / 证明
 

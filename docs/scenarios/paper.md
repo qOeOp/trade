@@ -1,40 +1,47 @@
-# Paper trading scenario
+# Simulation verification scenario
 
-Paper trading exercises the same automated control contracts as live trading while replacing the external
-venue boundary with a simulated Execution adapter.
+Paper verifies native control and adapter contracts using simulated effects. It is supporting evidence, not a required user lifecycle phase, real-trial evidence or promotion authority. The product lifecycle uses real trial and formal pools. Mode-isolation and explicit authorization below still apply to any admitted Paper verification.
 
 ## Entry
 
 Strategy Governance has authorized an eligible Strategy Artifact for a paper generation and assigned its
-capital policy; it has not started Runtime. The decision binds a `PAPER` Execution Scope with isolated account
-and effect namespaces and one pre-admitted simulated Adapter Binding.
-`INITIAL_ACTIVATION` also binds a fresh Portfolio Lifecycle Evidence Receipt containing a Capacity View compatible
-with that scope and the Eligibility economic condition; no historical performance is invented for a new generation.
-Runtime has committed an `APPLIED` Generation Application Receipt that binds exactly one Strategy Instance and
-checkpoint to that same decision, generation, scope, artifact, and fence epoch. The same Strategy Instance
-semantics used by Live consume the Governance-owned `PAPER` scope; only Execution selects the pre-admitted
-simulated adapter and isolated account and effect namespaces.
-The application also binds the complete request Authorization Lineage and a `PAPER` Autonomous Policy
-Authorization. Simulation changes the adapter, not the requirement for explicit unattended-trading authority.
-`INITIAL_ACTIVATION`, `PROMOTION`, `APPLIED`, and normal automated Paper add-risk or simulated effects require
-`UNATTENDED_REQUEST_WITH_POLICY`. `PROMOTION` binds fresh compatible Capacity View, Performance, and Exposure
-evidence under its own transition-evidence key. An `ATTENDED_REQUEST` is non-running and decrease-only; it
-cannot enter Paper unless a future separately specified attended-effect contract exists.
+capital policy; it has not started Runtime. The decision binds a `PAPER` Execution Scope with
+isolated account and effect namespaces and one pre-admitted simulated Adapter Binding. `INITIAL_ACTIVATION`
+also binds a fresh Portfolio Lifecycle Evidence Receipt containing a Capacity View compatible with that scope
+and the Eligibility economic condition; no historical performance is invented for a new generation.
+
+Runtime has committed an `APPLIED` Generation Application Receipt that binds exactly one Strategy
+Instance and checkpoint to that same decision, generation, scope, artifact, and fence epoch. The same Strategy
+Instance semantics used by Live consume the Governance-owned `PAPER` scope; only Execution
+selects the pre-admitted simulated adapter and isolated account and effect namespaces. The application also
+binds the complete request Authorization Lineage and a `PAPER` Autonomous Policy Authorization.
+Simulation changes the adapter, not the requirement for explicit unattended-trading authority.
+
+`INITIAL_ACTIVATION`, `PROMOTION`, `APPLIED`, and normal automated Paper add-risk or
+simulated effects require `UNATTENDED_REQUEST_WITH_POLICY`. `PROMOTION` binds fresh compatible Capacity View,
+Performance, and Exposure evidence under its own transition-evidence key. An `ATTENDED_REQUEST` is
+non-running and decrease-only; it cannot enter Paper unless a future separately specified attended-effect
+contract exists.
 
 ## Value path
 
-Market Data streams facts to Strategy Instance and valuation facts to Portfolio. Strategy Instance is the
-only normal Trade Intent writer. Risk returns a terminal decision and one-use Reservation. Strategy Instance
-binds an allowed permit into an Authorized Order Command. Execution validates the binding and submits one stable
-Reservation Claim Request. Only Risk `CONSUMED` permits Execution to journal one `PREPARED` attempt and send
-`ADAPTER_ADMISSION_REQUEST`. Risk atomically commits its immutable admission result with the same frontier used by
-recovery fence activation; only `ADMITTED_ONCE` permits `INVOCATION_STARTED` and reaches the simulated adapter.
-Execution then journals effects, reconciles results, and reports settlement lineage to Risk and
-order, fill, rejection, readback, and reconciliation facts to Runtime. It reports account, order, fill, fee, and
-adapter facts to Portfolio. Risk alone transitions the Reservation; Portfolio alone updates its account projection.
-Any paper `UNKNOWN_EFFECT` joins one stable Recovery Case for the same `PAPER` generation and effect namespace.
-Risk activates the fence independently; Execution opens the case and binds that fence before its recovery commands run. The paper scope remains blocked
-until that same case reaches `KNOWN_CLOSED`; closure may support a new Paper decision but can never support Live.
+Market Data streams facts to Strategy Instance and valuation facts to Portfolio. Strategy Instance is the only
+normal Trade Intent writer. Risk returns a terminal decision and one-use Reservation. Strategy Instance binds
+an allowed permit into an Authorized Order Command. Execution validates the binding and submits one stable
+Reservation Claim Request. Only Risk `CONSUMED` permits Execution to journal one
+`PREPARED` attempt and send `ADAPTER_ADMISSION_REQUEST`. Risk atomically commits its immutable admission
+result with the same frontier used by recovery fence activation; only `ADMITTED_ONCE` permits
+`INVOCATION_STARTED` and reaches the simulated adapter.
+
+Execution then journals effects, reconciles results, and reports settlement lineage to Risk and order, fill,
+rejection, readback, and reconciliation facts to Runtime. It reports account, order, fill, fee, and adapter
+facts to Portfolio. Risk alone transitions the Reservation; Portfolio alone updates its account projection.
+Any paper `UNKNOWN_EFFECT` joins one stable Recovery Case for the same `PAPER` generation and
+effect namespace. Risk activates the fence independently; Execution opens the case and binds that fence before
+its recovery commands run.
+
+The paper scope remains blocked until that same case reaches `KNOWN_CLOSED`; closure may support a new
+Paper decision but can never support Live.
 
 Normal decrease-only Paper work uses a separate exact path: Governance decision → Runtime local suppression →
 Risk `PERMIT_DECREASE_ONLY` → a command with explicit-none Reservation/claim → Execution `PREPARED` →
@@ -45,34 +52,44 @@ Risk `PERMIT_DECREASE_ONLY` → a command with explicit-none Reservation/claim �
 ## Owner handoffs
 
 Governance → Runtime authorizes the paper generation; Runtime → Governance and Product Edge returns the
-Generation Application Receipt that alone proves whether it was applied. Governance → Risk supplies policy and capital ceilings.
-Market Data → Runtime supplies live facts; Market Data and Execution → Portfolio supply valuation, liquidity,
-and account facts. Portfolio → Governance binds capacity evidence for activation, and Portfolio → Risk supplies
-the exact candidate-neutral gross Capacity View and coherent Portfolio Risk Evidence Bundle for each add-risk decision. Its immutable Capacity Scope is account plus
-`PAPER` mode plus economic pool and contains no strategy or generation. Risk durably serializes the decision against
-the one same-scope Aggregate Commitment Frontier whose usage combines that bundle with held Reservation liabilities
-by economic lineage. Runtime → Risk sends intent, Risk → Runtime returns decision and reservation,
-and Runtime → Execution sends the bound command. Execution → Risk requests the Reservation claim, then adapter admission, and reports settlement;
-Risk → Execution returns the sole immutable claim and admission results. Execution → Runtime reports order, fill,
-rejection, readback, and reconciliation; Execution → Portfolio reports account, order, fill, fee, and adapter facts.
-Paper recovery uses the same branch contract as Live: Runtime `NOT_READY` independently causes a Risk fence and
-case. `RUNTIME_INCIDENT` binds only its exact `runtime-incident-fact`; `RECONCILIATION_DRIFT` binds only its exact
-`reconciliation-drift-fact`. Each first receives its own Execution-owned Recovery Admission Disposition,
-and either singleton proceeds without the other source. Only `RECOVERY_ADMITTED` with a matching active fence
-creates or joins a case; simultaneous admitted branches join that same case;
-`NO_RECOVERY_REQUIRED` or `UNRESOLVED_NO_CASE` creates no case or command. Neither the simulated adapter nor a
-local acknowledgement may fabricate or clear these facts.
+Generation Application Receipt that alone proves whether it was applied. Governance → Risk supplies policy and
+capital ceilings. Market Data → Runtime supplies live facts; Market Data and Execution → Portfolio supply
+valuation, liquidity, and account facts. Portfolio → Governance binds capacity evidence for activation, and
+Portfolio → Risk supplies the exact candidate-neutral gross Capacity View and coherent Portfolio Risk Evidence
+Bundle for each add-risk decision.
+
+Its immutable Capacity Scope is account plus `PAPER` mode plus economic pool and contains no
+strategy or generation. Risk durably serializes the decision against the one same-scope Aggregate Commitment
+Frontier whose usage combines that bundle with held Reservation liabilities by economic lineage. Runtime →
+Risk sends intent, Risk → Runtime returns decision and reservation, and Runtime → Execution sends the bound
+command. Execution → Risk requests the Reservation claim, then adapter admission, and reports settlement; Risk
+→ Execution returns the sole immutable claim and admission results.
+
+Execution → Runtime reports order, fill, rejection, readback, and reconciliation; Execution → Portfolio
+reports account, order, fill, fee, and adapter facts. Paper recovery uses the same branch contract as Live:
+Runtime `NOT_READY` independently causes a Risk fence and case. `RUNTIME_INCIDENT` binds only its
+exact `runtime-incident-fact`; `RECONCILIATION_DRIFT` binds only its exact `reconciliation-drift-fact`. Each first
+receives its own Execution-owned Recovery Admission Disposition, and either singleton proceeds without the
+other source.
+
+Only `RECOVERY_ADMITTED` with a matching active fence creates or joins a case; simultaneous admitted branches
+join that same case; `NO_RECOVERY_REQUIRED` or `UNRESOLVED_NO_CASE` creates no case or command. Neither the
+simulated adapter nor a local acknowledgement may fabricate or clear these facts.
 
 ## Proof
 
-Proof begins with an `APPLIED` Generation Application Receipt for one Strategy Instance, then includes the canonical `PAPER` mode and namespace identities, every intent and risk terminal, the add-risk-only Risk-owned Reservation Claim Result, every Adapter Admission Result, `PREPARED` and when admitted `INVOCATION_STARTED` records, permit-bound order commands,
-simulated order and fill facts, Effect Journal, settled reservations, completed reconciliation, and a Portfolio
-projection that explains resulting balances, positions, exposure, and performance.
-Every proof fact repeats the same `PAPER` scope; no paper namespace aliases or updates a live namespace.
-Each `RUNTIME_INCIDENT` or `RECONCILIATION_DRIFT` additionally requires its own same-scope Recovery Admission
-Disposition bound to its exact source fact, never the other branch's source. If it is
-`RECOVERY_ADMITTED`, proof also requires the same-scope Recovery Case and `RecoveryCase.KNOWN_CLOSED`; a
-no-case disposition cannot be replaced by a local acknowledgement.
+Proof begins with an `APPLIED` Generation Application Receipt for one Strategy Instance, then
+includes the canonical `PAPER` mode and namespace identities, every intent and risk terminal, the
+add-risk-only Risk-owned Reservation Claim Result, every Adapter Admission Result, `PREPARED` and
+when admitted `INVOCATION_STARTED` records, permit-bound order commands, simulated order and fill facts,
+Effect Journal, settled reservations, completed reconciliation, and a Portfolio projection that explains
+resulting balances, positions, exposure, and performance.
+
+Every proof fact repeats the same `PAPER` scope; no paper namespace aliases or updates a live
+namespace. Each `RUNTIME_INCIDENT` or `RECONCILIATION_DRIFT` additionally requires its own same-scope Recovery
+Admission Disposition bound to its exact source fact, never the other branch's source. If it is
+`RECOVERY_ADMITTED`, proof also requires the same-scope Recovery Case and `RecoveryCase.KNOWN_CLOSED`; a no-case
+disposition cannot be replaced by a local acknowledgement.
 
 ## Development outcome
 

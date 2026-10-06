@@ -4,6 +4,22 @@
 
 根据已提交执行事实和市场估值输入投影当前账户 持仓 暴露 表现和容量事实。Portfolio 是产品决策读取的账户真相，不分配资金 不许可交易也不拥有场所效果。
 
+## TARGET - 动态分配的账户事实
+
+目标交易账户专用于产品管理的订单和持仓；充值、提现是账户资金事件，不是策略交易。意外订单/持仓
+或缺失归属属于对账证据，Portfolio 计入其真实账户敞口，不编造策略归属。对账与执行归属沿用原生
+账户/Execution 路径，不建立第二账本或手工交易管理能力。
+
+估值与保证金读取首先复用 `crates/portfolio/src/portfolio.rs`、原生账户模型和 cache。
+当前 target-set Host 仅在单 Margin account/单币种条件下按截面价格手工汇总权益，这不证明通用多币种估值已接通。
+扩展须改用原生账户/Portfolio 路径并绑定缺价格、FX 和保证金模型的拒绝，不推广该局部公式为另一个总账。
+
+复用原生账户、cache、事件及估值提供统一新鲜视图。净权益作为 Governance 的分配基数，
+账户可用保证金及实际占用作为 Risk 的执行约束；两个量不得混用。账户更新由执行适配器及对账链路接纳，
+消费者在资金决策时读取并检查准确版本、时间与 scope，过期或冲突时按现有规则限制新增风险。
+不要求每个策略或模块各自调用交易所查余额；需要刷新时走统一适配器路径。Portfolio 不计算策略剩余额度，
+不重复扣除已经反映在账户中的订单或 Risk 预留，不建立第二账户账本。
+
 ## 拥有的权威事实
 
 - 版本化的计量方法学：Portfolio 把已提交 Execution 事实与 Market Data 估值事实变成它所拥有的每项投影时所用的定义。
@@ -204,4 +220,9 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 
 ## 可观测性与持久化
 
-Portfolio 在准确 account/scope/mode/time cut 下持久化绑定 valuation 的 account state、Performance、Exposure、Capacity、Interaction、attribution 与 lifecycle-evidence receipt。Telemetry 记录 projection 时延、来源新鲜度、valuation gap、归因完整性与有界 degradation category。Dashboard 的 PnL、drawdown、exposure、capacity、interaction 与策略时长视图必须引用底层 receipt 与 freshness；观测 telemetry 或图表趋势不能创建 attribution、资金决定、生命周期变化或 Risk capacity proof。
+Portfolio 在准确 account/scope/mode/time cut 下持久化绑定 valuation 的 account
+state、Performance、Exposure、Capacity、Interaction、attribution 与 lifecycle-evidence receipt。 Telemetry 记录
+projection 时延、来源新鲜度、valuation gap、归因完整性与有界 degradation category。
+
+Dashboard 的 PnL、drawdown、exposure、capacity、interaction 与策略时长视图必须引用底层 receipt 与 freshness；观测 telemetry
+或图表趋势不能创建 attribution、资金决定、生命周期变化或 Risk capacity proof。

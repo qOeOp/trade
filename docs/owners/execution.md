@@ -50,6 +50,18 @@ reachable APIs and existing custody admit no Paper/Live or production effect.
 
 ## Modules
 
+Reuse engine, order_manager, order_emulator, protection, trailing and reconciliation in `crates/execution`,
+plus native Strategy/algorithm commands in `crates/trading`. Adopt modify/cancel/GTD, contingents and
+reconciliation before adding authorization/effect custody, without another order state machine.
+Primary/spawned orders retain native attribution, Risk routing and deduplicated liability; slices cannot
+reserve the original amount again. Entry-specific management binds `StrategyId`, client order ID,
+internal position ID and venue position ID.
+
+Native HEDGING differs from Binance Hedge Mode: venue IDs aggregate by instrument plus LONG/SHORT/BOTH, and
+positionSide/reduce-only depend on venue mode. R-1 acceptance proves exit attribution, partial fills and
+reconciliation of aggregate changes/external activity; switching an OMS enum is insufficient. GTD uses venue
+support or native `manage_gtd_expiry`; GTD→GTC configurations do not guarantee venue expiry.
+
 - **Order Engine** - validate permits or recovery fences and exclusively manage order creation, change, cancellation, and terminal state.
 - **Execution Adapters** - admit exactly the adapter binding fixed by Execution Scope, then translate requests,
   replies, fills, errors, and readbacks without changing endpoint, account, capability, or trust policy on restart.
@@ -67,8 +79,7 @@ reachable APIs and existing custody admit no Paper/Live or production effect.
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted on
-2026-09-18 as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
+permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the only admitted slices, each admitted as bounded, separately reviewable work whose acceptance is an isolated PostgreSQL proof, its ordered-chain
 entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
 grants nothing, and widening the admitted set requires changing this document first.
 
@@ -207,16 +218,18 @@ grants nothing, and widening the admitted set requires changing this document fi
 
 ## Failure and recovery
 
-Before normal invocation, Execution sends one stable Reservation Claim Request. Only a matching `CONSUMED`
-result admits preparation: Execution may durably record one `PREPARED` attempt and send one
-`ADAPTER_ADMISSION_REQUEST` bound to that attempt, command, Risk Decision, Reservation, and immutable adapter
-binding, but may not call externally. Risk durably and atomically serializes admission against same-scope Recovery
-fence activation, then commits one immutable `ADMITTED_ONCE`, `SUPPRESSED_BY_FENCE`, or `REJECTED` result. Execution
-persists `INVOCATION_STARTED` before the external call and only for matching `ADMITTED_ONCE`. A lost response,
-crash, restart, or replay joins the same identities; it never changes adapter binding or invokes another attempt.
-`SUPPRESSED_BY_FENCE` and `REJECTED` remain durable no-invocation outcomes. Once invocation starts, only
-authoritative readback proves `VENUE_READBACK` no-effect or settlement. Timeout or ambiguous response remains
-`UNKNOWN_EFFECT`, never a safe retry.
+Before normal invocation, Execution sends one stable Reservation Claim Request. Only a matching
+`CONSUMED` result admits preparation: Execution may durably record one `PREPARED` attempt
+and send one `ADAPTER_ADMISSION_REQUEST` bound to that attempt, command, Risk Decision, Reservation, and immutable
+adapter binding, but may not call externally. Risk durably and atomically serializes admission against
+same-scope Recovery fence activation, then commits one immutable `ADMITTED_ONCE`, `SUPPRESSED_BY_FENCE`,
+or `REJECTED` result. Execution persists `INVOCATION_STARTED` before the external call and only for
+matching `ADMITTED_ONCE`.
+
+A lost response, crash, restart, or replay joins the same identities; it never changes adapter binding or
+invokes another attempt. `SUPPRESSED_BY_FENCE` and `REJECTED` remain durable no-invocation outcomes.
+Once invocation starts, only authoritative readback proves `VENUE_READBACK` no-effect or settlement.
+Timeout or ambiguous response remains `UNKNOWN_EFFECT`, never a safe retry.
 
 For normal decrease-only work, the command carries `PERMIT_DECREASE_ONLY` and explicit-none Reservation and claim
 lineage. Execution persists the same stable `PREPARED` boundary and requests adapter admission without a claim;
@@ -241,18 +254,22 @@ are authoritative.
 
 For recovery reduce or flatten, Reconciler plans from an authoritative venue-position cut and Order Engine
 revalidates the same side and quantity immediately before adapter invocation with enforceable reduce-only
-semantics. A newer cut, partial or concurrent fill, zero exposure, sign change, unsupported reduce-only adapter,
-or possible zero crossing commits a durable no-effect rejection. Reconciler may build a successor only from the
-newer readback; it never retries the stale command. Recovery does not reuse normal claim arbitration. Reconciler
-selects actions by one versioned deterministic policy over the complete affected-effect set: readback before any
-mutation, then cancel open orders before reduce, reduce before flatten, and no action when the current cut proves
-zero exposure. Stable instrument and order identity break ties; missing membership or an unresolved tie produces
-no mutation. For each selected action, Reconciler commits a Recovery Effect Attempt `PREPARED` before any adapter
-invocation and `INVOCATION_STARTED` immediately before the call. A crash between either cut is resolved by
-authoritative readback under the same attempt identity, never a new blind retry. Reconciler
-alone writes `KNOWN_CLOSED` after the complete cause and affected-effect set joins the active Risk fence, Runtime
-checkpoint and current readiness, authoritative Execution readback, complete Risk closure, Portfolio closure, and common time
-frontier. Closure never lifts the fence or resumes trading.
+semantics. A newer cut, partial or concurrent fill, zero exposure, sign change, unsupported reduce-only
+adapter, or possible zero crossing commits a durable no-effect rejection. Reconciler may build a successor
+only from the newer readback; it never retries the stale command. Recovery does not reuse normal claim
+arbitration.
+
+Reconciler selects actions by one versioned deterministic policy over the complete affected-effect set:
+readback before any mutation, then cancel open orders before reduce, reduce before flatten, and no action when
+the current cut proves zero exposure. Stable instrument and order identity break ties; missing membership or
+an unresolved tie produces no mutation. For each selected action, Reconciler commits a Recovery Effect Attempt
+`PREPARED` before any adapter invocation and `INVOCATION_STARTED` immediately before the call. A
+crash between either cut is resolved by authoritative readback under the same attempt identity, never a new
+blind retry.
+
+Reconciler alone writes `KNOWN_CLOSED` after the complete cause and affected-effect set joins the active
+Risk fence, Runtime checkpoint and current readiness, authoritative Execution readback, complete Risk closure,
+Portfolio closure, and common time frontier. Closure never lifts the fence or resumes trading.
 
 ## Decision contract
 

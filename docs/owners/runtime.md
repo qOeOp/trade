@@ -27,8 +27,8 @@ reachable APIs and existing custody admit no Paper/Live or production effect.
   in the case cause set.
 - Runtime Readiness Fact bound to instance, generation, checkpoint, affected scope, cause frontier, `READY` or
   `NOT_READY`, local suppression receipt, and `valid-through`.
-- **TARGET:** generation-scoped shared-kernel semantic trace and versioned strategy checkpoint binding the exact
-  Plan, Artifact, ordered lifecycle frontier, strategy/plugin state, targets, protection and fill reconciliation.
+- **TARGET:** generation-scoped native event/command records and versioned strategy checkpoint binding the exact
+  package, environment, ordered event frontier, strategy state, protection and fill reconciliation.
 - Runtime Kernel Repair Result bound to one R&D-owned `native-repair-request`, stable correlation, predecessor
   `REPAIR_INPUTS` decision, original proof digest, old kernel version, decisive evidence, repair policy, and fresh
   Time Evidence. Runtime alone commits `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that attempt.
@@ -49,8 +49,7 @@ above.
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted on
-2026-09-19 as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
+permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
 and a production path that depends on no testkit or acceptance feature; every other row grants nothing, and
 widening the admitted set requires changing this document first.
 
@@ -85,7 +84,7 @@ widening the admitted set requires changing this document first.
   port, canonical Runtime custody, an Artifact compatibility recovery read port, and the Execution recovery-frontier
   read port), and one query-only observation of Execution's sealed `PAPER` recovery frontier that cannot change the
   status. `crates/runtime/tests/readiness_consumer.rs` proves it; no crate outside `crates/runtime` consumes it.
-- **TARGET - Strategy Instance:** no Runtime custody creates, restores, or applies an instance. The shared kernel
+- **TARGET - Strategy Instance:** no Runtime custody creates, restores, or applies an instance. The current compatibility
   `ProgramHost` in `crates/strategy_factory` runs only under Backtest replay; the inherited strategy and actor engine
   in `crates/trading` and the kernel and live-node composition in `crates/system` and `crates/live` are the
   migration sources named by capability adoption and hold no Runtime Owner fact.
@@ -99,26 +98,22 @@ widening the admitted set requires changing this document first.
 - Paper and Live equivalence stays **TARGET / NOT_ADMITTED** as stated under the shared strategy lifecycle
   contract below; no Paper or Live Execution adapter is bound to Runtime.
 
-## Shared strategy lifecycle contract
+## Native strategy lifecycle contract
 
-Runtime may apply only the exact [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)
-carried by the governed generation: `StrategyPlanV2`, content-addressed Artifact (a Wasm Artifact until the
-user-authorized
-[host interpretation](../architecture/strategy-factory#target-host-interpretation-of-the-bounded-feature-program)
-lands, then the Plan with each plugin's canonical Bounded Feature Program bytes and the interpreter identity),
-Owner bindings,
-`ProgramHost`, lifecycle/checkpoint/kernel/plugin versions, and Market Semantics Compatibility identity. The shared
-kernel alone consumes totally ordered `START`, `BAR`, `EVENT`, `FILL`, `TIMER`, `STOP` envelopes and owns
-`ENTER`, `ADD`, `REDUCE`, `EXIT`, `HOLD`, target position/weight/rebalance, protection adjustment and fill
-reconciliation. A plugin can return only its bounded typed value or state proposal; it has no raw-order, Risk,
-Execution, Portfolio, account or external-effect authority.
+Runtime loads only the exact [native strategy package](../architecture/strategy-factory/#strategy-package-and-content-identity), environment, parameters and inputs authorized by current Governance.
+Native Trader/Strategy lifecycle consumes market, order, fill and timer events. Strategies express rules through native order APIs; Risk and Execution retain authorization and order facts.
+There is no product BFP/plugin kernel or parallel action state machine.
 
-Paper and Live equivalence is **TARGET / NOT_ADMITTED** until their adapters exist and are separately admitted.
-When admitted, both modes must consume the same Plan, Artifact, ordering, checkpoint and kernel and produce the
-same semantic trace for the same normalized event prefix up to the Risk/Execution adapter boundary. Only the
-adapter, account namespace and effect namespace may differ. Risk remains final intent admission, Execution owns
-orders/fills/effects, and Portfolio owns position and account truth; Runtime never promotes a kernel target or
-plugin output directly into an order or account state.
+Checkpoints bind package, generation, complete event frontier and actual strategy state.
+Native strategy persistence is not complete node recovery: clock, cache, orders/positions/accounts, execution algorithms, timers and models need authoritative recovery/reconciliation.
+Without complete recovery evidence remain NOT_READY; one strategy snapshot cannot prove trading may resume.
+
+Backtest and admitted runtime share source/configuration and native versions, comparing signals, commands and actual events under matching input prefixes.
+Venue, latency and ordering differences require evidence; live results are not guaranteed to match replay.
+Paper/Live adapter admission remains separate; loading source widens no trading authority.
+
+Risk owns final risk admission, Execution orders/fills/effects, Portfolio account/position facts.
+Runtime does not promote strategy memory, targets or Agent explanations into account truth.
 
 ## Input handoffs
 
@@ -182,15 +177,18 @@ plugin output directly into an order or account state.
 ## Failure and recovery
 
 On readiness loss, Runtime first stops local intent and command production, then commits one immutable
-`NOT_READY` fact for the exact generation, checkpoint, Execution Scope, Capacity Scope, cause frontier, and time
-validity. Risk independently turns that fact or its expiry into a shared active fence. A Runtime incident instead
-commits its immutable `runtime-incident-fact` and may leave Runtime `READY`; `runtime-risk-incident-fence` submits
-that exact fact to Risk, which alone may commit the matching `RUNTIME_INCIDENT` Recovery Fence. Execution resolves only the distinct
-`RUNTIME_INCIDENT` Recovery Admission Disposition and creates or joins a case only from `RECOVERY_ADMITTED` with
-a matching active fence. It never requires or substitutes an Execution drift source. For an
-admitted case, Execution Reconciler owns it, creates bounded recovery actions, joins terminal venue, Risk, and
-Portfolio facts, and alone writes `KNOWN_CLOSED`. Runtime may restart from its checkpoint, but it cannot lift a
-fence, close a case, or resume the old generation; Governance must issue a fresh decision.
+`NOT_READY` fact for the exact generation, checkpoint, Execution Scope, Capacity Scope, cause
+frontier, and time validity. Risk independently turns that fact or its expiry into a shared active fence. A
+Runtime incident instead commits its immutable `runtime-incident-fact` and may leave Runtime
+`READY`; `runtime-risk-incident-fence` submits that exact fact to Risk, which alone may commit the
+matching `RUNTIME_INCIDENT` Recovery Fence.
+
+Execution resolves only the distinct `RUNTIME_INCIDENT` Recovery Admission Disposition and creates or joins
+a case only from `RECOVERY_ADMITTED` with a matching active fence. It never requires or substitutes an
+Execution drift source. For an admitted case, Execution Reconciler owns it, creates bounded recovery actions,
+joins terminal venue, Risk, and Portfolio facts, and alone writes `KNOWN_CLOSED`. Runtime may restart
+from its checkpoint, but it cannot lift a fence, close a case, or resume the old generation; Governance must
+issue a fresh decision.
 
 ## Decision contract
 

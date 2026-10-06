@@ -2,7 +2,7 @@
 
 External evidence challenges this process. It does not prove that VibeTrading is profitable, production-ready, or
 equivalent to another platform. Owner names, the native node permission gates, the single Recovery Case closure
-writer, and the 13-group plus one channel / 5-module overview limit remain project design choices.
+writer, and the six responsibility groups and their internal component boundaries remain project design choices.
 
 ## Engine boundaries and one trading path
 
@@ -22,13 +22,13 @@ adjusts reported performance for selection bias and non-normal returns. Together
 family, freezing eligibility rules before protected evaluation, and preventing protected results from feeding the
 same research loop. One holdout or one metric is not sufficient evidence of economic validity.
 
-## Backtest paper and live progression
+## Shared simulation and live semantics
 
 [Freqtrade strategy testing](https://www.freqtrade.io/en/stable/strategy-101/) distinguishes historical backtests
 from real-time dry runs and documents why their results differ. [NautilusTrader environments](https://nautilustrader.io/docs/latest/concepts/architecture/)
 use historical simulated, real-time simulated, and live contexts around shared trading components. These practices
 support keeping Runtime, Risk, and Execution semantics stable while adapters and evidence strength change across
-backtest, paper, and live scenarios.
+backtest, paper, and live contexts. These are native environments, not a required product promotion ladder; product trial and formal stages both use real trading.
 
 ## Recovery and external truth
 

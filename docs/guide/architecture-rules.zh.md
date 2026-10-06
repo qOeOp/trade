@@ -4,8 +4,8 @@
 
 ## 有界全景
 
-- 全局 Flow 固定包含 13 个顶层分组，另有一个不拥有业务事实的 Event Rail 通道节点。
-- 每个分组最多包含五个模块。
+- 产品全景包含六组职责：Market Data、Backtest、R&D、Qualification、Governance 和 Native Trading Node。原生节点包含 Runtime、Risk、Execution 和 Portfolio，共九个业务 Owner。
+- 每组可展开内部组件；视觉分组不要求独立进程，也不创建重复的原生引擎。
 - Strategy Factory 是价值流边界。R&D 是同时包含 Research 与 Develop 能力的一个业务 Owner；Backtest 保持独立的证据生产服务 Owner。
 - Product Edge、Observability 和 Event Rail 是边界或渠道，不是业务事实 Owner。
 - 不改变权威或 Owner 交接的新细节应写进正文，不进入全景图。
@@ -24,12 +24,11 @@ accepted rejected unknown replay 含义都从 `architecture-contract.json` 发�
 
 ## Product Edge 请求权威
 
-目标部署在稳定状态下只能有一个 `ACTIVE` Agent Shell binding，并选择规范
-`TRADE_PRODUCT_EDGE` 准入网关，并接受此前封存的 `WINDMILL_PRODUCT_EDGE` 拼写。
-App 与 MCP 是该网关后的 channel，不是独立
-writer。只切换客户端或 transport 时，必须保持相同的有效 principal、scope policy、已批准 Skill/MCP 能力政策与审计政策。
-切换期间允许短暂零个 `ACTIVE`，但必须失败关闭。准确前驱先提交 `SUPERSEDED`，政策等价后继才能
-提交 `ACTIVE`；多个 过期或政策不匹配的 binding 都不能接纳 Owner 写请求。在途请求始终保留原
+目标部署在稳定状态下只能有一个 `ACTIVE` Agent Shell binding，并选择规范 `TRADE_PRODUCT_EDGE` 准入网关，并接受此前封存的
+`WINDMILL_PRODUCT_EDGE` 拼写。 App 与 MCP 是该网关后的 channel，不是独立 writer。 只切换客户端或 transport 时，必须保持相同的有效 principal、scope
+policy、已批准 Skill/MCP 能力政策与审计政策。 切换期间允许短暂零个 `ACTIVE`，但必须失败关闭。
+
+准确前驱先提交 `SUPERSEDED`，政策等价后继才能 提交 `ACTIVE`；多个 过期或政策不匹配的 binding 都不能接纳 Owner 写请求。 在途请求始终保留原
 request 与 binding 身份。
 
 每次提交绑定提交前后的权威 deployment history head。genesis 仅允许在空历史且 generation 为一时
@@ -42,13 +41,12 @@ head。`SUPERSEDED` 单调且不可逆。Shell 或传输成功只表示 `SUBMITT
 回执才是权威结果。相同身份和含义加入同一回执，含义改变必须拒绝；已经合法准入的在途请求即使
 新 head 生效也继续按原 binding 解析。
 
-Product Edge 是内容寻址 Agent Operation Manifest、Agent Shell Deployment Binding 及其 history head、
-不可变 request admission 与对应 outbox 的唯一 writer。独立命名的 **Operator Authorization Issuer**
-是授权签发与 revocation frontier 的唯一 writer。Product Edge 只能直接解析 Issuer 的规范事实；Dashboard、
-API、R&D、token、配置或 Product Edge admission 代码都不能签发或自我声明这些事实。两个 writer 在同一
-authority database 使用不同 PostgreSQL role。Admission 提交时对准确 issuance 与 revocation frontier 持有
-共享锁，revocation 使用冲突的更新锁。决定授权是否当前的是这一共同截面，而不是复制 DTO、cache 或由
-同一 caller 校验的签名。
+Product Edge 是内容寻址 Agent Operation Manifest、Agent Shell Deployment Binding 及其 history head、 不可变 request
+admission 与对应 outbox 的唯一 writer。 独立命名的 **Operator Authorization Issuer** 是授权签发与 revocation frontier 的唯一
+writer。 Product Edge 只能直接解析 Issuer 的规范事实；Dashboard、 API、R&D、token、配置或 Product Edge admission 代码都不能签发或自我声明这些事实。
+
+两个 writer 在同一 authority database 使用不同 PostgreSQL role。 Admission 提交时对准确 issuance 与 revocation frontier 持有
+共享锁，revocation 使用冲突的更新锁。 决定授权是否当前的是这一共同截面，而不是复制 DTO、cache 或由 同一 caller 校验的签名。
 
 Deployment genesis 是显式且只执行一次的管理员操作，绝不是服务启动或请求路径默认动作。它要求完整
 验证 binding 与 head 历史为空、expected head 为 `EMPTY`、generation 为一、有限有效期、内容寻址
@@ -56,65 +54,69 @@ manifest、一份不可变 receipt 及其 outbox。准确重放加入相同字�
 第二个 `ACTIVE` binding。切换必须先提交准确前驱的 `SUPERSEDED` fence，随后才可提交政策等价后继
 `ACTIVE`；零活动区间失败关闭，任何请求都不能重新创建 genesis。
 
-到期前驱不能使用普通 authorization 或 deployment successor 路径。唯一前向恢复是显式
-`ExpiredManifestRecoveryEpochV1`，它绑定准确 authorization 与 deployment head、当前 revocation frontier，
-以及完整排序的 `RETAINED`/`ADDED`/`REMOVED` manifest transition 集。保留能力只能收窄；新增能力必须处于
-不变的 principal、audience、scope、proof、scope-policy 与 audit-policy 边界内，并保留 live-trading、
-real-trading 与 protected-feedback 禁止下限；删除项不授予任何权威。Issuer 可以先追加 OA2，但只有 OA2
-不构成 Product Edge 权威。Product Edge 只提交一个不可逆 B1 fence，再以 head compare-and-swap 提交 B2；
-准确重试加入同一 epoch，部分恢复保持失败关闭，任何旧 issuance、binding、manifest、admission、receipt、
-outbox 或 Owner 事实都不得重写。
-recovery 配置还内容绑定准确 authority database 名称、PostgreSQL system identifier，以及不同的 Operator
-Authorization 与 Product Edge role。在任一 Owner 写入前，命令只读连接两个给定 endpoint，并要求其
-database、role 和 system-identifier 回读匹配配置及同一 database cluster。环境 endpoint、交叉拼接、空
-identity 或相同 role 一律失败关闭；URL 与 secret 不得记录。
+到期前驱不能使用普通 authorization 或 deployment successor 路径。 唯一前向恢复是显式 `ExpiredManifestRecoveryEpochV1`，它绑定准确 authorization 与
+deployment head、当前 revocation frontier， 以及完整排序的 `RETAINED`/`ADDED`/`REMOVED`
+manifest transition 集。
 
-不可变 Product Edge Request Admission 绑定稳定 request identity 与 typed-payload digest、准确 deployment
-binding 与 head、有效 principal 与 scope、authorization identity、issuer 与 key version、有效期与 revocation
-frontier、manifest identity 与 digest、operation、schema、target 与 effects、time evidence、request-proof
-digest 和 audit correlation。R&D 只接收其 locator，并在 S1 或 S2 mutation 前直接解析完整规范 admission。
-若尚无 downstream custody 提交，后续到期或撤销禁止第一次提交。已提交 downstream receipt 仍按原
-admission cut 解析，但 recovery 若要开始新的 provider 或外部 effect invocation，必须在当前授权截面取得
-新的单次 invocation admission。取代、到期和撤销绝不重写 admission 或 downstream Owner receipt。
+保留能力只能收窄；新增能力必须处于 不变的 principal、audience、scope、proof、scope-policy 与 audit-policy 边界内，并保留 live-trading、
+real-trading 与 protected-feedback 禁止下限；删除项不授予任何权威。 Issuer 可以先追加 OA2，但只有 OA2 不构成 Product Edge 权威。
+
+Product Edge 只提交一个不可逆 B1 fence，再以 head compare-and-swap 提交 B2； 准确重试加入同一 epoch，部分恢复保持失败关闭，任何旧
+issuance、binding、manifest、admission、receipt、 outbox 或 Owner 事实都不得重写。 recovery 配置还内容绑定准确 authority database
+名称、PostgreSQL system identifier，以及不同的 Operator Authorization 与 Product Edge role。
+
+在任一 Owner 写入前，命令只读连接两个给定 endpoint，并要求其 database、role 和 system-identifier 回读匹配配置及同一 database cluster。 环境
+endpoint、交叉拼接、空 identity 或相同 role 一律失败关闭；URL 与 secret 不得记录。
+
+不可变 Product Edge Request Admission 绑定稳定 request identity 与 typed-payload digest、准确 deployment binding 与
+head、有效 principal 与 scope、authorization identity、issuer 与 key version、有效期与 revocation frontier、manifest
+identity 与 digest、operation、schema、target 与 effects、time evidence、request-proof digest 和 audit correlation。
+
+R&D 只接收其 locator，并在 S1 或 S2 mutation 前直接解析完整规范 admission。 若尚无 downstream custody 提交，后续到期或撤销禁止第一次提交。 已提交
+downstream receipt 仍按原 admission cut 解析，但 recovery 若要开始新的 provider 或外部 effect invocation，必须在当前授权截面取得 新的单次
+invocation admission。 取代、到期和撤销绝不重写 admission 或 downstream Owner receipt。
 
 历史上只依赖环境构造 authority 接受的行绝不回填或追认。终态 legacy 行只读并 quarantine；identity
 碰撞失败关闭，任何 legacy 非终态 S2 custody 未排空时 activation 必须停止。authority 缺失、双重、过期、
 失效、被撤销、issuer 错误、audience 错误、跨 principal、跨 scope、proof 不匹配、manifest 不匹配、digest
 不匹配或混合截面时，不得创建 Product Edge admission、downstream Owner 写入或 provider 调用。
 
-`LegacyPreparedAttemptDrainV1` 是唯一的有界例外，且仅适用于准确的历史 schema-v1 `PREPARED` APP 或
-MCP 请求。原始 attempt 字节保持不可变。显式有界 admin 只有在绑定准确 attempt 与列 digest、build 与
-attempt identity、canonical Product Edge admission、目标数据库，以及 canonical effect admission、claim、
-state、artifact、provider-start custody 和非 drain attempt/build outbox 全部为零的事实后，才可在同一事务
-追加仅 Owner 可用的 canonical receipt 及其 Owner outbox event。startup、请求处理与 `Resolve` 都不能创建
-该 receipt。准确的全目标操作幂等；部分完成集合、目标变化或多出、digest 不匹配、已有 effect 或故障均
-不得写入任何内容。已验证 receipt 只投影 legacy-quarantined `OUTCOME_UNKNOWN` 与
-`PROVIDER_NEVER_STARTED`，并且只允许同 identity 读取与 `Resolve`；它绝不创建当前 custody、freshness、
-authorization、artifact、family、successor、provider retry 或 effect authority。只有 canonical receipt 与
-outbox 均验证通过后，startup 才可忽略该准确行；任何未 drain、malformed、不匹配或未知行仍阻断
-activation。隔离的本地 recovery 证据不是 production authority，也不建立默认数据库、Dashboard 或产品
-成熟度 acceptance。
+`LegacyPreparedAttemptDrainV1` 是唯一的有界例外，且仅适用于准确的历史 schema-v1 `PREPARED` APP 或 MCP 请求。 原始 attempt 字节保持不可变。
 
-请求 Authorization Lineage 是不可拆分元组，包含稳定 request identity 有效 principal 与 scope 已准入
-`ACTIVE` Shell binding 与准确 deployment history head Operator Authorization 和 Agent Operation
-Manifest。Governance 接受的每个生命周期决定必须声明 `ATTENDED_REQUEST` 或
-`UNATTENDED_REQUEST_WITH_POLICY`，两种模式都交叉绑定并保留完整请求 lineage。
-`UNATTENDED_REQUEST_WITH_POLICY` 还要求该生命周期请求准入独立 Autonomous Policy Authorization，
-并限定 policy 版本 generation Execution Scope 允许的 intent/action 类别 资金边界 有效期 revocation
-frontier 和 operation manifest。该政策授权只能补充 不能替代请求 lineage。裸决定不是自动交易权限。
+显式有界 admin 只有在绑定准确 attempt 与列 digest、build 与 attempt identity、canonical Product Edge admission、目标数据库，以及
+canonical effect admission、claim、 state、artifact、provider-start custody 和非 drain attempt/build outbox
+全部为零的事实后，才可在同一事务 追加仅 Owner 可用的 canonical receipt 及其 Owner outbox event。
+
+startup、请求处理与 `Resolve` 都不能创建 该 receipt。 准确的全目标操作幂等；部分完成集合、目标变化或多出、digest 不匹配、已有 effect 或故障均
+不得写入任何内容。
+
+已验证 receipt 只投影 legacy-quarantined `OUTCOME_UNKNOWN` 与 `PROVIDER_NEVER_STARTED`，并且只允许同 identity 读取与
+`Resolve`；它绝不创建当前 custody、freshness、 authorization、artifact、family、successor、provider retry 或
+effect authority。 只有 canonical receipt 与 outbox 均验证通过后，startup 才可忽略该准确行；任何未 drain、malformed、不匹配或未知行仍阻断
+activation。
+
+隔离的本地 recovery 证据不是 production authority，也不建立默认数据库、Dashboard 或产品 成熟度 acceptance。
+
+请求 Authorization Lineage 是不可拆分元组，包含稳定 request identity 有效 principal 与 scope 已准入 `ACTIVE` Shell
+binding 与准确 deployment history head Operator Authorization 和 Agent Operation Manifest。 Governance
+接受的每个生命周期决定必须声明 `ATTENDED_REQUEST` 或 `UNATTENDED_REQUEST_WITH_POLICY`，两种模式都交叉绑定并保留完整请求 lineage。
+
+`UNATTENDED_REQUEST_WITH_POLICY` 还要求该生命周期请求准入独立 Autonomous Policy Authorization， 并限定 policy 版本 generation Execution Scope
+允许的 intent/action 类别 资金边界 有效期 revocation frontier 和 operation manifest。 该政策授权只能补充 不能替代请求 lineage。 裸决定不是自动交易权限。
 application intent Risk permit command Effect Journal 和回读必须端到端保留模式及该模式要求的全部身份。
 
-`ATTENDED_REQUEST` 只提供非运行权威。它可以读取状态或请求只减不增的 `REDUCTION` `PAUSE`
-`RETIREMENT` `DE_RISK` 或 `RECOVERY`，但不能创建 `ACTIVE_GENERATION` `APPLIED` 正常 Paper 或 Live
-新增风险或 adapter 效果。`INITIAL_ACTIVATION` `PROMOTION` 及自动 Paper 或 Live generation 都要求
-`UNATTENDED_REQUEST_WITH_POLICY`。`PROMOTION` 覆盖有界提高资金或活动后继转换；恢复和增资不是
-生命周期动作别名。未来若支持
-attended 外部效果，必须另建显式 attended-effect 契约；principal 在场不代表该契约存在。
+`ATTENDED_REQUEST` 只提供非运行权威。 它可以读取状态或请求只减不增的 `REDUCTION` `PAUSE` `RETIREMENT`
+`DE_RISK` 或 `RECOVERY`，但不能创建 `ACTIVE_GENERATION` `APPLIED` 正常 Paper 或 Live
+新增风险或 adapter 效果。
 
-Research 与 Strategy Governance 各自拥有绑定请求且只写一次的终态回执。Qualification 复用现有
-只写一次 Candidate Intake Receipt 作为 Qualification Review Request 的终态回执，通过独立已提交事实交接返回它，
-并与有界状态只读模型分离。该回执绑定稳定请求身份与
-规范类型化含义。`ACCEPTED` 绑定准确结果 Research Intent 或 Authorized Generation Decision 身份，`REJECTED_NO_WRITE` 证明没有 Owner 转换。
+`INITIAL_ACTIVATION` `PROMOTION` 及自动 Paper 或 Live generation 都要求 `UNATTENDED_REQUEST_WITH_POLICY`。
+`PROMOTION` 覆盖有界提高资金或活动后继转换；恢复和增资不是 生命周期动作别名。 未来若支持 attended 外部效果，必须另建显式 attended-effect 契约；principal
+在场不代表该契约存在。
+
+Research 与 Strategy Governance 各自拥有绑定请求且只写一次的终态回执。 Qualification 复用现有 只写一次 Candidate Intake Receipt 作为
+Qualification Review Request 的终态回执，通过独立已提交事实交接返回它， 并与有界状态只读模型分离。 该回执绑定稳定请求身份与 规范类型化含义。 `ACCEPTED`
+绑定准确结果 Research Intent 或 Authorized Generation Decision 身份，`REJECTED_NO_WRITE` 证明没有 Owner 转换。
+
 回执缺失时保持 `SUBMITTED_OR_UNKNOWN`，不能隐含接受或拒绝。
 
 ## 每个可变事实只有一个权威
@@ -146,153 +148,89 @@ crate（`vibe-backtest`、`vibe-execution`、`vibe-portfolio`、`vibe-risk`、`v
 - **跨层只传值。** 高层 Owner 把低层 Owner 需要的值放进请求，每个值都带着自己的内容摘要。低层 Owner 直接使用，绝不回读高层
   Owner 去核对。摘要给这个值提供内容地址和追加身份，不是用来防调用方的证据。
 - **唯一的信任边界是外边界。** 输入在进入产品的地方严格验证一次：外部 agent 的输入在 `rd-owner-api` HTTP 层，外部行情在
-  Market Data 接入处。产品内部，一个 Owner 不再复核另一个 Owner 的值。
+  Market Data 接入处。产品内部不重做生产者的业务判断或反读上层托管。消费者仍在自身准入/效果截面核验适用性、准确绑定、当前授权、过期、围栏和容量；可信生产者值不能绕过这些检查。
 - **每个 Owner 都是独立模块。** 只靠自己的 crate、自己的 schema，加上下层 Owner 的公开契约（或契约的桩），一个 Owner 就能单独构建、
   单独在新库上迁移、单独跑测试、单独部署运行。任意两个相邻的 Owner 挑出来就能组合，测一段链路，不需要把整个栈拉起来。改一个 Owner
   的内部绝不迫使别的 Owner 跟着改；能牵动别人的只有它的公开契约。可量的形式：一个 Owner 的 crate 的 normal 依赖闭包里，只有这个
-  Owner 自己的 crate、更低层 Owner 的 crate、它单向调用的同层 Owner 的 crate，以及无 Owner 的库；每个 Owner 的契约放在一个叶子
-  crate 里，只有类型，只依赖无 Owner 的库。
+  Owner 自己的 crate、更低层 Owner 的 crate、它单向调用的同层 Owner 的 crate，以及无 Owner 的库；每个 Owner 的契约放在一个叶子 crate 里，只有类型，只依赖无 Owner 的库。原生交易节点是该规则的装配/部署单位，内部 Runtime、Risk、Execution、Portfolio 保留各自事实写权与测试边界，不要求分别部署或重建四套引擎。
 
-第四条规则增加一条约束，由用户于 2026-10-03 提出。第三条规则是对文档此前所述不变式的放宽：此前要求每个 Owner 在信任另一个 Owner 的值之前，自己去读原始记录。用户于 2026-10-03 授权了这次
-放宽（AskUserQuestion，选项「放宽：只在外边界验」）。理由是下面实测的基线：跨 Owner 回读造成了五对双向 Owner，每一对都是依赖环。
+### 接入要求
 
-这次放宽不改变：
+以上依赖方向与值传递规则适用于原生产品扩展。原生引擎 crate 是复用库，不是竞争业务 Owner。外边界验证、保护数据隔离、效果许可、只追加身份及唯一权威写入者仍必须成立。
 
-- 外边界上严格的、一次性的验证；
-- Qualification 的 holdout 隔离。它是信息隔离，不是 Owner 间信任：受保护结果与单元明细仍然绝不回到 R&D，累计 holdout 历史仍然只由
-  Qualification 解析；
-- 自动交易写链与模拟和实盘同语义两节所述的真钱、Risk 与 Execution 边界；
-- 只追加的事实、内容寻址，以及每个可变事实只有一个权威。
+| 边界                              | 目标交接                        | 实现证明                                                                |
+| --------------------------------- | ------------------------------- | ----------------------------------------------------------------------- |
+| R&D → Market Data                 | 冻结范围及角色/输入值           | Market Data 解析自己准入的数据，不读取 R&D 或 Composer 表               |
+| R&D → Backtest                    | 冻结候选、执行输入与数据引用    | Backtest 产生原生回放事实，不反向依赖 R&D                               |
+| Qualification → Backtest          | 保护请求及不可变输入            | 保护输出隔离，研究侧不接收保护明细                                      |
+| R&D → Qualification               | 已选择候选及 Independence Basis | Qualification 持有暴露/资格事实；下层不回读上层托管                     |
+| Product Edge → 领域 Owner         | 已接纳 typed request 值         | 外边界验证身份与当前授权；Owner 接收值，不获得跨 Owner SQL 权限         |
+| Execution/Market Data → Portfolio | 已提交执行与估值事实            | Portfolio 拥有计量；Risk/Governance 消费 public facts，不成为余额写入者 |
 
-新设计从现在起遵守这些规则。本文档其他章节凡是要求低层 Owner 读取或锁定高层 Owner 的记录来核对某个值的，那段文字描述的是
-`CURRENT` 实现，并在下面的拆除清单里有一行；它不是新设计的范式。现有的边在 U1 之后逐行拆除。
+每个 Owner 拥有 schema/迁移及叶子 public contract。其 normal 依赖闭包只包含自身、下层 Owner、单向同层及无 Owner 的库。组装根装配服务，不成为领域依赖。契约夹具和隔离验收 helper 不能把上层托管拉进生产数据/引擎模块。反向 crate 边、跨 schema grant 或上层规范回读属于迁移责任，不是目标架构。
 
-### `80e9497a8` 上的基线
-
-基线在 `main` 的 `80e9497a8` 上测量：
-
-- crate 边：`cargo metadata --format-version 1 --no-deps`，只取 normal 依赖（排除 dev 与 build 依赖），每个 crate 归到它的 Owner。
-- 数据库边：`database/postgres-init/`、迁移与 crate DDL 里每一条授予 Owner 角色的 `GRANT`；每一个提到另一个 Owner
-  schema 的 `CREATE FUNCTION` 函数体；以及每一条提到另一个 Owner schema 的生产 Rust SQL 字符串。授予 `vibe_test_*` 角色的
-  grant 和测试或 CI 夹具文件里的 grant（36 处）单独报告，不算边。
-- 正控：扫描找到了已知的 `market_data_rd_api` 授予 `rd_owner`，位于
-  `crates/data/src/owner/postgres/rd_strategy_input_custody.rs:24`。
-- 覆盖：函数体解析器读到了 212 个生产 `CREATE FUNCTION` 定义中的 199 个。Rust 文件里漏掉的 6 个由 SQL 字符串扫描覆盖。
-  `10-migrate-authority-custody.sh` 里漏掉的 7 个已逐个人工阅读，全部只提到 R&D 的 schema。
-
-双向的几对是：Backtest 与 R&D、Market Data 与 R&D、Backtest 与 Qualification、R&D 与 Qualification、R&D 与 Product Edge。
-向下的边（R&D 到 Market Data 与 Backtest，Qualification 到 Market Data、Backtest 与 R&D，Product Edge 到栈）以及第 5 层内部的单向调用
-符合规则，不列出。
-
-### `80e9497a8` 上的依赖闭包
-
-每个 Owner crate 的闭包取 `cargo tree -p <crate> -e normal`，它按这个 crate 自己的默认 feature 解析，与 `cargo build -p <crate>`
-构建的完全一致；再用 `--all-features` 跑一次，暴露可选 feature 拉进来的东西。下表列出闭包里每一个被第四条规则排除的 crate。没有列出的
-crate 都符合规则：`vibe-data`、`vibe-binance`、`vibe-databento`、`vibe-qualification`、交易侧各 Owner 的 crate、Scanner 的 crate，以及
-同层的单向使用（Runtime 用 Execution，Product Edge 用 Operator Authorization）。`vibe-strategy-factory-rd-owner-api` 是组装根，不受此约束。
-
-| Owner crate                                | 闭包中的工作区 crate | 被第四条规则排除的 crate                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vibe-data` 加 `--all-features`            | 16                   | `vibe-rd-exploratory-replay-custody`、`vibe-rd-artifact-invocation-custody`、`vibe-rd-source-intake-invocation-custody`、`strategy-factory-program-sdk`、`vibe-backtest-owner-contracts`、`vibe-product-edge`、`vibe-product-edge-claim-custody`、`vibe-product-edge-contracts`、`vibe-operator-authorization`，全部经由 `isolated-event-replay-acceptance` feature |
-| `vibe-market-data-repair-custody`          | 6                    | `vibe-rd-market-data-repair-custody`                                                                                                                                                                                                                                                                                                                                |
-| `vibe-backtest-owner`                      | 30                   | `vibe-strategy-factory`、`strategy-factory-program-sdk`、`vibe-rd-artifact-invocation-custody`、`vibe-rd-exploratory-replay-custody`、`vibe-rd-market-data-repair-custody`、`vibe-rd-source-intake-invocation-custody`、`vibe-qualification`、`vibe-product-edge`、`vibe-product-edge-claim-custody`、`vibe-product-edge-contracts`、`vibe-operator-authorization`  |
-| `vibe-backtest-owner-contracts`            | 1                    | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                      |
-| `vibe-backtest-result-custody`             | 2                    | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                      |
-| `vibe-strategy-factory`                    | 29                   | `vibe-qualification`、`vibe-product-edge`、`vibe-product-edge-claim-custody`、`vibe-product-edge-contracts`、`vibe-operator-authorization`                                                                                                                                                                                                                          |
-| `vibe-rd-exploratory-replay-custody`       | 10                   | `vibe-product-edge`、`vibe-product-edge-claim-custody`、`vibe-product-edge-contracts`、`vibe-operator-authorization`                                                                                                                                                                                                                                                |
-| `vibe-rd-artifact-invocation-custody`      | 1                    | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                   |
-| `vibe-rd-source-intake-invocation-custody` | 1                    | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                   |
-
-crate 图之外还有两件事阻碍独立。一个脚本 `database/postgres-init/10-migrate-authority-custody.sh`（5869 行）创建所有 Owner
-的 schema，所以没有一个 Owner 能单独迁移数据库。四个核心 Owner 里只有 Backtest 有契约 crate（`vibe-backtest-owner-contracts`）；Market
-Data、R&D 与 Qualification 都是被整个 crate 依赖。
-
-### 拆除清单
-
-每一行都是 `TARGET`，在 U1 之后由各自可单独评审的改动拆除。一行关闭的条件是：它的 crate 边、grant 与调用点全部消失，并且重跑基线显示
-这一对已是单向。路径以 `80e9497a8` 为准；`10-migrate` 指 `database/postgres-init/10-migrate-authority-custody.sh`。
-
-| 反向边                    | 状态     | 证据                                                                                                                                                                                                                                                                                                                                                                                                                                              | 拆除方式                                                                                                              |
-| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Backtest 到 R&D           | `TARGET` | crate `vibe-backtest-owner` 到 `vibe-strategy-factory`，`crates/backtest_owner/Cargo.toml:26`；`rd_owner_api` 授予 `backtest_owner`，位于 `10-migrate:225`、`:1255` 与 `crates/strategy_factory/src/exploratory_replay/postgres.rs:1669`、`:2256`、`:2263`、`:2277`；调用 `rd_owner_api.lock_ready_for_selection_for_qualification_v1`，位于 `crates/backtest_owner/src/lib.rs:1464`                                                              | 调用方把 Candidate 的值放进回放请求；Backtest 不再读 R&D。                                                            |
-| Market Data 到 R&D        | `TARGET` | crate `vibe-data` 到 `vibe-rd-exploratory-replay-custody`（optional），`crates/data/Cargo.toml:52`；crate `vibe-market-data-repair-custody` 到 `vibe-rd-market-data-repair-custody`，`crates/market_data_repair_custody/Cargo.toml:19`；`composer_owner_api` 与 `rd_owner_api` 授予 `market_data_owner` 与 `market_data_reader` 共 22 处，起于 `10-migrate:228`；调用位于 `crates/data/src/owner/postgres/replay_market_facts_v2.rs:90` è³ `:96`  | R&D 把 role intent、role set 与 native join 的值放进 market facts 请求；Market Data 不再解析 R&D 与 Composer 的记录。 |
-| R&D 到 Qualification      | `TARGET` | crate `vibe-strategy-factory` 到 `vibe-qualification`，`crates/strategy_factory/Cargo.toml:84`；`qualification_api` 授予 `rd_owner`，位于 `10-migrate:2200`、`:2767`、`:2827`                                                                                                                                                                                                                                                                     | Qualification 以值的形式接收 Candidate 与 Independence Basis，或读取 R&D 追加的事实；这次改动必须保持 holdout 隔离。  |
-| R&D 到 Product Edge       | `TARGET` | crate 到 `vibe-product-edge-claim-custody`，位于 `crates/rd_artifact_invocation_custody/Cargo.toml:19` 与 `crates/rd_source_intake_invocation_custody/Cargo.toml:19`；crate 到 `vibe-product-edge`，位于 `crates/rd_exploratory_replay_custody/Cargo.toml:22` 与 `crates/strategy_factory/Cargo.toml:83`；`product_edge_api` 授予 `rd_owner`，起于 `10-migrate:221`；调用位于 `crates/rd_source_intake_invocation_custody/src/lib.rs:264`、`:546` | Product Edge 把 claim 的值放进发给 R&D 的请求；R&D 不再锁定 Product Edge 的记录。                                     |
-| Backtest 到 Qualification | `TARGET` | `qualification_api` 授予 `backtest_owner`，位于 `10-migrate:2200`、`:2593`、`:2676`；调用 `qualification_api.lock_protected_replay_request_v1` 与 `_set_v1`，位于 `crates/backtest_owner/src/protected_replay_postgres.rs:1128`、`:1205`、`:1282`                                                                                                                                                                                                 | Qualification 把 Protected Replay Request 的值放进调用；Backtest 不再锁定它。holdout 隔离不变。                       |
-| Backtest 到 Product Edge  | `TARGET` | `product_edge_api` 授予 `backtest_owner`，位于 `10-migrate:221`、`:4188`、`:4279` 与 `crates/strategy_factory/src/exploratory_replay/postgres.rs:1671`；Backtest crate 里没有调用点，`lock_downstream_admission_v1` 唯一的 Rust 调用方是 `crates/product_edge/src/postgres.rs:4914`                                                                                                                                                               | 找到实际行使这些 grant 的连接，然后改为传值或撤销 grant。                                                             |
-| Portfolio 到 Product Edge | `TARGET` | `product_edge_api` 授予 `portfolio_owner`，位于 `10-migrate:221`、`:4478`；Portfolio crate 里没有调用点，`lock_portfolio_read_policy_v1` 唯一的 Rust 调用方是 `crates/product_edge/src/postgres.rs:5011`                                                                                                                                                                                                                                          | 找到实际行使这些 grant 的连接，然后改为传 read policy 的值或撤销 grant。                                              |
-
-模块独立再加下面这些 `TARGET` 行。一行关闭的条件是：被点名的 Owner 只用自己的 crate、在由它自己的脚本迁移的新库上，以桩代替下层 Owner
-的契约，就能用 `cargo test -p` 构建并跑完测试。
-
-| 独立目标                              | 状态     | 证据                                                                               | 工作                                                                                            |
-| ------------------------------------- | -------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Market Data 单独构建与测试            | `TARGET` | 闭包表里 `vibe-data` 与 `vibe-market-data-repair-custody` 两行                     | 把 `isolated-event-replay-acceptance` 验收移出 `vibe-data`；去掉 repair custody 对 R&D 的依赖。 |
-| Backtest 单独构建与测试               | `TARGET` | 闭包表里 `vibe-backtest-owner` 一行                                                | 去掉对 `vibe-strategy-factory` 的依赖；program SDK 改为无 Owner 的库，或从契约里移出。          |
-| R&D 单独构建与测试                    | `TARGET` | 闭包表里 `vibe-strategy-factory` 与 `vibe-rd-*` 各行                               | 去掉对 Qualification、Product Edge 与 Operator Authorization 的依赖。                           |
-| Qualification 单独构建与测试          | `TARGET` | 今天没有被排除的 crate；它整个依赖 `vibe-data` 与 Backtest                         | 改为依赖下层 Owner 的契约 crate，而不是整个 crate。                                             |
-| 每个核心 Owner 的契约是叶子 crate     | `TARGET` | 只有 `vibe-backtest-owner-contracts` 存在，且它依赖 `strategy-factory-program-sdk` | 为 Market Data、R&D 与 Qualification 加契约 crate，只放类型，只依赖无 Owner 的库。              |
-| 每个 Owner 迁移自己的 schema          | `TARGET` | 一个 5869 行的 `10-migrate-authority-custody.sh` 创建所有 Owner 的 schema          | 按 Owner 拆分迁移，自下而上排序，每份只创建自己的 schema 和上层调用方需要的 grant。             |
-| 每个 Owner 的路由与存储脱离组装根运行 | `TARGET` | `rd-owner-api` 在一个进程里承载多个 Owner 的路由                                   | 保留 `rd-owner-api` 作为组装根；让每个 Owner 的路由与存储能单独启动。                           |
+改动 seam 前测量当前候选的 normal/default-feature 与相关可选 feature 闭包、迁移/grant 及生产调用。在有界切片中替换消费者，保留不可变记录兼容，并验证接受/拒绝/未知/重放。不将过期依赖清单复制进开发任务；下文准确二进制格式和封存记录兼容继续生效，直到版本化切换替换实现。
 
 ## 研究、开发与资格评估
 
-探索重放只有在请求与结果逐项完全相等时才能被接收和选择。终态 Exploratory Run Result 必须准确重复
-Strategy Artifact 请求 PIT 范围 PIT Market Snapshot 身份 Universe Selection Record 身份与修订规则
-replay configuration Runtime kernel simulator，以及成本 滑点 容量模型版本。只有请求相等的终态结果
-可以进入 Research Selection。被拒 无效 未知 非终态或不匹配尝试只保留为 TrialFamily Census 事实。
-准确成本 滑点与容量模型身份还必须从 Research Intent 经 Exploratory Replay Request 与 Result Diagnosis
-Iteration Decision Research Selection 到 Candidate 保持相等。模型变化只能成为显式后继 Intent 的单一
-假设变化，不能静默重新解释重放或选择。
+探索重放只有在请求与结果逐项完全相等时才能被接收和选择。 终态 Exploratory Run Result 必须准确重复 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot
+身份 Universe Selection Record 身份与修订规则 replay configuration Runtime kernel simulator，以及成本 滑点 容量模型版本。 只有请求相等的终态结果
+可以进入 Research Selection。 被拒 无效 未知 非终态或不匹配尝试只保留为 TrialFamily Census 事实。
 
-探索结果可以从 Backtest 返回 Research。Research 提交一个终态 Research Selection Disposition，
-交叉绑定准确 Intent 证伪条件 停止规则 探索前沿 Candidate 和 Census Frontier。只有
-`SELECTED_FOR_QUALIFICATION` 能进入独立保护路径，保护结果不得返回同一个 R&D
-循环。资格是 Governance 消费的事实，不是绕过 Governance 的权限。新 Research program 开始前，R&D
-先提交密封且绑定 principal/request-scope 的 Independence Basis Receipt。Qualification 直接解析该回执与
-自身完整持久历史，只发布 `GENESIS_EMPTY` 不透明当前 `FRONTIER(ref, cut)` 或 `UNAVAILABLE`。
-Product Edge 只搬运绑定 principal/scope 的投影，不能断言 genesis 空历史 disposition basis identity 或
-frontier。R&D 再把自身锁定本地历史解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE`；只有
-物理 custody 也遵守同一边界：R&D 没有 Qualification 表的 raw read 或 write 权限，只能调用 Qualification-owned 锁定准入函数；Qualification Rust 必须规范校验其 raw envelope 后才可产生密封正向 readback。最后一次回读完成后，消费方 R&D 事务只能在第一笔写入前立即采样唯一 final cut，并在该 cut 重检所有半开 authority 区间。
-两个 Owner 的当前规范读取都成立时才可提交 Intent 与 TrialFamily。Research 只保留语义前驱且不读取
-保护细节；Qualification 独占跨 TrialFamily 祖先与累计 holdout 处理解析。更换 TrialFamily Candidate
-Artifact Shell 或请求身份都不能重置任一历史。
-Research 终态停止不创建 Selection 或 Candidate，因此永不进入 Qualification。仅选择 disposition 缺失
-或不匹配时，在保护回放前生成 `NOT_ADMITTED` 且不消耗 holdout。
-每个已选择 Candidate 还绑定结果前 Protected Robustness Plan。它冻结必需时间窗口 市场状态 标的切片
-扰动 合理参数邻域单元的完整有限集合，以及覆盖 指标 容差 阈值 聚合 缺失单元和停止政策；同一轴可以
-要求多个单元。plan、每个 per-cell request 与 result、assessment 必须重复准确 plan-cell-set digest。
-Qualification 按自身冻结 plan 解析密封 Backtest per-cell result，形成完整 result census；该 census 与
-assessment 各自对每个冻结单元准确交代一次。assessment 原子嵌入 Qualification census-finalization proof；
-该 proof 绑定冻结 stop 与 missing-cell policy、自身 assessment-stage Time Evidence，以及证明没有请求单元
-仍处于非终态的密封 Backtest attempt frontier。该 proof 产生前不存在 assessment，缺少 result 的单元保持
-unfinished，不能标记为 `MISSING`。
-Qualification 拥有结果分类 assessment；保护测量和单元细节永不返回
-R&D。单个漂亮 aggregate、每轴一个单元或一个保护终态结果都不能替代完整计划。
-对合格 Candidate，Eligibility Fact 还绑定下游可执行经济条件版本 已评估成本容量模型版本和资格容量上限。
+准确成本 滑点与容量模型身份还必须从 Research Intent 经 Exploratory Replay Request 与 Result Diagnosis Iteration Decision Research
+Selection 到 Candidate 保持相等。 模型或参数变化形成显式冻结的后继实验，并完整声明改变项，不能静默重新解释重放或选择。
+Agent 决定每轮改变一项还是多项；产品校验输入、记录变化及累计试验，不审批研究方法充分性。
+失败或未决尝试不能进入经济选择或资格，但不冻结整个研究项目；Agent 可在原批准范围内修复、
+改写方案、选择其他有有效证据的候选或停止，不能把失败当成收益事实。
+
+探索结果可以从 Backtest 返回 Research。 Research 提交一个终态 Research Selection Disposition， 交叉绑定准确 Intent 证伪条件 停止规则 探索前沿
+Candidate 和 Census Frontier。 只有 `SELECTED_FOR_QUALIFICATION` 能进入独立保护路径，保护结果不得返回同一个 R&D 循环。 资格是 Governance 消费的事实，不是绕过
+Governance 的权限。 新 Research program 开始前，R&D 先提交密封且绑定 principal/request-scope 的 Independence Basis Receipt。
+
+Qualification 直接解析该回执与 自身完整持久历史，只发布 `GENESIS_EMPTY` 不透明当前 `FRONTIER(ref, cut)` 或 `UNAVAILABLE`。
+Product Edge 只搬运绑定 principal/scope 的投影，不能断言 genesis 空历史 disposition basis identity 或 frontier。
+
+R&D 再把自身锁定本地历史解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE`；只有 物理 custody 也遵守同一边界：R&D
+没有 Qualification 表的 raw read 或 write 权限，只能调用 Qualification-owned 锁定准入函数；Qualification Rust 必须规范校验其 raw
+envelope 后才可产生密封正向 readback。 最后一次回读完成后，消费方 R&D 事务只能在第一笔写入前立即采样唯一 final cut，并在该 cut 重检所有半开 authority 区间。
+
+两个 Owner 的当前规范读取都成立时才可提交 Intent 与 TrialFamily。 Research 只保留语义前驱且不读取 保护细节；Qualification 独占跨 TrialFamily 祖先与累计
+holdout 处理解析。 更换 TrialFamily Candidate Artifact Shell 或请求身份都不能重置任一历史。 Research 终态停止不创建 Selection 或
+Candidate，因此永不进入 Qualification。 仅选择 disposition 缺失 或不匹配时，在保护回放前生成 `NOT_ADMITTED` 且不消耗 holdout。
+
+每个已选择 Candidate 还绑定结果前 Protected Robustness Plan。 它冻结必需时间窗口 市场状态 标的切片 扰动 合理参数邻域单元的完整有限集合，以及覆盖 指标 容差 阈值 聚合
+缺失单元和停止政策；同一轴可以 要求多个单元。 plan、每个 per-cell request 与 result、assessment 必须重复准确 plan-cell-set digest。
+Qualification 按自身冻结 plan 解析密封 Backtest per-cell result，形成完整 result census；该 census 与 assessment
+各自对每个冻结单元准确交代一次。
+
+assessment 原子嵌入 Qualification census-finalization proof； 该 proof 绑定冻结 stop 与 missing-cell policy、自身
+assessment-stage Time Evidence，以及证明没有请求单元 仍处于非终态的密封 Backtest attempt frontier。 该 proof 产生前不存在 assessment，缺少
+result 的单元保持 unfinished，不能标记为 `MISSING`。 Qualification 拥有结果分类 assessment；保护测量和单元细节永不返回 R&D。
+
+单个漂亮 aggregate、每轴一个单元或一个保护终态结果都不能替代完整计划。 对合格 Candidate，Eligibility Fact 还绑定下游可执行经济条件版本 已评估成本容量模型版本和资格容量上限。
 Governance 与 Risk 必须保留准确来源，候选 Capital Envelope 不得超过 Qualification 上限 生命周期上限或当前兼容 Capacity View 估计。
 
 冻结 Candidate 及其 Candidate Intake Receipt 必须绑定唯一预注册保护决策政策身份与版本。`ADMITTED`
 intake Protected Replay Request 以及初始或续期 Eligibility Fact 必须重复准确同一 pair；政策身份或版本
 缺失 替换或变化时，必须在创建请求前 `NOT_ADMITTED`，或创建后继保护评估，永不重新解释既有证据。
 
-Protected Replay Request 必须冻结准确 Strategy Artifact、请求 PIT 范围、准确 PIT Market Snapshot
-身份、快照与修订规则、重放配置
-摘要、Runtime 内核、模拟器以及成本 滑点 容量模型版本。Protected Run Result 必须逐项重复对应的
-实际消费字段，且每一对都完全相等。任何缺失 替换或不匹配都只能是
-`INVALID_REPLAY_EVIDENCE`，按 Qualification 预注册 holdout 规则闭合尝试，且不能生成 Eligibility Fact。
-初始或续期 Eligibility Fact 必须交叉绑定准确 Protected Replay Request 准确 `TERMINAL_RESULT`
-Protected Run Result 保护决策政策身份与版本，以及 Qualification 已验证的请求结果相等关系。被拒绝 无效
-非终态或不匹配结果永远不能生成 Eligibility。
+Protected Replay Request 必须冻结准确 Strategy Artifact、请求 PIT 范围、准确 PIT Market Snapshot 身份、快照与修订规则、重放配置 摘要、Runtime
+内核、模拟器以及成本 滑点 容量模型版本。 Protected Run Result 必须逐项重复对应的 实际消费字段，且每一对都完全相等。 任何缺失 替换或不匹配都只能是 `INVALID_REPLAY_EVIDENCE`，按
+Qualification 预注册 holdout 规则闭合尝试，且不能生成 Eligibility Fact。
+
+初始或续期 Eligibility Fact 必须交叉绑定准确 Protected Replay Request 准确 `TERMINAL_RESULT` Protected Run Result
+保护决策政策身份与版本，以及 Qualification 已验证的请求结果相等关系。 被拒绝 无效 非终态或不匹配结果永远不能生成 Eligibility。
 
 <a id="target-trading-node"></a>
 
 ## 原生交易节点目标
 
-每个 Capacity Scope（账户、模式、经济资金池）一个进程内节点，采用继承的 `LiveNode`、`RiskEngine`、
-`ExecutionEngine` 与薄产品信任层。Runtime、Risk、Execution 是该模块的内部职责，独立构建、迁移、测试和运行；
-不建设三套服务间执行状态机。Governance 传入 generation 决定、Artifact、Execution Scope 和资金上限的封存值，
-节点只向下消费 Market Data/Instrument 公共合同与客户端，不回读 R&D、Backtest、Qualification 或 Governance。
+每个 Capacity Scope（账户、模式、经济资金池）一个进程内节点，采用继承的 `LiveNode`/kernel、DataEngine、
+Trader、RiskEngine、ExecutionEngine、Portfolio、cache、clock/msgbus 与薄产品信任层。 Runtime、Risk、Execution、Portfolio
+是该节点的内部职责，保持独立测试与权威，不拆成远程执行链； 不建设三套服务间执行状态机。
+
+Governance 传入 generation 决定、Artifact、Execution Scope 和资金上限的封存值， 节点只向下消费 Market Data/Instrument 公共合同与客户端，不回读
+R&D、Backtest、Qualification 或 Governance。
 
 产品扩展限于以下合同：
 
@@ -302,9 +240,9 @@ Protected Run Result 保护决策政策身份与版本，以及 Qualification �
    PAPER/LIVE 命名空间及 adapter binding。halt 映射到 `TradingState::Halted`，只减不增映射到 `Reducing`。
 3. 事件投影在一笔事务中追加 order/fill/position/account、具名 Risk 拒绝、drift 与 outbox，保留完整授权血缘与 scope。
    原生日志是原始事件机制，不能替代产品 custody 的原子提交。
-4. 对账 hook 提交 drift，未知外部效果进入 Recovery；readiness 与 incident 绑定节点状态，停止意图前提交 `NOT_READY`。
+4. 对账 hook 提交 drift，未知外部效果进入 Recovery；readiness 与 incident 绑定节点状态，先同步抑制本地新增意图和命令，再持久提交准确 `NOT_READY` 与前沿；发布失败不解除本地抑制，Risk 按事实或过期独立围栏。
 
-共享承诺前沿在进程内持有责任，只有有据的 fill/cancel/settlement 才能解除或替换；不另签平行预留或重复扣减。
+共享承诺前沿在进程内仲裁，但唯一原子前沿、预留、已持有负债、claim、准入及 UNKNOWN 义务须持久化并可恢复。新增风险前须核验原生状态及产品证据；Portfolio 暴露不足以重建待确认或未知承诺。只有有据的 fill/cancel/settlement 才能解除或替换；不另签平行预留或重复扣减。
 场外 sentinel 保持独立于进程的 halt 读取；从卡死进程外在场所强制 halt 仍待实现。Recovery Case 与审计闭合由产品合同定义。
 该节点是 `TARGET`，不准入 Paper、Live、生产调用或真实资金。现有版本记录保持其原始字节和拒绝语义，
 切换不得靠重释既有 receipt 实现。[英文合同](./architecture-rules.md#target-trading-node)给出相同职责。
@@ -332,42 +270,43 @@ fence epoch 的 `APPLIED` 才证明正在运行。`REJECTED_NO_INSTANCE` 证明�
 `Reservation`、claim、`PREPARED` 和 adapter-admission 记录仍按各 Owner 的兼容契约验证，不能作为新建
 跨服务执行链的实施要求，也不能按新节点含义修改旧记录。
 
-Risk 永不签发订单命令。Execution 必须拒绝缺失、过期、不匹配或已经消费的许可。
-Governance 为每个 generation 拥有唯一不可变 Execution Scope，包括 strategy generation、`PAPER` 或
-`LIVE` 模式、账户命名空间和效果命名空间。Portfolio 另行拥有不可变 Capacity Scope key，只含账户
-模式和经济资金池，绝不含策略或 generation。所有共享不可分 gross 约束映射同一个 key；Paper 与
-Live 必须不同，重叠未知时失败关闭。意图 决定 预留 命令 效果 账户和反馈事实必须重复兼容身份。
-同一 authorization mode request principal scope 已准入 Shell binding 与 history head Operator
-Authorization 和 operation manifest 必须能从每个正常写链事实解析出来。
-`UNATTENDED_REQUEST_WITH_POLICY` 还必须保留并重验同一 Autonomous Policy Authorization；
-`ATTENDED_REQUEST` 不得用政策身份替代任何请求 lineage 成员。
-Runtime 先提交本地抑制和不可变 `NOT_READY` readiness。Risk 不等待 Recovery Case 确认就独立激活
-匹配 fence；readiness 过期同样失败关闭。Risk 先在 claim 与过期 围栏 政策撤回之间原子仲裁，只有
-`CONSUMED` 允许 prepared attempt；再把每个 `ADAPTER_ADMISSION_REQUEST` 与 fence activation 仲裁。
-只有 `ADMITTED_ONCE` 可以进入调用；`SUPPRESSED_BY_FENCE` 与 `REJECTED` 证明未调用。
+Risk 永不签发订单命令。 Execution 必须拒绝缺失、过期、不匹配或已经消费的许可。 Governance 为每个 generation 拥有唯一不可变 Execution Scope，包括 strategy
+generation、`PAPER` 或 `LIVE` 模式、账户命名空间和效果命名空间。 Portfolio 另行拥有不可变 Capacity Scope
+key，只含账户 模式和经济资金池，绝不含策略或 generation。 所有共享不可分 gross 约束映射同一个 key；Paper 与 Live 必须不同，重叠未知时失败关闭。
 
-正常 decrease-only 链是独立且同样有序的链。Governance 提交生命周期决定，Runtime 停止新策略意图，
-Risk 返回准确 `PERMIT_DECREASE_ONLY`，Runtime 再发送 Reservation 与 Reservation Claim 字段均为明确空值的
-有界命令。Execution 校验该形状，持久记录唯一 `PREPARED` attempt，再发送不创建 Reservation Claim
-Request 的 `ADAPTER_ADMISSION_REQUEST`。Risk 把该请求与同 scope fence activation 原子排序并只返回一个
-不可变 `ADMITTED_ONCE` `SUPPRESSED_BY_FENCE` 或 `REJECTED`。只有匹配 `ADMITTED_ONCE` 才允许
-`INVOCATION_STARTED` 和适配器调用。重放或重启加入同一 attempt 与 admission result；没有 Reservation
-和 claim 绝不代表可以绕过 preparation admission 或 fence arbitration。
+意图 决定 预留 命令 效果 账户和反馈事实必须重复兼容身份。 同一 authorization mode request principal scope 已准入 Shell binding 与 history head
+Operator Authorization 和 operation manifest 必须能从每个正常写链事实解析出来。 `UNATTENDED_REQUEST_WITH_POLICY` 还必须保留并重验同一 Autonomous
+Policy Authorization； `ATTENDED_REQUEST` 不得用政策身份替代任何请求 lineage 成员。
 
-每个 Capacity Scope 只有一个由 Risk 持久原子序列化的 Aggregate Commitment Frontier。Portfolio 独立
-提供候选无关 gross Capacity View，以及包含 projected exposure open order 账户估值截面和已纳入
-Execution settlement lineage 的一致 Portfolio Risk Evidence Bundle。Portfolio 永不读取 Risk 状态或
-计算剩余 headroom。Risk 把该 bundle 与全部 held Reservation liability 联结，按稳定经济 lineage 去重，
-并独占 usage 与 headroom 计算。未知效果按最坏情况占用。序列化尝试过期，或成员缺失 过期 不完整
-重叠未知 不匹配时拒绝且不创建 Reservation。`WITHDRAWN` 与权威 `NO_EFFECT` 可释放 liability；仅有
-`SETTLED` 不能释放，直到同一次序列化转换以覆盖准确 Execution settlement/readback lineage 的 Portfolio
-bundle 替换它，且两者不能重复计数。
+Runtime 先提交本地抑制和不可变 `NOT_READY` readiness。 Risk 不等待 Recovery Case 确认就独立激活 匹配 fence；readiness
+过期同样失败关闭。 Risk 先在 claim 与过期 围栏 政策撤回之间原子仲裁，只有 `CONSUMED` 允许 prepared attempt；再把每个
+`ADAPTER_ADMISSION_REQUEST` 与 fence activation 仲裁。 只有 `ADMITTED_ONCE` 可以进入调用；`SUPPRESSED_BY_FENCE` 与
+`REJECTED` 证明未调用。
+
+正常 decrease-only 链是独立且同样有序的链。 Governance 提交生命周期决定，Runtime 停止新策略意图， Risk 返回准确 `PERMIT_DECREASE_ONLY`，Runtime 再发送
+Reservation 与 Reservation Claim 字段均为明确空值的 有界命令。 Execution 校验该形状，持久记录唯一 `PREPARED` attempt，再发送不创建
+Reservation Claim Request 的 `ADAPTER_ADMISSION_REQUEST`。
+
+Risk 把该请求与同 scope fence activation 原子排序并只返回一个 不可变 `ADMITTED_ONCE` `SUPPRESSED_BY_FENCE` 或
+`REJECTED`。 只有匹配 `ADMITTED_ONCE` 才允许 `INVOCATION_STARTED` 和适配器调用。 重放或重启加入同一 attempt 与 admission
+result；没有 Reservation 和 claim 绝不代表可以绕过 preparation admission 或 fence arbitration。
+
+每个 Capacity Scope 只有一个由 Risk 持久原子序列化的 Aggregate Commitment Frontier。 Portfolio 独立 提供候选无关 gross Capacity
+View，以及包含 projected exposure open order 账户估值截面和已纳入 Execution settlement lineage 的一致 Portfolio Risk Evidence
+Bundle。 Portfolio 永不读取 Risk 状态或 计算剩余 headroom。
+
+Risk 把该 bundle 与全部 held Reservation liability 联结，按稳定经济 lineage 去重， 并独占 usage 与 headroom 计算。 未知效果按最坏情况占用。
+序列化尝试过期，或成员缺失 过期 不完整 重叠未知 不匹配时拒绝且不创建 Reservation。
+
+`WITHDRAWN` 与权威 `NO_EFFECT` 可释放 liability；仅有 `SETTLED` 不能释放，直到同一次序列化转换以覆盖准确
+Execution settlement/readback lineage 的 Portfolio bundle 替换它，且两者不能重复计数。
 
 Governance 发布 Capital Envelope applicability chain：Capacity Scope 对应一个 `POOL_ROOT` envelope，intent
-generation 对应一个 `STRATEGY_GENERATION` envelope。Intent 只受自身链限制，兄弟 envelope 不参与 global
-minimum，全部 usage 仍受共同 pool ceiling 限制。政策收窄到低于当前 usage 时取代更宽 Capital Envelope。
-只有 Risk 能在 Aggregate Commitment Frontier 上提交 `OVERCOMMITTED_NO_NEW_RISK`；Governance 不创建
-不清除也不通过隐藏交接读取该状态，并且不把发布 envelope 当成当前 usage 证明。
+generation 对应一个 `STRATEGY_GENERATION` envelope。 Intent 只受自身链限制，兄弟 envelope 不参与 global minimum，全部 usage 仍受共同
+pool ceiling 限制。 政策收窄到低于当前 usage 时取代更宽 Capital Envelope。
+
+只有 Risk 能在 Aggregate Commitment Frontier 上提交 `OVERCOMMITTED_NO_NEW_RISK`；Governance 不创建 不清除也不通过隐藏交接读取该状态，并且不把发布
+envelope 当成当前 usage 证明。
 
 依赖顺序必须无环。部署配置先准入不可变账户 mode 经济池 Market Data source 与 Execution adapter
 binding。Portfolio 随后拥有候选无关 Capacity Scope，并可发布 gross ceiling 与一致 Portfolio Risk Evidence Bundle。
@@ -376,23 +315,24 @@ Qualification 提供 generation 特定经济证据；之后 Governance 才能授
 
 ## 活动 generation 保留
 
-只有 Governance 显式续期并绑定当前 Eligibility 与全部必需 Performance Exposure degradation 证据截面，
-才能保留 `ACTIVE_GENERATION`。Eligibility 过期 撤销 缺失或未知，或任何必需保留证据过期 不可用时，
-必须立即用 `DE_RISK_PENDING` 取代新增风险权限。Runtime 在该后继截面停止新意图，Risk 拒绝新增风险，
-Governance 推动 decrease-only 链直到 generation 降权 暂停 退役或其效果进入 Recovery。Capacity View
-performance 或 exposure 证据缺失不能阻断暂停 降权或退役，因为这些转换不增加风险。证据恢复不能
-静默复活旧 generation，恢复运行必须有新的 Authorized Generation Decision；无人值守恢复还必须有 Autonomous Policy Authorization。
+只有 Governance 显式续期并绑定当前 Eligibility 与全部必需 Performance Exposure degradation 证据截面， 才能保留 `ACTIVE_GENERATION`。
+Eligibility 过期 撤销 缺失或未知，或任何必需保留证据过期 不可用时， 必须立即用 `DE_RISK_PENDING` 取代新增风险权限。 Runtime 在该后继截面停止新意图，Risk
+拒绝新增风险， Governance 推动 decrease-only 链直到 generation 降权 暂停 退役或其效果进入 Recovery。
+
+Capacity View performance 或 exposure 证据缺失不能阻断暂停 降权或退役，因为这些转换不增加风险。 证据恢复不能 静默复活旧 generation，恢复运行必须有新的
+Authorized Generation Decision；无人值守恢复还必须有 Autonomous Policy Authorization。
 
 ## 只减不增生命周期链
 
-降权 暂停或退役不是普通新增风险交易。Governance 提交 decrease-only 生命周期决定。Runtime 先停止
-新策略意图并应用决定，再只提出撤单 reduce-only 清仓或回读工作。Risk 校验暴露不会增加，并返回
-不含 add-risk Reservation 且只能表示为准确 `PERMIT_DECREASE_ONLY` 的决定。Runtime 创建绑定该 permit
-且 Reservation/claim lineage 明确为空的有界命令。Execution 先把稳定 attempt 记录为 `PREPARED`，再请求
-adapter admission；Risk 不创建 claim，而是把请求与 fence activation 排序。Execution adapter gate 只有
-收到 `ADMITTED_ONCE` 才调用，只接纳撤单 减仓 清仓或回读，并拒绝任何新增风险形状。Execution 强制执行
-已准入 adapter binding 和 reduce-only 能力，记录效果并回读外部状态。Portfolio 投影与 Execution 对账证明
-结果暴露后 Governance 才闭合转换。未知效果永不算成功降权，而是进入 Recovery 并保持 generation 围栏。
+降权 暂停或退役不是普通新增风险交易。 Governance 提交 decrease-only 生命周期决定。 Runtime 先停止 新策略意图并应用决定，再只提出撤单 reduce-only 清仓或回读工作。
+Risk 校验暴露不会增加，并返回 不含 add-risk Reservation 且只能表示为准确 `PERMIT_DECREASE_ONLY` 的决定。 Runtime 创建绑定该 permit 且
+Reservation/claim lineage 明确为空的有界命令。
+
+Execution 先把稳定 attempt 记录为 `PREPARED`，再请求 adapter admission；Risk 不创建 claim，而是把请求与 fence activation
+排序。 Execution adapter gate 只有 收到 `ADMITTED_ONCE` 才调用，只接纳撤单 减仓 清仓或回读，并拒绝任何新增风险形状。 Execution 强制执行 已准入
+adapter binding 和 reduce-only 能力，记录效果并回读外部状态。 Portfolio 投影与 Execution 对账证明 结果暴露后 Governance 才闭合转换。
+
+未知效果永不算成功降权，而是进入 Recovery 并保持 generation 围栏。
 
 attended 正常生命周期 de-risk 使用 `PERMIT_DECREASE_ONLY` 窄门，Recovery 不使用它。Risk 在唯一
 Aggregate Commitment Frontier 证明准确当前完整 `ACTIVE` fence set；只有全部 member 版本化动作集合
@@ -412,7 +352,7 @@ Execution，不属于 Runtime。Paper 与 Live 命名空间不得相等或互为
 Governance 直接判定冻结生命周期条件。发现复用原生判断并隔离可变状态，不产生部署或订单权限。
 
 下述 Scanner 计划、匹配及提案只是封存的旧兼容事实，保留原身份、容量和拒绝规则，
-不获得新实现或效果准入，也不是目标路线的必需输入。见 [R&D 按需发现](../owners/rd.zh.md#target---按需只读机会发现)
+不获得新实现或效果准入，也不是目标路线的必需输入。见 [R&D 按需发现](../owners/rd.zh.md#on-demand-read-only-opportunity-discovery)
 与 [Scanner 迁移](../owners/scanner.zh.md#目标定位与旧契约迁移)。旧提案读取可选且受限的 Portfolio 容量视图。数据不足时记录原因，匹配成功时向 Governance 提交证据。它永不激活策略
 或发送交易意图。
 
@@ -420,29 +360,27 @@ Capacity View 身份绑定不可变账户加模式经济池 Capacity Scope、准
 方法与假设版本 测量时间和有效期。除非已发布激活条件明确要求，否则它只是可选提示；一旦条件要求，缺失 过期
 不可用或身份不匹配都必须提交 `INPUT_UNAVAILABLE`，不能成为 `MATCHED`。
 
-Capacity View 同时是 Portfolio 拥有的当前只读 gross 经济上限。`INITIAL_ACTIVATION` 必须绑定新鲜且
-兼容的 Portfolio Lifecycle Evidence Receipt；`PROMOTION` 还必须按 `PROMOTION` transition-evidence
-key 绑定新鲜准确 Performance 与 Exposure 回执。`PAUSE` `REDUCTION` 和 `RETIREMENT` 不能被容量证据
-缺失阻断。Governance
-把兼容证据绑定进 generation 决定和政策。Risk 每次新增风险决定都绑定准确新鲜 Capacity View；
-证据缺失 过期，或 scope 条件 方法 假设 流动性不匹配时必须终态拒绝且不创建 Reservation。Risk
-还必须在同 scope Aggregate Commitment Frontier usage 上完成准入。Portfolio 永不分配资金 维护承诺 读取 Risk 或授予交易许可。
+Capacity View 同时是 Portfolio 拥有的当前只读 gross 经济上限。 `INITIAL_ACTIVATION` 必须绑定新鲜且 兼容的 Portfolio Lifecycle Evidence
+Receipt；`PROMOTION` 还必须按 `PROMOTION` transition-evidence key 绑定新鲜准确 Performance 与 Exposure
+回执。 `PAUSE` `REDUCTION` 和 `RETIREMENT` 不能被容量证据 缺失阻断。
+
+Governance 把兼容证据绑定进 generation 决定和政策。 Risk 每次新增风险决定都绑定准确新鲜 Capacity View； 证据缺失 过期，或 scope 条件 方法 假设
+流动性不匹配时必须终态拒绝且不创建 Reservation。 Risk 还必须在同 scope Aggregate Commitment Frontier usage 上完成准入。 Portfolio 永不分配资金
+维护承诺 读取 Risk 或授予交易许可。
 
 ## 安全绑定
 
-Product Edge 写请求绑定不可自我声明的 Operator Authorization，包含准确 principal issuer audience scope
-到期 撤销前沿 请求证明与内容寻址 Agent Operation Manifest。Research Strategy Artifact 绑定代码字节
-依赖来源 runtime 与 sandbox policy capability manifest 安全准入，以及对环境 filesystem network secret
-和 effect port 的明确拒绝及 Artifact Security Admission。Market Data 通过不可变 Market Data Source
-Binding 准入每个来源，绑定实现与配置摘要
-认证 endpoint dataset/account mapping normalization policy trust policy license scope 与不透明最小权限
-credential handle。Execution Scope 绑定等价 adapter 身份 场所或 simulator endpoint 账户映射 capability
-与 reduce-only policy trust policy 及不透明 credential handle。Secret 值不能复制进 artifact request
-command journal 或 read model。
-安全验证必须从 Governance 接受回执经 Runtime Risk Execution 追踪 authorization mode 与完整
-Authorization Lineage 到权威回读。`UNATTENDED_REQUEST_WITH_POLICY` 还必须追踪并重验
-Autonomous Policy Authorization。任一必需成员缺失 过期 撤销 scope 不匹配或 history head 不匹配时，
-必须在 Reservation 创建或 adapter 调用前失败。
+Product Edge 写请求绑定不可自我声明的 Operator Authorization，包含准确 principal issuer audience scope 到期 撤销前沿 请求证明与内容寻址 Agent
+Operation Manifest。 Research Strategy Artifact 绑定代码字节 依赖来源 runtime 与 sandbox policy capability manifest
+安全准入，以及对环境 filesystem network secret 和 effect port 的明确拒绝及 Artifact Security Admission。
+
+Market Data 通过不可变 Market Data Source Binding 准入每个来源，绑定实现与配置摘要 认证 endpoint dataset/account mapping
+normalization policy trust policy license scope 与不透明最小权限 credential handle。 Execution Scope 绑定等价 adapter 身份
+场所或 simulator endpoint 账户映射 capability 与 reduce-only policy trust policy 及不透明 credential handle。
+
+Secret 值不能复制进 artifact request command journal 或 read model。 安全验证必须从 Governance 接受回执经 Runtime Risk Execution
+追踪 authorization mode 与完整 Authorization Lineage 到权威回读。 `UNATTENDED_REQUEST_WITH_POLICY` 还必须追踪并重验 Autonomous Policy
+Authorization。 任一必需成员缺失 过期 撤销 scope 不匹配或 history head 不匹配时， 必须在 Reservation 创建或 adapter 调用前失败。
 
 ## 就绪 时间与效果闭合
 
@@ -458,11 +396,11 @@ depth 与 dropped wake count；它永不改写业务事实。
 
 Time Evidence 按用途区分，不能压缩成一个 timestamp：
 
-每个时间敏感 architecture object 都准确声明一个规范 `timeEvidenceCutKind`。七行矩阵与这些对象声明
-必须形成严格双射：时间敏感对象未声明、矩阵重复，或声明不在矩阵中都使契约无效。范围包括 source
-binding 与 PIT request、保护 request/result/assessment 证据、Trade Intent 与 Authorized Order Command、
-incident 与 drift fact、Recovery admission 与 closure，以及所有显式时间绑定的 Portfolio fact。所选行
-提供完整必需 binding，本地 timestamp 不能满足该声明。
+每个时间敏感 architecture object 都准确声明一个规范 `timeEvidenceCutKind`。 七行矩阵与这些对象声明 必须形成严格双射：时间敏感对象未声明、矩阵重复，或声明不在矩阵中都使契约无效。
+范围包括 source binding 与 PIT request、保护 request/result/assessment 证据、Trade Intent 与 Authorized Order Command、
+incident 与 drift fact、Recovery admission 与 closure，以及所有显式时间绑定的 Portfolio fact。
+
+所选行 提供完整必需 binding，本地 timestamp 不能满足该声明。
 
 - `MARKET_DATA_AS_OF` 为 PIT snapshot stream 与 valuation fact 绑定 event-effective provider-available
   retrieval 和 correction time；observation time 不能替代其中任何截面。
@@ -495,73 +433,86 @@ incident 与 drift fact、Recovery admission 与 closure，以及所有显式时
 **CURRENT：** Market Data 把一个私有规范 clock head 与自身 Source Binding 和 PIT fact 原子持久化。当前
 实现支持准确 replay 与同 epoch 前进，并拒绝 epoch 变化；规范跨 Owner 交接与 epoch-successor proof 均非当前能力。
 
-**TARGET：** Market Data 仍是 Owner-local producer，不设 global Time Owner。其 sealed read-only clock-head
-handoff 不可变、内容寻址且可按准确身份回读，绑定 head identity 与 digest、clock identity 与 epoch、
-monotonic sequence、wall observation、decision cut、排他的 `valid-through`、restart-continuity digest、
-uncertainty 与 skew bound 和 comparison rule。同 epoch successor 必须严格推进全部必需 cut 并保持 epoch-stable
-语义。新 epoch 只有在一个 direct immutable Epoch Successor Proof 与新 head 原子提交后才可消费。proof 绑定
-准确 predecessor 与 successor head digest、前后 epoch identity、successor continuity digest、proof identity、
-commit cut 与 comparison rule。消费者不能遍历 proof chain、跳过前驱或跨 epoch 比较 sequence。每个消费者
-提交自己的准确 prior sealed handoff，并独自决定自身 transition。producer 闭合后，Portfolio
-`PORTFOLIO_FRESHNESS` 是首个 TARGET 真实消费者。
+**TARGET：** Market Data 仍是 Owner-local producer，不设 global Time Owner。 其 sealed read-only clock-head handoff
+不可变、内容寻址且可按准确身份回读，绑定 head identity 与 digest、clock identity 与 epoch、 monotonic sequence、wall
+observation、decision cut、排他的 `valid-through`、restart-continuity digest、 uncertainty 与 skew bound 和
+comparison rule。
+
+同 epoch successor 必须严格推进全部必需 cut 并保持 epoch-stable 语义。 新 epoch 只有在一个 direct immutable Epoch Successor Proof 与新
+head 原子提交后才可消费。 proof 绑定 准确 predecessor 与 successor head digest、前后 epoch identity、successor continuity
+digest、proof identity、 commit cut 与 comparison rule。 消费者不能遍历 proof chain、跳过前驱或跨 epoch 比较 sequence。
+
+每个消费者 提交自己的准确 prior sealed handoff，并独自决定自身 transition。 producer 闭合后，Portfolio `PORTFOLIO_FRESHNESS` 是首个 TARGET
+真实消费者。
 
 ### Deployment Store Admission
 
-**CURRENT：** `crates/data/src/owner/store_admission` 将非业务 PostgreSQL admission 机制及其前后
-revalidation 保留在 Market Data crate 内。固定 `rd-owner-api` bootstrap 请求该私有 seam；custody store、
-signer、anti-rollback mode、credential resolver 或 direct measurer 中任一生产端口无法由部署配置构建时，在构造
-repository 前 fail closed。随后 Market Data 回读当前 PIT、Source Binding 与 clock head 并密封 `ResearchPitTerminal`。R&D 只能获得 sealed terminal resolver：raw receipt、capability、query、DTO、evidence accessor 或
-caller-authored positive authority 均不能越过 Owner 边界。通用 S3 catalog 仍只是机制，不是权威。
+**CURRENT：** `crates/data/src/owner/store_admission` 将非业务 PostgreSQL admission 机制及其前后 revalidation 保留在 Market Data crate 内。 固定
+`rd-owner-api` bootstrap 请求该私有 seam；custody store、 signer、anti-rollback mode、credential resolver 或
+direct measurer 中任一生产端口无法由部署配置构建时，在构造 repository 前 fail closed。
 
-**TARGET：** 一个属于 Market Data 私有边界且不属于业务的 Deployment Store Admission Custodian，只拥有 signed append-only store manifest
-与 history、唯一 signed current head、direct target measurement、immutable admission receipt、rotation fence 和
-custody incident；它不进入业务 `authorityOwners`、Flow 或 Dashboard。manifest 绑定 environment、deployment、
-consumer Owner、backend、endpoint、TLS、server 与 database 或 bucket 与 prefix identity；PostgreSQL schema、
-migration、function、role 与 ACL identity，或 S3 capability 与 version 语义；opaque credential-handle identity、
-audience 与 version；以及 predecessor、generation、validity 与 recovery。positive receipt 必须具备 signature、
-current head、anti-rollback witness、direct measurement、credential lease 与已闭合 rotation fence，不能由 caller
-自写 positive evidence 组装。**唯一信任域只有一台机器的部署上，anti-rollback 性质不成立**：放在这台机器上的 witness
-会和它要看守的 custody store 一起回滚，所以 custodian 改用具名模式 `SingleTrustDomainNoRollbackWitness`。它什么也不观测、
-什么也不约束，检测不到整台机器的回滚；回执里写明这个模式名，而不是 witness 证明。用户只为单机部署授权了这次降级
-（user, 2026-09-27, AskUserQuestion。问题：「防回滚见证需要一个不会跟着本机一起回滚的地方。你有第二个信任域吗？如果只有这一台机器，这条防护按文字实现出来会恒真，等于弱化了一条已写明的性质，这需要你授权。」用户选择：「只有本机，授权降级」，说明为「接受单机部署下不防回滚：文档写明这条性质在单机上不成立，见证不实现或只做形式记录」）。有第二个信任域的部署在那里保留 witness，并按名
-去掉这个模式。restart 或 cache loss 必须重验 signature/head 并重新测量目标。任何歧义都不构造
-Owner repository，也不触发 business retry。
+随后 Market Data 回读当前 PIT、Source Binding 与 clock head 并密封 `ResearchPitTerminal`。 R&D 只能获得 sealed terminal
+resolver：raw receipt、capability、query、DTO、evidence accessor 或 caller-authored positive authority 均不能越过 Owner
+边界。 通用 S3 catalog 仍只是机制，不是权威。
 
-预期的默认 consumer 是 `product/rd-workbench` 的 `rd-owner-api` bootstrap composition。Market Data 在构造
-受治理 PostgreSQL repository 之前，其私有 seam 必须消费一个绑定准确 Market Data Owner、PostgreSQL backend、
-environment、deployment 与 consumer identity 的 sealed store-admission receipt。S3 保持 TARGET 和
-`UNAVAILABLE`，直到存在真实 catalog consumer 与 pinned disposable S3-compatible test authority。receipt 与 raw
-store/PIT/source/clock evidence 保留在 Market Data 内；普通 consumer 首个可见值是 sealed
-`ResearchPitTerminal`。默认产品入口从部署配置组合其独立的生产 custody store、signer、anti-rollback mode、credential
-resolver 与 direct measurer，并且只准入某个已发布 head 指名为已测量的库。
+**TARGET：** 一个属于 Market Data 私有边界且不属于业务的 Deployment Store Admission Custodian，只拥有 signed append-only store
+manifest 与 history、唯一 signed current head、direct target measurement、immutable admission receipt、rotation fence
+和 custody incident；它不进入业务 `authorityOwners`、Flow 或 Dashboard。
 
-**`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET：** 只有这个被显式选择的 profile
-获准作为非默认、非生产动态验收拓扑。canonical management plane 在 repository、candidate、caller、consumer 与被测进程
-之外预置 immutable acceptance trust bundle，固定 environment、signer key fingerprint、witness、credential-
-resolver 与 direct-measurer identity。分别执行的独立 principal 签发 signed append-only manifest/history 与
-准确 current head、维护 witness、租赁 opaque credential handle、直接测量 disposable PostgreSQL target 并关闭
-rotation；candidate/caller 不拥有其中任何写权限或 secret authority。admission receipt 交叉绑定该 bundle 与每项
-observation。其余 stages 是：Market Data 私有 admission/custodian；Owner-issued request 到
-projection/event locator 与 durable readback；密封只读 `StrategyInputSampleEventResolverV1`；`ProgramHost`；
-真实 BacktestEngine 与 Sim Exchange；以及带 restart readback 的 Backtest Owner terminal-result receipt。raw
-custody evidence 绝不交给 consumer。Backtest 原子提交准确 request、attempt、actual-consumption record、diagnosis
-与 result；逐字节相同 retry 加入相同 canonical bytes，含义变化则冲突且零写入。
+manifest 绑定 environment、deployment、 consumer Owner、backend、endpoint、TLS、server 与 database 或 bucket 与 prefix
+identity；PostgreSQL schema、 migration、function、role 与 ACL identity，或 S3 capability 与 version 语义；opaque
+credential-handle identity、 audience 与 version；以及 predecessor、generation、validity 与 recovery。
 
-任一 signature、head、rotation、ACL、credential、measurement、request、locator、projection、event、role 或
-readback binding 缺失或不匹配时，该 profile 必须在 `ProgramHost` 或 Backtest mutation 前 fail closed。raw
-DSN、caller digest、fixture、fixed corpus、in-memory/temp-file writer，以及由 candidate、caller、consumer 或
-被测进程派生的 signer/witness/credential/measurer 均不能创建
-正向 resolver 或 result。成功的隔离证据只证明该准确 disposable topology；不能提升为 production readiness、
-deployment authority、Paper、Live、real trading 或另一项 production write。
+positive receipt 必须具备 signature、 current head、anti-rollback witness、direct measurement、credential lease 与已闭合
+rotation fence，不能由 caller 自写 positive evidence 组装。 **唯一信任域只有一台机器的部署上，anti-rollback 性质不成立**：放在这台机器上的 witness
+会和它要看守的 custody store 一起回滚，所以 custodian 改用具名模式 `SingleTrustDomainNoRollbackWitness`。
+
+它什么也不观测、 什么也不约束，检测不到整台机器的回滚；回执里写明这个模式名，而不是 witness 证明。 该模式仅限单机信任域，不提供整机反回滚保护。有第二个信任域的部署必须保留独立 witness，不能选择此模式。
+
+restart 或 cache loss 必须重验 signature/head 并重新测量目标。 任何歧义都不构造 Owner repository，也不触发 business retry。
+
+预期的默认 consumer 是 `product/rd-workbench` 的 `rd-owner-api` bootstrap composition。 Market Data 在构造 受治理
+PostgreSQL repository 之前，其私有 seam 必须消费一个绑定准确 Market Data Owner、PostgreSQL backend、 environment、deployment 与
+consumer identity 的 sealed store-admission receipt。
+
+S3 保持 TARGET 和 `UNAVAILABLE`，直到存在真实 catalog consumer 与 pinned disposable S3-compatible test authority。
+receipt 与 raw store/PIT/source/clock evidence 保留在 Market Data 内；普通 consumer 首个可见值是 sealed
+`ResearchPitTerminal`。
+
+默认产品入口从部署配置组合其独立的生产 custody store、signer、anti-rollback mode、credential resolver 与 direct measurer，并且只准入某个已发布
+head 指名为已测量的库。
+
+**`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET：** 只有这个被显式选择的 profile 获准作为非默认、非生产动态验收拓扑。 canonical management plane 在
+repository、candidate、caller、consumer 与被测进程 之外预置 immutable acceptance trust bundle，固定 environment、signer key
+fingerprint、witness、credential- resolver 与 direct-measurer identity。
+
+分别执行的独立 principal 签发 signed append-only manifest/history 与 准确 current head、维护 witness、租赁 opaque credential
+handle、直接测量 disposable PostgreSQL target 并关闭 rotation；candidate/caller 不拥有其中任何写权限或 secret authority。 admission
+receipt 交叉绑定该 bundle 与每项 observation。
+
+其余 stages 是：Market Data 私有 admission/custodian；Owner-issued request 到 projection/event locator 与 durable
+readback；密封只读 `StrategyInputSampleEventResolverV1`；`ProgramHost`； 真实 BacktestEngine 与 Sim Exchange；以及带 restart readback
+的 Backtest Owner terminal-result receipt。 raw custody evidence 绝不交给 consumer。
+
+Backtest 原子提交准确 request、attempt、actual-consumption record、diagnosis 与 result；逐字节相同 retry 加入相同 canonical
+bytes，含义变化则冲突且零写入。
+
+任一 signature、head、rotation、ACL、credential、measurement、request、locator、projection、event、role 或 readback binding
+缺失或不匹配时，该 profile 必须在 `ProgramHost` 或 Backtest mutation 前 fail closed。
+
+raw DSN、caller digest、fixture、fixed corpus、in-memory/temp-file writer，以及由 candidate、caller、consumer 或 被测进程派生的
+signer/witness/credential/measurer 均不能创建 正向 resolver 或 result。 成功的隔离证据只证明该准确 disposable topology；不能提升为
+production readiness、 deployment authority、Paper、Live、real trading 或另一项 production write。
 
 **NOT_ADMITTED：** custodian 不创建 business fact/receipt、global registry、scheduler 或 deployment service；
 artifact/log 不保存 raw DSN、secret 或 private key；不自动执行 DDL、role、credential、bucket mutation 或
 provider probe；也不授权 production write、Dashboard implementation 或 trading。
 
-Shared Time producer state machine 先于其 Portfolio consumer。disposable PostgreSQL acceptance 必须覆盖
-私有 admission、前后 revalidation、Market Data current-head 校验和被显式选择的隔离 consumer path；fixture
-不能证明 production adapter。production signer、resolver、witness、credential-resolver、direct-measurement、
-default-product 与 S3 adapter 在有自身证据前保持 unavailable。
+Shared Time producer state machine 先于其 Portfolio consumer。 disposable PostgreSQL acceptance 必须覆盖 私有
+admission、前后 revalidation、Market Data current-head 校验和被显式选择的隔离 consumer path；fixture 不能证明 production adapter。
+
+production signer、resolver、witness、credential-resolver、direct-measurement、 default-product 与 S3 adapter
+在有自身证据前保持 unavailable。
 
 Execution 面向 Product Edge 的 Effect Closure View 区分 `UNKNOWN_EFFECT` `NO_EFFECT` `SETTLED`，并绑定准确 effect frontier
 回读与对账截面 blocker freshness 和责任 Owner。Recovery 投影另行区分 Runtime readiness `NOT_READY`
@@ -592,55 +543,55 @@ lag 与 rebuild 状态。即使共享物理存储或中间件，也不能合并 
 
 ## Recovery 终态
 
-Recovery 把每个已提交 initiating cause 准确分类到 `RUNTIME_NOT_READY` `RUNTIME_INCIDENT`
-`RECONCILIATION_DRIFT` 或 `RISK_HARD_STOP`。不同原因同时出现时保留各自 branch membership 并加入同一 case；任一分支都不要求
-只由另一分支拥有的证据。`RUNTIME_NOT_READY` 绑定本地抑制和不可变 `NOT_READY` fact；
-`RUNTIME_INCIDENT` 只绑定准确 `runtime-incident-fact` 并由 `runtime-risk-incident-fence` 携带给 Risk；
-`RECONCILIATION_DRIFT` 只绑定准确 `reconciliation-drift-fact` 并由 `execution-risk-drift-fence` 携带给
-Risk。两条关系都只携带已提交来源证据，Risk 仍是 Recovery Fence 唯一 writer。任一单独分支都不需要
-另一来源，但只有 Execution 为它提交独立
-一次性 `RECOVERY_ADMITTED` disposition 与匹配 `ACTIVE` Risk Recovery Fence 后，才能创建或加入 case；
-两者同时准入时，各自 disposition 加入同一只追加 case。Runtime 为 `READY` 且不存在匹配 fence 时，
-权威 no-effect 或已完整对账且无剩余 liability 的证明终结为 `NO_RECOVERY_REQUIRED`；缺失、混合截面或
-无法隔离的证据终结为 `UNRESOLVED_NO_CASE`。两种 no-case 状态都不创建 case、command、effect attempt
-或 fence。`RISK_HARD_STOP` 可以在 Runtime 为 `READY` 且没有 `RUNTIME_INCIDENT` 或
-`RECONCILIATION_DRIFT` 时创建并围栏 case。Risk 在同
-scope frontier 独立激活每个适用 fence，绝不等待 case 确认。Risk 给 fence activation 与每个正常
-`ADAPTER_ADMISSION_REQUEST` 排出唯一顺序：fence 先获胜时
-`SUPPRESSED_BY_FENCE` 证明未调用；admission 先获胜时只有一个 `ADMITTED_ONCE` attempt 纳入 Recovery
-effect frontier。Execution Reconciler 还保留同时成立的已应用 Artifact
-`DECREASE_ONLY_STRATEGY_PROTECTIVE` 原因，但不把它当作 Recovery 权威；并用同一 open-order 暴露
-回读截面去重正常 attempt，使所有到达顺序对剩余数量最多允许一个外部减仓效果。Execution Reconciler
-创建唯一 `OPEN` case，绑定 Risk-authoritative 完整活动 fence-set
-identity/content digest 后推进为 `FENCED_OPEN`；Execution 不能根据收到的 member 推断完整性。
-只有 Reconciler 能创建恢复命令。恢复命令必须绑定 Recovery Case
-和 fence epoch，且只能撤销、减仓、清仓或回读。减仓与清仓还绑定 Execution 权威暴露回读截面 方向 数量
-有界目标和 reduce-only 政策。Execution 在适配器调用前重验同一截面；部分或并发成交 较新截面 零或翻转暴露
-不支持 reduce-only 或可能穿越零点都必须拒绝且不调用。Runtime Risk Execution 与 Portfolio 事实全部
-闭合后，Reconciler 才能写入 `KNOWN_CLOSED`。外部效果未知时案例必须保持打开，也不能启动新一代。
+Recovery 把每个已提交 initiating cause 准确分类到 `RUNTIME_NOT_READY` `RUNTIME_INCIDENT` `RECONCILIATION_DRIFT` 或
+`RISK_HARD_STOP`。 不同原因同时出现时保留各自 branch membership 并加入同一 case；任一分支都不要求 只由另一分支拥有的证据。
 
-Execution 在请求准入前把 attempt 以 `PREPARED` 持久化；只有 `ADMITTED_ONCE` 才允许外部调用前写入
-`INVOCATION_STARTED`。崩溃 响应丢失或重启必须加入这些 record 并执行回读，不能裸重试。Recovery action
-不提交普通 adapter-admission request。只有 Risk 拥有 Reservation 成员前沿
-三态解析以及完整受影响集合或显式空集合。Execution 回报共同 case、完整 fence set、command、effect 身份和
-按状态区分的证据。已提交 drift `UNKNOWN_EFFECT` 绑定 effect journal、uncertain-effect lineage、不确定性
-观察、最后回读尝试或已证明缺失及完整 source/time frontier，且不伪造结果；只有 `NO_EFFECT` 与
-`SETTLED` 绑定权威终态回读和对账截面。
-Execution 既不读取也不证明 Reservation 成员关系。Risk 把事实与自己的前沿联结。孤儿外部效果只有在
-完整 Risk 前沿联结 Execution 权威回读后才能标为 `RESOLVED_EMPTY`；隐式空集合或 `UNRESOLVED` 保持
+`RUNTIME_NOT_READY` 绑定本地抑制和不可变 `NOT_READY` fact； `RUNTIME_INCIDENT` 只绑定准确 `runtime-incident-fact` 并由
+`runtime-risk-incident-fence` 携带给 Risk； `RECONCILIATION_DRIFT` 只绑定准确 `reconciliation-drift-fact` 并由 `execution-risk-drift-fence` 携带给
+Risk。 两条关系都只携带已提交来源证据，Risk 仍是 Recovery Fence 唯一 writer。
+
+任一单独分支都不需要 另一来源，但只有 Execution 为它提交独立 一次性 `RECOVERY_ADMITTED` disposition 与匹配 `ACTIVE` Risk
+Recovery Fence 后，才能创建或加入 case； 两者同时准入时，各自 disposition 加入同一只追加 case。
+
+Runtime 为 `READY` 且不存在匹配 fence 时， 权威 no-effect 或已完整对账且无剩余 liability 的证明终结为
+`NO_RECOVERY_REQUIRED`；缺失、混合截面或 无法隔离的证据终结为 `UNRESOLVED_NO_CASE`。 两种 no-case 状态都不创建 case、command、effect attempt 或
+fence。
+
+`RISK_HARD_STOP` 可以在 Runtime 为 `READY` 且没有 `RUNTIME_INCIDENT` 或 `RECONCILIATION_DRIFT` 时创建并围栏
+case。 Risk 在同 scope frontier 独立激活每个适用 fence，绝不等待 case 确认。
+
+Risk 给 fence activation 与每个正常 `ADAPTER_ADMISSION_REQUEST` 排出唯一顺序：fence 先获胜时 `SUPPRESSED_BY_FENCE` 证明未调用；admission
+先获胜时只有一个 `ADMITTED_ONCE` attempt 纳入 Recovery effect frontier。 Execution Reconciler 还保留同时成立的已应用 Artifact
+`DECREASE_ONLY_STRATEGY_PROTECTIVE` 原因，但不把它当作 Recovery 权威；并用同一 open-order 暴露 回读截面去重正常 attempt，使所有到达顺序对剩余数量最多允许一个外部减仓效果。
+
+Execution Reconciler 创建唯一 `OPEN` case，绑定 Risk-authoritative 完整活动 fence-set identity/content
+digest 后推进为 `FENCED_OPEN`；Execution 不能根据收到的 member 推断完整性。 只有 Reconciler 能创建恢复命令。 恢复命令必须绑定 Recovery Case
+和 fence epoch，且只能撤销、减仓、清仓或回读。 减仓与清仓还绑定 Execution 权威暴露回读截面 方向 数量 有界目标和 reduce-only 政策。
+
+Execution 在适配器调用前重验同一截面；部分或并发成交 较新截面 零或翻转暴露 不支持 reduce-only 或可能穿越零点都必须拒绝且不调用。 Runtime Risk Execution 与
+Portfolio 事实全部 闭合后，Reconciler 才能写入 `KNOWN_CLOSED`。 外部效果未知时案例必须保持打开，也不能启动新一代。
+
+Execution 在请求准入前把 attempt 以 `PREPARED` 持久化；只有 `ADMITTED_ONCE` 才允许外部调用前写入 `INVOCATION_STARTED`。
+崩溃 响应丢失或重启必须加入这些 record 并执行回读，不能裸重试。 Recovery action 不提交普通 adapter-admission request。 只有 Risk 拥有 Reservation
+成员前沿 三态解析以及完整受影响集合或显式空集合。 Execution 回报共同 case、完整 fence set、command、effect 身份和 按状态区分的证据。
+
+已提交 drift `UNKNOWN_EFFECT` 绑定 effect journal、uncertain-effect lineage、不确定性 观察、最后回读尝试或已证明缺失及完整 source/time
+frontier，且不伪造结果；只有 `NO_EFFECT` 与 `SETTLED` 绑定权威终态回读和对账截面。 Execution 既不读取也不证明 Reservation
+成员关系。 Risk 把事实与自己的前沿联结。
+
+孤儿外部效果只有在 完整 Risk 前沿联结 Execution 权威回读后才能标为 `RESOLVED_EMPTY`；隐式空集合或 `UNRESOLVED` 保持
 `UNKNOWN_EFFECT`，使 Reservation 不可复用并保持 case 围栏。
 
-Execution Reconciler 为同一 generation 和影响范围最多保留一个未终结 Recovery Case。匹配的 branch
-cause 都追加到它的因果集合，不能伪造另一分支的前置条件。闭合必须绑定来源 Owner 的事实前沿，并
-包含前沿内全部原因、准确完整 fence set、已对账
-Execution 回读、完整 Risk 预留覆盖和匹配 Portfolio 投影。闭合提交前出现新原因会使待闭合证据失效。
-只有绑定匹配完整 `ACTIVE` fence set 的 `FENCED_OPEN` case 能签发 decrease-only Recovery Command。
-每个 plan attempt closure 绑定同一不可变集合快照；调用前新增 member 使旧 command 失效，调用后新增
-member 保留已开始 attempt 并只推进后继 frontier。
+Execution Reconciler 为同一 generation 和影响范围最多保留一个未终结 Recovery Case。 匹配的 branch cause 都追加到它的因果集合，不能伪造另一分支的前置条件。
+闭合必须绑定来源 Owner 的事实前沿，并 包含前沿内全部原因、准确完整 fence set、已对账 Execution 回读、完整 Risk 预留覆盖和匹配 Portfolio 投影。
+闭合提交前出现新原因会使待闭合证据失效。
+
+只有绑定匹配完整 `ACTIVE` fence set 的 `FENCED_OPEN` case 能签发 decrease-only Recovery Command。 每个
+plan attempt closure 绑定同一不可变集合快照；调用前新增 member 使旧 command 失效，调用后新增 member 保留已开始 attempt 并只推进后继 frontier。
 `KNOWN_CLOSED` 由 Execution 独占追加，不能恢复旧 generation，只允许 Governance 考虑一次新的授权。
-前驱 fence 继续保持 `ACTIVE` 并只绑定前驱 generation。新 generation 需要新的 Governance 决定和普通
-新增风险门禁，但在自身四种准确 Recovery 来源分支之一独立激活前没有 Recovery Fence；
-仅因为 generation 是新的就创建 fence 会直接抑制该 generation。
+
+前驱 fence 继续保持 `ACTIVE` 并只绑定前驱 generation。 新 generation 需要新的 Governance 决定和普通 新增风险门禁，但在自身四种准确
+Recovery 来源分支之一独立激活前没有 Recovery Fence； 仅因为 generation 是新的就创建 fence 会直接抑制该 generation。
 
 ## 失败关闭
 

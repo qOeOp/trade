@@ -614,26 +614,6 @@ aside [class~="bg-fd-secondary/50"][class~="empty:hidden"] {
   pointer-events: auto;
 }
 
-.docs-scenario-brief[data-overview-cue="true"] {
-  bottom: 0.05rem;
-  width: fit-content;
-  max-width: min(100ch, calc(100% - 2rem));
-  padding-block: 0.2rem;
-  border-radius: 1rem;
-  line-height: 1.2;
-}
-
-.docs-overview-cues {
-  display: block;
-  max-width: 100ch;
-  color: color-mix(in srgb, var(--map-node-text) 78%, transparent);
-  font-size: 0.55rem;
-  font-weight: 560;
-  line-height: 1.25;
-  text-align: center;
-  white-space: normal;
-}
-
 .docs-scenario-brief[data-detail="true"] b {
   overflow: hidden;
   font-weight: 600;
@@ -777,3 +757,10 @@ aside [class~="bg-fd-secondary/50"][class~="empty:hidden"] {
   }
 
 }
+
+/* Service detail remains inside the original canvas brief. */
+.docs-internal-flow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.4rem; max-width: min(80vw, 65rem); }
+.docs-internal-flow > span { display: flex; align-items: center; gap: 0.4rem; }
+.docs-internal-flow a { padding: 0.4rem 0.6rem; border: 1px solid color-mix(in srgb, var(--map-edge) 35%, transparent); border-radius: 0.7rem; background: var(--map-node); font-family: inherit; font-size: 0.62rem; color: var(--map-node-text); }
+.docs-internal-flow i { color: var(--map-edge); font-style: normal; }
+.docs-selected-detail:has(.docs-internal-flow) { max-width: none; }

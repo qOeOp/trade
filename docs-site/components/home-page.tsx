@@ -2,8 +2,8 @@ import type { Locale } from '@/lib/i18n';
 import { ArchitectureMap } from '@/components/architecture-map';
 
 export const homeDescription: Record<Locale, string> = {
-  en: 'Research, backtest, and execute with governed strategy semantics.',
-  zh: '以受治理的策略语义连接研究、回测与实盘执行。',
+  en: 'Explore the product blueprint for strategy and portfolio research, validation and governed trading.',
+  zh: '探索策略与投资组合的研究、验证和受治理交易产品蓝图。',
 };
 
 export function HomePageContent({ locale }: { locale: Locale }) {

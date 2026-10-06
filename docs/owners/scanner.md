@@ -3,7 +3,7 @@
 ## Target role and legacy contract migration
 
 The product target no longer retains a separate Scanner department or its deployment-proposal route. On-demand market
-search belongs to [R&D discovery](./rd/#target---on-demand-read-only-opportunity-discovery),
+search belongs to [R&D discovery](./rd/#on-demand-read-only-opportunity-discovery),
 reusing sealed strategies and native evaluation. Strategy Governance directly decides initial deployment, trial
 promotion, retention and retirement from eligibility, account/performance facts and frozen conditions. It needs no
 new scan-proposal producer, and opportunity signals are not a prerequisite for strategy deployment.
@@ -170,15 +170,16 @@ admitted.
 ## Failure and recovery
 
 One unavailable strategy input or condition error closes only that strategy as `INPUT_UNAVAILABLE` or
-`CONDITION_FAILED`; neither can manufacture a batch operational failure. A complete set with no `MATCHED` and at
-least one `CONDITION_FAILED` closes as `COMPLETED_NO_PROPOSAL`, retaining every member. Batch `FAILED` is reserved
-for `INCOMPLETE_FAILED` or an independently evidenced `BATCH_OPERATIONAL_FAILED`. The latter binds exactly one
-`SCHEDULER_ORCHESTRATION_FAILURE`, `SCANNER_SERVICE_FAILURE`, or
-`SHARED_DEPENDENCY_OPERATIONAL_FAILURE` category plus its failure identity, evidence source cuts, and Time
-Evidence. A known incomplete expected set records exact missing members; an unresolved expected set records why
+`CONDITION_FAILED`; neither can manufacture a batch operational failure. A complete set with no
+`MATCHED` and at least one `CONDITION_FAILED` closes as `COMPLETED_NO_PROPOSAL`, retaining every
+member. Batch `FAILED` is reserved for `INCOMPLETE_FAILED` or an independently evidenced
+`BATCH_OPERATIONAL_FAILED`. The latter binds exactly one `SCHEDULER_ORCHESTRATION_FAILURE`, `SCANNER_SERVICE_FAILURE`, or
+`SHARED_DEPENDENCY_OPERATIONAL_FAILURE` category plus its failure identity, evidence source cuts, and Time Evidence.
+
+A known incomplete expected set records exact missing members; an unresolved expected set records why
 membership is unavailable and never fabricates missing members. No failed branch carries a proposal even if an
-observed strategy matched. Total precedence is independently proven batch `FAILED`, complete `PROPOSED`, complete
-`COMPLETED_NO_PROPOSAL`, `INSUFFICIENT_DATA`, then `NO_MATCH`.
+observed strategy matched. Total precedence is independently proven batch `FAILED`, complete
+`PROPOSED`, complete `COMPLETED_NO_PROPOSAL`, `INSUFFICIENT_DATA`, then `NO_MATCH`.
 
 The schedule definition determines due slots before execution. The same definition version, scan-scope identity
 and version, and canonical boundary always resolve to one attempt and one terminal receipt. A changed cadence,
@@ -187,16 +188,16 @@ clock continuity, or conflicting or unresolvable scope or slot evidence, creates
 cannot invent a new slot or put a new clock epoch into the stable identity.
 
 **Reading a terminal receipt back is time-independent, and must stay so.** The clock observation admission
-consumed is not part of the receipt, so a readback cannot re-run the admission's clock predicates and must not be
-changed to: a receipt that read one way today and another way tomorrow is no longer a terminal record. What a
-readback re-derives is every check whose two sides the receipt still holds - the source, frontier, scope and
-requirement checks, the cross-cuts, and the due instant, which the retained boundary determines. A field the
-receipt carries whose counterpart it does not, such as each fact's observation instant, is not re-checked, and
-re-deriving a substitute counterpart would make the check depend on what that scan happened to need. A readback
-also reaches one invariant admission cannot: every fact in one receipt shares one due slot, so their clock
-epochs and Time Evidence are all equal. Admitting a
-single fact cannot see a second fact, so nothing on the admission path can check that; only the whole receipt
-coming back can.
+consumed is not part of the receipt, so a readback cannot re-run the admission's clock predicates and must not
+be changed to: a receipt that read one way today and another way tomorrow is no longer a terminal record. What
+a readback re-derives is every check whose two sides the receipt still holds - the source, frontier, scope and
+requirement checks, the cross-cuts, and the due instant, which the retained boundary determines.
+
+A field the receipt carries whose counterpart it does not, such as each fact's observation instant, is not
+re-checked, and re-deriving a substitute counterpart would make the check depend on what that scan happened to
+need. A readback also reaches one invariant admission cannot: every fact in one receipt shares one due slot,
+so their clock epochs and Time Evidence are all equal. Admitting a single fact cannot see a second fact, so
+nothing on the admission path can check that; only the whole receipt coming back can.
 
 ## Decision contract
 

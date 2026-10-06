@@ -1,5 +1,11 @@
 # Product Edge
 
+<Callout type="info" title="Client boundary, not another service Owner">
+
+Read deployment and domain tools before exact protocol details. The client admits requests and displays results; each domain owns jobs, facts and refusal states. Compatibility transports do not change the approved user journey.
+
+</Callout>
+
 ## Responsibility
 
 Product Edge is the protocol and application boundary for bounded requests and result views. The target research
@@ -11,33 +17,56 @@ The [capability extension map](./capability-adoption/) defines this foundation a
 
 ## Product surface and deployment
 
-The target package exposes the data, backtest and R&D service capabilities to an external agent. Deterministic
-jobs remain owned by the service behind each MCP, not by the caller session. R&D may call the services through
-internal typed APIs; external agents choose research hypotheses and iterations. Product correctness requires
-neither an embedded model nor a particular agent vendor. The custom Dashboard is the first-party user view and control client,
-not a prerequisite for completing a research journey through MCP.
+The target package serves one individual user and one external Agent. The Agent may be replaced while the
+product retains persistent research records. Shared multi-user hosting and concurrent Agent collaboration are
+not current product requirements. It exposes data, backtest and R&D capabilities for strategies and investment
+portfolios, including multi-instrument strategies, multi-strategy shared-account replay and composition-change
+research across Binance crypto spot/derivatives and its equity/commodity-referencing products. Binance is the
+target venue, not a collection of independent brokers. Deliver derivatives first and spot later.
+
+Initial Binance perpetual acceptance does not limit the target market scope. The [service
+architecture](./index/) defines their complete research, validation and governed-operation scope.
+Deterministic jobs remain owned by the service behind each MCP, not by the caller session. R&D may call the
+services through internal typed APIs; external agents choose research hypotheses and iterations. Product
+correctness requires neither an embedded model nor a particular agent vendor. Users submit research directly
+to their external Agent, which initiates and advances it through MCP.
+
+Dashboard shows progress, evidence and results and provides activation confirmation, policy configuration and
+operation controls. Research views are read-only; Dashboard does not initiate, pause, resume or terminate
+research, or dispatch/control the external Agent. Product services do not provide a remote-control channel to
+local Codex/Claude conversations. The target backend and web Dashboard run on the server; local development
+remains supported. Local Agent/PC availability is not the lifetime of server data/backtest jobs or authorized
+strategy operation.
+
+Already admitted work continues under its existing bounds while the server is available; new research
+orchestration waits for the external Agent. Resuming callers resolve original job/request identities before
+issuing successor work. Six responsibilities do not require six processes.
 
 The existing Compose package and Dashboard preview below are current implementation inventory, not proof that
 this target service architecture has shipped. Deployment and real-money admission remain separate gates.
 
-**Current Dashboard preview.** The UI entry is `product/dashboard`: one independently buildable `trade-dashboard` image carrying the
-Vibe-derived shell, the shared UI atoms, and the currently admitted first-party read surfaces. It owns its browser
-session gate, the Trade-owned RunStore, and four least-privilege process roles - `dashboard-web`,
-`dashboard-effect-worker`, `dashboard-shadow-worker`, and `dashboard-shadow-scheduler`. `/api/mcp` is a stateless
-Streamable HTTP endpoint over the same typed handlers. It sits outside the browser-session gate but requires its
-own finite, scoped Bearer capability and validates Host and Origin before dispatch. Its fixed tool registry carries
-only Source/Research action, the Develop Composer and Replay V2 request-custody actions,
-exact run detail, and bounded run-log reads; it exposes no arbitrary script, database, shell, or administrative
-tool. External conversation clients are optional consumers: they are not bundled product shells, business
-authorities, or implementation-acceptance dependencies.
+**Current Dashboard preview.** The UI entry is `product/dashboard`: one independently buildable
+`trade-dashboard` image carrying the Vibe-derived shell, the shared UI atoms, and the currently admitted
+first-party read surfaces. It owns its browser session gate, the Trade-owned RunStore, and four
+least-privilege process roles - `dashboard-web`, `dashboard-effect-worker`, `dashboard-shadow-worker`, and
+`dashboard-shadow-scheduler`. `/api/mcp` is a stateless Streamable HTTP endpoint over the same typed
+handlers. It sits outside the browser-session gate but requires its own finite, scoped Bearer capability and
+validates Host and Origin before dispatch.
 
-The Dashboard and its MCP endpoint invoke one curated set of versioned operations over typed Owner ports. They may
-not call arbitrary Owner SQL, mint business facts, or keep a shadow workflow truth. The Operations APIs read only
-Trade-owned operational RunStore data; typed R&D and Backtest reads use their exact Owner contracts. They never
-copy operational run rows or raw Owner payloads, and operational completion is never reinterpreted as business
-success. A live strategy loop, market session, order state machine, and recovery effect remain owned by Trade
-Runtime, Risk, and Execution, which also owns Recovery; the product surface may supervise and display them but is never the trading
-runtime.
+Its fixed tool registry carries only Source/Research action, the Develop Composer and Replay V2
+request-custody actions, exact run detail, and bounded run-log reads; it exposes no arbitrary script,
+database, shell, or administrative tool. External conversation clients are optional consumers: they are not
+bundled product shells, business authorities, or implementation-acceptance dependencies.
+
+The Dashboard and its MCP endpoint invoke one curated set of versioned operations over typed Owner ports. They
+may not call arbitrary Owner SQL, mint business facts, or keep a shadow workflow truth. The Operations APIs
+read only Trade-owned operational RunStore data; typed R&D and Backtest reads use their exact Owner contracts.
+They never copy operational run rows or raw Owner payloads, and operational completion is never reinterpreted
+as business success.
+
+A live strategy loop, market session, order state machine, and recovery effect remain owned by Trade Runtime,
+Risk, and Execution, which also owns Recovery; the product surface may supervise and display them but is never
+the trading runtime.
 
 **Current deployment state:** every Dashboard service starts only under the opt-in `dashboard-preview` profile, the
 image tag defaults to `preview`, the web host port defaults to `127.0.0.1:3100`, and the runtime roles expose no
@@ -87,23 +116,27 @@ overlapping schedule delivery is harmless only when the due-slot and Owner idemp
 receipt. Flow error handling may notify and enqueue resolution, but only an Owner receipt closes the business
 operation.
 
-A due slot supplies an identity, never authority. An unattended submission is an ordinary mutating submission and
-binds the same complete Authorization Lineage, including a current non-self-assertable Operator Authorization
-resolved at that run's own cut. The schedule, the due slot, the worker's role, its transport credentials, and its
-environment supply none of those members, so an unattended run that cannot resolve a current Operator
-Authorization fails closed before the first Owner call and creates no admission, run, or provider claim.
-**TARGET / NOT_ADMITTED:** unattended non-trading execution stays closed until an issuance path for that
-authorization is separately specified and admitted; unattended trading additionally requires the Autonomous
-Policy Authorization defined below.
+A due slot supplies an identity, never authority. An unattended submission is an ordinary mutating submission
+and binds the same complete Authorization Lineage, including a current non-self-assertable Operator
+Authorization resolved at that run's own cut.
 
-Artifact Formation uses a stable build-request identity and a stable attempt identity in addition to the frozen
-Research Intent identity. Replaying the same semantic tuple joins the same Owner attempt; reusing either identity
-for different semantics is an identity conflict. The exhaustive Owner dispositions are `SUCCESS`,
-`FAILED_NO_ARTIFACT`, `REJECTED_NO_WRITE`, and `OUTCOME_UNKNOWN`; `SUBMITTED_OR_UNKNOWN` is a query state, not a
-business disposition. Only `SUCCESS` atomically commits a new immutable Artifact, Build Receipt, Artifact Review,
-and `ARTIFACT_AVAILABLE` projection. Every other disposition has no Artifact. Response loss after commit resolves
-to that exact receipt, while timeout before commit can only close unknown without an Artifact. App and MCP invoke
-the same versioned Formation operation and never use operational run state as a substitute.
+The schedule, the due slot, the worker's role, its transport credentials, and its environment supply none of
+those members, so an unattended run that cannot resolve a current Operator Authorization fails closed before
+the first Owner call and creates no admission, run, or provider claim. **TARGET / NOT_ADMITTED:** unattended
+non-trading execution stays closed until an issuance path for that authorization is separately specified and
+admitted; unattended trading additionally requires the Autonomous Policy Authorization defined below.
+
+Artifact Formation uses a stable build-request identity and a stable attempt identity in addition to the
+frozen Research Intent identity. Replaying the same semantic tuple joins the same Owner attempt; reusing
+either identity for different semantics is an identity conflict. The exhaustive Owner dispositions are
+`SUCCESS`, `FAILED_NO_ARTIFACT`, `REJECTED_NO_WRITE`, and `OUTCOME_UNKNOWN`;
+`SUBMITTED_OR_UNKNOWN` is a query state, not a business disposition. Only `SUCCESS` atomically
+commits a new immutable Artifact, Build Receipt, Artifact Review, and `ARTIFACT_AVAILABLE` projection. Every
+other disposition has no Artifact.
+
+Response loss after commit resolves to that exact receipt, while timeout before commit can only close unknown
+without an Artifact. App and MCP invoke the same versioned Formation operation and never use operational run
+state as a substitute.
 
 Product Edge samples the request-admission commit cut only after the canonical authorization, deployment binding,
 manifest, and admission locks are held, immediately before its first write. It revalidates all four authorities at
@@ -125,7 +158,9 @@ corpus or isolated database pass proves only that bounded chain, not provider au
 external effects, Paper/Live or trading. Isolate executor, database, network and volumes and prove baseline
 preservation after cleanup. Response loss and restart resolve the same receipt without repeating completed effects.
 
-### Source Intake-to-Composer D0 contract
+### CURRENT - bounded Source Intake-to-Composer D0 contract
+
+This section constrains current admitted readback, permissions and atomicity, not the target strategy representation. Native packages preserve those authority/evidence properties without extending the Wasm compiler.
 
 This section freezes the top-level contract for the next implementation DAG; it does not make any target
 capability current. The maturity split is exact:
@@ -142,42 +177,49 @@ capability current. The maturity split is exact:
 - **SEALED_ACCEPTANCE:** only a completed A2 runner with all listed dynamic gates may claim the composed acceptance
   topology. It remains acceptance-only and cannot establish `PRODUCT_CURRENT` or production readiness.
 
-Replay Policy V2 comes only from the sealed, versioned, content-addressed R&D Catalog defined by the
-[R&D Owner contract](../owners/rd). Immediately before the first TrialFamily-formation write, the private R&D
-formation resolver locks and rereads the explicit current unrevoked head on its existing transaction and seals the
-policy and Catalog cross-binding permanently into the family. Later Composer and Replay compositions use only that
-family-sealed policy and cross-binding; it never rereads the Catalog as authority. An optional Catalog reread is
-audit-only and cannot affect admissibility, so later Catalog revocation, deletion, unavailability, or tamper cannot
-invalidate a formed family. Public Composer or Research requests carry no policy selector. Product Edge,
-callers, providers, environment values, defaults, migrations, and deployment configuration cannot create or
-select a version, advance the head, revoke a version, seed the Catalog, or synthesize a fallback. Only the private
-audited R&D Catalog Administration Port owns those writes.
+Replay Policy V2 comes only from the sealed, versioned, content-addressed R&D Catalog defined by the [R&D
+Owner contract](../owners/rd). Immediately before the first TrialFamily-formation write, the private R&D
+formation resolver locks and rereads the explicit current unrevoked head on its existing transaction and seals
+the policy and Catalog cross-binding permanently into the family. Later Composer and Replay compositions use
+only that family-sealed policy and cross-binding; it never rereads the Catalog as authority. An optional
+Catalog reread is audit-only and cannot affect admissibility, so later Catalog revocation, deletion,
+unavailability, or tamper cannot invalidate a formed family.
 
-The separately authorized Catalog bootstrap composition remains outside Product Edge. It is a dedicated, opt-in,
-one-shot `authority-admin` unit with no HTTP route and uses the broker-only
-`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` only after the Rust composition has authenticated its sealed,
-deny-unknown-fields V1 request by Ed25519 against a separately trusted verifier identity and key. PostgreSQL does
-not repeat that cryptographic verification; it trusts only the exclusive `replay_policy_catalog_admin_writer`
-broker principal. Distributing or using that credential in Product Edge, an ordinary service, an
-operator workflow, or a generic SQL client is a trust-boundary breach. The `authentication_fact_digest` derives
-from the verified evidence before database access. Product Edge cannot
-provide the request, verifier, key, administrator identity, policy bytes, command identities, event time, signature,
-or canonical Owner readback, and cannot start the R&D API. The product startup boundary admits the API only after
-schema materialization, custody cutover, explicit Catalog bootstrap or exact resolution, and verification of the
-byte-identical typed Owner readback reconstructed from the exact sealed request and immutable audited record/head
-state. First success and exact response-loss or restart replay return the same bytes; an attempt-local
-`CREATED`/`RESOLVED` field cannot distinguish them. The immutable audit facts are the durable command receipts and
-that typed readback is the sole projection, with no administration receipt or outbox. Missing or conflicting
-bootstrap custody fails startup closed without a default.
+Public Composer or Research requests carry no policy selector. Product Edge, callers, providers, environment
+values, defaults, migrations, and deployment configuration cannot create or select a version, advance the
+head, revoke a version, seed the Catalog, or synthesize a fallback. Only the private audited R&D Catalog
+Administration Port owns those writes.
 
-The public Composer `RUN` accepts exactly one untrusted canonical Research request locator. It rejects a caller
-request identity, Design, digest, binding request, plugin-source capsule, provider selection, build receipt, or any
-other field. Under the same Owner lock/write transaction used for the positive commit, R&D canonically rereads the
-located current Research custody and alone derives the Composer request identity and digest, Research/Intent and
-Design identities and digests, Design, binding set, source capsule, and provider identity. The derivation retains
-the exact Product Edge Operator Authorization frontier and final commit cut; neither the executor nor a caller can
-replace, omit, or recompute them. The Owner-internal exact commit-cut capability locks only that request and its
-aggregate rows and never takes a table-wide lock.
+The separately authorized Catalog bootstrap composition remains outside Product Edge. It is a dedicated,
+opt-in, one-shot `authority-admin` unit with no HTTP route and uses the broker-only `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL`
+only after the Rust composition has authenticated its sealed, deny-unknown-fields V1 request by Ed25519
+against a separately trusted verifier identity and key. PostgreSQL does not repeat that cryptographic
+verification; it trusts only the exclusive `replay_policy_catalog_admin_writer` broker principal. Distributing or using that
+credential in Product Edge, an ordinary service, an operator workflow, or a generic SQL client is a
+trust-boundary breach.
+
+The `authentication_fact_digest` derives from the verified evidence before database access. Product Edge cannot
+provide the request, verifier, key, administrator identity, policy bytes, command identities, event time,
+signature, or canonical Owner readback, and cannot start the R&D API. The product startup boundary admits the
+API only after schema materialization, custody cutover, explicit Catalog bootstrap or exact resolution, and
+verification of the byte-identical typed Owner readback reconstructed from the exact sealed request and
+immutable audited record/head state.
+
+First success and exact response-loss or restart replay return the same bytes; an attempt-local
+`CREATED`/`RESOLVED` field cannot distinguish them. The immutable audit facts are the
+durable command receipts and that typed readback is the sole projection, with no administration receipt or
+outbox. Missing or conflicting bootstrap custody fails startup closed without a default.
+
+The public Composer `RUN` accepts exactly one untrusted canonical Research request locator. It
+rejects a caller request identity, Design, digest, binding request, plugin-source capsule, provider selection,
+build receipt, or any other field. Under the same Owner lock/write transaction used for the positive commit,
+R&D canonically rereads the located current Research custody and alone derives the Composer request identity
+and digest, Research/Intent and Design identities and digests, Design, binding set, source capsule, and
+provider identity.
+
+The derivation retains the exact Product Edge Operator Authorization frontier and final commit cut; neither
+the executor nor a caller can replace, omit, or recompute them. The Owner-internal exact commit-cut capability
+locks only that request and its aggregate rows and never takes a table-wide lock.
 
 Before `RUN`, the authenticated read-only `GET /v2/develop-composer/request-projections` may project the derived
 request identity and its complete identity/digest tuple from the same canonical Research locator. This projection
@@ -186,77 +228,89 @@ response loss. It performs no write and grants no custody. `POST /v2/develop-com
 and derives everything from its sole locator; it never trusts or accepts projected values fed back by a caller.
 
 In the same process, the operation invokes the accepted A0 deterministic build boundary, preserves its opaque
-verified build in-process, and consumes that token by move. That positive type is neither `Clone` nor
-serializable/deserializable. The private canonical A0 Build Receipt bytes are an intrinsic, content-addressed sealed
-build fact, independent of a Research request or Artifact. Each Artifact references it through a separate immutable,
-canonically ordered use relation. Multiple Research-derived Artifacts may therefore share one byte-identical sealed
-build fact while retaining distinct use rows and complete Research/Design/Artifact lineage. An exact legacy schema
-that embedded those same bytes may be normalized once by byte-preserving migration; every other legacy shape,
-partial relation, byte mismatch, or ambiguous duplicate fails closed. There is no public verified-build locator,
-verified-build read port, database or API token representation, and no provider, caller, executor, or restart
-path may reconstruct a verified token from bytes, digests, receipts, or labels.
+verified build in-process, and consumes that token by move. That positive type is neither `Clone`
+nor serializable/deserializable. The private canonical A0 Build Receipt bytes are an intrinsic,
+content-addressed sealed build fact, independent of a Research request or Artifact. Each Artifact references
+it through a separate immutable, canonically ordered use relation. Multiple Research-derived Artifacts may
+therefore share one byte-identical sealed build fact while retaining distinct use rows and complete
+Research/Design/Artifact lineage.
 
-After A0 and immediately before its positive commit, A1 uses the same admitted R&D PostgreSQL transaction to lock
-and canonically reread the final accepted Research custody, derive all Composer meaning, and reread every exact
-fact-Owner binding. A1 passes its existing transaction capability to each applicable Owner-owned sealed Composer
-or Market Data read method. Each Owner locks, canonically rereads, validates, and seals its own facts on
-that exact transaction. No method may open another pool, connection, or transaction; neither caller nor executor
-may read raw Owner tables, reconstruct sealed evidence, or acquire the Owner's fact authority. Missing,
-unavailable, stale, mismatched, cross-cut, or wrong-owner Composer or Market Data evidence, or an invalid
-family-sealed policy cross-binding, fails before the first positive write. That same R&D transaction atomically
-stores the canonical `StrategyDesignV2`,
-`StrategyPlanV2`, `StrategyArtifactV2` package and private module bytes, the intrinsic private canonical A0 Build
-Receipt bytes, ordered Artifact-build use relation, Composer receipt, host-admission receipt, operation receipt,
-and R&D outbox. JSON is a projection only and
-cannot be the canonical readback or hash source. Restart and `RESOLVE` reread and parse the canonical Build Receipt,
-validate its capsule, toolchain, linker, configuration, and deterministic two-build provenance, bind that receipt to
-the Artifact and Composer receipts, then recompute and compare every content and binding digest before readmitting
-the Artifact to `ProgramHostV2`. This validation never recreates the move-only verified token. Raw Wasm and the
-canonical Build Receipt bytes remain private; the public positive Artifact projection contains only the immutable
-Artifact locator and public digests. The operation envelope separately carries its terminal disposition and receipt
-identity.
+An exact legacy schema that embedded those same bytes may be normalized once by byte-preserving migration;
+every other legacy shape, partial relation, byte mismatch, or ambiguous duplicate fails closed. There is no
+public verified-build locator, verified-build read port, database or API token representation, and no
+provider, caller, executor, or restart path may reconstruct a verified token from bytes, digests, receipts, or
+labels.
+
+After A0 and immediately before its positive commit, A1 uses the same admitted R&D PostgreSQL transaction to
+lock and canonically reread the final accepted Research custody, derive all Composer meaning, and reread every
+exact fact-Owner binding. A1 passes its existing transaction capability to each applicable Owner-owned sealed
+Composer or Market Data read method. Each Owner locks, canonically rereads, validates, and seals its own facts
+on that exact transaction. No method may open another pool, connection, or transaction; neither caller nor
+executor may read raw Owner tables, reconstruct sealed evidence, or acquire the Owner's fact authority.
+
+Missing, unavailable, stale, mismatched, cross-cut, or wrong-owner Composer or Market Data evidence, or an
+invalid family-sealed policy cross-binding, fails before the first positive write. That same R&D transaction
+atomically stores the canonical `StrategyDesignV2`, `StrategyPlanV2`, `StrategyArtifactV2` package and
+private module bytes, the intrinsic private canonical A0 Build Receipt bytes, ordered Artifact-build use
+relation, Composer receipt, host-admission receipt, operation receipt, and R&D outbox. JSON is a projection
+only and cannot be the canonical readback or hash source.
+
+Restart and `RESOLVE` reread and parse the canonical Build Receipt, validate its capsule,
+toolchain, linker, configuration, and deterministic two-build provenance, bind that receipt to the Artifact
+and Composer receipts, then recompute and compare every content and binding digest before readmitting the
+Artifact to `ProgramHostV2`. This validation never recreates the move-only verified token. Raw Wasm and
+the canonical Build Receipt bytes remain private; the public positive Artifact projection contains only the
+immutable Artifact locator and public digests. The operation envelope separately carries its terminal
+disposition and receipt identity.
 
 The durable operation serializes one semantic attempt. Concurrent exact request and meaning join the same
-byte-identical terminal receipt. Reuse of the request, Research/Intent, build-attempt, or artifact identity with any
-changed meaning or canonical byte is `CONFLICT` and writes nothing. A positive terminal is visible only after the
-single transaction commits all canonical bytes, receipts, and outbox; any rejection, unsupported/refinement,
-unavailable evidence, A0 failure, reread drift, host rejection, serialization/storage failure, or rollback leaves
-zero partial positive rows and grants no successor authority. `REJECTED_NO_WRITE`, `UNSUPPORTED`, and
-`NEEDS_RESEARCH_REFINEMENT` may return only an authoritative negative operation receipt proving that absence;
-missing, stale, or unavailable required evidence returns `UNAVAILABLE` with only same-attempt resolution and no
-successor authority. Loss of the response after commit remains `SUBMITTED_OR_UNKNOWN`; same-request `RESOLVE`
-returns the committed receipt without rebuilding, reinvoking a provider, or minting a successor attempt. Storage
-uncertainty that cannot prove commit remains unresolved, never a fabricated rejection or success.
+byte-identical terminal receipt. Reuse of the request, Research/Intent, build-attempt, or artifact identity
+with any changed meaning or canonical byte is `CONFLICT` and writes nothing. A positive terminal is
+visible only after the single transaction commits all canonical bytes, receipts, and outbox; any rejection,
+unsupported/refinement, unavailable evidence, A0 failure, reread drift, host rejection, serialization/storage
+failure, or rollback leaves zero partial positive rows and grants no successor authority.
 
-Source ancestry is a separate typed R&D-owned operation. It locks and rereads the exact Source Intake `RETRIEVED`
-terminal receipt, acquisition provenance record, Source Candidate, and matching transition outbox, verifies their
-shared request/attempt/content/retrieval/policy/rights lineage, and returns sealed ancestry evidence only. Source
-content remains untrusted and never confers accepted Research custody. The following typed Research `RUN` consumes
-an untrusted Research proposal and that separately verified ancestry evidence through the canonical R&D Research
-admission. R&D remains the sole Intent owner: only that admission may resolve the Independence Basis, current
+`REJECTED_NO_WRITE`, `UNSUPPORTED`, and `NEEDS_RESEARCH_REFINEMENT` may return only an authoritative negative
+operation receipt proving that absence; missing, stale, or unavailable required evidence returns
+`UNAVAILABLE` with only same-attempt resolution and no successor authority. Loss of the response after
+commit remains `SUBMITTED_OR_UNKNOWN`; same-request `RESOLVE` returns the committed receipt without
+rebuilding, reinvoking a provider, or minting a successor attempt. Storage uncertainty that cannot prove
+commit remains unresolved, never a fabricated rejection or success.
+
+Source ancestry is a separate typed R&D-owned operation. It locks and rereads the exact Source Intake
+`RETRIEVED` terminal receipt, acquisition provenance record, Source Candidate, and matching
+transition outbox, verifies their shared request/attempt/content/retrieval/policy/rights lineage, and returns
+sealed ancestry evidence only. Source content remains untrusted and never confers accepted Research custody.
+The following typed Research `RUN` consumes an untrusted Research proposal and that separately
+verified ancestry evidence through the canonical R&D Research admission.
+
+R&D remains the sole Intent owner: only that admission may resolve the Independence Basis, current
 Qualification frontier, and local semantic-predecessor lineage, then freeze the Intent, falsifier, permanent
-TrialFamily authority, receipts, and the current Research custody that Composer consumes. A Source attempt alone
-can never derive `CurrentResearchDevelopCustodyV2`. Copying caller-supplied fields, accepting a provenance locator
-without Owner reread, or merely deploying Source Intake and Composer together is not composition. A missing,
-mismatched, stale, non-`RETRIEVED`, or unavailable ancestry member, or any failed canonical Research admission,
-creates no accepted Research custody and makes Composer unavailable for that ancestry.
+TrialFamily authority, receipts, and the current Research custody that Composer consumes. A Source attempt
+alone can never derive `CurrentResearchDevelopCustodyV2`. Copying caller-supplied fields, accepting a provenance locator
+without Owner reread, or merely deploying Source Intake and Composer together is not composition.
+
+A missing, mismatched, stale, non-`RETRIEVED`, or unavailable ancestry member, or any failed
+canonical Research admission, creates no accepted Research custody and makes Composer unavailable for that
+ancestry.
 
 A2 uses the executor only as transport in this fixed order:
 
 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE -> Composer RUN/RESOLVE`.
 
-Each deployed script parses a typed request or receipt and calls the next Owner operation; it owns no lifecycle,
-verified build, canonical bytes, or business result. The acceptance binary selects sealed adapters at compile time,
-uses the fixed Source Intake corpus and fixed A0 source/build corpus, and exposes no runtime provider selector,
-provider URL, credential, fixture path, DSN, header, or environment switch. Every run receives a unique internal
-PostgreSQL instance/schema, executor workspace, network, ingress allocation, and volumes, with no route or
-mutable state shared with production or another run. A fixed content-addressed Replay Policy Catalog fixture is
-test-only: the isolated harness creates it and explicitly advances its head through the private administration
-port before forming the disposable TrialFamily; later acceptance steps consume only the family-sealed policy. The
-fixture, administration hook, and policy bytes exist only in the compile-time `SEALED_ACCEPTANCE` composition;
-they are not a runtime default, migration seed, production artifact, or deployment selector. That fixed fixture
-hook is distinct from the sealed one-shot product bootstrap: neither path gives Product Edge or the executor Catalog
-authority.
+Each deployed script parses a typed request or receipt and calls the next Owner operation; it owns no
+lifecycle, verified build, canonical bytes, or business result. The acceptance binary selects sealed adapters
+at compile time, uses the fixed Source Intake corpus and fixed A0 source/build corpus, and exposes no runtime
+provider selector, provider URL, credential, fixture path, DSN, header, or environment switch. Every run
+receives a unique internal PostgreSQL instance/schema, executor workspace, network, ingress allocation, and
+volumes, with no route or mutable state shared with production or another run.
+
+A fixed content-addressed Replay Policy Catalog fixture is test-only: the isolated harness creates it and
+explicitly advances its head through the private administration port before forming the disposable
+TrialFamily; later acceptance steps consume only the family-sealed policy. The fixture, administration hook,
+and policy bytes exist only in the compile-time `SEALED_ACCEPTANCE` composition; they are not a runtime
+default, migration seed, production artifact, or deployment selector. That fixed fixture hook is distinct from
+the sealed one-shot product bootstrap: neither path gives Product Edge or the executor Catalog authority.
 
 The composed runner must prove all of the following against the deployed operations and canonical Owner readback:
 
@@ -295,41 +349,16 @@ and the product has no internal model invocation or shared model session.
 
 ## Agent-outside R&D authoring
 
-The agent stays outside the product and research rules stay inside it
-([Product loop](../guide/product-loop/#agent-outside-rd-experience)). A person works with an agent of their choosing,
-such as Claude Code or Codex, and that agent invokes the admitted typed R&D operations through the external-agent
-tool surface below. The agent supplies ideas, authoring documents, diagnosis and literature; it never authors a
-business fact or edits an Artifact, and every rule the Owners enforce applies to it as to any other channel.
+Users initiate research through their chosen external Agent. Agents write native Nautilus Strategies, propose experiments, interpret results and decide iterations.
+The product makes no model calls and builds no scientific decision interpreter. R&D seals source/parameters/dependencies/data requirements and retains experiments, budgets and evidence; see [R&D](../owners/rd/) and [native packages](./strategy-factory/).
 
-The tool surface carries operation requests and bounded results, not an LLM session, hidden reasoning, model
-entitlement, or credential. It holds the credentials it presents to the Owners, and no tool argument or result
-carries one. Secret values never enter tool payloads, Owner facts, Artifact metadata, or logs. The product makes no
-model call: a strategy reaches it only as an authoring document an Owner compiles and seals.
+MCP only adapts Owner APIs, carrying requests/permitted results, not model entitlements, credentials or protected samples.
+New content creates a new version; unknown outcomes remain `SUBMITTED_OR_UNKNOWN` and resolve the same request, never overwrite Artifacts or guess by rerunning.
+Mechanically valid research requires neither fixed diagnosis categories, a unique winner nor platform approved metrics.
 
-An accepted revision request starts a new governed R&D attempt. It either produces a new immutable,
-content-addressed Strategy Artifact and its own build and exploratory evidence, or closes with the native
-no-artifact, failure, rejection, or unknown disposition. It never changes bytes under an existing Artifact
-identity. A semantic strategy change requires the applicable successor hypothesis and Research Intent path;
-an attended D-only repair remains constrained by its separate repair contract. A revision the agent submits is that typed
-request, and it remains `SUBMITTED_OR_UNKNOWN` until the R&D-owned receipt arrives.
-
-The first admitted Artifact Review surface does not require raw source access. It presents the Artifact identity,
-Research Intent and iteration lineage, structured strategy-logic summary, parameter and dependency identities,
-build state, Agent change explanation, exploratory result references, bounded Qualification status, and allowed
-next actions. Every item binds its native Owner fact or is visibly non-authoritative explanation; an Agent summary
-cannot replace Artifact bytes, a Build Receipt, a Run Result, an Iteration Decision, or a Qualification fact.
-The R&D Owner publishes next-action admission as a versioned typed projection: only exhaustively known actions are
-`ADMITTED`; unknown and legacy actions are `NOT_ADMITTED`. Web and MCP consumers display that same projection and
-must not infer authority from action names.
-Semantic change summaries use only R&D-owned lineage and permitted exploratory evidence, never protected
-Qualification detail.
-
-Full source inspection, source-level diff, controlled source download, and source-linked diagnostics are
-`DEFERRED_TARGET` advanced audit capabilities. If introduced, they are read-only and are not required for the
-initial Workbench acceptance. An in-product code editor, Notebook-first authoring, in-place Artifact mutation, and
-overwriting an Artifact version are `NOT_ADMITTED`. External IDEs or notebooks may remain engineering tools, but
-they are outside the product contract and cannot establish a Product Edge request, Owner fact, or acceptance
-evidence.
+Dashboard reads research facts and Agent explanations with explicit authority for sources, summaries and run state.
+Browsers do not compile/run source, edit/overwrite packages or control the user's local Agent.
+Existing read only source slices retain their exact admission; native package views need accurate Owner projections and cannot infer wiring from an existing Wasm preview.
 
 ### TARGET - External agent tool surface
 
@@ -337,23 +366,20 @@ This section records the domain-tool target and the bounded slices already prese
 [Research scenario](../scenarios/research/) remains a target; a server handshake or an isolated authoring run does
 not prove that journey.
 
-Windmill was removed in #581; the custom Dashboard replaces its product UI. Historical identifiers such as
+The custom Dashboard is the product UI. Compatibility identifiers such as
 `WINDMILL_PRODUCT_EDGE` in existing custody/routing contracts do not describe an active Windmill deployment.
 The external agent composes domain MCP tools; a `backtest.run` is still one server-side job, not fifteen agent
 steps. Internal service calls follow [one-way layering and value passing](../guide/architecture-rules/#owner-layering-and-inter-owner-trust).
 Strict input trust verification occurs at the outer boundary; internal consumers do not reread upper layers to
 verify their values. Budget enforcement, holdout isolation and unknown-result handling remain mandatory.
 
-**Source inventory at `e71aedb332fdcbcc8a1c18e7822d355bfa19e47e`.** Dedicated stateless stdio servers exist at
+**Implementation entry points.** Dedicated stateless stdio servers exist at
 `services/market-data-mcp`, `services/strategy-authoring-mcp`, and `services/backtest-mcp`, with local deployment
 wrappers under `product/rd-workbench`. The Dashboard also retains its `/api/mcp` surface. Current acceptance and
 limits belong to the relevant Owner pages; this inventory establishes neither deployment nor operation-level CLI
 parity. It supersedes the old statement that only the preview Dashboard has tools.
 
-**Shape: Nautilus-based services with separate MCP interfaces.** The user confirmed on 2026-10-06 that data
-and backtest services extend the existing Nautilus implementation to satisfy product requirements; R&D is the
-custom-developed service. This replaces the earlier claim that the agent must orchestrate every deterministic
-step. It does not mean one unified MCP for the entire product.
+**Shape: Nautilus-based services with separate MCP interfaces.** Data and Backtest extend Nautilus; R&D is custom developed. Deterministic service steps run inside their owning backends. External interfaces follow domain boundaries rather than one unified MCP.
 
 - Market Data MCP exposes the extended native data service; Backtest MCP exposes the extended native backtest
   service. R&D MCP exposes research admission, authoring, experiment tracking and decisions. The current
@@ -372,6 +398,8 @@ step. It does not mean one unified MCP for the entire product.
   reads and bounded public verdicts remain enforced inside the services, not only at MCP dispatch.
 - CLI parity, where provided, uses the same typed service operations and checks; it is not evidence that the
   complete research journey is implemented.
+
+**CURRENT T0/U1 compatibility surface.** The dataset description, timeframe whitelist and full-window minute backfill below retain the current bounded protocol. Target preparation consumes declared signal/execution requirements and frozen chronology policy; finer inputs form an immutable successor for complete native replay. The current list is not the target timeframe ceiling.
 
 **`dataset_ref`.** A plain description of one slice of market data: the instrument, the execution timeframe (`1w`, `1d`, `4h` or
 `1h`) and the half-open range `[start, end)` in event nanoseconds. It is not a token anything issues: the agent writes
@@ -393,7 +421,7 @@ the run, so a replay reads the same data.
 - `job_status(job_id)` → the job's state, one of `QUEUED`, `RUNNING`, `SUCCEEDED` or `FAILED`; the coverage it added
   once `SUCCEEDED`; and the cause by name once `FAILED`. An unknown job is `JOB_UNKNOWN`.
 - `coverage(instrument)` → the covered ranges for each timeframe.
-- `get_bars(instrument, timeframe, range, format)` → the bars, inline and bounded. Refusals: `RANGE_NOT_COVERED`,
+- `get_bars(instrument, execution_timeframe, range)` → the bars, inline and bounded. Refusals: `RANGE_NOT_COVERED`,
   `RANGE_TOO_LARGE_FOR_INLINE`, and `HOLDOUT_PARTITION_UNDEFINED`. A backtest never reads through it: it takes a
   `dataset_ref`.
 - `get_funding(instrument, range)` → funding rates, under the same bound and refusals.
@@ -414,13 +442,9 @@ the run, so a replay reads the same data.
   `research.strategy-authoring.v1`, as the tool's advertised input and R&D's closed `StrategyStatementV1` define.
   Each family keeps its own canonical content/hash domain independently of Research identities. This authoring
   surface does not establish complete R-1 execution.
-- **TARGET complete research authoring:** extend the existing JSON route to the full R-1 semantics. R&D compiles it to
-  Design and program meaning, validates that output with the same Owner checks, and seals an Artifact under the
-  frozen Research Intent. Final identities, bounds, receipts, and execution state are Owner-derived. The language
-  must cover R-1's resting limits, expiry, fill feedback, partial exits, stop moves, and holding limits before the
-  first complete research journey can pass. New grammar or execution semantics use a versioned successor; frozen V1
-  documents retain their original compiler and meaning. Unsupported behavior is refused, never approximated by a simpler spec.
-  See [R&D authoring](../owners/rd/#strategy-authoring-surface) and the Strategy Factory shape envelope.
+- **TARGET native strategy integration:** Agents submit Nautilus Strategy source, parameters, dependencies and data requirements; R&D checks mechanical bounds and seals content/environment.
+  R-1 expresses resting entries, invalidation, protection and staged exits through native order APIs. Missing interfaces are integration/extension gaps, not another JSON language or BFP/Wasm compiler.
+  The six current statement tools do not prove package submission exists; admit native integration as a minimal vertical slice. See [R&D](../owners/rd/) and [package contract](./strategy-factory/).
 - `validate(spec)` → `VALID`, or every violation by the authoring compiler's own name, writing nothing.
 - `create(spec)` → `strategy_id`, the content digest of the canonical spec. Creating the same spec again returns the
   same id.
@@ -433,14 +457,15 @@ the run, so a replay reads the same data.
 
 **`backtest`**, served by R&D's run route, which calls Backtest:
 
-- **CURRENT bounded route:** `run(strategy_id, dataset_ref, cost_profile)` is the existing single-threshold route.
+- **CURRENT bounded route:** `run(run_id, strategy_id, instrument, execution_timeframe, window_start_ns, window_end_ns_exclusive)` is the existing single-threshold route.
   It forms a goal inside the run. That shape is a limited authoring-to-report slice, not preregistration for an
   autonomous research family, and must not be described as the full research loop.
+  Current tools accept neither `dataset_ref` nor `cost_profile`; execution occurs within one call. Advertised schemas define exact arguments.
 - **TARGET research route:** a versioned run request also names an already frozen Research Intent and its admitted
   trial. R&D checks the Artifact, scope, execution semantics, cost profile, predecessor data reads, and resource
   allowance before dispatching a deterministic job. It cannot invent a hypothesis after reading results. Requests
   and failed or unknown attempts remain counted; exact retries join the same request.
-- Submission returns a durable `run_id`/job reference; `status`, `list_runs`, and `report` observe it later. The
+- Submission returns a durable `run_id`/job reference; `status`, `list`, and `report` observe it later. The
   serving domain owns job execution and recovery, so the MCP process or agent session can end without losing it.
 - `report` binds native Result identities and states data coverage, event-order resolution, fees, funding,
   slippage, margin and capacity assumptions. Portfolio return, drawdown, exposure overlap, and holding/cash
@@ -453,9 +478,8 @@ the run, so a replay reads the same data.
 
 **`research`**, served by R&D (TARGET; required for the complete R-1 journey):
 
-- Registration freezes a sourced hypothesis, mechanism, discriminating prediction, falsifier, smallest effect of
-  interest, declared variant-generation rule, data scope, and policy before the experiment's outcome data is read.
-  R&D computes variant cardinality from the frozen rule; a caller's hand-stated count does not become authority.
+- Registration freezes the Agent experiment proposal, comparison goals, source package, data scope, configuration, resources and approved policy before outcome data is read.
+  R&D records actual admitted tasks and parameter groups; caller reported counts do not prove a complete census.
 - The response binds the Research Intent, permanent TrialFamily, and census frontier. A family can have successor
   Intents, so hypothesis, family, and each experiment are not flattened into one identity. Prior data reads are
   checked through Market Data's ledger and complete predecessor lineage; existing knowledge can motivate a new
@@ -475,6 +499,13 @@ the run, so a replay reads the same data.
 - Acceptance registers an experiment, rejects an invalid preregistration, runs its frozen Artifact, and reads
   the complete attempt and Iteration Decision back after a session restart, without any protected detail.
 
+**Composition inputs and readback (TARGET).** `research` registers sealed multi-strategy composition experiments;
+`backtest` admits their members and shared account configuration; `qualification` accepts independently selected
+compositions and returns bounded eligibility; `governance` lifecycle requests reference exact composition eligibility
+and user confirmation. Status/results distinguish member from composition eligibility and expose composition
+identity and assessment scope. A single `strategy_id` request is not implicitly a member list. Reuse existing MCP/API
+capabilities: extend input and evidence shapes without another server or direct trading tool.
+
 **Additional domain catalogs (TARGET).** These group existing Owner capabilities, not mandatory separate departments
 or processes; the [service blueprint](./) defines their composition. Each remains a blueprint until its operation contracts pass.
 
@@ -482,17 +513,18 @@ or processes; the [service blueprint](./) defines their composition. Each remain
   `check_before_research`. Red line: entries are append-only and hold no protected value. Construct search returns
   exact rule versions, applicability, evidence grades and counterexamples. Positive findings and negative conclusions
   are retained alike; reuse enters a new Intent without inheriting strategy eligibility. See the
-  [Research knowledge ledger](../owners/rd/#target---research-knowledge-ledger).
+  [Research knowledge ledger](../owners/rd/#knowledge-reuse).
   `docs/plans/research-knowledge-ledger-seed.md` is a draft first-entries import from `research/ronnie`
   (constructs, mechanism statuses, the development-only leak rule) for whoever builds this server next.
 - **`qualification`**, served by Qualification: `submit_candidate`, `status`, `verdict`, `forward_register` and
   `forward_status`. Red line: no holdout value ever leaves. Today Qualification projects every negative terminal
   byte-equivalently as `CLOSED_NOT_QUALIFIED`, so `verdict` answers `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; the
-  internal assessment may distinguish pass, equivalence to null, and insufficient evidence, but the user confirmed on
-  2026-10-05 that those categories remain protected. No public negative verdict closes a research mechanism.
-- **`scan`**, served by R&D for on-demand read-only discovery/results, with no scan schedule CRUD. Running strategies
-  already consume/evaluate market data continuously. Results are never activation authority. See
-  [R&D discovery](../owners/rd/#target---on-demand-read-only-opportunity-discovery).
+  internal assessment may distinguish pass, equivalence to null and insufficient evidence; those categories remain protected. No public negative verdict closes a research mechanism.
+- **On demand discovery** reuses direct Market Data queries and native Backtest replay for stateful observation.
+  R&D retains research requests/result references as needed, without another observation Host or mandatory scan
+  route. There is no scan schedule CRUD. Running strategies consume native live data continuously; results grant
+  no activation authority. See
+  [R&D discovery](../owners/rd/#on-demand-read-only-opportunity-discovery).
 - **`governance`**, served by Strategy Governance: `list_eligible`, `propose_activation` (Paper or Live), `pause`,
   `retire` and a read-only `capital_policy`. Red line: requests alone create no activation. The user approves applicable policy and authority in Dashboard;
   initial trial entry needs user confirmation of the exact candidate and frozen policy. Qualified candidates may stay in R&D; valid strategies may be unloaded for improvement without recording economic failure. Promotion follows frozen conditions automatically, and a user stop never auto-reactivates.
@@ -501,8 +533,7 @@ or processes; the [service blueprint](./) defines their composition. Each remain
   few servers: `instance_status`, `readiness`, `orders`, `fills`, `drift` and `alerts`. Red line: the kill switch is
   readable only, and only the user can trigger it.
 
-**Source acquisition server (CURRENT).** The user put it in scope on 2026-10-03; the research loop simulated on
-`claude/inspiring-gauss-pxaril` needed video sources repeatedly.
+**Source acquisition server (CURRENT).** External Agents may acquire public video evidence through the standalone source tool.
 
 - **`video-note`**, the standalone Video Note MCP in `services/video-note-mcp`: `video_note.create(url)` turns
   a public Bilibili, YouTube or HTTPS video into a transcript-backed note with frames and time-linked sources.
@@ -517,8 +548,7 @@ or processes; the [service blueprint](./) defines their composition. Each remain
 current user-approved policy and authority. Governance automatically promotes within frozen conditions, without
 repeated per-action approval. Current real effects remain unadmitted.
 
-**Long-running work.** The user asked where work that outlives one tool call runs. The answer keeps each kind of
-work where its lifetime already is:
+**Long-running work.** Lifetime and custody follow the domain service:
 
 - An MCP server is a stdio child process of the agent's session. It starts and stops with that session, keeps no
   state, hosts no long-running task and starts no container: starting one needs the Docker socket, which is root on
@@ -526,15 +556,15 @@ work where its lifetime already is:
 - Long-running deterministic work runs in its domain service, with persistent workers and any admitted domain
   scheduling. Backtest/data preparation and on-demand discovery outlive MCP sessions. There are no scheduled market
   scans: running strategies continuously evaluate market data through the native node.
-- Every long task is an asynchronous job: submitting it returns a `job_id`, then the agent reads its status, then its
-  result. Backtests, backfills, scans and forward records all have this shape, and their results are append-only and
-  replayable.
-- The one standing isolated container is `rd-build-sandbox`, which compiles strategy programs to Wasm with no network
-  and a read-only filesystem and is called over its socket. It is not started per task.
+- **TARGET:** long submissions return durable job/run identities for later status/results; replay, preparation,
+  on-demand discovery and optional forward records recover within their domains. Current bounded backfill and
+  backtest.run execute and record results within one call, not proof of complete asynchronous workers.
+  Service targets and the [current/target API inventory](./index.md#backend-services-and-api-capability-inventory) require separate acceptance.
+- Current `rd-build-sandbox` belongs to the existing compiler chain. Native packages reuse ordinary Docker/task limits; that container proves neither native source integration nor real execution isolation. No new compiler service is required.
 - Work that needs a model and is not deterministic, such as an agent doing research on a schedule, is woken by a timer
   on the host that starts an agent session, which then calls the MCP servers. The product holds no agent.
 - Existing Dashboard shadow/effect-worker wiring is a compatibility surface, not business scheduling authority.
-  Domain services own persistent jobs; Dashboard submits requests and reads their facts. Legacy Scanner scheduling
+  Domain services own persistent jobs; Dashboard reads research facts and submits only approved Governance controls. Legacy Scanner scheduling
   is not a target capability to migrate into a new service.
 
 **Permissions.**
@@ -559,13 +589,14 @@ Formation preflight/action or internal model-build tool.
 
 ## Agent Shell deployment binding
 
-Product Edge owns one non-business Agent Shell Deployment Binding for each deployment. The target binding names the
-canonical `TRADE_PRODUCT_EDGE` admission gateway, which every admission sealed before that name existed still
-carries as `WINDMILL_PRODUCT_EDGE`; App and MCP calls are channels behind that same
-gateway, not competing shell writers. The binding records the selection generation, effective principal, scope-policy version,
-approved Skill/MCP capability-set version, audit-policy version, and cutover epoch. The channels may use
-different credentials, but the effective principal and policies are identical; changing the external
-conversation client or transport changes attribution, never authority.
+Product Edge owns one non-business Agent Shell Deployment Binding for each deployment. The target binding
+names the canonical `TRADE_PRODUCT_EDGE` admission gateway, which every admission sealed before that name
+existed still carries as `WINDMILL_PRODUCT_EDGE`; App and MCP calls are channels behind that same gateway, not
+competing shell writers. The binding records the selection generation, effective principal, scope-policy
+version, approved Skill/MCP capability-set version, audit-policy version, and cutover epoch.
+
+The channels may use different credentials, but the effective principal and policies are identical; changing
+the external conversation client or transport changes attribution, never authority.
 
 Every binding commit also binds the authoritative deployment-history head before and after the commit. Genesis
 is valid only when that deployment has no binding history, uses generation one, and names no predecessor. Once
@@ -573,32 +604,39 @@ history exists, a successor must durably and atomically serialize against the ex
 increment generation by one, use a strictly newer cutover epoch, and introduce a binding identity never used in
 the deployment history. A zero-`ACTIVE` cutover window does not erase or reset the history head.
 
-The only canonical binding states are `ACTIVE` and `SUPERSEDED`; `SUPERSEDED` is monotonic and irreversible. A zero-`ACTIVE` interval is allowed during a
-fail-closed cutover, but it admits no mutating Owner request; two `ACTIVE` bindings, a stale generation, or a
-policy mismatch likewise admit no mutation. The exact predecessor must commit `SUPERSEDED`, which is its durable
-request-origin fence, before the policy-equivalent successor can commit `ACTIVE`. Every mutating request atomically
-reads and binds the authoritative history head, and admission requires the unique `ACTIVE` binding to equal that
-head. A request already admitted under a valid predecessor keeps its original request and binding identities and
-continues to resolve under that binding after cutover, without overlapping writes or a naked retry. If its first
-downstream mutation was not yet receipted, it may proceed only after the immediate policy-equivalent successor is
-`ACTIVE`, the original stored lineage still matches exactly, and the original Operator Authorization is current at
-the final write cut. The zero-`ACTIVE` fence blocks this continuity, and every new admission still requires the
-current `ACTIVE` head.
+The only canonical binding states are `ACTIVE` and `SUPERSEDED`; `SUPERSEDED` is
+monotonic and irreversible. A zero-`ACTIVE` interval is allowed during a fail-closed cutover, but
+it admits no mutating Owner request; two `ACTIVE` bindings, a stale generation, or a policy
+mismatch likewise admit no mutation. The exact predecessor must commit `SUPERSEDED`, which is its
+durable request-origin fence, before the policy-equivalent successor can commit `ACTIVE`. Every
+mutating request atomically reads and binds the authoritative history head, and admission requires the unique
+`ACTIVE` binding to equal that head.
 
-Product Edge reads one clock. Every time it checks or records - a binding's genesis, a successor's activation and
-its fence, an admission or a claim's read cut and final write cut, an invocation's start - is
+A request already admitted under a valid predecessor keeps its original request and binding identities and
+continues to resolve under that binding after cutover, without overlapping writes or a naked retry. If its
+first downstream mutation was not yet receipted, it may proceed only after the immediate policy-equivalent
+successor is `ACTIVE`, the original stored lineage still matches exactly, and the original
+Operator Authorization is current at the final write cut. The zero-`ACTIVE` fence blocks this
+continuity, and every new admission still requires the current `ACTIVE` head.
+
+Product Edge reads one clock. Every time it checks or records - a binding's genesis, a successor's activation
+and its fence, an admission or a claim's read cut and final write cut, an invocation's start - is
 `pg_catalog.clock_timestamp()` read inside its own transaction, never the application process clock. A binding's
-validity window comes from the operator, who reads no clock on Product Edge's behalf, so genesis and every later
-admission compare that window with the same clock. At an admission's cut the research window is checked against the R&D Owner's `owner_cut`
-and projection time, which R&D stamps from the same database clock, so both sides of each comparison come from one
-clock. The research View's `valid_through` is not part of that window: it is a reader's freshness, and the R&D Owner
-proves at each of its own mutations that the Research may still be continued under the authority it was admitted
-under. Qualification holds the same authority for its Owner cut. The Operator Authorization
-Issuer reads the same store clock for everything it judges or stamps: an authorization's issuance, revocation,
-succession and expired-manifest recovery, and a grant's issuance, succession and revocation. An authorization's
-window is judged by the Issuer at issuance and again by Product Edge at genesis and at every admission; both judges
-read one clock, so no skew can leave a window current for one and not for the other. Each call is
-schema-qualified so that no function reachable through `search_path` can take its place.
+validity window comes from the operator, who reads no clock on Product Edge's behalf, so genesis and every
+later admission compare that window with the same clock. At an admission's cut the research window is checked
+against the R&D Owner's `owner_cut` and projection time, which R&D stamps from the same database
+clock, so both sides of each comparison come from one clock.
+
+The research View's `valid_through` is not part of that window: it is a reader's freshness, and the R&D
+Owner proves at each of its own mutations that the Research may still be continued under the authority it was
+admitted under. Qualification holds the same authority for its Owner cut. The Operator Authorization Issuer
+reads the same store clock for everything it judges or stamps: an authorization's issuance, revocation,
+succession and expired-manifest recovery, and a grant's issuance, succession and revocation.
+
+An authorization's window is judged by the Issuer at issuance and again by Product Edge at genesis and at
+every admission; both judges read one clock, so no skew can leave a window current for one and not for the
+other. Each call is schema-qualified so that no function reachable through `search_path` can take its
+place.
 
 ### Administrative bootstrap and control-plane writers
 
@@ -615,12 +653,15 @@ revocation takes the conflicting update lock. The committed serialization cut is
 the two writers without a third verifier, cache, Event Store, or copied caller assertion.
 
 The first deployment binding is created only by an explicit one-time administrative bootstrap. Bootstrap is
-forbidden on service start and on every product request path. It verifies complete empty binding and head history,
-requires expected head `EMPTY`, generation one, a finite validity interval, content-addressed manifests, and a
-pre-issued current Operator Authorization. Binding, head, manifest receipts, and outbox commit atomically. Exact
-replay joins the original bytes; changed meaning and concurrent losing genesis attempts conflict with no partial
-write. A successor is a separate administrative cutover: the exact predecessor's `SUPERSEDED` fence commits first,
-then and only then may a policy-equivalent successor become `ACTIVE` at generation plus one.
+forbidden on service start and on every product request path. It verifies complete empty binding and head
+history, requires expected head `EMPTY`, generation one, a finite validity interval,
+content-addressed manifests, and a pre-issued current Operator Authorization. Binding, head, manifest
+receipts, and outbox commit atomically. Exact replay joins the original bytes; changed meaning and concurrent
+losing genesis attempts conflict with no partial write.
+
+A successor is a separate administrative cutover: the exact predecessor's `SUPERSEDED` fence commits
+first, then and only then may a policy-equivalent successor become `ACTIVE` at generation plus
+one.
 
 ### Store provisioning order
 
@@ -633,45 +674,53 @@ relation provisions it before any service connects.
 
 ### Operation routing
 
-Product Edge is the sole routing authority for the typed mutating operations a deployment admits. For each routing
-key - the deployment identity, the typed operation, its version, and the admission gateway channel its requests are
-sealed under (every admission today carries `WINDMILL_PRODUCT_EDGE`) - Product Edge keeps one history of operation
-routing bindings. A binding names the dispatcher that is the fresh business writer for that key: `WINDMILL`, the
-legacy effect runner, or `TRADE_DASHBOARD`, the first-party Dashboard effect worker. Deployment flags and credentials
-never choose a dispatcher; only this history does. A key's version is the operation name's `.vN` suffix
-(`research_goal.submit_or_resolve.v2` has version 2); a key whose version differs from that suffix names no operation
-and is refused.
+Product Edge is the sole routing authority for the typed mutating operations a deployment admits. For each
+routing key - the deployment identity, the typed operation, its version, and the admission gateway channel its
+requests are sealed under (every admission today carries `WINDMILL_PRODUCT_EDGE`) - Product Edge keeps one
+history of operation routing bindings. A binding names the dispatcher that is the fresh business writer for
+that key: `WINDMILL`, the legacy effect runner, or `TRADE_DASHBOARD`, the first-party Dashboard
+effect worker. Deployment flags and credentials never choose a dispatcher; only this history does.
 
-A binding records its key, its generation, its predecessor binding (none exactly at generation one), the `ACTIVE`
-deployment binding it was committed under (identity and digest), the operation manifest it routes (identity and
-digest; that deployment binding must admit the manifest for this operation and version), its dispatcher, and its
-commit time on the store clock. Its digest is `canonical_digest("product-edge.operation-routing-binding.v1", content)`
-over exactly these fields in this order: `schema_version` (1), `key` (`deployment_identity`, `operation`, `version`,
-`channel`), `generation`, `predecessor_binding_identity`, `deployment_binding_identity`, `deployment_binding_digest`,
-`manifest_identity`, `manifest_digest`, `dispatcher`, `committed_at_epoch_ms`. Its identity is
-`identity("product-edge-operation-routing-binding-v1", [digest])`. The Dashboard recomputes both from every
-observation it receives, so one shared vector file pins the encoding for both implementations.
+A key's version is the operation name's `.vN` suffix (`research_goal.submit_or_resolve.v2` has version 2); a
+key whose version differs from that suffix names no operation and is refused.
 
-A routing key's history follows the deployment binding rules. Genesis is valid only for a key with no history, at
-generation one with no predecessor. Every successor serializes against the exact current head, names it as
-predecessor, increments the generation by one, and introduces a binding identity never used for that key. The states
-are `ACTIVE` and `SUPERSEDED`, and `SUPERSEDED` is monotonic. Withdrawing the head supersedes it without a successor;
-the key then has a zero-`ACTIVE` head, which the next successor names as its predecessor. A binding is stale once the
-deployment binding it names is no longer that deployment's `ACTIVE` head; routing under a new deployment binding
-needs a routing successor committed under it. Only the explicit administrative writer
-`product-edge-authority-bootstrap route` commits routing bindings, one proposal per invocation; no service start or
-product request path does.
-Committing a `TRADE_DASHBOARD` binding in a deployed or shared environment is the separate explicit effect the
-Dashboard contract names, and this contract does not authorize it.
+A binding records its key, its generation, its predecessor binding (none exactly at generation one), the
+`ACTIVE` deployment binding it was committed under (identity and digest), the operation manifest
+it routes (identity and digest; that deployment binding must admit the manifest for this operation and
+version), its dispatcher, and its commit time on the store clock.
 
-The read port is `GET /v1/operation-routing?operation=...&version=...&channel=...` with a bearer token, served by
-`product-edge-routing-read-api` and answering for the deployment the service is configured for. It reads in a read-only transaction and takes no row lock. It answers
-`ACTIVE` with the head binding and `observed_at_epoch_ms` from the store clock when the head is `ACTIVE` and current,
-and `ZERO_ACTIVE` with the key, generation, and head identity when the head was withdrawn. Every other case is a named
-refusal: `OPERATION_ROUTING_ABSENT` (404) for a key with no history, `OPERATION_ROUTING_STALE` (409) for a stale head,
-`OPERATION_ROUTING_QUERY_INVALID` (400), `OPERATION_ROUTING_UNAUTHORIZED` (401) for a missing or wrong token, and
-`OPERATION_ROUTING_UNAVAILABLE` (503) for a store that cannot answer. The Dashboard
-admits a fresh `RUN` only on `ACTIVE` with dispatcher `TRADE_DASHBOARD`; every other answer fails closed there.
+Its digest is `canonical_digest("product-edge.operation-routing-binding.v1", content)` over exactly these fields in this order: `schema_version` (1),
+`key` (`deployment_identity`, `operation`, `version`, `channel`),
+`generation`, `predecessor_binding_identity`, `deployment_binding_identity`, `deployment_binding_digest`, `manifest_identity`,
+`manifest_digest`, `dispatcher`, `committed_at_epoch_ms`. Its identity is `identity("product-edge-operation-routing-binding-v1", [digest])`. The
+Dashboard recomputes both from every observation it receives, so one shared vector file pins the encoding for
+both implementations.
+
+A routing key's history follows the deployment binding rules. Genesis is valid only for a key with no history,
+at generation one with no predecessor. Every successor serializes against the exact current head, names it as
+predecessor, increments the generation by one, and introduces a binding identity never used for that key. The
+states are `ACTIVE` and `SUPERSEDED`, and `SUPERSEDED` is monotonic. Withdrawing
+the head supersedes it without a successor; the key then has a zero-`ACTIVE` head, which the next
+successor names as its predecessor.
+
+A binding is stale once the deployment binding it names is no longer that deployment's `ACTIVE`
+head; routing under a new deployment binding needs a routing successor committed under it. Only the explicit
+administrative writer `product-edge-authority-bootstrap route` commits routing bindings, one proposal per invocation; no service
+start or product request path does. Committing a `TRADE_DASHBOARD` binding in a deployed or shared
+environment is the separate explicit effect the Dashboard contract names, and this contract does not authorize
+it.
+
+The read port is `GET /v1/operation-routing?operation=...&version=...&channel=...` with a bearer token, served by `product-edge-routing-read-api` and answering for
+the deployment the service is configured for. It reads in a read-only transaction and takes no row lock. It
+answers `ACTIVE` with the head binding and `observed_at_epoch_ms` from the store clock when the head
+is `ACTIVE` and current, and `ZERO_ACTIVE` with the key, generation, and head identity when
+the head was withdrawn.
+
+Every other case is a named refusal: `OPERATION_ROUTING_ABSENT` (404) for a key with no history,
+`OPERATION_ROUTING_STALE` (409) for a stale head, `OPERATION_ROUTING_QUERY_INVALID` (400), `OPERATION_ROUTING_UNAUTHORIZED` (401) for a
+missing or wrong token, and `OPERATION_ROUTING_UNAVAILABLE` (503) for a store that cannot answer. The Dashboard admits a
+fresh `RUN` only on `ACTIVE` with dispatcher `TRADE_DASHBOARD`; every other
+answer fails closed there.
 
 ### Expired manifest recovery epoch
 
@@ -688,23 +737,29 @@ identifier readback to match that target and to prove both roles reach the same 
 same-role, ambient-default, or cross-spliced binding fails closed without an Owner write; URLs and secrets are never
 logged.
 
-The epoch enumerates every manifest semantic key exactly once as `RETAINED`, `ADDED`, or `REMOVED`, with the exact
-old and new content-addressed bindings applicable to that disposition. A retained manifest may only narrow allowed
-effects and must preserve every prior prohibited effect. An added manifest must remain inside the unchanged
-principal, audience, Operator Authorization scope, request proof, scope policy, and audit policy; it must preserve
-the immutable `LIVE_TRADING_V1`, `REAL_TRADING_V1`, and `PROTECTED_FEEDBACK_DETAIL_V1` prohibition floor and cannot
-name a live or trading target or allowed effect. Removal grants no successor authority. The capability-policy version
-may change only when the content-addressed epoch contains an addition or removal, and every successor manifest binds
-that exact version. Omitted, duplicated, cross-spliced, stale, or differently interpreted transitions fail closed.
+The epoch enumerates every manifest semantic key exactly once as `RETAINED`, `ADDED`,
+or `REMOVED`, with the exact old and new content-addressed bindings applicable to that disposition.
+A retained manifest may only narrow allowed effects and must preserve every prior prohibited effect. An added
+manifest must remain inside the unchanged principal, audience, Operator Authorization scope, request proof,
+scope policy, and audit policy; it must preserve the immutable `LIVE_TRADING_V1`, `REAL_TRADING_V1`, and
+`PROTECTED_FEEDBACK_DETAIL_V1` prohibition floor and cannot name a live or trading target or allowed effect. Removal
+grants no successor authority.
 
-Recovery is intentionally two-owner and forward-only. The Operator Authorization Issuer first appends or exact-replays
-OA2 after locking the expired issuance head and current frontier; OA2 alone is not Product Edge request authority.
-Product Edge then verifies that canonical OA2 at its own cut, irreversibly appends the exact B1 `SUPERSEDED` fence,
-enters a zero-`ACTIVE` fail-closed interval, and atomically appends B2, its manifests, receipt and outbox while advancing
-the deployment head by compare-and-swap. A crash after OA2 or after the fence resumes only through the same epoch and
-same complete bytes; a changed epoch conflicts. This protocol does not claim cross-Owner transaction atomicity and
-never rewrites OA1, B1, prior manifests, admissions, receipts, outbox events, or downstream Owner facts. Requests that
-were never admitted under B1 must use a new identity after B2 becomes current; recovery cannot bless or complete them.
+The capability-policy version may change only when the content-addressed epoch contains an addition or
+removal, and every successor manifest binds that exact version. Omitted, duplicated, cross-spliced, stale, or
+differently interpreted transitions fail closed.
+
+Recovery is intentionally two-owner and forward-only. The Operator Authorization Issuer first appends or
+exact-replays OA2 after locking the expired issuance head and current frontier; OA2 alone is not Product Edge
+request authority. Product Edge then verifies that canonical OA2 at its own cut, irreversibly appends the
+exact B1 `SUPERSEDED` fence, enters a zero-`ACTIVE` fail-closed interval, and atomically
+appends B2, its manifests, receipt and outbox while advancing the deployment head by compare-and-swap. A crash
+after OA2 or after the fence resumes only through the same epoch and same complete bytes; a changed epoch
+conflicts.
+
+This protocol does not claim cross-Owner transaction atomicity and never rewrites OA1, B1, prior manifests,
+admissions, receipts, outbox events, or downstream Owner facts. Requests that were never admitted under B1
+must use a new identity after B2 becomes current; recovery cannot bless or complete them.
 
 The local API token is only opaque request proof. Bootstrap binds its digest without logging or publishing the
 secret, and request admission compares that proof against the canonical issuance and binding. Environment values,
@@ -719,14 +774,17 @@ payload identity, and audit correlation. The shell cannot self-assert identity o
 or meaning fails closed before submission.
 
 The request also binds a non-self-assertable Operator Authorization issued by a trusted authority: issuer,
-subject/effective principal, audience, exact scope, issued and expiry times under shared Time Evidence, revocation
-frontier, request-proof digest, and content-addressed Agent Operation Manifest. The manifest names the exact
-operation, schema, target Owner, allowed object classes, prohibited writes, and capability-policy digest. The shell
-may select only a manifest member; natural language, local configuration, or possession of a credential cannot
-mint authorization. The MCP tool registry and the curated operation set are transport surfaces, never authority:
-each member must resolve to a manifest member admitted at the request's own cut, and a registry member with no
-current manifest member fails closed before submission. A registry narrower than the manifest is valid and grants
-nothing; a registry entry wider than the manifest admits no request. Secret material remains behind an opaque least-privilege handle and never enters the request.
+subject/effective principal, audience, exact scope, issued and expiry times under shared Time Evidence,
+revocation frontier, request-proof digest, and content-addressed Agent Operation Manifest. The manifest names
+the exact operation, schema, target Owner, allowed object classes, prohibited writes, and capability-policy
+digest. The shell may select only a manifest member; natural language, local configuration, or possession of a
+credential cannot mint authorization.
+
+The MCP tool registry and the curated operation set are transport surfaces, never authority: each member must
+resolve to a manifest member admitted at the request's own cut, and a registry member with no current manifest
+member fails closed before submission. A registry narrower than the manifest is valid and grants nothing; a
+registry entry wider than the manifest admits no request. Secret material remains behind an opaque
+least-privilege handle and never enters the request.
 
 Together, the stable request identity, effective principal and scope, admitted `ACTIVE` shell binding and exact
 deployment-history head, Operator Authorization, and Agent Operation Manifest form the request's Authorization
@@ -741,16 +799,19 @@ admission locator and direct-resolves the complete canonical bytes under lock; a
 caller-computable digest is not authority. Same request and meaning join the original admission, while changed
 meaning or a changed authority cut conflicts without a downstream write.
 
-Superseding a deployment binding never rewrites an admitted request; its original binding, head, authorization,
-frontier, manifest, and cut remain directly resolvable. Authorization expiry or revocation likewise never rewrites
-an admission or an already committed downstream Owner receipt. If no downstream custody has committed, current
-expiry or revocation forbids first submission. If R&D already committed a receipt or prepared attempt, recovery may
-resolve or terminalize that custody, but a new provider or effect invocation requires one durable, one-use
-invocation admission serialized against the then-current authorization frontier. Response loss after that claim
-never permits a second invocation. Product Edge durably separates the claim from `INVOCATION_STARTED`; once the
-start fence commits, missing provider idempotency or authoritative provider readback yields `OUTCOME_UNKNOWN` with
-manual reconciliation only. Automatic recovery across that window and `ACTUAL_PROVIDER_CALL_AT_MOST_ONCE` remain
-`NOT_ADMITTED`; the start fact never proves that the provider ran or returned a result.
+Superseding a deployment binding never rewrites an admitted request; its original binding, head,
+authorization, frontier, manifest, and cut remain directly resolvable. Authorization expiry or revocation
+likewise never rewrites an admission or an already committed downstream Owner receipt. If no downstream
+custody has committed, current expiry or revocation forbids first submission. If R&D already committed a
+receipt or prepared attempt, recovery may resolve or terminalize that custody, but a new provider or effect
+invocation requires one durable, one-use invocation admission serialized against the then-current
+authorization frontier.
+
+Response loss after that claim never permits a second invocation. Product Edge durably separates the claim
+from `INVOCATION_STARTED`; once the start fence commits, missing provider idempotency or authoritative
+provider readback yields `OUTCOME_UNKNOWN` with manual reconciliation only. Automatic recovery across that
+window and `ACTUAL_PROVIDER_CALL_AT_MOST_ONCE` remain `NOT_ADMITTED`; the start fact never proves that the provider ran
+or returned a result.
 
 Environment-authorized legacy rows have no Product Edge admission and are never backfilled. Terminal legacy rows
 are read-only and quarantined, an identity collision fails closed, and the R&D API refuses activation while any
@@ -785,13 +846,15 @@ the initial PIT request it drives, and the user's authority are stated in the [R
 Built so far: nothing.
 
 An `ATTENDED_D_ONLY_REPAIR` uses the same request-lineage and receipt rule, but an accepted R&D Request Receipt
-binds only the D-only repair admission, not completion. A pre-admission `REJECTED_NO_WRITE` receipt creates no
-repair attempt and therefore no D-only Repair Disposition. R&D later commits exactly one request- and attempt-bound
-D-only Repair Disposition: `D0_COMPLETED_NO_ARTIFACT`, `D1_VALIDATED`, `D1_VALIDATION_FAILED`,
-`D1_BUILD_FAILED`, `REJECTED_NOT_D_ONLY`, or `OUTCOME_UNKNOWN`. Product Edge may display that fact through the existing Research
-View; it never owns the disposition, infers it from shell delivery, or turns `D1_VALIDATED` into Qualification,
-Governance, deployment, or trading authority. Same-request replay joins the same write-once disposition, while a
-new attempt requires a new explicit user request and successor R&D admission.
+binds only the D-only repair admission, not completion. A pre-admission `REJECTED_NO_WRITE` receipt creates
+no repair attempt and therefore no D-only Repair Disposition. R&D later commits exactly one request- and
+attempt-bound D-only Repair Disposition: `D0_COMPLETED_NO_ARTIFACT`, `D1_VALIDATED`, `D1_VALIDATION_FAILED`,
+`D1_BUILD_FAILED`, `REJECTED_NOT_D_ONLY`, or `OUTCOME_UNKNOWN`.
+
+Product Edge may display that fact through the existing Research View; it never owns the disposition, infers
+it from shell delivery, or turns `D1_VALIDATED` into Qualification, Governance, deployment, or trading
+authority. Same-request replay joins the same write-once disposition, while a new attempt requires a new
+explicit user request and successor R&D admission.
 
 A Qualification Review Request closes through Qualification's existing write-once Candidate Intake Receipt.
 The receipt binds the stable review request identity, canonical typed meaning, exact Candidate, and intake
@@ -808,11 +871,14 @@ acknowledgement, or missing error cannot substitute for the committed receipt; a
 Every Product Edge read model is a bounded Owner projection, never a shadow store. Its common envelope binds a
 stable read-request identity, trusted principal, exact authorized scope or account and Execution Scope,
 authorization-policy identity and cut, source Owner, complete authoritative source frontier or snapshot cut,
-observed/projection time, freshness, and valid-through time. The availability outcome is explicit: `AVAILABLE`,
-`STALE`, or `UNAVAILABLE`; a model with a stricter completeness state may additionally fail closed. Replaying one
-request at one source cut returns the same projection identity. A newer source cut creates a successor view, while
-cross-principal, cross-scope, cross-account, cross-mode, stale-policy, expired-time, or same-request conflicting
-replay returns no cached view and creates no Owner transition.
+observed/projection time, freshness, and valid-through time. The availability outcome is explicit:
+`AVAILABLE`, `STALE`, or `UNAVAILABLE`; a model with a stricter completeness
+state may additionally fail closed. Replaying one request at one source cut returns the same projection
+identity.
+
+A newer source cut creates a successor view, while cross-principal, cross-scope, cross-account, cross-mode,
+stale-policy, expired-time, or same-request conflicting replay returns no cached view and creates no Owner
+transition.
 
 Research View is `AVAILABLE`, `STALE`, or `UNAVAILABLE` and exposes one phase:
 `REQUEST_UNRESOLVED`, `INTENT_FROZEN`, `ARTIFACT_AVAILABLE`, `EXPLORATION_ACTIVE`, or `SELECTION_TERMINAL`.
@@ -841,14 +907,16 @@ Missing, unauthorized, stale, or mixed source cuts remain visibly non-available 
 inferred.
 
 Effect Closure View is requested directly from Execution for one stable effect-view request and authorized
-Execution Scope. `AVAILABLE` returns exactly one `UNKNOWN_EFFECT`, `NO_EFFECT`, or `SETTLED` projection with the
-attempt, account, mode, effect namespace, Effect Journal frontier, readback/reconciliation cuts, blocker,
-responsible Owner, projection cut, and valid-through. Missing or stale policy, cross-principal/account/mode,
-changed request meaning, or mismatched case/fence returns no view. If the source frontier or authoritative
-readback is unresolved, the same request remains `UNAVAILABLE` rather than inferring closure. Exact replay at the
-same source cut joins the same projection; a newer cut creates a successor view. Product Edge may explain progress
-from this view, but only the committed Execution and other source-Owner facts establish effect or Recovery state,
-and Research never consumes the view as provenance.
+Execution Scope. `AVAILABLE` returns exactly one `UNKNOWN_EFFECT`, `NO_EFFECT`, or
+`SETTLED` projection with the attempt, account, mode, effect namespace, Effect Journal frontier,
+readback/reconciliation cuts, blocker, responsible Owner, projection cut, and valid-through. Missing or stale
+policy, cross-principal/account/mode, changed request meaning, or mismatched case/fence returns no view. If
+the source frontier or authoritative readback is unresolved, the same request remains `UNAVAILABLE`
+rather than inferring closure.
+
+Exact replay at the same source cut joins the same projection; a newer cut creates a successor view. Product
+Edge may explain progress from this view, but only the committed Execution and other source-Owner facts
+establish effect or Recovery state, and Research never consumes the view as provenance.
 
 ## Product closure and application layer
 
@@ -887,7 +955,31 @@ Research and lifecycle admission requests close only through the receiving Owner
 D-only admission remains distinct from its later R&D-owned D-only Repair Disposition. Product Edge shows a
 strategy as running only from Runtime's Generation Application Receipt, never from Governance authorization alone.
 
-Product Edge can request Research work, independent Qualification review, or exactly one canonical Strategy Governance lifecycle action: `INITIAL_ACTIVATION`, `PROMOTION`, `REDUCTION`, `PAUSE`, `RETIREMENT`, `DE_RISK`, or `RECOVERY`. Conflicts resolve by `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION`; `PROMOTION` requires unattended policy plus fresh compatible Capacity View, Performance, and Exposure evidence under its own evidence key. It may read Research View, Portfolio View, exploratory Backtest results, bounded Qualification Status Summaries, the sole terminal Scanner Receipt for each ScheduledScanId, and bounded Governance Decision Views. A Research View shows terminal stops only from Iteration Decision and shows Selection only when the selected-only `SELECTED_FOR_QUALIFICATION` disposition exists. Intake status preserves the write-once `NOT_ADMITTED` or `ADMITTED` receipt; `EVALUATING` is a derived summary of an `ADMITTED` receipt plus a protected request in progress or unknown, not an Intake Receipt state. Every negative terminal protected outcome appears only as `CLOSED_NOT_QUALIFIED`; no internal replay, diagnostic, assessment, or ineligibility reason is projected. A committed positive Eligibility Fact supersedes the view phase as `QUALIFIED` without rewriting prior facts. Product Edge reads the Scanner Receipt directly; it stores no competing Scanner-owned projection. The receipt exposes exact completion state and one expected-set branch. A resolved branch contains exact expected, observed, and missing members; an unresolved branch contains the authoritative unresolved-set disposition, observed facts, missing-members-unavailable marker, and terminal reason. Only a complete `PROPOSED` receipt includes exact proposal members; incomplete `FAILED` never claims a complete set. Qualification and Governance views contain public state, conditions or policy bounds, effective interval, and type-opaque non-dereferenceable committed fact references only; they never reveal protected measurements, negative reason, or evaluation detail. Event Rail notification is never terminal proof.
+Product Edge can request Research work, independent Qualification review, or exactly one canonical Strategy
+Governance lifecycle action: `INITIAL_ACTIVATION`, `PROMOTION`, `REDUCTION`,
+`PAUSE`, `RETIREMENT`, `DE_RISK`, or `RECOVERY`. Conflicts resolve
+by `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION`; `PROMOTION` requires unattended policy plus fresh compatible Capacity View,
+Performance, and Exposure evidence under its own evidence key. It may read Research View, Portfolio View,
+exploratory Backtest results, bounded Qualification Status Summaries, the sole terminal Scanner Receipt for
+each ScheduledScanId, and bounded Governance Decision Views.
+
+A Research View shows terminal stops only from Iteration Decision and shows Selection only when the
+selected-only `SELECTED_FOR_QUALIFICATION` disposition exists. Intake status preserves the write-once
+`NOT_ADMITTED` or `ADMITTED` receipt; `EVALUATING` is a derived summary of an
+`ADMITTED` receipt plus a protected request in progress or unknown, not an Intake Receipt state.
+Every negative terminal protected outcome appears only as `CLOSED_NOT_QUALIFIED`; no internal replay,
+diagnostic, assessment, or ineligibility reason is projected. A committed positive Eligibility Fact supersedes
+the view phase as `QUALIFIED` without rewriting prior facts.
+
+Product Edge reads the Scanner Receipt directly; it stores no competing Scanner-owned projection. The receipt
+exposes exact completion state and one expected-set branch. A resolved branch contains exact expected,
+observed, and missing members; an unresolved branch contains the authoritative unresolved-set disposition,
+observed facts, missing-members-unavailable marker, and terminal reason. Only a complete `PROPOSED`
+receipt includes exact proposal members; incomplete `FAILED` never claims a complete set.
+
+Qualification and Governance views contain public state, conditions or policy bounds, effective interval, and
+type-opaque non-dereferenceable committed fact references only; they never reveal protected measurements,
+negative reason, or evaluation detail. Event Rail notification is never terminal proof.
 
 ## Prohibitions
 
@@ -913,13 +1005,22 @@ agent memory.
 
 ## Implementation acceptance
 
-Changing the external conversation client or Product Edge transport preserves the same effective principal, scope,
-capability and audit policies, and Owner authority rules. Tests prove exactly one selected admission gateway, an
-allowed zero-active cutover interval, predecessor `SUPERSEDED` before successor `ACTIVE`, irreversible
-supersession, rejection of dual writers or policy drift, per-request admission against the exact authoritative
-head, and preservation of every already admitted in-flight request identity. Dashboard and MCP tests must prove
-that the same semantic request reaches the same versioned operation and Owner receipt, while incompatible clients
-fail before a business write. Every mutating operation is typed, attributable, replay-safe, and bound to a receiving-Owner receipt. Qualification review reuses the Candidate Intake Receipt as that request-correlated terminal receipt and returns it independently of the bounded status view. Same meaning alone never joins a receipt whose Candidate, attempt, state, result, or identity differs. Accepted Research and lifecycle receipts bind the exact resulting fact; rejected receipts prove no write. Runtime application remains visibly `APPLICATION_UNKNOWN` until Runtime proves `APPLIED` or `REJECTED_NO_INSTANCE`. Natural-language ambiguity fails closed before any business write.
+Changing the external conversation client or Product Edge transport preserves the same effective principal,
+scope, capability and audit policies, and Owner authority rules. Tests prove exactly one selected admission
+gateway, an allowed zero-active cutover interval, predecessor `SUPERSEDED` before successor
+`ACTIVE`, irreversible supersession, rejection of dual writers or policy drift, per-request
+admission against the exact authoritative head, and preservation of every already admitted in-flight request
+identity.
+
+Dashboard and MCP tests must prove that the same semantic request reaches the same versioned operation and
+Owner receipt, while incompatible clients fail before a business write. Every mutating operation is typed,
+attributable, replay-safe, and bound to a receiving-Owner receipt. Qualification review reuses the Candidate
+Intake Receipt as that request-correlated terminal receipt and returns it independently of the bounded status
+view. Same meaning alone never joins a receipt whose Candidate, attempt, state, result, or identity differs.
+Accepted Research and lifecycle receipts bind the exact resulting fact; rejected receipts prove no write.
+
+Runtime application remains visibly `APPLICATION_UNKNOWN` until Runtime proves `APPLIED` or
+`REJECTED_NO_INSTANCE`. Natural-language ambiguity fails closed before any business write.
 
 Read-model tests prove every view preserves stable request, principal, scope, authorization-policy cut, source
 Owner, source cut, observed/projection time, freshness, valid-through time, and explicit availability status;

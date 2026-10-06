@@ -1,6 +1,6 @@
 # 能力采用
 
-本页把产品需求映射到当前 Nautilus 基础。用户于 2026-10-06 确认：数据与回测在 Nautilus 基础上扩展，
+本页把产品需求映射到当前 Nautilus 基础。数据与回测在 Nautilus 基础上扩展，
 分别包装为 MCP 服务；R&D 是自行开发的研究服务。这里是扩展职责图，不是把原生计算搬到替代引擎的迁移计划。
 Owner 名称表示内部职责、托管与权限边界，不表示额外引擎或必须独立部署的服务。源码能力与产品集成验收分别记录。
 
@@ -19,22 +19,70 @@ Owner 名称表示内部职责、托管与权限边界，不表示额外引擎�
 
 ## 产品能力与实现位置
 
-| 能力           | 实现位置                                    | 不变量                                       |
-| -------------- | ------------------------------------------- | -------------------------------------------- |
-| 数据与回测     | 在现有 Nautilus 模块扩展，分别提供领域 MCP  | 不复制数据引擎、撮合、订单或账户机制         |
-| 研究智能与编写 | 外部代理提交 JSON，自研 R&D 校验并封存      | 无产品内模型、任意代码或原地 Artifact 修改   |
-| 确定性任务     | 领域服务持久运行，MCP/CLI 提交与查询        | 会话消失不丢失任务；后端完成内部链路         |
-| 用户界面       | 第一方 Dashboard 读取和控制相同类型化操作   | UI、日志与运维成功不成为业务事实             |
-| 运行目录与日志 | 运维 RunStore 与有界只读 API                | 缓存删除不能删除 Owner 结果；未知保持未知    |
-| worker 与依赖  | 租约/兼容性分别观察，构建固定依赖与 lock    | 心跳不证明 readiness；无通用脚本或发布界面   |
-| 凭据与授权     | 服务私有环境、独立授权发行者与请求准入      | 秘密不进入 payload；Bearer 不成为自签权威    |
-| 来源和编写组合 | Source Intake、R&D、当前 Composer/Host 合同 | 正向链、响应丢失、重启、冲突与原子性独立验收 |
-| 遥测与通知     | 原生扩展点、提交 outbox、状态投影和告警     | 投递不代替事实；告警不发起交易或恢复         |
+### 原生接入约束
+
+设计必须先确定当前仓库原生类型、调用入口与扩展点，再设计产品接口。上游最新文档用于寻找能力，
+本仓库源码决定实际可调用的版本；Rust 与 Python 入口不能互相推断。以下映射约束所有服务细流程。
+
+| 产品要求             | 原生接入与类型                                                                                                 | 产品补充及准入边界                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 历史、实时与文件接入 | `DataClient` / provider adapter → `DataEngine`；原生 `Instrument`、`Bar`、`QuoteTick`、`TradeTick`、订单簿事件 | 外部文件先转成原生类型；来源、许可、可得时间、修订和覆盖是附加证据，不另建行情引擎                      |
+| 数据持久化与读取     | `crates/persistence/src/backend/catalog.rs` 的类型化 Parquet catalog；标的使用专用写入路径                     | 准入与不可变引用绑定实际文件/版本；catalog 本身不证明点时可得、保护分区或完整覆盖                       |
+| 多周期               | `crates/data/src/aggregation.rs`、`BarType` / composite bar；`INTERNAL` 派生与 `EXTERNAL` 来源序列             | 冻结基础输入、价格类型、周期锚点与派生链；小 K 合成不能冒充场所原生大 K                                 |
+| 原生策略包           | Agent 编写 Nautilus Strategy；R&D 封存源码、参数、依赖和环境；原生节点加载                                     | 不经过 JSON 策略语言/BFP/Wasm；当前旧链入口不能证明目标已接通                                           |
+| 挂单、保护与分段退出 | `OrderFactory`、原生订单命令/事件、GTD、contingent order、`reduce_only`                                        | 冻结价格和撤销条件变成原生命令；原生 cache / Execution 管实际生命周期，不复制订单状态机                 |
+| 多策略和执行算法     | `BacktestEngine::add_strategies`、`add_exec_algorithm`，原生 TWAP                                              | 产品仍须绑定成员、实例、算法参数和共同账户；原生 API 存在不等于 MCP 已接通                              |
+| 按笔入场             | 原生 OMS、position ID、client order ID 及 venue adapter                                                        | NETTING 与 HEDGING 语义不同；必须证明内部按笔归属和交易所聚合持仓对账，不另建持仓总账                   |
+| 资金与成本           | 原生 RiskEngine、账户/Portfolio、Fee/Fill/Latency/Margin 模型和 funding settlement                             | Governance 提供逻辑额度政策；产品增加授权、托管与研究证据，不替代原生余额、保证金或费用计算             |
+| 更细成交顺序         | 原生细粒度事件回放、明确的 bar execution 配置                                                                  | OHLC 路径启发式不是真实顺序；补数据由 Market Data 承接，新绑定默认完整重放，不声称原生自动递归取数/回滚 |
+
+原生行情与账户语义的入口分别见 `crates/model`、`crates/data/src/engine/`、
+`crates/backtest/src/engine.rs`、`crates/backtest/src/exchange.rs`、`crates/common/src/factories/order.rs`
+及 `crates/system/src/kernel.rs`。当前 JSON/Host 的限制详见 [R&D](../owners/rd.zh.md#implementation-status-ledger)
+与 [Backtest](../owners/backtest/)。没有原生映射或接线证据的要求保持目标，不通过平行实现绕过。
+
+Market Data 的 Source、Preparation、Streams 等组件是原生数据入口的扩展职责；
+Trading Node 的 Runtime、Risk、Execution、Portfolio 是原生组件的产品边界。
+R&D、Qualification、Governance 的研究决策、保护评估和生命周期政策属于产品新增职责。
+数据库中的证据记录可以索引原生事实，不能成为第二套行情、订单、持仓或账户权威。
+
+### 产品入口与托管
+
+| 能力           | 实现位置                                          | 不变量                                           |
+| -------------- | ------------------------------------------------- | ------------------------------------------------ |
+| 数据与回测     | 在现有 Nautilus 模块扩展，分别提供领域 MCP        | 不复制数据引擎、撮合、订单或账户机制             |
+| 研究智能与编写 | 外部 Agent 作判断并写原生源码；R&D 保存记录与封存 | 无产品内模型、研究决策解释器或原地 Artifact 修改 |
+| 确定性任务     | 领域服务持久运行，MCP/CLI 提交与查询              | 会话消失不丢失任务；后端完成内部链路             |
+| 用户界面       | 第一方 Dashboard 读取和控制相同类型化操作         | UI、日志与运维成功不成为业务事实                 |
+| 运行目录与日志 | 运维 RunStore 与有界只读 API                      | 缓存删除不能删除 Owner 结果；未知保持未知        |
+| worker 与依赖  | 租约/兼容性分别观察，构建固定依赖与 lock          | 心跳不证明 readiness；无通用脚本或发布界面       |
+| 凭据与授权     | 服务私有环境、独立授权发行者与请求准入            | 秘密不进入 payload；Bearer 不成为自签权威        |
+| 来源和编写组合 | Source Intake、R&D、当前 Composer/Host 合同       | 正向链、响应丢失、重启、冲突与原子性独立验收     |
+| 遥测与通知     | 原生扩展点、提交 outbox、状态投影和告警           | 投递不代替事实；告警不发起交易或恢复             |
 
 Windmill 不属于部署依赖。原有 wire spelling 仅用于读取不可变记录，不是实施或执行器选择。
 MCP、Dashboard 和包的存在不证明完整研究旅程；按照具体用户故事验收数据、Artifact、运行、报告及合法下一步。
 
 ## 能力映射
+
+### 原生能力族与产品用途
+
+盘点单位是组件能力及接入路径，不是把每个上游功能转成一个产品模块。
+
+| 原生能力族 | 保留的组件                                                                                                      | 产品使用方式                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 表示与标的 | model 的 instruments、accounts、orders、position、data、events、reports、Price/Quantity/Money                   | 统一语义与精度；Owner 元数据绑定原生类型，不另定义交易表示体系                                |
+| 数据       | DataClient、DataEngine、聚合、订单簿、options chain、catalog                                                    | Market Data 的输入/托管与节点内消费；原生支持期权或 DeFi 不自动扩大本产品研究/交易范围        |
+| 执行       | ExecutionClient/Engine、matching、OrderManager/Emulator、protection、trailing、reconciliation                   | 模拟与场所客户端采用同一命令/事件体系；未接通 emulation 或高级订单不得宣称可用                |
+| 运行       | system kernel/Trader、LiveNode/AsyncRunner、BacktestEngine/Node、Strategy/Actor、Controller、ExecutionAlgorithm | 原生节点生命周期和策略注册；研发任务编排不是另一套交易运行时                                  |
+| 风险与账户 | RiskEngine、fixed risk sizing、Portfolio、账户/保证金模型                                                       | 原生经济事实与检查；产品额度/授权仅加政策和证据                                               |
+| 数值与报告 | indicators/kernel、analysis analyzer/statistics                                                                 | 原生指标调用与结果投影；Agent 用已有工具研究新因子，R&D 保存证据，不复制指标/统计             |
+| 状态与恢复 | cache、Event Store、snapshot、typed replay、原生对账                                                            | 采用已证明状态恢复范围；cache 恢复不等于完整回测回滚、场所确认或治理恢复授权                  |
+| 支撑       | clock/timer、msgbus、network、serialization、persistence、crypto、logging/observability、plugin/Python bindings | 原生基础设施；Python/Rust 能力差异、插件 host 与 feature flags 必须逐入口确认，不另开业务部门 |
+
+下表继续规定具体 crate 与权限交接；provider 的历史、实时与执行端口另按实际支持区分。
+每个开发切片同时绑定原生入口、输入类型/配置、产品补充事实和最终消费者验收。
+只有前两者不足以满足明确需求时才设计有界扩展；有功能名而没有接入链路不能进入实现方案。
 
 | 现有 crate 或能力                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 目标归属                                                     | 采用契约                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -124,8 +172,7 @@ MCP、Dashboard 和包的存在不证明完整研究旅程；按照具体用户�
   `rd-owner-api` consumer、PostgreSQL backend、endpoint/TLS/server/database identity、schema/migration/function/
   role/ACL measurement、opaque credential-handle identity/audience/version、predecessor/generation/validity/recovery、
   signature、head、anti-rollback witness、direct measurement、credential lease 与 closed rotation fence。单机部署上的
-  anti-rollback witness 是具名模式 `SingleTrustDomainNoRollbackWitness`，在它之下检测不到整台机器的回滚；用户 2026-09-27
-  的授权见架构规则。restart
+  anti-rollback witness 是具名模式 `SingleTrustDomainNoRollbackWitness`，在它之下检测不到整台机器的回滚；其单信任域范围见架构规则。restart
   或 cache loss 必须重复 signature/head verification 与 direct measurement；歧义不构造 Owner repository，也不
   触发 business retry。receipt 与 raw store evidence 保持私有；普通 consumer 首个可见值是 Market Data 密封的
   `ResearchPitTerminal`。该默认产品入口从部署配置组合其

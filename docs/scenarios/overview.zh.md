@@ -5,11 +5,7 @@
 
 ## Entry / 入口
 
-用户通过 Product Edge 提交带来源且可证伪的市场想法。Trade 自有的 Dashboard 与通过它的
-Dashboard MCP endpoint 接入的可选外部对话客户端，在同一准入网关后调用相同带版本的受限 Owner
-operation；该网关的 channel 常量是 `TRADE_PRODUCT_EDGE`。在该名字之前封存的记录仍保留
-Windmill 作表面时的拼写 `WINDMILL_PRODUCT_EDGE`，网关两者都接受。
-UI、MCP transport 与 workflow 都不保存业务事实，也不直接交易。
+个人用户把带来源、可证伪的市场想法交给外部 Agent。Agent 经领域 MCP 调用有界、版本化 Owner 操作；服务器服务持久保存已接纳任务与结果，不依赖对话存活。Dashboard 只读研究进度与证据，提供获准的 Governance 控制及首次试盘确认，不发起研究，也不控制本地 Agent。Product Edge 接纳请求，不拥有业务事实或直接交易。
 
 ## Value path / 价值路径
 
@@ -20,9 +16,8 @@ UI、MCP transport 与 workflow 都不保存业务事实，也不直接交易。
 5. Strategy Governance 综合资格 生命周期证据 资金政策 完整请求 Authorization Lineage 和显式
    Autonomous Policy Authorization，形成部署决定。
 6. R&D 可按需查询市场机会，复用策略判断但不生成部署提案。运行策略持续消费行情，Governance 直接判定冻结生命周期条件。
-7. Runtime、Risk 与 Execution 经过绑定许可的唯一写链执行自动模拟或实盘交易。
-8. Portfolio 投影只读账户 暴露 表现 容量 交互和 degradation 事实；Governance 对完整 contender set
-   确定分配，Risk 只执行 generation envelope 并联结账户事实 open order 与 liability，不成为 allocator。
+7. 用户确认首次试盘后，Runtime、Risk 与 Execution 经绑定许可的唯一原生写链执行真实试盘或正式交易；转正重新核验冻结条件与容量。
+8. Portfolio 投影只读账户 暴露 表现 容量 交互和 degradation 事实；Governance 按获准试盘/正式池比例及运行成员等分政策分配，已有占用不满足调整后额度时排队，Risk 只执行 generation envelope 并联结账户事实 open order 与 liability，不成为 allocator。
 9. 已提交反馈返回 Governance，Recovery 围栏事故直到外部效果已知闭合。
 
 ## Owner handoffs / Owner 交接
@@ -42,7 +37,7 @@ Authorization operation manifest 和 Autonomous Policy Authorization 一直贯�
 
 ## Development outcome / 开发结果
 
-- **受益者** - 需要从想法到自动交易保持一条可追踪路径的量化研究员 策略运营者和资金负责人。
+- **受益者** - 使用可更换外部 Agent 研发并运行策略的个人用户。
 - **可观测结果** - 每个已接受转换都有唯一 Owner 事实，每个自动效果都关联治理 generation 许可 执行记录 账户投影和反馈闭环。
 - **未改变伤害** - 团队会建立竞争权威，把漂亮但未合格的结果推向交易，并失去解释资金与外部效果的能力。
 - **终态负例** - 任何不完整交接都停在所属 Owner 的明确负面或未解析状态；Recovery Case 未闭合 回执缺失或效果未知都不能推断成功。

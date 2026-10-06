@@ -1,21 +1,30 @@
 # Trade Dashboard
 
+<Callout type="info" title="研究只读，控制归 Governance">
+
+研究路由只读。逐路由准入与精确几何章节约束实现，组件目录不准入额外组件；生命周期控制需要独立 Governance 授权。
+
+</Callout>
+
 ## 产品角色与权威
 
-Dashboard 是单一本地操作者使用的第一方可视化 Product Edge。它展示原生 Owner View、提交类型化请求、
-跟踪长任务，并呈现相关 Owner 返回的唯一下一合法动作。它也是 Observability projection 与 operational
-job 状态的只读表面。
+Dashboard 是单一操作者使用的第一方可视化 Product Edge。研究视图只展示进度、证据和结果，不发起、
+暂停、恢复或终止研究，也不控制外部 Agent 会话。研究指令由用户向外部 Agent 发出，再经领域 MCP 调用。
+Dashboard 通过类型化请求提供已批准的 Governance 操作，包括上线确认、政策配置和策略运行管理，并跟踪
+长任务；它也是 Observability projection 与 operational job 状态的只读表面。Owner 返回下一合法动作
+本身不授予 Dashboard 研究控制入口。
 
-Dashboard 永远不是业务事实 Owner。它可以缓存 UI 状态与可丢弃 job projection，但不能拥有 Research
-Intent、Artifact、Backtest Result、Qualification、legacy Scanner Receipt、生命周期授权、Runtime application、
-Portfolio、Risk、order、fill、reconciliation 或 Recovery 事实。每个业务状态与允许动作都携带 Owner
-identity、source cut、observed time、freshness 或 availability，以及原生 receipt locator。unknown、stale、
-partial、rebuilding、quarantined 与 unavailable 必须显式保留。
-Product Edge 只把 `UntrustedOwnerEvidenceLocatorV1` 与 `UntrustedLocatorDigest` 当 routing/integrity vocabulary，
-绝不能当作 proof。它必须调用被标识 source
-Owner 的 typed public resolve port，并验证由该 Owner durable store/outbox 重读返回的 canonical bytes。浏览器、
-BFF、共享 library 或 consumer service 都不能用 caller authority 文本、self-canonical digest、通用 verifier
-或共享 signer 建立 provenance。
+Dashboard 永远不是业务事实 Owner。 它可以缓存 UI 状态与可丢弃 job projection，但不能拥有 Research Intent、Artifact、Backtest
+Result、Qualification、legacy Scanner Receipt、生命周期授权、Runtime application、
+Portfolio、Risk、order、fill、reconciliation 或 Recovery 事实。
+
+每个业务状态与允许动作都携带 Owner identity、source cut、observed time、freshness 或 availability，以及原生 receipt locator。
+unknown、stale、 partial、rebuilding、quarantined 与 unavailable 必须显式保留。 Product Edge 只把 `UntrustedOwnerEvidenceLocatorV1` 与
+`UntrustedLocatorDigest` 当 routing/integrity vocabulary， 绝不能当作 proof。
+
+它必须调用被标识 source Owner 的 typed public resolve port，并验证由该 Owner durable store/outbox 重读返回的 canonical bytes。 浏览器、
+BFF、共享 library 或 consumer service 都不能用 caller authority 文本、self-canonical digest、通用 verifier 或共享 signer 建立
+provenance。
 
 ```text
 User -> Dashboard typed request -> Product Edge admission -> native Owner
@@ -40,156 +49,23 @@ Dashboard 要求用户确认准确候选与冻结试盘/资金政策后才首次
 可由用户主动下架改进，原因记录为用户决定而非经济失败。分别回读 Governance 授权与 Runtime 应用，不能把确认
 显示为已运行；用户停止后不得自动重新上线。
 
-Dashboard 在试盘开始前提供转正条件选择，使用统一默认条件，也允许用户选择并批准策略专属条件。
-具体可选条件、参数及页面交互尚未确定；一个月或收益为正等讨论示例不构成已发布选项。
+Dashboard 在试盘开始前提供有限具名条件模板，只允许调整开放参数，由用户选择并批准。
+具体模板、阈值与页面交互尚待冻结；一个月或收益为正等讨论示例不构成已发布选项。
 开始试盘时提交所选条件的版本与完整参数，由业务 Owner 验证并冻结，Dashboard 不自行判断通过或转正。
 运行中不得通过切换选项回写当前试盘条件；页面应能回读当前冻结条件及其对应试盘身份。
 此能力保持目标设计状态，不扩大下文的 `IMPLEMENTATION_ADMITTED` 路由或原子集合。
 
 ### Action authorization 准入合同
 
-Owner projection 返回 next action 只是启用 button 的必要条件，不是充分条件。Dashboard 在渲染 enabled
-修改型控件前，必须用稳定 request preview、有效 principal 与 scope、target Owner、canonical operation、
-semantic payload identity 和 audit correlation 调用 typed Product Edge admission port。返回值是
-`ActionAdmissionEnvelope`，且只能有以下一个状态：
+研究页面没有写动作准入，只读取准确 Owner 投影，并保留缺失、陈旧、部分、拒绝和未知状态。展示的下一合法动作供外部 Agent 参考，不构成浏览器 dispatch 权限。输入及效果协议仍归 [Product Edge](../architecture/product-edge/)及所属服务契约。
 
-```text
-admitted | expired | revoked | stale_head | no_active_binding |
-ambiguous_active_binding | manifest_mismatch | denied | unavailable
-```
+Governance 控制绑定准确策略/组合版本、operation manifest、可信主体/范围、当前 Operator Authorization、活动 deployment binding/history head 及所需 Autonomous Policy Authorization。浏览器不能签发、续期、提升或自行声明它们。授权、政策与最终截面当前性由所属后端核验；缓存 readiness、历史 admission、transport 成功和 UI 状态不能授权效果。
 
-`admitted` 分支交叉绑定三张由独立 port 解析的 canonical record：
+首次试盘确认指明准确候选、冻结条件模板及分配政策；请求在 Owner 返回绑定回执前保持 pending 或 unknown，只有 Runtime 独立 `APPLIED` 回执证明应用。用户停止不能自动重新激活策略。同身份同含义解析原请求，含义冲突拒绝；未知外部效果保留承诺和原身份，不盲目重下。
 
-1. `ShellDeploymentBindingEnvelope`：binding identity、generation、deployment‑history head、`ACTIVE` state、
-   principal、scope-policy/capability/audit-policy version、cutover epoch、source cut 与 valid-through time。
-2. `OperatorAuthorizationEnvelope`：authorization identity、issuer、subject/effective principal、audience、准确
-   scope、带 Time Evidence 的 issued/expiry time、revocation frontier、request-proof digest 与 manifest digest。
-3. `AgentOperationManifestEnvelope`：content digest、operation identity/version/schema、target Owner、允许
-   object class、禁止写入与 capability-policy digest。
+浏览器不提供 bootstrap、issuer、SQL、provider、策略 build 或代理控制接口。准入过期不能靠遍历任意授权链、伪造 successor 或重建 genesis 恢复。准确 direct-successor、响应丢失、invocation-fence、downstream-resolution 及封存终态规则仍由 Product Edge/Owner 边界执行；研究编写移到 MCP 不放宽这些约束。
 
-Product Edge admission service 读取权威 deployment head，要求准确一张等于该 head 的 `ACTIVE` binding，
-通过 trusted authority port 解析 Operator Authorization，再按 content digest 取得 immutable manifest。
-`ShellBindingHistoryStore`、受信 `OperatorAuthorizationResolver` 与 content‑addressed
-`OperationManifestStore` 是相互独立的 authority surface；Dashboard session state、environment/default
-policy、本地配置、持有 credential，或由同一个 validator 构造的 object 都不能填充这些 store。Browser
-只能收到 bounded projection，绝不获得 issuer 或 signing operation。
-
-`POST /api/product-edge/actions/{operation_id}/admission` 返回用于渲染的 preflight envelope。只有
-`admitted` 才启用准确 manifest member，并显示 authorization identity、binding/head、manifest digest、
-scope、expiry 与 revocation frontier。提交必须在业务写入边界原子重复同一 admission；之前绿色的 preflight
-绝不能授权之后的写入。每个非 admitted 分支都保持 disabled 并返回一个稳定 stop predicate。只有 same-identity
-Owner resolve 自己的 read manifest member 被准入时才可用；transport credential 既不是 Operator Authorization，
-也不能证明 admission。
-
-对于有 domain freshness prerequisite 的已准入 operation，可见 primary control 是 `Check & Run`，不能让 cached
-`AVAILABLE` 直接授权 effect。第一次 transition 是 read‑only `PREFLIGHTING`：App 用 Owner current projection
-Resolve 同一 S1 request/Intent，但这只是 fail-closed UX preflight。Pending 时 primary 显示
-`Checking…`，固定 status line 是 accessible live region，且 Cancel 安全，因为尚未发送 Artifact request。
-Cancel、timeout、malformed output、transport failure 或 non-current projection 会撤销 Research current-positive
-gate，把 historical Research card 保留为 read‑only，不创建 Artifact attempt，也不暴露 same-attempt Resolve。
-
-只有 exact `AVAILABLE / INTENT_FROZEN` preflight 可以原子转入 `ADMITTING`。此时 effect‑capable
-Artifact request 已发送，`Submitting…` 取代 Cancel，UI 不显示伪造百分比。最终权威 gate 属于
-server，不属于 preflight：server 必须验证 exact operation/schema/effect set，并在首次写入紧前的
-locked OA → Product Edge → R&D transaction 内重新解析 current R&D custody。Bounded server receipt 让
-gate 进入信息蓝 `ADMITTED`；这只是 request admission，不是 Artifact 或 business success。Dispatch
-后 timeout、disconnect 或 malformed output 进入 domain `SUBMITTED_OR_UNKNOWN`，并转交 same-attempt Resolve；
-绝不返回 `PREFLIGHTING` 或 `REVALIDATION_REQUIRED`。Browser 可以保守地把 aging cached action
-改为 `REVALIDATION_REQUIRED`，但只有 Owner response 可以标记 `STALE` 或重新启用 `Check & Run`。
-
-Historical readback 与 current effect authority 是两种独立 projection。Canonical admission snapshot 在 binding
-被 supersede 或 authorization 被 revoke 后仍可读，让 Audit 与 Run Detail 解释原始 cut 当时准入了什么；它绝不
-参与 current gate。Historical authorization 过期后，policy-equivalent current authorization 只能通过 canonical
-append-only Operator Authorization successor issuance 获得；该 issuance 必须绑定 prior identity/scope/sequence
-与新的 validity。缺少该 Owner operation 或 receipt 时，`Current authority` 为 `Unavailable`；historical snapshot
-仍可见，但 Dashboard 不提供本地 renewal、replacement selector 或推断出的 current authorization。
-
-Admission 尚未执行第一次 downstream mutation 时，continuity 只能使用 original binding 或恰好一个
-**immediate** policy-equivalent successor。因此 `successor_distance` 固定为 `0 | 1`；第二次 cutover、跳过
-predecessor、出现分支或任意 chain head 时，即使最新 scope 文本等价，`Current authority` 与全部 first-mutation
-action 也必须显示 `Unavailable`。固定 `AuthorizationSuccessorReadiness` geometry 显示 admission generation、
-current generation、distance、predecessor locator 与 `DIRECT_SUCCESSOR_REQUIRED` stop；绝不能向前遍历直到
-找到可用项，也不能代表 generation-1 admission 提升 generation-3 head。已经提交的 invocation
-admission/claim/start fact 仍从 sealed custody 做 historical resolve，不重新进入 first-mutation gate。
-
-Stored original Operator Authorization 绝不能变成新 FirstMutation 的 historical authority。Final locked write cut
-必须把其自身 row 解析为 `CurrentAtLock`。若 `successor_distance=1`，immediate successor 的 Operator Authorization
-与 Product Edge binding 是额外 current requirement，不能替代 original。`AuthorizationSuccessorReadiness` 因此
-先渲染 `Original authorization at final cut`，再渲染 `Immediate successor at final cut`；任一 row non-current
-都返回 `ORIGINAL_AUTHORIZATION_NOT_CURRENT` 或 successor-specific stop，并禁用全部 FirstMutation control。
-
-第一次 provider claim 前，Product Edge 必须原子重读完整 current deployment 与 authorization history，并持久化
-一张独立 sealed invocation‑admission receipt。该 receipt 绑定直接解析的 current
-authorization identity/frontier、Time Evidence、policy-equivalent `ACTIVE` binding/head、准确 manifest digest、
-historical request‑admission lineage，以及在完整锁集合内采样的一个 final write cut；其 commit time 不能越过
-authorization 或 binding validity。Cutover、expiry、revocation、manifest mismatch 或任何
-malformed/missing/extra history row 都返回 `unavailable`，且 invocation admission、claim、state 与 provider
-effect 全部零写入。
-
-Invocation-admission receipt、claim receipt 与 invocation state 是三个独立 Product Edge fact。Claim 必须消费并
-引用 sealed invocation admission，不能用 original request admission 或 transient resolver output 代替。Versioned
-public claim readback 必须包含 `invocation_admission_receipt_identity` 与
-`invocation_admission_receipt_digest`；`rd-owner-client` operation adapter 与共享 consumer projector 必须消费同一份
-generated/exact parser，并在投影 claim 前绑定两个值。
-该 parser 必须按 Owner resolution 分支并精确遵循 Rust serialization：`SUCCESS` 必须带 present/non-null 的
-`trial_family_resolution` 与 `artifact_trial_family`；`CLAIMED`、`INVOCATION_STARTED`、
-`FAILED_NO_ARTIFACT`、`OUTCOME_UNKNOWN` 与 `REJECTED_NO_WRITE` 必须省略这两个 optional family key；verified
-legacy terminal 带 `trial_family_resolution=TRIAL_FAMILY_UNAVAILABLE_LEGACY`，并省略
-`artifact_trial_family`。显式 `null` 与省略不可互换。Rust fixture bytes 必须直接输入两个 `rd-owner-client` verifier 的
-同一份跨语言 contract test；人工填写 `null` 的 fixture 不是 acceptance。
-Missing、extra、schema-mismatched 或 tampered wire field
-保持 A0/A1 geometry 并显示 `Unavailable`，只暴露 same‑attempt Resolve 与 operational evidence，绝不启用 Run。Claim disposition 为
-`CLAIMED_NEW | ALREADY_CLAIMED`；state 为 `CLAIMED | INVOCATION_STARTED`；start disposition 为
-`STARTED_NEW | OUTCOME_UNKNOWN`。Claim 响应丢失必须恢复同一张 durable `CLAIMED` receipt，并为同一
-build request、attempt 与 claim 投影精确 next action `RUN_BOUNDED_EXECUTION_AGENT`。只有该 projection 才启用
-**Run bounded Agent + sandbox**，且它必须与 sealed invocation‑admission receipt 直接一致；点击后只启动既有
-claim 一次，绝不创建 successor、replacement claim 或第二次 provider invocation。Claim 提交后，任何上层都不能
-重新执行 R&D `prepare` 或 current Research freshness 作为新的 start gate。
-Start/recovery 只解析该 claim 已密封的 historical Intent/attempt custody；新的 Research cut 只约束 pre-claim
-admission 或被明确准入的 successor。即使 claim row 存在，缺失、stale、malformed 或 mismatch 的 invocation
-admission 仍渲染 unavailable。start 一旦提交，Run control 消失，任何 replay 都渲染 `OUTCOME_UNKNOWN` 与
-`MANUALLY_RECONCILE_PROVIDER_INVOCATION`，绝不再次调用 provider 或伪造 provider outcome。
-Operation adapter 必须在任何 pre-claim preparation 前 resolve 同一 attempt：恢复的 `CLAIMED` 直接 dispatch
-start operation，只有真正未 claim 的 identity 才能调用 `prepare`。`INVOCATION_STARTED` 后，success/failure
-terminalization 从 sealed attempt/claim custody 执行，不依赖 current Research freshness。此后的 Resolve 即使
-linked Research View 已 stale，也必须返回精确 durable terminal receipt；stale 只禁用 review/successor action，
-绝不能删除或改写 terminal business fact。固定展示顺序为
-`Current authority`、`Admission snapshot`、`Invocation admission`、`Invocation claim`、`Invocation state`。
-
-Current authority readiness 是合取条件。Operator Authorization genesis 或 issuance receipt 可以作为
-sealed historical evidence 展示，但只有对应 Product Edge binding、head 与 outbox projection 在同一个 admitted
-cut 上全部 canonical resolve 后才可启用 action。当 OA row 存在而任一 Product Edge row 缺失、unavailable
-或与锁协议不兼容时，`AuthorizationLineagePanel` 分开保留两个 Owner row，把 Product Edge row 标为
-`Unavailable`，显示精确 stop predicate，并让 `ActionAdmissionGate` 不渲染 primary action。浏览器不提供
-bootstrap、repair、权限提升或 force-admit 控件。
-
-已提交的 Product Edge admission snapshot 仍不是 R&D terminal。第一次 R&D mutation 前，一个 versioned、
-Product Edge-owned `DownstreamAdmissionResolver` 必须在 caller 的物理 PostgreSQL transaction 内执行。它先取得
-既有 OA shared lock，再锁定并验证 Product Edge binding/head/manifest/admission/outbox，最后只返回 sealed
-canonical admission bytes，不暴露任何 Owner table。R&D 只获得该 port 的 execute 权限，绝不能获得 OA access
-或 Product Edge table authority。若此 seam 缺失、denied、stale、corrupt 或不能保持 lock cut，页面把 Product
-Edge admission 显示为 committed、downstream custody 显示为 `Unavailable`；整体 S1 为
-`SUBMITTED_OR_UNKNOWN`，S2 保持 disabled，唯一业务 action 是 same-identity Resolve。页面不能仅因缺少 R&D
-receipt 就把 request 错标为 `REJECTED_NO_WRITE` 或提供 Create successor。
-
-S2 error projection 跟随 attempt identity，而不是 operational job result。`artifact_product_edge_error` 对
-unavailable、storage 或 unknown Product Edge authority（包括已有 custody record）统一返回
-`SUBMITTED_OR_UNKNOWN`，且唯一 business action 是 `RESOLVE_SAME_ATTEMPT_IDENTITY`。绝不渲染
-`REJECTED_NO_WRITE`、Create successor、新 claim 或 provider action。
-
-业务 outcome projection 使用另一条固定优先级。sealed R&D terminal receipt 高于 Product Edge invocation
-fence：`SUCCESS` 渲染 canonical Artifact/Build Receipt/Review projection；`FAILED_NO_ARTIFACT` 渲染
-`NoArtifactReceiptPanel` 且没有 Artifact。只有不存在任何 R&D terminal 且 Product Edge fence 为
-`INVOCATION_STARTED` 时，页面才能渲染 `OUTCOME_UNKNOWN` 与
-`MANUALLY_RECONCILE_PROVIDER_INVOCATION`；不能 retry、mark success 或 dismiss。来自旧 custody generation
-的已验证历史 terminal 渲染为 `LEGACY_TERMINAL_QUARANTINED`，只显示历史 receipt，不创建 current
-Research View、provider action、successor action 或 TrialFamily repair action。Owner wire discriminant、
-request/attempt identity、terminal receipt、custody generation、quarantine reason 与 original disposition 必须作为
-一个 strict legacy‑only branch 穿过共享 consumer projector。精确接受集合是
-`SUCCESS | FAILED_NO_ARTIFACT | REJECTED_NO_WRITE | OUTCOME_UNKNOWN`；sparse legacy rejection 可以按 Rust Owner
-wire 省略 Intent identity/digest。所有 variant 都保持 read‑only，family/provider/actions 必须 absent。该 branch
-缺失或 malformed 时，固定 legacy slot 显示 `Unavailable` 并只允许 same‑attempt Resolve，绝不能静默折叠成
-untyped generic unknown。
+有界回读在关联视图过期后仍展示已验证终态，区分终态历史和当前权限。已验证 `FAILED_NO_ARTIFACT` 展示规范无工件回执；终态托管缺失保持 unavailable/unknown。隔离版本只读，不能提供当前 Artifact、family、provider 或上线权威。
 
 ## 状态词汇与证据切面
 
@@ -216,20 +92,22 @@ Dashboard 是第一方用户界面，Windmill 不再是部署依赖。运维视�
 依赖和 lock 在构建流程确定，远程依赖工作只作为有界运维任务展示，不成为 Dashboard 发布机制。
 
 队列取消只适用于 `kind=dependency`、`state=queued`、domain effect set 为空且 Dispatcher 已证明没有 worker claim
-的任务；返回不可变运维取消回执，不改变业务事实。provider、build、replay、admission、claim 或其他有副作用任务
-不由这个动作取消，也不提供批量取消。worker 的租约存活与对任务 kind/tag/runtime/isolation 的兼容性分别显示；
-有心跳但不能执行该任务时是 online/incompatible，不是 Ready。completed disposable cache 删除不删除 Owner 事实。
+的任务；返回不可变运维取消回执，不改变业务事实。 provider、build、replay、admission、claim 或其他有副作用任务 不由这个动作取消，也不提供批量取消。 worker 的租约存活与对任务
+kind/tag/runtime/isolation 的兼容性分别显示； 有心跳但不能执行该任务时是 online/incompatible，不是 Ready。
+
+completed disposable cache 删除不删除 Owner 事实。
 
 ### Operations API 与后台状态合同
 
-这是 `TARGET_DRAFT` replacement contract，不证明这些 service 已经存在。Browser 与 MCP read 使用同一组
-typed handler 与 capability check。Page cursor 对一个 filter cut opaque 且稳定；每个 response 都包含
-`observed_at`、`projection_version`、`availability` 与 retention/expiry disclosure。Caller 能读取 operational
-run，也绝不意味着 route 可以返回 Owner payload。当前视图的 filter cut 取数据库的语句时间，也就是它所过滤的
-那些行被盖戳时用的时钟：浏览器请求当前视图时不带自己的时间，服务端在那一刻切 cut 并回传，翻页、下载与 cursor
-都沿用这个回传的 cut。浏览器时钟从不成为 cut，因此跑在数据库前面的浏览器时钟无法拒绝这次读取，落在后面的也无法
-藏起最新的行。浏览器只拿同一个应答里的时间核对 `observed_at`，从不拿自己的时钟比。Operational action 的
-`observed_at` 是在该 action 自己的事务里读取的数据库时间，也就是它的 receipt 盖戳所用的时钟，因此落在数据库
+这是 `TARGET_DRAFT` replacement contract，不证明这些 service 已经存在。 Browser 与 MCP read 使用同一组 typed handler 与
+capability check。 Page cursor 对一个 filter cut opaque 且稳定；每个 response 都包含
+`observed_at`、`projection_version`、`availability` 与 retention/expiry disclosure。
+
+Caller 能读取 operational run，也绝不意味着 route 可以返回 Owner payload。 当前视图的 filter cut 取数据库的语句时间，也就是它所过滤的
+那些行被盖戳时用的时钟：浏览器请求当前视图时不带自己的时间，服务端在那一刻切 cut 并回传，翻页、下载与 cursor 都沿用这个回传的 cut。 浏览器时钟从不成为
+cut，因此跑在数据库前面的浏览器时钟无法拒绝这次读取，落在后面的也无法 藏起最新的行。 浏览器只拿同一个应答里的时间核对 `observed_at`，从不拿自己的时钟比。
+
+Operational action 的 `observed_at` 是在该 action 自己的事务里读取的数据库时间，也就是它的 receipt 盖戳所用的时钟，因此落在数据库
 后面的服务端时钟无法让一次已完成的取消或删除看起来像被拒绝。
 
 | UI read 或 action                 | 固定 Dashboard API                                                                                   | Backend owner 与精确规则                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -245,14 +123,17 @@ run，也绝不意味着 route 可以返回 Owner payload。当前视图的 filt
 | Service‑log viewport 或 download  | `GET /api/operations/service‑logs` 与 `/service‑logs/download` -> `ServiceLogPage` 或 bounded stream | `ServiceLogGateway` 要求 exact service/instance cut，并对两种输出应用相同 time/severity/search filter、redaction、cursor、retention 与 byte limit；不暴露 delete、clear、restart 或 health‑promotion endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Audit list 与 correlation detail  | `GET /api/operations/audit` 与 `/audit/{audit_id}` -> `AuditPage` 或 `AuditEventEnvelope`            | `OperationAuditStore` append‑only，由 authenticated Product Edge/Dashboard control‑plane middleware 写入，不由此 read route 写入。Unknown/redacted target 保持显式；没有 edit、delete、dismiss 或 replay endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
-`RunOperationalState` 精确为 `queued | running | succeeded | failed | cancelled | unknown`；只有 Dispatcher 与
-worker protocol event 能通过对最后 transition 的 compare-and-set 推进它。`OwnerOutcomeState` 是独立的
-`available | rejected | unknown | unavailable | not_applicable` envelope，绝不参与 operational transition。同一
-run identity 的 late terminal worker event 可以替换 operational `unknown`，但只有 Owner reread 能替换 Owner
-`unknown`。Worker liveness 只从 stored lease deadline 与 last heartbeat 计算；只有 path‑bound
-`RunDetailProjection` 才能在同一 observation cut 对该精确 run 的 kind、tag、runtime、required isolation 与
-worker registration 做 canonical compatibility match。Client time、missing row、process/container health 或
-service-log message 既不能提升 liveness，也不能伪造 compatibility。
+`RunOperationalState` 精确为 `queued | running | succeeded | failed | cancelled | unknown`；只有 Dispatcher 与 worker protocol event 能通过对最后 transition 的
+compare-and-set 推进它。 `OwnerOutcomeState` 是独立的 `available | rejected | unknown | unavailable | not_applicable` envelope，绝不参与 operational transition。
+
+同一 run identity 的 late terminal worker event 可以替换 operational `unknown`，但只有 Owner reread 能替换 Owner
+`unknown`。
+
+Worker liveness 只从 stored lease deadline 与 last heartbeat 计算；只有 path‑bound `RunDetailProjection` 才能在同一
+observation cut 对该精确 run 的 kind、tag、runtime、required isolation 与 worker registration 做 canonical compatibility
+match。
+
+Client time、missing row、process/container health 或 service-log message 既不能提升 liveness，也不能伪造 compatibility。
 
 替代品不是缩小版低代码平台，而是 Trade 专用 Dashboard、类型化 Product Edge gateway、窄 job dispatcher、
 worker protocol、可丢弃 operational store，以及可选 exact-tool MCP channel。Native Owner 及其 store 仍是
@@ -266,11 +147,9 @@ worker protocol、可丢弃 operational store，以及可选 exact-tool MCP chan
 
 ### 参考实现锚点
 
-视觉证据切面使用本地 checkout `/Users/vx/WebstormProjects/vibe-trading` 的 commit
-`4a6d66fb77fc144c2a013417c703db2caf401641`、tree `984c7d684dba72a6af78dc3e6cf50191bc3622ea`。观察时，
-下列 reference file 相对该 revision 均为 clean；中途停止 checkout 的其他 dirty file 不是设计证据。它是
-source reference，不是 package dependency 或业务架构权威。未来 agent 修改 token 或 shell geometry 前必须
-检查以下锚点：
+视觉证据切面使用本地 checkout `/Users/vx/WebstormProjects/vibe-trading` 的 commit `4a6d66fb77fc144c2a013417c703db2caf401641`、tree `984c7d684dba72a6af78dc3e6cf50191bc3622ea`。 观察时， 下列
+reference file 相对该 revision 均为 clean；中途停止 checkout 的其他 dirty file 不是设计证据。 它是 source reference，不是 package
+dependency 或业务架构权威。 未来 agent 修改 token 或 shell geometry 前必须 检查以下锚点：
 
 | `apps/web/src` 下的参考路径                                                      | 继承                                                                                                                                                           | 明确不继承                                                                                                   |
 | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -330,7 +209,7 @@ Side menu 按工作流排序。icon、accessible label、route 与位置稳定�
 |   10 | Execution     | `/execution`     | Attempt、order、fill、reconciliation、Recovery readback                    |
 |   11 | Data          | `/data`          | Source、PIT catalog、quality、correction、freshness                        |
 |   12 | Operations    | `/operations`    | Run、worker、run/service log、audit、Event Rail、telemetry、alert          |
-|   13 | Settings      | `/settings`      | Data‑source、Agent‑provider、notification、access 配置                     |
+|   13 | Settings      | `/settings`      | Data‑source、external Agent access、notification、access 配置              |
 
 Rail 顶部放 user capsule 与本地 installation menu。模块 capsule 在可容纳时垂直居中，否则滚动。Active
 item 使用深色圆形填充与白色 icon；hover、focus、disabled 与 attention 状态必须在无颜色时仍可区分。
@@ -366,24 +245,22 @@ Top bar 按顺序分成四区：
 
 ## 有界准入：本地 Operator 浏览器会话
 
-用户准入一个第一方本地 Operator 会话壳与只读 `/settings/access` surface，状态为
-`DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。此窄切片只替换无行为的登录展示，不准入 OAuth、账号创建、
-密码导入、transport token 签发、Operator Authorization 或 Product Edge binding 修改、authorization
-successor 选择、通用角色管理产品以及任何 Owner/provider effect。Product Edge routing 与
-`DASHBOARD_OPERATOR_API_TOKEN` 保持不变。
+用户准入一个第一方本地 Operator 会话壳与只读 `/settings/access` surface，状态为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。 此窄切片只替换无行为的登录展示，不准入
+OAuth、账号创建、 密码导入、transport token 签发、Operator Authorization 或 Product Edge binding 修改、authorization successor
+选择、通用角色管理产品以及任何 Owner/provider effect。 Product Edge routing 与 `DASHBOARD_OPERATOR_API_TOKEN` 保持不变。
 
-`DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN` 只用于证明可以创建或续期浏览器会话；
-`DASHBOARD_SESSION_HMAC_KEY` 为版本化 cookie 签名。cookie 只包含固定 `local_operator` principal、随机
-session identity、登录凭据摘要、签发时间与过期时间。两项 secret 都必须为 32-4096 UTF-8 bytes。cookie
-固定 HttpOnly、SameSite=Strict、path `/`、八小时有限有效期，并在 HTTPS 请求下启用 Secure；不得写入
-local/session storage，也不得由 API 暴露。轮换任一 secret 都会使旧会话失效。登录凭据不能满足 effect
-endpoint；已准入 effect 仍独立要求自己的 bearer capability。
+`DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN` 只用于证明可以创建或续期浏览器会话； `DASHBOARD_SESSION_HMAC_KEY` 为版本化 cookie 签名。 cookie 只包含固定 `local_operator`
+principal、随机 session identity、登录凭据摘要、签发时间与过期时间。 两项 secret 都必须为 32-4096 UTF-8 bytes。
 
-Next proxy 保护所有 Dashboard 页面与 API，只排除 `/login`、`/api/auth/session`、静态资源及不返回业务
-数据的 `/api/health` 存活端点；Dashboard layout 再执行一次页面防护。配置缺失时 fail closed 为
-`configuration_unavailable`；会话缺失、非法或过期分别为 `required`、`invalid`、`expired`，且不保留旧正向
-状态。页面请求跳转登录页并只携带已清洗的本地 return path；API 返回 401，配置不可用时返回 503。会话创建
-仅接受 same-origin JSON，删除同样要求 same-origin；非法、过期与已删除 cookie 必须清除。
+cookie 固定 HttpOnly、SameSite=Strict、path `/`、八小时有限有效期，并在 HTTPS 请求下启用 Secure；不得写入 local/session
+storage，也不得由 API 暴露。 轮换任一 secret 都会使旧会话失效。 登录凭据不能满足 effect endpoint；已准入 effect 仍独立要求自己的 bearer capability。
+
+Next proxy 保护所有 Dashboard 页面与 API，只排除 `/login`、`/api/auth/session`、静态资源及不返回业务 数据的
+`/api/health` 存活端点；Dashboard layout 再执行一次页面防护。 配置缺失时 fail closed 为 `configuration_unavailable`；会话缺失、非法或过期分别为
+`required`、`invalid`、`expired`，且不保留旧正向 状态。
+
+页面请求跳转登录页并只携带已清洗的本地 return path；API 返回 401，配置不可用时返回 503。 会话创建 仅接受 same-origin JSON，删除同样要求
+same-origin；非法、过期与已删除 cookie 必须清除。
 
 `/settings/access` 只读取当前 principal、session identity、上次重新认证与过期时间。Transport token、
 Operator Authorization、Product Edge readiness 与 successor 区域保持可见 unavailable，不提供修改控件或
@@ -392,19 +269,18 @@ secret value。动态验收覆盖配置不可用、无 cookie 的页面/API、�
 
 ## 有界准入：只读调度历史与影子调度日历
 
-用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，包含两个严格隔离的
-GET-only 视图。默认 `History` 通过 `/api/operations/schedules/history/` 读取第一方 RunStore 中的持久化
-登记；它只代表历史证据，绝不能展示成当前配置或 active 状态。`Current schedules` 继续使用已有的
-配置绑定 `/api/operations/schedules/` 契约。此窄例外覆盖该路由的通用 blueprint-only 分类，不准入
-Scanner due-slot Resolve 或通用外壳调度；读取不创建 scheduler，不注册、tick 或入队。
+用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，包含两个严格隔离的 GET-only 视图。 默认 `History` 通过
+`/api/operations/schedules/history/` 读取第一方 RunStore 中的持久化 登记；它只代表历史证据，绝不能展示成当前配置或 active 状态。 `Current schedules` 继续使用已有的 配置绑定
+`/api/operations/schedules/` 契约。
 
-历史读取按 `COALESCE(last_due_at, created_at)` 的毫秒投影降序、不可变 schedule identity 升序返回最近至多 100 条，
-通过 101 行探针区分 `complete` 与 `partial_unavailable`。浏览器只接收 schedule identity、业务 operation、
-cadence、登记时间、最后观测时间/run 配对及记录时间；完整但为空是合法状态。摘要、recovery identity、
-registry binding 和预计 next-due 不跨越此浏览器契约。技术身份默认收进 info 控件。页面复用 PanelFrame、
-CompactStatusBar、DataTableSurface、DataWorkspaceTable、SplitBento 与 DetailInspector 原子，以业务名称展示
-活动，并明确标注 `Historical registrations only - not current schedules`。搜索与活动过滤仅发生在本地，
-不修改 RunStore。
+此窄例外覆盖该路由的通用 blueprint-only 分类，不准入 Scanner due-slot Resolve 或通用外壳调度；读取不创建 scheduler，不注册、tick 或入队。
+
+历史读取按 `COALESCE(last_due_at, created_at)` 的毫秒投影降序、不可变 schedule identity 升序返回最近至多 100 条， 通过 101 行探针区分 `complete` 与
+`partial_unavailable`。 浏览器只接收 schedule identity、业务 operation、 cadence、登记时间、最后观测时间/run 配对及记录时间；完整但为空是合法状态。
+摘要、recovery identity、 registry binding 和预计 next-due 不跨越此浏览器契约。 技术身份默认收进 info 控件。
+
+页面复用 PanelFrame、 CompactStatusBar、DataTableSurface、DataWorkspaceTable、SplitBento 与 DetailInspector 原子，以业务名称展示
+活动，并明确标注 `Historical registrations only - not current schedules`。 搜索与活动过滤仅发生在本地， 不修改 RunStore。
 
 当前计划继续复用 `configuredShadowScheduleSetV1` 与 RunStore `readBoundScheduledReads`：配置中的身份、
 摘要、operation 和 dispatch binding 必须与全部已注册记录精确匹配（1-100 条）。配置、注册或兼容
@@ -415,15 +291,14 @@ custody 缺失时 fail closed；不得使用历史记录重建或弱化该 unava
 已过去的周期。只有返回的 `last_due_at` 与 `last_run_identity` 配对才是**已观测运行**，不得推断
 更早历史、完成、时长、成功或 Owner acceptance。
 
-当前计划视图只有一个日历 header 和内嵌日历 body。body 内的工具栏
-保留 Vibe Journal 源码层级，不再替换成 Dashboard 自绘控制条。左侧 identity group 依次为 Today 日期卡、
-带调度数或 unavailable 状态的月/年标题、Previous、日期范围和 Next；右侧 tool group 依次为 Filter、
-共用一个底座并带动画的 Agenda/Day/Week/Month/Year segmented control、operation selector、占用源码主操作
-位置的 Refresh、Settings。当前视图展开文字，未选视图只保留图标。operation selector 保留源码叠放标记
-trigger 的构型，但标记只能从已返回的 operation identity 派生；数据不可用时不制造占位标记。Filter 内
-提供本地 operation/identity 搜索及 observed/not-observed scope；Settings 内提供紧凑密度和 Table mode。
-窄屏时这些控件作为同一工具栏横向滚动或换行。其默认模式为当前 UTC 日期的 Month 视图。源码日历 header 上方
-不得再插入独立摘要条、重复 Calendar/Table 按钮或常驻搜索框。
+当前计划视图只有一个日历 header 和内嵌日历 body。 body 内的工具栏 保留 Vibe Journal 源码层级，不再替换成 Dashboard 自绘控制条。 左侧 identity group 依次为
+Today 日期卡、 带调度数或 unavailable 状态的月/年标题、Previous、日期范围和 Next；右侧 tool group 依次为 Filter、 共用一个底座并带动画的
+Agenda/Day/Week/Month/Year segmented control、operation selector、占用源码主操作 位置的 Refresh、Settings。
+当前视图展开文字，未选视图只保留图标。
+
+operation selector 保留源码叠放标记 trigger 的构型，但标记只能从已返回的 operation identity 派生；数据不可用时不制造占位标记。 Filter 内 提供本地
+operation/identity 搜索及 observed/not-observed scope；Settings 内提供紧凑密度和 Table mode。 窄屏时这些控件作为同一工具栏横向滚动或换行。
+其默认模式为当前 UTC 日期的 Month 视图。 源码日历 header 上方 不得再插入独立摘要条、重复 Calendar/Table 按钮或常驻搜索框。
 
 日历保留 Vibe 的日期导航、五视图、事件查看、溢出展开及克制动画。Month 使用覆盖完整周的七列网格，
 每天最多三个摘要条目及可访问的溢出按钮。Day/Week 按 UTC 小时展示零时长触发点，不伪造持续时长块。
@@ -438,40 +313,39 @@ Today 重置日期但保留当前视图。
 operation/标题、cadence 与下次预计触发、上次已观测 due/run 速览 trigger、默认折叠的身份/摘要/recovery 字段。
 不提供 Run、Resolve、CRUD、拖拽或缩放操作。
 
-1280px 及以上，日历/表格与详情使用 2:1 网格、16px 间距，共享按可用视口限制在 420-760px 的 body
-高度，双方内部滚动；History view 在这个宽度同样使用已约定的 `SplitBento` 展示 table 与选中登记。
-低于 1280px，从任一 view 选择数据都会打开共享右侧 `DetailSheet`，Schedules URL 不变，calendar 或
-table 占满 inset；低于 768px，同一个 sheet 转为全屏。关闭后焦点返回选中的 calendar entry 或 table row。
-低于 768px，Month/Week 保留至少 700px 的内部滚动宽度，其他视图适配卡片。header/footer 共用主题 chrome token，配内嵌 body、弱
-分割线及克制橙色选中/焦点。图标使用 Lucide。动画 140-180ms 并遵循 reduced motion；键盘可操作
-控件、开关溢出、选中条目及访问已观测运行链接，不依赖指针手势。
+1280px 及以上，日历/表格与详情使用 2:1 网格、16px 间距，共享按可用视口限制在 420-760px 的 body 高度，双方内部滚动；History view 在这个宽度同样使用已约定的
+`SplitBento` 展示 table 与选中登记。 低于 1280px，从任一 view 选择数据都会打开共享右侧 `DetailSheet`，Schedules URL
+不变，calendar 或 table 占满 inset；低于 768px，同一个 sheet 转为全屏。 关闭后焦点返回选中的 calendar entry 或 table row。
 
-History 与 Current schedules view 复用同一个只读关联 Run 速览，不改变 Schedules URL。速览重新读取精确
-`RunDetailEnvelopeV1`，只展示运行状态、活动、触发来源、开始时间、时长与 source result，并提供唯一显式的
-`Open full run details` canonical 升级入口；不得嵌入日志或 Run action。在任一窄屏 schedule sheet 内激活关联 Run
-时替换同一个 sheet body 并提供 `Back to schedule`，不得叠第二层 overlay。从 table 直接打开时不得伪造
-Back 目标；Close 必须把焦点返回到该 table trigger。返回后保留筛选、分页、滚动与选中登记。
+低于 768px，Month/Week 保留至少 700px 的内部滚动宽度，其他视图适配卡片。 header/footer 共用主题 chrome token，配内嵌 body、弱 分割线及克制橙色选中/焦点。
+图标使用 Lucide。 动画 140-180ms 并遵循 reduced motion；键盘可操作 控件、开关溢出、选中条目及访问已观测运行链接，不依赖指针手势。
 
-加载时主 body 展示六行 48px skeleton；空数据/搜索无结果使用单个 160px 提示区，不伪造事件。
-不可用、兼容失败、格式错误及拒绝访问使用同样有界提示区、简短原因与 Refresh，不保留旧正向详情。
-关联 Run 只按需读取，每次 identity 变化前先清除旧正向数据；非成功响应携带正向数据、非法 envelope、
-request/envelope/run identity 失配都 fail closed，中止或迟到读取不得回填已关闭或更新的速览。动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、
-五视图、溢出、键盘、双主题与窄/宽屏布局；fixture 不能替代动态验收。
+History 与 Current schedules view 复用同一个只读关联 Run 速览，不改变 Schedules URL。 速览重新读取精确
+`RunDetailEnvelopeV1`，只展示运行状态、活动、触发来源、开始时间、时长与 source result，并提供唯一显式的 `Open full run details` canonical
+升级入口；不得嵌入日志或 Run action。 在任一窄屏 schedule sheet 内激活关联 Run 时替换同一个 sheet body 并提供 `Back to schedule`，不得叠第二层
+overlay。
+
+从 table 直接打开时不得伪造 Back 目标；Close 必须把焦点返回到该 table trigger。 返回后保留筛选、分页、滚动与选中登记。
+
+加载时主 body 展示六行 48px skeleton；空数据/搜索无结果使用单个 160px 提示区，不伪造事件。 不可用、兼容失败、格式错误及拒绝访问使用同样有界提示区、简短原因与
+Refresh，不保留旧正向详情。 关联 Run 只按需读取，每次 identity 变化前先清除旧正向数据；非成功响应携带正向数据、非法 envelope、 request/envelope/run identity
+失配都 fail closed，中止或迟到读取不得回填已关闭或更新的速览。
+
+动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、 五视图、溢出、键盘、双主题与窄/宽屏布局；fixture 不能替代动态验收。
 
 ## 有界准入：Backtest 收益带展示原子
 
-`BacktestReturnBand` 是已文档化 `/backtest` 与 `/backtest/compare` 表面的
-`TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读展示原子。其源码保真基线是 Vibe Trading commit
-`48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree
-`d226b620dc699c9e8e382274434b324a5fefe0e1` 中 factor home 的日收益带图。Trade 适配保留
-quantile min/max 与 Q1/Q3 区间、选中策略的墨迹 overlay、月份色带或年份分割线、拖动聚焦时间窗口与
-reset、回撤顶部纹理、可选的显式 benchmark 及外置 hover readout；同时使用 Dashboard 共享 panel、
-主题 token、响应式测量、克制动画、reduced-motion 行为和 Lucide action。
+`BacktestReturnBand` 是已文档化 `/backtest` 与 `/backtest/compare` 表面的 `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读展示原子。
+其源码保真基线是 Vibe Trading commit `48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree `d226b620dc699c9e8e382274434b324a5fefe0e1` 中 factor home 的日收益带图。
 
-正向渲染只接受一个精确、有界、Owner 投影的 result identity：canonical UTC 时间戳（RFC3339、恰好九位小数秒、且带 `Z` 偏移，与下文单次运行报告使用同一定义）、有序有限 quantile、
-严格按时间排序的 point，以及时间戳属于同一 cut 的可选 strategy/benchmark series。未知字段、错误顺序、
-series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零图表数据。只有投影显式提供 benchmark
-时才展示基准；浏览器绝不能从 band median 派生 baseline、合成收益或导入 Vibe mock factor data。
+Trade 适配保留 quantile min/max 与 Q1/Q3 区间、选中策略的墨迹 overlay、月份色带或年份分割线、拖动聚焦时间窗口与 reset、回撤顶部纹理、可选的显式 benchmark 及外置
+hover readout；同时使用 Dashboard 共享 panel、 主题 token、响应式测量、克制动画、reduced-motion 行为和 Lucide action。
+
+正向渲染只接受一个精确、有界、Owner 投影的 result identity：canonical UTC 时间戳（RFC3339、恰好九位小数秒、且带 `Z`
+偏移，与下文单次运行报告使用同一定义）、有序有限 quantile、 严格按时间排序的 point，以及时间戳属于同一 cut 的可选 strategy/benchmark series。 未知字段、错误顺序、
+series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零图表数据。
+
+只有投影显式提供 benchmark 时才展示基准；浏览器绝不能从 band median 派生 baseline、合成收益或导入 Vibe mock factor data。
 Loading、unavailable、合法 empty 与 available 是四种独立状态。
 
 该原子不执行 Backtest dispatch、selection commit、comparison judgment、economic claim、Owner resolve、
@@ -481,432 +355,431 @@ replacement。
 
 ## 有界准入：单次回测报告
 
-`BacktestRunReport` 是已文档化 `/backtest` 表面上、针对单次 Owner 已提交回测运行的
-`TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读报告表面。它不引用上游源码保真基线。其余有界准入所指的 Vibe
-Trading 树并未 vendor 进本仓库，也未被检索，因此本节不对该树是否存在这样的表面作任何断言；其展示的
-边界由下面的契约约束，而不是由引入的设计约束。
-它恰好回答关于一次运行的四个问题，且不携带回答第五个问题的任何字段：策略是什么、跑在哪段数据上、
-这次运行产出了什么、每一笔成交是什么。把一条策略与同类排名是 `BacktestReturnBand` 的职责而不是本表面，
-因此本报告不渲染 quantile band、不渲染 benchmark、不做对比。
+`BacktestRunReport` 是已文档化 `/backtest` 表面上、针对单次 Owner 已提交回测运行的 `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读报告表面。
+它不引用上游源码保真基线。 其余有界准入所指的 Vibe Trading 树并未 vendor 进本仓库，也未被检索，因此本节不对该树是否存在这样的表面作任何断言；其展示的 边界由下面的契约约束，而不是由引入的设计约束。
+它恰好回答关于一次运行的四个问题，且不携带回答第五个问题的任何字段：策略是什么、跑在哪段数据上、 这次运行产出了什么、每一笔成交是什么。
 
-正向渲染只接受一个精确、有界、Owner 投影的 `run_identity`。策略按已准入的单阈值族的陈述给出：通道、
-阈值、比较、两侧动作与 falsifier，以及该程序的退出。退出按其声明给出：止损或止盈是收盘价的不利或有利变动，按入场那根 bar 收盘价的比例计；
-持仓上限按入场 bar 之后的 bar 数计；并始终说明它在 bar 收盘时判定、在下一根 bar 成交（`AT_BAR_CLOSE_FILLED_NEXT_FRAME`）；没有声明退出的程序明说没有，
-因此当投影无法陈述退出时，报告绝不会读起来像是没有退出规则。canonical UTC 指 RFC3339、恰好九位小数秒、且带 `Z` 偏移，因此不把截断决定下放，也不接受任何带偏移量的
-形式。数据窗口按 instrument、粒度、canonical UTC 起点与不含在内的终点 `end_exclusive`（窗口外的第一个时刻）、
-快照数，以及一个由投影显式携带的 `cut_identity` 给出，而不是由浏览器从时间戳对齐推断。策略陈述,以及粒度、快照数与 `cut_identity`,都不来自回测结果:它们由 run 从上游携带,
-投影在其旁陈述,因此到规范回测结果里去找阈值的读者将找不到。结果是收益序列,加上净收益、
-最大回撤与成交次数,每一项都是 Owner 校验过的具名字段,而不是对无类型 map 的按键查找,
-因此键名被改会 fail 到 `unavailable`,而不是渲染成缺失。缺少必需键、且不带任何契约不认识的键的投影，以
-一个指名所缺键的理由 `unavailable`，因此尚未交付的陈述不会被读成格式错误。序列中的每个值，以及净收益与最大回撤，都是分数，0.01 表示百分之一。规范结果可以在两种依据中的任一种上构建该序列，而投影目前不说明是哪一种，因此报告把这些值陈述为分数、不指明依据：它显示的任何内容，无论标签、提示还是说明文字，都不陈述也不暗示权益收益。携带依据这一点仍然悬而未决。Owner 携带依据之后，标签会指明它；若依据无法确定，净收益与最大回撤以具名理由不可用，这是一种不同于空序列所给出的 null 的状态。每一笔成交携带 canonical UTC 时间戳、方向、价格与数量。价格与数量是按品种精度书写的普通十进制字符串，原样显示：尾随的 0 保留、也不补 0，价格可以为负，数量永不带符号，两者都不用指数形式或千分位。point 严格按时间排序，
-因此相邻时间戳相等时 fail closed 而不是渲染。每一个数值都是有限的，因此 `NaN` 与无穷 fail closed
-而不是到达坐标轴。未知字段、错误顺序、series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零
-报告数据。浏览器不派生任何东西：它不合成收益、不计算投影未陈述的回撤、不推断投影未列出的成交。
+把一条策略与同类排名是 `BacktestReturnBand` 的职责而不是本表面， 因此本报告不渲染 quantile band、不渲染 benchmark、不做对比。
 
-`loading`、`unavailable`、合法 `empty` 与 `available` 是四种独立状态，且投影必须把它们区分表达：空序列
-不得同时代表「这次运行没有产出 point」与「这次读取无法被回答」。投影直接陈述它的状态，而不是留给调用方
-从空数组推断。`empty` 表示序列没有 point，且净收益与最大回撤都为 null；成交仍可列出，因为一次运行可以有成交
-而引擎不记录收益 - 例如它的所有快照都落在引擎计的同一天 - 而成交无论如何都是事实。`empty` 还显示 Owner 的
-`empty_reason`，取值是 `docs/owners/backtest.md` 定义的封闭集之一，完全按 Owner 的陈述显示；浏览器不自行
-推导任何原因。`empty_reason` 作为键恒在，只在 `available` 时为 null，因此有三种投影是 `unavailable`：不带原因
-的 `empty`、带原因的 `available`、以及原因不在集合里的。`available` 表示序列有 point 且两个量都已陈述。净收益
-与最大回撤作为键恒在，只在 `empty` 时为 null，因此缺一个键永远是故障。策略不在已准入单阈值族内的运行是
+正向渲染只接受一个精确、有界、Owner 投影的 `run_identity`。 策略按已准入的单阈值族的陈述给出：通道、 阈值、比较、两侧动作与 falsifier，以及该程序的退出。
+退出按其声明给出：止损或止盈是收盘价的不利或有利变动，按入场那根 bar 收盘价的比例计； 持仓上限按入场 bar 之后的 bar 数计；并始终说明它在 bar 收盘时判定、在下一根 bar
+成交（`AT_BAR_CLOSE_FILLED_NEXT_FRAME`）；没有声明退出的程序明说没有， 因此当投影无法陈述退出时，报告绝不会读起来像是没有退出规则。
+
+canonical UTC 指 RFC3339、恰好九位小数秒、且带 `Z` 偏移，因此不把截断决定下放，也不接受任何带偏移量的 形式。 数据窗口按
+instrument、粒度、canonical UTC 起点与不含在内的终点 `end_exclusive`（窗口外的第一个时刻）、 快照数，以及一个由投影显式携带的 `cut_identity`
+给出，而不是由浏览器从时间戳对齐推断。 策略陈述,以及粒度、快照数与 `cut_identity`,都不来自回测结果:它们由 run 从上游携带, 投影在其旁陈述,因此到规范回测结果里去找阈值的读者将找不到。
+
+结果是收益序列,加上净收益、 最大回撤与成交次数,每一项都是 Owner 校验过的具名字段,而不是对无类型 map 的按键查找, 因此键名被改会 fail 到 `unavailable`,而不是渲染成缺失。
+缺少必需键、且不带任何契约不认识的键的投影，以 一个指名所缺键的理由 `unavailable`，因此尚未交付的陈述不会被读成格式错误。 序列中的每个值，以及净收益与最大回撤，都是分数，0.01
+表示百分之一。 规范结果可以在两种依据中的任一种上构建该序列，而投影目前不说明是哪一种，因此报告把这些值陈述为分数、不指明依据：它显示的任何内容，无论标签、提示还是说明文字，都不陈述也不暗示权益收益。
+
+携带依据这一点仍然悬而未决。 Owner 携带依据之后，标签会指明它；若依据无法确定，净收益与最大回撤以具名理由不可用，这是一种不同于空序列所给出的 null 的状态。 每一笔成交携带 canonical UTC
+时间戳、方向、价格与数量。 价格与数量是按品种精度书写的普通十进制字符串，原样显示：尾随的 0 保留、也不补 0，价格可以为负，数量永不带符号，两者都不用指数形式或千分位。 point 严格按时间排序，
+因此相邻时间戳相等时 fail closed 而不是渲染。 每一个数值都是有限的，因此 `NaN` 与无穷 fail closed 而不是到达坐标轴。
+
+未知字段、错误顺序、series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零 报告数据。 浏览器不派生任何东西：它不合成收益、不计算投影未陈述的回撤、不推断投影未列出的成交。
+
+`loading`、`unavailable`、合法 `empty` 与 `available`
+是四种独立状态，且投影必须把它们区分表达：空序列 不得同时代表「这次运行没有产出 point」与「这次读取无法被回答」。 投影直接陈述它的状态，而不是留给调用方 从空数组推断。 `empty`
+表示序列没有 point，且净收益与最大回撤都为 null；成交仍可列出，因为一次运行可以有成交 而引擎不记录收益 - 例如它的所有快照都落在引擎计的同一天 - 而成交无论如何都是事实。
+
+`empty` 还显示 Owner 的 `empty_reason`，取值是 `docs/owners/backtest.md` 定义的封闭集之一，完全按 Owner 的陈述显示；浏览器不自行
+推导任何原因。 `empty_reason` 作为键恒在，只在 `available` 时为 null，因此有三种投影是 `unavailable`：不带原因 的
+`empty`、带原因的 `available`、以及原因不在集合里的。 `available` 表示序列有 point 且两个量都已陈述。
+
+净收益 与最大回撤作为键恒在，只在 `empty` 时为 null，因此缺一个键永远是故障。 策略不在已准入单阈值族内的运行是
 `unavailable`，理由具名为「该程序族不存在 Owner 对策略的陈述」，而不是一个通用码。
 
 本表面不执行 Backtest dispatch、selection commit、comparison judgment、Owner resolve、provider call
 或业务写，也不建立 S3 deployment availability、executor cutover 或 real-trading authority。
 
-它的准入扩展到一条喂它的 `/backtest` 读路由、挂载它的页面，以及全路由验收，前提是为本报告提供数据的
-Backtest Owner 投影存在。该路由原样转达投影的回答、不添加任何东西：Owner 回答 `unavailable` 时路由也同样
-回答，理由用 Owner 自己的。验收分别证明两种状态。不可用的投影渲染不可用状态，验收等待该状态的具体元素，
-而不是等一个空 body 或一段文案。可用的投影从真实已提交的字节渲染报告。若有序链路中没有任何运行能产生
-可用状态，就把该状态记为「今天不可构造」并给出理由，不用夹具顶替。仅有组件测试与静态渲染，仍然既不能
-建立 live data，也不能建立 deployed-browser acceptance。
+它的准入扩展到一条喂它的 `/backtest` 读路由、挂载它的页面，以及全路由验收，前提是为本报告提供数据的 Backtest Owner 投影存在。
+该路由原样转达投影的回答、不添加任何东西：Owner 回答 `unavailable` 时路由也同样 回答，理由用 Owner 自己的。 验收分别证明两种状态。
+不可用的投影渲染不可用状态，验收等待该状态的具体元素， 而不是等一个空 body 或一段文案。 可用的投影从真实已提交的字节渲染报告。 若有序链路中没有任何运行能产生
+可用状态，就把该状态记为「今天不可构造」并给出理由，不用夹具顶替。
 
-经过认证的 read API 路由精确为
-`GET /v1/backtest-run-reports/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`，
-以 `/backtest` result lookup 已持有的同一个三字段 locator 为键。它通过 Owner 自己的解析器读取 Backtest Owner
-投影；该解析器自行开启一个 `SERIALIZABLE, READ ONLY, DEFERRABLE` 的 R&D Owner 事务，并总是回滚。
-报告以 `200` 回答，内容就是 Owner 序列化出的投影。不存在的运行以 `404` 回答，Owner
-拒绝以 `503` 回答，二者都带一个只含 `state: UNAVAILABLE` 与理由、别无他物的信封：不存在的运行理由是
-`BACKTEST_RUN_ABSENT`，拒绝的理由是 Owner 自己的码，拒绝的原句只留在日志里。Dashboard BFF 不做规范化地绑定
-三个 identity 并转达该回答。它只在任何 Owner 回答到达之前就失败的那一段，或本契约拒绝的报告上，给出自己的理由。
+仅有组件测试与静态渲染，仍然既不能 建立 live data，也不能建立 deployed-browser acceptance。
+
+经过认证的 read API 路由精确为 `GET /v1/backtest-run-reports/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`， 以 `/backtest` result lookup 已持有的同一个三字段 locator 为键。 它通过
+Owner 自己的解析器读取 Backtest Owner 投影；该解析器自行开启一个 `SERIALIZABLE, READ ONLY, DEFERRABLE` 的 R&D Owner 事务，并总是回滚。 报告以
+`200` 回答，内容就是 Owner 序列化出的投影。
+
+不存在的运行以 `404` 回答，Owner 拒绝以 `503` 回答，二者都带一个只含 `state: UNAVAILABLE`
+与理由、别无他物的信封：不存在的运行理由是 `BACKTEST_RUN_ABSENT`，拒绝的理由是 Owner 自己的码，拒绝的原句只留在日志里。 Dashboard BFF 不做规范化地绑定 三个 identity
+并转达该回答。 它只在任何 Owner 回答到达之前就失败的那一段，或本契约拒绝的报告上，给出自己的理由。
 
 ## 有界准入：Exploratory Replay 请求与结果回读
 
-`ExploratoryReplayReadbackWorkbench` 是 `/backtest` 的精确 `P` surface。它是一个
-`ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 的 Replay V2 已提交请求 point-read；当三个 result locator
-field 齐全时，还可读取一个由 Backtest Owner 持有的 canonical result。它不是 replay composer、dispatcher、
-compare surface 或经济图表。composer-backed 请求是同一种 Replay V2 request；Owner 只在识别 composer-backed
-custody 的构建里读回它，也就是开启 `composer-v3-replay` 的构建，没有任何部署镜像开启它，所以部署镜像对它答 `UNAVAILABLE`。route 只使用一个全宽 `PanelFrame`，
-没有 summary strip、历史列表/表格、左右 detail pane 或预留图表高度。header 包含 `EXPLORATORY REPLAY`
-eyebrow、`Replay request` title、一行简短 purpose 与 `Refresh`；在打开合法 selector 前 Refresh disabled。
-inset body 从一条水平 lookup rail 开始：`Request identity`、`Meaning digest`、`Open readback`。窄屏只让
-lookup rail 换行，label 和 value 始终左对齐。icon 只能来自 Lucide，field label 前没有装饰 icon。
+`ExploratoryReplayReadbackWorkbench` 是 `/backtest` 的精确 `P` surface。 它是一个 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 的
+Replay V2 已提交请求 point-read；当三个 result locator field 齐全时，还可读取一个由 Backtest Owner 持有的 canonical result。 它不是
+replay composer、dispatcher、 compare surface 或经济图表。
 
-available readback 按顺序渲染三个轻微色差分组。`Request` 展示精确 request identity、availability、
-namespace 与 deterministic seed；`Custody` 展示 meaning digest、receipt identity、seal digest、committed
-time 与 Owner observation cut；`Replay basis` 展示精确 event window，以及 TrialFamily、Artifact、
-strategy-design、universe-selection、PIT-snapshot、runtime-kernel 与 simulator identity。universe-selection identity
-指名该请求所绑定的成员集合；该集合含哪一个品种由这次运行的报告在其唯一成员上陈述，这里不推导。长 identity 仍可选择并以 accessible
-text 暴露完整值，只在视觉上截断。browser 不接收 canonical request bytes、raw receipt、component digest、
-Product Edge admission、protected evidence、source、result bytes 或 storage field。
+composer-backed 请求是同一种 Replay V2 request；Owner 只在识别 composer-backed custody 的构建里读回它，也就是开启 `composer-v3-replay`
+的构建，没有任何部署镜像开启它，所以部署镜像对它答 `UNAVAILABLE`。 route 只使用一个全宽 `PanelFrame`， 没有 summary
+strip、历史列表/表格、左右 detail pane 或预留图表高度。
+
+header 包含 `EXPLORATORY REPLAY` eyebrow、`Replay request` title、一行简短 purpose 与 `Refresh`；在打开合法
+selector 前 Refresh disabled。 inset body 从一条水平 lookup rail
+开始：`Request identity`、`Meaning digest`、`Open readback`。 窄屏只让 lookup rail 换行，label 和 value 始终左对齐。
+icon 只能来自 Lucide，field label 前没有装饰 icon。
+
+available readback 按顺序渲染三个轻微色差分组。
+
+`Request` 展示精确 request identity、availability、 namespace 与 deterministic seed；`Custody`
+展示 meaning digest、receipt identity、seal digest、committed time 与 Owner observation cut；`Replay basis`
+展示精确 event window，以及 TrialFamily、Artifact、 strategy-design、universe-selection、PIT-snapshot、runtime-kernel 与
+simulator identity。
+
+universe-selection identity 指名该请求所绑定的成员集合；该集合含哪一个品种由这次运行的报告在其唯一成员上陈述，这里不推导。 长 identity 仍可选择并以 accessible text
+暴露完整值，只在视觉上截断。 browser 不接收 canonical request bytes、raw receipt、component digest、 Product Edge
+admission、protected evidence、source、result bytes 或 storage field。
 
 request available 后，workbench 经 Owner 的 Result 目录读取 Backtest Owner 为该请求持有的 Result，即同一 read API 上的
-`GET /v2/exploratory-replay-results?request_identity={request_identity}&meaning_digest={meaning_digest}`，并用一个共享
-`DataWorkspaceTable` 列出：每行给出 committed 时间、status、Result 与 attempt identity，按 Owner 的顺序；没有 Result 的请求
-显示 `No runs recorded`。拒绝时按 Owner 自己的 reason 撤回列表。不再手输任何身份：某行上的 `Open result` 以 Owner 列出的
-身份原样打开该 Result，并由已打开的 request identity 与 meaning digest 补全；指名某个 Result 的链接只把该行标为选中，不打开它。
-打开的 Result 只使用共享 `FactGroup`
-展示 result status、简短 diagnosis category、reconciled component 数量、semantic trace 是否 available 与
-result identity，并复用共享语义 badge 色。主页面不展示原始 28 行 reconciliation、decisive evidence locator
-或内部实现短句。在该 `FactGroup` 之下，同一个已打开的 result 挂载一个针对它的
-`BacktestRunReport`。该报告是独立准入的 surface，受上文其自身章节约束，因此本 workbench 仍不预留图表
-高度、自身不绘制图表：报告的 series 只出现在该报告内，且只在 result 打开后出现。
+`GET /v2/exploratory-replay-results?request_identity={request_identity}&meaning_digest={meaning_digest}`，并用一个共享 `DataWorkspaceTable` 列出：每行给出 committed 时间、status、Result 与 attempt identity，按 Owner
+的顺序；没有 Result 的请求 显示 `No runs recorded`。 拒绝时按 Owner 自己的 reason 撤回列表。
 
-经过认证的 Owner route 精确为
-`GET /v2/exploratory-replay-requests/readback?request_identity={request_identity}&meaning_digest={meaning_digest}`。它不接受
-body，只调用现有 sealed R&D Owner Replay V2 read port。Owner 只读取既有 custody；不创建 request、
-admission、attempt、timeout transition、outbox row 或 effect。Dashboard BFF 通过不受 path 归一化影响的 query 对两个 selector
-field 做绑定，验证完整 canonical Owner response，依据 typed request 校验 canonical request bytes，再仅投影
-上述字段。非法 selector 产生零次 Owner call。未知字段、错误 canonical bytes、identity/digest 漂移、
+不再手输任何身份：某行上的 `Open result` 以 Owner 列出的 身份原样打开该 Result，并由已打开的 request identity 与 meaning digest 补全；指名某个
+Result 的链接只把该行标为选中，不打开它。 打开的 Result 只使用共享 `FactGroup` 展示 result status、简短 diagnosis
+category、reconciled component 数量、semantic trace 是否 available 与 result identity，并复用共享语义 badge 色。
+
+主页面不展示原始 28 行 reconciliation、decisive evidence locator 或内部实现短句。 在该 `FactGroup` 之下，同一个已打开的 result
+挂载一个针对它的 `BacktestRunReport`。 该报告是独立准入的 surface，受上文其自身章节约束，因此本 workbench 仍不预留图表 高度、自身不绘制图表：报告的 series
+只出现在该报告内，且只在 result 打开后出现。
+
+经过认证的 Owner route 精确为 `GET /v2/exploratory-replay-requests/readback?request_identity={request_identity}&meaning_digest={meaning_digest}`。 它不接受 body，只调用现有 sealed R&D Owner Replay V2 read port。 Owner 只读取既有
+custody；不创建 request、 admission、attempt、timeout transition、outbox row 或 effect。
+
+Dashboard BFF 通过不受 path 归一化影响的 query 对两个 selector field 做绑定，验证完整 canonical Owner response，依据 typed request 校验
+canonical request bytes，再仅投影 上述字段。 非法 selector 产生零次 Owner call。 未知字段、错误 canonical bytes、identity/digest 漂移、
 availability 矛盾、超限 response、permission denial 或 transport failure 都会清除旧的正向状态并 fail closed。
 
-result route 精确为
-`GET /v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`。
-它由现有 `rd-dashboard-owner-read-api` 暴露，不借用 Dashboard write credential。最小 typed port 开启一个
-R&D transaction，调用现有 Backtest Owner locked-read function，只返回已经验证的 canonical result bytes，
-并始终 rollback。BFF 绑定三个 locator identity 及已打开 request 的 meaning，验证完整有限 component 与
-diagnostic census，然后只投影上述紧凑字段。交叉拼接、缺失、重复、非 canonical、超限或 unknown 数据均
-fail closed，并清除之前的 result。
+result route 精确为 `GET /v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`。 它由现有 `rd-dashboard-owner-read-api` 暴露，不借用 Dashboard write credential。 最小 typed
+port 开启一个 R&D transaction，调用现有 Backtest Owner locked-read function，只返回已经验证的 canonical result bytes， 并始终
+rollback。 BFF 绑定三个 locator identity 及已打开 request 的 meaning，验证完整有限 component 与 diagnostic census，然后只投影上述紧凑字段。
 
-同一 workbench 还准入一条显式选择的 pre-V2 rejection quarantine point-read。它不是 Replay V2 selector
-的 fallback，也不能满足或替代 current request/result read。精确 Owner route 为
-`GET /v1/exploratory-replay-rejections/readback?request_identity={request_identity}&attempt_identity={attempt_identity}&semantic_digest={semantic_digest}`。
-三个字段必须同时提供，并且必须匹配 R&D Owner 持有的 `rd_exploratory_replay_rejections_v1` 中同一行。
-query-only Owner port 启动 repeatable-read、read-only transaction，先校验固定 persistent relation shape、
-Owner、主键/唯一 identity constraint 与 SELECT access，再校验 canonical operation/receipt 完整一致性。
-只有 schema V1 `REJECTED_NO_WRITE` 且 `INVALID_REPLAY_EVIDENCE`、由 digest 派生的 receipt identity、匹配的
-Artifact/build receipt、匹配的 commit time 与原始 `APP | MCP` channel 才可投影。missing、widened、
-current-success、cross-spliced 或 malformed custody 一律 unavailable。
+交叉拼接、缺失、重复、非 canonical、超限或 unknown 数据均 fail closed，并清除之前的 result。
 
-browser 通过独立的三字段 `Historical rejection` rail 打开 quarantine。共享原子状态卡片只在主视图展示
-业务含义：`Historical`、`Rejected`、`Quarantined`、`Invalid replay evidence`、committed time 与 observed
-time。request/attempt identity、semantic digest、Owner receipt、Artifact、build receipt 与 source channel
-只放在 header info control 中。不存在 directory inference、automatic fallback、Resolve、retry、successor、
-dismiss、execution 或 write action。URL 可以用 `custody=historical`、`replayRequestIdentity`、
-`attemptIdentity` 与 `meaningDigest` 显式预填 selector，但仍需用户触发 read action 才会读取。
+同一 workbench 还准入一条显式选择的 pre-V2 rejection quarantine point-read。 它不是 Replay V2 selector 的 fallback，也不能满足或替代
+current request/result read。 精确 Owner route 为 `GET /v1/exploratory-replay-rejections/readback?request_identity={request_identity}&attempt_identity={attempt_identity}&semantic_digest={semantic_digest}`。 三个字段必须同时提供，并且必须匹配 R&D Owner 持有的
+`rd_exploratory_replay_rejections_v1` 中同一行。
 
-Loading 保留当前 lookup rail 并使用有界 group skeleton。missing 或 unavailable custody 使用相同紧凑
-body geometry 和明确 reason。result readback 不提供 return series，因此 workbench 自身的 surface 不渲染
-`BacktestReturnBand`、虚构 strategy line、benchmark、return、drawdown 或 run count。return series、net
-return 与 maximum drawdown 只出现在挂载的 `BacktestRunReport` 内，且完全按其 Owner projection 所陈述的呈现。
-`Run`、`Resolve`、
-`Create successor`、edit、compare、download 与 provider action 均没有 slot。本切片不建立 S3 deployment
-availability、Backtest execution、executor cutover 或 real-trading authority。
+query-only Owner port 启动 repeatable-read、read-only transaction，先校验固定 persistent relation shape、 Owner、主键/唯一
+identity constraint 与 SELECT access，再校验 canonical operation/receipt 完整一致性。
+
+只有 schema V1 `REJECTED_NO_WRITE` 且 `INVALID_REPLAY_EVIDENCE`、由 digest 派生的 receipt identity、匹配的 Artifact/build
+receipt、匹配的 commit time 与原始 `APP | MCP` channel 才可投影。 missing、widened、 current-success、cross-spliced
+或 malformed custody 一律 unavailable。
+
+browser 通过独立的三字段 `Historical rejection` rail 打开 quarantine。 共享原子状态卡片只在主视图展示
+业务含义：`Historical`、`Rejected`、`Quarantined`、`Invalid replay evidence`、committed time 与
+observed time。 request/attempt identity、semantic digest、Owner receipt、Artifact、build receipt 与 source channel
+只放在 header info control 中。
+
+不存在 directory inference、automatic fallback、Resolve、retry、successor、 dismiss、execution 或 write action。 URL 可以用
+`custody=historical`、`replayRequestIdentity`、 `attemptIdentity` 与 `meaningDigest` 显式预填 selector，但仍需用户触发
+read action 才会读取。
+
+Loading 保留当前 lookup rail 并使用有界 group skeleton。 missing 或 unavailable custody 使用相同紧凑 body geometry 和明确 reason。
+result readback 不提供 return series，因此 workbench 自身的 surface 不渲染 `BacktestReturnBand`、虚构 strategy
+line、benchmark、return、drawdown 或 run count。
+
+return series、net return 与 maximum drawdown 只出现在挂载的 `BacktestRunReport` 内，且完全按其 Owner projection 所陈述的呈现。
+`Run`、`Resolve`、 `Create successor`、edit、compare、download 与 provider action 均没有
+slot。 本切片不建立 S3 deployment availability、Backtest execution、executor cutover 或 real-trading authority。
 
 ## 有界准入：只读策略代码查看器
 
-`StrategyCodeViewer` 是 `ArtifactReviewPanel` source/Wasm 区域的
-`TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 展示原子。其源码保真基线是 Vibe Trading commit
-`48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree
-`d226b620dc699c9e8e382274434b324a5fefe0e1` 中 `apps/web/src/features/lab` 下的 CodeMirror 6
-editor shell 与只读代码表面。Trade 适配保留真实 CodeMirror 的行号 gutter、语法高亮、折叠、文本选择、
-有界滚动、文件 tab、编辑器 chrome、output pane、响应式布局、reduced-motion 动画和 Lucide action。
-它是具有编辑器外观的**查看器**，不是编辑器：不存在内容输入、光标、自动补全、编辑快捷键、insert-cell、
-Run、保存、改写、提交、kernel 连接、WebSocket 或 AI action。
+本切片约束当前 Artifact source/preview 读回，保持既有准入。目标原生策略包沿用只读展示与内容核验；Wasm preview 不是原生包、研究流程或上线的前置条件。
+
+`StrategyCodeViewer` 是 `ArtifactReviewPanel` source/Wasm 区域的 `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 展示原子。 其源码保真基线是 Vibe Trading
+commit `48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree `d226b620dc699c9e8e382274434b324a5fefe0e1` 中 `apps/web/src/features/lab` 下的 CodeMirror 6 editor shell
+与只读代码表面。
+
+Trade 适配保留真实 CodeMirror 的行号 gutter、语法高亮、折叠、文本选择、 有界滚动、文件 tab、编辑器 chrome、output pane、响应式布局、reduced-motion 动画和
+Lucide action。 它是具有编辑器外观的**查看器**，不是编辑器：不存在内容输入、光标、自动补全、编辑快捷键、insert-cell、 Run、保存、改写、提交、kernel 连接、WebSocket 或
+AI action。
 
 正向渲染只接受一份精确且有界的 Owner 投影：artifact identity、canonical observation time、单份 source
-filename/language/content/digest，以及一个显式 Wasm preview state。Source 上限为 256 KiB，preview output
-上限为 64 KiB。Preview state 只有 `not_run`、`succeeded`、`failed`、`unavailable`；仅 succeeded/failed
-携带精确 module identity、target、canonical observation time、有限 duration、有界 output 与有界 typed
-diagnostics。未知字段、错误时间、非法 digest、超限文本、非法位置、状态字段矛盾或携带陈旧内容全部
-fail closed 为零 source 和 preview 数据。浏览器不生成示例代码、不执行 source、不合成 Wasm 结果，也不把
-transport success 提升为 Artifact fact。
+filename/language/content/digest，以及一个显式 Wasm preview state。 Source 上限为 256 KiB，preview output 上限为 64 KiB。
+
+Preview state 只有 `not_run`、`succeeded`、`failed`、`unavailable`；仅
+succeeded/failed 携带精确 module identity、target、canonical observation time、有限 duration、有界 output 与有界 typed
+diagnostics。 未知字段、错误时间、非法 digest、超限文本、非法位置、状态字段矛盾或携带陈旧内容全部 fail closed 为零 source 和 preview 数据。
+
+浏览器不生成示例代码、不执行 source、不合成 Wasm 结果，也不把 transport success 提升为 Artifact fact。
 
 唯一 local UI action 是 Copy source。折叠、选择和滚动仅属于展示状态，不能修改投影。Wasm pane 只展示
 已经投影的 sandbox 结果，不提供 Run control，也不执行 module instantiation、network call、Owner resolve、
 provider effect、业务写、effect worker mutation 或交易动作。
 
-一个 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 详情切片可以把
-`/rd/artifacts/{build_request_identity}/attempts/{attempt_identity}` 绑定到精确且经过认证的 Owner GET
-`/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/source`。只有精确匹配且 terminal
-success 的 custody，在其 stored attempt、candidate、receipt、Artifact identity、source capsule、build recipe、
-deterministic Wasm 和 review 全部通过现有完整 custody verifier 后，Owner 才能返回源码。Owner 以确定性方式
-重建实际构建的 Rust source，并绑定 SHA-256 content digest 与 committed-at cut；其他状态只返回 absent 或
-unavailable。Dashboard 还会重新计算 content digest，并拒绝未知字段、identity 漂移、超限 source 和非法时间。
-独立 read port 不持有 mutation method。它在 canonical read-committed transaction 中复用现有完整 custody verifier，
-包括历史 Product Edge admission read 与 row-lock 一致性，但不创建新 admission，也不执行 timeout
-terminalization、sandbox invocation 或数据库写入。
-在单独准入精确 sandbox preview readback 前，preview pane 明确为 `not_run`，且不携带 module、target 或 output。
+一个 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 详情切片可以把 `/rd/artifacts/{build_request_identity}/attempts/{attempt_identity}` 绑定到精确且经过认证的 Owner GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/source`。 只有精确匹配且
+terminal success 的 custody，在其 stored attempt、candidate、receipt、Artifact identity、source capsule、build recipe、
+deterministic Wasm 和 review 全部通过现有完整 custody verifier 后，Owner 才能返回源码。
+
+Owner 以确定性方式 重建实际构建的 Rust source，并绑定 SHA-256 content digest 与 committed-at cut；其他状态只返回 absent 或 unavailable。
+Dashboard 还会重新计算 content digest，并拒绝未知字段、identity 漂移、超限 source 和非法时间。 独立 read port 不持有 mutation method。
+
+它在 canonical read-committed transaction 中复用现有完整 custody verifier， 包括历史 Product Edge admission read 与 row-lock
+一致性，但不创建新 admission，也不执行 timeout terminalization、sandbox invocation 或数据库写入。 在单独准入精确 sandbox preview readback
+前，preview pane 明确为 `not_run`，且不携带 module、target 或 output。
+
 这个详情切片不创建 Artifact 列表，不证明部署可用，也不建立 executor cutover。
 
 ## 有界准入：Source Intake 精确回读工作台
 
-`SourceIntakeReadbackWorkbench` 是 `/rd` 的精确 `P` surface。它是有界的只读 recovery surface，不是未来
-Source Intake composer。route 只使用一个全宽 `PanelFrame`，没有 summary strip、分栏 detail pane、表格、
-timeline、pagination 或为无内容预留的高度。frame header 包含 `SOURCE INTAKE` eyebrow、`Source intake`
-title、单行 purpose，以及一个只有在打开过合法 identity 后才可用的 `Refresh` action。inset body 从一条
-水平 lookup rail 开始：一个自适应宽度的 `Request identity` input，后接 `Open readback`。窄屏只把该 rail
-折行为 input 再 button；信息分组仍保持文档顺序。状态或 action 需要 icon 时只能使用 Lucide，field label
-前不放装饰性 icon。
+`SourceIntakeReadbackWorkbench` 是 `/rd` 的精确 `P` surface。 它是有界的只读 recovery surface，不是未来
+Source Intake composer。 route 只使用一个全宽 `PanelFrame`，没有 summary strip、分栏 detail pane、表格、
+timeline、pagination 或为无内容预留的高度。
 
-初始状态是在 lookup rail 下方展示紧凑提示，不拉伸到 viewport 高度。打开合法 identity 后，内容替换为三个
-有序、轻微色差分组：`Intake` 展示精确 request identity 与 terminal resolution；`Custody` 展示 binding
-identity、terminal receipt identity 与 committed time；`Evidence` 展示 authority class，并且只在
-`RETRIEVED` 时展示 content-presence state 与 content digest。browser 不接收也不渲染 raw receipt JSON、
-DOI、interpretation、source payload、provider address、response header、policy decision、principal、
-TrialFamily field、provenance internal、outbox identity 或 storage field。长 identity 在视觉上截断，但仍可
-选择，并通过 accessible text 暴露完整值。label 使用 muted tone，value 左对齐；group title 使用标准 card
-system 中稍浅的 theme surface，border 保持低对比且不形成完全连通的网格。
+frame header 包含 `SOURCE INTAKE` eyebrow、`Source intake` title、单行 purpose，以及一个只有在打开过合法 identity 后才可用的
+`Refresh` action。 inset body 从一条 水平 lookup rail 开始：一个自适应宽度的 `Request identity` input，后接
+`Open readback`。 窄屏只把该 rail 折行为 input 再 button；信息分组仍保持文档顺序。
 
-Loading 保留 lookup rail，并精确展示三个分组 skeleton。所有 terminal value 的 verified terminal 都保持同一
-geometry。精确 `SUBMITTED_OR_UNKNOWN` 回读显示中性的 `No verified terminal` 状态且只保留 request
-identity；它不显示也不暗示 Resolve control。非法 identity 只显示 inline validation，不发 transport。
+状态或 action 需要 icon 时只能使用 Lucide，field label 前不放装饰性 icon。
+
+初始状态是在 lookup rail 下方展示紧凑提示，不拉伸到 viewport 高度。
+
+打开合法 identity 后，内容替换为三个 有序、轻微色差分组：`Intake` 展示精确 request identity 与 terminal
+resolution；`Custody` 展示 binding identity、terminal receipt identity 与 committed
+time；`Evidence` 展示 authority class，并且只在 `RETRIEVED` 时展示 content-presence state 与 content
+digest。
+
+browser 不接收也不渲染 raw receipt JSON、 DOI、interpretation、source payload、provider address、response header、policy
+decision、principal、 TrialFamily field、provenance internal、outbox identity 或 storage field。 长 identity
+在视觉上截断，但仍可 选择，并通过 accessible text 暴露完整值。
+
+label 使用 muted tone，value 左对齐；group title 使用标准 card system 中稍浅的 theme surface，border 保持低对比且不形成完全连通的网格。
+
+Loading 保留 lookup rail，并精确展示三个分组 skeleton。 所有 terminal value 的 verified terminal 都保持同一 geometry。 精确
+`SUBMITTED_OR_UNKNOWN` 回读显示中性的 `No verified terminal` 状态且只保留 request identity；它不显示也不暗示 Resolve control。 非法
+identity 只显示 inline validation，不发 transport。
+
 缺失 configuration、transport failure、malformed 或超限 Owner response、permission denial，以及任意
-identity/receipt/custody mismatch，都会用一个同高度 unavailable state 替换此前展示的全部 terminal field。
-新 lookup 或失败 refresh 后绝不保留 stale success content。
-Product Edge 为其他 operation 受理的 identity 属于上述 mismatch，而不是尚未完成的 Intake：它永远不会有
-Source Intake terminal，因此 Owner 以 409 `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY` 拒绝，而不回答
-`SUBMITTED_OR_UNKNOWN`；工作台显示 unavailable state，而不是引导再次 refresh。
+identity/receipt/custody mismatch，都会用一个同高度 unavailable state 替换此前展示的全部 terminal field。 新 lookup 或失败 refresh
+后绝不保留 stale success content。
 
-Dashboard BFF 将 path identity 绑定到经认证的 Owner GET
-`/v1/source-intakes/{request_identity}/readback`，只接受现有 strict Source Intake projection，并返回只含上述
-筛选字段的有界 browser envelope。`Open readback` 与 `Refresh` 是唯一 network action，二者都执行同一个
-zero-effect point read；编辑 input 仅是本地 presentation state。不存在 Source Intake directory，也不从
-Runs、运维 job、historical custody candidate 或 client fixture 推断数据。本切片不能 Submit 或 Resolve
-Intake、创建 successor、获取 source content、调用 provider、mutate effect worker、写 business state 或授权
-交易。route registry 中更广的 composer、TrialFamily policy、authority-resolution、draft-source 与正向
-action panel 仍是未来 blueprint，不能被推断进本工作台。
+Product Edge 为其他 operation 受理的 identity 属于上述 mismatch，而不是尚未完成的 Intake：它永远不会有 Source Intake terminal，因此 Owner 以
+409 `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY` 拒绝，而不回答 `SUBMITTED_OR_UNKNOWN`；工作台显示 unavailable state，而不是引导再次 refresh。
+
+Dashboard BFF 将 path identity 绑定到经认证的 Owner GET `/v1/source-intakes/{request_identity}/readback`，只接受现有 strict Source Intake
+projection，并返回只含上述 筛选字段的有界 browser envelope。 `Open readback` 与 `Refresh` 是唯一 network
+action，二者都执行同一个 zero-effect point read；编辑 input 仅是本地 presentation state。
+
+不存在 Source Intake directory，也不从 Runs、运维 job、historical custody candidate 或 client fixture 推断数据。 本切片不能 Submit 或
+Resolve Intake、创建 successor、获取 source content、调用 provider、mutate effect worker、写 business state 或授权 交易。
+
+route registry 中更广的 composer、TrialFamily policy、authority-resolution、draft-source 与正向 action panel 仍是未来
+blueprint，不能被推断进本工作台。
 
 ## 有界准入：Source 到 Research typed control
 
-`SourceResearchControl` 是 `/rd/intake/new` 的独立 mutation surface；`/rd` 继续保持上文精确 zero-effect
-回读工作台。该 control 只接受公开 `SourceIntakeExecutionInputV1` 与 `ResearchGoalExecutionInputV2` 字段：
-两个生成后不可变的 request identity、normalized DOI、有界 interpretation、可证伪 goal、required-data list、
-cost/capacity assumption 与完整 TrialFamily proposal。它不从 Source custody 反向拼装这些字段，不暴露 Owner
-内部字段，也不接收 raw JSON。三个内容区复用 `DetailInspector`、`FormField`、`Input` 与 `Textarea` 原子；
-action 区复用 `ActionAdmissionGate` 和标准 compact button variant。
+产品不提供浏览器研究提交路由。`/rd/intake/new` 和 `SourceResearchControl` 不在当前产品准入路由集中；保留 transport 实现不授予展示权限。外部 Agent 经领域 MCP 提交 Source/Research；`/rd` 与 `/rd/research` 保留各自已准入回读几何。
 
-**TARGET / IMPLEMENTATION_ADMITTED，Instrument 字段：** 该 control 在研究区增加一个必填的 `Instrument` 字段，填写一个
-规范 Instrument Master 身份（例如 `BTCUSDT-PERP.BINANCE`），只填一次，复用共享的 `FormField` 与 `Input` 原子。有了它，
-control 通过 `sourced-research-goal-v3` operation 提交 `ResearchGoalExecutionInputV3`，其 `instrument_scope` 恰好只含
-这一个身份；建成后 control 只提交 V3。共享 validator 在 dispatch 之前拒绝空值、首尾空白、控制字符或超过 1024 个
-UTF-8 字节的值；该值是否指向可纳入的品种由 R&D 对照 Market Data 回答，而不由表单回答，control 既不推荐也不默认任何
-品种。表单不再发出 V2。输错的品种以 `REJECTED_NO_WRITE` 和 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 结束并显示为该终态；对于
-接纳时通过检查的品种，Research 回读还按原样显示 Owner 的 `initial_pit` 值：`NOT_ISSUED`、`SUBMITTED_OR_UNKNOWN`，或
-`ResearchPitTerminal` 六态之一及其 primary blocker；Owner 没有陈述初始 PIT 请求时为 `null`，显示为没有。Owner 只对被接纳的
-V3 请求陈述初始 PIT 请求，所以早先的 V2 请求和未被接纳的 V3 请求都读到 `null`：`null` 从不意味着某个请求版本，页面也从不由
-一种状态推断另一种。这次研究和它的回测都绑定该品种，更换品种意味着
-一个后继研究请求，从不修改已冻结的请求。用户的授权与范围契约陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：
-该字段及其 validator，它与 R&D 自己的规则对照同一份向量文件测试
-（`product/rd-owner-client/fixtures/research_instrument_identity_vectors_v1.json`）；经
-`POST /v3/source-intake-research` 提交 V3，表单只发出 V3，而 V3 之前记录的运行仍经它当初被接纳时的 V2 路由
-resolve；以及按名显示的 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 终态，而让范围保持未解析的应答仍是
-`SUBMITTED_OR_UNKNOWN`；以及 Research 回读中的 `initial_pit`，按 Owner 的陈述显示，并对照 Owner 测试读取的同一份状态向量检查
-（`product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json`）；以及回读上的请求版本，按 Owner 依据请求的
-Product Edge admission 所陈述的原样显示为 `V2` 或 `V3`，旁边是被接纳的品种。被拒绝的 V3 请求显示 `V3`；未解析的请求显示版本
-未知，历史记录保留其历史标签且版本未知；页面从不按哪些字段存在去推断版本。只有 Product Edge 的 operation routing
-对运行依赖的两个键（Source Intake 与 Research V3）都应答 `ACTIVE / TRADE_DASHBOARD` 时运行才被接纳。
-`product-edge-routing-read-api` 应答这次查找并随部署发布，但还没有任何部署提交过这样的绑定。在已部署或共享环境中提交
-这样的绑定是一项单独把关的效果，需要用户明确授权；在提交之前，已部署的 Dashboard 无法启动这次运行。有序 Owner 链路经该读端口驱动这次运行，
-绑定由 `product-edge-authority-bootstrap route` 提交：Research V3 的应答为不存在、`WINDMILL`、zero-active 或 stale 时，
-各自在任何 Owner 调用之前拒绝运行；`ACTIVE / TRADE_DASHBOARD` 则接纳它、记录确切的绑定并到达 Source Intake。
+Research 回读展示 Owner 声明的请求版本、标的范围及 `initial_pit` 处置。缺失或未解析事实保持未知；`null` initial PIT 不暗示请求版本。无效范围使用 Owner 的 `INSTRUMENT_SCOPE_NOT_RESOLVABLE`，不由浏览器推断。Product Edge 身份、manifest、授权、路由当前性及响应丢失语义仍由领域请求边界与 [R&D 契约](../owners/rd/)执行；输入移出浏览器不放宽任何约束。
 
-client 与 server 导入同一份 pure input validator。plausible alternatives 在校验前规范成唯一 UTF-8 byte order；
-required data 保留输入顺序。`RUN` 在 dispatch 开始时冻结完整 request 并清空 operator access。terminal bounded
-Owner projection 链接到精确 Research 与 Run 回读。malformed response、transport loss 或 nonterminal
-operational run 统一变成 `SUBMITTED_OR_UNKNOWN`，且只开放携带冻结 Source/Research identity 与 payload 的
-`RESOLVE`；不存在 retry 或 replacement identity。只有 server 明确返回无 RunStore identity 的 unavailable
-响应才会释放 draft 供修正与 revalidation，因为它证明 run 尚未开始。operator access 只保存在 React state，
-绝不持久化、进入 URL、写 log 或在 dispatch 后渲染。
-
-该 route 在授权 B 下是 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。它只调用现有精确
-`POST /api/rd/source-research` BFF；availability 仍必须同时满足 disposable enablement、content-addressed
-compatibility、RunStore 与两个唯一 `ACTIVE / TRADE_DASHBOARD` Product Edge binding。该 route 不修改任何
-binding，不调用 production Owner/provider，不修改 effect worker，不授权交易，也不建立 publication 或 production
-cutover。
-
-迁移期间冻结的 effect operation 与 Product Edge routing identity 保持不变。Source 阶段由 Dashboard effect
-worker 调用认证 `POST /v2/source-intakes`，请求严格只含 `request_identity`、`normalized_doi` 与
-`interpretation`；transport channel 与 policy 内部字段在 Owner API 边界被拒绝。Owner 随后把这个中立 V2
-proposal 适配到现有 V1 custody model，以保持 canonical admission、receipt 与 recovery identity 兼容。
-`POST /v1/source-intakes` 只作为 legacy V1 adapter 保留，直到 V2 parity、recovery、原子 routing cut 与
-rollback observation 全部被证明；本次准入不授权该切换或删除。
-Source 到 Research 的复合清单从这两个子清单派生 Owner operation 列表，因此其内容寻址 digest 会记录 Source V2，
-但不会改变已冻结的 effect operation 或 Product Edge routing identity。
+本节不准入 Dashboard dispatch、provider 调用、effect-worker 修改、生产路由切换或交易。未来路由准入须遵循只读研究用户路径。
 
 ## 有界准入：Develop Composer 精确回读工作台
 
-`DevelopComposerReadbackWorkbench` 是 `/rd/composer` 的精确 `P` surface。它只对一个已提交的 Develop
-Composer request 做有界 point read，不是 composer、editor、runner、resolver 或 Artifact source view。route
-使用一个全宽 `PanelFrame`，没有 summary strip、table、split pane、timeline、pagination 或预留空高度。frame
-header 包含 `DEVELOP COMPOSER` eyebrow、`Composer readback` title、单行 purpose，以及仅在打开合法 request
-identity 后可用的 `Refresh` action。inset body 从一行 lookup rail 开始：一个 flexible `Request identity` input
-加 `Open readback`。窄屏只有该 rail 换行。icon 只使用 Lucide，且不装饰 field label。
+`DevelopComposerReadbackWorkbench` 是 `/rd/composer` 的精确 `P` surface。 它只对一个已提交的 Develop Composer
+request 做有界 point read，不是 composer、editor、runner、resolver 或 Artifact source view。 route 使用一个全宽
+`PanelFrame`，没有 summary strip、table、split pane、timeline、pagination 或预留空高度。
 
-初始状态是 compact prompt。loading 保留 lookup rail，并显示正好三个 soft-grouped skeleton。verified response
-按顺序替换为三组：`Request` 包含精确 request identity 与 disposition；`Custody` 在存在时包含 operation receipt
-identity；`Artifact` 仅在 `SUCCESS` 下四个 field 同时存在时包含 Artifact locator、Artifact digest、canonical
-plan digest 与 design digest。非 success terminal 的 `Artifact` 改为在存在时显示精确 coordinate 与有界
-reason，并且绝不保留之前 success 的字段。group title surface 比 body 略亮，label/value 左对齐，长 identity
-保持可选择，separator 克制且不形成连通网格。header/body 色差遵循标准 card system。
+frame header 包含 `DEVELOP COMPOSER` eyebrow、`Composer readback` title、单行 purpose，以及仅在打开合法 request identity
+后可用的 `Refresh` action。 inset body 从一行 lookup rail 开始：一个 flexible `Request identity` input 加
+`Open readback`。 窄屏只有该 rail 换行。 icon 只使用 Lucide，且不装饰 field label。
 
-经认证的 Owner GET `/v2/develop-composer/runs/{request_identity}/readback` 以 zero-effect read 在 Owner 自己的
-Strategy Input custody 上解析同一身份：它经由该次运行自己绑定的 Market Data locked facade 复验已存储的正向 Composer
-记录，因此在生产中提交的一次运行就能在生产中读回。该解析为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。路由及其适配器
-`PostgresDevelopComposerReadbackOwnerV2` 都不带 feature 门，所以部署的 read API 会为未设门的
-`POST /v2/develop-composer/runs` 所提交的运行提供它。它在该运行提交时记下的 Research View 与 read cut 上重新推导这次运行，
-所以该 View 过期、或推进到 `ARTIFACT_AVAILABLE` 或 `EXPLORATION_ACTIVE` 之后，同一身份仍能读回。在这条记录存在之前提交的运行
-只在其 Research View 尚未推进到 `INTENT_FROZEN` 之后、且其准入所依据的授权仍然当前时读回，否则在 coordinate
-`research_custody.run_view_unrecorded` 读回 `UNAVAILABLE`，以免页面被读成运行消失了。它不接收 request body，返回既有 strict `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
-带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或 Artifact
-projection。未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失
-configuration、permission denial、transport failure 或 sealed-custody verification failure 全部 fail closed
-为一个 unavailable state，并清除 stale success content。
+初始状态是 compact prompt。 loading 保留 lookup rail，并显示正好三个 soft-grouped skeleton。
+
+verified response 按顺序替换为三组：`Request` 包含精确 request identity 与 disposition；`Custody`
+在存在时包含 operation receipt identity；`Artifact` 仅在 `SUCCESS` 下四个 field 同时存在时包含 Artifact
+locator、Artifact digest、canonical plan digest 与 design digest。
+
+非 success terminal 的 `Artifact` 改为在存在时显示精确 coordinate 与有界 reason，并且绝不保留之前 success 的字段。 group title
+surface 比 body 略亮，label/value 左对齐，长 identity 保持可选择，separator 克制且不形成连通网格。 header/body 色差遵循标准 card system。
+
+经认证的 Owner GET `/v2/develop-composer/runs/{request_identity}/readback` 以 zero-effect read 在 Owner 自己的 Strategy Input custody 上解析同一身份：它经由该次运行自己绑定的
+Market Data locked facade 复验已存储的正向 Composer 记录，因此在生产中提交的一次运行就能在生产中读回。 该解析为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。 路由及其适配器
+`PostgresDevelopComposerReadbackOwnerV2` 都不带 feature 门，所以部署的 read API 会为未设门的 `POST /v2/develop-composer/runs` 所提交的运行提供它。
+
+它在该运行提交时记下的 Research View 与 read cut 上重新推导这次运行， 所以该 View 过期、或推进到 `ARTIFACT_AVAILABLE` 或 `EXPLORATION_ACTIVE`
+之后，同一身份仍能读回。 在这条记录存在之前提交的运行 只在其 Research View 尚未推进到 `INTENT_FROZEN` 之后、且其准入所依据的授权仍然当前时读回，否则在 coordinate
+`research_custody.run_view_unrecorded` 读回 `UNAVAILABLE`，以免页面被读成运行消失了。
+
+它不接收 request body，返回既有 strict `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。
+`SUCCESS` 必须同时 带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或
+Artifact projection。
+
+未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失 configuration、permission
+denial、transport failure 或 sealed-custody verification failure 全部 fail closed 为一个 unavailable state，并清除 stale
+success content。
 
 `Open readback` 与 `Refresh` 是唯一 network action，且执行同一个 GET；input 编辑只是本地 presentation state。
 source、design bytes、canonical plan bytes、Wasm/module bytes、receipt bytes、request payload、binding request、
-plugin capsule、principal、policy、outbox 与 storage field 都不跨越该边界。workbench 不提供 `Run`、`Resolve`、
-`Edit`、`Save`、`Compile`、`Preview` 或 provider action；因为本合同没有 source text，所以不渲染只读代码
-viewer。Artifact source 仍只能通过已单独准入、带精确 Artifact source identities 的 route 读取；不得把单独
-Artifact locator 转换成这些 identities。本切片不能 mutate effect worker、写 business state、调用 provider 或
-授权交易。更广的 Intake composer 与 authority-resolution panel 仍是未来 blueprint。
+plugin capsule、principal、policy、outbox 与 storage field 都不跨越该边界。
 
-与 browser surface 分离，经过认证的 `POST /api/rd/develop-composer` 与固定 MCP tool
-`dashboard_develop_composer_action_v2` 只在 disposable-local execution 下准入 typed effect operation
-`develop_composer.submit_or_resolve.v2`。准入必须同时具备当前 content-addressed compatibility envelope、现有
-Product Edge routing key 的 `ACTIVE / TRADE_DASHBOARD` observation、精确 Owner request projection、operator
-capability 与 RunStore custody。web process 把 projection 及其 digest 与 queue row 一起冻结；effect worker
-重新投影并要求精确相等，先 resolve 派生出的 request identity，且只有 Owner 返回精确 absence sentinel 时才提交
-`{research_request_locator}`。submission-start 必须先于 transport 持久化，并且只允许 claim one 提交；response
-loss、restart 与后续 claim 一律只 resolve。第二次 resolve 提供 terminal Owner outcome。这个准入不增加 browser
-Run control，不改变 Product Edge binding，不修改 effect worker，不调用 shared/production Owner，不授权交易，也不构成
+workbench 不提供 `Run`、`Resolve`、
+`Edit`、`Save`、`Compile`、`Preview` 或 provider action；因为本合同没有
+source text，所以不渲染只读代码 viewer。 Artifact source 仍只能通过已单独准入、带精确 Artifact source identities 的 route 读取；不得把单独
+Artifact locator 转换成这些 identities。
+
+本切片不能 mutate effect worker、写 business state、调用 provider 或 授权交易。 更广的 Intake composer 与 authority-resolution
+panel 仍是未来 blueprint。
+
+与 browser surface 分离，经过认证的 `POST /api/rd/develop-composer` 与固定 MCP tool `dashboard_develop_composer_action_v2` 只在 disposable-local
+execution 下准入 typed effect operation `develop_composer.submit_or_resolve.v2`。
+
+准入必须同时具备当前 content-addressed compatibility envelope、现有 Product Edge routing key 的 `ACTIVE / TRADE_DASHBOARD`
+observation、精确 Owner request projection、operator capability 与 RunStore custody。
+
+web process 把 projection 及其 digest 与 queue row 一起冻结；effect worker 重新投影并要求精确相等，先 resolve 派生出的 request
+identity，且只有 Owner 返回精确 absence sentinel 时才提交 `{research_request_locator}`。 submission-start 必须先于 transport 持久化，并且只允许
+claim one 提交；response loss、restart 与后续 claim 一律只 resolve。 第二次 resolve 提供 terminal Owner outcome。
+
+这个准入不增加 browser Run control，不改变 Product Edge binding，不修改 effect worker，不调用 shared/production Owner，不授权交易，也不构成
 cutover。
 
 ## 有界准入：已验证 Research 目录与精确回读
 
-`ResearchDirectory` 是 `/rd/research` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
-detail column 预留空间。frame header 包含 eyebrow、title、单行 purpose 与一个 `Refresh` action。body
-只有一行 table toolbar：左侧是 `Research history / Current intents` segmented control，右侧 search。默认使用
-`Research history`，因为它是当前完整可用的 request workload；`Current intents` 是更窄的 verified-current view。
+`ResearchDirectory` 是 `/rd/research` 的精确 `P` surface。 route 使用一个全宽
+`PanelFrame`，不为无内容的 detail column 预留空间。 frame header 包含 eyebrow、title、单行 purpose 与一个
+`Refresh` action。 body 只有一行 table toolbar：左侧是 `Research history / Current intents` segmented control，右侧 search。
+
+默认使用 `Research history`，因为它是当前完整可用的 request workload；`Current intents` 是更窄的 verified-current view。
 verified 表格按顺序只有四个 plain、左对齐
-column：`Research request`、`State`、`Intent`、`Updated`。表头文字前不放装饰性 icon；不存在 View/column
-chooser、registered/visible 数量、多级 filter popover、row action 或 backend-only 字段。表头固定在有界
-scroll viewport 内；loading、合法 empty、unavailable、partial 保持相同 card geometry。窄屏只横向滚动，
-不会编造删减后的 mobile fact。
+column：`Research request`、`State`、`Intent`、`Updated`。
+
+表头文字前不放装饰性 icon；不存在 View/column chooser、registered/visible 数量、多级 filter popover、row action 或 backend-only 字段。
+表头固定在有界 scroll viewport 内；loading、合法 empty、unavailable、partial 保持相同 card geometry。 窄屏只横向滚动， 不会编造删减后的 mobile
+fact。
 
 两个 Research view 都使用共享的 domain-neutral `EntityReference` 原子：业务实体是主 label，opaque identity
 只作为紧凑次级引用，并把完整值保留为 title 与 search key。默认 history 文案使用 `Result`、`Recorded` 与
 用户可读 availability；默认 history 的首列使用 `Research question`。Owner、custody、point-read、candidate 与
 wire-state 术语只保留在信息披露或 contract。
 
-在 `Research history` 中，激活主要 research-question reference 或点击 row，会在来源 row 正下方展开一个共享
-`DataWorkspaceTable` row-detail，不改变 directory URL，也不卸载 filter、search、pagination 或 scroll context。
-Row-detail 复用既有 `ResearchQuestionBrief`、`DetailFactGrid`、
-`StatusBadge` 与 `PanelFrameInfo` 原子，且只展示已经存在于已绑定 directory projection 中的 verified hypothesis、
-falsifier、expected observation、`Ready to review / Awaiting result / Result unavailable` availability 与
-recorded time；精确 request identity 以及分别观测的
-question/result cut 只保留在 information disclosure。打开摘要不会触发额外 read。只有显式的
-当已绑定的 result inventory 表明请求已有结果或仍在等待时，显式的 `Review result` 或
-`Check request status` 会在同一个 row-detail 内以 exact read-only result drilldown 替换摘要。该 drilldown
-复用 `/rd/research/{requestIdentity}` 的同一套 strict read hook 与 result-content 原子；它不会再打开一层 dialog、
-不会改变 directory URL，也不暴露 formation control。`Back to request summary` 返回摘要并把 focus 还给
-drilldown trigger。只有成功验证的 exact read 才显示 `Open full research workspace`，进入保留技术 custody 详情
-与既有 formation control 的 canonical route。非 2xx、identity mismatch、malformed payload、收起、Back 或
-identity 变化都会使在途 read 失效，且不保留任何 positive result 或 workspace action。关闭后 focus 返回原
-reference 或 row。一次只展开一条；再次激活当前 row 会收起，激活另一条会替换。排序、翻页、page-size、filter、
-tab 或 Refresh 改变都会收起 detail 并使其 read 失效。Detail row 跨越全部 table column，但不参与记录数、分页或
-排序；directory 与 row-detail 始终只把 page viewport 作为纵向滚动宿主，展开或收起不会切换成 table 自有的
-纵向滚动。窄屏在既有横向 table viewport 中保持单列正文，不增加嵌套纵向滚动。Canonical workspace 继续以同一组原子
-保持较宽的多列组合。在 `Current intents` 中，激活主要 request reference 或其 row 会直接在同一个共享
-row-detail 中进入
-exact read-only result mode。它保留 `/rd/research/?view=verified` URL、table filter、pagination、sort、scroll 与
-origin focus；不会伪造 History summary，也不显示 `Back to request summary`。每次 identity 变化前都先清除旧的
-positive state，并拒绝 late、aborted、非 2xx、malformed 或 identity-mismatched response。只有显式的
-`Open full research workspace` action 才切换到 canonical request route。这个 current-intent preview 永远不启用
-formation、submit 或 resolution control。
+在 `Research history` 中，激活主要 research-question reference 或点击 row，会在来源 row 正下方展开一个共享 `DataWorkspaceTable`
+row-detail，不改变 directory URL，也不卸载 filter、search、pagination 或 scroll context。
 
-默认 history view 从只读 R&D Dashboard Owner 获取一个有界的
-`rd.research_question_directory.read.v1` 投影。问题文本必须先通过 canonical Research custody 校验，且只可暴露
-`hypothesis`、`falsification_question` 与 `expected_observation`；不受支持的历史行只保留 directory identity、
-time 与明确 unavailable 状态。只有该投影与完整 historical-custody 的
-identity 和 commit-time 集合精确绑定后，页面才显示问题文本。此时 hypothesis 替换通用 request label 并参与
-搜索，opaque request identity 仍是次级信息。缺少可恢复历史语义时显示 `Research question unavailable`，不得
-从 execution 或 outcome 推断。
+Row-detail 复用既有 `ResearchQuestionBrief`、`DetailFactGrid`、 `StatusBadge` 与 `PanelFrameInfo`
+原子，且只展示已经存在于已绑定 directory projection 中的 verified hypothesis、 falsifier、expected
+observation、`Ready to review / Awaiting result / Result unavailable` availability 与 recorded time；精确 request identity 以及分别观测的 question/result cut
+只保留在 information disclosure。
+
+打开摘要不会触发额外 read。当已绑定的 result inventory 表明请求已有结果或仍在等待时，显式的 `Review result` 或 `Check request status`
+会在同一个 row-detail 内以 exact read-only result drilldown 替换摘要。 该 drilldown 复用 `/rd/research/{requestIdentity}` 的同一套 strict
+read hook 与 result-content 原子；它不会再打开一层 dialog、 不会改变 directory URL，也不暴露 formation control。
+
+`Back to request summary` 返回摘要并把 focus 还给 drilldown trigger。 只有成功验证的 exact read 才显示 `Open full research workspace`，进入保留技术
+custody 详情与只读证据的 canonical route。 非 2xx、identity mismatch、malformed payload、收起、Back 或
+identity 变化都会使在途 read 失效，且不保留任何 positive result 或 workspace action。 关闭后 focus 返回原 reference 或 row。
+
+一次只展开一条；再次激活当前 row 会收起，激活另一条会替换。 排序、翻页、page-size、filter、 tab 或 Refresh 改变都会收起 detail 并使其 read 失效。 Detail row
+跨越全部 table column，但不参与记录数、分页或 排序；directory 与 row-detail 始终只把 page viewport 作为纵向滚动宿主，展开或收起不会切换成 table 自有的 纵向滚动。
+窄屏在既有横向 table viewport 中保持单列正文，不增加嵌套纵向滚动。 Canonical workspace 继续以同一组原子 保持较宽的多列组合。
+
+在 `Current intents` 中，激活主要 request reference 或其 row 会直接在同一个共享 row-detail 中进入 exact read-only result mode。
+它保留 `/rd/research/?view=verified` URL、table filter、pagination、sort、scroll 与 origin focus；不会伪造 History summary，也不显示
+`Back to request summary`。
+
+每次 identity 变化前都先清除旧的 positive state，并拒绝 late、aborted、非 2xx、malformed 或 identity-mismatched response。 只有显式的
+`Open full research workspace` action 才切换到 canonical request route。 这个 current-intent preview 永远不启用 formation、submit 或
+resolution control。
+
+默认 history view 从只读 R&D Dashboard Owner 获取一个有界的 `rd.research_question_directory.read.v1` 投影。 问题文本必须先通过 canonical Research custody
+校验，且只可暴露 `hypothesis`、`falsification_question` 与 `expected_observation`；不受支持的历史行只保留 directory identity、 time
+与明确 unavailable 状态。 只有该投影与完整 historical-custody 的 identity 和 commit-time 集合精确绑定后，页面才显示问题文本。
+
+此时 hypothesis 替换通用 request label 并参与 搜索，opaque request identity 仍是次级信息。 缺少可恢复历史语义时显示 `Research question unavailable`，不得 从
+execution 或 outcome 推断。
 
 精确 `/rd/research/{requestIdentity}` 页面只回答一个用户任务：理解已保存的 research result 以及下一步。
 Journey 与 `Result / Strategy / Timing` 分组使用 `Needs current review`、`Not available`、`Refresh this request`
 等业务文案，不把 quarantine 或 same-identity 术语当作任务本身。`Raw outcome`、`Raw reason` 以及精确 identity、
 receipt 只保留在技术信息披露中。
 
-Journey 之前可以通过共享 `SummaryList` 原子展示已验证的 research question。只有 question-directory item 与
-readback 的 request identity、Owner receipt `semantic_digest` 和 `committed_at_epoch_ms` 全部精确一致时，才展示
-`hypothesis`、`falsification_question` 与 `expected_observation`。任何 mismatch、question unavailable 或 receipt
-字段缺失都会撤回整段问题摘要，不显示可能过期的语义。`Refresh` 同时重读两个 projection；两次读取都不授权写入。
+Journey 之前可以通过共享 `SummaryList` 原子展示已验证的 research question。 只有 question-directory item 与 readback 的
+request identity、Owner receipt `semantic_digest` 和 `committed_at_epoch_ms` 全部精确一致时，才展示
+`hypothesis`、`falsification_question` 与 `expected_observation`。
 
-readback 的 phase 是 `EXPLORATION_ACTIVE` 的请求以两种形状之一到达，读取方把每种都读作它自己。legacy exploration 由
-未设门的 legacy Replay V2 commit 在任何部署镜像里写出，是一份 schema 2 视图。它携带它所运行的 build artifact（与
-`ARTIFACT_AVAILABLE` 视图携带的相同的 `attempt_identity`、`artifact_identity`、`build_receipt_identity` 与
-`artifact_review_identity`）以及它所运行的 Replay，不携带任何 Composer artifact。它的身份是 `rd-research-view-v3` 推导，
-它的 cut 在 `rd-exploration-cut-v1-` 下指名 Replay 的 seal。composer-backed exploration 是一份 schema 3 视图，其
-`composer_artifact` 恰好携带十项 Composer 事实：从 artifact locator 与 identity digest，经 family binding receipt，
-直到 census frontier digest。只有 composer-backed 的 replay commit 才产出它们，而那条 route 位于
-`composer-v3-replay` 之后，没有任何部署镜像启用该特性，所以今天只有有序链路的构建会显示这种。
+任何 mismatch、question unavailable 或 receipt 字段缺失都会撤回整段问题摘要，不显示可能过期的语义。 `Refresh` 同时重读两个
+projection；两次读取都不授权写入。
+
+readback 的 phase 是 `EXPLORATION_ACTIVE` 的请求以两种形状之一到达，读取方把每种都读作它自己。 legacy exploration 由 未设门的 legacy Replay V2
+commit 在任何部署镜像里写出，是一份 schema 2 视图。
+
+它携带它所运行的 build artifact（与 `ARTIFACT_AVAILABLE` 视图携带的相同的
+`attempt_identity`、`artifact_identity`、`build_receipt_identity` 与 `artifact_review_identity`）以及它所运行的 Replay，不携带任何
+Composer artifact。 它的身份是 `rd-research-view-v3` 推导， 它的 cut 在 `rd-exploration-cut-v1-` 下指名 Replay 的 seal。
+
+composer-backed exploration 是一份 schema 3 视图，其 `composer_artifact` 恰好携带十项 Composer 事实：从 artifact locator 与
+identity digest，经 family binding receipt， 直到 census frontier digest。 只有 composer-backed 的 replay commit
+才产出它们，而那条 route 位于 `composer-v3-replay` 之后，没有任何部署镜像启用该特性，所以今天只有有序链路的构建会显示这种。
 
 两种形状互不当作对方。携带 Composer artifact 的 schema 2 视图，或不携带的 schema 3 视图，都被拒绝而不是显示。
 因此缺席的 Composer 从不被编码成在场的 Composer，页面也从不暗示一次并未发生的 Composer 运行。每种形状的身份都经
 双方都核验的向量与产出侧钉住：legacy 的是 `product/rd-owner-client/fixtures/research_view_identity_vectors_v3.json`，
 composer-backed 的是 `research_view_identity_vectors_v4.json`。
 
-页面按原样陈述 exploration。`Availability` 显示 `Exploration active`，`Next step` 显示 `View exploratory run`，
-research journey 显示 `Exploration is active` 而不是 `Strategy is ready for build`；它们都不退回 `Intent frozen` 或
-`Awaiting R&D` 的措辞，那两个说的是仍在等待第一次运行的请求。视图指名了这次 exploration 所运行的 Replay 请求，
-composer-backed 视图还指名其 Composer 运行；页面在各自已准入的路由上链接到它们。`Exploratory replay` 以视图的
-`replay_request_identity` 与 `replay_request_meaning_digest` 打开 `/backtest?replayRequestIdentity=&meaningDigest=`。
-只有 composer-backed exploration，`Composer run` 才以其 `composer_request_identity` 打开 `/rd/composer?requestIdentity=`；
-legacy exploration 不显示 Composer 链接。这些身份只取自已验证的视图，页面不推导其中任何一个。phase 或 next legal
-action 超出各自映射的四种之外时，readback 变为 unavailable，而不是显示成另一种。
+页面按原样陈述 exploration。 `Availability` 显示 `Exploration active`，`Next step` 显示
+`View exploratory run`， research journey 显示 `Exploration is active` 而不是 `Strategy is ready for build`；它们都不退回
+`Intent frozen` 或 `Awaiting R&D` 的措辞，那两个说的是仍在等待第一次运行的请求。
 
-Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact Bento status card，
-把用户的 R&D workspace 组织成三个细肩分组：`research`、`build`、`families`。当 Research outcome inventory
-完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，`research` 分开显示 `results ready` 与
-`waiting`；否则 fail back 到原始 `requests` total。`build` 显示 `attempts`，并在 Artifact route 的独立 review
-inventory 已绑定时显示 `reviewable`；`families` 显示 `bindings`。共享 CompactStatusBar 会识别 `2 / 1 / 1`
-不对称 cut：宽屏下双项 group 占 3 份一侧，两个单项 group 在 2 份一侧上下堆叠；较窄视口退回普通响应式
-纵排。这样既不拉伸单行数据，也不另画页面私有组件。
+视图指名了这次 exploration 所运行的 Replay 请求， composer-backed 视图还指名其 Composer 运行；页面在各自已准入的路由上链接到它们。 `Exploratory replay`
+以视图的 `replay_request_identity` 与 `replay_request_meaning_digest` 打开 `/backtest?replayRequestIdentity=&meaningDigest=`。
 
-它是跨独立工作队列的导航地图，不是 conversion funnel、lifecycle、verified journey，也不声称集合一一对应。
-Projection unavailable 时整张 card 消失，不能替代独立 verified R&D loop。任一 directory view 的 Refresh
-都会刷新 custody projection。每个 metric 都只是同一 Owner cut 上的安静导航入口：`results ready` 打开
-`/rd/research/?outcome=ready`，`waiting` 打开 `/rd/research/?outcome=awaiting`，fallback `requests` 打开
-`/rd/research/`，`attempts` 打开 `/rd/artifacts/`，`bindings` 打开 `/rd/artifacts/?kind=bindings`。未知或缺失
-query value 必须退回有用的
-`Request history / All` 默认态；`view=verified` 显式选择 `Current intents`。这些 link 不准入任何新的
-read/write contract。Query 切换保持 directory surface mounted，URL settle 时不会闪过另一个 view。
+只有 composer-backed exploration，`Composer run` 才以其 `composer_request_identity` 打开 `/rd/composer?requestIdentity=`； legacy
+exploration 不显示 Composer 链接。 这些身份只取自已验证的视图，页面不推导其中任何一个。 phase 或 next legal action 超出各自映射的四种之外时，readback 变为
+unavailable，而不是显示成另一种。
 
-经认证的 Owner GET `/v1/research-goals/directory` 每页最多返回 20 个已验证 V2 request outcome。每页最多
-检查 60 个 receipt candidate，按 `(committed_at_epoch_ms, request_identity)` 降序，其中有界 ASCII identity
-使用 PostgreSQL `C` collation；并仅把同一 tuple 作为 opaque、stable 的 `Load older` cursor 暴露。每个
-candidate 都在独立的 canonical read-committed transaction 中以 `FOR SHARE` 读取，并复用现有完整 Research
-custody verifier，覆盖 stored request、receipt、frozen intent、Research view、authority lineage、independence
-basis、protected-feedback projection 与 TrialFamily custody。legacy 或 quarantined request schema 被隐藏并使
-cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使整次读取 unavailable，绝不能伪装成成功空页。
-默认 all-research view 使用经认证的 GET `/v1/historical-custodies`，由下文所述的
-`strategy-factory-rd-dashboard-read-api` 承载。其独立 Owner port 只建立
-`default_transaction_read_only=on` session，并在一个有界 repeatable-read transaction 中读取；最多返回 200 个
-request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
+Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact Bento status card， 把用户的 R&D
+workspace 组织成三个细肩分组：`research`、`build`、`families`。
+
+当 Research outcome inventory 完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，`research` 分开显示
+`results ready` 与 `waiting`；否则 fail back 到原始 `requests` total。
+
+`build` 显示 `attempts`，并在 Artifact route 的独立 review inventory 已绑定时显示
+`reviewable`；`families` 显示 `bindings`。 共享 CompactStatusBar 会识别
+`2 / 1 / 1` 不对称 cut：宽屏下双项 group 占 3 份一侧，两个单项 group 在 2 份一侧上下堆叠；较窄视口退回普通响应式 纵排。 这样既不拉伸单行数据，也不另画页面私有组件。
+
+它是跨独立工作队列的导航地图，不是 conversion funnel、lifecycle、verified journey，也不声称集合一一对应。 Projection unavailable 时整张 card
+消失，不能替代独立 verified R&D loop。 任一 directory view 的 Refresh 都会刷新 custody projection。
+
+每个 metric 都只是同一 Owner cut 上的安静导航入口：`results ready` 打开 `/rd/research/?outcome=ready`，`waiting` 打开
+`/rd/research/?outcome=awaiting`，fallback `requests` 打开 `/rd/research/`，`attempts` 打开
+`/rd/artifacts/`，`bindings` 打开 `/rd/artifacts/?kind=bindings`。
+
+未知或缺失 query value 必须退回有用的 `Request history / All` 默认态；`view=verified` 显式选择 `Current intents`。 这些 link
+不准入任何新的 read/write contract。 Query 切换保持 directory surface mounted，URL settle 时不会闪过另一个 view。
+
+经认证的 Owner GET `/v1/research-goals/directory` 每页最多返回 20 个已验证 V2 request outcome。 每页最多 检查 60 个 receipt candidate，按
+`(committed_at_epoch_ms, request_identity)` 降序，其中有界 ASCII identity 使用 PostgreSQL `C` collation；并仅把同一 tuple 作为
+opaque、stable 的 `Load older` cursor 暴露。
+
+每个 candidate 都在独立的 canonical read-committed transaction 中以 `FOR SHARE` 读取，并复用现有完整 Research custody
+verifier，覆盖 stored request、receipt、frozen intent、Research view、authority lineage、independence
+basis、protected-feedback projection 与 TrialFamily custody。 legacy 或 quarantined request schema 被隐藏并使 cut 明确标为
+partial。
+
+任何 malformed 或跨读变化的 candidate 都使整次读取 unavailable，绝不能伪装成成功空页。 默认 all-research view 使用经认证的 GET
+`/v1/historical-custodies`，由下文所述的 `strategy-factory-rd-dashboard-read-api` 承载。
+
+其独立 Owner port 只建立 `default_transaction_read_only=on` session，并在一个有界 repeatable-read transaction 中读取；最多返回 200 个 request
+identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
 
-Dashboard-only authenticated GET `/api/rd/research/outcome-inventory` 把该有界 custody cut 与每个扫描 request
-现有的 identity-bound Research exact read 组合，最多同时发出六个 read。它区分 `outcome_ready`、
-`awaiting_outcome` 与 `unavailable`；read available 但没有 outcome 必须明确归为 awaiting，而不是 unavailable。
-projection 保留 source 与 composition observation time、scanned/source total、completeness、三类状态 total 和
-每个 request identity。它不是跨记录的单一原子 Owner snapshot，也不会创造 Research-to-Artifact 或 TrialFamily
-join。只有 inventory request-identity set 与页面独立渲染的 custody set 精确一致时，browser 才能显示
-`All / Results ready / Waiting`；mismatch 或 composition unavailable 只禁用 filtered cut，不能把原始
-candidate directory 伪装成成功空集。只有 `outcome_ready` row 可以声称已有 Owner outcome；awaiting row 打开
-精确 request status，unavailable row 不提供 false action。未知 `outcome` value fail back 到 `All requests`。
+Dashboard-only authenticated GET `/api/rd/research/outcome-inventory` 把该有界 custody cut 与每个扫描 request 现有的 identity-bound
+Research exact read 组合，最多同时发出六个 read。 它区分 `outcome_ready`、 `awaiting_outcome` 与
+`unavailable`；read available 但没有 outcome 必须明确归为 awaiting，而不是 unavailable。
+
+projection 保留 source 与 composition observation time、scanned/source total、completeness、三类状态 total 和 每个 request
+identity。 它不是跨记录的单一原子 Owner snapshot，也不会创造 Research-to-Artifact 或 TrialFamily join。
+
+只有 inventory request-identity set 与页面独立渲染的 custody set 精确一致时，browser 才能显示 `All / Results ready / Waiting`；mismatch 或
+composition unavailable 只禁用 filtered cut，不能把原始 candidate directory 伪装成成功空集。 只有 `outcome_ready` row 可以声称已有
+Owner outcome；awaiting row 打开 精确 request status，unavailable row 不提供 false action。
+
+未知 `outcome` value fail back 到 `All requests`。
 
 inventory 的 `accepted | rejected | quarantined` resolution 是 Research request admission custody，不是科研
 结论，也不是 Iteration Decision。它不能把 hypothesis 标为 active 或 falsified，不能填充 `/rd/decisions`，
@@ -914,86 +787,95 @@ inventory 的 `accepted | rejected | quarantined` resolution 是 Research reques
 decision、evidence、result 与 lineage identity。
 
 verified Research directory、Research exact readback、Artifact exact readback、Source Intake exact readback、
-Develop Composer exact readback 与 Exploratory Replay V2 exact point-read GET 由统一的
-`strategy-factory-rd-dashboard-read-api` 打包。这个第一方 Dashboard reader 还承载 Artifact directory 与 source
-GET，但其 state 仍按域分别持有 typed `ResearchDirectoryOwnerPort`、`ResearchReadbackOwnerPortV1`、
-`ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1`、`ArtifactSourceOwnerPort`、
-`SourceIntakeReadbackOwnerPort` 与
-`DevelopComposerReadbackOwnerPortV2`、`ExploratoryReplayReadbackOwnerPortV2`、
-`FormationCatalogOwnerPortV1`、`HistoricalCustodyOwnerPortV1` 与 `IterationTimelineOwnerPortV1`，不把业务边界
-合并为一个通用
-repository。加入 `GET /v1/formation-catalog`、
-`GET /v1/trial-families/{trial_family_identity}/iterations` 和 `GET /v1/historical-custodies` 后，router 只暴露
-`/health` 及十四个精确准入的
-GET，不增加任何 write route。historical custody 由这里承载而不是 write API，因此没有任何 Dashboard 读取需要
-write 侧 credential。Dashboard 通过必须原子成对配置的
-`RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须 fail closed，
-不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露 submit、resolve、sandbox 或
-mutation port。Source Intake adapter 还必须绑定只读 Product Edge admission port 与现有 request-proof digest，
-才能投影 terminal custody；内部配置缺失或不兼容时只禁用这一条 route。Composer 通过自己的 typed read port
-接入同一 reader，不增加按域容器；其 adapter 只持有 `rd_owner` read pool，复用现有 sealed routine 与当前
-Research/Market evidence 校验，不持有 fact-writer pool 或任何 mutation method。
+Develop Composer exact readback 与 Exploratory Replay V2 exact point-read GET 由统一的 `strategy-factory-rd-dashboard-read-api` 打包。
+
+这个第一方 Dashboard reader 还承载 Artifact directory 与 source GET，但其 state 仍按域分别持有 typed
+`ResearchDirectoryOwnerPort`、`ResearchReadbackOwnerPortV1`、 `ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1`、`ArtifactSourceOwnerPort`、
+`SourceIntakeReadbackOwnerPort` 与 `DevelopComposerReadbackOwnerPortV2`、`ExploratoryReplayReadbackOwnerPortV2`、 `FormationCatalogOwnerPortV1`、`HistoricalCustodyOwnerPortV1` 与
+`IterationTimelineOwnerPortV1`，不把业务边界 合并为一个通用 repository。
+
+加入 `GET /v1/formation-catalog`、 `GET /v1/trial-families/{trial_family_identity}/iterations` 和 `GET /v1/historical-custodies` 后，router 只暴露 `/health`
+及十四个精确准入的 GET，不增加任何 write route。 historical custody 由这里承载而不是 write API，因此没有任何 Dashboard 读取需要 write 侧
+credential。
+
+Dashboard 通过必须原子成对配置的 `RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须 fail closed， 不能借用 write API
+credential。 adapter 复用 canonical locking verifier，不暴露 submit、resolve、sandbox 或 mutation port。
+
+Source Intake adapter 还必须绑定只读 Product Edge admission port 与现有 request-proof digest， 才能投影 terminal
+custody；内部配置缺失或不兼容时只禁用这一条 route。 Composer 通过自己的 typed read port 接入同一 reader，不增加按域容器；其 adapter 只持有
+`rd_owner` read pool，复用现有 sealed routine 与当前 Research/Market evidence 校验，不持有 fact-writer pool 或任何
+mutation method。
+
 Replay 通过独立的 Dashboard typed point-read port 委托既有 sealed Replay V2 read port；其 adapter 只持有同一
 `rd_owner` read pool，不装配旧 write Owner composition root，也不暴露 identify、submit、resolve、run 或 result。
 
-`GET /v1/formation-catalog` 是 verified Research/Artifact directory 与 exact-readback port 的有界只读组合。
-它最多返回 20 个已接受 TrialFamily，并按
-`(research.committed_at_epoch_ms, trial_family_identity)` 降序排列。每行只包含精确的 Research
-request/receipt/intent identity、当前 Research-view availability 与 next legal action、冻结 trial budget、已验证
-consumed budget，以及零个或多个 current-custody 的成功 Artifact attempt。成功 attempt 只包含 build request、
-attempt、Owner receipt、Artifact review、TrialFamily binding identity 与 Owner commit time。既有 Artifact directory
-本来就隐藏 failed、rejected、unknown 和 in-flight attempt，所以任何非空 catalog 都必须明确标为
-`PARTIAL_UNAVAILABLE`。不得把 commit time 冒充 prepared time，也不得编造负向 attempt。cross-binding malformed、
-identity 漂移、verifier error 或任一组成 read unavailable 时，整个 catalog fail closed，而不是静默丢掉某个 family。
+`GET /v1/formation-catalog` 是 verified Research/Artifact directory 与 exact-readback port 的有界只读组合。 它最多返回 20 个已接受
+TrialFamily，并按 `(research.committed_at_epoch_ms, trial_family_identity)` 降序排列。
 
-`GET /v1/trial-families/{trial_family_identity}/iterations` 由独立 typed 只读 projection port 提供。它先冻结请求
-family 的一组有界 immutable Decision locator，再通过 canonical unified Decision resolver 逐个解析。response
-只暴露 verified TrialFamily/census identity、trial/consumed budget、observation time，以及按顺序排列的精确
-Decision identity/digest、round、request、Result、attempt、receipt、commit time、canonical
-`IterationDecisionOutcomeV1` 与对应 Product Edge action class。action class 只有
-`SUBMIT_REPAIR_REQUEST`、`CREATE_SUCCESSOR_INTENT`、`STOP_ON_COMMITTED_DECISION` 和
-`SUBMIT_SELECTED_CANDIDATE_TO_QUALIFICATION`；Dashboard 不会把所有 repair 改名为 Replay repair，也不会制造
-Owner custody 中不存在的 evidence state。duplicate、non-monotonic、cross-family、oversized、malformed 或并发不一致
-的 cut 全部 fail closed。经过验证但为空的 Decision list 合法，表示 `AWAITING_REPLAY_RESULT`。
+每行只包含精确的 Research request/receipt/intent identity、当前 Research-view availability 与 next legal action、冻结 trial
+budget、已验证 consumed budget，以及零个或多个 current-custody 的成功 Artifact attempt。 成功 attempt 只包含 build request、
+attempt、Owner receipt、Artifact review、TrialFamily binding identity 与 Owner commit time。
 
-Formation catalog、Iteration timeline 与 historical custody read 的 `observed_at_epoch_ms` 取自 R&D Owner 的时钟，
-即在 Owner 事务内读取的 `pg_catalog.clock_timestamp()`，也就是它们 commit time 的来源。它只与这些 commit time
-比较，从不与可能与之不同的 Dashboard 进程时钟比较。这几个 read 改为在 `x-dashboard-read-nonce` 请求头里携带
-一个新鲜的 128 位 nonce，read API 只在 Owner 为该请求产出的 `200` projection 旁原样返回这个头：不带恰好一个
-合法 nonce 的 read 在任何 Owner 调用之前以 `400` 拒绝，拒绝或失败的回答都不带 nonce。BFF 只接受回显了本次
-read 自己 nonce 的回答，其余一律按 `OWNER_RESPONSE_UNAVAILABLE` 处理。
+既有 Artifact directory 本来就隐藏 failed、rejected、unknown 和 in-flight attempt，所以任何非空 catalog 都必须明确标为
+`PARTIAL_UNAVAILABLE`。 不得把 commit time 冒充 prepared time，也不得编造负向 attempt。 cross-binding malformed、 identity
+漂移、verifier error 或任一组成 read unavailable 时，整个 catalog fail closed，而不是静默丢掉某个 family。
+
+`GET /v1/trial-families/{trial_family_identity}/iterations` 由独立 typed 只读 projection port 提供。 它先冻结请求 family 的一组有界 immutable Decision locator，再通过
+canonical unified Decision resolver 逐个解析。
+
+response 只暴露 verified TrialFamily/census identity、trial/consumed budget、observation time，以及按顺序排列的精确 Decision
+identity/digest、round、request、Result、attempt、receipt、commit time、canonical `IterationDecisionOutcomeV1` 与对应 Product
+Edge action class。
+
+action class 只有 `SUBMIT_REPAIR_REQUEST`、`CREATE_SUCCESSOR_INTENT`、`STOP_ON_COMMITTED_DECISION` 和
+`SUBMIT_SELECTED_CANDIDATE_TO_QUALIFICATION`；Dashboard 不会把所有 repair 改名为 Replay repair，也不会制造 Owner custody 中不存在的 evidence state。
+duplicate、non-monotonic、cross-family、oversized、malformed 或并发不一致 的 cut 全部 fail closed。 经过验证但为空的 Decision list
+合法，表示 `AWAITING_REPLAY_RESULT`。
+
+Formation catalog、Iteration timeline 与 historical custody read 的 `observed_at_epoch_ms` 取自 R&D Owner 的时钟， 即在
+Owner 事务内读取的 `pg_catalog.clock_timestamp()`，也就是它们 commit time 的来源。 它只与这些 commit time 比较，从不与可能与之不同的 Dashboard 进程时钟比较。
+
+这几个 read 改为在 `x-dashboard-read-nonce` 请求头里携带 一个新鲜的 128 位 nonce，read API 只在 Owner 为该请求产出的 `200`
+projection 旁原样返回这个头：不带恰好一个 合法 nonce 的 read 在任何 Owner 调用之前以 `400` 拒绝，拒绝或失败的回答都不带 nonce。 BFF
+只接受回显了本次 read 自己 nonce 的回答，其余一律按 `OWNER_RESPONSE_UNAVAILABLE` 处理。
 
 `/rd/research` 只有在 Formation row 与该 family 的 exact Iteration projection 都 available 且 identity 一致时，
 才可以渲染共享 `JourneyProgress` 原子。Journey 只总结当前 loop，不是第二套业务状态机。任一 projection 仍在
 loading、unavailable、partial 到缺少所选 family，或 malformed 时，route 保留普通 Research directory，且不渲染
 placeholder、synthetic stage、stale 旧 Journey 或解释性填充短句。
 
-browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted
-时的当前 Research-view availability/phase，以及 committed time。rejected-no-write row 不会编造 intent 或
-view。Research goal 正文、sources、principal、policy、authorization、raw receipt、TrialFamily payload、
-ancestry 与 storage 字段全部隐藏。未知 wire key、矛盾 disposition/view、重复 identity、未来或非法时间、
-错误 completeness/count、超限 response、transport failure 或缺失 configuration 全部 fail closed 为
-`unavailable`。
+browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted 时的当前
+Research-view availability/phase，以及 committed time。 rejected-no-write row 不会编造 intent 或 view。 Research goal
+正文、sources、principal、policy、authorization、raw receipt、TrialFamily payload、 ancestry 与 storage 字段全部隐藏。
 
-已验证目录 row 链接到 identity-bound `/rd/research/{requestIdentity}` route。详情 route 使用一个
-`PanelFrame`：heading 与右对齐的 `Back to requests`、`Refresh` 和技术信息控件直接位于 frame surface，
-其后只有一个 inset body。accepted 与 rejected outcome 复用共享 `FactGroup` 原子，并固定按 `Outcome`、
-`Intent`、`Timing` 排列。label 与 value 全部左对齐，value 只使用一套排版比例，状态语义只由
-`StatusBadge` 承担；长 identity 仅在视觉上截断，同时保留完整可选择内容和 title。receipt identity、
-projection identity、source cut 与 TrialFamily identity 收进技术信息控件，不散落为解释短句。已验证的
-`SUBMITTED_OR_UNKNOWN` 回读保留同一 frame，但用一个有界 empty state 替代 fact group；identity 无效、
-configuration failure、permission denied、Owner response malformed/oversized、identity drift 或 transport
-failure 都会清除旧内容并展示一个保持形状的 unavailable state。
+未知 wire key、矛盾 disposition/view、重复 identity、未来或非法时间、 错误 completeness/count、超限 response、transport failure 或缺失
+configuration 全部 fail closed 为 `unavailable`。
+
+已验证目录 row 链接到 identity-bound `/rd/research/{requestIdentity}` route。 详情 route 使用一个 `PanelFrame`：heading 与右对齐的
+`Back to requests`、`Refresh` 和技术信息控件直接位于 frame surface， 其后只有一个 inset body。
+
+accepted 与 rejected outcome 复用共享 `FactGroup` 原子，并固定按 `Outcome`、
+`Intent`、`Timing` 排列。 label 与 value 全部左对齐，value 只使用一套排版比例，状态语义只由 `StatusBadge`
+承担；长 identity 仅在视觉上截断，同时保留完整可选择内容和 title。
+
+receipt identity、 projection identity、source cut 与 TrialFamily identity 收进技术信息控件，不散落为解释短句。
+
+已验证的 `SUBMITTED_OR_UNKNOWN` 回读保留同一 frame，但用一个有界 empty state 替代 fact group；identity 无效、 configuration
+failure、permission denied、Owner response malformed/oversized、identity drift 或 transport failure
+都会清除旧内容并展示一个保持形状的 unavailable state。
 
 Research detail 不提供 Artifact Formation、内部模型生成或 Artifact 写动作。策略编写使用领域 JSON 接口，现有页面只执行以下准入的读取和导航。
 
-Dashboard GET `/api/rd/research/{requestIdentity}` 绑定 path identity，并复用已注册的
-`research_goal.shadow_resolve.v1` Owner GET `/v2/research-goals/{request_identity}/readback`。BFF 只返回已验证
-outcome、可选 current Research view、committed/observed/valid-through 时间，以及上述有界技术 identity；
-它不接受 request body，也不排入 RunStore read。`Refresh`、目录 view/search/sort/pagination、`Load older`、`Open detail` 与本地返回是
-唯一 action。该例外不改变 Product Edge binding，不授权 production Owner/provider write、production cutover、
-trading，也不增加通用 Submit 或 create-successor；route registry 中更广的 Research admission、outcome action、receipt timeline
-与 S1 custody panel 仍属于未来蓝图。
+Dashboard GET `/api/rd/research/{requestIdentity}` 绑定 path identity，并复用已注册的 `research_goal.shadow_resolve.v1` Owner GET
+`/v2/research-goals/{request_identity}/readback`。 BFF 只返回已验证 outcome、可选 current Research view、committed/observed/valid-through 时间，以及上述有界技术
+identity； 它不接受 request body，也不排入 RunStore read。
+
+`Refresh`、目录 view/search/sort/pagination、`Load older`、`Open detail` 与本地返回是 唯一
+action。
+
+该例外不改变 Product Edge binding，不授权 production Owner/provider write、production cutover、 trading，也不增加通用 Submit 或
+create-successor；route registry 中更广的 Research admission、outcome action、receipt timeline 与 S1 custody panel
+仍属于未来蓝图。
 
 ## 有界准入：已验证 hypothesis 目录
 
@@ -1002,156 +884,183 @@ research hypothesis、支持它所期待的 observation 与能够证伪它的问
 `rd.research_question_directory.read.v1` projection；它不从这份 projection 推断科学有效性、active/falsified
 状态、Iteration Decision 或 Research outcome。
 
-页面使用一个全宽 `PanelFrame`、共享紧凑 toolbar 与一个 `DataWorkspaceTable`。`All / Verified / Unavailable`
-筛选和文本搜索只在完整有界 projection 上本地运行。业务列固定为 `Hypothesis`、`Falsifier`、
-`Expected observation` 与 `Recorded`；不在表格里展示不透明 request identity 或 semantic digest。点击一行会在
-该行下方展开一个 inline detail，不改变 URL，也不创建 drawer 或 dialog。detail 复用
-`ResearchQuestionBrief`、`DetailFactGrid`、`StatusBadge` 与 `PanelFrameInfo`；精确 request identity、semantic
-digest 和 source observation time 只进入 info disclosure。唯一显式跳转 `Open research record` 打开 canonical
-Research 精确工作区。排序、分页、筛选、搜索和 Refresh 都会收起已展开内容。页面 viewport 始终是唯一纵向
-滚动 owner。
+页面使用一个全宽 `PanelFrame`、共享紧凑 toolbar 与一个 `DataWorkspaceTable`。 `All / Verified / Unavailable` 筛选和文本搜索只在完整有界
+projection 上本地运行。 业务列固定为 `Hypothesis`、`Falsifier`、 `Expected observation` 与
+`Recorded`；不在表格里展示不透明 request identity 或 semantic digest。
 
-Loading 必须先清除旧的 positive data。非 2xx、畸形 projection、重复 identity、未知 enum、未来时间戳、Owner
-route unavailable 或 transport failure 都只呈现一个紧凑 unavailable state，并且不保留任何行。verified
-question unavailable 的 item 仍作为明确 unavailable record 可见，但绝不补造 question 文本。`Verified` 只表示
-保存的问题文本通过既有 Owner custody contract，并不表示 hypothesis 为真。该路由不暴露 submit、resolve、
-successor、formation、decision、edit 或 execution control，也不能影响 effect routing。
+点击一行会在 该行下方展开一个 inline detail，不改变 URL，也不创建 drawer 或 dialog。 detail 复用
+`ResearchQuestionBrief`、`DetailFactGrid`、`StatusBadge` 与 `PanelFrameInfo`；精确 request
+identity、semantic digest 和 source observation time 只进入 info disclosure。 唯一显式跳转 `Open research record` 打开
+canonical Research 精确工作区。
+
+排序、分页、筛选、搜索和 Refresh 都会收起已展开内容。 页面 viewport 始终是唯一纵向 滚动 owner。
+
+Loading 必须先清除旧的 positive data。 非 2xx、畸形 projection、重复 identity、未知 enum、未来时间戳、Owner route unavailable 或
+transport failure 都只呈现一个紧凑 unavailable state，并且不保留任何行。 verified question unavailable 的 item 仍作为明确 unavailable
+record 可见，但绝不补造 question 文本。 `Verified` 只表示 保存的问题文本通过既有 Owner custody contract，并不表示 hypothesis 为真。
+
+该路由不暴露 submit、resolve、 successor、formation、decision、edit 或 execution control，也不能影响 effect routing。
 
 ## 有界准入：已验证 Iteration Decision 目录
 
-`RdDecisionDirectory` 是 `/rd/decisions` 的精确只读 `P` surface。它只解决一类用户任务：审查每个 research round
-已经提交的结果，并理解 Owner 声明的下一步。browser 先读取现有有界 Formation catalog，再以最多 4 个并发请求
-读取其中每个 TrialFamily 的精确 Iteration timeline。family/timeline identity 或 trial budget 不一致、跨 cut 的
-decision/result/attempt/receipt identity 重复、任一 timeline unavailable、malformed response 或 transport failure
-都会撤回整个 Decision cut。available 且零 family 的 catalog 是合法 empty view，绝不能生成 synthetic Decision。
+`RdDecisionDirectory` 是 `/rd/decisions` 的精确只读 `P` surface。 它只解决一类用户任务：审查每个 research round
+已经提交的结果，并理解 Owner 声明的下一步。 browser 先读取现有有界 Formation catalog，再以最多 4 个并发请求 读取其中每个 TrialFamily 的精确 Iteration
+timeline。
+
+family/timeline identity 或 trial budget 不一致、跨 cut 的 decision/result/attempt/receipt identity 重复、任一 timeline
+unavailable、malformed response 或 transport failure 都会撤回整个 Decision cut。 available 且零 family 的 catalog 是合法
+empty view，绝不能生成 synthetic Decision。
 
 页面复用 `PanelFrame`、紧凑 filter/search toolbar、`DataWorkspaceTable`、受控 inline row detail、
-`ResearchQuestionBrief`、`DetailFactGrid`、`StatusBadge` 与 `PanelFrameInfo`。主表只显示 `Research question`、
-`Decision`、`Next step` 与 `Recorded`；`All / Repair / Successor / Ready / Stopped` filter 和 search 只在已验证 cut
-上本地运行。opaque family、Decision、replay request/result/attempt、receipt、frontier 与 digest 全部收进 info
-disclosure。独立验证的 saved-question directory 若包含 Formation row 的 Research request，就用其中 hypothesis、
-falsifier 和 expected observation 提供 row/detail context；否则 Decision 仍然可见，但只显示明确 unavailable 的
-question，不补造业务含义。
+`ResearchQuestionBrief`、`DetailFactGrid`、`StatusBadge` 与 `PanelFrameInfo`。
 
-点击一行只在原位展开一个 detail，不改变 URL，也不创建 drawer、dialog 或第二个纵向滚动 owner。detail 展示
-committed outcome、round、已消耗/冻结 trial budget、时间和精确的 outcome-specific reason 或 target。唯一跳转
-`Open research record` 进入 Formation row 的 canonical Research workspace。Refresh 会在重新读取前清除旧的
-positive Decision cut。该路由不暴露 repair、successor、stop、qualification、replay、submit、resolve、mutation
-或 execution control，也不能改变 effect worker 或 effect routing。
+主表只显示 `Research question`、 `Decision`、`Next step` 与
+`Recorded`；`All / Repair / Successor / Ready / Stopped` filter 和 search 只在已验证 cut 上本地运行。 opaque family、Decision、replay
+request/result/attempt、receipt、frontier 与 digest 全部收进 info disclosure。
+
+独立验证的 saved-question directory 若包含 Formation row 的 Research request，就用其中 hypothesis、 falsifier 和 expected
+observation 提供 row/detail context；否则 Decision 仍然可见，但只显示明确 unavailable 的 question，不补造业务含义。
+
+点击一行只在原位展开一个 detail，不改变 URL，也不创建 drawer、dialog 或第二个纵向滚动 owner。 detail 展示 committed outcome、round、已消耗/冻结 trial
+budget、时间和精确的 outcome-specific reason 或 target。 唯一跳转 `Open research record` 进入 Formation row 的 canonical
+Research workspace。 Refresh 会在重新读取前清除旧的 positive Decision cut。
+
+该路由不暴露 repair、successor、stop、qualification、replay、submit、resolve、mutation 或 execution control，也不能改变 effect
+worker 或 effect routing。
 
 ## 有界准入：已验证 Artifact 目录
 
-`ArtifactDirectory` 是 `/rd/artifacts` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
-detail column 预留空间。frame header 依次包含 eyebrow、title、单行 purpose 和一个 `Refresh` action。body
-只有一行 table toolbar：左侧是 `Build history / Current artifacts` segmented control，右侧 search。默认使用
-`Build history`，因为它直接展示当前可用的 attempt workload；`Current artifacts` 是更窄的 verified-success
-view。Build history 在同一行追加 `All attempts / Reviewable / Bindings` rail。verified 表格按顺序只有四个 plain、左对齐
-column：`Artifact`、`Strategy intent`、`Verification`、`Created`。表头文字前不放装饰性 icon；不存在
-View/column chooser、registered/visible 数量、多级 filter popover 或 backend-only 字段。点击 Artifact identity
-进入精确只读 source-viewer URL。表头固定在有界 scroll viewport 内；loading、合法 empty、unavailable、
-partial 保持相同 card geometry。窄屏只横向滚动，不把 identity 折叠成编造的 mobile fact。
+`ArtifactDirectory` 是 `/rd/artifacts` 的精确 `P` surface。 route 使用一个全宽
+`PanelFrame`，不为无内容的 detail column 预留空间。 frame header 依次包含 eyebrow、title、单行 purpose 和一个
+`Refresh` action。 body 只有一行 table toolbar：左侧是 `Build history / Current artifacts` segmented control，右侧 search。
+
+默认使用 `Build history`，因为它直接展示当前可用的 attempt workload；`Current artifacts` 是更窄的 verified-success view。 Build
+history 在同一行追加 `All attempts / Reviewable / Bindings` rail。 verified 表格按顺序只有四个 plain、左对齐
+column：`Artifact`、`Strategy intent`、`Verification`、`Created`。
+
+表头文字前不放装饰性 icon；不存在 View/column chooser、registered/visible 数量、多级 filter popover 或 backend-only 字段。 点击 Artifact
+identity 进入精确只读 source-viewer URL。 表头固定在有界 scroll viewport 内；loading、合法 empty、unavailable、 partial 保持相同 card
+geometry。 窄屏只横向滚动，不把 identity 折叠成编造的 mobile fact。
 
 Source viewer 是 canonical long-content workspace，不是 `DetailSheet`：source folding、selection、scroll、copy、
-WASM evidence 与完整技术检查继续留在精确 build/attempt route。浏览器 read 绑定该 identity pair，并在开始时
-先清除旧 Artifact identity、source、WASM preview 与 Copy capability。新 identity 或 unmount 会 abort 并使旧 read
-失效。只有当前 request、成功 HTTP response 与现有 strict projection normalizer 同时成立时才能恢复 positive source；
-late、aborted、非 2xx、malformed 或 transport-failed response 只能保留固定 unavailable viewer geometry，不能重新
-填回旧 source。该 workspace 仍然只有 GET，且不暴露 edit、save、run、build、deploy 或 Owner/effect worker control。
+WASM evidence 与完整技术检查继续留在精确 build/attempt route。 浏览器 read 绑定该 identity pair，并在开始时 先清除旧 Artifact
+identity、source、WASM preview 与 Copy capability。 新 identity 或 unmount 会 abort 并使旧 read 失效。
 
-Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子。主行只显示业务实体名称
+只有当前 request、成功 HTTP response 与现有 strict projection normalizer 同时成立时才能恢复 positive source； late、aborted、非
+2xx、malformed 或 transport-failed response 只能保留固定 unavailable viewer geometry，不能重新 填回旧 source。 该 workspace 仍然只有
+GET，且不暴露 edit、save、run、build、deploy 或 Owner/effect worker control。
+
+Research 与 Artifact directory 共用 domain-neutral `EntityReference` 原子。 主行只显示业务实体名称
 （`Research request`、`Build request`、`Build attempt`、`Strategy artifact`、`Strategy intent` 或
-`Strategy family`）；opaque identity 退为紧凑次级引用，完整值仍作为 title 与 search key 保留。默认表格
-使用 `Result`/`Outcome`、`Recorded` 与用户可读 availability；Owner、custody、point-read、candidate 和 wire-state
-措辞只留在信息披露或 contract 中。
-已启用的异步 directory read 必须把内部首帧 `idle` 投影为 `loading`。短暂 loading-delay 阈值内可以保持视觉安静，
-但首个 Owner response 稳定前不得渲染 empty/search-empty 断言或零值 summary。只有已完成且 available 的 read 在
-匹配行确实为零时才能显示 empty；unavailable 保持独立 fail-closed 状态，也不得保留上一 route 的 rows。
+`Strategy family`）；opaque identity 退为紧凑次级引用，完整值仍作为 title 与 search key 保留。
 
-在 `Build history` 中，激活主 build 引用或选择对应 attempt row 都会打开同一个共享 `DetailSheet`，不会改变
-directory URL，也不会卸载
-当前 view、filter、search、pagination 或 scroll position。紧凑摘要只组合共享 `DetailFactGrid`、
-`StatusBadge` 与 `PanelFrameInfo` 原子，只回答是否存在可读 build result，以及 attempt 何时 prepared；精确
-identity 与 observation cut 收进信息披露。只有当前可用且与同一 custody cut 精确绑定的 inventory item 才显示
-`Review build result`。这个显式动作会在同一个 sheet 内从摘要切换为 exact read-only result drilldown；仅打开
-摘要不会触发 exact point read。Drilldown 与 canonical historical route 共用同一个 readback hook，以及共享的
-`Build journey` 和 `Result / Review / Timing` 内容；`Back to build summary` 返回摘要并恢复 drilldown trigger 焦点。
-只有 HTTP 成功且 body 通过双 identity 校验后才显示 `Open full build workspace`；non-2xx 的伪 positive body、
-identity mismatch、取消的 read，以及 Back 或 Close 后才到达的 response 全部 fail closed。`unavailable` 或
-loading item 仍可查看摘要，但不暴露 result drilldown 或 canonical action。关闭 sheet 后焦点返回原 control 或
+默认表格 使用 `Result`/`Outcome`、`Recorded` 与用户可读
+availability；Owner、custody、point-read、candidate 和 wire-state 措辞只留在信息披露或 contract 中。 已启用的异步 directory read
+必须把内部首帧 `idle` 投影为 `loading`。
+
+短暂 loading-delay 阈值内可以保持视觉安静， 但首个 Owner response 稳定前不得渲染 empty/search-empty 断言或零值 summary。 只有已完成且 available 的
+read 在 匹配行确实为零时才能显示 empty；unavailable 保持独立 fail-closed 状态，也不得保留上一 route 的 rows。
+
+在 `Build history` 中，激活主 build 引用或选择对应 attempt row 都会打开同一个共享 `DetailSheet`，不会改变 directory URL，也不会卸载
+当前 view、filter、search、pagination 或 scroll position。
+
+紧凑摘要只组合共享 `DetailFactGrid`、 `StatusBadge` 与 `PanelFrameInfo` 原子，只回答是否存在可读 build result，以及
+attempt 何时 prepared；精确 identity 与 observation cut 收进信息披露。 只有当前可用且与同一 custody cut 精确绑定的 inventory item 才显示
+`Review build result`。 这个显式动作会在同一个 sheet 内从摘要切换为 exact read-only result drilldown；仅打开 摘要不会触发 exact point read。
+
+Drilldown 与 canonical historical route 共用同一个 readback hook，以及共享的 `Build journey` 和 `Result / Review / Timing`
+内容；`Back to build summary` 返回摘要并恢复 drilldown trigger 焦点。 只有 HTTP 成功且 body 通过双 identity 校验后才显示
+`Open full build workspace`；non-2xx 的伪 positive body、 identity mismatch、取消的 read，以及 Back 或 Close 后才到达的 response 全部
+fail closed。
+
+`unavailable` 或 loading item 仍可查看摘要，但不暴露 result drilldown 或 canonical action。 关闭 sheet 后焦点返回原 control 或
 row；窄屏继续复用共享全视口 sheet geometry。
-refresh 期间可以保留 rows 以维持 table geometry，但 Bento summary count、主引用 detail、outcome badge、
-次级 summary 与 footer 必须全部切换为 `Checking` 或 unavailable placeholder；不得把 retained positive
-review state 展示为当前状态。
 
-精确 historical-attempt route 的标题为 `Build result`，只回答本次 build 是否产出 Artifact。它与 directory
-drilldown 共用同一个 fail-closed historical readback hook、共享 journey 与 `Result / Review / Timing` 内容。
-这些分组展示 `Historical only` 和人类可读的 failure reason；精确 `Raw result`、
-`Raw reason`、build request、attempt 与 receipt 只保留在信息披露中。页面不会把历史读取伪装成 current
-Artifact 或 action。
+refresh 期间可以保留 rows 以维持 table geometry，但 Bento summary count、主引用 detail、outcome badge、 次级 summary 与 footer
+必须全部切换为 `Checking` 或 unavailable placeholder；不得把 retained positive review state 展示为当前状态。
 
-Historical-custody Owner projection available 时，route 在 directory 前复用共享 compact Bento card。它由
-`research`、`build`、`families` 三个细肩分组组成：`research` 显示精确 `requests`；`build` 在独立 review
-inventory 已绑定时同时显示 `reviewable` 与精确 `attempts`；`families` 显示精确 `bindings`。这些 value 是
-相互独立的工作队列计数和 canonical view 的安静 link，不是 verified Artifact total、lifecycle 或一一对应的
-流程。Projection unavailable 时 card 消失；任一 directory view 的 Refresh 都刷新同一 Owner cut，不增加
-scheduler、operational write 或 Artifact action。`reviewable` 打开
-`/rd/artifacts/?availability=reviewable`；`bindings` 打开 `/rd/artifacts/?kind=bindings`。
+精确 historical-attempt route 的标题为 `Build result`，只回答本次 build 是否产出 Artifact。 它与 directory drilldown 共用同一个
+fail-closed historical readback hook、共享 journey 与 `Result / Review / Timing` 内容。
 
-Dashboard-only GET `/api/rd/artifacts/review-inventory` 使用最多 6 个并发 read，把上述有界 custody cut 与
-现有 identity-bound Artifact readback GET 组合。它不创建新 Owner fact，也不声称跨记录单一 snapshot：
-每个 candidate 保留自己的 `reviewable | unavailable` point-read 结果，同时 projection 分别保留 custody
-observation time、scanned count、total count 与 truncation。只有完整 candidate identity tuple set 仍与页面
-单独读取的 custody cut 一致时，client 才准入这层组合；发生 drift 时撤回 reviewability overlay，但不隐藏
-普通 candidate directory。完整 cut available 时，compact card 回答
-`reviewable / attempts`，并进入 canonical `availability=reviewable` build-history view；只有
-reviewable row 才链接到 Historical build outcome。Unavailable row 仍在 `All attempts` 中可见，但不伪装成
-可执行 link。组合 unavailable 时，普通 candidate directory 仍可使用，且不能推断"零条可审"。
+这些分组展示 `Historical only` 和人类可读的 failure reason；精确 `Raw result`、 `Raw reason`、build
+request、attempt 与 receipt 只保留在信息披露中。 页面不会把历史读取伪装成 current Artifact 或 action。
 
-经认证的 Owner GET `/v1/artifact-builds/directory` 每页最多返回 20 个 verified item。每页最多检查 60 个
-attempt candidate，按 `(prepared_at_epoch_ms, build_request_identity)` 降序，其中有界 ASCII identity 使用
-PostgreSQL `C` collation；并仅把同一 tuple 作为 opaque、
-stable 的 `Load older` cursor 暴露。每个 candidate 都在独立的 canonical read-committed transaction 中复用
-现有完整 Artifact custody verifier。只有 terminal `SUCCESS` receipt 的 Artifact identity 与 sealed Artifact
-Review 精确匹配时才投影；browser 只接收 build request、attempt、Artifact、strategy-intent identity、committed
-time、build target 与显式 `ADMITTED` build security state。nonterminal 或 non-success attempt 被隐藏，并使页面
-明确标为 partial。任何 malformed custody、database/verification error、未知 wire key、矛盾的
-completeness/count、非法 identity/time、超限 response 或 transport/configuration failure 都使对应 read
-unavailable，绝不能伪装成成功空页。默认 build-history view 使用与 Research 相同的经认证 GET
-`/v1/historical-custodies` 与 read‑only Owner cut；最多暴露 200 个 attempt 与 200 个 TrialFamily-binding identity、
-custody time 及唯一 state `POINT_READ_REQUIRED`。count 只是 custody index 数量，绝不是 verified Artifact 或
-valid binding 数量；directory cut 不得推断 Artifact outcome、binding validity、current authority，也不暴露
-raw receipt、payload 或 storage 字段。attempt candidate 可以链接到一个精确历史 point read；只有该 point read
-才能基于完整 stored custody 对 candidate 分类。
+Historical-custody Owner projection available 时，route 在 directory 前复用共享 compact Bento card。
 
-verified directory、精确 readback 与精确 source GET 由上述统一的 `strategy-factory-rd-dashboard-read-api`
-打包；Artifact state 只持有 typed `ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1` 与
-`ArtifactSourceOwnerPort`，不持有 sandbox 或任何 Artifact mutation port。精确 readback GET 必须 current-first：
-精确 current stored shape 始终进入既有完整 Artifact verifier，current verification failure 绝不能降级进入
-historical decoder。只有精确 non-current shape 可以进入历史 quarantine verifier；仅当 terminal
-`FAILED_NO_ARTIFACT`、`REJECTED_NO_WRITE` 或 `OUTCOME_UNKNOWN` receipt 的 identity、semantic digest、time 与
-no-Artifact relation 全部 canonical 时，才投影 `LEGACY_TERMINAL_QUARANTINED`。historical `SUCCESS` 因缺少
-current Artifact custody 要求的 sealed build-security evidence 而继续 unavailable。verified directory 隐藏
-non-current shape 并把 cut 标为 partial，不得让 verified current row 因此整体 unavailable；source read 仍只接收
-current shape。adapter 绝不调用 `ArtifactBuildOwnerPort::resolve`；它不能终态化过期 attempt、提交 Building
-candidate、drain legacy custody、调用 provider 或写入业务状态。PostgreSQL adapter 保持普通
-read-committed locking reader，因为 canonical verifier 需要 `FOR SHARE`；若
-改成 read‑only transaction，PostgreSQL 会直接拒绝 verifier 本身。Dashboard 通过同一个必须成对配置的
-`RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置其中一项时必须 fail closed，
-绝不能借用 write API 的另一半 credential。
+它由 `research`、`build`、`families` 三个细肩分组组成：`research` 显示精确
+`requests`；`build` 在独立 review inventory 已绑定时同时显示 `reviewable` 与精确
+`attempts`；`families` 显示精确 `bindings`。
 
-唯一 action 是 `Refresh`、切换本地 directory/kind view、local search/sort/pagination、`Load older`、打开一个
-精确 verified Artifact 与一个精确 historical attempt outcome。historical detail 复用其他 readback 的
-`PanelFrame`、`FactGroup`、`FactItem`、`StatusBadge` 与 compact filter-button atoms；主视图只展示面向业务的
-outcome、quarantine、reason 与 timing facts，精确 identity 和 Owner receipt 留在既有 info affordance 中。目录不 submit
-或 resolve attempt，不 build source，不运行 sandbox/Wasm module，不调用 provider，不 mutate effect worker，不写
-business state，也不授权交易。关联 source viewer 的 `WASM_PREVIEW_NOT_RUN` 保持不变，直到另一个真实
-Owner-backed preview contract 被单独准入。
+这些 value 是 相互独立的工作队列计数和 canonical view 的安静 link，不是 verified Artifact total、lifecycle 或一一对应的 流程。 Projection
+unavailable 时 card 消失；任一 directory view 的 Refresh 都刷新同一 Owner cut，不增加 scheduler、operational write 或 Artifact
+action。 `reviewable` 打开 `/rd/artifacts/?availability=reviewable`；`bindings` 打开 `/rd/artifacts/?kind=bindings`。
 
-认证 GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` 同时作为无 effect 的
-`artifact_build.shadow_resolve.v1` operational read Owner-outcome 来源，以及上述有界 historical quarantine
-detail 的精确来源而获准。它保留严格 current Artifact verification，只向 historical detail 暴露通过验证的
-terminal legacy no-Artifact outcome；该准入不扩展至 Artifact action、review、binding、replay、security panel
-或任何 mutation。
+Dashboard-only GET `/api/rd/artifacts/review-inventory` 使用最多 6 个并发 read，把上述有界 custody cut 与 现有 identity-bound Artifact
+readback GET 组合。 它不创建新 Owner fact，也不声称跨记录单一 snapshot： 每个 candidate 保留自己的 `reviewable | unavailable` point-read 结果，同时
+projection 分别保留 custody observation time、scanned count、total count 与 truncation。
+
+只有完整 candidate identity tuple set 仍与页面 单独读取的 custody cut 一致时，client 才准入这层组合；发生 drift 时撤回 reviewability
+overlay，但不隐藏 普通 candidate directory。 完整 cut available 时，compact card 回答 `reviewable / attempts`，并进入 canonical
+`availability=reviewable` build-history view；只有 reviewable row 才链接到 Historical build outcome。
+
+Unavailable row 仍在 `All attempts` 中可见，但不伪装成 可执行 link。 组合 unavailable 时，普通 candidate directory
+仍可使用，且不能推断"零条可审"。
+
+经认证的 Owner GET `/v1/artifact-builds/directory` 每页最多返回 20 个 verified item。 每页最多检查 60 个 attempt candidate，按
+`(prepared_at_epoch_ms, build_request_identity)` 降序，其中有界 ASCII identity 使用 PostgreSQL `C` collation；并仅把同一 tuple 作为
+opaque、 stable 的 `Load older` cursor 暴露。
+
+每个 candidate 都在独立的 canonical read-committed transaction 中复用 现有完整 Artifact custody verifier。
+
+只有 terminal `SUCCESS` receipt 的 Artifact identity 与 sealed Artifact Review 精确匹配时才投影；browser 只接收
+build request、attempt、Artifact、strategy-intent identity、committed time、build target 与显式 `ADMITTED`
+build security state。 nonterminal 或 non-success attempt 被隐藏，并使页面 明确标为 partial。
+
+任何 malformed custody、database/verification error、未知 wire key、矛盾的 completeness/count、非法 identity/time、超限
+response 或 transport/configuration failure 都使对应 read unavailable，绝不能伪装成成功空页。
+
+默认 build-history view 使用与 Research 相同的经认证 GET `/v1/historical-custodies` 与 read‑only Owner cut；最多暴露 200 个 attempt 与
+200 个 TrialFamily-binding identity、 custody time 及唯一 state `POINT_READ_REQUIRED`。
+
+count 只是 custody index 数量，绝不是 verified Artifact 或 valid binding 数量；directory cut 不得推断 Artifact outcome、binding
+validity、current authority，也不暴露 raw receipt、payload 或 storage 字段。 attempt candidate 可以链接到一个精确历史 point read；只有该
+point read 才能基于完整 stored custody 对 candidate 分类。
+
+verified directory、精确 readback 与精确 source GET 由上述统一的 `strategy-factory-rd-dashboard-read-api` 打包；Artifact state 只持有 typed
+`ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1` 与 `ArtifactSourceOwnerPort`，不持有 sandbox 或任何 Artifact mutation port。
+
+精确 readback GET 必须 current-first： 精确 current stored shape 始终进入既有完整 Artifact verifier，current verification
+failure 绝不能降级进入 historical decoder。
+
+只有精确 non-current shape 可以进入历史 quarantine verifier；仅当 terminal `FAILED_NO_ARTIFACT`、`REJECTED_NO_WRITE` 或
+`OUTCOME_UNKNOWN` receipt 的 identity、semantic digest、time 与 no-Artifact relation 全部 canonical 时，才投影
+`LEGACY_TERMINAL_QUARANTINED`。
+
+historical `SUCCESS` 因缺少 current Artifact custody 要求的 sealed build-security evidence 而继续
+unavailable。 verified directory 隐藏 non-current shape 并把 cut 标为 partial，不得让 verified current row 因此整体
+unavailable；source read 仍只接收 current shape。
+
+adapter 绝不调用 `ArtifactBuildOwnerPort::resolve`；它不能终态化过期 attempt、提交 Building candidate、drain legacy custody、调用 provider
+或写入业务状态。 PostgreSQL adapter 保持普通 read-committed locking reader，因为 canonical verifier 需要 `FOR SHARE`；若
+改成 read‑only transaction，PostgreSQL 会直接拒绝 verifier 本身。
+
+Dashboard 通过同一个必须成对配置的 `RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置其中一项时必须 fail closed， 绝不能借用 write API
+的另一半 credential。
+
+唯一 action 是 `Refresh`、切换本地 directory/kind view、local
+search/sort/pagination、`Load older`、打开一个 精确 verified Artifact 与一个精确 historical attempt outcome。
+
+historical detail 复用其他 readback 的
+`PanelFrame`、`FactGroup`、`FactItem`、`StatusBadge` 与 compact filter-button
+atoms；主视图只展示面向业务的 outcome、quarantine、reason 与 timing facts，精确 identity 和 Owner receipt 留在既有 info affordance 中。
+
+目录不 submit 或 resolve attempt，不 build source，不运行 sandbox/Wasm module，不调用 provider，不 mutate effect worker，不写
+business state，也不授权交易。 关联 source viewer 的 `WASM_PREVIEW_NOT_RUN` 保持不变，直到另一个真实 Owner-backed preview contract
+被单独准入。
+
+认证 GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` 同时作为无 effect 的 `artifact_build.shadow_resolve.v1` operational read Owner-outcome 来源，以及上述有界
+historical quarantine detail 的精确来源而获准。 它保留严格 current Artifact verification，只向 historical detail 暴露通过验证的
+terminal legacy no-Artifact outcome；该准入不扩展至 Artifact action、review、binding、replay、security panel 或任何 mutation。
 
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的、从已退役外壳继承的最小能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
@@ -1160,261 +1069,51 @@ terminal legacy no-Artifact outcome；该准入不扩展至 Artifact action、re
 
 ## 页面与数据规则
 
-每个 routed page 依次包含：带 scope/Owner/source cut/freshness 的 header；可推导 summary strip；主要 Bento
-grid；可选 table/chart/timeline/comparison；仅在准入时出现的 exact next-action bar；以及 identity、receipt、
-evidence、recovery detail drawer。
+### 事实、新鲜度与公开范围
 
-Overview 是只读 Global Status View，优先展示 incident 与 unknown effect、待处理 decision、stale/unavailable
-input、active research、Scanner/Runtime state、Risk fence 与近期 Owner outcome。它不能把 unavailable 或
-protected input 压成一个 opaque health score。每个 status item 都携带 source frontier、completeness、lag、
-freshness 与 rebuild state。Freshness 按精确 source Owner/cut 分别计算；一个 source 的新数据绝不能续鲜另一个。
-Sequence 与 frontier namespace 不能跨 Owner 合并。Empty telemetry 是 unavailable，不是 healthy。Raw、stale、
-replayed 或 self-asserted telemetry 即使 payload 非空或过去曾被接受，也不能产生 `Available`。Positive
-availability 必须来自 Owner-produced projection，并绑定 source identity、source cut/frontier、observation 与
-validity time、canonical payload fingerprint，以及当前 loss/rebuild state。Telemetry loss 后，缺失或 non-current
-evidence 只能渲染 `unavailable` 或 `stale`，绝不能回退到最后一次 positive state。该规则在被拒绝的 F1 path
-完成修正并通过真实 consumer 前保持 `OBSERVED_CANDIDATE_NOT_CURRENT`。每个 protected
-negative terminal 无论 opaque internal reference 如何，都必须产生相同 public bytes。Freshness、valid‑through
-与 expiry disposition 只能来自 Owner‑validated Time Evidence；任意非空 label、client clock 或 UI‑derived
-timestamp 都不能驱动业务状态。Event identity、digest 与 checkpoint equality 必须绑定完整 canonical
-envelope，包括 source Owner/cut、observed/valid‑through time、payload reference 与 telemetry fields。相同
-identity/frontier 下 fingerprint 改变必须 conflict 或 quarantine；rebuild 绝不能静默改写 freshness 或 Owner
-fact。
+每个面板读取规范 Owner 投影，区分业务结果和操作完成，绑定身份、source cut/frontier、观察时间和有效期。另一个来源的新数据不续鲜陈旧证据；unavailable 不等于零或健康。Owner 投影采用半开有效区间：`now == valid_through` 时不再当前；浏览器时钟不延长权限，`available_at >= valid_through` 的区间无效。
 
-R&D 保留已退役外壳中曾真实执行的旅程：
+缓存可丢弃。丢失、重连或重建解析原身份，不能创建替代事实、同身份不同 fingerprint 或来自陈旧遥测的正向结果。producer/当前性证据缺失撤下正向视图。Event Rail 与 Observability 只传事实/遥测，不承担接纳、重试、闭合或生命周期权威。
 
-Source and falsifiable goal -> R&D request receipt -> Frozen Intent -> bounded Agent/build -> immutable Artifact
-and Build Receipt -> Artifact Review -> Exploratory Replay Request -> Backtest Result -> R&D handoff -> exact next
-action。第一方 route 与可复用 detail panel 替代单一超长 Raw App；stable identity 保留 deep link 与
-same-identity recovery。
+保护 Qualification 明细、负面原因/分类及时间信息不进入研究面板、漏斗、图表、过滤或告警。所有公开负面终态字节等同 `CLOSED_NOT_QUALIFIED`；`QUALIFIED` 保持准确。账户与运维投影不暗示交易权限。
 
-S1 V2 是 staged Owner journey，不是一次 all-or-nothing request。Fresh authority review 拒绝 candidate
-`c72f44edb06f927afe6b67e5890f4610f4edc727` 的阶段恢复：第一笔 transaction 已提交 Independence Basis
-Receipt、basis head 与 Owner outbox，但 Qualification 和 terminal Research receipt 仍缺失。Dashboard 把该
-partial geometry 固定为 `SEALED_BASIS_PENDING_QUALIFICATION`：绑定准确 request、original admission、basis
-receipt/identity、basis head/outbox、commit cut、缺失的 next Owner receipt 与 next action
-`RESOLVE_SAME_REQUEST_IDENTITY`，且不渲染 Submit 或 successor control。创建 basis stage 仍要求 current
-authority；一旦提交，同一 request 只能跨后续 cutover、revocation 或 expiry 从 sealed historical custody
-Resolve 或完成，绝不能创建第二份 basis/head/outbox；changed request 或 admission identity 必须 conflict。
-独立 consumer review 对另一组 H1 claim/start/terminal 修复未发现 static consumer defect（31/31），但 dynamic
-PostgreSQL、effect worker、provider 与 browser acceptance 仍 unavailable；该 candidate 的任何部分都不是 current
-product capability。
+### 研究托管回读
 
-Fresh v5 review 对 `e5893fd5503c65be2afaae0da4a8b234b211c80f` 的结论证明该 geometry 仍只是 target，
-不是可达的 Workbench recovery。Public empty-body `RESOLVE` 必须消费完整 sealed request meaning，并推进 submit
-内部使用的同一 Historical completion，不能停在 terminal-receipt lookup miss。若 Qualification 在 response loss
-前已提交且 projection 随后 expiry，只有 Qualification Owner 可以为 sealed basis 发布 canonically linked
-renewal/successor（或等价 recovery fact）。完整 S1 terminal receipt 与 TrialFamily 一旦通过验证，后续 read-time
-expiry 只能改变 currentness 与 action admission，必须保留 historical fact，绝不能重新折叠成
-`SUBMITTED_OR_UNKNOWN`。
+Source → 冻结 Research → 不可变 Artifact → 原生 Backtest → R&D 决定，是外部 Agent 发起的领域服务旅程。Dashboard 回读这些事实，不另建工作流。
 
-Protected Qualification detail 保持 opaque。Dashboard 只能显示 Qualification 允许的 public terminal、
-type-opaque non-dereferenceable reference、expiry/revocation 与 source-frontier freshness；绝不显示 protected
-phase、latency、internal reason、diagnostic category 或派生 research funnel。Public outcome 必须从
-Owner-produced projection 解析，并绑定 intake receipt、holdout reservation、完整 plan-cell/assessment frontier
-与稳定 attempt identity。Client 不能从相等 request/result DTO 构造它，不能通过重命名重置 attempt，不能在
-没有冻结依据时显示 N/A，也不能复活 revoked 或 expired Eligibility fact。Intake identity 必须绑定 validation
-前的完整 replay meaning，包括非法值；validation failure 不能把不同 meaning 归一为同一个 empty sentinel。首次
-非法提交渲染 immutable `NOT_ADMITTED` receipt；同一 request/handoff 的精确语义 replay 可以解析该 receipt，
-但 invalid A→invalid B、invalid→valid、valid→invalid 或同 identity 下任意 changed meaning 都必须渲染
-`RequestSemanticConflict`，保留并链接原 receipt，禁用 submit/resolve-as-success，且只有 Owner 准入 successor
-时才提供新 identity。UI 只显示 redacted changed-meaning summary 与 semantic fingerprint，protected replay value
-绝不进入 page model。修正后的 F1 candidate 进入真实 Product Edge consumer 前，该状态机保持
-`OBSERVED_CANDIDATE_NOT_CURRENT`。Qualification public projection 只接受终态。`Admitted` 与 `Evaluating`
-是合法 Owner-internal 非终态 summary，但不能转换为 `ClosedNotQualified`、`Qualified` 或其他 public terminal。
-`/qualification/outcomes` 必须从所有 terminal count 与 row 中排除它们，也不渲染 public receipt；对应
-`/qualification` intake row 只有在独立准入的 intake projection 存在时才显示 `pending` 或 `evaluating`，否则
-显示 `awaiting_terminal / unavailable`。其 action 只能是 Refresh 与该 intake projection 准入的 exact
-same-identity read；不得显示 terminal color、successor action 或 completion notification。第八 F1 修正通过
-真实 consumer 验收前，该 negative projector rule 保持 `OBSERVED_CANDIDATE_NOT_CURRENT`。同一 fact identity 的 Owner Time
-Evidence 与存储 fact head 必须单调推进；caller 选择更早 read time 不能恢复旧 eligible projection。
-`effective_from` 仍在未来的 successor 要么被拒绝，要么保持为显式 Owner-produced pending successor，同时
-predecessor 继续 current。Currentness 使用唯一半开区间：predecessor 在 `valid_through` 终止，successor 可在
-该精确边界开始，两者绝不能同时 current。Public projection 把该 head transition 绑定进 Qualification frontier，
-使相同 Time evidence 不能代表两个不同 head。Browser time、refresh 或 optimistic state 不能提前提升它。
-即使请求的 successor transition 被拒绝，已验证的 late Time evidence 仍必须单调：Owner 先记录
-expiry/latest-time cut，再返回 mismatch；client 不能重试更旧 boundary 来逆转该 cut。
+只有 sealed basis 而没有终态 Research 回执时保持 `SEALED_BASIS_PENDING_QUALIFICATION`，原 request/admission、basis 与 commit cut 继续绑定。获准领域 resolver 在过期/切换后消费完整封存托管，不新建 basis 或接纳替代请求含义；浏览器只读该状态。持久终态在关联视图过期后仍可见，当前动作缺席。
 
-在 `now == valid_through` 时，所有 Strategy Factory Product Edge、Qualification、Scanner、Observability、
-Runtime 与 Governance projection 都必须把 predecessor 视为 non-current。Strategy Factory Product Edge 已在
-main 上以 `CURRENT/PARTIAL` 证明该规则；其他 producing Owner 仍是 candidate‑only 且 unresolved。UI 只消费
-Owner freshness projection，绝不根据 browser time 重新计算；任何
-`available_at >= valid_through` 的 evidence/envelope interval 都是 invalid，不能显示 AVAILABLE。在所有 producing Owner
-一致证明该精确边界前，canonical 页面渲染 `EXCLUSIVE_BOUNDARY_UNRESOLVED / unavailable`，保留最后一次
-observation 供诊断，并禁用 admission 或 success action。Locator comparison、refresh timestamp 或更晚的
-`+1` test 都不能填补这项缺口。
+Artifact 回读核验准确 request、attempt、Intent、Artifact/Build 和 family 身份。未知 invocation 保留原 claim 与 fence，不再次调用 provider 或推断成功。隔离记录只公开已准入历史托管，不能满足当前 selector。准确 omission/null、schema、digest 和身份规则归 [R&D 契约](../owners/rd/)，不由浏览器猜测。
 
-Runtime application 同样受证据约束。Dashboard 只能从绑定精确 generation、application attempt 与最终
-Strategy Instance 的 Owner receipt 显示 `APPLIED`。`APPLICATION_UNKNOWN` 必须保持 unknown，直到 append-only
-权威 reconciliation successor 解析同一 attempt。Unit test 或 PAPER harness state 绝不是产品 Runtime 证据。
-Live admission 与 snapshot restore 必须共用同一精确 predecessor/reconciliation validator，包括有效时间、
-单调 sequence 与 `observed_at`、frontier coverage，以及不早于 reconciliation observation 的 successor evidence。
-不满足这些检查的 malformed/migrated snapshot 只能 unavailable 或 quarantine，不能通过 restore 成为权威状态。
-当前 F1 correction 刻意不存在正向 cross-Owner product path：所有 public 或 caller-produced readback 都渲染为
-`APPLICATION_UNKNOWN`。独立准入的 sealed‑receipt dependency restructuring 存在并通过真实 Owner-store reread
-前，Dashboard 不暴露 Apply-success 状态。
+### 运行状态
 
-Governance-to-Runtime 最早可独立接受的产品切面是负向而非正向：默认 Dashboard journey 可以证明
-`REJECTED_NO_WRITE`，再证明 Runtime 对同一 generation/request identity 没有产生 application receipt。
-Lifecycle detail 固定显示 rejection receipt、no-write assertion、source frontier 与 exact identity；Runtime
-Generations detail 固定显示 `NOT_APPLIED / NO_APPLICATION_RECEIPT` 并回链该 Governance receipt，不显示 Apply
-或 retry button。正向 `APPLIED` 只有在 Qualification、Portfolio、Execution binding、authorization lineage 与
-Runtime readiness 于同一 admitted consumer slice 汇合后才可用。
+Governance 批准与 Runtime 应用分离；只有绑定的应用回执可展示 `APPLIED`。资格、必需表现/暴露或退化证据陈旧时阻止新风险，围栏保留 decrease-only 路径。Portfolio 提供实际账户/容量事实，Governance 应用批准分配与组合政策，Risk 在原子 frontier 准入预留。Dashboard 不从展示值重算这些事实或作为竞争 allocator 排名策略。
 
-Governance view 保留完整 contender frontier，并最终按唯一 canonical strategy-generation bytes 排序，绝不按
-arrival order 或 caller-controlled request identity。Duplicate generation identity、duplicate complete comparator key，
-或没有已准入 resolver 的 policy tie，必须为完整集合产生确定性的 `INPUT_INCOMPLETE_NO_WRITE` terminal receipt；
-exact replay join 相同 receipts，changed subset 不能准入 decision。显示 accepted decision 前必须通过各 source Owner
-重读全部 authorization/evidence cut，并暴露所得 source frontier。F0 direct reread 不可用时，view 只能是
-`stale`/`unavailable`；system-clock digest、UI time 或常量 frontier 不能让它变 current。
-
-Execution 与 live 页面默认只读。未来 control 保留
-`TradeIntent -> RiskDecision/Reservation -> AuthorizedOrderCommand -> EffectAttempt -> VenueReadback/Reconciliation`
-与当前明确 effect authority。可视化 button 绝不能绕过该链。
+每条路由展示规定的 loading、empty、filtered-empty、partial、stale、unknown 与 unavailable 几何。缺失 endpoint 保持 unavailable；夹具、mock、日志、通知或截图都不建立 producer、direct consumer、`PORT_BOUND` 或效果 readiness。
 
 ### 页面划分与运维布局
 
-已观察的认证页面是 workspace `trade-rd` 中的 `/apps_raw/get/f/trade/rd_workbench`。在 1280 px 浏览器
-viewport 下，Windmill 提供约 208 px workspace sidebar 与 1072 px App iframe。Iframe 内部署的 Raw App 使用
-1040 px shell、左右各 16 px margin、上/下 48/32 px padding 与单一纵向 flow。已观察的四卡片 candidate 使用
-26 px card padding、18 px radius、18 px 垂直 margin；source form 是两个 485.5 px column，gap 15 px。
-Primary、secondary、quiet action 均高 46.5 px，并保持该顺序。低于 720 px 时 form 与 receipt list 变为单列。
-
-实现证据是已部署 iframe，以及 `product/rd-workbench/f/trade/rd_workbench.raw_app/App.tsx`、`index.css`、
-`control-policy.mjs` 与 shared `consumer_projection_v1.ts`。Trade main `81c519fade` 渲染 `01` 至 `03`，并已
-包含上文 merged H1 projection/control contract；H1 没有 rebuild 或重新验证默认 Windmill iframe。`04` 仅
-存在于已观察的 S3 deployed candidate。因此 S3 replay 仍是 `OBSERVED_CANDIDATE_NOT_CURRENT`：其页面只证明
-layout 与 interaction，不能证明 main 或产品准入。下表刻意同时保留 repository-current 与历史 deployed
-evidence，不表示四个 stage 已同时存在于 current source 或同一个 accepted deployment。
-
-| Windmill stage                         | 已观察内部顺序                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Dashboard 归属                                                                                                                                                                                                                                                   |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `01` Source and research goal          | 可编辑 proposal field：Source URL、source cut、observed time、digest、license basis、required data、interpretation、hypothesis、mechanism、falsifier、expected observation、costs、capacity、Trial budget、预提交停止规则、PIT/cost/slippage/capacity model identity、independence rationale 与 stable request identity。Submit path 随后只读显示 R&D basis receipt、Qualification frontier receipt/state、resolved local lineage/frontier，最后是 S1 receipt。Submit / Resolve / Successor action 顺序不变 | R&D / Intake；拆成 Source Evidence、Falsifiable Goal、TrialFamily Policy 与 Canonical Authority Resolution Bento panel。Authority value 均不可编辑；Submit 启动 validation 与 bounded authority chain，所有 sealed row resolved 前内部 family formation disabled |
-| `02` Owner receipt and Research View   | Status row；native receipt/disposition/Intent；availability/phase、source cut、projection/valid‑through；TrialFamily root receipt 与 root identity/digest；INTENT membership receipt；Census member/fact；Census head/frontier；exact next action；conditional warning                                                                                                                                                                                                                                      | R&D / Research 的 selected‑request detail、`OwnerReceiptDrawer` 与 `TrialFamilyReceiptPanel`                                                                                                                                                                     |
-| `03` Strategy Artifact Formation       | Frozen Intent、build request、attempt、Run / Resolve / Successor action、status、Formation receipt、Research View、含 deterministic double‑build 与 sandbox policy 的 Artifact Review、Artifact -> TrialFamily binding、binding receipt、bound family/frontier、exact next action 与 conditional warning                                                                                                                                                                                                    | R&D / Artifacts 的 selected‑artifact detail 与 `ArtifactTrialFamilyBindingPanel`                                                                                                                                                                                 |
-| `04` Exploratory Replay and Run Detail | Replay request、run attempt、Artifact、Build Receipt、三个 action、status、三个 Owner receipt/view、actual identity、diagnostic、bounded summary、next action、永久 non‑claim                                                                                                                                                                                                                                                                                                                               | Backtest / Exploratory 加 `RunDetailDrawer`；Compare 与 Diagnostics 复用同一 receipt‑backed view                                                                                                                                                                 |
+领域路由采用规范十二列外壳。宽布局可将主面板置于八列、辅助面板置于四列；低于 768 px 按语义顺序堆叠。上文已准入的精确回读路由遵循各自固定全宽几何，不因通用布局获得新表单、分栏或预留空高。
 
 #### 精确 S1 V2 与 S2 页面骨架
 
-以下 S1/S2 合同组合了 authenticated historical default-Web geometry 与 repository-current H1 projection/control
-policy。Merged source behavior 是 `CURRENT/PARTIAL`；该精确 source 的 default-Web deployment 仍为
-`NOT_ADMITTED`。Desktop 使用 canonical 12-column route shell；`P` 为 8 列、`Q` 为 4 列。低于 768 px 时，
-同一 block 按下列顺序堆叠，不得隐藏 identity 或 warning。
+Source、Research、Composer 与 Artifact 页面展示已提交请求及规范 Owner 证据。身份查询输入、Open readback、Refresh 和导航只用于展示/读取。来源、假设、TrialFamily 政策及策略输入由外部 Agent 经领域 MCP 编写，不由 Dashboard composer 提交。
 
-```text
-/rd
-P1 Source Evidence
-   URL [12] -> source cut [6] | observed time [6] -> digest [12]
-   license basis [6] | required data [6] -> interpretation [12]
-P2 Falsifiable Goal
-   hypothesis [12] -> mechanism [12] -> falsifier [12]
-   expected observation [6] | costs [6] -> capacity boundary [12]
-P3 TrialFamily Policy
-   trial budget [6] -> precommitted stop rule [12]
-   PIT rule [6] | cost model [6] -> slippage model [6] | capacity model [6]
-P4 Canonical Authority Resolution (read‑only)
-   R&D basis: state | receipt identity | basis identity | cut [12]
-   stage custody: SEALED_BASIS_PENDING_QUALIFICATION | request/admission | basis head/outbox | cut [12]
-   Qualification frontier: state/GENESIS_EMPTY | receipt identity | frontier identity | cut [12]
-   R&D lineage: state | predecessor frontier | census cut [12]
-I  stable request identity strip [12]
-A  [Submit to R&D Owner] [Resolve same identity] [Create successor identity]
-Q  source non-authority warning -> form completeness -> Owner custody incident (when active) ->
-   current stop predicate
-T  request list; selection opens the S1 detail drawer below
+按各路由准入范围保留请求/版本/标的身份、终态、回执/托管身份、关联视图可用性、准确 Artifact/Build 引用及有界下一步信息。当前性与持久终态历史分离：过期移除当前权限，不改写终态。部分 basis 托管保持未决；缺失回执不成为拒绝或成功。未知 provider/replay 工作保留原身份；陈旧视图不能启用重跑、后继或 provider 调用。准确的底层接纳、claim、续期和恢复规则归 [Product Edge](../architecture/product-edge/)及 [R&D](../owners/rd/) 正文。
 
-S1 selected-request drawer / /rd/research detail
-S  semantic label | ACCEPTED / SUBMITTED_OR_UNKNOWN / REJECTED_NO_WRITE /
-   IDENTITY_CONFLICT / unavailable
-H  Product Edge handoff | admission receipt/cut | downstream resolver version/state |
-   R&D custody state/stop predicate; committed admission plus missing R&D receipt is
-   SUBMITTED_OR_UNKNOWN, never REJECTED_NO_WRITE
-B  sealed basis stage -> basis receipt/identity -> basis head/outbox -> commit cut ->
-   missing Qualification/Research terminal -> RESOLVE_SAME_REQUEST_IDENTITY; no Submit/successor
-   merged Resolve consumes sealed complete typed request meaning and enters Historical completion;
-   terminal-only lookup miss or caller-resubmitted request bytes cannot satisfy this path
-K  Qualification response loss -> committed projection -> expiry -> Owner-issued verified renewal/successor ->
-   fresh locked readback; R&D/Product Edge/Dashboard cannot extend validity or create that recovery fact
-D  verified terminal custody -> Research receipt/Intent -> TrialFamily root/member/census stays visible after
-   linked-view expiry as STALE/read‑only; remove positive actions, never return SUBMITTED_OR_UNKNOWN
-R1 native receipt -> disposition -> Research Intent
-R2 availability/phase -> linked Artifact availability -> source cut -> projection/valid-through ->
-   Owner‑projected read-time freshness/action
-F  TrialFamily root receipt -> family identity/root digest -> INTENT membership receipt ->
-   Census member/fact -> Census head/frontier
-X  restart/cache loss: immutable request identity -> Resolve -> identical receipt/Intent/family/frontier;
-   replacement operational run link stays separate from Owner truth
-N  current linked view: ARTIFACT_AVAILABLE / AVAILABLE / REVIEW_ARTIFACT
-   expired linked view: STALE / ARTIFACT_AVAILABLE / RESOLVE_SAME_REQUEST_IDENTITY
-W  one state-specific warning; ACCEPTED without complete direct F is unavailable, never success;
-   downstream resolver unavailable disables S2 and exposes only Resolve same identity
-C  Owner custody incident, when active: affected Owner/store/tables -> last trusted cut/counts ->
-   current direct readback -> RESTORED_REVALIDATION_PENDING -> recovery evidence class;
-   fixed actions [Open incident evidence] [Copy affected locator], with no Restore/Reconstruct/Clear
+这些页面不含 Submit、产生写入的 Resolve、Run bounded Agent、Build、Create successor、Stop research 或代理调度。展示的下一合法动作说明获准外部调用者可请求什么，不构成浏览器权限。既有兼容 transport 不准入这些产品控制；只有独立规定的 Governance 生命周期控制可修改业务状态。
 
-/rd/artifacts selected-artifact drawer
-G  ActionAdmissionGate, always visible before attempt/provider sections:
-   R cached Research View/valid-through/currentness is historical display only, never effect authority
-   U UI same-request Resolve: IDLE -> PREFLIGHTING; [Checking…] [Cancel] while no Artifact request exists
-     failure/cancel -> REVALIDATION_REQUIRED with no attempt and no same-attempt Resolve
-   P ArtifactRequestAdmissionPanel: build request + attempt + Intent + channel -> exact operation/schema/effects ->
-     Product Edge admission locator/receipt/final cut -> sealed current-Research evidence identity/digest ->
-     source S1 admission locator -> R&D resolver/version/cut -> stop predicate
-   Sending the Artifact request changes U to ADMITTING: [Submitting…], no Cancel and no fake percentage.
-   Only a bounded typed server projection changes P to informational ADMITTED. The current Workbench wire does not
-   expose its stored current-Research custody, so P keeps fixed unavailable geometry rather than inferring success.
-   A post-send unknown transfers to SUBMITTED_OR_UNKNOWN + SameIdentityResolvePanel. Server success reveals the
-   admitted-attempt section; A0 remains absent until the separate provider claim admission exists.
-I  Frozen Intent -> build request identity -> attempt identity
-A0 sealed invocation admission -> current authorization/frontier -> policy-equivalent binding/head ->
-   exact manifest -> historical request‑admission lineage -> final locked write cut
-A1 CLAIMED response-loss recovery + exact next action RUN_BOUNDED_EXECUTION_AGENT;
-   Run requires exact A0 receipt equality, not the historical admission or claim alone
-   wire binds invocation_admission_receipt_identity + invocation_admission_receipt_digest;
-   claim/non-success wires omit optional family keys; explicit null is a schema mismatch;
-   fresh Research read is never a post-claim start gate; recovered CLAIMED dispatches start directly,
-   never prepare
-   [Run bounded Agent + sandbox] [Resolve same attempt] [Copy claim] [Open operational run]
-A2 INVOCATION_STARTED / OUTCOME_UNKNOWN
-   [Resolve same attempt] [Copy claim] [Open operational run]
-   Run bounded Agent and Create successor are absent
-L  LEGACY_TERMINAL_QUARANTINED -> original SUCCESS / FAILED_NO_ARTIFACT /
-   REJECTED_NO_WRITE / OUTCOME_UNKNOWN -> historical receipt/custody generation/quarantine reason;
-   sparse rejection may omit Intent identity/digest; family/provider/actions remain absent
-   [Resolve same attempt] [Open historical receipt] with no Artifact/provider/successor
-S  semantic label | SUCCESS / SUBMITTED_OR_UNKNOWN / FAILED_NO_ARTIFACT /
-   REJECTED_NO_WRITE / OUTCOME_UNKNOWN / unavailable
-C  durable terminal and currentness are separate: linked Research View STALE keeps SUCCESS history but
-   removes every review action and permits only Resolve same attempt
-R1 Formation receipt -> disposition/failure -> Artifact/Build Receipt
-E  FAILED_NO_ARTIFACT canonical receipt identity binds attempt + Intent + disposition + failure code +
-   commit time; optional family keys are absent; failure code independently determines disposition;
-   stale linked Research never removes or rewrites the receipt and receipt fields never self-verify
-R2 Research View -> Artifact/Build/Review identities
-V  Artifact Review in fixed order: Artifact digest; Intent/semantic digest; request/source lineage;
-   source/Wasm/recipe; structured logic; parameter/dependency identity; Build/Security with
-   deterministic double-build and sandbox policy; toolchain/target; Agent explanation/authority;
-   admitted actions; S2 NOT_ADMITTED actions
-F  Artifact -> TrialFamily binding -> binding receipt -> bound family/frontier
-X  restart/cache loss: immutable build request + attempt -> Resolve -> identical Artifact/Review/
-   binding/frontier; never Run again or create a naked retry
-N  exact next legal action
-W  SUCCESS without complete direct F is unavailable; a green job or Agent text cannot fill the gap
-```
-
-Windmill 原生 workspace sidebar 不会整套复制。Home/catalog、Variables、Resources、全局 Assets、Folders、
-Groups、Tutorials、通用 Schedules、editor link、App builder、任意 Run-again、worker REPL 与 worker
-administration 都排除。具备证据的 Runs、Run Detail、Workers、Service Logs 与 Audit 重新分配到 Operations；
-Settings 只拥有 opaque installation/access reference，domain route 拥有业务 journey。Settings 不是 deployment
-configuration、Capacity Scope 或 `PORT_BOUND` 的权威。
+Operations 提供有界 Runs、Run Detail、Workers、Service Logs 和 Audit 视图，排除任意脚本、通用调度、worker 管理和编辑器。Settings 展示不透明安装/访问引用，不拥有部署配置、Capacity Scope 或 `PORT_BOUND`。
 
 #### 精确 Operations 导航与列表页骨架
 
-Operations 顶部 `ModuleTabs` 的固定顺序是 `Runs`、`Workers`、`Schedules`、`Service Logs`、`Audit`、
-`Event Rail`、`Telemetry`、`Alerts`。Runs、Workers、Service Logs 与 Audit 来自真实 Windmill 页面；Schedules
-是另行准入的第一方有界影子读取 surface；后三项来自 Trade 架构。窄屏时它们变成同序的水平
-scroll tab，不折入通用 More menu。Windmill 的 Home、Variables、Resources、global Assets 与通用 Schedules 不在该
-tab row 中；Run Detail 的 Metrics、Traces、Assets 只是 run-scoped tab，也不会升级成全局 route。
+Operations 顶部 `ModuleTabs` 的固定顺序是
+`Runs`、`Workers`、`Schedules`、`Service Logs`、`Audit`、
+`Event Rail`、`Telemetry`、`Alerts`。
+
+Runs、Workers、Service Logs 与 Audit 读取第一方 RunStore 及 typed service 投影；Schedules 是另行准入的第一方有界影子读取 surface；后三项来自
+Trade 架构。 窄屏时它们变成同序的水平 scroll tab，不折入通用 More menu。 Windmill 的 Home、Variables、Resources、global Assets 与通用
+Schedules 不在该 tab row 中；Run Detail 的 Metrics、Traces、Assets 只是 run-scoped tab，也不会升级成全局 route。
 
 `/operations` 是 Runs 的 canonical route。桌面版保持筛选器、表头、date group 与 row action 的稳定位置：
 
@@ -1437,77 +1136,94 @@ B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
 `DetailSheet`，并保留 Runs URL、筛选、页码、滚动位置和来源焦点。只有 sheet 内明确的
 `Open full details` 动作可以导航到 canonical run workspace。
 
-Runs table 在 `>=1280 px` 使用 fixed layout：sticky header 40 px、date-group header 32 px、body row 最小
-44 px、horizontal cell padding 8 px。`Activity` 使用共享业务名称，hover/focus 才揭示同一个
-exact registered operation ID。Activity、Started by、Source result 只显示一行并 ellipsis，绝不读取
-raw payload。默认按 effective run time
-descending，再按 immutable run ID ascending。Effective time 优先 `started_at`，未开始 run 回退到
-`received_at`，但 Started cell 仍显示 em dash。只有 Started 与 Duration header 暴露 sort control，顺序都是
-descending、ascending、恢复 default。Date group 使用 selected display time zone 且 newest first；filter、time
-zone、grouping 或 sort 改变时回到第一页。
+Runs table 在 `>=1280 px` 使用 fixed layout：sticky header 40 px、date-group header 32 px、body row 最小 44
+px、horizontal cell padding 8 px。 `Activity` 使用共享业务名称，hover/focus 才揭示同一个 exact registered operation
+ID。 Activity、Started by、Source result 只显示一行并 ellipsis，绝不读取 raw payload。
+
+默认按 effective run time descending，再按 immutable run ID ascending。 Effective time 优先 `started_at`，未开始
+run 回退到 `received_at`，但 Started cell 仍显示 em dash。 只有 Started 与 Duration header 暴露 sort control，顺序都是
+descending、ascending、恢复 default。
+
+Date group 使用 selected display time zone 且 newest first；filter、time zone、grouping 或 sort 改变时回到第一页。
 
 五个 `S` item 的数量与位置绝不改变，并统一放在 `action runs` 或 `data reads` group shoulder 下；label 精确为
 `waiting`、`running`、`unknown`、`completed`、`failed`。每个 value 是一个 integer count；缺失的 count 在原 value slot
 显示 em dash。Count 使用 selected kind 与所有已应用的 non-status filter，但忽略 selected status，因此选择一个 status
 不会清空其他 summary。
 
-Positive list projection 在 kind、search、Duration filter 之后、selected status 之前只保留最新 512 行。
-存在第 513 条 eligible row 时返回 HTTP 200、`availability=available`、
-`completeness=partial_unavailable` 与 `retention_limit=512`，不能因此令已验证的最新数据整体 unavailable。
-Summary count、filtered total、pagination 与 page frontier 只对这个 retained cut 精确，绝不能标注或解释为
-全历史总数。Source cut 同时绑定 retained rows、retention limit 与 completeness，因此 retention boundary
-变化会使既有 snapshot 失效。Partial footer 明确说明只展示最新 512 条、更早历史不在当前 view；partial
-状态下筛选为空只能说明 retained rows 中没有匹配项，不能声称全历史不存在匹配项。
+Positive list projection 在 kind、search、Duration filter 之后、selected status 之前只保留最新 512 行。 存在第 513 条 eligible
+row 时返回 HTTP 200、`availability=available`、 `completeness=partial_unavailable` 与 `retention_limit=512`，不能因此令已验证的最新数据整体
+unavailable。 Summary count、filtered total、pagination 与 page frontier 只对这个 retained cut 精确，绝不能标注或解释为 全历史总数。
 
-Control contract 是闭合的，不继承 Windmill default。Kind segment 默认 `Action runs`，唯一 peer 是 `Data reads`，且只映射到 typed wire value `kind=dependencies`；
-status 默认 `All`。Search 默认为空，只匹配 redacted activity identity 或 immutable run ID。`Duration` 默认 `Any`，其后固定为
-`<1 s`、`1-10 s`、`10-60 s`、`>=60 s`。Header auto-refresh menu 默认 `Off`，
-其后是 `5 s`、`15 s`、`30 s`。Cadence 改变立即生效、不重置 pagination，且只执行与 Refresh 相同的 read；
-tab hidden 或 offline 时不排队补读。
+Source cut 同时绑定 retained rows、retention limit 与 completeness，因此 retention boundary 变化会使既有 snapshot 失效。 Partial
+footer 明确说明只展示最新 512 条、更早历史不在当前 view；partial 状态下筛选为空只能说明 retained rows 中没有匹配项，不能声称全历史不存在匹配项。
 
-Kind、status、Duration 在 selection 时立即应用并返回第一页。Search 在最后一次 edit 后精确
-300 ms 应用；Enter 或清空立即应用，blur 不增加另一次 transition。后到的 search application 取消此前 in-flight
-list read。显式 Started 与 Duration sort 绝不改变 newest-first date-group row 的顺序：它们只在每个 group 内排序，
-grouping 为 `None` 时才对全表排序。Started 先放具有 `started_at` 的 row，按所选方向排序、immutable run ID
-ascending 打破 tie；未开始 row 永远在后，内部按同方向的 `received_at`、再按 run ID ascending。Duration 先放
-具有 duration 的 row，按所选方向排序，再按 effective time descending、run ID ascending 打破 tie；缺失 duration
-的 row 永远在后，按 effective time descending、run ID ascending 排序。
+Control contract 是闭合的，不继承 Windmill default。 Kind segment 默认 `Action runs`，唯一 peer 是
+`Data reads`，且只映射到 typed wire value `kind=dependencies`； status 默认 `All`。 Search
+默认为空，只匹配 redacted activity identity 或 immutable run ID。
 
-扩展筛选 surface 获得准入后，`More filters` 在按钮下方打开一个 360 px popover。Field 顺序固定为：`Trigger`（默认 `All`，然后 `App`、
-`Webhook`、`Other`）、`Principal`（空的 exact-text input）、`Tag`（空的 exact-text input）、`Time cut`
-（默认 `Last 24 h`，然后 `Last 1 h`、`Last 7 d`、`Last 30 d`、`Custom`）、`Display time zone`（默认
-`UTC`，然后 `Browser local`）、`Group by`（默认 `Day`，然后 `Hour`、`None`）。`Custom` 依次追加 start、end
-input，并按 selected display time zone 解释。Footer 固定为 `[Reset filters] [Apply]`；value 在 Apply 前只是
-staged，Escape 或 outside-click 会丢弃；button badge 是已应用的 non-default field 数。Reset 恢复这六项 default
-并立即应用。`None` 移除 date-group row；`Day` 与 `Hour` 都保持 newest-first group。
+`Duration` 默认 `Any`，其后固定为
+`<1 s`、`1-10 s`、`10-60 s`、`>=60 s`。 Header auto-refresh menu
+默认 `Off`， 其后是 `5 s`、`15 s`、`30 s`。
 
-Pagination 默认 50 行，只提供 25、50、100。Footer 依次保持 shown rows、filtered total、page size、
+Cadence 改变立即生效、不重置 pagination，且只执行与 Refresh 相同的 read； tab hidden 或 offline 时不排队补读。
+
+Kind、status、Duration 在 selection 时立即应用并返回第一页。 Search 在最后一次 edit 后精确 300 ms 应用；Enter 或清空立即应用，blur 不增加另一次
+transition。 后到的 search application 取消此前 in-flight list read。 显式 Started 与 Duration sort 绝不改变 newest-first
+date-group row 的顺序：它们只在每个 group 内排序， grouping 为 `None` 时才对全表排序。
+
+Started 先放具有 `started_at` 的 row，按所选方向排序、immutable run ID ascending 打破 tie；未开始 row 永远在后，内部按同方向的
+`received_at`、再按 run ID ascending。 Duration 先放 具有 duration 的 row，按所选方向排序，再按 effective time
+descending、run ID ascending 打破 tie；缺失 duration 的 row 永远在后，按 effective time descending、run ID ascending 排序。
+
+扩展筛选 surface 获得准入后，`More filters` 在按钮下方打开一个 360 px popover。
+
+Field 顺序固定为：`Trigger`（默认 `All`，然后 `App`、
+`Webhook`、`Other`）、`Principal`（空的 exact-text input）、`Tag`（空的
+exact-text input）、`Time cut` （默认 `Last 24 h`，然后
+`Last 1 h`、`Last 7 d`、`Last 30 d`、`Custom`）、`Display time zone`（默认
+`UTC`，然后 `Browser local`）、`Group by`（默认 `Day`，然后
+`Hour`、`None`）。
+
+`Custom` 依次追加 start、end input，并按 selected display time zone 解释。 Footer 固定为
+`[Reset filters] [Apply]`；value 在 Apply 前只是 staged，Escape 或 outside-click 会丢弃；button badge 是已应用的 non-default field
+数。 Reset 恢复这六项 default 并立即应用。
+
+`None` 移除 date-group row；`Day` 与 `Hour` 都保持 newest-first group。
+
+Pagination 默认 50 行，只提供 25、50、100。 Footer 依次保持 shown rows、filtered total、page size、
 `Page n of m`、First/Previous/Next/Last；total unavailable 时同一 slot 显示 em dash，并禁用 page movement。
-Loading 精确为四个 summary skeleton、两行 filter、一个 40 px header、默认 `Day` grouping 的三个 32 px
-date-group bar、十个 44 px row 与完整 pager skeleton。`Hour` 同样使用三个 group bar；`None` 不使用 group bar，
-但仍精确保留十行。Unfiltered empty、filtered empty、permission denied、backend unavailable 各占一个
-96 px full-width table row，包含不同 title、单行 explanation，不制造 count。未筛选且为空的 Runs view 只暴露
-一个紧凑的 secondary `View data reads` action，选择既有 Data reads segment，不创建 run、也不发出 effect；
-只有 backend unavailable 通过既有 route header 暴露 Refresh。缺失的 tag 与 concurrency 字段不升级成空业务列，
-也不生成解释性短句。
 
-`768-1279 px` 时保持同序并放入最小宽 960 px 的 bounded horizontal scroller。8% action cell 保持标准的 8 px
-horizontal padding，内部依次是 32 px text Open button、4 px gap，以及获准入时出现的 24 px More button。Button
-与 padding 精确占用 76 px，可放入 960 px 最小 table width 下的 76.8 px cell；更宽 table 保持同一 left-aligned
-geometry。低于
-`768 px` 时变成六行 run
-card：status + effective time；activity；Source result；Started by；duration；最后 Open。Card padding
-12 px、gap 12 px、最小高度 156 px；六个 loading card 替代 table row，filter 顺序与 pager 不变。Card selection
-打开同一个 `D`；不存在 checkbox、column chooser、selection count、bulk action 或 swipe action。
+Loading 精确为四个 summary skeleton、两行 filter、一个 40 px header、默认 `Day` grouping 的三个 32 px date-group
+bar、十个 44 px row 与完整 pager skeleton。 `Hour` 同样使用三个 group bar；`None` 不使用 group bar，
+但仍精确保留十行。
 
-`Show schedules` 与 `Show future jobs` 默认不出现；只有 typed schedule/future consumer 获准入后，才在 `F`
-第二行末尾追加。8% 的 `Open` cell 先放 `[Open]`；仅当 completed run 同时具有 disposable cache 与 current
-`OperationalActionEnvelope` 时，才在其后放一个 24 px `[More]` button。Menu 唯一 item 是
-`Delete disposable cache`。`>=768 px` 时，该 item 打开 480 px dialog，字段顺序固定为 immutable run ID、cache locator、Owner
-readback locator、固定陈述 `Business facts are unaffected`、consequence、stop predicate；footer button 顺序是
-`[Cancel] [Delete cache]`。低于 `768 px` 时改为 `100vw × 100dvh`、zero radius 的 full-screen sheet；同序 field
-在内部 scroll，同一 footer sticky 在底部。缺少 eligibility 或 envelope 时直接移除 More，而不是 disable。
-Mobile card 第六行以同样的左右顺序放置这两个 control。列表没有 bulk rerun、bulk delete、editor link、checkbox 或其他 overflow
+Unfiltered empty、filtered empty、permission denied、backend unavailable 各占一个 96 px full-width table row，包含不同
+title、单行 explanation，不制造 count。 未筛选且为空的 Runs view 只暴露 一个紧凑的 secondary `View data reads` action，选择既有 Data
+reads segment，不创建 run、也不发出 effect； 只有 backend unavailable 通过既有 route header 暴露 Refresh。
+
+缺失的 tag 与 concurrency 字段不升级成空业务列， 也不生成解释性短句。
+
+`768-1279 px` 时保持同序并放入最小宽 960 px 的 bounded horizontal scroller。 8% action cell 保持标准的 8 px horizontal
+padding，内部依次是 32 px text Open button、4 px gap，以及获准入时出现的 24 px More button。 Button 与 padding 精确占用 76 px，可放入 960
+px 最小 table width 下的 76.8 px cell；更宽 table 保持同一 left-aligned geometry。
+
+低于 `768 px` 时变成六行 run card：status + effective time；activity；Source result；Started by；duration；最后
+Open。 Card padding 12 px、gap 12 px、最小高度 156 px；六个 loading card 替代 table row，filter 顺序与 pager 不变。 Card
+selection 打开同一个 `D`；不存在 checkbox、column chooser、selection count、bulk action 或 swipe action。
+
+`Show schedules` 与 `Show future jobs` 默认不出现；只有 typed schedule/future consumer 获准入后，才在
+`F` 第二行末尾追加。 8% 的 `Open` cell 先放 `[Open]`；仅当 completed run 同时具有
+disposable cache 与 current `OperationalActionEnvelope` 时，才在其后放一个 24 px `[More]` button。
+
+Menu 唯一 item 是 `Delete disposable cache`。 `>=768 px` 时，该 item 打开 480 px dialog，字段顺序固定为 immutable run
+ID、cache locator、Owner readback locator、固定陈述 `Business facts are unaffected`、consequence、stop predicate；footer button 顺序是
+`[Cancel] [Delete cache]`。
+
+低于 `768 px` 时改为 `100vw × 100dvh`、zero radius 的 full-screen sheet；同序 field 在内部 scroll，同一 footer
+sticky 在底部。 缺少 eligibility 或 envelope 时直接移除 More，而不是 disable。 Mobile card 第六行以同样的左右顺序放置这两个 control。
+
+列表没有 bulk rerun、bulk delete、editor link、checkbox 或其他 overflow
 action；empty、filtered-empty、permission-denied、backend-unavailable 继续按上文分别渲染。
 
 #### Workers 精确只读 skeleton
@@ -1661,35 +1377,39 @@ B  Showing newest n of retention limit | completeness/redaction/truncation discl
   不存在 POST/PUT/PATCH/DELETE endpoint、operational/domain action envelope、delete、clear、restart、REPL、retry 或
   health-promotion action。
 
-Positive producer 是同一 repeatable-read PostgreSQL transaction 中观测的 Trade-owned RunStore 数据。Browser fixture、
-复制的已退役外壳 row、手写 JSON、单纯 HTTP success 或 stale prior envelope 都不能证明 availability。动态验收必须
-通过真实 disposable `PostgresRunStoreV1` 产生 log，再通过 production gateway 与 GET route 读取，并在 browser 中
-验证 filter/selection/download parity，同时证明零 Owner、provider、scheduler、dispatcher、production 与
-trading effect。Log 不能升级 Owner health、business success、未绑定 run 的 worker readiness、Telemetry availability
-或 replacement readiness。
+Positive producer 是同一 repeatable-read PostgreSQL transaction 中观测的 Trade-owned RunStore 数据。 Browser fixture、
+复制的已退役外壳 row、手写 JSON、单纯 HTTP success 或 stale prior envelope 都不能证明 availability。
+
+动态验收必须 通过真实 disposable `PostgresRunStoreV1` 产生 log，再通过 production gateway 与 GET route 读取，并在 browser 中 验证
+filter/selection/download parity，同时证明零 Owner、provider、scheduler、dispatcher、production 与 trading effect。
+
+Log 不能升级 Owner health、business success、未绑定 run 的 worker readiness、Telemetry availability 或 replacement
+readiness。
 
 #### Operations Audit 精确只读 skeleton
 
-`/operations/audit` 只对本节定义的第一方 append-only control-plane evidence 标记为
-`DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。它绝不把已退役外壳的 partitioned audit table 作为第一方 positive source：
-当时观察到的 row 只暴露 principal、time 与 action kind，operation 和 resource 都是 `redacted`。
-它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit identity。准入
-producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1`、
-`dashboard.operational_cache.delete.v1` transition，以及经过认证的
-`source_intake.research.submit_or_resolve.v1`、`develop_composer.submit_or_resolve.v2` 与
-`exploratory_replay.submit_or_resolve.v2` 控制面准入。Artifact Formation 准入在 2026-10-03 的决定使该 operation
-退役前也是 producer；仍持有此类记录的 store 在迁移时被拒绝。
-Cancellation/deletion 的 audit event 必须与 immutable action receipt 在同一 serializable PostgreSQL
-transaction 中插入。Source-to-Research/Composer/Replay request 则必须在任何 Owner/provider effect 之前，于同一个
-RunStore begin transaction 中同时插入 typed `dashboard-control-plane-admission-v1-*` receipt 与 audit event；Replay
-只读 identify preflight 只有通过 compatibility 与 routing admission 后才能先于该 transaction；
-receipt 或 audit insert 缺失、冲突、被拒绝时，run/binding transition 整体 rollback，下游 effect 不开始。
-Receipt 精确绑定 authenticated principal、authorization digest、用户原始 requested action、解析后的
-execution mode、operation 与 run identity；重复的同一准入读回同一个 immutable receipt，不同 action 或
-execution mode 使用不同 receipt。Audit outcome `succeeded` 只表示控制面准入已提交，绝不表示 Owner 接受、
-provider 成功或 business terminal outcome。历史 run 不回填虚构的 principal 或 authorization digest。本切面
-不推断、不改变 deployment、scheduler、effect routing、production、trading、Owner outcome 或
-provider outcome event。
+`/operations/audit` 只对本节定义的第一方 append-only control-plane evidence 标记为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。 它绝不把已退役外壳的
+partitioned audit table 作为第一方 positive source： 当时观察到的 row 只暴露 principal、time 与 action kind，operation 和
+resource 都是 `redacted`。 它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit
+identity。
+
+准入 producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1`、 `dashboard.operational_cache.delete.v1` transition，以及经过认证的
+`source_intake.research.submit_or_resolve.v1`、`develop_composer.submit_or_resolve.v2` 与 `exploratory_replay.submit_or_resolve.v2` 控制面准入。 Artifact Formation 准入在 2026-10-03
+的决定使该 operation 退役前也是 producer；仍持有此类记录的 store 在迁移时被拒绝。
+
+Cancellation/deletion 的 audit event 必须与 immutable action receipt 在同一 serializable PostgreSQL transaction 中插入。
+
+Source-to-Research/Composer/Replay request 则必须在任何 Owner/provider effect 之前，于同一个 RunStore begin transaction
+中同时插入 typed `dashboard-control-plane-admission-v1-*` receipt 与 audit event；Replay 只读 identify preflight 只有通过 compatibility 与
+routing admission 后才能先于该 transaction； receipt 或 audit insert 缺失、冲突、被拒绝时，run/binding transition 整体 rollback，下游
+effect 不开始。
+
+Receipt 精确绑定 authenticated principal、authorization digest、用户原始 requested action、解析后的 execution mode、operation
+与 run identity；重复的同一准入读回同一个 immutable receipt，不同 action 或 execution mode 使用不同 receipt。 Audit outcome
+`succeeded` 只表示控制面准入已提交，绝不表示 Owner 接受、 provider 成功或 business terminal outcome。
+
+历史 run 不回填虚构的 principal 或 authorization digest。 本切面 不推断、不改变 deployment、scheduler、effect
+routing、production、trading、Owner outcome 或 provider outcome event。
 
 ```text
 H  Operations / Audit · one-line purpose                         [info] [Refresh]
@@ -1703,42 +1423,50 @@ T  Correlation timeline: Time | operation | outcome | receipt; canonical ascendi
 B  count / completeness / retention                            [Copy audit locator]
 ```
 
-`H` 是透明 `PanelFrameHeader`，高度 72-96 px。Title 与简短 product purpose 左对齐；右侧 circular info control
-在 secondary Refresh button 之前。Technical scope、source-cut 与 retention 文案只允许出现在 info popover 或
-`B`，不能成为散落的 page copy。`S` 是一个 compact `CompactStatusBar`，含上述两个 group 与 label；value 是
-integer，数据缺失显示 `-`，只有 available source cut 才能显示零。Body inset 的顺序为 `S`、`F`、`P/Q`。
+`H` 是透明 `PanelFrameHeader`，高度 72-96 px。 Title 与简短 product purpose 左对齐；右侧 circular info
+control 在 secondary Refresh button 之前。 Technical scope、source-cut 与 retention 文案只允许出现在 info popover 或
+`B`，不能成为散落的 page copy。
 
-Viewport `>=1024px` 时，`F` 是单行 40 px control row，顺序严格如上。Range 为
+`S` 是一个 compact `CompactStatusBar`，含上述两个 group 与 label；value 是 integer，数据缺失显示
+`-`，只有 available source cut 才能显示零。 Body inset 的顺序为
+`S`、`F`、`P/Q`。
+
+Viewport `>=1024px` 时，`F` 是单行 40 px control row，顺序严格如上。 Range 为
 `24h / 7d / 30d / all`；principal 与 operation option 只能来自当前 available cut；outcome 为
-`all / succeeded / failed / denied / unknown`；normalized search 最多 128 UTF-8 byte，只匹配可显示的 exact
-target/correlation text。`768-1023px` 时 control 不改顺序地换成两行；低于 768 px 时每个 control full width，
-search 仍排最后。全部 filter 都由 server 拥有并替换 observation cut；禁止 client-only filtering 重新解释 page。
+`all / succeeded / failed / denied / unknown`；normalized search 最多 128 UTF-8 byte，只匹配可显示的 exact target/correlation text。
 
-Viewport `>=1024px` 时，`P/Q` 使用 `minmax(660px, 1.55fr) minmax(340px, .75fr)` split、12 px gap 与
-420 px minimum height。`P` 使用 `DataWorkspaceTable`、44 px row，column width 为：Time 190、principal 160、
-operation min 260、outcome 120、target min 240。默认按 `(observed_at, audit_identity)` descending；只有 Time
-可排序。点击 row 选择 exact audit identity，并执行 `GET /api/operations/audit/{audit_id}`。`Q` 使用单个
-`DetailInspector`，field order 如上；长 identity 视觉缩短，但 title 与 copy value 保留完整值。`T` 位于同一
-inspector body 的 selected-event facts 下方，在 detail observation cut 最多显示该 exact correlation 的 256 条
-event。`768-1023px` 时 `P` 在 `Q` 之前；低于 768 px 时 `P` 是可横向滚动 table，`Q` 在其下 full-width。
-Selection 不改变 URL，也不提供 mutation。
+`768-1023px` 时 control 不改顺序地换成两行；低于 768 px 时每个 control full width， search 仍排最后。 全部 filter 都由 server
+拥有并替换 observation cut；禁止 client-only filtering 重新解释 page。
 
-Pagination 为 server-side，使用绑定 filter 的 opaque cursor 与 `20 / 50 / 100` page size；改变 page size 或
-任一 filter 都回到第一页。Loading 保留六个 44 px table row 与 selected-card footprint。Unfiltered empty 显示
-没有第一方 audit event；filtered empty 显示没有匹配 event。Partial cut 保留已验证 row，并显示 amber
-completeness notice。Store/configuration unavailable 与 permission-denied 保留 `S/F/P/Q/B` geometry，summary
-显示 `-`，machine reason 只放在 info 后。Unknown audit identity 复用相同 `Q` footprint 并显示
-`AUDIT_EVENT_NOT_FOUND`；malformed/cursor-expired input fail closed 且无 row。`B` 显示当前条数、
-`complete|partial_unavailable` 与固定 512-event retention bound；只有选中一个 verified event 时才显示
-secondary Copy audit locator action。页面没有 edit、delete、dismiss、replay、retry、Owner resolution、
-provider claim、download 或 generic shell action。
+Viewport `>=1024px` 时，`P/Q` 使用 `minmax(660px, 1.55fr) minmax(340px, .75fr)` split、12 px gap 与 420 px minimum
+height。 `P` 使用 `DataWorkspaceTable`、44 px row，column width 为：Time 190、principal 160、
+operation min 260、outcome 120、target min 240。 默认按 `(observed_at, audit_identity)` descending；只有 Time 可排序。
 
-List API 是 `GET /api/operations/audit`；detail API 是
-`GET /api/operations/audit/{audit_id}`。两者都使用 `no-store`，消费 `OperationAuditStore`，echo immutable
-observation cut，并在 malformed row、duplicate audit/receipt identity、invalid correlation ordering、
-filter/cursor mismatch 或 unreadable storage 时 fail closed。Table append-only：runtime `UPDATE` 与 `DELETE`
-都被拒绝。Browser parser 只接受 exact key，并在 positive page render 前重新计算 filter-cut digest。Mobile
-顺序固定为 `H -> S -> F -> P -> Q -> B`。
+点击 row 选择 exact audit identity，并执行 `GET /api/operations/audit/{audit_id}`。 `Q` 使用单个 `DetailInspector`，field
+order 如上；长 identity 视觉缩短，但 title 与 copy value 保留完整值。 `T` 位于同一 inspector body 的 selected-event
+facts 下方，在 detail observation cut 最多显示该 exact correlation 的 256 条 event。
+
+`768-1023px` 时 `P` 在 `Q` 之前；低于 768 px 时 `P` 是可横向滚动
+table，`Q` 在其下 full-width。 Selection 不改变 URL，也不提供 mutation。
+
+Pagination 为 server-side，使用绑定 filter 的 opaque cursor 与 `20 / 50 / 100` page size；改变 page size 或 任一 filter
+都回到第一页。 Loading 保留六个 44 px table row 与 selected-card footprint。 Unfiltered empty 显示 没有第一方 audit event；filtered
+empty 显示没有匹配 event。 Partial cut 保留已验证 row，并显示 amber completeness notice。
+
+Store/configuration unavailable 与 permission-denied 保留 `S/F/P/Q/B` geometry，summary 显示
+`-`，machine reason 只放在 info 后。 Unknown audit identity 复用相同 `Q` footprint 并显示
+`AUDIT_EVENT_NOT_FOUND`；malformed/cursor-expired input fail closed 且无 row。
+
+`B` 显示当前条数、 `complete|partial_unavailable` 与固定 512-event retention bound；只有选中一个 verified event 时才显示
+secondary Copy audit locator action。 页面没有 edit、delete、dismiss、replay、retry、Owner resolution、 provider
+claim、download 或 generic shell action。
+
+List API 是 `GET /api/operations/audit`；detail API 是 `GET /api/operations/audit/{audit_id}`。 两者都使用 `no-store`，消费
+`OperationAuditStore`，echo immutable observation cut，并在 malformed row、duplicate audit/receipt identity、invalid
+correlation ordering、 filter/cursor mismatch 或 unreadable storage 时 fail closed。
+
+Table append-only：runtime `UPDATE` 与 `DELETE` 都被拒绝。 Browser parser 只接受 exact key，并在
+positive page render 前重新计算 filter-cut digest。 Mobile 顺序固定为 `H -> S -> F -> P -> Q -> B`。
 
 #### 精确 Run Detail 骨架
 
@@ -1767,45 +1495,31 @@ A  DependencyCancellationPanel in the fixed action slot, present only for a queu
    while CAS is pending, then A and H slot 3 disappear. P retains the immutable receipt or explicit unavailable state.
 ```
 
-Button 不继承 Windmill 通用 `Run again`、`Share`、`Edit`、script editor、worker REPL、restart 或 cache clean。
-只有 current Owner manifest 准入时，domain route 才能提供 successor request；run page 自身只提供 navigation、
-有界 operational evidence 的 copy/download、refresh 与 same-identity resolve。
-Inputs 与 Result 绝不渲染任意 stored JSON。精确 operation/version registry 为每个可展示字段标记 sensitivity；
-secret、protected、unknown 与 schema-mismatched 字段都没有 value slot。Withheld value 的 Copy field disabled；
-Copy JSON 与 Download bounded result 序列化的必须是屏幕上同一份 redacted projection，绝不是 raw job
-payload 或 result bytes。Registry entry 缺失或 mismatch 时，两个 panel 保持固定几何并显示带
-operation/version 与 stop reason 的 `Unavailable`。
+Button 不继承 Windmill 通用 `Run again`、`Share`、`Edit`、script editor、worker
+REPL、restart 或 cache clean。 只有 current Owner manifest 准入时，domain route 才能提供 successor request；run page 自身只提供
+navigation、 有界 operational evidence 的 copy/download、refresh 与 same-identity resolve。
+
+Inputs 与 Result 绝不渲染任意 stored JSON。 精确 operation/version registry 为每个可展示字段标记 sensitivity；
+secret、protected、unknown 与 schema-mismatched 字段都没有 value slot。 Withheld value 的 Copy field disabled； Copy JSON
+与 Download bounded result 序列化的必须是屏幕上同一份 redacted projection，绝不是 raw job payload 或 result bytes。
+
+Registry entry 缺失或 mismatch 时，两个 panel 保持固定几何并显示带 operation/version 与 stop reason 的 `Unavailable`。
 
 #### 用户动作状态机
 
-| 状态                                                                     | Primary action                        | Secondary action                                           | Quiet action                                    | 必须呈现                                                                                                                                                                                                                                            |
-| ------------------------------------------------------------------------ | ------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 初始有效输入                                                             | Submit 或 Run enabled                 | Resolve disabled；只有完整导入 exact identity tuple 时例外 | Successor disabled                              | Neutral `NOT_SUBMITTED`；identity 与 semantic field 可编辑                                                                                                                                                                                          |
-| Effect‑capable request 已发送；delivery pending                          | Disabled，label 为 `Submitting…`      | 无 Cancel；只有 bounded call 返回 unknown 后才出现 Resolve | Disabled                                        | `ADMITTING` 使用 amber pending text/icon，无伪造百分比。Request 可能已经写入；timeout/disconnect 转入 domain unknown，绝不能声称零写或返回 preflight                                                                                                |
-| Unknown outcome                                                          | Disabled                              | Resolve same request/attempt identity enabled              | Disabled                                        | Persistent warning、immutable identity tuple、禁止 naked retry                                                                                                                                                                                      |
-| Historical OA 已过期；canonical equivalent successor unavailable         | Disabled                              | Open/Copy historical authorization evidence                | Disabled                                        | Current authority row unavailable；immutable snapshot 保留；无 renewal/replacement selector                                                                                                                                                         |
-| Admission successor distance 大于一                                      | Disabled                              | Open/Copy authorization chain evidence                     | Disabled                                        | 显示 admission/current generation、distance 与 `DIRECT_SUCCESSOR_REQUIRED`；绝不选择 chain head                                                                                                                                                     |
-| Product Edge admission 已提交；downstream R&D custody unavailable        | Disabled                              | Resolve same request identity enabled                      | Successor disabled                              | `SUBMITTED_OR_UNKNOWN`；admission receipt/outbox 加 resolver stop predicate；绝非拒绝                                                                                                                                                               |
-| Sealed S1 basis；Qualification 与 terminal Research receipt 缺失         | Disabled                              | Resolve same request identity enabled                      | Disabled                                        | 仅为 TARGET：`SEALED_BASIS_PENDING_QUALIFICATION` 显示 basis receipt/head/outbox 与缺失的 next receipt；Resolve 必须推进 sealed Historical completion。被拒绝的 `e5893fd550` 只重复 terminal lookup miss，因此保持 unavailable，不能伪装为 recovery |
-| Verified S1 terminal；linked view stale                                  | Disabled                              | Resolve same request identity enabled                      | Open/Copy terminal evidence                     | 只有 currentness 使用 amber `STALE`；verified Research receipt 与 TrialFamily 保持 neutral/read‑only，successor/S2/review action 全部 absent，且状态绝不能变为绿色 success 或灰色 unavailable                                                       |
-| Cached `AVAILABLE`；S2 尚未开始                                          | `Check & Run` enabled                 | Refresh current Research state                             | Open/Copy historical evidence                   | Neutral `IDLE`；cached currentness 只供展示，effect gate 尚未 admitted                                                                                                                                                                              |
-| S2 same‑identity Research preflight pending                              | Disabled，label 为 `Checking…`        | Cancel enabled                                             | Disabled                                        | `PREFLIGHTING` 为 read‑only；accessible live region 加 spinner/amber text 报告状态；不存在 Artifact request 或 attempt                                                                                                                              |
-| S2 preflight cancelled、timeout、malformed 或 transport‑unavailable      | Disabled                              | Refresh/Resolve same Research request identity             | Open/Copy historical evidence                   | `REVALIDATION_REQUIRED`；historical S1 evidence 仍可见，但 current‑positive action 已撤销。Artifact attempt 不存在，因此没有 same‑attempt Resolve，Artifact 也不能标为 unknown                                                                      |
-| S2 Owner preflight 返回 stale 或 unavailable                             | Disabled                              | Resolve same Research request identity                     | Open/Copy historical evidence                   | 只有 Owner readback 可以标记 `STALE`；unavailable 保持 non‑positive。Product Edge admission、R&D attempt、invocation admission、claim 与 provider effect 全部 absent                                                                                |
-| S2 preflight current；Artifact request 已 dispatch                       | Disabled，label 为 `Submitting…`      | 无 Cancel                                                  | Open/Copy preflight evidence                    | `ADMITTING`；server 在最终 OA → Product Edge → R&D cut 重复 gate，并要求 exact operation/schema/effect set。Navigation 不能暗示 cancellation                                                                                                        |
-| S2 bounded server admission projection 已返回                            | Pipeline 继续；无第二个 submit button | Open/Copy admission                                        | Open operational run                            | 信息蓝 `ADMITTED`，绝不使用绿色。`ArtifactRequestAdmissionPanel` 显示 receipt/cut 与 sealed current‑Research projection；缺少 public projection 时保留 unavailable geometry                                                                         |
-| S2 request 已 dispatch；admission/write outcome unknown                  | Disabled                              | Resolve same attempt identity                              | Open/Copy preflight 与 transport evidence       | Domain `SUBMITTED_OR_UNKNOWN`；write outcome unknown，因此没有 retry、Cancel、preflight reset、success badge 或 zero‑write claim                                                                                                                    |
-| FirstMutation original OA stale/revoked；immediate successor current     | Disabled                              | Open/Copy original 与 successor evidence                   | Disabled                                        | 固定两行 currentness geometry，original 在前；`ORIGINAL_AUTHORIZATION_NOT_CURRENT`。Successor 绝不能替代 original authority，且不写 basis/rejection/invocation fact                                                                                 |
-| `CLAIMED` 但 invocation admission 缺失或 mismatch                        | Disabled                              | Resolve same attempt identity enabled                      | Disabled                                        | A0 receipt slot 显示 unavailable、保留 claim identity、没有 Run 或 replacement claim                                                                                                                                                                |
-| Claim wire schema/version mismatch                                       | Disabled                              | Resolve same attempt identity enabled                      | Disabled                                        | 固定 A0/A1 slot unavailable；显示 operation/schema 与两个 expected receipt field；无 Run                                                                                                                                                            |
-| Rust 省略 optional family key，但 gateway 期待 `null`                    | Disabled                              | Resolve same attempt identity enabled                      | Disabled                                        | 对应 A1/terminal slot unavailable；显示 absent‑vs‑null schema stop；不推断 fact                                                                                                                                                                     |
-| Sealed `CLAIMED`；fresh Research read stale/unavailable                  | Run bounded Agent + sandbox enabled   | Resolve same attempt identity enabled                      | Disabled                                        | Historical claim/attempt custody 是 gate；Run 直接 dispatch start，绝不调用 `prepare`                                                                                                                                                               |
-| Started claim；Research 在 terminal/readback 前过期                      | Disabled                              | Resolve same attempt identity enabled                      | Disabled                                        | 从 sealed custody terminalize/read exact receipt；stale linked view 只禁用 follow‑on action                                                                                                                                                         |
-| Verified legacy terminal                                                 | Disabled                              | Resolve same attempt identity enabled                      | Disabled                                        | 固定 panel 显示四值 original disposition 与 historical receipt；无 Artifact/provider/successor                                                                                                                                                      |
-| 带 Owner receipt 的成功终态                                              | 完成 identity 的 submit disabled      | 只有 Owner manifest 声明时才允许 Resolve                   | 只有 `next_legal_action` 准入时才创建 successor | Green semantic state、receipt、source frontier；Windmill job green 本身不够                                                                                                                                                                         |
-| Rejected/no‑write terminal                                               | Disabled                              | 准入时解析原 receipt                                       | Owner 明确准入修正语义时才创建 successor        | Rejection code、zero‑created‑fact 说明、原 identity 保留                                                                                                                                                                                            |
-| Identity conflict                                                        | Disabled                              | 只解析原 identity                                          | 原 meaning 可知前 disabled                      | Conflict state；绝不覆盖或暗示不存在                                                                                                                                                                                                                |
-| Missing receipt、invalid evidence、stale、unavailable、permission denied | Disabled                              | 只有存在 typed Owner operation 时才 read/resolve           | Disabled                                        | `NotAdmittedNotice` 或 stop predicate；无 optimistic terminal                                                                                                                                                                                       |
+| 上下文/状态                    | 浏览器动作                       | 必须保持的含义                                                 |
+| ------------------------------ | -------------------------------- | -------------------------------------------------------------- |
+| 研究查询未打开                 | 本地校验身份、Open readback      | 不修改 Owner 或创建请求                                        |
+| 读取中                         | 保持几何并展示 loading           | 不伪造进度或沿用旧正向结果                                     |
+| 已验证终态                     | Refresh、Open canonical evidence | 持久结果与关联视图当前性分离                                   |
+| 缺失、陈旧、格式错误或未知回读 | 刷新同一查询或打开可用证据       | 无产生写入的 Resolve、重试、后继、provider dispatch 或推断终态 |
+| Governance 合法请求尚未提交    | 确认准确已准入生命周期动作       | 当前政策/授权及冻结语义输入必需                                |
+| Governance 请求已发送          | 禁用重复提交并展示 pending       | 身份/含义不可变；无暗示回滚的 Cancel                           |
+| Governance 结果未知            | 读取原请求身份                   | 不新建请求、推断失败、重试效果或释放承诺                       |
+| Governance 回执已接受          | 单独读取 Runtime 应用            | Accepted 不是 `APPLIED`；真实效果仍经 Risk/Execution           |
+| 授权过期或不匹配               | 打开可用证据                     | 无 bootstrap、续期、提升或 force admit                         |
+
+动作含义归领域契约。研究回读不继承 Governance 写权限。控制与响应丢失细节仅在本章明确的有界 Governance 路由准入；通用 operation 或 provider 控制不是浏览器产品能力。
 
 ### Canonical routed-page 骨架
 
@@ -1829,13 +1543,16 @@ operation/version 与 stop reason 的 `Unavailable`。
                                                     D detail drawer: 480 px max
 ```
 
-`RouteGrid` 独占该 page-level geometry，并与参考项目派生的 `BentoGrid` 分离。Viewport width `>=1280px` 时，
-它有 12 个等宽 logical column：`S1-S4=3`、`P=8`、`Q=4`、`T/A=12`。`768-1279px` 时有 6 列：每个 summary
-占 3 列并每行两个，`P/Q/T/A=6` 且保持 source order。低于 `768px` 时只有一列，顺序为
-`H -> S1 -> S2 -> S3 -> S4 -> P -> Q -> T -> A`；`D` 是 full-screen overlay，不占 grid slot。
-`RouteSlot` 只拥有这些 span，不能接收任意 caller-supplied column count。Panel 内部的 `BentoGrid` 保留
-container-observed `wide/narrow/collapse`、180 px minimum auto-row、16 px gap、1/2/3/4/8 column 与 1-4 row
-span；绝不能改变 route order 或 drawer behavior。
+`RouteGrid` 独占该 page-level geometry，并与参考项目派生的 `BentoGrid` 分离。 Viewport width
+`>=1280px` 时， 它有 12 个等宽 logical
+column：`S1-S4=3`、`P=8`、`Q=4`、`T/A=12`。
+`768-1279px` 时有 6 列：每个 summary 占 3 列并每行两个，`P/Q/T/A=6` 且保持 source order。
+
+低于 `768px` 时只有一列，顺序为 `H -> S1 -> S2 -> S3 -> S4 -> P -> Q -> T -> A`；`D` 是 full-screen overlay，不占 grid
+slot。 `RouteSlot` 只拥有这些 span，不能接收任意 caller-supplied column count。
+
+Panel 内部的 `BentoGrid` 保留 container-observed `wide/narrow/collapse`、180 px minimum auto-row、16 px
+gap、1/2/3/4/8 column 与 1-4 row span；绝不能改变 route order 或 drawer behavior。
 
 - `H` 高 72-96 px，固定包含 page title、单行 purpose、适用时的 scope selector、Owner/source cut、freshness
   badge，以及仅 route-level action。
@@ -1867,15 +1584,18 @@ navigation-only route 只使用共享 `UnavailableState`：主文案只说明 wo
 动作；完整度 code 仅保留在该原子的技术信息披露中。页面不再绘制私有 placeholder card，不直接展示 `S/P/Q/T`
 术语，不重复 prototype footer，也不会因此被提升为已实现的产品 surface。
 
-Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable
-atom。将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带
-尺寸的 `P/Q` child；每个 `T` column、row action、grouping、sort、filter、pagination 与 loading-row count；有序
-`D` field；empty/partial/stale/unavailable/error/permission-denied geometry；以及准确 button order 与 admission
-gate。其 reusable atom 随后还必须加入 inventory。Dashboard 实现仅对这些精确 route 与 shared atom 标记为
-`IMPLEMENTATION_ADMITTED`，并必须作为有边界、可 review 的切面交付，保持 fail-closed data/effect 边界。
-`DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` 或 `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE` surface 在完成同样的双语闭合并
-晋升前仍禁止实现；实现准入绝不提升 backend availability、Owner acceptance、replacement readiness、executor
-cutover 或 production effect。
+Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable atom。
+
+将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带 尺寸的 `P/Q`
+child；每个 `T` column、row action、grouping、sort、filter、pagination 与 loading-row count；有序
+`D` field；empty/partial/stale/unavailable/error/permission-denied geometry；以及准确 button order
+与 admission gate。
+
+其 reusable atom 随后还必须加入 inventory。 Dashboard 实现仅对这些精确 route 与 shared atom 标记为 `IMPLEMENTATION_ADMITTED`，并必须作为有边界、可
+review 的切面交付，保持 fail-closed data/effect 边界。
+
+`DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` 或 `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE` surface 在完成同样的双语闭合并 晋升前仍禁止实现；实现准入绝不提升 backend availability、Owner
+acceptance、replacement readiness、executor cutover 或 production effect。
 
 ### Routed page blueprint registry
 
@@ -1884,50 +1604,53 @@ selection 是只读 UI action；其他 button 在 render 时还必须取得匹�
 `domain` 使用具名 Owner action manifest，显式注册的 `operational` control 使用 current
 `OperationalActionEnvelope`。
 
-对 `/rd`、`/rd/research` 与 `/rd/artifacts`，最后一列保留的 H0/H1 defect narrative 是历史设计依据。当前
-disposition 以上文章首的 merged H1 回读为准：具名 source contract 是 `CURRENT/PARTIAL`，其精确 default-Web
-deployment 仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server projection 暴露所需 custody 前保持
-固定 unavailable；actual provider execution 仍为 `NOT_ADMITTED`。该规则只解析 status，不改变 registry 中
-固定的 panel、button 或 state geometry。
+对 `/rd`、`/rd/research` 与 `/rd/artifacts`，最后一列保留的 H0/H1 defect narrative 是历史设计依据。
 
-当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity` 与 `/rd/artifacts` route，
-以及 Artifact operational exact-readback，都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的未来
-Intake、Research 与 Artifacts registry 行。五个 route 都没有
-summary strip 或分栏 detail pane，唯一 `P` surface 分别是 `SourceIntakeReadbackWorkbench`、
-`DevelopComposerReadbackWorkbench`、`ResearchDirectory`、`ResearchReadbackWorkspace` 与
-`ArtifactDirectory`。Intake 本切片没有 directory、editable composer 或正向
-action；Research detail 使用独立 identity-bound URL 且没有正向 action；Artifact 精确详情也继续使用独立的
-identity-bound URL。registry 行中更广的 composer、Research admission/outcome action、receipt timeline、
-S1 custody、review、binding、
-replay 与 security-evidence panel 仍是未来 blueprint，不能被推断进这些切片。
+当前 disposition 以上文章首的 merged H1 回读为准：具名 source contract 是 `CURRENT/PARTIAL`，其精确 default-Web deployment
+仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server projection 暴露所需 custody 前保持 固定 unavailable；actual provider
+execution 仍为 `NOT_ADMITTED`。 该规则只解析 status，不改变 registry 中 固定的 panel、button 或 state geometry。
+
+当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity` 与
+`/rd/artifacts` route， 以及 Artifact operational exact-readback，都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的未来
+Intake、Research 与 Artifacts registry 行。
+
+五个 route 都没有 summary strip 或分栏 detail pane，唯一 `P` surface 分别是 `SourceIntakeReadbackWorkbench`、
+`DevelopComposerReadbackWorkbench`、`ResearchDirectory`、`ResearchReadbackWorkspace` 与 `ArtifactDirectory`。
+
+Intake 本切片没有 directory、editable composer 或正向 action；Research detail 使用独立 identity-bound URL 且没有正向
+action；Artifact 精确详情也继续使用独立的 identity-bound URL。 registry 行中更广的 composer、Research admission/outcome
+action、receipt timeline、 S1 custody、review、binding、 replay 与 security-evidence panel 仍是未来
+blueprint，不能被推断进这些切片。
 
 当前准入的 Status `/dashboard` 是一个有界只读队列总览，并取代下方未来态的 global status registry 行。
-它只回答"现在有什么可以审阅、我可以从哪里继续"，不计算全局健康度、incident 总数、工作流进度或跨
-Owner 状态机。第一个固定 panel 是 `DashboardOverview`：header 依次为
-`Overview / Continue your work`、技术范围 disclosure、`Refresh`；body 复用共享
-`CompactStatusBar`，采用 3:2 bento：`R&D`（`results ready`、`waiting`、`reviewable`、`bindings`）与
-`operations`（`active`、`needs attention`）。R&D 总数来自 historical-custody projection；outcome 与 build-review 计数只有在
-complete identity set 与该 custody projection 匹配时才出现。Build attempt 总数保留在 Artifact route，不在
-首页重复为 KPI。Operations 使用精确的未过滤 RunStore V2
-cut：`runs/all/any/pageSize=50/page=1`；`active = queued + running`，`needs attention = failed + unknown`。
-RunStore 全零只表示该 view 没有记录 run，绝不表示系统健康。
+它只回答"现在有什么可以审阅、我可以从哪里继续"，不计算全局健康度、incident 总数、工作流进度或跨 Owner 状态机。
 
-第二个固定 panel 是 `Next / Ready to review`。它最多包含四个只读导航 card，顺序为：正数的 research
-results、正数的 reviewable build outcomes、正数的 waiting research、正数的 failed/unknown runs。零值
-省略对应 card；如果没有 card，body 保持 geometry 并显示当前没有已记录的待审工作。Loading 保留两个
-panel frame，把全部 metric 替换为 em dash，并把第二个 body 替换为一个安静的 loading state。Refresh
-独立发起全部 read、禁用重复 refresh，并在每个本轮 read 成功前撤回旧的正向 metric。被拒绝、malformed、
-partial、stale 或 identity mismatch 的 source 只撤回依赖它的 value/link，绝不变成零。Observation time、
-source cut、completeness 以及"各 section 独立读取"的明确说明只放在技术 disclosure 内；页面没有全局
-observation time 或 aggregate status。980 px 以下 navigation card 变为单列；共享 compact-status atom
-保留其已规定的响应式行为。
+第一个固定 panel 是 `DashboardOverview`：header 依次为 `Overview / Continue your work`、技术范围 disclosure、`Refresh`；body
+复用共享 `CompactStatusBar`，采用 3:2
+bento：`R&D`（`results ready`、`waiting`、`reviewable`、`bindings`）与
+`operations`（`active`、`needs attention`）。
 
-当前准入的 Attention `/dashboard/attention` 回答"现在有哪些已记录工作需要跟进、为什么、以及去哪里继续"，
-而不创建新的 stop-predicate Owner。`DashboardAttention` 复用 historical-custody、research-question、
-research-outcome、artifact-review 与精确的 failed/unknown RunStore projection。固定表格逐项列出等待或不可读的
-Research request、historical outcome 不可读的 Build attempt，以及 failed 或 unknown action run。主列固定为
-`Item`、`Area`、`Needs follow-up` 与 `Recorded`；opaque request、attempt 与 run identity 只留在展开详情或
-`PanelFrameInfo` 中。
+R&D 总数来自 historical-custody projection；outcome 与 build-review 计数只有在 complete identity set 与该 custody
+projection 匹配时才出现。 Build attempt 总数保留在 Artifact route，不在 首页重复为 KPI。 Operations 使用精确的未过滤 RunStore V2
+cut：`runs/all/any/pageSize=50/page=1`；`active = queued + running`，`needs attention = failed + unknown`。 RunStore 全零只表示该 view 没有记录 run，绝不表示系统健康。
+
+第二个固定 panel 是 `Next / Ready to review`。 它最多包含四个只读导航 card，顺序为：正数的 research results、正数的 reviewable build
+outcomes、正数的 waiting research、正数的 failed/unknown runs。 零值 省略对应 card；如果没有 card，body 保持 geometry
+并显示当前没有已记录的待审工作。 Loading 保留两个 panel frame，把全部 metric 替换为 em dash，并把第二个 body 替换为一个安静的 loading state。
+
+Refresh 独立发起全部 read、禁用重复 refresh，并在每个本轮 read 成功前撤回旧的正向 metric。 被拒绝、malformed、 partial、stale 或 identity
+mismatch 的 source 只撤回依赖它的 value/link，绝不变成零。 Observation time、 source cut、completeness 以及"各 section
+独立读取"的明确说明只放在技术 disclosure 内；页面没有全局 observation time 或 aggregate status。
+
+980 px 以下 navigation card 变为单列；共享 compact-status atom 保留其已规定的响应式行为。
+
+当前准入的 Attention `/dashboard/attention` 回答"现在有哪些已记录工作需要跟进、为什么、以及去哪里继续"， 而不创建新的 stop-predicate Owner。
+`DashboardAttention` 复用 historical-custody、research-question、 research-outcome、artifact-review 与精确的
+failed/unknown RunStore projection。
+
+固定表格逐项列出等待或不可读的 Research request、historical outcome 不可读的 Build attempt，以及 failed 或 unknown action run。 主列固定为
+`Item`、`Area`、`Needs follow-up` 与 `Recorded`；opaque request、attempt 与
+run identity 只留在展开详情或 `PanelFrameInfo` 中。
 
 summary 按 `research`、`builds` 与 `runs` 统计逐项 follow-up，并且只有三个 source family 全部绑定时才显示 total。
 `All / Research / Builds / Runs` filter 与 search 保持 Attention URL 不变。每一行只展开一个受控的同页原位详情，
@@ -1939,50 +1662,53 @@ summary 按 `research`、`builds` 与 `runs` 统计逐项 follow-up，并且只�
 scroll owner，并且没有 dialog、drawer、Resolve、retry、dismiss、clipboard locator action、Owner mutation、effect
 dispatch 或 effect routing change。
 
-当前准入的 Recent `/dashboard/recent` 回答"最近记录了什么已验证 outcome"，而不引入新的 outcome
-Owner。`RecentOwnerOutcomes` 消费两个有界 Owner read：verified Research outcome 清单与 verified Build
-outcome 清单，每一行的 outcome state 都已由 Owner 解析完成。页面发出的 read 次数不随它列出的行数增长：
-workspace 至多请求它要显示的行数，Owner 把它夹到自己拥有的上限，被 Owner 截短的清单必须自己声明截断，
-而不是报成全部的计数。两个 read 都不指名 custody cut：由各自 Owner 从自己的托管解析出 cut 并回显，因此
-workspace 无法声称一个 Owner 没有解析过的坐标，回显 cut 不同的行也绝不合并。只接纳 `outcome_ready`
-Research 和 `reviewable` Build，再按 Owner recorded time 合并。正文复用共享 `DataWorkspaceTable` 与
-controlled 同页原位展开；筛选只改变 Research/Build 可见 cut，不改变 URL。Research 行打开 canonical
-Research record，Build 行打开 canonical historical Build result。request、attempt、observation time、
-completeness 与 identity 只进入 `PanelFrameInfo` 或展开行，不成为主表列。这两个 read 保持独立：malformed、
-identity mismatch、unavailable 或 cut 不同的 Research 回答只撤回 Research row/count，Build 同理；缺失显示
-unavailable 而不是零，只有两类 source 都绑定时才显示 total。Loading 在本轮 read 完成前撤回旧的正向 row。
-页面只有一个 page scroll owner，没有 dialog、drawer、嵌套纵向 table scroller、Owner mutation 或 effect
-action。
+当前准入的 Recent `/dashboard/recent` 回答"最近记录了什么已验证 outcome"，而不引入新的 outcome Owner。 `RecentOwnerOutcomes` 消费两个有界
+Owner read：verified Research outcome 清单与 verified Build outcome 清单，每一行的 outcome state 都已由 Owner 解析完成。 页面发出的
+read 次数不随它列出的行数增长： workspace 至多请求它要显示的行数，Owner 把它夹到自己拥有的上限，被 Owner 截短的清单必须自己声明截断， 而不是报成全部的计数。
 
-当前准入的 Evidence `/dashboard/evidence` 回答"Dashboard 哪些区域现在有可读数据，哪些覆盖仍不完整"。
-它复用 Status 已读取的 historical-custody、research-outcome、artifact-review 与精确未筛选 RunStore，
-不创建新的 evidence Owner。固定 `DashboardEvidence` table 按顺序只有四个业务 row：`R&D history`、
-`Research results`、`Build results`、`Operations history`。Column 为 `Area`、`Current`、
-`Needs follow-up`、`Coverage`；exact source identity 不进入主列。`Connected` 表示该 row 的 typed source
-与所需 identity binding 完整，`Limited` 表示 source 可读但存在 truncated、partial 或不可读 point result，
-`Unavailable` 表示 read 或 identity binding 失败。这些 label 只表示 Dashboard read coverage，绝不表示
-Owner health、科学有效性或全局 incident state。
+两个 read 都不指名 custody cut：由各自 Owner 从自己的托管解析出 cut 并回显，因此 workspace 无法声称一个 Owner 没有解析过的坐标，回显 cut 不同的行也绝不合并。 只接纳
+`outcome_ready` Research 和 `reviewable` Build，再按 Owner recorded time 合并。 正文复用共享
+`DataWorkspaceTable` 与 controlled 同页原位展开；筛选只改变 Research/Build 可见 cut，不改变 URL。
 
-Summary 统计 area 而非把不同 record 相加：`connected`、`limited`、`unavailable`。`All / Connected /
-Needs coverage` filter 只改变可见 row，并保持 Evidence URL 不变。激活 row 后以 controlled 同页原位 detail
-展示业务解释与 canonical workspace link。Observation time、completeness 与 unavailable reason 只进入
-`PanelFrameInfo`。每个 source 独立 fail closed；loading 撤回 retained value，missing 原位 unavailable 而不是零；
-任何 row 都不准入 rebuild、resolve、dismiss、Owner mutation 或 effect action。页面仅使用外层 page viewport
-作为纵向 scroll owner。
+Research 行打开 canonical Research record，Build 行打开 canonical historical Build result。
+request、attempt、observation time、 completeness 与 identity 只进入 `PanelFrameInfo` 或展开行，不成为主表列。
+
+这两个 read 保持独立：malformed、 identity mismatch、unavailable 或 cut 不同的 Research 回答只撤回 Research row/count，Build
+同理；缺失显示 unavailable 而不是零，只有两类 source 都绑定时才显示 total。 Loading 在本轮 read 完成前撤回旧的正向 row。 页面只有一个 page scroll
+owner，没有 dialog、drawer、嵌套纵向 table scroller、Owner mutation 或 effect action。
+
+当前准入的 Evidence `/dashboard/evidence` 回答"Dashboard 哪些区域现在有可读数据，哪些覆盖仍不完整"。 它复用 Status 已读取的
+historical-custody、research-outcome、artifact-review 与精确未筛选 RunStore， 不创建新的 evidence Owner。 固定
+`DashboardEvidence` table 按顺序只有四个业务 row：`R&D history`、
+`Research results`、`Build results`、`Operations history`。
+
+Column 为 `Area`、`Current`、 `Needs follow-up`、`Coverage`；exact source
+identity 不进入主列。 `Connected` 表示该 row 的 typed source 与所需 identity binding 完整，`Limited` 表示
+source 可读但存在 truncated、partial 或不可读 point result， `Unavailable` 表示 read 或 identity binding 失败。
+
+这些 label 只表示 Dashboard read coverage，绝不表示 Owner health、科学有效性或全局 incident state。
+
+Summary 统计 area 而非把不同 record 相加：`connected`、`limited`、`unavailable`。
+`All / Connected /
+Needs coverage` filter 只改变可见 row，并保持 Evidence URL 不变。 激活 row 后以 controlled 同页原位 detail 展示业务解释与 canonical
+workspace link。 Observation time、completeness 与 unavailable reason 只进入 `PanelFrameInfo`。
+
+每个 source 独立 fail closed；loading 撤回 retained value，missing 原位 unavailable 而不是零； 任何 row 都不准入
+rebuild、resolve、dismiss、Owner mutation 或 effect action。 页面仅使用外层 page viewport 作为纵向 scroll owner。
 
 #### Overview 与 R&D
 
-| Tab 与 route                     | 固定 `S / P / Q / T` 内容                                                                                                                                                                                                                                                                                                                                                                      | Button 顺序                                                                                                                                                                                                                                | 默认证据状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status `/dashboard`              | 上述已准入 queue Overview：`P=DashboardOverview`；紧凑展示彼此独立的 R&D 与 RunStore summary；`T=ReadyToReview` navigation cards；无 `Q`、global matrix、incident aggregate 或 Owner timeline                                                                                                                                                                                                  | 从 metric/card 打开精确的只读 queue；View data scope；Refresh                                                                                                                                                                              | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：正向 value 必须有当前 typed projection 与上述 identity‑set binding。缺失或 mismatch 的 source 原位 unavailable。不提供 global health、restore、resolve、submit、run 或其他 effect action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Attention `/dashboard/attention` | 使用上方已准入 follow‑up workspace：逐项展示等待/不可读的 Research request、不可读的 Build outcome 与 failed/unknown Run；`P=DashboardAttention`；受控同页原位详情；source evidence 留在 `PanelFrameInfo`                                                                                                                                                                                      | Filter All/Research/Builds/Runs、search、原位展开一行、打开 canonical record、Refresh                                                                                                                                                      | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：只使用独立 typed read；mismatch 或 unavailable source 会撤回其 row/count 而非变成零；没有 Resolve、retry、dismiss、clipboard locator action、Owner mutation、effect dispatch 或 Windmill routing change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Recent `/dashboard/recent`       | 上述已准入 recent‑outcome workspace：verified Research/Build count 与按时间排列的 `P=RecentOwnerOutcomes`；独立 source freshness 只进 `PanelFrameInfo`；controlled 同页原位 detail 展示 outcome summary                                                                                                                                                                                        | All/Research/Build 筛选、原位展开一行、打开 canonical Research record 或 historical Build result、Refresh                                                                                                                                  | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：仅 typed 独立 Owner read；identity mismatch 只撤回依赖它的 row/count；missing 原位 unavailable 而非零；无 Owner 或 effect mutation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| Evidence `/dashboard/evidence`   | 上述已准入 read‑coverage workspace：area count 与 `P=DashboardEvidence`；controlled 同页原位 detail 提供业务解释和 canonical destination；技术 observation evidence 只进 `PanelFrameInfo`                                                                                                                                                                                                      | All/Connected/Needs coverage 筛选、原位展开一行、打开 canonical workspace、Refresh                                                                                                                                                         | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：四个独立 typed read；identity mismatch 只撤回依赖它的 row；missing 原位 unavailable 而非零；coverage 不是 Owner health 或全局 incident state；无 rebuild、resolve、dismiss、Owner mutation 或 effect action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Intake `/rd`                     | Form completeness/source count/request state/Owner freshness；`P=ResearchRequestComposer + TrialFamilyPolicyComposer + TrialFamilyAuthorityResolutionPanel`；`Q=OwnerCustodyIncidentPanel + SourceEvidenceCard + NonAuthorityCallout`；`T=DraftSourceList`                                                                                                                                     | Custody unavailable 时：Open incident evidence、Copy affected locator；Submit、Resolve 与 Create successor 全部 disabled。其他状态下 Submit 先完整 validation 再解析 basis/frontier/lineage；Create successor 需要 Owner‑admitted terminal | 既有 S1 仍是 `CURRENT/PARTIAL`；V2 authority chain 是 `OBSERVED_CANDIDATE_NOT_CURRENT`。当前默认 Qualification store 为 `RESTORED_REVALIDATION_PENDING / NOT_ADMITTED`：canonical Owner recovery 与 direct Owner readback 已成功，但原 frontier stale，且 default‑Web/Product Edge/R&D revalidation 尚未运行。browser 不重建 pre‑loss receipt，也不显示任何正向 Submit/S1/S2/provider action                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Research `/rd/research`          | Active/stale/unknown/accepted/rejected 计数；`P=ResearchRequestTable`；`Q=ResearchViewCard + TrialFamilyReceiptPanel + S1TerminalCustodyPanel`；`T=ResearchReceiptTimeline`                                                                                                                                                                                                                    | Refresh、Open detail、Resolve same identity、准入时 Create successor                                                                                                                                                                       | 既有 S1 是 `CURRENT/PARTIAL`；v5 证明 `e5893fd550` 会把完整 stale S1 terminal 隐藏为 receipt‑less unknown，因此 TrialFamily root/member/frontier 与统一 read‑time freshness 是 `OBSERVED_VISIBLE_DEFECT_NOT_CURRENT`。TARGET current linked state 为 `ARTIFACT_AVAILABLE / AVAILABLE / REVIEW_ARTIFACT`；在 `now >= valid_through` 时继续显示同一 verified Research receipt/TrialFamily 与 historical Artifact availability，同时 currentness 变为 `STALE / ARTIFACT_AVAILABLE / RESOLVE_SAME_REQUEST_IDENTITY`，并隐藏所有 positive action                                                                                                                                                                                                                                                                 |
-| Hypotheses `/rd/hypotheses`      | verified/unavailable 已保存问题筛选；`P=HypothesisDirectory` 与 inline `ResearchQuestionBrief`；技术 custody 只进 `PanelFrameInfo`                                                                                                                                                                                                                                                             | 原位展开一行；Open research record                                                                                                                                                                                                         | 只读 `rd.research_question_directory.read.v1`；verified custody 不等于科学有效性、active/falsified 状态、outcome 或 Iteration Decision；本 tab 不直接 mutate Fact                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Artifacts `/rd/artifacts`        | Available/failed/unknown/review‑required 计数；`P=ArtifactTable`；`Q=ArtifactRequestAdmissionPanel + ArtifactOutcomeProjectionGate + ArtifactReviewPanel + ArtifactTrialFamilyBindingPanel + NoArtifactReceiptPanel + InvocationAdmissionReceipt + ProviderInvocationStateCard + LegacyTerminalQuarantinePanel`；`T=BuildAndSecurityEvidence`，含 deterministic double‑build 与 sandbox policy | Check & Run、Open Artifact、仅 dispatch 后 Resolve same attempt、Copy provider claim、Open operational run、Ask Agent to revise、Start exploratory replay                                                                                  | 既有 S2 是 `CURRENT/PARTIAL`；action‑time admission、result‑authority precedence、binding、no‑Artifact closure 与 invocation state 都是 `OBSERVED_*_NOT_CURRENT`。Dispatch 前 failure 让 Artifact request 保持未提交且没有 attempt Resolve；只有 `ADMITTING` 歧义才进入 `SUBMITTED_OR_UNKNOWN`。Outcome gate 先选择 sealed R&D terminal receipt；只有不存在 terminal 时 `INVOCATION_STARTED` 才能投影 `OUTCOME_UNKNOWN`。TARGET 同时使用按 resolution 区分的 absent/present key、direct claimed start、stale‑safe terminal receipt 与四种 read‑only legacy disposition。Server‑admission panel 在 bounded public projection 暴露其 receipt 与 sealed current‑Research custody 前保持 unavailable；job success 不能填充它。无 provider retry button；`ACTUAL_PROVIDER_CALL_AT_MOST_ONCE` 仍为 `NOT_ADMITTED` |
-| Decisions `/rd/decisions`        | 已验证 Iteration Decision 筛选；`P=RdDecisionDirectory` 与 inline `ResearchQuestionBrief`；技术 lineage 只进 `PanelFrameInfo`                                                                                                                                                                                                                                                                  | 原位展开一行；Open research record                                                                                                                                                                                                         | 只读 Formation catalog 与每个 family 的 exact Iteration timeline；零 family 是真实 empty cut；不暴露 Decision action 或 effect mutation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Tab 与 route                     | 固定 `S / P / Q / T` 内容                                                                                                                                                                                 | Button 顺序                                                                                               | 默认证据状态                                                                                                                                                                                                                                             |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status `/dashboard`              | 上述已准入 queue Overview：`P=DashboardOverview`；紧凑展示彼此独立的 R&D 与 RunStore summary；`T=ReadyToReview` navigation cards；无 `Q`、global matrix、incident aggregate 或 Owner timeline             | 从 metric/card 打开精确的只读 queue；View data scope；Refresh                                             | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：正向 value 必须有当前 typed projection 与上述 identity‑set binding。缺失或 mismatch 的 source 原位 unavailable。不提供 global health、restore、resolve、submit、run 或其他 effect action                    |
+| Attention `/dashboard/attention` | 使用上方已准入 follow‑up workspace：逐项展示等待/不可读的 Research request、不可读的 Build outcome 与 failed/unknown Run；`P=DashboardAttention`；受控同页原位详情；source evidence 留在 `PanelFrameInfo` | Filter All/Research/Builds/Runs、search、原位展开一行、打开 canonical record、Refresh                     | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：只使用独立 typed read；mismatch 或 unavailable source 会撤回其 row/count 而非变成零；没有 Resolve、retry、dismiss、clipboard locator action、Owner mutation、effect dispatch 或 Windmill routing change     |
+| Recent `/dashboard/recent`       | 上述已准入 recent‑outcome workspace：verified Research/Build count 与按时间排列的 `P=RecentOwnerOutcomes`；独立 source freshness 只进 `PanelFrameInfo`；controlled 同页原位 detail 展示 outcome summary   | All/Research/Build 筛选、原位展开一行、打开 canonical Research record 或 historical Build result、Refresh | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：仅 typed 独立 Owner read；identity mismatch 只撤回依赖它的 row/count；missing 原位 unavailable 而非零；无 Owner 或 effect mutation                                                                          |
+| Evidence `/dashboard/evidence`   | 上述已准入 read‑coverage workspace：area count 与 `P=DashboardEvidence`；controlled 同页原位 detail 提供业务解释和 canonical destination；技术 observation evidence 只进 `PanelFrameInfo`                 | All/Connected/Needs coverage 筛选、原位展开一行、打开 canonical workspace、Refresh                        | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：四个独立 typed read；identity mismatch 只撤回依赖它的 row；missing 原位 unavailable 而非零；coverage 不是 Owner health 或全局 incident state；无 rebuild、resolve、dismiss、Owner mutation 或 effect action |
+| Intake `/rd`                     | `P=SourceIntakeReadbackWorkbench`; exact lookup and Intake / Custody / Evidence groups; no summary strip, split pane or composer                                                                          | Open readback, Refresh                                                                                    | `IMPLEMENTATION_ADMITTED`: exact typed read only; no Submit, Resolve mutation, successor or provider call                                                                                                                                                |
+| Research `/rd/research`          | Active/stale/unknown/accepted/rejected 计数；`P=ResearchRequestTable`；`Q=ResearchViewCard + TrialFamilyReceiptPanel + S1TerminalCustodyPanel`；`T=ResearchReceiptTimeline`                               | Filter, Search, Open research, Refresh                                                                    | Exact admitted typed readback/directory; no research dispatch, Resolve mutation or successor                                                                                                                                                             |
+| Hypotheses `/rd/hypotheses`      | verified/unavailable 已保存问题筛选；`P=HypothesisDirectory` 与 inline `ResearchQuestionBrief`；技术 custody 只进 `PanelFrameInfo`                                                                        | 原位展开一行；Open research record                                                                        | 只读 `rd.research_question_directory.read.v1`；verified custody 不等于科学有效性、active/falsified 状态、outcome 或 Iteration Decision；本 tab 不直接 mutate Fact                                                                                        |
+| Artifacts `/rd/artifacts`        | `P=ArtifactDirectory`; exact verified Artifact list/detail with Review and custody evidence; geometry defined by the admitted directory above                                                             | Filter, Search, Open Artifact, Refresh                                                                    | `IMPLEMENTATION_ADMITTED`: exact typed read only; no build, provider, claim, Resolve mutation or successor                                                                                                                                               |
+| Decisions `/rd/decisions`        | 已验证 Iteration Decision 筛选；`P=RdDecisionDirectory` 与 inline `ResearchQuestionBrief`；技术 lineage 只进 `PanelFrameInfo`                                                                             | 原位展开一行；Open research record                                                                        | 只读 Formation catalog 与每个 family 的 exact Iteration timeline；零 family 是真实 empty cut；不暴露 Decision action 或 effect mutation                                                                                                                  |
 
 #### Backtest、Qualification 与 Scanner
 
@@ -2002,16 +1728,16 @@ Needs coverage` filter 只改变可见 row，并保持 Evidence URL 不变。激
 | Tab 与 route                         | 固定 `S / P / Q / T` 内容                                                                                                                                           | Button 顺序                                                                                                                          | 默认证据状态                                                                                                                                                                                                                                                                                       |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Registry `/strategy`                 | Registered/current/superseded/unavailable 计数；`P=StrategyRegistryTable`；`Q=GenerationIdentityCard`；`T=GenerationLineage`                                        | Open generation、Copy identity                                                                                                       | 仅 static Governance foundation                                                                                                                                                                                                                                                                    |
-| Lifecycle `/strategy/lifecycle`      | Pending/accepted/rejected‑no‑write/unknown 计数；`P=LifecycleRequestTable`；`Q=GovernanceEligibilityAdmissionPanel + GovernanceDecisionCard`；`T=ContenderFrontier` | Eligibility valid 时：Submit lifecycle request、Resolve same request、Create successor；否则 Open Eligibility evidence、Copy locator | `CURRENT/PARTIAL · STATIC_CONTRACT_CLOSED_NOT_RUNTIME`：PR #334 使 invalid/unavailable Eligibility 成为 pre‑admission 零写入状态。Receipt‑backed `REJECTED_NO_WRITE` 是独立的已准入 Governance decision；positive Runtime application 与 product consumer 仍为 `NOT_ADMITTED`                      |
+| Lifecycle `/strategy/lifecycle`      | Pending/accepted/rejected‑no‑write/unknown 计数；`P=LifecycleRequestTable`；`Q=GovernanceEligibilityAdmissionPanel + GovernanceDecisionCard`；`T=ContenderFrontier` | Eligibility valid 时：Submit lifecycle request、Resolve same request、Create successor；否则 Open Eligibility evidence、Copy locator | `CURRENT/PARTIAL · STATIC_CONTRACT_CLOSED_NOT_RUNTIME`：当前契约使 invalid/unavailable Eligibility 成为 pre‑admission 零写入状态。Receipt‑backed `REJECTED_NO_WRITE` 是独立的已准入 Governance decision；positive Runtime application 与 product consumer 仍为 `NOT_ADMITTED`                      |
 | Allocations `/strategy/allocations`  | Allocated/unallocated/capacity‑blocked/unavailable 计数；`P=AllocationTable`；`Q=CapacityEvidence`；`T=AllocationHistory`                                           | Open allocation、Prepare allocation request                                                                                          | Dashboard 没有 allocation writer                                                                                                                                                                                                                                                                   |
 | Instances `/runtime`                 | 一个固定 not‑ready summary；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                       | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `CURRENT/PARTIAL · FOUNDATION_NOT_READY`：显示 `NotReady` 与精确四项 dependency。没有 Strategy Instance row、readiness receipt、incident、Resolve、Apply 或绿色状态；未来 Owner‑backed `RuntimeReadinessCard` 缺席                                                                                 |
-| Generations `/runtime/generations`   | 不显示 generation 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                           | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：PR #330 不暴露 generation 或 application surface。即使 `NOT_APPLIED / NO_APPLICATION_RECEIPT` 也要等待单独准入的 Governance‑to‑Runtime consumer；未来 generation geometry、`APPLIED`、Resolve 与 Apply 都缺席                                                                      |
-| Checkpoints `/runtime/checkpoints`   | 不显示 checkpoint 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                           | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：PR #330 不暴露 checkpoint 或 restore surface。未来 `CheckpointTable`、`RestoreValidationCard`、`CheckpointHistory`、Open checkpoint 与 Validate restore evidence 都缺席                                                                                                            |
-| Incidents `/runtime/incidents`       | 不显示 incident 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                             | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：PR #330 不暴露 incident 或 Recovery surface。未来 `RuntimeIncidentTable`、`IncidentEvidence`、`IncidentTimeline`、Open incident 与 Open Recovery case 都缺席；missing heartbeat 不能制造 incident                                                                                  |
+| Generations `/runtime/generations`   | 不显示 generation 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                           | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 generation 或 application surface。即使 `NOT_APPLIED / NO_APPLICATION_RECEIPT` 也要等待单独准入的 Governance‑to‑Runtime consumer；未来 generation geometry、`APPLIED`、Resolve 与 Apply 都缺席                                                                      |
+| Checkpoints `/runtime/checkpoints`   | 不显示 checkpoint 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                           | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 checkpoint 或 restore surface。未来 `CheckpointTable`、`RestoreValidationCard`、`CheckpointHistory`、Open checkpoint 与 Validate restore evidence 都缺席                                                                                                            |
+| Incidents `/runtime/incidents`       | 不显示 incident 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                             | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 incident 或 Recovery surface。未来 `RuntimeIncidentTable`、`IncidentEvidence`、`IncidentTimeline`、Open incident 与 Open Recovery case 都缺席；missing heartbeat 不能制造 incident                                                                                  |
 | Performance `/portfolio`             | 不显示 performance summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                        | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：只显示不可用状态与 source 要求；exact request/envelope contract 保留在技术详情中。未来 `PerformanceChart`、`AccountAndFactCut`、`PerformancePeriods`、range control 与 source‑fact action 都缺席；legacy `PortfolioSnapshot` 不是 Owner fact |
 | Exposure `/portfolio/exposure`       | 不显示 exposure summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                           | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：未来 `ExposureMatrix`、`CoherentEvidenceCut`、`ExposureTable`、scope filter 与 fact action 都缺席；shared Cache position 或 stale flag 不能填充该 card                                                                                       |
 | Capacity `/portfolio/capacity`       | 不显示 capacity summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                           | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：request 绑定 scope/mode/policy/common cut，但不存在 positive Gross Capacity projection。未来 `CapacityScopeCard`、`GrossCapacityView`、`CapacitySourceCompleteness`、`CapacityViewHistory`、refresh/source action、usage 与 headroom 都缺席  |
-| Attribution `/portfolio/attribution` | 不显示 attribution summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                        | 查看 Portfolio 技术详情                                                                                                              | `NOT_ADMITTED · NO_ATTRIBUTION_SURFACE`：PR #332 不暴露 attribution projection identity。未来 `AttributionChart`、`AttributionEvidenceCut`、`AttributionTable`、period control 与 evidence action 都缺席；不推断 Alpha、Qualification 或 Risk usage                                                |
+| Attribution `/portfolio/attribution` | 不显示 attribution summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                        | 查看 Portfolio 技术详情                                                                                                              | `NOT_ADMITTED · NO_ATTRIBUTION_SURFACE`：当前契约不暴露 attribution projection identity。未来 `AttributionChart`、`AttributionEvidenceCut`、`AttributionTable`、period control 与 evidence action 都缺席；不推断 Alpha、Qualification 或 Risk usage                                                |
 
 #### Risk、Execution 与 Data
 
@@ -2035,7 +1761,7 @@ Needs coverage` filter 只改变可见 row，并保持 Evidence URL 不变。激
 
 | Tab 与 route                                                     | 固定 `S / P / Q / T` 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Button 顺序                                                                                                                | 默认证据状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runs `/operations`                                               | 四张固定 status card 按 selected Runs/Owner reads kind 限定 scope：queued、running、unknown、completed/failed；`T=RunTable`，含 status/date/operation/trigger/principal/duration/Owner outcome；row selection 后 `D=RunSummaryCard`；省略 `P/Q`                                                                                                                                                                                                                                                      | Refresh、Filter、Open run、Resolve Owner outcome、Delete disposable completed cache                                        | 运维目标；仅 operational，删除不改变业务 truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Runs `/operations`                                               | 四张固定 status card 按 selected Runs/Owner reads kind 限定 scope：queued、running、unknown、completed/failed；`T=RunTable`，含 status/date/operation/trigger/principal/duration/Owner outcome；row selection 后 `D=RunSummaryCard`；省略 `P/Q`                                                                                                                                                                                                                                                      | Refresh、Filter、Open run、Resolve Owner outcome、Delete disposable completed cache                                        | 第一方 RunStore 运维投影；当前路由准入与精确骨架决定可用性，不修改 Owner 或业务事实                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Run Detail `/operations/runs/:runId`                             | 面向业务的结果与时间 summary；`P=Run inputs + worker assignment + OperationalCancellationReceiptCard` 并绑定 `:runId`；`Q=Related source result`；`T=Logs and evidence`，后接固定嵌套 `Logs/Metrics/Traces/Assets` tabs。主路径只显示注册后的业务 operation 名称、source result、run 状态、时间、请求来源、工作类型和相关结果动作；精确 operation/run ID、channel、transition、terminal code、dispatch digest/reason、source‑owner identity 与 protected‑field reason 全部进入共享 info disclosure。 | Copy reference、Refresh、条件成立时 Cancel queued dependency、Check source result、View source result、Download result/log | 使用上方精确固定 skeleton；Cancel 只在 queued、unclaimed、zero‑domain‑effect dependency run 中占据第三个按钮位，其余状态该 slot 缺席。CAS 中以 disabled `Cancelling…` 显示；terminal transition 后 action/panel 缺席，P 保留 receipt 或 unavailable readback。Worker assignment 只描述该精确历史 run，不能断言当前 service health。展示文案不得改变 typed result、transition、Owner locator、action envelope 或 effect boundary。无 batch cancel 或通用 rerun/edit/share。                                                                                                 |
 | Workers `/operations/workers` 与 `/operations/workers/:workerId` | 使用上方 Workers 精确只读 skeleton：Capacity/Work handled summary；P/Q 缺席；T 列为 Service、Availability、Active / processed、Recent activity、Supports；D 按 identity 绑定四簇事实                                                                                                                                                                                                                                                                                                                 | Refresh、页内选择 service、在共享 sheet 预览 recent Run、Open full run details、Back to service/services                   | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`；仅 registration/lease/claim observation；list/detail 独立 fail closed；精确 Run GET preview 保持有界且不增加 Worker 或 Run effect；无 Windmill 管理、未绑定 run 的 readiness、Owner acceptance 或切换                                                                                                                                                                                                                                                                                                          |
 | Service Logs `/operations/service‑logs`                          | 使用上方精确 skeleton：severity/instance summary、canonical filter cut、采用业务 source 名称的 `P=ServiceInstanceList`、把技术值放入 info 的 identity‑bound `Q=ServiceInstanceCard`、采用 Time/Level/Activity/Source/Related 扫读路径并组合 `BoundedLogViewport` 的 `T=ServiceLogPanel`，以及明确 complete/partial/empty/filtered‑empty/unavailable 状态                                                                                                                                             | Refresh、Toggle auto‑refresh、Download bounded logs                                                                        | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`；只以有界 operational read 替代 Windmill 真实使用。一个 repeatable‑read PostgreSQL cut，严格 echo/digest/cursor 绑定；不编造 host/message，无 administration、Owner fact、effect route 或 cutover                                                                                                                                                                                                                                                                                                               |
@@ -2044,7 +1770,7 @@ Needs coverage` filter 只改变可见 row，并保持 Evidence URL 不变。激
 | Telemetry `/operations/telemetry`                                | Available/stale/partial/rebuilding/unavailable/quarantined 计数；`P=TelemetryMatrix`；`Q=SourceFrontierCard`；`T=TelemetryTimeline`                                                                                                                                                                                                                                                                                                                                                                  | Refresh、Open source                                                                                                       | PR #327 source projection 是 `CURRENT/PARTIAL`；per‑source frontier、freshness、completeness、rebuild state、quarantine 与 opaque checkpoint 使用固定 read‑only geometry。Owner 与 telemetry adapter unavailable，telemetry visibility 固定为 `Unavailable`，任何 empty、raw、stale、replayed 或 self‑asserted signal 都不能产生 `Available`                                                                                                                                                                                                                               |
 | Alerts `/operations/alerts`                                      | Critical/warning/info/unread 计数；`P=AlertTable`；`Q=AlertDetail`；`T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                                              | Open alert、Mark presentation read、Open Owner evidence                                                                    | Read acknowledgement 不是业务 acknowledgement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Data Sources `/settings`                                         | Configured/healthy/unavailable/secret‑missing 计数；`P=DataSourceConfigList`；`Q=OpaqueConnectionRefForm`；`T=ValidationHistory`                                                                                                                                                                                                                                                                                                                                                                     | Test read‑only connection、Save opaque reference                                                                           | Page state 不展示或存储 secret value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Agents `/settings/agents`                                        | Configured/running/unavailable/budget‑blocked 计数；`P=AgentProfileList`；`Q=ProviderAndBudgetForm`；`T=InvocationHistory`                                                                                                                                                                                                                                                                                                                                                                           | Test provider、Save profile                                                                                                | Provider key 不 pass‑through 到 Owner request                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Agents `/settings/agents`                                        | 外部 Agent 接入/授权引用与可读取的宿主用量；不可读取的消耗保持未知                                                                                                                                                                                                                                                                                                                                                                                                                                   | Refresh、Open access evidence                                                                                              | 仅蓝图；无 provider test、模型密钥、Save profile、Agent 调度或宿主远程控制                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Notifications `/settings/notifications`                          | Channel/enabled/failed/unavailable 计数；`P=NotificationPreferenceForm`；`Q=ChannelStatus`；`T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                      | Send local test、Save preferences                                                                                          | 不 acknowledge Owner outcome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Access `/settings/access`                                        | Principal/session/token/revoked 计数，以及 binding `ACTIVE/SUPERSEDED/zero‑active` 与 authorization available/expired/revoked/unavailable 计数；`P=LocalPrincipalCard`；`Q=AuthorizationLineagePanel`，内部固定 `Current authority / Admission snapshot` tabs，并分开显示 `Operator Authorization / Product Edge readiness` rows；`T=AuthorizationSuccessorReadiness + CapabilityManifest + CredentialAudit`                                                                                         | Re‑authenticate local session、Issue narrow transport token、Revoke token、Copy once                                       | Transport credential 控件绝不能签发、续期、撤销或 chain‑walk Operator Authorization。Historical expiry 缺少 immediate equivalent successor，或 `successor_distance>1` 时，`Current authority` 显示 unavailable，并列出 prior/current identity、generation、distance 与准确 stop；immutable snapshot 保留，且没有 renewal/replacement selector。只有 `Current authority` 驱动 action state。两个 tab 都显示准确 binding/head、issuer/audience/scope、expiry/revocation frontier、manifest digest、source cut 与 stop predicate；secret/token value 仍只显示一次且不记录日志 |
 
@@ -2148,18 +1874,18 @@ transport/session control。任何 viewport 都不出现 Issue/Renew authorizati
 | `ActionAdmissionGate`, `AuthorizationLineagePanel`                                                                       | discriminated input 精确为 `domain / operational`，绝不能同时出现。`domain` 把 `NextLegalActionBar` 与唯一 `ACTIVE` shell binding/history head、Operator Authorization、Time/revocation、Owner freshness、Product Edge readiness、exact effect set 与 manifest 交叉绑定。`operational` 只接受已注册 disposable capability 加 current `OperationalActionEnvelope`，绑定 principal、run、dispatcher transition version、空 domain‑effect digest、no‑claim cut 与 expiry；Dispatcher 在 lock 下重读，且它不能填充 `AuthorizationLineagePanel` 或替代 Owner authority。两者共用 `IDLE / PREFLIGHTING / ADMITTING / ADMITTED / REVALIDATION_REQUIRED / STALE / UNAVAILABLE`；dispatch 后 unknown 转到 branch‑specific same‑identity readback。Domain 显示 `Current authority` 再显示 `Admission snapshot`；operational 显示 envelope/transition/no‑claim evidence。Historical snapshot 不参与任一 branch，两个组件都不能构造或修复 authority |
 | `AuthorizationSuccessorReadiness`                                                                                        | 只读显示 prior authorization identity/scope/sequence、admission/current generation、`successor_distance=0\|1`、terminal expiry/revocation state、canonical direct‑successor operation availability、存在时的 successor receipt/identity，以及准确 missing/invalid stop。FirstMutation 固定增加 `Original authorization at final cut`、`Immediate successor at final cut` 两行；original 必须是 `CurrentAtLock`，successor 只是额外 current requirement。Distance 大于一显示 `DIRECT_SUCCESSOR_REQUIRED`；original non‑current 显示 `ORIGINAL_AUTHORIZATION_NOT_CURRENT`。它绝不遍历 chain、让 successor 替代 original authority、构造 scope、选择 replacement、签名、续期、撤销或调用 transport‑token control                                                                                                                                                                                                                           |
 | `DownstreamAdmissionHandoffPanel`                                                                                        | 固定显示 Product Edge admission receipt/identity/cut、admission‑outbox locator、downstream‑resolver version/availability、target R&D Owner、R&D receipt/custody state 与 stop predicate。它区分 `admission committed / downstream unavailable` 和输入拒绝，把整体状态渲染为 `SUBMITTED_OR_UNKNOWN`，禁用 S2，只暴露 Copy admission、Open operational run 与 Resolve same identity；绝不提供 successor、retry、权限修复或推断出的 R&D receipt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `ArtifactRequestAdmissionPanel`                                                                                          | 固定三行 S2 gate：historical cached Research View/currentness；可取消的 UI same‑request `PREFLIGHTING`；server‑authoritative Artifact request admission。Server row 绑定 build request、attempt、Intent、channel、exact operation/schema/effect set、Product Edge locator/receipt/final cut、sealed current‑Research evidence identity/digest、source S1 admission locator 与 R&D resolver/version/cut。Preflight failure 保留第一行只读、把 currentness 标为 non‑positive，且不渲染 attempt Resolve。Dispatch 进入 `ADMITTING`；unknown 转入 `SUBMITTED_OR_UNKNOWN`。只有 bounded public projection 才能显示信息蓝 `ADMITTED`；当前 private stored custody 或绿色 Windmill job 都不能填充该 panel                                                                                                                                                                                                                                      |
+| `ArtifactRequestAdmissionPanel`                                                                                          | Read only admitted custody evidence; unavailable/unknown remains nonpositive. It exposes no Artifact submission, preflight, provider or build control                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `InvocationAdmissionReceipt`                                                                                             | 第一次 claim 前创建的 sealed Product Edge receipt：identity/digest、original request‑admission lineage、build request 与 attempt、直接解析的 current authorization identity/frontier 与 Time Evidence、policy‑equivalent `ACTIVE` binding/head、准确 manifest digest、final locked write cut 与 commit time。Missing、expired、cross‑cut、malformed 或 mismatch custody 都是 unavailable，并抑制 claim/start/Run。它在 Dashboard 中只读，不能从 claim、admission snapshot、session 或 credential 重建                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `InvocationClaimReceipt`                                                                                                 | Product Edge claim 加准确 public wire field `invocation_admission_receipt_identity` 与 `invocation_admission_receipt_digest`、historical request‑admission lineage、attempt identity、committed time、claim digest、`CLAIMED_NEW / ALREADY_CLAIMED / unavailable`、current `CLAIMED / INVOCATION_STARTED` 与 Owner‑projected next action。Operation adapter/projector 共享一个按 resolution 分支、由 Rust serialization bytes 直接测试的 parser；claim/non‑success family key 必须 absent，绝不能合成 `null`。Missing/extra/tampered field 让 A0/A1 保持 unavailable。只有恢复的 `CLAIMED + RUN_BOUNDED_EXECUTION_AGENT` 与 sealed receipt 直接一致时，才可进入 start                                                                                                                                                                                                                                                                   |
 | `ArtifactOutcomeProjectionGate`                                                                                          | 一个 attempt 上的 read‑only 优先级 gate：canonical sealed R&D `SUCCESS`、canonical sealed R&D `FAILED_NO_ARTIFACT`，最后才是不存在 R&D terminal 时的 Product Edge `INVOCATION_STARTED`。它只渲染一个 downstream panel 并记录两个 source cut；conflict、missing custody 或 ambiguous dual terminal 显示 unavailable，不能按 first‑match 渲染 success                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `ProviderInvocationStateCard`                                                                                            | 两种固定 geometry。可恢复 `CLAIMED` 先显示准确 sealed invocation‑admission receipt，再显示同一 request/attempt/claim、无 started time、next action `RUN_BOUNDED_EXECUTION_AGENT`，按钮依次为 Run bounded Agent + sandbox、Resolve same attempt、Copy claim、Open operational run。Missing/mismatch invocation admission 保持同一 geometry unavailable 并移除 Run。Claim 后 stale/unavailable fresh Research read 标为 non‑gating；Run 不经 prepare 直接 dispatch start。`INVOCATION_STARTED / OUTCOME_UNKNOWN` 使用固定红色 geometry 与 manual reconciliation，且无 Run/successor；terminalization 与后续 readback 消费 sealed custody，并跨 Research expiry 保留 terminal receipt。绝不创建 claim、重试 provider、标记 success、dismiss stop 或推断 outcome                                                                                                                                                                            |
+| `ProviderInvocationStateCard`                                                                                            | Read only bounded invocation status and original identity; unknown state never enables a provider start, Resolve mutation, rerun or successor. Canonical claim/start semantics belong to Product Edge                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `LegacyTerminalQuarantinePanel`                                                                                          | Owner discriminant、original `SUCCESS / FAILED_NO_ARTIFACT / REJECTED_NO_WRITE / OUTCOME_UNKNOWN` disposition、request/attempt identity、verified historical terminal receipt identity、optional sparse Intent field、legacy custody generation、observed time 与 quarantine reason 的 strict legacy‑only projection。只依次暴露 Resolve same attempt、Open/Copy historical receipt；family/provider/actions 保持 absent，且没有 current Research View、Artifact promotion、successor、TrialFamily repair 或 dismiss action。Missing/malformed projection 保留同一固定 geometry 并显示 unavailable，绝不折叠成 generic unknown                                                                                                                                                                                                                                                                                                          |
 | `SameIdentityResolvePanel`                                                                                               | immutable request 或 request+attempt tuple、previous Owner receipt fingerprint、replacement operational‑run link、resolved Owner receipt/view fingerprint 与精确 equality/conflict/unavailable result；它是 unknown/response‑loss/restart/cache‑loss 的唯一 recovery，绝不派发 naked retry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `ResearchRequestComposer`                                                                                                | 有来源可证伪 typed request；绝不直接创建 Intent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `S1StageCustodyPanel`                                                                                                    | 只读 `SEALED_BASIS_PENDING_QUALIFICATION` geometry，绑定准确 request 与 original admission、sealed 完整 typed request meaning fingerprint、basis receipt/identity、basis head/outbox、commit cut、缺失的 Qualification/terminal Research receipt 及 next action。仅在 canonical basis‑stage verification 后渲染。Same‑identity Resolve 必须消费 sealed meaning 并推进 Historical completion；terminal‑only lookup miss 让 panel 保持 unavailable。Submit/successor 缺席，duplicate basis/head/outbox 为 unavailable，changed request/admission 为 conflict                                                                                                                                                                                                                                                                                                                                                                              |
 | `S1TerminalCustodyPanel`                                                                                                 | 固定 geometry 显示完整 verified Research receipt/Intent 与 TrialFamily root/member/Census，并把 terminal custody 和 linked‑view currentness 分成两行。Expiry 只把后者变为 `STALE`，移除 Submit/successor/S2/review action，保留 Resolve/Open/Copy evidence；绝不隐藏 terminal receipt/family 或把它重新标为 `SUBMITTED_OR_UNKNOWN`。Terminal part 缺失或 cross‑binding 失败时保持同一 geometry unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `ResearchViewCard`                                                                                                       | immutable historical Research fact，加独立 linked‑Artifact availability、Owner‑projected read‑time availability/phase/action、source cut、projection time 与 `valid_through`；渲染 current `ARTIFACT_AVAILABLE / AVAILABLE / REVIEW_ARTIFACT`、保守 cached `REVALIDATION_REQUIRED`，或 Owner‑returned `STALE / ARTIFACT_AVAILABLE / RESOLVE_SAME_REQUEST_IDENTITY`，且不抹除 historical Artifact availability。`Check & Run` 进入 read‑only `PREFLIGHTING`；后两种 form 没有 positive next‑action slot，browser time 自身绝不能声称 `STALE`                                                                                                                                                                                                                                                                                                                                                                                             |
-| `TrialFamilyPolicyComposer`                                                                                              | 只编辑 proposal meaning：bounded trial budget、预提交停止规则、PIT/cost/slippage/capacity model identity、independence rationale 与 falsifier；没有 editable predecessor/frontier、protected‑feedback、independence disposition/basis identity、falsifier binding 或 family identity field                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `TrialFamilyPolicyComposer`                                                                                              | No browser composer; frozen policy is read through the admitted Research view. Authoring, spend cap and census belong to R&D MCP; no editable protected feedback or authority fields                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `TrialFamilyAuthorityResolutionPanel`                                                                                    | 固定三条只读 row：R&D basis receipt/basis/cut、Qualification frontier receipt/frontier/cut/state（如 `GENESIS_EMPTY`）、R&D resolved lineage/predecessor/census cut；每条包含 Owner、operation、locator、availability 与 stop reason。Positive row 只接受 sealed Owner output，绝不能接收 browser‑deserialized TrialFamily graph。Missing/corrupt/unknown authority 只暴露 same‑identity Resolve，并产生零 S1 family 写入                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `QualificationFrontierReceiptPanel`, `IndependenceBasisLink`                                                             | sealed Qualification receipt identity、opaque frontier identity/digest/state/cut、source R&D basis receipt locator、exact resolution operation，且没有 protected payload slot；只有穷尽 canonical verification 证明不存在历史 projection/outbox 后，才能显示 `GENESIS_EMPTY`。Missing head 或 unverifiable history 渲染 `unknown/unavailable`、隐藏 Copy frontier，且只暴露 exact‑basis Resolve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `TrialFamilyReceiptPanel`                                                                                                | direct R&D Owner root receipt、family/root digest、INTENT membership receipt、Census member/fact 与 head/frontier 的固定顺序；available 要求 canonical JSON 与每个重复 relational identity、ordinal、digest、committed‑time 字段一致；缺失、损坏、不完整或不一致的 custody 必须 unavailable，不能与 S1 success badge 共存                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -2238,12 +1964,11 @@ Dark value 是 `TARGET`，不是参考项目已实现完整 dark theme 的证据
 声称 parity。Market direction 使用独立且 locale-aware 的 `--market-up`、`--market-flat`、`--market-down`，
 绝不能 alias 业务 success/failure。Chart 还要用 sign、label 或 glyph 重复方向。
 
-`S1TerminalCustodyPanel [data-state="stale"]` 只把 warning style 应用于 currentness row：
-`border-inline-start: 3px solid var(--status-warning)`，背景为
-`background: color-mix(in oklab, var(--status-warning) 8%, var(--surface-card))`，state icon 与 `STALE` label 同样消费
-`--status-warning`。Verified receipt 与 TrialFamily evidence row 继续继承 `--surface-card`、
-`--text-primary`、`--border-default`，不出现 positive wrapper。Terminal custody 缺失或 cross-bound 时，整个
-fixed geometry 切换为 `--status-unavailable`，不能复用 stale style。
+`S1TerminalCustodyPanel [data-state="stale"]` 只把 warning style 应用于 currentness row： `border-inline-start: 3px solid var(--status-warning)`，背景为 `background: color-mix(in oklab, var(--status-warning) 8%, var(--surface-card))`，state
+icon 与 `STALE` label 同样消费 `--status-warning`。 Verified receipt 与 TrialFamily evidence row 继续继承
+`--surface-card`、 `--text-primary`、`--border-default`，不出现 positive wrapper。
+
+Terminal custody 缺失或 cross-bound 时，整个 fixed geometry 切换为 `--status-unavailable`，不能复用 stale style。
 
 ### Component、geometry 与 motion token
 
@@ -2290,41 +2015,45 @@ Dashboard service 只拥有 route/presentation state、本地 session/capability
 descriptor、disposable run/worker/progress/result/log projection、有界 service log、append-only control-plane
 audit、带 frontier/lag 的可重建 read cache，以及 notification presentation/delivery acknowledgement。
 
-它不拥有 authorization lineage。`AuthorizationAdmissionGateway` 是调用三个 canonical port 的 typed Product
-Edge orchestrator：deployment binding/history readback、带 Time Evidence 与 revocation frontier 的受信 Operator
-Authorization resolve，以及 content‑addressed operation-manifest retrieval。它只可在 record valid-through cut
-内缓存有界 positive/negative projection；cache loss 不改变 authority，cache hit 也不能跳过提交时的 atomic
-admission reread。Missing、stale、expired、revoked、ambiguous、self-asserted、locally configured 或互相不一致的
-input 必须返回 non‑admitted envelope 且 Owner 零写入。Dashboard 不提供创建、编辑、签名、续期、选择替代项或
-强制激活这些 record 的 endpoint。
+它不拥有 authorization lineage。 `AuthorizationAdmissionGateway` 是调用三个 canonical port 的 typed Product Edge
+orchestrator：deployment binding/history readback、带 Time Evidence 与 revocation frontier 的受信 Operator
+Authorization resolve，以及 content‑addressed operation-manifest retrieval。
 
-后台 authority TARGET 仍需要 Operator Authorization Owner 为既有 scope 提供 append-only successor issuance
-operation。它必须绑定 prior authorization identity 与 sequence，保持同一 canonical
-principal/audience/permission scope，追加新的 validity 与 receipt，并让 changed-scope 或 duplicate-sequence
-request conflict。Admission 第一次 downstream mutation 前，只有 original binding 或一个 immediate successor
-可以提供 current-policy evidence；即使每一环都等价，chain distance 大于一也必须 fail closed。
-`AuthorizationSuccessorReadiness` 可以解析并显示该 Owner fact 与 distance，但 Dashboard BFF 绝不调用 issuance
-或遍历到更晚的 head。Canonical Owner API、direct-successor enforcement 与 PostgreSQL evidence 存在前，
-expired-history recovery 是 `NOT_ADMITTED`，所有依赖它的 Product Edge claim 都 unavailable。
+它只可在 record valid-through cut 内缓存有界 positive/negative projection；cache loss 不改变 authority，cache hit 也不能跳过提交时的
+atomic admission reread。 Missing、stale、expired、revoked、ambiguous、self-asserted、locally configured 或互相不一致的
+input 必须返回 non‑admitted envelope 且 Owner 零写入。 Dashboard 不提供创建、编辑、签名、续期、选择替代项或 强制激活这些 record 的 endpoint。
+
+后台 authority TARGET 仍需要 Operator Authorization Owner 为既有 scope 提供 append-only successor issuance operation。
+它必须绑定 prior authorization identity 与 sequence，保持同一 canonical principal/audience/permission scope，追加新的 validity
+与 receipt，并让 changed-scope 或 duplicate-sequence request conflict。
+
+Admission 第一次 downstream mutation 前，只有 original binding 或一个 immediate successor 可以提供 current-policy
+evidence；即使每一环都等价，chain distance 大于一也必须 fail closed。 `AuthorizationSuccessorReadiness` 可以解析并显示该 Owner fact 与 distance，但
+Dashboard BFF 绝不调用 issuance 或遍历到更晚的 head。
+
+Canonical Owner API、direct-successor enforcement 与 PostgreSQL evidence 存在前， expired-history recovery 是
+`NOT_ADMITTED`，所有依赖它的 Product Edge claim 都 unavailable。
 
 被观察 candidate 证明三个必须独立渲染的 readiness stage：Operator Authorization custody、Product Edge current
-binding/admission custody，以及 Product Edge-to-R&D downstream seam。OA 与 PE genesis 可以同时 canonical
-resolve，Product Edge 也能原子提交 admission 与 outbox，但 R&D 仍可能无法在自己的 mutation transaction 内消费
-该 admission。Dashboard 因此保留两张 sealed OA/PE receipt，并单独渲染 downstream seam；绝不能把缺失的 R&D
-receipt 折叠为输入拒绝。
+binding/admission custody，以及 Product Edge-to-R&D downstream seam。 OA 与 PE genesis 可以同时 canonical
+resolve，Product Edge 也能原子提交 admission 与 outbox，但 R&D 仍可能无法在自己的 mutation transaction 内消费 该 admission。
 
-后台目标合同是 `ProductEdgeDownstreamAdmissionResolverV1`：一个 Product Edge-owned hardened port，由 R&D
-在自己的物理 PostgreSQL transaction 内调用。其 SQL 边界只用 non-locking normalized hint 构造完整且有界的 OA
-locator plan，先取得排序去重后的全部 OA shared lock，再锁定完整 Product Edge
+Dashboard 因此保留两张 sealed OA/PE receipt，并单独渲染 downstream seam；绝不能把缺失的 R&D receipt 折叠为输入拒绝。
+
+后台目标合同是 `ProductEdgeDownstreamAdmissionResolverV1`：一个 Product Edge-owned hardened port，由 R&D 在自己的物理 PostgreSQL transaction 内调用。
+
+其 SQL 边界只用 non-locking normalized hint 构造完整且有界的 OA locator plan，先取得排序去重后的全部 OA shared lock，再锁定完整 Product Edge
 binding/history/head/supersession/manifest/admission/receipt/outbox 集合，并返回带 provenance 的 read‑only
-envelope，不返回 table handle。SQL 不作 business admission、不写事实，也不构造 sealed authority。Product Edge
-Rust 边界复用 OA 明确标为 non-authoritative 的 canonical-envelope parser，完整验证 OA/PE
-row/digest/receipt/outbox/cross-binding 集合，并且只有它能通过私有 constructor 构造不可 Deserialize、可供 R&D
-消费的 sealed downstream admission readback。hint cut 后出现变更或新增 locator 时必须中止整个 transaction；取得
-任一 PE lock 后不得再取得新的 OA lock。R&D 只获得 schema usage 与该函数的 exact execute；PUBLIC 和无关 Owner
-都没有权限。独立 Product Edge connection、unlocked read、R&D 直接 OA 权限、消费 raw SQL envelope 或
-Dashboard/BFF reconstruction 都不能满足此合同，因为它们会破坏 lock cut 或 Owner boundary。在这两层及其
-migration/ACL 获得动态准入前，seam 仍为后台 `NOT_ADMITTED`，BFF 返回带精确 stop predicate 的
+envelope，不返回 table handle。 SQL 不作 business admission、不写事实，也不构造 sealed authority。
+
+Product Edge Rust 边界复用 OA 明确标为 non-authoritative 的 canonical-envelope parser，完整验证 OA/PE
+row/digest/receipt/outbox/cross-binding 集合，并且只有它能通过私有 constructor 构造不可 Deserialize、可供 R&D 消费的 sealed
+downstream admission readback。 hint cut 后出现变更或新增 locator 时必须中止整个 transaction；取得 任一 PE lock 后不得再取得新的 OA lock。
+
+R&D 只获得 schema usage 与该函数的 exact execute；PUBLIC 和无关 Owner 都没有权限。 独立 Product Edge connection、unlocked read、R&D
+直接 OA 权限、消费 raw SQL envelope 或 Dashboard/BFF reconstruction 都不能满足此合同，因为它们会破坏 lock cut 或 Owner boundary。
+
+在这两层及其 migration/ACL 获得动态准入前，seam 仍为后台 `NOT_ADMITTED`，BFF 返回带精确 stop predicate 的
 `partial/unavailable`，S2/provider effect 保持零。
 
 它绝不直接查询 Owner table。类型化 Dashboard API/BFF 调用 public Owner/Product Edge port，并返回
@@ -2332,144 +2061,172 @@ migration/ACL 获得动态准入前，seam 仍为后台 `NOT_ADMITTED`，BFF 返
 每个 cache entry 携带 source identity/cut、projection version、observed time、expiry 与 rebuild path。删除
 Dashboard 或 job storage 不会改变业务事实。
 
-R&D S1 V2 具有 two-stage mutation boundary。创建新的 Independence Basis 使用 `FirstMutation`，因此要求
-current Product Edge authority。basis receipt、basis head 与 Owner outbox 提交后，R&D-owned stage resolver
-canonical verify 其准确 request、完整 typed request meaning、original admission、digest 与 commit cut。
-Qualification 和 terminal Research receipt 仍缺失时，它返回 sealed
-`SEALED_BASIS_PENDING_QUALIFICATION` custody。Public same-identity `resolve_v2` entrypoint 不接收 caller request
-bytes，而是消费该 custody，并让第二笔 transaction 使用 `Historical` completion semantics；terminal-only
-receipt lookup 不是 resolver。普通 row 存在不能构造该 custody；duplicate basis/head/outbox write 被禁止，
-changed request 或 admission 必须 conflict。若 Qualification 在 response loss 前已提交并随后 stale，恢复需要
-Qualification Owner 发布 canonically linked renewal/successor（或等价 typed recovery fact），再做 fresh locked
-readback。R&D、Product Edge、Dashboard 与 caller 都不能延长其 validity。Dashboard/BFF 只能显示这些 sealed
-projection，绝不能铸造它们或用 current authority 替代 historical completion。
+R&D S1 V2 具有 two-stage mutation boundary。 创建新的 Independence Basis 使用 `FirstMutation`，因此要求 current Product
+Edge authority。 basis receipt、basis head 与 Owner outbox 提交后，R&D-owned stage resolver canonical verify 其准确
+request、完整 typed request meaning、original admission、digest 与 commit cut。
 
-R&D S1 V2 的一个 typed envelope 组合 request receipt、Research View、TrialFamily root receipt、
-INTENT-membership receipt 与 direct R&D Owner readback 返回的 Census frontier。Terminalization 前，任一
-prerequisite 缺失、损坏、stale 或语义不一致都必须是 `unavailable`。全部 terminal part 经过 direct 与
-cross-binding verification 后，linked-view 后续 expiry 必须在独立 `terminal/stale` envelope 中保留完整历史
-`ACCEPTED` receipt/family，并移除全部 positive action；绝不能返回 receipt-less unknown。S2 的
-`SUCCESS` 要求同一 Owner transaction 返回 Artifact、Build Receipt、Artifact Review、
-Artifact-to-TrialFamily binding receipt 与 bound Census frontier。BFF 暴露相互独立的 same-identity request
-与 build-attempt resolve operation；二者都不能派发 replacement job，也不能从 caller-provided identifier
-推导 family。
+Qualification 和 terminal Research receipt 仍缺失时，它返回 sealed `SEALED_BASIS_PENDING_QUALIFICATION` custody。 Public same-identity
+`resolve_v2` entrypoint 不接收 caller request bytes，而是消费该 custody，并让第二笔 transaction 使用
+`Historical` completion semantics；terminal-only receipt lookup 不是 resolver。
+
+普通 row 存在不能构造该 custody；duplicate basis/head/outbox write 被禁止， changed request 或 admission 必须 conflict。 若
+Qualification 在 response loss 前已提交并随后 stale，恢复需要 Qualification Owner 发布 canonically linked
+renewal/successor（或等价 typed recovery fact），再做 fresh locked readback。 R&D、Product Edge、Dashboard 与 caller
+都不能延长其 validity。
+
+Dashboard/BFF 只能显示这些 sealed projection，绝不能铸造它们或用 current authority 替代 historical completion。
+
+R&D S1 V2 的一个 typed envelope 组合 request receipt、Research View、TrialFamily root receipt、 INTENT-membership
+receipt 与 direct R&D Owner readback 返回的 Census frontier。 Terminalization 前，任一 prerequisite 缺失、损坏、stale
+或语义不一致都必须是 `unavailable`。
+
+全部 terminal part 经过 direct 与 cross-binding verification 后，linked-view 后续 expiry 必须在独立 `terminal/stale`
+envelope 中保留完整历史 `ACCEPTED` receipt/family，并移除全部 positive action；绝不能返回 receipt-less unknown。
+
+S2 的 `SUCCESS` 要求同一 Owner transaction 返回 Artifact、Build Receipt、Artifact Review、
+Artifact-to-TrialFamily binding receipt 与 bound Census frontier。 BFF 暴露相互独立的 same-identity request 与
+build-attempt resolve operation；二者都不能派发 replacement job，也不能从 caller-provided identifier 推导 family。
 
 Replay action admission 必须消费完整的 selected S2 Owner projection，并针对 Replay request 验证每个必需的
-identity、receipt/binding、locator、availability 与 currentness 字段。`selectedS2Available` 之类的 UI/display
-boolean 只能描述派生的展示状态，绝不能授权 `RUN` 或替代 Owner projection。Projection missing、malformed、
-mismatched、stale 或 unavailable 时必须禁用 `RUN`，且 Replay dispatch 与 business write 均为零。
+identity、receipt/binding、locator、availability 与 currentness 字段。 `selectedS2Available` 之类的 UI/display boolean
+只能描述派生的展示状态，绝不能授权 `RUN` 或替代 Owner projection。
 
-S1 chain 首先完成纯 V2 validation。Invalid input 只可提交一张独立 rejection receipt；independence basis、
-Qualification projection、Research receipt、Intent、family、member、head 与 outbox 必须零写入。只有由此产生的
-opaque validated marker 可以进入 positive formation。随后 R&D 写入或复用 write-once basis fact；Qualification
-解析该精确 basis 并发布或复用 opaque protected-feedback frontier；Product Edge 只携带二者 reference/cut。
-最终 `scope -> request` locked transaction 中，R&D 在任何 Research/family 写入前重新读取两个 Owner fact 与
-完整本地 lineage。
+Projection missing、malformed、 mismatched、stale 或 unavailable 时必须禁用 `RUN`，且 Replay dispatch 与
+business write 均为零。
 
-Qualification physical custody 是独立 Owner boundary。独立 `qualification_owner` 拥有 Qualification table、
-sequence 与 writer role；`rd_owner` 对它们没有 ownership、raw `SELECT` 或 `INSERT/UPDATE/DELETE` 权限。R&D
-只能在调用方 transaction 内获得精确 `EXECUTE` 权限，调用一个由 Qualification 拥有、范围窄化的
-`SECURITY DEFINER` locked
-resolver/admission function。该函数使用固定安全 `search_path`、全限定 relation 与既有全局 lock order，只返回
-raw canonical envelope。只有 Qualification-owned Rust 可以验证该 envelope 并构造 sealed、不可
-`Deserialize` 的 positive readback；不存在 public raw-envelope-to-positive constructor。
+S1 chain 首先完成纯 V2 validation。 Invalid input 只可提交一张独立 rejection receipt；independence basis、 Qualification
+projection、Research receipt、Intent、family、member、head 与 outbox 必须零写入。 只有由此产生的 opaque validated marker 可以进入
+positive formation。
 
-final mutation cut 只能在取得全部 OA、Product Edge、Qualification canonical lock 并完成最后一次
-Qualification reread 后采样。OA authorization、Product Edge binding/manifest 与 Qualification half-open
-validity 必须在该精确 cut 重新验证，并在首次写入前把同一个 cut 绑定到 identity 与 receipt。等待期间过期必须
-零写入。对于已经提交 Product Edge admission 但尚无 R&D receipt 的请求，即使 policy-equivalent successor 已
-`ACTIVE`，仍可针对其精确原 canonical binding 执行 FirstMutation，但 final cut 必须具有 current authorization
-与精确 stored lineage。新 admission 仍要求 current `ACTIVE` head，并遵守 zero-active fence。
+随后 R&D 写入或复用 write-once basis fact；Qualification 解析该精确 basis 并发布或复用 opaque protected-feedback frontier；Product
+Edge 只携带二者 reference/cut。 最终 `scope -> request` locked transaction 中，R&D 在任何 Research/family 写入前重新读取两个 Owner
+fact 与 完整本地 lineage。
 
-Lineage discovery 绝不能把 unverified JSON field 用作 SQL selector。它在 scope lock 下枚举该 scope 的每张
-receipt row，通过同一个 central kernel 对每行 canonical decode 与 custody verification，再从 verified fact
-中 filter。任一 row corrupt、missing、stale 或 unavailable，结果必须是非正向 `SUBMITTED_OR_UNKNOWN`；不得
-跳过它而创建 `GENESIS_EMPTY`。Lineage 推进后 exact request replay 复用原 basis/receipts，不能根据当前 caller
-data 重新计算 authority。
+Qualification physical custody 是独立 Owner boundary。 独立 `qualification_owner` 拥有 Qualification table、 sequence 与
+writer role；`rd_owner` 对它们没有 ownership、raw `SELECT` 或 `INSERT/UPDATE/DELETE` 权限。
 
-Qualification 对自己的 authority history 采用同样的穷尽规则。在 Owner lock 下枚举每个受支持的
-protected-feedback projection/outbox row，canonical verify 完整 stored meaning，最后才按 exact R&D basis
-filter。只有完全验证后的历史为空时才能准入 `GENESIS_EMPTY`；missing head、orphan projection/outbox、malformed
-representation、ambiguous decoder 或 unavailable read 必须返回 `unknown/unavailable`，且只允许 exact-basis
-Resolve。不得根据 absence 创建或修复 positive head。
+R&D 只能在调用方 transaction 内获得精确 `EXECUTE` 权限，调用一个由 Qualification 拥有、范围窄化的 `SECURITY DEFINER` locked
+resolver/admission function。 该函数使用固定安全 `search_path`、全限定 relation 与既有全局 lock order，只返回 raw canonical
+envelope。
+
+只有 Qualification-owned Rust 可以验证该 envelope 并构造 sealed、不可 `Deserialize` 的 positive readback；不存在 public
+raw-envelope-to-positive constructor。
+
+final mutation cut 只能在取得全部 OA、Product Edge、Qualification canonical lock 并完成最后一次 Qualification reread 后采样。 OA
+authorization、Product Edge binding/manifest 与 Qualification half-open validity 必须在该精确 cut 重新验证，并在首次写入前把同一个 cut
+绑定到 identity 与 receipt。 等待期间过期必须 零写入。
+
+对于已经提交 Product Edge admission 但尚无 R&D receipt 的请求，即使 policy-equivalent successor 已
+`ACTIVE`，仍可针对其精确原 canonical binding 执行 FirstMutation，但 final cut 必须具有 current authorization 与精确
+stored lineage。 新 admission 仍要求 current `ACTIVE` head，并遵守 zero-active fence。
+
+Lineage discovery 绝不能把 unverified JSON field 用作 SQL selector。 它在 scope lock 下枚举该 scope 的每张 receipt row，通过同一个
+central kernel 对每行 canonical decode 与 custody verification，再从 verified fact 中 filter。 任一 row
+corrupt、missing、stale 或 unavailable，结果必须是非正向 `SUBMITTED_OR_UNKNOWN`；不得 跳过它而创建 `GENESIS_EMPTY`。
+
+Lineage 推进后 exact request replay 复用原 basis/receipts，不能根据当前 caller data 重新计算 authority。
+
+Qualification 对自己的 authority history 采用同样的穷尽规则。 在 Owner lock 下枚举每个受支持的 protected-feedback projection/outbox
+row，canonical verify 完整 stored meaning，最后才按 exact R&D basis filter。
+
+只有完全验证后的历史为空时才能准入 `GENESIS_EMPTY`；missing head、orphan projection/outbox、malformed
+representation、ambiguous decoder 或 unavailable read 必须返回 `unknown/unavailable`，且只允许 exact-basis Resolve。 不得根据
+absence 创建或修复 positive head。
 
 Positive TrialFamily root/member/head/frontier graph 是 sealed direct R&D Owner output。Public deserialization、
 caller construction、browser reconstruction 或 shared DTO 即使字节看似 canonical，也不能创建 admitted graph。
 Dashboard 只接受 typed Owner projection，否则必须把 authority panel 渲染为 unavailable。
 
-Stored Research history 保持 immutable；freshness 与唯一下一合法动作在每次 direct read 时由 R&D Owner
-投影。Dashboard/BFF 不能跨 `valid_through` 缓存之前的 positive action：`now >= valid_through` 时 envelope 为
-`STALE`、不含 positive action，只准入 same-identity Resolve。
-该规则是端到端 transition invariant，不只是 disabled button：prepare、candidate 与 fail 必须在同一个
-locked transaction 内、创建 attempt 或执行任何 Prepared-to-Building/terminal transition 前证明 Owner-cut
-`AVAILABLE` Research View。Server-proven `STALE` 或 dispatch 前 `UNAVAILABLE` path 必须产生零业务写入。
-`SUBMITTED_OR_UNKNOWN` 表示 effect boundary 已跨过且 write outcome unknown；它只能暴露 exact-identity
-resolution，绝不能声称零写、返回 preflight 或 dispatch retry。Recovered canonical Prepared custody 是独立状态。
-write-admission cut 只能在取得 custody lock、完成 canonical custody read 后，于首个 protected write 前紧邻
-采样；pre-lock、request 或 response-projection timestamp 不能授权写入。等待锁期间跨过 `valid_through` 必须
-进入 non-positive zero-write path。S2 no-Artifact envelope 只接受 Owner-verified
-canonical receipt identity，必须绑定 attempt、Intent、disposition、failure code 与 commit time；
-failure-code-to-disposition mapping 独立校验，绝不能从 caller/receipt 字段重建。任何 mismatch 都是
+Stored Research history 保持 immutable；freshness 与唯一下一合法动作在每次 direct read 时由 R&D Owner 投影。 Dashboard/BFF 不能跨
+`valid_through` 缓存之前的 positive action：`now >= valid_through` 时 envelope 为 `STALE`、不含 positive
+action，只准入 same-identity Resolve。
+
+该规则是端到端 transition invariant，不只是 disabled button：prepare、candidate 与 fail 必须在同一个 locked transaction 内、创建
+attempt 或执行任何 Prepared-to-Building/terminal transition 前证明 Owner-cut `AVAILABLE` Research View。
+Server-proven `STALE` 或 dispatch 前 `UNAVAILABLE` path 必须产生零业务写入。
+
+`SUBMITTED_OR_UNKNOWN` 表示 effect boundary 已跨过且 write outcome unknown；它只能暴露 exact-identity resolution，绝不能声称零写、返回
+preflight 或 dispatch retry。 Recovered canonical Prepared custody 是独立状态。
+
+write-admission cut 只能在取得 custody lock、完成 canonical custody read 后，于首个 protected write 前紧邻 采样；pre-lock、request
+或 response-projection timestamp 不能授权写入。 等待锁期间跨过 `valid_through` 必须 进入 non-positive zero-write path。
+
+S2 no-Artifact envelope 只接受 Owner-verified canonical receipt identity，必须绑定 attempt、Intent、disposition、failure
+code 与 commit time； failure-code-to-disposition mapping 独立校验，绝不能从 caller/receipt 字段重建。 任何 mismatch 都是
 `unavailable`，不是 terminal failure badge。
 
-TrialFamily 的 available 状态还要求所有重复 PostgreSQL relation 字段 - family/member/head/binding/outbox
-identity、member ordinal 与 fact identity、digest、committed time - 逐一匹配已验证 canonical representation。
-局部比较不能渲染 `ACCEPTED`、`AVAILABLE`、review action 或绿色 receipt panel；mismatch 或 unreadable custody
-必须转为 `unavailable`，且没有 write-capable action。
+TrialFamily 的 available 状态还要求所有重复 PostgreSQL relation 字段 - family/member/head/binding/outbox identity、member
+ordinal 与 fact identity、digest、committed time - 逐一匹配已验证 canonical representation。
 
-Positive binding resolution 必须在一个 protected custody cut 内读取并验证 canonical binding、receipt、
-family/frontier 与 outbox，并锁定 binding row 防止并发 mutation。之前读取的 READ COMMITTED snapshot 不能在
-另一个 transaction 改变 custody 后继续保持 positive；未解决的 lock/mutation state 是 `unavailable`，只有
-canonical restoration 后新的 exact direct read 才能恢复 availability。
-Binding receipt identity 必须覆盖完整 receipt meaning，包括独立权威的 `committed_at` cut；协调修改
-canonical/relational timestamp 必须改变 identity 或 fail closed。
+局部比较不能渲染 `ACCEPTED`、`AVAILABLE`、review action 或绿色 receipt panel；mismatch 或 unreadable
+custody 必须转为 `unavailable`，且没有 write-capable action。
+
+Positive binding resolution 必须在一个 protected custody cut 内读取并验证 canonical binding、receipt、 family/frontier 与
+outbox，并锁定 binding row 防止并发 mutation。
+
+之前读取的 READ COMMITTED snapshot 不能在 另一个 transaction 改变 custody 后继续保持 positive；未解决的 lock/mutation state 是
+`unavailable`，只有 canonical restoration 后新的 exact direct read 才能恢复 availability。
+
+Binding receipt identity 必须覆盖完整 receipt meaning，包括独立权威的 `committed_at` cut；协调修改 canonical/relational
+timestamp 必须改变 identity 或 fail closed。
 
 Artifact custody discovery 不能用 raw JSON selector、discriminator 或 caller predicate 决定哪些 binding、
-receipt、family/frontier 或 outbox row 值得验证。它必须先在 custody lock 下枚举 bounded candidate row，
-canonical decode 并验证每种受支持 representation，最后才应用 verified predicate。Missing、malformed、
-ambiguous 或 selector-only custody 必须是 `unavailable`，绝不能成为 partial Artifact success 或 review action。
+receipt、family/frontier 或 outbox row 值得验证。 它必须先在 custody lock 下枚举 bounded candidate row， canonical decode
+并验证每种受支持 representation，最后才应用 verified predicate。
+
+Missing、malformed、 ambiguous 或 selector-only custody 必须是 `unavailable`，绝不能成为 partial Artifact success 或
+review action。
 
 Legacy Portfolio Cache snapshot 与 legacy Risk command/denial event 只能进入单独标记的
 `MigrationDiagnostic` envelope。该 envelope 没有 Owner locator，不能满足 canonical page query，不能加入
 Capacity/Risk summary，也不暴露 action。Portfolio/Risk canonical route 在 Owner-local store 与 direct typed
 resolver 存在前保持 `unavailable`。
 
-BFF 可以携带共享 untrusted fact-reference vocabulary 与 canonical framing，但不拥有 cross-Owner proof service。
-它把每个 reference 路由到指定 source Owner 的 typed resolve operation；只有该 Owner durable store/outbox 的
-重读才能向消费者返回 crate-private admitted projection。Resolve port 缺失、canonical-byte mismatch 或 Owner
-storage unavailable 都返回 `unavailable`，并禁用 elevation/action。
+BFF 可以携带共享 untrusted fact-reference vocabulary 与 canonical framing，但不拥有 cross-Owner proof service。 它把每个
+reference 路由到指定 source Owner 的 typed resolve operation；只有该 Owner durable store/outbox 的 重读才能向消费者返回
+crate-private admitted projection。
 
-当前没有准入任何 `DeploymentConfigurationAuthority` service。System/live configuration、routing map、Cache、
-environment variable 与 Settings form 都只是 transport 或 installation mechanism，不是能建立 `PORT_BOUND` 的
-唯一 Owner fact。Dashboard 可以显示这些机制的 redacted opaque reference；但在文档明确指定一个 Owner、
-canonical fact identity、lifecycle/state machine、typed resolver 与 reread rule 前，BFF 必须返回
-`CONFIG_AUTHORITY_UNRESOLVED / INCOMPLETE_FAIL_CLOSED`，也不能从多份配置值一致推断权威。
+Resolve port 缺失、canonical-byte mismatch 或 Owner storage unavailable 都返回 `unavailable`，并禁用
+elevation/action。
 
-可视化 UI 与 MCP 消费同一 operation registry 与 policy compiler：exact version、schema、capability、Owner
-route、timeout class、recovery identity field 与允许的 operational read。Operational implementation 拆成
+当前没有准入任何 `DeploymentConfigurationAuthority` service。 System/live configuration、routing map、Cache、 environment variable 与
+Settings form 都只是 transport 或 installation mechanism，不是能建立 `PORT_BOUND` 的 唯一 Owner fact。
+
+Dashboard 可以显示这些机制的 redacted opaque reference；但在文档明确指定一个 Owner、 canonical fact identity、lifecycle/state
+machine、typed resolver 与 reread rule 前，BFF 必须返回 `CONFIG_AUTHORITY_UNRESOLVED / INCOMPLETE_FAIL_CLOSED`，也不能从多份配置值一致推断权威。
+
+可视化 UI 与 MCP 消费同一 operation registry 与 policy compiler：exact version、schema、capability、Owner route、timeout
+class、recovery identity field 与允许的 operational read。
+
+Operational implementation 拆成
 `RunStore`、`Dispatcher`、`WorkerLeaseStore`、`BoundedRunLogStore`、`ServiceLogGateway` 与
-`OperationAuditStore`；它们都不能暴露或修改 Owner payload table。任何 channel 都不能得到 workspace
-management、deployment、preview、arbitrary script、database、shell、worker administration、object storage 或
-secret-management tool。
+`OperationAuditStore`；它们都不能暴露或修改 Owner payload table。
 
-每个 registry operation 还具有 `available`、`archived` 或 `unavailable` deployment state，并由一个
-content-addressed compatibility envelope 支撑。该 envelope 绑定 operation/schema/effect set、required service
-与 image digest、App 与 script-lock hash、Owner API/schema version、channel、source identity 与 observation cut。
-它可以有意组合多个 service artifact；available 要求 observed component set 与这一个 envelope 完全一致，而
-不能只因它们共享 Compose project、报告 healthy 或 source text 相似。Mixed config-file source、缺少 App/script
-hash，或任意 expected/observed mismatch，都必须把 operation 渲染为 unavailable 并显示准确 failed predicate。
-`archived` 从 UI 与 MCP 移除 dispatch 和 domain mutation action，同时保留 route geometry、capability identity 与
-Owner-linked historical run 的只读访问。只有外部完成的 version-matched deployment 加 consumer revalidation
-才能恢复为 `available`；Dashboard 绝不创建 envelope、执行 archive/restore，也不因 source code 或历史 run
-存在而推断 available。
+任何 channel 都不能得到 workspace management、deployment、preview、arbitrary script、database、shell、worker
+administration、object storage 或 secret-management tool。
+
+每个 registry operation 还具有 `available`、`archived` 或 `unavailable` deployment
+state，并由一个 content-addressed compatibility envelope 支撑。
+
+该 envelope 绑定 operation/schema/effect set、required service 与 image digest、App 与 script-lock hash、Owner
+API/schema version、channel、source identity 与 observation cut。 它可以有意组合多个 service artifact；available 要求 observed
+component set 与这一个 envelope 完全一致，而 不能只因它们共享 Compose project、报告 healthy 或 source text 相似。
+
+Mixed config-file source、缺少 App/script hash，或任意 expected/observed mismatch，都必须把 operation 渲染为 unavailable
+并显示准确 failed predicate。 `archived` 从 UI 与 MCP 移除 dispatch 和 domain mutation action，同时保留 route
+geometry、capability identity 与 Owner-linked historical run 的只读访问。
+
+只有外部完成的 version-matched deployment 加 consumer revalidation 才能恢复为 `available`；Dashboard 绝不创建
+envelope、执行 archive/restore，也不因 source code 或历史 run 存在而推断 available。
 
 ## 打包与部署目标
 
-Dashboard 随 Trade image set 交付，成为默认 visual entry 与 control surface。它必须 pin frontend dependency；
-产出 content-addressed artifact；使用 unprivileged process 与 read‑only filesystem，只给明确 cache 写权限；
-暴露 process readiness 但不冒充 Owner/trading health；运行时接收 endpoint 与 opaque secret reference；阻止
-credential 进入 image、HTML、bundle、URL、log、telemetry、error；保持 Owner store/credential 分离；并包含
-asset manifest、provenance、compatibility declaration 与 route smoke test。
+Dashboard 随 Trade image set 交付，成为默认 visual entry 与 control surface。
+
+它必须 pin frontend dependency； 产出 content-addressed artifact；使用 unprivileged process 与 read‑only filesystem，只给明确
+cache 写权限； 暴露 process readiness 但不冒充 Owner/trading health；运行时接收 endpoint 与 opaque secret reference；阻止
+credential 进入 image、HTML、bundle、URL、log、telemetry、error；保持 Owner store/credential 分离；并包含 asset
+manifest、provenance、compatibility declaration 与 route smoke test。
 
 上一个执行器已在没有 cutover 的情况下退役：没有任何部署运行过它，因此 Dashboard 及其 RunStore 是唯一的
 执行器路径（见 Product Edge）。不存在双 business writer。每条已准入的 Web/MCP journey 都通过
@@ -2478,104 +2235,68 @@ Dashboard/registry，得到相同 Owner receipt 与 fail-close 行为；任何 p
 
 ### 第一方 effect custody 准入（授权 B）
 
-`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。第一方 Dashboard 可以在 `DASHBOARD_DISPOSABLE_EXECUTION`
-边界内实现当前实际使用的四个 Product Edge journey：有序的 Source Intake -> Research Goal V2、
-Artifact Build V1 formation、Develop Composer V2 request submission-or-resolution，以及 Exploratory Replay V2
-request submission-or-resolution。该准入允许源码、测试、打包与 disposable 动态验证；它不激活 routing、不修改
-现有 Product Edge binding、不调用真实 provider、不写共享或生产 Owner 数据库，也不授权交易。上述 runtime
-effect 仍需分别通过独立 gate。
+`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。 第一方 Dashboard 可以在 `DASHBOARD_DISPOSABLE_EXECUTION` 边界内实现当前实际使用的四个 Product Edge journey：有序的 Source
+Intake -> Research Goal V2、 Artifact Build V1 formation、Develop Composer V2 request
+submission-or-resolution，以及 Exploratory Replay V2 request submission-or-resolution。
 
-Product Edge 继续是唯一 routing authority。新的 Dashboard `RUN` 只有在精确 content-addressed compatibility
+该准入允许源码、测试、打包与 disposable 动态验证；它不激活 routing、不修改 现有 Product Edge binding、不调用真实 provider、不写共享或生产 Owner
+数据库，也不授权交易。 上述 runtime effect 仍需分别通过独立 gate。
+
+Product Edge 继续是唯一 routing authority。 新的 Dashboard `RUN` 只有在精确 content-addressed compatibility
 envelope 当前有效，且每个 operation-specific routing key 都解析到唯一 `ACTIVE` history head、dispatcher 为
-`TRADE_DASHBOARD` 时才可达。`WINDMILL`、zero-active、dual/ambiguous、stale、malformed、unavailable 或
-mismatch 都必须在 Owner call 前 fail closed。deployment flag 与 credential 只是必要 transport 配置，不能成为
-routing authority。因此同一 operation identity 不可能同时由 legacy `WINDMILL` dispatcher head 和 Dashboard 作为 fresh business writer。
+`TRADE_DASHBOARD` 时才可达。
 
-Dashboard RunStore 必须在第一个 Owner effect 前记录 canonical recovery identity、operation manifest、
-compatibility envelope 与精确 routing binding。Source Intake 必须先达到 canonical readable，随后才能把同一
-ancestry 交给 Research Goal V2。Artifact formation 保留既有 `Check & Run` preflight、claim-before-provider、
-start-before-provider、provider at-most-once custody，以及 started invocation 出现歧义后的 manual reconciliation。
-response-loss 或 restart 只能使用 retained operation 与精确 request/attempt identity：先 Resolve Owner custody，
-只允许继续一次 Owner 明确声明但尚未 start 的 claim，不重新选择 dispatcher，不创建 replacement
-identity，也不进行 naked retry。精确 identity 的 `RESOLVE` 保持 zero-effect，不要求当前 Dashboard routing
-binding。
+`WINDMILL`、zero-active、dual/ambiguous、stale、malformed、unavailable 或 mismatch 都必须在 Owner call 前 fail
+closed。 deployment flag 与 credential 只是必要 transport 配置，不能成为 routing authority。 因此同一 operation identity 不可能同时由
+legacy `WINDMILL` dispatcher head 和 Dashboard 作为 fresh business writer。
 
-Exploratory Replay custody 比 native replay execution 更窄。公开 HTTP/MCP request 把所有 unsigned 64-bit
-integer 表示为十进制字符串；Dashboard 先调用只读 Owner identify port，验证返回的 canonical bytes，并冻结
-`request_identity`、`meaning_digest` 与 canonical-byte digest。effect worker 随后先解析这个精确 selector，
-只在 absent 且第一次 claim 时提交，并在唯一一次允许的 submit 前持久化
-`REPLAY_OWNER_SUBMISSION_STARTED`。任何 response-loss 或 restart retry 都只 identify 与 resolve，绝不再次
-submit；只有精确 Owner readback 才能完成。native `/v2/exploratory-replays` execution endpoint、provider work
-与 economic-result claim 不在本次准入内。
+Dashboard RunStore 必须在第一个 Owner effect 前记录 canonical recovery identity、operation manifest、 compatibility
+envelope 与精确 routing binding。 Source Intake 必须先达到 canonical readable，随后才能把同一 ancestry 交给 Research Goal V2。
 
-Develop Composer custody 从一个有界 Research request locator 的只读 Owner projection 开始。Dashboard 在 enqueue
-前冻结返回的 request identity 与完整 projection digest。effect worker 重新投影并要求精确相等，先 resolve，
-只在精确 absent sentinel 与第一次 claim 同时成立时 submit，并在 transport 前持久化
-`COMPOSER_OWNER_SUBMISSION_STARTED`，随后再次 resolve。response-loss 或 restart retry 只能 projection-and-resolve，
-不能重复 submit；browser mutation 继续缺席。
+Artifact formation 保留既有 `Check & Run` preflight、claim-before-provider、 start-before-provider、provider
+at-most-once custody，以及 started invocation 出现歧义后的 manual reconciliation。
 
-canonical Source Intake-to-Research Owner operation 与 transport 无关：请求只包含公开 Research proposal 与
-精确 Source ancestry，公开 proposal 不含 transport `channel`。Owner 在自身边界内从 sealed Source custody
-解析当前 Source policy locator；Dashboard、browser 与 MCP 均不构造或接收 `policy_query`。迁移期仅为不中断现有 job 而暂时保留 legacy V1
-adapter；在 parity、recovery、Product Edge 原子 routing cut 与回滚观察窗口全部证明后，删除该 adapter 及其
-V1 request surface。它们不属于最终 Dashboard-only 架构。
+response-loss 或 restart 只能使用 retained operation 与精确 request/attempt identity：先 Resolve Owner custody， 只允许继续一次
+Owner 明确声明但尚未 start 的 claim，不重新选择 dispatcher，不创建 replacement identity，也不进行 naked retry。 精确 identity 的
+`RESOLVE` 保持 zero-effect，不要求当前 Dashboard routing binding。
 
-已准入 HTTP surface 仅包括 `POST /api/rd/source-research`、
-`POST /api/rd/develop-composer`、
-`POST /api/rd/exploratory-replay`；不提供 Artifact Formation 的模型构建 route。每个 route 只接受精确
-allowlisted body，拒绝 unknown field，并返回同一个 bounded Owner projection 加 operational run reference，
-或明确 unavailable state。在 disposable runtime 动态证明这些 gate 之前，浏览器不启用 mutation control。
-把任何 Product Edge binding 切到 `TRADE_DASHBOARD`、执行真实 Owner/provider effect、production cutover、
-publication 都仍是独立的显式 effect。
+Exploratory Replay custody 比 native replay execution 更窄。 公开 HTTP/MCP request 把所有 unsigned 64-bit integer
+表示为十进制字符串；Dashboard 先调用只读 Owner identify port，验证返回的 canonical bytes，并冻结
+`request_identity`、`meaning_digest` 与 canonical-byte digest。
+
+effect worker 随后先解析这个精确 selector， 只在 absent 且第一次 claim 时提交，并在唯一一次允许的 submit 前持久化 `REPLAY_OWNER_SUBMISSION_STARTED`。 任何
+response-loss 或 restart retry 都只 identify 与 resolve，绝不再次 submit；只有精确 Owner readback 才能完成。 native
+`/v2/exploratory-replays` execution endpoint、provider work 与 economic-result claim 不在本次准入内。
+
+Develop Composer custody 从一个有界 Research request locator 的只读 Owner projection 开始。 Dashboard 在 enqueue 前冻结返回的
+request identity 与完整 projection digest。 effect worker 重新投影并要求精确相等，先 resolve， 只在精确 absent sentinel 与第一次 claim
+同时成立时 submit，并在 transport 前持久化 `COMPOSER_OWNER_SUBMISSION_STARTED`，随后再次 resolve。
+
+response-loss 或 restart retry 只能 projection-and-resolve， 不能重复 submit；browser mutation 继续缺席。
+
+canonical Source Intake-to-Research Owner operation 与 transport 无关：请求只包含公开 Research proposal 与 精确 Source
+ancestry，公开 proposal 不含 transport `channel`。 Owner 在自身边界内从 sealed Source custody 解析当前 Source policy
+locator；Dashboard、browser 与 MCP 均不构造或接收 `policy_query`。
+
+迁移期仅为不中断现有 job 而暂时保留 legacy V1 adapter；在 parity、recovery、Product Edge 原子 routing cut 与回滚观察窗口全部证明后，删除该 adapter
+及其 V1 request surface。 它们不属于最终 Dashboard-only 架构。
+
+已准入 HTTP surface 仅包括 `POST /api/rd/source-research`、 `POST /api/rd/develop-composer`、 `POST /api/rd/exploratory-replay`；不提供 Artifact Formation
+的模型构建 route。 每个 route 只接受精确 allowlisted body，拒绝 unknown field，并返回同一个 bounded Owner projection 加 operational
+run reference， 或明确 unavailable state。 在 disposable runtime 动态证明这些 gate 之前，浏览器不启用 mutation control。
+
+把任何 Product Edge binding 切到 `TRADE_DASHBOARD`、执行真实 Owner/provider effect、production cutover、 publication
+都仍是独立的显式 effect。
 
 ## 无人值守实现顺序
 
-后台依赖波次是 `TARGET_DRAFT` development-custody 约束，不授权 Dashboard 实现。PR #327 已在独立
-exact-head review 与 repository gate 后，把 F1 read‑only Observability source projection 合并为
-`CURRENT/PARTIAL`；其真实 Owner canonical-outbox adapter、telemetry backend、runtime/default-Dashboard
-consumer 与全部 Dashboard implementation 仍 unavailable 或 `NOT_ADMITTED`。PR #332 另行用
-`CURRENT/PARTIAL` fail-closed public request/unavailable-envelope contract 取代计划中的 Portfolio static Scope
-skeleton；它仍不暴露 direct-source composition、positive readback、`PORT_BOUND`、Dashboard consumer 或 effect。
-Hub acceptance 后第一逻辑 W1 波次严格是五个并行 leaf：**Market Data Binding**、**Execution Binding**、
-**Portfolio Scope fail-close skeleton**、**Risk-Execution edge-break** 与 **GR0 Governance-Runtime Sealed Read
-Seams**。GR0 只修改两个既有 Owner crate，暴露 concrete sealed read seam；不创建 shared crate，也不修改
-root workspace file。Edge-break 是五文件、zero-lock 的机械前驱：把 trailing algorithm 下沉到 Model，
-Execution 保留 compatibility re-export，并把 Risk 的 Execution dependency 降为 dev-only；冻结前不能启动 Risk
-Core。Market Data fact 后继于 Market Data Binding；Execution Sandbox descriptor 后继于 Execution Binding，
-绝不能由同一个 leaf writer 同时实现。不存在 dependency-prewire Task：每个 leaf
-只有在真实源码 import exact public API 时，才向自己的 package manifest 增加 Owner-evidence dependency。叶
-Task 禁止修改 root `Cargo.toml`、`Cargo.lock` 或 `Makefile`；五个 head 全部冻结后，只能由唯一 **GR1
-root/lock/testkit fan-in** 创建 read‑only relation crate、更新 lock/root inventory 并运行完整 locked gate。缺少冻结
-predecessor、typed public port 或 exact Task identity 时，受影响 Dashboard projection 保持 `unavailable`，
-无人值守 agent 不得自行发明依赖。
+遵循[交付路线](../architecture/)及本章逐路由准入表，不另设 Dashboard 优先路线。只实现已准入可复用原子或路由，保持有界且独立可审查。当前回读几何仍具权威；路由名、组件目录或后端源码路径不授权 scaffold、部署或效果。
 
-1. **Foundations** - token、theme、shell、route、navigation、responsive、accessibility、component catalog。
-2. **Read-only projections** - typed BFF、stamp、Overview、identity search、stale/partial/unavailable 行为。
-3. **R&D S1 replacement** - sourced request、TrialFamily policy、receipt、Research View、direct root/member/frontier
-   readback、next action、reject-no-write、conflict、unknown 与 same-identity resolve。
-4. **R&D S2 replacement** - bounded build job、Artifact/Build Receipt/Review、deterministic build evidence、
-   direct Artifact-family binding/frontier readback、action admission、no-Artifact failure、restart recovery 与
-   App/MCP parity。
-5. **Exploratory replay replacement** - S3 merge 并独立重验后，只替换 Replay V2 request submission custody；
-   保留独立 R&D/Backtest receipt、native execution 与 `NOT_ADMITTED` economic claim。
-6. **Operations** - worker lease；只给已准入消费者增加 schedule；job/progress/log view；disposable cache
-   deletion、restart、Owner-based recovery。
-7. **Portfolio projections** - PR #332 只准入 deterministic request/replay validation 与 structured
-   unavailable envelope。在 private Execution、Market Data、Portfolio direct-source resolver 及其 composition
-   分别准入前，四个 route 都渲染 `PortfolioViewUnavailableCard`，不暴露 request-bound value。后续 positive
-   阶段只能从 sealed Owner readback contract 开始，并以真实 Dashboard consumer 单独准入为前提；绝不能从
-   caller claim、legacy Cache snapshot 或 unavailable envelope 推断 `PORT_BOUND`、Account、Performance、
-   Exposure、Gross Capacity、Attribution、Risk、usage 或 headroom。
-8. **Risk projections** - 在 Portfolio fact 就绪并移除 Risk-to-Execution 生产依赖后，只从 Risk-owned fact
-   增加 Decisions、Reservations、Claims & Admission、Aggregate Frontier 与 Fences。Legacy forwarded command
-   与 denial 保持 migration diagnostic。
-9. **Remaining domain views** - 按 side-menu 顺序并遵守当前 Owner disclosure contract；单独准入前无修改。
-10. **Image integration and cutover** - provenance、packaging、migration parity、rollback，最后才是单独授权的
-    production cutover。
+V0.1 需要 R-1 数据/Artifact/运行/结果回读，并行承接领域 MCP 旅程。V0.2 扩展研究比较、诊断、接管和知识视图。V0.3 增加另行准入的 Governance 试盘确认、模板选择、晋级/运行和退出监测。组合、动态发现与多腿视图随所属版本交付；后续表单和服务不成为首版前置。
 
-每个切片运行 component/accessibility、route/responsive、typed-contract、negative/unknown test、真实 Owner
-journey、适用时 App/MCP parity、cache-loss/restart recovery、仓库 docs/root gate 与完整 diff 检查。Screenshot
-和 mock 不能替代真实消费者。
+UI 依赖只有在当前候选具备规范 producer 与 typed consumer 时可用。缺失输入显示规定的 unavailable，不虚构账户值、分配、`PORT_BOUND`、资格或当前权限。真正消费 public port 的切片才添加依赖；缺失 seam 由所属 Owner 实现，不由 Dashboard 创建影子权威。
+
+每个变更切片验证真实 typed consumer、相关拒绝/未知/恢复状态、路由/响应式/可访问性及当前仓库检查。领域 MCP 验收不准入浏览器实现，浏览器渲染不证明 Owner 验收或生产切换。保留 provenance、打包、迁移等价与回滚；发布或生产切换另需授权。
 
 ## 非目标与停止条件
 
