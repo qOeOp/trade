@@ -1,8 +1,6 @@
 # 能力采用
 
-本页把产品需求映射到当前 Nautilus 基础。数据与回测在 Nautilus 基础上扩展，
-分别包装为 MCP 服务；R&D 是自行开发的研究服务。这里是扩展职责图，不是把原生计算搬到替代引擎的迁移计划。
-Owner 名称表示内部职责、托管与权限边界，不表示额外引擎或必须独立部署的服务。源码能力与产品集成验收分别记录。
+本页列出产品能力在当前 Nautilus 中的接入点、必要扩展和集成证据；采用规则如下。
 
 ## 采用规则
 
@@ -24,17 +22,17 @@ Owner 名称表示内部职责、托管与权限边界，不表示额外引擎�
 设计必须先确定当前仓库原生类型、调用入口与扩展点，再设计产品接口。上游最新文档用于寻找能力，
 本仓库源码决定实际可调用的版本；Rust 与 Python 入口不能互相推断。以下映射约束所有服务细流程。
 
-| 产品要求             | 原生接入与类型                                                                                                 | 产品补充及准入边界                                                                                      |
-| -------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| 历史、实时与文件接入 | `DataClient` / provider adapter → `DataEngine`；原生 `Instrument`、`Bar`、`QuoteTick`、`TradeTick`、订单簿事件 | 外部文件先转成原生类型；来源、许可、可得时间、修订和覆盖是附加证据，不另建行情引擎                      |
-| 数据持久化与读取     | `crates/persistence/src/backend/catalog.rs` 的类型化 Parquet catalog；标的使用专用写入路径                     | 准入与不可变引用绑定实际文件/版本；catalog 本身不证明点时可得、保护分区或完整覆盖                       |
-| 多周期               | `crates/data/src/aggregation.rs`、`BarType` / composite bar；`INTERNAL` 派生与 `EXTERNAL` 来源序列             | 冻结基础输入、价格类型、周期锚点与派生链；小 K 合成不能冒充场所原生大 K                                 |
-| 原生策略包           | Agent 编写 Nautilus Strategy；R&D 封存源码、参数、依赖和环境；原生节点加载                                     | 不经过 JSON 策略语言/BFP/Wasm；当前旧链入口不能证明目标已接通                                           |
-| 挂单、保护与分段退出 | `OrderFactory`、原生订单命令/事件、GTD、contingent order、`reduce_only`                                        | 冻结价格和撤销条件变成原生命令；原生 cache / Execution 管实际生命周期，不复制订单状态机                 |
-| 多策略和执行算法     | `BacktestEngine::add_strategies`、`add_exec_algorithm`，原生 TWAP                                              | 产品仍须绑定成员、实例、算法参数和共同账户；原生 API 存在不等于 MCP 已接通                              |
-| 按笔入场             | 原生 OMS、position ID、client order ID 及 venue adapter                                                        | NETTING 与 HEDGING 语义不同；必须证明内部按笔归属和交易所聚合持仓对账，不另建持仓总账                   |
-| 资金与成本           | 原生 RiskEngine、账户/Portfolio、Fee/Fill/Latency/Margin 模型和 funding settlement                             | Governance 提供逻辑额度政策；产品增加授权、托管与研究证据，不替代原生余额、保证金或费用计算             |
-| 更细成交顺序         | 原生细粒度事件回放、明确的 bar execution 配置                                                                  | OHLC 路径启发式不是真实顺序；补数据由 Market Data 承接，新绑定默认完整重放，不声称原生自动递归取数/回滚 |
+| 产品要求             | 原生接入与类型                                                                                                 | 产品补充及准入边界                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 历史、实时与文件接入 | `DataClient` / provider adapter → `DataEngine`；原生 `Instrument`、`Bar`、`QuoteTick`、`TradeTick`、订单簿事件 | 外部文件先转成原生类型；来源、许可、可得时间、修订和覆盖是附加证据，不另建行情引擎          |
+| 数据持久化与读取     | `crates/persistence/src/backend/catalog.rs` 的类型化 Parquet catalog；标的使用专用写入路径                     | 准入与不可变引用绑定实际文件/版本；catalog 本身不证明点时可得、保护分区或完整覆盖           |
+| 多周期               | `crates/data/src/aggregation.rs`、`BarType` / composite bar；`INTERNAL` 派生与 `EXTERNAL` 来源序列             | 冻结基础输入、价格类型、周期锚点与派生链；小 K 合成不能冒充场所原生大 K                     |
+| 原生策略包           | Agent 编写 Nautilus Strategy；R&D 封存源码、参数、依赖和环境；原生节点加载                                     |                               不经过 JSON 策略语言/BFP/Wasm；当前旧链入口不能证明目标已接通 |
+| 挂单、保护与分段退出 | `OrderFactory`、原生订单命令/事件、GTD、contingent order、`reduce_only`                                        | 冻结价格和撤销条件变成原生命令；原生 cache / Execution 管实际生命周期，不复制订单状态机     |
+| 多策略和执行算法     | `BacktestEngine::add_strategies`、`add_exec_algorithm`，原生 TWAP                                              | 产品仍须绑定成员、实例、算法参数和共同账户；原生 API 存在不等于 MCP 已接通                  |
+| 按笔入场             | 原生 OMS、position ID、client order ID 及 venue adapter                                                        | NETTING 与 HEDGING 语义不同；必须证明内部按笔归属和交易所聚合持仓对账，不另建持仓总账       |
+| 资金与成本           | 原生 RiskEngine、账户/Portfolio、Fee/Fill/Latency/Margin 模型和 funding settlement                             | Governance 提供逻辑额度政策；产品增加授权、托管与研究证据，不替代原生余额、保证金或费用计算 |
+| 分钟执行与信号聚合   | 原生分钟 bar、内部聚合与明确的 bar execution 配置                                                              | 分钟行情驱动成交，聚合 K 驱动信号；分钟内保守政策须扩展并验收                               |
 
 原生行情与账户语义的入口分别见 `crates/model`、`crates/data/src/engine/`、
 `crates/backtest/src/engine.rs`、`crates/backtest/src/exchange.rs`、`crates/common/src/factories/order.rs`
@@ -48,17 +46,17 @@ R&D、Qualification、Governance 的研究决策、保护评估和生命周期�
 
 ### 产品入口与托管
 
-| 能力           | 实现位置                                          | 不变量                                           |
-| -------------- | ------------------------------------------------- | ------------------------------------------------ |
-| 数据与回测     | 在现有 Nautilus 模块扩展，分别提供领域 MCP        | 不复制数据引擎、撮合、订单或账户机制             |
-| 研究智能与编写 | 外部 Agent 作判断并写原生源码；R&D 保存记录与封存 | 无产品内模型、研究决策解释器或原地 Artifact 修改 |
-| 确定性任务     | 领域服务持久运行，MCP/CLI 提交与查询              | 会话消失不丢失任务；后端完成内部链路             |
-| 用户界面       | 第一方 Dashboard 读取和控制相同类型化操作         | UI、日志与运维成功不成为业务事实                 |
-| 运行目录与日志 | 运维 RunStore 与有界只读 API                      | 缓存删除不能删除 Owner 结果；未知保持未知        |
-| worker 与依赖  | 租约/兼容性分别观察，构建固定依赖与 lock          | 心跳不证明 readiness；无通用脚本或发布界面       |
-| 凭据与授权     | 服务私有环境、独立授权发行者与请求准入            | 秘密不进入 payload；Bearer 不成为自签权威        |
-| 来源和编写组合 | Source Intake、R&D、当前 Composer/Host 合同       | 正向链、响应丢失、重启、冲突与原子性独立验收     |
-| 遥测与通知     | 原生扩展点、提交 outbox、状态投影和告警           | 投递不代替事实；告警不发起交易或恢复             |
+| 能力           | 实现位置                                                    | 不变量                                           |
+| -------------- | ----------------------------------------------------------- | ------------------------------------------------ |
+| 数据与回测     | 扩展现有 Nautilus；领域 MCP 需单独准入及准确消费者          | 不复制数据引擎、撮合、订单或账户机制             |
+| 研究智能与编写 | 外部 Agent 作判断并写原生源码；R&D 保存记录与封存           | 无产品内模型、研究决策解释器或原地 Artifact 修改 |
+| 确定性任务     | 领域服务持久运行，MCP/CLI 提交与查询                        | 会话消失不丢失任务；后端完成内部链路             |
+| 用户界面       | 研究只读视图；已准入 Governance 控制                        | UI、日志与运维成功不成为业务事实                 |
+| 运行目录与日志 | 运维 RunStore 与有界只读 API                                | 缓存删除不能删除 Owner 结果；未知保持未知        |
+| worker 与依赖  | 租约/兼容性分别观察，构建固定依赖与 lock                    | 心跳不证明 readiness；无通用脚本或发布界面       |
+| 凭据与授权     | 服务私有环境、独立授权发行者与请求准入                      | 秘密不进入 payload；Bearer 不成为自签权威        |
+| 来源和编写组合 | Agent 来源/原生包编写与 R&D 封存；现有 Composer/Host 仅兼容 | 正向链、响应丢失、重启、冲突与原子性独立验收     |
+| 遥测与通知     | 原生日志优先；可选已准入只读投影/告警                       | 投递不代替事实；告警不发起交易或恢复             |
 
 Windmill 不属于部署依赖。原有 wire spelling 仅用于读取不可变记录，不是实施或执行器选择。
 MCP、Dashboard 和包的存在不证明完整研究旅程；按照具体用户故事验收数据、Artifact、运行、报告及合法下一步。
@@ -97,7 +95,7 @@ MCP、Dashboard 和包的存在不证明完整研究旅程；按照具体用户�
 | `crates/operator_authorization`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Operator Authorization Issuer                                | `CURRENT` 仅为密封的 PostgreSQL issuance 与 revocation‑frontier 契约。Issuer 是这些事实的唯一 writer；Product Edge 只消费其直接加锁 read contract，不能签发或撤销。R&D、Strategy Factory、API transport、credential 与配置都不取得业务权威或 authorization 写权威。在集成动态 gate 通过前，product runtime 与其验收保持 `TARGET` 且 `NOT_ADMITTED`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `crates/product_edge`, `crates/product_edge_contracts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Product Edge 边界                                            | `CURRENT` 仅为内容寻址 operation manifest、deployment binding 与 history head、不可变 request admission 及其 outbox 的密封 PostgreSQL 契约。纯 contracts crate 定义共享 representation，但不拥有事实或授予权威。Product Edge 单向消费 `crates/operator_authorization` 并直接解析 Issuer cut；它不向 R&D 或其他业务 Owner 授权。在真实 consumer 与动态 gate 通过前，Strategy Factory 和产品表面集成、restart/cache‑loss recovery 与产品验收保持 `TARGET` 且 `NOT_ADMITTED`。                                                                                                                                                                                                                                                                                                                                                               |
 | `crates/product_edge_admin`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 显式 authority bootstrap 与 recovery composition             | `CURRENT` 提供 opt‑in 管理可执行单元，只为显式 genesis 请求或一个准确 `ExpiredManifestRecoveryEpochV1` 组合具体 Operator Authorization Issuer 与 Product Edge Owner。recovery 可执行单元在写入前验证同一份内容绑定配置，其中包括准确 authority database 名称、PostgreSQL system identifier 与不同的 Owner role；两个给定 endpoint 的只读回读必须在 OA2 前匹配该 target。它追加/加入 OA2，只从规范回读派生 Product Edge authorization locator，再恢复/加入 B2，且不声称跨 Owner 原子性。其 `route` 调用从一个 proposal 提交一次 Product Edge operation routing 变更。它不拥有任何事实，从不作为 service‑start 或 request‑path 默认，也不能把任一 Owner 写权威转给 Strategy Factory、R&D 或 transport。默认数据库与产品表面 recovery 验收仍为 `TARGET`；自动 genesis 或 recovery、业务权威、provider invocation 与交易仍为 `NOT_ADMITTED`。 |
-| `crates/product_edge_routing_api`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Operation routing 读端口                                     | `CURRENT` 为一个已配置部署在 bearer token 之后提供 `GET /v1/operation-routing`，在不取行锁的只读事务中从 Product Edge Owner 的路由历史作答。它不提交任何东西：只有 `product-edge-authority-bootstrap route` 提交路由 binding。部署包在 `dashboard-preview` profile 下运行它；在已部署或共享环境中提交 `TRADE_DASHBOARD` binding，未经显式授权仍为 `NOT_ADMITTED`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `crates/product_edge_routing_api`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Operation routing 读端口                                     | `CURRENT` 为一个已配置部署在 bearer token 之后提供 `GET /v1/operation‑routing`，在不取行锁的只读事务中从 Product Edge Owner 的路由历史作答。它不提交任何东西：只有 `product‑edge‑authority‑bootstrap route` 提交路由 binding。部署包在 `dashboard‑preview` profile 下运行它；在已部署或共享环境中提交 `TRADE_DASHBOARD` binding，未经显式授权仍为 `NOT_ADMITTED`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `crates/qualification`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Qualification Owner                                          | `CURRENT`：拥有 sealed protected‑feedback projection、head、原始 outbox 与 incident‑specific recovery receipt 托管。`TARGET`：只能通过 Qualification 原生的规范 intake、protected‑attempt 与 eligibility 契约扩展。`NOT_ADMITTED`：运行时或产品准入、续期有效性、直接 protected‑detail 路径、新 domain wake，以及对 R&D 或 Product Edge 的权威。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `crates/backtest_owner`, `crates/backtest_owner_contracts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Backtest Owner                                               | `CURRENT`：`crates/backtest_owner` 是原生 Replay V2 observation、reconciliation、diagnostics 和 sealed‑result 边界；只有 Backtest 写入结果事实。`crates/backtest_owner_contracts` 只承载无依赖 representation；它不能构造正向结果、拥有事实或取得写权威。`TARGET`：runner、persistence 和产品集成仍位于 Owner port 之后。`NOT_ADMITTED`：production write、protected product acceptance、provider effect 或交易。                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `crates/backtest_result_custody`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 面向 R&D 的 Backtest Result 托管                             | `TARGET / NOT_ADMITTED`：在调用方事务内为一个精确 Replay V2 result、receipt 和 outbox 聚合提供无依赖的锁定读取托管。只有完成 Backtest Owner 契约要求的真实 disposable PostgreSQL 证明后才能准入；仅有代码或静态测试不会使该路径成为 `CURRENT`。该 adapter 不能构造正向结果、拥有事实、另开事务或取得 Backtest 写权威。Production write、protected Result 访问、provider effect、Paper、Live 和交易仍为 `NOT_ADMITTED`。                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -186,8 +184,8 @@ MCP、Dashboard 和包的存在不证明完整研究旅程；按照具体用户�
   fence；candidate/caller 不拥有 signer private key、witness write authority、credential material 或 measurement
   authority。sealed admission receipt 交叉绑定完整 trust bundle 与每项 observation。Market Data 私有
   custodian 保留这些证据与 credential；随后 Owner-issued request 解析为准确 projection/event locator 与
-  durable readback，consumer 只能获得密封、只读的 `StrategyInputSampleEventResolverV1`。`ProgramHost` 把 request
-  选定的 Owner input 送入真实 BacktestEngine 与 Sim Exchange；Backtest 密封实际消费与 diagnosis，并在一个
+  durable readback，consumer 只能获得密封、只读的 `StrategyInputSampleEventResolverV1`。封存原生包加载器将 request
+  选定的 Owner input 准确绑定到真实 BacktestEngine 与 Sim Exchange；Backtest 密封实际消费与 diagnosis，并在一个
   原子提交中写入准确 request、attempt 与 terminal result。逐字节相同 retry 加入相同 bytes，含义冲突被拒绝，
   restart 必须返回相同 Owner readback。caller digest、raw DSN、fixture、fixed corpus、in-memory/temp-file writer
   以及由 candidate、caller、consumer 或被测进程派生的 signer/witness/credential/measurer 均不能铸造任何
@@ -255,8 +253,9 @@ Dashboard、trace、alert 可以解释进度，不产生来源事实或终态结
 验证；Dashboard 切片另有浏览器验收。遥测网关、状态投影与告警目标仍遵循自身合同，原生复用不预选外部 broker
 或观测后端。
 
-遥测网关保留可替换的 OTLP receiver、processor、exporter 接口。状态投影幂等消费已提交 wake 与政策准入遥测，
-保存 checkpoint 并可重建；告警投递不成为业务结果，Dashboard API 只服务 Global Status View。
+优先使用原生日志/追踪与各服务错误记录。只有已准入消费者确有需要时才增加只读采集、状态投影或告警适配；
+不默认要求 receiver/processor/exporter 管线、broker、checkpoint 存储或告警工作流。
+Owner 事实仍与自身 outbox 原子提交，Dashboard 不能制造业务终态。
 
 ## 权威迁移门禁
 
@@ -305,6 +304,6 @@ SUCCESSOR_ACTIVE → VERIFIED`。任何时刻最多一个写入者；没有、�
 
 ## 开发使用方式
 
-修改现有 crate 前，先确定其所在行 目标 Owner 允许的写入者和迁移门禁，再填写一个
-[开发切片契约](../guide/development-chunk-contract/)。保持这些契约的改动可以自由选择内部数据结构
+修改现有 crate 前，先确定其所在行 目标 Owner 允许的写入者和迁移门禁，再按
+[开发范围检查](../guide/development-chunk-contract/)选择有界结果。保持这些契约的改动可以自由选择内部数据结构
 进程拓扑 协议和性能策略。移动业务事实 创建第二写入者或绕过门禁的改动，必须先完成架构变更再开始实现。

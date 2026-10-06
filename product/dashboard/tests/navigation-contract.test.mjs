@@ -155,7 +155,7 @@ test("Workers bilingual completeness includes geometry, failure states and actio
   assert.equal(specs[0], specs[1]);
 });
 
-test("Operations Audit bilingual completeness closes source, geometry and mutation boundaries", async () => {
+test("Operations Audit bilingual geometry agrees with its registered read-only route", async () => {
   const skeletons = [];
   const auditCode = await sources([
     "components/operations-audit.tsx", "lib/operation-audit-contract.ts", "lib/operation-audit-gateway.ts",
@@ -168,8 +168,7 @@ test("Operations Audit bilingual completeness closes source, geometry and mutati
     const endHeading = suffix ? "#### 精确 Run Detail 骨架" : "#### Exact Run Detail skeleton";
     const spec = doc.slice(start, doc.indexOf(endHeading, start));
     expectBonded({ [suffix || "en"]: spec }, auditCode, [
-      "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "dashboard.dependency.cancel.queued.v1",
-      "dashboard.operational_cache.delete.v1", "source_intake.research.submit_or_resolve.v1",
+      "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED",
       "OperationAuditTable", "Correlation timeline",
       "24h", "7d", "30d", "512", "UPDATE", "DELETE",
     ], "Operations Audit");

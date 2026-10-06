@@ -7,8 +7,6 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { PUBLISHED_DOC_ROOTS } from './lib/publication-contract.mjs';
 import {
-  materializeCanonicalDevelopmentChunkRecord,
-  materializeCanonicalInvariantDevelopmentChunkRecord,
   resolveEffectiveRelationSemantics,
 } from './lib/development-chunk-record.mjs';
 
@@ -323,7 +321,8 @@ export function validateCanonicalProjectionContract(contract) {
     );
     nonEmptyString(scenario.docsRoute, `${scenario.id}.docsRoute`);
     const primary = nonEmptyArray(scenario.primaryRelationIds, `${scenario.id}.primaryRelationIds`);
-    const supporting = nonEmptyArray(scenario.supportingRelationIds, `${scenario.id}.supportingRelationIds`);
+    const supporting = scenario.supportingRelationIds;
+    if (!Array.isArray(supporting)) throw new Error(`Canonical projection requires array ${scenario.id}.supportingRelationIds`);
     if (primary.some((id) => supporting.includes(id))) {
       throw new Error(`Scenario repeats relation across PRIMARY and SUPPORTING: ${scenario.id}`);
     }
@@ -368,7 +367,8 @@ export function validateCanonicalProjectionContract(contract) {
           }
         }
         const triggerPrimary = nonEmptyArray(trigger.primaryRelationIds, `${trigger.id}.primaryRelationIds`);
-        const triggerSupporting = nonEmptyArray(trigger.supportingRelationIds, `${trigger.id}.supportingRelationIds`);
+        const triggerSupporting = trigger.supportingRelationIds;
+        if (!Array.isArray(triggerSupporting)) throw new Error(`Canonical projection requires array ${trigger.id}.supportingRelationIds`);
         if (new Set(triggerPrimary).size !== triggerPrimary.length || new Set(triggerSupporting).size !== triggerSupporting.length) {
           throw new Error(`Recovery trigger repeats a relation within one role: ${trigger.id}`);
         }
@@ -558,9 +558,7 @@ function canonicalContractProjection(route, locale) {
   }
   for (const objectId of routeObjectProjection?.objectIds ?? []) routeObjectIds.add(objectId);
 
-  const isQuickstart = route === 'guide/quickstart';
   const isArchitectureRules = route === 'guide/architecture-rules';
-  const isDevelopmentChunk = route === 'guide/development-chunk-contract';
   const isCapabilityAdoption = route === projectionContract.capabilityAdoptionProjection.docsRoute;
   const isObservability = route === projectionContract.observabilityProjection.docsRoute;
   if (
@@ -569,9 +567,7 @@ function canonicalContractProjection(route, locale) {
     && routeRelations.length === 0
     && routeInvariants.length === 0
     && routeObjectIds.size === 0
-    && !isQuickstart
     && !isArchitectureRules
-    && !isDevelopmentChunk
     && !isCapabilityAdoption
     && !isObservability
   ) return '';
@@ -723,38 +719,12 @@ function canonicalContractProjection(route, locale) {
     ))}`);
   }
 
-  if (isQuickstart) {
-    lines.push('', `- **${text.quickstart}**: ${inlineList(architectureContract.quickstartContract.canonicalActivationSequence)}`);
-    const proofRules = locale === 'zh'
-      ? architectureContract.quickstartContract.proofRulesZh
-      : architectureContract.quickstartContract.proofRules;
-    for (const rule of proofRules) lines.push(`  - ${rule}`);
-  }
 
   if (isArchitectureRules) {
     lines.push('', `- **${text.ownerProfile}**: ${inlineList(architectureContract.operationalContract.requiredOwnerLocalProfileFields)}`);
     lines.push(`- **${text.timeEvidence}**: ${inlineList(architectureContract.operationalContract.requiredTimeEvidenceFields)}`);
   }
 
-  if (isDevelopmentChunk) {
-    lines.push('', `- **${text.chunkFields}**: ${inlineList(architectureContract.developmentChunkContract.requiredFields)}`);
-    lines.push(`- **${text.validatorOutcomes}**: ${inlineList(architectureContract.developmentChunkContract.validator.validationOutcomes)}`);
-    lines.push(`- **${text.validatorCommand}**: \`npm run validate:development-chunk -- <record.json>\` ${locale === 'zh' ? '或通过 stdin 输入 JSON' : 'or pipe JSON on stdin'}`);
-    lines.push(
-      '',
-      `**${text.relationChunkExample}**`,
-      '',
-      '```json',
-      JSON.stringify(materializeCanonicalDevelopmentChunkRecord(architectureContract), null, 2),
-      '```',
-      '',
-      `**${text.invariantChunkExample}**`,
-      '',
-      '```json',
-      JSON.stringify(materializeCanonicalInvariantDevelopmentChunkRecord(architectureContract), null, 2),
-      '```',
-    );
-  }
 
   lines.push('', '</Accordion>', '</Accordions>', '');
   return lines.join('\n');

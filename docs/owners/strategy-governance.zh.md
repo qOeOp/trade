@@ -129,7 +129,7 @@ Runtime/Risk/Execution 的有界事实，判定已批准冻结条件；R&D 的�
   每个受治理 generation 对应一个 `STRATEGY_GENERATION` envelope。两种 kind 都绑定各自
   `effective-from`/`effective-through` 区间和同一完整共享 Time Evidence 形状；它们不是已承诺用量或
   可用 headroom。
-- 一个完整 contender set 与一个 Portfolio Interaction Receipt 对应一个 Capital Allocation Disposition。
+- **兼容优先级分配政策：** 一个完整 contender set 与一个 Portfolio Interaction Receipt 对应一个 Capital Allocation Disposition。
   它记录 policy version contender-set frontier 接受资金比例 被拒或延迟成员及准确共同证据截面。
   版本化 priority vector 只包含 Governance 拥有的 `POLICY_PRIORITY_CLASS` Portfolio 拥有的
   `PORTFOLIO_INTERACTION_CLASS` 和 Governance 拥有的 `REQUESTED_CAPITAL_FRACTION`；每项声明比较方向
@@ -180,8 +180,7 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   回执。这个不对称是有意的、并由单测钉住，所以在 Qualification 没有生产者期间，写一次的回执是一条从未被写过的
   事实，而不是一条以拒绝形式写下的事实。模型携带七个生命周期动作、`PAPER` 与 `LIVE`、两种授权模式、eligibility 与 application 状态。这些只是消费端
   的形状：全仓范围内 `EligibilityState::Expired` 与 `EligibilityState::Revoked` 没有任何生产者，每一个
-  `UntrustedEligibilityReadback` 都构造在本 crate 自己的测试里，而 `crates/qualification` 两个词都没有。读者不应
-  把这些类型的存在当作一条等待接线的读端口；从来没有任何一侧写过一条这样的事实。静态切片只校验
+  `UntrustedEligibilityReadback` 都构造在本 crate 自己的测试里，而 `crates/qualification` 两个词都没有。这些类型尚无接通的读端口，也没有已产出的事实。静态切片只校验
   `UNATTENDED_REQUEST_WITH_POLICY` 下单一 contender 集合的 `PAPER` `INITIAL_ACTIVATION`；其他每个动作、`LIVE`、
   `ATTENDED_REQUEST` 与条件激活分别以 `ActionNotAdmittedInStaticSlice`、`LiveNotAdmitted`、`AttendedNotAdmitted` 或
   `ConditionalScannerNotAdmitted` 拒绝。公开构造安装的是不可用的 Owner 准入，所以每个公开请求都失败关闭
@@ -209,12 +208,12 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   Product Edge 点名的字段，以及绑定它的 Product Edge 生命周期请求入口。
 - **TARGET - 交接与持久化：** 没有通向 Qualification、Scanner、Portfolio、Runtime、Execution 或 Risk 的 port，也没有
   任何 Governance 事实的持久关系。
-- **TARGET - 模拟盘激活的 Forward Decision 关卡：** 静态的 `INITIAL_ACTIVATION` 切片不读取任何 Forward Decision。
+- **UNAVAILABLE 可选兼容政策 - 模拟盘激活的 Forward Decision 关卡：** 静态的 `INITIAL_ACTIVATION` 切片不读取任何 Forward Decision。
 
 ## 输入交接
 
-- [Qualification](./qualification/) 提供绑定准确 Candidate 事实 经济条件 已评估成本容量模型和资格容量版本的已提交 Eligibility State 与 Revocation 事实。`TARGET`：它还提供当前的 Forward Decision，模拟盘 `INITIAL_ACTIVATION` 要绑定同一 Eligibility Fact 当前的 `FORWARD_ADMITTED` 决策；其他、缺失或未知的 Forward Decision 一律提交 `REJECTED_NO_WRITE`。
-- [Scanner](./scanner/) 每轮提交一个终态 Scanner Receipt；条件激活必须绑定与决定目标拥有相同策略条目 ArtifactRef 和条件版本的准确 matched proposal member。
+- [Qualification](./qualification/) 提供绑定准确 Candidate 事实 经济条件 已评估成本容量模型和资格容量版本的已提交 Eligibility State 与 Revocation 事实。可选的封存 Forward Record 政策还要求当前 Forward Decision，不是真实试盘的前提；该政策下模拟盘 `INITIAL_ACTIVATION` 要绑定同一 Eligibility Fact 当前的 `FORWARD_ADMITTED` 决策；其他、缺失或未知的 Forward Decision 一律提交 `REJECTED_NO_WRITE`。
+- **仅兼容接口：** [Scanner](./scanner/) 每轮提交一个终态 Scanner Receipt；条件激活必须绑定与决定目标拥有相同策略条目 ArtifactRef 和条件版本的准确 matched proposal member。
 - [Portfolio](./portfolio/) 提供 Portfolio Lifecycle Evidence Receipt。`INITIAL_ACTIVATION` 绑定预先存在
   Capacity Scope 的新鲜候选无关 gross Capacity View；`PROMOTION` 还必须按自身 `PROMOTION`
   transition-evidence key 绑定准确且新鲜的 Performance 与 Exposure 回执。generation 特定经济条件来自
@@ -225,7 +224,7 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 - [Portfolio](./portfolio/) 为集合资金决定提供 Portfolio Interaction Receipt，在一个一致 contender
   与估值截面上包含集中度 相关性 方向与因子重叠 尾部贡献 分散贡献和边际组合价值。缺少交互证据时
   整个分配决定不可用，不能把各策略独立批准后再拼接。
-  每个 contender 必须携带该 receipt 中 Portfolio 拥有的准确 interaction class；Governance 不重新计算
+  封存优先级分配兼容政策要求各 contender 携带准确 Portfolio interaction class；目标等分政策不新增评分或分类框架。Governance 不重新计算
   或替换该分类。
 - [Runtime](./runtime/) 提供 Generation Application Receipt 和可直接读取的 Runtime Incident Fact。
 - [Execution](./execution/) 在新 generation 启动前提供不可变 `RecoveryCase.KNOWN_CLOSED`。
@@ -236,7 +235,7 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 
 ## 输出交接
 
-- 向 [Scanner](./scanner/) 提供准确 ArtifactRef Eligibility ActivationConditionVersion CapitalEnvelopeVersion 数据需求和生效区间。
+- **仅兼容接口：** 向 [Scanner](./scanner/) 提供准确 ArtifactRef Eligibility ActivationConditionVersion CapitalEnvelopeVersion 数据需求和生效区间。
 - 向 [Runtime](./runtime/) 授权一个 generation 的 `INITIAL_ACTIVATION` 或 `PROMOTION`，或只减不增的
   `REDUCTION` `PAUSE` `RETIREMENT` 转换。每次新增风险转换都重复完整请求 Authorization Lineage 并
   绑定显式 Autonomous Policy Authorization。Runtime
@@ -261,10 +260,10 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   `RETIREMENT > PAUSE > REDUCTION`；该证据处置顺序与请求优先级相互独立。Governance 记录全部适用替代项
   唯一选择结果 决定性 Portfolio 类别与截面和政策版本；输入缺失时不提交决定。
 - 不注册缺少当前 Qualification 证据的工件，也不静默替换 ArtifactRef。过期 跨 Candidate 条件不匹配或扩大后的经济容量绑定不属于当前证据。
-- 条件激活不能绕过 Scanner 证据，也不能从 `PROPOSED` batch 激活负面或非成员策略。
+- 封存 `ScannerConditional` 兼容接口的条件激活不能绕过 Scanner 证据，也不能从 `PROPOSED` batch 激活负面或非成员策略。
 - 不把保护 Qualification 测量 参数 结果 holdout 细节或评估输出复制进决定 理由或只读视图。
-- 兼容 Capacity View Eligibility 必需 Scanner 证据或 Recovery 事实缺失 过期 不匹配或不可用时不得接纳 `INITIAL_ACTIVATION`。`PROMOTION` 还要求匹配准确 generation 的新鲜 Performance 与 Exposure 回执及准确 `PROMOTION` evidence key。`PAUSE` `REDUCTION` 和 `RETIREMENT` 不增加风险，因此不能被容量或表现证据缺失阻断。
-- Scanner 提案只是证据。Governance 只能在既有已授权无人值守生命周期血缘内使用它，并且仍独占
+- 兼容 Capacity View Eligibility 必需政策证据或 Recovery 事实缺失 过期 不匹配或不可用时不得接纳 `INITIAL_ACTIVATION`。`PROMOTION` 还要求匹配准确 generation 的新鲜 Performance 与 Exposure 回执及准确 `PROMOTION` evidence key。`PAUSE` `REDUCTION` 和 `RETIREMENT` 不增加风险，因此不能被容量或表现证据缺失阻断。
+- 兼容 Scanner 提案只是证据。Governance 只能在既有已授权无人值守生命周期血缘内使用它，并且仍独占
   部署决定和 Capital Allocation Disposition。提案本身不能创建 Runtime application 或资金权限。
 - Eligibility 过期 撤销 缺失或未知，或必需 Performance Exposure degradation 证据过期或不可用时，
   不得静默保留 `ACTIVE_GENERATION`。必须提交 `DE_RISK_PENDING` 立即取代新增风险权限，并推动
@@ -301,7 +300,7 @@ Runtime 与 Risk 对后继状态失败关闭，同时继续 decrease-only 链；
 应用 Risk decrease-only 决定 Execution 效果与回读和 Portfolio 投影。拒绝或事实不可用时保留前一
 生命周期状态；外部效果未知时打开 Recovery，而不是伪造成功暂停或退役。
 
-当 contender 超出共享资金池时，Governance 等待声明的完整 contender-set frontier，使用一个一致 Portfolio Interaction Receipt
+兼容优先级分配政策中，当 contender 超出共享资金池时，Governance 等待声明的完整 contender-set frontier，使用一个一致 Portfolio Interaction Receipt
 和版本化分配政策提交唯一 Capital Allocation Disposition。 Governance 先移除政策明确拒绝成员，再按已声明序数 policy priority、Portfolio
 interaction class、 requested capital fraction 和唯一规范 generation bytes 作字典序排序，最后执行 capped priority fill。
 
@@ -310,7 +309,7 @@ interaction class、 requested capital fraction 和唯一规范 generation bytes
 
 ## 决策契约
 
-- **输入** - 当前 Eligibility、条件激活所需完整 Scanner 证据、完整 contender set、Portfolio lifecycle
+- **输入** - 当前 Eligibility、冻结政策证据、完整生效成员与待接纳请求、Portfolio lifecycle
   interaction degradation 回执、Runtime application 或 incident、Execution drift closure 和授权生命周期请求。
 - **诊断与决定** - 判断资格与保留，再决定生命周期状态和唯一确定 Capital Allocation Disposition；
   Governance 决定部署和资金比例，不决定单笔交易。
@@ -354,9 +353,9 @@ interaction class、 requested capital fraction 和唯一规范 generation bytes
 - 生命周期请求并发或重启送达时加入同一只写回执；Runtime 并发送达时加入同一 Generation Application Receipt，且最多形成一个 Strategy Instance。
 - 相同完整 contender set Portfolio Interaction Receipt policy version 与证据截面，不论请求投递顺序
   都生成相同 Capital Allocation Disposition。
-- 每个 contender 都携带三项版本化 priority attribute 及其来源 方向和缺失处置。属性缺失或未知时
+- 兼容优先级分配政策的每个 contender 都携带三项版本化 priority attribute 及其来源 方向和缺失处置。属性缺失或未知时
   产生 `INPUT_INCOMPLETE_NO_WRITE`；完全相同只按规范 strategy-generation identity 解析。
-- 分配是完整无序集合上的确定 capped fill。generation identity 或完整 comparator key 重复，或任一
+- 兼容优先级分配是完整无序集合上的确定 capped fill。generation identity 或完整 comparator key 重复，或任一
   属性缺失 未知，都提交 `INPUT_INCOMPLETE_NO_WRITE` 且不创建 Authorized Generation Decision。
 - 并发冲突生命周期请求只按
   `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION` 解析一次；低优先级请求不能覆盖已提交的更安全状态。

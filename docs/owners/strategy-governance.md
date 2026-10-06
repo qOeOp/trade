@@ -189,7 +189,7 @@ the corresponding Owners without a second order, account or qualification engine
   plus one `STRATEGY_GENERATION` envelope for each governed generation. Both kinds bind their own
   `effective-from`/`effective-through` interval and the same complete shared Time Evidence shape; they are neither
   committed usage nor available headroom.
-- Capital Allocation Disposition for one complete contender set and one Portfolio Interaction Receipt. It records
+- **Compatibility priority-allocation profile:** Capital Allocation Disposition for one complete contender set and one Portfolio Interaction Receipt. It records
   the policy version, contender-set frontier, accepted shares, rejected or deferred contenders, and the exact common
   evidence cut. Its versioned priority vector is limited to Governance-owned `POLICY_PRIORITY_CLASS`,
   Portfolio-owned `PORTFOLIO_INTERACTION_CLASS`, and Governance-owned `REQUESTED_CAPITAL_FRACTION`; each declares
@@ -248,8 +248,7 @@ grants nothing, and widening the admitted set requires changing this document fi
   The model carries the seven lifecycle actions, `PAPER` and `LIVE`, both authorization modes, eligibility and
   application status. Those are consumer-side shapes only: repository-wide, `EligibilityState::Expired` and
   `EligibilityState::Revoked` have no producer at all, every `UntrustedEligibilityReadback` is built inside this
-  crate's own tests, and `crates/qualification` carries neither term. A reader should not take the presence of
-  these types as a read port awaiting connection; nothing has ever written one of these facts. The static slice validates only `INITIAL_ACTIVATION` for `PAPER` under
+  crate's own tests, and `crates/qualification` carries neither term. These types have no connected read port or produced facts. The static slice validates only `INITIAL_ACTIVATION` for `PAPER` under
   `UNATTENDED_REQUEST_WITH_POLICY` with a single-contender set; every other action, `LIVE`, `ATTENDED_REQUEST`, and
   condition-dependent activation reject as `ActionNotAdmittedInStaticSlice`, `LiveNotAdmitted`,
   `AttendedNotAdmitted`, or `ConditionalScannerNotAdmitted`. Public construction installs an unavailable Owner
@@ -282,13 +281,13 @@ grants nothing, and widening the admitted set requires changing this document fi
   lifecycle request intake that binds it.
 - **TARGET - handoffs and persistence:** no port to Qualification, Scanner, Portfolio, Runtime, Execution, or Risk
   and no durable relation for any Governance fact.
-- **TARGET - Forward Decision gate on paper activation:** the static `INITIAL_ACTIVATION` slice reads no Forward
+- **UNAVAILABLE optional compatibility profile - Forward Decision gate on paper activation:** the static `INITIAL_ACTIVATION` slice reads no Forward
   Decision.
 
 ## Input handoffs
 
-- [Qualification](./qualification/) supplies committed Eligibility State and Revocation facts with exact Candidate, fact, economic-condition, evaluated cost/capacity-model, and qualified-capacity versions. `TARGET`: it also supplies the current Forward Decision, and a paper `INITIAL_ACTIVATION` binds a current `FORWARD_ADMITTED` decision for the same Eligibility Fact; any other, missing or unknown Forward Decision commits `REJECTED_NO_WRITE`.
-- [Scanner](./scanner/) supplies one terminal Scanner Receipt per scan; condition-dependent activation must bind an exact matched proposal member with the same strategy entry, ArtifactRef, and condition version as the decision target.
+- [Qualification](./qualification/) supplies committed Eligibility State and Revocation facts with exact Candidate, fact, economic-condition, evaluated cost/capacity-model, and qualified-capacity versions. The optional sealed Forward Record profile additionally requires the current Forward Decision; it is not a real-trial prerequisite. Under that profile, a paper `INITIAL_ACTIVATION` binds a current `FORWARD_ADMITTED` decision for the same Eligibility Fact; any other, missing or unknown Forward Decision commits `REJECTED_NO_WRITE`.
+- **Compatibility only:** [Scanner](./scanner/) supplies one terminal Scanner Receipt per scan; condition-dependent activation must bind an exact matched proposal member with the same strategy entry, ArtifactRef, and condition version as the decision target.
 - [Portfolio](./portfolio/) supplies one Portfolio Lifecycle Evidence Receipt. `INITIAL_ACTIVATION` binds a fresh
   candidate-neutral gross Capacity View for the pre-existing Capacity Scope; `PROMOTION` additionally binds exact
   fresh Performance and Exposure Receipts under its own `PROMOTION` transition-evidence key. Generation-specific
@@ -301,7 +300,7 @@ grants nothing, and widening the admitted set requires changing this document fi
   concentration, correlation, directional and factor overlap, tail contribution, diversification contribution,
   and marginal portfolio value on one coherent contender and valuation cut. Missing interaction evidence makes
   the allocation decision unavailable rather than independent per-strategy approvals.
-  Every contender must carry the exact Portfolio-owned interaction class from that receipt; Governance never
+  The sealed priority-allocation compatibility profile requires each contender's exact Portfolio-owned interaction class; the target equal-share policy does not introduce a scoring/classification framework. Governance never
   recomputes or substitutes the classification.
 - [Runtime](./runtime/) supplies the Generation Application Receipt and directly readable Runtime Incident Facts.
 - [Execution](./execution/) supplies immutable `RecoveryCase.KNOWN_CLOSED` before a new generation may start.
@@ -312,7 +311,7 @@ grants nothing, and widening the admitted set requires changing this document fi
 
 ## Output handoffs
 
-- To [Scanner](./scanner/): exact ArtifactRef, Eligibility, ActivationConditionVersion, CapitalEnvelopeVersion, data needs, and effective interval.
+- **Compatibility only:** to [Scanner](./scanner/): exact ArtifactRef, Eligibility, ActivationConditionVersion, CapitalEnvelopeVersion, data needs, and effective interval.
 - To [Runtime](./runtime/): authorize `INITIAL_ACTIVATION` or `PROMOTION`, or a decrease-only `REDUCTION`,
   `PAUSE`, or `RETIREMENT` transition for one strategy generation. Every add-risk transition repeats the complete
   request Authorization Lineage and binds explicit Autonomous Policy Authorization. Runtime separately proves application;
@@ -341,10 +340,10 @@ grants nothing, and widening the admitted set requires changing this document fi
   precedence. Governance records every applicable alternative, the unique selected outcome, decisive Portfolio
   categories and cuts, and the policy version; missing inputs create no decision.
 - Never register an artifact without current Qualification evidence or silently replace an ArtifactRef. A stale, cross-candidate, condition-mismatched, or widened economic-capacity binding is not current evidence.
-- Never bypass Scanner evidence when activation is condition-dependent or activate a negative or nonmember strategy from a `PROPOSED` batch.
+- On the sealed `ScannerConditional` compatibility interface, never bypass Scanner evidence or activate a negative or nonmember strategy from a `PROPOSED` batch.
 - Never copy protected Qualification measurements, parameters, results, holdout details, or evaluation output into a decision, rationale, or read model.
-- Never accept `INITIAL_ACTIVATION` when the compatible Capacity View, Eligibility, required Scanner evidence, or Recovery fact is missing, expired, mismatched, or unavailable. `PROMOTION` additionally requires matching fresh Performance and Exposure Receipts for the exact generation and the exact `PROMOTION` evidence key. `PAUSE`, `REDUCTION`, and `RETIREMENT` remain available without capacity or performance evidence because they do not add risk.
-- A Scanner proposal is evidence only. Governance may use it only under an already authorized unattended
+- Never accept `INITIAL_ACTIVATION` when the compatible Capacity View, Eligibility, required policy evidence, or Recovery fact is missing, expired, mismatched, or unavailable. `PROMOTION` additionally requires matching fresh Performance and Exposure Receipts for the exact generation and the exact `PROMOTION` evidence key. `PAUSE`, `REDUCTION`, and `RETIREMENT` remain available without capacity or performance evidence because they do not add risk.
+- A compatibility Scanner proposal is evidence only. Governance may use it only under an already authorized unattended
   lifecycle lineage and still commits the sole deployment and Capital Allocation Disposition. No proposal creates
   a Runtime application or capital authority by itself.
 - Never silently retain `ACTIVE_GENERATION` when Eligibility is expired, revoked, missing, or unknown, or when
@@ -386,7 +385,7 @@ Governance decision, Runtime application, Risk decrease-only decision, Execution
 projection. A rejection or unavailable fact keeps the preceding lifecycle state; an unknown external effect
 opens Recovery instead of fabricating a successful pause or retirement.
 
-When contenders exceed the shared pool, Governance waits for the declared contender-set frontier, applies the
+On the compatibility priority-allocation profile, when contenders exceed the shared pool, Governance waits for the declared contender-set frontier, applies the
 versioned allocation policy to the complete set plus one coherent Portfolio Interaction Receipt, and commits
 one Capital Allocation Disposition. It first removes exact policy-rejected members, then lexicographically
 sorts the admissible set by declared ordinal policy priority, Portfolio interaction class, requested capital
@@ -398,7 +397,7 @@ allocation. Risk then enforces, but never recomputes, those envelopes.
 
 ## Decision contract
 
-- **Inputs** - current Eligibility, complete Scanner evidence when condition-dependent, full contender set,
+- **Inputs** - current Eligibility, frozen policy evidence, complete effective membership and pending requests,
   Portfolio lifecycle, interaction and degradation receipts, Runtime application or incident facts, Execution
   drift and closure facts, and authorized lifecycle requests.
 - **Diagnosis and decision** - determine eligibility and retention, then lifecycle state and one deterministic
@@ -446,10 +445,10 @@ allocation. Risk then enforces, but never recomputes, those envelopes.
 - Concurrent or restarted lifecycle delivery joins one write-once request receipt, and concurrent Runtime delivery joins one Generation Application Receipt and at most one Strategy Instance.
 - The same complete contender set, Portfolio Interaction Receipt, policy version, and evidence cut always produce
   the same Capital Allocation Disposition regardless of request delivery order.
-- Every contender carries all three versioned priority attributes with declared source, direction, and missing-value
+- For the compatibility priority-allocation profile, every contender carries all three versioned priority attributes with declared source, direction, and missing-value
   disposition. Missing or unknown priority produces `INPUT_INCOMPLETE_NO_WRITE`; an exact tie resolves only by the
   canonical strategy-generation identity.
-- Allocation is a deterministic capped fill over the complete unordered set. Duplicate generation identity or
+- Compatibility priority allocation is a deterministic capped fill over the complete unordered set. Duplicate generation identity or
   complete comparator key, or any missing/unknown attribute, commits `INPUT_INCOMPLETE_NO_WRITE` and no Authorized
   Generation Decision.
 - Concurrent conflicting lifecycle requests resolve once under

@@ -13,13 +13,11 @@ criteria or scope require new confirmation.
 ## 2. Prepare PIT data
 
 Use Market Data MCP to inspect instruments/coverage, submit bounded backfill and retain job identity. The service
-runs the job; the agent queries status. Gaps and protected partitions refuse by name. `dataset_ref` describes market
-and window; the backend resolves exact custody. The agent does not transport bar rows.
+runs the job; the agent queries status. Gaps and protected partitions refuse by name. The input manifest binds complete 1m execution data, native subscriptions/aggregation, range and versions. The backend resolves exact custody; the Agent neither transports nor stitches bar rows. Market Data defines the fields.
 
 ## 3. Author and seal
 
-Submit JSON `research.strategy-authoring.v1`, validate signal/protection rules, bounded sizing and approved execution-policy references, then read the
-immutable Artifact. R&D defines the current subset; a target description does not implement full R-1 orders/exits.
+The Agent authors a native Nautilus Strategy in Git and submits the exact commit, entry point, parameters and dependency environment. R&D seals an immutable source package, loaded by the native Backtest loader without strategy IR, Wasm or a product interpreter. Sealing does not prove execution; actual loading and R-1 order behavior require replay verification.
 
 ## 4. Run and read results
 

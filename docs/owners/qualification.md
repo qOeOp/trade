@@ -4,6 +4,31 @@
 
 Independently decide whether a frozen candidate satisfies preregistered evidence, holdout, cost, capacity, and operational conditions. Qualification owns deployability evidence, not strategy design, activation, or recovery.
 
+## TARGET - Early protected scope and later assessment
+
+V0.1 reserves protected scope before opening research data. Market Data retains user-approved access partitions
+and enforces reads; R&D retains project references and exposures. V0.3 Qualification owns independent
+assessment protocols, protected consumption and eligibility facts. Partitioning is not qualification, grants
+neither a passing conclusion nor trading authority, and does not advance the complete assessment workflow into V0.1.
+Projects may continue iterating within approved research scope without sufficient unseen protected data, retaining
+the eligibility evidence gap explicitly. That gap prevents qualification, not research. Subsequent qualification
+requires new evidence meeting the applicable independence requirements.
+
+Assessment checks exact scope, research/external exposure and required independence evidence. Reserved data
+already used in development is not unseen merely because of its partition label. Preparation, imports, caching,
+renaming and project switching never reset exposure; insufficient evidence remains unavailable. Approve and
+freeze scope before initial research reads, preregister assessment methods before qualification execution,
+and retain exact links between their respective versions.
+
+## TARGET - Public outcomes and display boundary
+
+External Agents and the Dashboard share the same bounded public feedback: qualification terminals expose only
+`QUALIFIED` or `CLOSED_NOT_QUALIFIED`. Internal three-level judgments, protected-period returns/drawdown, equity,
+order/fill detail and diagnostics remain in isolated assessment. The user identity grants no Dashboard unsealing
+entry; details, exports, charts, filters and alerts cannot bypass this boundary. Task state and evidence availability
+use only existing permitted projections without exposing protected measurements or negative reasons. Permitted
+ordinary research, real trial and production trading reports remain fully displayable.
+
 ## TARGET - Composition eligibility
 
 Member economic qualification assesses the complete frozen strategy. Hedging rules and trading legs may be
@@ -51,6 +76,40 @@ account risk and execution configuration. Strategy hash alone cannot transfer a 
 Isolated diagnostics remain research evidence, not a substitute for declared deployment-context assessment.
 Uncovered policies/scopes require assessment. Handle trial-divergence evidence under frozen methods and decision
 conditions without automatically changing thresholds, eligibility or authority, or exposing protected values.
+
+## TARGET - Cumulative trial deflation at Candidate Intake
+
+Research is bounded by spending, not a fixed trial count ([R&D](./rd/#cumulative-trial-accounting-and-spend-ceilings)); the more a lineage tries, the higher the bar its Candidate meets here.
+Qualification applies that discount to a trial count it derives, never to one it is told.
+
+- *What is deflated.* The selected exploratory result's daily non-annualized return series, using the
+  preregistered versioned Deflated Sharpe method of Bailey and López de Prado. Its exact mathematics, return
+  definition and reference vectors are bound by `deflation_method`; reuse an admitted deterministic calculation
+  rather than another statistics framework. Deleted formation code is reference evidence only, not a required
+  historical entrypoint or implementation ancestry. The native statistics integration remains unavailable until
+  canonical-input and cumulative-count verification passes.
+- *N.* The cumulative trial count: the sum of `trial_count` across the census frontiers the Candidate binds for its
+  TrialFamily and its cross-family predecessors, plus every protected attempt in that lineage, since each consumed
+  holdout is another look. Qualification recomputes it from those frontiers, and an incomplete frontier is
+  `NOT_ADMITTED` as it already is.
+- *The spread of trial ratios.* The sample standard deviation of the daily ratios of the lineage's
+  `TERMINAL_RESULT` trials, which are exploratory evidence rather than protected, floored at a preregistered minimum.
+  Trials without a terminal result count in N and add no ratio; with fewer than two terminal trials the floor alone
+  is used.
+- *The bar.* The protected decision policy version fixes the minimum deflated probability and the floor before any
+  result is observed. A Candidate below it is `NOT_ADMITTED` as `DEFLATED_SHARPE_BELOW_POLICY` and reserves no
+  holdout, so the deflation spends no protected evidence.
+- *Determinism.* The statistic is a function of the canonical result bytes of each trial, and its probability is
+  recorded in parts per million, floored, as the formation report records it. The bytes a trial's return series is
+  read from are the ones its production build wrote.
+
+The same-universe random control and the sealed holdout stay as specified above. The control is what still holds if
+the count is understated; the holdout never returns detail to R&D.
+
+**Implementation gap.** `crates/qualification` has no integrated cumulative deflation or native random-control
+arm. Candidate-local holdout reservation does not establish complete cross-family attempt accounting. The native
+path must consume the full R&D census and protected attempt lineage before admitting this assessment; neither a
+historical formation calculation nor a caller-provided count proves that integration.
 
 ## Eligibility terminal status
 
@@ -135,207 +194,6 @@ misreading of the dependency rather than a property of it.
   conditions, revocation history, and the bounded economic-capacity contract Governance and Risk must enforce.
   It owns revocation as an Eligibility transition without taking over Runtime recovery.
 
-## Implementation status ledger
-
-This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
-[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself. No row here is `IMPLEMENTATION_ADMITTED`: this Owner has no admitted slice, and widening
-that requires changing this document first. Where a fact already has a section of its own, the row points at it
-rather than repeating it, so there is one place to keep in step.
-
-- **CURRENT_PARTIAL - Candidate Intake:** `submit_candidate_intake_v1` in `crates/qualification/src/postgres.rs`
-  writes the receipt under a Candidate advisory lock and returns a typed conflict for a second review request of
-  an already-intaken Candidate. It has no production caller: every call outside this Owner is in the
-  `sealed-develop-composer-acceptance` test module of `crates/strategy_factory/src/iteration_decision_postgres.rs`.
-- **CURRENT_PARTIAL - Protected Evaluation:** every protected terminal is driven end to end by the ordered
-  PostgreSQL gate and by nothing else. Its entries and the sealed evidence that admits each terminal are the
-  Qualification rows of the ordered array in `scripts/ci/test-rd-owner-postgres.bash`, and that array stays
-  their only list; the two behaviours the gate cannot reach are recorded under Behaviours the ordered gate
-  cannot reach below.
-- **CURRENT_PARTIAL - Pre-Research protected-feedback resolution:** this is the one capability with production
-  callers. `resolve_or_create_for_basis` and `admit_in_transaction` are called from
-  `crates/strategy_factory/src/product_edge_postgres.rs`, and `admit_historical_projection_in_transaction` from
-  `crates/strategy_factory/src/rd_owner_postgres_custody.rs`, all outside any test module. Its readback proof is
-  an ordered-chain entry; the response-cut rollback has none, for the reason recorded under Behaviours the
-  ordered gate cannot reach below.
-- **TARGET - Eligibility State:** the module owns `INELIGIBLE`, `QUALIFIED`, `EXPIRED`, and `REVOKED`, and only
-  the first two have any implementation. `EligibilityState::Expired` and `::Revoked` in
-  `crates/strategy_governance/src/model.rs` have no producer anywhere, `QualificationPublicStatusV1` carries five
-  variants and neither of those two, no relation named for expiry or revocation exists among this Owner's
-  `qualification_*_v1` tables. The consumer type exists in
-  Governance and every `UntrustedEligibilityReadback` is constructed in that crate's own tests, so the shape of a
-  read port is present while nothing on either side has written such a fact.
-
-  A successor chain does now prevent predecessor revival. An Eligibility Fact binds its predecessor and
-  its own half-open window, and `predecessor_eligibility_identity` is UNIQUE, so a Fact can be superseded
-  at most once. Two properties this Owner publishes for the current Eligibility State are still
-  unavailable, and naming which is the point of recording them. The economic-condition version needs no
-  new production: a Fact cross-binds the protected decision-policy identity and version, and
-  `ProtectedEconomicPolicyBundleV1` carries the same pair, so a State that references its Fact has it.
-  The evaluated cost and capacity-model version has no producer at all. `cost_model_identity`,
-  `slippage_model_identity`, and `capacity_model_identity` arrive from Candidate Intake as bare strings
-  with no version and no digest beside them, while other identities in that same structure do carry
-  digests, so this is an absence rather than an unread field. Its supplier is Candidate Intake, and it is
-  in place when a version or a digest appears beside those three. A column that could only hold NULL is
-  deliberately not added, because a downstream NULL cannot distinguish a model with no version from a
-  record that did not compute one from a reader who may not see it.
-
-  Expiry and revocation are not Fact rows. A Fact cross-binds an exact Protected Replay Request and an
-  exact `TERMINAL_RESULT` Protected Run Result, and an expiry has neither, so it cannot satisfy what a
-  Fact is. Their relation is the one recorded as missing above. Operator Authorization has already solved
-  the same shape with `operator_authorization_revocation_frontiers_v1` and
-  `operator_authorization_revocation_heads_v1`, and that pair is the shape to follow rather than design
-  again. A revocation frontier is deliberately not built for this Owner today, and the reason is that
-  nothing consumes one, not that the shape is wrong.
-- **TARGET - the deployment-authorized terminal:** `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled`, and what
-  it waits for is recorded under Eligibility terminal status above.
-- **CURRENT, and permanently unprovable - Incident-specific Owner reconstruction:** the machinery is merged -
-  `crates/qualification/src/recovery.rs`, exported as `run_owner_recovery_cli` and shipped as the
-  `qualification-owner-recovery` binary behind the `owner-recovery` feature - and its only proof can never pass.
-  The measurement is recorded under Incident-specific Owner reconstruction below.
-- **TARGET - same-universe random control:** the handoff recorded under Failure and recovery below is declared
-  and has neither a producer nor a consumer. Nothing publishes a control-set definition, nothing synthesizes
-  comparison programs from one, and `crates/qualification` has no comparison arm. The order in which it must be
-  built is part of that clause, not a note on it.
-- **TARGET - Forward Record:** no Forward Registration, Forward Replay request, Forward Decision or forward census
-  exists, and Eligibility has no forward-kill revocation cause. The contract is under TARGET - Forward Record below.
-
-## Verification coverage and limits
-
-### Protected-feedback resolution
-
-Resolution has three paths: a fresh projection for the same basis rejoins without writes; an unprojected basis under an empty scope takes `GENESIS_EMPTY`; an unprojected basis under a scope with a canonical frontier takes `FRONTIER`. Genesis commits sequence zero at the canonical genesis cut with no source frontier.
-
-`second_request_under_one_principal_resolves_through_the_frontier_arm` covers one deployment, principal and authorized scope with two separately admitted requests. Both are `Accepted`, each owns its basis, and the second projection is `FRONTIER`. Evidence: owner-chains run `35654451152`, 190 passed, 94 entries. The ordered prerequisite `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds` supplies the Catalog head; an isolated subset that omits it does not prove the complete path.
-
-A scope's first authorization is genesis; later authorizations use `issue_successor`. Admissions bind exact request identities, and equal suffixes cannot create distinct authorization meanings. `Result::is_ok` is not acceptance evidence: `SubmittedOrUnknown` requires `ResolveSameRequestIdentity` and authoritative resolution/store readback. A warning or transport success never proves admission.
-
-### Response-cut rollback
-
-Rollback requires the response cut to fall outside the projection's half-open validity window. The expiry boundary is `valid_through`; a cut before the projection requires a backwards server clock. Creation or renewal provides the branch precondition. Mutating `valid_through_epoch_ms` breaks canonical projection equality and is refused as `Qualification admission envelope projection mismatch`.
-
-`owner_clock_epoch_ms_in_transaction` reads schema-qualified `pg_catalog.clock_timestamp()` twice in the same transaction. `qualification_writer` is not a superuser and has no `CREATE` on `public` or `rd_owner_api`, preventing a shadow clock. `PROJECTION_VALIDITY_MS` is ten minutes with no override. A harness may vary real elapsed time; injected clocks, canonical-row tampering or production changes are not admitted substitutes. This section records coverage limits, not permission to alter the clock contract.
-
-## Pre-Research protected-feedback resolution
-
-Qualification accepts no caller assertion of genesis, emptiness, or current feedback. It directly resolves the
-exact R&D Independence Basis Receipt, locks its complete durable history for the trusted principal and Research
-request scope, and commits one genesis frontier only when that history is empty. Existing history returns the
-complete current opaque frontier; missing, stale, malformed, conflicting, cross-principal, cross-scope, or
-cross-basis input returns `UNAVAILABLE` and creates no frontier transition.
-
-Ordinary create, resolve, and in-transaction admission accept no caller time. After direct basis resolution,
-the principal/scope advisory lock, and complete canonical Qualification history verification, Qualification
-samples PostgreSQL `clock_timestamp()` inside the same transaction. Existing-read freshness uses that Owner
-cut. A new projection takes its single sample at the final write edge and uses only that cut for projection
-time, half-open `valid_through`, receipt commit time, and their identities and digests.
-
-After persisting and canonically rereading the new history, Qualification samples a distinct Owner response
-cut immediately before freshness validation and commit; crossing `valid_through` rolls back projection,
-head, and outbox atomically.
-
-The projection exposes only its resolution state, opaque frontier reference and digest, basis reference and
-digest, principal, scope, source sequence/cut, clock epoch, projection time, and half-open validity. It contains no
-protected payload, outcome, measurement, parameter, holdout detail, or dereferenceable evidence. Any later
-protected-feedback write must repeat the precommitted basis relation. Same basis and canonical source cut replay
-byte-identically; a changed basis or source cut cannot join.
-
-### Protected-feedback generation
-
-Each principal/scope history carries one protected-feedback generation: a count of the public Qualification phase facts
-that history has produced, which the projection states as its source sequence. It is the observation frontier the
-Qualification Status Summary advances, so a Research Intent frozen under one projection can tell, at a later Owner cut,
-whether any protected evaluation has since become observable to it.
-
-- **What advances it:** the first commit of each public status phase fact whose candidate's protected-feedback frontier
-  belongs to the history: `NOT_ADMITTED`, `ADMITTED`, `EVALUATING`, `CLOSED_NOT_QUALIFIED` and `QUALIFIED`, one step
-  each. A phase fact is what R&D can observe of a protected evaluation, so it is what the generation counts. A replayed
-  phase fact does not advance it.
-- **What does not:** a projection's creation or renewal, the ten-minute validity window, a read, and the incident
-  reconstruction. A renewal takes the generation as it stands, so time alone never changes it.
-- **Atomicity:** the step is written in the transaction that commits the phase fact, under the principal/scope lock and
-  the history's head row lock that projection writes also take. Every protected closure, attempt disposition and
-  assessment alike, commits its phase fact in its own serializable transaction, together with its read of the Protected
-  Replay Attempt Frontier, so the generation, the phase fact and the protected state it records commit or roll back as
-  one.
-- **Evidence for every step:** each step is one append-only row naming its history, its generation and the phase fact
-  that caused it, numbered from one without a gap. The head's source sequence is the history's latest generation, and
-  its source cut is `qualification-protected-feedback-cut-v1-<generation>`, of which the genesis cut is generation zero.
-  History verification requires the head to equal the latest logged step, each logged step to name a stored phase fact
-  of that history, and each projection's source sequence to be no greater than its successor's; a generation that no
-  phase fact accounts for fails verification.
-- **Currentness:** a projection is current only while it is fresh and its source sequence is the history's generation.
-  `resolve_or_create_for_basis` renews a fresh projection whose generation has been passed, and `admit_in_transaction`
-  refuses it as stale. Candidate intake reads a candidate's feedback frontier the same way: it is current only while it
-  is the history's head, fresh at the intake cut and stating the history's generation, so a candidate whose frontier a
-  phase fact has passed is `NOT_ADMITTED`. `admit_historical_projection_in_transaction` still reads a projection at its
-  own cut.
-- **Read without renewal:** `read_protected_feedback_generation_in_transaction` answers, for the projection a caller
-  froze, its history's current generation and source cut, and nothing else. It takes the history's head row `FOR SHARE`
-  in the caller's read-committed transaction, so the answer holds until that transaction ends, and it neither checks the
-  projection's validity window nor writes anything, so a caller past the window reads it without bringing the window
-  back or causing a Qualification write. Its SQL function grants `EXECUTE` to `rd_owner` alone. A caller compares the
-  source cut it froze with the one it reads: unequal means a phase fact of that history became observable after the
-  freeze.
-- **A candidate's own phase facts count:** once a Research request's own candidate enters Qualification, its first phase
-  fact, `ADMITTED` or `NOT_ADMITTED`, and every later one advance the generation the request froze. That is intended:
-  once Qualification has observed the candidate, iterating on it goes through a new freeze. Two consequences rest on
-  work outside this Owner and hold only once it lands. R&D refuses a continuation whose frozen source cut the
-  generation has passed through its continuation check, which comes after slice 1. Further iteration goes through a
-  successor Intent that freezes the current projection under its family's basis, which is slice 1, qOeOp/trade#1197.
-  Until slice 1, a successor copies its predecessor's projection and therefore its frozen source cut.
-- **Counted from its deployment:** phase facts committed before the generation existed are not counted, and no step is
-  reconstructed for them. At its first deployment every history's generation is zero even where protected evaluations
-  already happened, so a generation compares two moments after that deployment and says nothing about the history before
-  it. An Intent frozen before the deployment froze the genesis cut, and the first phase fact of its history after the
-  deployment makes its continuation refuse: the comparison errs toward stopping.
-
-## Incident-specific Owner reconstruction
-
-Qualification alone may execute the sealed `qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba`
-reconstruction authorized for the 2026-08-21 local protected-feedback loss. This is a one-incident
-`DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP` contract, not a general restore or import API. It accepts only
-the exact evidence-session resource locator, incident identity, authorization locator, and target database
-resource locator. Projection rows, JSON values, timestamps, digests, genesis state, and current validity are never
-caller inputs.
-
-Before any insert, Qualification strictly revalidates the bound JSONL record bytes, call/output/turn pairing,
-frozen canonical generator identity, complete expected semantic vector, surviving R&D
-basis/receipt/head/outbox, global empty Qualification history, absent recovery receipt, and inactive outbox
-publisher. The closed incident contract binds PostgreSQL cluster `system_identifier`, database name/OID, and
-role name/OID as typed fields with a domain-separated digest. Qualification compares that semantic target
-under transaction custody before any DDL or write and repeats the comparison immediately before the first DDL.
-
-One serializable transaction takes the principal/scope advisory lock and exclusive table locks, then inserts
-the original projection, head, original domain outbox row, and a separate Qualification custody/audit receipt.
-The receipt emits no domain wake and states that no physical backup was restored, original JSONB storage bytes
-were not observed, and no new validity was minted. Exact completed replay returns the same receipt without
-writes; partial, conflicting, stale, malformed, or non-empty state fails closed. The reconstructed projection
-retains its original half-open interval, so a normal resolver at the current cut remains `UNAVAILABLE`.
-
-Executable provenance is a separate effect boundary. Qualification records the executable hash actually used and
-verifies database semantics; it does not claim that repository code can independently prove its own executable
-bytes. The Hub-owned external effect controller binds the reviewed Origin ancestry, candidate commit/tree,
-executable path, and SHA-256 before it releases the database capability and executes this worker.
-
-This section is an implementation status record, not contract. The contract above is unchanged by it. The
-bound evidence-session resource no longer exists, so this repository can neither execute this reconstruction
-again nor re-prove it. Two measured facts make that permanent rather than temporary. The resource locator is
-an absolute path under one developer home directory and `verify_evidence` rejects every other path, so the
-proof could only ever run on that one machine and never on Linux CI. The same function also pins the SHA-256
-of named lines of that file, so no substitute file can satisfy it.
-
-The file itself is gone from that machine: no Time Machine destination is configured, no local snapshot holds
-it, nothing under the home directory or any mounted volume carries that session identifier, and the artifact
-was never committed. Its proof, `isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe`, therefore cannot pass anywhere, and neither can
-`frozen_evidence_recomputes_exact_canonical_vector`, which recomputes the sealed vector from the same file. Both are ignored as unrunnable.
-The module's other tests do not read the file: `make cargo-test` builds with `vibe-qualification/owner-recovery`, so the
-workspace test job runs them.
-
-The contract above stays as the record of a closed one-incident reconstruction; it does not widen into a
-general restore path because it can no longer be exercised, and nothing here authorizes substituting a fixture
-for the sealed evidence.
-
 ## Input handoffs
 
 - [R&D](./rd/) submits the frozen Candidate only with a terminal `SELECTED_FOR_QUALIFICATION`
@@ -366,11 +224,7 @@ of the economic measurement now has a delivery path and nothing driving it.
 
 The frozen metric and coverage-policy references, with the unit and the scale, travel inside the request set
 seal: `ProtectedReplayRequestSetSealDtoV1` carries the `ProtectedEconomicPolicyBundleV1` this Owner sealed, and `ResolvedProtectedReplayRequestSetV1::economic_computation`
-resolves the computation from it. That is the first of the two handoffs this gap was recorded as needing.
-Nothing drives it: `economic_computation` has two callers, both inside a test module, and the ordered gate does
-not reach the measurement through the seal. It reaches it only because the gate step reads the Candidate under
-this Owner's own role, which is fixture discovery, not a path Backtest has, and the step says so in its own
-comment.
+resolves the computation from it. `economic_computation` has only two callers, both in tests. The ordered gate reaches measurement by reading the Candidate under this Owner's role, not through the seal; this is fixture discovery, not a Backtest path.
 
 The grant that would let Backtest read `qualification_protected_economic_policy_bundles_v1` directly stays revoked, and the seal makes it
 unnecessary. What remains upstream is that no production code constructs a `ProtectedEconomicPolicyBundleV1`: its four
@@ -454,37 +308,24 @@ instrument non-applicability is permitted only for a frozen single-instrument sc
 material input class; and every tunable parameter has bounded neighbours or an accepted no-tunable-parameter basis.
 An inadequate or policy-mismatched plan is `NOT_ADMITTED` and never reserves holdout.
 
-The plan also carries a same-universe random control, and this Owner defines it. Same universe means one exact
-`vibe-indicators-kernel` catalogue digest, one input-role set, and one set of graph bounds - three quantities the
-repository already freezes, so the control introduces no new concept. Qualification fixes the seed, the
-instrument universe, the preregistered windows, and the draw size; R&D synthesizes the comparison programs
-from that definition, because it holds the Composer and the lowerer and this Owner holds neither; Backtest
-replays them and returns their series.
+The plan includes a Qualification-owned, versioned independent random-control definition. Qualification
+freezes the sampling basis, seed, instrument universe, windows, draw size and comparison margin before any result.
+The native path binds exact control packages or deterministic calculation inputs, package/environment identity and
+Market Data manifests. Reuse native replay and existing mathematics; there is no requirement to synthesize a
+primitive graph, compile an IR or build a general random-strategy generator.
 
-The division is not a convenience: a control set the evaluated side can influence is not a control, so the
-definition cannot come from that side, while synthesis can, because a seed and a universe leave nothing to
-choose. Adequacy requires the draw size the versioned policy sets together with a preregistered margin in the
-metric's own unit and scale. A plan that omits the control, takes its definition from anywhere but this Owner,
-draws from a different catalogue digest, universe, or window set, or fixes its margin after any result is
-observed is `NOT_ADMITTED` and never reserves holdout.
+A control is valid only for its declared comparison scope. Arbitrary Python strategies have no implied finite
+program universe. Qualification must state what the control samples and what a passing comparison establishes.
+The evaluated Agent cannot choose the protected control or alter its margin from observed outcomes. An absent or
+unimplemented control, wrong definition/version/universe/windows or a result-dependent margin is `NOT_ADMITTED`
+and reserves no holdout. Definition and input validity must be established before execution; actual control results
+must be request-bound. A control's definition alone is not execution evidence.
 
-The control's strength is bounded by that catalogue version, and the bound is stated rather than implied. The
-catalogue carries a fixed-point square root from version 3 and a trailing-window percent rank from version 4,
-but no correlation and no rank across instruments, so cross-sectional factors are not expressible in the universe: a Candidate that passes this control is shown to be better than a
-sample drawn from one catalogue, not better than every factor. Each primitive family the catalogue gains raises
-that bound.
-
-This answers a question the trial-count corrections on the formation path cannot. Those deflate a selected result
-by the number of trials the searcher reports having run; this compares the Candidate against arbitrary programs
-expressible in the same catalogue over the same data, drawn to a definition the searcher did not write. The first
-stops being a correction when the trial count is understated. The second does not, which is what a protected
-evaluation is for.
-
-The handoff is built in the order definition, synthesis, replay, and the order is a prohibition rather than a
-preference. Neither the synthesis side nor the consuming side is built before Qualification publishes a
-control-set definition, because a consumer built against a definition that does not yet exist cannot be
-falsified. This Owner has already done it once: every step of the eligibility terminal was merged
-before anything called it, and stayed that way until the ordered gate's entries were written.
+The existing graph-program compatibility profile uses a sealed `vibe-indicators-kernel` catalogue digest,
+input roles and graph bounds, with deterministic synthesis through its Composer/lowerer. Its exact catalogue
+and comparison limits remain part of that profile; it is not a native-package prerequisite. The native control
+integration remains unavailable until independently verified. Trial deflation and sealed holdout remain separate
+protections; a random comparison does not excuse an incomplete or understated trial census.
 
 For a request-equal `TERMINAL_RESULT`, Qualification first consumes Backtest's complete finite non-empty
 protected `diagnosticCategorySet`, content digest, and per-category decisive evidence. It preserves all
@@ -547,48 +388,115 @@ new interval; once a successor, expiry, or revocation becomes the Qualification 
 be current again. Governance may consume one still-current Fact once per distinct authorized lifecycle request,
 evaluation, and decision frontier, while duplicates inside that frontier join and never restore capital.
 
-## TARGET - Cumulative trial deflation at Candidate Intake
+## Protected feedback resolution and coverage
 
-Research no longer stops at a trial count ([R&D](./rd/#cumulative-trial-accounting-and-spend-ceilings),
-user decision of 2026-09-27); instead the more a lineage tries, the higher the bar its Candidate meets here.
-Qualification applies that discount to a trial count it derives, never to one it is told.
+### Pre-Research protected-feedback resolution
 
-- *What is deflated.* The selected exploratory result the Candidate's Research Selection names, by the Deflated
-  Sharpe Ratio of Bailey and López de Prado on its daily non-annualized return series. It is the statistic
-  `analyze_formation_robustness` computed on the legacy formation path (`crates/strategy_factory/src/robustness.rs`),
-  whose trial count was a fixed four or two within one formation; that path is the "trial-count corrections on the
-  formation path" named above. The legacy formation path was retired in #1207, and the file with it. TB2 ports it
-  from `crates/strategy_factory/src/robustness.rs` at `main` f2238c09b1e2b89b16a9965104375dbb72748f9d rather than
-  rewriting it: `analyze_formation_robustness` at lines 92 to 181 is the deflated ratio and its PBO bar, lines 183 to
-  354 are its helpers, among them `cscv_pbo` (the CSCV estimate of PBO) at 222 and `daily_risk_return_ratio` at 314,
-  and its tests begin at 355. The port changes N from a fixed four or two to the cumulative count, so those tests are
-  validated again against that count rather than carried over.
-- *N.* The cumulative trial count: the sum of `trial_count` across the census frontiers the Candidate binds for its
-  TrialFamily and its cross-family predecessors, plus every protected attempt in that lineage, since each consumed
-  holdout is another look. Qualification recomputes it from those frontiers, and an incomplete frontier is
-  `NOT_ADMITTED` as it already is.
-- *The spread of trial ratios.* The sample standard deviation of the daily ratios of the lineage's
-  `TERMINAL_RESULT` trials, which are exploratory evidence rather than protected, floored at a preregistered minimum.
-  Trials without a terminal result count in N and add no ratio; with fewer than two terminal trials the floor alone
-  is used.
-- *The bar.* The protected decision policy version fixes the minimum deflated probability and the floor before any
-  result is observed. A Candidate below it is `NOT_ADMITTED` as `DEFLATED_SHARPE_BELOW_POLICY` and reserves no
-  holdout, so the deflation spends no protected evidence.
-- *Determinism.* The statistic is a function of the canonical result bytes of each trial, and its probability is
-  recorded in parts per million, floored, as the formation report records it. The bytes a trial's return series is
-  read from are the ones its production build wrote.
+Qualification accepts no caller assertion of genesis, emptiness, or current feedback. It directly resolves the
+exact R&D Independence Basis Receipt, locks its complete durable history for the trusted principal and Research
+request scope, and commits one genesis frontier only when that history is empty. Existing history returns the
+complete current opaque frontier; missing, stale, malformed, conflicting, cross-principal, cross-scope, or
+cross-basis input returns `UNAVAILABLE` and creates no frontier transition.
 
-The same-universe random control and the sealed holdout stay as specified above. The control is what still holds if
-the count is understated; the holdout never returns detail to R&D.
+Ordinary create, resolve, and in-transaction admission accept no caller time. After direct basis resolution,
+the principal/scope advisory lock, and complete canonical Qualification history verification, Qualification
+samples PostgreSQL `clock_timestamp()` inside the same transaction. Existing-read freshness uses that Owner
+cut. A new projection takes its single sample at the final write edge and uses only that cut for projection
+time, half-open `valid_through`, receipt commit time, and their identities and digests.
 
-**What exists and what is missing**, measured at `main` 019f231b0. The deflated statistic exists only on the legacy
-formation path, with a fixed trial count and no census. `crates/qualification` has no deflation, no random-control
-arm, and no cross-family holdout count: it reserves holdout once per Candidate and closes it per result, while the
-acceptance below requires cumulative disposition across related TrialFamilies. That count is part of this slice,
-because N includes the lineage's protected attempts. The trial count it reads needs the production census append R&D
-does not have yet.
+After persisting and canonically rereading the new history, Qualification samples a distinct Owner response
+cut immediately before freshness validation and commit; crossing `valid_through` rolls back projection,
+head, and outbox atomically.
 
-## TARGET - Forward Record
+The projection exposes only its resolution state, opaque frontier reference and digest, basis reference and
+digest, principal, scope, source sequence/cut, clock epoch, projection time, and half-open validity. It contains no
+protected payload, outcome, measurement, parameter, holdout detail, or dereferenceable evidence. Any later
+protected-feedback write must repeat the precommitted basis relation. Same basis and canonical source cut replay
+byte-identically; a changed basis or source cut cannot join.
+
+#### Protected-feedback generation
+
+Each principal/scope history carries one protected-feedback generation: a count of the public Qualification phase facts
+that history has produced, which the projection states as its source sequence. It is the observation frontier the
+Qualification Status Summary advances, so a Research Intent frozen under one projection can tell, at a later Owner cut,
+whether any protected evaluation has since become observable to it.
+
+- **What advances it:** the first commit of each public status phase fact whose candidate's protected-feedback frontier
+  belongs to the history: `NOT_ADMITTED`, `ADMITTED`, `EVALUATING`, `CLOSED_NOT_QUALIFIED` and `QUALIFIED`, one step
+  each. A phase fact is what R&D can observe of a protected evaluation, so it is what the generation counts. A replayed
+  phase fact does not advance it.
+- **What does not:** a projection's creation or renewal, the ten-minute validity window, a read, and the incident
+  reconstruction. A renewal takes the generation as it stands, so time alone never changes it.
+- **Atomicity:** the step is written in the transaction that commits the phase fact, under the principal/scope lock and
+  the history's head row lock that projection writes also take. Every protected closure, attempt disposition and
+  assessment alike, commits its phase fact in its own serializable transaction, together with its read of the Protected
+  Replay Attempt Frontier, so the generation, the phase fact and the protected state it records commit or roll back as
+  one.
+- **Evidence for every step:** each step is one append-only row naming its history, its generation and the phase fact
+  that caused it, numbered from one without a gap. The head's source sequence is the history's latest generation, and
+  its source cut is `qualification-protected-feedback-cut-v1-<generation>`, of which the genesis cut is generation zero.
+  History verification requires the head to equal the latest logged step, each logged step to name a stored phase fact
+  of that history, and each projection's source sequence to be no greater than its successor's; a generation that no
+  phase fact accounts for fails verification.
+- **Currentness:** a projection is current only while it is fresh and its source sequence is the history's generation.
+  `resolve_or_create_for_basis` renews a fresh projection whose generation has been passed, and `admit_in_transaction`
+  refuses it as stale. Candidate intake reads a candidate's feedback frontier the same way: it is current only while it
+  is the history's head, fresh at the intake cut and stating the history's generation, so a candidate whose frontier a
+  phase fact has passed is `NOT_ADMITTED`. `admit_historical_projection_in_transaction` still reads a projection at its
+  own cut.
+- **Read without renewal:** `read_protected_feedback_generation_in_transaction` answers, for the projection a caller
+  froze, its history's current generation and source cut, and nothing else. It takes the history's head row `FOR SHARE`
+  in the caller's read-committed transaction, so the answer holds until that transaction ends, and it neither checks the
+  projection's validity window nor writes anything, so a caller past the window reads it without bringing the window
+  back or causing a Qualification write. Its SQL function grants `EXECUTE` to `rd_owner` alone. A caller compares the
+  source cut it froze with the one it reads: unequal means a phase fact of that history became observable after the
+  freeze.
+- **A candidate's own phase facts count:** once a Research request's own candidate enters Qualification, its first phase
+  fact, `ADMITTED` or `NOT_ADMITTED`, and every later one advance the generation the request froze. That is intended:
+  once Qualification has observed the candidate, iterating on it goes through a new freeze. Two consequences rest on
+  work outside this Owner and hold only once it lands. R&D refuses a continuation whose frozen source cut the
+  generation has passed through its continuation check, which comes after slice 1. Further iteration goes through a
+  successor Intent that freezes the current projection under its family's basis, which is slice 1, qOeOp/trade#1197.
+  Until slice 1, a successor copies its predecessor's projection and therefore its frozen source cut.
+- **Counted from its deployment:** phase facts committed before the generation existed are not counted, and no step is
+  reconstructed for them. At its first deployment every history's generation is zero even where protected evaluations
+  already happened, so a generation compares two moments after that deployment and says nothing about the history before
+  it. An Intent frozen before the deployment froze the genesis cut, and the first phase fact of its history after the
+  deployment makes its continuation refuse: the comparison errs toward stopping.
+
+### Verification coverage and limits
+
+#### Protected-feedback resolution
+
+Resolution has three paths: a fresh projection for the same basis rejoins without writes; an unprojected basis under an empty scope takes `GENESIS_EMPTY`; an unprojected basis under a scope with a canonical frontier takes `FRONTIER`. Genesis commits sequence zero at the canonical genesis cut with no source frontier.
+
+`second_request_under_one_principal_resolves_through_the_frontier_arm` covers one deployment, principal and authorized scope with two separately admitted requests. Both are `Accepted`, each owns its basis, and the second projection is `FRONTIER`. Evidence: owner-chains run `35654451152`, 190 passed, 94 entries. The ordered prerequisite `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds` supplies the Catalog head; an isolated subset that omits it does not prove the complete path.
+
+A scope's first authorization is genesis; later authorizations use `issue_successor`. Admissions bind exact request identities, and equal suffixes cannot create distinct authorization meanings. `Result::is_ok` is not acceptance evidence: `SubmittedOrUnknown` requires `ResolveSameRequestIdentity` and authoritative resolution/store readback. A warning or transport success never proves admission.
+
+#### Response-cut rollback
+
+Rollback requires the response cut to fall outside the projection's half-open validity window. The expiry boundary is `valid_through`; a cut before the projection requires a backwards server clock. Creation or renewal provides the branch precondition. Mutating `valid_through_epoch_ms` breaks canonical projection equality and is refused as `Qualification admission envelope projection mismatch`.
+
+`owner_clock_epoch_ms_in_transaction` reads schema-qualified `pg_catalog.clock_timestamp()` twice in the same transaction. `qualification_writer` is not a superuser and has no `CREATE` on `public` or `rd_owner_api`, preventing a shadow clock. `PROJECTION_VALIDITY_MS` is ten minutes with no override. A harness may vary real elapsed time; injected clocks, canonical-row tampering or production changes are not admitted substitutes. This section records coverage limits, not permission to alter the clock contract.
+
+## Closed and optional compatibility interfaces
+
+### Closed incident reconstruction interface
+
+The feature-gated `qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba` interface is sealed to one
+incident under `DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP`. Its original evidence resource is unavailable,
+so it cannot currently execute or re-prove reconstruction. It is not a general restore/import API or a native
+Qualification prerequisite. Fixtures cannot replace the sealed resource.
+
+Its four exact resource locators, original identities, target cluster/database/role checks, canonical evidence
+verification, atomic write/replay semantics and separate executable-effect authority remain unchanged. Callers
+cannot supply reconstructed rows, timestamps, digests, genesis state or freshness. No new validity or domain wake
+may be minted; the original half-open interval leaves the ordinary current-cut resolver `UNAVAILABLE`.
+The target acceptance checks that this interface remains closed and cannot widen authority, rather than requiring
+a new recovery feature or reproduction of an unavailable developer-local resource.
+
+### Optional Forward Record - unavailable
 
 Forward Record is isolated record-only simulation evidence, not a required step on the
 [backtest qualification, real trial and promotion route](../scenarios/research.md#qualified-backtests-real-trading-trials-and-promotion).
@@ -613,18 +521,19 @@ A write-once Forward Registration, committed before the first forward cut, binds
 - kill lines and admit lines, each with how it was derived (for example, percentiles of a stated number of
   block-bootstrapped paths of the qualifying weekly stream, with the block length), and any minimum closed-trade
   count;
-- the sequential test below, and the forward start cut.
+- an exact frozen `ForwardDecisionMethod`, its parameters and the forward start cut.
 
 No field changes once the first forward cut is recorded. A changed registration is a new registration with its own
 record, and both are reported.
 
-Wald's sequential probability ratio test (Wald, 1945) runs on the record's weekly returns. H0 is Sharpe 0; H1 is the
-registered haircut times the qualifying Sharpe, with one half the default a registration must state, not assume. σ is
-fixed from the qualifying stream, and each week adds (μ1 / σ²) · (xₜ − μ1 / 2) to the log-likelihood ratio. The test
-kills at ln(β / (1 − α)) and reaches its scale-up bound at ln((1 − β) / α): −1.56 and +2.77 at α = 5% and power 80%.
-The registration states α, β, the haircut, σ and the observation unit. Crossing the scale-up bound does not by itself
-admit a candidate; it brings the admit review forward to that cut.
+A registration chooses a deterministic, versioned `ForwardDecisionMethod` before observations. A Wald
+sequential probability-ratio test on weekly returns is one possible policy instance, not a mandatory engine or
+unspoken default. A policy choosing it explicitly freezes the hypotheses, return distribution assumptions,
+alpha, beta, haircut, dispersion and observation unit. No implicit half-Sharpe or threshold applies; changing
+method or parameters creates a new registration rather than reinterpreting observed evidence.
 
+Only a separately admitted Forward Record profile may require stateful replay across new cuts. It does not add
+resume/checkpoint infrastructure to V0.1, or gate Candidate Intake, backtest eligibility or real trial entry.
 Backtest replays the frozen Artifact on each newly observed point-in-time cut (Forward Replay) on exactly the
 registered identities, with the order types (limit, stop, validity and expiry, cancel) and decision cadence
 that qualified it. Resting orders and open positions carry from one cut to the next in Backtest custody, a
@@ -633,10 +542,9 @@ because the one simulator that resolves them for the backtest resolves them here
 Forward Record: it cannot hold a resting order, and it scores a signal whose stop or target had already
 traded.
 
-Nor is a forward harness that resolves occupancy apart from the backtest: slots in arming order rather than
-fill order once raised a rule's backtest edge from +0.22 to +0.34 while the forward harness disagreed
-silently. Whether Forward Replay is driven by each Market Data cut or batched on the record's own cadence is
-open; the contract fixes only that each cut the cadence consumes is replayed exactly once, in order.
+A separate signal scorer cannot replace stateful native execution evidence. Each consumed cut is processed
+once in causal order; slots, fills and occupancy come from the same simulator, not an independent harness.
+Scheduling and persistence of this optional profile are unimplemented and require separate admission.
 
 Each record ends in one terminal Forward Decision:
 
@@ -662,6 +570,71 @@ needs the Market Data Owner clock to follow intake; a quote cut for each frame's
 rules with resting orders, the product path's limit entry with an expiry, take-profit and target ladder, and stop and
 target fill reconciliation.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself. No row here is `IMPLEMENTATION_ADMITTED`: this Owner has no admitted slice, and widening
+that requires changing this document first. Where a fact already has a section of its own, the row points at it
+rather than repeating it, so there is one place to keep in step.
+
+- **CURRENT_PARTIAL - Candidate Intake:** `submit_candidate_intake_v1` in `crates/qualification/src/postgres.rs`
+  writes the receipt under a Candidate advisory lock and returns a typed conflict for a second review request of
+  an already-intaken Candidate. It has no production caller: every call outside this Owner is in the
+  `sealed-develop-composer-acceptance` test module of `crates/strategy_factory/src/iteration_decision_postgres.rs`.
+- **CURRENT_PARTIAL - Protected Evaluation:** every protected terminal is driven end to end by the ordered
+  PostgreSQL gate and by nothing else. Its entries and the sealed evidence that admits each terminal are the
+  Qualification rows of the ordered array in `scripts/ci/test-rd-owner-postgres.bash`, and that array stays
+  their only list; the two behaviours the gate cannot reach are recorded under Behaviours the ordered gate
+  cannot reach below.
+- **CURRENT_PARTIAL - Pre-Research protected-feedback resolution:** this is the one capability with production
+  callers. `resolve_or_create_for_basis` and `admit_in_transaction` are called from
+  `crates/strategy_factory/src/product_edge_postgres.rs`, and `admit_historical_projection_in_transaction` from
+  `crates/strategy_factory/src/rd_owner_postgres_custody.rs`, all outside any test module. Its readback proof is
+  an ordered-chain entry; the response-cut rollback has none, for the reason recorded under Behaviours the
+  ordered gate cannot reach below.
+- **TARGET - Eligibility State:** the module owns `INELIGIBLE`, `QUALIFIED`, `EXPIRED`, and `REVOKED`, and only
+  the first two have any implementation. `EligibilityState::Expired` and `::Revoked` in
+  `crates/strategy_governance/src/model.rs` have no producer anywhere, `QualificationPublicStatusV1` carries five
+  variants and neither of those two, no relation named for expiry or revocation exists among this Owner's
+  `qualification_*_v1` tables. The consumer type exists in
+  Governance and every `UntrustedEligibilityReadback` is constructed in that crate's own tests, so the shape of a
+  read port is present while nothing on either side has written such a fact.
+
+  A successor chain does now prevent predecessor revival. An Eligibility Fact binds its predecessor and
+  its own half-open window, and `predecessor_eligibility_identity` is UNIQUE, so a Fact can be superseded
+  at most once. Two properties this Owner publishes for the current Eligibility State are still
+  unavailable, and naming which is the point of recording them. The economic-condition version needs no
+  new production: a Fact cross-binds the protected decision-policy identity and version, and
+  `ProtectedEconomicPolicyBundleV1` carries the same pair, so a State that references its Fact has it.
+  The evaluated cost and capacity-model version has no producer at all. `cost_model_identity`,
+  `slippage_model_identity`, and `capacity_model_identity` arrive from Candidate Intake as bare strings
+  with no version and no digest beside them, while other identities in that same structure do carry
+  digests, so this is an absence rather than an unread field. Its supplier is Candidate Intake, and it is
+  in place when a version or a digest appears beside those three. A column that could only hold NULL is
+  deliberately not added, because a downstream NULL cannot distinguish a model with no version from a
+  record that did not compute one from a reader who may not see it.
+
+  Expiry and revocation are not Fact rows. A Fact cross-binds an exact Protected Replay Request and an
+  exact `TERMINAL_RESULT` Protected Run Result, and an expiry has neither, so it cannot satisfy what a
+  Fact is. Their relation is the one recorded as missing above. Operator Authorization has already solved
+  the same shape with `operator_authorization_revocation_frontiers_v1` and
+  `operator_authorization_revocation_heads_v1`, and that pair is the shape to follow rather than design
+  again. A revocation frontier is deliberately not built for this Owner today, and the reason is that
+  nothing consumes one, not that the shape is wrong.
+- **TARGET - the deployment-authorized terminal:** `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled`, and what
+  it waits for is recorded under Eligibility terminal status above.
+- **CURRENT, and permanently unprovable - Incident-specific Owner reconstruction:** the machinery is merged -
+  `crates/qualification/src/recovery.rs`, exported as `run_owner_recovery_cli` and shipped as the
+  `qualification-owner-recovery` binary behind the `owner-recovery` feature - and its only proof can never pass.
+  The measurement is recorded under Incident-specific Owner reconstruction below.
+- **TARGET - same-universe random control:** the handoff recorded under Failure and recovery below is declared
+  and has neither a producer nor a consumer. Nothing publishes a control-set definition, nothing synthesizes
+  comparison programs from one, and `crates/qualification` has no comparison arm. The order in which it must be
+  built is part of that clause, not a note on it.
+- **TARGET - Forward Record:** no Forward Registration, Forward Replay request, Forward Decision or forward census
+  exists, and Eligibility has no forward-kill revocation cause. The contract is under TARGET - Forward Record below.
+
 ## Decision contract
 
 - **Inputs** - a selected Candidate with exact Agent selection record and frozen version lineage, exhaustive TrialFamily Census,
@@ -681,16 +654,9 @@ target fill reconciliation.
 ## Subsequent implementation acceptance
 
 - Candidate and evaluation rules are immutable before protected evidence is revealed.
-- The incident recovery binary is feature-gated, closed to the exact incident and four resource locators, and
-  cannot accept reconstructed facts or freshness claims from its caller.
-- A copied-anchor store with a different cluster/database/role identity and an R&D head whose canonically decoded
-  request scope differs from the frozen scope both fail before Qualification DDL or rows.
-- Faults after each recovery write roll back projection, head, outbox, receipt, and transactional DDL together;
-  isolated PostgreSQL verification uses an explicitly disposable database and role distinct from every default
-  Owner database.
-- A successful reconstruction has global counts exactly `1/1/1` plus one recovery receipt, reproduces the frozen
-  canonical verifier's identities/digests/times, emits no additional domain outbox event, and remains stale to the
-  ordinary current-cut resolver.
+- The closed incident interface remains feature-gated and unavailable without its original sealed resource.
+  No caller facts, copied target identity or fixture can authorize reconstruction, refresh validity or create a
+  general recovery route; the ordinary resolver remains unavailable under the original interval.
 - Candidate, Intake, Protected Replay Request, Protected Run Result, Protected Robustness Assessment, and every
   Eligibility Fact repeat the same Protected Robustness Plan identity and version.
 - Every `ADMITTED` Intake Receipt cross-binds the exact `SELECTED_FOR_QUALIFICATION` disposition and its frozen

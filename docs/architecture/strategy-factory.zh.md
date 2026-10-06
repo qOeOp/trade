@@ -20,11 +20,13 @@ Agent 研究与编写；R&D 保存研究对象和不可变策略包；Backtest �
 
 ```mermaid
 flowchart LR
-    A["Agent"] -->|"Native Strategy + Config"| R["R&D"]
-    R -->|"Data Requirements"| M["Market Data"]
+    A["Agent"] -->|"Prepare or Reuse"| M["Market Data"]
+    M -->|"Data Reference"| A
+    A -->|"Native Source + Config + Binding"| R["R&D"]
     R -->|"Package + Run Specification"| B["Backtest"]
-    M -->|"Verified Data Binding"| B
+    M -->|"Verified Inputs"| B
     B -->|"Result + Evidence"| R
+    R -->|"Records + Results"| A
     R -->|"Frozen Candidate"| Q["Qualification"]
     Q -->|"Public Eligibility"| G["Governance"]
     G -->|"Approved Deployment"| N["Trading Node"]
@@ -36,6 +38,10 @@ flowchart LR
 
 目标输入是原生策略源码包，通常使用 Python Strategy；原生 Rust 扩展只在有明确消费者时使用。
 参数和包元数据可以用 JSON 序列化，但它们不是信号表达语言，也不编译成产品自定义 IR。
+V0.1 以 R-1 验收该路线，不限制只研究 R-1。Agent 可自由编写依赖已支持数据与执行能力的原生策略；
+支持范围按输入和原生能力接入情况划定，不增加策略白名单、固定模板或另一套策略语法。
+缺失能力返回明确缺口；原生 API 存在不代表产品已经接通。
+
 JSON 策略语言、BFP/Plan、源码 lowering、Wasm guest 和自定义策略解释器不属于目标路线。
 已有实现的这些对象见 [R&D 实现状态](../owners/rd/#implementation-status-ledger)，不能据此要求新功能继续扩展旧链路。
 
@@ -43,12 +49,21 @@ JSON 策略语言、BFP/Plan、源码 lowering、Wasm guest 和自定义策略�
 
 ## 策略包与内容身份
 
+V0.1 使用项目统一维护、版本化的固定运行环境，不按策略包安装依赖或构建独立环境。
+Agent 可读取该环境的准确版本和可用库信息，按已有库编写策略；缺失依赖返回具名缺口，由项目统一扩充环境。
+策略包绑定准确环境版本及其依赖锁引用，不复制维护另一套依赖清单。环境更新形成新版本，不覆盖旧绑定；
+切换策略包的环境绑定改变 Artifact 内容，产生新 hash 并重新验证，不能静默替换旧实验环境。
+
 R&D 对以下内容形成不可变、内容寻址的 Strategy Artifact：
 
 - 原生源码及被导入的策略模块；入口类和参数；
 - 依赖锁、Nautilus/产品运行版本及可重建环境引用；
-- 策略所需的数据类型、标的规则、时间尺寸和可得时间语义；
+- 原生订阅/历史请求表达的数据类型、标的规则、周期和可得时间语义，以及明确的其他输入需求；
 - 策略内的信号、保护和数量规则，以及适用的原生接口能力声明。
+
+源码来源记录准确仓库、commit 和路径；分支的最新状态不能作为执行绑定。Git 保存研发草稿，
+产品实际保留封存源码、导入模块及准确环境引用，执行和复现不依赖以后再次从仓库下载。
+Git commit 是来源身份，Artifact hash 是执行内容身份；仓库中与该策略包无关的改动不改变策略 hash。
 
 改变上述内容产生新的策略 hash，按完整生命周期重新验证。相同 hash 原样重新上线，仍须检查资格、阶段、政策和当前授权是否有效。
 重跑不改变策略 hash，也不清除旧试验或样本暴露记录。
@@ -102,10 +117,10 @@ Strategy 可以消费原生 cache/Portfolio；这些 API 本身不是账户权�
 Backtest 扩展 Nautilus Engine，不复制撮合器。原生 bar 执行策略只给出 OHLC 内的执行假设，不能证明实际先后顺序。
 详情见[回测设计](../owners/backtest/)及[市场数据](../owners/market-data/)。
 
-1. Market Data 先准备冻结需求中的最小窗口数据，复用原生聚合生成较大窗口。
-2. Backtest 使用原生 Engine 回放，记录需要细化的歧义范围。
-3. 需要补充更细数据时，撮合结束后经 Market Data 准备，创建关联前驱的新输入和后继回放。
-4. 默认完整重放，不在引擎内部访问网络、递归改写行情、回滚或拼接两次运行的成交。
+1. Agent 经 Market Data 准备或复用完整声明区间的一分钟历史和必要经济输入。
+2. 策略用 Nautilus 原生订阅表达大周期需求，原生聚合提供信号 K 线；不另填重复周期表。
+3. Backtest 用分钟行情执行撮合，记录原生事件及一分钟内的政策推定。
+4. 现有输入引用、策略包和运行配置保存数据与聚合依据。数据修复或配置变化时，由 Agent 提交新封存运行并完整重放。
 
 到获准最细粒度仍无法判断时，使用显式冻结的保守政策并标注假设：已持仓止损/止盈冲突按止损优先；入场与目标先后未知时不能虚构当根止盈，入场后继续持仓。
 缺数据不是成交歧义，不得借兜底伪造历史。跳空止损使用可执行价格和原生成交/滑点模型，不假造按触发价成交。

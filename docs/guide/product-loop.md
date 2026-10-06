@@ -17,7 +17,7 @@ The product and Agent host separately cap/report consumption; unavailable model 
 | Stage         | Client action                                                       | Owning result                                                                                   |
 | ------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Register      | Agent submits sources, experiment plans and chosen research context | R&D freezes research boundaries and trial lineage                                               |
-| Prepare       | Declare instruments, history, signal windows and warmup             | Market Data admits PIT coverage, versions and named gaps                                        |
+| Prepare       | Bind instruments, history, native subscriptions and warmup          | Market Data admits PIT coverage, versions and named gaps                                        |
 | Author        | Submit native Strategy signal/protection and sizing rules           | R&D seals the Artifact with its dependencies and approved execution policy references           |
 | Replay        | Submit one bounded Backtest request                                 | Native Backtest returns orders, fills, portfolio evidence and diagnostics                       |
 | Iterate       | Compare frozen objectives and choose the next legal action          | R&D records repair, successor, stop or selection and reusable findings                          |
@@ -27,7 +27,7 @@ The product and Agent host separately cap/report consumption; unavailable model 
 
 One `backtest.run` performs deterministic request validation, research binding, data resolution and replay composition inside the backend. The Agent does not move market rows or assemble internal receipts. Same identity and meaning recover the original operation; changed meaning creates a successor or conflict. Unknown results never become economic judgments. See [Product Edge](../architecture/product-edge/) and [research acceptance](../scenarios/research/).
 
-Positive and negative factor/rule findings belong to R&D knowledge, with exact versions, applicability, costs and counterexamples. Reuse supplies a new research input, never inherited qualification. Discovery is an on-demand read-only R&D request; running strategies already consume market data continuously and need no Scanner schedule or deployment-proposal service.
+Positive and negative factor/rule findings belong to R&D knowledge, with exact versions, applicability, costs and counterexamples. Reuse supplies a new research input, never inherited qualification. For discovery, the Agent reads Market Data on demand and analyzes it; useful conclusions may become R&D knowledge. Running strategies already consume market data continuously and need no Scanner schedule or deployment-proposal service.
 
 ## Qualification and operating lifecycle
 
@@ -45,7 +45,7 @@ flowchart LR
   Exit -->|Protected positions remain| Native
 ```
 
-Exploration is not qualification. Qualification independently consumes the frozen candidate, complete trial family, cost/capacity assumptions, embargo and protected protocol. Internally it may distinguish pass, equivalence failure and insufficient evidence. Research sees only `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; protected numbers, reasons, timing and categories never return to research or its knowledge store. Public nonqualification alone cannot close a mechanism. New families, clients or direct MCP calls cannot bypass exposure accounting.
+Exploration is not qualification. Qualification independently consumes the frozen candidate, complete trial family, cost/capacity assumptions, embargo and protected protocol. Internally it may distinguish pass, equivalence failure and insufficient evidence. Agent and Dashboard see only `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; protected numbers, reasons, timing and categories never return to research or its knowledge store. Public nonqualification alone cannot close a mechanism. New families, clients or direct MCP calls cannot bypass exposure accounting.
 
 Only independently eligible candidates can be offered for real trial. The user confirms exact candidate, finite named condition template, exposed parameters, capital policy and authority in Dashboard. Qualification alone starts nothing; the user may keep a qualified candidate in R&D. Trial conditions freeze before operation, including observation period, net economic/risk rules and minimum independent trade samples. Concrete templates and thresholds are detailed in their owning design slice.
 
@@ -89,9 +89,7 @@ rules](./architecture-rules/) and Owner chapters define exact permits, namespace
 
 MCP research journeys and Dashboard read/control routes have separate acceptance. A reachable tool, chart,
 local test or build is not complete R-1 or production acceptance. R-1 requires actual ordered fills, staged
-exits, costs, retained open positions and durable result readback. Finer chronology is prepared by Market Data
-outside matching and then replayed by Nautilus under a successor binding; no matching callback fetches data or
-rewinds itself. [Agent implementation](./agent-implementation/) defines verified source use, and
+exits, costs, retained open positions and durable result readback. Historical execution uses complete 1m input and native aggregation for strategy periods, without drilldown or local precision switching. Data corrections create new bindings and complete replay; no matching callback fetches data or rewinds itself. [Agent implementation](./agent-implementation/) defines verified source use, and
 [Dashboard](./dashboard/) governs admitted UI slices.
 
 Each delivery proves positive results, named refusals, unknown-state preservation, same-identity recovery and

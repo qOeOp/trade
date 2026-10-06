@@ -6,19 +6,15 @@ Provide canonical, time-correct market, reference, and instrument facts to every
 
 ### How to read this page
 
-The Owner contract is the standard Owner skeleton: Responsibility, Authoritative facts owned, Modules, Input
-handoffs, Output handoffs, Rejections and prohibitions, Failure and recovery, Decision contract, and Subsequent
-implementation acceptance. Read those to learn what Market Data owns, what crosses its boundary, and what it
-refuses. They are the part another Owner, or an agent planning work, has to reason from.
+| Reading task                  | Direct entry                                                                                                                                                                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plan a capability             | [Service capabilities](#target---market-data-service-and-mcp-journey) and [Current MCP tools](#current-market-data-mcp-server)                                                                                                                              |
+| Prepare exact inputs          | [V0.1 defines research and protected scope first](#v01-defines-research-and-protected-scope-first) → [Preparation and binding](#demand-driven-preparation-and-binding) → [V0.1 input manifests and native handoff](#v01-input-manifests-and-native-handoff) |
+| Locate ownership and handoffs | [Authoritative facts owned](#authoritative-facts-owned), [Input handoffs](#input-handoffs) and [Output handoffs](#output-handoffs)                                                                                                                          |
+| Implement input binding       | [Exact input binding](#strategy-input-role-binding) and [CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority](#currentpartial-event-and-bar-owner-custody-target-bar-product-authority)                                               |
+| Implement a native fact type  | [Native fact contracts](#native-fact-contracts)                                                                                                                                                                                                             |
 
-Between Modules and Input handoffs sit the native sub-authority contracts: Calendar and Time Zone, Market
-Semantics, Correction Policy, Corporate Action, Replay Market Facts V2, Instrument Master, and Strategy input-role
-binding. Each carries its own status marker and states one sub-authority.
-
-Inside those, every subsection whose heading names a canonical codec, canonical identity, or canonical census
-fixes byte layouts, field order, integer widths, and digest domains. They are normative, because a differing
-encoding is a different fact, but they answer only how a value is spelled, never who may write it or what it
-means. Skip them unless you are implementing or verifying an encoding.
+Each local contract retains its own status, semantic admission, identity and normative encoding. Read byte layouts when implementing that type; a canonical codec is not a substitute for its authority or refusal rules.
 
 ## TARGET - Market Data service and MCP journey
 
@@ -159,10 +155,45 @@ Preparation must prove all consumer requirements, including warmup, terms, settl
 Fill bars, signal bars and economic inputs bind distinct roles rather than one timeframe parameter. Raw inputs and
 derived caches can be reused; cache hits establish no new authority, historical availability or independent evidence.
 
+### V0.1 defines research and protected scope first
+
+Before research value reads open, establish user-approved research and protected scopes with exact version
+references. Market Data owns access partitions and read checks; R&D projects reference bounds and exposure
+records, while Qualification later owns protected assessment protocols and eligibility. V0.1 delivers only
+minimal scope definition, versions, refusal and read accounting, not a complete qualification or partition service.
+Insufficient unseen protected data does not prevent approving an explicit research scope or preparing, reading
+and replaying its permitted inputs. Record the protected evidence gap; missing eligibility evidence does not
+prohibit research. Scope definitions and access checks remain complete, without access to unknown or protected inputs.
+
+Scopes specify source/data identities, instruments, time, purpose and applicable principals without unapproved default
+years, ratios or assessment methods. New Research Projects of the same user may reference still-valid existing
+authority without repeated project-specific confirmation. Market Data checks each request against the approved
+sources, instruments, time, purpose and access permissions; expanded scope or purpose requires new authority.
+Projects reference the exact authority version, reads retain actual project attribution, prior exposure lineage
+is not reset and protected inputs remain isolated. Agent ordinary reads and exploratory replay consume only permitted research
+inputs; warmup, derived series and cached base data obey the same boundary. Other projects, redownloads,
+aggregated outputs or diagnostics cannot release protected inputs to research. Unknown or undefined scopes remain
+closed. Protected data may be prepared and retained, but preparation grants no research read authority;
+private consumption keeps separate permissions and output spaces.
+
+Partitioning does not establish independence. Data used for tuning, inspected through results or analyzed outside
+the product cannot be renamed unseen. Record known external exposure and unverifiable portions without
+certifying complete exposure census or nonexposure. Later Qualification checks frozen scope and actual exposure
+lineage; unavailable admissible protected evidence grants no eligibility. New strategy/project versions do not
+reset these facts; scope changes create successors without rewriting past authority, reads or experiments.
+
 ### Demand-driven preparation and binding
 
 V0.1 prepares data for declared research needs: reuse admitted coverage and derived caches first, then prepare
 missing inputs within the declared scope. Preparation does not require a complete history of every market upfront.
+The Agent reuses an available binding or submits preparation and reads the resulting data reference;
+initial preparation completion does not automatically submit replay.
+
+V0.1 perpetual replay prepares historical mark prices over the same research scope in addition to minute trading
+data; admit and bind each separately. Map marks into native `MarkPriceUpdate`, preserving price basis, source,
+exact timestamps and availability without fabricating volume or treating marks as trade bars. Missing, invalid or
+stale marks produce itemized gaps without silent trade-price substitution. Exact coverage evidence must establish
+that minute valuation requirements are satisfied.
 
 Each strategy version declares input roles, fields, timeframes and semantics. Each experiment separately freezes
 instruments, windows and source requirements, and binds the exact data versions consumed. The same strategy can
@@ -182,13 +213,158 @@ R&D retains requirement and gap facts. Backtest admits only exact input bindings
 No gap permits silent field substitution, zero filling or window reduction; changed research requirements create
 an explicit new experiment record.
 
+#### Preparation request and native execution steps
+
+The Agent provides research scope: fixed instruments, replay dates, explicit warmup, source/market basis,
+non-bar inputs and resource bounds. V0.1 execution bars are fixed at one minute; native strategy subscriptions
+express signal timeframes without a duplicate product timeframe form. Existing exact bindings may be referenced
+directly. Preparation requires no complete strategy, so permitted exploratory data can also be prepared.
+Formal experiment admission still checks actual strategy inputs; an ordinary read is not proof of complete strategy preparation.
+
+```mermaid
+flowchart LR
+    R["Request"] --> C["Check Scope"]
+    C --> U["Reuse Catalog"]
+    U --> F["Fetch Missing"]
+    F --> V["Verify Inputs"]
+    V --> B["Bind Versions"]
+    B --> A["Agent"]
+```
+
+1. **Check needs:** resolve native Instruments, data types and source capabilities; check budgets, protected scope
+   and historically valid intervals. Report valid ranges or conflicts for dates before listing without fabricated
+   data or automatic experiment window reduction.
+2. **Find reusable inputs:** use native typed catalog queries, intervals and missing-range capabilities, then verify
+   product versions, sources, fields and availability evidence. A catalog file or interval is not product admission.
+3. **Fetch gaps:** use existing provider adapters or necessary archive extensions within actual provider throttling
+   and task resource limits. Do not download already verified data again or add analysis scripts or strategy judgment.
+4. **Verify and commit:** construct native types, validate time/precision/units, duplicates/conflicts and coverage,
+   write native catalog data and associate sources, versions and coverage through product custody protocols.
+   A file write alone cannot issue a usable binding. Data must be readable and its custody committed before
+   counting as consumable coverage. Resolve unknown outcomes through the original task without skipping admission.
+5. **Bind versions:** freeze actual sources, instruments, intervals, base versions and revisions. Derived inputs
+   preserve base and native aggregation provenance without pre-storing complete daily or four-hour copies;
+   native replay still performs signal aggregation.
+6. **Return to the Agent:** return task identity, completed references or itemized gaps. Preparation completion does
+   not create another replay; the Agent decides whether to submit a bound experiment.
+
+These steps describe the extended Nautilus data service, not six new components or another storage engine.
+Integration preserves existing custody evidence or proves equivalence; catalog adoption cannot discard
+point-in-time evidence, versions or protection boundaries.
+
+#### Readiness for replay
+
+A usable binding covers every frozen requirement: historically valid instrument intervals, replay and warmup,
+trade data and required marks/funding or other economic inputs. Check each input's own coverage semantics;
+funding need not share minute-bar frequency, and first/last timestamps cannot hide internal gaps.
+Historical mark sampling and validity bind explicitly to valuation requirements, without last-trade substitution
+or validity rules improvised by a preparation task. Bindings enumerate exact versions and outstanding issues,
+not latest data. Only when no required input gap remains can a binding be delivered for Backtest admission;
+scientific conclusions, qualification and replay success still belong to subsequent workflows.
+
+#### Partial failure and follow-up preparation
+
+When V0.1 preparation partially fails, retain successfully admitted data and exact references and return itemized
+gaps. After resolving the original task status, the Agent requests only missing inputs. Failed tasks retain their
+terminal records; follow-up preparation links the original requirements and task without rewriting the failure.
+Market Data validates combined reused and newly prepared inputs against all frozen requirements before returning
+a usable binding. Backtest does not start on partial success.
+
+For example, if 48 of 50 instruments succeed and two downloads fail, retain the 48 custody records and name
+failed inputs. Follow-up preparation reuses those inputs and validates the complete manifest, never returning
+an apparently successful 48-instrument replay scope. Missing marks still leave the corresponding requirement
+incomplete even when all trading minute bars have been downloaded.
+
+### V0.1 input manifests and native handoff
+
+Successful preparation returns a resolvable immutable input manifest binding admitted data, not a download
+directory, latest filename or another strategy language. Market Data retains it; R&D retains its reference.
+Backtest resolves it through typed ports and checks its consumption requirements without private-table access.
+
+| Manifest content      | Consumption constraint                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Authority and source  | Exact authority version, research/protected scope, sources and revisions; preparation grants no wider read authority              |
+| Instruments and terms | Native identity, precision, trading terms and historically valid range; check coverage per fixed member                           |
+| Time and roles        | Trading/warmup intervals, event/availability basis and execution/valuation/funding roles; price bases are not interchangeable     |
+| Data and coverage     | Exact versions, catalog resolution basis and required coverage per input; gaps do not collapse into one success flag              |
+| Derivation basis      | Minute execution base and native signal aggregation references; strategy periods come from native subscriptions, not another form |
+
+Catalog paths locate storage but independently prove neither content identity nor access authority. Consumers
+resolve frozen versions rather than following mutable file sets. Formal replay admission requires a complete
+manifest; completed references from partial preparation remain reusable but do not authorize incomplete replay.
+
+Native wiring uses `ParquetDataCatalog::write_instruments`, `write_data_enum`, `query_instruments`, `query_typed`
+and `get_missing_intervals_for_request`. Execution bars remain native `Bar`; valuation and settlement use the
+corresponding `MarkPriceUpdate`, `FundingRateUpdate` and other native types. When a source supplies mark-price
+bars, admission explicitly binds selected fields, event/availability times and conversion into native updates;
+renaming a type or using an unfinished bar's price early is insufficient. Missing fields or consumption wiring
+return named gaps rather than zero values or trade-price substitutes.
+
+### Bounded reads and consumer handoffs
+
+V0.1 provides bounded reads of admitted ordinary research data for Agent host analysis. Reads and full replay
+input handoffs share one data authority but differ in consumer permissions and delivery. Protected samples
+remain isolated; reading establishes neither eligibility nor economic advantage.
+
+#### Agent read contract
+
+| Request and response                          | Constraint                                                                                                                                          |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Caller and research scope                     | Check permitted scope and record principal/project attribution; ordinary opportunity discovery requires no R&D project                              |
+| Exact data reference, input type and interval | Read specified versions of bars, marks, funding or other supported types without guessed latest versions or mixed price bases                       |
+| Response bound and continuation               | Return bounded values, exact versions, actual scope and continuation information; truncation is neither completeness nor a data gap                 |
+| Source, time basis and gaps                   | Link values to native types and source/availability evidence; distinguish absent records, incomplete coverage, refusal and temporary unavailability |
+
+Check permission and protected scope before querying permitted exact catalog versions. Verify response scope and
+record data exposure before releasing values. If querying succeeds but exposure recording fails, refuse values
+rather than send first and account later. Protected refusals cannot disclose private row counts, samples or
+assessment details; undefined protection partitions remain closed despite research demand.
+Pagination preserves exact versions and query scope, never switching to revised data on later pages. Repeating a
+page uses the stable request identity without inventing another independent exposure event. New scopes or versions
+are recorded separately; pagination and caching bypass neither protection nor budgets. Support typed reads only,
+not arbitrary SQL or host analysis scripts, database credentials or access to private files.
+
+#### Consumer-specific entrypoints
+
+```mermaid
+flowchart LR
+    C["Native Catalog"] --> G["Scoped Read"]
+    G -->|"Bounded Values"| A["Agent"]
+    G -->|"Bound Inputs"| B["Backtest"]
+    Q["Private Scope"] --> G
+    G -->|"Isolated Inputs"| E["Qualification Replay"]
+    D["Native Data Engine"] -->|"Native Subscription"| N["Trading Node"]
+```
+
+- **Agent:** MCP returns permitted bounded values for host analysis, not a relay for all historical replay data.
+- **Backtest / Qualification:** each consumes exact inputs within its own authorized scope. Backtest uses native
+  catalog/typed loading rather than conversational pagination. Protected replay keeps separate permissions and
+  output isolation; Agent read authority is not a credential for private access.
+- **Trading Node:** native DataEngine/DataClient subscriptions supply live data. Historical warmup uses the same
+  preparation and custody basis. Market Data owns neither strategy state nor orders/accounts, and MCP is not
+  a live strategy market-data bus.
+
+Scoped Read denotes the existing service permission/version boundary, not another generic reading service.
+Native catalog owns typed storage/querying; product extensions supply admission, versions, permissions and exposure facts.
+
+#### Story replay and refusal
+
+The R-1 Agent reads a bound minute interval to inspect patterns, analyzes batches and records conclusions in R&D
+without uploading statistical tables or plots. Formal replay submits the exact binding rather than relaying rows;
+Backtest loads complete frozen inputs and performs native signal aggregation. Following a data revision, old
+experiments and ongoing paginated reads retain their old version. Adopting corrected inputs requires an explicit
+new query or experiment. Protected data or unknown read authority returns refusal/unresolved status, not an empty
+array that an Agent could mistake for no pattern or no opportunity.
+
 ### Requests, jobs and MCP boundaries
 
 Target long preparation jobs use stable request identities and return durable jobs. MCP disconnect does not cancel
 admitted work; read status/results using the original identity. Equal identity/meaning rejoins a job; changed meaning
 conflicts. Independent experiments may share underlying data while retaining admission, resources and exposure
 attribution. Actual execution receives spend ceilings, provider throttling and scope bounds. Failure retains completed
-slices, but only committed custody enters coverage. Cancellation/timeouts require actual job readback, not assumptions
+slices, but only committed custody enters coverage. V0.1 does not expose active preparation cancellation; admitted jobs run within resource limits until completion or
+failure, retaining same-identity queries. Target cancellation capability is outside the first delivery.
+Timeouts and cancellation in later versions require actual job readback, not assumptions
 that disconnection stopped downloads or released commitments.
 
 **Current behavior differs from target.** The eight tools in `services/market-data-mcp/src/lib.rs` send one HTTP request and
@@ -223,52 +399,190 @@ handling evidence, without assuming every provider offers replayable sequence nu
 report that state; Runtime/Risk contracts decide restrictions on new exposure. Warmup and gap recovery share the custody
 preparation path. Native nodes retain their own runtime state; Market Data cannot read private order/position tables.
 
-### Multiple windows and local refinement
+### One-minute base data and multiple timeframes
 
 ```mermaid
 sequenceDiagram
-    participant R as R&D
+    participant A as Agent
     participant M as Market Data
+    participant R as R&D
     participant B as Backtest
-    R->>M: Frozen requirements, native/derived basis, execution hierarchy, budget
-    M->>M: Reuse coverage, prepare gaps, record derivations and versions
-    M-->>R: Exact input bindings or unresolved gaps
-    R->>B: Sealed request and admitted inputs
-    B->>B: Native replay records chronology ambiguity or missing data
-    B-->>R: Bounded evidence correlated to attempt
-    R->>M: Local finer-data request within original scope
-    M-->>R: Finer-data successor or named unavailability
-    R->>R: Resolve old attempt and admit successor
-    R->>B: Successor request and complete input bindings
-    B->>B: Resume with proven compatibility, otherwise deterministic replay
+    A->>M: Instruments, dates, warmup and resource bounds
+    M->>M: Reuse or prepare minute history and economic inputs
+    M-->>A: Admitted data references or named gaps
+    A->>R: Native strategy, parameters and exact data binding
+    R->>B: Sealed experiment and run request
+    B->>B: Minute matching and native signal aggregation
+    B-->>A: Results, diagnostic logs and exact run references
 ```
 
-Market Data does not decide fill ordering; Backtest does not call remote services inside matching callbacks; R&D does
-not bypass admission with downloads. Refinement retains original scope/source/budget/protection bounds and cannot
-mutate an old attempt. Multiple timeframes do not require full copies of base history. Reuse native aggregation and
-rebuildable caches, but venue-native and derived bars keep distinct input identities. Existing measured Binance
-differences and fixed `1m` fill contracts below are not reinterpreted away by a target planner.
+Market Data prepares one-minute history for the complete declared interval. Strategies express signal timeframes
+through native subscriptions; Nautilus aggregates and dispatches them. Authors do not fill a duplicate product
+form, and the product does not rely on static analysis of arbitrary Python to infer every dependency. Run dates,
+warmup, instruments and non-bar inputs such as funding remain explicit and validated; warmup grants no trading
+outside the run interval.
+
+Initial larger bars are explicitly minute-derived series, not substitutes labelled as Binance venue-native bars.
+Existing packages, data references and run configurations retain source versions, native aggregation settings and
+runtime identity for exact replay. Derived caches are rebuildable; full copies of each timeframe are unnecessary.
+Market Data decides no fill ordering; matching consumes bound inputs without remote service calls. A repaired data
+version allows the Agent to submit a new complete run; old inputs, attempts, results and read ledgers remain intact.
+
+Observation inputs for on demand discovery may include forming data or current snapshots supported by the source,
+with explicit observation time, provenance and completeness. Market Data supplies facts and gaps, not attention
+judgments or economic proximity scores. Unsupported or unknown states remain explicit, not unmet conditions
+or closed bars; observation does not change formal replay data semantics.
 
 ### Data-story replay
 
-| Story                                        | Detailed Market Data path                                                                        | Consumer and refusal boundary                                                                 |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| U01 Source plans                             | Preserve market related source/time evidence; R&D owns interpretation                            | External strategy descriptions are not market facts                                           |
-| U02 Imports/cross markets                    | Validate CSV/GZ timezone, units, contracts/quotes, revisions and costs → native custody          | Name missing scope, no zero filling; continuous futures are not one tradable contract         |
-| U03/U04 Windows/`R-1`                        | Freeze signals/warmup/fill needs → native/derived series → coverage → local refinement successor | Higher bars cannot reveal lower chronology; missing finer data is not valid fill evidence     |
-| U05 through U08 Rules/event controls         | Same basis input versions, members and windows for exact control jobs                            | Never switch sources after results or call event statistics trading returns                   |
-| U09/U12 Carry/legs                           | Per market legs/terms; complete settlement schedule; separate signal availability proof          | Empty schedules mean no settlement events, not gaps; no zero filling or publication inference |
-| U10 Macro                                    | Historical release/vintage → decision cut resolution → retained corrections                      | Latest values with invented delay are not PIT                                                 |
-| U11 B3 membership                            | Frozen ranking inputs/calendar → historical eligibility/availability → membership timeline       | No today's survivor list; R&D owns strategy rules, Backtest portfolio execution               |
-| U13 through U15 Capital/fidelity/attribution | Align terms and cuts, locate gaps/revisions, correlate repair                                    | Data integrity does not prove estimator/trading logic correctness                             |
-| U16/U17 Concurrency/knowledge                | Shared custody with separate read/job attribution and provenance                                 | Cache reuse does not waive exposure; no research conclusions in the data service              |
-| U18 Current discovery                        | Frozen observation clock, members and closed windows; totals/coverage/gaps                       | Forming bars are not closed bars; missing data is not absence of opportunity                  |
-| U19 Protected/future evidence                | Isolated reads, partition/exposure controls; live facts as successor sources                     | No private values through market APIs or cross protection cache hits                          |
-| U20 Operation/return                         | Live channels and correction facts support native execution and successor research               | No signals, activation, capital allocation or trading account orders                          |
+| Story                                        | Detailed Market Data path                                                                  | Consumer and refusal boundary                                                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| U01 Source plans                             | Preserve market related source/time evidence; R&D owns interpretation                      | External strategy descriptions are not market facts                                           |
+| U02 Imports/cross markets                    | Validate CSV/GZ timezone, units, contracts/quotes, revisions and costs → native custody    | Name missing scope, no zero filling; continuous futures are not one tradable contract         |
+| U03/U04 Windows/`R-1`                        | Freeze dates/warmup → minute coverage → native signal aggregation → exact binding          | Higher bars cannot reveal lower chronology; missing finer data is not valid fill evidence     |
+| U05 through U08 Rules/event controls         | Same basis input versions, members and windows for exact control jobs                      | Never switch sources after results or call event statistics trading returns                   |
+| U09/U12 Carry/legs                           | Per market legs/terms; complete settlement schedule; separate signal availability proof    | Empty schedules mean no settlement events, not gaps; no zero filling or publication inference |
+| U10 Macro                                    | Historical release/vintage → decision cut resolution → retained corrections                | Latest values with invented delay are not PIT                                                 |
+| U11 B3 membership                            | Frozen ranking inputs/calendar → historical eligibility/availability → membership timeline | No today's survivor list; R&D owns strategy rules, Backtest portfolio execution               |
+| U13 through U15 Capital/fidelity/attribution | Align terms and cuts, locate gaps/revisions, correlate repair                              | Data integrity does not prove estimator/trading logic correctness                             |
+| U16/U17 Concurrency/knowledge                | Shared custody with separate read/job attribution and provenance                           | Cache reuse does not waive exposure; no research conclusions in the data service              |
+| U18 Current discovery                        | Observation clock, members, closed or labeled forming inputs; totals/coverage/gaps         | Forming bars are not closed bars; missing data is not absence of opportunity                  |
+| U19 Protected/future evidence                | Isolated reads, partition/exposure controls; live facts as successor sources               | No private values through market APIs or cross protection cache hits                          |
+| U20 Operation/return                         | Live channels and correction facts support native execution and successor research         | No signals, activation, capital allocation or trading account orders                          |
 
 Acceptance starts with U02 import failure, U03/U04 windows/gaps, U09/U12 settlement/availability, U10 vintage,
 U11 membership, U16 recovery/concurrency and U18/U19 live/protection. This closes design responsibility, not runtime
 support for every source or target API.
+
+## CURRENT market-data MCP server
+
+The `market-data` server of the [domain MCP
+catalog](../architecture/product-edge#target---external-agent-tool-surface) is `market-data-mcp`, a
+stateless stdio process built from `services/market-data-mcp`, which is its own Cargo workspace with its own
+`Cargo.lock` and depends on no Owner crate - only an HTTP client, serde and the stdio loop. It holds
+the Market Data API token in its own environment and reaches Market Data's routes only. Every rule lives in
+Market Data behind a route; a tool sends one request, passes its answer or refusal through by name, and
+sequences nothing. The same functions are a command line with the same names.
+
+`get_bars` and `get_funding` are registered tools today, but each refuses
+`HOLDOUT_PARTITION_UNDEFINED` unconditionally: no Owner defines Qualification's holdout partition yet, so no market
+value reaches an agent through them.
+
+| Tool                                     | Route                                                   | Refusals by name                                                |
+| ---------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- |
+| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                               |
+| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                            |
+| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | each admission step's own refusal                               |
+| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`, `RANGE_INVALID`  |
+| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                   |
+| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                            |
+| `get_bars(instrument, timeframe, range)` | `POST /v1/market-data/bars`                             | `HOLDOUT_PARTITION_UNDEFINED` (unconditional, TARGET to narrow) |
+| `get_funding(instrument, range)`         | `POST /v1/market-data/funding`                          | `HOLDOUT_PARTITION_UNDEFINED` (unconditional, TARGET to narrow) |
+
+- **Listing and describing read what Market Data holds now.** `GET /v1/market-data/instruments` and
+  `GET /v1/market-data/instruments/{instrument}` are `CURRENT`: `crates/data/src/owner/instrument_catalog_v1.rs` reads
+  each instrument's latest Instrument Master V2 fact, every link of its chain decoded and checked, and every
+  economic-terms version admitted for it. A value the venue does not state is named (`UNBOUNDED`, `NOT_APPLICABLE` or
+  `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
+  Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
+  the perpetual F admits over HTTP.
+- **CURRENT: per-symbol admission is one Market Data operation, over five steps.**
+  `POST /v1/market-data/binance-perpetual-admissions` takes a Binance USD-M symbol. Market Data fetches the symbol's
+  public `exchangeInfo` entry once and commits, in order, five of the six facts the first `COMPOSER_V3` Replay's
+  acceptance commits through separate routes: the kline Source Binding, the Instrument Master fact, the
+  `exchangeInfo` Source Binding, the Instrument Master V2 fact, and the economic terms
+  (`crates/adapters/binance/src/perpetual_admission_v1.rs`,
+  `crates/strategy_factory_rd_owner_api/src/market_data_pit.rs::admit_binance_perpetual`). Every step rejoins an
+  identical resubmission rather than erroring, so a rerun after any failure completes the rest. The two Source
+  Binding steps carry no symbol and claim a fixed effective instant, not the clock's current one: a binding's
+  identity folds in its claimed effective instant, so a proposal built from "now" would mint a new binding on every
+  call, and a fixed one is what lets the second symbol's identical proposal rejoin the first symbol's binding
+  instead. The kline binding proposal, with its availability rule, is constructed only here, and every backfill of
+  the instrument reads that same proposal to locate its fill gaps. All five steps stay in the data layer.
+
+### CURRENT: historical membership is admitted once, whole, for the fixed U1 set, not per symbol
+
+`HistoricalMembershipAdmissionRequestV1` is "one complete membership submission for a single eligible-instrument
+frontier... admitted whole or not at all": a frontier's membership manifest is fixed at the instant it is first
+admitted, so a later admission naming a member outside that manifest refuses `RequestConflict`, and the Owner
+tracks only one global "current" frontier (the most recently admitted one), so a second, different frontier per
+symbol would make an earlier symbol's frontier stop being current. Worse, an Instrument Master cut requires every
+member fact in it to name the same `historical_membership_frontier`
+(`crates/data/src/owner/instrument_master/authority.rs`, `FrontierMismatch`), so a two-member cut over two
+different per-symbol frontiers would always fail. For that reason, before any symbol is admitted through this
+route, its complete fixed member set (`BinancePerpetualDatasetV1`'s sibling constant
+`BINANCE_PERPETUAL_U1_MEMBERS_V1` - BTC, ETH and SOL for U1) is admitted once, whole, through the generic
+`POST /v1/market-data/historical-memberships` route, using
+`binance_perpetual_eligible_set_admission_request_v1`, after the kline Source Binding is admitted (its lineage is
+this request's) but before any symbol's own Instrument Master submission. Every per-symbol admission then names
+that same frontier (derived from the sorted member set, not a fixed constant, so a different future set derives a
+different frontier instead of colliding) in its Instrument Master fact. Re-sending the one-time admission rejoins
+the same frontier. A symbol outside the fixed set is refused by name, `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER`, before
+any admission step runs: nothing is written for a symbol the fixed set does not name.
+The backfill job admits this set through `UniverseSelectionAdmissionV1::admit_membership_at_owner_clock`, under
+the kline dataset's anchored lineage root. The request states only what the membership means: the members, their
+instruments and effective range, the lineage root and the correction frontier. The Owner stamps all five
+observation instants with its own current decision cut, so the facts are in force at that cut and every later
+one, and a Research scope check at the current cut finds them. A later call rejoins the admitted frontier without
+writing when it names exactly the same members with the same meaning, at whatever instant they were observed.
+Another member set or another meaning is `RequestConflict`.
+
+The job used to stamp the facts at its far-future universe-evaluation instant
+(`BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1`, 2100-01-01). That put them out of force at every real
+cut, so every scope check refused the members as `NOT_IN_ELIGIBLE_FRONTIER`. A deployment that admitted
+membership that way, or under the fixed lineage marker that #1375 removed, holds facts no new call can rejoin and
+must be recreated.
+
+- **TARGET: adding a symbol beyond the fixed U1 set is a successor-frontier admission, not something per-symbol
+  admission does.** A frontier is Market Data's own complete statement of the eligible-instrument set at a point in
+  time - "each admission succeeds the one before it, so Market Data, not the requester, decides which frontier is
+  current" - never a set a requester can narrow to one instrument by admitting it alone: doing that would make
+  every other admitted instrument fail R&D's current-frontier checks
+  (`check_research_instrument_scope_v1`/`resolve_research_pit_references_v1`) the moment a newer, narrower frontier
+  superseded theirs. Growing the eligible set is therefore its own deliberate admission: a new
+  `HistoricalMembershipAdmissionRequestV1` naming the whole new set (every existing member plus the new one), under
+  the frontier digest that set derives. Any Instrument Master fact whose cut spans members across the old and new
+  sets together needs a successor fact naming the new frontier; a single-member cut is unaffected, since its one
+  fact already names whichever frontier was current when it was admitted. This route does not drive that admission
+  itself; it is a separate, explicit operation outside `admit_binance_perpetual`.
+- **CURRENT: a backfill is a job Market Data runs.** `POST /v1/market-data/backfill-jobs` records a `QUEUED` job
+  fact and returns its `job_id`. The job runs synchronously within that same request
+  (`crates/strategy_factory_rd_owner_api/src/binance_backfill_job.rs::start_backfill`), recording `RUNNING`, then
+  fetching the member's execution bars and fill bars, building the member's custody request and committing it, and
+  recording `SUCCEEDED` with the custody receipt and the exact window it covered, or `FAILED` with the refusal's
+  name. Job facts are append-only (`crates/data/src/owner/backfill_job_v1.rs`) and the MCP server holds no job
+  state. The timeframe is the custody's execution timeframe, validated against the one whitelist above (`1w`,
+  `1d`, `4h`, `1h`); the `1m` fill timeframe comes with it, fetched by `vision_backfill_v1.rs::fill_bars` (one REST
+  call per gap, for every execution timeframe today - reading the `1m` archive instead for `4h`/`1h`/`1w`, to cut
+  the call count, is a pending efficiency follow-up, not a correctness gap). `GET /v1/market-data/backfill-jobs/{job_id}`
+  answers the job's complete transition history.
+- **CURRENT: coverage is what Market Data's own backfill job facts record.** `GET
+  /v1/market-data/instruments/{instrument}/coverage` answers, for each execution timeframe, the half-open ranges
+  every `SUCCEEDED` job has covered, merged where they touch or overlap - not read from the custody chains
+  directly: the committed receipt carries no window bounds, and the custody tables have no queryable bounds
+  columns either, so this is Market Data's own statement of what it committed, not another Owner's internal rows.
+  It states no market value.
+- **A run names its data by description.** A `dataset_ref` is the description
+  `(instrument, execution_timeframe, [start, end))`, which an agent writes from `coverage`; no tool issues it. The service that runs a backtest resolves it
+  against the custody chain that covers it, records the head it resolved, and refuses a range no custody covers as
+  `DATASET_REF_UNRESOLVED`. A backtest therefore never needs `get_bars`.
+- **Agent reads are recorded by Market Data.** Before a tool returns market values - bars or funding rates - to an
+  agent, Market Data appends one agent data-read row per instrument in the same transaction that reads them: the
+  server's session identity, minted when the server process starts, the instrument, the timeframe, the half-open range
+  `[start, end)` in event nanoseconds, the tool, and the commit cut. A read whose rows cannot be written refuses. These
+  rows moved here from R&D's data-read ledger, which held the agent-session rows while R&D was meant to own the agent's
+  tools; R&D's census reads them downward and still writes the trial rows itself. Until a session is bound to a
+  lineage, R&D counts an agent read against every lineage.
+- **No market value reaches an agent before the holdout partition exists.** No Owner defines Qualification's holdout
+  partition yet, so `get_bars` and `get_funding` refuse every request as `HOLDOUT_PARTITION_UNDEFINED`, as every
+  hand-out of R&D's data-read ledger does.
+- **TARGET, after U1: Qualification registers its partition into Market Data.** Qualification calls down and
+  registers the protected instruments and periods by value; Market Data only refuses. Then a tool refuses a range that
+  overlaps a protected period as `RANGE_IN_HOLDOUT_PARTITION`, and a backtest whose window overlaps one is refused by
+  name, because its result alone would leak the holdout. Until the partition is registered, every backtest report
+  states that no holdout partition is defined and that its results are exploratory only.
+- **Accepted on its own** when, in the deployment image and through this server alone, BTC, ETH and SOL are admitted,
+  each is backfilled for `1d` with its `1m` fill, `coverage` shows the windows, and every refusal above is driven once.
 
 ## TARGET - Research economic data and availability
 
@@ -303,9 +617,7 @@ and consumer consistency. Named scope alone does not establish admission or curr
 
 ## Implementation admission ledger
 
-This ledger is the greppable index of what the contract below has actually reached. It grants no permission by
-itself: what is `IMPLEMENTATION_ADMITTED` is whatever the Status column below says is, and nothing more, so this
-sentence names no slice and does not go stale when one moves. Widening that set requires changing this document
+This ledger indexes implementation status and grants no permission. Only slices marked `IMPLEMENTATION_ADMITTED` in its Status column are admitted. Widening that set requires changing this document
 first under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a
 green job, or a row here is not implementation authority, never proves a production consumer, and never authorizes
 a production effect, a deployment cutover, or real trading.
@@ -610,9 +922,241 @@ schedule.
 - **Instrument Master** - own effective-dated instrument identities, venue mappings, contract terms, sessions,
   time zones, lifecycle and corporate-action facts; it does not choose a run universe.
 
-## Calendar and Time Zone native Owner contracts
+## Input handoffs
 
-### Durable R0 observation-evidence foundation
+Target downward data requests carry complete sealed role/scope/input values already resolved by the upper caller. Market Data validates its own admission, exact bindings and data facts without reading Composer or R&D. The `lock_sealed_exploratory_replay_request_for_market_data_v1`, Composer shared-cut locks and reverse resolvers described here specify sealed-protocol compatibility and migration protection, not the target call direction. Migration retains stable cuts, immutable identities, atomic zero-write failure and protected isolation while moving resolution to upper admission and passing values down.
+
+- Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
+  coordinate is attributed to the clock that states it rather than to the clock that admits it. The venue states
+  the event-effective instant and the provider-available instant, and states them separately: the first is when
+  the event happened, the second is when the venue published it, and using one for the other would assert a
+  publication the venue never claimed. Beyond that pair the same vocabulary reaches this Owner through three
+  intakes that differ in who holds the clock, and a rule learned from one of them is wrong about the other two.
+  A submitted PIT Snapshot Request carries, for every coordinate, both the value and the clock identity and epoch
+  the submitter claims; this Owner assigns none of them and admits them only by comparing each claimed clock
+  against its own sealed head, refusing on mismatch. An Instrument Master submission carries the coordinate
+  values alone and no clock at all; this Owner binds the admitted fact to its own current clock head. On the live
+  market channel this Owner states the retrieval coordinate from the host process clock rather than from the
+  sealed head, so it is comparable neither with the venue's two instants nor with a sealed-head coordinate.
+  Binding a coordinate to the sealed head is admission, not attribution: on the PIT intake a claimed instant
+  remains the submitter's claim after the head admits it, and is never compared to an Owner-stated instant as
+  though one clock produced both. A record that states no coordinate of its own yields none for it, and this
+  Owner never substitutes its own instant, the event instant, or a neighbouring record's stamp for a coordinate
+  the source did not state.
+- [R&D](./rd/) submits an initial frozen PIT Market Snapshot Request before exploratory consumption.
+  It binds the Research Request, Intent, TrialFamily, instrument or universe scope, four-time decision cut,
+  required provenance, license and correction frontier, stable correlation, and Time Evidence.
+- [R&D](./rd/) may submit one Market Data Repair Request only from a committed `REPAIR_INPUTS`
+  Iteration Decision. It repeats the original PIT request identity and proof digest, instrument scope, decision cut,
+  bounded reason, stable correlation, required provenance/license/correction fields, and shared Time Evidence.
+- Operations supply the Market Data Source Binding, opaque credential handles, license scope, and correction feeds without
+  changing observed-at history. Credentials never enter a snapshot, stream, artifact, or product view.
+  The admission `POST /v1/market-data/source-bindings` refuses each defect of a proposal under its own name as
+  HTTP 400: an empty field as `SOURCE_BINDING_FIELD_MISSING`, a zero digest as `SOURCE_BINDING_DIGEST_ZERO`, an
+  invalid schema, policy or frontier version as `SOURCE_BINDING_VERSION_INVALID`, raw credential material, an
+  audience other than Market Data or a capability beyond read-only market data as
+  `SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL`, `SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID` or
+  `SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN`, time coordinates that are zero or out of order as
+  `SOURCE_BINDING_TIME_EVIDENCE_INVALID`, and a bar timeframe no bar can have as
+  `SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED`. Coordinates that are well ordered but later than this Owner's decision
+  cut are early rather than wrong: they are a 409 `SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT`, and a later
+  admission can accept them. `INVALID_SOURCE_BINDING_PROPOSAL` remains only for a claimed identity that does not
+  derive from its content.
+
+## Output handoffs
+
+- To [R&D](./rd/): one move-only, Market Data-sealed `ResearchPitTerminal` whose canonical six-state
+  disposition is correlated to the exact initial
+  request identity, content digest, scope, cut, provenance, license, correction, and stable correlation, plus the
+  exact Universe Selection Record identity and digest for hypothesis testing. A repair request resolves separately to the same correlated request identity
+  as `AVAILABLE` with the repaired snapshot, or terminal `UNAVAILABLE` with a bounded decisive source category.
+  R&D cannot import, construct, deserialize, or implement the terminal authority and receives no raw
+  store receipt, PIT lineage rows, Source Binding lineage rows, or clock rows.
+- To [Backtest](./backtest/): the exact PIT Market Snapshot and Universe Selection Record for the request-bound PIT
+  scope and snapshot/correction rule. **TARGET:** direct `BACKTEST_OWNER_V1` Instrument Master resolution supplies
+  the sealed fact/cut readback; actual consumption and Run Result must repeat the exact snapshot, selection,
+  Instrument Master fact/cut and every frozen execution identity.
+  **Snapshot performance measurement (2026-09-22).** A PIT snapshot is
+  one as-of cut, so N bars are N frozen requests. On `BTCUSDT.BINANCE` at `1M`, 512 consecutive coordinates
+  produced 512 distinct bars and 512 distinct sealed snapshots, strictly consecutive with no gap and no repeat,
+  in 767.8 s. Reading back which bar each coordinate resolved to is a second venue round trip and is what makes
+  that statement sayable at all; the same 512 coordinates without it took 655.4 s, and the timings below are
+  measured from those witness-free runs. What dominates the clock is **not** the venue: removing half the round
+  trips saved 15%, and all SQL execution together accounted for 1.2% of a 256-coordinate run.
+  The cost grows with **what the store already holds**. Within one 256-coordinate run the per-coordinate cost
+  rose from 0.131 s over the first eighth to 1.182 s over the last. `validate_owner_history_custody` walks every
+  lineage in the store on every commit, and every snapshot opens its own lineage, so commit number n re-validates
+  n lineages at six statements each: 101,509 iterations and 609,054 statements at N=256, which fills the measured
+  clock. Total cost is therefore quadratic. Three witness-free runs - 64, 256 and 512 coordinates in 12.1 s,
+  169.2 s and 655.4 s - fit **t is about 0.033 N plus 0.0024 N squared seconds** on the measuring host to within
+  0.7%, while the simpler `0.0025 N squared` passes through the 512 point exactly and underestimates 64 by 15%.
+  Extrapolating that curve - an extrapolation, and one that assumes a store starting empty - **one year of daily
+  bars is roughly five and a half minutes, and one year of minute bars is roughly twenty-two years**, A separate one-year daily-coordinate measurement took 336.5 s, but with the witness probe and on another instrument and timeframe, so it corroborates the order
+  of magnitude without testing the curve at a controlled point. The practical consequences are that a bounded
+  window of a few hundred coordinates is cheap, a long minute-resolution history is not reachable by this path at
+  all, and **a store that is never reset makes every later snapshot slower for every writer**, so accumulating
+  snapshots in a shared chain database spends a budget that never returns.
+  **Controlled profile (2026-10-03).** The run was 256 consecutive daily `BTCUSDC-PERP.BINANCE`
+  coordinates on main 85c4237d2, against a disposable store with `pg_stat_statements`.
+  - **Per-commit cost.** The cheapest commit in each block of 16 rose from 138 ms to 1241 ms. That is about 4.5 ms
+    for every lineage already in the store, so the cost is linear per commit and quadratic in total.
+  - **Where it goes.** 632,102 statements ran. The top four by time are the per-lineage history checks, each called
+    97,920 times, which is 256 squared over two times three. Server execution was 79 s of the 258 s commit time; the
+    rest is round trips and decoding each fact in Rust, which an index cannot remove.
+  - **What triggers it.** `validate_owner_history_custody` runs about three times per commit: clock admission, clock
+    materialization, and the read validation that eight read paths share. Each run re-decodes every PIT lineage.
+  - **Projection.** At that slope, about 5,500 daily snapshots would end with a 25 s commit and about 19 hours in
+    total, and every read would slow the same way.
+
+  **TARGET - per-lineage history custody.** The check moves to where each lineage is written and read. It is not
+  removed.
+  - **On commit:** the lineage being written. Its new fact, and its link to the previous head (predecessor digest
+    and next version), are validated in the committing transaction.
+  - **On read:** the lineage being read. A PIT snapshot or Research PIT terminal read validates the one lineage it
+    returns.
+  - **The census check stays global.** It is one set-level statement (0.46 s over all 774 calls above). Source
+    Binding lineages stay walked whole, because there are few of them (0.21 s over 772 calls).
+  - **History cannot be rewritten.** PIT snapshot facts, observation batches, observation rows and the outbox get
+    append-only triggers, written the way `native_replay_frame_sequences_are_append_only` is. A rewrite through the
+    Owner's own connection is then refused by name rather than detected at a later commit.
+  - **Migration keeps one full walk** as the audit entry point.
+  - **What changes.** Today a damaged lineage stops every commit and read in the store. After this, it stops the
+    consumer that reaches it, which is what "fails closed for the dependent consumer" under Failure and recovery
+    states.
+  - **Acceptance:**
+    - the same sweep must be linear in N;
+    - a rewrite of a committed PIT fact through the Owner connection must be refused by the trigger.
+  - **Scope.** The tests that rewrite PIT rows to prove detection (15 sites in `postgres/tests.rs` and one each in
+    `store_admission/mod.rs` and `bar_schedule_acceptance_v1_tests.rs`) move to the trigger's refusal or to an
+    explicitly trigger-disabled admin session.
+- To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
+- To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
+  Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
+  **CURRENT / PARTIAL, one live fact channel, built and proven:** the additive `LiveMarketFactV1` a Strategy Instance consumes,
+  its Owner-sealed intake, and exactly one Data Client behind it, the venue's public WebSocket. The vendor side
+  states only what a venue can know, as the PIT observation seam already requires; the Owner stamps the admitted
+  Source Binding identity and lineage, the binding's Market Semantics Compatibility identity, and the one time
+  coordinate that is its own, the retrieval instant, together with the sequence. The venue states the
+  event-effective and provider-available instants from its own clock, and the Owner reads its retrieval instant
+  from the host process clock rather than from its sealed head, so no ordering across those clocks is provable and
+  none is asserted. The Owner refuses an instrument outside the subscription it issued, and keeps a
+  durable head so a restart hands over from where it stopped rather than replaying. Nothing else is admitted here:
+  no second channel, no instrument-update stream, no Runtime custody, no order path.
+  **NOT_ADMITTED:** a live channel establishes no Runtime readiness, Paper, Live, real trading or other production
+  write, and a streamed fact is never a PIT snapshot, a replay input or evidence for a historical question.
+- **IMPLEMENTATION_ADMITTED, one live market read surface, admitted 2026-09-21 and not built:** a consumer of a
+  live market fact is identified by its own database role, and what it may read is narrowed before the read rather
+  than filtered by the caller's claim during it. The admitted shape is one view per consumer, owned by
+  `market_data_owner`, restricted to the bindings that consumer is admitted to, with `SELECT` granted to that
+  consumer's role and no privilege on `market_data_private`. That role is the upper bound on what the consumer can
+  see: never `rd_owner`, and never a superset shared with another consumer, so the bound is enforced by the
+  database rather than by trusting a process to hold a credential. A caller identity finer than a role is not
+  required today and is not introduced; should one ever be, the per-consumer role remains its upper bound and
+  refining inside that bound is the only admitted shape. Admission here is permission to build and verify this one
+  read. It authorizes no Runtime effect, no Paper or Live adapter binding, no production write and no real trading,
+  and it does not admit the Runtime-side consumer, which is the other half `B8` names. The first delivery states
+  both sides of its own proof: the consumer's own view returns only the bindings it is admitted to, while another
+  consumer's view and `market_data_private` each refuse it rather than returning no rows, because a read that
+  returns nothing where it should be refused is a grant that is too wide.
+- To [Portfolio](./portfolio/): prices, FX rates, contract specifications, valuation facts, and an identified liquidity input cut for Capacity View.
+- **TARGET, after Shared Time producer closure, to [Portfolio](./portfolio/):** the sealed canonical clock-head handoff
+  for `PORTFOLIO_FRESHNESS`. Portfolio supplies its exact prior handoff and alone authorizes its transition; it cannot
+  walk or skip proof links or compare monotonic sequences across epochs.
+
+## Rejections and prohibitions
+
+- Never select the instruments or time window for a research run, backtest, or scan.
+- Never silently fill, rewrite, or forward-date missing historical facts.
+- Never treat a reachable source as proof that data is licensed, complete, point-in-time correct, or fit for a strategy.
+- Never admit an unavailable, revoked, endpoint-mismatched, digest-mismatched, untrusted, or unlicensed source;
+  never expose credential values or data outside its redistribution scope.
+- Never own strategy, qualification, deployment, order, or account state.
+- Never infer a repair terminal from delivery, silence, a prior snapshot, or a mismatched request proof. A repair
+  never mutates the old snapshot or Research Intent.
+- Never infer an ordinary snapshot result from submission or transport acknowledgement, or serve an earlier
+  snapshot under a changed request identity, content digest, scope, decision cut, or policy binding.
+- Never become a global Time Owner or decide another Owner's clock transition.
+- Never construct the governed Market Data PostgreSQL repository from a DSN, secret, caller assertion, or ambiguous
+  store state alone. The private Market Data store-admission seam must consume and revalidate its exact sealed
+  Deployment Store Admission receipt, then
+  Market Data must validate current PIT, Source Binding, and clock heads before sealing `ResearchPitTerminal`.
+  Ordinary consumers never receive the receipt, capability, raw evidence, or a caller-selected snapshot query.
+  Production resolution and dynamic product composition remain `TARGET / UNAVAILABLE`.
+
+## Failure and recovery
+
+Unavailable, stale, unlicensed, ambiguous, or insufficient data fails closed for the dependent consumer. Corrections create a new traceable version rather than rewriting prior receipts. During recovery, Market Data continues supplying valuation facts, but it cannot declare positions, effects, or a Recovery Case closed.
+
+Provider-catalog `LEGAL_REVIEW_REQUIRED` or otherwise unknown rights map to
+`RIGHTS_EVIDENCE_UNRESOLVED` and Source Binding `UNAVAILABLE`; they do not become `UNLICENSED` without decisive
+denial evidence. `TERMS_OR_LICENSE_BLOCKED` is an R&D Source Intake terminal, not a Market Data state. Market Data
+must re-evaluate the underlying rights evidence under its own policy and never copy that terminal across Owners.
+
+When multiple blockers are supported, the binding and snapshot retain all of them and choose one stable primary.
+Snapshot precedence is `UNLICENSED` before `AMBIGUOUS`, `STALE`, `INSUFFICIENT`, then `UNAVAILABLE`.
+`REVOKED` or `UNLICENSED` source bindings map to snapshot `UNLICENSED`; `INCOMPATIBLE` maps to `AMBIGUOUS`;
+source `UNAVAILABLE` maps to snapshot `UNAVAILABLE`. Later evidence creates successor bindings and snapshots and
+never upgrades an earlier terminal result.
+
+If any time coordinate or the shared decision cut is missing, conflicting, or cannot prove that the fact was
+available at the decision, the snapshot is `AMBIGUOUS` or unavailable. Event time alone never admits a historical
+fact, and retrieval after the cut never backfills an earlier decision.
+
+## Decision contract
+
+- **Inputs** - admitted source binding, raw market and reference records, correction feeds, license scope, and a
+  requester-owned universe rule or PIT scope.
+- **Diagnosis and decision** - normalize meaning, establish four-time availability, resolve instrument identity,
+  coverage, correction and license, then materialize one versioned fact or snapshot disposition.
+- **Conflict resolution** - source lineage and decision-time availability outrank later corrections; conflicting
+  identity, clocks or versions remain ambiguous and corrections create successors.
+- **Outputs and terminal negatives** - streams, instrument facts, selection records and PIT snapshots, or explicit
+  `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, and unavailable results.
+- **Feedback and economic meaning** - common historical/live semantics prevent phantom Alpha, valuation drift and
+  unsafe sizing caused by look-ahead, wrong contract terms or unlicensed incomplete data.
+- **Prohibitions** - no research objective, strategy universe choice, lifecycle, order, account projection,
+  credential disclosure, forward fill or rewritten availability history.
+
+## Subsequent implementation acceptance
+
+- A historical query can prove exactly which version was observable at its requested time.
+- Every admitted fact proves event, provider-available, retrieval, and correction-publication time against the
+  same clock and decision cut; no later-known fact can become earlier-available evidence.
+- Instrument identity and contract terms remain consistent across research, replay, live data, valuation, and execution adapters.
+- Historical and live consumers reject a mismatched Market Semantics Compatibility identity instead of silently
+  changing normalization, adjustments, timestamp meaning, or instrument mapping at deployment.
+- Every PIT request proves calendar, session, time-zone, corporate-action, lifecycle, historical-membership, and
+  universe-selection versions as both effective and observable at the requested cut.
+- Every ordinary Research response repeats the exact initial PIT Market Snapshot Request and correlation bindings;
+  changed meaning requires a successor request and silence creates no Market Data or Research transition.
+- Consumers receive explicit insufficiency or staleness instead of synthetic success.
+- A Data Client that answers no rows reports insufficient coverage, not a malformed batch. The snapshot commits
+  `INSUFFICIENT` with its coverage blocker and stores no observation batch, because a batch holds at least one row. Its
+  records digest is the digest of the canonical encoding of zero rows, which no batch of rows has. The same request
+  again rejoins a committed snapshot whatever its disposition, and writes nothing.
+- Re-running a snapshot against the same admitted versions yields the same canonical inputs.
+- Snapshot outcomes are explicit: `AVAILABLE`, `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, or
+  `UNAVAILABLE`. Every repair response additionally repeats the repair request identity, stable correlation, and
+  original request proof digest.
+- Simultaneous rights, compatibility, freshness, sufficiency, and availability failures preserve the complete
+  blocker set while the frozen precedence selects the same primary under every evidence-arrival permutation.
+- Protected replay cannot substitute a different PIT scope, Universe Selection Record identity or digest, snapshot rule, correction frontier, or snapshot identity after Qualification freezes the request.
+- Same-epoch handoff replay joins exact bytes; advancement strictly advances required cuts without changing epoch
+  semantics. A new epoch fails closed unless its new head and direct immutable proof commit atomically and both remain
+  exactly resolvable by digest.
+- Native Instrument Master resolution for `BACKTEST_OWNER_V1` returns the same fact/cut identities and canonical
+  bytes for the same request identity and meaning; wrong-role, overlap, late-correction, gap, stale, unavailable-store,
+  response-loss and changed-meaning cases all demonstrate the fail-closed and successor-only rules above.
+
+## Observability and persistence
+
+Market Data persists Source Binding, rights/retention decision, semantics profile, instrument history, PIT requests and snapshots, stream/valuation facts, corrections, and publication outbox under its own write authority. Telemetry records provider request latency, freshness, gaps, rate limits, correction lag, and bounded rejection category without exporting API keys or licensed payload bodies. Dashboard source health always carries source/semantics versions, as-of frontier, license disposition, completeness, and valid-through; a green provider metric cannot substitute a missing or stale PIT fact.
+
+## Native fact contracts
+
+### Calendar and Time Zone native Owner contracts
+
+#### Durable R0 observation-evidence foundation
 
 **CURRENT:** `ReferenceFactR0RecordV1` is the one durable R0 observation-evidence aggregate used by standalone
 native reference authorities. R0 is not a business fact, coordinate selector, or second clock. Its private
@@ -678,7 +1222,7 @@ intake paths: the record's coordinates are the snapshot's, a replay appends no s
 that is not `AVAILABLE` carries none. Nothing beyond this write is claimed. **NOT_ADMITTED:** R0
 grants no provider authenticity, deployment, runtime, Dashboard or trading authority.
 
-### ReferenceFactCatalogV1 business-value authority
+#### ReferenceFactCatalogV1 business-value authority
 
 **TARGET:** `ReferenceFactCatalogV1` is the single Market Data Owner catalog for Calendar, Time Zone and Session
 business values. It is a different authority axis from R0: the catalog owns the typed value, business scope,
@@ -728,7 +1272,7 @@ bounds. Exact stored bytes are decoded, rehashed and matched before use. **NOT_A
 catalog data does not prove vendor authenticity and grants no default/production database, deployment,
 provider, Dashboard, runtime or trading effect.
 
-### Shared native boundary and custody
+#### Shared native boundary and custody
 
 **CURRENT:** Replay V2 has typed Calendar and Time Zone values, while PIT and Instrument Master still carry
 calendar, time-zone or ruleset identities without native Calendar/Time Zone readback. Shared Time authenticates
@@ -789,7 +1333,7 @@ runtime access; `PUBLIC` has no privilege; only the fixed non-grantable Owner/wr
 **NOT_ADMITTED:** these contracts do not claim implementation, migration, store admission, registered product
 composition, provider authenticity, production/default writes, deployment, Dashboard work, runtime or trading.
 
-### Calendar V1: complete day/open authority
+#### Calendar V1: complete day/open authority
 
 `CalendarFactV1` value is exact calendar identity `u32BE length || bytes`, signed UTC civil-day ordinal
 `i32BE` from `1970-01-01`, and `is_open` `u8`.
@@ -816,7 +1360,7 @@ Receipt and readback domains respectively replace `calendar-cut` with `calendar-
 `calendar-readback`, both version `v1\0`; the outbox identity equals the receipt identity under
 the shared native rule and has no domain.
 
-### Time Zone V1: complete UTC-offset transition authority
+#### Time Zone V1: complete UTC-offset transition authority
 
 `TimeZoneFactV1` value is exact time-zone identity and ruleset identity (`u32BE length || bytes`, then `[u8; 32]`)
 plus signed UTC offset seconds `i32BE`. Its half-open effective interval is the UTC interval on which that offset is
@@ -840,7 +1384,7 @@ and has exactly adjacent intervals with one offset for every instant, including 
 Receipt and readback domains are respectively `vibe.market-data.time-zone-receipt.v1\0` and `vibe.market-data.time-zone-readback.v1\0`; the outbox
 identity equals the receipt identity under the shared native rule and has no domain.
 
-### Session V1: sole native Calendar and Time Zone join
+#### Session V1: sole native Calendar and Time Zone join
 
 **CURRENT:** Replay V2 has typed Session values and BAR V1 has its existing structural bytes, but neither is a
 native Session join or authority. **TARGET:** Session is the sole native join of exact positive independent
@@ -903,9 +1447,9 @@ the shared native write-once, sealed rejoin/recovery, ACL and zero-write rules. 
 V1 preserves its existing bytes: native Session adoption requires additive dependency/aggregate fields and an
 additive BAR successor contract, never reinterpretation of stored Replay V2 or BAR V1 custody.
 
-## Market Semantics Owner contract
+### Market Semantics Owner contract
 
-### Status, boundary and fixed consumers
+#### Status, boundary and fixed consumers
 
 **CURRENT:** the Market Data architecture owns Market Semantics Compatibility, and `ReplayMarketFactsV2`
 already has the closed typed Market Semantics value described below. Source Binding still carries free-form
@@ -987,7 +1531,7 @@ deployment, runtime execution, Dashboard work or trading authority.
 A fixture, caller-carried identity, structurally valid bytes or existing Replay V2 fact is not standalone
 Owner readback.
 
-### Typed fact, time and correction topology
+#### Typed fact, time and correction topology
 
 The closed version-1 value is exactly: non-zero normalization identity `[u8; 32]`; price adjustment `u16BE` with
 `1 RAW`, `2 SPLIT_ADJUSTED`, `3 TOTAL_RETURN_ADJUSTED` or `4 UNKNOWN`; timestamp basis `u16BE` with
@@ -1033,7 +1577,7 @@ It cannot be built by appending each successor through today's per-append check,
 successor while the other heads still carry the old value: the rule holds after every Owner commit, so that
 transaction writes every successor first and checks the scope once, at its end.
 
-### Canonical codec, complete cut and custody
+#### Canonical codec, complete cut and custody
 
 Every version-1 integer is big-endian. Optional absence/presence is exactly `0x00`/`0x01`; every identity/digest is
 32 bytes; reserved is `u16BE = 0`; malformed length, zero required identity, alternate tag, duplicate, non-canonical
@@ -1086,7 +1630,7 @@ fields from a verified standalone readback. Replay V2 keeps its own aggregate fa
 time, scope, source and correction projection only after byte-equality checks against that readback. It neither
 replaces the standalone fact nor becomes a second Market Semantics authority.
 
-## Correction Policy private Replay projection
+### Correction Policy private Replay projection
 
 **CURRENT:** Source Binding owns correction lineage/frontiers and Replay V2 has the typed `CorrectionPolicy`
 value. **TARGET:** Market Data deterministically derives that value for Replay from exact admitted Source Binding
@@ -1119,9 +1663,9 @@ Replay V2 projects only stream, sequence and successor-only into its existing ty
 time/source/correction fields only after exact equality; its aggregate custody does not create a second policy
 authority.
 
-## Corporate Action native Instrument Master sub-authority
+### Corporate Action native Instrument Master sub-authority
 
-### Status, inputs and typed actions
+#### Status, inputs and typed actions
 
 **CURRENT:** Instrument Master owns corporate-action terms/frontiers and Replay V2 has closed Split,
 CashDividend, SymbolChange, Expiry and Roll variants, but no standalone native Corporate Action readback
@@ -1150,7 +1694,7 @@ correction identity. Corrections are immutable current-head successors in the sa
 cannot rewrite earlier observability. Missing predecessor, branch, cycle, sequence/frontier regression, action or
 instrument splice, invalid ratio/currency/successor, effective ambiguity or clock mismatch fails before writing.
 
-### Canonical complete census and custody
+#### Canonical complete census and custody
 
 Fact domain is `vibe.market-data.corporate-action-fact.v1\0`. Bytes are schema `u16BE = 1`, reserved, action
 identity, instrument `u32BE length || bytes`, term tag and payload in the order above, optional predecessor,
@@ -1179,7 +1723,7 @@ failure rules are the shared native rules above. Replay V2 projects one fact one
 identity, instrument and term variant and repeats time/source/correction only after exact equality. Backtest
 preserves the same native fact and cut identities/digests; neither consumer can normalize or synthesize terms.
 
-## Replay Market Facts V2 foundation
+### Replay Market Facts V2 foundation
 
 **CURRENT / PARTIAL:** Market Data defines the additive, dependency-neutral `ReplayMarketFactsV2` contract and
 canonical codec. One complete first-corpus cut contains typed, content-addressed calendar-day,
@@ -1489,9 +2033,9 @@ do not make the existing exactly-two-member Universe receipt a general Universe 
 the V1 joined-cut codec with a V2 codec, and do not permit Source Binding rule strings or a generic
 `version = "v2"` label to stand in for a canonical fact cut.
 
-## Instrument Master Owner contract
+### Instrument Master Owner contract
 
-### Public Fact V2 native-projection foundation
+#### Public Fact V2 native-projection foundation
 
 **CURRENT/PARTIAL:** `InstrumentMasterFactV2` is an additive, effect-free public-fact kernel for the
 first crypto-perpetual native projection. It does not reinterpret or alter any V1 fact, cut, receipt,
@@ -1704,7 +2248,7 @@ migration, admitted default/production database write, registered product compos
 deployment, runtime execution, production effect, or trading. The private economic path does not elevate those
 public-fact claims or construct a native instrument.
 
-### Status and fixed consumer
+#### Status and fixed consumer
 
 **CURRENT/PARTIAL:** Market Data implements the native `InstrumentMasterFactV1`, `InstrumentMasterCutV1`,
 write-once receipt/outbox, move-only `InstrumentMasterReadbackV1`, and sealed PostgreSQL resolver/recovery path
@@ -1715,8 +2259,8 @@ fixture. Those legacy provenance, role, and mapping paths do not replace the nat
 product consumption of it.
 
 **TARGET:** direct Backtest product consumption replaces the legacy digest and hard-coded R&D
-role/mapping paths with the existing Owner-sealed resolution. R&D declares research scope and the Strategy
-compiler consumes that resolution, but neither may query Instrument Master storage directly, maintain a
+role/mapping paths with the existing Owner-sealed resolution. R&D declares research scope; Backtest admission binds the sealed resolution to the native package
+and input manifest. Neither consumer may query Instrument Master storage directly, maintain a
 symbol-to-instrument or venue mapping, or synthesize a resolution.
 
 Admitting that consumption is a change to this Owner's sealed read contract, not an access-control change. The
@@ -1778,7 +2322,7 @@ no grant and must not be given one.
   instrument. No prefix or segment of the string is interpreted, and the binding's endpoint identity is not
   used, because a mirror can change it without changing the product.
 
-#### What the Owner derives from the payload
+##### What the Owner derives from the payload
 
 it parses the bytes strictly and requires exactly one `symbols[]` entry
 whose `symbol` equals the raw symbol byte for byte and whose `contractType` is `PERPETUAL`. The effective instant is that
@@ -1844,7 +2388,7 @@ native validation, which admits no `UNAVAILABLE` limit.
   answer with the one baseline, because the transaction takes the V2 store's table locks before it reads, as the status
   delta intake's does.
 
-#### Instrument Master intake refusals
+##### Instrument Master intake refusals
 
 - `UNAUTHORIZED_PRODUCT_EDGE` (HTTP 403): a request without the Product Edge bearer token.
 - `MALFORMED_TYPED_REQUEST` (HTTP 400): a body that is not the submission, including any unknown field.
@@ -1936,7 +2480,7 @@ status and nothing else. It is the second production writer of `market_data_inst
 - **The generation check is unchanged:** it compares no status, so a status delta neither causes nor clears a
   `GenerationMismatch`.
 
-#### Instrument status delta refusals
+##### Instrument status delta refusals
 
 - `UNAUTHORIZED_PRODUCT_EDGE` (HTTP 403): a request without the Product Edge bearer token.
 - `MALFORMED_TYPED_REQUEST` (HTTP 400): a body that is not the submission, including any unknown field.
@@ -2027,7 +2571,7 @@ TARGET below: window selection at the cut and the archiver are not built.
   payload (414 bytes), its status successor (669 bytes) and a one-member cut over the baseline, read from the tree
   before snapshot successors existed, beside the existing two-member cut pin.
 
-#### Instrument snapshot refresh refusals
+##### Instrument snapshot refresh refusals
 
 - `UNAUTHORIZED_PRODUCT_EDGE` (HTTP 403) and `MALFORMED_TYPED_REQUEST` (HTTP 400), as on the other V2 routes.
 - `INSTRUMENT_MASTER_V2_INVALID_SUBMISSION` (HTTP 422): the text is not an `exchangeInfo` object.
@@ -2214,7 +2758,7 @@ and admits no other.
   deployment decision. Whether a Replay window whose status is not `TRADING` must be refused is undecided and outside
   this design.
 
-### Native immutable records
+#### Native immutable records
 
 `InstrumentMasterFactV1` is an immutable effective-dated fact. It contains all of the following, with no
 consumer-owned substitution:
@@ -2282,7 +2826,7 @@ and durable receipt/outbox coordinates. Ordinary consumers cannot construct, clo
 mint it. It is the only recovery path after response loss; transport acknowledgement, retry success, a digest-only
 existence proof or a caller copy of prior fields is not readback.
 
-### Canonical identity and codec
+#### Canonical identity and codec
 
 The native records use one domain-separated canonical binary codec and BLAKE3-256. The exact four ASCII domains
 are:
@@ -2392,7 +2936,7 @@ symbol or alias normalization, database row order, and evidence arrival order ne
 receipt and readback domains bind their record payloads; the outbox stores the exact receipt identity and canonical
 receipt bytes and does not introduce a fifth identity domain.
 
-### Resolution, failure and recovery
+#### Resolution, failure and recovery
 
 A request resolves positively only through the current Market Data Owner store for `BACKTEST_OWNER_V1`. For
 each requested effective coordinate, Market Data first keeps facts whose half-open effective interval covers
@@ -2425,7 +2969,7 @@ scope, observation cut, consumer role, frontier or codec meaning requires a succ
 loss never authorizes a second write: recovery is exact receipt lookup and issuance of the corresponding move-only
 `InstrumentMasterReadbackV1` only.
 
-### Required consumption and preservation
+#### Required consumption and preservation
 
 PIT snapshot creation, Universe Selection Record evaluation, Strategy input binding and Backtest input admission
 must each resolve Instrument Master facts directly through this Owner contract. Symbol, ticker, alias, latest-row,
@@ -2484,18 +3028,17 @@ cut's change to it.
 The bound-replay issuance is the only production path to `issue_cut`, and its one caller is R&D's
 native execution-input binding issuance.
 
-**TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding
-declarations keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D may supply only
-Owner-authenticated Design/role intent; they never supply or select members, frames or a binding digest. In
-one Market Data Owner transaction, registration resolves the native PIT Snapshot, Universe Selection, Source
-Binding, Instrument Master and Market Semantics authorities, derives and stores the declaration and digest,
-regenerates the existing V1 bindings and frames, and then runs the existing V1 complete-census and joined-cut
-authorities unchanged.
+**TARGET, native input binding:** Market Data validates the exact datasets, instruments, coverage,
+time semantics, source rights and revisions requested by the sealed experiment input manifest. Backtest
+consumes that binding through native data types and the package's native subscriptions or requests.
+Missing or mismatched evidence yields no admitted replay input. Market Data does not compile a strategy,
+require a Design role language, or infer intent from Python code.
 
-Missing registry registration or any request/Design/role, membership, frame, lineage, semantics or digest
-mismatch produces no declaration, census, joined cut or replay input. This registry is the prerequisite for
-positive Replay V2 composition and for real Owner-driven R&D and Backtest consumption; it is not a provider
-registry, deployment registry or caller-authored data path.
+**Compatibility input binding:** requests using `StrategyDesignV2` and typed input roles retain their
+write-once declarations, complete role coverage, census and joined-cut validation. An absent registration
+or any request, Design, role, membership, frame, lineage, semantics or digest mismatch yields no declaration,
+census, joined cut or replay input on that interface. Its Composer attestation and V1 regeneration belong
+to that interface, not to native package admission.
 
 **CURRENT/PARTIAL, authenticated role-set foundation:** the dependency-neutral exact Composer locator and
 `StrategyDesignRoleSetReceiptV1` DTO are available, and the production positive-registration seam requires an
@@ -2513,7 +3056,7 @@ and its admission is composed whenever both principals are configured, which the
 every run.
 
 The write path is exercised by `postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap`, which binds the terminal to the Owner's own committed PIT
-request rather than a caller's claim, rejoins on re-admission and refuses an unattested locator. **TARGET:**
+request rather than a caller's claim, rejoins on re-admission and refuses an unattested locator. **Compatibility verification gap:**
 an observed end-to-end sequence. Every link exists ungated - the production Composer's commit function writes
 the role-set attestation in the same transaction as its operation, receipts and outbox, and the default build
 selects that function - but no run has been seen carrying a Composer commit through W3 registration into a
@@ -2522,7 +3065,7 @@ Bounded Feature Program freeze.
 The proof above supplies the attestation by writing the Composer rows directly, which a test may do and a
 deployment may not, so the sequence itself stays unwitnessed rather than unbuilt.
 
-**TARGET, and the schema says which shapes are possible:** `rd_develop_strategy_design_role_set_attestations_v1` takes `request_identity` as
+**Compatibility schema constraints:** `rd_develop_strategy_design_role_set_attestations_v1` takes `request_identity` as
 a primary key that references `rd_develop_operations_v2`, and requires a unique `operation_receipt_identity`,
 `artifact_identity` and `canonical_plan_digest`. An attestation therefore cannot exist without a Composer
 operation that produced an artifact. Minting one on its own, however it is authorized, would mean inserting an
@@ -2780,6 +3323,8 @@ refused it at the universe declaration.
 - **Refusal names.** `STRATEGY_INPUT_BINDING_UNAVAILABLE` (422) carries the binding's own cause in the
   `x-rd-rejection-cause` header and the body's `cause`, such as `VALUE_FINER_THAN_ROLE_SCALE`.
 
+## Event and bar custody contracts
+
 ### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
 Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
@@ -3002,7 +3547,7 @@ This is CURRENT/PARTIAL schedule custody and admitted read authority, not Dashbo
 other product reachability. A caller locator, structural decode, or reconstructed bytes confers no schedule
 authority.
 
-For initial Native Replay execution-input composition, the admitted Market Data read capability also exposes
+For the current Plan-based compatibility path, the admitted Market Data read capability also exposes
 one fixed request-bound operation. It resolves the PIT batch by the snapshot identity and fact digest already
 sealed in the R&D Replay request, rebuilds the complete universe frame from the Plan-declared role schema and
 Owner batch coordinates, then reads the complete BAR schedule history for each Master V2 canonical member.
@@ -3979,7 +4524,7 @@ response-loss or admission failure writes zero V4 receipt, readback, outbox or W
 this V4 JOINED_CUT locator/readback. This contract claims no implementation, migration, registered product
 composition, production startup/write, ProgramHost, Backtest, deployment, runtime or trading authority.
 
-**CURRENT/PARTIAL, universe-frame sample projection:** `StrategyInputUniverseSampleProjectionV1` gives each (member, role) value of
+**CURRENT/PARTIAL, compatibility universe-frame sample projection:** `StrategyInputUniverseSampleProjectionV1` gives each (member, role) value of
 one universe frame the Owner sample coordinate a bounded feature program reads. It is additive: no V1 receipt,
 V2, V3 or V4 projection, `SampleFactV1`, `SampleReceiptV1` or coordinate codec changes. Its subject
 is the exact digest of one `StrategyInputUniverseFrameReceipt`, the receipt a ProgramHost admits for that frame, never a
@@ -4044,7 +4589,7 @@ locks makes one cross-database call however long the window is.
 The request key, the sealed Replay request identity with the frame scope, is recorded with the binding it was
 issued under, and another binding under that key is refused by name with zero writes; an exact retry returns
 the stored bytes with zero append. The operation never calls R&D. R&D calls it before it resolves the frames.
-A host attaches a projection only when its (member, role) set equals both the admitted frame's value set and
+The compatibility host attaches a projection only when its (member, role) set equals both the admitted frame's value set and
 the Plan's role table, and refuses it otherwise; any comparison R&D makes earlier is an early refusal, not
 that guarantee.
 
@@ -4137,6 +4682,8 @@ executable maturity, Backtest product closure including inverse or quanto target
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market
 Data instrument-class rejection.
 
+## Provider fields and backfill compatibility
+
 ### CURRENT/PARTIAL Binance bar volume and taker buy volume
 
 Both Binance Data Clients, spot (`crates/adapters/binance/src/pit_observation_source_v1.rs`) and USD-M perpetual,
@@ -4184,7 +4731,7 @@ settlement at exactly that coordinate is included and one a millisecond later is
 
 ### CURRENT_PARTIAL - T0/U1 backfill compatibility
 
-The following whitelist and full-window fill preparation describe the bounded T0/U1 protocol, not future strategy-timeframe limits. The target separates signal timeframes from execution resolution, prepares finer slices outside matching, and binds a complete successor replay. Native bar replay with explicitly frozen conservative minimum-resolution ambiguity assumptions does not universally require aggTrades. New source/cost semantics still require their own evidence and admission.
+The following whitelist and full-window fill preparation describe the bounded T0/U1 protocol, not future strategy-timeframe limits. V0.1 uses minute execution history and native larger signal aggregates; changed data versions require Agent-submitted new complete runs. Native bar replay with explicitly frozen conservative minimum-resolution ambiguity assumptions does not universally require aggTrades. New source/cost semantics still require their own evidence and admission.
 
 U1's history enters as T0 window custody: one custody per member over the whole window, for the execution timeframe
 and the fill timeframe. This is the fetch side that feeds a custody commit. The commit's own types are T0's.
@@ -4292,135 +4839,7 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   line over the same function serves an operator. U1's acceptance runs it once each for BTC, ETH and SOL in the
   deployment image, then reads each member's coverage.
 
-### CURRENT market-data MCP server
-
-The `market-data` server of the [domain MCP
-catalog](../architecture/product-edge#target---external-agent-tool-surface) is `market-data-mcp`, a
-stateless stdio process built from `services/market-data-mcp`, which is its own Cargo workspace with its own
-`Cargo.lock` and depends on no Owner crate - only an HTTP client, serde and the stdio loop. It holds
-the Market Data API token in its own environment and reaches Market Data's routes only. Every rule lives in
-Market Data behind a route; a tool sends one request, passes its answer or refusal through by name, and
-sequences nothing. The same functions are a command line with the same names.
-
-`get_bars` and `get_funding` are registered tools today, but each refuses
-`HOLDOUT_PARTITION_UNDEFINED` unconditionally: no Owner defines Qualification's holdout partition yet, so no market
-value reaches an agent through them.
-
-| Tool                                     | Route                                                   | Refusals by name                                                |
-| ---------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- |
-| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                               |
-| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                            |
-| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | each admission step's own refusal                               |
-| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`, `RANGE_INVALID`  |
-| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                   |
-| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                            |
-| `get_bars(instrument, timeframe, range)` | `POST /v1/market-data/bars`                             | `HOLDOUT_PARTITION_UNDEFINED` (unconditional, TARGET to narrow) |
-| `get_funding(instrument, range)`         | `POST /v1/market-data/funding`                          | `HOLDOUT_PARTITION_UNDEFINED` (unconditional, TARGET to narrow) |
-
-- **Listing and describing read what Market Data holds now.** `GET /v1/market-data/instruments` and
-  `GET /v1/market-data/instruments/{instrument}` are `CURRENT`: `crates/data/src/owner/instrument_catalog_v1.rs` reads
-  each instrument's latest Instrument Master V2 fact, every link of its chain decoded and checked, and every
-  economic-terms version admitted for it. A value the venue does not state is named (`UNBOUNDED`, `NOT_APPLICABLE` or
-  `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
-  Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
-  the perpetual F admits over HTTP.
-- **CURRENT: per-symbol admission is one Market Data operation, over five steps.**
-  `POST /v1/market-data/binance-perpetual-admissions` takes a Binance USD-M symbol. Market Data fetches the symbol's
-  public `exchangeInfo` entry once and commits, in order, five of the six facts the first `COMPOSER_V3` Replay's
-  acceptance commits through separate routes: the kline Source Binding, the Instrument Master fact, the
-  `exchangeInfo` Source Binding, the Instrument Master V2 fact, and the economic terms
-  (`crates/adapters/binance/src/perpetual_admission_v1.rs`,
-  `crates/strategy_factory_rd_owner_api/src/market_data_pit.rs::admit_binance_perpetual`). Every step rejoins an
-  identical resubmission rather than erroring, so a rerun after any failure completes the rest. The two Source
-  Binding steps carry no symbol and claim a fixed effective instant, not the clock's current one: a binding's
-  identity folds in its claimed effective instant, so a proposal built from "now" would mint a new binding on every
-  call, and a fixed one is what lets the second symbol's identical proposal rejoin the first symbol's binding
-  instead. The kline binding proposal, with its availability rule, is constructed only here, and every backfill of
-  the instrument reads that same proposal to locate its fill gaps. All five steps stay in the data layer.
-
-#### CURRENT: historical membership is admitted once, whole, for the fixed U1 set, not per symbol
-
-`HistoricalMembershipAdmissionRequestV1` is "one complete membership submission for a single eligible-instrument
-frontier... admitted whole or not at all": a frontier's membership manifest is fixed at the instant it is first
-admitted, so a later admission naming a member outside that manifest refuses `RequestConflict`, and the Owner
-tracks only one global "current" frontier (the most recently admitted one), so a second, different frontier per
-symbol would make an earlier symbol's frontier stop being current. Worse, an Instrument Master cut requires every
-member fact in it to name the same `historical_membership_frontier`
-(`crates/data/src/owner/instrument_master/authority.rs`, `FrontierMismatch`), so a two-member cut over two
-different per-symbol frontiers would always fail. For that reason, before any symbol is admitted through this
-route, its complete fixed member set (`BinancePerpetualDatasetV1`'s sibling constant
-`BINANCE_PERPETUAL_U1_MEMBERS_V1` - BTC, ETH and SOL for U1) is admitted once, whole, through the generic
-`POST /v1/market-data/historical-memberships` route, using
-`binance_perpetual_eligible_set_admission_request_v1`, after the kline Source Binding is admitted (its lineage is
-this request's) but before any symbol's own Instrument Master submission. Every per-symbol admission then names
-that same frontier (derived from the sorted member set, not a fixed constant, so a different future set derives a
-different frontier instead of colliding) in its Instrument Master fact. Re-sending the one-time admission rejoins
-the same frontier. A symbol outside the fixed set is refused by name, `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER`, before
-any admission step runs: nothing is written for a symbol the fixed set does not name.
-The backfill job admits this set through `UniverseSelectionAdmissionV1::admit_membership_at_owner_clock`, under
-the kline dataset's anchored lineage root. The request states only what the membership means: the members, their
-instruments and effective range, the lineage root and the correction frontier. The Owner stamps all five
-observation instants with its own current decision cut, so the facts are in force at that cut and every later
-one, and a Research scope check at the current cut finds them. A later call rejoins the admitted frontier without
-writing when it names exactly the same members with the same meaning, at whatever instant they were observed.
-Another member set or another meaning is `RequestConflict`.
-
-The job used to stamp the facts at its far-future universe-evaluation instant
-(`BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1`, 2100-01-01). That put them out of force at every real
-cut, so every scope check refused the members as `NOT_IN_ELIGIBLE_FRONTIER`. A deployment that admitted
-membership that way, or under the fixed lineage marker that #1375 removed, holds facts no new call can rejoin and
-must be recreated.
-
-- **TARGET: adding a symbol beyond the fixed U1 set is a successor-frontier admission, not something per-symbol
-  admission does.** A frontier is Market Data's own complete statement of the eligible-instrument set at a point in
-  time - "each admission succeeds the one before it, so Market Data, not the requester, decides which frontier is
-  current" - never a set a requester can narrow to one instrument by admitting it alone: doing that would make
-  every other admitted instrument fail R&D's current-frontier checks
-  (`check_research_instrument_scope_v1`/`resolve_research_pit_references_v1`) the moment a newer, narrower frontier
-  superseded theirs. Growing the eligible set is therefore its own deliberate admission: a new
-  `HistoricalMembershipAdmissionRequestV1` naming the whole new set (every existing member plus the new one), under
-  the frontier digest that set derives. Any Instrument Master fact whose cut spans members across the old and new
-  sets together needs a successor fact naming the new frontier; a single-member cut is unaffected, since its one
-  fact already names whichever frontier was current when it was admitted. This route does not drive that admission
-  itself; it is a separate, explicit operation outside `admit_binance_perpetual`.
-- **CURRENT: a backfill is a job Market Data runs.** `POST /v1/market-data/backfill-jobs` records a `QUEUED` job
-  fact and returns its `job_id`. The job runs synchronously within that same request
-  (`crates/strategy_factory_rd_owner_api/src/binance_backfill_job.rs::start_backfill`), recording `RUNNING`, then
-  fetching the member's execution bars and fill bars, building the member's custody request and committing it, and
-  recording `SUCCEEDED` with the custody receipt and the exact window it covered, or `FAILED` with the refusal's
-  name. Job facts are append-only (`crates/data/src/owner/backfill_job_v1.rs`) and the MCP server holds no job
-  state. The timeframe is the custody's execution timeframe, validated against the one whitelist above (`1w`,
-  `1d`, `4h`, `1h`); the `1m` fill timeframe comes with it, fetched by `vision_backfill_v1.rs::fill_bars` (one REST
-  call per gap, for every execution timeframe today - reading the `1m` archive instead for `4h`/`1h`/`1w`, to cut
-  the call count, is a pending efficiency follow-up, not a correctness gap). `GET /v1/market-data/backfill-jobs/{job_id}`
-  answers the job's complete transition history.
-- **CURRENT: coverage is what Market Data's own backfill job facts record.** `GET
-  /v1/market-data/instruments/{instrument}/coverage` answers, for each execution timeframe, the half-open ranges
-  every `SUCCEEDED` job has covered, merged where they touch or overlap - not read from the custody chains
-  directly: the committed receipt carries no window bounds, and the custody tables have no queryable bounds
-  columns either, so this is Market Data's own statement of what it committed, not another Owner's internal rows.
-  It states no market value.
-- **A run names its data by description.** A `dataset_ref` is the description
-  `(instrument, execution_timeframe, [start, end))`, which an agent writes from `coverage`; no tool issues it. The service that runs a backtest resolves it
-  against the custody chain that covers it, records the head it resolved, and refuses a range no custody covers as
-  `DATASET_REF_UNRESOLVED`. A backtest therefore never needs `get_bars`.
-- **Agent reads are recorded by Market Data.** Before a tool returns market values - bars or funding rates - to an
-  agent, Market Data appends one agent data-read row per instrument in the same transaction that reads them: the
-  server's session identity, minted when the server process starts, the instrument, the timeframe, the half-open range
-  `[start, end)` in event nanoseconds, the tool, and the commit cut. A read whose rows cannot be written refuses. These
-  rows moved here from R&D's data-read ledger, which held the agent-session rows while R&D was meant to own the agent's
-  tools; R&D's census reads them downward and still writes the trial rows itself. Until a session is bound to a
-  lineage, R&D counts an agent read against every lineage.
-- **No market value reaches an agent before the holdout partition exists.** No Owner defines Qualification's holdout
-  partition yet, so `get_bars` and `get_funding` refuse every request as `HOLDOUT_PARTITION_UNDEFINED`, as every
-  hand-out of R&D's data-read ledger does.
-- **TARGET, after U1: Qualification registers its partition into Market Data.** Qualification calls down and
-  registers the protected instruments and periods by value; Market Data only refuses. Then a tool refuses a range that
-  overlaps a protected period as `RANGE_IN_HOLDOUT_PARTITION`, and a backtest whose window overlaps one is refused by
-  name, because its result alone would leak the holdout. Until the partition is registered, every backtest report
-  states that no holdout partition is defined and that its results are exploratory only.
-- **Accepted on its own** when, in the deployment image and through this server alone, BTC, ETH and SOL are admitted,
-  each is backfilled for `1d` with its `1m` fill, `coverage` shows the windows, and every refusal above is driven once.
+## Economic inputs and native timeframe integration
 
 ### TARGET window funding schedule read
 
@@ -4828,233 +5247,3 @@ Each component has an explicit dependency and acceptance boundary. A dependent i
   above. B7 is TARGET, not implemented. The measurement scripts (archive aggregation, the `TimeBarAggregator`
   harness, REST against the daily archive, and REST settling) were run locally on 2026-10-04 and 2026-10-05 and are
   not kept in the repository. They are cheap to rerun before implementing B7.
-
-## Input handoffs
-
-Target downward data requests carry complete sealed role/scope/input values already resolved by the upper caller. Market Data validates its own admission, exact bindings and data facts without reading Composer or R&D. The `lock_sealed_exploratory_replay_request_for_market_data_v1`, Composer shared-cut locks and reverse resolvers described here specify sealed-protocol compatibility and migration protection, not the target call direction. Migration retains stable cuts, immutable identities, atomic zero-write failure and protected isolation while moving resolution to upper admission and passing values down.
-
-- Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
-  coordinate is attributed to the clock that states it rather than to the clock that admits it. The venue states
-  the event-effective instant and the provider-available instant, and states them separately: the first is when
-  the event happened, the second is when the venue published it, and using one for the other would assert a
-  publication the venue never claimed. Beyond that pair the same vocabulary reaches this Owner through three
-  intakes that differ in who holds the clock, and a rule learned from one of them is wrong about the other two.
-  A submitted PIT Snapshot Request carries, for every coordinate, both the value and the clock identity and epoch
-  the submitter claims; this Owner assigns none of them and admits them only by comparing each claimed clock
-  against its own sealed head, refusing on mismatch. An Instrument Master submission carries the coordinate
-  values alone and no clock at all; this Owner binds the admitted fact to its own current clock head. On the live
-  market channel this Owner states the retrieval coordinate from the host process clock rather than from the
-  sealed head, so it is comparable neither with the venue's two instants nor with a sealed-head coordinate.
-  Binding a coordinate to the sealed head is admission, not attribution: on the PIT intake a claimed instant
-  remains the submitter's claim after the head admits it, and is never compared to an Owner-stated instant as
-  though one clock produced both. A record that states no coordinate of its own yields none for it, and this
-  Owner never substitutes its own instant, the event instant, or a neighbouring record's stamp for a coordinate
-  the source did not state.
-- [R&D](./rd/) submits an initial frozen PIT Market Snapshot Request before exploratory consumption.
-  It binds the Research Request, Intent, TrialFamily, instrument or universe scope, four-time decision cut,
-  required provenance, license and correction frontier, stable correlation, and Time Evidence.
-- [R&D](./rd/) may submit one Market Data Repair Request only from a committed `REPAIR_INPUTS`
-  Iteration Decision. It repeats the original PIT request identity and proof digest, instrument scope, decision cut,
-  bounded reason, stable correlation, required provenance/license/correction fields, and shared Time Evidence.
-- Operations supply the Market Data Source Binding, opaque credential handles, license scope, and correction feeds without
-  changing observed-at history. Credentials never enter a snapshot, stream, artifact, or product view.
-  The admission `POST /v1/market-data/source-bindings` refuses each defect of a proposal under its own name as
-  HTTP 400: an empty field as `SOURCE_BINDING_FIELD_MISSING`, a zero digest as `SOURCE_BINDING_DIGEST_ZERO`, an
-  invalid schema, policy or frontier version as `SOURCE_BINDING_VERSION_INVALID`, raw credential material, an
-  audience other than Market Data or a capability beyond read-only market data as
-  `SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL`, `SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID` or
-  `SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN`, time coordinates that are zero or out of order as
-  `SOURCE_BINDING_TIME_EVIDENCE_INVALID`, and a bar timeframe no bar can have as
-  `SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED`. Coordinates that are well ordered but later than this Owner's decision
-  cut are early rather than wrong: they are a 409 `SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT`, and a later
-  admission can accept them. `INVALID_SOURCE_BINDING_PROPOSAL` remains only for a claimed identity that does not
-  derive from its content.
-
-## Output handoffs
-
-- To [R&D](./rd/): one move-only, Market Data-sealed `ResearchPitTerminal` whose canonical six-state
-  disposition is correlated to the exact initial
-  request identity, content digest, scope, cut, provenance, license, correction, and stable correlation, plus the
-  exact Universe Selection Record identity and digest for hypothesis testing. A repair request resolves separately to the same correlated request identity
-  as `AVAILABLE` with the repaired snapshot, or terminal `UNAVAILABLE` with a bounded decisive source category.
-  R&D cannot import, construct, deserialize, or implement the terminal authority and receives no raw
-  store receipt, PIT lineage rows, Source Binding lineage rows, or clock rows.
-- To [Backtest](./backtest/): the exact PIT Market Snapshot and Universe Selection Record for the request-bound PIT
-  scope and snapshot/correction rule. **TARGET:** direct `BACKTEST_OWNER_V1` Instrument Master resolution supplies
-  the sealed fact/cut readback; actual consumption and Run Result must repeat the exact snapshot, selection,
-  Instrument Master fact/cut and every frozen execution identity.
-  **Snapshot performance measurement (2026-09-22).** A PIT snapshot is
-  one as-of cut, so N bars are N frozen requests. On `BTCUSDT.BINANCE` at `1M`, 512 consecutive coordinates
-  produced 512 distinct bars and 512 distinct sealed snapshots, strictly consecutive with no gap and no repeat,
-  in 767.8 s. Reading back which bar each coordinate resolved to is a second venue round trip and is what makes
-  that statement sayable at all; the same 512 coordinates without it took 655.4 s, and the timings below are
-  measured from those witness-free runs. What dominates the clock is **not** the venue: removing half the round
-  trips saved 15%, and all SQL execution together accounted for 1.2% of a 256-coordinate run.
-  The cost grows with **what the store already holds**. Within one 256-coordinate run the per-coordinate cost
-  rose from 0.131 s over the first eighth to 1.182 s over the last. `validate_owner_history_custody` walks every
-  lineage in the store on every commit, and every snapshot opens its own lineage, so commit number n re-validates
-  n lineages at six statements each: 101,509 iterations and 609,054 statements at N=256, which fills the measured
-  clock. Total cost is therefore quadratic. Three witness-free runs - 64, 256 and 512 coordinates in 12.1 s,
-  169.2 s and 655.4 s - fit **t is about 0.033 N plus 0.0024 N squared seconds** on the measuring host to within
-  0.7%, while the simpler `0.0025 N squared` passes through the 512 point exactly and underestimates 64 by 15%.
-  Extrapolating that curve - an extrapolation, and one that assumes a store starting empty - **one year of daily
-  bars is roughly five and a half minutes, and one year of minute bars is roughly twenty-two years**, A separate one-year daily-coordinate measurement took 336.5 s, but with the witness probe and on another instrument and timeframe, so it corroborates the order
-  of magnitude without testing the curve at a controlled point. The practical consequences are that a bounded
-  window of a few hundred coordinates is cheap, a long minute-resolution history is not reachable by this path at
-  all, and **a store that is never reset makes every later snapshot slower for every writer**, so accumulating
-  snapshots in a shared chain database spends a budget that never returns.
-  **Controlled profile (2026-10-03).** The run was 256 consecutive daily `BTCUSDC-PERP.BINANCE`
-  coordinates on main 85c4237d2, against a disposable store with `pg_stat_statements`.
-  - **Per-commit cost.** The cheapest commit in each block of 16 rose from 138 ms to 1241 ms. That is about 4.5 ms
-    for every lineage already in the store, so the cost is linear per commit and quadratic in total.
-  - **Where it goes.** 632,102 statements ran. The top four by time are the per-lineage history checks, each called
-    97,920 times, which is 256 squared over two times three. Server execution was 79 s of the 258 s commit time; the
-    rest is round trips and decoding each fact in Rust, which an index cannot remove.
-  - **What triggers it.** `validate_owner_history_custody` runs about three times per commit: clock admission, clock
-    materialization, and the read validation that eight read paths share. Each run re-decodes every PIT lineage.
-  - **Projection.** At that slope, about 5,500 daily snapshots would end with a 25 s commit and about 19 hours in
-    total, and every read would slow the same way.
-
-  **TARGET - per-lineage history custody.** The check moves to where each lineage is written and read. It is not
-  removed.
-  - **On commit:** the lineage being written. Its new fact, and its link to the previous head (predecessor digest
-    and next version), are validated in the committing transaction.
-  - **On read:** the lineage being read. A PIT snapshot or Research PIT terminal read validates the one lineage it
-    returns.
-  - **The census check stays global.** It is one set-level statement (0.46 s over all 774 calls above). Source
-    Binding lineages stay walked whole, because there are few of them (0.21 s over 772 calls).
-  - **History cannot be rewritten.** PIT snapshot facts, observation batches, observation rows and the outbox get
-    append-only triggers, written the way `native_replay_frame_sequences_are_append_only` is. A rewrite through the
-    Owner's own connection is then refused by name rather than detected at a later commit.
-  - **Migration keeps one full walk** as the audit entry point.
-  - **What changes.** Today a damaged lineage stops every commit and read in the store. After this, it stops the
-    consumer that reaches it, which is what "fails closed for the dependent consumer" under Failure and recovery
-    states.
-  - **Acceptance:**
-    - the same sweep must be linear in N;
-    - a rewrite of a committed PIT fact through the Owner connection must be refused by the trigger.
-  - **Scope.** The tests that rewrite PIT rows to prove detection (15 sites in `postgres/tests.rs` and one each in
-    `store_admission/mod.rs` and `bar_schedule_acceptance_v1_tests.rs`) move to the trigger's refusal or to an
-    explicitly trigger-disabled admin session.
-- To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
-- To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
-  Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
-  **CURRENT / PARTIAL, one live fact channel, built and proven:** the additive `LiveMarketFactV1` a Strategy Instance consumes,
-  its Owner-sealed intake, and exactly one Data Client behind it, the venue's public WebSocket. The vendor side
-  states only what a venue can know, as the PIT observation seam already requires; the Owner stamps the admitted
-  Source Binding identity and lineage, the binding's Market Semantics Compatibility identity, and the one time
-  coordinate that is its own, the retrieval instant, together with the sequence. The venue states the
-  event-effective and provider-available instants from its own clock, and the Owner reads its retrieval instant
-  from the host process clock rather than from its sealed head, so no ordering across those clocks is provable and
-  none is asserted. The Owner refuses an instrument outside the subscription it issued, and keeps a
-  durable head so a restart hands over from where it stopped rather than replaying. Nothing else is admitted here:
-  no second channel, no instrument-update stream, no Runtime custody, no order path.
-  **NOT_ADMITTED:** a live channel establishes no Runtime readiness, Paper, Live, real trading or other production
-  write, and a streamed fact is never a PIT snapshot, a replay input or evidence for a historical question.
-- **IMPLEMENTATION_ADMITTED, one live market read surface, admitted 2026-09-21 and not built:** a consumer of a
-  live market fact is identified by its own database role, and what it may read is narrowed before the read rather
-  than filtered by the caller's claim during it. The admitted shape is one view per consumer, owned by
-  `market_data_owner`, restricted to the bindings that consumer is admitted to, with `SELECT` granted to that
-  consumer's role and no privilege on `market_data_private`. That role is the upper bound on what the consumer can
-  see: never `rd_owner`, and never a superset shared with another consumer, so the bound is enforced by the
-  database rather than by trusting a process to hold a credential. A caller identity finer than a role is not
-  required today and is not introduced; should one ever be, the per-consumer role remains its upper bound and
-  refining inside that bound is the only admitted shape. Admission here is permission to build and verify this one
-  read. It authorizes no Runtime effect, no Paper or Live adapter binding, no production write and no real trading,
-  and it does not admit the Runtime-side consumer, which is the other half `B8` names. The first delivery states
-  both sides of its own proof: the consumer's own view returns only the bindings it is admitted to, while another
-  consumer's view and `market_data_private` each refuse it rather than returning no rows, because a read that
-  returns nothing where it should be refused is a grant that is too wide.
-- To [Portfolio](./portfolio/): prices, FX rates, contract specifications, valuation facts, and an identified liquidity input cut for Capacity View.
-- **TARGET, after Shared Time producer closure, to [Portfolio](./portfolio/):** the sealed canonical clock-head handoff
-  for `PORTFOLIO_FRESHNESS`. Portfolio supplies its exact prior handoff and alone authorizes its transition; it cannot
-  walk or skip proof links or compare monotonic sequences across epochs.
-
-## Rejections and prohibitions
-
-- Never select the instruments or time window for a research run, backtest, or scan.
-- Never silently fill, rewrite, or forward-date missing historical facts.
-- Never treat a reachable source as proof that data is licensed, complete, point-in-time correct, or fit for a strategy.
-- Never admit an unavailable, revoked, endpoint-mismatched, digest-mismatched, untrusted, or unlicensed source;
-  never expose credential values or data outside its redistribution scope.
-- Never own strategy, qualification, deployment, order, or account state.
-- Never infer a repair terminal from delivery, silence, a prior snapshot, or a mismatched request proof. A repair
-  never mutates the old snapshot or Research Intent.
-- Never infer an ordinary snapshot result from submission or transport acknowledgement, or serve an earlier
-  snapshot under a changed request identity, content digest, scope, decision cut, or policy binding.
-- Never become a global Time Owner or decide another Owner's clock transition.
-- Never construct the governed Market Data PostgreSQL repository from a DSN, secret, caller assertion, or ambiguous
-  store state alone. The private Market Data store-admission seam must consume and revalidate its exact sealed
-  Deployment Store Admission receipt, then
-  Market Data must validate current PIT, Source Binding, and clock heads before sealing `ResearchPitTerminal`.
-  Ordinary consumers never receive the receipt, capability, raw evidence, or a caller-selected snapshot query.
-  Production resolution and dynamic product composition remain `TARGET / UNAVAILABLE`.
-
-## Failure and recovery
-
-Unavailable, stale, unlicensed, ambiguous, or insufficient data fails closed for the dependent consumer. Corrections create a new traceable version rather than rewriting prior receipts. During recovery, Market Data continues supplying valuation facts, but it cannot declare positions, effects, or a Recovery Case closed.
-
-Provider-catalog `LEGAL_REVIEW_REQUIRED` or otherwise unknown rights map to
-`RIGHTS_EVIDENCE_UNRESOLVED` and Source Binding `UNAVAILABLE`; they do not become `UNLICENSED` without decisive
-denial evidence. `TERMS_OR_LICENSE_BLOCKED` is an R&D Source Intake terminal, not a Market Data state. Market Data
-must re-evaluate the underlying rights evidence under its own policy and never copy that terminal across Owners.
-
-When multiple blockers are supported, the binding and snapshot retain all of them and choose one stable primary.
-Snapshot precedence is `UNLICENSED` before `AMBIGUOUS`, `STALE`, `INSUFFICIENT`, then `UNAVAILABLE`.
-`REVOKED` or `UNLICENSED` source bindings map to snapshot `UNLICENSED`; `INCOMPATIBLE` maps to `AMBIGUOUS`;
-source `UNAVAILABLE` maps to snapshot `UNAVAILABLE`. Later evidence creates successor bindings and snapshots and
-never upgrades an earlier terminal result.
-
-If any time coordinate or the shared decision cut is missing, conflicting, or cannot prove that the fact was
-available at the decision, the snapshot is `AMBIGUOUS` or unavailable. Event time alone never admits a historical
-fact, and retrieval after the cut never backfills an earlier decision.
-
-## Decision contract
-
-- **Inputs** - admitted source binding, raw market and reference records, correction feeds, license scope, and a
-  requester-owned universe rule or PIT scope.
-- **Diagnosis and decision** - normalize meaning, establish four-time availability, resolve instrument identity,
-  coverage, correction and license, then materialize one versioned fact or snapshot disposition.
-- **Conflict resolution** - source lineage and decision-time availability outrank later corrections; conflicting
-  identity, clocks or versions remain ambiguous and corrections create successors.
-- **Outputs and terminal negatives** - streams, instrument facts, selection records and PIT snapshots, or explicit
-  `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, and unavailable results.
-- **Feedback and economic meaning** - common historical/live semantics prevent phantom Alpha, valuation drift and
-  unsafe sizing caused by look-ahead, wrong contract terms or unlicensed incomplete data.
-- **Prohibitions** - no research objective, strategy universe choice, lifecycle, order, account projection,
-  credential disclosure, forward fill or rewritten availability history.
-
-## Subsequent implementation acceptance
-
-- A historical query can prove exactly which version was observable at its requested time.
-- Every admitted fact proves event, provider-available, retrieval, and correction-publication time against the
-  same clock and decision cut; no later-known fact can become earlier-available evidence.
-- Instrument identity and contract terms remain consistent across research, replay, live data, valuation, and execution adapters.
-- Historical and live consumers reject a mismatched Market Semantics Compatibility identity instead of silently
-  changing normalization, adjustments, timestamp meaning, or instrument mapping at deployment.
-- Every PIT request proves calendar, session, time-zone, corporate-action, lifecycle, historical-membership, and
-  universe-selection versions as both effective and observable at the requested cut.
-- Every ordinary Research response repeats the exact initial PIT Market Snapshot Request and correlation bindings;
-  changed meaning requires a successor request and silence creates no Market Data or Research transition.
-- Consumers receive explicit insufficiency or staleness instead of synthetic success.
-- A Data Client that answers no rows reports insufficient coverage, not a malformed batch. The snapshot commits
-  `INSUFFICIENT` with its coverage blocker and stores no observation batch, because a batch holds at least one row. Its
-  records digest is the digest of the canonical encoding of zero rows, which no batch of rows has. The same request
-  again rejoins a committed snapshot whatever its disposition, and writes nothing.
-- Re-running a snapshot against the same admitted versions yields the same canonical inputs.
-- Snapshot outcomes are explicit: `AVAILABLE`, `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, or
-  `UNAVAILABLE`. Every repair response additionally repeats the repair request identity, stable correlation, and
-  original request proof digest.
-- Simultaneous rights, compatibility, freshness, sufficiency, and availability failures preserve the complete
-  blocker set while the frozen precedence selects the same primary under every evidence-arrival permutation.
-- Protected replay cannot substitute a different PIT scope, Universe Selection Record identity or digest, snapshot rule, correction frontier, or snapshot identity after Qualification freezes the request.
-- Same-epoch handoff replay joins exact bytes; advancement strictly advances required cuts without changing epoch
-  semantics. A new epoch fails closed unless its new head and direct immutable proof commit atomically and both remain
-  exactly resolvable by digest.
-- Native Instrument Master resolution for `BACKTEST_OWNER_V1` returns the same fact/cut identities and canonical
-  bytes for the same request identity and meaning; wrong-role, overlap, late-correction, gap, stale, unavailable-store,
-  response-loss and changed-meaning cases all demonstrate the fail-closed and successor-only rules above.
-
-## Observability and persistence
-
-Market Data persists Source Binding, rights/retention decision, semantics profile, instrument history, PIT requests and snapshots, stream/valuation facts, corrections, and publication outbox under its own write authority. Telemetry records provider request latency, freshness, gaps, rate limits, correction lag, and bounded rejection category without exporting API keys or licensed payload bodies. Dashboard source health always carries source/semantics versions, as-of frontier, license disposition, completeness, and valid-through; a green provider metric cannot substitute a missing or stale PIT fact.

@@ -4,6 +4,18 @@
 
 向所有分析和交易消费者提供规范 时间正确的市场 参考和标的事实。Market Data 拥有数据含义和可观察时间，但不替某个策略决定本轮应消费哪些标的。
 
+### 如何阅读本页
+
+| 阅读任务         | 直接入口                                                                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 规划能力         | [服务能力](#target---market-data-服务与-mcp-旅程)、[当前 MCP 工具](#current_partial-market-data-mcp-server)                                                                |
+| 准备数据         | [V0.1 先定义研究与保护范围](#v01-先定义研究与保护范围) → [按研究需求准备与绑定](#按研究需求准备与绑定) → [V0.1 输入清单与原生交接](#v01-输入清单与原生交接)                |
+| 确定职责与交接   | [拥有的权威事实](#拥有的权威事实)、[输入交接](#输入交接)、[输出交接](#输出交接)                                                                                            |
+| 实现准确输入绑定 | [准确输入绑定](#策略-input-role-binding)、[CURRENT/PARTIAL EVENT 与 BAR Owner custody；TARGET BAR 产品权威](#currentpartial-event-与-bar-owner-custodytarget-bar-产品权威) |
+| 实现原生事实类型 | [原生事实合同](#原生事实合同)                                                                                                                                              |
+
+规范编码、身份和拒绝规则以各自合同为准；只有实现具体类型时才展开字节细节。中文当前 MCP 节链接英文完整回填与原生周期合同，详细程度不同不表示该入口缺失。
+
 ## TARGET - Market Data 服务与 MCP 旅程
 
 本节展开目标能力与消费者流程，不把现有八个 MCP 工具当作完整数据服务，也不改变下文的实现准入。
@@ -130,10 +142,36 @@ flowchart TD
 包括预热、经济条款、结算事件和时间依据。成交 K 线、信号 K 线与经济输入按各自角色绑定，不能混成单一周期参数。
 原始输入与派生缓存可复用；缓存命中不代表新的授权、历史可得性或独立证据。
 
+### V0.1 先定义研究与保护范围
+
+开放研究行情读取前，先有用户批准的研究范围与保护范围，保存准确版本引用。Market Data 拥有数据访问
+分区和读取检查，R&D 项目关联相应范围与暴露记录；Qualification 后续拥有保护评估协议和资格判断。
+首版只交付最小范围定义、版本、拒绝和读取记账，不要求提前实现完整资格服务，也不新增分区服务。
+尚无足够未见保护数据时，仍可批准明确的研究范围并准备、读取和回测；记录保护证据缺口，
+不把缺少资格证据当作研究禁令。范围定义与访问检查仍须完整，不能借此读取未知或受保护输入。
+
+范围明确来源/数据身份、标的、时间、用途及适用主体，具体年份、比例和评估方法不设未经批准的默认值。
+同一用户的新 Research Project 可以引用仍有效的既有授权，无需按项目重复确认；Market Data 逐次核对
+请求未扩大获准来源、标的、时间、用途或访问权限。扩大范围或用途须取得新授权。
+项目引用准确授权版本，读取仍按实际项目归属记账，既有暴露沿革不重置；保护输入继续隔离。
+Agent 的普通读取和探索回测只能消费获准研究输入；预热、派生序列和缓存的基础数据也受同一边界约束。
+保护输入不能通过另一个项目、重新下载、聚合结果或诊断报告流入研究侧；未知或未定义范围仍拒绝。
+保护数据可以准备和托管，但准备成功不授予研究读取权，私有消费保持独立权限和输出空间。
+
+划分范围不自动证明独立性。已经用于调参、看过结果或在产品外分析的数据不能重新改名为未见样本；
+已知外部暴露或不可核验部分如实记录，不能签发完整暴露普查或未见证明。以后 Qualification
+须核对冻结范围与真实暴露沿革；缺少可准入保护证据时保留不可用，不授予资格。
+策略或项目换版本不重置这些事实，范围变更形成明确后继，不改写过去的授权、读取或实验。
+
 ### 按研究需求准备与绑定
 
 V0.1 按研究需求准备数据：先复用已准入的覆盖与派生缓存，再准备声明范围内的缺口。
-准备任务不以提前维护全市场完整历史为前提。
+准备任务不以提前维护全市场完整历史为前提。Agent 查询并复用已有绑定，或提交准备任务并读取可用的数据引用；
+初始准备任务完成不会自动提交回测。
+
+首版永续回测除一分钟成交行情外，还准备同一研究范围的历史标记价供账户估值；两者分别准入和绑定。
+标记价输入映射到原生 `MarkPriceUpdate`，保留价格依据、来源、准确时间与可得性，不填造成交量或冒充成交 K 线。
+标记价缺失、无效或陈旧时返回逐项缺口，不以成交价静默替代；是否完整满足分钟估值需求由准确覆盖证据证明。
 
 每个策略版本声明所需数据的角色、字段、周期与语义；每次实验另外冻结标的、窗口与来源要求，
 并绑定实际消费的准确数据版本。同一策略可以在不同窗口或数据修订上重放，具体运行的数据绑定
@@ -148,12 +186,135 @@ V0.1 按研究需求准备数据：先复用已准入的覆盖与派生缓存，
 R&D 保留需求与缺口事实；Backtest 只接纳满足声明的准确输入绑定。
 任何缺口都不能用替代字段、零值或缩小窗口静默绕过；改变研究需求须形成明确的新实验记录。
 
+#### 准备请求与原生执行步骤
+
+Agent 提供研究范围：固定标的、回测日期、明确预热区间、来源/市场口径、非 K 线输入和资源边界。
+V0.1 的执行 K 线固定为一分钟；信号周期由策略的原生订阅表达，不重复填写产品周期表。
+已有准确绑定可直接引用；准备请求不要求先有完整策略，普通探索也可准备获准数据。
+数据是否满足正式策略输入，仍由后续实验接纳核对，不能把一次普通读取当作完整策略准备证明。
+
+```mermaid
+flowchart LR
+    R["Request"] --> C["Check Scope"]
+    C --> U["Reuse Catalog"]
+    U --> F["Fetch Missing"]
+    F --> V["Verify Inputs"]
+    V --> B["Bind Versions"]
+    B --> A["Agent"]
+```
+
+1. **检查需求**：解析原生 Instrument、数据类型和来源能力，核对预算、保护范围与历史有效区间。
+   对尚未上市区间返回有效范围或需求冲突，不虚构上市前数据，也不自动缩短实验。
+2. **查找复用**：用原生 catalog 的类型化查询、区间及缺口能力定位候选数据，再核对产品记录的准确版本、
+   来源、字段和可得依据。catalog 有文件或覆盖区间，不等于已经通过产品准入。
+3. **补齐缺口**：按已有供应商 adapter 或必要的归档扩展取得缺失输入。来源限流和任务资源边界约束实际执行；
+   不重新下载已验证的数据，也不在这条路径加入分析脚本或策略判断。
+4. **验证与提交**：构造原生类型、检查时间/精度/单位、重复冲突和需求覆盖，写入原生 catalog，
+   同时通过产品托管协议关联来源、版本与覆盖事实。文件写入成功不单独签发可用绑定；
+   只有数据实际可读且相应托管提交完成，才作为可消费覆盖。任一步未知先解析原任务，不跳过准入。
+5. **形成引用**：冻结实际采用的来源、标的、区间、基础数据版本及修订。派生输入记录基础与原生聚合依据，
+   不要求提前保存日线、4h 等完整副本；回放中的信号聚合仍由原生引擎执行。
+6. **返回 Agent**：返回任务身份、完成引用或逐项缺口。准备完成不创建下一次回测，Agent 决定是否提交绑定实验。
+
+以上是扩展后的 Nautilus 数据服务的执行顺序，不新增六个组件，也不规定另一套存储引擎。
+现有托管证据须在整合时保留或证明等价，不因切换到 catalog 而丢失点时依据、版本或保护边界。
+
+#### 什么时候可以交给回测
+
+可用绑定必须覆盖全部冻结需求：标的历史有效区间、回放与预热、成交行情、必要标记价/资金费等经济输入。
+各输入按自身语义核对覆盖，不能强迫资金费与每分钟 K 线同频，也不能仅用首末时间掩盖内部缺口。
+历史标记价的采样/有效性依据明确绑定到估值要求，不能以最后成交价补位；有效性规则不可由准备任务临时更改。
+运行绑定列出准确版本与剩余问题，不以"最新数据"代替。无剩余必需输入缺口时，才交付可供 Backtest 接纳的绑定；
+科学结论、策略资格和实际回测成功仍由各自后续流程产生。
+
+#### 部分失败与继续准备
+
+V0.1 部分准备失败时保留已成功准入的数据与准确引用，返回逐项缺口。Agent 在查清原任务状态后
+只请求补齐缺失部分；已失败任务保留终态，补齐请求关联原准备需求和任务记录，不重写旧失败。
+Market Data 验证复用与新增数据共同满足全部冻结需求后返回可用绑定；Backtest 不以部分成功启动运行。
+
+例如 50 个标的中 48 个准备成功、2 个下载失败，服务保留 48 个的托管事实并明确失败项。
+补齐时复用这些数据，再验证完整清单；不能返回一个看似成功的 48 币回测范围。
+若标记价仍缺失，则对应需求仍未完成，即使成交分钟线已经下载齐全。
+
+### V0.1 输入清单与原生交接
+
+准备成功返回一份可解析的不可变输入清单。它绑定已准入数据，不是下载目录、最新文件名或另一种策略语言。
+清单由 Market Data 保管；R&D 保存引用，Backtest 经类型化端口解析并校验自己的消费要求，不读取 Market Data 私有表。
+
+| 清单内容   | 消费约束                                                                            |
+| ---------- | ----------------------------------------------------------------------------------- |
+| 授权与来源 | 准确授权版本、研究/保护 scope、来源和修订；准备完成不扩大读取权限                   |
+| 标的与条款 | 原生 Instrument 身份、精度、交易条款和历史有效范围；固定成员分别核对覆盖            |
+| 时间与角色 | 正式区间、预热区间、事件时间/可得时间依据、成交/估值/资金费等角色；不能混用价格依据 |
+| 数据与覆盖 | 每项准确版本、catalog 解析依据和所需覆盖；逐项缺口不折叠成一个成功标志              |
+| 派生依据   | 一分钟成交基础与原生信号聚合引用；策略周期来自原生订阅，不另填周期配置表            |
+
+catalog 的路径定位存储，不单独承担内容身份或访问授权。消费者解析冻结版本，不跟随可变的文件集合。
+输入清单完整才可供正式回测准入；部分准备的已完成引用可以复用，不能当作完整清单运行。
+
+原生接线使用 `ParquetDataCatalog::write_instruments`、`write_data_enum`、`query_instruments`、
+`query_typed` 和 `get_missing_intervals_for_request`。成交 K 线保持原生 `Bar`；估值和结算通过
+`MarkPriceUpdate`、`FundingRateUpdate` 等对应类型交接。来源若给出标记价 K 线，所选字段、
+事件/可得时刻和转成原生更新的依据必须明确准入；不能只改类型名，或提前使用尚未闭合的价格。
+来源缺少所需字段或原生消费接线时返回具名缺口，不用零值或成交价代替。
+
+### 有界读取与消费者交接
+
+V0.1 提供已准入普通研究行情的有界读取，供 Agent 在宿主分析；它与全量回测输入交接使用同一数据权威，
+但消费者权限和返回方式不同。保护样本仍隔离，读取不产生资格或经济优势结论。
+
+#### Agent 读取契约
+
+| 请求与返回                       | 约束                                                                                |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| 调用主体与研究范围               | 核对允许读取的范围，按主体/项目记账；普通按需找币不强制先创建 R&D 项目              |
+| 准确数据引用、输入类型与时间区间 | 读取指定版本的 Bar、mark、funding 或其他已支持类型；不猜最新，不混用不同价格口径    |
+| 返回上限与后续位置               | 返回有界值、准确版本、实际范围及是否还有后续；未读完不宣称完整，截断不等于缺数据    |
+| 来源、时间依据与缺口             | 数据值关联其原生类型与产品来源/可得证据；无记录、覆盖不完整、拒绝或暂不可用分别说明 |
+
+读取先检查权限与保护范围，再从原生 catalog 查询被允许的准确版本；产品核对返回范围并记录读取暴露后才释放数据值。
+查询成功但记账失败时拒绝返回值，不能先发数据再补台账。保护路径的拒绝不得夹带私有行数、样本值或评估细节；
+保护分区未定义时保持拒绝，不因当前研究需要而临时开放。
+同一次分页读取保持准确版本和查询范围；后续页不切到更新后的数据。重取同页沿用稳定请求身份，
+记账不重复制造一项独立暴露事实；新范围或新版本分别记录，不能用分页或缓存绕过保护与预算。
+服务只执行已支持的类型化读取，不接收任意 SQL 或宿主分析脚本，不返回数据库凭据或私有文件访问权。
+
+#### 三类消费者各走自己的入口
+
+```mermaid
+flowchart LR
+    C["Native Catalog"] --> G["Scoped Read"]
+    G -->|"Bounded Values"| A["Agent"]
+    G -->|"Bound Inputs"| B["Backtest"]
+    Q["Private Scope"] --> G
+    G -->|"Isolated Inputs"| E["Qualification Replay"]
+    D["Native Data Engine"] -->|"Native Subscription"| N["Trading Node"]
+```
+
+- **Agent** 经 MCP 获取允许的有界行情值，用自己的工具分析；不代 Backtest 下载并转送全量历史数据。
+- **Backtest / Qualification** 通过各自获准范围读取准确输入。Backtest 使用原生 catalog/类型化加载路径，
+  不要求逐页通过对话取数；保护回放保持独立权限和输出隔离，不能复用 Agent 的读取权限作为私有访问凭证。
+- **Trading Node** 通过原生 DataEngine/DataClient 订阅实时数据；历史预热仍使用同一准备与托管依据，
+  Market Data 不接管策略状态、下单或账户管理，MCP 不变成实时策略行情总线。
+
+这里的 Scoped Read 是同一数据服务的授权与版本检查边界，不是新的通用读取服务。
+原生 catalog 负责类型化存储和查询，产品只补足数据准入、版本、权限与暴露事实。
+
+#### 故事重放与拒绝
+
+R-1 的 Agent 读取已绑定的一段分钟线检查形态，可分批分析并将结论存入 R&D；统计表和图不要求上传。
+提交正式回测时，它传递准确绑定，不搬运那些数据行；Backtest 加载完整冻结输入并原生聚合信号周期。
+数据修订后，旧实验和正在分页的读取继续使用旧版本；Agent 要采用修订数据时明确新建查询或实验。
+如果数据受保护或读取依据未知，返回拒绝/未决，不返回空数组让 Agent 误判为"没有形态"或"没有机会"。
+
 ### 请求、任务与 MCP 边界
 
 目标长准备任务按稳定请求身份接纳，持久返回 job；断开 MCP 不取消已接纳任务，按原身份读取状态和结果。
 同身份同含义重试恢复同一任务；不同含义冲突。不同实验可以复用相同底层数据，但各自保留准入、资源和暴露归属。
 资源上限、来源限流与允许范围传到实际执行；失败保留已完成分片，只有提交后的托管事实才能进入覆盖。
-取消和超时先核对真实任务状态，不能以客户端断连推断下载已停止或预算已释放。
+V0.1 不开放主动取消准备任务；已接纳任务在资源上限内执行至完成或失败，保留原身份查询。
+目标取消能力不属于首版交付。超时和后续版本的取消均须核对真实任务状态，不能以客户端断连推断下载已停止或预算已释放。
 
 **现状不同于目标。** `services/market-data-mcp/src/lib.rs` 的八个工具只发一个 HTTP 请求并转回结果。 当前 `binance_backfill_job.rs::start_backfill` 在同一个请求内记录
 QUEUED/RUNNING、执行回填，再写终态并返回 job_id； 不是已经部署的后台 worker。 可恢复的长任务、外部文件导入、通用数据准备与修订查询仍须按版本验收。 现有
@@ -180,50 +341,107 @@ QUEUED/RUNNING、执行回填，再写终态并返回 job_id； 不是已经部�
 若供应商没有足以证明连续性的依据，返回未证明的状态；是否停止新增风险由 Runtime/Risk 的合同决定。
 Warmup 和缺口回补使用同一托管准备路径，原生节点保持自己的运行状态，Market Data 不读取其私有订单或持仓表。
 
-### 多周期与局部细化交接
+### 一分钟基础行情与多周期交接
 
 ```mermaid
 sequenceDiagram
-    participant R as R&D
+    participant A as Agent
     participant M as Market Data
+    participant R as R&D
     participant B as Backtest
-    R->>M: 冻结输入需求、原生/派生口径、执行层级与预算
-    M->>M: 复用覆盖、准备缺口、记录派生与版本
-    M-->>R: 准确输入绑定或未决缺口
-    R->>B: 封存请求与已准入输入
-    B->>B: 原生回放，记录顺序歧义或数据不足
-    B-->>R: 关联 attempt 的有界证据
-    R->>M: 原范围内的局部细数据准备请求
-    M-->>R: 细数据后继或具名不可得
-    R->>R: 解析旧 attempt，重新准入后继
-    R->>B: 后继请求与完整输入绑定
-    B->>B: 已证明兼容则续跑，否则确定性重放
+    A->>M: 标的、日期、预热、资源边界
+    M->>M: 复用或准备一分钟历史与必要经济输入
+    M-->>A: 已准入数据引用或具名缺口
+    A->>R: 原生策略、参数与准确数据绑定
+    R->>B: 封存实验与运行请求
+    B->>B: 分钟撮合与原生信号周期聚合
+    B-->>A: 结果、诊断日志与准确运行引用
 ```
 
-Market Data 不决定哪笔订单先成交；Backtest 不在撮合回调里调用远程数据服务；R&D 不自己下载绕过准入。
-局部细化仍受原范围、来源、预算和保护约束；取得细数据不自动改写旧 attempt。
-多个周期不要求复制多份完整基础历史。可以复用原生聚合与派生缓存，但场所原生 K 线和派生 K 线保持不同输入身份；
-当前 Binance 实测差异和固定 `1m` fill 路径仍沿用下文契约，不能用目标规划器把它们解释掉。
+Market Data 准备完整声明区间的一分钟基础行情；策略用原生订阅表达信号周期，Nautilus 负责聚合和分发。
+不要求策略作者另填相同周期的产品需求表，也不依靠静态分析任意 Python 代码推导全部依赖。
+回测日期、预热范围、标的与资金费等非 K 线输入仍按实验明确并验证；预热不授权区间外交易。
+
+首版的大周期是明确标识的分钟派生序列，不冒充币安直接发布的原生周期。复用已有策略包、数据引用与
+运行配置保存来源版本、原生聚合设置和运行环境，支持准确重放；派生缓存可重建，不必托管各周期的完整副本。
+Market Data 不决定成交顺序；Backtest 撮合只消费已绑定输入，不能从撮合回调调用远程服务。
+数据修复产生新版本时，Agent 选择是否重新提交完整回测，旧输入、尝试、结果和读取台账保持不变。
+
+按需找币的观察输入可以包含来源支持的未收盘状态或当前快照，明确观察时刻、来源和完整性。
+Market Data 提供事实与缺口，不判断是否值得关注或计算接近入场的经济评分。来源不支持或状态未知时
+明确报告，不把缺失值当作未满足条件，也不把未收盘数据当作闭合 K 线；观察不改变正式回测数据口径。
 
 ### 数据故事重放
 
-| 故事                        | Market Data 的细流程                                             | 消费与必须拒绝的情况                                                |
-| --------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------- |
-| U01 来源计划                | 保存与行情关联的来源/时间依据；非行情解释归 R&D                  | 外部策略说明不是市场事实                                            |
-| U02 外部导入/跨市场         | 检查 CSV/GZ 的时区、单位、合约/报价、修订与成本依据 → 原生托管   | 缺项报告准确范围，不填零；连续合约不冒充可交易单约                  |
-| U03/U04 多窗口/`R-1`        | 冻结信号、预热和 fill 需求 → 原生/派生序列 → 覆盖 → 局部细化后继 | 高周期不能反推低周期顺序；缺细数据不能伪装有效成交                  |
-| U05 至 U08 规则/事件对照    | 为准确对照任务提供同口径输入版本、成员与窗口                     | 不因结果好坏换来源、补未登记数据或把事件统计称交易收益              |
-| U09/U12 carry/多腿          | 分市场绑定每腿数据与条款；完整结算 schedule；信号另证可得性      | 空 schedule 仅表示没有结算事件；漏结算不补零，结算时刻不等于发布    |
-| U10 宏观                    | 历史发布/vintage → 按决策 cut 解析 → 保留修订                    | 今日最新版加固定延迟不构成 PIT                                      |
-| U11 B3 动态成员             | 冻结排名输入与日历 → 每截面历史候选/可得数据 → 成员时间线        | 不能用今天存活币列表筛历史；策略选择规则归 R&D，组合运行归 Backtest |
-| U13 至 U15 资金/忠实性/归因 | 条款和数据 cut 对齐，定位缺口/修订差异并交关联修复               | 市场数据完整性不证明估计器或交易逻辑正确                            |
-| U16/U17 并行与知识          | 共享托管，分别记录项目读取/任务归属和来源证据                    | 缓存复用不免暴露计数，数据服务不维护研究知识结论                    |
-| U18 当前找币                | 按冻结观察时钟准备成员与闭合窗口，返回总范围、覆盖与缺口         | 未收盘输入不得冒充闭合；缺数据不等于无机会                          |
-| U19 保护/未来证据           | 独立保护读取路径、分区与暴露控制；实时事实可作为后继来源         | 保护详情不经行情 API 泄露，公开缓存不交叉命中私有结果               |
-| U20 运行与退回              | 实时数据通道和修订事实供原生运行及后继研究使用                   | 不发信号、激活实例、调资金或对交易账户下单                          |
+| 故事                        | Market Data 的细流程                                           | 消费与必须拒绝的情况                                                |
+| --------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| U01 来源计划                | 保存与行情关联的来源/时间依据；非行情解释归 R&D                | 外部策略说明不是市场事实                                            |
+| U02 外部导入/跨市场         | 检查 CSV/GZ 的时区、单位、合约/报价、修订与成本依据 → 原生托管 | 缺项报告准确范围，不填零；连续合约不冒充可交易单约                  |
+| U03/U04 多窗口/`R-1`        | 冻结区间与预热 → 分钟覆盖 → 原生信号聚合 → 准确绑定            | 高周期不能反推低周期顺序；缺细数据不能伪装有效成交                  |
+| U05 至 U08 规则/事件对照    | 为准确对照任务提供同口径输入版本、成员与窗口                   | 不因结果好坏换来源、补未登记数据或把事件统计称交易收益              |
+| U09/U12 carry/多腿          | 分市场绑定每腿数据与条款；完整结算 schedule；信号另证可得性    | 空 schedule 仅表示没有结算事件；漏结算不补零，结算时刻不等于发布    |
+| U10 宏观                    | 历史发布/vintage → 按决策 cut 解析 → 保留修订                  | 今日最新版加固定延迟不构成 PIT                                      |
+| U11 B3 动态成员             | 冻结排名输入与日历 → 每截面历史候选/可得数据 → 成员时间线      | 不能用今天存活币列表筛历史；策略选择规则归 R&D，组合运行归 Backtest |
+| U13 至 U15 资金/忠实性/归因 | 条款和数据 cut 对齐，定位缺口/修订差异并交关联修复             | 市场数据完整性不证明估计器或交易逻辑正确                            |
+| U16/U17 并行与知识          | 共享托管，分别记录项目读取/任务归属和来源证据                  | 缓存复用不免暴露计数，数据服务不维护研究知识结论                    |
+| U18 当前找币                | 按观察时钟提供闭合/明确标识的观察输入，返回总范围、覆盖与缺口  | 未收盘输入不得冒充闭合；缺数据不等于无机会                          |
+| U19 保护/未来证据           | 独立保护读取路径、分区与暴露控制；实时事实可作为后继来源       | 保护详情不经行情 API 泄露，公开缓存不交叉命中私有结果               |
+| U20 运行与退回              | 实时数据通道和修订事实供原生运行及后继研究使用                 | 不发信号、激活实例、调资金或对交易账户下单                          |
 
 验收应从 U02 导入失败、U03/U04 多周期与缺口、U09/U12 结算/可得时间、U10 vintage、U11 动态成员、
 U16 重启/并行以及 U18/U19 实时与保护路径入手。以上只闭合设计职责，不宣称所有来源或目标 API 已实现。
+
+## CURRENT_PARTIAL market-data MCP server
+
+[领域 MCP 目录](../architecture/product-edge#target---external-agent-tool-surface)里的 `market-data` 服务由
+Market Data 提供。 它是 一个无状态的 stdio 进程，位于 `services/market-data-mcp`，有独立 Cargo workspace 与 lock，不依赖 Owner crate。
+它在自己的环境里持有 Market Data 的 API token，只访问 Market Data 的路由。
+
+每条规则都在路由背后的 Market Data 里；一个工具只发一个请求，按名原样传回它的应答或拒绝，不做任何编排。 同一组函数也是一个同名的命令行。
+
+| 工具                                     | 路由                                                    | 按名拒绝                                                                         |
+| ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                                                |
+| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                                             |
+| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | 每个准入步骤自己的拒绝                                                           |
+| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`、`TIMEFRAME_UNSUPPORTED`、`RANGE_INVALID`                   |
+| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                                    |
+| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                                             |
+| `get_bars(instrument, timeframe, range)` | `POST /v1/market-data/bars`                             | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
+| `get_funding(instrument, range)`         | `POST /v1/market-data/funding`                          | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
+
+- **列出与描述读取的是 Market Data 当前持有的。** `GET /v1/market-data/instruments` 与
+  `GET /v1/market-data/instruments/{instrument}` 已是 `CURRENT`：`crates/data/src/owner/instrument_catalog_v1.rs` 读取每个标的最新的
+  Instrument Master V2 fact，其链上每一环都经解码与校验，并读取为它准入的每个 economic terms 版本。交易所没有陈述的值按名写出
+  （`UNBOUNDED`、`NOT_APPLICABLE` 或 `UNAVAILABLE`），绝不写成数字。这些是发现性读取，绝不是 Replay 的输入：Replay 仍然绑定一个确切的
+  Instrument Master cut 并从中解析它的 terms，所以没有消费方因此获得「最新」选择器。链路条目 121 经 HTTP 读取 F 准入的永续合约。基于
+  这些路由的 MCP 服务已构建；`get_bars` 与 `get_funding` 也已注册，但在保护分区定义之前始终拒绝。
+  实现与最新数据接入切片详见[英文现状](./market-data.md#current-market-data-mcp-server)。
+- **准入是一个 Market Data 操作。** `POST /v1/market-data/binance-perpetual-admissions` 接收一个 Binance USD-M symbol。Market
+  Data 取该 symbol 公开的 `exchangeInfo` 条目，按顺序提交第一个 `COMPOSER_V3` Replay 的验收今天经各自路由提交的那些事实：kline
+  Source Binding、Instrument Master fact、`exchangeInfo` Source Binding、Instrument Master V2 fact、economic terms 与历史成员资格。
+  它可重入：内容相同、已经准入的步骤答 `ALREADY_ADMITTED`，然后执行下一步，所以任何失败之后重跑都会补完其余步骤。kline binding
+  提案连同它的可用性规则只在这里构造，该标的的每次回填都读同一个提案来定位 fill 缺口。六个步骤都留在数据层。
+- **回填是 Market Data 运行的 job。** 当前 `backfill` 在同一个 HTTP 请求内先记录 `QUEUED` 和 `RUNNING`，
+  再取执行周期与 fill bar、提交成员托管，记录带回执与新增覆盖的 `SUCCEEDED` 或带拒绝名字的 `FAILED`，最后返回 `job_id`。
+  `binance_backfill_job.rs::start_backfill` 是这条同步路径，没有 detached worker；job 事实只追加，MCP 不持有 job 状态。周期是托管的执行周期：U1 支持 `1w`、`1d`、`4h` 与 `1h`，`1m` fill 周期随之带上，其他
+  周期为 `TIMEFRAME_UNSUPPORTED`。
+- **覆盖范围就是托管所持有的。** `coverage` 对每个执行周期回答成员已提交的托管窗口所覆盖的半开区间，从托管链读取。它不陈述任何市场
+  数值。
+- **运行以描述指名它的数据。** `dataset_ref` 是描述 `(instrument, execution_timeframe, [start, end))`，由代理根据 `coverage` 写出；
+  没有工具签发它。运行回测的服务按覆盖它的托管链解析它，记录它解析到的 head，对没有托管覆盖的区间按 `DATASET_REF_UNRESOLVED` 拒绝。
+  所以回测从不需要 `get_bars`。
+- **代理读取由 Market Data 记录。** 工具在把市场数值（bar 或 funding rate）返回给代理之前，Market Data 在读取它们的同一个事务里，
+  按每个标的追加一行代理数据读取：服务进程启动时铸出的会话身份、标的、周期、以事件纳秒计的半开区间 `[start, end)`、工具与提交 cut。
+  写不了行的读取会拒绝。这些行是从 R&D 的数据读取台账迁过来的；R&D 原本打算拥有代理的工具时，由它持有代理会话的行。R&D 的 census
+  向下读取它们，试验行仍由 R&D 自己写。在会话绑定到血缘之前，R&D 把一次代理读取计入每一条血缘。
+- **holdout 分区存在之前，没有市场数值能到达代理。** 还没有 Owner 定义 Qualification 的 holdout 分区，所以 `get_bars` 与
+  `get_funding` 对每个请求都按 `HOLDOUT_PARTITION_UNDEFINED` 拒绝，与 R&D 数据读取台账的每次分发一样。
+- **TARGET，U1 之后：Qualification 把分区登记进 Market Data。** Qualification 向下调用，按值登记受保护的标的与时段；Market
+  Data 只负责拒绝。届时工具对与受保护时段重叠的区间按 `RANGE_IN_HOLDOUT_PARTITION` 拒绝，窗口与之重叠的回测也按名拒绝，因为单是它的
+  结果就会泄露 holdout。分区登记之前，每份回测报告都写明没有定义 holdout 分区、结果仅作探索。
+- **单独验收**：在部署镜像里只通过这个服务，准入 BTC、ETH 与 SOL，各自回填 `1d` 及其 `1m` fill，`coverage` 显示这些窗口，并把上面每种
+  拒绝各驱动一次。
 
 ## TARGET - 研究经济数据与可得时间
 
@@ -247,24 +465,9 @@ U16 重启/并行以及 U18/U19 实时与保护路径入手。以上只闭合设
 按修订政策保留旧版本，后来的更正不修改过去策略已知的输入。OI/taker flow 等同样逐字段声明可得性和覆盖。
 验收从来源时钟/单位转换、缺失行、修订、未来值污染与跨消费路径一致性入手；范围存在不代表数据已准入或当前可回测。
 
-### 如何阅读本页
-
-Owner 契约就是标准 Owner 骨架：职责、拥有的权威事实、模块、输入交接、输出交接、拒绝和禁止事项、失败与恢复、
-决策契约、后续实现验收。读这几节就知道 Market Data 拥有什么、什么跨越它的边界、它拒绝什么。另一个 Owner 或
-规划工作的 agent 需要据以推理的就是这部分。
-
-模块与输入交接之间是各原生子权威契约：Calendar 与 Time Zone、Market Semantics、Correction Policy、Corporate
-Action、Replay Market Facts V2、Instrument Master，以及策略 input-role binding。每节自带成熟度标记，各自陈述
-一个子权威。
-
-这些节内部，凡标题指向规范 codec、规范身份或规范 census 的子节，规定的是字节布局 字段顺序 整数宽度与摘要域。
-它们是规范性的，因为编码不同即事实不同，但只回答一个值如何拼写，不回答谁可以写它或它意味着什么。除非你正在
-实现或验证某个编码，否则可以跳过。
-
 ## 实现准入台账
 
-本台账是下文契约实际走到哪一步的可 grep 索引。它本身不授予任何许可：处于
-`IMPLEMENTATION_ADMITTED` 的以下文状态列所写的为准，别无其他，所以本句不点名任何切片，也不会因某一片状态变化而过期。
+本台账索引实现状态，不授予许可。仅状态列标为 `IMPLEMENTATION_ADMITTED` 的切片已获准实现。
 扩大已准入集合必须先按 `AGENTS.md` 的架构权威规则修改本文档。已合并的 crate、被点名的
 类型、绿色的 job 或本表中的一行都不是实现权威，永远不证明存在生产消费者，也永远不授权生产副作用、部署切换或真实
 交易。
@@ -508,9 +711,211 @@ PostgreSQL 16 的权限集列举，其他主版本的服务器会被拒绝，而
 - **Instrument Master** - 拥有按生效时间版本化的标的身份 场所映射 合约条款 session time zone
   lifecycle 与 corporate-action 事实，不选择本轮运行标的。
 
-## Calendar 与 Time Zone 原生 Owner 契约
+## 输入交接
 
-### 持久 R0 observation-evidence foundation
+目标向下数据请求携带由上层已解析的完整封存角色/范围/输入值。Market Data 只核验自己的准入、准确绑定与数据事实，不读取 Composer 或 R&D。本文包含的 `lock_sealed_exploratory_replay_request_for_market_data_v1`、Composer shared-cut lock 及反向 resolver 只规定封存协议兼容与迁移保护；不是新目标的调用方向。迁移保留稳定 cut、不可变身份、原子失败零写入及保护隔离，在上层完成解析后向下传值。
+
+- 数据商和交易场所通过 Data Clients 提供原始行情和参考记录，而每一个时间坐标都归属于陈述它的那个时钟，不是
+  归属于准入它的那个时钟。场所陈述事件生效时刻与提供方可得时刻，并且分别陈述：前者是事件发生的时刻，后者是
+  场所发布它的时刻，拿其中一个当另一个用，等于断言了一次场所从未声称过的发布。在这一对之外，同一套词汇经由
+  三条进料口到达本 Owner，而三条在时钟归谁上各不相同：从其中一条学到的规则，用在另外两条上都是错的。一次
+  提交的 PIT Snapshot Request 对每个坐标同时携带值与提交方所声称的时钟身份与纪元；本 Owner 不赋值其中任何
+  一个，只以自己的密封头逐一比对被声称的时钟来准入它们，不一致即拒绝。一次 Instrument Master 提交只携带坐标
+  的值，完全不带时钟；本 Owner 把被准入的事实绑定到自己当前的时钟头上。在实时行情通道上，本 Owner 以宿主
+  进程的时钟而非密封头陈述获取坐标，因此它既不能与场所那两个时刻相比较，也不能与任何一个密封头下的坐标相
+  比较。把一个坐标绑定到密封头是准入，不是归属：在 PIT 这条进料口上，被声称的时刻在被该头准入之后仍然是
+  提交方的主张，绝不能拿它与一个 Owner 陈述的时刻相比较，仿佛两者出自同一个时钟。记录没有陈述某个坐标就不
+  产生该坐标，本 Owner 绝不用自己的时刻 事件时刻 或相邻记录的时间戳，去顶替来源没有陈述的坐标。
+- [R&D](./rd/) 在探索消费前提交初始冻结 PIT Market Snapshot Request，绑定 Research Request
+  Intent TrialFamily、instrument 或 universe scope、四时间决定截面、必需 provenance license correction
+  frontier、稳定 correlation 和 Time Evidence。
+- [R&D](./rd/) 只有从已提交 `REPAIR_INPUTS` Iteration Decision 才能发出一个 Market Data
+  Repair Request。它重复原始 PIT 请求身份与证明摘要 标的范围 决策截面 有界理由 稳定 correlation
+  必需 provenance license correction 字段和共享 Time Evidence。
+- 运维提供 Market Data Source Binding 不透明 credential handle 许可范围和修订数据，但不能改写历史可观察时间。
+  凭据不能进入 snapshot stream artifact 或产品视图。
+  准入 `POST /v1/market-data/source-bindings` 对 proposal 的每种缺陷按各自的名字以 HTTP 400 拒绝：空字段为
+  `SOURCE_BINDING_FIELD_MISSING`，零 digest 为 `SOURCE_BINDING_DIGEST_ZERO`，无效的 schema、policy 或 frontier
+  版本为 `SOURCE_BINDING_VERSION_INVALID`，裸凭据材料、非 Market Data 的 audience 或超出只读行情的 capability 分别为
+  `SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL`、`SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID` 或
+  `SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN`，为零或顺序错乱的时间坐标为
+  `SOURCE_BINDING_TIME_EVIDENCE_INVALID`，任何 bar 都不可能具有的 bar timeframe 为
+  `SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED`。顺序正确但晚于本 Owner decision cut 的坐标是来早了而不是错了：它们是
+  409 `SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT`，之后的准入可以接纳。`INVALID_SOURCE_BINDING_PROPOSAL`
+  只留给不能从内容推导出的 claimed identity。
+
+## 输出交接
+
+- 向 [R&D](./rd/) 提供 move-only、由 Market Data 密封的 `ResearchPitTerminal`；其规范六状态 disposition
+  关联准确初始请求身份 内容摘要 scope cut provenance license correction 和稳定 correlation，并附准确 Universe Selection Record 身份与
+  摘要用于假设检验。修复请求另以同一关联请求身份返回携带已修复 snapshot 的 `AVAILABLE`，或携带
+  有界决定性来源类别的终态 `UNAVAILABLE`。
+  R&D 不能 import、construct、deserialize 或 implement terminal authority，也得不到 raw store
+  receipt、PIT lineage row、Source Binding lineage row 或 clock row。
+- 向 [Backtest](./backtest/) 提供绑定请求 PIT 范围和 snapshot/correction rule 的准确 PIT Market Snapshot
+  与 Universe Selection Record。**TARGET：** 直接 `BACKTEST_OWNER_V1` Instrument Master resolution 提供
+  sealed fact/cut readback；实际消费与 Run Result 必须重复准确 snapshot、selection、Instrument Master
+  fact/cut 以及每个冻结 execution identity。
+  **快照性能测量（2026-09-22）。**一个 PIT 快照是一个 as-of 切面，所以 N 根 bar 就是 N 个
+  冻结请求。`BTCUSDT.BINANCE` 的 `1M`，512 个连续坐标产出 512 根不同的 bar 与 512 个不同的封印快照，
+  严格连续、无缺口、无重复，耗时 767.8 秒。读回每个坐标解析到哪根 bar 是第二次场馆往返，也正是这句话
+  说得出来的前提；同样 512 个坐标不带它耗时 655.4 秒，下面的计时都以这些不带见证的轮次为准。
+  主导这段时钟的**不是**场馆：把往返减半只省了 15%，而 256 坐标那一轮里全部 SQL 执行时间加起来只占 1.2%。
+  成本随**库里已经有多少快照**增长。在同一轮 256 个坐标内，单坐标成本从前八分之一的 0.131 秒升到最后
+  八分之一的 1.182 秒。`validate_owner_history_custody` 每次提交都遍历库里每一条 lineage，而每个快照都开
+  自己的一条 lineage，于是第 n 次提交要重新校验 n 条、每条六条语句：N=256 时是 101,509 次迭代、609,054 条
+  语句，正好把实测时钟填满。所以总成本是二次的。三轮不带见证的实测 - 64、256、512 个坐标分别耗时
+  12.1 秒、169.2 秒、655.4 秒 - 拟合出**在测量主机上 t 约等于 0.033 N 加 0.0024 乘以 N 的平方秒**，误差
+  0.7% 以内；而更简单的 `0.0025 N squared` 恰好穿过 512 那一点，却把 64 低估了 15%。
+  按该曲线外推（这是外推，且假设库从空开始）：**一年的日线约五分半，一年的分钟线约二十二年**，
+  另一份一年日线坐标测量耗时 336.5 秒，但那一轮带着
+  见证探针，而且换了标的与周期，所以它佐证的是量级，没有在受控的点上检验这条曲线。实际后果是：几百个
+  坐标的有界窗口很便宜；长跨度的分钟级历史这条路径根本到不了；而且**一个从不重置的库会让此后每一个快照
+  对每一个写入者都更慢**，所以在共享链路库里累积快照，花的是一笔不会回来的预算。
+  **受控性能剖析（2026-10-03）。** 在 main 85c4237d2 上，对开启 `pg_stat_statements` 的一次性库，跑 256 个连续的
+  `BTCUSDC-PERP.BINANCE` 日线坐标。
+  - **单次提交成本。** 每 16 次提交中最便宜的一次从 138 ms 升到 1241 ms，即库里已有的每一条 lineage 约 4.5 ms：单次提交线性，
+    总量二次。
+  - **花在哪里。** 共 632,102 条语句；耗时前四名都是逐 lineage 的历史校验，各调用 97,920 次，即 256 的平方的一半再乘以三。
+    258 秒提交时间里服务端执行占 79 秒，其余是往返与在 Rust 中解码每个事实，这不是索引能去掉的。
+  - **触发点。** `validate_owner_history_custody` 每次提交约运行三次：clock 准入、clock 物化，以及八条读路径共用的读校验。
+    每次运行都重新解码每一条 PIT lineage。
+  - **外推。** 按这个斜率，约 5,500 个日线快照的最后一次提交约需 25 秒，总共约 19 小时，而且每一次读取也会同样变慢。
+
+  **TARGET - 逐 lineage 的历史 custody。** 校验移到每条 lineage 被写入与被读取的地方，而不是被移除。
+  - **提交时：** 正在写入的那条 lineage。它的新事实，以及它到前一个 head 的链接（前驱摘要与下一个版本号），在提交事务中校验。
+  - **读取时：** 正在读取的那条 lineage。PIT 快照或 Research PIT terminal 的读取校验它返回的那一条 lineage。
+  - **census 校验保持全局。** 它是一条集合级语句（上面全部 774 次调用共 0.46 秒）。Source Binding 的 lineage 仍然整体遍历，
+    因为数量很少（772 次调用共 0.21 秒）。
+  - **历史不可改写。** PIT 快照事实、observation batch、observation row 与 outbox 加只追加触发器，写法与
+    `native_replay_frame_sequences_are_append_only` 相同。经 Owner 自己的连接改写会被按名拒绝，而不是等到之后某次提交才被发现。
+  - **迁移保留一次完整遍历**，作为审计入口。
+  - **变化之处。** 今天一条损坏的 lineage 会让库里所有提交与读取停下；此后它只让碰到它的消费方停下，这正是「失败与恢复」中
+    「对依赖它的消费方 fail closed」的表述。
+  - **验收：**
+    - 同一条 sweep 必须对 N 线性；
+    - 经 Owner 连接改写一个已提交的 PIT 事实，必须被触发器拒绝。
+  - **范围。** 那些改写 PIT 行来证明检测的测试（`postgres/tests.rs` 中 15 处，`store_admission/mod.rs` 与
+    `bar_schedule_acceptance_v1_tests.rs` 各一处）改为断言触发器的拒绝，或在显式关闭触发器的 admin 会话中进行。
+- 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
+- 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
+  generation 的 Strategy Artifact 与历史证据必须消费该身份。
+  **CURRENT / PARTIAL，一条实时事实通道，已建成并证明：** Strategy Instance 消费的增量 `LiveMarketFactV1`、它的 Owner 封缄
+  intake，以及其后恰好一个 Data Client，即场所的公共 WebSocket。供应商侧只陈述场所能知道的事，与 PIT 观测缝既有的要求
+  一致；Owner 盖章已准入 Source Binding 的身份与谱系、该绑定的 Market Semantics Compatibility 身份，以及唯一属于它自己的
+  那个时间坐标即 retrieval 时刻，连同序号。场所以自己的时钟陈述 event-effective 与 provider-available 两个时刻，而 Owner 的
+  retrieval 时刻取自宿主进程时钟而非其密封头，所以跨这些时钟的序都不可证，本 Owner 也不断言任何这样的序。Owner 拒绝
+  自己所签发订阅之外的标的，并保留持久头部，使重启后从停下处继续交接而不是重放。此处不准入其他任何
+  事：没有第二条通道、没有标的更新流、没有 Runtime 托管、没有下单路径。
+  **NOT_ADMITTED：** 一条实时通道不建立 Runtime readiness、Paper、Live、真实交易或任何其他生产写；流式事实永远不是 PIT
+  快照、replay 输入，也不是回答历史问题的证据。
+- **IMPLEMENTATION_ADMITTED，一片实时行情读面，2026-09-21 准入且尚未建成：** 一个实时行情事实的消费者由它自己的数据库
+  角色识别，它能读到什么在读之前就被收窄，而不是在读的时候按调用方的声称过滤。准入的形态是每消费者一个视图，属主为
+  `market_data_owner`，限定在该消费者被准入的那些 binding 上，`SELECT` 授予该消费者的角色，且对 `market_data_private`
+  零权限。该角色就是这个消费者可见内容的上界：绝不是 `rd_owner`，也绝不与另一个消费者共享一个超集，所以这个界由数据库
+  执行，而不是靠信任某个进程持有凭证。今天不需要比角色更细的调用者身份，本 Owner 也不引入；若将来确有需要，每消费者
+  一个角色仍是它的上界，在该上界之内细化是唯一准入的形态。此处的准入是建造并验证这一片读的许可，它不授权任何 Runtime
+  效应、任何 Paper 或 Live 适配器绑定、任何生产写，也不授权真实交易，并且不准入 Runtime 侧的那个消费者，即 `B8`
+  点名的另一半。首次交付要同时陈述其证明的两侧：该消费者自己的视图只返回它被准入的那些 binding，而另一个消费者的视图
+  与 `market_data_private` 对它都必须是拒绝而不是返回零行，因为本该拒绝之处返回空，说明授权给宽了。
+- 向 [Portfolio](./portfolio/) 提供价格 汇率 合约规格 估值事实，以及 Capacity View 使用的带身份流动性输入截面。
+- **TARGET，在 Shared Time producer 闭合后，向 [Portfolio](./portfolio/)：** 为 `PORTFOLIO_FRESHNESS` 提供
+  sealed 规范 clock-head handoff。Portfolio 提交自己的准确 prior handoff 并独自授权自身 transition；不能
+  遍历或跳过 proof link，也不能跨 epoch 比较 monotonic sequence。
+
+## 拒绝和禁止事项
+
+- 不替研究 回测或扫描选择标的和时间窗口。
+- 不静默填补 改写或前移缺失的历史事实。
+- 不把数据源可访问等同于许可完整 PIT 正确或适合某策略。
+- 不准入不可用 已撤销 endpoint 不匹配 摘要不匹配 不可信或无许可来源，不暴露 credential 值，
+  也不在 redistribution scope 之外投递数据。
+- 不拥有策略 资格 部署 订单或账户状态。
+- 不从送达 静默 旧 snapshot 或不匹配请求证明推断修复终态。修复不改写旧 snapshot 或 Research Intent。
+- 不从提交或传输确认推断普通 snapshot 结果，也不在请求身份 内容摘要 scope 决定截面或政策 binding
+  已变化时复用旧 snapshot。
+- 不成为 global Time Owner，也不替其他 Owner 决定 clock transition。
+- 不仅凭 DSN、secret、caller assertion 或含糊 store state 构造受治理 Market Data PostgreSQL repository。
+  Market Data 私有 store-admission seam 必须消费并 revalidate 准确 sealed Deployment Store Admission receipt；
+  随后 Market Data 必须校验当前
+  PIT、Source Binding 与 clock head，才能密封 `ResearchPitTerminal`。普通 consumer 永远得不到 receipt、
+  capability、raw evidence 或 caller-selected snapshot query。
+  production resolution 与动态 product composition 保持 `TARGET / UNAVAILABLE`。
+
+## 失败与恢复
+
+数据不可用 过期 无许可 含义不明或不足时，依赖消费者必须失败关闭。修订生成新的可追踪版本，不能改写旧回执。恢复期间 Market Data 继续提供估值事实，但不能宣布持仓 外部效果或 Recovery Case 已闭合。
+
+provider catalog 的 `LEGAL_REVIEW_REQUIRED` 或其他权利未知映射为 `RIGHTS_EVIDENCE_UNRESOLVED` 与
+Source Binding `UNAVAILABLE`；没有决定性拒绝证据时不得变成 `UNLICENSED`。`TERMS_OR_LICENSE_BLOCKED`
+只属于 R&D Source Intake 终态，不是 Market Data 状态。Market Data 必须用自己的政策重新评估底层
+rights evidence，绝不能跨 Owner 复制该终态。
+
+同时支持多个 blocker 时，binding 与 snapshot 保留完整集合并选择一个稳定 primary。Snapshot 优先级为
+`UNLICENSED`、`AMBIGUOUS`、`STALE`、`INSUFFICIENT`、`UNAVAILABLE`。来源 `REVOKED` 或
+`UNLICENSED` 映射 snapshot `UNLICENSED`，`INCOMPATIBLE` 映射 `AMBIGUOUS`，来源 `UNAVAILABLE`
+映射 snapshot `UNAVAILABLE`。后续证据只能创建后继 binding 与 snapshot，不能升级旧终态。
+
+任一时间坐标或共享决定截面缺失 冲突，或不能证明该事实在决定时已经可用，快照必须为 `AMBIGUOUS`
+或不可用。只有事件时间不能接纳历史事实，决定截面之后取得的数据不能回填更早决定。
+
+## 决策契约
+
+- **输入** - 已接纳 source binding 原始行情与参考记录 correction feed license scope，以及请求方拥有
+  的 universe rule 或 PIT scope。
+- **诊断与决定** - 统一含义 建立四时间可用性 解析 instrument identity coverage correction license，
+  再生成一个版本化事实或 snapshot disposition。
+- **冲突解析** - source lineage 和决定时可用性高于后续 correction；identity clock version 冲突时保持
+  ambiguous，修订只创建后继。
+- **输出与终态负例** - stream instrument fact selection record PIT snapshot，或明确 `INSUFFICIENT`
+  `STALE` `UNLICENSED` `AMBIGUOUS` unavailable。
+- **反馈与经济意义** - 历史和实时含义一致可阻止 look-ahead 错误合约条款或无许可不完整数据造成的
+  虚假 Alpha 估值漂移和不安全 sizing。
+- **禁止** - 不决定研究目标或策略 universe，不拥有生命周期 订单 账户投影，不泄露 credential，不
+  forward fill 或改写可用性历史。
+
+## 后续实现验收
+
+- 历史查询可以证明请求时点实际可观察的数据版本。
+- 每条已接纳事实都用同一时钟和决定截面证明事件 provider 可用 检索和修订发布时间，后知事实不能
+  变成更早已知证据。
+- 标的身份和合约条款在研究 重放 实时数据 估值和执行适配器之间一致。
+- 历史与实时消费者遇到 Market Semantics Compatibility 身份不匹配时必须拒绝，不能在部署时静默改变
+  normalization adjustment timestamp 含义或 instrument mapping。
+- 每个 PIT 请求都证明 calendar session time zone corporate action lifecycle 历史 membership 和
+  universe-selection 版本在请求截面同时已经生效且可观察。
+- 每个普通 Research 响应都重复准确初始 PIT Market Snapshot Request 与 correlation binding；含义变化
+  必须创建后继请求，静默不能创建 Market Data 或 Research transition。
+- 数据不足或过期会得到显式结果，而不是合成成功。
+- Data Client 一行都没有答时，属于覆盖不足，不是批次不规范。快照以 `INSUFFICIENT` 连同其覆盖 blocker 提交，不存
+  observation batch，因为一个 batch 至少有一行。它的 records digest 是零行规范编码的 digest，任何有行的 batch 都不会是
+  这个值。同一请求再次到来时，无论已提交快照的 disposition 是什么，都加入它，且不写入任何东西。
+- 对相同准入版本重复生成快照可得到相同规范输入。
+- 快照结果必须明确为 `AVAILABLE` `INSUFFICIENT` `STALE` `UNLICENSED` `AMBIGUOUS` 或
+  `UNAVAILABLE`。每个修复响应还必须重复 repair request 身份 稳定 correlation 和原始请求证明摘要。
+- rights compatibility freshness sufficiency availability 同时失败时保留完整 blocker set，并由冻结优先级
+  在任意证据到达排列下选择相同 primary。
+- Qualification 冻结保护请求后，重放不能替换 PIT 范围 Universe Selection Record 身份或摘要 快照规则 修订前沿或快照身份。
+- 同 epoch handoff replay 合并准确 bytes；前进必须严格推进必需 cut 且不改变 epoch 语义。新 epoch 的新 head
+  与 direct immutable proof 若未原子提交并可按 digest 准确回读，必须失败关闭。
+- 面向 `BACKTEST_OWNER_V1` 的原生 Instrument Master resolution 对相同 request identity 与 meaning 返回相同
+  fact/cut identity 和 canonical bytes；wrong-role、overlap、late-correction、gap、stale、unavailable-store、
+  response-loss 与 changed-meaning case 都证明上述 fail-closed 与 successor-only rule。
+
+## 可观测性与持久化
+
+Market Data 在自身写权威下持久化 Source Binding、rights/retention decision、semantics profile、instrument history、PIT
+request/snapshot、stream/valuation fact、correction 与发布 outbox。 Telemetry 记录 provider request
+latency、新鲜度、缺口、rate limit、correction lag 与有界拒绝类别，但不导出 API key 或受许可约束的 payload body。
+
+Dashboard 的来源健康状态必须携带 source/semantics 版本、as-of frontier、license disposition、完整性与 valid-through；绿色 provider
+metric 不能替代缺失或过期的 PIT fact。
+
+## 原生事实合同
+
+### Calendar 与 Time Zone 原生 Owner 契约
+
+#### 持久 R0 observation-evidence foundation
 
 **CURRENT：** `ReferenceFactR0RecordV1` 是独立原生 reference authority 共用的唯一持久 R0 observation-evidence aggregate。 R0 不是
 business fact、coordinate selector 或第二 clock。 其私有 PostgreSQL resolver 只接收不受信 request 与准确 locator
@@ -565,7 +970,7 @@ row、scalar/frontier splice、canonical drift 或 response-loss retry mismatch 
 一次性 PostgreSQL 链路在两条生产 intake 路径上都证明了它：record 的坐标就是该快照的坐标、重放不再追加第二条、 非 `AVAILABLE` 的快照一条也不带。
 除这条写入外不声称任何事。 **NOT_ADMITTED：** R0 不授予 provider authenticity、deployment、runtime、Dashboard 或 trading authority。
 
-### ReferenceFactCatalogV1 业务值权威
+#### ReferenceFactCatalogV1 业务值权威
 
 **TARGET：** `ReferenceFactCatalogV1` 是 Calendar、Time Zone 与 Session 业务值的唯一 Market Data Owner catalog。 它与 R0
 属于不同权威轴：catalog 拥有 typed value、business scope、业务生效半开区间、revision、 correction lineage 与 direct predecessor；R0
@@ -611,7 +1016,7 @@ Calendar 与 Session 后继修正同一个 stable native key，因此保留 byte
 stored bytes。 **NOT_ADMITTED：** 隔离验收 catalog 数据不证明 vendor authenticity，也不授予 default/production database、
 deployment、provider、Dashboard、runtime 或 trading effect。
 
-### 共享原生边界与 custody
+#### 共享原生边界与 custody
 
 **CURRENT：** Replay V2 已有 typed Calendar 与 Time Zone value，而 PIT 与 Instrument Master 仍只携带
 calendar、time-zone 或 ruleset identity，不携带原生 Calendar/Time Zone readback。Shared Time 只认证
@@ -674,7 +1079,7 @@ Response loss 通过准确 sealed locator 恢复，并在不再次 append 的情
 composition、provider authenticity、production/default write、deployment、Dashboard 工作、runtime 或
 trading。
 
-### Calendar V1：完整 day/open 权威
+#### Calendar V1：完整 day/open 权威
 
 `CalendarFactV1` value 是准确 calendar identity `u32BE length || bytes`、从 `1970-01-01` 起算的 signed UTC
 civil-day ordinal `i32BE`，以及 `is_open` `u8`。
@@ -700,7 +1105,7 @@ Positive 表示 gap 为零、day 不重复且 open/closed disposition 完整；�
 `calendar-cut` 替换为 `calendar-receipt` 与 `calendar-readback`，版本均为 `v1\0`；outbox identity
 按共享原生规则等于 receipt identity，且没有 domain。
 
-### Time Zone V1：完整 UTC-offset transition 权威
+#### Time Zone V1：完整 UTC-offset transition 权威
 
 `TimeZoneFactV1` value 是准确 time-zone identity 与 ruleset identity（`u32BE length || bytes`，随后
 `[u8; 32]`），再加 signed UTC offset seconds `i32BE`。 其半开 effective interval 是该 offset
@@ -725,7 +1130,7 @@ Positive coverage 在 window start 或更早开始、在 window end 或更晚结
 offset，包括 fold 与 gap。 Receipt 与 readback domain 分别为 `vibe.market-data.time-zone-receipt.v1\0` 与 `vibe.market-data.time-zone-readback.v1\0`；outbox
 identity 按共享原生规则等于 receipt identity，且没有 domain。
 
-### Session V1：唯一原生 Calendar 与 Time Zone join
+#### Session V1：唯一原生 Calendar 与 Time Zone join
 
 **CURRENT：** Replay V2 已有 typed Session value，BAR V1 已有既存 structural bytes，但两者都不是原生 Session join 或权威。
 
@@ -788,9 +1193,9 @@ domain，并采用 共享原生 write-once、sealed rejoin/recovery、ACL 与 ze
 Replay V2 保留其既有 Session bytes，BAR V1 保留其既有 bytes；采用原生 Session 需要 additive dependency/aggregate field 与
 additive BAR successor contract，绝不重新解释 stored Replay V2 或 BAR V1 custody。
 
-## Market Semantics Owner 契约
+### Market Semantics Owner 契约
 
-### 状态、边界与固定消费者
+#### 状态、边界与固定消费者
 
 **CURRENT：** Market Data 架构拥有 Market Semantics Compatibility；`ReplayMarketFactsV2` 已具备下文所述
 closed typed Market Semantics value。Source Binding 仍只把 free-form normalization 与 meaning 字符串作为
@@ -859,7 +1264,7 @@ value 以 `SnapshotValueConflict` 拒绝，绝不覆写），并在一个 transa
 V2 产品 composition、deployment、runtime execution、Dashboard 工作或 trading authority。 Fixture、caller-carried
 identity、结构有效的 bytes 或既有 Replay V2 fact 都不是独立 Owner readback。
 
-### 有类型事实、时间与修正拓扑
+#### 有类型事实、时间与修正拓扑
 
 Version 1 的 closed value 准确包含：非零 normalization identity `[u8; 32]`；price adjustment
 `u16BE`， 其值为 `1 RAW`、`2 SPLIT_ADJUSTED`、`3 TOTAL_RETURN_ADJUSTED` 或
@@ -905,7 +1310,7 @@ successor，因为只改一条链会让各 head 不一致，并以 `ScopeValueCo
 它不能靠今天逐条 append 的检查逐个追加 successor 来实现：第一个 successor 进来时其他 head 仍是旧值，会被拒。 这条规则成立于每次 Owner 提交之后，所以那个 transaction
 要先写完 全部 successor，再在结尾对整个 scope 检查一次。
 
-### 规范 codec、完整 cut 与 custody
+#### 规范 codec、完整 cut 与 custody
 
 Version 1 的每个整数均为 big-endian。可选 absence/presence 准确为 `0x00`/`0x01`；每个 identity/digest
 均为 32 bytes；reserved 为 `u16BE = 0`；malformed length、零 required identity、alternate tag、duplicate、
@@ -958,7 +1363,7 @@ move-only readback。
 source 与 correction projection 与该 readback 逐字节相等后才重复这些 projection。它既不替换独立 fact，
 也不会成为第二个 Market Semantics authority。
 
-## Correction Policy 私有 Replay projection
+### Correction Policy 私有 Replay projection
 
 **CURRENT：** Source Binding 拥有 correction lineage/frontier，Replay V2 已有 typed `CorrectionPolicy` value。
 **TARGET：** Market Data 从准确已准入 Source Binding lineage 加已验证 `ReferenceFactCoordinatesV1` 为 Replay 确定性派生该 value；不存在独立
@@ -992,9 +1397,9 @@ identity/digest。
 Replay V2 只把 stream、sequence 与 successor-only 投影到既有 typed value，并且仅在 time/source/correction field 准确相等后重复这些
 field； 其 aggregate custody 不创建第二 policy authority。
 
-## Corporate Action 原生 Instrument Master 子权威
+### Corporate Action 原生 Instrument Master 子权威
 
-### 状态、输入与 typed action
+#### 状态、输入与 typed action
 
 **CURRENT：** Instrument Master 拥有 corporate-action term/frontier，Replay V2 已有 closed Split、
 CashDividend、SymbolChange、Expiry 与 Roll variant，但尚无独立原生 Corporate Action readback。 **TARGET：** Instrument
@@ -1024,7 +1429,7 @@ Correction 是同一 action/instrument lineage 内不可变 current-head success
 缺失、branch、cycle、sequence/frontier regression、action 或 instrument splice、无效 ratio/currency/successor、effective
 ambiguity 或 clock mismatch，都在 write 前失败。
 
-### 规范完整 census 与 custody
+#### 规范完整 census 与 custody
 
 Fact domain 为 `vibe.market-data.corporate-action-fact.v1\0`。
 
@@ -1055,7 +1460,7 @@ recovery、ACL 与 zero-write failure rule 采用上述共享原生规则。
 Replay V2 把一条 fact 一对一 projection 成既有 action identity、instrument 与 term variant，并且只在 time/source/correction
 准确相等后重复这些 field。 Backtest 保留相同原生 fact 与 cut identity/digest； 两个 consumer 都不得 normalize 或 synthesize term。
 
-## Replay Market Facts V2 基础
+### Replay Market Facts V2 基础
 
 **CURRENT / PARTIAL：** Market Data 定义了 additive、dependency-neutral 的 `ReplayMarketFactsV2` contract 与规范 codec。
 
@@ -1231,7 +1636,7 @@ Fact R0 record、Market Semantics 与 correction policy，此外什么都不 指
 Factory 定义了该角色的 universe Design，都有一条 Strategy Factory 测试要求两者对同一个 Design 得出同一个角色。 join 在一起的第一 语料（一个精确品种、一个
 join、三个 close 角色）今天不在那份定义之内，所以这条规则是它唯一的定义；这是一个覆盖缺口，由 Strategy Factory 切片 T2 补上。
 
-**决策点，归 T2：** T2 把执行角色推广到带 join 的多周期 Design 之后，role-set 投影携带执行 角色的 identity，Market Data 改为读取该角色的标签，不再自行推导。 各
+**兼容接口约束：** 带 join 的多周期 Design 若扩展其执行角色，role-set 投影携带执行 角色的 identity，Market Data 改为读取该角色的标签，不再自行推导。 各
 join 触发不同角色、或没有 join 却有多个 close 角色的 Design，以 `EXECUTION_ROLE_AMBIGUOUS` 拒绝；binding 没有为其声明 bar 的标签以
 `EXECUTION_TIMEFRAME_NOT_DECLARED` 拒绝；没有固定长度、 或长于 R0 声明的执行 bar 以 `EXECUTION_BAR_EXCEEDS_R0_WINDOW` 拒绝；三者都是 HTTP 422。
 
@@ -1321,9 +1726,9 @@ write、deployment 或 trading authority。
 它们不会把 既有准确二成员 Universe receipt 当作通用 Universe Selection Record，不会以 V2 codec 替换 V1 joined-cut codec，也不允许 Source
 Binding rule string 或通用 `version = "v2"` 标签冒充规范 fact cut。
 
-## Instrument Master Owner 契约
+### Instrument Master Owner 契约
 
-### Public Fact V2 原生 projection foundation
+#### Public Fact V2 原生 projection foundation
 
 **CURRENT/PARTIAL：** `InstrumentMasterFactV2` 是 additive、无 effect 的 public-fact kernel，首个范围只 覆盖 crypto-perpetual
 native projection。 它不重新解释或改变任何 V1 fact、cut、receipt、readback、database grammar 或 stored byte。
@@ -1503,7 +1908,7 @@ request binding，也不组装跨 Owner execution-input aggregate。
 runtime execution、production effect 或 trading。private economic 路径不会提升这些 public-fact 声称，也不
 构造原生 instrument。
 
-### 状态与固定消费者
+#### 状态与固定消费者
 
 **CURRENT/PARTIAL：** Market Data 已实现下文描述的原生 `InstrumentMasterFactV1`、 `InstrumentMasterCutV1`、write-once
 receipt/outbox、move-only `InstrumentMasterReadbackV1`，以及面向准确 `BACKTEST_OWNER_V1` role 的 sealed PostgreSQL
@@ -1512,7 +1917,7 @@ resolver/recovery 路径。
 PIT 与 Strategy Input 产品路径仍携带 request 提供的 `instrument_master_digest` 并与 Owner-verified batch 比对，下文准入的切片将其退役；代表性 R&D
 路径仍冻结 data-Owner role 字符串与 AAPL/MSFT fixture。 这些旧 provenance、role 与 mapping 路径不能替代原生权威，也 不证明产品已消费该权威。
 
-**TARGET：** Backtest 产品直接消费既有 Owner-sealed resolution，并以它替换旧 digest 与硬编码 R&D role/mapping 路径。R&D 声明研究 scope，Strategy compiler 消费该 resolution，但两者均不得直接
+**TARGET：** Backtest 产品直接消费既有 Owner-sealed resolution，并以它替换旧 digest 与硬编码 R&D role/mapping 路径。R&D 声明研究 scope；Backtest 准入将密封 resolution 绑定到原生策略包与输入清单。两个消费方均不得直接
 查询 Instrument Master storage、维护 symbol-to-instrument 或 venue mapping，也不得合成 resolution。
 
 准入该消费是对本 Owner 密封读契约的变更，不是访问控制变更。Backtest 将要消费的那份 resolution 已经存在，
@@ -1559,7 +1964,7 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   一个 symbol 的条款挂到另一个 instrument 名下。
   不解释该字符串的任何前缀或分段，也不用 binding 的 endpoint identity，因为换一个镜像就能改变它而不改变产品。
 
-#### Owner 从 payload 推出什么
+##### Owner 从 payload 推出什么
 
 它严格解析这些字节，要求恰好一个 `symbols[]` 条目，其 `symbol` 与 raw symbol 逐字节相等、
 `contractType` 为 `PERPETUAL`。生效时刻取该条目的 `onboardDate`，每一项公开条款都来自它的 filter，全部经由同一个函数
@@ -1614,7 +2019,7 @@ authority，不是公开条款，公开 fact 不承载它。把这一项记成 `
   fact 里。Owner 盖上的时刻不属于调用方表达的含义，所以时钟推进之后的重放仍然 rejoin。两份相同的提交同时到来，都以同一个
   baseline 作答，因为事务在读之前就取 V2 store 的表锁，与状态 delta intake 一样。
 
-#### Instrument Master 准入拒绝
+##### Instrument Master 准入拒绝
 
 - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）：请求未带 Product Edge bearer token。
 - `MALFORMED_TYPED_REQUEST`（HTTP 400）：body 不是该提交，包括含任何未知字段。
@@ -1686,7 +2091,7 @@ authority，不是公开条款，公开 fact 不承载它。把这一项记成 `
   增加它。等待变得可测量时重新评估：即观察到某个 intake、cut 签发或解析等这些锁超过一秒时。
 - **代际检查不变：** 它不比较状态，所以一条状态 delta 既不引起也不消除 `GenerationMismatch`。
 
-#### 品种状态增量拒绝
+##### 品种状态增量拒绝
 
 - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）：请求未带 Product Edge bearer token。
 - `MALFORMED_TYPED_REQUEST`（HTTP 400）：body 不是该提交，包括含任何未知字段。
@@ -1759,7 +2164,7 @@ payload。 Owner 经 `apply_exchange_info_snapshot` 把它作为该 fact 的直�
   动。一个单元测试钉住由录制 payload 得出的 baseline（414 字节）、它的状态后继（669 字节）与一个 baseline 上的单成员 cut，
   这些值取自快照后继出现之前的代码树，与已有的双成员 cut 钉子并列。
 
-#### 品种快照刷新拒绝
+##### 品种快照刷新拒绝
 
 - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）与 `MALFORMED_TYPED_REQUEST`（HTTP 400），与其他 V2 路由相同。
 - `INSTRUMENT_MASTER_V2_INVALID_SUBMISSION`（HTTP 422）：文本不是 `exchangeInfo` 对象。
@@ -1899,7 +2304,7 @@ member 取 selection 时刻观察到的最新 fact。所以 tick 或 lot的变�
   本一样；运行它会让生产周期性地从 Binance 取数，这是公开读取而非交易，是否开启是用户的部署决定。status 不是 `TRADING`
   的 Replay 窗口是否必须拒绝尚未决定，不在本设计范围内。
 
-### 原生不可变记录
+#### 原生不可变记录
 
 `InstrumentMasterFactV1` 是按生效时间版本化的不可变 fact。它包含以下全部字段，consumer 不得替换：
 
@@ -1963,7 +2368,7 @@ identity/digest、stable correlation 与 durable receipt/outbox coordinate。
 普通 consumer 不能 construct、clone、deserialize、implement 或 mint 它。 response loss 后只能通过它恢复；transport
 acknowledgement、retry success、digest-only existence proof 或 caller 复制的旧字段都不是 readback。
 
-### 规范身份与 codec
+#### 规范身份与 codec
 
 原生记录统一使用 domain-separated canonical binary codec 与 BLAKE3-256。准确四个 ASCII domain 为：
 
@@ -2075,7 +2480,7 @@ order 都不能定义 bytes 或 identity。
 receipt 与 readback domain 绑定各自 record payload；outbox 保存准确 receipt identity 与 canonical receipt bytes， 不引入第五个
 identity domain。
 
-### 解析、失败与恢复
+#### 解析、失败与恢复
 
 request 只有通过面向 `BACKTEST_OWNER_V1` 的当前 Market Data Owner store 才能 positive resolution。 对每个 请求 effective
 coordinate，Market Data 先保留 half-open effective interval 覆盖该 coordinate，且类型化 `MARKET_DATA_AS_OF` evidence
@@ -2104,7 +2509,7 @@ positive cut、receipt 或 readback。
 conflict，不创建状态转换。 effective scope、observation cut、consumer role、 frontier 或 codec meaning 任一改变都要求 successor
 request identity。 response loss 不授权第二次 write： 恢复只能准确查找 receipt 并签发对应的 move-only `InstrumentMasterReadbackV1`。
 
-### 必需消费与保留
+#### 必需消费与保留
 
 PIT snapshot 创建、Universe Selection Record 求值、Strategy input binding 与 Backtest input admission 都必须 通过本 Owner
 契约直接解析 Instrument Master fact。 禁止 symbol、ticker、alias、latest-row、 nearest-effective、venue-default 或
@@ -2156,17 +2561,14 @@ scheduling receipt 因 quote cut 而发生的改变是另一项 改动，记在 
 evidence 与 frame sequence 已准入单成员；V1 scheduling receipt 声明其成员数，这属于报价 cut 对它的改变。 Bound-replay issuance 是通向
 `issue_cut` 的唯一生产路径，其唯一调用方是 R&D 的 native execution-input binding issuance。
 
-**TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding declaration；每份
-declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。 R&D 只能提供 Owner-authenticated
-Design/role intent，绝不提供或选择 member、frame 或 binding digest。
+**TARGET，原生输入绑定：** Market Data 验证密封实验输入清单请求的数据集、标的、覆盖、时间语义、来源权利及修订版本。
+Backtest 通过原生数据类型以及策略包的原生订阅或请求消费该绑定。缺失或不匹配的证据不产生已准入重放输入。
+Market Data 不编译策略、不要求 Design 角色语言，也不从 Python 代码推断研究意图。
 
-在一个 Market Data Owner transaction 中，registration 通过原生 authority 解析 PIT Snapshot、 Universe Selection、Source
-Binding、Instrument Master 与 Market Semantics，派生并存储 declaration/digest， 重新生成既有 V1 binding 与 frame，再原样运行既有 V1
-complete-census 与 joined-cut authority。
-
-registry registration 缺失，或 request/Design/role、membership、frame、lineage、semantics、digest 任一不匹配时，都不 生成
-declaration、census、joined cut 或 replay input。 该 registry 是 Replay V2 positive composition 与真实 Owner-driven
-R&D/Backtest consumption 的前置条件；它不是 provider registry、deployment registry 或 caller-authored data path。
+**兼容输入绑定：** 使用 `StrategyDesignV2` 与 typed input role 的请求仍须满足 write-once declaration、完整角色覆盖、
+census 与 joined-cut 校验。缺失 registration，或 request、Design、role、membership、frame、lineage、semantics、digest
+任一不匹配，均不在该接口生成 declaration、census、joined cut 或 replay input。
+该接口的 Composer attestation 与 V1 regeneration 不属于原生策略包的准入前置条件。
 
 **CURRENT/PARTIAL，authenticated role-set foundation：** dependency-neutral 的准确 Composer locator 与
 `StrategyDesignRoleSetReceiptV1` DTO 已存在；production positive-registration seam 在接受未改变的 V1 request 前必须取得 authenticated
@@ -2182,13 +2584,13 @@ sample、R0 与 Market Semantics authority， 再原子签发 binding。
 
 该 resolver 已注册而非仅在计划中：`/v1/market-data/strategy-input-bindings` 无条件随部署二进制 发布，其 admission 在两个 principal 均已配置时组合，而部署文件要求每次运行都提供它们。
 写入路径由 `postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap` 驱动： 它把 terminal 绑定到 Owner 自己已提交的 PIT request 而非 caller 的 claim，在重新 admission 时重新汇合，
-并拒绝未经 attest 的 locator。 **TARGET：** 一次被观察到的端到端序列。
+并拒绝未经 attest 的 locator。 **兼容接口验证缺口：** 一次被观察到的端到端序列。
 
 每一环都已存在且无门控：生产 Composer 的 commit function 在与 operation、receipts、outbox 同一个事务里写入 role-set
 attestation，默认构建选中的正是该 function；但尚未见到任何一次运行把 Composer commit 经 W3 registration 带到 Bounded Feature Program
 freeze。 上述证明是直接写入 Composer 行来提供 attestation 的，测试可以这样做，部署不可以，所以缺的是这个序列未被见证， 而不是它未被建造。
 
-**TARGET，而且 schema 已经限定了可能的形状：** `rd_develop_strategy_design_role_set_attestations_v1` 以 `request_identity` 为主键并引用 `rd_develop_operations_v2`，同时要求
+**兼容 schema 约束：** `rd_develop_strategy_design_role_set_attestations_v1` 以 `request_identity` 为主键并引用 `rd_develop_operations_v2`，同时要求
 `operation_receipt_identity`、`artifact_identity` 与 `canonical_plan_digest` 各自唯一。 因此一份 attestation 不可能脱离"产出了 artifact 的
 Composer 操作"而存在。 无论用什么授权去单独铸造它，都意味着为一件无人构建的 artifact 插入一行 operation，而那正是这条 seam 存在 所要拒绝的伪造。
 
@@ -2403,6 +2805,17 @@ BTCUSDT 在 0.10 tick 上的价格 scale 为 1，scale 2 的 universe 角色在 
 - **拒绝名。** `STRATEGY_INPUT_BINDING_UNAVAILABLE`（422）在 `x-rd-rejection-cause` 头与 body 的 `cause` 中带出
   binding 自己的成因，例如 `VALUE_FINER_THAN_ROLE_SCALE`。
 
+### 原生周期数据与执行准入的区别
+
+数据测量记录了分钟聚合与交易所原生大周期在事故日的字段差异、归档缺日、未收盘周线快照及 REST 收盘后修订。
+因此 Binance 基线按各周期取原生 REST bars，归档用于核验；不能把分钟聚合当成相同输入。派生序列必须另登记来源、
+字段语义及可得时间。细节与测量见[原生周期决策](./market-data.md#target-full-chart-timeframes-and-one-stitched-bar-series)。
+
+数据服务的周期扩展为 `1m`、`15m`、`30m`、`1h`、`2h`、`4h`、`6h`、`8h`、`12h`、`1d`、`1w`；
+不包含 calendar `1mo`。数据周期可服务不等于执行准入。上述四项白名单与全窗口 `1m` fill 是当前 T0/U1 兼容协议，不是未来策略周期的普遍限制。V0.1 采用分钟执行历史与原生大周期信号聚合，数据版本改变后由 Agent 提交新完整运行；冻结保守歧义假设的原生 bar 回放不普遍要求 aggTrades。新数据或成本含义仍须证据和独立准入，当前封存输入不删除。
+
+## Event 与 Bar 托管合同
+
 ### CURRENT/PARTIAL EVENT 与 BAR Owner custody；TARGET BAR 产品权威
 
 Market Data 已实现版本化 `TimeframeSpecV1`、`TimeframeProjectionReceiptV1`、`SampleFactV1`、 `SampleReceiptV1`、其原生
@@ -2589,7 +3002,7 @@ ACL；admitted capability issuance/revalidation；以及 public startup resolver
 admitted read 权威，不是 Dashboard、Backtest、composite 或其他产品 reachability。 caller locator、结构 decode 或重建 bytes 都不产生
 schedule 权威。
 
-对于 Native Replay execution-input 初始组合，已准入的 Market Data read capability 还公开一个固定的 request-bound 操作。 它按 R&D
+对于当前基于 Plan 的兼容输入组合，已准入的 Market Data read capability 还公开一个固定的 request-bound 操作。 它按 R&D
 Replay request 已封存的 snapshot identity 与 fact digest 解析 PIT batch，以 Plan 声明的 role schema 和 Owner batch
 coordinate 重建完整 universe frame，再读取每个 Master V2 canonical member 的完整 BAR schedule history。
 
@@ -3056,7 +3469,7 @@ receipt、readback、outbox 与 W3 binding 均零写入。 W3 只消费该 V4 JO
 该合同不声称 implementation、migration、registered product composition、production
 startup/write、ProgramHost、Backtest、deployment、runtime 或 trading authority。
 
-**CURRENT/PARTIAL，universe-frame sample projection：** `StrategyInputUniverseSampleProjectionV1` 为一个 universe frame 的每个（member,
+**CURRENT/PARTIAL，兼容 universe-frame sample projection：** `StrategyInputUniverseSampleProjectionV1` 为一个 universe frame 的每个（member,
 role）值提供 bounded feature program 读取的 Owner sample coordinate。 它是 additive 的：V1 receipt、V2/V3/V4
 projection、`SampleFactV1`、`SampleReceiptV1` 与 coordinate codec 均不改变。
 
@@ -3111,7 +3524,7 @@ transaction 中先锁定并读取 series head 与该行的 slot head，再 prepa
 head 为前驱 prepare。 一个 window 的 projection 在这一次调用中签发，所以 持锁的 R&D transaction 无论 window 多长都只做一次跨库调用。
 
 request key（已封存 Replay request identity 连同帧范围）与其签发时的 binding 一并记录，同一 key 下的另一 binding 按名拒绝且零写入；准确 retry 以零
-append 返回已存字节。 该 operation 从不回调 R&D。 R&D 在解析 帧之前调用它。 host 只有在 projection 的（member, role）集合同时等于所接纳帧的值集合与 Plan 的
+append 返回已存字节。 该 operation 从不回调 R&D。 R&D 在解析 帧之前调用它。 兼容 host 只有在 projection 的（member, role）集合同时等于所接纳帧的值集合与 Plan 的
 role 表时才附加它， 否则拒绝；R&D 更早做的任何比较都只是提前拒绝，不是这条性质的保证。
 
 一个 universe frame 至多有一个 projection：为已有另一个 projection 的帧签发的 projection 按名拒绝为 `SubjectConflict`，且零写入，所以
@@ -3179,6 +3592,8 @@ advance；等值新 sample 与已接纳 correction 各推进一次；restart 后
 在具备该 dynamic evidence 前，本合同不声称 provider authenticity、production migration/deployment、Dashboard、Paper、Live、BFP
 executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consumption 语义）、 Dashboard/default-database 准入或
 trading authority。 这些 Backtest 限制不创建 Market Data instrument-class rejection。
+
+## 供应商字段与回填兼容合同
 
 ### CURRENT/PARTIAL Binance bar 成交量与 taker 买入量
 
@@ -3271,66 +3686,7 @@ U1 的历史以 T0 窗口托管的形式进入：每个成员在整个窗口上�
   层，绝不放进 R&D，那样就成了上层替下层摄入。同一个函数之上还有一个命令行，供运维使用。U1 的验收在部署镜像里对 BTC、ETH 与 SOL
   各跑一次，然后读每个成员的覆盖范围。
 
-### CURRENT_PARTIAL market-data MCP server
-
-[领域 MCP 目录](../architecture/product-edge#target---external-agent-tool-surface)里的 `market-data` 服务由
-Market Data 提供。 它是 一个无状态的 stdio 进程，位于 `services/market-data-mcp`，有独立 Cargo workspace 与 lock，不依赖 Owner crate。
-它在自己的环境里持有 Market Data 的 API token，只访问 Market Data 的路由。
-
-每条规则都在路由背后的 Market Data 里；一个工具只发一个请求，按名原样传回它的应答或拒绝，不做任何编排。 同一组函数也是一个同名的命令行。
-
-| 工具                                     | 路由                                                    | 按名拒绝                                                                         |
-| ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                                                |
-| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                                             |
-| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | 每个准入步骤自己的拒绝                                                           |
-| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`、`TIMEFRAME_UNSUPPORTED`、`RANGE_INVALID`                   |
-| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                                    |
-| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                                             |
-| `get_bars(instrument, timeframe, range)` | `POST /v1/market-data/bars`                             | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
-| `get_funding(instrument, range)`         | `POST /v1/market-data/funding`                          | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
-
-- **列出与描述读取的是 Market Data 当前持有的。** `GET /v1/market-data/instruments` 与
-  `GET /v1/market-data/instruments/{instrument}` 已是 `CURRENT`：`crates/data/src/owner/instrument_catalog_v1.rs` 读取每个标的最新的
-  Instrument Master V2 fact，其链上每一环都经解码与校验，并读取为它准入的每个 economic terms 版本。交易所没有陈述的值按名写出
-  （`UNBOUNDED`、`NOT_APPLICABLE` 或 `UNAVAILABLE`），绝不写成数字。这些是发现性读取，绝不是 Replay 的输入：Replay 仍然绑定一个确切的
-  Instrument Master cut 并从中解析它的 terms，所以没有消费方因此获得「最新」选择器。链路条目 121 经 HTTP 读取 F 准入的永续合约。基于
-  这些路由的 MCP 服务已构建；`get_bars` 与 `get_funding` 也已注册，但在保护分区定义之前始终拒绝。
-  实现与最新数据接入切片详见[英文现状](./market-data.md#current-market-data-mcp-server)。
-- **准入是一个 Market Data 操作。** `POST /v1/market-data/binance-perpetual-admissions` 接收一个 Binance USD-M symbol。Market
-  Data 取该 symbol 公开的 `exchangeInfo` 条目，按顺序提交第一个 `COMPOSER_V3` Replay 的验收今天经各自路由提交的那些事实：kline
-  Source Binding、Instrument Master fact、`exchangeInfo` Source Binding、Instrument Master V2 fact、economic terms 与历史成员资格。
-  它可重入：内容相同、已经准入的步骤答 `ALREADY_ADMITTED`，然后执行下一步，所以任何失败之后重跑都会补完其余步骤。kline binding
-  提案连同它的可用性规则只在这里构造，该标的的每次回填都读同一个提案来定位 fill 缺口。六个步骤都留在数据层。
-- **回填是 Market Data 运行的 job。** 当前 `backfill` 在同一个 HTTP 请求内先记录 `QUEUED` 和 `RUNNING`，
-  再取执行周期与 fill bar、提交成员托管，记录带回执与新增覆盖的 `SUCCEEDED` 或带拒绝名字的 `FAILED`，最后返回 `job_id`。
-  `binance_backfill_job.rs::start_backfill` 是这条同步路径，没有 detached worker；job 事实只追加，MCP 不持有 job 状态。周期是托管的执行周期：U1 支持 `1w`、`1d`、`4h` 与 `1h`，`1m` fill 周期随之带上，其他
-  周期为 `TIMEFRAME_UNSUPPORTED`。
-- **覆盖范围就是托管所持有的。** `coverage` 对每个执行周期回答成员已提交的托管窗口所覆盖的半开区间，从托管链读取。它不陈述任何市场
-  数值。
-- **运行以描述指名它的数据。** `dataset_ref` 是描述 `(instrument, execution_timeframe, [start, end))`，由代理根据 `coverage` 写出；
-  没有工具签发它。运行回测的服务按覆盖它的托管链解析它，记录它解析到的 head，对没有托管覆盖的区间按 `DATASET_REF_UNRESOLVED` 拒绝。
-  所以回测从不需要 `get_bars`。
-- **代理读取由 Market Data 记录。** 工具在把市场数值（bar 或 funding rate）返回给代理之前，Market Data 在读取它们的同一个事务里，
-  按每个标的追加一行代理数据读取：服务进程启动时铸出的会话身份、标的、周期、以事件纳秒计的半开区间 `[start, end)`、工具与提交 cut。
-  写不了行的读取会拒绝。这些行是从 R&D 的数据读取台账迁过来的；R&D 原本打算拥有代理的工具时，由它持有代理会话的行。R&D 的 census
-  向下读取它们，试验行仍由 R&D 自己写。在会话绑定到血缘之前，R&D 把一次代理读取计入每一条血缘。
-- **holdout 分区存在之前，没有市场数值能到达代理。** 还没有 Owner 定义 Qualification 的 holdout 分区，所以 `get_bars` 与
-  `get_funding` 对每个请求都按 `HOLDOUT_PARTITION_UNDEFINED` 拒绝，与 R&D 数据读取台账的每次分发一样。
-- **TARGET，U1 之后：Qualification 把分区登记进 Market Data。** Qualification 向下调用，按值登记受保护的标的与时段；Market
-  Data 只负责拒绝。届时工具对与受保护时段重叠的区间按 `RANGE_IN_HOLDOUT_PARTITION` 拒绝，窗口与之重叠的回测也按名拒绝，因为单是它的
-  结果就会泄露 holdout。分区登记之前，每份回测报告都写明没有定义 holdout 分区、结果仅作探索。
-- **单独验收**：在部署镜像里只通过这个服务，准入 BTC、ETH 与 SOL，各自回填 `1d` 及其 `1m` fill，`coverage` 显示这些窗口，并把上面每种
-  拒绝各驱动一次。
-
-### 原生周期数据与执行准入的区别
-
-数据测量记录了分钟聚合与交易所原生大周期在事故日的字段差异、归档缺日、未收盘周线快照及 REST 收盘后修订。
-因此 Binance 基线按各周期取原生 REST bars，归档用于核验；不能把分钟聚合当成相同输入。派生序列必须另登记来源、
-字段语义及可得时间。细节与测量见[原生周期决策](./market-data.md#target-full-chart-timeframes-and-one-stitched-bar-series)。
-
-数据服务的周期扩展为 `1m`、`15m`、`30m`、`1h`、`2h`、`4h`、`6h`、`8h`、`12h`、`1d`、`1w`；
-不包含 calendar `1mo`。数据周期可服务不等于执行准入。上述四项白名单与全窗口 `1m` fill 是当前 T0/U1 兼容协议，不是未来策略周期的普遍限制。目标分开信号周期与执行分辨率，在撮合外准备细数据，再绑定完整后继重放；冻结保守歧义假设的原生 bar 回放不普遍要求 aggTrades。新数据或成本含义仍须证据和独立准入，当前封存输入不删除。
+## 后续经济数据与原生周期接入
 
 ### TARGET window funding schedule read
 
@@ -3344,203 +3700,3 @@ Replay 在窗口内的每次结算都要结算 funding，所以它需要全部�
 - **向下读取、按值传递。** R&D 读取 schedule 并放进 Replay bundle；Backtest 从不回读 Market Data。只有 Market Data 产出的 schedule
   才是完整的：类型的构造函数检查规范顺序，不检查完整性。
 - **验收**：用 BTCUSDT 一个真实月份，条数等于交易所的结算次数，删掉一次的月份被按名拒绝。
-
-## 输入交接
-
-目标向下数据请求携带由上层已解析的完整封存角色/范围/输入值。Market Data 只核验自己的准入、准确绑定与数据事实，不读取 Composer 或 R&D。本文包含的 `lock_sealed_exploratory_replay_request_for_market_data_v1`、Composer shared-cut lock 及反向 resolver 只规定封存协议兼容与迁移保护；不是新目标的调用方向。迁移保留稳定 cut、不可变身份、原子失败零写入及保护隔离，在上层完成解析后向下传值。
-
-- 数据商和交易场所通过 Data Clients 提供原始行情和参考记录，而每一个时间坐标都归属于陈述它的那个时钟，不是
-  归属于准入它的那个时钟。场所陈述事件生效时刻与提供方可得时刻，并且分别陈述：前者是事件发生的时刻，后者是
-  场所发布它的时刻，拿其中一个当另一个用，等于断言了一次场所从未声称过的发布。在这一对之外，同一套词汇经由
-  三条进料口到达本 Owner，而三条在时钟归谁上各不相同：从其中一条学到的规则，用在另外两条上都是错的。一次
-  提交的 PIT Snapshot Request 对每个坐标同时携带值与提交方所声称的时钟身份与纪元；本 Owner 不赋值其中任何
-  一个，只以自己的密封头逐一比对被声称的时钟来准入它们，不一致即拒绝。一次 Instrument Master 提交只携带坐标
-  的值，完全不带时钟；本 Owner 把被准入的事实绑定到自己当前的时钟头上。在实时行情通道上，本 Owner 以宿主
-  进程的时钟而非密封头陈述获取坐标，因此它既不能与场所那两个时刻相比较，也不能与任何一个密封头下的坐标相
-  比较。把一个坐标绑定到密封头是准入，不是归属：在 PIT 这条进料口上，被声称的时刻在被该头准入之后仍然是
-  提交方的主张，绝不能拿它与一个 Owner 陈述的时刻相比较，仿佛两者出自同一个时钟。记录没有陈述某个坐标就不
-  产生该坐标，本 Owner 绝不用自己的时刻 事件时刻 或相邻记录的时间戳，去顶替来源没有陈述的坐标。
-- [R&D](./rd/) 在探索消费前提交初始冻结 PIT Market Snapshot Request，绑定 Research Request
-  Intent TrialFamily、instrument 或 universe scope、四时间决定截面、必需 provenance license correction
-  frontier、稳定 correlation 和 Time Evidence。
-- [R&D](./rd/) 只有从已提交 `REPAIR_INPUTS` Iteration Decision 才能发出一个 Market Data
-  Repair Request。它重复原始 PIT 请求身份与证明摘要 标的范围 决策截面 有界理由 稳定 correlation
-  必需 provenance license correction 字段和共享 Time Evidence。
-- 运维提供 Market Data Source Binding 不透明 credential handle 许可范围和修订数据，但不能改写历史可观察时间。
-  凭据不能进入 snapshot stream artifact 或产品视图。
-  准入 `POST /v1/market-data/source-bindings` 对 proposal 的每种缺陷按各自的名字以 HTTP 400 拒绝：空字段为
-  `SOURCE_BINDING_FIELD_MISSING`，零 digest 为 `SOURCE_BINDING_DIGEST_ZERO`，无效的 schema、policy 或 frontier
-  版本为 `SOURCE_BINDING_VERSION_INVALID`，裸凭据材料、非 Market Data 的 audience 或超出只读行情的 capability 分别为
-  `SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL`、`SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID` 或
-  `SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN`，为零或顺序错乱的时间坐标为
-  `SOURCE_BINDING_TIME_EVIDENCE_INVALID`，任何 bar 都不可能具有的 bar timeframe 为
-  `SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED`。顺序正确但晚于本 Owner decision cut 的坐标是来早了而不是错了：它们是
-  409 `SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT`，之后的准入可以接纳。`INVALID_SOURCE_BINDING_PROPOSAL`
-  只留给不能从内容推导出的 claimed identity。
-
-## 输出交接
-
-- 向 [R&D](./rd/) 提供 move-only、由 Market Data 密封的 `ResearchPitTerminal`；其规范六状态 disposition
-  关联准确初始请求身份 内容摘要 scope cut provenance license correction 和稳定 correlation，并附准确 Universe Selection Record 身份与
-  摘要用于假设检验。修复请求另以同一关联请求身份返回携带已修复 snapshot 的 `AVAILABLE`，或携带
-  有界决定性来源类别的终态 `UNAVAILABLE`。
-  R&D 不能 import、construct、deserialize 或 implement terminal authority，也得不到 raw store
-  receipt、PIT lineage row、Source Binding lineage row 或 clock row。
-- 向 [Backtest](./backtest/) 提供绑定请求 PIT 范围和 snapshot/correction rule 的准确 PIT Market Snapshot
-  与 Universe Selection Record。**TARGET：** 直接 `BACKTEST_OWNER_V1` Instrument Master resolution 提供
-  sealed fact/cut readback；实际消费与 Run Result 必须重复准确 snapshot、selection、Instrument Master
-  fact/cut 以及每个冻结 execution identity。
-  **快照性能测量（2026-09-22）。**一个 PIT 快照是一个 as-of 切面，所以 N 根 bar 就是 N 个
-  冻结请求。`BTCUSDT.BINANCE` 的 `1M`，512 个连续坐标产出 512 根不同的 bar 与 512 个不同的封印快照，
-  严格连续、无缺口、无重复，耗时 767.8 秒。读回每个坐标解析到哪根 bar 是第二次场馆往返，也正是这句话
-  说得出来的前提；同样 512 个坐标不带它耗时 655.4 秒，下面的计时都以这些不带见证的轮次为准。
-  主导这段时钟的**不是**场馆：把往返减半只省了 15%，而 256 坐标那一轮里全部 SQL 执行时间加起来只占 1.2%。
-  成本随**库里已经有多少快照**增长。在同一轮 256 个坐标内，单坐标成本从前八分之一的 0.131 秒升到最后
-  八分之一的 1.182 秒。`validate_owner_history_custody` 每次提交都遍历库里每一条 lineage，而每个快照都开
-  自己的一条 lineage，于是第 n 次提交要重新校验 n 条、每条六条语句：N=256 时是 101,509 次迭代、609,054 条
-  语句，正好把实测时钟填满。所以总成本是二次的。三轮不带见证的实测 - 64、256、512 个坐标分别耗时
-  12.1 秒、169.2 秒、655.4 秒 - 拟合出**在测量主机上 t 约等于 0.033 N 加 0.0024 乘以 N 的平方秒**，误差
-  0.7% 以内；而更简单的 `0.0025 N squared` 恰好穿过 512 那一点，却把 64 低估了 15%。
-  按该曲线外推（这是外推，且假设库从空开始）：**一年的日线约五分半，一年的分钟线约二十二年**，
-  另一份一年日线坐标测量耗时 336.5 秒，但那一轮带着
-  见证探针，而且换了标的与周期，所以它佐证的是量级，没有在受控的点上检验这条曲线。实际后果是：几百个
-  坐标的有界窗口很便宜；长跨度的分钟级历史这条路径根本到不了；而且**一个从不重置的库会让此后每一个快照
-  对每一个写入者都更慢**，所以在共享链路库里累积快照，花的是一笔不会回来的预算。
-  **受控性能剖析（2026-10-03）。** 在 main 85c4237d2 上，对开启 `pg_stat_statements` 的一次性库，跑 256 个连续的
-  `BTCUSDC-PERP.BINANCE` 日线坐标。
-  - **单次提交成本。** 每 16 次提交中最便宜的一次从 138 ms 升到 1241 ms，即库里已有的每一条 lineage 约 4.5 ms：单次提交线性，
-    总量二次。
-  - **花在哪里。** 共 632,102 条语句；耗时前四名都是逐 lineage 的历史校验，各调用 97,920 次，即 256 的平方的一半再乘以三。
-    258 秒提交时间里服务端执行占 79 秒，其余是往返与在 Rust 中解码每个事实，这不是索引能去掉的。
-  - **触发点。** `validate_owner_history_custody` 每次提交约运行三次：clock 准入、clock 物化，以及八条读路径共用的读校验。
-    每次运行都重新解码每一条 PIT lineage。
-  - **外推。** 按这个斜率，约 5,500 个日线快照的最后一次提交约需 25 秒，总共约 19 小时，而且每一次读取也会同样变慢。
-
-  **TARGET - 逐 lineage 的历史 custody。** 校验移到每条 lineage 被写入与被读取的地方，而不是被移除。
-  - **提交时：** 正在写入的那条 lineage。它的新事实，以及它到前一个 head 的链接（前驱摘要与下一个版本号），在提交事务中校验。
-  - **读取时：** 正在读取的那条 lineage。PIT 快照或 Research PIT terminal 的读取校验它返回的那一条 lineage。
-  - **census 校验保持全局。** 它是一条集合级语句（上面全部 774 次调用共 0.46 秒）。Source Binding 的 lineage 仍然整体遍历，
-    因为数量很少（772 次调用共 0.21 秒）。
-  - **历史不可改写。** PIT 快照事实、observation batch、observation row 与 outbox 加只追加触发器，写法与
-    `native_replay_frame_sequences_are_append_only` 相同。经 Owner 自己的连接改写会被按名拒绝，而不是等到之后某次提交才被发现。
-  - **迁移保留一次完整遍历**，作为审计入口。
-  - **变化之处。** 今天一条损坏的 lineage 会让库里所有提交与读取停下；此后它只让碰到它的消费方停下，这正是「失败与恢复」中
-    「对依赖它的消费方 fail closed」的表述。
-  - **验收：**
-    - 同一条 sweep 必须对 N 线性；
-    - 经 Owner 连接改写一个已提交的 PIT 事实，必须被触发器拒绝。
-  - **范围。** 那些改写 PIT 行来证明检测的测试（`postgres/tests.rs` 中 15 处，`store_admission/mod.rs` 与
-    `bar_schedule_acceptance_v1_tests.rs` 各一处）改为断言触发器的拒绝，或在显式关闭触发器的 admin 会话中进行。
-- 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
-- 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
-  generation 的 Strategy Artifact 与历史证据必须消费该身份。
-  **CURRENT / PARTIAL，一条实时事实通道，已建成并证明：** Strategy Instance 消费的增量 `LiveMarketFactV1`、它的 Owner 封缄
-  intake，以及其后恰好一个 Data Client，即场所的公共 WebSocket。供应商侧只陈述场所能知道的事，与 PIT 观测缝既有的要求
-  一致；Owner 盖章已准入 Source Binding 的身份与谱系、该绑定的 Market Semantics Compatibility 身份，以及唯一属于它自己的
-  那个时间坐标即 retrieval 时刻，连同序号。场所以自己的时钟陈述 event-effective 与 provider-available 两个时刻，而 Owner 的
-  retrieval 时刻取自宿主进程时钟而非其密封头，所以跨这些时钟的序都不可证，本 Owner 也不断言任何这样的序。Owner 拒绝
-  自己所签发订阅之外的标的，并保留持久头部，使重启后从停下处继续交接而不是重放。此处不准入其他任何
-  事：没有第二条通道、没有标的更新流、没有 Runtime 托管、没有下单路径。
-  **NOT_ADMITTED：** 一条实时通道不建立 Runtime readiness、Paper、Live、真实交易或任何其他生产写；流式事实永远不是 PIT
-  快照、replay 输入，也不是回答历史问题的证据。
-- **IMPLEMENTATION_ADMITTED，一片实时行情读面，2026-09-21 准入且尚未建成：** 一个实时行情事实的消费者由它自己的数据库
-  角色识别，它能读到什么在读之前就被收窄，而不是在读的时候按调用方的声称过滤。准入的形态是每消费者一个视图，属主为
-  `market_data_owner`，限定在该消费者被准入的那些 binding 上，`SELECT` 授予该消费者的角色，且对 `market_data_private`
-  零权限。该角色就是这个消费者可见内容的上界：绝不是 `rd_owner`，也绝不与另一个消费者共享一个超集，所以这个界由数据库
-  执行，而不是靠信任某个进程持有凭证。今天不需要比角色更细的调用者身份，本 Owner 也不引入；若将来确有需要，每消费者
-  一个角色仍是它的上界，在该上界之内细化是唯一准入的形态。此处的准入是建造并验证这一片读的许可，它不授权任何 Runtime
-  效应、任何 Paper 或 Live 适配器绑定、任何生产写，也不授权真实交易，并且不准入 Runtime 侧的那个消费者，即 `B8`
-  点名的另一半。首次交付要同时陈述其证明的两侧：该消费者自己的视图只返回它被准入的那些 binding，而另一个消费者的视图
-  与 `market_data_private` 对它都必须是拒绝而不是返回零行，因为本该拒绝之处返回空，说明授权给宽了。
-- 向 [Portfolio](./portfolio/) 提供价格 汇率 合约规格 估值事实，以及 Capacity View 使用的带身份流动性输入截面。
-- **TARGET，在 Shared Time producer 闭合后，向 [Portfolio](./portfolio/)：** 为 `PORTFOLIO_FRESHNESS` 提供
-  sealed 规范 clock-head handoff。Portfolio 提交自己的准确 prior handoff 并独自授权自身 transition；不能
-  遍历或跳过 proof link，也不能跨 epoch 比较 monotonic sequence。
-
-## 拒绝和禁止事项
-
-- 不替研究 回测或扫描选择标的和时间窗口。
-- 不静默填补 改写或前移缺失的历史事实。
-- 不把数据源可访问等同于许可完整 PIT 正确或适合某策略。
-- 不准入不可用 已撤销 endpoint 不匹配 摘要不匹配 不可信或无许可来源，不暴露 credential 值，
-  也不在 redistribution scope 之外投递数据。
-- 不拥有策略 资格 部署 订单或账户状态。
-- 不从送达 静默 旧 snapshot 或不匹配请求证明推断修复终态。修复不改写旧 snapshot 或 Research Intent。
-- 不从提交或传输确认推断普通 snapshot 结果，也不在请求身份 内容摘要 scope 决定截面或政策 binding
-  已变化时复用旧 snapshot。
-- 不成为 global Time Owner，也不替其他 Owner 决定 clock transition。
-- 不仅凭 DSN、secret、caller assertion 或含糊 store state 构造受治理 Market Data PostgreSQL repository。
-  Market Data 私有 store-admission seam 必须消费并 revalidate 准确 sealed Deployment Store Admission receipt；
-  随后 Market Data 必须校验当前
-  PIT、Source Binding 与 clock head，才能密封 `ResearchPitTerminal`。普通 consumer 永远得不到 receipt、
-  capability、raw evidence 或 caller-selected snapshot query。
-  production resolution 与动态 product composition 保持 `TARGET / UNAVAILABLE`。
-
-## 失败与恢复
-
-数据不可用 过期 无许可 含义不明或不足时，依赖消费者必须失败关闭。修订生成新的可追踪版本，不能改写旧回执。恢复期间 Market Data 继续提供估值事实，但不能宣布持仓 外部效果或 Recovery Case 已闭合。
-
-provider catalog 的 `LEGAL_REVIEW_REQUIRED` 或其他权利未知映射为 `RIGHTS_EVIDENCE_UNRESOLVED` 与
-Source Binding `UNAVAILABLE`；没有决定性拒绝证据时不得变成 `UNLICENSED`。`TERMS_OR_LICENSE_BLOCKED`
-只属于 R&D Source Intake 终态，不是 Market Data 状态。Market Data 必须用自己的政策重新评估底层
-rights evidence，绝不能跨 Owner 复制该终态。
-
-同时支持多个 blocker 时，binding 与 snapshot 保留完整集合并选择一个稳定 primary。Snapshot 优先级为
-`UNLICENSED`、`AMBIGUOUS`、`STALE`、`INSUFFICIENT`、`UNAVAILABLE`。来源 `REVOKED` 或
-`UNLICENSED` 映射 snapshot `UNLICENSED`，`INCOMPATIBLE` 映射 `AMBIGUOUS`，来源 `UNAVAILABLE`
-映射 snapshot `UNAVAILABLE`。后续证据只能创建后继 binding 与 snapshot，不能升级旧终态。
-
-任一时间坐标或共享决定截面缺失 冲突，或不能证明该事实在决定时已经可用，快照必须为 `AMBIGUOUS`
-或不可用。只有事件时间不能接纳历史事实，决定截面之后取得的数据不能回填更早决定。
-
-## 决策契约
-
-- **输入** - 已接纳 source binding 原始行情与参考记录 correction feed license scope，以及请求方拥有
-  的 universe rule 或 PIT scope。
-- **诊断与决定** - 统一含义 建立四时间可用性 解析 instrument identity coverage correction license，
-  再生成一个版本化事实或 snapshot disposition。
-- **冲突解析** - source lineage 和决定时可用性高于后续 correction；identity clock version 冲突时保持
-  ambiguous，修订只创建后继。
-- **输出与终态负例** - stream instrument fact selection record PIT snapshot，或明确 `INSUFFICIENT`
-  `STALE` `UNLICENSED` `AMBIGUOUS` unavailable。
-- **反馈与经济意义** - 历史和实时含义一致可阻止 look-ahead 错误合约条款或无许可不完整数据造成的
-  虚假 Alpha 估值漂移和不安全 sizing。
-- **禁止** - 不决定研究目标或策略 universe，不拥有生命周期 订单 账户投影，不泄露 credential，不
-  forward fill 或改写可用性历史。
-
-## 后续实现验收
-
-- 历史查询可以证明请求时点实际可观察的数据版本。
-- 每条已接纳事实都用同一时钟和决定截面证明事件 provider 可用 检索和修订发布时间，后知事实不能
-  变成更早已知证据。
-- 标的身份和合约条款在研究 重放 实时数据 估值和执行适配器之间一致。
-- 历史与实时消费者遇到 Market Semantics Compatibility 身份不匹配时必须拒绝，不能在部署时静默改变
-  normalization adjustment timestamp 含义或 instrument mapping。
-- 每个 PIT 请求都证明 calendar session time zone corporate action lifecycle 历史 membership 和
-  universe-selection 版本在请求截面同时已经生效且可观察。
-- 每个普通 Research 响应都重复准确初始 PIT Market Snapshot Request 与 correlation binding；含义变化
-  必须创建后继请求，静默不能创建 Market Data 或 Research transition。
-- 数据不足或过期会得到显式结果，而不是合成成功。
-- Data Client 一行都没有答时，属于覆盖不足，不是批次不规范。快照以 `INSUFFICIENT` 连同其覆盖 blocker 提交，不存
-  observation batch，因为一个 batch 至少有一行。它的 records digest 是零行规范编码的 digest，任何有行的 batch 都不会是
-  这个值。同一请求再次到来时，无论已提交快照的 disposition 是什么，都加入它，且不写入任何东西。
-- 对相同准入版本重复生成快照可得到相同规范输入。
-- 快照结果必须明确为 `AVAILABLE` `INSUFFICIENT` `STALE` `UNLICENSED` `AMBIGUOUS` 或
-  `UNAVAILABLE`。每个修复响应还必须重复 repair request 身份 稳定 correlation 和原始请求证明摘要。
-- rights compatibility freshness sufficiency availability 同时失败时保留完整 blocker set，并由冻结优先级
-  在任意证据到达排列下选择相同 primary。
-- Qualification 冻结保护请求后，重放不能替换 PIT 范围 Universe Selection Record 身份或摘要 快照规则 修订前沿或快照身份。
-- 同 epoch handoff replay 合并准确 bytes；前进必须严格推进必需 cut 且不改变 epoch 语义。新 epoch 的新 head
-  与 direct immutable proof 若未原子提交并可按 digest 准确回读，必须失败关闭。
-- 面向 `BACKTEST_OWNER_V1` 的原生 Instrument Master resolution 对相同 request identity 与 meaning 返回相同
-  fact/cut identity 和 canonical bytes；wrong-role、overlap、late-correction、gap、stale、unavailable-store、
-  response-loss 与 changed-meaning case 都证明上述 fail-closed 与 successor-only rule。
-
-## 可观测性与持久化
-
-Market Data 在自身写权威下持久化 Source Binding、rights/retention decision、semantics profile、instrument history、PIT
-request/snapshot、stream/valuation fact、correction 与发布 outbox。 Telemetry 记录 provider request
-latency、新鲜度、缺口、rate limit、correction lag 与有界拒绝类别，但不导出 API key 或受许可约束的 payload body。
-
-Dashboard 的来源健康状态必须携带 source/semantics 版本、as-of frontier、license disposition、完整性与 valid-through；绿色 provider
-metric 不能替代缺失或过期的 PIT fact。

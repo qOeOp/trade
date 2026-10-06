@@ -16,11 +16,13 @@ See the [service blueprint](./) for the complete boundaries.
 
 ```mermaid
 flowchart LR
-    A["Agent"] -->|"Native Strategy + Config"| R["R&D"]
-    R -->|"Data Requirements"| M["Market Data"]
+    A["Agent"] -->|"Prepare or Reuse"| M["Market Data"]
+    M -->|"Data Reference"| A
+    A -->|"Native Source + Config + Binding"| R["R&D"]
     R -->|"Package + Run Specification"| B["Backtest"]
-    M -->|"Verified Data Binding"| B
+    M -->|"Verified Inputs"| B
     B -->|"Result + Evidence"| R
+    R -->|"Records + Results"| A
     R -->|"Frozen Candidate"| Q["Qualification"]
     Q -->|"Public Eligibility"| G["Governance"]
     G -->|"Approved Deployment"| N["Trading Node"]
@@ -32,17 +34,34 @@ Product extensions provide approved qualification, capital/risk authorization, d
 
 The target input is a native source package, usually a Python Strategy; use native Rust extensions only for a named consumer.
 JSON can serialize parameters and package metadata. It is not a signal language and is not compiled into a product IR.
+V0.1 accepts this route through R-1 without restricting research to R-1. Agents may freely author native strategies
+using supported data and execution capabilities. Scope follows input support and native integration, without a
+strategy whitelist, fixed templates or another strategy grammar. Report missing capabilities explicitly; the
+existence of a native API does not prove product integration.
+
 The JSON strategy language, BFP/Plan, source lowering, Wasm guest and custom strategy interpreter are outside the target route.
 Their existing implementations are recorded in the [R&D status ledger](../owners/rd/#implementation-status-ledger); they do not require future features to extend that chain.
 
 ## Strategy package and content identity
 
+V0.1 uses one project-managed, versioned fixed runtime, without installing dependencies or building independent
+environments per strategy package. Agents can read its exact version and available libraries and author against
+them. Missing dependencies produce named gaps; the project extends the shared environment. Packages bind exact
+runtime versions and their dependency-lock references without maintaining duplicate dependency lists. Environment
+updates create new versions without overwriting old bindings. Changing a package runtime binding changes Artifact
+content and its hash and requires revalidation; old experiment environments cannot be silently substituted.
+
 R&D seals a content addressed Strategy Artifact containing:
 
 - native source and imported strategy modules, entry class and parameters;
 - dependency locks, Nautilus/product runtime versions and a reproducible environment reference;
-- required data types, instrument rules, time resolutions and availability semantics;
+- data types, instrument rules, timeframes and availability semantics expressed by native subscriptions/history requests, plus explicit additional inputs;
 - signal, protection and sizing rules inside the strategy, with applicable native interface requirements.
+
+Source provenance records the exact repository, commit and paths; a moving branch head is not an execution binding.
+Git stores research drafts. The product retains sealed source, imported modules and exact environment references,
+so execution and replay do not depend on downloading the repository again. Git commits identify provenance;
+Artifact hashes identify executable content. Unrelated repository changes do not change a strategy hash.
 
 Changing these contents creates a new strategy hash and a complete new validation lifecycle.
 Redeploying unchanged content still checks valid qualification, stage, policy and current authority.
@@ -91,10 +110,10 @@ Real execution still requires Governance, Risk and Execution authority and verif
 Backtest extends Nautilus Engine rather than copying its matcher. Native bar execution policies supply OHLC path assumptions, not evidence of actual event chronology.
 See [Backtest](../owners/backtest/) and [Market Data](../owners/market-data/).
 
-1. Market Data prepares the frozen finest declared resolution; reuse native aggregation for larger bars.
-2. Backtest replays through the native Engine and records ranges requiring refinement.
-3. If finer inputs are needed, request preparation after matching ends, then bind successor inputs and replay linked to the predecessor.
-4. Default to a complete rerun, with no matcher network I/O, recursive input mutation, rewind or stitched fills from separate runs.
+1. The Agent prepares or reuses complete declared minute history and economic inputs through Market Data.
+2. Strategies express larger timeframes through native Nautilus subscriptions and consume native aggregates without a duplicate form.
+3. Backtest matches on minute data, retaining native events and intraminute policy assumptions.
+4. Existing input references, packages and run configurations retain data and aggregation identity. Repairs or changed configuration require an Agent-submitted new sealed run and complete replay.
 
 When the approved finest granularity cannot resolve order, freeze and label the conservative policy: stop first for an existing position's stop/target conflict; for unordered entry/target, do not invent a same bar target exit and retain the entered position.
 Missing data is not ambiguous chronology and cannot use that fallback. Gap stops use executable prices and native fill/slippage models, not a fictitious fill at the trigger.

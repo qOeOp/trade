@@ -10,7 +10,9 @@ These rules are the stable contract between the global Flow, this documentation,
 - Product Edge, Observability, and Event Rail are boundaries or channels, not business-truth owners.
 - New detail belongs in prose unless it changes authority or an owner handoff.
 
-## Normative publication authority
+## Request and fact authority
+
+### Normative publication authority
 
 The only current normative product-document roots are `guide`, `architecture`, `owners`, and `scenarios`.
 Together they define the TARGET architecture and the published information architecture. Other historical source
@@ -24,7 +26,7 @@ object, authority Owner, allowed relations, accepted, rejected, unknown, and rep
 invariant but cannot create one. Missing public semantics block a development chunk rather than inviting an Agent
 to infer a hidden contract from test names.
 
-## Product Edge request authority
+### Product Edge request authority
 
 Each target deployment has exactly one `ACTIVE` Agent Shell binding selecting the canonical
 `TRADE_PRODUCT_EDGE` admission gateway in steady state, and admits the sealed `WINDMILL_PRODUCT_EDGE` spelling
@@ -146,7 +148,7 @@ That intake receipt binds the stable request identity and canonical typed meanin
 resulting Research Intent or Authorized Generation Decision identity. `REJECTED_NO_WRITE` proves no Owner
 transition. Receipt absence preserves `SUBMITTED_OR_UNKNOWN`; it is not an implicit rejection or acceptance.
 
-## One authority per mutable fact
+### One authority per mutable fact
 
 Each mutable business fact has one writer. Research owns artifact identity. Qualification owns eligibility.
 Governance owns deployment and lifecycle decisions. Runtime owns strategy-instance, checkpoint, readiness, and
@@ -154,7 +156,7 @@ incident facts. Risk owns decisions, reservations, and fence activation. Executi
 Recovery Case, Recovery Command, and `KNOWN_CLOSED`. Portfolio owns account and
 performance projections. A cache, event, notification, or read model cannot become a second authority.
 
-## Owner layering and inter-Owner trust
+### Owner layering and inter-Owner trust
 
 Owners form one stack. From the bottom up:
 
@@ -191,7 +193,7 @@ Four rules govern the stack:
   ownerless libraries; and each Owner's contract lives in a leaf crate that holds types only and depends on
   nothing but ownerless libraries. For the TARGET [trading node](#target-trading-node), Runtime, Risk, Execution and Portfolio are parts of one module: independent assembly/deployment applies to the node as a whole. Its four fact responsibilities retain distinct write authority and test boundaries without requiring separate engines.
 
-### Integration obligations
+#### Integration obligations
 
 The dependency direction and value-passing rules above apply to the native product extensions. Native engine crates are reusable libraries, not competing business Owners. External validation, protected-data isolation, effect permits, append-only identities and one authoritative writer remain required.
 
@@ -286,7 +288,9 @@ never produce Eligibility.
 
 <a id="target-trading-node"></a>
 
-## TARGET - Trading node
+## Native trading and lifecycle
+
+### TARGET - Trading node
 
 The trading target assembles inherited `LiveNode`/kernel, DataEngine, Trader, RiskEngine, ExecutionEngine,
 Portfolio, cache, clock/msgbus and a thin product trust layer. The gates below relocate authorization,
@@ -321,8 +325,10 @@ real trading. Native startup, trader, risk checks, order lifecycle and reconcili
      `TradingState::Halted`, which stops the whole node;
    - the order's PAPER or LIVE namespace and adapter-binding digest equal the Execution Scope's.
 
-   A decrease-only lifecycle decision sets `TradingState::Reducing`, so only cancel, reduce, flatten or readback
-   passes.
+   A decrease-only lifecycle decision uses native `TradingState::Reducing` plus a scope-bound pre-submit
+   check of side, quantity and current exposure. Native `Reducing` alone does not prevent a flat-account
+   entry or an oversized opposite-side order crossing zero. Only permitted cancel, reduce, flatten or
+   readback reaches the adapter; applicable venue reduce-only semantics remain required.
 3. *Append-only outbox projector.* It subscribes to the node's order, fill, position and account events. It writes
    each Owner fact into the node's Postgres store with its outbox entry in one transaction, carrying the Execution
    Scope and the complete Authorization Lineage. The facts are the Risk decision with its categorized `REJECT`,
@@ -344,8 +350,10 @@ real trading. Native startup, trader, risk checks, order lifecycle and reconcili
 
 **Execution authority and compatibility.** The pre-submit gate and native RiskEngine synchronously decide
 admission before an order reaches an execution client. The in-process frontier retains liability until supported
-fill/cancel/settlement replaces or releases it. Native order states and the raw event log provide invocation-order
-evidence; the projector commits product facts. No parallel Reservation/claim or cross-service execution state
+fill/cancel/settlement replaces or releases it. Native order states and raw events provide correlation inputs, not proof of durable pre-invocation
+ordering by themselves. The same adapter boundary must durably bind the admitted command and invocation
+frontier before the external call; a failed persistence step blocks that call. Response loss resolves the
+same identity by readback. The projector commits resulting product facts. No parallel Reservation/claim or cross-service execution state
 machine is a new implementation requirement.
 
 No order reaches a venue without a Governance decision, an `APPLIED` receipt and passing both gates. The node is
@@ -353,7 +361,7 @@ No order reaches a venue without a Governance decision, an `APPLIED` receipt and
 records retain their original immutable bytes and refusal semantics until their consumers switch. Compatibility
 never reinterprets a record as a new-node decision.
 
-## Automated trading write chain
+### Automated trading write chain
 
 An Authorized Generation Decision is permission, not Runtime state. Runtime separately owns a Generation
 Application Receipt. Only `APPLIED`, bound to exactly one Strategy Instance, checkpoint, decision, generation,
@@ -376,8 +384,9 @@ New risk passes one ordered path inside the native node:
 7. Portfolio projects attribution, exposure and measurement at one coherent cut; the commitment frontier replaces
    or retains the same economic liability, without duplicate reservation or release.
 
-Native order states and raw events prove invocation ordering; the product outbox projector commits durable
-custody. Existing versioned Reservation, claim, `PREPARED` and adapter-admission records are validated through their
+Native order states and raw events identify the command; the adapter boundary durably records its
+admission and invocation frontier before calling externally. The outbox projector commits resulting facts,
+not retrospective permission to invoke. Existing versioned Reservation, claim, `PREPARED` and adapter-admission records are validated through their
 Owner compatibility contracts, not implemented as a second future cross-service chain or rewritten as node facts.
 
 Risk never issues an order command. Execution rejects a missing, stale, mismatched, or already consumed
@@ -436,7 +445,7 @@ publish its gross ceiling and coherent Portfolio Risk Evidence Bundle. Qualifica
 Governance may then authorize a generation bound to the pre-existing Capacity Scope and admitted Execution Scope.
 Risk consumes those facts but never creates or repairs them.
 
-## Active generation retention
+### Active generation retention
 
 `ACTIVE_GENERATION` is retained only by an explicit Governance renewal bound to current Eligibility and every
 required Performance, Exposure, and degradation-evidence cut. Eligibility that is expired, revoked, missing,
@@ -450,7 +459,7 @@ because those transitions do not add risk. A later return of evidence cannot sil
 generation; resume requires a fresh Authorized Generation Decision and, when unattended, Autonomous Policy
 Authorization.
 
-## Decrease-only lifecycle chain
+### Decrease-only lifecycle chain
 
 A reduction, pause, or retirement is not a normal add-risk trade. Governance commits a decrease-only lifecycle
 decision. Runtime first stops new strategy intents and applies the decision, then proposes only cancel,
@@ -471,7 +480,7 @@ complete current `ACTIVE` fence set at one Aggregate Commitment Frontier. Only a
 intersection of every member's versioned set may reach Execution; an empty intersection permits no command.
 Neither authority permits activation, ordinary add-risk flow, or exposure increase.
 
-## Paper and live parity
+### Paper and live parity
 
 Paper and live use the same Strategy Instance, risk, order, effect, reconciliation, and feedback contracts. Paper
 uses a simulated Execution adapter; live uses a venue adapter. Adapter choice, account namespace, and effect
@@ -488,7 +497,7 @@ Discovery reuses native evaluation while isolating mutable state and grants no d
 Existing Scanner schedules, matched dispositions and proposals below are sealed legacy compatibility facts only.
 They retain original identity, capacity and refusal rules without gaining new implementation or effect admission.
 They are not required inputs to the target route. See [R&D discovery](../owners/rd/#on-demand-read-only-opportunity-discovery)
-and [Scanner migration](../owners/scanner/#target-role-and-legacy-contract-migration).
+and [Scanner migration](../owners/scanner/#product-responsibility).
 
 Capacity View identity binds its immutable account-plus-mode economic-pool Capacity Scope, exact account and collateral fact cut, gross ceilings by dimension and unit, valuation version, liquidity input
 cut, candidate-neutral pool methodology and assumption versions, measurement time,
@@ -508,7 +517,9 @@ scope-, condition-, methodology-, assumption-, or liquidity-mismatched evidence 
 Reservation. Risk additionally admits the decision only against its same-scope Aggregate Commitment Frontier
 usage. Portfolio never allocates capital, tracks commitment, reads Risk, or grants permission.
 
-## Security bindings
+## Security readiness and custody
+
+### Security bindings
 
 Product Edge mutating requests bind a non-self-assertable Operator Authorization issued for the exact
 principal, audience, scope, expiry, revocation frontier, request proof, and content-addressed Agent Operation
@@ -529,7 +540,7 @@ additionally traces and revalidates the Autonomous Policy Authorization. A missi
 scope-mismatched, or history-head-mismatched required member fails before Reservation creation or adapter
 invocation.
 
-## Readiness, time, and effect closure
+### Readiness, time, and effect closure
 
 Every mutating Owner exposes an observable readiness state. Startup remains `NOT_READY` until authoritative facts,
 frontier recovery, adapter/source admission, and clock evidence are reconciled. Overload applies bounded admission
@@ -544,7 +555,7 @@ recovery-closure latency plus queue depth and dropped wake counts; they never re
 
 Time evidence is typed by use, not reduced to one timestamp:
 
-Every time-sensitive architecture object declares exactly one canonical `timeEvidenceCutKind`. The seven matrix
+Every time-sensitive architecture object declares exactly one canonical `timeEvidenceCutKind`. The target matrix
 rows and those object declarations form an exact bijection: an undeclared time-sensitive object, a duplicate row,
 or a declaration absent from the matrix is contract-invalid. This includes source bindings and PIT requests,
 protected request/result/assessment evidence, Trade Intent and Authorized Order Command, incident and drift facts,
@@ -563,7 +574,7 @@ complete required bindings; a local timestamp cannot satisfy the declaration.
   request-to-result epoch transition is valid; all per-cell results entering one assessment must share one result
   epoch, and the assessment advances in that epoch. Missing, expired, unproved or mutually incomparable epochs,
   skipped-stage, or non-advancing evidence cannot close protected custody or create Eligibility.
-- `SCANNER_DUE_SLOT` additionally binds time-zone ruleset identity and version, local scheduled time, resolved UTC
+- **Compatibility only:** `SCANNER_DUE_SLOT` is excluded from target object declarations. For an existing sealed Scanner schedule, it additionally binds time-zone ruleset identity and version, local scheduled time, resolved UTC
   interval, DST fold or gap disposition, misfire/backfill policy, and due-slot boundary. A fall-back fold yields
   distinguishable slots; a spring-forward gap follows the frozen skip or shift policy rather than running twice.
 - `PORTFOLIO_FRESHNESS` binds Capacity View, Performance Receipt, Exposure Receipt, Portfolio Interaction Receipt,
@@ -579,7 +590,7 @@ Restart without proven continuity creates a new clock epoch. Excess skew, ambigu
 `valid-through`, or a missing required time field fails only the dependent transition and can never be normalized
 away by local time conversion.
 
-### Shared Time clock-head handoff
+#### Shared Time clock-head handoff
 
 **CURRENT:** Market Data atomically persists one private canonical clock head with its own Source Binding and PIT
 facts. The implementation supports exact replay and same-epoch advancement and rejects an epoch change. It exposes
@@ -598,7 +609,7 @@ skip a predecessor, or compare sequences across epochs. Each consumer supplies i
 and alone decides its own transition. After producer closure, Portfolio `PORTFOLIO_FRESHNESS` is the first
 TARGET real consumer.
 
-### Deployment Store Admission
+#### Deployment Store Admission
 
 **CURRENT:** `crates/data/src/owner/store_admission` keeps the non-business PostgreSQL admission mechanism and its pre/post
 revalidation inside the Market Data crate. The fixed `rd-owner-api` bootstrap requests that private
@@ -651,14 +662,14 @@ the witness, lease the opaque credential handle, measure the disposable PostgreS
 the candidate and caller have none of those write or secret authorities. The admission receipt cross-binds
 that bundle and every observation. The remaining stages are: Market Data-private admission and custodian; an
 Owner-issued request-to-projection/event locator and durable readback; sealed read-only `StrategyInputSampleEventResolverV1`;
-`ProgramHost`; the real BacktestEngine and Sim Exchange; and a Backtest Owner terminal-result receipt
+the sealed native Python package loader with exact Owner input binding and readback; the real BacktestEngine and Sim Exchange; and a Backtest Owner terminal-result receipt
 with restart readback.
 
 Raw custody evidence never crosses to the consumer. Backtest atomically commits the exact request, attempt,
 actual-consumption record, diagnosis, and result; byte-identical retry joins the same canonical bytes, while
 changed meaning conflicts and performs no write.
 
-The profile fails closed before `ProgramHost` or Backtest mutation when any signature, head, rotation, ACL, credential,
+The profile fails closed before native package loading or Backtest mutation when any signature, head, rotation, ACL, credential,
 measurement, request, locator, projection, event, role, or readback binding is missing or mismatched. A raw DSN, caller
 digest, fixture, fixed corpus, in-memory or temporary-file writer, or signer/witness/credential/measurer derived by the
 candidate, caller, consumer, or tested process cannot create a
@@ -684,13 +695,15 @@ Research never receives that view as source evidence. Successor-only research pr
 Execution account, order, fill, quality-observation, Effect Journal, readback, or Reconciliation Drift fact
 identities and their source cuts; a mutable projection or Event Rail wake cannot stand in for those facts.
 
-## Localization stability
+## Cross-cutting facilities
+
+### Localization stability
 
 Canvas Owner, boundary, channel, and module labels are canonical English in every locale so language switching
 does not change topology or layout. Scenario labels, navigation, prose, node descriptions, and the bottom detail
 and proof capsules are localized. Locale changes replace those texts without changing node, edge, or viewport identity.
 
-## Event Rail
+### Event Rail
 
 Event Rail is transport custodian, never a business authority. For committed eligibility, incident, order, fill,
 and reconciliation facts it owns only the Event Wake transport record; the source Owner remains authoritative.
@@ -698,7 +711,7 @@ Events → Observability carries that Event Wake, not a business result. Observa
 receipts as outputs. Neither wake nor delivery can approve, retry a business effect, own terminal state, act as
 evidence authority, or replace a direct owner-to-owner fact read.
 
-## Observability
+### Observability
 
 Domain events use a native-Owner transactional outbox and at-least-once Event Rail delivery; traces, metrics,
 and logs use a separately switchable OTLP pipeline. Both bind stable identity, correlation/causation, source,

@@ -54,11 +54,10 @@ bounds or allocation-transition conditions for waiting members.
   a consumed claim by an immutable Adapter Admission Result with `ADMITTED_ONCE`, `SUPPRESSED_BY_FENCE`, or
   `REJECTED`. Decrease-only creates no claim but its `PREPARED` attempt receives the same three-state Adapter
   Admission Result. Adapter admission is committed against recovery fence activation on the same frontier and is
-  the sole normal adapter-invocation authority. These claim and admission results hold until the user-authorized
-  TARGET [trading node](../guide/architecture-rules#target-trading-node) (2026-10-05) lands. There Risk is the
-  node's in-process `RiskEngine` plus its pre-submit gate, and that pair is the sole normal adapter-invocation
-  authority. The Risk Decision, categorized `REJECT`, `PERMIT_DECREASE_ONLY` (as `TradingState::Reducing`), the
-  Aggregate Commitment Frontier and the out-of-band Kill Switch keep their meaning.
+  the sole normal adapter-invocation authority. The native target enforces the same authority and durable commitment properties inside the node's
+  RiskEngine and pre-submit gate. `TradingState::Reducing` is an additional native check, not a complete
+  per-command `PERMIT_DECREASE_ONLY`: scope, side, quantity, current exposure and no-zero-crossing checks
+  still apply. Existing claim/admission records retain their interface meanings.
 - One durably and atomically serialized Aggregate Commitment Frontier per immutable Portfolio-owned Capacity
   Scope. It combines one coherent Portfolio Risk Evidence Bundle with every held Reservation liability and
   counts each stable economic lineage exactly once. Risk alone computes usage and remaining headroom.
@@ -104,8 +103,7 @@ widening the admitted set requires changing this document first.
   `governance_writer` and `risk_writer` alike, and `capacity_view_expired_at_v1` to `risk_writer` alone. The third
   exists because the second returns NULL both when no view was ever published and when the published one has
   fallen out of its window, and this Owner must distinguish them without reading `portfolio_private`; Strategy
-  Governance never needed that distinction, which is why it does not hold the grant. A reader can recheck all
-  three grants there rather than take this sentence's word for it. Admission is permission to build and verify this
+  Governance never needed that distinction, which is why it does not hold the grant.  Admission is permission to build and verify this
   one read.
   It authorizes no Risk decision, no production effect, and no real trading.
 - **TARGET - Risk Engine:** the inherited `RiskEngine` in `crates/risk/src/engine/mod.rs` performs pre-trade order
