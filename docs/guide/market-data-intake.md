@@ -80,7 +80,7 @@ series or feeds; do not collapse them into a provider-wide promise.
 
 ## Credentials and capability isolation
 
-Read the [credential prerequisite matrix](./install/#credential-prerequisite-matrix) before configuring a client.
+Read the [credential configuration](./install/) before configuring a client.
 Secrets remain in the ignored local environment and enter bindings only as opaque handles. They never appear in
 logs, prompts, snapshots, artifacts, screenshots, documentation, or audit packets.
 
@@ -115,8 +115,8 @@ These are bounded candidates, not an implementation commitment:
 | CCXT or CCXT Pro                              | default do not adopt for covered venues             | only a proven missing public‑data endpoint; seal private APIs, scheduler, cache and reconnect behavior inside the adapter |
 | Cryptofeed                                    | default do not adopt for covered feeds              | only a superior missing public feed; exclude its storage, message backends and authenticated trading capabilities         |
 
-The locally configured `FRED_API_KEY` has passed an authentication-only metadata probe. That establishes neither a
-current product connector nor permission to archive, train on, or backtest every FRED series. Until the rights and
+An authentication-only metadata probe establishes neither a current product connector nor permission
+to archive, train on, or backtest every FRED series. Until the rights and
 vintage gates above pass, the Market Data Source Binding remains `UNAVAILABLE` with
 `RIGHTS_EVIDENCE_UNRESOLVED`; definitive denial is required for `UNLICENSED`.
 
@@ -136,12 +136,12 @@ snapshot evaluation and never guarantees `AVAILABLE`.
 
 ## Request and terminal behavior
 
-R&D and Scanner own what they request; Market Data owns the returned data meaning. Backtest consumes the frozen
+Authorized Agents and admitted consumers choose what they request; Market Data owns the returned data meaning. Backtest consumes the frozen
 snapshot and records actual use but never selects a provider. Portfolio consumes valuation facts, while Execution
 alone owns private account, order, fill, and readback facts.
 
 An ordinary snapshot terminates as `AVAILABLE`, `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, or
-`UNAVAILABLE`. A repair request additionally binds the exact predecessor decision, request proof and stable
+`UNAVAILABLE`. The compatibility repair request additionally binds the exact predecessor decision, request proof and stable
 correlation. Wrong scope, changed cut, stale license, missing Time Evidence, silence, rate limit, or transport success
 cannot become `AVAILABLE`. Exact replay joins the same terminal; changed meaning requires a successor request.
 
@@ -153,6 +153,6 @@ cannot become `AVAILABLE`. Exact replay joins the same terminal; changed meaning
 - PIT tests reject current-value substitution, event-time-only evidence, future corrections, mixed clocks, and missing historical membership.
 - Semantics fixtures prove historical and live normalization, adjustment, instrument mapping, and timestamp meaning match exactly.
 - Quality tests distinguish empty, missing, stale, rate-limited, malformed, unlicensed, and unavailable outcomes.
-- Request tests prove R&D and Scanner responses repeat the exact requester-owned request and stable correlation.
+- Request tests prove admitted consumer responses repeat the exact requester-owned request and stable correlation.
 - Correction tests preserve prior receipts and create only a successor fact and successor-only R&D provenance.
 - No Market Data path can call an account, order, private-effect, Governance, Qualification, or trading-authority port.

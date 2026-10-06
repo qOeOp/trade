@@ -25,7 +25,7 @@
   本地抑制回执和 `valid-through`
 - **TARGET：** generation-scoped 原生事件/命令记录与版本化策略 checkpoint，绑定准确源码包、
   环境、事件前沿、策略状态、保护规则及成交对账
-- Runtime Kernel Repair Result，绑定一个 R&D-owned `native-repair-request`、稳定 correlation、前驱
+- 仅兼容接口使用的 Runtime Kernel Repair Result，绑定一个 R&D-owned `native-repair-request`、稳定 correlation、前驱
   `REPAIR_INPUTS` 决定、原始 proof digest、旧 kernel version、决定性证据、repair policy 与新鲜 Time
   Evidence；只有 Runtime 能为该 attempt 提交 `REPAIRED` `UNAVAILABLE` 或 `OUTCOME_UNKNOWN`
 
@@ -42,11 +42,10 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
 
 ## 实现状态台账
 
-本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
-`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。下文标为 `IMPLEMENTATION_ADMITTED`
-的那一行是仅有的已准入切片，于 2026-09-19 作为有界、可单独评审的工作准入，其验收是它的有序链路条目在 Linux
-上通过，以及不依赖 testkit 或 acceptance feature 的生产路径；其余各行不授予任何东西，扩大准入集必须先修改
-本文档。
+本台账采用 [Market Data](./market-data/) 状态词汇；`CURRENT_PARTIAL` 表示已合并但不可触达。
+仅标为 `IMPLEMENTATION_ADMITTED` 的一行获准作为有界、可单独评审的工作。
+验收要求其有序链路条目在 Linux 通过，且生产路径不依赖 testkit 或 acceptance feature。
+其余行不授予许可；扩大准入须先修改本文档。
 
 - **TARGET / IMPLEMENTATION_ADMITTED - Runtime Owner 的实时行情事实读端口：** 已准入切片是一个 Runtime 角色
   对，覆盖它自己的私有与 API 两个 schema；以及一个只读的 Runtime custody，它消费
@@ -76,12 +75,12 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
 - **TARGET - Strategy Instance：** 没有任何 Runtime custody 创建、恢复或应用实例。`crates/strategy_factory` 中的共享
   内核 `ProgramHost` 只在 Backtest replay 下运行；`crates/trading` 里继承的策略与 actor 引擎，以及 `crates/system`
   与 `crates/live` 里的 kernel 与 live-node 装配，是 capability adoption 点名的迁移来源，不持有任何 Runtime Owner 事实。
-- **TARGET - Generation Application Receipt、Trade Intent、Runtime Readiness Fact、Runtime Incident Fact 与 Runtime
-  Kernel Repair Result：** 不存在类型、custody 或 writer。foundation 的 `NOT_READY` 是静态状态投影，不是绑定
+- **TARGET - Generation Application Receipt、Trade Intent、Runtime Readiness Fact、Runtime Incident Fact：** 不存在类型、custody 或 writer。foundation 的 `NOT_READY` 是静态状态投影，不是绑定
   generation、checkpoint、scope 与 `valid-through` 的已提交 Readiness Fact。
 - **TARGET - Readiness Gate 与 checkpoint 持久化：** 没有任何东西持久化 checkpoint，或向 Risk 与 Execution 发布就绪状态。
 - **TARGET - 输入与输出交接：** 没有任何 port 触达 Governance 决定、实时 Market Data 事实、Risk 决定、Execution 命令或
-  回读、R&D repair request 或 Event Rail。
+  回读或 Event Rail。兼容 repair result 及其端口同样不可用，
+  不是原生研究前置条件，也不是服务器自修复设施。
 - Paper 与 Live 等价性仍为下文共享策略生命周期契约所述的 **TARGET / NOT_ADMITTED**；没有任何 Paper 或 Live Execution
   adapter 绑定到 Runtime。
 
@@ -111,7 +110,7 @@ Runtime 不把策略内存状态、目标数量或 Agent 解释升级为账户�
 - [Market Data](./market-data/) 提供当前市场和标的事实
 - [Risk](./risk/) 返回终态 Risk Decision 一次性 Reservation decrease-only permit 或消费前终态撤回
 - [Execution](./execution/) 返回订单 成交 拒绝 终态回读和对账事实，用于更新实例或声明就绪丢失
-- [R&D](./rd/) 只提供冻结的 `RUNTIME_KERNEL` `native-repair-request`，绑定准确前驱决定 correlation proof
+- 仅在兼容修复接口，[R&D](./rd/) 提供冻结的 `RUNTIME_KERNEL` `native-repair-request`，绑定准确前驱决定 correlation proof
   digest 旧 kernel identity 与 source cut policy 和新鲜 Time Evidence。类别 目标 前驱 proof identity cut
   policy 时间错误或含义变化都不创建 attempt 或 result
 
@@ -126,7 +125,7 @@ Runtime 不把策略内存状态、目标数量或 Agent 解释升级为账户�
   Runtime Incident Fact；`RecoveryCase.KNOWN_CLOSED` 由 Execution 单独提供
 - 向 [R&D](./rd/) 提供已提交且按 generation 划分的 Incident 事实，只能作为后继来源证据。
   该交接不能调节运行中 generation 重开其 Intent 或暴露保护 Qualification 细节
-- 向 [R&D](./rd/) 提供准确 request-correlated Runtime Kernel Repair Result。`REPAIRED` 命名新 kernel
+- 仅在兼容修复接口，向 [R&D](./rd/) 提供准确 request-correlated Runtime Kernel Repair Result。`REPAIRED` 命名新 kernel
   version，且只允许新请求相等 Replay Request，绑定准确 native repair request 与 result、新 kernel
   version、准确前驱 `REPAIR_INPUTS` 决定、`RUNTIME_KERNEL` 类别、稳定 correlation、原始 proof digest、
   前驱与后继 kernel identity 及 source cut，以及未改变的前驱请求语义。只有 `REPAIRED` 允许 re-entry；
@@ -198,7 +197,7 @@ checkpoint 重启，但不能解除 fence 闭合 case 或恢复旧 generation；
 - 重启加入相同 application checkpoint readiness 身份，不能创建第二实例
 - Runtime 不存在创建 推进 指挥或闭合 Recovery Case 的 API 或状态转换
 - Runtime Incident Fact 提交后不改变字节也不增加 case 身份；一个或多个 case 只能从只追加原因集合引用它
-- 每个已接纳 `RUNTIME_KERNEL` native repair request 都有一个关联且只写一次的 result。准确 replay 加入
+- 兼容接口中，每个已接纳 `RUNTIME_KERNEL` native repair request 都有一个关联且只写一次的 result。准确 replay 加入
   相同 attempt 与 result；`UNAVAILABLE` 和 `OUTCOME_UNKNOWN` 不创建后继 kernel identity，只有绑定
   result 的 `REPAIRED` 能命名新身份
 

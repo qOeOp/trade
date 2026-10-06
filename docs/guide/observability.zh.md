@@ -2,40 +2,32 @@
 
 ## 目标
 
-本指南把一个 Owner 或 node 接入可诊断体系，但不把它耦合到单一 vendor、broker、数据库或 Dashboard。它适用于 R&D、Market Data、Backtest、Qualification、Strategy Governance、Runtime、Risk、Execution 与 Portfolio。
+本指南适用于各 Owner 与节点的可观测性接入；供应商、传输、存储和 Dashboard 的独立性要求见[Observability 架构](../architecture/observability/)。
 
 原则很简单：Owner 持久化业务事实，Observability 持久化运行副本和投影。即使 Observability 消失，Owner 正确性和 Recovery 义务也不能改变。
 
-## 接入顺序
+## 最小接入
 
-1. 明确被观测的原生 Owner 事实、命令或未终结 operation。
-2. 只有已提交事实可以选择 `COMMITTED_DOMAIN_EVENT`，其他情况选择 `TRACE`、`METRIC` 或 `LOG`。
-3. 在进程边界绑定规范 envelope 与兼容 W3C 的 trace context。
-4. 校验采集策略版本、来源 scope、cardinality budget、redaction class 与 retention。
-5. 领域事件与来源事实同事务写 outbox；普通遥测发送到本地 OTLP endpoint。
-6. Gateway 在不阻塞 Owner 事务的前提下校验、脱敏、采样、batch 与 export。
-7. 按稳定身份幂等投影，并保存来源 frontier 与 lag 的 checkpoint。
-8. Dashboard 与告警必须如实显示 stale、partial、rebuilding、quarantined 或 unavailable。
+1. 复用原生与容器日志，绑定实际任务或运行身份，记录错误和终态；用户事后检查、修复并部署。
+2. Dashboard 从所属服务读取已准入事实，明确未知、过时或不可用，不从日志推断业务完成。
+3. 只有具体需求需要集中追踪、聚合或通知时，才复用 collector 与可替换适配器；按实际消费定义字段、脱敏与保留。
+4. 已提交事件若用于跨服务唤醒，仍与来源事实原子保管，并按稳定身份去重；通知成功不证明业务转换。
 
-## 每个 Owner node 的最小埋点
-
-每个已接纳 operation 创建一个 root span 或加入传入 trace，使用稳定 correlation 与 causation 身份，记录 queue/admission/processing/result 时延，并产生一个有界终态或明确 unknown。Metric 必须有命名单位、聚合、窗口与有限 label 集。Log 是结构化记录，不是自由文本业务数据库。
-
-API key、opaque credential value、Qualification 保护证据、原始 prompt/source body、账户秘密和无限制订单 payload 绝不能进入 trace attribute、metric label、log、Event Rail 或告警消息。
+不要求每个操作都建立 span、计时指标、全套遥测表或投影。秘密和 Qualification 保护证据不能进入日志、标签、通知或共享追踪；观测关闭不能改变业务状态或恢复义务。
 
 ## Owner 持久化与 Dashboard 矩阵
 
-| Owner               | 权威记录                                                                  | Dashboard 投影                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| R&D                 | source provenance、Research Intent、Artifact、迭代、选择及发现 job/result | 使用来源、假设、开发尝试、失败原因、到选中版本的迭代次数、D-only repair 历史                                                              |
-| Backtest            | replay request、exploratory/protected result 与 diagnosis                 | 探索运行的用途、终态、耗时、成本、容量与诊断分布；保护运行只显示公共终态、类型不透明且不可解引用的 reference 与 source‑frontier freshness |
-| Qualification       | intake、保护评估、attempt disposition、Eligibility                        | 只按公共终态计数：`QUALIFIED`/`CLOSED_NOT_QUALIFIED`/expiry/revocation                                                                    |
-| Market Data         | source binding、PIT snapshot、stream、correction 与 valuation fact        | 来源新鲜度、缺口、修订、权利/语义拒绝、provider 时延                                                                                      |
-| Strategy Governance | registry、lifecycle、allocation 与 authorized generation decision         | 当前部署 generation、开始/停止时间、活跃时长、pause/retire/resume 与资金变化                                                              |
-| Runtime             | application、readiness、checkpoint 与 incident fact                       | 当前应用 generation、uptime/downtime、重启、incident 与使用时长                                                                           |
-| Risk                | decision/reservation、aggregate commitment、fence 与 closure              | allow/reject/decrease‑only、reservation 时延、liability、fence 与持续时间                                                                 |
-| Execution           | journal、command、order/fill/readback、account 与 Recovery fact           | attempt、order、fill、adapter 时延、unknown effect、drift 与恢复时长                                                                      |
-| Portfolio           | performance、exposure、capacity、interaction 与 lifecycle evidence        | PnL/drawdown、exposure、capacity、interaction degradation 与证据新鲜度                                                                    |
+| Owner               | 权威记录                                                           | Dashboard 投影                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| R&D                 | 项目、来源、Strategy 包、实验、结果引用及 Agent 说明               | 项目进度、准确实验与结果引用、失败信息及 Agent 解释                                                                                       |
+| Backtest            | replay request、exploratory/protected result 与 diagnosis          | 探索运行的用途、终态、耗时、成本、容量与实际错误；保护运行只显示公共终态、类型不透明且不可解引用的 reference 与 source‑frontier freshness |
+| Qualification       | intake、保护评估、attempt disposition、Eligibility                 | 只按公共终态计数：`QUALIFIED`/`CLOSED_NOT_QUALIFIED`/expiry/revocation                                                                    |
+| Market Data         | source binding、PIT snapshot、stream、correction 与 valuation fact | 来源新鲜度、缺口、修订、权利/语义拒绝、provider 时延                                                                                      |
+| Strategy Governance | registry、lifecycle、allocation 与 authorized generation decision  | 当前部署 generation、开始/停止时间、活跃时长、pause/retire/resume 与资金变化                                                              |
+| Runtime             | application、readiness、checkpoint 与 incident fact                | 当前应用 generation、uptime/downtime、重启、incident 与使用时长                                                                           |
+| Risk                | decision/reservation、aggregate commitment、fence 与 closure       | allow/reject/decrease‑only、reservation 时延、liability、fence 与持续时间                                                                 |
+| Execution           | journal、command、order/fill/readback、account 与 Recovery fact    | attempt、order、fill、adapter 时延、unknown effect、drift 与恢复时长                                                                      |
+| Portfolio           | performance、exposure、capacity、interaction 与 lifecycle evidence | PnL/drawdown、exposure、capacity、interaction degradation 与证据新鲜度                                                                    |
 
 计数必须由不可变身份和明确状态推导，不能维护一个脱离事实的可变计数器。例如策略使用次数来自不同 applied-generation 或 invocation fact，downtime 来自同一 clock epoch 下成对的 readiness/incident 区间。
 
@@ -51,16 +43,10 @@ funnel。
 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。 Event Rail 永不发出内部 `INELIGIBLE` 或其他保护终态 事件，使保护失败在
 Qualification 外保持不可区分。
 
-## 逻辑数据模型
+## 存储边界
 
-- Owner store 按原生写权威隔离。每个 Owner 拥有自己的 fact table 与同事务 `owner_outbox`。
-- `telemetry_event`、`trace_span`、`log_record`、`metric_sample` 与 `metric_rollup` 是按策略保留的运行存储。
-- `owner_health_snapshot`、`strategy_lifecycle_projection` 与 `research_funnel_projection` 是可重建 read model。
-- `projection_checkpoint` 绑定 consumer、partition、来源 frontier、schema 版本、observed time、lag 与 rebuild generation。
-- `quarantine_record` 只保存身份、有界原因、来源引用与 retry disposition，不保存危险 payload。
-- `alert_delivery` 只保存 adapter attempt 与投递 disposition。
-
-契约有意不预选 PostgreSQL、ClickHouse、Kafka、NATS、OpenTelemetry backend 或前端框架。第一版可以使用一套物理数据库和一个 collector，只要 schema 与写凭据仍保留上述逻辑边界。
+任务、结果、错误与运行事实仍由所属服务持久化；现有日志设施按访问权限与保留政策保管运行日志。
+不为观测预设遥测表、研究漏斗或生命周期镜像数据库。需要缓存已接纳只读视图时，保存来源引用与新鲜度；它可重建，不能替代或修改来源事实。大型结果通过所属服务的准确引用读取，不复制进日志。
 
 ## 中间件与失败语义
 
@@ -68,7 +54,9 @@ Qualification 外保持不可区分。
 
 OTLP receiver、processor 与 exporter 都可替换。Collector 可以 batch、retry、sample、redact 和 fan-out，但不能把 secret 导入属性，也不能调用 Owner write API。告警适配器订阅受限 projection 或 Event Wake，并保持在正确性路径之外。
 
-## 验收测试
+## 按已接入能力验收
+
+只验证实际接入的观测能力；没有 collector、投影或告警时不要求搭建它们来运行对应测试。秘密/保护隔离、来源事实权威和业务不依赖遥测的检查始终适用。
 
 - 关闭 collector，证明原生 Owner 场景仍达到相同权威终态。
 - 在事实提交与发布之间 crash，证明同事务 outbox 最终重新发布且不复制事实。

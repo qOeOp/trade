@@ -25,26 +25,28 @@ a host-side timer wakes the external agent. A new session resumes from Owner rec
 chat or a living MCP process. This grants neither the agent nor the product Paper, Live, or real-money
 execution authority.
 
-The agent may repair implementation that deviates from the frozen method, retaining correction lineage and
-affected results and verifying the successor. It cannot erase failures or join a changed run under the old
-identity. Pass/closure criteria or statistical-protocol changes require user confirmation and a new frozen version.
-For example, coding coin clustering when the protocol requires week clustering is an implementation error;
-changing a protocol that originally chose coin clustering to week clustering is a protocol revision. Neither
-makes old results independent evidence for the new protocol.
+The Agent may correct implementation against the frozen method, preserving correction lineage, affected results and successor verification. It cannot erase failures or reuse the old run identity for a changed run. Changing pass/closure criteria or statistical protocol requires user confirmation and a new frozen version.
+For example, correcting coin clustering to the prescribed week clustering fixes implementation; changing the prescribed clustering revises the protocol. Neither makes old results independent evidence for the new protocol.
 
 | User expectation                                                | Observable result for agent and user                                                                                                                                                                                                                                                    | Authority and failure path                                                                                                                           |
 | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Start from a source and question, then explore within the theme | Source quality, mechanism, alternatives, discriminating prediction, minimum effect of interest, trial family, and variant set are frozen before result reads; a new family has distinct lineage                                                                                         | Source Intake and R&D receipts; sources are data, and unregistered or out‑of‑scope experiments are refused                                           |
+| Start from a source and question, then explore within the theme | The Agent organizes sources and hypotheses and chooses its analysis method; the product freezes approved boundaries, selected experiment inputs and trial family, preserving lineage for new families                                                                                   | Source Intake and R&D receipts; sources are data, and unregistered or out‑of‑scope experiments are refused                                           |
 | Use only data available at the time                             | Point‑in‑time universe rule, listing and delisting treatment, data version, costs, funding, and capacity identity are frozen with the request; every agent data read and trial is traceable                                                                                             | Market Data and R&D ledgers; protected partitions, missing data, and unreproducible scope fail closed                                                |
 | Author real order behavior                                      | The Agent writes a native Nautilus Strategy; R&D seals source, parameters, dependencies and environment as an immutable Artifact that can express expiring resting limits, linked stops and targets, partial exits, stop moves, holding limits, and slots assigned by actual fill order | R&D authoring and build receipts; build and semantic failures do not become economic failures                                                        |
 | See a useful research report                                    | Under the same frozen data and execution model, report portfolio return, drawdown, risk‑adjusted results, holding and cash comparisons, concurrent exposure and overlap, costs, and capacity first; single‑strategy and random‑entry comparisons diagnose causes                        | Native Backtest Result and R&D Diagnosis; charts, agent prose, and run success create neither selection nor qualification                            |
-| Continue or stop unattended                                     | Each round records prediction, observed result, failure cause, mechanism change, and resource use; spend cap and method stop rules can halt it, while trial count is not a run quota                                                                                                    | R&D Iteration Decision and knowledge ledger; unknown results stay unresolved and weak evidence waits for new data                                    |
+| Continue or stop unattended                                     | Each round records prediction, observed result, failure cause, mechanism change, and resource use; spend cap and method stop rules can halt it, while trial count is not a run quota                                                                                                    | R&D iteration records and knowledge ledger; unknown results stay unresolved and weak evidence waits for new data                                     |
 | Evaluate independently and observe forward evidence             | Qualification may internally distinguish pass, equivalence to null, and insufficient evidence, but exposes only `QUALIFIED` or `CLOSED_NOT_QUALIFIED` to research; record‑only forward is optional simulation evidence; qualified candidates follow the real trial route below          | Qualification owns protected and forward facts; public nonqualification cannot close a mechanism, and forward recording cannot create trading orders |
 
-### Concurrent projects and imported data
+### Agent takeover and imported data
 
-One research project persists across replacement of the single external Agent, retaining product budget, trial and data-exposure ledgers;
-family rules and experiment identities remain frozen separately. Handoff resumes project/Owner receipts without
+A Research Project groups work by objective. Improving Ronnie resting entries links hypotheses, strategy
+versions and experiments for entry refinements, staged exits and volatility filters without requiring a separate
+project per strategy. Branches retain their results and pending work while sharing the frozen theme and budget.
+One Research Project persists across replacement of the single external Agent, retaining product budget, trial and data-exposure ledgers;
+family rules and experiment identities remain frozen separately. Before exhausting its quota, the Agent pushes
+unfinished strategy work to the project Git repository and registers the exact commit, completed work and next
+action in R&D. Its successor reads submitted tasks before retrieving that revision and continuing development.
+A draft is not a qualified strategy; unpushed files are not claimed recoverable. Handoff resumes project/Owner receipts without
 resetting census or independence. See [R&D project admission](../owners/rd/#research-projects-and-agent-takeover)
 and [Market Data imports](../guide/market-data-intake/#target---external-historical-file-imports). Files cannot directly
 become backtest market facts.
@@ -52,7 +54,18 @@ become backtest market facts.
 ### Factor discovery, durable knowledge and reuse
 
 During R-1 iteration, a user discovers a promising indicator, pattern or rule and wants a future agent to find and
-reuse it. Sources at `0725a7b3f89902e27cd421a18b4b879a13268534` include
+reuse it. When the user later starts B3 research, the Agent can retrieve that same user's R-1 knowledge by
+default, inspect its source experiments and applicability, and decide whether to preregister a B3 test. No
+project-by-project permission is needed, but R-1 effects or qualification do not transfer to B3.
+Before authoring a complete strategy, the Agent may hypothesize higher average three-day returns after a
+pattern, test it on permitted data with a host script, and record the test description, conclusion summary,
+existing evidence references and limitations as an exploratory experiment. Reusable conclusions enter Knowledge.
+A successor can find what was tested and concluded, without guaranteed retrieval of temporary scripts, charts
+or statistical tables; the Agent can repeat analysis when needed. This is external analysis evidence,
+not a qualified strategy replay.
+If R-1 produced a reusable filter function, the entry links its Git repository, exact commit, file and entrypoint.
+The Agent retrieves that revision, adapts it to B3 and submits a new experiment. Knowledge retains references
+and research evidence, Git retains code, and no factor execution service is added. Sources at `0725a7b3f89902e27cd421a18b4b879a13268534` include
 `research/ronnie/loop/ledger.txt`, `loop/r1_select.py` and `loop/WORKFLOW_NOTES.md`.
 The ledger records cross-loop signals and the runner tests R-1 constructs. Historical figures and its admission
 rules are not confirmed product advantages or default thresholds.
@@ -71,21 +84,26 @@ knowledge.
 This fits existing R&D, using Market Data identities and Backtest results without a new factor department or another
 backtest engine. A database instance may be shared; entry writes, versions and queries belong only to R&D interfaces.
 See the [Research knowledge ledger](../owners/rd/#knowledge-reuse) for entry, reuse and failure
-acceptance. This is a target path: ledger implementation, construct declarations, estimators and end-to-end search/reuse
+acceptance. This is a target path: ledger implementation, exact evidence references and end-to-end search/reuse
 acceptance remain missing. Documentation does not establish current agent availability.
 
 ### On-demand discovery and running strategies
 
 At `0725a7b3f89902e27cd421a18b4b879a13268534`, `research/ronnie/scan/scan.py` finds closed daily trend signals across Binance USDT perpetuals
 and reports new signals, in-trend, flat and trigger distance without accounts/orders. Its top-150/spot
-intersection is a prototype scope, not a product default. Replay: user/agent chooses Artifact/universe → R&D
-admits an on-demand read-only job → Market Data binds inputs/scope → native Strategy warms up/evaluates →
-R&D persists timestamped discovery → agent interprets or starts research. Reports include total, completed,
+intersection is not a product default. Ordinary discovery uses Agent Market Data queries and host analysis
+without an Artifact, research project or R&D scan job. Exact native strategy state or warmup uses a sealed
+strategy and Backtest replay; R&D links results when research needs them. Reports include total, completed,
 excluded and incomplete instruments. Unknown/missing data is not no opportunity; reconstructed positions are
 not account facts.
 
-Running strategies already subscribe/evaluate through the native node; there is no separate scan schedule.
-Queries reuse pure judgment while isolating mutable state. Discovery creates no deployment proposal;
+For example, BTC closed daily bars meet a pattern and appear as an opportunity with conditions met; ETH forming
+daily data approaches the conditions and appears only as an observation candidate. Separate the categories with
+evaluation time, source/version, bar completion, met/unmet conditions and Agent analysis versus native strategy output.
+Candidates may fail, change no formal rules or trading authority, need no scorer and do not widen V0.1 replay scope.
+
+Running strategies subscribe/evaluate through the native node without a separate scan schedule.
+On demand observation does not modify running instance state. Discovery creates no deployment proposal;
 Governance owns lifecycle. See [R&D on-demand
 discovery](../owners/rd/#on-demand-read-only-opportunity-discovery). Full discovery operations,
 native Strategy integration and end-to-end acceptance remain missing capabilities.
@@ -200,28 +218,28 @@ source, loop, book, discovery and forward workflows. Paths are relative to `rese
 refer to their `INTENT.md`. This is contract replay against the architecture, not current runtime acceptance or adoption
 of prototype thresholds, statistical conclusions or historical holdout protocols.
 
-| Story | User goal and sources                                                                                                                    | Path, result and failure boundary                                                                                                                               | Current gap                                                                                     |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| U01   | Interpret human methods and drawings; `community/INTENT.md; tv/; yt/; journal/score.py`                                                  | Agent interpretation → R&D provenance/annotations → frozen hypothesis; insufficient time evidence stays an outside claim                                        | Bounded annotation/chart‑rule structure needs acceptance                                        |
-| U02   | Import data and replicate across markets; `altcoins, fxrevert, goldtrend, rangex, rangex2`                                               | Market Data admits source, clocks, price basis/revisions → Backtest; missing contract/cost facts cannot establish tradability                                   | Scope defined; family‑specific data admission/Host integration missing                          |
-| U03   | Combine multiple bar windows; `mtf, timing`                                                                                              | R&D freezes closed/forming‑bar semantics → Market Data prepares → native Strategy; future values/inconsistent aggregation refused                               | Complex windows/warmup/input binding need acceptance                                            |
-| U04   | R-1 resting entries and partial exits; `loop/family_r.py; loop/r1_dynexit_fine.py; run_plan.py`                                          | Native Strategy → R&D Artifact → native Backtest orders; unknown/fine‑data gaps stay unresolved without duplicate coarse fills                                  | First acceptance; native readback/report/local refinement incomplete                            |
-| U05   | Compare stop and exit rules; `stops, exits; loop/r1_exits.py; roleflip/`                                                                 | Same entries/capital baseline → paired Backtest controls → Agent attribution recorded by R&D; changing R units is not improved return                           | Bounded diagnostics/paired reporting need integration                                           |
-| U06   | Select filters and learned parameters; `filters, filters2, range6; loop/r1_select.py; loop/r1_select_val.py`                             | R&D registers all variants/training selection → frozen Backtest estimation → diagnosis; reuse is not independence                                               | Construct/model authoring, selection history and estimators incomplete                          |
-| U07   | Express multiple price mechanisms; `patterns, patterns2, setups, screen, range, range2, range3, range4, range5, volume2`                 | One native Strategy/Artifact expresses patterns/context → Backtest; no module per mechanism, unsupported rules refused                                          | Extend bounded authoring constructs; a narrow breakout example proves no general coverage       |
-| U08   | Study mechanisms before simulating trades; `oversold, volume; community/INTENT.md`                                                       | R&D registers events/controls → Backtest statistics → findings; first‑touch/correlation is not portfolio return/qualification                                   | Bounded event‑study report gap within existing data/report capabilities                         |
-| U09   | Study funding and market state; `carry, short; loop/fetch_funding_ext.py; loop/fetch_metrics.py; loop/overlay_x2.py`                     | Market Data economics/availability → native Strategy/Backtest → R&D; settlement costs and signal reads require distinct proof                                   | OI/taker flow/historical availability/field consumption need acceptance                         |
-| U10   | Use macro calendars and stress inputs; `events; loop/r1_macro.py; loop/r1_crypto_stress.py`                                              | Market Data releases/vintages → causal features → Backtest; delayed latest revisions are not PIT                                                                | Source/revision/event‑calendar admission needs integration                                      |
-| U11   | Run fixed and dynamic continuous books; `trend, combo; trend/books_pit.py; loop/ensemble.py`                                             | R&D freezes membership/subrules → Market Data timeline → one Backtest equity path; selection does not reset holdings                                            | Versioned timeline/capacity contract; current fixed path cannot satisfy B3                      |
-| U12   | Two‑leg carry and pair trades; `carry; loop/family_h.py`                                                                                 | One frozen Artifact → native multi‑leg orders/account replay; actual fills, fees and margin per leg, no assumed atomicity                                       | Multi‑leg Host, netting/hedging and partial‑leg failure policy need acceptance                  |
-| U13   | Measure sizing and risk‑management effects; `risk; loop/r1_portfolio.py`                                                                 | Frozen sizing/risk policy → shared native account comparisons → reports → R&D; experiments cannot override production pool policy                               | Policy/cost/capital‑competition binding and reports incomplete                                  |
-| U14   | Verify source fidelity and fills; `xcheck/compare.py; replay/src/main.rs; tv_line_fidelity.py; checks.py`                                | Source annotations/exported intents → native Backtest comparison → R&D repair successor; Python is no second engine                                             | End‑to‑end repair/corresponding event evidence needs acceptance                                 |
-| U15   | Diagnose decay, attribution and false edges; `loop/attrib.py; loop/bucket_audit.py; loop/decay_diagnosis.py; loop/gatekeeper_book.py`    | Backtest results/stratified controls → Agent analysis with method/evidence/full census retained by R&D → continue/stop; retain losses, seal protected diagnosis | Statistical reporting/estimators/selection decision integration incomplete                      |
-| U16   | Autonomous research and session takeover; `RD_AUTONOMY.md; loop/PROTOCOL.md; loop/RETROSPECTIVE.md; loop/LOG.md`                         | Shared budgets/census → durable jobs → agent judgment → R&D Decision; atomic budget contention, unknown jobs retained                                           | Single‑Agent continuity/full research catalog/report‑decision readback need acceptance          |
-| U17   | Retain and reuse factor knowledge; `loop/ledger.txt; loop/WORKFLOW_NOTES.md; loop/r1_select.py`                                          | Counted Result → R&D knowledge → search → new Intent/Artifact; positive estimates are not automatic stability, reuse grants no eligibility                      | Knowledge ledger/construct declarations/search consumer unimplemented                           |
-| U18   | Query current market opportunities; `scan/scan.py`                                                                                       | Agent → Market Data queries; stateful native Backtest replay → signals; R&D retains references as needed; no scan schedule, inferred state is not a position    | Read‑only discovery operations/native evaluation integration need acceptance                    |
-| U19   | Observe future evidence and seal qualification feedback; `loop/FORWARD_PLAN.md; trend/forward_b3.py; journal/score.py; loop/CRITERIA.md` | Frozen candidate → two‑level public qualification; qualified backtests precede real trials, optional simulation, no copied prototype thresholds                 | Protected isolation specified; real trial stages/condition choices need freezing                |
-| U20   | Deploy findings and return to iteration; `User-approved lifecycle; product extension of forward research needs`                          | Governance pools/stages → native node → Portfolio → promote or unload to R&D; release allocation immediately, protect residual exposure                         | Target authority split; no live effect admission, stage/capital/recovery chain needs acceptance |
+| Story | User goal and sources                                                                                                                    | Path, result and failure boundary                                                                                                                               | Current gap                                                                                                 |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| U01   | Interpret human methods and drawings; `community/INTENT.md; tv/; yt/; journal/score.py`                                                  | Agent interpretation → R&D provenance/annotations → frozen hypothesis; insufficient time evidence stays an outside claim                                        | Source/evidence links and Agent explanations need acceptance                                                |
+| U02   | Import data and replicate across markets; `altcoins, fxrevert, goldtrend, rangex, rangex2`                                               | Market Data admits source, clocks, price basis/revisions → Backtest; missing contract/cost facts cannot establish tradability                                   | Scope defined; family‑specific data admission/native integration missing                                    |
+| U03   | Combine multiple bar windows; `mtf, timing`                                                                                              | R&D freezes closed/forming‑bar semantics → Market Data prepares → native Strategy; future values/inconsistent aggregation refused                               | Complex windows/warmup/input binding need acceptance                                                        |
+| U04   | R-1 resting entries and partial exits; `loop/family_r.py; loop/r1_dynexit_fine.py; run_plan.py`                                          | Native Strategy → R&D Artifact → native Backtest orders; unknown/fine‑data gaps stay unresolved without duplicate coarse fills                                  | First acceptance; minute replay, aggregation, conservative policy and readback/reporting require acceptance |
+| U05   | Compare stop and exit rules; `stops, exits; loop/r1_exits.py; roleflip/`                                                                 | Same entries/capital baseline → paired Backtest controls → Agent attribution recorded by R&D; changing R units is not improved return                           | Bounded diagnostics/paired reporting need integration                                                       |
+| U06   | Select filters and learned parameters; `filters, filters2, range6; loop/r1_select.py; loop/r1_select_val.py`                             | Agent chooses/trains filters → R&D records variants and frozen inputs → native replay → Agent diagnosis; reuse is not independence                              | Native packages, data access and experiment/evidence records need integration                               |
+| U07   | Express multiple price mechanisms; `patterns, patterns2, setups, screen, range, range2, range3, range4, range5, volume2`                 | One native Strategy/Artifact expresses patterns/context → Backtest; no module per mechanism, unsupported rules refused                                          | Native APIs/package integration need acceptance; one narrow example proves no general coverage              |
+| U08   | Study mechanisms before simulating trades; `oversold, volume; community/INTENT.md`                                                       | Agent analyzes admitted Market Data with host scripts → R&D records method/evidence → Knowledge; first‑touch/correlation is not portfolio return/qualification  | Ordinary data reads and external analysis evidence records need integration                                 |
+| U09   | Study funding and market state; `carry, short; loop/fetch_funding_ext.py; loop/fetch_metrics.py; loop/overlay_x2.py`                     | Market Data economics/availability → native Strategy/Backtest → R&D; settlement costs and signal reads require distinct proof                                   | OI/taker flow/historical availability/field consumption need acceptance                                     |
+| U10   | Use macro calendars and stress inputs; `events; loop/r1_macro.py; loop/r1_crypto_stress.py`                                              | Market Data releases/vintages → causal features → Backtest; delayed latest revisions are not PIT                                                                | Source/revision/event‑calendar admission needs integration                                                  |
+| U11   | Run fixed and dynamic continuous books; `trend, combo; trend/books_pit.py; loop/ensemble.py`                                             | R&D freezes membership/subrules → Market Data timeline → one Backtest equity path; selection does not reset holdings                                            | Versioned timeline/capacity contract; current fixed path cannot satisfy B3                                  |
+| U12   | Two‑leg carry and pair trades; `carry; loop/family_h.py`                                                                                 | One frozen Artifact → native multi‑leg orders/account replay; actual fills, fees and margin per leg, no assumed atomicity                                       | Native multi‑leg integration, netting/hedging and partial‑leg failure policy need acceptance                |
+| U13   | Measure sizing and risk‑management effects; `risk; loop/r1_portfolio.py`                                                                 | Frozen sizing/risk policy → shared native account comparisons → reports → R&D; experiments cannot override production pool policy                               | Policy/cost/capital‑competition binding and reports incomplete                                              |
+| U14   | Verify source fidelity and fills; `xcheck/compare.py; replay/src/main.rs; tv_line_fidelity.py; checks.py`                                | Source annotations/exported intents → native Backtest comparison → R&D repair successor; Python is no second engine                                             | End‑to‑end repair/corresponding event evidence needs acceptance                                             |
+| U15   | Diagnose decay, attribution and false edges; `loop/attrib.py; loop/bucket_audit.py; loop/decay_diagnosis.py; loop/gatekeeper_book.py`    | Backtest results/stratified controls → Agent analysis with method/evidence/full census retained by R&D → continue/stop; retain losses, seal protected diagnosis | Result reads and Agent explanation/evidence records need integration                                        |
+| U16   | Autonomous research and session takeover; `RD_AUTONOMY.md; loop/PROTOCOL.md; loop/RETROSPECTIVE.md; loop/LOG.md`                         | Shared budgets/census → durable jobs → agent judgment → R&D Decision; atomic budget contention, unknown jobs retained                                           | Single‑Agent continuity/full research catalog/report‑decision readback need acceptance                      |
+| U17   | Retain and reuse factor knowledge; `loop/ledger.txt; loop/WORKFLOW_NOTES.md; loop/r1_select.py`                                          | Counted Result → R&D knowledge → search → new Intent/Artifact; positive estimates are not automatic stability, reuse grants no eligibility                      | Knowledge records/evidence links/search consumer unimplemented                                              |
+| U18   | Query current market opportunities; `scan/scan.py`                                                                                       | Agent → Market Data queries; stateful native Backtest replay → signals; R&D retains references as needed; no scan schedule, inferred state is not a position    | Read‑only discovery operations/native evaluation integration need acceptance                                |
+| U19   | Observe future evidence and seal qualification feedback; `loop/FORWARD_PLAN.md; trend/forward_b3.py; journal/score.py; loop/CRITERIA.md` | Frozen candidate → two‑level public qualification; qualified backtests precede real trials, optional simulation, no copied prototype thresholds                 | Protected isolation specified; real trial stages/condition choices need freezing                            |
+| U20   | Deploy findings and return to iteration; `User-approved lifecycle; product extension of forward research needs`                          | Governance pools/stages → native node → Portfolio → promote or unload to R&D; release allocation immediately, protect residual exposure                         | Target authority split; no live effect admission, stage/capital/recovery chain needs acceptance             |
 
 ### From replay to development tasks
 
@@ -235,11 +253,19 @@ Agent analysis tools instead of new services per statistic.
 Unsupported bounded expressions return gaps for an implementation successor, not arbitrary scripts, a second
 simulator or unverifiable edge.
 
-First-trial approval mode, promotion options/thresholds and formal retention criteria still require user-frozen policy,
+First-trial Dashboard confirmation is settled. Promotion options/thresholds and formal retention criteria require user-frozen policy,
 not new departments. Other gaps are versioned interfaces/acceptance within assigned capabilities, giving future agents
 concrete stories to develop. This target grants no real-money effects.
 
 ## R-1 resting entries and staged exits
+
+In V0.1, the Agent may first read admitted ordinary research bars through Market Data and use its own scripts to
+inspect post-breakout retracement depth, waiting times and patterns, then author a native strategy and submit formal
+replay. Analysis binds the versions read; script statistics establish neither native replay results nor eligibility.
+
+For zero fills, the Agent combines strategy diagnostic logs with native order/fill events to distinguish absent
+triggers, strategy filters, unfilled orders and rejections. The strategy author supplies diagnostic messages; absent,
+truncated or unavailable logs prove no negative condition, and native account facts still determine economic results.
 
 **The first end-to-end acceptance example is the R-1 family.** It anchors the [confirmed V0.1
 scope](../architecture/index.md#v01---usable-r-1-data-and-backtest-journey): deliver the usable data/replay
@@ -261,6 +287,44 @@ passing this acceptance example does not establish economic edge, qualification,
 source study is pinned to `claude/inspiring-gauss-pxaril` commit `0725a7b3f89902e27cd421a18b4b879a13268534`, especially `research/ronnie/roleflip/forward.py`,
 `replay.py`, and `loop/RETROSPECTIVE.md`.
 
+### V0.1 service handoff acceptance
+
+This replay projects R-1 onto existing service contracts. Completion conditions below are development acceptance
+requirements, not evidence of an already successful execution.
+
+```mermaid
+flowchart LR
+    A["Agent"] --> D["Market Data"]
+    D -->|"Input Ref"| A
+    A --> R["R&D"]
+    R -->|"Attempt"| G
+    subgraph B["Backtest"]
+        G["Admission"] --> N["Native Replay"]
+        N -->|"Native Facts"| C["Results"]
+    end
+    C -->|"Result Ref"| R
+    C -->|"Reports"| A
+```
+
+| Story step or failure                       | Contract and acceptance observation                                                                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Prepare about 50 instruments and five years | Fixed members follow actual listing ranges; manifest binds minute execution, mark prices, economic inputs and warmup with named gaps             |
+| Only some preparation succeeds              | Reuse completed references; R&D/Backtest refuse formal replay missing required inputs rather than shortening the window                          |
+| Submit R-1u and R-1s separately             | Seal distinct strategy contents; experiments bind exact manifests/run conditions and retain separately counted, queued results                   |
+| Submission times out                        | Query or resend the original request; the same attempt resolves the same job rather than duplicating execution without a receipt                 |
+| Native loading or replay fails              | Retain exact failure and available diagnostics; skipped Node items or other results cannot prove this run succeeded                              |
+| Fills and minute valuation                  | Native orders/OMS, fees, funding and Portfolio own facts; aggregates drive signals only and frozen ambiguity extensions label assumptions        |
+| Replay completes and reports are read       | Extract required facts before disposal and commit custody before reading a complete result; minute reads and primary drawdown use the same input |
+| Agent disconnects or reruns after failure   | Admitted jobs persist; confirmed interruption permits a linked new full attempt while retaining original costs/records                           |
+| Storage shortage and protected scope        | Stop admission of affected new tasks without evicting formal evidence; Agent/Dashboard cannot read protected assessment detail                   |
+
+V0.1 need not automatically organize research, provide complete project handover or judge economic advantage.
+Agents may keep modifying and comparing; complete management and knowledge reuse stay in V0.2, while
+qualification, trials and trading authority stay in V0.3. Market Data, R&D and Backtest chapters respectively own
+manifest, task identity and native loading contracts; this scenario creates no separate schema or state machine.
+
+## Replay consistency and reporting
+
 ### Event causality and minimum-resolution ambiguity
 
 the finest execution data is one minute. When a complete minute reaches stop and target and cannot establish
@@ -268,37 +332,46 @@ ordering, apply frozen conservative stop-first fallback and include it in portfo
 policy-inference flag, not claimed observed order. Report affected trades/reasons/counts and chart flags;
 ordering sensitivity may be reported without selecting favorable outcomes after inspection. This fallback
 covers ordering within complete minute data, not missing minutes, invalid market facts or unverifiable
-execution inputs. The execution policy uses on-demand hierarchical descent, not uniform minute execution
-throughout.
+execution inputs. Signal bars are native aggregates of the one-minute execution base. For a daily candle reaching entry and target,
+minute chronology governs effective orders: a pre-entry target is not profit; a later target may exit. Coarse signal
+bars do not drive matching twice. Activation, expiry, protection, capital contention and funding share one causal
+account timeline. Close-confirmed signals cannot fill earlier that day, and pre-entry extremes do not describe
+post-entry performance. Readback states minute precision and inferred timing rather than claiming observed ticks.
+Backtest reuses native matching; strategies do not implement multitimeframe fill logic. Acceptance covers target-before-
+entry, entry-before-target, protective races, invalidation boundaries, portfolio contention and recovery.
 
-Signal timeframe and execution resolution differ: when a daily candle reaches entry and target, descend
-through the frozen available hierarchy (for example daily → four-hour → finer → one-minute) until order is
-established or the minimum reached. A target touched before entry is not profit; target after entry may exit.
-Refine only unresolved subintervals and advance resolved intervals chronologically. Child data must have
-matching PIT custody, bounds, parent consistency and complete coverage. Do not commit hypothetical parent
-fills then consume child fills again.
+Statistics follow Nautilus: reuse native Portfolio valuation snapshots and `MaxDrawdown`. The primary report
+calculates maximum drawdown from one-minute sampled account equity; list daily closing drawdown separately with
+an explicit label. Minute equity includes unrealized PnL and incurred fees/funding, retaining initial, terminal
+and account-change records rather than counting only closed trades. Freeze valuation sources, sampling boundaries
+and event order. Do not combine instrument-specific minute highs/lows into an observed portfolio extreme; the
+metric describes drawdown observed at minute samples, not every intraminute risk.
 
-Activation, expiry, protective changes, capital contention and funding cuts also require refinement/event
-boundaries when they affect results; all members share one causal account timeline. Consume only
-already-effective signals/orders: a close-confirmed daily signal cannot fill earlier that day. Pre-entry
-extremes are not post-entry performance. Charts disclose resolution and inferred event timing, not fictional
-observed ticks. Backtest/shared execution handles descent, not strategy code. Acceptance covers target-before-
-entry, entry-before-target, protective races, invalidation boundaries, portfolio contention and restore.
+Native Portfolio supports optional fine-grained snapshots, but current analyzer portfolio returns remain
+aggregated daily. V0.1 must connect the minute valuation series to native maximum-drawdown statistics; enabling
+snapshots alone does not change primary drawdown. Daily closing drawdown retains its own inputs and label without
+silently changing the sampling frequency of other statistics. Missing valuation, stale inputs or disconnected
+minute statistics produce explicit gaps; daily drawdown or closed-trade returns cannot replace minute primary drawdown.
 
-Coarse execution requires proof of unchanged account state/economic outcome; sealed execution versions never
-drift. Statistics follow Nautilus: reuse native Portfolio snapshots and analytics, including registration of
-`MaxDrawdown`, and report the actual return series/sampling. Retained code defaults to daily valuation
-snapshots and supports optional finer snapshots; analyzer portfolio returns are still daily-aggregated.
-Enabling finer snapshots does not automatically make native primary drawdown intraday. The unconfirmed
-intraday-primary proposal is not a new standard. Do not claim daily samples capture all intraday extrema or
-invent continuous portfolio equity from OHLC.
+### Research scale and usability
 
-Name insufficient native inputs/product wiring gaps; never silently substitute closed-position returns as
-portfolio returns.
+R-1 `loop/r1_zone_entry_fine.py` and `loop/r1_select.py` use `ITER_COINS + ITER_EXT_COINS`: 17 majors from
+`range2/run.py` plus 36 extensions from `loop/engine.py`, over the 2018 to 2022 development window. V0.1 performance
+acceptance follows approximately 50 perpetual instruments over five years, freezing actual members and intervals
+against Binance point-in-time coverage. This source provides scale and use cases, not prototype data sources,
+local precision or return numbers as acceptance standards. Run the complete account timeline with admitted
+minute execution data, marks and economic inputs; measure preparation, cache reuse, loading, execution,
+statistics and readback time and peak memory. Unmeasured performance remains unproved; resource/input gaps
+cannot silently shrink scope.
+
+### Portfolio statistics and terminal valuation
 
 Terminal handling: retain open positions at the window end, without inventing a strategy
-exit or automatically liquidating. Use the frozen Portfolio valuation methodology and valid cutoff market data
-for final equity; separately report realized/unrealized PnL, open quantities and incurred fees/funding. Unincurred
+exit or automatically liquidating. Use the frozen Portfolio valuation methodology and valid cutoff historical
+mark prices for perpetual terminal equity; separately report realized/unrealized PnL, open quantities and incurred
+fees/funding. Perpetual minute equity and unrealized PnL also use historical marks, while execution uses trading
+data. Missing or invalid marks remain named gaps; native price fallback cannot label trade-price approximations
+as mark valuation. Unincurred
 exit costs are not actual costs; show fill prices separately from valuation prices with source/time/staleness.
 Missing valid valuation cannot produce fictitious complete returns. Engine shutdown cleanup must not silently add
 liquidation trades to the primary report. Any liquidation sensitivity is separate and never replaces that report.
@@ -306,7 +379,7 @@ liquidation trades to the primary report. Any liquidation sensitivity is separat
 Close-confirmation rule: first-version candle/indicator conditions for signals, cancellations
 and stop changes are confirmed only after the relevant bar closes and its data is available. A 15m closing indicator
 cannot cancel an earlier fill within that interval. Already effective price entry/stop/target orders may still trigger
-intrabar. Descent does not generate signals from unfinished indicators or backdate new protection to the parent
+intrabar. Execution does not generate signals from unfinished indicators or backdate new protection to the parent
 bar's open; retain previous order/protection effective times. Dynamic unfinished-bar indicators are outside initial
 semantics. Freeze/verify closing-boundary event ordering in the shared execution contract, not input loading order.
 
@@ -328,73 +401,44 @@ from effective open/child evidence is not subject to a blanket delay of targets.
 
 ### Multi-timeframe data and execution preparation
 
-**Descent data dependencies and preparation.** Descent reads real finer history for the same interval, or
-aggregates coarser bars from custodied finer data under frozen rules. Daily OHLC cannot reconstruct/interpolate
-a four-hour or minute path. Strategies declare signal/feature timeframes; independent execution policy declares
-minimum resolution/hierarchy, from which the product derives dependencies without strategy fetch code. Bind
-venue, members/PIT selector, replay interval, feature warmup, hierarchy, source/revision meaning and resource
-bounds. Warmup grants no trades outside the run; resolution changes widen no research market/time scope.
+**Base data and native aggregation.** Market Data prepares complete minute history for chosen instruments, replay
+and warmup intervals, validating coverage. Daily OHLC cannot reconstruct minute paths; missing/invalid minutes remain
+named gaps. Strategies express signal timeframes through native subscriptions/history requests without duplicate
+product forms or strategy-side downloads. Run dates, warmup length, instruments and non-bar inputs remain explicit.
+V0.1 begins its execution interval with frozen initial funds, no positions and no pending orders. Warmup only
+establishes computational state; it cannot trade early or carry warmup fills into the account.
 
-Preparation requires economical base-data reuse and bounded finer preparation. The Binance measurement
-qualifies the proposed universal aggregation shortcut: native timeframes disagree on some incident days, so an
-aggregated bar cannot silently stand in for that venue's native bar. For the Binance native-bar baseline,
-fetch each required signal timeframe through the existing native client and reuse its custodied slices; do not
-claim four signal timeframes require four full copies of minute execution history.
+Initial larger bars use the minute-derived basis under native aggregation settings, available only after their close.
+They are not labelled as Binance venue-native larger bars; measured source differences retain distinct meanings.
+Native aggregation and rebuildable caches reuse minute history without full copies of every timeframe. Existing
+packages, experiment data references and native run configurations retain minute versions, aggregation settings and
+runtime identity without another configuration system.
 
-A strategy may explicitly request a derived series; freeze its base, aggregation rules and distinct source
-meaning, and reuse native aggregation only after the required cadence/fields are verified. Derived caches are
-rebuildable. Neither choice reconstructs minute chronology from a daily OHLC bar. Prepare actual finer bars
-for unresolved bounded intervals under the frozen policy, rather than requiring full-window minute data. This
-target planning capability does not change the current T0 custody path, which already binds its fixed minute
-fill inputs.
+**Preparation and replay handoff.** The Agent prepares or reuses Market Data results, then submits data-bound
+experiments through R&D/Backtest. Market Data owns acquisition, repair, PIT custody and gap facts. R&D owns research,
+experiments, attempts and resources. Backtest consumes exact bindings and reuses native aggregation, orders, matching
+and account events; the matcher holds no MCP client or remote-fetch responsibility. Funding settlement, historically
+available funding signals, fees and contract terms bind separately and cannot be derived from bar aggregation.
 
-Market Data owns ingestion/backfill, PIT custody, aggregation consistency and gap evidence. R&D owns research/
-trial identity and admits complete execution inputs. Backtest validates/consumes sealed data, never stitches
-unregistered remote history. Freeze dependency planning, aggregation/descent rules, base inputs and budget and
-validate base coverage before execution. A newly discovered ambiguity enters a traceable preparation/wait
-phase: service orchestration submits a Market Data child job and binds immutable finer slices into a successor
-attempt for full deterministic native replay.
+Minute data drives matching throughout the run; internal signal aggregates trigger no duplicate fills. Native
+streaming batches consume already bound inputs without changing meaning. Verify actual multi-input loading memory,
+ordering and complete equal-`ts_init` boundaries; a chunk size alone does not guarantee bounded total memory.
 
-The final result seals the complete consumed-data manifest and derivation lineage; incomplete preparation is
-not a valid final result. Custodied data not in memory may load lazily by bounded subinterval; cache loading
-is not new data meaning. Missing data routes to Market Data preparation/repair with gap/old-attempt history
-retained, never a stop-first/hold fallback masquerading as valid replay. New data identity requires native
-preparation/readmission and a named successor, not mutation of a sealed run or replacement digest; protected
-request/result equality and isolation remain.
+**Gaps, repair and new runs.** Data gaps return to Market Data preparation/repair, not intraminute ambiguity fallback.
+Agents may request repair within original scope, source, budget and permissions; scope or authority cannot widen
+silently. Changed data versions require Agent-submitted successor experiments replayed completely from frozen initial
+state. Old requests, inputs, digests, spend and read records remain immutable; resolve unknown predecessor outcomes by
+original identity. Streaming does not join a new data version to an old attempt. Never rewind partial state or stitch
+fills, fees and results from different runs.
 
-Automatic orchestration stays within frozen market/time/source/budget/protected permissions; failures name the
-reason rather than widen budgets or invent paths. On-demand acquisition is registered preparation, not
-arbitrary fetch authority or permission to rewrite sealed data/results.
-
-A logical job is distinct from each physical attempt. Before execution, finish registered preparation and seal
-the exact run request. An admitted attempt never changes request, snapshot or data digests. New fine-data
-identities form named successor attempts admitted by R&D; the user job may track them while retaining old
-attempts, resources and read exposure. Resolve an unknown predecessor before creating a successor. New
-fine-data bindings require full deterministic native replay from the frozen initial state. Native streaming
-continuation applies only to already bound inputs; it does not resume a predecessor with changed data
-identity.
-
-Replay cannot double-count predecessor fills, fees or results. Selection cites one complete exact
-request/result pair, not a fabricated aggregate of physical attempts.
-
-**Nautilus reuse and isolation.** Modify/integrate the Nautilus retained in this repository rather than write
-another backtest engine. Prefer native aggregation, order state, matching and account events. Descent data
-preparation belongs to backtest job orchestration/execution-input planning, not strategies or the matcher. MCP
-adapts service entrypoints; the matching core holds no MCP client, remote acquisition role or Market Data
-implementation dependency. Orchestration submits durable data jobs through owner contracts and binds slices;
-matching consumes validated data/native commands.
-
-Route signal bars separately from execution inputs; overlapping parent/child intervals must not drive
-duplicate fills or repeated signal aggregation.
-
-The native matcher retains the finest execution bar type; alternating coarse/fine injection is not a chronology repair. Native streaming supports batches of already bound data, not rollback or changed-resolution local recovery. Prepare execution inputs outside matching and replay the complete successor attempt. Do not bypass native encapsulation or stitch locally corrected fills into a portfolio result.
-
-Acceptance compares complete order, position, capital and timer events with a full fine-resolution reference under identical assumptions, including overlap, cross-member contention, preparation failure, restart and minute fallback. Measure reads, memory and elapsed time. Optimization must preserve this complete-replay meaning and does not admit local recursive descent.
+Acceptance covers minute coverage, aggregation close boundaries, resting/protective orders, capital contention,
+preparation failure, same-identity recovery and intraminute conservative policy. Measure reads, memory and elapsed
+time; performance optimizations preserve the complete account timeline and exact inputs.
 
 [Native capability adoption](../architecture/capability-adoption/) distinguishes engine mechanisms, product
 responsibilities and integration gaps. Native execution/cache remains the order/fill/position fact authority;
 the shared adapter retains intent, trade/leg linkage, consumed-event frontier and rule progress only.
-Generated runtime carriers may reuse the framework Strategy base's native order management without making
+Native Strategies may reuse the framework Strategy base's native order management without making
 authored signal logic manage venue state. Default brackets use OUO; ordinary OCO or unequal-quantity OUO
 cannot directly implement R-1s half-size targets with full-size stops. Leg completion is not whole-trade
 closure.
@@ -402,18 +446,17 @@ closure.
 Update remaining protection from native fill feedback and reuse native modify/cancel commands, not a second
 state machine. GTD expiration advances from native events, not invented expiry facts. Freeze/report
 probabilistic slippage, L1 market-style remainder handling, gaps and actual fees separately; disabled
-probability does not imply zero execution price difference. Account balance updates alone do not make
-deposits/withdrawals return-neutral. Use verifiable cashflows under existing Portfolio methodology or report
-missing integration; never label cashflow equity jumps as strategy profit/loss.
+probability does not imply zero execution price difference. Backtests use initial funds only without injected
+deposits/withdrawals. Portfolio distinguishes live external flows from trading PnL; equity jumps due to deposits
+or withdrawals are not strategy profit/loss.
 
 Native statistical fallback or synthetic recovery terminals do not override existing
 portfolio-evidence/unknown-commitment boundaries.
 
-Current `pit_window_custody_v1` has input/fill declarations and custody with `FillBarOpen` quote
-derivation; V1 `backtest.run` still names one member, execution timeframe and window, not implemented recursive
-descent/automatic preparation. Native bar execution, hierarchy, planning and full consumption are target gates.
-Acceptance covers daily-only input, aggregatable minute custody, uncached data, finer gaps, inconsistent parents,
-warmup, budgets, new identities after repair and refusal of reads outside frozen scope.
+Current `pit_window_custody_v1` retains input/fill declarations and custody with `FillBarOpen` quote derivation.
+V1 `backtest.run` still names one member, execution timeframe and window; it establishes neither multi-instrument
+minute replay, native signal aggregation nor the conservative policy. Acceptance covers minute gaps, aggregation
+close boundaries, warmup, budgets, new identities after repair and refusal of reads outside frozen scope.
 
 ### Planned and filled prices
 
@@ -454,7 +497,7 @@ failure recovery belongs to independent shared execution policy. Keep strategy/t
 new entry need not reference an earlier cancelled order.
 
 Reports expose expiry, invalidation, fills and cancelled remainder with predicate inputs and event times;
-ambiguous ordering follows frozen execution policy or stays unresolved. Current `AuthoringActionV1` exposes
+ambiguous ordering follows frozen execution policy or stays unresolved. The current compatibility `AuthoringActionV1` exposes
 only `Enter`, `Flip`, and `Exit`; Host cleanup and shutdown
 cancellation do not establish support for the complete cancellation story. Acceptance adds candle/indicator invalidation,
 distance thresholds, partial fills, fill/cancel competition, suspended invalidation, and restart/rearming to
@@ -484,7 +527,7 @@ frame. Seal expression, dimensions, equity/price/stop inputs and instrument roun
 quantities reproducible. Invalid dimensions, invalid arithmetic, zero denominators and unavailable required
 state receive named refusals.
 
-Sizing cannot bypass portfolio admission or introduce implicit resizing. V1's fixed integer
+Sizing cannot bypass portfolio admission or introduce implicit resizing. The compatibility V1 fixed integer
 `Enter.units` field does not prove dynamic authoring is available. calculate quantity when creating the
 order, keep pending quantity fixed, and use explicit cancel/new-create actions to change it. The original
 remains a commitment until cancellation becomes effective. Acceptance covers equity changes, stop distance,
@@ -492,7 +535,7 @@ rounding, stable pending quantity and resource refusal. One-trade-per-instrument
 strategy rules; preserve R-1's original slot rule without imposing it on all strategies.
 
 Reuse engine position identities and net-position mapping rather than building another fill or accounting
-simulator. Current target-set Host still requires one native net position per member; this is a versioned
+simulator. The current compatibility target-set Host still requires one native net position per member; this is a versioned
 extension target. Acceptance adds distinct stops and partial exits for two same-coin entries, cancellation,
 isolated closure, portfolio reconciliation and checkpoint restoration.
 
@@ -541,17 +584,9 @@ its own frozen simulation, preserving the actual fill facts. Strategies do not o
 
 ## Strategy and Owner boundaries
 
-**Target design, not admission of a new execution path.** A strategy is not an account, risk or qualification
-Owner. It is the trading behavior R&D seals source and environment for: entries, requested quantities, cancellations, stops
-and staged exits are part of the researched strategy. It proposes intents; it cannot change external limits,
-grant permission or declare itself qualified.  insufficient funds, rate limits, network failures and venue
-rejection recovery do not belong to strategy logic. Strategies define signals, entry conditions/prices,
-economic invalidation, stops/targets and partial exits.
+**Target design; no new execution path is admitted.** R&D seals strategy source and environment. The strategy defines signals, entry conditions/prices, economic invalidation, cancellations, stops/targets and staged exits. It proposes intents; it cannot change external limits, grant permission or declare qualification.
 
-Independent sizing configuration declares quantity rules; Runtime's reusable calculation module combines these
-with Portfolio state to form requested quantities. Independent execution policy owns waiting, retry and
-termination. These can use the native Strategy package route and be jointly sealed by R&D without another Owner,
-registry or strategy recovery program. Native Strategy declares protection rules and transition conditions; actual fill
+Sizing configuration declares quantity rules; Runtime combines them with Portfolio state to calculate requested quantities. Execution policy owns waiting, retry and termination, including insufficient funds, rate limits, network failures and venue rejections. R&D jointly seals these configurations with the native Strategy package; no extra Owner, registry or strategy recovery program is required. Native Strategy declares protection rules and transition conditions; actual fill
 events activate and maintain them without per-bar strategy modification commands or broker state management.
 R-1s declares half at 2R and a stop move to entry once that exit leg actually fills to its registered
 condition.
@@ -745,8 +780,8 @@ Unspecified withdrawal policy: debit releasable unallocated capital first, then 
 proportion to each strategy's releasable idle capital, not initial allocation fractions or position notional.
 Derive releasable amounts from a consistent pre-withdrawal effective fact frontier and existing Risk
 constraints; retain policy/frontier identity, amounts and cash-precision rounding, and apply each cashflow
-once. Portfolio records capital flow rather than trading loss; Governance updates production envelopes, and
-replay records its run-local allocation event. Strategies handle no withdrawals. Do not automatically resize
+once. Portfolio records capital flow rather than trading loss; Governance updates production envelopes without
+turning withdrawals into replay allocation events. Strategies handle no withdrawals. Do not automatically resize
 pending orders or remove position protection.
 
 If actual withdrawal exceeds provably releasable product capital, accept venue facts, record the deficit and
@@ -765,9 +800,9 @@ requires affected-scope reconciliation and risk fencing; it never becomes approv
 
 Unexplained drift, unavailable account evidence or exceeded risk bounds blocks affected-scope additions under
 existing Owner contracts. External cancellation/ closure updates execution feedback from authoritative facts;
-it is not a strategy-triggered exit or permission to restore the old order/position automatically. Research
-replay may inject pre-registered external cashflows and interventions to verify the same accounting,
-attribution, capacity and feedback semantics. Unavailable consistent state blocks affected-scope risk addition
+it is not a strategy-triggered exit or permission to restore the old order/position automatically. Validate
+deposits/withdrawals in live account reconciliation, attribution and governance chains. Backtest injects no external
+cash flows and does not reconstruct the account timeline after transfers. Unavailable consistent state blocks affected-scope risk addition
 under existing Runtime readiness, Risk fence and Execution Recovery contracts.
 
 Protection/recovery uses only its existing authority; synchronization cannot blindly trade to match a ledger,

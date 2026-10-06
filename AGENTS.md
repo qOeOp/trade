@@ -5,7 +5,9 @@
 - **Minimal deterministic services.** Code provides explicit parameterized operations, durable tasks,
   reproducible evidence and enforced boundaries. Determinism alone does not justify a new product service.
 - **Build on Nautilus.** Reuse and extend its data, Strategy, backtest, Risk, Execution and Portfolio capabilities
-  through native APIs. Do not create parallel engines or ledgers, or product-specific strategy languages and compilation chains.
+  through native APIs. Within confirmed product bounds, adopt verified native mechanisms and extensions, record the
+  decision and evidence, and do not ask users to reselect native behavior. Ask only for unresolved product intent
+  or tradeoffs requiring their judgment. Do not create parallel engines or ledgers, or product-specific strategy languages and compilation chains.
 - **Clean ownership.** Give each responsibility one owner. Merge overlapping components; add a module only for
   an independent need. Shared storage never permits access to another owner's private tables or write authority.
 - **Local context.** Organize product extensions by independent capability, not individual MCP tools.

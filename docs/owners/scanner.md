@@ -1,10 +1,10 @@
 # Scanner
 
-## Target role and legacy contract migration
+## Product responsibility
 
 The product target no longer retains a separate Scanner department or its deployment-proposal route. On-demand market
-search belongs to [R&D discovery](./rd/#on-demand-read-only-opportunity-discovery),
-reusing sealed strategies and native evaluation. Strategy Governance directly decides initial deployment, trial
+search uses Market Data queries directly; path-dependent strategy signals use registered native replay
+with optional [R&D findings](./rd/#on-demand-read-only-opportunity-discovery). Strategy Governance directly decides initial deployment, trial
 promotion, retention and retirement from eligibility, account/performance facts and frozen conditions. It needs no
 new scan-proposal producer, and opportunity signals are not a prerequisite for strategy deployment.
 
@@ -14,11 +14,13 @@ no production consumer is connected. Removing the target department cannot silen
 unconditional activation. Migration uses versioned governance conditions preserving qualification, authority, capital
 and recovery constraints. Old receipts/attempt identities remain; unadmitted scheduling/effects gain no admission here.
 
-## Responsibility
+## Sealed compatibility contract
+
+### Compatibility responsibility
 
 Run a scheduled slow-track match between governed strategies and current market conditions, then submit evidence-bound deployment proposals to Strategy Governance. Scanner never activates Runtime and never owns strategy lifecycle state.
 
-## Authoritative facts owned
+### Authoritative facts owned
 
 - Versioned Scanner Schedule Definition binding scan-scope identity and version, calendar, time zone, cadence,
   time-zone rules, fold/gap disposition, due-slot derivation, misfire/backfill policy, shared clock, and validity.
@@ -35,7 +37,7 @@ Run a scheduled slow-track match between governed strategies and current market 
 - Negative per-strategy dispositions remain visible even when other strategies make the batch `PROPOSED`.
 - A complete receipt binds equal expected and observed strategy sets. An incomplete `FAILED` receipt uses one mutually exclusive branch: when expected membership is known it binds exact expected, observed, and `missing = expected − observed`; when membership is unresolved it binds the authoritative unresolved-set disposition, observed facts, an explicit missing-members-unavailable marker, and immutable terminal reason without inventing members.
 
-## Modules
+### Compatibility components
 
 - **Strategy Loader** - load deployable ArtifactRefs, activation conditions, data needs, versions, and lifecycle limits from the governed registry.
 - **Market Snapshot** - derive each strategy's supplied universe-selection rule, required instruments and windows,
@@ -44,7 +46,7 @@ Run a scheduled slow-track match between governed strategies and current market 
 - **Strategy Matcher** - evaluate each activation condition against its bound inputs; one strategy's missing data or condition failure cannot suppress complete matches for others.
 - **Proposal Builder** - package matched strategies, evidence, optional Capacity View identity, and stop conditions into an auditable proposal.
 
-## Implementation status ledger
+### Implementation status ledger
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
@@ -61,17 +63,17 @@ deployment cutover, or real trading.
   membership is crate-private, the `TerminalReceiptStore` port, and the `ProductEdgeTerminalReceiptReader` read seam.
   `crates/scanner/src/tests.rs`, `crates/scanner/tests/public_owner_admission.rs`, and the compile-fail tests prove
   the fail-closed shape.
-- **TARGET - production composition:** no scheduler trigger, no production constructor for the sealed source-Owner
+- **UNAVAILABLE, compatibility interface - production composition:** no scheduler trigger, no production constructor for the sealed source-Owner
   admission, no durable receipt custody behind `TerminalReceiptStore`, and no Product Edge consumer exist; the only
   external use is a type import in `crates/testkit/tests/f1_current_workspace.rs`. The durable custody and the
   Product Edge consumer named in this row are the admitted slice; the scheduler trigger and the sealed-admission
   constructor are not.
-- **TARGET - Strategy Loader, Market Snapshot, and Capacity View input:** the `StrategyLoader` and `MarketSnapshot`
+- **UNAVAILABLE, compatibility interface - Strategy Loader, Market Snapshot, and Capacity View input:** the `StrategyLoader` and `MarketSnapshot`
   ports have no implementation over the governed registry, Market Data PIT facts, or a Portfolio Capacity View.
-- **TARGET - handoffs and persistence:** no terminal receipt reaches Governance or Product Edge, and no Scanner fact
+- **UNAVAILABLE, compatibility interface - handoffs and persistence:** no terminal receipt reaches Governance or Product Edge, and no Scanner fact
   is persisted. The Product Edge half of this row is admitted; the Governance handoff is not.
 
-## Input handoffs
+### Input handoffs
 
 Each contract below states what Scanner requires and refuses, not what an upstream returns. None of the four
 seams exists at this cut, as the ledger entry for the `StrategyLoader`, `MarketSnapshot`, and Capacity View
@@ -81,8 +83,7 @@ admitted.
 - Scheduler supplies the fixed periodic trigger and no fact; it has no deployment authority. The trigger carries
   no identity Scanner trusts: the attempt identity derives only from the Schedule Definition version, the exact
   scan-scope identity and version, and the canonical unambiguous due-slot boundary. A duplicate, concurrent,
-  restarted, or late trigger joins the same attempt and the same terminal receipt. An absent trigger produces no
-  attempt at all, because a receipt without an attempt would assert that a scan happened. Scanner never lets a
+  restarted, or late trigger joins the same attempt and the same terminal receipt. Without a trigger, no attempt or receipt is created. Scanner never lets a
   trigger create a due slot the definition does not derive, and never admits a trigger's clock epoch into the
   stable identity.
 - [Strategy Governance](./strategy-governance/) supplies the governed strategy frontier for one due slot: for
@@ -115,7 +116,7 @@ admitted.
   strategy- or generation-bearing scope, a Paper/Live alias, or an unresolved shared-constraint overlap as the
   candidate-neutral scope the condition names.
 
-## Output handoffs
+### Output handoffs
 
 - To [Strategy Governance](./strategy-governance/): exactly one terminal Scanner Receipt for every scheduled
   ScanId, bound to the stable attempt identity and carrying exactly one of `PROPOSED`, `NO_MATCH`,
@@ -156,7 +157,7 @@ admitted.
   `StrategyLoader`, `MarketSnapshot` or Capacity View implementation, the Governance receipt handoff, any Scanner
   fact other than the terminal receipt, and every production effect, deployment cutover and real trade.
 
-## Rejections and prohibitions
+### Rejections and prohibitions
 
 - A Scanner proposal is evidence only. It cannot create an authorization lineage, approve unattended operation,
   or lawfully continue to Runtime by itself. Governance may consider it only inside an already authorized
@@ -167,7 +168,7 @@ admitted.
 - Never emit Trade Intent, Risk Decision, Reservation, or order command.
 - Never treat a partial, expired, unavailable, cross-scope, or economic-condition-, methodology-, assumption-, or input-cut-mismatched Capacity View as an available required input.
 
-## Failure and recovery
+### Failure and recovery
 
 One unavailable strategy input or condition error closes only that strategy as `INPUT_UNAVAILABLE` or
 `CONDITION_FAILED`; neither can manufacture a batch operational failure. A complete set with no
@@ -199,7 +200,7 @@ need. A readback also reaches one invariant admission cannot: every fact in one 
 so their clock epochs and Time Evidence are all equal. Admitting a single fact cannot see a second fact, so
 nothing on the admission path can check that; only the whole receipt coming back can.
 
-## Decision contract
+### Decision contract
 
 - **Inputs** - one due slot, complete governed registry frontier, strategy activation conditions, required PIT
   snapshots and optional condition-required Capacity View.
@@ -215,7 +216,7 @@ nothing on the admission path can check that; only the whole receipt coming back
   matches while avoiding wasteful always-on instances and false matches from insufficient data.
 - **Prohibitions** - no lifecycle, allocation, Runtime application, Trade Intent, risk, order, account, or effect.
 
-## Subsequent implementation acceptance
+### Compatibility interface acceptance
 
 - Every scheduled tick has exactly one terminal `PROPOSED`, `NO_MATCH`, `INSUFFICIENT_DATA`,
   `COMPLETED_NO_PROPOSAL`, or `FAILED` receipt.
@@ -243,12 +244,12 @@ nothing on the admission path can check that; only the whole receipt coming back
 - A Governance decision derived from a proposal binds the exact due slot, terminal receipt, proposal member, and
   pre-existing unattended authorization lineage; evidence-only Scanner output is never treated as authorization.
 
-## Observability and persistence
+### Observability and persistence
 
 Scanner persists Schedule Definition, stable due-slot Attempt, exact input frontier, per-strategy disposition,
 terminal Scanner Receipt, and Proposal as native facts. For `BATCH_OPERATIONAL_FAILED` it additionally persists
-the batch failure identity, one admitted category, evidence source cuts, and Time Evidence. Telemetry covers
+the batch failure identity, one admitted category, evidence source cuts, and Time Evidence. If an admitted consumer needs telemetry, it may observe
 scheduling delay, attempt duration, per-strategy isolation, missing-input category, aggregation completeness, and
-typed independent batch operational failure. Dashboard separately counts condition-failed members,
+typed independent batch operational failure. A read consumer may separately count condition-failed members,
 `COMPLETED_NO_PROPOSAL`, and typed batch `FAILED` receipts; a retry joins the same stable attempt and never
 increments a second scan or proposal.

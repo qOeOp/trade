@@ -4,26 +4,28 @@
 
 Observability is a non-authoritative operational boundary for traces, metrics, logs, global status projections, and alert routing. It makes the whole system diagnosable without becoming another writer for research, qualification, lifecycle, account, order, risk, or recovery facts.
 
-Its visible modules are Telemetry Gateway, Status Projection, Alert Routing, and Dashboard API. Telegram is the default Alert Routing adapter, not a top-level authority.
+Start with Nautilus/service logs, container logs and task terminal states. Preserve actionable errors for the user to inspect, repair and deploy. Dashboard reads admitted facts from owning services. No dedicated telemetry gateway, global status database or alert system is a prerequisite. Add an existing collector, bounded projection or notification adapter only for a concrete tracing, aggregation or notification need; these are infrastructure capabilities, not business departments.
 
 ## Two separate signal lanes
 
 Committed domain events and runtime telemetry do not share authority semantics.
 
 - **Committed domain events** originate only after the native Owner commits its fact and an outbox entry in the same transaction. Event Rail provides at-least-once wake delivery; consumers deduplicate by stable event identity and then read the source Owner fact.
-- **Trace, metric, and log signals** use OTLP through the Telemetry Gateway. Collection is pluggable, versioned, independently enabled or disabled, sampled, cardinality-bounded, and redacted. Losing telemetry may reduce visibility but cannot change native Owner correctness or business state.
+- **Trace, metric, and log signals** use native records first, with OTLP to an existing collector when centralized collection is needed. Collection is pluggable, versioned, independently enabled or disabled, sampled, cardinality-bounded, and redacted. Losing telemetry may reduce visibility but cannot change native Owner correctness or business state.
 
 Commands and uncommitted requests remain on Owner ports. Event Rail is not a command bus, and the Telemetry Gateway is not a business workflow engine.
 
 ## Canonical envelope and trace context
 
-Every accepted record binds schema version, signal kind, source Owner and node, event or observation identity, correlation and causation identities, idempotency key, trace/span/parent-span identities, all applicable strategy/generation/artifact/TrialFamily/account/scope/mode namespaces, four relevant times plus clock epoch, bounded outcome/error category, payload digest/reference, redaction class, and collection-policy version.
+Structured cross-service observation interfaces bind the fields required by their actual consumer contract: schema version, signal kind, source Owner and node, event or observation identity, correlation and causation identities, idempotency key, trace/span/parent-span identities, all applicable strategy/generation/artifact/TrialFamily/account/scope/mode namespaces, four relevant times plus clock epoch, bounded outcome/error category, payload digest/reference, redaction class, and collection-policy version.
 
 Committed events additionally bind the exact immutable Owner fact reference and content digest. Trace context is correlation metadata only: it carries no credential, protected Qualification evidence, principal authority, or effect permission.
 
 ## Persistence model
 
-Physical infrastructure may be shared, but logical schemas, write credentials, retention, and deletion stay partitioned by authority and disclosure class.
+Ordinary logs need no unrelated account, strategy, clock or span fields and no business receipt per log. State and permission consumers still resolve owning-service facts.
+
+The table assigns authority when a capability is needed; it requires neither every table nor separate deployments. Existing runtime infrastructure keeps logs. Projection/notification storage is added only for an admitted consumer. Physical infrastructure may be shared while write credentials, retention and deletion remain partitioned by authority and disclosure class.
 
 | Logical store                                                         | Writer                                    | Purpose                                                                              |
 | --------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -34,7 +36,7 @@ Physical infrastructure may be shared, but logical schemas, write credentials, r
 | quarantine and dead letter                                            | Observability custody                     | invalid, unknown, or exhausted delivery identities without secret payloads           |
 | alert delivery                                                        | Alert Routing                             | delivered, suppressed, failed, or unknown adapter disposition                        |
 
-Large payloads remain in a content-addressed object store behind digest references and disclosure policy. Dashboard records never become the only copy of a business fact.
+Owning services retain necessary large business results behind exact references. Logs do not copy business payloads or require a new diagnostic object store. Dashboard records never become the only copy of a business fact.
 
 ## Global Status View
 
@@ -62,7 +64,7 @@ closure remains the composition of native Owner requests, receipts, and bounded 
 
 ## Alert routing
 
-Alert Routing consumes bounded Event Wakes or policy-admitted health conditions and sends them to Telegram or another replaceable adapter. It owns delivery preferences, attempts, and receipts only. Delivery success, silence, duplication, or failure never proves a source transition, clears a fence, retries an unknown order effect, resumes a strategy, or declares `KNOWN_CLOSED`.
+When notifications are needed, an existing alert component consumes bounded Event Wakes or policy-admitted health conditions and sends them to a user-selected replaceable adapter, without a product default channel. It owns delivery preferences, attempts, and receipts only. Delivery success, silence, duplication, or failure never proves a source transition, clears a fence, retries an unknown order effect, resumes a strategy, or declares `KNOWN_CLOSED`.
 
 ## Implementation acceptance
 

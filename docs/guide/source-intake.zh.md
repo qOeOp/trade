@@ -19,25 +19,15 @@ Intent 后，解释后的来源才能进入正式研究循环。来源可以启�
 - 研究 重放或扫描实际消费的价格观测 宏观 vintage 财报事实 事件日历和标的状态属于 Market Data；
 - Source Intake 可以保存数据集或 API 引用，但不能成为第二套市场数据目录或事实存储。
 
-## 来源类别与 ROI
+## 来源选择
 
-分层只代表发现优先级，不是证据等级或准入决定。
+Agent 根据具体问题选择论文、作者代码、机构材料、社区讨论或媒体，不采用平台统一的来源等级和阅读优先级。记录准确来源、可得版本和解释；热度、出版身份与来源类别都不授予执行、资格或数据权限。
 
-| 层级 | 来源类别                | 最适合发现                   | 证据定位                     | 主要风险                | 直接进入 Intent |
-| ---- | ----------------------- | ---------------------------- | ---------------------------- | ----------------------- | --------------- |
-| S    | 学术身份与引用图谱      | 机制 作者 相关研究和既有检验 | 身份较强 论断仍需解释        | 元数据或引用错误        | 永不            |
-| S    | 开放全文与工作论文      | 假设 方法 证伪条件和局限     | 一手研究文本 不是交易证明    | 版本漂移与选择性报告    | 永不            |
-| S    | 官方机构事实            | 可检验经济事件和官方定义     | 来源较强 仍须证明 PIT 可得性 | 修订 发布时间与权利语义 | 永不            |
-| A    | 论文关联代码与数据集    | 复现方法并揭示实现假设       | 有用工程证据                 | 可变依赖 许可与幸存偏差 | 永不            |
-| A    | 机构量化研究            | 经济机制与现实约束           | 专家研究输入                 | 营销选择与细节缺失      | 永不            |
-| B    | 专业问答与开源社区      | 公式边界 实现失败和反例      | 仅作交叉发现                 | 上下文丢失与热度偏差    | 永不            |
-| C    | 一般社区 视频与社交媒体 | 术语 实务失败与外部链接      | 弱发现信号                   | 不可验证论断与提示注入  | 永不            |
+替代解释、预测和证伪方式由 Agent 按需选择。实际消费的价格、资金费和其他市场事实仍经过 Market Data，不因它们来自论文附件就绕过数据准入。
 
-Agent 使用来源前保留 provenance 并记录解释。替代解释、区分预测与证伪条件由 Agent 按研究需要选择，不是平台审批方法充分性的门槛。来源等级不授予执行、资格或数据权限。
+## 宿主工具可用的来源示例
 
-## Connector 候选
-
-以下是可替换的首阶段候选，不是永久依赖或业务权威：
+以下来源由 Agent 通过已有宿主工具按需使用，不是产品必须开发的 connector 清单或固定阅读顺序：
 
 1. [OpenAlex API](https://docs.openalex.org/) 用于发现学术身份 主题 作者和引用关系。
 2. [Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) 用于解析 DOI
@@ -54,13 +44,11 @@ Agent 使用来源前保留 provenance 并记录解释。替代解释、区分�
 机构来源和媒体提取，只有在具体研究瓶颈足以覆盖获取与权利成本时才进入后续阶段。优先使用官方 API
 feed repository 或作者维护索引；通用抓取只是后备方案，并且必须保留同等身份 权利与终态证据。
 
-研究来源 canary `scripts/ci/source_canary.py` 从 GitHub-hosted runner 探测这些 connector，而不是从产品运行的位置 探测：生产环境是用户自己的机器，PostgreSQL
-在本机 compose 部署里。 runner 上的读数说明的是 runner 的地址能到达 什么，不是生产环境能到达什么。 自 2026-09-22 起 arXiv 对 runner 回 HTTP
-406，2026-09-28 三次尝试全是 406； canary 把重试后仍是 406 的结果记为 `BLOCKED` 而不是 `FAILED`。
+来源探测只能说明实际执行环境的可达性。CI runner 的结果不证明服务器或 Agent 宿主可访问；临时限流、拒绝和网络故障保留准确状态，不能伪装为空结果或生产能力。
 
-2026-09-28 在用户机器上十次请求只有一次得到 406， 下一次请求即成功，所以在那里重试可以吸收它。
+## 现有产品托管获取合同
 
-## 当前产品托管采集的获取前准入
+### 当前产品托管采集的获取前准入
 
 R&D 在任何外部网络调用前先提交一个 Source Acquisition Binding。
 
@@ -82,7 +70,7 @@ loopback private link-local 禁止或变化 地址 DNS rebinding 未列出 redir
 provenance。 credential 始终不透明，不能进入来源内容 日志 prompt 回执或生成工件。 connector method endpoint query header/body digest
 origin 解析结果 redirect 序列 credential audience 响应边界 权利政策或时间截面改变时必须创建后继 binding；冲突重放必须拒绝。
 
-### 获取权威类别
+#### 获取权威类别
 
 每个 Source Acquisition Binding 必须且只能声明一种不可互换的权威类别：
 
@@ -98,34 +86,9 @@ origin 解析结果 redirect 序列 credential audience 响应边界 权利政�
 receipt 和 readback。类别不匹配是 identity conflict，不是准确重放。验收 endpoint 必须使用非公开 fixture
 身份，绝不能伪装成 `api.openalex.org`；fixture 结果永远不是 live-provider 证据。
 
-**CURRENT - 生产的政策解析还缺什么，这是读出来的而不是扫出来的。** `SourceIntakePolicyEvidencePort` 把五个 policy locator 加一个 shared-time head 变成
-`SourceIntakePolicyEvidenceV1` 的四十四个字段。 这件事的两半都只存在于 `sealed-source-intake-research-acceptance` 之后:决定*哪些*政策适用的那个查询， 把每一个 locator 都填成
-`SEALED_` 常量;而解析它们的那个端口调用一个 fixture 构造函数， 再用字面量覆盖掉 shared-time 字段。
+产品托管获取只有在真实政策解析、网络和权利依据可用时才能接入。密封 fixture 或测试端口不证明生产解析存在；首次获取必须具有权威政策来源，不能由请求填写的 locator 或环境默认值自证。
 
-这个端口完全没有生产实现，它的另一个实现在 `#[cfg(test)]` 模块里。
-
-把两半分开读，缺口就不是一整块了。 重放路径上 locator 是有来源的:已存的 acquisition binding 带着每一条政策的 identity 与
-version，而密封查询构造函数的文档注释写明了让这件事安全的规则， binding 只是不可信的 locator 源，端口仍然要重新解析并封印每一个被引用的事实。 **首次**采集则没有 来源。
-`AgentOperationManifestProposalV1` 是最像能承载它们的东西，而它不承载:它绑定的是操作、 允许与禁止的 effect、一个 capability policy 摘要和一个有效期窗口，那是 effect
-授权而不是采集政策。
-
-所以生产实现要回答的第一个问题不是怎么解析一个 locator，而是首次采集的 locator 究竟从哪里来。
-
-**CURRENT - rights 与 retention 在这里是两族、在 Market Data 是一个结构，而这是有意的。** `SourceIntakePolicyEvidenceV1` 带着
-`rights_basis_identity` 及其自己的 `effective_at`、 `valid_through` 与一个 `acquisition_scope`，另外分开带着
-`retention_policy_identity` 及其自己的 `effective_at`、`valid_through` 与 `retention_scope`。
-
-Market Data 的 `UntrustedLicensePolicy` 则把 `use_scope`、`redistribution_scope`、`retention_policy`、
-`redaction_policy` 作为四个自由字符串携带，那个结构的两侧都没有任何窗口字段。
-
-保持两族的理由是 Source Intake 需要、而一个自由字符串陈述不了的一件事：**一份研究来源可以
-"可采集至某一日期"而"须于另一日期前删除"，两条期限的方向可以相反。** 一个承载留存基础的字符串
-表达不了一对互相独立的窗口，所以融合会丢掉这个 Owner 必须遵守的一条限制。
-
-Market Data 的做法记在这里是作为它自己的事实，而不是作为本选择的理由：它那边的 rights 是一个
-可重新观测的状态，granted、revoked、denied 或 unresolved，所以一次撤销是以一次新的准入到达的，
-不是某个日期到了。将来是否该由一种形状同时服务两边，这一点是开着的；现在把它记下来，是为了让
-将来的对齐从测量开始，而不是重新发现这个差异。
+获取权限和保留期限独立核验。来源可能在一个日期后不再允许获取，而已有内容须在另一个期限前删除；不能用一个自由字符串或一份共享有效期丢失其中任一约束。Market Data 的市场事实许可按其自身契约核验，不因来源记录而获得许可。
 
 一个 Source Intake Owner orchestrator 拥有完整生命周期：
 
@@ -136,7 +99,7 @@ flow、fixture adapter 或 caller 都不得拆分或复制 Owner custody。只�
 claim、raw payload、终态 receipt、provenance、Source Candidate 与 outbox；只有 `ADMITTED` 加
 `RETRIEVED` 才能原子提交 positive record。
 
-## 当前托管采集的内部能力序列
+### 当前托管采集的内部能力序列
 
 以下是 Source Intake 内部能力，不是新的 Flow 节点或 Owner：
 
@@ -154,7 +117,7 @@ claim、raw payload、终态 receipt、provenance、Source Candidate 与 outbox�
 任何 connector 都不能创建 Research Intent Strategy Artifact Candidate Eligibility Fact 部署决定或
 外部交易效果。
 
-## 获取终态
+### 获取终态
 
 每次有界获取尝试只终结一次，状态为：
 
@@ -174,7 +137,7 @@ Research Source Provenance Record；其他七种获取终态都不创建 provena
 connector policy retrieval cut 或内容摘要变化时创建新 attempt 身份。缺失或只有 prose 的失败证据
 保持 `UNAVAILABLE`，不能静默产生空发现结果。
 
-## Provenance 记录
+### Provenance 记录
 
 复用现有 Research Source Provenance Record，不新建第二套 registry。记录绑定：
 
@@ -187,9 +150,9 @@ connector policy retrieval cut 或内容摘要变化时创建新 attempt 身份�
 
 内容 retrieval cut license basis 或解释变化时创建后继记录。没有关联记录的 Source Candidate 不能交接。
 
-## 类型化 Source Intake-to-Research custody
+### 托管来源的类型化交接
 
-目标 composition 在 Source Intake 与 Research 之间只有一个由 R&D 拥有的类型化 ancestry operation。 它接收不受信的 Source Intake attempt
+现有托管协议在 Source Intake 与 Research 之间只有一个由 R&D 拥有的类型化 ancestry operation。 它接收不受信的 Source Intake attempt
 reference，然后从 Owner custody 锁定并重读准确 `RETRIEVED` terminal receipt、Research Source Provenance
 Record、Source Candidate 与匹配的 transition outbox。
 
@@ -215,9 +178,9 @@ operation receipt；identity 被用于 changed meaning 时发生 conflict 且零
 回归证据和 crate-local Composer 证明继续作为相互分离的 `CURRENT/PARTIAL` evidence。当前没有证据建立
 隔离的第一方 PostgreSQL Source Intake runner；Product Edge D0 合同的组合动态 gate 仍未通过。
 
-## Triage 与准入
+### Triage 与准入
 
-Agent 自行安排阅读和实验顺序，可考虑数据可得性、经济相关性、证据质量及成本。R&D 记录 Agent 方案，不计算信息价值排序或确定性 tie-break；获取权限与预算仍由对应服务核验。
+Agent 决定阅读与实验顺序；R&D 记录方案，不替 Agent 排序。对应服务继续核验获取权限与预算。
 
 交接顺序为：
 
@@ -231,7 +194,7 @@ frontier、稳定 correlation 和 Time Evidence。 `PREPARED` 与 `SUBMITTED_OR_
 correlation binding。 含义改变必须创建后继请求；传输成功 静默或旧 snapshot 都不能表示 `AVAILABLE` 或终态负例。 Source Intake
 不自行修复或保存这些市场事实。
 
-## 失败案例
+### 失败案例
 
 - 把外部 prompt repository 指令或工具响应当作可执行请求属于安全失败。
 - 把 `UNAVAILABLE` `RATE_LIMITED` 或 `AUTH_REQUIRED` 当作空结果属于证据失败。
@@ -241,7 +204,9 @@ correlation binding。 含义改变必须创建后继请求；传输成功 静�
 - 把价格 filing 宏观或标的事实复制进 Source Intake 会产生禁止的第二套 Market Data 存储。
 - 把热门来源直接推进工件 重放 Qualification Governance 或交易属于权威失败。
 
-## 验收边界
+### 现有托管入口的验收边界
+
+以下限制只适用于实际启用的产品托管获取和封存兼容入口；不要求为了宿主来源记录开发 Composer、ProgramHost 或新的获取执行器。普通来源记录验证主体权限、准确引用、不可信内容隔离与持久读回即可。
 
 - 契约测试覆盖全部获取终态 准确重放 后继内容 connector 不可用与权利变化。
 - 契约测试证明只有准确 `ADMITTED` 加 `RETRIEVED` 创建或加入 provenance；其他每种获取终态都保持 provenance 缺失。

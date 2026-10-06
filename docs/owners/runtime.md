@@ -29,7 +29,7 @@ reachable APIs and existing custody admit no Paper/Live or production effect.
   `NOT_READY`, local suppression receipt, and `valid-through`.
 - **TARGET:** generation-scoped native event/command records and versioned strategy checkpoint binding the exact
   package, environment, ordered event frontier, strategy state, protection and fill reconciliation.
-- Runtime Kernel Repair Result bound to one R&D-owned `native-repair-request`, stable correlation, predecessor
+- Compatibility-only Runtime Kernel Repair Result bound to one R&D-owned `native-repair-request`, stable correlation, predecessor
   `REPAIR_INPUTS` decision, original proof digest, old kernel version, decisive evidence, repair policy, and fresh
   Time Evidence. Runtime alone commits `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that attempt.
 
@@ -47,11 +47,10 @@ above.
 
 ## Implementation status ledger
 
-This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
-[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
-and a production path that depends on no testkit or acceptance feature; every other row grants nothing, and
-widening the admitted set requires changing this document first.
+This ledger uses [Market Data](./market-data/) status vocabulary; `CURRENT_PARTIAL` means merged but unreachable.
+Only the row marked `IMPLEMENTATION_ADMITTED` is admitted as bounded, separately reviewable work.
+Acceptance requires its ordered-chain entries to pass on Linux and a production path without testkit or acceptance features.
+Other rows grant no permission; widening admission requires changing this document first.
 
 - **TARGET / IMPLEMENTATION_ADMITTED - Runtime Owner live market fact read port:** the admitted slice is one
   Runtime role pair over its own private and API schemas, and one read-only Runtime custody that consumes the live
@@ -88,13 +87,13 @@ widening the admitted set requires changing this document first.
   `ProgramHost` in `crates/strategy_factory` runs only under Backtest replay; the inherited strategy and actor engine
   in `crates/trading` and the kernel and live-node composition in `crates/system` and `crates/live` are the
   migration sources named by capability adoption and hold no Runtime Owner fact.
-- **TARGET - Generation Application Receipt, Trade Intent, Runtime Readiness Fact, Runtime Incident Fact, and
-  Runtime Kernel Repair Result:** no type, custody, or writer exists. The foundation's `NOT_READY` is a static
+- **TARGET - Generation Application Receipt, Trade Intent, Runtime Readiness Fact, Runtime Incident Fact:** no type, custody, or writer exists. The foundation's `NOT_READY` is a static
   status projection, not a committed Readiness Fact bound to a generation, checkpoint, scope, and `valid-through`.
 - **TARGET - Readiness Gate and checkpoint persistence:** nothing persists a checkpoint or publishes readiness to
   Risk and Execution.
 - **TARGET - input and output handoffs:** no port reaches a Governance decision, live Market Data facts, a Risk
-  decision, an Execution command or readback, an R&D repair request, or Event Rail.
+  decision, an Execution command or readback, or Event Rail. The compatibility repair result and its ports are also unavailable;
+  they are not prerequisites for native research or a server self-repair facility.
 - Paper and Live equivalence stays **TARGET / NOT_ADMITTED** as stated under the shared strategy lifecycle
   contract below; no Paper or Live Execution adapter is bound to Runtime.
 
@@ -125,7 +124,7 @@ Runtime does not promote strategy memory, targets or Agent explanations into acc
   pre-consumption withdrawal.
 - [Execution](./execution/) returns order, fill, rejection, terminal readback, and reconciliation facts needed
   to update instance state or declare readiness loss.
-- [R&D](./rd/) supplies only a frozen `RUNTIME_KERNEL` `native-repair-request` with exact predecessor decision,
+- On the compatibility repair interface only, [R&D](./rd/) supplies a frozen `RUNTIME_KERNEL` `native-repair-request` with exact predecessor decision,
   correlation, proof digest, old kernel identity and source cut, policy, and fresh Time Evidence. Wrong category,
   target, predecessor, proof, identity, cut, policy, time, or changed meaning creates no attempt or result.
 
@@ -140,7 +139,7 @@ Runtime does not promote strategy memory, targets or Agent explanations into acc
   Incident Facts. Execution supplies `RecoveryCase.KNOWN_CLOSED` separately.
 - To [R&D](./rd/): committed generation-scoped Incident facts as successor-only source evidence. The
   handoff cannot tune the running generation, reopen its Intent, or expose protected Qualification detail.
-- To [R&D](./rd/): the exact request-correlated Runtime Kernel Repair Result. `REPAIRED` names a new kernel
+- On the compatibility repair interface only, to [R&D](./rd/): the exact request-correlated Runtime Kernel Repair Result. `REPAIRED` names a new kernel
   version and permits only a new request-equal Replay Request bound to the exact native repair request and
   result identities, exact predecessor `REPAIR_INPUTS` decision, `RUNTIME_KERNEL` category, stable correlation,
   original proof digest, predecessor and successor kernel identities and source cuts, and unchanged predecessor
@@ -220,7 +219,7 @@ issue a fresh decision.
 - Runtime has no API or state transition that creates, advances, commands, or closes a Recovery Case.
 - A Runtime Incident Fact never changes bytes or acquires a case identifier after commit. One or more cases may
   reference it only from their append-only cause sets.
-- Every admitted `RUNTIME_KERNEL` native repair request has one correlated write-once result. Exact replay joins
+- On the compatibility interface, every admitted `RUNTIME_KERNEL` native repair request has one correlated write-once result. Exact replay joins
   the same attempt and result; `UNAVAILABLE` and `OUTCOME_UNKNOWN` create no successor kernel identity, while only
   a result-bound `REPAIRED` can name one.
 

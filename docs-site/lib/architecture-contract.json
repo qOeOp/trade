@@ -299,11 +299,12 @@
       "Shutdown drains admitted work to an authoritative result or explicit unknown custody before the writer stops and restart rejoins stable identities",
       "Freshness and ordering comparisons use shared Time Evidence with an identified clock epoch monotonic sequence uncertainty and skew bound rather than local wall time alone",
       "A clock epoch change missing continuity excessive uncertainty stale valid-through or partial dependency outage cannot advance a dependent business transition",
-      "Every time-sensitive business transition appears in exactly one coverage-matrix cut kind and carries the complete bindings for that cut rather than an unqualified local timestamp"
+      "Every time-sensitive business transition appears in exactly one coverage-matrix cut kind and carries the complete bindings for that cut rather than an unqualified local timestamp",
+      "SCANNER_DUE_SLOT covers only sealed compatibility Scanner objects; it introduces no target scheduled discovery consumer or scheduler"
     ]
   },
   "observabilityContract": {
-    "role": "non-authoritative-observation-and-projection-boundary",
+    "role": "native-logs-first-with-optional-non-authoritative-observation-and-projection-infrastructure",
     "signalLanes": [
       {
         "id": "COMMITTED_DOMAIN_EVENT",
@@ -313,7 +314,7 @@
       },
       {
         "id": "TRACE_METRIC_LOG",
-        "transport": "otlp-to-telemetry-gateway",
+        "transport": "native-runtime-logs-or-optional-otlp-to-existing-collector",
         "delivery": "best-effort-or-buffered-by-versioned-policy",
         "authorityRule": "Telemetry describes execution and health but cannot authorize reject complete retry or recover a business transition"
       }
@@ -351,60 +352,6 @@
       ],
       "failClosedRule": "Unavailable or invalid collection policy disables export for the affected scope without blocking or changing the source Owner transaction"
     },
-    "pipeline": [
-      "OWNER_FACT_AND_OUTBOX_COMMIT",
-      "EVENT_RAIL_OR_OTLP_INGRESS",
-      "SCHEMA_AND_DISCLOSURE_VALIDATION",
-      "DEDUPLICATION_REDACTION_AND_BOUNDED_ENRICHMENT",
-      "TRACE_LOG_METRIC_AND_DOMAIN_PROJECTION_WRITES",
-      "GLOBAL_STATUS_VIEW_PUBLICATION",
-      "ALERT_POLICY_AND_ADAPTER_DELIVERY"
-    ],
-    "persistenceLayers": [
-      {
-        "id": "OWNER_FACT_STORE",
-        "authority": "native-owner",
-        "records": "immutable-or-versioned-business-facts-and-native-receipts",
-        "writeRule": "Only the native Owner write port may append or transition its facts"
-      },
-      {
-        "id": "OWNER_OUTBOX",
-        "authority": "native-owner",
-        "records": "fact-identity-event-type-sequence-payload-digest-and-publication-state",
-        "writeRule": "Co-commit with the authoritative fact; publication acknowledgement never rewrites business outcome"
-      },
-      {
-        "id": "TELEMETRY_STORE",
-        "authority": "observability-custody-only",
-        "records": "trace-spans-log-records-metric-samples-and-rollups",
-        "writeRule": "Retention sampling redaction and deletion are policy-bound; no record is business proof"
-      },
-      {
-        "id": "STATUS_PROJECTION_STORE",
-        "authority": "observability-custody-only",
-        "records": "owner-health-strategy-lifecycle-research-funnel-and-projection-checkpoints",
-        "writeRule": "Every row is rebuildable from cited Owner facts and telemetry and exposes freshness completeness and source frontier"
-      },
-      {
-        "id": "QUARANTINE_AND_DEAD_LETTER",
-        "authority": "observability-custody-only",
-        "records": "invalid-unknown-or-exhausted-delivery-identities-without-secret-payloads",
-        "writeRule": "Quarantine creates an operator-visible problem only and never retries a business effect"
-      }
-    ],
-    "logicalTables": [
-      "telemetry_event",
-      "trace_span",
-      "log_record",
-      "metric_sample",
-      "metric_rollup",
-      "owner_health_snapshot",
-      "strategy_lifecycle_projection",
-      "research_funnel_projection",
-      "projection_checkpoint",
-      "alert_delivery",
-      "quarantine_record"
-    ],
     "backtestDisclosurePolicy": {
       "exploratoryAllowedFields": [
         "replay-purpose",
@@ -441,162 +388,6 @@
       "protectedAggregationRule": "No metric status alert health score or research funnel projection may group filter label count or derive from a protected diagnostic category internal terminal disposition or negative reason; every negative terminal maps to CLOSED_NOT_QUALIFIED",
       "custodyRule": "Protected diagnostic category and category-derived detail remain Qualification-only even when Backtest owns the protected run result"
     },
-    "ownerObservationMatrix": [
-      {
-        "ownerId": "rd",
-        "authoritativeFacts": [
-          "research-source-provenance-record",
-          "research-intent",
-          "strategy-artifact",
-          "research-iteration-decision"
-        ],
-        "derivedMeasures": [
-          "sources-consumed",
-          "hypotheses-created",
-          "development-attempts",
-          "failure-categories",
-          "iterations-to-selected-artifact",
-          "d-only-repair-attempts"
-        ]
-      },
-      {
-        "ownerId": "backtest",
-        "authoritativeFacts": [
-          "exploratory-result",
-          "protected-run-result"
-        ],
-        "derivedMeasures": [
-          "runs-by-purpose",
-          "terminal-results",
-          "exploratory-diagnostic-categories",
-          "protected-public-terminal-outcomes",
-          "exploratory-run-duration"
-        ],
-        "publicProjectionFields": [
-          "exploratory-diagnostic-category-set",
-          "exploratory-run-latency",
-          "protected-bounded-public-terminal-outcome",
-          "non-dereferenceable-result-reference"
-        ],
-        "forbiddenProjectionFields": [
-          "protected-bounded-phase",
-          "protected-run-latency-or-terminal-timing",
-          "protected-diagnostic-category",
-          "protected-category-derived-aggregate",
-          "protected-internal-terminal-disposition-or-negative-reason",
-          "protected-measurement-parameter-threshold-or-result-detail"
-        ]
-      },
-      {
-        "ownerId": "qualification",
-        "authoritativeFacts": [
-          "candidate-intake-receipt",
-          "protected-robustness-assessment",
-          "eligibility-fact"
-        ],
-        "derivedMeasures": [
-          "attempts-by-public-terminal-outcome",
-          "qualification-latency",
-          "eligibility-expiry-and-revocation"
-        ]
-      },
-      {
-        "ownerId": "market-data",
-        "authoritativeFacts": [
-          "pit-market-snapshot",
-          "market-stream",
-          "valuation-facts"
-        ],
-        "derivedMeasures": [
-          "source-freshness",
-          "gap-and-correction-count",
-          "rights-and-semantics-rejections",
-          "provider-latency"
-        ]
-      },
-      {
-        "ownerId": "scanner",
-        "authoritativeFacts": [
-          "scanner-receipt"
-        ],
-        "derivedMeasures": [
-          "scheduled-attempts",
-          "matched-and-condition-failed-strategies-and-batch-failures",
-          "proposals-created",
-          "scan-latency"
-        ],
-        "projectionTerminologyGuard": "Per-strategy predicate failure is CONDITION_FAILED only; FAILED denotes only an incomplete or systemic batch failure"
-      },
-      {
-        "ownerId": "strategy-governance",
-        "authoritativeFacts": [
-          "authorized-generation-decision",
-          "capital-allocation-disposition"
-        ],
-        "derivedMeasures": [
-          "active-generations",
-          "deployment-start-and-stop-times",
-          "capital-changes",
-          "pause-retire-and-resume-counts"
-        ]
-      },
-      {
-        "ownerId": "runtime",
-        "authoritativeFacts": [
-          "generation-application-receipt",
-          "runtime-incident-fact",
-          "runtime-readiness-fact"
-        ],
-        "derivedMeasures": [
-          "uptime-and-downtime",
-          "restart-and-incident-count",
-          "strategy-use-duration",
-          "applied-generation-count"
-        ]
-      },
-      {
-        "ownerId": "risk",
-        "authoritativeFacts": [
-          "risk-decision-reservation",
-          "recovery-fence",
-          "risk-closure"
-        ],
-        "derivedMeasures": [
-          "allows-rejects-and-decrease-only",
-          "reservation-latency",
-          "fence-count-and-duration",
-          "aggregate-commitment"
-        ]
-      },
-      {
-        "ownerId": "execution",
-        "authoritativeFacts": [
-          "execution-account-facts",
-          "recovery-effect-attempt"
-        ],
-        "derivedMeasures": [
-          "commands-orders-and-fills",
-          "adapter-latency",
-          "unknown-effect-count",
-          "drift-and-recovery-duration"
-        ]
-      },
-      {
-        "ownerId": "portfolio",
-        "authoritativeFacts": [
-          "performance-receipt",
-          "exposure-receipt",
-          "capacity-view",
-          "portfolio-lifecycle-evidence-receipt"
-        ],
-        "derivedMeasures": [
-          "pnl-and-drawdown",
-          "exposure-and-capacity",
-          "interaction-degradation",
-          "strategy-lifecycle-evidence-count"
-        ]
-      }
-    ],
     "globalStatusViewContract": [
       "Every field cites source Owner fact identities or telemetry source frontier and exposes observed-at valid-through completeness and lag",
       "Unknown stale partial quarantined or rebuilding projection state is displayed explicitly and never converted to green healthy or business success",
@@ -981,7 +772,6 @@
       "repairReasonCategories",
       "repairResultStateBinds",
       "repairTransitionRule",
-      "repairValidationContract",
       "researchConsumptionByResultState",
       "requestSourceKinds",
       "requiredApplicabilityChain",
@@ -993,7 +783,6 @@
       "replayPurposeBindings",
       "replayAndSupersessionContract",
       "replayPurposes",
-      "nativeRepairReentryBinding",
       "replayJoinRule",
       "sourceAuthorityRef",
       "sourceBranches",
@@ -1098,10 +887,6 @@
         "signalLanes",
         "canonicalEnvelopeFields",
         "collectionPolicy",
-        "pipeline",
-        "persistenceLayers",
-        "logicalTables",
-        "ownerObservationMatrix",
         "backtestDisclosurePolicy",
         "globalStatusViewContract",
         "invariants"
@@ -1422,10 +1207,10 @@
           "no-protected-feedback-or-active-artifact-mutation"
         ],
         "semantics": {
-          "accepted": "R&D commits one write-once D-only Repair Disposition bound to the exact request admission attempt current Governance generation and predecessor Artifact so D0 proves no Artifact D1_BUILD_FAILED closes build package or security admission before Artifact validation and D1 validation states record request-equal proof without granting Candidate lifecycle or deployment authority",
-          "rejected": "Pre-admission stale invalid or changed request meaning resolves only through the R&D Request Receipt as REJECTED_NO_WRITE with no Repair Disposition while an admitted semantic allowed-surface parameter or market-model violation commits REJECTED_NOT_D_ONLY and cannot change the active Artifact",
-          "unknown": "Post-admission OUTCOME_UNKNOWN binds the last authoritative repair-attempt frontier and creates no retry Artifact Candidate Qualification lifecycle or deployment transition",
-          "replay": "The same request admission attempt correlation and typed meaning join one write-once disposition while changed meaning is rejected and any retry requires a successor explicit user request admission and attempt"
+          "accepted": "Sealed compatibility interface only; not a native package lifecycle prerequisite. R&D commits one write-once D-only Repair Disposition bound to the exact request admission attempt current Governance generation and predecessor Artifact so D0 proves no Artifact D1_BUILD_FAILED closes build package or security admission before Artifact validation and D1 validation states record request-equal proof without granting Candidate lifecycle or deployment authority",
+          "rejected": "Sealed compatibility interface only; not a native package lifecycle prerequisite. Pre-admission stale invalid or changed request meaning resolves only through the R&D Request Receipt as REJECTED_NO_WRITE with no Repair Disposition while an admitted semantic allowed-surface parameter or market-model violation commits REJECTED_NOT_D_ONLY and cannot change the active Artifact",
+          "unknown": "Sealed compatibility interface only; not a native package lifecycle prerequisite. Post-admission OUTCOME_UNKNOWN binds the last authoritative repair-attempt frontier and creates no retry Artifact Candidate Qualification lifecycle or deployment transition",
+          "replay": "Sealed compatibility interface only; not a native package lifecycle prerequisite. The same request admission attempt correlation and typed meaning join one write-once disposition while changed meaning is rejected and any retry requires a successor explicit user request admission and attempt"
         }
       },
       {
@@ -2109,7 +1894,7 @@
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "strategy-artifact",
-        "singleWriterOrNoAuthority": "R&D remains the sole writer of Strategy Artifact identity and Develop supplies build evidence only",
+        "singleWriterOrNoAuthority": "R&D alone seals Strategy Artifact identity; native package admission uses actual content and fixed environment. Existing Develop build evidence creates no separate writer or native prerequisite.",
         "readerOwnerIds": [
           "backtest",
           "qualification",
@@ -2131,7 +1916,7 @@
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "artifact-security-admission",
-        "singleWriterOrNoAuthority": "R&D owns package admission; native Strategy execution and ordinary task infrastructure remain implementation boundaries with no research judgment or credential authority",
+        "singleWriterOrNoAuthority": "Compatibility restricted runtime only; not the native package loader or sandbox. R&D seals native packages while Backtest and Runtime reuse native Strategy execution under independently verified isolation.",
         "readerOwnerIds": [
           "backtest",
           "runtime"
@@ -2831,8 +2616,7 @@
       {
         "inventoryId": "strategy-factory-pilot",
         "memberPaths": [
-          "crates/strategy_factory",
-          "crates/strategy_factory/programs/sdk"
+          "crates/strategy_factory"
         ],
         "disposition": "MIGRATE_PRESENT_FACETS_ONLY",
         "destinationIds": [
@@ -2845,14 +2629,13 @@
           "strategy-factory-research-intent",
           "strategy-factory-intent-family-counters",
           "strategy-factory-strategy-artifact",
-          "strategy-factory-restricted-decision-runtime",
           "strategy-factory-trial-receipt",
           "strategy-factory-formation-receipt",
           "strategy-factory-frozen-pilot-data-admission",
           "strategy-factory-native-backtest-pilot"
         ],
         "providerMemberPortEvidence": [],
-        "adoptionRule": "Migrate only source-verified PRESENT facets and preserve every ABSENT target as future architecture rather than current capability",
+        "adoptionRule": "Reuse source-verified identity evidence and admission facets for native Python packages; the programs/sdk and restricted decision runtime remain sealed compatibility references and are not adopted as the native loader or a migration prerequisite. Preserve every ABSENT target as future architecture rather than current capability",
         "noAuthorityBasis": "Strategy Factory is a value stream and never a second Research Backtest Qualification Scanner Portfolio Governance or Runtime authority"
       },
       {
@@ -2866,7 +2649,7 @@
         ],
         "capabilityPortIds": [],
         "providerMemberPortEvidence": [],
-        "adoptionRule": "Project canonical Owner records into one read-only rebuildable fail-closed status view",
+        "adoptionRule": "Optional projection for a separately admitted read-only consumer; reuse exact Owner records with freshness and disclosure bounds. No global aggregation server is required for native operation",
         "noAuthorityBasis": "Observability owns no source fact command retry terminal decision or trading effect"
       },
       {
@@ -4271,8 +4054,8 @@
             "backtest"
           ],
           "description": {
-            "en": "Canonical consumed inputs and outcome\nReports fees funding and a random-entry control",
-            "zh": "记录实际消费的数据、配置、订单、成交和最终回测结果\n报告费用 资金费与随机进场对照"
+            "en": "Canonical consumed inputs and outcome\nReports actual fees and funding; optional requested random-entry diagnostic",
+            "zh": "记录实际消费的数据 配置 订单 成交与最终结果\n报告实际费用与资金费；按请求附加可用的随机进场诊断"
           }
         }
       ]
@@ -4315,14 +4098,10 @@
           "label": "Forward Record",
           "kind": "protected",
           "emphasis": "standard",
-          "scenarios": [
-            "backtest",
-            "paper",
-            "scan"
-          ],
+          "scenarios": [],
           "description": {
-            "en": "Records a qualified candidate forward without orders\nReplays each new point in time and carries Scanner views\nPublishes only public phases to R&D",
-            "zh": "不下单地对已合格候选做前向记录\n在每个新的时点切面上重放 并承载 Scanner 的发现视图\n只向 R&D 发布公开阶段"
+            "en": "Optional separately admitted record-only observation\nNo orders or mandatory Scanner replay; protected feedback remains bounded",
+            "zh": "单独准入时可选的前向记录\n不下单 不要求 Scanner 重放；保护反馈仍受封口约束"
           }
         },
         {
@@ -4527,8 +4306,8 @@
             "recovery"
           ],
           "description": {
-            "en": "Default R&D workbench for jobs views and typed actions; no business truth",
-            "zh": "默认 R&D 工作台，展示任务与视图并提交有类型动作，但不保存任何交易业务事实"
+            "en": "Dashboard reads research evidence and exposes admitted Governance controls; no research authoring or business truth",
+            "zh": "Dashboard 读取研究证据 并提供已准入的 Governance 控制；不发起研究 不拥有业务事实"
           }
         },
         {
@@ -4545,8 +4324,8 @@
             "recovery"
           ],
           "description": {
-            "en": "Exposes R&D commands to an external agent over CLI and MCP\nHolds the credentials and returns verdicts never protected values\nShares one TRADE_PRODUCT_EDGE admission gateway with the App",
-            "zh": "经命令行与 MCP 向产品之外的代理暴露 R&D 命令\n持有凭据 只返回结论 从不返回受保护数值\n与 App 共用一个 TRADE_PRODUCT_EDGE 准入网关"
+            "en": "External Agent calls domain MCP operations with exact identities and authority\nProtected evaluation returns only bounded public outcomes",
+            "zh": "外部 Agent 通过领域 MCP 调用操作 绑定准确身份与授权\n保护评估只返回受限公开结论"
           }
         }
       ]
@@ -4564,14 +4343,7 @@
           "label": "Telemetry Gateway",
           "kind": "adapter",
           "emphasis": "support",
-          "scenarios": [
-            "research",
-            "backtest",
-            "scan",
-            "paper",
-            "live",
-            "recovery"
-          ],
+          "scenarios": [],
           "description": {
             "en": "Pluggable OTLP ingress for traces metrics and logs",
             "zh": "可插拔 OTLP 入口，统一接收 trace metric 与 log"
@@ -4582,17 +4354,10 @@
           "label": "Status Projection",
           "kind": "store",
           "emphasis": "support",
-          "scenarios": [
-            "research",
-            "backtest",
-            "scan",
-            "paper",
-            "live",
-            "recovery"
-          ],
+          "scenarios": [],
           "description": {
-            "en": "Rebuildable health lifecycle and research-funnel views",
-            "zh": "生成可重建的健康 生命周期和研发漏斗视图"
+            "en": "Optional admitted read projection with exact source and freshness",
+            "zh": "按消费者准入的可选只读视图 绑定来源与新鲜度"
           }
         },
         {
@@ -4600,11 +4365,7 @@
           "label": "Alert Routing",
           "kind": "adapter",
           "emphasis": "support",
-          "scenarios": [
-            "paper",
-            "live",
-            "recovery"
-          ],
+          "scenarios": [],
           "description": {
             "en": "Routes bounded alerts to Telegram and replaceable adapters",
             "zh": "把受限告警路由到 Telegram 或其他可替换适配器"
@@ -4615,17 +4376,10 @@
           "label": "Dashboard API",
           "kind": "client",
           "emphasis": "support",
-          "scenarios": [
-            "research",
-            "backtest",
-            "scan",
-            "paper",
-            "live",
-            "recovery"
-          ],
+          "scenarios": [],
           "description": {
-            "en": "Read-only global status API with freshness and completeness",
-            "zh": "提供带新鲜度和完整性标记的全局只读状态 API"
+            "en": "Optional bounded read projection with freshness and completeness; direct Owner reads remain available",
+            "zh": "按需准入的受限只读视图 标明新鲜度和完整性；仍可直接读取 Owner 视图"
           }
         }
       ]
@@ -4761,7 +4515,6 @@
         "data-runtime",
         "rd-backtest-artifact",
         "events-observability",
-        "observability-product-status",
         "events-governance",
         "execution-events",
         "execution-governance-adapter-binding",
@@ -4820,8 +4573,7 @@
         "rd-product-request-receipt",
         "rd-runtime-native-repair-request",
         "runtime-rd-kernel-repair",
-        "runtime-rd-successor-feedback",
-        "observability-product-status"
+        "runtime-rd-successor-feedback"
       ]
     },
     {
@@ -4854,8 +4606,7 @@
         "product-qualification",
         "qualification-events",
         "qualification-product",
-        "qualification-product-intake-receipt",
-        "observability-product-status"
+        "qualification-product-intake-receipt"
       ]
     },
     {
@@ -4882,9 +4633,7 @@
         "data-rd-observation",
         "rd-product-observation"
       ],
-      "supportingRelationIds": [
-        "observability-product-status"
-      ]
+      "supportingRelationIds": []
     },
     {
       "id": "paper",
@@ -4920,7 +4669,6 @@
       "supportingRelationIds": [
         "data-portfolio",
         "events-observability",
-        "observability-product-status",
         "events-governance",
         "execution-events",
         "execution-governance-adapter-binding",
@@ -4977,7 +4725,6 @@
       "supportingRelationIds": [
         "data-portfolio",
         "events-observability",
-        "observability-product-status",
         "events-governance",
         "execution-events",
         "execution-governance-adapter-binding",
@@ -5040,8 +4787,7 @@
             "risk-execution-recovery-facts",
             "execution-governance-closed",
             "runtime-events",
-            "events-observability",
-            "observability-product-status"
+            "events-observability"
           ]
         },
         {
@@ -5069,8 +4815,7 @@
             "execution-product",
             "execution-events",
             "runtime-events",
-            "events-observability",
-            "observability-product-status"
+            "events-observability"
           ]
         },
         {
@@ -5098,8 +4843,7 @@
             "execution-product",
             "execution-events",
             "runtime-events",
-            "events-observability",
-            "observability-product-status"
+            "events-observability"
           ]
         },
         {
@@ -5118,8 +4862,7 @@
             "portfolio-execution-closure",
             "risk-execution-recovery-facts",
             "execution-governance-closed",
-            "events-observability",
-            "observability-product-status"
+            "events-observability"
           ]
         }
       ],
@@ -5137,7 +4880,6 @@
       "supportingRelationIds": [
         "data-portfolio",
         "events-observability",
-        "observability-product-status",
         "events-governance",
         "execution-events",
         "execution-portfolio",
@@ -5264,7 +5006,7 @@
     },
     {
       "id": "rd-request",
-      "label": "R&D Request",
+      "label": "Compatibility R&D Request",
       "custodianId": "product-edge",
       "crossBindObjectIds": [
         "operator-authorization",
@@ -5336,6 +5078,7 @@
         "SUBMITTED_OR_UNKNOWN"
       ],
       "invariants": [
+        "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "Ambiguous target operation missing source or malformed typed meaning creates no Owner submission",
         "Product Edge commits one immutable canonical request admission and outbox before R&D receives only its opaque locator for direct resolution",
         "A committed admission retains its original binding authorization frontier manifest and cut across supersession expiry or revocation and is never rewritten",
@@ -5417,7 +5160,7 @@
     },
     {
       "id": "rd-request-receipt",
-      "label": "R&D Request Receipt",
+      "label": "Compatibility R&D Request Receipt",
       "authorityId": "rd",
       "identityBinds": [
         "rd-request-identity",
@@ -5461,6 +5204,7 @@
         "REJECTED_NO_WRITE"
       ],
       "invariants": [
+        "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "R&D alone commits the write-once terminal receipt for a Product Edge R&D Request",
         "ACCEPTED binds exactly one discriminated outcome either one Research Intent or one D-only repair admission and never both",
         "A resulting Research Intent preserves the request-bound protected-feedback observation frontier and semantic predecessor commitment without receiving protected category or detail",
@@ -5512,7 +5256,7 @@
     },
     {
       "id": "d-only-repair-disposition",
-      "label": "D-only Repair Disposition",
+      "label": "Compatibility D-only Repair Disposition",
       "timeEvidenceCutKind": "RESEARCH_AND_GOVERNANCE_DECISION",
       "authorityId": "rd",
       "visibility": "contract-only",
@@ -5600,6 +5344,7 @@
       },
       "replayJoinRule": "The same R&D Request D-only repair admission attempt identity correlation and typed meaning joins exactly one write-once disposition; changed meaning is conflicting replay and any later attempt requires a new explicit user request successor admission and successor attempt identity",
       "invariants": [
+        "This record preserves an existing sealed compatibility schema only; it is not a required workflow or authority for native strategy submission or server self repair",
         "R&D alone commits one write-once terminal disposition for each admitted D-only repair attempt and Product Edge can observe only this bounded R&D-owned fact through R&D View",
         "D0_COMPLETED_NO_ARTIFACT proves bounded non-executable work completed and proves that no Strategy Artifact or Candidate was created",
         "D1_VALIDATED requires a new immutable admitted Artifact and request-equal passing repair validation but only permits a separately formed ATTENDED_REPAIR Candidate",
@@ -5784,7 +5529,7 @@
     },
     {
       "id": "market-data-repair-request",
-      "label": "Market Data Repair Request",
+      "label": "Compatibility Market Data Repair Request",
       "timeEvidenceCutKind": "MARKET_DATA_AS_OF",
       "authorityId": "rd",
       "visibility": "contract-only",
@@ -5809,6 +5554,7 @@
         "REQUEST_PROOF_MISMATCH"
       ],
       "invariants": [
+        "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "Research may request only bounded Market Data input repair from a committed REPAIR_INPUTS Iteration Decision and never writes Market Data facts",
         "The request repeats the exact original PIT request identity proof digest instrument scope and decision cut so a response cannot be substituted across trials or repair attempts",
         "The same request identity and meaning join one correlated PIT Snapshot result while changed meaning or proof digest is conflicting replay",
@@ -5817,7 +5563,7 @@
     },
     {
       "id": "research-input-repair-result",
-      "label": "Research Input Repair Result",
+      "label": "Compatibility Research Input Repair Result",
       "timeEvidenceCutKind": "RESEARCH_AND_GOVERNANCE_DECISION",
       "authorityId": "rd",
       "visibility": "contract-only",
@@ -5881,6 +5627,7 @@
         }
       },
       "invariants": [
+        "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "R&D alone commits the result for its Artifact or Replay Configuration repair without changing the consumed Iteration Decision",
         "REPAIRED permits only a new identity and a separately frozen Replay Request while UNAVAILABLE may support only the exact correlated STOP_INPUT_UNAVAILABLE",
         "OUTCOME_UNKNOWN creates no retry successor request Iteration Decision Selection or stop",
@@ -5890,7 +5637,7 @@
     },
     {
       "id": "native-repair-request",
-      "label": "R&D Native Repair Request",
+      "label": "Compatibility R&D Native Repair Request",
       "timeEvidenceCutKind": "RESEARCH_AND_GOVERNANCE_DECISION",
       "authorityId": "rd",
       "visibility": "contract-only",
@@ -5944,6 +5691,7 @@
         }
       },
       "invariants": [
+        "This record preserves an existing sealed compatibility schema only; it is not a required workflow or authority for native strategy submission or server self repair",
         "R&D alone freezes or supersedes one native repair request from exactly one committed REPAIR_INPUTS decision and never transfers Research diagnosis or Replay Request authority",
         "Every request binds one exact RUNTIME_KERNEL SIMULATOR or BACKTEST_OPERATIONAL category stable request and correlation identity original defect proof digest old native identity source cut target Owner policy and fresh Time Evidence",
         "Runtime accepts only RUNTIME_KERNEL while Backtest accepts only SIMULATOR or BACKTEST_OPERATIONAL and a category target mismatch invokes no repair attempt",
@@ -5953,7 +5701,7 @@
     },
     {
       "id": "runtime-kernel-repair-result",
-      "label": "Runtime Kernel Repair Result",
+      "label": "Compatibility Runtime Kernel Repair Result",
       "timeEvidenceCutKind": "RESEARCH_AND_GOVERNANCE_DECISION",
       "authorityId": "runtime",
       "visibility": "contract-only",
@@ -6012,6 +5760,7 @@
         "OUTCOME_UNKNOWN": "R&D commits no stop retry successor Intent Selection Artifact or Replay Request"
       },
       "invariants": [
+        "This record preserves an existing sealed compatibility schema only; it is not a required workflow or authority for native strategy submission or server self repair",
         "Runtime alone commits the bounded kernel repair result and never writes Research Iteration Decision or Replay Request",
         "REPAIRED names a new kernel version UNAVAILABLE is terminal for this attempt and OUTCOME_UNKNOWN creates no Research transition",
         "Exact replay joins one result while category predecessor correlation or evidence drift is rejected"
@@ -6019,7 +5768,7 @@
     },
     {
       "id": "simulator-repair-result",
-      "label": "Backtest Repair Result",
+      "label": "Compatibility Backtest Repair Result",
       "timeEvidenceCutKind": "RESEARCH_AND_GOVERNANCE_DECISION",
       "authorityId": "backtest",
       "visibility": "contract-only",
@@ -6096,6 +5845,7 @@
         "OUTCOME_UNKNOWN": "R&D commits no stop retry successor Intent Selection Artifact or Replay Request"
       },
       "invariants": [
+        "This record preserves an existing sealed compatibility schema only; it is not a required workflow or authority for native strategy submission or server self repair",
         "Backtest alone commits the bounded SIMULATOR or BACKTEST_OPERATIONAL repair result and never writes Research Iteration Decision or Replay Request",
         "BACKTEST_OPERATIONAL binds the exact operational profile run attempt runner or service readiness backpressure resource exhaustion or outage evidence and fresh Time Evidence rather than Runtime or Sim Exchange state",
         "REPAIRED names a new category-specific operational profile or simulator version UNAVAILABLE is terminal for this attempt and OUTCOME_UNKNOWN creates no Research transition",
@@ -7233,7 +6983,7 @@
     },
     {
       "id": "scanner-strategy-disposition",
-      "label": "Scanner Strategy Disposition",
+      "label": "Compatibility Scanner Strategy Disposition",
       "authorityId": "scanner",
       "identityBinds": [
         "scheduled-scan-attempt-id",
@@ -7252,17 +7002,19 @@
         "CONDITION_FAILED"
       ],
       "invariants": [
+        "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "Every considered strategy reaches exactly one terminal disposition",
         "MATCHED requires complete registry condition market and required capacity input identities plus bounded match evidence",
         "NO_MATCH requires complete evaluable inputs and a successful false condition evaluation",
         "INSUFFICIENT_DATA and INPUT_UNAVAILABLE bind the exact blocking data disposition and never imply a condition result",
         "CONDITION_FAILED binds the exact condition execution failure and never implies MATCHED or NO_MATCH",
         "A strategy disposition can be consumed only by the same scheduled scan attempt and exact scan scope identity and version"
-      ]
+      ],
+      "visibility": "contract-only"
     },
     {
       "id": "scanner-receipt",
-      "label": "Scanner Receipt",
+      "label": "Compatibility Scanner Receipt",
       "timeEvidenceCutKind": "SCANNER_DUE_SLOT",
       "authorityId": "scanner",
       "crossBindObjectIds": [
@@ -7341,6 +7093,7 @@
         }
       ],
       "invariants": [
+        "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "Every scheduled scan attempt reaches exactly one terminal receipt bound to its stable attempt identity",
         "The stable attempt identity is derived from the exact Scanner Schedule Definition version scan scope identity and version and due slot so duplicate delivery concurrency crash restart and replay join one attempt and one terminal receipt",
         "A COMPLETE receipt binds an expected considered-strategy set exactly equal to the observed strategy identities and exactly one Scanner Strategy Disposition for every member",
@@ -7361,7 +7114,8 @@
         "Terminal negative dispositions never invent consumed facts",
         "No Scanner outcome starts Runtime or grants capital",
         "Replay joins the same scan attempt and cannot create another terminal receipt"
-      ]
+      ],
+      "visibility": "contract-only"
     },
     {
       "id": "execution-scope",
@@ -9264,6 +9018,7 @@
         "observability-policy"
       ],
       "invariants": [
+        "Optional separately admitted read projection; native correctness and Dashboard Owner reads do not require a global aggregation service",
         "Every displayed state or aggregate cites the source Owner fact or telemetry frontier from which it was derived",
         "Stale partial rebuilding unavailable or quarantined sources remain explicit and cannot be rendered as healthy or complete",
         "The view is read-only rebuildable and cannot authorize Qualification Governance Risk Execution or Recovery transitions",
@@ -9451,8 +9206,7 @@
         "artifact-security-admission-identity"
       ],
       "originKinds": [
-        "RESEARCH_BUILD",
-        "D_ONLY_REPAIR_BUILD"
+        "RESEARCH_BUILD"
       ],
       "originKindBindings": {
         "RESEARCH_BUILD": {
@@ -9465,22 +9219,6 @@
             "predecessor-artifact-identity-and-digest",
             "repair-delta-manifest-and-impact-class"
           ]
-        },
-        "D_ONLY_REPAIR_BUILD": {
-          "required": [
-            "research-intent",
-            "trial-family",
-            "d-only-repair-admission-identity",
-            "predecessor-artifact-identity-and-digest",
-            "repair-delta-manifest-and-content-digest",
-            "impact-class-D1_EXECUTABLE_REPAIR",
-            "complete-frozen-semantic-equality-proof",
-            "defect-reproduction-and-expected-repair-difference-oracle"
-          ],
-          "forbidden": [
-            "changed-research-intent-hypothesis-parameter-universe-PIT-market-semantics-cost-slippage-or-capacity-binding",
-            "active-artifact-in-place-mutation"
-          ]
         }
       },
       "states": [
@@ -9490,9 +9228,8 @@
       "invariants": [
         "Agent authored native source is sealed by R&D; ordinary build or container tools provide environment evidence without owning Artifact or admission authority",
         "Changed source parameters dependencies environment or declared data requirements creates a new immutable package identity; experiment windows and actual dataset versions bind separately",
-        "D0_NON_EXECUTABLE creates no new Strategy Artifact while every D1 executable repair creates a new immutable Artifact identity and preserves the predecessor",
-        "A D-only Artifact binds byte-level allowed-surface delta and complete semantic equality and any hypothesis parameter universe PIT market semantics or economic-model change is rejected as not D-only",
-        "BUILT_IMMUTABLE is not runnable or reviewable until the exact Artifact Security Admission is ADMITTED"
+        "BUILT_IMMUTABLE is not runnable or reviewable until the exact Artifact Security Admission is ADMITTED",
+        "Native corrections create a new package and experiment and follow the complete lifecycle; sealed D-only compatibility records do not bypass this route"
       ]
     },
     {
@@ -9513,7 +9250,7 @@
         "post-resolution-path-containment-and-link-special-file-denial-proof",
         "runtime-capability-manifest-identity-and-digest",
         "ambient-filesystem-network-secret-subprocess-process-tree-inherited-fd-environment-token-account-deployment-control-plane-and-effect-port-denial-policy",
-        "scanner-and-runtime-loader-policy-version",
+        "native-backtest-and-runtime-loader-policy-version",
         "admission-tool-and-rule-set-version",
         "observed-at-and-valid-through"
       ],
@@ -9554,87 +9291,15 @@
         "capacity-model-version"
       ],
       "replayPurposes": [
-        "EXPLORATION",
-        "REPAIR_VALIDATION"
+        "EXPLORATION"
       ],
       "replayPurposeBindings": {
         "EXPLORATION": {
           "required": [
             "trial-family",
             "complete-exploratory-request-bindings"
-          ],
-          "conditionalRequiredWhenPredecessorRepairInputs": [
-            "conditional-native-repair-reentry-binding"
-          ],
-          "forbidden": [
-            "d-only-repair-admission-identity",
-            "predecessor-artifact-and-repair-delta",
-            "repair-validation-oracle"
-          ]
-        },
-        "REPAIR_VALIDATION": {
-          "required": [
-            "d-only-repair-admission-identity",
-            "predecessor-and-successor-artifact-identities-and-digests",
-            "defect-reproduction-identity-and-expected-repair-difference",
-            "complete-non-defect-regression-corpus-identity-and-digest",
-            "complete-frozen-semantic-equality-proof-and-policy-version",
-            "deterministic-event-signal-intent-and-order-trace-comparison-rule"
-          ],
-          "forbidden": [
-            "new-research-hypothesis-dimension",
-            "trial-family-budget-or-census-membership",
-            "adaptive-ranking-or-selection-input"
           ]
         }
-      },
-      "nativeRepairReentryBinding": {
-        "appliesWhen": "PREDECESSOR_RESEARCH_ITERATION_DECISION_IS_REPAIR_INPUTS_AND_NATIVE_CATEGORY",
-        "nativeRepairCategories": [
-          "RUNTIME_KERNEL",
-          "SIMULATOR",
-          "BACKTEST_OPERATIONAL"
-        ],
-        "requiredCommonBindings": [
-          "predecessor-research-iteration-decision-identity-in-repair-inputs-state",
-          "matching-repair-category",
-          "native-repair-request-identity",
-          "native-repair-result-identity-in-repaired-state",
-          "original-defect-proof-identity-and-content-digest",
-          "stable-repair-correlation-identity",
-          "category-specific-predecessor-native-identity-and-source-cut",
-          "category-specific-successor-native-identity-and-source-cut",
-          "verified-native-repair-request-result-equality"
-        ],
-        "categorySpecificSuccessorBindings": {
-          "RUNTIME_KERNEL": [
-            "predecessor-runtime-kernel-version-and-source-cut",
-            "successor-runtime-kernel-version-and-source-cut"
-          ],
-          "SIMULATOR": [
-            "predecessor-simulator-version-and-source-cut",
-            "successor-simulator-version-and-source-cut"
-          ],
-          "BACKTEST_OPERATIONAL": [
-            "predecessor-backtest-operational-profile-identity-version-and-source-cut",
-            "successor-backtest-operational-profile-identity-version-and-source-cut"
-          ]
-        },
-        "requestResultEqualityFields": [
-          "predecessor-research-iteration-decision-identity",
-          "repair-category",
-          "native-repair-request-identity",
-          "original-defect-proof-identity-and-content-digest",
-          "stable-repair-correlation-identity",
-          "category-specific-predecessor-native-identity-and-source-cut",
-          "target-native-owner-and-surface-identity",
-          "repair-policy-identity-and-version"
-        ],
-        "nonReentryResultStates": [
-          "UNAVAILABLE",
-          "OUTCOME_UNKNOWN"
-        ],
-        "nonReentryDisposition": "NO_EXPLORATORY_REPLAY_REQUEST"
       },
       "states": [
         "FROZEN",
@@ -9647,15 +9312,14 @@
       ],
       "invariants": [
         "R&D alone freezes or supersedes an R&D replay request",
-        "Market W3 positive issuance must accept only the pre-send-known exact locator of the immutable complete role-set attestation committed by R&D in the positive Develop Composer transaction; Market Data validates it through the DB-ACL exact-locator port, independently re-resolves registry census join sample R0 and Market Semantics facts, and atomically issues ReplayCompositionBindingV1 while caller receipts readbacks tokens StrategyPlan values raw R&D tables and a Market Data dependency on Strategy Factory are forbidden",
-        "Market W3 must consume only the additive StrategyInputSampleProjectionV4 JOINED_CUT whose subject is the exact unchanged V1 joined-cut digest and whose receipt identity binds the exact schedule-dependency-set digest; V2 EVENT and V3 BAR remain byte-and-semantic unchanged, every V4 component strictly equals its Owner-resolved V3 BAR FRAME source, and the six-role 1m-OHLC 1h-CLOSE exchange-session-1d-CLOSE corpus uses 1m CLOSE as trigger, one 1m slot and batch, and complete latest-closed not-after 1h and non-UTC-day 1d samples",
         "Every request binds the exact Strategy Artifact requested PIT scope PIT Market Snapshot Universe Selection Record snapshot and correction rule replay configuration Runtime kernel simulator and cost slippage and capacity model versions before Backtest accepts it",
         "Changing any artifact PIT snapshot universe selection correction configuration runtime simulator cost slippage or capacity binding creates a successor request identity",
         "EXPLORATION alone may enter the TrialFamily Census Agent diagnosis iteration or Selection path",
-        "REPAIR_VALIDATION is non-adaptive and proves only the declared defect repair plus unchanged frozen semantics and never creates an Iteration Decision Selection or Research hypothesis",
         "An R&D replay request never consumes Qualification holdout and can never join a protected result",
-        "A native repair re-entry Replay Request exists only for a request-equal REPAIRED result and binds the exact REPAIR_INPUTS predecessor category request result original proof stable correlation predecessor native identity successor native identity and category-specific source cuts including the successor Backtest operational profile for BACKTEST_OPERATIONAL",
-        "Any single-field mismatch in the native repair re-entry binding creates no Replay Request while UNAVAILABLE and OUTCOME_UNKNOWN always create no Replay Request"
+        "The sealed native package subscriptions and requests plus experiment input manifest determine required data; no Composer transaction frozen program graph or fixed role corpus is a native submission prerequisite",
+        "Market Data resolves authorized PIT versions cuts instrument terms coverage and actual typed input bindings; missing or mismatched requirements create no positive input receipt",
+        "Strategy changes create a new sealed package and experiment; server changes are repaired and deployed by the user, with predecessor task errors retained",
+        "An unresolved original task is queried by its original identity rather than blindly retried or recorded as failed"
       ]
     },
     {
@@ -9739,22 +9403,8 @@
         "INVALID_REPLAY_EVIDENCE"
       ],
       "replayPurposes": [
-        "EXPLORATION",
-        "REPAIR_VALIDATION"
+        "EXPLORATION"
       ],
-      "repairValidationContract": {
-        "requiredBindings": [
-          "d-only-repair-admission-identity",
-          "predecessor-and-successor-artifact-identities-and-digests",
-          "defect-reproduction-identity-and-observed-expected-difference",
-          "complete-non-defect-regression-corpus-identity-and-digest",
-          "complete-frozen-semantic-equality-proof-and-policy-version",
-          "deterministic-event-signal-intent-and-order-trace-diff"
-        ],
-        "passRule": "THE_DECLARED_DEFECT_ORACLE_PASSES_AND_EVERY_UNDECLARED_EVENT_SIGNAL_INTENT_ORDER_AND_STATE_TRACE_IS_EQUAL",
-        "failRule": "ANY_UNDECLARED_TRACE_DIFFERENCE_MISSING_CORPUS_MISMATCHED_ARTIFACT_OR_SEMANTIC_FIELD_IS_REPAIR_VALIDATION_FAILED",
-        "adaptiveUse": "FORBIDDEN"
-      },
       "backtestOperationalDiagnosisContract": {
         "category": "BACKTEST_OPERATIONAL",
         "requiredBindings": [
@@ -9774,8 +9424,6 @@
         "Research Selection may consume only a request-equal TERMINAL_RESULT while RUN_REJECTED IN_PROGRESS_OR_UNKNOWN and INVALID_REPLAY_EVIDENCE remain visible in the Trial Family Census but cannot support selection",
         "The Agent may interpret actual permitted evidence and record findings iterations stops or candidate selection while R&D preserves references and authority",
         "An exploratory result is never qualification or deployment evidence",
-        "A REPAIR_VALIDATION terminal result is Backtest-owned execution proof for the exact repair only and never enters TrialFamily Census Research Iteration Decision ranking Selection or adaptive hypothesis generation",
-        "Only a request-equal passing REPAIR_VALIDATION result may support an ATTENDED_REPAIR Qualification Candidate and a failing invalid rejected or unknown result creates no Candidate",
         "Backtest records actual operational errors and execution gaps with exact run and evidence references without classifying scientific adequacy",
         "Agent interpretation is stored by R&D and cannot convert missing unknown mismatched or failed execution into successful economic evidence"
       ]
@@ -9915,8 +9563,7 @@
         "protected-decision-policy-identity-and-version"
       ],
       "candidateKinds": [
-        "RESEARCH_SELECTION",
-        "ATTENDED_REPAIR"
+        "RESEARCH_SELECTION"
       ],
       "candidateKindBindings": {
         "RESEARCH_SELECTION": {
@@ -9928,22 +9575,6 @@
             "d-only-repair-admission-identity",
             "repair-validation-result-identity"
           ]
-        },
-        "ATTENDED_REPAIR": {
-          "required": [
-            "d-only-repair-admission-identity",
-            "predecessor-qualification-candidate-and-eligibility-identities-and-cuts",
-            "predecessor-and-successor-strategy-artifact-identities-and-digests",
-            "request-equal-passing-repair-validation-result-identity",
-            "original-research-selection-disposition-identity-and-selected-state",
-            "complete-frozen-semantic-equality-proof-and-policy-version",
-            "unchanged-protected-robustness-plan-identity-and-content-digest"
-          ],
-          "forbidden": [
-            "manufactured-agent-selection-record",
-            "new-adaptive-ranking-or-trial-family-census-member",
-            "protected-measurements-holdout-detail-or-qualification-outcome"
-          ]
         }
       },
       "states": [
@@ -9953,13 +9584,11 @@
       "invariants": [
         "R&D alone freezes and supersedes candidate identity",
         "A RESEARCH_SELECTION Candidate cross-binds one SELECTED_FOR_QUALIFICATION disposition and its exact frozen Intent falsifier stop rule Census Frontier exploratory cut costs capacity assumptions and selected Artifact",
-        "An ATTENDED_REPAIR Candidate cross-binds the exact predecessor selection Candidate Eligibility Artifact repair admission new Artifact passing repair validation and complete unchanged semantic field set without creating a new Research Iteration Decision or Selection",
-        "Any executable repair Artifact that is intended to replace a governed generation requires an ATTENDED_REPAIR Candidate independent Qualification and a separate later Governance decision",
-        "A BUILD_ONLY or VALIDATE_NOT_ADMITTED repair creates no Qualification Candidate Eligibility lifecycle transition or deployment authority",
         "A RESEARCH_SELECTION candidate requires its exact Agent selection record immutable package complete census and preapproved assessment policy; repair delivery or unknown execution cannot manufacture selection evidence",
         "Candidate replay never resets trial budget or holdout consumption",
         "A new TrialFamily after bounded protected feedback remains bound to its complete predecessor and feedback ancestry",
-        "A family member after the bound census cut requires a successor Candidate and cannot alter this Candidate"
+        "A family member after the bound census cut requires a successor Candidate and cannot alter this Candidate",
+        "Any changed strategy content hash is a new version and follows complete independent qualification and trial lifecycle; an implementation repair grants no inherited eligibility or trading permission"
       ]
     },
     {
@@ -9991,8 +9620,7 @@
         "intake-attempt"
       ],
       "candidateKinds": [
-        "RESEARCH_SELECTION",
-        "ATTENDED_REPAIR"
+        "RESEARCH_SELECTION"
       ],
       "candidateKindBindings": {
         "RESEARCH_SELECTION": {
@@ -10029,6 +9657,7 @@
         "ADMITTED"
       ],
       "invariants": [
+        "Native package changes use ordinary Research Selection and full qualification; ATTENDED_REPAIR bindings below belong only to the sealed compatibility interface and are not an alternate native lifecycle",
         "NOT_ADMITTED creates no protected attempt and consumes no holdout",
         "ADMITTED cross-binds the exact discriminated Candidate branch frozen Intent falsifier stop rule Census Frontier costs capacity assumptions Candidate Artifact branch-specific Selection or repair-validation evidence and one PLAN_ADEQUATE admission under the exact Qualification-owned policy",
         "PLAN_INADEQUATE missing axis coverage or an unadmitted not-applicable basis is NOT_ADMITTED and creates no protected attempt or holdout reservation",
@@ -10200,7 +9829,7 @@
     },
     {
       "id": "scanner-schedule-definition",
-      "label": "Scanner Schedule Definition",
+      "label": "Compatibility Scanner Schedule Definition",
       "timeEvidenceCutKind": "SCANNER_DUE_SLOT",
       "authorityId": "scanner",
       "visibility": "contract-only",
@@ -10232,6 +9861,7 @@
         "observed-at-and-valid-through"
       ],
       "invariants": [
+        "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "Each due slot derives exactly one stable scheduled scan attempt identity from only the schedule definition version scan scope identity and version and canonical unambiguous slot boundary and the clock epoch is admission evidence never part of attempt identity",
         "Duplicate triggers concurrent workers crash restart and delayed delivery join the same attempt identity and cannot create another Scanner Receipt",
         "A changed cadence calendar time zone timezone ruleset fold gap misfire or backfill policy creates a successor schedule version and never reinterprets a committed due slot",
@@ -11940,26 +11570,19 @@
       "targetId": "group-product",
       "relation": "read-model",
       "objectId": "global-status-view",
-      "scenarios": [
-        "research",
-        "backtest",
-        "scan",
-        "paper",
-        "live",
-        "recovery"
-      ],
-      "overview": true,
+      "scenarios": [],
+      "overview": false,
       "weight": "light",
       "docsRoute": "architecture/observability",
       "description": {
-        "en": "Observability exposes a bounded read-only global status view",
-        "zh": "Observability 提供受限的全局只读状态视图"
+        "en": "Optional admitted bounded read projection; no mandatory aggregation service",
+        "zh": "消费者准入后可选的受限只读视图；不要求全局聚合服务"
       },
       "semantics": {
-        "accepted": "Product Edge reads only the projection version source frontier freshness completeness lag and bounded health lifecycle research and operational aggregates including exploratory Backtest categories and latency but for protected runs only bounded public terminal outcome source-frontier freshness and non-dereferenceable reference",
-        "rejected": "A stale partial rebuilding unavailable cross-scope secret-bearing protected-diagnostic-category protected-category-derived aggregate measurement threshold result holdout or dereferenceable protected evidence view cannot be presented",
-        "unknown": "Unknown projection or source frontier remains visibly unavailable and produces no governed request business decision retry or recovery acknowledgement",
-        "replay": "The same projection version and source frontier join one view while a changed frontier creates a successor view"
+        "accepted": "When a separately admitted projection is requested: Product Edge reads only the projection version source frontier freshness completeness lag and bounded health lifecycle research and operational aggregates including exploratory Backtest categories and latency but for protected runs only bounded public terminal outcome source-frontier freshness and non-dereferenceable reference",
+        "rejected": "When a separately admitted projection is requested: A stale partial rebuilding unavailable cross-scope secret-bearing protected-diagnostic-category protected-category-derived aggregate measurement threshold result holdout or dereferenceable protected evidence view cannot be presented",
+        "unknown": "When a separately admitted projection is requested: Unknown projection or source frontier remains visibly unavailable and produces no governed request business decision retry or recovery acknowledgement",
+        "replay": "When a separately admitted projection is requested: The same projection version and source frontier join one view while a changed frontier creates a successor view"
       },
       "sourceRole": "observability",
       "objectAuthority": "observability",
@@ -12143,8 +11766,8 @@
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "R&D requests one correlated Runtime kernel repair",
-        "zh": "R&D 请求一次精确关联的 Runtime 内核修复"
+        "en": "Compatibility schema only; no native research repair phase. R&D requests one correlated Runtime kernel repair",
+        "zh": "仅限现有兼容 schema，不要求原生研究经过程序修复阶段。R&D 请求一次精确关联的 Runtime 内核修复"
       },
       "semantics": {
         "accepted": "Runtime admits only one frozen RUNTIME_KERNEL request bound to the exact predecessor REPAIR_INPUTS decision stable request correlation original proof digest old kernel identity source cut policy and fresh Time Evidence",
@@ -12170,8 +11793,8 @@
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "R&D requests one correlated Backtest native repair",
-        "zh": "R&D 请求一次精确关联的 Backtest 原生修复"
+        "en": "Compatibility schema only; no native research repair phase. R&D requests one correlated Backtest native repair",
+        "zh": "仅限现有兼容 schema，不要求原生研究经过程序修复阶段。R&D 请求一次精确关联的 Backtest 原生修复"
       },
       "semantics": {
         "accepted": "Backtest admits only one frozen SIMULATOR or BACKTEST_OPERATIONAL request bound to the exact predecessor REPAIR_INPUTS decision stable request correlation original proof digest category-specific old identity source cut policy and fresh Time Evidence",
@@ -12197,8 +11820,8 @@
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Runtime closes one correlated kernel repair attempt for R&D",
-        "zh": "Runtime 为 R&D 关闭一次精确关联的内核修复尝试"
+        "en": "Compatibility schema only; no native research repair phase. Runtime closes one correlated kernel repair attempt for R&D",
+        "zh": "仅限现有兼容 schema，不要求原生研究经过程序修复阶段。Runtime 为 R&D 关闭一次精确关联的内核修复尝试"
       },
       "semantics": {
         "accepted": "R&D consumes only a terminal Runtime-owned result bound to the exact native repair request predecessor REPAIR_INPUTS decision RUNTIME_KERNEL category stable request attempt correlation original proof digest old and proposed kernel identities decisive source cut and Time Evidence then REPAIRED permits only one new request-equal Replay Request while UNAVAILABLE permits only the exact STOP_INPUT_UNAVAILABLE",
@@ -12224,8 +11847,8 @@
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Backtest closes one correlated simulator or runner-service repair attempt for R&D",
-        "zh": "Backtest 为 R&D 关闭一次精确关联的模拟器或运行服务修复尝试"
+        "en": "Compatibility schema only; no native research repair phase. Backtest closes one correlated simulator or runner-service repair attempt for R&D",
+        "zh": "仅限现有兼容 schema，不要求原生研究经过程序修复阶段。Backtest 为 R&D 关闭一次精确关联的模拟器或运行服务修复尝试"
       },
       "semantics": {
         "accepted": "R&D consumes only a terminal Backtest-owned result bound to the exact native repair request predecessor REPAIR_INPUTS decision SIMULATOR or BACKTEST_OPERATIONAL category stable request attempt correlation original proof digest old and proposed category-specific identities decisive runner service or simulator source cut and Time Evidence then REPAIRED permits only one new request-equal Replay Request while UNAVAILABLE permits only the exact STOP_INPUT_UNAVAILABLE",

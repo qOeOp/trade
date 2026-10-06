@@ -8,11 +8,8 @@
 
 ## 产品角色与权威
 
-Dashboard 是单一操作者使用的第一方可视化 Product Edge。研究视图只展示进度、证据和结果，不发起、
-暂停、恢复或终止研究，也不控制外部 Agent 会话。研究指令由用户向外部 Agent 发出，再经领域 MCP 调用。
-Dashboard 通过类型化请求提供已批准的 Governance 操作，包括上线确认、政策配置和策略运行管理，并跟踪
-长任务；它也是 Observability projection 与 operational job 状态的只读表面。Owner 返回下一合法动作
-本身不授予 Dashboard 研究控制入口。
+Dashboard 是单一操作者的第一方界面：展示研究进度、证据、结果、遥测和运维任务，并提交已准入的 Governance 上线、政策及运行请求。
+研究由外部 Agent 经领域 MCP 发起；Dashboard 不控制研究或 Agent。Owner 返回的下一动作不构成浏览器授权。
 
 Dashboard 永远不是业务事实 Owner。 它可以缓存 UI 状态与可丢弃 job projection，但不能拥有 Research Intent、Artifact、Backtest
 Result、Qualification、legacy Scanner Receipt、生命周期授权、Runtime application、
@@ -42,110 +39,29 @@ Discovery 是 R&D 的按需发现入口；保留 `/scanner` 只是 URL 导航兼
 下文未准入的 Discovery 视图仍为目标，不因导航存在获得实现权限。已有 Operations 只读调度历史保留准确事实，
 不能被称为新市场扫描任务或据此新建调度。
 
-## TARGET - 试盘条件选择
+本章定义 Dashboard 布局、交互和切片准入。只实现准确获准切片；准入不证明服务可用或业务验收，不授权 executor 切换、生产写、provider effect 或交易。见[状态词汇](#状态词汇与证据切面)。
 
-Dashboard 分开展示规范策略内容 hash、原阶段证据与运行 ID；hash 改变需完整新版本生命周期，原版本重新接纳需用户确认与当前检查。
-Dashboard 要求用户确认准确候选与冻结试盘/资金政策后才首次进入试盘。合格候选可留在 R&D；有效运行策略
-可由用户主动下架改进，原因记录为用户决定而非经济失败。分别回读 Governance 授权与 Runtime 应用，不能把确认
-显示为已运行；用户停止后不得自动重新上线。
+### 阅读入口
 
-Dashboard 在试盘开始前提供有限具名条件模板，只允许调整开放参数，由用户选择并批准。
-具体模板、阈值与页面交互尚待冻结；一个月或收益为正等讨论示例不构成已发布选项。
-开始试盘时提交所选条件的版本与完整参数，由业务 Owner 验证并冻结，Dashboard 不自行判断通过或转正。
-运行中不得通过切换选项回写当前试盘条件；页面应能回读当前冻结条件及其对应试盘身份。
-此能力保持目标设计状态，不扩大下文的 `IMPLEMENTATION_ADMITTED` 路由或原子集合。
+| 阅读任务                 | 精确章节                                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 产品布局                 | [产品外壳与布局](#产品外壳与布局) / [导航合同](#导航合同)                                                                                                                                               |
+| 路由骨架与精确页面目录   | [通用路由骨架](#canonical-routed-page-骨架) / [Routed page blueprint registry](#routed-page-blueprint-registry)                                                                                         |
+| R&D 与 Backtest 切片准入 | [逐切片实现准入](#逐切片实现准入)                                                                                                                                                                       |
+| Operations 精确合同      | [Workers 精确只读 skeleton](#workers-精确只读-skeleton) / [Service Logs 精确只读 skeleton](#service-logs-精确只读-skeleton) / [Operations Audit 精确只读 skeleton](#operations-audit-精确只读-skeleton) |
+| 组件与行为               | [可复用组件目录](#可复用组件目录) / [交互、响应式与可访问性规则](#交互响应式与可访问性规则)                                                                                                             |
 
-### Action authorization 准入合同
+切片台账不是全部准入清单：Operations 与 Overview 的精确合同还位于各自骨架和目录。逐路由精确几何与本地准入优先于通用骨架；目录不增加 slot、动作或实现权限。
 
-研究页面没有写动作准入，只读取准确 Owner 投影，并保留缺失、陈旧、部分、拒绝和未知状态。展示的下一合法动作供外部 Agent 参考，不构成浏览器 dispatch 权限。输入及效果协议仍归 [Product Edge](../architecture/product-edge/)及所属服务契约。
+## 页面设计
 
-Governance 控制绑定准确策略/组合版本、operation manifest、可信主体/范围、当前 Operator Authorization、活动 deployment binding/history head 及所需 Autonomous Policy Authorization。浏览器不能签发、续期、提升或自行声明它们。授权、政策与最终截面当前性由所属后端核验；缓存 readiness、历史 admission、transport 成功和 UI 状态不能授权效果。
-
-首次试盘确认指明准确候选、冻结条件模板及分配政策；请求在 Owner 返回绑定回执前保持 pending 或 unknown，只有 Runtime 独立 `APPLIED` 回执证明应用。用户停止不能自动重新激活策略。同身份同含义解析原请求，含义冲突拒绝；未知外部效果保留承诺和原身份，不盲目重下。
-
-浏览器不提供 bootstrap、issuer、SQL、provider、策略 build 或代理控制接口。准入过期不能靠遍历任意授权链、伪造 successor 或重建 genesis 恢复。准确 direct-successor、响应丢失、invocation-fence、downstream-resolution 及封存终态规则仍由 Product Edge/Owner 边界执行；研究编写移到 MCP 不放宽这些约束。
-
-有界回读在关联视图过期后仍展示已验证终态，区分终态历史和当前权限。已验证 `FAILED_NO_ARTIFACT` 展示规范无工件回执；终态托管缺失保持 unavailable/unknown。隔离版本只读，不能提供当前 Artifact、family、provider 或上线权威。
-
-## 状态词汇与证据切面
-
-- `CURRENT/PARTIAL` 表示已有对应实现与消费者证据，完整路由或产品旅程仍可能未完成。
-- `ACTIVE_OBSERVATION` 表示精确 Hub task 仍在实现、动态验收，或等待证明能力所需的显式动作。它的证据
-  可以修订本章，但在 merge 与 readback 前不能建立当前产品事实。
-- `OBSERVED_CANDIDATE_NOT_CURRENT` 表示能力或消费者可见缺陷在活跃 Hub task 或 worktree 中被观察到，
-  但不是已交付产品能力，也不是 current fix。
-- `RECOVERABLE_BY_RECONSTRUCTION_NOT_RESTORED` 表示现存精确证据可能足以让 canonical Owner 重建丢失事实，
-  但可信 backup restore 或 Owner reconstruction 尚未发生。受影响能力保持 unavailable，不得推断历史状态或正向 action。
-- `RESTORED_REVALIDATION_PENDING` 表示 canonical Owner custody reconstruction 与 direct Owner readback 已成功，
-  但下游 consumer revalidation 尚未完成。它不是 `RESTORED`：stale fact 在 current cut 仍 unavailable，且不得启用
-  任何正向 action。
-- `TARGET_DRAFT` 表示当前设计预期未来 Dashboard 提供该能力；相关真实消费者流程终结前仍可修订。
-- `IMPLEMENTATION_ADMITTED` 表示 repository 可以把已文档化的 `DRAWABLE_EXACT` route 或 reusable atom
-  作为有边界、可独立 review 的切面实现。它只是构建与验证许可，不证明切面已合并、已部署、已被 Owner
-  验收、已具备替换条件，或已被授权执行生产 effect。
-- `NOT_ADMITTED` 表示 UI、绿色 job、图表、日志或本章都不能证明能力存在，也不能授权相关业务迁移。
-
-## 运维能力与后台职责
-
-Dashboard 是第一方用户界面，Windmill 不再是部署依赖。运维视图显示服务拥有的任务、运行日志、worker 状态、
-审计关联与依赖；不提供通用脚本编辑器、任意 Flow、任意数据库读写、模型会话或秘密管理界面。
-依赖和 lock 在构建流程确定，远程依赖工作只作为有界运维任务展示，不成为 Dashboard 发布机制。
-
-队列取消只适用于 `kind=dependency`、`state=queued`、domain effect set 为空且 Dispatcher 已证明没有 worker claim
-的任务；返回不可变运维取消回执，不改变业务事实。 provider、build、replay、admission、claim 或其他有副作用任务 不由这个动作取消，也不提供批量取消。 worker 的租约存活与对任务
-kind/tag/runtime/isolation 的兼容性分别显示； 有心跳但不能执行该任务时是 online/incompatible，不是 Ready。
-
-completed disposable cache 删除不删除 Owner 事实。
-
-### Operations API 与后台状态合同
-
-这是 `TARGET_DRAFT` replacement contract，不证明这些 service 已经存在。 Browser 与 MCP read 使用同一组 typed handler 与
-capability check。 Page cursor 对一个 filter cut opaque 且稳定；每个 response 都包含
-`observed_at`、`projection_version`、`availability` 与 retention/expiry disclosure。
-
-Caller 能读取 operational run，也绝不意味着 route 可以返回 Owner payload。 当前视图的 filter cut 取数据库的语句时间，也就是它所过滤的
-那些行被盖戳时用的时钟：浏览器请求当前视图时不带自己的时间，服务端在那一刻切 cut 并回传，翻页、下载与 cursor 都沿用这个回传的 cut。 浏览器时钟从不成为
-cut，因此跑在数据库前面的浏览器时钟无法拒绝这次读取，落在后面的也无法 藏起最新的行。 浏览器只拿同一个应答里的时间核对 `observed_at`，从不拿自己的时钟比。
-
-Operational action 的 `observed_at` 是在该 action 自己的事务里读取的数据库时间，也就是它的 receipt 盖戳所用的时钟，因此落在数据库
-后面的服务端时钟无法让一次已完成的取消或删除看起来像被拒绝。
-
-| UI read 或 action                 | 固定 Dashboard API                                                                                   | Backend owner 与精确规则                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runs list、filter、pagination     | `GET /api/operations/runs` -> `RunPage`                                                              | `RunStore` 读取 immutable submission metadata 与 dispatcher‑owned operational state。Filter field 固定为 status/kind/path/trigger/principal/tag/duration/time cut；cursor 绑定该 filter cut。Owner outcome 是单独 resolve 的 optional envelope，绝不从 exit code 推导                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Run detail 与 bounded result      | `GET /api/operations/runs/{run_id}` -> `RunDetailEnvelope`                                           | `RunDetailProjection` 解析精确 operation/version manifest，只返回已注册且允许展示的 input/result 字段、timing/worker/resource metadata、immutable operational cancellation receipt readback、retention 与 Owner receipt locator。它在同一 observation cut 把该 path‑bound `run_id` 的 dispatcher requirement 与 immutable worker registration join，并返回 `RunWorkerCompatibilityMatrix`；missing、stale 或 mismatch input 均为 `unavailable`。Cancellation readback 为 `none / pending / receipt / unavailable`，A 消失后仍保持只读，且绝不改变 Owner truth。Secret、protected 与 unknown 字段被省略，只显示 typed withheld count/reason；viewport、Copy JSON 与 download 复用完全相同的 redacted bounded projection。Unknown operation version 或 schema mismatch 必须 `unavailable`，绝不 fallback 到 raw JSON。存在 Owner locator 时缺少 disposable data 表示 `operational_data_expired`，不是业务 absence |
-| Same‑identity Owner resolution    | `POST /api/operations/runs/{run_id}/resolve‑owner‑outcome` -> `OwnerOutcomeEnvelope`                 | Product Edge 通过具名 Owner typed port 解析 immutable request/attempt identity；既不 dispatch job，也不 retry effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Queued dependency cancellation    | `POST /api/operations/runs/{run_id}/cancel‑dependency` -> `OperationalCancellationReceipt`           | `OperationalActionEnvelope` 绑定 authenticated principal、`dependency.cancel.queued` capability、精确 run、current transition version、`kind=dependency`、`state=queued`、空 domain‑effect digest、no‑claim cut 与短 expiry。Dispatcher 在自己的 transition lock 下重读全部字段，compare‑and‑set 只把该精确 operational run 改为 `cancelled`；stale、revoked、已 claim、terminal、unknown、identity mismatch 或 effect‑capable input 一律 fail close。Receipt 记录 run、prior state/version、principal、authorization cut、time 与 transition；不能取消 domain request、provider/build/replay effect 或 Owner operation，且不存在 batch endpoint                                                                                                                                                                                                                                                                |
-| Disposable completed‑run deletion | `DELETE /api/operations/runs/{run_id}/cache` -> `OperationalDeletionReceipt`                         | `RunStore` 只在 capability check 与 confirmation 后接受 terminal operational row；删除 bounded result/log/cache byte，保留 run tombstone 与 Owner locator，且不能触碰 Owner store                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Run log tail 或 download          | `GET /api/operations/runs/{run_id}/logs` 与 `/logs/download` -> `RunLogPage` 或 bounded stream       | `BoundedRunLogStore` 按 opaque cursor 读取 append‑only chunk。Viewport、download 与 MCP 使用完全一致的 search/severity/source filter、redaction、truncation、byte limit 与 retention                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Metrics、traces、run assets       | `GET /api/operations/runs/{run_id}/{metrics\|traces\|assets}` -> discriminated tab envelope          | Producer 准入前，handler 返回带 reason 的 `not_collected`、`not_captured`、`empty` 或 `unavailable`；绝不伪造 zero、span、file 或 success，run asset 也不能解析到 global file browser                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Workers 与 selected lease         | `GET /api/operations/workers` 与 `/workers/{worker_id}` -> `WorkerPage` 或 `WorkerLeaseEnvelope`     | 只有 worker registration/heartbeat/claim/release 可以写 `WorkerLeaseStore`。UI 读取 identity/group/tag/version/start/limit/occupancy/last run/last observed，加已注册的 kind/tag/runtime/isolation capability set；lease expiry 产生 `unavailable`；这些只绑定 worker 的 route 不会为未绑定 run 推导 readiness，也绝不能由 UI 写 `dead` state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Service‑log viewport 或 download  | `GET /api/operations/service‑logs` 与 `/service‑logs/download` -> `ServiceLogPage` 或 bounded stream | `ServiceLogGateway` 要求 exact service/instance cut，并对两种输出应用相同 time/severity/search filter、redaction、cursor、retention 与 byte limit；不暴露 delete、clear、restart 或 health‑promotion endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Audit list 与 correlation detail  | `GET /api/operations/audit` 与 `/audit/{audit_id}` -> `AuditPage` 或 `AuditEventEnvelope`            | `OperationAuditStore` append‑only，由 authenticated Product Edge/Dashboard control‑plane middleware 写入，不由此 read route 写入。Unknown/redacted target 保持显式；没有 edit、delete、dismiss 或 replay endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-
-`RunOperationalState` 精确为 `queued | running | succeeded | failed | cancelled | unknown`；只有 Dispatcher 与 worker protocol event 能通过对最后 transition 的
-compare-and-set 推进它。 `OwnerOutcomeState` 是独立的 `available | rejected | unknown | unavailable | not_applicable` envelope，绝不参与 operational transition。
-
-同一 run identity 的 late terminal worker event 可以替换 operational `unknown`，但只有 Owner reread 能替换 Owner
-`unknown`。
-
-Worker liveness 只从 stored lease deadline 与 last heartbeat 计算；只有 path‑bound `RunDetailProjection` 才能在同一
-observation cut 对该精确 run 的 kind、tag、runtime、required isolation 与 worker registration 做 canonical compatibility
-match。
-
-Client time、missing row、process/container health 或 service-log message 既不能提升 liveness，也不能伪造 compatibility。
-
-替代品不是缩小版低代码平台，而是 Trade 专用 Dashboard、类型化 Product Edge gateway、窄 job dispatcher、
-worker protocol、可丢弃 operational store，以及可选 exact-tool MCP channel。Native Owner 及其 store 仍是
-独立服务。
-
-## 产品外壳与布局
+### 产品外壳与布局
 
 视觉方向来自中途停止的本地 `vibe-trading` 产品，而不是 Windmill：暖中性 canvas、紧凑 icon rail、胶囊
 导航、白色内容 card、灰色 framed panel、小字号高信息密度排版与响应式 Bento 组合。Glass 只能用于导航
 与瞬时 overlay，不能用于数据 card 或业务状态 panel。
 
-### 参考实现锚点
+#### 参考实现锚点
 
 视觉证据切面使用本地 checkout `/Users/vx/WebstormProjects/vibe-trading` 的 commit `4a6d66fb77fc144c2a013417c703db2caf401641`、tree `984c7d684dba72a6af78dc3e6cf50191bc3622ea`。 观察时， 下列
 reference file 相对该 revision 均为 clean；中途停止 checkout 的其他 dirty file 不是设计证据。 它是 source reference，不是 package
@@ -188,9 +104,9 @@ Desktop shell 合同：
 - card、table、log 使用有界滚动；
 - 可选 detail drawer 宽 400-520 px，且不能替代 canonical route。
 
-## 导航合同
+### 导航合同
 
-### Side menu
+#### Side menu
 
 Side menu 按工作流排序。icon、accessible label、route 与位置稳定。Feature flag 可以禁用 unavailable item，
 但不能重新排序。
@@ -214,7 +130,7 @@ Side menu 按工作流排序。icon、accessible label、route 与位置稳定�
 Rail 顶部放 user capsule 与本地 installation menu。模块 capsule 在可容纳时垂直居中，否则滚动。Active
 item 使用深色圆形填充与白色 icon；hover、focus、disabled 与 attention 状态必须在无颜色时仍可区分。
 
-### Top menu
+#### Top menu
 
 Top bar 按顺序分成四区：
 
@@ -243,7 +159,1039 @@ Top bar 按顺序分成四区：
 
 窄屏中 tape 收缩为 status button，tab 横向滚动，rail 变 drawer。顺序、route identity 与 authority label 不变。
 
-## 有界准入：本地 Operator 浏览器会话
+### 页面与数据规则
+
+#### 事实、新鲜度与公开范围
+
+每个面板读取规范 Owner 投影，区分业务结果和操作完成，绑定身份、source cut/frontier、观察时间和有效期。另一个来源的新数据不续鲜陈旧证据；unavailable 不等于零或健康。Owner 投影采用半开有效区间：`now == valid_through` 时不再当前；浏览器时钟不延长权限，`available_at >= valid_through` 的区间无效。
+
+缓存可丢弃。丢失、重连或重建解析原身份，不能创建替代事实、同身份不同 fingerprint 或来自陈旧遥测的正向结果。producer/当前性证据缺失撤下正向视图。Event Rail 与 Observability 只传事实/遥测，不承担接纳、重试、闭合或生命周期权威。
+
+Dashboard 与外部 Agent 使用同一有限资格反馈。保护 Qualification 明细、内部三级判断、保护区间收益/回撤、净值和订单/成交明细不进入任何 Dashboard 页面、导出、图表、过滤或告警；不提供用户解封入口。负面原因/分类及受保护时间信息继续隔离。所有公开负面终态字节等同 `CLOSED_NOT_QUALIFIED`；`QUALIFIED` 保持准确。已许可的任务状态及证据可用性投影不增加保护信息。普通研究回测、真实试盘和正式交易的获准报告仍可完整展示。账户与运维投影不暗示交易权限。
+
+#### 研究托管回读
+
+Source → 冻结 Research → 不可变 Artifact → 原生 Backtest → R&D 决定，是外部 Agent 发起的领域服务旅程。Dashboard 回读这些事实，不另建工作流。
+
+只有 sealed basis 而没有终态 Research 回执时保持 `SEALED_BASIS_PENDING_QUALIFICATION`，原 request/admission、basis 与 commit cut 继续绑定。获准领域 resolver 在过期/切换后消费完整封存托管，不新建 basis 或接纳替代请求含义；浏览器只读该状态。持久终态在关联视图过期后仍可见，当前动作缺席。
+
+Artifact 回读核验准确 request、attempt、Intent、Artifact/Build 和 family 身份。未知 invocation 保留原 claim 与 fence，不再次调用 provider 或推断成功。隔离记录只公开已准入历史托管，不能满足当前 selector。准确 omission/null、schema、digest 和身份规则归 [R&D 契约](../owners/rd/)，不由浏览器猜测。
+
+#### 运行状态
+
+Governance 批准与 Runtime 应用分离；只有绑定的应用回执可展示 `APPLIED`。资格、必需表现/暴露或退化证据陈旧时阻止新风险，围栏保留 decrease-only 路径。Portfolio 提供实际账户/容量事实，Governance 应用批准分配与组合政策，Risk 在原子 frontier 准入预留。Dashboard 不从展示值重算这些事实或作为竞争 allocator 排名策略。
+
+每条路由展示规定的 loading、empty、filtered-empty、partial、stale、unknown 与 unavailable 几何。缺失 endpoint 保持 unavailable；夹具、mock、日志、通知或截图都不建立 producer、direct consumer、`PORT_BOUND` 或效果 readiness。
+
+#### 页面划分与运维布局
+
+领域路由采用规范十二列外壳。宽布局可将主面板置于八列、辅助面板置于四列；低于 768 px 按语义顺序堆叠。上文已准入的精确回读路由遵循各自固定全宽几何，不因通用布局获得新表单、分栏或预留空高。
+
+##### 精确 S1 V2 与 S2 页面骨架
+
+Source、Research、Composer 与 Artifact 页面展示已提交请求及规范 Owner 证据。身份查询输入、Open readback、Refresh 和导航只用于展示/读取。来源、假设、TrialFamily 政策及策略输入由外部 Agent 经领域 MCP 编写，不由 Dashboard composer 提交。
+
+按各路由准入范围保留请求/版本/标的身份、终态、回执/托管身份、关联视图可用性、准确 Artifact/Build 引用及有界下一步信息。当前性与持久终态历史分离：过期移除当前权限，不改写终态。部分 basis 托管保持未决；缺失回执不成为拒绝或成功。未知 provider/replay 工作保留原身份；陈旧视图不能启用重跑、后继或 provider 调用。准确的底层接纳、claim、续期和恢复规则归 [Product Edge](../architecture/product-edge/)及 [R&D](../owners/rd/) 正文。
+
+这些页面不含 Submit、产生写入的 Resolve、Run bounded Agent、Build、Create successor、Stop research 或代理调度。展示的下一合法动作说明获准外部调用者可请求什么，不构成浏览器权限。既有兼容 transport 不准入这些产品控制；只有独立规定的 Governance 生命周期控制可修改业务状态。
+
+Operations 提供有界 Runs、Run Detail、Workers、Service Logs 和 Audit 视图，排除任意脚本、通用调度、worker 管理和编辑器。Settings 展示不透明安装/访问引用，不拥有部署配置、Capacity Scope 或 `PORT_BOUND`。
+
+##### 精确 Operations 导航与列表页骨架
+
+Operations 顶部 `ModuleTabs` 的固定顺序是
+`Runs`、`Workers`、`Schedules`、`Service Logs`、`Audit`、
+`Event Rail`、`Telemetry`、`Alerts`。
+
+Runs、Workers、Service Logs 与 Audit 读取第一方 RunStore 及 typed service 投影；Schedules 是另行准入的第一方有界影子读取 surface；后三项来自
+Trade 架构。 窄屏时它们变成同序的水平 scroll tab，不折入通用 More menu。 Windmill 的 Home、Variables、Resources、global Assets 与通用
+Schedules 不在该 tab row 中；Run Detail 的 Metrics、Traces、Assets 只是 run-scoped tab，也不会升级成全局 route。
+
+`/operations` 是 Runs 的 canonical route。桌面版保持筛选器、表头、date group 与 row action 的稳定位置：
+
+```text
+H  Operations / Runs                        [Refresh] [Auto-refresh: Off v]
+N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
+F  [Action runs|Data reads] [All|Waiting|Running|Completed|Failed|Cancelled|Unknown]
+   [Search activity / run ID] [Duration v]
+S  Waiting | Running | Unknown | Completed | Failed
+T  RunTable / date group
+   Status | Started | Duration | Activity | Started by | Source result
+   row selection or final-column [Open] -> D
+D  shared DetailSheet: status, activity, trigger, started, duration, source result
+   [Open full details] -> /operations/runs/:runId
+B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
+   [First] [Previous] [Next] [Last]
+```
+
+整行与紧凑 `Open` 动作是进入同一上下文检查的两个无障碍入口；两者都只打开唯一的共享
+`DetailSheet`，并保留 Runs URL、筛选、页码、滚动位置和来源焦点。只有 sheet 内明确的
+`Open full details` 动作可以导航到 canonical run workspace。
+
+Runs table 在 `>=1280 px` 使用 fixed layout：sticky header 40 px、date-group header 32 px、body row 最小 44
+px、horizontal cell padding 8 px。 `Activity` 使用共享业务名称，hover/focus 才揭示同一个 exact registered operation
+ID。 Activity、Started by、Source result 只显示一行并 ellipsis，绝不读取 raw payload。
+
+默认按 effective run time descending，再按 immutable run ID ascending。 Effective time 优先 `started_at`，未开始
+run 回退到 `received_at`，但 Started cell 仍显示 em dash。 只有 Started 与 Duration header 暴露 sort control，顺序都是
+descending、ascending、恢复 default。
+
+Date group 使用 selected display time zone 且 newest first；filter、time zone、grouping 或 sort 改变时回到第一页。
+
+五个 `S` item 的数量与位置绝不改变，并统一放在 `action runs` 或 `data reads` group shoulder 下；label 精确为
+`waiting`、`running`、`unknown`、`completed`、`failed`。每个 value 是一个 integer count；缺失的 count 在原 value slot
+显示 em dash。Count 使用 selected kind 与所有已应用的 non-status filter，但忽略 selected status，因此选择一个 status
+不会清空其他 summary。
+
+Positive list projection 在 kind、search、Duration filter 之后、selected status 之前只保留最新 512 行。 存在第 513 条 eligible
+row 时返回 HTTP 200、`availability=available`、 `completeness=partial_unavailable` 与 `retention_limit=512`，不能因此令已验证的最新数据整体
+unavailable。 Summary count、filtered total、pagination 与 page frontier 只对这个 retained cut 精确，绝不能标注或解释为 全历史总数。
+
+Source cut 同时绑定 retained rows、retention limit 与 completeness，因此 retention boundary 变化会使既有 snapshot 失效。 Partial
+footer 明确说明只展示最新 512 条、更早历史不在当前 view；partial 状态下筛选为空只能说明 retained rows 中没有匹配项，不能声称全历史不存在匹配项。
+
+Control contract 是闭合的，不继承 Windmill default。 Kind segment 默认 `Action runs`，唯一 peer 是
+`Data reads`，且只映射到 typed wire value `kind=dependencies`； status 默认 `All`。 Search
+默认为空，只匹配 redacted activity identity 或 immutable run ID。
+
+`Duration` 默认 `Any`，其后固定为
+`<1 s`、`1-10 s`、`10-60 s`、`>=60 s`。 Header auto-refresh menu
+默认 `Off`， 其后是 `5 s`、`15 s`、`30 s`。
+
+Cadence 改变立即生效、不重置 pagination，且只执行与 Refresh 相同的 read； tab hidden 或 offline 时不排队补读。
+
+Kind、status、Duration 在 selection 时立即应用并返回第一页。 Search 在最后一次 edit 后精确 300 ms 应用；Enter 或清空立即应用，blur 不增加另一次
+transition。 后到的 search application 取消此前 in-flight list read。 显式 Started 与 Duration sort 绝不改变 newest-first
+date-group row 的顺序：它们只在每个 group 内排序， grouping 为 `None` 时才对全表排序。
+
+Started 先放具有 `started_at` 的 row，按所选方向排序、immutable run ID ascending 打破 tie；未开始 row 永远在后，内部按同方向的
+`received_at`、再按 run ID ascending。 Duration 先放 具有 duration 的 row，按所选方向排序，再按 effective time
+descending、run ID ascending 打破 tie；缺失 duration 的 row 永远在后，按 effective time descending、run ID ascending 排序。
+
+扩展筛选 surface 获得准入后，`More filters` 在按钮下方打开一个 360 px popover。
+
+Field 顺序固定为：`Trigger`（默认 `All`，然后 `App`、
+`Webhook`、`Other`）、`Principal`（空的 exact-text input）、`Tag`（空的
+exact-text input）、`Time cut` （默认 `Last 24 h`，然后
+`Last 1 h`、`Last 7 d`、`Last 30 d`、`Custom`）、`Display time zone`（默认
+`UTC`，然后 `Browser local`）、`Group by`（默认 `Day`，然后
+`Hour`、`None`）。
+
+`Custom` 依次追加 start、end input，并按 selected display time zone 解释。 Footer 固定为
+`[Reset filters] [Apply]`；value 在 Apply 前只是 staged，Escape 或 outside-click 会丢弃；button badge 是已应用的 non-default field
+数。 Reset 恢复这六项 default 并立即应用。
+
+`None` 移除 date-group row；`Day` 与 `Hour` 都保持 newest-first group。
+
+Pagination 默认 50 行，只提供 25、50、100。 Footer 依次保持 shown rows、filtered total、page size、
+`Page n of m`、First/Previous/Next/Last；total unavailable 时同一 slot 显示 em dash，并禁用 page movement。
+
+Loading 精确为四个 summary skeleton、两行 filter、一个 40 px header、默认 `Day` grouping 的三个 32 px date-group
+bar、十个 44 px row 与完整 pager skeleton。 `Hour` 同样使用三个 group bar；`None` 不使用 group bar，
+但仍精确保留十行。
+
+Unfiltered empty、filtered empty、permission denied、backend unavailable 各占一个 96 px full-width table row，包含不同
+title、单行 explanation，不制造 count。 未筛选且为空的 Runs view 只暴露 一个紧凑的 secondary `View data reads` action，选择既有 Data
+reads segment，不创建 run、也不发出 effect； 只有 backend unavailable 通过既有 route header 暴露 Refresh。
+
+缺失的 tag 与 concurrency 字段不升级成空业务列， 也不生成解释性短句。
+
+`768-1279 px` 时保持同序并放入最小宽 960 px 的 bounded horizontal scroller。 8% action cell 保持标准的 8 px horizontal
+padding，内部依次是 32 px text Open button、4 px gap，以及获准入时出现的 24 px More button。 Button 与 padding 精确占用 76 px，可放入 960
+px 最小 table width 下的 76.8 px cell；更宽 table 保持同一 left-aligned geometry。
+
+低于 `768 px` 时变成六行 run card：status + effective time；activity；Source result；Started by；duration；最后
+Open。 Card padding 12 px、gap 12 px、最小高度 156 px；六个 loading card 替代 table row，filter 顺序与 pager 不变。 Card
+selection 打开同一个 `D`；不存在 checkbox、column chooser、selection count、bulk action 或 swipe action。
+
+`Show schedules` 与 `Show future jobs` 默认不出现；只有 typed schedule/future consumer 获准入后，才在
+`F` 第二行末尾追加。 8% 的 `Open` cell 先放 `[Open]`；仅当 completed run 同时具有
+disposable cache 与 current `OperationalActionEnvelope` 时，才在其后放一个 24 px `[More]` button。
+
+Menu 唯一 item 是 `Delete disposable cache`。 `>=768 px` 时，该 item 打开 480 px dialog，字段顺序固定为 immutable run
+ID、cache locator、Owner readback locator、固定陈述 `Business facts are unaffected`、consequence、stop predicate；footer button 顺序是
+`[Cancel] [Delete cache]`。
+
+低于 `768 px` 时改为 `100vw × 100dvh`、zero radius 的 full-screen sheet；同序 field 在内部 scroll，同一 footer
+sticky 在底部。 缺少 eligibility 或 envelope 时直接移除 More，而不是 disable。 Mobile card 第六行以同样的左右顺序放置这两个 control。
+
+列表没有 bulk rerun、bulk delete、editor link、checkbox 或其他 overflow
+action；empty、filtered-empty、permission-denied、backend-unavailable 继续按上文分别渲染。
+
+##### Workers 精确只读 skeleton
+
+`/operations/workers` 与 `/operations/workers/:workerId` 为 `DRAWABLE_EXACT`，
+仅对第一方 RunStore GET readback 授予 `IMPLEMENTATION_ADMITTED`。这个 Workers 专项闭合替代此前的
+Windmill worker-table 草图，不改变任何其他路由成熟度。它不读取已退役外壳的管理面，
+也不授权切换、Owner effect 或生产写入。
+
+```text
+H  Service capacity / Workers                                         [info] [Refresh]
+N  Existing Operations tabs; Workers remains in its existing position
+S  [Capacity] Ready | Offline               [Work handled] Processed | Active
+T  [Availability: All / Ready / Offline]               [Search services]
+   Service | Availability | Active / processed | Recent activity | Supports
+D  Service + availability -> Availability -> Work handled -> Recent activity -> Supported work
+   [Service information] -> [Back to services]
+```
+
+- 布局：flat `PanelFrame` 内依次为 header、body；body 内依次为 `CompactStatusBar`、
+  `SplitBento(T,D)`。省略 `P/Q`，不预留高度。宽度 >=1280 px 时两列为
+  `minmax(560px,1.55fr) minmax(300px,.8fr)`，gap 12 px，高度跟随内容，D 在 top 0 sticky。
+  List route 低于 1280 px 时 T 占满 inset，激活 row 会打开共享右侧 `DetailSheet`，URL 不变；低于
+  768 px 时同一个 sheet 转为全屏。Exact route 仍是 canonical 完整详情，并让 D 保持在页面流中。
+  所有宽度下 T 保留横向 overflow，不转换 card list。summary 胶囊最小高度 62 px，空间不足时横向滚动；
+  group 最小高度 52 px，44 px title 胶囊后接数值。
+  继续使用共享主题 token、标题/action header、圆角内部内容、克制的不连续分隔线与 Lucide icon。
+- Summary：Ready 为 list observation cut 中 available lease 数；Offline 为 expired lease 数；
+  Processed 为 durable job count 总和；Active 为 active job count 总和。这些只代表 operational observation，
+  不是当前进程健康或未绑定 run 的 readiness。合法空列表显示四个零；初次加载、无效响应、transport error 或
+  unavailable list 显示四个 `-`，不能把失败推断为零。Detail availability 不影响 list count；
+  不推断 group、memory 或 occupancy。
+- Table：固定列顺序为 Service（最小 250 px，identity link 后接 added time）、Availability（最小 125 px，
+  Ready/Offline badge）、Active / processed（132 px）、Recent activity（最小 220 px，compact run reference 后接
+  业务状态/time；缺少 activity 显示 No activity）、Supports（120 px，exact registered-operation count）。
+  表头与 cell 全部左对齐。各列支持升降序；Active / processed 按 active 后 processed 排序，Supports 按 count。
+  默认按 last-run time 从新到旧，无 last run 时回退 registration time；同时间的输入行按 identity 排列。
+  浏览器校验只要求 identity 唯一，不强制数据库 collation 行序等同 JavaScript 排序。
+  无 grouping、checkbox、bulk action 或 column chooser。
+- Filter：同一行按序为 Availability selector（All、Ready、Offline）和右对齐 Search services（最多 128 字符）。
+  本地不区分大小写搜索 identity、build fingerprint、last-run identity/state、registered operation ID 及其业务名称；
+  共享 Service/Availability column filter 同样仅在本地执行。先过滤后分页：默认 20 行，选项 20/50/100，
+  footer 按序为 range、previous/next；lease/search 改变重置页码。Desktop 上的 row selection 更新页内 D；
+  低于 1280 px 时打开共享短详情 sheet，保留 list URL，关闭后焦点返回原 row。Service cell 与 row 都复用这一
+  same-context selection，不跳页也不重复详情 action。Exact route 仅保留为 deep-link 兼容面；其选择始终绑定
+  请求 identity，不随 list/filter 改变。
+- Detail：heading 为 Selected service 或 Service details、compact service label、Ready/Offline badge。
+  四簇按序排列，外层 gap/padding 8 px，圆角 13 px，内 padding 为 13 px × 14 px；
+  fact 为两等宽列、gap 12 px。Availability：Added、Last seen。Work handled：Processed、Active。
+  Recent activity：上下文 Run 预览触发器、Started，title 显示业务状态或 No activity。该触发器复用共享
+  `OperationsRunPreview` facts 与精确 `RunDetailEnvelopeV1`，不会让 Workers 页面跳转，也不增加 Run menu 状态。
+  Desktop 与精确 Worker route 均打开唯一共享 `DetailSheet`；紧凑 list detail 中则在同一个 sheet 内将 Worker body
+  切换为 Run body，`Back to service` 返回显式绑定的同一 Worker 与触发器，Close 将焦点还给打开 sheet 的触发器。
+  预览只显示有界状态事实和 `Open full run details`；logs 与 Run actions 留在 canonical Run route。不得叠第二层
+  overlay，也不得从后续 table selection 推断返回对象。Supported work 显示业务可读的 role 与整行
+  registered-operation labels，并保持 registry 顺序；exact operation ID 只作为 title evidence，不占主文案。
+  Footer 仅保留一个共享 `Service information` control，收纳 exact service/build identity、latest-signal observation
+  scope 与 per-service availability boundary。Back to services 仅在 exact route 显示。
+- 状态几何：初始加载保留同一 header/summary，用 compact Worker store unavailable 区域显示
+  `READING_WORKERS`；loading-row count 明确为零，不制造 worker skeleton 数据行。Pending 时 Refresh
+  disabled 且标为 Reading；刷新期间保留上次 observation 到 replacement 到达，但不声称 fresh。
+  合法 empty 与 filtered-empty 均保留 columns/toolbar，空 body 最小 220 px，不制造 worker detail。
+  List/detail 部分可用各自独立：T 失败时成功 D 仍在旁边，D 失败时成功 T 保留。无效 JSON/envelope、
+  transport error、permission-denied response 不提供该 endpoint 的数据，使用各自 compact unavailable 区域；
+  exact D 保留 requested identity、unavailable badge/reason、Back link。Worker 缺失沿用 D 几何并显示
+  WORKER_NOT_FOUND。Wire 没有独立 stale/partial status：expired lease 仍是 observed expired row；
+  不支持的 stale/partial envelope fail closed；不以 timer 将旧数据提升为 live health。
+  List error 绝不覆盖独立有效的 D。
+- Action 顺序/准入：header info 后接 Refresh；same-context table selection；D 仅在存在 exact run identity 时展示
+  Recent activity preview；preview 内为 Open full run details；exact-route footer Back to services。Filter/sort/pagination 均为本地交互。
+  远程只允许 GET/no-store 与严格 endpoint-specific envelope；D 必须回显并匹配 path identity。
+  本面无 mutation action，也无 operational/domain action envelope。Create/edit config、restart、
+  cache-clean、REPL、autoscaling、host/group/version 及 heartbeat-history 编造均禁止。
+
+##### Service Logs 精确只读 skeleton
+
+`/operations/service-logs` 为 `DRAWABLE_EXACT`，仅对第一方 RunStore 有界 operational evidence
+GET projection 授予 `IMPLEMENTATION_ADMITTED`。本闭合替代早期 Windmill service-log 草图，不读取
+已退役外壳的 administration 或 log storage，也不准入 worker command、Owner call、effect retry、deployment、
+cutover、production write 或 trading action。
+
+```text
+H  Operational evidence / Service logs        [Refresh] [Auto-refresh on|off] [Download bounded]
+N  Operations tabs in the fixed order above
+S  [Severity] Error | Warning | Info          [Instances] Worker | Server
+F  [Range: 15m|1h|6h|24h] [Kind: All|Worker|Server] [Service] [Instance] [Severity] [Search]
+P  Source list: business source | kind/readiness | last observed
+Q  Selected source: business source | services | kind/readiness | last observed | [technical info]
+T  Time | Level | Activity | Source | Related
+B  Showing newest n of retention limit | completeness/redaction/truncation disclosure
+```
+
+- 布局：一个 flat `PanelFrame` 统一拥有外层圆角与阴影。title/subtitle 与三个 action 直接放在
+  frame 背景上，禁止再包一层直角 header card、self-radius 或独立 header fill。唯一圆角 inset 是
+  `PanelFrameBody`，内部依次为 `CompactStatusBar`、单行 filter、`SplitBento(P, Q+T)`、B。
+  当宽度 >=1280 px 时，P 为 `minmax(248px, .55fr)`，Q+T 为 `minmax(620px, 1.45fr)`，gap 12 px。
+  两列高度都由内容驱动，不设 viewport-height 最小值，也不强制拉伸到等高，纵向滚动由 page 拥有。
+  当 cut 只有一个 source 时省略 P，Q+T 使用 inset 全宽，selection 仍绑定该唯一 exact identity。
+  低于 1280 px 按 S、F、P、Q、T、B 单列排列。
+  T 始终保留横向 overflow，不转换为每条 log 一张 card。表头/cell 全部左对齐。必须使用共享主题 token、
+  13 px 内层圆角、克制的不完全连通行列分隔线与 Lucide icon；禁止蓝色 focus/selection 外框，也禁止
+  caller 覆盖共享 atom 的 radius/fill。
+- Query/cut：一个严格 `ServiceLogFilterCutV1` 包含精确 ISO observation cut、`15m|1h|6h|24h`
+  中一个 range、kind `all|worker|server`、一个 allowlisted service 或 `all`、exact instance identity 或
+  `all`、severity `all|info|warning|error`，以及 trim 后最长 128 字符的不区分大小写 search。Search 只覆盖
+  event code、correlation identity、service 与 instance identity。Wire 回显 canonical filter cut 及其 `sha256`
+  digest，并带 `projection_version=1`；unknown key、无效 enum/identity/timestamp、future cut、digest mismatch 或
+  unbound row 都 fail closed。Filter 在 retention bound 之前由 server 执行。
+- Summary 与 instance selection：Error、Warning、Info 统计精确回显 cut 下、viewport pagination 之前的
+  eligible filtered row；Worker 与 Server 统计同一 cut 下的 distinct eligible instance。Available empty cut
+  显示五个零；initial/loading、unavailable、invalid、
+  transport-error 或 permission-denied 显示 `-`，不得从失败推断零。有效 nonempty result 选择最近观测的
+  instance，同时按 identity 破平；仅当请求的 instance 存在于同一 cut 时才保留该 selection。不展示也不缩写
+  host：`host_ref` canonical 为 `null`，instance identity 是唯一可选 locator。
+- P/Q：P 按 last-observed 降序、再按 identity 排序，selected row 只使用共享 accent family 色调，不使用
+  border halo。主信息展示业务 source 名称，其后是 kind/readiness 与 last observed。Q 仍保持 identity-bound
+  selection，但先展示 source、services 与 observation state；exact instance identity、source/filter cut digest
+  仅放在共享 info 控件中。不推断 memory、process health、hostname、version、occupancy 或 heartbeat history。
+  Selection 缺失或 mismatch 时，Q 与 T 使用同一 compact selected-instance unavailable geometry，不暴露任何 row。
+- T 与 retention：列固定为 Time（190 px）、Level（108 px）、Activity（最小 220 px）、Source（190 px）和
+  Related（最小 160 px）。Activity 是有界 `event_code` 的确定性 sentence-case 展示；Source 使用 allowlisted
+  service 的穷尽业务标签。仅当 correlation identity 满足 exact run-identity contract 时，Related 才链接到
+  Run Detail；否则保持中性文本。Exact wire value 只放在 title/info affordance，而不进入主要扫读路径。
+  V1 没有 free-form message field，
+  UI 不得编造。默认按 observed time、correlation identity、sequence 降序；row key 为 correlation+sequence。
+  Viewport 最多返回 200 row；pagination 使用与 echoed filter-cut digest 绑定的 server-issued opaque cursor，page size
+  为 20/50/100/200。Cursor mismatch/expiry 显示 unavailable，不是 empty page。Gateway 的 retention ceiling 在每个
+  observation cut 下仍为 512 eligible row；改变任何 filter 都重置 cursor 与 page。`complete` 与
+  `partial_unavailable` 必须可见区分。
+- Event drilldown：选择一条已验证 T row 时打开共享 `DetailSheet`，不改变 Service Logs URL，也不卸载原有
+  filter、page、scroll position 或 menu context。Sheet 组合共享 `DetailFactGrid`、`DetailCluster`、
+  `StatusBadge` 与 `PanelFrameInfo` atoms，不重新绘制 route-specific 详情面。Selection 绑定
+  filter-cut digest + correlation identity + sequence，因此 replacement cut 或 page 会撤回 stale detail。
+  主内容回答 activity、level、observed time、source 与精确 source context；event code、sequence、correlation、
+  instance identity 和 source/filter cuts 只留在 information affordance。仅当 correlation 满足 exact
+  run-identity contract 时展示 `Open related run`；其他 event 不展示虚假 route。打开 row 不产生新 read，关闭后
+  focus 回到该 row；低于 768 px 时共享 sheet 占满 viewport。它绝不嵌入带 action 的 Run Detail，也不推断 cause、
+  Owner outcome 或 service health。
+- 状态几何：initial read 保留精确 header/body 几何，以 `READING_SERVICE_LOGS` 显示零条 synthetic row；
+  Refresh disabled 且标为 Reading。Pending refresh 期间可暂时保留上一 cut，但必须标记 Previous observation。
+  任何失败的 replacement 在显示 compact unavailable region 前清除旧 positive instance、count、selection 与 row。
+  Valid empty 与 filtered-empty 保留 S/F/columns/B，T empty body 最小 220 px。Partial 只能显示通过验证的 row，
+  并保留明确 partial disclosure；malformed envelope、unbound instance row、重复 correlation/sequence key，或不覆盖
+  displayed row 的 source cut 一律不渲染 positive projection。不存在用 timer 升级 live、healthy、complete 或 Owner-accepted。
+- Action 与 download：header 顺序是 Refresh、Auto-refresh、Download bounded。Auto-refresh 仅是 presentation action，
+  保留 exact filter 与 selection，仅当 viewport 原本就在尾部时跟随最新 row。它不在原地修改 observation cut：
+  每次 refresh 都用新 echoed cut 替换。Download 只允许 GET/no-store，重用精确 canonical filter cut、ordering、
+  redaction 与 retention selection；最多 512 row、256 KiB UTF-8。Truncated download 必须声明 truncation，不得与
+  viewport 的 canonical filtered set 静默分歧，但可以包含比当前 page 更多的 row。Loading/unavailable/
+  permission-denied 或没有有效 echoed cut 时 Download 缺席。
+  不存在 POST/PUT/PATCH/DELETE endpoint、operational/domain action envelope、delete、clear、restart、REPL、retry 或
+  health-promotion action。
+
+Positive producer 是同一 repeatable-read PostgreSQL transaction 中观测的 Trade-owned RunStore 数据。 Browser fixture、
+复制的已退役外壳 row、手写 JSON、单纯 HTTP success 或 stale prior envelope 都不能证明 availability。
+
+动态验收必须 通过真实 disposable `PostgresRunStoreV1` 产生 log，再通过 production gateway 与 GET route 读取，并在 browser 中 验证
+filter/selection/download parity，同时证明零 Owner、provider、scheduler、dispatcher、production 与 trading effect。
+
+Log 不能升级 Owner health、business success、未绑定 run 的 worker readiness、Telemetry availability 或 replacement
+readiness。
+
+##### Operations Audit 精确只读 skeleton
+
+`/operations/audit` 只对本节定义的第一方 append-only control-plane evidence 标记为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。 它绝不把已退役外壳的
+partitioned audit table 作为第一方 positive source： 当时观察到的 row 只暴露 principal、time 与 action kind，operation 和
+resource 都是 `redacted`。 它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit
+identity。
+
+目标 producer 是成功的 `dashboard.dependency.cancel.queued.v1` 与 `dashboard.operational_cache.delete.v1`。
+每次转换在同一 serializable transaction 提交 audit event 与 immutable action receipt。
+R&D 请求仍是所属服务证据，不要求复制为 Dashboard control-plane registry 或工作流。
+
+既有兼容 Source/Composer/Replay admission 保留不可变 receipt/audit pair 及准确 run、principal、authorization、action、mode 绑定。
+任何 Owner effect 前须提交 begin transaction；插入失败回滚转换。准确重复读取原记录，响应丢失不能产生第二次提交。
+audit `succeeded` 只表示准入已提交，不表示 Owner 或 provider 成功。Artifact Formation 仍拒绝，不虚构缺失历史 principal。
+这些记录不准入新的 Dashboard 研究控制，也不改变生产或交易权限。
+
+```text
+H  Operations / Audit · one-line purpose                         [info] [Refresh]
+S  activity: execute | create / update | delete
+   outcome: succeeded | failed / denied
+F  [24h|7d|30d|all] [principal] [operation] [outcome] [target or correlation search]
+P  OperationAuditTable: Time | principal | operation | outcome | target
+Q  Selected event: outcome; operation; principal; target; correlation;
+   receipt; audit identity; authorization cut; observed time
+T  Correlation timeline: Time | operation | outcome | receipt; canonical ascending order
+B  count / completeness / retention                            [Copy audit locator]
+```
+
+`H` 是透明 `PanelFrameHeader`，高度 72-96 px。 Title 与简短 product purpose 左对齐；右侧 circular info
+control 在 secondary Refresh button 之前。 Technical scope、source-cut 与 retention 文案只允许出现在 info popover 或
+`B`，不能成为散落的 page copy。
+
+`S` 是一个 compact `CompactStatusBar`，含上述两个 group 与 label；value 是 integer，数据缺失显示
+`-`，只有 available source cut 才能显示零。 Body inset 的顺序为
+`S`、`F`、`P/Q`。
+
+Viewport `>=1024px` 时，`F` 是单行 40 px control row，顺序严格如上。 Range 为
+`24h / 7d / 30d / all`；principal 与 operation option 只能来自当前 available cut；outcome 为
+`all / succeeded / failed / denied / unknown`；normalized search 最多 128 UTF-8 byte，只匹配可显示的 exact target/correlation text。
+
+`768-1023px` 时 control 不改顺序地换成两行；低于 768 px 时每个 control full width， search 仍排最后。 全部 filter 都由 server
+拥有并替换 observation cut；禁止 client-only filtering 重新解释 page。
+
+Viewport `>=1024px` 时，`P/Q` 使用 `minmax(660px, 1.55fr) minmax(340px, .75fr)` split、12 px gap 与 420 px minimum
+height。 `P` 使用 `DataWorkspaceTable`、44 px row，column width 为：Time 190、principal 160、
+operation min 260、outcome 120、target min 240。 默认按 `(observed_at, audit_identity)` descending；只有 Time 可排序。
+
+点击 row 选择 exact audit identity，并执行 `GET /api/operations/audit/{audit_id}`。 `Q` 使用单个 `DetailInspector`，field
+order 如上；长 identity 视觉缩短，但 title 与 copy value 保留完整值。 `T` 位于同一 inspector body 的 selected-event
+facts 下方，在 detail observation cut 最多显示该 exact correlation 的 256 条 event。
+
+`768-1023px` 时 `P` 在 `Q` 之前；低于 768 px 时 `P` 是可横向滚动
+table，`Q` 在其下 full-width。 Selection 不改变 URL，也不提供 mutation。
+
+Pagination 为 server-side，使用绑定 filter 的 opaque cursor 与 `20 / 50 / 100` page size；改变 page size 或 任一 filter
+都回到第一页。 Loading 保留六个 44 px table row 与 selected-card footprint。 Unfiltered empty 显示 没有第一方 audit event；filtered
+empty 显示没有匹配 event。 Partial cut 保留已验证 row，并显示 amber completeness notice。
+
+Store/configuration unavailable 与 permission-denied 保留 `S/F/P/Q/B` geometry，summary 显示
+`-`，machine reason 只放在 info 后。 Unknown audit identity 复用相同 `Q` footprint 并显示
+`AUDIT_EVENT_NOT_FOUND`；malformed/cursor-expired input fail closed 且无 row。
+
+`B` 显示当前条数、 `complete|partial_unavailable` 与固定 512-event retention bound；只有选中一个 verified event 时才显示
+secondary Copy audit locator action。 页面没有 edit、delete、dismiss、replay、retry、Owner resolution、 provider
+claim、download 或 generic shell action。
+
+List API 是 `GET /api/operations/audit`；detail API 是 `GET /api/operations/audit/{audit_id}`。 两者都使用 `no-store`，消费
+`OperationAuditStore`，echo immutable observation cut，并在 malformed row、duplicate audit/receipt identity、invalid
+correlation ordering、 filter/cursor mismatch 或 unreadable storage 时 fail closed。
+
+Table append-only：runtime `UPDATE` 与 `DELETE` 都被拒绝。 Browser parser 只接受 exact key，并在
+positive page render 前重新计算 filter-cut digest。 Mobile 顺序固定为 `H -> S -> F -> P -> Q -> B`。
+
+##### 精确 Run Detail 骨架
+
+`/operations/runs/:runId` 是完整 route；`DetailDrawer` 以 480 px 显示 `RunDetailPanel` 的快速检查
+projection。两者使用相同 ordered slot 与 route-backed tab：
+
+```text
+H  Breadcrumb / Runs > path > shortened run ID
+   [Copy locator] [Refresh] [Cancel queued dependency…?] [Resolve same identity] [Download bounded result/log]
+S  Semantic status | operational status | duration | received/started/completed
+P  Run identity, path, kind, tag, trigger, principal, worker, version, hash, language,
+   memory peak, parent/root correlation, retention; then allowlisted Inputs key/value table
+   and `n fields withheld` disclosure with reason chips; RunWorkerCompatibilityMatrix is bound to this run ID
+   OperationalCancellationReceiptCard is the fixed read‑only post-attempt location: pending/unavailable/receipt
+Q  Owner Outcome: availability, source Owner, next legal action, receipt identity, source cut
+T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSON,
+   Download bounded result, and the same withheld-field disclosure
+   then the fixed nested tabs [Logs] [Metrics] [Traces] [Assets]
+   Logs   = search/filter/autoscroll/download + bounded line viewport + truncation notice
+   Metrics= NotCollected/Unavailable/time-series
+   Traces = NotCaptured/Unavailable/request spans
+   Assets = Empty/disposable attachments only; Owner artifacts appear only as receipt locators
+A  DependencyCancellationPanel in the fixed action slot, present only for a queued, unclaimed,
+   zero-domain-effect dependency run with a current OperationalActionEnvelope. The third H action opens/focuses
+   this confirmation; the panel's sole effect button is Cancel queued dependency. It stays disabled as Cancelling…
+   while CAS is pending, then A and H slot 3 disappear. P retains the immutable receipt or explicit unavailable state.
+```
+
+Button 不继承 Windmill 通用 `Run again`、`Share`、`Edit`、script editor、worker
+REPL、restart 或 cache clean。 只有 current Owner manifest 准入时，domain route 才能提供 successor request；run page 自身只提供
+navigation、 有界 operational evidence 的 copy/download、refresh 与 same-identity resolve。
+
+Inputs 与 Result 绝不渲染任意 stored JSON。 精确 operation/version registry 为每个可展示字段标记 sensitivity；
+secret、protected、unknown 与 schema-mismatched 字段都没有 value slot。 Withheld value 的 Copy field disabled； Copy JSON
+与 Download bounded result 序列化的必须是屏幕上同一份 redacted projection，绝不是 raw job payload 或 result bytes。
+
+Registry entry 缺失或 mismatch 时，两个 panel 保持固定几何并显示带 operation/version 与 stop reason 的 `Unavailable`。
+
+##### 用户动作状态机
+
+| 上下文/状态                    | 浏览器动作                       | 必须保持的含义                                                 |
+| ------------------------------ | -------------------------------- | -------------------------------------------------------------- |
+| 研究查询未打开                 | 本地校验身份、Open readback      | 不修改 Owner 或创建请求                                        |
+| 读取中                         | 保持几何并展示 loading           | 不伪造进度或沿用旧正向结果                                     |
+| 已验证终态                     | Refresh、Open canonical evidence | 持久结果与关联视图当前性分离                                   |
+| 缺失、陈旧、格式错误或未知回读 | 刷新同一查询或打开可用证据       | 无产生写入的 Resolve、重试、后继、provider dispatch 或推断终态 |
+| Governance 合法请求尚未提交    | 确认准确已准入生命周期动作       | 当前政策/授权及冻结语义输入必需                                |
+| Governance 请求已发送          | 禁用重复提交并展示 pending       | 身份/含义不可变；无暗示回滚的 Cancel                           |
+| Governance 结果未知            | 读取原请求身份                   | 不新建请求、推断失败、重试效果或释放承诺                       |
+| Governance 回执已接受          | 单独读取 Runtime 应用            | Accepted 不是 `APPLIED`；真实效果仍经 Risk/Execution           |
+| 授权过期或不匹配               | 打开可用证据                     | 无 bootstrap、续期、提升或 force admit                         |
+
+动作含义归领域契约。研究回读不继承 Governance 写权限。控制与响应丢失细节仅在本章明确的有界 Governance 路由准入；通用 operation 或 provider 控制不是浏览器产品能力。
+
+#### Canonical routed-page 骨架
+
+每个 tab 在实现前都必须能从以下 desktop skeleton 直接绘制。Content region 使用 12-column grid；缺省 slot
+折叠时不得改变其余 slot 的顺序。
+
+```text
++-- 76 rail --+-- main -----------------------------------------------------------+
+| user        | 56 top bar: status tape | tabs | search | notifications          |
+| module rail +------------------------------------------------------------------+
+|             | H  page title · scope · Owner · cut · freshness · route actions   |
+|             +------------------------------------------------------------------+
+|             | S1 summary | S2 summary | S3 summary | S4 summary                 |
+|             +---------------------------------------------+--------------------+
+|             | P primary workspace (8 columns, min 320)    | Q context (4 cols) |
+|             +---------------------------------------------+--------------------+
+|             | T table / chart / timeline / comparison (12 columns, min 360)    |
+|             +------------------------------------------------------------------+
+|             | A one admitted action: domain Owner | operational envelope       |
++-------------+------------------------------------------------------------------+
+                                                    D detail drawer: 480 px max
+```
+
+`RouteGrid` 独占该 page-level geometry，并与参考项目派生的 `BentoGrid` 分离。 Viewport width
+`>=1280px` 时， 它有 12 个等宽 logical
+column：`S1-S4=3`、`P=8`、`Q=4`、`T/A=12`。
+`768-1279px` 时有 6 列：每个 summary 占 3 列并每行两个，`P/Q/T/A=6` 且保持 source order。
+
+低于 `768px` 时只有一列，顺序为 `H -> S1 -> S2 -> S3 -> S4 -> P -> Q -> T -> A`；`D` 是 full-screen overlay，不占 grid
+slot。 `RouteSlot` 只拥有这些 span，不能接收任意 caller-supplied column count。
+
+Panel 内部的 `BentoGrid` 保留 container-observed `wide/narrow/collapse`、180 px minimum auto-row、16 px
+gap、1/2/3/4/8 column 与 1-4 row span；绝不能改变 route order 或 drawer behavior。
+
+- `H` 高 72-96 px，固定包含 page title、单行 purpose、适用时的 scope selector、Owner/source cut、freshness
+  badge，以及仅 route-level action。
+- `S1-S4` 是 104 px summary card。缺少 metric 时保留 slot 并显示 `Unavailable`，绝不能用零填补空位。
+- `P` 与 `Q` 共用一个最小 320 px row。`Q` 放 context、stop predicate、evidence completeness 或当前 selected
+  identity；它绝不能作为第二 writer 重复 `P`。
+- `T` 是 canonical list/history/comparison surface。Selection 打开 `D`，不替换 URL。
+- `A` 只为一个已准入的 `ActionAdmissionGate` branch 出现。`domain` variant 要求 Owner projection，并包含
+  action label、target identity、consequence、stop predicate 与一个 primary button。`operational` variant 要求
+  current `OperationalActionEnvelope`，保持同一 geometry，且不能承载 domain action 或替代 Owner admission。
+- `D` 在 desktop 为 480 px、compact desktop 为 400 px、低于 768 px 为 full-screen。内部顺序固定为 status、
+  immutable identities、Owner receipt、source cut/frontier/freshness、evidence、独立 operational job link、
+  recovery，最后是同一个 `A` action；不得包含第二份 semantic form。
+- Loading 为每个已占用 slot 使用保持形状的 skeleton。Empty、partial、stale、unavailable、unknown、rejected、
+  conflict、quarantined 与 permission-denied 保持相同 geometry。
+
+##### Skeleton 完整度 gate
+
+Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可实现的 component contract。以下状态
+具有规范性，防止 experimental chapter 高估当前 Dashboard 已经可以被绘制的程度：
+
+| 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 准入含义                                                                                                                                                                                                                                                         |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DRAWABLE_EXACT`                      | Overview Status `/dashboard`、Attention `/dashboard/attention`、Recent `/dashboard/recent` 与 Evidence `/dashboard/evidence`；Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Schedules `/operations/schedules`、Service Logs `/operations/service‑logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research directory `/rd/research` 与精确回读 `/rd/research/:requestIdentity`、Artifacts `/rd/artifacts`；Backtest Replay 请求与结果回读 `/backtest`；Market Data `/data` 与 `/data/pit‑catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Event Rail、Telemetry 与 Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
+
+navigation-only route 只使用共享 `UnavailableState`：主文案只说明 workspace 尚未连接，当前没有 Dashboard 数据或
+动作；完整度 code 仅保留在该原子的技术信息披露中。页面不再绘制私有 placeholder card，不直接展示 `S/P/Q/T`
+术语，不重复 prototype footer，也不会因此被提升为已实现的产品 surface。
+
+Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable atom。
+
+将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带 尺寸的 `P/Q`
+child；每个 `T` column、row action、grouping、sort、filter、pagination 与 loading-row count；有序
+`D` field；empty/partial/stale/unavailable/error/permission-denied geometry；以及准确 button order
+与 admission gate。
+
+其 reusable atom 随后还必须加入 inventory。 Dashboard 实现仅对这些精确 route 与 shared atom 标记为 `IMPLEMENTATION_ADMITTED`，并必须作为有边界、可
+review 的切面交付，保持 fail-closed data/effect 边界。
+
+`DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` 或 `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE` surface 在完成同样的双语闭合并 晋升前仍禁止实现；实现准入绝不提升 backend availability、Owner
+acceptance、replacement readiness、executor cutover 或 production effect。
+
+#### Routed page blueprint registry
+
+以下 registry 是 skeleton 的规范。Button 按列出的左右顺序出现。`Open`、`Copy`、`Refresh`、filter 与 compare
+selection 是只读 UI action；其他 button 在 render 时还必须取得匹配的 admitted `ActionAdmissionGate` branch：
+`domain` 使用具名 Owner action manifest，显式注册的 `operational` control 使用 current
+`OperationalActionEnvelope`。
+
+对 `/rd`、`/rd/research` 与 `/rd/artifacts`，当前状态以阅读入口链接的精确回读与准入合同为准：具名 source contract 是 `CURRENT/PARTIAL`，其精确 default-Web deployment
+仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server projection 暴露所需 custody 前保持 固定 unavailable；actual provider
+execution 仍为 `NOT_ADMITTED`。 该规则只解析 status，不改变 registry 中 固定的 panel、button 或 state geometry。
+
+当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity` 与
+`/rd/artifacts` route， 以及 Artifact operational exact-readback，都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的未来
+Intake、Research 与 Artifacts registry 行。
+
+五个 route 都没有 summary strip 或分栏 detail pane，唯一 `P` surface 分别是 `SourceIntakeReadbackWorkbench`、
+`DevelopComposerReadbackWorkbench`、`ResearchDirectory`、`ResearchReadbackWorkspace` 与 `ArtifactDirectory`。
+
+Intake 本切片没有 directory、editable composer 或正向 action；Research detail 使用独立 identity-bound URL 且没有正向
+action；Artifact 精确详情也继续使用独立的 identity-bound URL。 registry 行中更广的 composer、Research admission/outcome
+action、receipt timeline、 S1 custody、review、binding、 replay 与 security-evidence panel 仍是未来
+blueprint，不能被推断进这些切片。
+
+当前准入的 Status `/dashboard` 是一个有界只读队列总览，并取代下方未来态的 global status registry 行。
+它只回答"现在有什么可以审阅、我可以从哪里继续"，不计算全局健康度、incident 总数、工作流进度或跨 Owner 状态机。
+
+第一个固定 panel 是 `DashboardOverview`：header 依次为 `Overview / Continue your work`、技术范围 disclosure、`Refresh`；body
+复用共享 `CompactStatusBar`，采用 3:2
+bento：`R&D`（`results ready`、`waiting`、`reviewable`、`bindings`）与
+`operations`（`active`、`needs attention`）。
+
+R&D 总数来自 historical-custody projection；outcome 与 build-review 计数只有在 complete identity set 与该 custody
+projection 匹配时才出现。 Build attempt 总数保留在 Artifact route，不在 首页重复为 KPI。 Operations 使用精确的未过滤 RunStore V2
+cut：`runs/all/any/pageSize=50/page=1`；`active = queued + running`，`needs attention = failed + unknown`。 RunStore 全零只表示该 view 没有记录 run，绝不表示系统健康。
+
+第二个固定 panel 是 `Next / Ready to review`。 它最多包含四个只读导航 card，顺序为：正数的 research results、正数的 reviewable build
+outcomes、正数的 waiting research、正数的 failed/unknown runs。 零值 省略对应 card；如果没有 card，body 保持 geometry
+并显示当前没有已记录的待审工作。 Loading 保留两个 panel frame，把全部 metric 替换为 em dash，并把第二个 body 替换为一个安静的 loading state。
+
+Refresh 独立发起全部 read、禁用重复 refresh，并在每个本轮 read 成功前撤回旧的正向 metric。 被拒绝、malformed、 partial、stale 或 identity
+mismatch 的 source 只撤回依赖它的 value/link，绝不变成零。 Observation time、 source cut、completeness 以及"各 section
+独立读取"的明确说明只放在技术 disclosure 内；页面没有全局 observation time 或 aggregate status。
+
+980 px 以下 navigation card 变为单列；共享 compact-status atom 保留其已规定的响应式行为。
+
+当前准入的 Attention `/dashboard/attention` 回答"现在有哪些已记录工作需要跟进、为什么、以及去哪里继续"， 而不创建新的 stop-predicate Owner。
+`DashboardAttention` 复用 historical-custody、research-question、 research-outcome、artifact-review 与精确的
+failed/unknown RunStore projection。
+
+固定表格逐项列出等待或不可读的 Research request、historical outcome 不可读的 Build attempt，以及 failed 或 unknown action run。 主列固定为
+`Item`、`Area`、`Needs follow-up` 与 `Recorded`；opaque request、attempt 与
+run identity 只留在展开详情或 `PanelFrameInfo` 中。
+
+summary 按 `research`、`builds` 与 `runs` 统计逐项 follow-up，并且只有三个 source family 全部绑定时才显示 total。
+`All / Research / Builds / Runs` filter 与 search 保持 Attention URL 不变。每一行只展开一个受控的同页原位详情，
+并链接到 canonical Research record、historical Build record 或 Run record。表格按 Owner/RunStore 记录时间排序，
+并复用共享 pagination atom。
+
+每个 source 独立 fail closed：identity mismatch 或 read unavailable 只撤回其依赖的 row 与 count，绝不变成零；
+如果其他 source 仍可读，整体 list 标为 partial。loading 会撤回此前 positive row。页面只有一个 outer vertical
+scroll owner，并且没有 dialog、drawer、Resolve、retry、dismiss、clipboard locator action、Owner mutation、effect
+dispatch 或 effect routing change。
+
+当前准入的 Recent `/dashboard/recent` 回答"最近记录了什么已验证 outcome"，而不引入新的 outcome Owner。 `RecentOwnerOutcomes` 消费两个有界
+Owner read：verified Research outcome 清单与 verified Build outcome 清单，每一行的 outcome state 都已由 Owner 解析完成。 页面发出的
+read 次数不随它列出的行数增长： workspace 至多请求它要显示的行数，Owner 把它夹到自己拥有的上限，被 Owner 截短的清单必须自己声明截断， 而不是报成全部的计数。
+
+两个 read 都不指名 custody cut：由各自 Owner 从自己的托管解析出 cut 并回显，因此 workspace 无法声称一个 Owner 没有解析过的坐标，回显 cut 不同的行也绝不合并。 只接纳
+`outcome_ready` Research 和 `reviewable` Build，再按 Owner recorded time 合并。 正文复用共享
+`DataWorkspaceTable` 与 controlled 同页原位展开；筛选只改变 Research/Build 可见 cut，不改变 URL。
+
+Research 行打开 canonical Research record，Build 行打开 canonical historical Build result。
+request、attempt、observation time、 completeness 与 identity 只进入 `PanelFrameInfo` 或展开行，不成为主表列。
+
+这两个 read 保持独立：malformed、 identity mismatch、unavailable 或 cut 不同的 Research 回答只撤回 Research row/count，Build
+同理；缺失显示 unavailable 而不是零，只有两类 source 都绑定时才显示 total。 Loading 在本轮 read 完成前撤回旧的正向 row。 页面只有一个 page scroll
+owner，没有 dialog、drawer、嵌套纵向 table scroller、Owner mutation 或 effect action。
+
+当前准入的 Evidence `/dashboard/evidence` 回答"Dashboard 哪些区域现在有可读数据，哪些覆盖仍不完整"。 它复用 Status 已读取的
+historical-custody、research-outcome、artifact-review 与精确未筛选 RunStore， 不创建新的 evidence Owner。 固定
+`DashboardEvidence` table 按顺序只有四个业务 row：`R&D history`、
+`Research results`、`Build results`、`Operations history`。
+
+Column 为 `Area`、`Current`、 `Needs follow-up`、`Coverage`；exact source
+identity 不进入主列。 `Connected` 表示该 row 的 typed source 与所需 identity binding 完整，`Limited` 表示
+source 可读但存在 truncated、partial 或不可读 point result， `Unavailable` 表示 read 或 identity binding 失败。
+
+这些 label 只表示 Dashboard read coverage，绝不表示 Owner health、科学有效性或全局 incident state。
+
+Summary 统计 area 而非把不同 record 相加：`connected`、`limited`、`unavailable`。
+`All / Connected /
+Needs coverage` filter 只改变可见 row，并保持 Evidence URL 不变。 激活 row 后以 controlled 同页原位 detail 展示业务解释与 canonical
+workspace link。 Observation time、completeness 与 unavailable reason 只进入 `PanelFrameInfo`。
+
+每个 source 独立 fail closed；loading 撤回 retained value，missing 原位 unavailable 而不是零； 任何 row 都不准入
+rebuild、resolve、dismiss、Owner mutation 或 effect action。 页面仅使用外层 page viewport 作为纵向 scroll owner。
+
+##### Overview 与 R&D
+
+| Tab 与 route                     | 固定 `S / P / Q / T` 内容                                                                                                                                                                                 | Button 顺序                                                                                               | 默认证据状态                                                                                                                                                                                                                                             |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status `/dashboard`              | 上述已准入 queue Overview：`P=DashboardOverview`；紧凑展示彼此独立的 R&D 与 RunStore summary；`T=ReadyToReview` navigation cards；无 `Q`、global matrix、incident aggregate 或 Owner timeline             | 从 metric/card 打开精确的只读 queue；View data scope；Refresh                                             | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：正向 value 必须有当前 typed projection 与上述 identity‑set binding。缺失或 mismatch 的 source 原位 unavailable。不提供 global health、restore、resolve、submit、run 或其他 effect action                    |
+| Attention `/dashboard/attention` | 使用上方已准入 follow‑up workspace：逐项展示等待/不可读的 Research request、不可读的 Build outcome 与 failed/unknown Run；`P=DashboardAttention`；受控同页原位详情；source evidence 留在 `PanelFrameInfo` | Filter All/Research/Builds/Runs、search、原位展开一行、打开 canonical record、Refresh                     | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：只使用独立 typed read；mismatch 或 unavailable source 会撤回其 row/count 而非变成零；没有 Resolve、retry、dismiss、clipboard locator action、Owner mutation、effect dispatch 或 Windmill routing change     |
+| Recent `/dashboard/recent`       | 上述已准入 recent‑outcome workspace：verified Research/Build count 与按时间排列的 `P=RecentOwnerOutcomes`；独立 source freshness 只进 `PanelFrameInfo`；controlled 同页原位 detail 展示 outcome summary   | All/Research/Build 筛选、原位展开一行、打开 canonical Research record 或 historical Build result、Refresh | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：仅 typed 独立 Owner read；identity mismatch 只撤回依赖它的 row/count；missing 原位 unavailable 而非零；无 Owner 或 effect mutation                                                                          |
+| Evidence `/dashboard/evidence`   | 上述已准入 read‑coverage workspace：area count 与 `P=DashboardEvidence`；controlled 同页原位 detail 提供业务解释和 canonical destination；技术 observation evidence 只进 `PanelFrameInfo`                 | All/Connected/Needs coverage 筛选、原位展开一行、打开 canonical workspace、Refresh                        | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：四个独立 typed read；identity mismatch 只撤回依赖它的 row；missing 原位 unavailable 而非零；coverage 不是 Owner health 或全局 incident state；无 rebuild、resolve、dismiss、Owner mutation 或 effect action |
+| Intake `/rd`                     | `P=SourceIntakeReadbackWorkbench`; exact lookup and Intake / Custody / Evidence groups; no summary strip, split pane or composer                                                                          | Open readback, Refresh                                                                                    | `IMPLEMENTATION_ADMITTED`: exact typed read only; no Submit, Resolve mutation, successor or provider call                                                                                                                                                |
+| Research `/rd/research`          | Active/stale/unknown/accepted/rejected 计数；`P=ResearchRequestTable`；`Q=ResearchViewCard + TrialFamilyReceiptPanel + S1TerminalCustodyPanel`；`T=ResearchReceiptTimeline`                               | Filter, Search, Open research, Refresh                                                                    | Exact admitted typed readback/directory; no research dispatch, Resolve mutation or successor                                                                                                                                                             |
+| Hypotheses `/rd/hypotheses`      | verified/unavailable 已保存问题筛选；`P=HypothesisDirectory` 与 inline `ResearchQuestionBrief`；技术 custody 只进 `PanelFrameInfo`                                                                        | 原位展开一行；Open research record                                                                        | 只读 `rd.research_question_directory.read.v1`；verified custody 不等于科学有效性、active/falsified 状态、outcome 或 Iteration Decision；本 tab 不直接 mutate Fact                                                                                        |
+| Artifacts `/rd/artifacts`        | `P=ArtifactDirectory`; exact verified Artifact list/detail with Review and custody evidence; geometry defined by the admitted directory above                                                             | Filter, Search, Open Artifact, Refresh                                                                    | `IMPLEMENTATION_ADMITTED`: exact typed read only; no build, provider, claim, Resolve mutation or successor                                                                                                                                               |
+| Decisions `/rd/decisions`        | 已验证 Iteration Decision 筛选；`P=RdDecisionDirectory` 与 inline `ResearchQuestionBrief`；技术 lineage 只进 `PanelFrameInfo`                                                                             | 原位展开一行；Open research record                                                                        | 只读 Formation catalog 与每个 family 的 exact Iteration timeline；零 family 是真实 empty cut；不暴露 Decision action 或 effect mutation                                                                                                                  |
+
+##### Backtest、Qualification 与 Scanner
+
+| Tab 与 route                                           | 固定 `S / P / Q / T` 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Button 顺序                                                                                                                        | 默认证据状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exploratory `/backtest`                                | 无 summary strip；`P=ExploratoryReplayReadbackWorkbench` 先展示 `Request`、`Custody`、`Replay basis`，再提供精确 Result/Attempt lookup，并用一个共享 `FactGroup` 紧凑展示 terminal、diagnosis、reconciliation、semantic trace 与 result identity，随后是该 lookup 所打开 result 的 `BacktestRunReport` slot。另一条显式三字段 point‑read 用共享 `Outcome / Custody / Timing` 状态卡展示一份已验证的 historical Replay rejection；页面没有 historical directory 或 table，该 historical rejection point‑read 没有图表，图表只出现在已挂载的 `BacktestRunReport` 内 | Open readback、Open result、Open historical、Refresh。Run/Resolve/Create successor/edit/compare/download/dismiss 均无 browser slot | `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 覆盖经 consolidated read API 的精确 Replay V2 request、canonical result，以及精确 pre‑V2 `REJECTED_NO_WRITE / INVALID_REPLAY_EVIDENCE` quarantine readback。historical custody 绝不 fallback 到或满足 V2 selector。独立认证的 HTTP/MCP request‑custody 路径为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`；已归档的 Windmill S3 execution 与 native replay execution 继续 unavailable。所有 summary 均只读，页面不能虚构 return，也不能暗示 native execution 或 cutover parity |
+| Compare `/backtest/compare`                            | Selected‑run count 与 comparable cut；`P=RunPicker`；`Q=ComparisonBasis`；`T=RunComparePanel`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Add run、Remove run、Swap baseline、Open run detail                                                                                | Read‑only；比较 2‑4 个 exact compatible run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Diagnostics `/backtest/diagnostics`                    | Diagnostic category 计数；`P=DiagnosticFilter`；`Q=ModelIdentityList`；`T=DiagnosticTable + bounded summary`                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Filter、Copy identity、Open source receipt                                                                                         | 仅允许的 category；无 protected Qualification data                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Intake `/qualification`                                | Submitted/pending/evaluating/unknown/not‑admitted/semantic‑conflict/unavailable 计数；`P=QualificationIntakeTable`；`Q=EvidenceCompleteness + QualificationIntakeConflictPanel`；`T=IntakeReceiptTimeline`                                                                                                                                                                                                                                                                                                                                                        | Submit intake、Refresh、Resolve exact same meaning、Open original receipt、Prepare admitted successor                              | Pending/evaluating 需要独立准入的 intake projection，且绝不意味着 public terminal。Exact replay 可以 resolve；同 identity 下任意 changed valid/invalid meaning 都是 `RequestSemanticConflict`。`OBSERVED_CANDIDATE_NOT_CURRENT`；尚无真实 Product Edge consumer                                                                                                                                                                                                                                                            |
+| Protected feedback `/qualification/protected‑feedback` | Current/genesis‑empty/unknown/corrupt 计数；`P=QualificationFrontierTable`；`Q=QualificationFrontierReceiptPanel + IndependenceBasisLink`；`T=OpaqueFrontierTimeline`                                                                                                                                                                                                                                                                                                                                                                                             | Refresh、按 exact basis Resolve current、Open R&D basis receipt、Copy opaque frontier reference                                    | `RESTORED_REVALIDATION_PENDING / NOT_ADMITTED`；exhaustive canonical Owner history verification 与 direct `1/1/1 + receipt` readback 已成功，但重建的原 frontier 在 current cut stale/`UNAVAILABLE`，且 consumer revalidation 尚未运行。页面渲染 unavailable、隐藏 Copy frontier，只暴露 read‑only incident evidence。Identity/cut/digest/state 保持可见；protected content、candidate Intake、protected attempt、eligibility、holdout 与 cross‑family ancestry 仍为 `NOT_ADMITTED`                                        |
+| Outcomes `/qualification/outcomes`                     | 仅 Qualified/ineligible/expired/revoked public‑terminal 计数；`P=PublicOutcomeTable`；`Q=QualificationPublicOutcome`；`T=PublicFrontierTimeline`                                                                                                                                                                                                                                                                                                                                                                                                                  | Refresh、Open public outcome、Copy opaque reference                                                                                | `Admitted/Evaluating` 不产生 row、terminal count、receipt、color、notification 或 action。仅 public redaction；protected field 没有 slot。`OBSERVED_CANDIDATE_NOT_CURRENT`                                                                                                                                                                                                                                                                                                                                                 |
+| Eligibility `/qualification/eligibility`               | Current/pending/expired/conflict 计数；`P=EligibilityIntervalTable`；`Q=HeadFrontierCard`；`T=TransitionTimeline`                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Refresh、Resolve current head                                                                                                      | 仅 foundation；空或 dual‑current interval 为 unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Discovery `/scanner`                                   | `P=ObservationTable`；`Q=InputCoverage`；`T=ObservationTimeline`；展示工件、评价时间、完成/排除/未完成标的及信号                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Submit read‑only query、Read same job                                                                                              | R&D 按需发现；没有计划、due‑slot 或部署提案；完整业务与路由实现准入仍待验收                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+##### Strategy、Runtime 与 Portfolio
+
+| Tab 与 route                         | 固定 `S / P / Q / T` 内容                                                                                                                                           | Button 顺序                                                                                                                          | 默认证据状态                                                                                                                                                                                                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Registry `/strategy`                 | Registered/current/superseded/unavailable 计数；`P=StrategyRegistryTable`；`Q=GenerationIdentityCard`；`T=GenerationLineage`                                        | Open generation、Copy identity                                                                                                       | 仅 static Governance foundation                                                                                                                                                                                                                                                                    |
+| Lifecycle `/strategy/lifecycle`      | Pending/accepted/rejected‑no‑write/unknown 计数；`P=LifecycleRequestTable`；`Q=GovernanceEligibilityAdmissionPanel + GovernanceDecisionCard`；`T=ContenderFrontier` | Eligibility valid 时：Submit lifecycle request、Resolve same request、Create successor；否则 Open Eligibility evidence、Copy locator | `CURRENT/PARTIAL · STATIC_CONTRACT_CLOSED_NOT_RUNTIME`：当前契约使 invalid/unavailable Eligibility 成为 pre‑admission 零写入状态。Receipt‑backed `REJECTED_NO_WRITE` 是独立的已准入 Governance decision；positive Runtime application 与 product consumer 仍为 `NOT_ADMITTED`                      |
+| Allocations `/strategy/allocations`  | Allocated/unallocated/capacity‑blocked/unavailable 计数；`P=AllocationTable`；`Q=CapacityEvidence`；`T=AllocationHistory`                                           | Open allocation、Prepare allocation request                                                                                          | Dashboard 没有 allocation writer                                                                                                                                                                                                                                                                   |
+| Instances `/runtime`                 | 一个固定 not‑ready summary；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                       | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `CURRENT/PARTIAL · FOUNDATION_NOT_READY`：显示 `NotReady` 与精确四项 dependency。没有 Strategy Instance row、readiness receipt、incident、Resolve、Apply 或绿色状态；未来 Owner‑backed `RuntimeReadinessCard` 缺席                                                                                 |
+| Generations `/runtime/generations`   | 不显示 generation 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                           | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 generation 或 application surface。即使 `NOT_APPLIED / NO_APPLICATION_RECEIPT` 也要等待单独准入的 Governance‑to‑Runtime consumer；未来 generation geometry、`APPLIED`、Resolve 与 Apply 都缺席                                                                      |
+| Checkpoints `/runtime/checkpoints`   | 不显示 checkpoint 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                           | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 checkpoint 或 restore surface。未来 `CheckpointTable`、`RestoreValidationCard`、`CheckpointHistory`、Open checkpoint 与 Validate restore evidence 都缺席                                                                                                            |
+| Incidents `/runtime/incidents`       | 不显示 incident 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                             | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 incident 或 Recovery surface。未来 `RuntimeIncidentTable`、`IncidentEvidence`、`IncidentTimeline`、Open incident 与 Open Recovery case 都缺席；missing heartbeat 不能制造 incident                                                                                  |
+| Performance `/portfolio`             | 不显示 performance summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                        | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：只显示不可用状态与 source 要求；exact request/envelope contract 保留在技术详情中。未来 `PerformanceChart`、`AccountAndFactCut`、`PerformancePeriods`、range control 与 source‑fact action 都缺席；legacy `PortfolioSnapshot` 不是 Owner fact |
+| Exposure `/portfolio/exposure`       | 不显示 exposure summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                           | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：未来 `ExposureMatrix`、`CoherentEvidenceCut`、`ExposureTable`、scope filter 与 fact action 都缺席；shared Cache position 或 stale flag 不能填充该 card                                                                                       |
+| Capacity `/portfolio/capacity`       | 不显示 capacity summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                           | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：request 绑定 scope/mode/policy/common cut，但不存在 positive Gross Capacity projection。未来 `CapacityScopeCard`、`GrossCapacityView`、`CapacitySourceCompleteness`、`CapacityViewHistory`、refresh/source action、usage 与 headroom 都缺席  |
+| Attribution `/portfolio/attribution` | 不显示 attribution summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                        | 查看 Portfolio 技术详情                                                                                                              | `NOT_ADMITTED · NO_ATTRIBUTION_SURFACE`：当前契约不暴露 attribution projection identity。未来 `AttributionChart`、`AttributionEvidenceCut`、`AttributionTable`、period control 与 evidence action 都缺席；不推断 Alpha、Qualification 或 Risk usage                                                |
+
+##### Risk、Execution 与 Data
+
+| Tab 与 route                               | 固定 `S / P / Q / T` 内容                                                                                                                               | Button 顺序                                                         | 默认证据状态                                                                                                                                                                                                                                                                            |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Decisions `/risk`                          | Allow/reject/decrease‑only/unavailable 计数；`P=RiskDecisionTable`；`Q=DecisionEvidenceAndLineage`；`T=RiskDecisionTimeline`                            | Open decision、Resolve same intent、Open source facts               | `NOT_ADMITTED`：legacy check/forward/denial event 不进入此页；无 manual override                                                                                                                                                                                                        |
+| Reservations `/risk/reservations`          | Available/withdrawn/consumed/unknown‑effect/no‑effect/settled 计数；`P=ReservationTable`；`Q=ReservationLiabilityCard`；`T=ReservationHistory`          | Open reservation、Open claim result、Open linked effect             | Standalone Risk core 为 `MECHANISM_REJECTED / NOT_ADMITTED`；只有包含 Risk‑owned one‑use fact/store 的完整跨 Owner 输入链才能重新规划。Dashboard 不释放 liability                                                                                                                       |
+| Claims & Admission `/risk/claims`          | Consumed/rejected/admitted‑once/suppressed/conflict/unavailable 计数；`P=ClaimAndAdmissionTable`；`Q=AggregateFrontierCard`；`T=ClaimAdmissionTimeline` | Open claim、Open prepared attempt、Open adapter binding、Open fence | Local‑core leaf 为 `MECHANISM_REJECTED / NOT_ADMITTED`；claim、admission 与 fence arbitration 必须在同一个真实消费者纵切中共用一个 Risk transaction frontier                                                                                                                            |
+| Fences `/risk/fences`                      | Active/pending/cleared/unavailable 计数；`P=FenceTable`；`Q=FenceSetAndFrontier`；`T=FenceTimeline`                                                     | Open fence、Open Recovery case、Open source facts                   | Risk‑owned fence fact 存在前 `NOT_ADMITTED`；active fence 绝不隐藏或 dismiss                                                                                                                                                                                                            |
+| Attempts `/execution`                      | Prepared/invoked/unknown/rejected 计数；`P=EffectAttemptTable`；`Q=EffectAuthorityCard`；`T=AttemptJournal`                                             | Open attempt、Resolve same effect                                   | 默认只读；无 explicit effect authority 时没有 invocation button                                                                                                                                                                                                                         |
+| Orders `/execution/orders`                 | Open/partial/filled/rejected 计数；`P=OrderTable`；`Q=AuthorizedCommandCard`；`T=OrderStateTimeline`                                                    | Open order、Open command、Resolve venue readback                    | UI 不创建或修改 order                                                                                                                                                                                                                                                                   |
+| Fills `/execution/fills`                   | Fill/fee/slippage/unavailable 摘要；`P=FillTable`；`Q=FillEvidence`；`T=FillTimeline`                                                                   | Filter、Open fill receipt                                           | Read‑only                                                                                                                                                                                                                                                                               |
+| Reconciliation `/execution/reconciliation` | Matched/missing/conflicting/unknown 计数；`P=ReconciliationTable`；`Q=ReconciliationPanel`；`T=VenueReadbackTimeline`                                   | Refresh readback、Resolve same effect、Open Recovery case           | Unknown 持久显示                                                                                                                                                                                                                                                                        |
+| Recovery `/execution/recovery`             | Open/contained/reconciling/closed 计数；`P=RecoveryCaseTable`；`Q=RecoveryEvidence`；`T=RecoveryTimeline`                                               | Open case、Run admitted read‑only reconciliation step               | UI 不推断 effect retry 或 closure                                                                                                                                                                                                                                                       |
+| Sources `/data`                            | 不显示 binding 计数；`P=EmptyState`；`Q=MarketDataOwnerFoundationCard`；`T=EmptyState`                                                                  | Open foundation evidence、Copy foundation locator                   | `CURRENT/PARTIAL · NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER`：PR #331 准入 sealed Source Binding readback schema，但未准入 Dashboard/H0 resolver composition。未来 `DataSourceTable`、`SourceBindingCard`、`SourceCutHistory`、positive admitted badge 与 resolver/mutation action 都缺席 |
+| PIT Catalog `/data/pit‑catalog`            | 不显示 snapshot 计数；`P=EmptyState`；`Q=MarketDataOwnerFoundationCard`；`T=EmptyState`                                                                 | Open foundation evidence、Copy foundation locator                   | `CURRENT/PARTIAL · NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER`：PR #331 准入 sealed PIT Snapshot readback schema，但未准入 Dashboard/H0 resolver composition。未来 `PITCatalogTable`、`SnapshotIdentityCard`、`CorrectionTimeline`、available badge 与 resolver/mutation action 都缺席      |
+| Quality `/data/quality`                    | Complete/partial/conflict/quarantined 计数；`P=QualityRuleMatrix`；`Q=SelectedQualityFinding`；`T=QualityTimeline`                                      | Open finding、Open source evidence                                  | 不自动 acceptance                                                                                                                                                                                                                                                                       |
+| Freshness `/data/freshness`                | 按 source 的 current/stale/expired/unavailable 计数；`P=FreshnessMatrix`；`Q=TimeEvidenceCard`；`T=LagHistory`                                          | Refresh、Open frontier                                              | 禁止一个 global freshness maximum                                                                                                                                                                                                                                                       |
+
+##### Operations 与 Settings
+
+| Tab 与 route                                                     | 固定 `S / P / Q / T` 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Button 顺序                                                                                                                | 默认证据状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runs `/operations`                                               | 四张固定 status card 按 selected Runs/Owner reads kind 限定 scope：queued、running、unknown、completed/failed；`T=RunTable`，含 status/date/operation/trigger/principal/duration/Owner outcome；row selection 后 `D=RunSummaryCard`；省略 `P/Q`                                                                                                                                                                                                                                                      | Refresh、Filter、Open run、Resolve Owner outcome、Delete disposable completed cache                                        | 第一方 RunStore 运维投影；当前路由准入与精确骨架决定可用性，不修改 Owner 或业务事实                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Run Detail `/operations/runs/:runId`                             | 面向业务的结果与时间 summary；`P=Run inputs + worker assignment + OperationalCancellationReceiptCard` 并绑定 `:runId`；`Q=Related source result`；`T=Logs and evidence`，后接固定嵌套 `Logs/Metrics/Traces/Assets` tabs。主路径只显示注册后的业务 operation 名称、source result、run 状态、时间、请求来源、工作类型和相关结果动作；精确 operation/run ID、channel、transition、terminal code、dispatch digest/reason、source‑owner identity 与 protected‑field reason 全部进入共享 info disclosure。 | Copy reference、Refresh、条件成立时 Cancel queued dependency、Check source result、View source result、Download result/log | 使用上方精确固定 skeleton；Cancel 只在 queued、unclaimed、zero‑domain‑effect dependency run 中占据第三个按钮位，其余状态该 slot 缺席。CAS 中以 disabled `Cancelling…` 显示；terminal transition 后 action/panel 缺席，P 保留 receipt 或 unavailable readback。Worker assignment 只描述该精确历史 run，不能断言当前 service health。展示文案不得改变 typed result、transition、Owner locator、action envelope 或 effect boundary。无 batch cancel 或通用 rerun/edit/share。                                                                                                 |
+| Workers `/operations/workers` 与 `/operations/workers/:workerId` | 使用上方 Workers 精确只读 skeleton：Capacity/Work handled summary；P/Q 缺席；T 列为 Service、Availability、Active / processed、Recent activity、Supports；D 按 identity 绑定四簇事实                                                                                                                                                                                                                                                                                                                 | Refresh、页内选择 service、在共享 sheet 预览 recent Run、Open full run details、Back to service/services                   | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`；仅 registration/lease/claim observation；list/detail 独立 fail closed；精确 Run GET preview 保持有界且不增加 Worker 或 Run effect；无 Windmill 管理、未绑定 run 的 readiness、Owner acceptance 或切换                                                                                                                                                                                                                                                                                                          |
+| Service Logs `/operations/service‑logs`                          | 使用上方精确 skeleton：severity/instance summary、canonical filter cut、采用业务 source 名称的 `P=ServiceInstanceList`、把技术值放入 info 的 identity‑bound `Q=ServiceInstanceCard`、采用 Time/Level/Activity/Source/Related 扫读路径并组合 `BoundedLogViewport` 的 `T=ServiceLogPanel`，以及明确 complete/partial/empty/filtered‑empty/unavailable 状态                                                                                                                                             | Refresh、Toggle auto‑refresh、Download bounded logs                                                                        | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`；只以有界 operational read 替代 Windmill 真实使用。一个 repeatable‑read PostgreSQL cut，严格 echo/digest/cursor 绑定；不编造 host/message，无 administration、Owner fact、effect route 或 cutover                                                                                                                                                                                                                                                                                                               |
+| Audit `/operations/audit`                                        | Execute/update/create/delete/success/failure 计数；`P=OperationAuditTable`；`Q=AuditCorrelationCard + InvocationAdmissionReceipt + InvocationClaimReceipt + ProviderInvocationStateCard`，顺序固定；`T=Timeline` 显示 canonical operation events                                                                                                                                                                                                                                                     | Filter、Open correlation、Copy audit locator、Copy provider claim                                                          | 运维审计是 append‑only control‑plane evidence，不是 Owner business truth。Product Edge 单独显示 invocation admission、claim disposition、`CLAIMED / INVOCATION_STARTED`、start disposition 与 state digest。`OUTCOME_UNKNOWN` 是持久 manual‑reconciliation stop；historical request admission、缺失 invocation admission 或 claim resolve 绝不意味着新 effect 或 provider retry                                                                                                                                                                                            |
+| Event Rail `/operations/event‑rail`                              | Ingested/conflict/quarantined/rebuilding 计数；`P=EventRailTable`；`Q=EnvelopeEvidence`；`T=RebuildTimeline`                                                                                                                                                                                                                                                                                                                                                                                         | Filter、Open event、Copy locator                                                                                           | 真实 adapter consumption 前仅 static Observability foundation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Telemetry `/operations/telemetry`                                | Available/stale/partial/rebuilding/unavailable/quarantined 计数；`P=TelemetryMatrix`；`Q=SourceFrontierCard`；`T=TelemetryTimeline`                                                                                                                                                                                                                                                                                                                                                                  | Refresh、Open source                                                                                                       | PR #327 source projection 是 `CURRENT/PARTIAL`；per‑source frontier、freshness、completeness、rebuild state、quarantine 与 opaque checkpoint 使用固定 read‑only geometry。Owner 与 telemetry adapter unavailable，telemetry visibility 固定为 `Unavailable`，任何 empty、raw、stale、replayed 或 self‑asserted signal 都不能产生 `Available`                                                                                                                                                                                                                               |
+| Alerts `/operations/alerts`                                      | Critical/warning/info/unread 计数；`P=AlertTable`；`Q=AlertDetail`；`T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                                              | Open alert、Mark presentation read、Open Owner evidence                                                                    | Read acknowledgement 不是业务 acknowledgement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Data Sources `/settings`                                         | Configured/healthy/unavailable/secret‑missing 计数；`P=DataSourceConfigList`；`Q=OpaqueConnectionRefForm`；`T=ValidationHistory`                                                                                                                                                                                                                                                                                                                                                                     | Test read‑only connection、Save opaque reference                                                                           | Page state 不展示或存储 secret value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Agents `/settings/agents`                                        | 外部 Agent 接入/授权引用与可读取的宿主用量；不可读取的消耗保持未知                                                                                                                                                                                                                                                                                                                                                                                                                                   | Refresh、Open access evidence                                                                                              | 仅蓝图；无 provider test、模型密钥、Save profile、Agent 调度或宿主远程控制                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Notifications `/settings/notifications`                          | Channel/enabled/failed/unavailable 计数；`P=NotificationPreferenceForm`；`Q=ChannelStatus`；`T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                      | Send local test、Save preferences                                                                                          | 不 acknowledge Owner outcome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Access `/settings/access`                                        | Principal/session/token/revoked 计数，以及 binding `ACTIVE/SUPERSEDED/zero‑active` 与 authorization available/expired/revoked/unavailable 计数；`P=LocalPrincipalCard`；`Q=AuthorizationLineagePanel`，内部固定 `Current authority / Admission snapshot` tabs，并分开显示 `Operator Authorization / Product Edge readiness` rows；`T=AuthorizationSuccessorReadiness + CapabilityManifest + CredentialAudit`                                                                                         | Re‑authenticate local session、Issue narrow transport token、Revoke token、Copy once                                       | Transport credential 控件绝不能签发、续期、撤销或 chain‑walk Operator Authorization。Historical expiry 缺少 immediate equivalent successor，或 `successor_distance>1` 时，`Current authority` 显示 unavailable，并列出 prior/current identity、generation、distance 与准确 stop；immutable snapshot 保留，且没有 renewal/replacement selector。只有 `Current authority` 驱动 action state。两个 tab 都显示准确 binding/head、issuer/audience/scope、expiry/revocation frontier、manifest digest、source cut 与 stop predicate；secret/token value 仍只显示一次且不记录日志 |
+
+`/settings/access` 使用以下固定 read/control 分区：
+
+```text
+H  Settings / Access                                                   [Refresh]
+S  Session | Current authority | Successor readiness | Revoked
+P  Local principal/session: identity, authenticated/expired/unavailable, last re-auth
+Q  [Current authority] [Admission snapshot]
+   Operator Authorization: identity, issuer, audience, scope, sequence, validity, state, cut
+   Product Edge readiness: binding/head, manifest digest, outbox, state, cut, stop predicate
+R  Successor readiness: prior identity/scope/sequence -> Owner operation availability ->
+   admission/current generation -> successor distance 0|1 -> predecessor locator ->
+   successor receipt/identity or DIRECT_SUCCESSOR_REQUIRED / exact unavailable reason;
+   no editable value, selector, or chain-head promotion
+T  [Authorization successor] [Capability manifest] [Credential audit]
+B  [Re-authenticate] [Issue narrow transport token] [Revoke token] [Copy once]
+```
+
+Successor issuance unavailable 时，`S` 保留四等分 slot，`R` 使用固定 amber unavailable geometry，`B` 只包含
+transport/session control。任何 viewport 都不出现 Issue/Renew authorization、Select replacement、Force active
+或 pasted-receipt control。
+
+#### Overlay、button 与状态渲染合同
+
+- `OwnerReceiptDrawer` 与 `RunDetailDrawer` 使用固定 `D` 顺序。Receipt 是唯一终态证据时不能藏在 accordion。
+- `GlobalSearchDialog` 包含 query input、type chip、result group、identity/source-cut preview，且只有 `Open`
+  或 `Prepare request` action；不能执行 domain mutation。
+- `NotificationDrawer` 按 incident、unknown、stale、fence 与 informational delivery 分组。`Mark read` 只改变
+  presentation state。
+- Primary button 提交一个 admitted semantic operation；secondary 解析同一 identity；outline/quiet 创建
+  Owner-admitted successor；ghost 只导航、filter、refresh read 或 copy。
+- 每个修改型 button 都由 `ActionAdmissionGate` 包裹，branch tag 只有 `domain` 与 `operational` 两个 variant。Domain branch
+  要求当前 `NextLegalActionBar` operation 与 `admitted` envelope 在 principal、scope、Owner、operation、schema、
+  exact effect set、binding head、authorization 与 manifest digest 上完全一致。S2 的 `Check & Run` 是 composite
+  domain control：第一段只执行 read‑only preflight，只有内部 dispatch transition 才能进入 `ADMITTING`。
+  Operational branch 只适用于 `dependency.cancel.queued` 这类已注册 disposable control；必须持有绑定
+  principal、capability、精确 operational identity、dispatcher transition version、zero domain effect、
+  claim-absence cut 与短 expiry 的 current `OperationalActionEnvelope`。Backend 在自己的 transition lock 下重读
+  envelope；它绝不替代 Owner envelope 或 `NextLegalActionBar`。Expiry、revocation、identity/version/head change、
+  zero/dual `ACTIVE` binding、manifest mismatch、new claim、resolver unavailable 或 preflight failure 都必须
+  disable 对应 branch，且不能保留之前的绿色状态。
+- Disabled business button 只在 prerequisite 可本地说明时保留可见，help text 必须命名缺少的 receipt、
+  capability、freshness、permission 或 identity。未准入 capability 使用 `NotAdmittedNotice`，而不是永久 disabled
+  的假 control。
+- Skeleton 保持最终 geometry：60/35% 宽 text line、四个 summary block、`P/Q/T` body、status badge 与 drawer
+  row。无真实 job 时不能出现随机 value、success color 或 animated progress。
+- 状态顺序和颜色固定：unavailable/neutral、pending/amber、success/green、rejected 或 incident/red、
+  protected/purple、conflict/quarantine red 且有明确 label。每种 color meaning 都同时用 text 与 icon 重复。
+
+## 共享视觉与交互
+
+### 可复用组件目录
+
+高层只能依赖低层。Page 不得重定义 color、spacing、status semantic 或 action rule。
+
+#### Foundation primitive
+
+| 组件                                                                              | 合同                                                              |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `Text`, `Heading`, `Numeric`, `Code`, `Link`                                      | semantic typography；identity/数字使用 mono tabular numeral       |
+| `Icon`                                                                            | 单一 library，默认 1.5 px stroke；交互时有 accessible label       |
+| `Button`, `IconButton`, `ButtonGroup`                                             | primary、secondary、outline、ghost、destructive；loading/disabled |
+| `Input`, `Textarea`, `Select`, `Combobox`, `Checkbox`, `Switch`                   | label、help、error、disabled、readonly、pending                   |
+| `Tabs`, `SegmentedControl`, `Breadcrumb`, `Pagination`                            | resource identity 改变时 route‑backed                             |
+| `Badge`, `StatusDot`, `IdentityChip`, `ModeChip`                                  | text 加 icon/shape；禁止 color‑only                               |
+| `Tooltip`, `Popover`, `Menu`, `Dialog`, `Drawer`                                  | bounded layer 与 keyboard dismissal                               |
+| `Skeleton`, `Spinner`, `Progress`, `EmptyState`, `ErrorState`, `UnavailableState` | loading 与 unknown/empty/unavailable 分离                         |
+| `Separator`, `ScrollArea`, `VisuallyHidden`, `CopyButton`                         | 共享结构与 accessibility                                          |
+
+#### Layout 与 navigation component
+
+| 组件                                                                        | 合同                                                                                      |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `DashboardShell`                                                            | full‑screen rail、top bar、viewport、overlay root                                         |
+| `UserCapsule`                                                               | 本地 operator 与 installation menu；无业务权威                                            |
+| `IconRail`, `IconNavItem`                                                   | 稳定顺序、tooltip、active/focus/disabled/attention                                        |
+| `TopBar`, `StatusTape`, `ModuleTabs`, `GlobalCommand`, `NotificationButton` | top menu 四区                                                                             |
+| `PageHeader`, `ScopeBar`, `AuthorityStamp`, `FreshnessStamp`                | Owner/evidence context                                                                    |
+| `RouteGrid`, `RouteSlot`                                                    | page‑level 12/6/1‑column contract、固定 slot span/order、无 caller‑defined column count   |
+| `BentoGrid`, `BentoItem`, `SplitPane`, `DetailDrawer`                       | panel 内部 container‑responsive 1/2/3/4/8‑column 组合、180 px minimum auto‑row、16 px gap |
+
+#### Data display component
+
+| 组件                                                                         | 合同                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Card`, `CardHeader`, `CardBody`, `CardFooter`                               | 白色、12 px radius、可选 expand、禁用 glass                                                                                                                                            |
+| `PanelFrame`, `PanelFrameHeader`, `PanelFrameBody`, `PanelSection`           | 灰 frame、白 body、scroll/flex mode                                                                                                                                                    |
+| `StatGrid`, `StatItem`, `KVRow`, `DataList`, `DataTable`                     | unit、source cut、empty/unavailable state                                                                                                                                              |
+| `DataTableSurface`, `DataWorkspaceTable`, `ArtifactDirectory`                | TanStack headless state 配合共享 shadcn‑style table atom；单行 toolbar、sticky plain header、克制 separator、有界 Owner‑verified row，以及 fail‑closed empty/partial/unavailable state |
+| `ChartFrame`, `ChartLegend`, `ChartTooltip`, `TimeRangeControl`              | axis、unit、locale、disclosure、no‑data                                                                                                                                                |
+| `Timeline`, `EventRow`, `BoundedLogViewport`, `DiffView`, `ComparisonMatrix` | virtualization、stable key、redaction、truncation 与 retention disclosure                                                                                                              |
+| `FilterBar`, `FilterDrawer`, `DateGroup`, `TableToolbar`, `TableFooter`      | route‑backed filter、稳定 column/order、filtered‑empty、row count 与 pagination；移动端仅改变容器                                                                                      |
+| `StateBanner`, `Callout`, `AlertRow`                                         | success/pending/unknown/rejected/unavailable/protected/incident                                                                                                                        |
+
+#### Domain component
+
+| 组件                                                                                                                     | 合同                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OwnerReceiptCard`, `OwnerViewCard`, `ReceiptLink`                                                                       | Owner identity、disposition、cut、freshness、locator                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `NextLegalActionBar`                                                                                                     | 只显示 current direct‑read projection 中 Owner‑admitted action；durable historical success 在 stale/unavailable/archived 状态下绝不保留 action；否则显示 stop predicate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `ActionAdmissionGate`, `AuthorizationLineagePanel`                                                                       | discriminated input 精确为 `domain / operational`，绝不能同时出现。`domain` 把 `NextLegalActionBar` 与唯一 `ACTIVE` shell binding/history head、Operator Authorization、Time/revocation、Owner freshness、Product Edge readiness、exact effect set 与 manifest 交叉绑定。`operational` 只接受已注册 disposable capability 加 current `OperationalActionEnvelope`，绑定 principal、run、dispatcher transition version、空 domain‑effect digest、no‑claim cut 与 expiry；Dispatcher 在 lock 下重读，且它不能填充 `AuthorizationLineagePanel` 或替代 Owner authority。两者共用 `IDLE / PREFLIGHTING / ADMITTING / ADMITTED / REVALIDATION_REQUIRED / STALE / UNAVAILABLE`；dispatch 后 unknown 转到 branch‑specific same‑identity readback。Domain 显示 `Current authority` 再显示 `Admission snapshot`；operational 显示 envelope/transition/no‑claim evidence。Historical snapshot 不参与任一 branch，两个组件都不能构造或修复 authority |
+| `AuthorizationSuccessorReadiness`                                                                                        | 只读显示 prior authorization identity/scope/sequence、admission/current generation、`successor_distance=0\|1`、terminal expiry/revocation state、canonical direct‑successor operation availability、存在时的 successor receipt/identity，以及准确 missing/invalid stop。FirstMutation 固定增加 `Original authorization at final cut`、`Immediate successor at final cut` 两行；original 必须是 `CurrentAtLock`，successor 只是额外 current requirement。Distance 大于一显示 `DIRECT_SUCCESSOR_REQUIRED`；original non‑current 显示 `ORIGINAL_AUTHORIZATION_NOT_CURRENT`。它绝不遍历 chain、让 successor 替代 original authority、构造 scope、选择 replacement、签名、续期、撤销或调用 transport‑token control                                                                                                                                                                                                                           |
+| `DownstreamAdmissionHandoffPanel`                                                                                        | 固定显示 Product Edge admission receipt/identity/cut、admission‑outbox locator、downstream‑resolver version/availability、target R&D Owner、R&D receipt/custody state 与 stop predicate。它区分 `admission committed / downstream unavailable` 和输入拒绝，把整体状态渲染为 `SUBMITTED_OR_UNKNOWN`，禁用 S2，只暴露 Copy admission、Open operational run 与 Resolve same identity；绝不提供 successor、retry、权限修复或推断出的 R&D receipt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `ArtifactRequestAdmissionPanel`                                                                                          | Read only admitted custody evidence; unavailable/unknown remains nonpositive. It exposes no Artifact submission, preflight, provider or build control                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `InvocationAdmissionReceipt`                                                                                             | 保留的兼容组件目录；不准入 Dashboard 研究派发或 provider effect。第一次 claim 前创建的 sealed Product Edge receipt：identity/digest、original request‑admission lineage、build request 与 attempt、直接解析的 current authorization identity/frontier 与 Time Evidence、policy‑equivalent `ACTIVE` binding/head、准确 manifest digest、final locked write cut 与 commit time。Missing、expired、cross‑cut、malformed 或 mismatch custody 都是 unavailable，并抑制 claim/start/Run。它在 Dashboard 中只读，不能从 claim、admission snapshot、session 或 credential 重建                                                                                                                                                                                                                                                                                                                                                                  |
+| `InvocationClaimReceipt`                                                                                                 | 保留的兼容组件目录；不准入 Dashboard 研究派发或 provider effect。Product Edge claim 加准确 public wire field `invocation_admission_receipt_identity` 与 `invocation_admission_receipt_digest`、historical request‑admission lineage、attempt identity、committed time、claim digest、`CLAIMED_NEW / ALREADY_CLAIMED / unavailable`、current `CLAIMED / INVOCATION_STARTED` 与 Owner‑projected next action。Operation adapter/projector 共享一个按 resolution 分支、由 Rust serialization bytes 直接测试的 parser；claim/non‑success family key 必须 absent，绝不能合成 `null`。Missing/extra/tampered field 让 A0/A1 保持 unavailable。只有恢复的 `CLAIMED + RUN_BOUNDED_EXECUTION_AGENT` 与 sealed receipt 直接一致时，才可进入 start                                                                                                                                                                                                  |
+| `ArtifactOutcomeProjectionGate`                                                                                          | 一个 attempt 上的 read‑only 优先级 gate：canonical sealed R&D `SUCCESS`、canonical sealed R&D `FAILED_NO_ARTIFACT`，最后才是不存在 R&D terminal 时的 Product Edge `INVOCATION_STARTED`。它只渲染一个 downstream panel 并记录两个 source cut；conflict、missing custody 或 ambiguous dual terminal 显示 unavailable，不能按 first‑match 渲染 success                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `ProviderInvocationStateCard`                                                                                            | Read only bounded invocation status and original identity; unknown state never enables a provider start, Resolve mutation, rerun or successor. Canonical claim/start semantics belong to Product Edge                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `LegacyTerminalQuarantinePanel`                                                                                          | Owner discriminant、original `SUCCESS / FAILED_NO_ARTIFACT / REJECTED_NO_WRITE / OUTCOME_UNKNOWN` disposition、request/attempt identity、verified historical terminal receipt identity、optional sparse Intent field、legacy custody generation、observed time 与 quarantine reason 的 strict legacy‑only projection。只依次暴露 Resolve same attempt、Open/Copy historical receipt；family/provider/actions 保持 absent，且没有 current Research View、Artifact promotion、successor、TrialFamily repair 或 dismiss action。Missing/malformed projection 保留同一固定 geometry 并显示 unavailable，绝不折叠成 generic unknown                                                                                                                                                                                                                                                                                                          |
+| `SameIdentityResolvePanel`                                                                                               | immutable request 或 request+attempt tuple、previous Owner receipt fingerprint、replacement operational‑run link、resolved Owner receipt/view fingerprint 与精确 equality/conflict/unavailable result；它是 unknown/response‑loss/restart/cache‑loss 的唯一 recovery，绝不派发 naked retry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `ResearchRequestComposer`                                                                                                | 保留的兼容组件目录；不准入 Dashboard 研究派发或 provider effect。有来源可证伪 typed request；绝不直接创建 Intent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `S1StageCustodyPanel`                                                                                                    | 只读 `SEALED_BASIS_PENDING_QUALIFICATION` geometry，绑定准确 request 与 original admission、sealed 完整 typed request meaning fingerprint、basis receipt/identity、basis head/outbox、commit cut、缺失的 Qualification/terminal Research receipt 及 next action。仅在 canonical basis‑stage verification 后渲染。Same‑identity Resolve 必须消费 sealed meaning 并推进 Historical completion；terminal‑only lookup miss 让 panel 保持 unavailable。Submit/successor 缺席，duplicate basis/head/outbox 为 unavailable，changed request/admission 为 conflict                                                                                                                                                                                                                                                                                                                                                                              |
+| `S1TerminalCustodyPanel`                                                                                                 | 固定 geometry 显示完整 verified Research receipt/Intent 与 TrialFamily root/member/Census，并把 terminal custody 和 linked‑view currentness 分成两行。Expiry 只把后者变为 `STALE`，移除 Submit/successor/S2/review action，保留 Resolve/Open/Copy evidence；绝不隐藏 terminal receipt/family 或把它重新标为 `SUBMITTED_OR_UNKNOWN`。Terminal part 缺失或 cross‑binding 失败时保持同一 geometry unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `ResearchViewCard`                                                                                                       | 保留的兼容组件目录；不准入 Dashboard 研究派发或 provider effect。immutable historical Research fact，加独立 linked‑Artifact availability、Owner‑projected read‑time availability/phase/action、source cut、projection time 与 `valid_through`；渲染 current `ARTIFACT_AVAILABLE / AVAILABLE / REVIEW_ARTIFACT`、保守 cached `REVALIDATION_REQUIRED`，或 Owner‑returned `STALE / ARTIFACT_AVAILABLE / RESOLVE_SAME_REQUEST_IDENTITY`，且不抹除 historical Artifact availability。`Check & Run` 进入 read‑only `PREFLIGHTING`；后两种 form 没有 positive next‑action slot，browser time 自身绝不能声称 `STALE`                                                                                                                                                                                                                                                                                                                            |
+| `TrialFamilyPolicyComposer`                                                                                              | No browser composer; frozen policy is read through the admitted Research view. Authoring, spend cap and census belong to R&D MCP; no editable protected feedback or authority fields                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `TrialFamilyAuthorityResolutionPanel`                                                                                    | 固定三条只读 row：R&D basis receipt/basis/cut、Qualification frontier receipt/frontier/cut/state（如 `GENESIS_EMPTY`）、R&D resolved lineage/predecessor/census cut；每条包含 Owner、operation、locator、availability 与 stop reason。Positive row 只接受 sealed Owner output，绝不能接收 browser‑deserialized TrialFamily graph。Missing/corrupt/unknown authority 只暴露 same‑identity Resolve，并产生零 S1 family 写入                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `QualificationFrontierReceiptPanel`, `IndependenceBasisLink`                                                             | sealed Qualification receipt identity、opaque frontier identity/digest/state/cut、source R&D basis receipt locator、exact resolution operation，且没有 protected payload slot；只有穷尽 canonical verification 证明不存在历史 projection/outbox 后，才能显示 `GENESIS_EMPTY`。Missing head 或 unverifiable history 渲染 `unknown/unavailable`、隐藏 Copy frontier，且只暴露 exact‑basis Resolve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `TrialFamilyReceiptPanel`                                                                                                | direct R&D Owner root receipt、family/root digest、INTENT membership receipt、Census member/fact 与 head/frontier 的固定顺序；available 要求 canonical JSON 与每个重复 relational identity、ordinal、digest、committed‑time 字段一致；缺失、损坏、不完整或不一致的 custody 必须 unavailable，不能与 S1 success badge 共存                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ArtifactReviewPanel`                                                                                                    | current linked Research projection 中的 immutable identity、lineage、logic、parameter、build/security 与 action；stale‑linked durable S2 success 保留 evidence，但不渲染 review action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `ArtifactTrialFamilyBindingPanel`                                                                                        | 来自同一 locked direct‑Owner custody cut 的 binding identity、identity 包含 `committed_at` 的 binding receipt、独立显示的 commit cut、bound TrialFamily identity 与 Census frontier；只与 Owner‑resolved S2 Artifact 同时出现，绝不从 Intent/Artifact identifier 推导；未解决的并发 mutation 或任何 canonical/time mismatch 都渲染 unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `NoArtifactReceiptPanel`                                                                                                 | canonical receipt payload identity、attempt、Intent、独立推导的 disposition、failure code、commit time 与显式 zero‑Artifact statement。Exact wire 省略 optional family key。Research expiry 可以把 linked view 标为 stale 并移除 follow‑on action，但绝不能移除或改写 receipt；mismatch 或 self‑derived verification 渲染 unavailable，不暴露 positive action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `CapabilityUnavailablePanel`                                                                                             | operation identity/version、registry version、`archived/unavailable` state、compatibility‑envelope identity/digest、expected 与 observed component source/image/App/script hash、affected channel、observation cut、mismatch reason、preserved historical‑read disclosure 与精确 restoration/revalidation predicate。Healthy service 或 source text 相同都不能填补缺失的 envelope。只暴露 Refresh registry、Open historical run 与 Copy capability locator；无 dispatch、archive/restore、successor、permission repair 或 credential action                                                                                                                                                                                                                                                                                                                                                                                             |
+| `OwnerCustodyIncidentPanel`                                                                                              | 固定红色 unavailable geometry：incident identity/evidence locator；affected Owner、store 与有序 table set；last trusted cut 与 pre‑loss counts；current direct‑read cut/counts；`backup / PITR / Owner archive / reconstruction evidence` source class；recovery state（`UNKNOWN`、`RESTORABLE_FROM_CANONICAL_SOURCE`、`RECOVERABLE_BY_RECONSTRUCTION_NOT_RESTORED`、`RESTORED_REVALIDATION_PENDING`、`RESTORED`）；shared‑volume rollback constraint；精确 revalidation predicate。按钮固定为 Open incident evidence、Copy affected locator。它绝不重建 row、接收 pasted JSON、清除 incident、标记 restored 或启用 domain action；只有 canonical recovery 加 fresh direct Owner/consumer readback 才能推进状态                                                                                                                                                                                                                         |
+| `RunTable`, `RunSummaryCard`, `RunMetadataAndInputs`                                                                     | operational status/date/path/trigger/principal/tag/duration、schema allowlist 限定的 immutable input、typed withheld count/reason、dependency kind 与显式 Owner‑outcome join；无 raw payload fallback                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `DependencyCancellationPanel`                                                                                            | 只针对一个 queued dependency run 的固定 operational confirmation：run/kind/path、queued‑since、required executor compatibility、current `OperationalActionEnvelope` identity/expiry、显式空 domain‑effect set、no‑claim proof 与 receipt handoff target。唯一 effect button 为 `Cancel queued dependency`；CAS pending 显示 disabled `Cancelling…`；terminal transition 移除 A 与 header slot 3。Missing/expired/revoked capability、identity/version conflict、claim、terminal 或 unknown 会移除 effect，且不存在 batch、retry 或 domain cancellation                                                                                                                                                                                                                                                                                                                                                                                  |
+| `OperationalCancellationReceiptCard`                                                                                     | 按精确 `run_id` 绑定的固定只读 P 位置；state 为 `none / pending / receipt / unavailable`。Receipt 显示 prior state/version、principal、authorization cut、transition time 与 immutable receipt locator。A 消失后仍保留，不暴露 effect button，也绝不改变或替代 Owner truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `RunDetailPanel`, `RunResultView`, `RunComparePanel`                                                                     | 固定 metadata/result/tab skeleton；schema allowlist 限定且按 sensitivity redacted 的 bounded result，viewport/copy/download 三者完全共用；Owner‑correlated receipt/result、实际 Artifact/PIT/runtime/simulator identity、diagnostic、invocation count 与 handoff；registry 缺失/mismatch 时 unavailable；无 Selection authority                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `RunLogPanel`, `RunMetricPanel`, `RunTracePanel`, `RunAssetPanel`                                                        | 精确四 tab 顺序；collected/not‑collected/unavailable/empty 必须区分且保持相同几何                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `CompactStatusBar`、`CompactStatusGroup`、`CompactStatusItem`、`DetailClusterGrid`、`DetailCluster`、`DetailClusterFact` | Workers 精确 skeleton：按序 title/value summary group 与 Availability/Work handled/Recent activity/Supported work 簇，尺寸与 unavailable 行为见上方契约。组合现有 `PanelFrame`、`SplitBento`、`DataTableSurface`、`DataWorkspaceTable`、`DetailInspector`、`DetailNotice`、`DetailEmpty`、`UnavailableState`；无独立色板或 worker administration。`WorkerGroupTabs` 及编造 heartbeat history 的 panel 不属于本次准入。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `RunWorkerCompatibilityMatrix`                                                                                           | path‑bound `run_id`、required kind/tag/runtime/isolation、单一 projection observation cut，以及每个 candidate worker 的 registration/lease evidence。`ready`、`online / incompatible`、expired lease、missing registration 与 isolation unavailable 是不同 fail‑closed state；缺少精确 run binding 时绝不渲染该矩阵                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `ServiceLogFilters`, `ServiceInstanceList`, `ServiceInstanceCard`, `ServiceLogPanel`                                     | 使用上方 Service Logs 精确 skeleton：canonical echoed filter cut/digest；固定 range/kind/service/instance/severity/search 顺序；由于 `host_ref=null`，仍只按 exact identity 选择，但主要文本采用共享业务 source/event presentation，exact implementation value 仅放在 title/info affordance；有界 row、cursor/retention/byte limit、auto‑tail 行为与 viewport/download parity。组合共享 `PanelFrame`、`CompactStatusBar`、`SplitBento`、`DataWorkspaceTable`、`DetailInspector`、`UnavailableState`、`BoundedLogViewport`；无独立 radius、header fill、palette，不编造 hostname/message，无 administration 或 effect action。                                                                                                                                                                                                                                                                                                           |
+| `AuditFilters`, `OperationAuditTable`, `AuditCorrelationCard`                                                            | principal/operation/outcome、exact target/correlation、redaction/retention；append‑only 且无 dismiss                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `TelemetryMatrix`, `SourceFrontierCard`, `TelemetryTimeline`                                                             | 每个 positive cell 必须绑定 Owner/source/cut、canonical fingerprint、observed/valid‑through time 与 loss/rebuild state；raw、stale、replayed、self‑asserted 或 identity‑conflicting input 只能 unavailable/stale/quarantined，且绝不继承上一次 success color                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `QualificationIntakeConflictPanel`                                                                                       | 固定 `RequestSemanticConflict` banner、immutable request/handoff identity、原 `NOT_ADMITTED` receipt link、redacted changed‑meaning summary、semantic fingerprint 与可选 Owner‑admitted successor action；绝不显示 protected replay value，也不让 changed meaning 复用旧 receipt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `QualificationPublicOutcome`                                                                                             | 仅终态 Owner‑produced lineage、稳定 attempt、N/A basis、checked nonempty interval、单调 expiry/revocation 与 late Time cut、半开 pending/current transition、sealed Qualification head frontier；`Admitted/Evaluating` 必须 projection failure 并让组件缺席，绝不能成为 `ClosedNotQualified`；无 protected‑detail slot、empty current Fact、dual‑current boundary、time rollback 或 client promotion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `ScannerPublicReceiptIntegrityPanel`                                                                                     | exact Scanner Owner resolve operation、attempt identity、canonical terminal receipt identity/digest、source cut 与 direct‑read locator。Missing、caller‑constructed、本地重建、mismatch 或 unavailable resolution 把 panel 固定为 unavailable，移除 terminal row/count/badge 与全部 Matcher/Proposal projection，只暴露 Open source evidence、Copy locator                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GovernanceEligibilityAdmissionPanel`                                                                                    | Governance admission 前的 exact Eligibility identity、interval/frontier、source cut、validation disposition 与 zero‑write proof。Invalid、expired、conflicting 或 unavailable Eligibility 不产生 Governance receipt、lifecycle row、outbox、Runtime handoff 或 successor action，只暴露 Open Eligibility evidence、Copy locator。后续 receipt‑backed Governance rejection 是互斥的 admitted branch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `GovernanceDecisionCard`                                                                                                 | 完整 contender frontier、canonical generation ordering、确定性 no‑write tie receipt、decision/action cut、source frontier 与 revalidation；缺少 direct Owner reread 时 unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `RuntimeFoundationNotReadyCard`                                                                                          | 固定 non‑authoritative foundation state `NotReady`、source revision，以及四行有序 dependency：Governance authorized‑generation decision read、canonical Runtime custody、Artifact compatibility recovery read、Execution recovery frontier read。每个可见 row 只显示 Pending 状态；exact dependency link 与 source revision 收进 header 技术详情；footer 只有 Copy foundation locator。没有 instance/generation/receipt/checkpoint/recovery/application/action slot                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `RuntimeReadinessCard`                                                                                                   | 未来 Owner‑backed exact generation 与 Strategy Instance identity、canonical readiness fact/receipt、observation cut、freshness 与 incident locator。只有 `RuntimeFoundationNotReadyCard` 获准时该组件缺席；CI、review、mergeability、merge tree 或 delivery receipt 不能填充其 field                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `RuntimeApplicationCard`                                                                                                 | 未来 generation、attempt、Strategy Instance、application receipt、reconciliation successor 与 restore validation；PR #330 下缺席，且绝不从 job/harness、foundation dependency list、CI/review/merge tree、delivery receipt 或弱于 live admission 的 snapshot 推断                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `MarketDataOwnerFoundationCard`                                                                                          | 固定 PR #331 maturity 与 source revision，只有两组有序 schema。Source Binding label 为 binding identity、fact digest、lineage root/version、outbox digest、observational `is_admitted` 与 locator；PIT Snapshot label 为 request identity/digest、snapshot identity/fact digest、已消费 Source Binding identity、lineage root/version、outbox digest、observational `is_available` 与 locator。没有单独准入的 product resolver 时，每行 value 固定为 `UNAVAILABLE_NO_PRODUCT_RESOLVER`；footer button 依次是 Open foundation evidence、Copy foundation locator。不存在 provider‑authentication、ingestion、payload、credential、database locator、writer、resolve、refresh‑canary、positive badge、row、timeline 或 mutation slot                                                                                                                                                                                                       |
+| `PortfolioViewUnavailableCard`                                                                                           | 固定 PR #332 source revision 与 schema `1`。可见卡片使用共享 `UnavailableState` 与 `SummaryList` 原子展示面向业务的不可用状态和三个必需 source group。info disclosure 保留 exact header slot、request binding、caller‑supplied/untrusted principal‑claim slot、跨 Execution、Market Data 与 Portfolio 的十一类有序依赖，以及 applicable structured failure set；所有 request‑bound value 保持 em dash。它绝不伪造 `UNAVAILABLE`、`INCOMPLETE_FAIL_CLOSED` 或 `STALE` response instance，也不暴露 action。不存在 positive Account/Performance/Exposure/Gross Capacity/Attribution value、chart、table、timeline、filter、refresh、resolve、headroom、allocation、Risk、deployment 或 trading slot                                                                                                                                                                                                                                        |
+| `PortfolioViewRequestBindingBlock`                                                                                       | `PortfolioViewUnavailableCard` 技术详情中的强制第一组。Request‑side operand 独立依次排列 principal identity、account identity、Execution Scope identity、PAPER/LIVE mode、authorization‑policy cut 与 common‑cut identity。Principal‑claim 与 dependency group 保留 principal‑claim mismatch、cross‑scope 与 mixed‑cut 审阅所需的对照上下文。没有 Dashboard consumer 时，每个 value 都是 em dash；该组不存在 trusted、matched、resolved、available、retry 或 action state                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `PortfolioViewFailureList`                                                                                               | read‑only 有序 failure vocabulary：`UNSUPPORTED_SCHEMA_VERSION`、`INVALID_FIELD`、`MISSING_DEPENDENCY`、`DUPLICATE_DEPENDENCY`、`CROSS_OWNER_DEPENDENCY`、`INVALID_FRONTIER_SEQUENCE`、`PRINCIPAL_CLAIM_MISMATCH`、`CROSS_SCOPE_DEPENDENCY`、`MIXED_CUT_DEPENDENCY`、`FUTURE_DATED_DEPENDENCY`、`STALE_DEPENDENCY`、`EXPIRED_REQUEST`、`EXPIRED_PRINCIPAL_CLAIM`、`VALIDITY_OUTLIVES_PRINCIPAL_CLAIM`、`VALIDITY_OUTLIVES_DEPENDENCY`、`CALLER_SUPPLIED_PRINCIPAL_CLAIM`、`CALLER_SUPPLIED_SOURCE_LOCATOR`、`SOURCE_OWNER_RESOLVE_UNAVAILABLE`。每项在存在时显示 typed field/kind/owner coordinate；没有 dismiss、override、retry 或 promotion action                                                                                                                                                                                                                                                                                   |
+| `CapacityScopeCard`, `GrossCapacityView`, `CapacitySourceCompleteness`                                                   | account/mode/economic‑pool scope、candidate‑neutral gross ceiling、exact Execution/Market Data cut、availability 与 frontier；configuration authority 未解决时固定为 `INCOMPLETE_FAIL_CLOSED`，明确缺失的 Owner/fact/state‑machine stop predicate，不展示正向 BOUND badge 或 action；没有 usage、headroom、Reservation、allocation 或 permit field                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `RiskDecisionTable`, `ReservationLiabilityCard`, `ClaimAndAdmissionTable`                                                | terminal decision lineage、one‑use Reservation state、stable claim/admission result、完整 rejection set 与 exact linked effect；legacy forwarded command 没有 row shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `AggregateFrontierCard`, `FenceSetAndFrontier`                                                                           | 单一 Risk‑owned Capacity Scope frontier、held liability、immutable fence‑set membership 与 transaction ordering；无 Portfolio write 或 UI release action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `WorkerCard`, `WorkerTable`, `ScheduleCard`                                                                              | operational state 与 business state 分离；无通用 worker administration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `FenceBanner`, `UnknownEffectBanner`, `ReconciliationPanel`                                                              | 持久 safety surface 与 locator                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `NotAdmittedNotice`                                                                                                      | unavailable capability 与升级所需 evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+
+组件在可能时覆盖 loading、empty、partial、stale、unavailable、error 与 permission denied。Domain component
+还覆盖 identity conflict 与 missing receipt。Story fixture 不是验收证据。
+
+### CSS token 与调色板继承
+
+CSS 使用四层。Component 只能消费 semantic 或 component token。
+
+```text
+raw palette -> semantic role -> component alias -> state modifier
+neutral-950 -> text-primary -> panel-text -> [data-state="unavailable"]
+```
+
+Raw name 描述颜色；semantic role 描述含义；component alias 隔离组件变化；state modifier 选择 semantic
+role，不能引入 literal color。
+
+#### 核心 theme token
+
+| Semantic token         | Light                 | Dark target | 消费者                                       |
+| ---------------------- | --------------------- | ----------- | -------------------------------------------- |
+| `--surface‑page`       | `oklch(0.92 0.01 85)` | `#111411`   | viewport                                     |
+| `--surface‑panel`      | `#f2f2f2`             | `#181c19`   | `PanelFrame`                                 |
+| `--surface‑card`       | `#ffffff`             | `#202521`   | card/panel body                              |
+| `--surface‑elevated`   | `#ffffff`             | `#272d28`   | menu/drawer/dialog                           |
+| `--surface‑hover`      | `#f7f5f1`             | `#2d342e`   | hover                                        |
+| `--text‑primary`       | `#1a1a1a`             | `#f1f4f1`   | heading/value                                |
+| `--text‑muted`         | `#5a5a5a`             | `#a7b0aa`   | label/hint                                   |
+| `--border‑default`     | `#e0ddd8`             | `#343c36`   | card/input/separator                         |
+| `--nav‑active`         | `#2d2d2d`             | `#f1f4f1`   | active rail/tab                              |
+| `--nav‑active‑text`    | `#ffffff`             | `#171b18`   | active icon/text                             |
+| `--focus‑ring`         | `#3b82f6`             | `#60a5fa`   | keyboard focus                               |
+| `--status‑positive`    | `#0b8c5f`             | `#58ceaa`   | available/success，绝不表示 market direction |
+| `--status‑negative`    | `#cf304a`             | `#f87171`   | rejected/failure/incident                    |
+| `--status‑warning`     | `#f59e0b`             | `#fbbf24`   | pending/stale/unknown                        |
+| `--status‑info`        | `#3b82f6`             | `#60a5fa`   | information                                  |
+| `--status‑protected`   | `#8b5cf6`             | `#a78bfa`   | protected/opaque                             |
+| `--status‑unavailable` | `#76808e`             | `#9ca3af`   | unavailable/not observed                     |
+
+Dark value 是 `TARGET`，不是参考项目已实现完整 dark theme 的证据。首个实现必须测试两个 theme 后才能
+声称 parity。Market direction 使用独立且 locale-aware 的 `--market-up`、`--market-flat`、`--market-down`，
+绝不能 alias 业务 success/failure。Chart 还要用 sign、label 或 glyph 重复方向。
+
+`S1TerminalCustodyPanel [data-state="stale"]` 只把 warning style 应用于 currentness row： `border-inline-start: 3px solid var(--status-warning)`，背景为 `background: color-mix(in oklab, var(--status-warning) 8%, var(--surface-card))`，state
+icon 与 `STALE` label 同样消费 `--status-warning`。 Verified receipt 与 TrialFamily evidence row 继续继承
+`--surface-card`、 `--text-primary`、`--border-default`，不出现 positive wrapper。
+
+Terminal custody 缺失或 cross-bound 时，整个 fixed geometry 切换为 `--status-unavailable`，不能复用 stale style。
+
+#### Component、geometry 与 motion token
+
+- Card 从 semantic role 派生 `--card-bg`、`--card-border`、`--card-radius: 12px` 与 `--card-shadow`。
+- Panel 派生 `--panel-frame-bg`、`--panel-body-bg` 与 `--panel-radius: 20px`。
+- Heavy navigation glass 使用 40 px blur、40% surface alpha、60% light border 与柔和 8/32 shadow；light
+  glass 使用 4 px blur 与 60% surface alpha。只有 rail/tab/tape/tooltip/transient overlay 使用 glass。
+- Spacing 使用 4、8、12、16、24、32、48 px；Bento gap 16 px。Radius 是 6、8、12、16、20 px，再到 full capsule。
+- UI 字体为 Inter；identity、digest、timestamp、tabular value 使用 JetBrains Mono/平台 mono。Panel label
+  10 px uppercase，body/value 11 px，card title 14 px，page title 24-32 px。
+- 普通 transition 为 150-200 ms。Status/receipt/numeric update 不动画穿过误导值；
+  `prefers-reduced-motion` 移除非必要 motion 与连续 tape movement。
+- Elevation 只有 `base`、`raised`、`overlay`、`modal` 命名层级；禁止任意 shadow。
+
+### 交互、响应式与可访问性规则
+
+- Module rail 表示业务域，不表示每一个查看状态。跨业务域，或打开完整、长内容、多步骤、代码、结果、
+  log workspace 时使用 canonical route。同一目录内的筛选复用共享 filter/tab 原子；其有界 URL state 可以
+  更新，但不能呈现成一次新的页面切换。
+- 当前业务域内独立对象的短只读速览使用由 `DetailInspector` 组合出的右侧 `DetailSheet`。当用户任务是比较
+  相邻 table record 时，同类短速览改用来源 row 正下方的共享受控 `DataWorkspaceTable` row-detail；一次只展开
+  一条，不改变记录数，长内容仍进入 canonical route。Sheet 保留底层列表与滚动位置，提供 canonical full-view
+  link，禁止层叠，也不能嵌入整页 route；低于 768 px 时变为 full-screen。Row-detail 则保持 inline 与单列。
+  Selected identity/filter 的 URL 只是展示状态，绝不是 Owner evidence。
+- Modal 只用于返回前必须完成或取消的独立有界任务；解释性或技术元数据继续放 inline disclosure。
+  "需要分享"本身不要求把短速览改成 route，但 reload、Back/Forward 与 focus return 必须能恢复同一真实选择。
+- Keyboard 顺序是 rail、tape、tab、page control、content，然后是 inline detail 或 detail drawer。
+- Icon-only control 有 accessible name；focus 可见；overlay trap/restore focus。
+- State 必须有 text，并可结合 icon/color；禁止 color-only。
+- `PREFLIGHTING` 与 `ADMITTING` 使用 amber pending text，并分别显示 `Checking…` 与 `Submitting…`；
+  `ADMITTED` 使用 `--status-info` blue，绝不使用 green。只有 Owner terminal receipt 才能使用 semantic success。
+- Admission-state text 通过 polite live region 暴露；持续 unknown/unavailable transition 使用 alert announcement。
+  Spinner、motion、color 或 operationally green job 都不能成为唯一状态信号。
+- Identity 在组件内 wrap/scroll，并提供 copy action。
+- Table 保留 header、unit、sort、source cut、pagination；大数据/log view 需要 virtualization。
+- `>=1280 px` 使用完整 shell 与 multi-column grid；`768-1279 px` 折叠 span；`<768 px` 使用 navigation drawer、
+  full-screen detail 与明确 card/horizontal table representation。
+- 小 viewport 不能隐藏 incident、unknown effect、active fence、next legal action 或 unavailable state。
+- Optimistic UI 可以显示 delivery progress，但 receipt 前不能显示 Owner terminal。
+
+## 状态与获准控制
+
+### TARGET - 试盘条件选择
+
+分开展示内容 hash、阶段证据和运行 ID。首次试盘确认准确候选及冻结试盘/资金政策。hash 改变须走新版本完整生命周期；原版本重新上线须确认并完成当前检查。
+Governance 授权与 Runtime 应用分别展示；确认不代表已运行。改进下架记录为用户决定而非经济失败；用户停止后不自动重新上线；合格候选可以留在 R&D。
+
+Dashboard 在试盘开始前提供有限具名条件模板，只允许调整开放参数，由用户选择并批准。
+具体模板、阈值与页面交互尚待冻结；一个月或收益为正等讨论示例不构成已发布选项。
+开始试盘时提交所选条件的版本与完整参数，由业务 Owner 验证并冻结，Dashboard 不自行判断通过或转正。
+运行中不得通过切换选项回写当前试盘条件；页面应能回读当前冻结条件及其对应试盘身份。
+此能力保持目标设计状态，不扩大下文的 `IMPLEMENTATION_ADMITTED` 路由或原子集合。
+
+#### Action authorization 准入合同
+
+研究页面没有写动作准入，只读取准确 Owner 投影，并保留缺失、陈旧、部分、拒绝和未知状态。展示的下一合法动作供外部 Agent 参考，不构成浏览器 dispatch 权限。输入及效果协议仍归 [Product Edge](../architecture/product-edge/)及所属服务契约。
+
+Governance 控制绑定准确策略/组合版本、operation manifest、可信主体/范围、当前 Operator Authorization、活动 deployment binding/history head 及所需 Autonomous Policy Authorization。浏览器不能签发、续期、提升或自行声明它们。授权、政策与最终截面当前性由所属后端核验；缓存 readiness、历史 admission、transport 成功和 UI 状态不能授权效果。
+
+首次试盘确认指明准确候选、冻结条件模板及分配政策；请求在 Owner 返回绑定回执前保持 pending 或 unknown，只有 Runtime 独立 `APPLIED` 回执证明应用。用户停止不能自动重新激活策略。同身份同含义解析原请求，含义冲突拒绝；未知外部效果保留承诺和原身份，不盲目重下。
+
+浏览器不提供 bootstrap、issuer、SQL、provider、策略 build 或代理控制接口。准入过期不能靠遍历任意授权链、伪造 successor 或重建 genesis 恢复。准确 direct-successor、响应丢失、invocation-fence、downstream-resolution 及封存终态规则仍由 Product Edge/Owner 边界执行。
+
+有界回读在关联视图过期后仍展示已验证终态，区分终态历史和当前权限。已验证 `FAILED_NO_ARTIFACT` 展示规范无工件回执；终态托管缺失保持 unavailable/unknown。隔离版本只读，不能提供当前 Artifact、family、provider 或上线权威。
+
+### 状态词汇与证据切面
+
+- `CURRENT/PARTIAL` 表示已有对应实现与消费者证据，完整路由或产品旅程仍可能未完成。
+- `ACTIVE_OBSERVATION` 表示精确 Hub task 仍在实现、动态验收，或等待证明能力所需的显式动作。它的证据
+  可以修订本章，但在 merge 与 readback 前不能建立当前产品事实。
+- `OBSERVED_CANDIDATE_NOT_CURRENT` 表示能力或消费者可见缺陷在活跃 Hub task 或 worktree 中被观察到，
+  但不是已交付产品能力，也不是 current fix。
+- `RECOVERABLE_BY_RECONSTRUCTION_NOT_RESTORED` 表示现存精确证据可能足以让 canonical Owner 重建丢失事实，
+  但可信 backup restore 或 Owner reconstruction 尚未发生。受影响能力保持 unavailable，不得推断历史状态或正向 action。
+- `RESTORED_REVALIDATION_PENDING` 表示 canonical Owner custody reconstruction 与 direct Owner readback 已成功，
+  但下游 consumer revalidation 尚未完成。它不是 `RESTORED`：stale fact 在 current cut 仍 unavailable，且不得启用
+  任何正向 action。
+- `TARGET_DRAFT` 表示当前设计预期未来 Dashboard 提供该能力；相关真实消费者流程终结前仍可修订。
+- `IMPLEMENTATION_ADMITTED` 表示 repository 可以把已文档化的 `DRAWABLE_EXACT` route 或 reusable atom
+  作为有边界、可独立 review 的切面实现。它只是构建与验证许可，不证明切面已合并、已部署、已被 Owner
+  验收、已具备替换条件，或已被授权执行生产 effect。
+- `NOT_ADMITTED` 表示 UI、绿色 job、图表、日志或本章都不能证明能力存在，也不能授权相关业务迁移。
+
+### 运维能力与后台职责
+
+Dashboard 是第一方用户界面，Windmill 不再是部署依赖。运维视图显示服务拥有的任务、运行日志、worker 状态、
+审计关联与依赖；不提供通用脚本编辑器、任意 Flow、任意数据库读写、模型会话或秘密管理界面。
+依赖和 lock 在构建流程确定，远程依赖工作只作为有界运维任务展示，不成为 Dashboard 发布机制。
+
+队列取消只适用于 `kind=dependency`、`state=queued`、domain effect set 为空且 Dispatcher 已证明没有 worker claim
+的任务；返回不可变运维取消回执，不改变业务事实。 provider、build、replay、admission、claim 或其他有副作用任务 不由这个动作取消，也不提供批量取消。 worker 的租约存活与对任务
+kind/tag/runtime/isolation 的兼容性分别显示； 有心跳但不能执行该任务时是 online/incompatible，不是 Ready。
+
+completed disposable cache 删除不删除 Owner 事实。
+
+#### Operations API 与后台状态合同
+
+这是 `TARGET_DRAFT` replacement contract，不证明这些 service 已经存在。 Browser 与 MCP read 使用同一组 typed handler 与
+capability check。 Page cursor 对一个 filter cut opaque 且稳定；每个 response 都包含
+`observed_at`、`projection_version`、`availability` 与 retention/expiry disclosure。
+
+Caller 能读取 operational run，也绝不意味着 route 可以返回 Owner payload。 当前视图的 filter cut 取数据库的语句时间，也就是它所过滤的
+那些行被盖戳时用的时钟：浏览器请求当前视图时不带自己的时间，服务端在那一刻切 cut 并回传，翻页、下载与 cursor 都沿用这个回传的 cut。 浏览器时钟从不成为
+cut，因此跑在数据库前面的浏览器时钟无法拒绝这次读取，落在后面的也无法 藏起最新的行。 浏览器只拿同一个应答里的时间核对 `observed_at`，从不拿自己的时钟比。
+
+Operational action 的 `observed_at` 是在该 action 自己的事务里读取的数据库时间，也就是它的 receipt 盖戳所用的时钟，因此落在数据库
+后面的服务端时钟无法让一次已完成的取消或删除看起来像被拒绝。
+
+| UI read 或 action                 | 固定 Dashboard API                                                                                   | Backend owner 与精确规则                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runs list、filter、pagination     | `GET /api/operations/runs` -> `RunPage`                                                              | `RunStore` 读取 immutable submission metadata 与 dispatcher‑owned operational state。Filter field 固定为 status/kind/path/trigger/principal/tag/duration/time cut；cursor 绑定该 filter cut。Owner outcome 是单独 resolve 的 optional envelope，绝不从 exit code 推导                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Run detail 与 bounded result      | `GET /api/operations/runs/{run_id}` -> `RunDetailEnvelope`                                           | `RunDetailProjection` 解析精确 operation/version manifest，只返回已注册且允许展示的 input/result 字段、timing/worker/resource metadata、immutable operational cancellation receipt readback、retention 与 Owner receipt locator。它在同一 observation cut 把该 path‑bound `run_id` 的 dispatcher requirement 与 immutable worker registration join，并返回 `RunWorkerCompatibilityMatrix`；missing、stale 或 mismatch input 均为 `unavailable`。Cancellation readback 为 `none / pending / receipt / unavailable`，A 消失后仍保持只读，且绝不改变 Owner truth。Secret、protected 与 unknown 字段被省略，只显示 typed withheld count/reason；viewport、Copy JSON 与 download 复用完全相同的 redacted bounded projection。Unknown operation version 或 schema mismatch 必须 `unavailable`，绝不 fallback 到 raw JSON。存在 Owner locator 时缺少 disposable data 表示 `operational_data_expired`，不是业务 absence |
+| Same‑identity Owner resolution    | `POST /api/operations/runs/{run_id}/resolve‑owner‑outcome` -> `OwnerOutcomeEnvelope`                 | Product Edge 通过具名 Owner typed port 解析 immutable request/attempt identity；既不 dispatch job，也不 retry effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Queued dependency cancellation    | `POST /api/operations/runs/{run_id}/cancel‑dependency` -> `OperationalCancellationReceipt`           | `OperationalActionEnvelope` 绑定 authenticated principal、`dependency.cancel.queued` capability、精确 run、current transition version、`kind=dependency`、`state=queued`、空 domain‑effect digest、no‑claim cut 与短 expiry。Dispatcher 在自己的 transition lock 下重读全部字段，compare‑and‑set 只把该精确 operational run 改为 `cancelled`；stale、revoked、已 claim、terminal、unknown、identity mismatch 或 effect‑capable input 一律 fail close。Receipt 记录 run、prior state/version、principal、authorization cut、time 与 transition；不能取消 domain request、provider/build/replay effect 或 Owner operation，且不存在 batch endpoint                                                                                                                                                                                                                                                                |
+| Disposable completed‑run deletion | `DELETE /api/operations/runs/{run_id}/cache` -> `OperationalDeletionReceipt`                         | `RunStore` 只在 capability check 与 confirmation 后接受 terminal operational row；删除 bounded result/log/cache byte，保留 run tombstone 与 Owner locator，且不能触碰 Owner store                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Run log tail 或 download          | `GET /api/operations/runs/{run_id}/logs` 与 `/logs/download` -> `RunLogPage` 或 bounded stream       | `BoundedRunLogStore` 按 opaque cursor 读取 append‑only chunk。Viewport、download 与 MCP 使用完全一致的 search/severity/source filter、redaction、truncation、byte limit 与 retention                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Metrics、traces、run assets       | `GET /api/operations/runs/{run_id}/{metrics\|traces\|assets}` -> discriminated tab envelope          | Producer 准入前，handler 返回带 reason 的 `not_collected`、`not_captured`、`empty` 或 `unavailable`；绝不伪造 zero、span、file 或 success，run asset 也不能解析到 global file browser                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Workers 与 selected lease         | `GET /api/operations/workers` 与 `/workers/{worker_id}` -> `WorkerPage` 或 `WorkerLeaseEnvelope`     | 只有 worker registration/heartbeat/claim/release 可以写 `WorkerLeaseStore`。UI 读取 identity/group/tag/version/start/limit/occupancy/last run/last observed，加已注册的 kind/tag/runtime/isolation capability set；lease expiry 产生 `unavailable`；这些只绑定 worker 的 route 不会为未绑定 run 推导 readiness，也绝不能由 UI 写 `dead` state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Service‑log viewport 或 download  | `GET /api/operations/service‑logs` 与 `/service‑logs/download` -> `ServiceLogPage` 或 bounded stream | `ServiceLogGateway` 要求 exact service/instance cut，并对两种输出应用相同 time/severity/search filter、redaction、cursor、retention 与 byte limit；不暴露 delete、clear、restart 或 health‑promotion endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Audit list 与 correlation detail  | `GET /api/operations/audit` 与 `/audit/{audit_id}` -> `AuditPage` 或 `AuditEventEnvelope`            | `OperationAuditStore` append‑only，由 authenticated Product Edge/Dashboard control‑plane middleware 写入，不由此 read route 写入。Unknown/redacted target 保持显式；没有 edit、delete、dismiss 或 replay endpoint                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+`RunOperationalState` 精确为 `queued | running | succeeded | failed | cancelled | unknown`；只有 Dispatcher 与 worker protocol event 能通过对最后 transition 的
+compare-and-set 推进它。 `OwnerOutcomeState` 是独立的 `available | rejected | unknown | unavailable | not_applicable` envelope，绝不参与 operational transition。
+
+同一 run identity 的 late terminal worker event 可以替换 operational `unknown`，但只有 Owner reread 能替换 Owner
+`unknown`。
+
+Worker liveness 只从 stored lease deadline 与 last heartbeat 计算；只有 path‑bound `RunDetailProjection` 才能在同一
+observation cut 对该精确 run 的 kind、tag、runtime、required isolation 与 worker registration 做 canonical compatibility
+match。
+
+Client time、missing row、process/container health 或 service-log message 既不能提升 liveness，也不能伪造 compatibility。
+
+替代品不是缩小版低代码平台，而是 Trade 专用 Dashboard、类型化 Product Edge gateway、窄 job dispatcher、
+worker protocol、可丢弃 operational store，以及可选 exact-tool MCP channel。Native Owner 及其 store 仍是
+独立服务。
+
+## 逐切片实现准入
+
+### 有界准入：本地 Operator 浏览器会话
 
 用户准入一个第一方本地 Operator 会话壳与只读 `/settings/access` surface，状态为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。 此窄切片只替换无行为的登录展示，不准入
 OAuth、账号创建、 密码导入、transport token 签发、Operator Authorization 或 Product Edge binding 修改、authorization successor
@@ -267,7 +1215,7 @@ Operator Authorization、Product Edge readiness 与 successor 区域保持可见
 secret value。动态验收覆盖配置不可用、无 cookie 的页面/API、错误凭据、cookie 属性、认证后页面/API、
 篡改、过期与登出。固定本地预览端口只有在隔离验收通过且两个 session secret 已配置后才可替换监听。
 
-## 有界准入：只读调度历史与影子调度日历
+### 有界准入：只读调度历史与影子调度日历
 
 用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，包含两个严格隔离的 GET-only 视图。 默认 `History` 通过
 `/api/operations/schedules/history/` 读取第一方 RunStore 中的持久化 登记；它只代表历史证据，绝不能展示成当前配置或 active 状态。 `Current schedules` 继续使用已有的 配置绑定
@@ -333,7 +1281,7 @@ Refresh，不保留旧正向详情。 关联 Run 只按需读取，每次 identi
 
 动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、 五视图、溢出、键盘、双主题与窄/宽屏布局；fixture 不能替代动态验收。
 
-## 有界准入：Backtest 收益带展示原子
+### 有界准入：Backtest 收益带展示原子
 
 `BacktestReturnBand` 是已文档化 `/backtest` 与 `/backtest/compare` 表面的 `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读展示原子。
 其源码保真基线是 Vibe Trading commit `48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree `d226b620dc699c9e8e382274434b324a5fefe0e1` 中 factor home 的日收益带图。
@@ -350,16 +1298,12 @@ Loading、unavailable、合法 empty 与 available 是四种独立状态。
 
 该原子不执行 Backtest dispatch、selection commit、comparison judgment、economic claim、Owner resolve、
 provider call 或业务写。当前没有 Dashboard route 或已准入 Backtest Owner resolver 为它提供正向投影，
-因此组件测试与静态渲染不能建立 live data、deployed-browser acceptance、S3 availability 或 Windmill
-replacement。
+因此组件测试与静态渲染不能建立 live data、deployed-browser acceptance、S3 availability 或 executor 切换。
 
-## 有界准入：单次回测报告
+### 有界准入：单次回测报告
 
-`BacktestRunReport` 是已文档化 `/backtest` 表面上、针对单次 Owner 已提交回测运行的 `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读报告表面。
-它不引用上游源码保真基线。 其余有界准入所指的 Vibe Trading 树并未 vendor 进本仓库，也未被检索，因此本节不对该树是否存在这样的表面作任何断言；其展示的 边界由下面的契约约束，而不是由引入的设计约束。
-它恰好回答关于一次运行的四个问题，且不携带回答第五个问题的任何字段：策略是什么、跑在哪段数据上、 这次运行产出了什么、每一笔成交是什么。
-
-把一条策略与同类排名是 `BacktestReturnBand` 的职责而不是本表面， 因此本报告不渲染 quantile band、不渲染 benchmark、不做对比。
+`BacktestRunReport` 是 `/backtest` 上针对单次 Owner 已提交运行的 `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读表面。展示以本契约为准，不声明上游源码保真。
+它只包含策略、数据窗口、运行结果和成交。同类排名归 `BacktestReturnBand`；本报告没有分位带、基线或比较。
 
 正向渲染只接受一个精确、有界、Owner 投影的 `run_identity`。 策略按已准入的单阈值族的陈述给出：通道、 阈值、比较、两侧动作与 falsifier，以及该程序的退出。
 退出按其声明给出：止损或止盈是收盘价的不利或有利变动，按入场那根 bar 收盘价的比例计； 持仓上限按入场 bar 之后的 bar 数计；并始终说明它在 bar 收盘时判定、在下一根 bar
@@ -408,7 +1352,7 @@ Owner 自己的解析器读取 Backtest Owner 投影；该解析器自行开启�
 与理由、别无他物的信封：不存在的运行理由是 `BACKTEST_RUN_ABSENT`，拒绝的理由是 Owner 自己的码，拒绝的原句只留在日志里。 Dashboard BFF 不做规范化地绑定 三个 identity
 并转达该回答。 它只在任何 Owner 回答到达之前就失败的那一段，或本契约拒绝的报告上，给出自己的理由。
 
-## 有界准入：Exploratory Replay 请求与结果回读
+### 有界准入：Exploratory Replay 请求与结果回读
 
 `ExploratoryReplayReadbackWorkbench` 是 `/backtest` 的精确 `P` surface。 它是一个 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 的
 Replay V2 已提交请求 point-read；当三个 result locator field 齐全时，还可读取一个由 Backtest Owner 持有的 canonical result。 它不是
@@ -487,7 +1431,7 @@ return series、net return 与 maximum drawdown 只出现在挂载的 `BacktestR
 `Run`、`Resolve`、 `Create successor`、edit、compare、download 与 provider action 均没有
 slot。 本切片不建立 S3 deployment availability、Backtest execution、executor cutover 或 real-trading authority。
 
-## 有界准入：只读策略代码查看器
+### 有界准入：只读策略代码查看器
 
 本切片约束当前 Artifact source/preview 读回，保持既有准入。目标原生策略包沿用只读展示与内容核验；Wasm preview 不是原生包、研究流程或上线的前置条件。
 
@@ -525,7 +1469,7 @@ Dashboard 还会重新计算 content digest，并拒绝未知字段、identity �
 
 这个详情切片不创建 Artifact 列表，不证明部署可用，也不建立 executor cutover。
 
-## 有界准入：Source Intake 精确回读工作台
+### 有界准入：Source Intake 精确回读工作台
 
 `SourceIntakeReadbackWorkbench` 是 `/rd` 的精确 `P` surface。 它是有界的只读 recovery surface，不是未来
 Source Intake composer。 route 只使用一个全宽 `PanelFrame`，没有 summary strip、分栏 detail pane、表格、
@@ -571,7 +1515,7 @@ Resolve Intake、创建 successor、获取 source content、调用 provider、mu
 route registry 中更广的 composer、TrialFamily policy、authority-resolution、draft-source 与正向 action panel 仍是未来
 blueprint，不能被推断进本工作台。
 
-## 有界准入：Source 到 Research typed control
+### 有界准入：Source 到 Research typed control
 
 产品不提供浏览器研究提交路由。`/rd/intake/new` 和 `SourceResearchControl` 不在当前产品准入路由集中；保留 transport 实现不授予展示权限。外部 Agent 经领域 MCP 提交 Source/Research；`/rd` 与 `/rd/research` 保留各自已准入回读几何。
 
@@ -579,7 +1523,7 @@ Research 回读展示 Owner 声明的请求版本、标的范围及 `initial_pit
 
 本节不准入 Dashboard dispatch、provider 调用、effect-worker 修改、生产路由切换或交易。未来路由准入须遵循只读研究用户路径。
 
-## 有界准入：Develop Composer 精确回读工作台
+### 有界准入：Develop Composer 精确回读工作台
 
 `DevelopComposerReadbackWorkbench` 是 `/rd/composer` 的精确 `P` surface。 它只对一个已提交的 Develop Composer
 request 做有界 point read，不是 composer、editor、runner、resolver 或 Artifact source view。 route 使用一个全宽
@@ -626,20 +1570,13 @@ Artifact locator 转换成这些 identities。
 本切片不能 mutate effect worker、写 business state、调用 provider 或 授权交易。 更广的 Intake composer 与 authority-resolution
 panel 仍是未来 blueprint。
 
-与 browser surface 分离，经过认证的 `POST /api/rd/develop-composer` 与固定 MCP tool `dashboard_develop_composer_action_v2` 只在 disposable-local
-execution 下准入 typed effect operation `develop_composer.submit_or_resolve.v2`。
+现有 disposable `POST /api/rd/develop-composer` 与 `dashboard_develop_composer_action_v2` 是兼容传输，
+不是 Dashboard 目标能力。它们仍要求准确 projection 相等、当前 compatibility/routing 准入、operator 权限、冻结 queue custody 和先 resolve 后 submit。
+submission-start 必须先于 transport；只有 claim one 遇到准确 Owner absence sentinel 才可提交。
+response loss、restart 与后续 claim 一律只 resolve，不将既有记录或拒绝规则重释为原生源码编写。
+外部 Agent 使用 R&D 领域 MCP；此回读页面不增加提交、runner、compiler、provider 或生产权限。
 
-准入必须同时具备当前 content-addressed compatibility envelope、现有 Product Edge routing key 的 `ACTIVE / TRADE_DASHBOARD`
-observation、精确 Owner request projection、operator capability 与 RunStore custody。
-
-web process 把 projection 及其 digest 与 queue row 一起冻结；effect worker 重新投影并要求精确相等，先 resolve 派生出的 request
-identity，且只有 Owner 返回精确 absence sentinel 时才提交 `{research_request_locator}`。 submission-start 必须先于 transport 持久化，并且只允许
-claim one 提交；response loss、restart 与后续 claim 一律只 resolve。 第二次 resolve 提供 terminal Owner outcome。
-
-这个准入不增加 browser Run control，不改变 Product Edge binding，不修改 effect worker，不调用 shared/production Owner，不授权交易，也不构成
-cutover。
-
-## 有界准入：已验证 Research 目录与精确回读
+### 有界准入：已验证 Research 目录与精确回读
 
 `ResearchDirectory` 是 `/rd/research` 的精确 `P` surface。 route 使用一个全宽
 `PanelFrame`，不为无内容的 detail column 预留空间。 frame header 包含 eyebrow、title、单行 purpose 与一个
@@ -877,7 +1814,7 @@ action。
 create-successor；route registry 中更广的 Research admission、outcome action、receipt timeline 与 S1 custody panel
 仍属于未来蓝图。
 
-## 有界准入：已验证 hypothesis 目录
+### 有界准入：已验证 hypothesis 目录
 
 `HypothesisDirectory` 是 `/rd/hypotheses` 的精确只读 `P` surface。它只解决一类用户任务：把已经保存的
 research hypothesis、支持它所期待的 observation 与能够证伪它的问题放在一起比较。该路由只读取现有
@@ -901,7 +1838,7 @@ record 可见，但绝不补造 question 文本。 `Verified` 只表示 保存�
 
 该路由不暴露 submit、resolve、 successor、formation、decision、edit 或 execution control，也不能影响 effect routing。
 
-## 有界准入：已验证 Iteration Decision 目录
+### 有界准入：已验证 Iteration Decision 目录
 
 `RdDecisionDirectory` 是 `/rd/decisions` 的精确只读 `P` surface。 它只解决一类用户任务：审查每个 research round
 已经提交的结果，并理解 Owner 声明的下一步。 browser 先读取现有有界 Formation catalog，再以最多 4 个并发请求 读取其中每个 TrialFamily 的精确 Iteration
@@ -928,7 +1865,7 @@ Research workspace。 Refresh 会在重新读取前清除旧的 positive Decisio
 该路由不暴露 repair、successor、stop、qualification、replay、submit、resolve、mutation 或 execution control，也不能改变 effect
 worker 或 effect routing。
 
-## 有界准入：已验证 Artifact 目录
+### 有界准入：已验证 Artifact 目录
 
 `ArtifactDirectory` 是 `/rd/artifacts` 的精确 `P` surface。 route 使用一个全宽
 `PanelFrame`，不为无内容的 detail column 预留空间。 frame header 依次包含 eyebrow、title、单行 purpose 和一个
@@ -1061,953 +1998,6 @@ business state，也不授权交易。 关联 source viewer 的 `WASM_PREVIEW_NO
 认证 GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` 同时作为无 effect 的 `artifact_build.shadow_resolve.v1` operational read Owner-outcome 来源，以及上述有界
 historical quarantine detail 的精确来源而获准。 它保留严格 current Artifact verification，只向 historical detail 暴露通过验证的
 terminal legacy no-Artifact outcome；该准入不扩展至 Artifact action、review、binding、replay、security panel 或任何 mutation。
-
-本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
-以及当前有证据支持的、从已退役外壳继承的最小能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
-实现与打包；该准入不声称 Dashboard 服务已经合并或可用，不声称能力目录已经定稿，也不
-授权 executor 切换、业务验收、生产写、provider effect 或交易动作。
-
-## 页面与数据规则
-
-### 事实、新鲜度与公开范围
-
-每个面板读取规范 Owner 投影，区分业务结果和操作完成，绑定身份、source cut/frontier、观察时间和有效期。另一个来源的新数据不续鲜陈旧证据；unavailable 不等于零或健康。Owner 投影采用半开有效区间：`now == valid_through` 时不再当前；浏览器时钟不延长权限，`available_at >= valid_through` 的区间无效。
-
-缓存可丢弃。丢失、重连或重建解析原身份，不能创建替代事实、同身份不同 fingerprint 或来自陈旧遥测的正向结果。producer/当前性证据缺失撤下正向视图。Event Rail 与 Observability 只传事实/遥测，不承担接纳、重试、闭合或生命周期权威。
-
-保护 Qualification 明细、负面原因/分类及时间信息不进入研究面板、漏斗、图表、过滤或告警。所有公开负面终态字节等同 `CLOSED_NOT_QUALIFIED`；`QUALIFIED` 保持准确。账户与运维投影不暗示交易权限。
-
-### 研究托管回读
-
-Source → 冻结 Research → 不可变 Artifact → 原生 Backtest → R&D 决定，是外部 Agent 发起的领域服务旅程。Dashboard 回读这些事实，不另建工作流。
-
-只有 sealed basis 而没有终态 Research 回执时保持 `SEALED_BASIS_PENDING_QUALIFICATION`，原 request/admission、basis 与 commit cut 继续绑定。获准领域 resolver 在过期/切换后消费完整封存托管，不新建 basis 或接纳替代请求含义；浏览器只读该状态。持久终态在关联视图过期后仍可见，当前动作缺席。
-
-Artifact 回读核验准确 request、attempt、Intent、Artifact/Build 和 family 身份。未知 invocation 保留原 claim 与 fence，不再次调用 provider 或推断成功。隔离记录只公开已准入历史托管，不能满足当前 selector。准确 omission/null、schema、digest 和身份规则归 [R&D 契约](../owners/rd/)，不由浏览器猜测。
-
-### 运行状态
-
-Governance 批准与 Runtime 应用分离；只有绑定的应用回执可展示 `APPLIED`。资格、必需表现/暴露或退化证据陈旧时阻止新风险，围栏保留 decrease-only 路径。Portfolio 提供实际账户/容量事实，Governance 应用批准分配与组合政策，Risk 在原子 frontier 准入预留。Dashboard 不从展示值重算这些事实或作为竞争 allocator 排名策略。
-
-每条路由展示规定的 loading、empty、filtered-empty、partial、stale、unknown 与 unavailable 几何。缺失 endpoint 保持 unavailable；夹具、mock、日志、通知或截图都不建立 producer、direct consumer、`PORT_BOUND` 或效果 readiness。
-
-### 页面划分与运维布局
-
-领域路由采用规范十二列外壳。宽布局可将主面板置于八列、辅助面板置于四列；低于 768 px 按语义顺序堆叠。上文已准入的精确回读路由遵循各自固定全宽几何，不因通用布局获得新表单、分栏或预留空高。
-
-#### 精确 S1 V2 与 S2 页面骨架
-
-Source、Research、Composer 与 Artifact 页面展示已提交请求及规范 Owner 证据。身份查询输入、Open readback、Refresh 和导航只用于展示/读取。来源、假设、TrialFamily 政策及策略输入由外部 Agent 经领域 MCP 编写，不由 Dashboard composer 提交。
-
-按各路由准入范围保留请求/版本/标的身份、终态、回执/托管身份、关联视图可用性、准确 Artifact/Build 引用及有界下一步信息。当前性与持久终态历史分离：过期移除当前权限，不改写终态。部分 basis 托管保持未决；缺失回执不成为拒绝或成功。未知 provider/replay 工作保留原身份；陈旧视图不能启用重跑、后继或 provider 调用。准确的底层接纳、claim、续期和恢复规则归 [Product Edge](../architecture/product-edge/)及 [R&D](../owners/rd/) 正文。
-
-这些页面不含 Submit、产生写入的 Resolve、Run bounded Agent、Build、Create successor、Stop research 或代理调度。展示的下一合法动作说明获准外部调用者可请求什么，不构成浏览器权限。既有兼容 transport 不准入这些产品控制；只有独立规定的 Governance 生命周期控制可修改业务状态。
-
-Operations 提供有界 Runs、Run Detail、Workers、Service Logs 和 Audit 视图，排除任意脚本、通用调度、worker 管理和编辑器。Settings 展示不透明安装/访问引用，不拥有部署配置、Capacity Scope 或 `PORT_BOUND`。
-
-#### 精确 Operations 导航与列表页骨架
-
-Operations 顶部 `ModuleTabs` 的固定顺序是
-`Runs`、`Workers`、`Schedules`、`Service Logs`、`Audit`、
-`Event Rail`、`Telemetry`、`Alerts`。
-
-Runs、Workers、Service Logs 与 Audit 读取第一方 RunStore 及 typed service 投影；Schedules 是另行准入的第一方有界影子读取 surface；后三项来自
-Trade 架构。 窄屏时它们变成同序的水平 scroll tab，不折入通用 More menu。 Windmill 的 Home、Variables、Resources、global Assets 与通用
-Schedules 不在该 tab row 中；Run Detail 的 Metrics、Traces、Assets 只是 run-scoped tab，也不会升级成全局 route。
-
-`/operations` 是 Runs 的 canonical route。桌面版保持筛选器、表头、date group 与 row action 的稳定位置：
-
-```text
-H  Operations / Runs                        [Refresh] [Auto-refresh: Off v]
-N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]
-F  [Action runs|Data reads] [All|Waiting|Running|Completed|Failed|Cancelled|Unknown]
-   [Search activity / run ID] [Duration v]
-S  Waiting | Running | Unknown | Completed | Failed
-T  RunTable / date group
-   Status | Started | Duration | Activity | Started by | Source result
-   row selection or final-column [Open] -> D
-D  shared DetailSheet: status, activity, trigger, started, duration, source result
-   [Open full details] -> /operations/runs/:runId
-B  shown rows / filtered total | Rows per page [25|50|100] | Page n of m
-   [First] [Previous] [Next] [Last]
-```
-
-整行与紧凑 `Open` 动作是进入同一上下文检查的两个无障碍入口；两者都只打开唯一的共享
-`DetailSheet`，并保留 Runs URL、筛选、页码、滚动位置和来源焦点。只有 sheet 内明确的
-`Open full details` 动作可以导航到 canonical run workspace。
-
-Runs table 在 `>=1280 px` 使用 fixed layout：sticky header 40 px、date-group header 32 px、body row 最小 44
-px、horizontal cell padding 8 px。 `Activity` 使用共享业务名称，hover/focus 才揭示同一个 exact registered operation
-ID。 Activity、Started by、Source result 只显示一行并 ellipsis，绝不读取 raw payload。
-
-默认按 effective run time descending，再按 immutable run ID ascending。 Effective time 优先 `started_at`，未开始
-run 回退到 `received_at`，但 Started cell 仍显示 em dash。 只有 Started 与 Duration header 暴露 sort control，顺序都是
-descending、ascending、恢复 default。
-
-Date group 使用 selected display time zone 且 newest first；filter、time zone、grouping 或 sort 改变时回到第一页。
-
-五个 `S` item 的数量与位置绝不改变，并统一放在 `action runs` 或 `data reads` group shoulder 下；label 精确为
-`waiting`、`running`、`unknown`、`completed`、`failed`。每个 value 是一个 integer count；缺失的 count 在原 value slot
-显示 em dash。Count 使用 selected kind 与所有已应用的 non-status filter，但忽略 selected status，因此选择一个 status
-不会清空其他 summary。
-
-Positive list projection 在 kind、search、Duration filter 之后、selected status 之前只保留最新 512 行。 存在第 513 条 eligible
-row 时返回 HTTP 200、`availability=available`、 `completeness=partial_unavailable` 与 `retention_limit=512`，不能因此令已验证的最新数据整体
-unavailable。 Summary count、filtered total、pagination 与 page frontier 只对这个 retained cut 精确，绝不能标注或解释为 全历史总数。
-
-Source cut 同时绑定 retained rows、retention limit 与 completeness，因此 retention boundary 变化会使既有 snapshot 失效。 Partial
-footer 明确说明只展示最新 512 条、更早历史不在当前 view；partial 状态下筛选为空只能说明 retained rows 中没有匹配项，不能声称全历史不存在匹配项。
-
-Control contract 是闭合的，不继承 Windmill default。 Kind segment 默认 `Action runs`，唯一 peer 是
-`Data reads`，且只映射到 typed wire value `kind=dependencies`； status 默认 `All`。 Search
-默认为空，只匹配 redacted activity identity 或 immutable run ID。
-
-`Duration` 默认 `Any`，其后固定为
-`<1 s`、`1-10 s`、`10-60 s`、`>=60 s`。 Header auto-refresh menu
-默认 `Off`， 其后是 `5 s`、`15 s`、`30 s`。
-
-Cadence 改变立即生效、不重置 pagination，且只执行与 Refresh 相同的 read； tab hidden 或 offline 时不排队补读。
-
-Kind、status、Duration 在 selection 时立即应用并返回第一页。 Search 在最后一次 edit 后精确 300 ms 应用；Enter 或清空立即应用，blur 不增加另一次
-transition。 后到的 search application 取消此前 in-flight list read。 显式 Started 与 Duration sort 绝不改变 newest-first
-date-group row 的顺序：它们只在每个 group 内排序， grouping 为 `None` 时才对全表排序。
-
-Started 先放具有 `started_at` 的 row，按所选方向排序、immutable run ID ascending 打破 tie；未开始 row 永远在后，内部按同方向的
-`received_at`、再按 run ID ascending。 Duration 先放 具有 duration 的 row，按所选方向排序，再按 effective time
-descending、run ID ascending 打破 tie；缺失 duration 的 row 永远在后，按 effective time descending、run ID ascending 排序。
-
-扩展筛选 surface 获得准入后，`More filters` 在按钮下方打开一个 360 px popover。
-
-Field 顺序固定为：`Trigger`（默认 `All`，然后 `App`、
-`Webhook`、`Other`）、`Principal`（空的 exact-text input）、`Tag`（空的
-exact-text input）、`Time cut` （默认 `Last 24 h`，然后
-`Last 1 h`、`Last 7 d`、`Last 30 d`、`Custom`）、`Display time zone`（默认
-`UTC`，然后 `Browser local`）、`Group by`（默认 `Day`，然后
-`Hour`、`None`）。
-
-`Custom` 依次追加 start、end input，并按 selected display time zone 解释。 Footer 固定为
-`[Reset filters] [Apply]`；value 在 Apply 前只是 staged，Escape 或 outside-click 会丢弃；button badge 是已应用的 non-default field
-数。 Reset 恢复这六项 default 并立即应用。
-
-`None` 移除 date-group row；`Day` 与 `Hour` 都保持 newest-first group。
-
-Pagination 默认 50 行，只提供 25、50、100。 Footer 依次保持 shown rows、filtered total、page size、
-`Page n of m`、First/Previous/Next/Last；total unavailable 时同一 slot 显示 em dash，并禁用 page movement。
-
-Loading 精确为四个 summary skeleton、两行 filter、一个 40 px header、默认 `Day` grouping 的三个 32 px date-group
-bar、十个 44 px row 与完整 pager skeleton。 `Hour` 同样使用三个 group bar；`None` 不使用 group bar，
-但仍精确保留十行。
-
-Unfiltered empty、filtered empty、permission denied、backend unavailable 各占一个 96 px full-width table row，包含不同
-title、单行 explanation，不制造 count。 未筛选且为空的 Runs view 只暴露 一个紧凑的 secondary `View data reads` action，选择既有 Data
-reads segment，不创建 run、也不发出 effect； 只有 backend unavailable 通过既有 route header 暴露 Refresh。
-
-缺失的 tag 与 concurrency 字段不升级成空业务列， 也不生成解释性短句。
-
-`768-1279 px` 时保持同序并放入最小宽 960 px 的 bounded horizontal scroller。 8% action cell 保持标准的 8 px horizontal
-padding，内部依次是 32 px text Open button、4 px gap，以及获准入时出现的 24 px More button。 Button 与 padding 精确占用 76 px，可放入 960
-px 最小 table width 下的 76.8 px cell；更宽 table 保持同一 left-aligned geometry。
-
-低于 `768 px` 时变成六行 run card：status + effective time；activity；Source result；Started by；duration；最后
-Open。 Card padding 12 px、gap 12 px、最小高度 156 px；六个 loading card 替代 table row，filter 顺序与 pager 不变。 Card
-selection 打开同一个 `D`；不存在 checkbox、column chooser、selection count、bulk action 或 swipe action。
-
-`Show schedules` 与 `Show future jobs` 默认不出现；只有 typed schedule/future consumer 获准入后，才在
-`F` 第二行末尾追加。 8% 的 `Open` cell 先放 `[Open]`；仅当 completed run 同时具有
-disposable cache 与 current `OperationalActionEnvelope` 时，才在其后放一个 24 px `[More]` button。
-
-Menu 唯一 item 是 `Delete disposable cache`。 `>=768 px` 时，该 item 打开 480 px dialog，字段顺序固定为 immutable run
-ID、cache locator、Owner readback locator、固定陈述 `Business facts are unaffected`、consequence、stop predicate；footer button 顺序是
-`[Cancel] [Delete cache]`。
-
-低于 `768 px` 时改为 `100vw × 100dvh`、zero radius 的 full-screen sheet；同序 field 在内部 scroll，同一 footer
-sticky 在底部。 缺少 eligibility 或 envelope 时直接移除 More，而不是 disable。 Mobile card 第六行以同样的左右顺序放置这两个 control。
-
-列表没有 bulk rerun、bulk delete、editor link、checkbox 或其他 overflow
-action；empty、filtered-empty、permission-denied、backend-unavailable 继续按上文分别渲染。
-
-#### Workers 精确只读 skeleton
-
-`/operations/workers` 与 `/operations/workers/:workerId` 为 `DRAWABLE_EXACT`，
-仅对第一方 RunStore GET readback 授予 `IMPLEMENTATION_ADMITTED`。这个 Workers 专项闭合替代此前的
-Windmill worker-table 草图，不改变任何其他路由成熟度。它不读取已退役外壳的管理面，
-也不授权切换、Owner effect 或生产写入。
-
-```text
-H  Service capacity / Workers                                         [info] [Refresh]
-N  Existing Operations tabs; Workers remains in its existing position
-S  [Capacity] Ready | Offline               [Work handled] Processed | Active
-T  [Availability: All / Ready / Offline]               [Search services]
-   Service | Availability | Active / processed | Recent activity | Supports
-D  Service + availability -> Availability -> Work handled -> Recent activity -> Supported work
-   [Service information] -> [Back to services]
-```
-
-- 布局：flat `PanelFrame` 内依次为 header、body；body 内依次为 `CompactStatusBar`、
-  `SplitBento(T,D)`。省略 `P/Q`，不预留高度。宽度 >=1280 px 时两列为
-  `minmax(560px,1.55fr) minmax(300px,.8fr)`，gap 12 px，高度跟随内容，D 在 top 0 sticky。
-  List route 低于 1280 px 时 T 占满 inset，激活 row 会打开共享右侧 `DetailSheet`，URL 不变；低于
-  768 px 时同一个 sheet 转为全屏。Exact route 仍是 canonical 完整详情，并让 D 保持在页面流中。
-  所有宽度下 T 保留横向 overflow，不转换 card list。summary 胶囊最小高度 62 px，空间不足时横向滚动；
-  group 最小高度 52 px，44 px title 胶囊后接数值。
-  继续使用共享主题 token、标题/action header、圆角内部内容、克制的不连续分隔线与 Lucide icon。
-- Summary：Ready 为 list observation cut 中 available lease 数；Offline 为 expired lease 数；
-  Processed 为 durable job count 总和；Active 为 active job count 总和。这些只代表 operational observation，
-  不是当前进程健康或未绑定 run 的 readiness。合法空列表显示四个零；初次加载、无效响应、transport error 或
-  unavailable list 显示四个 `-`，不能把失败推断为零。Detail availability 不影响 list count；
-  不推断 group、memory 或 occupancy。
-- Table：固定列顺序为 Service（最小 250 px，identity link 后接 added time）、Availability（最小 125 px，
-  Ready/Offline badge）、Active / processed（132 px）、Recent activity（最小 220 px，compact run reference 后接
-  业务状态/time；缺少 activity 显示 No activity）、Supports（120 px，exact registered-operation count）。
-  表头与 cell 全部左对齐。各列支持升降序；Active / processed 按 active 后 processed 排序，Supports 按 count。
-  默认按 last-run time 从新到旧，无 last run 时回退 registration time；同时间的输入行按 identity 排列。
-  浏览器校验只要求 identity 唯一，不强制数据库 collation 行序等同 JavaScript 排序。
-  无 grouping、checkbox、bulk action 或 column chooser。
-- Filter：同一行按序为 Availability selector（All、Ready、Offline）和右对齐 Search services（最多 128 字符）。
-  本地不区分大小写搜索 identity、build fingerprint、last-run identity/state、registered operation ID 及其业务名称；
-  共享 Service/Availability column filter 同样仅在本地执行。先过滤后分页：默认 20 行，选项 20/50/100，
-  footer 按序为 range、previous/next；lease/search 改变重置页码。Desktop 上的 row selection 更新页内 D；
-  低于 1280 px 时打开共享短详情 sheet，保留 list URL，关闭后焦点返回原 row。Service cell 与 row 都复用这一
-  same-context selection，不跳页也不重复详情 action。Exact route 仅保留为 deep-link 兼容面；其选择始终绑定
-  请求 identity，不随 list/filter 改变。
-- Detail：heading 为 Selected service 或 Service details、compact service label、Ready/Offline badge。
-  四簇按序排列，外层 gap/padding 8 px，圆角 13 px，内 padding 为 13 px × 14 px；
-  fact 为两等宽列、gap 12 px。Availability：Added、Last seen。Work handled：Processed、Active。
-  Recent activity：上下文 Run 预览触发器、Started，title 显示业务状态或 No activity。该触发器复用共享
-  `OperationsRunPreview` facts 与精确 `RunDetailEnvelopeV1`，不会让 Workers 页面跳转，也不增加 Run menu 状态。
-  Desktop 与精确 Worker route 均打开唯一共享 `DetailSheet`；紧凑 list detail 中则在同一个 sheet 内将 Worker body
-  切换为 Run body，`Back to service` 返回显式绑定的同一 Worker 与触发器，Close 将焦点还给打开 sheet 的触发器。
-  预览只显示有界状态事实和 `Open full run details`；logs 与 Run actions 留在 canonical Run route。不得叠第二层
-  overlay，也不得从后续 table selection 推断返回对象。Supported work 显示业务可读的 role 与整行
-  registered-operation labels，并保持 registry 顺序；exact operation ID 只作为 title evidence，不占主文案。
-  Footer 仅保留一个共享 `Service information` control，收纳 exact service/build identity、latest-signal observation
-  scope 与 per-service availability boundary。Back to services 仅在 exact route 显示。
-- 状态几何：初始加载保留同一 header/summary，用 compact Worker store unavailable 区域显示
-  `READING_WORKERS`；loading-row count 明确为零，不制造 worker skeleton 数据行。Pending 时 Refresh
-  disabled 且标为 Reading；刷新期间保留上次 observation 到 replacement 到达，但不声称 fresh。
-  合法 empty 与 filtered-empty 均保留 columns/toolbar，空 body 最小 220 px，不制造 worker detail。
-  List/detail 部分可用各自独立：T 失败时成功 D 仍在旁边，D 失败时成功 T 保留。无效 JSON/envelope、
-  transport error、permission-denied response 不提供该 endpoint 的数据，使用各自 compact unavailable 区域；
-  exact D 保留 requested identity、unavailable badge/reason、Back link。Worker 缺失沿用 D 几何并显示
-  WORKER_NOT_FOUND。Wire 没有独立 stale/partial status：expired lease 仍是 observed expired row；
-  不支持的 stale/partial envelope fail closed；不以 timer 将旧数据提升为 live health。
-  List error 绝不覆盖独立有效的 D。
-- Action 顺序/准入：header info 后接 Refresh；same-context table selection；D 仅在存在 exact run identity 时展示
-  Recent activity preview；preview 内为 Open full run details；exact-route footer Back to services。Filter/sort/pagination 均为本地交互。
-  远程只允许 GET/no-store 与严格 endpoint-specific envelope；D 必须回显并匹配 path identity。
-  本面无 mutation action，也无 operational/domain action envelope。Create/edit config、restart、
-  cache-clean、REPL、autoscaling、host/group/version 及 heartbeat-history 编造均禁止。
-
-#### Service Logs 精确只读 skeleton
-
-`/operations/service-logs` 为 `DRAWABLE_EXACT`，仅对第一方 RunStore 有界 operational evidence
-GET projection 授予 `IMPLEMENTATION_ADMITTED`。本闭合替代早期 Windmill service-log 草图，不读取
-已退役外壳的 administration 或 log storage，也不准入 worker command、Owner call、effect retry、deployment、
-cutover、production write 或 trading action。
-
-```text
-H  Operational evidence / Service logs        [Refresh] [Auto-refresh on|off] [Download bounded]
-N  Operations tabs in the fixed order above
-S  [Severity] Error | Warning | Info          [Instances] Worker | Server
-F  [Range: 15m|1h|6h|24h] [Kind: All|Worker|Server] [Service] [Instance] [Severity] [Search]
-P  Source list: business source | kind/readiness | last observed
-Q  Selected source: business source | services | kind/readiness | last observed | [technical info]
-T  Time | Level | Activity | Source | Related
-B  Showing newest n of retention limit | completeness/redaction/truncation disclosure
-```
-
-- 布局：一个 flat `PanelFrame` 统一拥有外层圆角与阴影。title/subtitle 与三个 action 直接放在
-  frame 背景上，禁止再包一层直角 header card、self-radius 或独立 header fill。唯一圆角 inset 是
-  `PanelFrameBody`，内部依次为 `CompactStatusBar`、单行 filter、`SplitBento(P, Q+T)`、B。
-  当宽度 >=1280 px 时，P 为 `minmax(248px, .55fr)`，Q+T 为 `minmax(620px, 1.45fr)`，gap 12 px。
-  两列高度都由内容驱动，不设 viewport-height 最小值，也不强制拉伸到等高，纵向滚动由 page 拥有。
-  当 cut 只有一个 source 时省略 P，Q+T 使用 inset 全宽，selection 仍绑定该唯一 exact identity。
-  低于 1280 px 按 S、F、P、Q、T、B 单列排列。
-  T 始终保留横向 overflow，不转换为每条 log 一张 card。表头/cell 全部左对齐。必须使用共享主题 token、
-  13 px 内层圆角、克制的不完全连通行列分隔线与 Lucide icon；禁止蓝色 focus/selection 外框，也禁止
-  caller 覆盖共享 atom 的 radius/fill。
-- Query/cut：一个严格 `ServiceLogFilterCutV1` 包含精确 ISO observation cut、`15m|1h|6h|24h`
-  中一个 range、kind `all|worker|server`、一个 allowlisted service 或 `all`、exact instance identity 或
-  `all`、severity `all|info|warning|error`，以及 trim 后最长 128 字符的不区分大小写 search。Search 只覆盖
-  event code、correlation identity、service 与 instance identity。Wire 回显 canonical filter cut 及其 `sha256`
-  digest，并带 `projection_version=1`；unknown key、无效 enum/identity/timestamp、future cut、digest mismatch 或
-  unbound row 都 fail closed。Filter 在 retention bound 之前由 server 执行。
-- Summary 与 instance selection：Error、Warning、Info 统计精确回显 cut 下、viewport pagination 之前的
-  eligible filtered row；Worker 与 Server 统计同一 cut 下的 distinct eligible instance。Available empty cut
-  显示五个零；initial/loading、unavailable、invalid、
-  transport-error 或 permission-denied 显示 `-`，不得从失败推断零。有效 nonempty result 选择最近观测的
-  instance，同时按 identity 破平；仅当请求的 instance 存在于同一 cut 时才保留该 selection。不展示也不缩写
-  host：`host_ref` canonical 为 `null`，instance identity 是唯一可选 locator。
-- P/Q：P 按 last-observed 降序、再按 identity 排序，selected row 只使用共享 accent family 色调，不使用
-  border halo。主信息展示业务 source 名称，其后是 kind/readiness 与 last observed。Q 仍保持 identity-bound
-  selection，但先展示 source、services 与 observation state；exact instance identity、source/filter cut digest
-  仅放在共享 info 控件中。不推断 memory、process health、hostname、version、occupancy 或 heartbeat history。
-  Selection 缺失或 mismatch 时，Q 与 T 使用同一 compact selected-instance unavailable geometry，不暴露任何 row。
-- T 与 retention：列固定为 Time（190 px）、Level（108 px）、Activity（最小 220 px）、Source（190 px）和
-  Related（最小 160 px）。Activity 是有界 `event_code` 的确定性 sentence-case 展示；Source 使用 allowlisted
-  service 的穷尽业务标签。仅当 correlation identity 满足 exact run-identity contract 时，Related 才链接到
-  Run Detail；否则保持中性文本。Exact wire value 只放在 title/info affordance，而不进入主要扫读路径。
-  V1 没有 free-form message field，
-  UI 不得编造。默认按 observed time、correlation identity、sequence 降序；row key 为 correlation+sequence。
-  Viewport 最多返回 200 row；pagination 使用与 echoed filter-cut digest 绑定的 server-issued opaque cursor，page size
-  为 20/50/100/200。Cursor mismatch/expiry 显示 unavailable，不是 empty page。Gateway 的 retention ceiling 在每个
-  observation cut 下仍为 512 eligible row；改变任何 filter 都重置 cursor 与 page。`complete` 与
-  `partial_unavailable` 必须可见区分。
-- Event drilldown：选择一条已验证 T row 时打开共享 `DetailSheet`，不改变 Service Logs URL，也不卸载原有
-  filter、page、scroll position 或 menu context。Sheet 组合共享 `DetailFactGrid`、`DetailCluster`、
-  `StatusBadge` 与 `PanelFrameInfo` atoms，不重新绘制 route-specific 详情面。Selection 绑定
-  filter-cut digest + correlation identity + sequence，因此 replacement cut 或 page 会撤回 stale detail。
-  主内容回答 activity、level、observed time、source 与精确 source context；event code、sequence、correlation、
-  instance identity 和 source/filter cuts 只留在 information affordance。仅当 correlation 满足 exact
-  run-identity contract 时展示 `Open related run`；其他 event 不展示虚假 route。打开 row 不产生新 read，关闭后
-  focus 回到该 row；低于 768 px 时共享 sheet 占满 viewport。它绝不嵌入带 action 的 Run Detail，也不推断 cause、
-  Owner outcome 或 service health。
-- 状态几何：initial read 保留精确 header/body 几何，以 `READING_SERVICE_LOGS` 显示零条 synthetic row；
-  Refresh disabled 且标为 Reading。Pending refresh 期间可暂时保留上一 cut，但必须标记 Previous observation。
-  任何失败的 replacement 在显示 compact unavailable region 前清除旧 positive instance、count、selection 与 row。
-  Valid empty 与 filtered-empty 保留 S/F/columns/B，T empty body 最小 220 px。Partial 只能显示通过验证的 row，
-  并保留明确 partial disclosure；malformed envelope、unbound instance row、重复 correlation/sequence key，或不覆盖
-  displayed row 的 source cut 一律不渲染 positive projection。不存在用 timer 升级 live、healthy、complete 或 Owner-accepted。
-- Action 与 download：header 顺序是 Refresh、Auto-refresh、Download bounded。Auto-refresh 仅是 presentation action，
-  保留 exact filter 与 selection，仅当 viewport 原本就在尾部时跟随最新 row。它不在原地修改 observation cut：
-  每次 refresh 都用新 echoed cut 替换。Download 只允许 GET/no-store，重用精确 canonical filter cut、ordering、
-  redaction 与 retention selection；最多 512 row、256 KiB UTF-8。Truncated download 必须声明 truncation，不得与
-  viewport 的 canonical filtered set 静默分歧，但可以包含比当前 page 更多的 row。Loading/unavailable/
-  permission-denied 或没有有效 echoed cut 时 Download 缺席。
-  不存在 POST/PUT/PATCH/DELETE endpoint、operational/domain action envelope、delete、clear、restart、REPL、retry 或
-  health-promotion action。
-
-Positive producer 是同一 repeatable-read PostgreSQL transaction 中观测的 Trade-owned RunStore 数据。 Browser fixture、
-复制的已退役外壳 row、手写 JSON、单纯 HTTP success 或 stale prior envelope 都不能证明 availability。
-
-动态验收必须 通过真实 disposable `PostgresRunStoreV1` 产生 log，再通过 production gateway 与 GET route 读取，并在 browser 中 验证
-filter/selection/download parity，同时证明零 Owner、provider、scheduler、dispatcher、production 与 trading effect。
-
-Log 不能升级 Owner health、business success、未绑定 run 的 worker readiness、Telemetry availability 或 replacement
-readiness。
-
-#### Operations Audit 精确只读 skeleton
-
-`/operations/audit` 只对本节定义的第一方 append-only control-plane evidence 标记为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。 它绝不把已退役外壳的
-partitioned audit table 作为第一方 positive source： 当时观察到的 row 只暴露 principal、time 与 action kind，operation 和
-resource 都是 `redacted`。 它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit
-identity。
-
-准入 producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1`、 `dashboard.operational_cache.delete.v1` transition，以及经过认证的
-`source_intake.research.submit_or_resolve.v1`、`develop_composer.submit_or_resolve.v2` 与 `exploratory_replay.submit_or_resolve.v2` 控制面准入。 Artifact Formation 准入在 2026-10-03
-的决定使该 operation 退役前也是 producer；仍持有此类记录的 store 在迁移时被拒绝。
-
-Cancellation/deletion 的 audit event 必须与 immutable action receipt 在同一 serializable PostgreSQL transaction 中插入。
-
-Source-to-Research/Composer/Replay request 则必须在任何 Owner/provider effect 之前，于同一个 RunStore begin transaction
-中同时插入 typed `dashboard-control-plane-admission-v1-*` receipt 与 audit event；Replay 只读 identify preflight 只有通过 compatibility 与
-routing admission 后才能先于该 transaction； receipt 或 audit insert 缺失、冲突、被拒绝时，run/binding transition 整体 rollback，下游
-effect 不开始。
-
-Receipt 精确绑定 authenticated principal、authorization digest、用户原始 requested action、解析后的 execution mode、operation
-与 run identity；重复的同一准入读回同一个 immutable receipt，不同 action 或 execution mode 使用不同 receipt。 Audit outcome
-`succeeded` 只表示控制面准入已提交，绝不表示 Owner 接受、 provider 成功或 business terminal outcome。
-
-历史 run 不回填虚构的 principal 或 authorization digest。 本切面 不推断、不改变 deployment、scheduler、effect
-routing、production、trading、Owner outcome 或 provider outcome event。
-
-```text
-H  Operations / Audit · one-line purpose                         [info] [Refresh]
-S  activity: execute | create / update | delete
-   outcome: succeeded | failed / denied
-F  [24h|7d|30d|all] [principal] [operation] [outcome] [target or correlation search]
-P  OperationAuditTable: Time | principal | operation | outcome | target
-Q  Selected event: outcome; operation; principal; target; correlation;
-   receipt; audit identity; authorization cut; observed time
-T  Correlation timeline: Time | operation | outcome | receipt; canonical ascending order
-B  count / completeness / retention                            [Copy audit locator]
-```
-
-`H` 是透明 `PanelFrameHeader`，高度 72-96 px。 Title 与简短 product purpose 左对齐；右侧 circular info
-control 在 secondary Refresh button 之前。 Technical scope、source-cut 与 retention 文案只允许出现在 info popover 或
-`B`，不能成为散落的 page copy。
-
-`S` 是一个 compact `CompactStatusBar`，含上述两个 group 与 label；value 是 integer，数据缺失显示
-`-`，只有 available source cut 才能显示零。 Body inset 的顺序为
-`S`、`F`、`P/Q`。
-
-Viewport `>=1024px` 时，`F` 是单行 40 px control row，顺序严格如上。 Range 为
-`24h / 7d / 30d / all`；principal 与 operation option 只能来自当前 available cut；outcome 为
-`all / succeeded / failed / denied / unknown`；normalized search 最多 128 UTF-8 byte，只匹配可显示的 exact target/correlation text。
-
-`768-1023px` 时 control 不改顺序地换成两行；低于 768 px 时每个 control full width， search 仍排最后。 全部 filter 都由 server
-拥有并替换 observation cut；禁止 client-only filtering 重新解释 page。
-
-Viewport `>=1024px` 时，`P/Q` 使用 `minmax(660px, 1.55fr) minmax(340px, .75fr)` split、12 px gap 与 420 px minimum
-height。 `P` 使用 `DataWorkspaceTable`、44 px row，column width 为：Time 190、principal 160、
-operation min 260、outcome 120、target min 240。 默认按 `(observed_at, audit_identity)` descending；只有 Time 可排序。
-
-点击 row 选择 exact audit identity，并执行 `GET /api/operations/audit/{audit_id}`。 `Q` 使用单个 `DetailInspector`，field
-order 如上；长 identity 视觉缩短，但 title 与 copy value 保留完整值。 `T` 位于同一 inspector body 的 selected-event
-facts 下方，在 detail observation cut 最多显示该 exact correlation 的 256 条 event。
-
-`768-1023px` 时 `P` 在 `Q` 之前；低于 768 px 时 `P` 是可横向滚动
-table，`Q` 在其下 full-width。 Selection 不改变 URL，也不提供 mutation。
-
-Pagination 为 server-side，使用绑定 filter 的 opaque cursor 与 `20 / 50 / 100` page size；改变 page size 或 任一 filter
-都回到第一页。 Loading 保留六个 44 px table row 与 selected-card footprint。 Unfiltered empty 显示 没有第一方 audit event；filtered
-empty 显示没有匹配 event。 Partial cut 保留已验证 row，并显示 amber completeness notice。
-
-Store/configuration unavailable 与 permission-denied 保留 `S/F/P/Q/B` geometry，summary 显示
-`-`，machine reason 只放在 info 后。 Unknown audit identity 复用相同 `Q` footprint 并显示
-`AUDIT_EVENT_NOT_FOUND`；malformed/cursor-expired input fail closed 且无 row。
-
-`B` 显示当前条数、 `complete|partial_unavailable` 与固定 512-event retention bound；只有选中一个 verified event 时才显示
-secondary Copy audit locator action。 页面没有 edit、delete、dismiss、replay、retry、Owner resolution、 provider
-claim、download 或 generic shell action。
-
-List API 是 `GET /api/operations/audit`；detail API 是 `GET /api/operations/audit/{audit_id}`。 两者都使用 `no-store`，消费
-`OperationAuditStore`，echo immutable observation cut，并在 malformed row、duplicate audit/receipt identity、invalid
-correlation ordering、 filter/cursor mismatch 或 unreadable storage 时 fail closed。
-
-Table append-only：runtime `UPDATE` 与 `DELETE` 都被拒绝。 Browser parser 只接受 exact key，并在
-positive page render 前重新计算 filter-cut digest。 Mobile 顺序固定为 `H -> S -> F -> P -> Q -> B`。
-
-#### 精确 Run Detail 骨架
-
-`/operations/runs/:runId` 是完整 route；`DetailDrawer` 以 480 px 显示 `RunDetailPanel` 的快速检查
-projection。两者使用相同 ordered slot 与 route-backed tab：
-
-```text
-H  Breadcrumb / Runs > path > shortened run ID
-   [Copy locator] [Refresh] [Cancel queued dependency…?] [Resolve same identity] [Download bounded result/log]
-S  Semantic status | operational status | duration | received/started/completed
-P  Run identity, path, kind, tag, trigger, principal, worker, version, hash, language,
-   memory peak, parent/root correlation, retention; then allowlisted Inputs key/value table
-   and `n fields withheld` disclosure with reason chips; RunWorkerCompatibilityMatrix is bound to this run ID
-   OperationalCancellationReceiptCard is the fixed read‑only post-attempt location: pending/unavailable/receipt
-Q  Owner Outcome: availability, source Owner, next legal action, receipt identity, source cut
-T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSON,
-   Download bounded result, and the same withheld-field disclosure
-   then the fixed nested tabs [Logs] [Metrics] [Traces] [Assets]
-   Logs   = search/filter/autoscroll/download + bounded line viewport + truncation notice
-   Metrics= NotCollected/Unavailable/time-series
-   Traces = NotCaptured/Unavailable/request spans
-   Assets = Empty/disposable attachments only; Owner artifacts appear only as receipt locators
-A  DependencyCancellationPanel in the fixed action slot, present only for a queued, unclaimed,
-   zero-domain-effect dependency run with a current OperationalActionEnvelope. The third H action opens/focuses
-   this confirmation; the panel's sole effect button is Cancel queued dependency. It stays disabled as Cancelling…
-   while CAS is pending, then A and H slot 3 disappear. P retains the immutable receipt or explicit unavailable state.
-```
-
-Button 不继承 Windmill 通用 `Run again`、`Share`、`Edit`、script editor、worker
-REPL、restart 或 cache clean。 只有 current Owner manifest 准入时，domain route 才能提供 successor request；run page 自身只提供
-navigation、 有界 operational evidence 的 copy/download、refresh 与 same-identity resolve。
-
-Inputs 与 Result 绝不渲染任意 stored JSON。 精确 operation/version registry 为每个可展示字段标记 sensitivity；
-secret、protected、unknown 与 schema-mismatched 字段都没有 value slot。 Withheld value 的 Copy field disabled； Copy JSON
-与 Download bounded result 序列化的必须是屏幕上同一份 redacted projection，绝不是 raw job payload 或 result bytes。
-
-Registry entry 缺失或 mismatch 时，两个 panel 保持固定几何并显示带 operation/version 与 stop reason 的 `Unavailable`。
-
-#### 用户动作状态机
-
-| 上下文/状态                    | 浏览器动作                       | 必须保持的含义                                                 |
-| ------------------------------ | -------------------------------- | -------------------------------------------------------------- |
-| 研究查询未打开                 | 本地校验身份、Open readback      | 不修改 Owner 或创建请求                                        |
-| 读取中                         | 保持几何并展示 loading           | 不伪造进度或沿用旧正向结果                                     |
-| 已验证终态                     | Refresh、Open canonical evidence | 持久结果与关联视图当前性分离                                   |
-| 缺失、陈旧、格式错误或未知回读 | 刷新同一查询或打开可用证据       | 无产生写入的 Resolve、重试、后继、provider dispatch 或推断终态 |
-| Governance 合法请求尚未提交    | 确认准确已准入生命周期动作       | 当前政策/授权及冻结语义输入必需                                |
-| Governance 请求已发送          | 禁用重复提交并展示 pending       | 身份/含义不可变；无暗示回滚的 Cancel                           |
-| Governance 结果未知            | 读取原请求身份                   | 不新建请求、推断失败、重试效果或释放承诺                       |
-| Governance 回执已接受          | 单独读取 Runtime 应用            | Accepted 不是 `APPLIED`；真实效果仍经 Risk/Execution           |
-| 授权过期或不匹配               | 打开可用证据                     | 无 bootstrap、续期、提升或 force admit                         |
-
-动作含义归领域契约。研究回读不继承 Governance 写权限。控制与响应丢失细节仅在本章明确的有界 Governance 路由准入；通用 operation 或 provider 控制不是浏览器产品能力。
-
-### Canonical routed-page 骨架
-
-每个 tab 在实现前都必须能从以下 desktop skeleton 直接绘制。Content region 使用 12-column grid；缺省 slot
-折叠时不得改变其余 slot 的顺序。
-
-```text
-+-- 76 rail --+-- main -----------------------------------------------------------+
-| user        | 56 top bar: status tape | tabs | search | notifications          |
-| module rail +------------------------------------------------------------------+
-|             | H  page title · scope · Owner · cut · freshness · route actions   |
-|             +------------------------------------------------------------------+
-|             | S1 summary | S2 summary | S3 summary | S4 summary                 |
-|             +---------------------------------------------+--------------------+
-|             | P primary workspace (8 columns, min 320)    | Q context (4 cols) |
-|             +---------------------------------------------+--------------------+
-|             | T table / chart / timeline / comparison (12 columns, min 360)    |
-|             +------------------------------------------------------------------+
-|             | A one admitted action: domain Owner | operational envelope       |
-+-------------+------------------------------------------------------------------+
-                                                    D detail drawer: 480 px max
-```
-
-`RouteGrid` 独占该 page-level geometry，并与参考项目派生的 `BentoGrid` 分离。 Viewport width
-`>=1280px` 时， 它有 12 个等宽 logical
-column：`S1-S4=3`、`P=8`、`Q=4`、`T/A=12`。
-`768-1279px` 时有 6 列：每个 summary 占 3 列并每行两个，`P/Q/T/A=6` 且保持 source order。
-
-低于 `768px` 时只有一列，顺序为 `H -> S1 -> S2 -> S3 -> S4 -> P -> Q -> T -> A`；`D` 是 full-screen overlay，不占 grid
-slot。 `RouteSlot` 只拥有这些 span，不能接收任意 caller-supplied column count。
-
-Panel 内部的 `BentoGrid` 保留 container-observed `wide/narrow/collapse`、180 px minimum auto-row、16 px
-gap、1/2/3/4/8 column 与 1-4 row span；绝不能改变 route order 或 drawer behavior。
-
-- `H` 高 72-96 px，固定包含 page title、单行 purpose、适用时的 scope selector、Owner/source cut、freshness
-  badge，以及仅 route-level action。
-- `S1-S4` 是 104 px summary card。缺少 metric 时保留 slot 并显示 `Unavailable`，绝不能用零填补空位。
-- `P` 与 `Q` 共用一个最小 320 px row。`Q` 放 context、stop predicate、evidence completeness 或当前 selected
-  identity；它绝不能作为第二 writer 重复 `P`。
-- `T` 是 canonical list/history/comparison surface。Selection 打开 `D`，不替换 URL。
-- `A` 只为一个已准入的 `ActionAdmissionGate` branch 出现。`domain` variant 要求 Owner projection，并包含
-  action label、target identity、consequence、stop predicate 与一个 primary button。`operational` variant 要求
-  current `OperationalActionEnvelope`，保持同一 geometry，且不能承载 domain action 或替代 Owner admission。
-- `D` 在 desktop 为 480 px、compact desktop 为 400 px、低于 768 px 为 full-screen。内部顺序固定为 status、
-  immutable identities、Owner receipt、source cut/frontier/freshness、evidence、独立 operational job link、
-  recovery，最后是同一个 `A` action；不得包含第二份 semantic form。
-- Loading 为每个已占用 slot 使用保持形状的 skeleton。Empty、partial、stale、unavailable、unknown、rejected、
-  conflict、quarantined 与 permission-denied 保持相同 geometry。
-
-#### Skeleton 完整度 gate
-
-Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可实现的 component contract。以下状态
-具有规范性，防止 experimental chapter 高估当前 Dashboard 已经可以被绘制的程度：
-
-| 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 准入含义                                                                                                                                                                                                                                                         |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DRAWABLE_EXACT`                      | Overview Status `/dashboard`、Attention `/dashboard/attention`、Recent `/dashboard/recent` 与 Evidence `/dashboard/evidence`；Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Schedules `/operations/schedules`、Service Logs `/operations/service‑logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research directory `/rd/research` 与精确回读 `/rd/research/:requestIdentity`、Artifacts `/rd/artifacts`；Backtest Replay 请求与结果回读 `/backtest`；Market Data `/data` 与 `/data/pit‑catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Event Rail、Telemetry 与 Alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
-
-navigation-only route 只使用共享 `UnavailableState`：主文案只说明 workspace 尚未连接，当前没有 Dashboard 数据或
-动作；完整度 code 仅保留在该原子的技术信息披露中。页面不再绘制私有 placeholder card，不直接展示 `S/P/Q/T`
-术语，不重复 prototype footer，也不会因此被提升为已实现的产品 surface。
-
-Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable atom。
-
-将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带 尺寸的 `P/Q`
-child；每个 `T` column、row action、grouping、sort、filter、pagination 与 loading-row count；有序
-`D` field；empty/partial/stale/unavailable/error/permission-denied geometry；以及准确 button order
-与 admission gate。
-
-其 reusable atom 随后还必须加入 inventory。 Dashboard 实现仅对这些精确 route 与 shared atom 标记为 `IMPLEMENTATION_ADMITTED`，并必须作为有边界、可
-review 的切面交付，保持 fail-closed data/effect 边界。
-
-`DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` 或 `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE` surface 在完成同样的双语闭合并 晋升前仍禁止实现；实现准入绝不提升 backend availability、Owner
-acceptance、replacement readiness、executor cutover 或 production effect。
-
-### Routed page blueprint registry
-
-以下 registry 是 skeleton 的规范。Button 按列出的左右顺序出现。`Open`、`Copy`、`Refresh`、filter 与 compare
-selection 是只读 UI action；其他 button 在 render 时还必须取得匹配的 admitted `ActionAdmissionGate` branch：
-`domain` 使用具名 Owner action manifest，显式注册的 `operational` control 使用 current
-`OperationalActionEnvelope`。
-
-对 `/rd`、`/rd/research` 与 `/rd/artifacts`，最后一列保留的 H0/H1 defect narrative 是历史设计依据。
-
-当前 disposition 以上文章首的 merged H1 回读为准：具名 source contract 是 `CURRENT/PARTIAL`，其精确 default-Web deployment
-仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server projection 暴露所需 custody 前保持 固定 unavailable；actual provider
-execution 仍为 `NOT_ADMITTED`。 该规则只解析 status，不改变 registry 中 固定的 panel、button 或 state geometry。
-
-当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity` 与
-`/rd/artifacts` route， 以及 Artifact operational exact-readback，都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的未来
-Intake、Research 与 Artifacts registry 行。
-
-五个 route 都没有 summary strip 或分栏 detail pane，唯一 `P` surface 分别是 `SourceIntakeReadbackWorkbench`、
-`DevelopComposerReadbackWorkbench`、`ResearchDirectory`、`ResearchReadbackWorkspace` 与 `ArtifactDirectory`。
-
-Intake 本切片没有 directory、editable composer 或正向 action；Research detail 使用独立 identity-bound URL 且没有正向
-action；Artifact 精确详情也继续使用独立的 identity-bound URL。 registry 行中更广的 composer、Research admission/outcome
-action、receipt timeline、 S1 custody、review、binding、 replay 与 security-evidence panel 仍是未来
-blueprint，不能被推断进这些切片。
-
-当前准入的 Status `/dashboard` 是一个有界只读队列总览，并取代下方未来态的 global status registry 行。
-它只回答"现在有什么可以审阅、我可以从哪里继续"，不计算全局健康度、incident 总数、工作流进度或跨 Owner 状态机。
-
-第一个固定 panel 是 `DashboardOverview`：header 依次为 `Overview / Continue your work`、技术范围 disclosure、`Refresh`；body
-复用共享 `CompactStatusBar`，采用 3:2
-bento：`R&D`（`results ready`、`waiting`、`reviewable`、`bindings`）与
-`operations`（`active`、`needs attention`）。
-
-R&D 总数来自 historical-custody projection；outcome 与 build-review 计数只有在 complete identity set 与该 custody
-projection 匹配时才出现。 Build attempt 总数保留在 Artifact route，不在 首页重复为 KPI。 Operations 使用精确的未过滤 RunStore V2
-cut：`runs/all/any/pageSize=50/page=1`；`active = queued + running`，`needs attention = failed + unknown`。 RunStore 全零只表示该 view 没有记录 run，绝不表示系统健康。
-
-第二个固定 panel 是 `Next / Ready to review`。 它最多包含四个只读导航 card，顺序为：正数的 research results、正数的 reviewable build
-outcomes、正数的 waiting research、正数的 failed/unknown runs。 零值 省略对应 card；如果没有 card，body 保持 geometry
-并显示当前没有已记录的待审工作。 Loading 保留两个 panel frame，把全部 metric 替换为 em dash，并把第二个 body 替换为一个安静的 loading state。
-
-Refresh 独立发起全部 read、禁用重复 refresh，并在每个本轮 read 成功前撤回旧的正向 metric。 被拒绝、malformed、 partial、stale 或 identity
-mismatch 的 source 只撤回依赖它的 value/link，绝不变成零。 Observation time、 source cut、completeness 以及"各 section
-独立读取"的明确说明只放在技术 disclosure 内；页面没有全局 observation time 或 aggregate status。
-
-980 px 以下 navigation card 变为单列；共享 compact-status atom 保留其已规定的响应式行为。
-
-当前准入的 Attention `/dashboard/attention` 回答"现在有哪些已记录工作需要跟进、为什么、以及去哪里继续"， 而不创建新的 stop-predicate Owner。
-`DashboardAttention` 复用 historical-custody、research-question、 research-outcome、artifact-review 与精确的
-failed/unknown RunStore projection。
-
-固定表格逐项列出等待或不可读的 Research request、historical outcome 不可读的 Build attempt，以及 failed 或 unknown action run。 主列固定为
-`Item`、`Area`、`Needs follow-up` 与 `Recorded`；opaque request、attempt 与
-run identity 只留在展开详情或 `PanelFrameInfo` 中。
-
-summary 按 `research`、`builds` 与 `runs` 统计逐项 follow-up，并且只有三个 source family 全部绑定时才显示 total。
-`All / Research / Builds / Runs` filter 与 search 保持 Attention URL 不变。每一行只展开一个受控的同页原位详情，
-并链接到 canonical Research record、historical Build record 或 Run record。表格按 Owner/RunStore 记录时间排序，
-并复用共享 pagination atom。
-
-每个 source 独立 fail closed：identity mismatch 或 read unavailable 只撤回其依赖的 row 与 count，绝不变成零；
-如果其他 source 仍可读，整体 list 标为 partial。loading 会撤回此前 positive row。页面只有一个 outer vertical
-scroll owner，并且没有 dialog、drawer、Resolve、retry、dismiss、clipboard locator action、Owner mutation、effect
-dispatch 或 effect routing change。
-
-当前准入的 Recent `/dashboard/recent` 回答"最近记录了什么已验证 outcome"，而不引入新的 outcome Owner。 `RecentOwnerOutcomes` 消费两个有界
-Owner read：verified Research outcome 清单与 verified Build outcome 清单，每一行的 outcome state 都已由 Owner 解析完成。 页面发出的
-read 次数不随它列出的行数增长： workspace 至多请求它要显示的行数，Owner 把它夹到自己拥有的上限，被 Owner 截短的清单必须自己声明截断， 而不是报成全部的计数。
-
-两个 read 都不指名 custody cut：由各自 Owner 从自己的托管解析出 cut 并回显，因此 workspace 无法声称一个 Owner 没有解析过的坐标，回显 cut 不同的行也绝不合并。 只接纳
-`outcome_ready` Research 和 `reviewable` Build，再按 Owner recorded time 合并。 正文复用共享
-`DataWorkspaceTable` 与 controlled 同页原位展开；筛选只改变 Research/Build 可见 cut，不改变 URL。
-
-Research 行打开 canonical Research record，Build 行打开 canonical historical Build result。
-request、attempt、observation time、 completeness 与 identity 只进入 `PanelFrameInfo` 或展开行，不成为主表列。
-
-这两个 read 保持独立：malformed、 identity mismatch、unavailable 或 cut 不同的 Research 回答只撤回 Research row/count，Build
-同理；缺失显示 unavailable 而不是零，只有两类 source 都绑定时才显示 total。 Loading 在本轮 read 完成前撤回旧的正向 row。 页面只有一个 page scroll
-owner，没有 dialog、drawer、嵌套纵向 table scroller、Owner mutation 或 effect action。
-
-当前准入的 Evidence `/dashboard/evidence` 回答"Dashboard 哪些区域现在有可读数据，哪些覆盖仍不完整"。 它复用 Status 已读取的
-historical-custody、research-outcome、artifact-review 与精确未筛选 RunStore， 不创建新的 evidence Owner。 固定
-`DashboardEvidence` table 按顺序只有四个业务 row：`R&D history`、
-`Research results`、`Build results`、`Operations history`。
-
-Column 为 `Area`、`Current`、 `Needs follow-up`、`Coverage`；exact source
-identity 不进入主列。 `Connected` 表示该 row 的 typed source 与所需 identity binding 完整，`Limited` 表示
-source 可读但存在 truncated、partial 或不可读 point result， `Unavailable` 表示 read 或 identity binding 失败。
-
-这些 label 只表示 Dashboard read coverage，绝不表示 Owner health、科学有效性或全局 incident state。
-
-Summary 统计 area 而非把不同 record 相加：`connected`、`limited`、`unavailable`。
-`All / Connected /
-Needs coverage` filter 只改变可见 row，并保持 Evidence URL 不变。 激活 row 后以 controlled 同页原位 detail 展示业务解释与 canonical
-workspace link。 Observation time、completeness 与 unavailable reason 只进入 `PanelFrameInfo`。
-
-每个 source 独立 fail closed；loading 撤回 retained value，missing 原位 unavailable 而不是零； 任何 row 都不准入
-rebuild、resolve、dismiss、Owner mutation 或 effect action。 页面仅使用外层 page viewport 作为纵向 scroll owner。
-
-#### Overview 与 R&D
-
-| Tab 与 route                     | 固定 `S / P / Q / T` 内容                                                                                                                                                                                 | Button 顺序                                                                                               | 默认证据状态                                                                                                                                                                                                                                             |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status `/dashboard`              | 上述已准入 queue Overview：`P=DashboardOverview`；紧凑展示彼此独立的 R&D 与 RunStore summary；`T=ReadyToReview` navigation cards；无 `Q`、global matrix、incident aggregate 或 Owner timeline             | 从 metric/card 打开精确的只读 queue；View data scope；Refresh                                             | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：正向 value 必须有当前 typed projection 与上述 identity‑set binding。缺失或 mismatch 的 source 原位 unavailable。不提供 global health、restore、resolve、submit、run 或其他 effect action                    |
-| Attention `/dashboard/attention` | 使用上方已准入 follow‑up workspace：逐项展示等待/不可读的 Research request、不可读的 Build outcome 与 failed/unknown Run；`P=DashboardAttention`；受控同页原位详情；source evidence 留在 `PanelFrameInfo` | Filter All/Research/Builds/Runs、search、原位展开一行、打开 canonical record、Refresh                     | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：只使用独立 typed read；mismatch 或 unavailable source 会撤回其 row/count 而非变成零；没有 Resolve、retry、dismiss、clipboard locator action、Owner mutation、effect dispatch 或 Windmill routing change     |
-| Recent `/dashboard/recent`       | 上述已准入 recent‑outcome workspace：verified Research/Build count 与按时间排列的 `P=RecentOwnerOutcomes`；独立 source freshness 只进 `PanelFrameInfo`；controlled 同页原位 detail 展示 outcome summary   | All/Research/Build 筛选、原位展开一行、打开 canonical Research record 或 historical Build result、Refresh | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：仅 typed 独立 Owner read；identity mismatch 只撤回依赖它的 row/count；missing 原位 unavailable 而非零；无 Owner 或 effect mutation                                                                          |
-| Evidence `/dashboard/evidence`   | 上述已准入 read‑coverage workspace：area count 与 `P=DashboardEvidence`；controlled 同页原位 detail 提供业务解释和 canonical destination；技术 observation evidence 只进 `PanelFrameInfo`                 | All/Connected/Needs coverage 筛选、原位展开一行、打开 canonical workspace、Refresh                        | `IMPLEMENTATION_ADMITTED / CURRENT_PARTIAL`：四个独立 typed read；identity mismatch 只撤回依赖它的 row；missing 原位 unavailable 而非零；coverage 不是 Owner health 或全局 incident state；无 rebuild、resolve、dismiss、Owner mutation 或 effect action |
-| Intake `/rd`                     | `P=SourceIntakeReadbackWorkbench`; exact lookup and Intake / Custody / Evidence groups; no summary strip, split pane or composer                                                                          | Open readback, Refresh                                                                                    | `IMPLEMENTATION_ADMITTED`: exact typed read only; no Submit, Resolve mutation, successor or provider call                                                                                                                                                |
-| Research `/rd/research`          | Active/stale/unknown/accepted/rejected 计数；`P=ResearchRequestTable`；`Q=ResearchViewCard + TrialFamilyReceiptPanel + S1TerminalCustodyPanel`；`T=ResearchReceiptTimeline`                               | Filter, Search, Open research, Refresh                                                                    | Exact admitted typed readback/directory; no research dispatch, Resolve mutation or successor                                                                                                                                                             |
-| Hypotheses `/rd/hypotheses`      | verified/unavailable 已保存问题筛选；`P=HypothesisDirectory` 与 inline `ResearchQuestionBrief`；技术 custody 只进 `PanelFrameInfo`                                                                        | 原位展开一行；Open research record                                                                        | 只读 `rd.research_question_directory.read.v1`；verified custody 不等于科学有效性、active/falsified 状态、outcome 或 Iteration Decision；本 tab 不直接 mutate Fact                                                                                        |
-| Artifacts `/rd/artifacts`        | `P=ArtifactDirectory`; exact verified Artifact list/detail with Review and custody evidence; geometry defined by the admitted directory above                                                             | Filter, Search, Open Artifact, Refresh                                                                    | `IMPLEMENTATION_ADMITTED`: exact typed read only; no build, provider, claim, Resolve mutation or successor                                                                                                                                               |
-| Decisions `/rd/decisions`        | 已验证 Iteration Decision 筛选；`P=RdDecisionDirectory` 与 inline `ResearchQuestionBrief`；技术 lineage 只进 `PanelFrameInfo`                                                                             | 原位展开一行；Open research record                                                                        | 只读 Formation catalog 与每个 family 的 exact Iteration timeline；零 family 是真实 empty cut；不暴露 Decision action 或 effect mutation                                                                                                                  |
-
-#### Backtest、Qualification 与 Scanner
-
-| Tab 与 route                                           | 固定 `S / P / Q / T` 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Button 顺序                                                                                                                        | 默认证据状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Exploratory `/backtest`                                | 无 summary strip；`P=ExploratoryReplayReadbackWorkbench` 先展示 `Request`、`Custody`、`Replay basis`，再提供精确 Result/Attempt lookup，并用一个共享 `FactGroup` 紧凑展示 terminal、diagnosis、reconciliation、semantic trace 与 result identity，随后是该 lookup 所打开 result 的 `BacktestRunReport` slot。另一条显式三字段 point‑read 用共享 `Outcome / Custody / Timing` 状态卡展示一份已验证的 historical Replay rejection；页面没有 historical directory 或 table，该 historical rejection point‑read 没有图表，图表只出现在已挂载的 `BacktestRunReport` 内 | Open readback、Open result、Open historical、Refresh。Run/Resolve/Create successor/edit/compare/download/dismiss 均无 browser slot | `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 覆盖经 consolidated read API 的精确 Replay V2 request、canonical result，以及精确 pre‑V2 `REJECTED_NO_WRITE / INVALID_REPLAY_EVIDENCE` quarantine readback。historical custody 绝不 fallback 到或满足 V2 selector。独立认证的 HTTP/MCP request‑custody 路径为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`；已归档的 Windmill S3 execution 与 native replay execution 继续 unavailable。所有 summary 均只读，页面不能虚构 return，也不能暗示 native execution 或 cutover parity |
-| Compare `/backtest/compare`                            | Selected‑run count 与 comparable cut；`P=RunPicker`；`Q=ComparisonBasis`；`T=RunComparePanel`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Add run、Remove run、Swap baseline、Open run detail                                                                                | Read‑only；比较 2‑4 个 exact compatible run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Diagnostics `/backtest/diagnostics`                    | Diagnostic category 计数；`P=DiagnosticFilter`；`Q=ModelIdentityList`；`T=DiagnosticTable + bounded summary`                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Filter、Copy identity、Open source receipt                                                                                         | 仅允许的 category；无 protected Qualification data                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Intake `/qualification`                                | Submitted/pending/evaluating/unknown/not‑admitted/semantic‑conflict/unavailable 计数；`P=QualificationIntakeTable`；`Q=EvidenceCompleteness + QualificationIntakeConflictPanel`；`T=IntakeReceiptTimeline`                                                                                                                                                                                                                                                                                                                                                        | Submit intake、Refresh、Resolve exact same meaning、Open original receipt、Prepare admitted successor                              | Pending/evaluating 需要独立准入的 intake projection，且绝不意味着 public terminal。Exact replay 可以 resolve；同 identity 下任意 changed valid/invalid meaning 都是 `RequestSemanticConflict`。`OBSERVED_CANDIDATE_NOT_CURRENT`；尚无真实 Product Edge consumer                                                                                                                                                                                                                                                            |
-| Protected feedback `/qualification/protected‑feedback` | Current/genesis‑empty/unknown/corrupt 计数；`P=QualificationFrontierTable`；`Q=QualificationFrontierReceiptPanel + IndependenceBasisLink`；`T=OpaqueFrontierTimeline`                                                                                                                                                                                                                                                                                                                                                                                             | Refresh、按 exact basis Resolve current、Open R&D basis receipt、Copy opaque frontier reference                                    | `RESTORED_REVALIDATION_PENDING / NOT_ADMITTED`；exhaustive canonical Owner history verification 与 direct `1/1/1 + receipt` readback 已成功，但重建的原 frontier 在 current cut stale/`UNAVAILABLE`，且 consumer revalidation 尚未运行。页面渲染 unavailable、隐藏 Copy frontier，只暴露 read‑only incident evidence。Identity/cut/digest/state 保持可见；protected content、candidate Intake、protected attempt、eligibility、holdout 与 cross‑family ancestry 仍为 `NOT_ADMITTED`                                        |
-| Outcomes `/qualification/outcomes`                     | 仅 Qualified/ineligible/expired/revoked public‑terminal 计数；`P=PublicOutcomeTable`；`Q=QualificationPublicOutcome`；`T=PublicFrontierTimeline`                                                                                                                                                                                                                                                                                                                                                                                                                  | Refresh、Open public outcome、Copy opaque reference                                                                                | `Admitted/Evaluating` 不产生 row、terminal count、receipt、color、notification 或 action。仅 public redaction；protected field 没有 slot。`OBSERVED_CANDIDATE_NOT_CURRENT`                                                                                                                                                                                                                                                                                                                                                 |
-| Eligibility `/qualification/eligibility`               | Current/pending/expired/conflict 计数；`P=EligibilityIntervalTable`；`Q=HeadFrontierCard`；`T=TransitionTimeline`                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Refresh、Resolve current head                                                                                                      | 仅 foundation；空或 dual‑current interval 为 unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Discovery `/scanner`                                   | `P=ObservationTable`；`Q=InputCoverage`；`T=ObservationTimeline`；展示工件、评价时间、完成/排除/未完成标的及信号                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Submit read‑only query、Read same job                                                                                              | R&D 按需发现；没有计划、due‑slot 或部署提案；完整业务与路由实现准入仍待验收                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-
-#### Strategy、Runtime 与 Portfolio
-
-| Tab 与 route                         | 固定 `S / P / Q / T` 内容                                                                                                                                           | Button 顺序                                                                                                                          | 默认证据状态                                                                                                                                                                                                                                                                                       |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Registry `/strategy`                 | Registered/current/superseded/unavailable 计数；`P=StrategyRegistryTable`；`Q=GenerationIdentityCard`；`T=GenerationLineage`                                        | Open generation、Copy identity                                                                                                       | 仅 static Governance foundation                                                                                                                                                                                                                                                                    |
-| Lifecycle `/strategy/lifecycle`      | Pending/accepted/rejected‑no‑write/unknown 计数；`P=LifecycleRequestTable`；`Q=GovernanceEligibilityAdmissionPanel + GovernanceDecisionCard`；`T=ContenderFrontier` | Eligibility valid 时：Submit lifecycle request、Resolve same request、Create successor；否则 Open Eligibility evidence、Copy locator | `CURRENT/PARTIAL · STATIC_CONTRACT_CLOSED_NOT_RUNTIME`：当前契约使 invalid/unavailable Eligibility 成为 pre‑admission 零写入状态。Receipt‑backed `REJECTED_NO_WRITE` 是独立的已准入 Governance decision；positive Runtime application 与 product consumer 仍为 `NOT_ADMITTED`                      |
-| Allocations `/strategy/allocations`  | Allocated/unallocated/capacity‑blocked/unavailable 计数；`P=AllocationTable`；`Q=CapacityEvidence`；`T=AllocationHistory`                                           | Open allocation、Prepare allocation request                                                                                          | Dashboard 没有 allocation writer                                                                                                                                                                                                                                                                   |
-| Instances `/runtime`                 | 一个固定 not‑ready summary；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                       | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `CURRENT/PARTIAL · FOUNDATION_NOT_READY`：显示 `NotReady` 与精确四项 dependency。没有 Strategy Instance row、readiness receipt、incident、Resolve、Apply 或绿色状态；未来 Owner‑backed `RuntimeReadinessCard` 缺席                                                                                 |
-| Generations `/runtime/generations`   | 不显示 generation 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                           | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 generation 或 application surface。即使 `NOT_APPLIED / NO_APPLICATION_RECEIPT` 也要等待单独准入的 Governance‑to‑Runtime consumer；未来 generation geometry、`APPLIED`、Resolve 与 Apply 都缺席                                                                      |
-| Checkpoints `/runtime/checkpoints`   | 不显示 checkpoint 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                           | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 checkpoint 或 restore surface。未来 `CheckpointTable`、`RestoreValidationCard`、`CheckpointHistory`、Open checkpoint 与 Validate restore evidence 都缺席                                                                                                            |
-| Incidents `/runtime/incidents`       | 不显示 incident 计数；`P=EmptyState`；`Q=RuntimeFoundationNotReadyCard`；`T=EmptyState`                                                                             | Refresh foundation、Open revalidation dependency、Copy foundation locator                                                            | `NOT_ADMITTED`：当前契约不暴露 incident 或 Recovery surface。未来 `RuntimeIncidentTable`、`IncidentEvidence`、`IncidentTimeline`、Open incident 与 Open Recovery case 都缺席；missing heartbeat 不能制造 incident                                                                                  |
-| Performance `/portfolio`             | 不显示 performance summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                        | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：只显示不可用状态与 source 要求；exact request/envelope contract 保留在技术详情中。未来 `PerformanceChart`、`AccountAndFactCut`、`PerformancePeriods`、range control 与 source‑fact action 都缺席；legacy `PortfolioSnapshot` 不是 Owner fact |
-| Exposure `/portfolio/exposure`       | 不显示 exposure summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                           | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：未来 `ExposureMatrix`、`CoherentEvidenceCut`、`ExposureTable`、scope filter 与 fact action 都缺席；shared Cache position 或 stale flag 不能填充该 card                                                                                       |
-| Capacity `/portfolio/capacity`       | 不显示 capacity summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                           | 查看 Portfolio 技术详情                                                                                                              | `CURRENT/PARTIAL · SOURCE_OWNER_RESOLVE_UNAVAILABLE`：request 绑定 scope/mode/policy/common cut，但不存在 positive Gross Capacity projection。未来 `CapacityScopeCard`、`GrossCapacityView`、`CapacitySourceCompleteness`、`CapacityViewHistory`、refresh/source action、usage 与 headroom 都缺席  |
-| Attribution `/portfolio/attribution` | 不显示 attribution summary；`P=EmptyState`；`Q=PortfolioViewUnavailableCard`；`T=EmptyState`                                                                        | 查看 Portfolio 技术详情                                                                                                              | `NOT_ADMITTED · NO_ATTRIBUTION_SURFACE`：当前契约不暴露 attribution projection identity。未来 `AttributionChart`、`AttributionEvidenceCut`、`AttributionTable`、period control 与 evidence action 都缺席；不推断 Alpha、Qualification 或 Risk usage                                                |
-
-#### Risk、Execution 与 Data
-
-| Tab 与 route                               | 固定 `S / P / Q / T` 内容                                                                                                                               | Button 顺序                                                         | 默认证据状态                                                                                                                                                                                                                                                                            |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Decisions `/risk`                          | Allow/reject/decrease‑only/unavailable 计数；`P=RiskDecisionTable`；`Q=DecisionEvidenceAndLineage`；`T=RiskDecisionTimeline`                            | Open decision、Resolve same intent、Open source facts               | `NOT_ADMITTED`：legacy check/forward/denial event 不进入此页；无 manual override                                                                                                                                                                                                        |
-| Reservations `/risk/reservations`          | Available/withdrawn/consumed/unknown‑effect/no‑effect/settled 计数；`P=ReservationTable`；`Q=ReservationLiabilityCard`；`T=ReservationHistory`          | Open reservation、Open claim result、Open linked effect             | Standalone Risk core 为 `MECHANISM_REJECTED / NOT_ADMITTED`；只有包含 Risk‑owned one‑use fact/store 的完整跨 Owner 输入链才能重新规划。Dashboard 不释放 liability                                                                                                                       |
-| Claims & Admission `/risk/claims`          | Consumed/rejected/admitted‑once/suppressed/conflict/unavailable 计数；`P=ClaimAndAdmissionTable`；`Q=AggregateFrontierCard`；`T=ClaimAdmissionTimeline` | Open claim、Open prepared attempt、Open adapter binding、Open fence | Local‑core leaf 为 `MECHANISM_REJECTED / NOT_ADMITTED`；claim、admission 与 fence arbitration 必须在同一个真实消费者纵切中共用一个 Risk transaction frontier                                                                                                                            |
-| Fences `/risk/fences`                      | Active/pending/cleared/unavailable 计数；`P=FenceTable`；`Q=FenceSetAndFrontier`；`T=FenceTimeline`                                                     | Open fence、Open Recovery case、Open source facts                   | Risk‑owned fence fact 存在前 `NOT_ADMITTED`；active fence 绝不隐藏或 dismiss                                                                                                                                                                                                            |
-| Attempts `/execution`                      | Prepared/invoked/unknown/rejected 计数；`P=EffectAttemptTable`；`Q=EffectAuthorityCard`；`T=AttemptJournal`                                             | Open attempt、Resolve same effect                                   | 默认只读；无 explicit effect authority 时没有 invocation button                                                                                                                                                                                                                         |
-| Orders `/execution/orders`                 | Open/partial/filled/rejected 计数；`P=OrderTable`；`Q=AuthorizedCommandCard`；`T=OrderStateTimeline`                                                    | Open order、Open command、Resolve venue readback                    | UI 不创建或修改 order                                                                                                                                                                                                                                                                   |
-| Fills `/execution/fills`                   | Fill/fee/slippage/unavailable 摘要；`P=FillTable`；`Q=FillEvidence`；`T=FillTimeline`                                                                   | Filter、Open fill receipt                                           | Read‑only                                                                                                                                                                                                                                                                               |
-| Reconciliation `/execution/reconciliation` | Matched/missing/conflicting/unknown 计数；`P=ReconciliationTable`；`Q=ReconciliationPanel`；`T=VenueReadbackTimeline`                                   | Refresh readback、Resolve same effect、Open Recovery case           | Unknown 持久显示                                                                                                                                                                                                                                                                        |
-| Recovery `/execution/recovery`             | Open/contained/reconciling/closed 计数；`P=RecoveryCaseTable`；`Q=RecoveryEvidence`；`T=RecoveryTimeline`                                               | Open case、Run admitted read‑only reconciliation step               | UI 不推断 effect retry 或 closure                                                                                                                                                                                                                                                       |
-| Sources `/data`                            | 不显示 binding 计数；`P=EmptyState`；`Q=MarketDataOwnerFoundationCard`；`T=EmptyState`                                                                  | Open foundation evidence、Copy foundation locator                   | `CURRENT/PARTIAL · NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER`：PR #331 准入 sealed Source Binding readback schema，但未准入 Dashboard/H0 resolver composition。未来 `DataSourceTable`、`SourceBindingCard`、`SourceCutHistory`、positive admitted badge 与 resolver/mutation action 都缺席 |
-| PIT Catalog `/data/pit‑catalog`            | 不显示 snapshot 计数；`P=EmptyState`；`Q=MarketDataOwnerFoundationCard`；`T=EmptyState`                                                                 | Open foundation evidence、Copy foundation locator                   | `CURRENT/PARTIAL · NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER`：PR #331 准入 sealed PIT Snapshot readback schema，但未准入 Dashboard/H0 resolver composition。未来 `PITCatalogTable`、`SnapshotIdentityCard`、`CorrectionTimeline`、available badge 与 resolver/mutation action 都缺席      |
-| Quality `/data/quality`                    | Complete/partial/conflict/quarantined 计数；`P=QualityRuleMatrix`；`Q=SelectedQualityFinding`；`T=QualityTimeline`                                      | Open finding、Open source evidence                                  | 不自动 acceptance                                                                                                                                                                                                                                                                       |
-| Freshness `/data/freshness`                | 按 source 的 current/stale/expired/unavailable 计数；`P=FreshnessMatrix`；`Q=TimeEvidenceCard`；`T=LagHistory`                                          | Refresh、Open frontier                                              | 禁止一个 global freshness maximum                                                                                                                                                                                                                                                       |
-
-#### Operations 与 Settings
-
-| Tab 与 route                                                     | 固定 `S / P / Q / T` 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Button 顺序                                                                                                                | 默认证据状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runs `/operations`                                               | 四张固定 status card 按 selected Runs/Owner reads kind 限定 scope：queued、running、unknown、completed/failed；`T=RunTable`，含 status/date/operation/trigger/principal/duration/Owner outcome；row selection 后 `D=RunSummaryCard`；省略 `P/Q`                                                                                                                                                                                                                                                      | Refresh、Filter、Open run、Resolve Owner outcome、Delete disposable completed cache                                        | 第一方 RunStore 运维投影；当前路由准入与精确骨架决定可用性，不修改 Owner 或业务事实                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Run Detail `/operations/runs/:runId`                             | 面向业务的结果与时间 summary；`P=Run inputs + worker assignment + OperationalCancellationReceiptCard` 并绑定 `:runId`；`Q=Related source result`；`T=Logs and evidence`，后接固定嵌套 `Logs/Metrics/Traces/Assets` tabs。主路径只显示注册后的业务 operation 名称、source result、run 状态、时间、请求来源、工作类型和相关结果动作；精确 operation/run ID、channel、transition、terminal code、dispatch digest/reason、source‑owner identity 与 protected‑field reason 全部进入共享 info disclosure。 | Copy reference、Refresh、条件成立时 Cancel queued dependency、Check source result、View source result、Download result/log | 使用上方精确固定 skeleton；Cancel 只在 queued、unclaimed、zero‑domain‑effect dependency run 中占据第三个按钮位，其余状态该 slot 缺席。CAS 中以 disabled `Cancelling…` 显示；terminal transition 后 action/panel 缺席，P 保留 receipt 或 unavailable readback。Worker assignment 只描述该精确历史 run，不能断言当前 service health。展示文案不得改变 typed result、transition、Owner locator、action envelope 或 effect boundary。无 batch cancel 或通用 rerun/edit/share。                                                                                                 |
-| Workers `/operations/workers` 与 `/operations/workers/:workerId` | 使用上方 Workers 精确只读 skeleton：Capacity/Work handled summary；P/Q 缺席；T 列为 Service、Availability、Active / processed、Recent activity、Supports；D 按 identity 绑定四簇事实                                                                                                                                                                                                                                                                                                                 | Refresh、页内选择 service、在共享 sheet 预览 recent Run、Open full run details、Back to service/services                   | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`；仅 registration/lease/claim observation；list/detail 独立 fail closed；精确 Run GET preview 保持有界且不增加 Worker 或 Run effect；无 Windmill 管理、未绑定 run 的 readiness、Owner acceptance 或切换                                                                                                                                                                                                                                                                                                          |
-| Service Logs `/operations/service‑logs`                          | 使用上方精确 skeleton：severity/instance summary、canonical filter cut、采用业务 source 名称的 `P=ServiceInstanceList`、把技术值放入 info 的 identity‑bound `Q=ServiceInstanceCard`、采用 Time/Level/Activity/Source/Related 扫读路径并组合 `BoundedLogViewport` 的 `T=ServiceLogPanel`，以及明确 complete/partial/empty/filtered‑empty/unavailable 状态                                                                                                                                             | Refresh、Toggle auto‑refresh、Download bounded logs                                                                        | `IMPLEMENTATION_ADMITTED · FIRST_PARTY_RUN_STORE_GET_ONLY`；只以有界 operational read 替代 Windmill 真实使用。一个 repeatable‑read PostgreSQL cut，严格 echo/digest/cursor 绑定；不编造 host/message，无 administration、Owner fact、effect route 或 cutover                                                                                                                                                                                                                                                                                                               |
-| Audit `/operations/audit`                                        | Execute/update/create/delete/success/failure 计数；`P=OperationAuditTable`；`Q=AuditCorrelationCard + InvocationAdmissionReceipt + InvocationClaimReceipt + ProviderInvocationStateCard`，顺序固定；`T=Timeline` 显示 canonical operation events                                                                                                                                                                                                                                                     | Filter、Open correlation、Copy audit locator、Copy provider claim                                                          | 运维审计是 append‑only control‑plane evidence，不是 Owner business truth。Product Edge 单独显示 invocation admission、claim disposition、`CLAIMED / INVOCATION_STARTED`、start disposition 与 state digest。`OUTCOME_UNKNOWN` 是持久 manual‑reconciliation stop；historical request admission、缺失 invocation admission 或 claim resolve 绝不意味着新 effect 或 provider retry                                                                                                                                                                                            |
-| Event Rail `/operations/event‑rail`                              | Ingested/conflict/quarantined/rebuilding 计数；`P=EventRailTable`；`Q=EnvelopeEvidence`；`T=RebuildTimeline`                                                                                                                                                                                                                                                                                                                                                                                         | Filter、Open event、Copy locator                                                                                           | 真实 adapter consumption 前仅 static Observability foundation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Telemetry `/operations/telemetry`                                | Available/stale/partial/rebuilding/unavailable/quarantined 计数；`P=TelemetryMatrix`；`Q=SourceFrontierCard`；`T=TelemetryTimeline`                                                                                                                                                                                                                                                                                                                                                                  | Refresh、Open source                                                                                                       | PR #327 source projection 是 `CURRENT/PARTIAL`；per‑source frontier、freshness、completeness、rebuild state、quarantine 与 opaque checkpoint 使用固定 read‑only geometry。Owner 与 telemetry adapter unavailable，telemetry visibility 固定为 `Unavailable`，任何 empty、raw、stale、replayed 或 self‑asserted signal 都不能产生 `Available`                                                                                                                                                                                                                               |
-| Alerts `/operations/alerts`                                      | Critical/warning/info/unread 计数；`P=AlertTable`；`Q=AlertDetail`；`T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                                              | Open alert、Mark presentation read、Open Owner evidence                                                                    | Read acknowledgement 不是业务 acknowledgement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Data Sources `/settings`                                         | Configured/healthy/unavailable/secret‑missing 计数；`P=DataSourceConfigList`；`Q=OpaqueConnectionRefForm`；`T=ValidationHistory`                                                                                                                                                                                                                                                                                                                                                                     | Test read‑only connection、Save opaque reference                                                                           | Page state 不展示或存储 secret value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Agents `/settings/agents`                                        | 外部 Agent 接入/授权引用与可读取的宿主用量；不可读取的消耗保持未知                                                                                                                                                                                                                                                                                                                                                                                                                                   | Refresh、Open access evidence                                                                                              | 仅蓝图；无 provider test、模型密钥、Save profile、Agent 调度或宿主远程控制                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Notifications `/settings/notifications`                          | Channel/enabled/failed/unavailable 计数；`P=NotificationPreferenceForm`；`Q=ChannelStatus`；`T=DeliveryHistory`                                                                                                                                                                                                                                                                                                                                                                                      | Send local test、Save preferences                                                                                          | 不 acknowledge Owner outcome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Access `/settings/access`                                        | Principal/session/token/revoked 计数，以及 binding `ACTIVE/SUPERSEDED/zero‑active` 与 authorization available/expired/revoked/unavailable 计数；`P=LocalPrincipalCard`；`Q=AuthorizationLineagePanel`，内部固定 `Current authority / Admission snapshot` tabs，并分开显示 `Operator Authorization / Product Edge readiness` rows；`T=AuthorizationSuccessorReadiness + CapabilityManifest + CredentialAudit`                                                                                         | Re‑authenticate local session、Issue narrow transport token、Revoke token、Copy once                                       | Transport credential 控件绝不能签发、续期、撤销或 chain‑walk Operator Authorization。Historical expiry 缺少 immediate equivalent successor，或 `successor_distance>1` 时，`Current authority` 显示 unavailable，并列出 prior/current identity、generation、distance 与准确 stop；immutable snapshot 保留，且没有 renewal/replacement selector。只有 `Current authority` 驱动 action state。两个 tab 都显示准确 binding/head、issuer/audience/scope、expiry/revocation frontier、manifest digest、source cut 与 stop predicate；secret/token value 仍只显示一次且不记录日志 |
-
-`/settings/access` 使用以下固定 read/control 分区：
-
-```text
-H  Settings / Access                                                   [Refresh]
-S  Session | Current authority | Successor readiness | Revoked
-P  Local principal/session: identity, authenticated/expired/unavailable, last re-auth
-Q  [Current authority] [Admission snapshot]
-   Operator Authorization: identity, issuer, audience, scope, sequence, validity, state, cut
-   Product Edge readiness: binding/head, manifest digest, outbox, state, cut, stop predicate
-R  Successor readiness: prior identity/scope/sequence -> Owner operation availability ->
-   admission/current generation -> successor distance 0|1 -> predecessor locator ->
-   successor receipt/identity or DIRECT_SUCCESSOR_REQUIRED / exact unavailable reason;
-   no editable value, selector, or chain-head promotion
-T  [Authorization successor] [Capability manifest] [Credential audit]
-B  [Re-authenticate] [Issue narrow transport token] [Revoke token] [Copy once]
-```
-
-Successor issuance unavailable 时，`S` 保留四等分 slot，`R` 使用固定 amber unavailable geometry，`B` 只包含
-transport/session control。任何 viewport 都不出现 Issue/Renew authorization、Select replacement、Force active
-或 pasted-receipt control。
-
-### Overlay、button 与状态渲染合同
-
-- `OwnerReceiptDrawer` 与 `RunDetailDrawer` 使用固定 `D` 顺序。Receipt 是唯一终态证据时不能藏在 accordion。
-- `GlobalSearchDialog` 包含 query input、type chip、result group、identity/source-cut preview，且只有 `Open`
-  或 `Prepare request` action；不能执行 domain mutation。
-- `NotificationDrawer` 按 incident、unknown、stale、fence 与 informational delivery 分组。`Mark read` 只改变
-  presentation state。
-- Primary button 提交一个 admitted semantic operation；secondary 解析同一 identity；outline/quiet 创建
-  Owner-admitted successor；ghost 只导航、filter、refresh read 或 copy。
-- 每个修改型 button 都由 `ActionAdmissionGate` 包裹，branch tag 只有 `domain` 与 `operational` 两个 variant。Domain branch
-  要求当前 `NextLegalActionBar` operation 与 `admitted` envelope 在 principal、scope、Owner、operation、schema、
-  exact effect set、binding head、authorization 与 manifest digest 上完全一致。S2 的 `Check & Run` 是 composite
-  domain control：第一段只执行 read‑only preflight，只有内部 dispatch transition 才能进入 `ADMITTING`。
-  Operational branch 只适用于 `dependency.cancel.queued` 这类已注册 disposable control；必须持有绑定
-  principal、capability、精确 operational identity、dispatcher transition version、zero domain effect、
-  claim-absence cut 与短 expiry 的 current `OperationalActionEnvelope`。Backend 在自己的 transition lock 下重读
-  envelope；它绝不替代 Owner envelope 或 `NextLegalActionBar`。Expiry、revocation、identity/version/head change、
-  zero/dual `ACTIVE` binding、manifest mismatch、new claim、resolver unavailable 或 preflight failure 都必须
-  disable 对应 branch，且不能保留之前的绿色状态。
-- Disabled business button 只在 prerequisite 可本地说明时保留可见，help text 必须命名缺少的 receipt、
-  capability、freshness、permission 或 identity。未准入 capability 使用 `NotAdmittedNotice`，而不是永久 disabled
-  的假 control。
-- Skeleton 保持最终 geometry：60/35% 宽 text line、四个 summary block、`P/Q/T` body、status badge 与 drawer
-  row。无真实 job 时不能出现随机 value、success color 或 animated progress。
-- 状态顺序和颜色固定：unavailable/neutral、pending/amber、success/green、rejected 或 incident/red、
-  protected/purple、conflict/quarantine red 且有明确 label。每种 color meaning 都同时用 text 与 icon 重复。
-
-## 可复用组件目录
-
-高层只能依赖低层。Page 不得重定义 color、spacing、status semantic 或 action rule。
-
-### Foundation primitive
-
-| 组件                                                                              | 合同                                                              |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `Text`, `Heading`, `Numeric`, `Code`, `Link`                                      | semantic typography；identity/数字使用 mono tabular numeral       |
-| `Icon`                                                                            | 单一 library，默认 1.5 px stroke；交互时有 accessible label       |
-| `Button`, `IconButton`, `ButtonGroup`                                             | primary、secondary、outline、ghost、destructive；loading/disabled |
-| `Input`, `Textarea`, `Select`, `Combobox`, `Checkbox`, `Switch`                   | label、help、error、disabled、readonly、pending                   |
-| `Tabs`, `SegmentedControl`, `Breadcrumb`, `Pagination`                            | resource identity 改变时 route‑backed                             |
-| `Badge`, `StatusDot`, `IdentityChip`, `ModeChip`                                  | text 加 icon/shape；禁止 color‑only                               |
-| `Tooltip`, `Popover`, `Menu`, `Dialog`, `Drawer`                                  | bounded layer 与 keyboard dismissal                               |
-| `Skeleton`, `Spinner`, `Progress`, `EmptyState`, `ErrorState`, `UnavailableState` | loading 与 unknown/empty/unavailable 分离                         |
-| `Separator`, `ScrollArea`, `VisuallyHidden`, `CopyButton`                         | 共享结构与 accessibility                                          |
-
-### Layout 与 navigation component
-
-| 组件                                                                        | 合同                                                                                      |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `DashboardShell`                                                            | full‑screen rail、top bar、viewport、overlay root                                         |
-| `UserCapsule`                                                               | 本地 operator 与 installation menu；无业务权威                                            |
-| `IconRail`, `IconNavItem`                                                   | 稳定顺序、tooltip、active/focus/disabled/attention                                        |
-| `TopBar`, `StatusTape`, `ModuleTabs`, `GlobalCommand`, `NotificationButton` | top menu 四区                                                                             |
-| `PageHeader`, `ScopeBar`, `AuthorityStamp`, `FreshnessStamp`                | Owner/evidence context                                                                    |
-| `RouteGrid`, `RouteSlot`                                                    | page‑level 12/6/1‑column contract、固定 slot span/order、无 caller‑defined column count   |
-| `BentoGrid`, `BentoItem`, `SplitPane`, `DetailDrawer`                       | panel 内部 container‑responsive 1/2/3/4/8‑column 组合、180 px minimum auto‑row、16 px gap |
-
-### Data display component
-
-| 组件                                                                         | 合同                                                                                                                                                                                   |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Card`, `CardHeader`, `CardBody`, `CardFooter`                               | 白色、12 px radius、可选 expand、禁用 glass                                                                                                                                            |
-| `PanelFrame`, `PanelFrameHeader`, `PanelFrameBody`, `PanelSection`           | 灰 frame、白 body、scroll/flex mode                                                                                                                                                    |
-| `StatGrid`, `StatItem`, `KVRow`, `DataList`, `DataTable`                     | unit、source cut、empty/unavailable state                                                                                                                                              |
-| `DataTableSurface`, `DataWorkspaceTable`, `ArtifactDirectory`                | TanStack headless state 配合共享 shadcn‑style table atom；单行 toolbar、sticky plain header、克制 separator、有界 Owner‑verified row，以及 fail‑closed empty/partial/unavailable state |
-| `ChartFrame`, `ChartLegend`, `ChartTooltip`, `TimeRangeControl`              | axis、unit、locale、disclosure、no‑data                                                                                                                                                |
-| `Timeline`, `EventRow`, `BoundedLogViewport`, `DiffView`, `ComparisonMatrix` | virtualization、stable key、redaction、truncation 与 retention disclosure                                                                                                              |
-| `FilterBar`, `FilterDrawer`, `DateGroup`, `TableToolbar`, `TableFooter`      | route‑backed filter、稳定 column/order、filtered‑empty、row count 与 pagination；移动端仅改变容器                                                                                      |
-| `StateBanner`, `Callout`, `AlertRow`                                         | success/pending/unknown/rejected/unavailable/protected/incident                                                                                                                        |
-
-### Domain component
-
-| 组件                                                                                                                     | 合同                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OwnerReceiptCard`, `OwnerViewCard`, `ReceiptLink`                                                                       | Owner identity、disposition、cut、freshness、locator                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `NextLegalActionBar`                                                                                                     | 只显示 current direct‑read projection 中 Owner‑admitted action；durable historical success 在 stale/unavailable/archived 状态下绝不保留 action；否则显示 stop predicate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `ActionAdmissionGate`, `AuthorizationLineagePanel`                                                                       | discriminated input 精确为 `domain / operational`，绝不能同时出现。`domain` 把 `NextLegalActionBar` 与唯一 `ACTIVE` shell binding/history head、Operator Authorization、Time/revocation、Owner freshness、Product Edge readiness、exact effect set 与 manifest 交叉绑定。`operational` 只接受已注册 disposable capability 加 current `OperationalActionEnvelope`，绑定 principal、run、dispatcher transition version、空 domain‑effect digest、no‑claim cut 与 expiry；Dispatcher 在 lock 下重读，且它不能填充 `AuthorizationLineagePanel` 或替代 Owner authority。两者共用 `IDLE / PREFLIGHTING / ADMITTING / ADMITTED / REVALIDATION_REQUIRED / STALE / UNAVAILABLE`；dispatch 后 unknown 转到 branch‑specific same‑identity readback。Domain 显示 `Current authority` 再显示 `Admission snapshot`；operational 显示 envelope/transition/no‑claim evidence。Historical snapshot 不参与任一 branch，两个组件都不能构造或修复 authority |
-| `AuthorizationSuccessorReadiness`                                                                                        | 只读显示 prior authorization identity/scope/sequence、admission/current generation、`successor_distance=0\|1`、terminal expiry/revocation state、canonical direct‑successor operation availability、存在时的 successor receipt/identity，以及准确 missing/invalid stop。FirstMutation 固定增加 `Original authorization at final cut`、`Immediate successor at final cut` 两行；original 必须是 `CurrentAtLock`，successor 只是额外 current requirement。Distance 大于一显示 `DIRECT_SUCCESSOR_REQUIRED`；original non‑current 显示 `ORIGINAL_AUTHORIZATION_NOT_CURRENT`。它绝不遍历 chain、让 successor 替代 original authority、构造 scope、选择 replacement、签名、续期、撤销或调用 transport‑token control                                                                                                                                                                                                                           |
-| `DownstreamAdmissionHandoffPanel`                                                                                        | 固定显示 Product Edge admission receipt/identity/cut、admission‑outbox locator、downstream‑resolver version/availability、target R&D Owner、R&D receipt/custody state 与 stop predicate。它区分 `admission committed / downstream unavailable` 和输入拒绝，把整体状态渲染为 `SUBMITTED_OR_UNKNOWN`，禁用 S2，只暴露 Copy admission、Open operational run 与 Resolve same identity；绝不提供 successor、retry、权限修复或推断出的 R&D receipt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `ArtifactRequestAdmissionPanel`                                                                                          | Read only admitted custody evidence; unavailable/unknown remains nonpositive. It exposes no Artifact submission, preflight, provider or build control                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `InvocationAdmissionReceipt`                                                                                             | 第一次 claim 前创建的 sealed Product Edge receipt：identity/digest、original request‑admission lineage、build request 与 attempt、直接解析的 current authorization identity/frontier 与 Time Evidence、policy‑equivalent `ACTIVE` binding/head、准确 manifest digest、final locked write cut 与 commit time。Missing、expired、cross‑cut、malformed 或 mismatch custody 都是 unavailable，并抑制 claim/start/Run。它在 Dashboard 中只读，不能从 claim、admission snapshot、session 或 credential 重建                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `InvocationClaimReceipt`                                                                                                 | Product Edge claim 加准确 public wire field `invocation_admission_receipt_identity` 与 `invocation_admission_receipt_digest`、historical request‑admission lineage、attempt identity、committed time、claim digest、`CLAIMED_NEW / ALREADY_CLAIMED / unavailable`、current `CLAIMED / INVOCATION_STARTED` 与 Owner‑projected next action。Operation adapter/projector 共享一个按 resolution 分支、由 Rust serialization bytes 直接测试的 parser；claim/non‑success family key 必须 absent，绝不能合成 `null`。Missing/extra/tampered field 让 A0/A1 保持 unavailable。只有恢复的 `CLAIMED + RUN_BOUNDED_EXECUTION_AGENT` 与 sealed receipt 直接一致时，才可进入 start                                                                                                                                                                                                                                                                   |
-| `ArtifactOutcomeProjectionGate`                                                                                          | 一个 attempt 上的 read‑only 优先级 gate：canonical sealed R&D `SUCCESS`、canonical sealed R&D `FAILED_NO_ARTIFACT`，最后才是不存在 R&D terminal 时的 Product Edge `INVOCATION_STARTED`。它只渲染一个 downstream panel 并记录两个 source cut；conflict、missing custody 或 ambiguous dual terminal 显示 unavailable，不能按 first‑match 渲染 success                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `ProviderInvocationStateCard`                                                                                            | Read only bounded invocation status and original identity; unknown state never enables a provider start, Resolve mutation, rerun or successor. Canonical claim/start semantics belong to Product Edge                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `LegacyTerminalQuarantinePanel`                                                                                          | Owner discriminant、original `SUCCESS / FAILED_NO_ARTIFACT / REJECTED_NO_WRITE / OUTCOME_UNKNOWN` disposition、request/attempt identity、verified historical terminal receipt identity、optional sparse Intent field、legacy custody generation、observed time 与 quarantine reason 的 strict legacy‑only projection。只依次暴露 Resolve same attempt、Open/Copy historical receipt；family/provider/actions 保持 absent，且没有 current Research View、Artifact promotion、successor、TrialFamily repair 或 dismiss action。Missing/malformed projection 保留同一固定 geometry 并显示 unavailable，绝不折叠成 generic unknown                                                                                                                                                                                                                                                                                                          |
-| `SameIdentityResolvePanel`                                                                                               | immutable request 或 request+attempt tuple、previous Owner receipt fingerprint、replacement operational‑run link、resolved Owner receipt/view fingerprint 与精确 equality/conflict/unavailable result；它是 unknown/response‑loss/restart/cache‑loss 的唯一 recovery，绝不派发 naked retry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `ResearchRequestComposer`                                                                                                | 有来源可证伪 typed request；绝不直接创建 Intent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `S1StageCustodyPanel`                                                                                                    | 只读 `SEALED_BASIS_PENDING_QUALIFICATION` geometry，绑定准确 request 与 original admission、sealed 完整 typed request meaning fingerprint、basis receipt/identity、basis head/outbox、commit cut、缺失的 Qualification/terminal Research receipt 及 next action。仅在 canonical basis‑stage verification 后渲染。Same‑identity Resolve 必须消费 sealed meaning 并推进 Historical completion；terminal‑only lookup miss 让 panel 保持 unavailable。Submit/successor 缺席，duplicate basis/head/outbox 为 unavailable，changed request/admission 为 conflict                                                                                                                                                                                                                                                                                                                                                                              |
-| `S1TerminalCustodyPanel`                                                                                                 | 固定 geometry 显示完整 verified Research receipt/Intent 与 TrialFamily root/member/Census，并把 terminal custody 和 linked‑view currentness 分成两行。Expiry 只把后者变为 `STALE`，移除 Submit/successor/S2/review action，保留 Resolve/Open/Copy evidence；绝不隐藏 terminal receipt/family 或把它重新标为 `SUBMITTED_OR_UNKNOWN`。Terminal part 缺失或 cross‑binding 失败时保持同一 geometry unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `ResearchViewCard`                                                                                                       | immutable historical Research fact，加独立 linked‑Artifact availability、Owner‑projected read‑time availability/phase/action、source cut、projection time 与 `valid_through`；渲染 current `ARTIFACT_AVAILABLE / AVAILABLE / REVIEW_ARTIFACT`、保守 cached `REVALIDATION_REQUIRED`，或 Owner‑returned `STALE / ARTIFACT_AVAILABLE / RESOLVE_SAME_REQUEST_IDENTITY`，且不抹除 historical Artifact availability。`Check & Run` 进入 read‑only `PREFLIGHTING`；后两种 form 没有 positive next‑action slot，browser time 自身绝不能声称 `STALE`                                                                                                                                                                                                                                                                                                                                                                                             |
-| `TrialFamilyPolicyComposer`                                                                                              | No browser composer; frozen policy is read through the admitted Research view. Authoring, spend cap and census belong to R&D MCP; no editable protected feedback or authority fields                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `TrialFamilyAuthorityResolutionPanel`                                                                                    | 固定三条只读 row：R&D basis receipt/basis/cut、Qualification frontier receipt/frontier/cut/state（如 `GENESIS_EMPTY`）、R&D resolved lineage/predecessor/census cut；每条包含 Owner、operation、locator、availability 与 stop reason。Positive row 只接受 sealed Owner output，绝不能接收 browser‑deserialized TrialFamily graph。Missing/corrupt/unknown authority 只暴露 same‑identity Resolve，并产生零 S1 family 写入                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `QualificationFrontierReceiptPanel`, `IndependenceBasisLink`                                                             | sealed Qualification receipt identity、opaque frontier identity/digest/state/cut、source R&D basis receipt locator、exact resolution operation，且没有 protected payload slot；只有穷尽 canonical verification 证明不存在历史 projection/outbox 后，才能显示 `GENESIS_EMPTY`。Missing head 或 unverifiable history 渲染 `unknown/unavailable`、隐藏 Copy frontier，且只暴露 exact‑basis Resolve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `TrialFamilyReceiptPanel`                                                                                                | direct R&D Owner root receipt、family/root digest、INTENT membership receipt、Census member/fact 与 head/frontier 的固定顺序；available 要求 canonical JSON 与每个重复 relational identity、ordinal、digest、committed‑time 字段一致；缺失、损坏、不完整或不一致的 custody 必须 unavailable，不能与 S1 success badge 共存                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `ArtifactReviewPanel`                                                                                                    | current linked Research projection 中的 immutable identity、lineage、logic、parameter、build/security 与 action；stale‑linked durable S2 success 保留 evidence，但不渲染 review action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `ArtifactTrialFamilyBindingPanel`                                                                                        | 来自同一 locked direct‑Owner custody cut 的 binding identity、identity 包含 `committed_at` 的 binding receipt、独立显示的 commit cut、bound TrialFamily identity 与 Census frontier；只与 Owner‑resolved S2 Artifact 同时出现，绝不从 Intent/Artifact identifier 推导；未解决的并发 mutation 或任何 canonical/time mismatch 都渲染 unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `NoArtifactReceiptPanel`                                                                                                 | canonical receipt payload identity、attempt、Intent、独立推导的 disposition、failure code、commit time 与显式 zero‑Artifact statement。Exact wire 省略 optional family key。Research expiry 可以把 linked view 标为 stale 并移除 follow‑on action，但绝不能移除或改写 receipt；mismatch 或 self‑derived verification 渲染 unavailable，不暴露 positive action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `CapabilityUnavailablePanel`                                                                                             | operation identity/version、registry version、`archived/unavailable` state、compatibility‑envelope identity/digest、expected 与 observed component source/image/App/script hash、affected channel、observation cut、mismatch reason、preserved historical‑read disclosure 与精确 restoration/revalidation predicate。Healthy service 或 source text 相同都不能填补缺失的 envelope。只暴露 Refresh registry、Open historical run 与 Copy capability locator；无 dispatch、archive/restore、successor、permission repair 或 credential action                                                                                                                                                                                                                                                                                                                                                                                             |
-| `OwnerCustodyIncidentPanel`                                                                                              | 固定红色 unavailable geometry：incident identity/evidence locator；affected Owner、store 与有序 table set；last trusted cut 与 pre‑loss counts；current direct‑read cut/counts；`backup / PITR / Owner archive / reconstruction evidence` source class；recovery state（`UNKNOWN`、`RESTORABLE_FROM_CANONICAL_SOURCE`、`RECOVERABLE_BY_RECONSTRUCTION_NOT_RESTORED`、`RESTORED_REVALIDATION_PENDING`、`RESTORED`）；shared‑volume rollback constraint；精确 revalidation predicate。按钮固定为 Open incident evidence、Copy affected locator。它绝不重建 row、接收 pasted JSON、清除 incident、标记 restored 或启用 domain action；只有 canonical recovery 加 fresh direct Owner/consumer readback 才能推进状态                                                                                                                                                                                                                         |
-| `RunTable`, `RunSummaryCard`, `RunMetadataAndInputs`                                                                     | operational status/date/path/trigger/principal/tag/duration、schema allowlist 限定的 immutable input、typed withheld count/reason、dependency kind 与显式 Owner‑outcome join；无 raw payload fallback                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `DependencyCancellationPanel`                                                                                            | 只针对一个 queued dependency run 的固定 operational confirmation：run/kind/path、queued‑since、required executor compatibility、current `OperationalActionEnvelope` identity/expiry、显式空 domain‑effect set、no‑claim proof 与 receipt handoff target。唯一 effect button 为 `Cancel queued dependency`；CAS pending 显示 disabled `Cancelling…`；terminal transition 移除 A 与 header slot 3。Missing/expired/revoked capability、identity/version conflict、claim、terminal 或 unknown 会移除 effect，且不存在 batch、retry 或 domain cancellation                                                                                                                                                                                                                                                                                                                                                                                  |
-| `OperationalCancellationReceiptCard`                                                                                     | 按精确 `run_id` 绑定的固定只读 P 位置；state 为 `none / pending / receipt / unavailable`。Receipt 显示 prior state/version、principal、authorization cut、transition time 与 immutable receipt locator。A 消失后仍保留，不暴露 effect button，也绝不改变或替代 Owner truth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `RunDetailPanel`, `RunResultView`, `RunComparePanel`                                                                     | 固定 metadata/result/tab skeleton；schema allowlist 限定且按 sensitivity redacted 的 bounded result，viewport/copy/download 三者完全共用；Owner‑correlated receipt/result、实际 Artifact/PIT/runtime/simulator identity、diagnostic、invocation count 与 handoff；registry 缺失/mismatch 时 unavailable；无 Selection authority                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `RunLogPanel`, `RunMetricPanel`, `RunTracePanel`, `RunAssetPanel`                                                        | 精确四 tab 顺序；collected/not‑collected/unavailable/empty 必须区分且保持相同几何                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `CompactStatusBar`、`CompactStatusGroup`、`CompactStatusItem`、`DetailClusterGrid`、`DetailCluster`、`DetailClusterFact` | Workers 精确 skeleton：按序 title/value summary group 与 Availability/Work handled/Recent activity/Supported work 簇，尺寸与 unavailable 行为见上方契约。组合现有 `PanelFrame`、`SplitBento`、`DataTableSurface`、`DataWorkspaceTable`、`DetailInspector`、`DetailNotice`、`DetailEmpty`、`UnavailableState`；无独立色板或 worker administration。`WorkerGroupTabs` 及编造 heartbeat history 的 panel 不属于本次准入。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `RunWorkerCompatibilityMatrix`                                                                                           | path‑bound `run_id`、required kind/tag/runtime/isolation、单一 projection observation cut，以及每个 candidate worker 的 registration/lease evidence。`ready`、`online / incompatible`、expired lease、missing registration 与 isolation unavailable 是不同 fail‑closed state；缺少精确 run binding 时绝不渲染该矩阵                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `ServiceLogFilters`, `ServiceInstanceList`, `ServiceInstanceCard`, `ServiceLogPanel`                                     | 使用上方 Service Logs 精确 skeleton：canonical echoed filter cut/digest；固定 range/kind/service/instance/severity/search 顺序；由于 `host_ref=null`，仍只按 exact identity 选择，但主要文本采用共享业务 source/event presentation，exact implementation value 仅放在 title/info affordance；有界 row、cursor/retention/byte limit、auto‑tail 行为与 viewport/download parity。组合共享 `PanelFrame`、`CompactStatusBar`、`SplitBento`、`DataWorkspaceTable`、`DetailInspector`、`UnavailableState`、`BoundedLogViewport`；无独立 radius、header fill、palette，不编造 hostname/message，无 administration 或 effect action。                                                                                                                                                                                                                                                                                                           |
-| `AuditFilters`, `OperationAuditTable`, `AuditCorrelationCard`                                                            | principal/operation/outcome、exact target/correlation、redaction/retention；append‑only 且无 dismiss                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `TelemetryMatrix`, `SourceFrontierCard`, `TelemetryTimeline`                                                             | 每个 positive cell 必须绑定 Owner/source/cut、canonical fingerprint、observed/valid‑through time 与 loss/rebuild state；raw、stale、replayed、self‑asserted 或 identity‑conflicting input 只能 unavailable/stale/quarantined，且绝不继承上一次 success color                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `QualificationIntakeConflictPanel`                                                                                       | 固定 `RequestSemanticConflict` banner、immutable request/handoff identity、原 `NOT_ADMITTED` receipt link、redacted changed‑meaning summary、semantic fingerprint 与可选 Owner‑admitted successor action；绝不显示 protected replay value，也不让 changed meaning 复用旧 receipt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `QualificationPublicOutcome`                                                                                             | 仅终态 Owner‑produced lineage、稳定 attempt、N/A basis、checked nonempty interval、单调 expiry/revocation 与 late Time cut、半开 pending/current transition、sealed Qualification head frontier；`Admitted/Evaluating` 必须 projection failure 并让组件缺席，绝不能成为 `ClosedNotQualified`；无 protected‑detail slot、empty current Fact、dual‑current boundary、time rollback 或 client promotion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `ScannerPublicReceiptIntegrityPanel`                                                                                     | exact Scanner Owner resolve operation、attempt identity、canonical terminal receipt identity/digest、source cut 与 direct‑read locator。Missing、caller‑constructed、本地重建、mismatch 或 unavailable resolution 把 panel 固定为 unavailable，移除 terminal row/count/badge 与全部 Matcher/Proposal projection，只暴露 Open source evidence、Copy locator                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `GovernanceEligibilityAdmissionPanel`                                                                                    | Governance admission 前的 exact Eligibility identity、interval/frontier、source cut、validation disposition 与 zero‑write proof。Invalid、expired、conflicting 或 unavailable Eligibility 不产生 Governance receipt、lifecycle row、outbox、Runtime handoff 或 successor action，只暴露 Open Eligibility evidence、Copy locator。后续 receipt‑backed Governance rejection 是互斥的 admitted branch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `GovernanceDecisionCard`                                                                                                 | 完整 contender frontier、canonical generation ordering、确定性 no‑write tie receipt、decision/action cut、source frontier 与 revalidation；缺少 direct Owner reread 时 unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `RuntimeFoundationNotReadyCard`                                                                                          | 固定 non‑authoritative foundation state `NotReady`、source revision，以及四行有序 dependency：Governance authorized‑generation decision read、canonical Runtime custody、Artifact compatibility recovery read、Execution recovery frontier read。每个可见 row 只显示 Pending 状态；exact dependency link 与 source revision 收进 header 技术详情；footer 只有 Copy foundation locator。没有 instance/generation/receipt/checkpoint/recovery/application/action slot                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `RuntimeReadinessCard`                                                                                                   | 未来 Owner‑backed exact generation 与 Strategy Instance identity、canonical readiness fact/receipt、observation cut、freshness 与 incident locator。只有 `RuntimeFoundationNotReadyCard` 获准时该组件缺席；CI、review、mergeability、merge tree 或 delivery receipt 不能填充其 field                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `RuntimeApplicationCard`                                                                                                 | 未来 generation、attempt、Strategy Instance、application receipt、reconciliation successor 与 restore validation；PR #330 下缺席，且绝不从 job/harness、foundation dependency list、CI/review/merge tree、delivery receipt 或弱于 live admission 的 snapshot 推断                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `MarketDataOwnerFoundationCard`                                                                                          | 固定 PR #331 maturity 与 source revision，只有两组有序 schema。Source Binding label 为 binding identity、fact digest、lineage root/version、outbox digest、observational `is_admitted` 与 locator；PIT Snapshot label 为 request identity/digest、snapshot identity/fact digest、已消费 Source Binding identity、lineage root/version、outbox digest、observational `is_available` 与 locator。没有单独准入的 product resolver 时，每行 value 固定为 `UNAVAILABLE_NO_PRODUCT_RESOLVER`；footer button 依次是 Open foundation evidence、Copy foundation locator。不存在 provider‑authentication、ingestion、payload、credential、database locator、writer、resolve、refresh‑canary、positive badge、row、timeline 或 mutation slot                                                                                                                                                                                                       |
-| `PortfolioViewUnavailableCard`                                                                                           | 固定 PR #332 source revision 与 schema `1`。可见卡片使用共享 `UnavailableState` 与 `SummaryList` 原子展示面向业务的不可用状态和三个必需 source group。info disclosure 保留 exact header slot、request binding、caller‑supplied/untrusted principal‑claim slot、跨 Execution、Market Data 与 Portfolio 的十一类有序依赖，以及 applicable structured failure set；所有 request‑bound value 保持 em dash。它绝不伪造 `UNAVAILABLE`、`INCOMPLETE_FAIL_CLOSED` 或 `STALE` response instance，也不暴露 action。不存在 positive Account/Performance/Exposure/Gross Capacity/Attribution value、chart、table、timeline、filter、refresh、resolve、headroom、allocation、Risk、deployment 或 trading slot                                                                                                                                                                                                                                        |
-| `PortfolioViewRequestBindingBlock`                                                                                       | `PortfolioViewUnavailableCard` 技术详情中的强制第一组。Request‑side operand 独立依次排列 principal identity、account identity、Execution Scope identity、PAPER/LIVE mode、authorization‑policy cut 与 common‑cut identity。Principal‑claim 与 dependency group 保留 principal‑claim mismatch、cross‑scope 与 mixed‑cut 审阅所需的对照上下文。没有 Dashboard consumer 时，每个 value 都是 em dash；该组不存在 trusted、matched、resolved、available、retry 或 action state                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `PortfolioViewFailureList`                                                                                               | read‑only 有序 failure vocabulary：`UNSUPPORTED_SCHEMA_VERSION`、`INVALID_FIELD`、`MISSING_DEPENDENCY`、`DUPLICATE_DEPENDENCY`、`CROSS_OWNER_DEPENDENCY`、`INVALID_FRONTIER_SEQUENCE`、`PRINCIPAL_CLAIM_MISMATCH`、`CROSS_SCOPE_DEPENDENCY`、`MIXED_CUT_DEPENDENCY`、`FUTURE_DATED_DEPENDENCY`、`STALE_DEPENDENCY`、`EXPIRED_REQUEST`、`EXPIRED_PRINCIPAL_CLAIM`、`VALIDITY_OUTLIVES_PRINCIPAL_CLAIM`、`VALIDITY_OUTLIVES_DEPENDENCY`、`CALLER_SUPPLIED_PRINCIPAL_CLAIM`、`CALLER_SUPPLIED_SOURCE_LOCATOR`、`SOURCE_OWNER_RESOLVE_UNAVAILABLE`。每项在存在时显示 typed field/kind/owner coordinate；没有 dismiss、override、retry 或 promotion action                                                                                                                                                                                                                                                                                   |
-| `CapacityScopeCard`, `GrossCapacityView`, `CapacitySourceCompleteness`                                                   | account/mode/economic‑pool scope、candidate‑neutral gross ceiling、exact Execution/Market Data cut、availability 与 frontier；configuration authority 未解决时固定为 `INCOMPLETE_FAIL_CLOSED`，明确缺失的 Owner/fact/state‑machine stop predicate，不展示正向 BOUND badge 或 action；没有 usage、headroom、Reservation、allocation 或 permit field                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `RiskDecisionTable`, `ReservationLiabilityCard`, `ClaimAndAdmissionTable`                                                | terminal decision lineage、one‑use Reservation state、stable claim/admission result、完整 rejection set 与 exact linked effect；legacy forwarded command 没有 row shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `AggregateFrontierCard`, `FenceSetAndFrontier`                                                                           | 单一 Risk‑owned Capacity Scope frontier、held liability、immutable fence‑set membership 与 transaction ordering；无 Portfolio write 或 UI release action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `WorkerCard`, `WorkerTable`, `ScheduleCard`                                                                              | operational state 与 business state 分离；无通用 worker administration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `FenceBanner`, `UnknownEffectBanner`, `ReconciliationPanel`                                                              | 持久 safety surface 与 locator                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `NotAdmittedNotice`                                                                                                      | unavailable capability 与升级所需 evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-
-组件在可能时覆盖 loading、empty、partial、stale、unavailable、error 与 permission denied。Domain component
-还覆盖 identity conflict 与 missing receipt。Story fixture 不是验收证据。
-
-## CSS token 与调色板继承
-
-CSS 使用四层。Component 只能消费 semantic 或 component token。
-
-```text
-raw palette -> semantic role -> component alias -> state modifier
-neutral-950 -> text-primary -> panel-text -> [data-state="unavailable"]
-```
-
-Raw name 描述颜色；semantic role 描述含义；component alias 隔离组件变化；state modifier 选择 semantic
-role，不能引入 literal color。
-
-### 核心 theme token
-
-| Semantic token         | Light                 | Dark target | 消费者                                       |
-| ---------------------- | --------------------- | ----------- | -------------------------------------------- |
-| `--surface‑page`       | `oklch(0.92 0.01 85)` | `#111411`   | viewport                                     |
-| `--surface‑panel`      | `#f2f2f2`             | `#181c19`   | `PanelFrame`                                 |
-| `--surface‑card`       | `#ffffff`             | `#202521`   | card/panel body                              |
-| `--surface‑elevated`   | `#ffffff`             | `#272d28`   | menu/drawer/dialog                           |
-| `--surface‑hover`      | `#f7f5f1`             | `#2d342e`   | hover                                        |
-| `--text‑primary`       | `#1a1a1a`             | `#f1f4f1`   | heading/value                                |
-| `--text‑muted`         | `#5a5a5a`             | `#a7b0aa`   | label/hint                                   |
-| `--border‑default`     | `#e0ddd8`             | `#343c36`   | card/input/separator                         |
-| `--nav‑active`         | `#2d2d2d`             | `#f1f4f1`   | active rail/tab                              |
-| `--nav‑active‑text`    | `#ffffff`             | `#171b18`   | active icon/text                             |
-| `--focus‑ring`         | `#3b82f6`             | `#60a5fa`   | keyboard focus                               |
-| `--status‑positive`    | `#0b8c5f`             | `#58ceaa`   | available/success，绝不表示 market direction |
-| `--status‑negative`    | `#cf304a`             | `#f87171`   | rejected/failure/incident                    |
-| `--status‑warning`     | `#f59e0b`             | `#fbbf24`   | pending/stale/unknown                        |
-| `--status‑info`        | `#3b82f6`             | `#60a5fa`   | information                                  |
-| `--status‑protected`   | `#8b5cf6`             | `#a78bfa`   | protected/opaque                             |
-| `--status‑unavailable` | `#76808e`             | `#9ca3af`   | unavailable/not observed                     |
-
-Dark value 是 `TARGET`，不是参考项目已实现完整 dark theme 的证据。首个实现必须测试两个 theme 后才能
-声称 parity。Market direction 使用独立且 locale-aware 的 `--market-up`、`--market-flat`、`--market-down`，
-绝不能 alias 业务 success/failure。Chart 还要用 sign、label 或 glyph 重复方向。
-
-`S1TerminalCustodyPanel [data-state="stale"]` 只把 warning style 应用于 currentness row： `border-inline-start: 3px solid var(--status-warning)`，背景为 `background: color-mix(in oklab, var(--status-warning) 8%, var(--surface-card))`，state
-icon 与 `STALE` label 同样消费 `--status-warning`。 Verified receipt 与 TrialFamily evidence row 继续继承
-`--surface-card`、 `--text-primary`、`--border-default`，不出现 positive wrapper。
-
-Terminal custody 缺失或 cross-bound 时，整个 fixed geometry 切换为 `--status-unavailable`，不能复用 stale style。
-
-### Component、geometry 与 motion token
-
-- Card 从 semantic role 派生 `--card-bg`、`--card-border`、`--card-radius: 12px` 与 `--card-shadow`。
-- Panel 派生 `--panel-frame-bg`、`--panel-body-bg` 与 `--panel-radius: 20px`。
-- Heavy navigation glass 使用 40 px blur、40% surface alpha、60% light border 与柔和 8/32 shadow；light
-  glass 使用 4 px blur 与 60% surface alpha。只有 rail/tab/tape/tooltip/transient overlay 使用 glass。
-- Spacing 使用 4、8、12、16、24、32、48 px；Bento gap 16 px。Radius 是 6、8、12、16、20 px，再到 full capsule。
-- UI 字体为 Inter；identity、digest、timestamp、tabular value 使用 JetBrains Mono/平台 mono。Panel label
-  10 px uppercase，body/value 11 px，card title 14 px，page title 24-32 px。
-- 普通 transition 为 150-200 ms。Status/receipt/numeric update 不动画穿过误导值；
-  `prefers-reduced-motion` 移除非必要 motion 与连续 tape movement。
-- Elevation 只有 `base`、`raised`、`overlay`、`modal` 命名层级；禁止任意 shadow。
-
-## 交互、响应式与可访问性规则
-
-- Module rail 表示业务域，不表示每一个查看状态。跨业务域，或打开完整、长内容、多步骤、代码、结果、
-  log workspace 时使用 canonical route。同一目录内的筛选复用共享 filter/tab 原子；其有界 URL state 可以
-  更新，但不能呈现成一次新的页面切换。
-- 当前业务域内独立对象的短只读速览使用由 `DetailInspector` 组合出的右侧 `DetailSheet`。当用户任务是比较
-  相邻 table record 时，同类短速览改用来源 row 正下方的共享受控 `DataWorkspaceTable` row-detail；一次只展开
-  一条，不改变记录数，长内容仍进入 canonical route。Sheet 保留底层列表与滚动位置，提供 canonical full-view
-  link，禁止层叠，也不能嵌入整页 route；低于 768 px 时变为 full-screen。Row-detail 则保持 inline 与单列。
-  Selected identity/filter 的 URL 只是展示状态，绝不是 Owner evidence。
-- Modal 只用于返回前必须完成或取消的独立有界任务；解释性或技术元数据继续放 inline disclosure。
-  "需要分享"本身不要求把短速览改成 route，但 reload、Back/Forward 与 focus return 必须能恢复同一真实选择。
-- Keyboard 顺序是 rail、tape、tab、page control、content，然后是 inline detail 或 detail drawer。
-- Icon-only control 有 accessible name；focus 可见；overlay trap/restore focus。
-- State 必须有 text，并可结合 icon/color；禁止 color-only。
-- `PREFLIGHTING` 与 `ADMITTING` 使用 amber pending text，并分别显示 `Checking…` 与 `Submitting…`；
-  `ADMITTED` 使用 `--status-info` blue，绝不使用 green。只有 Owner terminal receipt 才能使用 semantic success。
-- Admission-state text 通过 polite live region 暴露；持续 unknown/unavailable transition 使用 alert announcement。
-  Spinner、motion、color 或 operationally green job 都不能成为唯一状态信号。
-- Identity 在组件内 wrap/scroll，并提供 copy action。
-- Table 保留 header、unit、sort、source cut、pagination；大数据/log view 需要 virtualization。
-- `>=1280 px` 使用完整 shell 与 multi-column grid；`768-1279 px` 折叠 span；`<768 px` 使用 navigation drawer、
-  full-screen detail 与明确 card/horizontal table representation。
-- 小 viewport 不能隐藏 incident、unknown effect、active fence、next legal action 或 unavailable state。
-- Optimistic UI 可以显示 delivery progress，但 receipt 前不能显示 Owner terminal。
 
 ## 服务与数据边界
 
@@ -2228,69 +2218,29 @@ cache 写权限； 暴露 process readiness 但不冒充 Owner/trading health；
 credential 进入 image、HTML、bundle、URL、log、telemetry、error；保持 Owner store/credential 分离；并包含 asset
 manifest、provenance、compatibility declaration 与 route smoke test。
 
-上一个执行器已在没有 cutover 的情况下退役：没有任何部署运行过它，因此 Dashboard 及其 RunStore 是唯一的
-执行器路径（见 Product Edge）。不存在双 business writer。每条已准入的 Web/MCP journey 都通过
-Dashboard/registry，得到相同 Owner receipt 与 fail-close 行为；任何 production cutover 前，仍要逐条 journey
-证明 parity、cache-loss recovery 与 artifact custody。
+### 研究传输与兼容边界
 
-### 第一方 effect custody 准入（授权 B）
+外部 Agent 经领域 MCP 提交研究。Dashboard 从所属服务读取数据、策略包、实验、结果和知识，
+不拥有研究提交、策略编写、修复工作流、模型构建或 Agent 执行。Governance 变更使用单独准入的控制与权限。
 
-`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。 第一方 Dashboard 可以在 `DASHBOARD_DISPOSABLE_EXECUTION` 边界内实现当前实际使用的四个 Product Edge journey：有序的 Source
-Intake -> Research Goal V2、 Artifact Build V1 formation、Develop Composer V2 request
-submission-or-resolution，以及 Exploratory Replay V2 request submission-or-resolution。
+现有 `POST /api/rd/source-research`、`POST /api/rd/develop-composer`、`POST /api/rd/exploratory-replay`
+及其 RunStore binding 是 disposable 兼容传输，不授予目标 UI 操作，也不成为原生策略的前置条件。
+它们保留准确 allowlisted body、身份、当前 compatibility/routing/permission 校验、不可变回执和效果边界。
+新的兼容提交须取得唯一 `ACTIVE / TRADE_DASHBOARD` routing head；zero、stale、ambiguous、malformed、unavailable
+或 `WINDMILL` observation 均在 Owner call 前拒绝。
 
-该准入允许源码、测试、打包与 disposable 动态验证；它不激活 routing、不修改 现有 Product Edge binding、不调用真实 provider、不写共享或生产 Owner
-数据库，也不授权交易。 上述 runtime effect 仍需分别通过独立 gate。
+既有 attempt 先 resolve 准确 Owner request。submission-start 先于 transport 持久化；只有首次 claim 在准确 absence 下可提交。
+后续 claim、restart 与 response loss 只 resolve，不换身份或重新选择 dispatcher。Replay identify 后封存准确 canonical bytes，
+unsigned integer 用十进制字符串；Composer 重验准确 Owner projection。Source ancestry 必须 canonical readable，
+policy resolution 留在 Owner 内，调用者不提供 `policy_query`。Artifact Formation 不属于已准入研究路线。
+已开始但未知的 provider work 必须权威解析，不裸重试；这些规则保留既有 custody，不要求原生编写 worker。
 
-Product Edge 继续是唯一 routing authority。 新的 Dashboard `RUN` 只有在精确 content-addressed compatibility
-envelope 当前有效，且每个 operation-specific routing key 都解析到唯一 `ACTIVE` history head、dispatcher 为
-`TRADE_DASHBOARD` 时才可达。
-
-`WINDMILL`、zero-active、dual/ambiguous、stale、malformed、unavailable 或 mismatch 都必须在 Owner call 前 fail
-closed。 deployment flag 与 credential 只是必要 transport 配置，不能成为 routing authority。 因此同一 operation identity 不可能同时由
-legacy `WINDMILL` dispatcher head 和 Dashboard 作为 fresh business writer。
-
-Dashboard RunStore 必须在第一个 Owner effect 前记录 canonical recovery identity、operation manifest、 compatibility
-envelope 与精确 routing binding。 Source Intake 必须先达到 canonical readable，随后才能把同一 ancestry 交给 Research Goal V2。
-
-Artifact formation 保留既有 `Check & Run` preflight、claim-before-provider、 start-before-provider、provider
-at-most-once custody，以及 started invocation 出现歧义后的 manual reconciliation。
-
-response-loss 或 restart 只能使用 retained operation 与精确 request/attempt identity：先 Resolve Owner custody， 只允许继续一次
-Owner 明确声明但尚未 start 的 claim，不重新选择 dispatcher，不创建 replacement identity，也不进行 naked retry。 精确 identity 的
-`RESOLVE` 保持 zero-effect，不要求当前 Dashboard routing binding。
-
-Exploratory Replay custody 比 native replay execution 更窄。 公开 HTTP/MCP request 把所有 unsigned 64-bit integer
-表示为十进制字符串；Dashboard 先调用只读 Owner identify port，验证返回的 canonical bytes，并冻结
-`request_identity`、`meaning_digest` 与 canonical-byte digest。
-
-effect worker 随后先解析这个精确 selector， 只在 absent 且第一次 claim 时提交，并在唯一一次允许的 submit 前持久化 `REPLAY_OWNER_SUBMISSION_STARTED`。 任何
-response-loss 或 restart retry 都只 identify 与 resolve，绝不再次 submit；只有精确 Owner readback 才能完成。 native
-`/v2/exploratory-replays` execution endpoint、provider work 与 economic-result claim 不在本次准入内。
-
-Develop Composer custody 从一个有界 Research request locator 的只读 Owner projection 开始。 Dashboard 在 enqueue 前冻结返回的
-request identity 与完整 projection digest。 effect worker 重新投影并要求精确相等，先 resolve， 只在精确 absent sentinel 与第一次 claim
-同时成立时 submit，并在 transport 前持久化 `COMPOSER_OWNER_SUBMISSION_STARTED`，随后再次 resolve。
-
-response-loss 或 restart retry 只能 projection-and-resolve， 不能重复 submit；browser mutation 继续缺席。
-
-canonical Source Intake-to-Research Owner operation 与 transport 无关：请求只包含公开 Research proposal 与 精确 Source
-ancestry，公开 proposal 不含 transport `channel`。 Owner 在自身边界内从 sealed Source custody 解析当前 Source policy
-locator；Dashboard、browser 与 MCP 均不构造或接收 `policy_query`。
-
-迁移期仅为不中断现有 job 而暂时保留 legacy V1 adapter；在 parity、recovery、Product Edge 原子 routing cut 与回滚观察窗口全部证明后，删除该 adapter
-及其 V1 request surface。 它们不属于最终 Dashboard-only 架构。
-
-已准入 HTTP surface 仅包括 `POST /api/rd/source-research`、 `POST /api/rd/develop-composer`、 `POST /api/rd/exploratory-replay`；不提供 Artifact Formation
-的模型构建 route。 每个 route 只接受精确 allowlisted body，拒绝 unknown field，并返回同一个 bounded Owner projection 加 operational
-run reference， 或明确 unavailable state。 在 disposable runtime 动态证明这些 gate 之前，浏览器不启用 mutation control。
-
-把任何 Product Edge binding 切到 `TRADE_DASHBOARD`、执行真实 Owner/provider effect、production cutover、 publication
-都仍是独立的显式 effect。
+传输迁移须保留回执、身份、权限，并在版本化 routing switch 前证明 parity/recovery。准确 `RESOLVE` 无效果。
+共享或生产 Owner 写入、provider、真实交易、publication 与 cutover 各自仍需明确授权；本设计不授予这些权限。
 
 ## 无人值守实现顺序
 
-遵循[交付路线](../architecture/)及本章逐路由准入表，不另设 Dashboard 优先路线。只实现已准入可复用原子或路由，保持有界且独立可审查。当前回读几何仍具权威；路由名、组件目录或后端源码路径不授权 scaffold、部署或效果。
+按[交付里程碑](../architecture/)和准确路由/原子准入实施；每个切片遵守对应几何与边界。见[准入状态](#状态词汇与证据切面)。
 
 V0.1 需要 R-1 数据/Artifact/运行/结果回读，并行承接领域 MCP 旅程。V0.2 扩展研究比较、诊断、接管和知识视图。V0.3 增加另行准入的 Governance 试盘确认、模板选择、晋级/运行和退出监测。组合、动态发现与多腿视图随所属版本交付；后续表单和服务不成为首版前置。
 

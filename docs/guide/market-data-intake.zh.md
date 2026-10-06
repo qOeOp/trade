@@ -74,7 +74,7 @@ Profile 按 dataset 区分。同一 provider 的不同 series 或 feed 可能拥
 
 ## Credential 与能力隔离
 
-配置 client 前先读[凭证前置矩阵](./install/#credential-prerequisite-matrix)。secret 只保留在被忽略的本地
+配置 client 前先读[凭据配置](./install/)。secret 只保留在被忽略的本地
 环境，并且只以 opaque handle 进入 binding。它们不能出现在 log、prompt、snapshot、artifact、截图、
 文档或审计包中。
 
@@ -107,8 +107,7 @@ generation。后续 correction 只能通过显式 successor-feedback 路径进�
 | CCXT 或 CCXT Pro                      | 已覆盖 venue 默认不采用                              | 只处理已证实缺失的 public‑data endpoint；private API、scheduler、cache 与 reconnect 行为封装在 adapter 内      |
 | Cryptofeed                            | 已覆盖 feed 默认不采用                               | 只处理更优且缺失的 public feed；排除其 storage、message backend 与 authenticated trading capability            |
 
-本地配置的 `FRED_API_KEY` 已通过 authentication-only metadata probe。这既不建立当前产品 connector，也
-不授予 archive、训练或 backtest 所有 FRED series 的权利。在上述 rights 与 vintage gate 通过前，
+authentication-only metadata probe 既不建立当前产品 connector，也不授予 archive、训练或 backtest 所有 FRED series 的权利。在上述 rights 与 vintage gate 通过前，
 Market Data Source Binding 保持 `UNAVAILABLE` 与 `RIGHTS_EVIDENCE_UNRESOLVED`；只有明确拒绝才能成为
 `UNLICENSED`。
 
@@ -127,12 +126,12 @@ Snapshot disposition 是另一层确定性映射。来源 `REVOKED` 或 `UNLICEN
 
 ## Request 与终态行为
 
-R&D 与 Scanner 决定请求什么，Market Data 决定返回数据的含义。Backtest 消费已冻结 snapshot 并记录
+授权 Agent 与已准入消费方决定请求什么，Market Data 决定返回数据的含义。Backtest 消费已冻结 snapshot 并记录
 实际使用，但不选择 provider。Portfolio 消费 valuation fact，只有 Execution 拥有 private account、
 order、fill 与 readback fact。
 
 普通 snapshot 终结为 `AVAILABLE`、`INSUFFICIENT`、`STALE`、`UNLICENSED`、`AMBIGUOUS` 或
-`UNAVAILABLE`。Repair request 还绑定准确 predecessor decision、request proof 与 stable correlation。
+`UNAVAILABLE`。兼容 Repair request 还绑定准确 predecessor decision、request proof 与 stable correlation。
 错误 scope、变化 cut、陈旧 license、缺失 Time Evidence、silence、rate limit 或 transport success 都不能
 变成 `AVAILABLE`。准确 replay 加入同一终态；含义变化需要 successor request。
 
@@ -144,6 +143,6 @@ order、fill 与 readback fact。
 - PIT 测试拒绝 current-value substitution、event-time-only evidence、未来 correction、mixed clock 与缺失 historical membership。
 - Semantics fixture 证明历史与实时 normalization、adjustment、instrument mapping 与 timestamp meaning 完全一致。
 - Quality 测试区分 empty、missing、stale、rate-limited、malformed、unlicensed 与 unavailable outcome。
-- Request 测试证明 R&D 与 Scanner 响应重复准确 requester-owned request 与 stable correlation。
+- Request 测试证明已准入消费方的响应重复准确 requester-owned request 与 stable correlation。
 - Correction 测试保留旧回执，只创建 successor fact 和 successor-only R&D provenance。
 - 任何 Market Data 路径都不能调用 account、order、private-effect、Governance、Qualification 或 trading-authority port。

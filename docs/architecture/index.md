@@ -5,7 +5,7 @@
 The product helps users and external Agents develop trading ideas into strategies and investment portfolios,
 validate them, operate them under account governance, and accumulate reusable research knowledge. Strategies and
 portfolios are both core research and operation objects; a portfolio is more than a statistical report aggregate.
-Data preparation, queries and backtests are also independently available through MCP without requiring activation.
+Data preparation, queries and backtests have independent MCP target entrances without requiring activation. Current use is limited to operations whose catalog status and exact admission/readback conditions are satisfied.
 
 The current target consumer is one individual user assisted by one external Agent. Multiple strategies, instruments
 and portfolios serve that user's research and account operation, without requiring a shared multi-user platform or
@@ -113,22 +113,89 @@ replaces per-slice implementation admission or production-effect authority.
 Deliver a repeatable server-side journey: the external Agent submits versioned native strategy source package; the minimal R&D path seals
 the Artifact and experiment inputs; Market Data prepares validated point-in-time Binance USDT perpetual history;
 Backtest runs native Nautilus replay; and the Agent resolves job status, fills, account results and reports by
-original task identity. Rule changes can be submitted again with separate retained evidence. This version does
-not require completing hypothesis generation, the full diagnosis/iteration-decision path, knowledge accumulation
-or the autonomous research loop first. Dashboard research views remain read-only.
+original task identity. Within frozen bounds, Agents may continue modifying strategies, submitting new experiments
+and comparing results themselves, retaining exact versions and separate evidence for each round. V0.1 does not
+require complete research management, project-level handover or knowledge reuse; those delivery guarantees belong
+to V0.2. Hypotheses, diagnosis and iteration decisions always belong to the Agent. The delivery endpoint is the Agent reading complete results through MCP and
+explaining them to the user; a Dashboard backtest-report page is not a V0.1 acceptance requirement. Dashboard research
+views remain read-only.
 
 - Accept [R-1u and R-1s](../scenarios/research.md#r-1-resting-entries-and-staged-exits): resting limits/cancellation,
   stops, frozen targets, staged exits and protection updates use one native execution semantics. State the exact
-  data scope and bounded authoring shape before each implementation slice begins.
+  data scope and execution capabilities before each implementation slice begins. R-1 is an acceptance story, not a
+  strategy whitelist. Agents may freely author native strategies using supported V0.1 data and execution capabilities;
+  strategy names or fixed templates do not limit research. Report named gaps for disconnected capabilities, without
+  claiming every native capability is available.
+  Strategies use a project-managed fixed versioned runtime. Agents can inspect the environment and available
+  libraries; the project supplies missing libraries through environment updates. V0.1 does not install different
+  dependencies or build independent environments per strategy. Packages bind exact runtime versions; updates do not
+  overwrite prior bindings.
+- V0.1 accepts multiple independent replay submissions and executes them sequentially through the service queue,
+  with at most one replay executing at a time. Parallel execution is not a first-version requirement. Each task retains
+  separate frozen inputs, identity, status and results; queuing chooses neither parameters nor new experiments.
+- Start with explicit initial funds, no positions and no pending orders. All backtests exclude deposits/withdrawals
+  during execution; importing existing positions/orders is outside
+  V0.1. Warmup establishes indicators and computational strategy state without orders, fills or trading-account changes
+  such as funding charges. Trading begins only inside the execution interval.
+- Support one strategy trading a user-chosen instrument list frozen before the run. Replay capital usage, orders and
+  positions on one shared-account timeline, reporting aggregate equity, drawdown and individual trades; concatenated
+  independent instrument curves cannot substitute. Primary maximum drawdown uses one-minute sampled account equity;
+  daily closing drawdown is separate. Include unrealized PnL and incurred costs without claiming every intraminute
+  extreme is captured. Agents can retrieve the same minute account-equity sequence in bounded batches by exact
+  run identity and interval for drawdown/recovery or other host analysis, rather than only summaries or daily
+  curves. Add no equity ledger or host-chart custody. Multi-strategy shared-account compositions remain a V0.4 delivery.
+- The Agent prepares or reuses initial data, then submits replay with an available exact data reference. Preparation
+  and replay each durably execute admitted tasks. Completing preparation does not create an unsubmitted replay on
+  behalf of a disconnected Agent; an existing valid reference can be used directly.
+  Partial preparation failure retains admitted data. After resolving original task status, the Agent prepares only
+  missing inputs through linked tasks. Submit replay only when all frozen requirements are satisfied; failure does
+  not silently remove instruments or shorten the interval.
+  V0.1 exposes no MCP operation for actively cancelling preparation or replay jobs. Admitted work executes within
+  resource bounds until completion or failure; status and results remain queryable.
+- Use Binance historical data prepared and managed by Market Data. External CSV/GZ import remains a later delivery
+  capability and is not required for V0.1 acceptance. Agents may consult existing research files; those files cannot
+  be passed directly to replay as admitted market data.
 - Bind data, funding, fees, slippage, margin and terminal open-position valuation. Apply the agreed ambiguity
-  policy; missing inputs cannot produce an invented complete result. The first acceptance need not cover every
-  market, dynamic selection, multiple legs or the entire strategy grammar.
+  policy; missing inputs cannot produce an invented complete result. Use historical mark prices for perpetual
+  unrealized PnL and terminal equity; execution still uses trading market data. Missing or invalid mark prices
+  produce explicit gaps without silently falling back to trade prices. The first acceptance need not cover every
+  market, dynamic selection, multiple legs or every native execution capability.
+- Provide bounded reads of admitted ordinary research market data, with traceable versions and recorded read scope.
+  Agents may inspect bars, calculate indicators and propose rules using their own scripts; the product adds no analysis
+  engine. Protected samples remain inaccessible through this path, and formal replay still executes native strategies.
+  Approve and freeze research/protected scope before initial research reads; Market Data enforces partitions and
+  accounting, while R&D links scope and exposures. Full Qualification stays in V0.3; seen data cannot be relabeled unseen.
+  Insufficient unseen protected data still permits preparation, replay and iteration within approved research scope;
+  retain the eligibility evidence gap explicitly. The gap prevents qualification, not research.
+- V0.1 readback includes orders, fills, rejections, account facts and bounded strategy diagnostic logs. Reuse
+  Nautilus logging; Agents author necessary messages and interpret them. Logs bind run identity and do not
+  substitute for authoritative fill or account evidence.
+- Bar replay uses one-minute market data for matching; strategies obtain larger derived bars through native
+  Nautilus subscriptions, without a duplicate timeframe form or local precision switching. Run dates, warmup and
+  non-bar economic inputs remain explicit. Existing package, run configuration and data references retain minute
+  versions, native aggregation settings and runtime identity without a separate configuration system.
+- Retain a minimal research project with the user goal, approved scope and resource bounds, linking strategy
+  versions, experiments, tasks and results. Agents can iterate within the same project and attach queryable
+  hypotheses, explanations and next steps to experiments. R&D uses a fixed structure for project/experiment
+  ownership, exact evidence references, author, time and correction links; prose requires no diagnosis template.
+  V0.1 does not require complete V0.2 project-level handover, knowledge reuse or a research-management interface.
 - Input sealing, complete trial counting, resource bounds, durable jobs and same-identity restart readback ship
   with the journey. Deferring the complete R&D loop does not remove them. Agent disconnection does not cancel
   admitted work; resolve unknown outcomes before submitting another uncorrelated run.
+  Same-identity recovery means task/result readback, not checkpoint continuation of replay state. Read existing complete
+  results directly. After confirming interruption, the Agent may submit a new full run with the same frozen inputs
+  linked to the original record. Retain the original attempt and resource usage; account for rerun resources.
 - Deliver the minimal R&D/Market Data/Backtest handoffs without completing every Qualification, Governance or
   live trading-node product interface first. Replay reports establish neither independent eligibility, economic
   advantage nor trading permission.
+- Performance acceptance follows the research R-1 extension scale: approximately 50 instruments over five years,
+  with one strategy on a shared account timeline. The prototype 17 majors plus 36 extensions provide scale evidence.
+  Freeze actual perpetual instruments, intervals, point-in-time validity, warmup, minute trading data, historical
+  marks and economic inputs. Do not fabricate coverage before listing/after delisting or inherit local minute precision.
+  Measure initial preparation, cache reuse, input loading, native replay, statistics and readback separately,
+  recording hardware, elapsed time, peak memory and resource usage. Small examples do not prove this scale usable;
+  promise no second-level response before measurement. Resource overruns fail explicitly without truncated data
+  presented as complete returns.
 - Completion requires actual MCP preparation, sealing, execution and readback, with success, named refusal and
   recovery evidence, plus passing affected ordered Owner chains on Linux CI. Source entrypoints, local tests or
   architecture diagrams do not substitute for delivery acceptance.
@@ -143,13 +210,25 @@ results and proposes diagnosis and successor/stop decisions. R&D validates and p
 evidence lineage and iteration decisions. Model judgments remain external; the server neither embeds a research
 model nor wakes local Agent conversations.
 
+The V0.2 comparison interface is the external Agent. MCP exposes complete permitted results and exact experiment
+references; the Agent uses host tools to plot, calculate comparisons and explain differences, then records
+conclusions and evidence in R&D. Dashboard displays progress and results. A dedicated experiment selector,
+side-by-side metrics and overlaid equity comparison interface is a later delivery, not a V0.2 acceptance gate.
+
 - Compare supported R-1 entry/filter/exit variants against bound data, capital and execution baselines and retain
   the complete variant census. Positive estimates, negative outcomes, insufficient samples, execution defects and
   unknown outcomes remain distinct. Pass-criteria changes still require prior user approval.
+  Host-side exploratory analyses such as pattern statistics are also queryable, retaining hypotheses, test
+  descriptions, conclusion summaries, existing evidence references and limitations. Reusable conclusions enter
+  Knowledge without retaining charts or other non-strategy intermediate files. Preserve external execution
+  provenance and evidence status without impersonating product replay or adding a server analysis engine or
+  exploratory-output storage capability.
 - V0.1 recovers a task's status/result. V0.2 lets a replacement Agent resolve project objectives, frozen bounds,
   completed experiments, the latest committed decisions and pending tasks, continuing from evidence rather than
-  reconstructing old chats. Custody of unsubmitted drafts remains to be confirmed separately.
-- Register factor/rule knowledge and applicability from permitted research evidence, retrieve it and reference it
+  reconstructing old chats. Agents push source and unfinished drafts to the user-designated Git repository;
+  R&D records exact repository, commit, paths and next steps. The product retains the immutable executed package.
+  Unpushed local edits are outside the cross-host takeover guarantee.
+- Register factor/rule knowledge and applicability from permitted research evidence, retrieve it across the same user's research projects with source/applicability preserved and reference it
   in new experiments. Preserve negative evidence; knowledge does not transfer qualification or replace new
   strategy replay. Protected data and private qualification diagnoses enter neither knowledge nor prompts.
 - Resource bounds, complete trial/data-exposure ledgers and same-identity recovery remain in existing owners.
@@ -263,31 +342,27 @@ prerequisites, and this roadmap does not claim support for every original resear
 Complete each release with actual service requests/readback, scenario/recovery evidence and passing affected ordered
 Owner chains on Linux CI. A local build is not delivery proof. Outcomes and ordering are fixed, not unmeasured dates.
 
-## Blueprint scope and reading
+## Design boundaries and reading
 
-The product extends Nautilus data, backtest and trading capabilities and integrates custom R&D into a complete
-research-to-operation tool. Native types, DataEngine, Strategies/algorithms and risk/execution/accounts define the
-foundation. Requirements first locate native integration and extension seams, then determine product responsibilities
-and APIs; this is not an independently designed trading platform with selected algorithms replaced by Nautilus.
+### Blueprint scope and reading
 
-Product additions cover research, isolated qualification, lifecycle/allocation policy, and data/run custody.
-MCP and the first-party Dashboard expose them. The overview uses six responsibility groups: Market Data, Backtest,
-R&D, Qualification, Governance and the native trading node. These do not require six engines, containers or processes;
-composition follows native kernels, permission isolation and consumer evidence. Event Rail, databases and observability
-support handoffs without another department or authority for market/account state.
+The product extends current Nautilus data, backtest and trading components and integrates custom R&D.
+Added responsibilities cover research, isolated qualification, lifecycle/allocation policy and data/run custody, exposed through MCP and Dashboard.
+The six groups below do not prescribe engine, container or process counts; composition follows native kernels, permission isolation and consumer evidence.
+Event Rail, databases and observability own no market or account facts. See [Capability adoption](./capability-adoption/) for integration points.
 
 This page defines the complete target blueprint and current entrances, not implementation completion.
 Trial and formal stages both trade real money; their pools and lifecycle stages differ. Real trading,
 protected deployment and new Dashboard slices require their own implementation and effect admission.
 
-## Agent first and minimal deterministic services
+### Agent first and minimal deterministic services
 
 External Agents own work requiring judgment and adaptation. The product implements capabilities that must execute
 consistently, persist durably or enforce constraints. This principle applies to all six responsibility groups and
 release stages. New code must serve a concrete deterministic need in a user story: reuse Nautilus, then existing
 services. Research that an Agent can complete with available tools does not justify another backend module.
 
-### Parameters and tools
+#### Parameters and tools
 
 - Agents choose hypotheses, strategy source, experiment parameters, comparison methods and next actions;
   services execute explicit requests and return facts and references.
@@ -310,7 +385,7 @@ services. Research that an Agent can complete with available tools does not just
   Report actionable input gaps and actual failures; do not require Agents to infer defaults, read full datasets
   or reinterpret service failures as scientific conclusions.
 
-### Responsibilities in user stories
+#### Responsibilities in user stories
 
 | User story                      | Agent owns                                                                        | Deterministic services own                                                                        |
 | ------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
@@ -334,7 +409,9 @@ supports retrieving context on demand through lightweight references.
 structured results. The Trade responsibilities above are product design derived from its user stories, not a
 trading architecture mandated by those sources.
 
-## Interactive homepage blueprint
+## Service design
+
+### Interactive homepage blueprint
 
 The homepage opens with six service groups, external Agents and Dashboard. Connections explain domain MCP/API
 entrances and handoffs, not process counts inferred from Owners, tools or internal capabilities. Selecting a service
@@ -347,9 +424,14 @@ The homepage and this page define the correct target, without old interfaces, hi
 categories organizing the blueprint. Compatibility/migration belongs to development tasks, not a history view.
 Update diagram copy, flows and documentation links together; diagrams prove neither delivery nor real-effect authority.
 
-## Internal service responsibilities
+### Internal service responsibilities
 
-### Native foundation and service composition
+#### Native foundation and service composition
+
+Every Backtest version uses frozen initial funds without deposits, withdrawals or other external capital additions
+or removals during replay. Native paths replay trading PnL, costs, funding and internal account allocation.
+Live transfers belong to Execution reconciliation, Portfolio separation of capital flows from trading returns,
+and Governance allocation updates; Backtest does not reconstruct that chain.
 
 The six groups describe product responsibilities, not six independent execution systems. Composition starts with
 the native kernel: `BacktestEngine` and `LiveNode` each contain DataEngine, cache, clock/msgbus, Trader/Strategy,
@@ -395,7 +477,7 @@ who owns a responsibility; flow steps describe task order. A flow step does not 
 | Governance    | Policy · Lifecycle · Allocation                         | Frozen policies, stages and allocation; no direct order management                                |
 | Trading Node  | Runtime · Risk · Execution · Portfolio                  | Four native responsibilities share one node and retain their respective write authority           |
 
-## Shared-account composition assessment
+### Shared-account composition assessment
 
 The product operates a dedicated Binance trading account: product-managed strategies own all trading orders
 and positions. User deposits and withdrawals remain supported; manual trading coexistence is outside this
@@ -490,7 +572,7 @@ Native multi-strategy registration is a foundation. The current single-`strategy
 eligibility binding do not complete this story. Extend composition inputs, native wiring, result attribution and
 eligibility references without another service, matching engine or account ledger.
 
-## Service topology
+### Service topology
 
 ```mermaid
 flowchart TB
@@ -530,7 +612,7 @@ Internal calls use typed APIs, not nested MCP sessions; services do not reread a
 reconstruct authority. Event Rail conveys committed wakes and consumers read back facts. The bus owns no business
 terminal state, recovery or approval.
 
-## Responsibilities and facts
+### Responsibilities and facts
 
 | Logical service group | Independent capability sets                                                                                                                                                      | Outputs and sole responsibility                                                                                             |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
@@ -538,10 +620,10 @@ terminal state, recovery or approval.
 | Backtest              | Frozen inputs/configuration; native event replay/matching; cost/funding/margin models; portfolio and trade reports; durable jobs/recovery                                        | Native run, order/fill and simulated account evidence, results and reports; no research or promotion decision               |
 | R&D                   | Sources/knowledge; projects and frozen bounds; preregistration and trial/resource census; native Strategy authoring/Artifacts; diagnosis, successors, stops and takeover         | Intents, Artifacts, experiment admission, immutable lineage and Iteration Decisions; no market or trading effects           |
 | Qualification         | Independent candidate intake; protected protocols/partitions; eligibility assessment/revocation; bounded verdicts; isolated simulated forward evidence                           | Eligibility and protected facts; research receives only permitted conclusions, never values, reasons or internal categories |
-| Governance control    | Registry; trial/formal stages and frozen conditions; pool ratios/equal allocations; lifecycle authority                                                                          | Governance decisions and capital envelopes; never activates Runtime                                                         |
+| Governance control    | Current strategy bindings within lifecycle facts; trial/formal stages and frozen conditions; pool ratios/equal allocations; lifecycle authority                                  | Governance decisions and capital envelopes; never activates Runtime                                                         |
 | Native trading node   | Runtime signals; Risk admission/reservations; Execution orders/fills/reconciliation/recovery; Portfolio measurement/attribution                                                  | Actual trading/account facts in one native node, with distinct Owner write authority and no second account/order book       |
 
-### Independent use and dependencies
+#### Independent use and dependencies
 
 - Market Data independently supplies instruments, preparation jobs and coverage. Market-value reads still enforce protected partitions and exposure accounting.
 - Backtest consumes sealed Artifacts, admitted runs and verified data references without agent-driven internal orchestration. Exploratory and protected tasks share native semantics while credentials, read rights, caches, outputs and task spaces remain isolated.
@@ -556,7 +638,7 @@ Strategy Factory is a cross-service value flow; Product Edge is admission; Obser
 None adds a second authority for these business facts. The canonical contract projection retains legacy Scanner
 identities for existing receipts; those are not a tenth target department.
 
-## Minimal structure and dependency direction
+### Minimal structure and dependency direction
 
 Only independent fact authority, isolation or lifecycle requirements create responsibility boundaries. A feature
 name does not automatically create a module, service or MCP process. Domain/product extensions depend on typed
@@ -585,55 +667,57 @@ departments exchange typed public operations or published facts, never query pri
 cross-schema joins to reconstruct state or write another Owner's records. Acceptance must demonstrate database
 permission isolation.
 
-## MCP capability catalog
+## MCP and API entrances
+
+### MCP capability catalog
 
 MCP names identify domain tool catalogs, not new services or Owners. Agents connect to admitted catalogs for their
 missions. MCP, Dashboard and internal API paths enforce the same budget, eligibility, protected-data and unknown-result
 rules. Detailed parameters/refusals belong to Owners and [Product Edge](./product-edge/#target---external-agent-tool-surface);
 this table assigns responsibility rather than inventing published wire APIs.
 
-| Catalog              | Service ownership                                 | Agent work                                                                               | Current and target boundary                                                                                                      |
-| -------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `market-data`        | Market Data                                       | Discover, describe, admit, prepare, inspect coverage and read bounded values             | Dedicated stdio adapter exists; value reads are partition gated, while imports and full target preparation require acceptance    |
-| backtest             | Backtest, with exploratory admission from R&D     | Submit runs, inspect status, reports and run lists                                       | Dedicated stdio adapter currently forwards to R&D `/v1/backtests`; no proof of independent Backtest deployment or complete `R-1` |
-| `strategy-authoring` | R&D authoring                                     | Current statement validation, create/get/list/revise/archive; native packages are target | Dedicated stdio adapter exists; narrow authoring is not full R&D, and native packages need separate integration acceptance       |
-| research             | R&D research                                      | Admit projects/bounds, preregister families, inspect experiments/decisions and take over | Complete catalog is target; existing Source/Composer actions do not prove full integration                                       |
-| knowledge            | R&D knowledge                                     | Find reusable factors/patterns, applicability, evidence and review conditions            | Target; no protected values stored                                                                                               |
-| qualification        | Qualification                                     | Submit candidates and inspect allowed assessment/eligibility conclusions                 | Target; record‑only Forward Record is optional simulation evidence, not real trading trial evidence                              |
-| governance           | Governance                                        | Read governance state, select trial/capital policies and resolve lifecycle requests      | Target; effects need approved policy/authorization, and automatic promotion creates no new trading permission                    |
-| scan                 | R&D read‑only discovery                           | On‑demand discovery and results                                                          | Target; results grant no eligibility, deployment or trading authority                                                            |
-| portfolio            | Native node Portfolio                             | Read account, NAV, performance, exposure and capacity                                    | Target read‑only catalog; no allocation or order writes                                                                          |
-| operations           | Runtime/risk/execution/observability read surface | Read instances, readiness, orders/fills, drift and alerts                                | Target read‑only catalog; no arbitrary trading, kill switch or recovery writes                                                   |
+| Catalog              | Service ownership                                         | Agent work                                                                               | Current and target boundary                                                                                                      |
+| -------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `market-data`        | Market Data                                               | Discover, describe, admit, prepare, inspect coverage and read bounded values             | Dedicated stdio adapter exists; value reads are partition gated, while imports and full target preparation require acceptance    |
+| backtest             | Backtest, with exploratory admission from R&D             | Submit runs, inspect status, reports and run lists                                       | Dedicated stdio adapter currently forwards to R&D `/v1/backtests`; no proof of independent Backtest deployment or complete `R-1` |
+| `strategy-authoring` | R&D authoring                                             | Current statement validation, create/get/list/revise/archive; native packages are target | Dedicated stdio adapter exists; narrow authoring is not full R&D, and native packages need separate integration acceptance       |
+| research             | R&D research                                              | Admit projects/bounds, preregister families, inspect experiments/decisions and take over | Complete catalog is target; existing Source/Composer actions do not prove full integration                                       |
+| knowledge            | R&D knowledge                                             | Find reusable factors/patterns, applicability, evidence and review conditions            | Target; no protected values stored                                                                                               |
+| qualification        | Qualification                                             | Submit candidates and inspect allowed assessment/eligibility conclusions                 | Target; record‑only Forward Record is optional simulation evidence, not real trading trial evidence                              |
+| governance           | Governance                                                | Read governance state, select trial/capital policies and resolve lifecycle requests      | Target; effects need approved policy/authorization, and automatic promotion creates no new trading permission                    |
+| scan                 | Market Data queries; native replay when state is required | Agent host analysis and optional registered replay results                               | Target; results grant no eligibility, deployment or trading authority                                                            |
+| portfolio            | Native node Portfolio                                     | Read account, NAV, performance, exposure and capacity                                    | Target read‑only catalog; no allocation or order writes                                                                          |
+| operations           | Runtime/risk/execution/observability read surface         | Read instances, readiness, orders/fills, drift and alerts                                | Target read‑only catalog; no arbitrary trading, kill switch or recovery writes                                                   |
 
-Dashboard `/api/mcp` currently has five bounded tools for Source/Research, Composer, Replay custody and operations
+The compatibility Dashboard `/api/mcp` retains five bounded tools for Source/Research, Composer, Replay custody and operations
 readback. It adapts the same Owner operations, rather than forming a seventh research service or replacing the whole
-target catalog. Standalone `video-note` is an external source-acquisition helper: the Agent reads notes and submits
+target catalog. Its research submission tools are not the target Dashboard research route; research uses external Agents and domain MCP, while run/log reads remain read-only. Standalone `video-note` is an external source-acquisition helper: the Agent reads notes and submits
 source references to R&D; product services neither invoke it nor grant it product stores or trading credentials.
 Windmill is not a deployment dependency; historical wire identifiers retain only their original record meaning.
 
-## Backend services and API capability inventory
+### Backend services and API capability inventory
 
 This is the six-group product interface inventory. MCP tools, Dashboard and internal typed APIs invoke the same
 domain capabilities; catalog count is not process count. Current source routes and target operations are separate.
 TARGET names describe responsibilities, not released URLs/schemas. Deployment, features, consumers, authority and
 effects still require their own acceptance; registered routes do not establish delivery.
 
-### Services and entrances
+#### Services and entrances
 
-| Backend service     | External entrances                                         | Internal consumers                       | Durable state and dependencies                                                 |
-| ------------------- | ---------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
-| Market Data         | `market-data` MCP, Dashboard data views                    | R&D, Backtest, native node               | Source/instrument/custody/read ledgers; native storage and clients             |
-| Backtest            | backtest MCP, Dashboard replay/reports                     | R&D, isolated Qualification              | Jobs/runs/reports; Nautilus engine and admitted inputs                         |
-| R&D                 | `strategy-authoring`, research, knowledge, scan; Dashboard | Qualification/Governance receive outputs | Projects/strategies/experiments/knowledge; data and replay services            |
-| Qualification       | qualification catalog, bounded status views                | R&D, Governance                          | Private protocols/assessments/eligibility; isolated replay/data                |
-| Governance          | governance catalog, Dashboard confirmation/control         | Native node, R&D                         | Registry/stages/policy/allocation/authorization; eligibility/performance facts |
-| Native trading node | Read only portfolio/operations, Dashboard views            | Governance, authorized control consumers | Native Runtime/Risk/Execution/Portfolio facts; live data and venue interfaces  |
+| Backend service     | External entrances                                         | Internal consumers                       | Durable state and dependencies                                                                   |
+| ------------------- | ---------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Market Data         | `market-data` MCP, Dashboard data views                    | R&D, Backtest, native node               | Source/instrument/custody/read ledgers; native storage and clients                               |
+| Backtest            | backtest MCP, Dashboard replay/reports                     | R&D, isolated Qualification              | Jobs/runs/reports; Nautilus engine and admitted inputs                                           |
+| R&D                 | `strategy-authoring`, research, knowledge, scan; Dashboard | Qualification/Governance receive outputs | Projects/strategies/experiments/knowledge; data and replay services                              |
+| Qualification       | qualification catalog, bounded status views                | R&D, Governance                          | Private protocols/assessments/eligibility; isolated replay/data                                  |
+| Governance          | governance catalog, Dashboard confirmation/control         | Native node, R&D                         | Current lifecycle bindings/stages/policy/allocation/authorization; eligibility/performance facts |
+| Native trading node | Read only portfolio/operations, Dashboard views            | Governance, authorized control consumers | Native Runtime/Risk/Execution/Portfolio facts; live data and venue interfaces                    |
 
 Current domain HTTP routers share the `strategy-factory-rd-owner-api` composition root. This does not grant R&D
 other Owners' write authority or prove separately deployed target services. Dashboard, stdio MCP and the build
 sandbox are clients/adapters/support processes, not business departments.
 
-### Registered independent MCP product routes
+#### Registered independent MCP product routes
 
 Source: tool/request mappings in `services/{market-data,strategy-authoring,backtest}-mcp/src/lib.rs`.
 These are all 18 tools across those three MCPs, excluding internal Owner receipts and sealed acceptance endpoints.
@@ -664,43 +748,44 @@ no `dataset_ref` or `cost_profile` fields; target bindings cannot silently enter
 those advertised by tools and checked by Owners. Unsupported/malformed tools, unavailable authority and named domain
 refusals remain failures; adapters cannot turn them into success or autonomously retry business mutations.
 
-### Target domain APIs
+#### Target domain APIs
 
 Names below describe target capabilities and their producers/consumers. Wire versions must be frozen within Owner
 slices. No arbitrary SQL/scripts, cross-private-store reads or direct Agent order APIs are exposed.
 
-| Service           | API capability                                   | Input → output                                                           | Caller and writer                                                            |
-| ----------------- | ------------------------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| Market Data       | Source/instrument describe/admit                 | scope/source → versions, admission or gaps                               | Authorized external requests; data Owner writes                              |
-| Market Data       | External import                                  | Content reference and market/clock declarations → validation/job/custody | Same admission as other sources                                              |
-| Market Data       | Historical preparation/job readback              | Frozen needs/budget → job/progress/input references                      | R&D or admitted direct consumers; durable service work                       |
-| Market Data       | Coverage/exact resolution                        | scope/cut/needs → coverage/gaps/bindings                                 | Internal consumers; descriptions do not mint facts                           |
-| Market Data       | Bounded market/economic reads                    | principal/scope/cut → bounded values/provenance                          | Same transaction protection and read accounting                              |
-| Market Data       | Corrections/membership/calendars                 | Frozen rules/historical cut → versioned facts                            | Executes data rules, not optimal strategy selection                          |
-| Market Data       | Native live subscriptions/status                 | scope/type/config → stream/continuity evidence                           | Native node consumes directly, not Agent polling                             |
-| Backtest          | Admit frozen run                                 | Artifact, trial admission, data/model configuration → job/run            | Exploratory R&D admission; isolated protected jobs                           |
-| Backtest          | Status/results/reports/deterministic differences | Run identities/comparable baselines → results/diagnostics                | No protected details to researchers                                          |
-| Backtest          | Cancellation/unknown resolution                  | Original job/attempt → native terminal or unresolved                     | Cancellation request does not prove cancellation                             |
-| Backtest          | Input/configuration successor replay             | New frozen inputs/configuration and predecessor → run/lineage            | No independent research/input/criteria changes                               |
-| R&D               | Projects/bounds/principals/readback              | Approved scope → project/budget/authority                                | External models; R&D facts                                                   |
-| R&D               | Sources/hypotheses/families/experiments          | Predictions/controls/targets/predecessors → frozen Intent/census         | Registered before inspecting results                                         |
-| R&D               | Native package/version/environment/sealing       | Source/parameters/dependencies/requirements → package/Artifact           | Native Strategy integration; existing tools do not prove delivery            |
-| R&D               | Trial/resource/exposure admission                | Experiment/needs → admitted request/job correlation                      | Atomic project budget; all attempts retained                                 |
-| R&D               | Diagnosis/iteration/stop/selection               | Result/proposals/census → Decision or Selection                          | Agent scientific decisions; checked references and authority                 |
-| R&D               | Knowledge recording/retrieval/review             | Definition/evidence/scope → entries/successors                           | Append only; no inherited eligibility                                        |
-| R&D               | Discovery references/takeover                    | Query/replay references or project → research/takeover records           | No trades, activation proposals or scan schedules                            |
-| Qualification     | Candidate admission/status                       | Separate Selection/Candidate → admission/bounded status                  | Private protected details                                                    |
-| Qualification     | Assessment/eligibility/revocation                | Frozen protocol/evidence → eligibility or binary public negative result  | No deployment, allocation or research mechanism closure                      |
-| Qualification     | Optional record only forward jobs                | Frozen simulation plan → jobs/permitted status                           | Reuses Backtest; no extra engine or mandatory stage                          |
-| Governance        | Eligible catalog/stages/policy reads             | Identity/scope → eligibility/lifecycle views                             | Eligibility is not activation                                                |
-| Governance        | Trial confirmation/lifecycle requests            | Version, user confirmation, frozen policy → decision receipt             | Manual initial trial; separate effect authority                              |
-| Governance        | Condition templates/two pool policy              | Approved template parameters/ratios → frozen version                     | Finite templates; undefined parameters/thresholds still block implementation |
-| Governance        | Evaluation/promotion/unload                      | Versioned performance/risk → stage/allocation decision                   | Automatic frozen condition promotion; residual risk survives unload          |
-| Native Runtime    | Authorized application/readback                  | Authorized generation → application receipt/status                       | Internal control port; external operations is read only                      |
-| Native Risk       | Intent admission/reservation/fences              | Intent/allocation/account facts → risk result                            | Internal native path, no Agent budget write port                             |
-| Native Execution  | Orders/reconciliation/recovery                   | Admitted intent/recovery authority → venue/order/fill/account facts      | Exclusive credentials and venue effects                                      |
-| Native Portfolio  | Account/exposure/performance/capacity            | Fact cut/scope → versioned measurement                                   | External read only, no allocation/orders                                     |
-| Native Operations | Readiness/instances/orders/fills/drift/alerts    | Identity/scope → exact status or unavailable                             | No arbitrary execution, recovery writes or kill switch                       |
+| Service           | API capability                                   | Input → output                                                              | Caller and writer                                                                         |
+| ----------------- | ------------------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Market Data       | Source/instrument describe/admit                 | scope/source → versions, admission or gaps                                  | Authorized external requests; data Owner writes                                           |
+| Market Data       | External import                                  | Content reference and market/clock declarations → validation/job/custody    | Same admission as other sources                                                           |
+| Market Data       | Historical preparation/job readback              | Frozen needs/budget → job/progress/input references                         | R&D or admitted direct consumers; durable service work                                    |
+| Market Data       | Coverage/exact resolution                        | scope/cut/needs → coverage/gaps/bindings                                    | Internal consumers; descriptions do not mint facts                                        |
+| Market Data       | Bounded market/economic reads                    | principal/scope/cut → bounded values/provenance                             | Same transaction protection and read accounting                                           |
+| Market Data       | Corrections/membership/calendars                 | Frozen rules/historical cut → versioned facts                               | Executes data rules, not optimal strategy selection                                       |
+| Market Data       | Native live subscriptions/status                 | scope/type/config → stream/continuity evidence                              | Native node consumes directly, not Agent polling                                          |
+| Backtest          | Admit frozen run                                 | Artifact, trial admission, data/model configuration → job/run               | Exploratory R&D admission; isolated protected jobs                                        |
+| Backtest          | Status/results/reports/deterministic differences | Run identities/comparable baselines → results/diagnostics                   | No protected details to researchers                                                       |
+| Backtest          | Cancellation/unknown resolution                  | Original job/attempt → native terminal or unresolved                        | Cancellation request does not prove cancellation                                          |
+| Backtest          | Input/configuration successor replay             | New frozen inputs/configuration and predecessor → run/lineage               | No independent research/input/criteria changes                                            |
+| R&D               | Projects/bounds/principals/readback              | Approved scope → project/budget/authority                                   | External models; R&D facts                                                                |
+| R&D               | Sources/hypotheses/families/preregistration      | Predictions/controls/targets/predecessors → frozen Intent/census            | Preregister before inspecting results; never retrospectively certify a plan               |
+| R&D               | Host exploratory analysis records/readback       | Test description/conclusion/existing references/limits → exploration record | External provenance; no intermediate files or impersonated preregistration/native results |
+| R&D               | Native package/version/environment/sealing       | Source/parameters/dependencies/requirements → package/Artifact              | Native Strategy integration; existing tools do not prove delivery                         |
+| R&D               | Trial/resource/exposure admission                | Experiment/needs → admitted request/job correlation                         | Atomic project budget; all attempts retained                                              |
+| R&D               | Diagnosis/iteration/stop/selection               | Result/proposals/census → Decision or Selection                             | Agent scientific decisions; checked references and authority                              |
+| R&D               | Knowledge recording/retrieval/review             | Conclusion/evidence/scope/optional code references → entries/successors     | Retrieval across projects of the same user; no inherited eligibility; retain old records  |
+| R&D               | Discovery references/takeover                    | Query/replay references or project → research/takeover records              | No trades, activation proposals or scan schedules                                         |
+| Qualification     | Candidate admission/status                       | Separate Selection/Candidate → admission/bounded status                     | Private protected details                                                                 |
+| Qualification     | Assessment/eligibility/revocation                | Frozen protocol/evidence → eligibility or binary public negative result     | No deployment, allocation or research mechanism closure                                   |
+| Qualification     | Optional record only forward jobs                | Frozen simulation plan → jobs/permitted status                              | Reuses Backtest; no extra engine or mandatory stage                                       |
+| Governance        | Eligible catalog/stages/policy reads             | Identity/scope → eligibility/lifecycle views                                | Eligibility is not activation                                                             |
+| Governance        | Trial confirmation/lifecycle requests            | Version, user confirmation, frozen policy → decision receipt                | Manual initial trial; separate effect authority                                           |
+| Governance        | Condition templates/two pool policy              | Approved template parameters/ratios → frozen version                        | Finite templates; undefined parameters/thresholds still block implementation              |
+| Governance        | Evaluation/promotion/unload                      | Versioned performance/risk → stage/allocation decision                      | Automatic frozen condition promotion; residual risk survives unload                       |
+| Native Runtime    | Authorized application/readback                  | Authorized generation → application receipt/status                          | Internal control port; external operations is read only                                   |
+| Native Risk       | Intent admission/reservation/fences              | Intent/allocation/account facts → risk result                               | Internal native path, no Agent budget write port                                          |
+| Native Execution  | Orders/reconciliation/recovery                   | Admitted intent/recovery authority → venue/order/fill/account facts         | Exclusive credentials and venue effects                                                   |
+| Native Portfolio  | Account/exposure/performance/capacity            | Fact cut/scope → versioned measurement                                      | External read only, no allocation/orders                                                  |
+| Native Operations | Readiness/instances/orders/fills/drift/alerts    | Identity/scope → exact status or unavailable                                | No arbitrary execution, recovery writes or kill switch                                    |
 
 Existing R&D HTTP handoffs additionally cover Source/Research, Composer, Artifact and Replay issuance; see the
 [R&D maturity ledger](../owners/rd/#implementation-status-ledger) and
@@ -817,7 +902,7 @@ The four responsibilities share one native trading node while retaining separate
 
 ### Unattended work, takeover and unknown results
 
-Host timers wake Agents for model-based next-round judgments. Service schedulers drive admitted data, replay and
+The user may use host timers to wake an external Agent for next-round judgments; this host option is not a product scheduler or research admission prerequisite. Service schedulers drive admitted data, replay and
 authorized lifecycle work. MCP/chat closure does not terminate jobs. A new Agent resumes from project bounds, resource
 commitments, trial/read census, Artifacts, jobs and iteration receipts rather than guessing from a prior conversation.
 Same-identity/same-meaning recovery rejoins the same job; separate experiments with identical parameters still count.
@@ -833,12 +918,12 @@ See the [20 research story replays](../scenarios/research/#research-story-replay
 
 Start each development task at one handoff above. Name producer, consumer, input version, fact writer, normal result,
 named refusal, unknown handling and restart readback. Delivery follows the six milestones above: R-1 replay, research efficiency, single-strategy lifecycle, account composition, B3 discovery and finally spot/perpetual carry. Story coverage does not make later stories prerequisites for earlier versions. R-1 orders, partial fills, staged exits and ambiguity resolution extend native replay; changing
-membership or preparing finer data does not move a matching engine into strategy code.
+membership or preparing execution data does not move a matching engine into strategy code.
 
 Accept narrow current entrances, target protocols and whole journeys separately. MCP/type/native API source or a
 local green test proves no target service deployment. Equal pool allocation is a new target policy; sealed priority
 ranking/capped allocation retain their old version meaning, rather than being reinterpreted to implement the new
-policy. Open project, dynamic membership, finer-data successor, funding-signal availability and promotion-stage
+policy. Open project, dynamic membership, native signal aggregation, funding-signal availability and promotion-stage
 contracts need versioned Owner slices before their consumers are developed.
 
 [Product Edge](./product-edge/) defines tools/admission; [capability adoption](./capability-adoption/) defines native

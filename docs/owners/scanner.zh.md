@@ -1,9 +1,9 @@
 # Scanner
 
-## 目标定位与旧契约迁移
+## 产品职责
 
-产品目标不再保留独立 Scanner 部门或由它产生部署提案的路线。按需找币归
-[R&D 只读机会发现](./rd.zh.md#on-demand-read-only-opportunity-discovery)，复用封存策略与原生判断能力；
+产品不保留独立 Scanner 部门或由它产生部署提案的路线。普通找币直接使用 Market Data 查询；
+有历史路径的策略信号使用已登记原生回放，需要研究沉淀时才由 [R&D](./rd.zh.md#on-demand-read-only-opportunity-discovery) 保存发现。
 策略上线、试盘转正、保留与下架由 Strategy Governance 直接根据资格、账户/表现事实和冻结条件决定。
 不为 Governance 新设一个扫描提案生产者，也不将市场机会信号作为策略上线的必要前置。
 
@@ -12,11 +12,13 @@
 移除目标部门不把这个旧路径静默改为无条件激活；迁移用版本化治理条件和原有资格、授权、资金及恢复约束承接，
 旧回执和尝试身份保留，未准入的调度与效果不会因本次设计变成已准入。
 
-## 职责
+## 封存兼容合同
+
+### 兼容接口职责
 
 按固定周期在受治理策略和当前市场条件之间执行慢轨匹配，再向 Strategy Governance 提交绑定证据的部署提案。Scanner 永不激活 Runtime，也不拥有策略生命周期状态。
 
-## 拥有的权威事实
+### 拥有的权威事实
 
 - 版本化 Scanner Schedule Definition 绑定 scan-scope 身份与版本、calendar time zone cadence、时区规则、
   fold/gap disposition、due-slot derivation、misfire/backfill policy、共享时钟和有效期。稳定 attempt 身份只
@@ -31,7 +33,7 @@
 - 其他策略失败或数据不足仍保留在回执中，即使 batch 为 `PROPOSED` 也不会抹掉负面结果。
 - 完整回执的 expected 与 observed 策略集必须相等。不完整 `FAILED` 回执采用互斥分支：expected 成员已知时绑定准确 expected observed 以及 `missing = expected − observed`；成员尚未解析时绑定权威未解析 disposition observed 事实 明确的 missing-members-unavailable 标记和不可变终态原因，绝不编造成员。
 
-## 模块
+### 兼容接口组件
 
 - **Strategy Loader** - 从治理注册表加载可部署 ArtifactRef 激活条件 数据需求 版本和生命周期限制。
 - **Market Snapshot** - 按策略推导外部提供的 universe-selection rule 所需标的与窗口，绑定 PIT 行情
@@ -39,7 +41,7 @@
 - **Strategy Matcher** - 按各自绑定输入评估激活条件，一个策略缺数据或执行失败不得压制其他完整匹配。
 - **Proposal Builder** - 把匹配策略 证据 可选 Capacity View 身份和停止条件封装为可审计提案。
 
-## 实现状态台账
+### 实现状态台账
 
 本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
 `CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本截面上 `IMPLEMENTATION_ADMITTED`
@@ -52,15 +54,15 @@
   `BatchOperationalFailure` 类别、其 Time 与 Governance 成员来源 Owner 准入为 crate 私有的 `Scanner` 服务、
   `TerminalReceiptStore` port，以及 `ProductEdgeTerminalReceiptReader` 读缝。`crates/scanner/src/tests.rs`、
   `crates/scanner/tests/public_owner_admission.rs` 与编译失败测试证明了这一失败关闭形状。
-- **TARGET - 生产装配：** 不存在调度器触发、sealed 来源 Owner 准入的生产构造器、`TerminalReceiptStore` 背后的持久
+- **UNAVAILABLE，兼容接口 - 生产装配：** 不存在调度器触发、sealed 来源 Owner 准入的生产构造器、`TerminalReceiptStore` 背后的持久
   回执 custody，以及 Product Edge 消费者；唯一的外部使用是 `crates/testkit/tests/f1_current_workspace.rs` 里的一个
   类型导入。本条点名的持久 custody 与 Product Edge 消费者即已准入的切片；调度器触发与 sealed 准入构造器不是。
-- **TARGET - Strategy Loader、Market Snapshot 与 Capacity View 输入：** `StrategyLoader` 与 `MarketSnapshot` port 没有
+- **UNAVAILABLE，兼容接口 - Strategy Loader、Market Snapshot 与 Capacity View 输入：** `StrategyLoader` 与 `MarketSnapshot` port 没有
   任何基于受治理注册表、Market Data PIT 事实或 Portfolio Capacity View 的实现。
-- **TARGET - 交接与持久化：** 没有任何终态回执到达 Governance 或 Product Edge，也没有任何 Scanner 事实被持久化。
+- **UNAVAILABLE，兼容接口 - 交接与持久化：** 没有任何终态回执到达 Governance 或 Product Edge，也没有任何 Scanner 事实被持久化。
   本条中 Product Edge 的那一半已准入；到 Governance 的交接没有。
 
-## 输入交接
+### 输入交接
 
 以下每条契约陈述的是 Scanner 要求什么 拒绝什么，而不是上游返回什么。四条缝在本截面上都不存在，台账中
 关于 `StrategyLoader`、`MarketSnapshot` 与 Capacity View 输入的那条已记；满足一条契约是对未来实现的条件，
@@ -68,7 +70,7 @@
 
 - 调度器提供固定周期触发而不提供事实，它没有部署权威。触发不携带任何 Scanner 信任的身份：尝试身份只由
   Schedule Definition 版本 准确的扫描范围身份与版本 以及规范无歧义的到期槽边界导出。重复 并发 重启或迟到的
-  触发并入同一次尝试与同一份终态回执。缺失触发根本不产生尝试，因为没有尝试的回执等于断言发生过一次扫描。
+  触发并入同一次尝试与同一份终态回执。没有触发时，不创建尝试或回执。
   Scanner 绝不让触发创造定义导不出的到期槽，也绝不把触发的时钟纪元纳入稳定身份。
 - [Strategy Governance](./strategy-governance/) 为一个到期槽提供受治理策略前沿：每个成员的准确 ArtifactRef
   Eligibility 激活条件版本 资金封套版本 声明的数据需求与生效区间，与该到期槽相关联，并携带前沿自身的身份与
@@ -90,7 +92,7 @@
   缺陷，也绝不改变任何判定。Scanner 绝不把带策略或带 generation 的 scope 一个 Paper/Live 别名 或一处未解析的
   共享约束重叠，当作条件所指的候选中立 scope。
 
-## 输出交接
+### 输出交接
 
 - 每个定时 ScanId 向 [Strategy Governance](./strategy-governance/) 提交且只提交一个终态 Scanner Receipt，
   绑定稳定的尝试身份，并且只携带 `PROPOSED` `NO_MATCH` `INSUFFICIENT_DATA` `COMPLETED_NO_PROPOSAL` 或
@@ -124,7 +126,7 @@
   或 Capacity View 实现、到 Governance 的回执交接、终态回执以外的任何 Scanner 事实，以及一切生产效应
   部署切换与真实交易。
 
-## 拒绝和禁止事项
+### 拒绝和禁止事项
 
 - Scanner 提案只是证据，不能创建授权血缘 批准无人值守运行或自行合法进入 Runtime。Governance
   只能在既有已授权无人值守生命周期血缘内考虑它，并另外提交生命周期决定。
@@ -134,7 +136,7 @@
 - 不产生 Trade Intent Risk Decision Reservation 或订单命令。
 - 不把部分 过期 不可用 跨 scope，或经济条件 方法 假设 输入截面不匹配的 Capacity View 当作已满足的必需输入。
 
-## 失败与恢复
+### 失败与恢复
 
 单个策略输入不可用或条件错误只把该策略闭合为 `INPUT_UNAVAILABLE` 或 `CONDITION_FAILED`，两者都 不能制造 batch operational failure。 完整集合没有
 `MATCHED` 且至少一个 `CONDITION_FAILED` 时闭合为 `COMPLETED_NO_PROPOSAL`，并保留每个成员。
@@ -158,7 +160,7 @@ batch `FAILED` 只保留给 `INCOMPLETE_FAILED` 或有独立证据的 `BATCH_OPE
 读回还能够到一条准入够不到的不变量：同一份回执里的每条 fact 共用同一个到期槽， 因此它们的 clock epoch 与 Time Evidence 必须全体相等。 准入一条 fact 时看不到第二条
 fact，所以准入路径上没有任何东西能查这一条； 只有整份回执回来之后才查得了。
 
-## 决策契约
+### 决策契约
 
 - **输入** - 一个 due slot、完整受治理 registry frontier、策略激活条件、所需 PIT snapshot 和仅在条件
   要求时使用的 Capacity View。
@@ -172,7 +174,7 @@ fact，所以准入路径上没有任何东西能查这一条； 只有整份回
 - **反馈与经济意义** - 定期发现冻结激活证据当前匹配的策略，避免无价值常驻实例和数据不足造成假匹配。
 - **禁止** - 不拥有 lifecycle 分配 Runtime application Trade Intent 风险 订单 账户或效果。
 
-## 后续实现验收
+### 兼容接口验收
 
 - 每个定时触发都准确产生一个 `PROPOSED` `NO_MATCH` `INSUFFICIENT_DATA`
   `COMPLETED_NO_PROPOSAL` 或 `FAILED` 终态回执。
@@ -197,11 +199,10 @@ fact，所以准入路径上没有任何东西能查这一条； 只有整份回
 - Governance 若基于提案作决定，必须绑定准确 due slot 终态回执 proposal member 和既有无人值守授权
   血缘；不能把 Scanner 的证据输出解释成授权。
 
-## 可观测性与持久化
+### 可观测性与持久化
 
 Scanner 原生持久化 Schedule Definition、稳定 due-slot Attempt、准确输入 frontier、逐策略 disposition、 终态 Scanner Receipt 与
-Proposal；`BATCH_OPERATIONAL_FAILED` 还持久化 batch failure identity、唯一已准入 类别、证据 source cut 与 Time Evidence。 Telemetry
-覆盖调度延迟、attempt 时长、逐策略隔离、缺失输入 类别、聚合完整性和类型化独立 batch operational failure。
+Proposal；`BATCH_OPERATIONAL_FAILED` 还持久化 batch failure identity、唯一已准入 类别、证据 source cut 与 Time Evidence。 已准入消费者需要遥测时，可观测调度延迟、attempt 时长、逐策略隔离、缺失输入 类别、聚合完整性和类型化独立 batch operational failure。
 
-Dashboard 分别统计 condition-failed member、 `COMPLETED_NO_PROPOSAL` 与类型化 batch `FAILED` receipt；retry 必须
+只读消费者可分别统计 condition-failed member、 `COMPLETED_NO_PROPOSAL` 与类型化 batch `FAILED` receipt；retry 必须
 join 同一稳定 attempt，不能重复 增加 scan 或 proposal。

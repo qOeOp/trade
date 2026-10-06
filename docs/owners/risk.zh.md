@@ -41,7 +41,9 @@ lineage 替换而非重复扣除。 新增成员引起额度切换时，在同�
 - 仅新增风险使用的不可变 Reservation Claim Result 只能是 `CONSUMED` `WITHDRAWN` 或 `REJECTED`；claim
   被消费后才有不可变 Adapter Admission Result，只能是 `ADMITTED_ONCE` `SUPPRESSED_BY_FENCE` 或
   `REJECTED`。decrease-only 不创建 claim，但其 `PREPARED` attempt 取得同样三态 Adapter Admission
-  Result。adapter admission 与 recovery fence activation 在同一前沿提交，是正常适配器调用的唯一权威。
+  Result。adapter admission 与 recovery fence activation 在同一前沿提交，是正常适配器调用的唯一权威。原生目标在节点的 RiskEngine 与 pre-submit gate 中承接相同授权和持久承诺性质。
+  `TradingState::Reducing` 是额外的原生检查，不等于完整的逐命令 `PERMIT_DECREASE_ONLY`；
+  scope、方向、数量、当前暴露和不穿越零点的检查仍须执行。既有 claim/admission 记录保留其接口含义。
 - 每个 Portfolio-owned 不可变 Capacity Scope 唯一持久原子序列化 Aggregate Commitment Frontier。它把
   一个一致 Portfolio Risk Evidence Bundle 与所有 held Reservation liability 合并，每条稳定经济
   lineage 只计一次。只有 Risk 计算 usage 与剩余 headroom。
@@ -85,7 +87,7 @@ lineage 替换而非重复扣除。 新增成员引起额度切换时，在同�
   `read_current_capacity_view_v1` 同时授给 `governance_writer` 和 `risk_writer`，`capacity_view_expired_at_v1`
   只授给 `risk_writer`。第三个之所以存在，是因为第二个在"从未发布过视图"与"发布过但已落出有效窗口"两种情形下
   都返回 NULL，而本 Owner 必须在不读 `portfolio_private` 的前提下区分它们；Strategy Governance 从不需要这个
-  区分，这就是它不持有该授权的原因。读者可以直接去那里复核这三条授权，不必采信本句。准入是建造并验证这一条
+  区分，这就是它不持有该授权的原因。准入是建造并验证这一条
   读取的许可，它不授权任何 Risk 决策 任何生产效果 或真实交易。
 - **TARGET - Risk Engine：** `crates/risk/src/engine/mod.rs` 里继承的 `RiskEngine` 执行交易前订单校验、`TradingState`
   的 halt 与 reduce 切换、名义额与速率限制，以及 `crates/risk/src/sizing.rs` 的仓位规模计算；它是 capability adoption

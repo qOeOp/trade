@@ -57,7 +57,9 @@
 - **Order Engine** - 验证许可或恢复围栏，并独占订单创建 修改 撤销和终态管理。
 - **Execution Adapters** - 只准入 Execution Scope 固定的 adapter binding，再转换请求 回执 成交 错误和
   回读；重启时不能改变 endpoint 账户 capability 或 trust policy。
-- **Effect Journal** - 请求准入前先持久化一个稳定 `PREPARED` attempt，只有匹配不可变 `ADMITTED_ONCE` 后才持久化 `INVOCATION_STARTED`，并把全部后续外部效果事实联结到该身份。
+- **Effect Journal** - 兼容接口在准入前持久化 `PREPARED`，获准后在调用前持久化 `INVOCATION_STARTED`。
+  原生目标复用命令及事件身份，在同一 adapter 边界调用前持久绑定准入和调用证据；原生状态或异步日志本身不证明该顺序。
+  后续事实由节点投影以同事务 fact/outbox 提交，保留 Execution Scope 和授权血缘，不另建订单状态机。
 - **Reconciler** - 拥有 Recovery Case 状态与有界 Recovery Command，比较效果与权威回读，联结闭合
   证据，并独占不可变 `KNOWN_CLOSED` 且不恢复交易。
 
@@ -81,8 +83,7 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 - **CURRENT_PARTIAL - `PAPER` recovery-frontier 读契约：** `crates/execution_owner/src/recovery_frontier.rs` 暴露只读的
   `RecoveryFrontierReadPort` 及其 sealed `SealedRecoveryFrontier`，由 Runtime foundation 消费；其背后没有生产
   custody，也没有 Runtime application。唯一能铸出那个 sealed 值的实现是 `#[cfg(test)]`，所以生产里根本没有任何
-  路径能产生一个。这份缺席是被声明的而不是被掩盖的：本行与该模块自己的成熟度常量都写明了，而且 recovery
-  闭环不是已准入切片；诚实声明的未实现，和伪装成已实现的未实现，不是同一件事。
+  路径能产生一个。本行与模块成熟度常量均记录该生产路径缺失；recovery 闭环未获准实现。
 - **TARGET - Order Engine、Effect Journal 与绑定许可的 adapter 准入：** 继承的 `ExecutionEngine`、order manager、
   order emulator、execution client，以及 `crates/adapters` 下的场所 execution client 是 capability adoption 点名的
   迁移来源。不存在 `PREPARED` 或 `INVOCATION_STARTED` 记录、Reservation Claim Request 或 `ADAPTER_ADMISSION_REQUEST`，

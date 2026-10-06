@@ -67,8 +67,10 @@ support or native `manage_gtd_expiry`; GTD→GTC configurations do not guarantee
   replies, fills, errors, and readbacks without changing endpoint, account, capability, or trust policy on restart.
 - **Effect Journal** - persist one stable `PREPARED` attempt before requesting admission, then persist `INVOCATION_STARTED` only after the matching immutable `ADMITTED_ONCE` result and join all later external-effect facts to that identity.
   This order holds until the user-authorized TARGET
-  [trading node](../guide/architecture-rules#target-trading-node) (2026-10-05) lands. There the journal is the
-  inherited order states and raw event log of the node's `ExecutionEngine`. The node's outbox projector turns them
+  [trading node](../guide/architecture-rules#target-trading-node) (2026-10-05) lands. There the journal reuses the
+  native command and event identities. The adapter boundary must persist admission and invocation
+  evidence before the external call; native state or an asynchronous event log alone does not prove
+  that ordering. The node's outbox projector turns them
   into append-only effect, fill and drift facts carrying the Execution Scope and Authorization Lineage. The Order
   Engine is the inherited `ExecutionEngine` and `OrderManager`, and the Reconciler's comparison is the inherited
   reconciliation. Recovery Case state and its audited `KNOWN_CLOSED` closure stay this Owner's own.
@@ -98,9 +100,7 @@ grants nothing, and widening the admitted set requires changing this document fi
 - **CURRENT_PARTIAL - `PAPER` recovery-frontier read contract:** `crates/execution_owner/src/recovery_frontier.rs` exposes
   the query-only `RecoveryFrontierReadPort` and its sealed `SealedRecoveryFrontier`, consumed by the Runtime
   foundation; no production custody or Runtime application exists behind it. The only implementation that can mint
-  that sealed value is `#[cfg(test)]`, so nothing in production can produce one at all. That absence is declared
-  rather than hidden, by this row and by the module's own maturity constant, and the recovery loop is not an
-  admitted slice; an unimplemented capability that says so is not the same thing as one disguised as implemented.
+  that sealed value is `#[cfg(test)]`, so nothing in production can produce one at all. This row and the module's maturity constant record the missing production path. The recovery loop is not admitted.
 - **TARGET - Order Engine, Effect Journal, and permit-bound adapter admission:** the inherited `ExecutionEngine`,
   order manager, order emulator, execution clients, and the venue execution clients under `crates/adapters` are the
   migration sources named by capability adoption. No `PREPARED` or `INVOCATION_STARTED` record, Reservation Claim

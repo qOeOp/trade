@@ -19,14 +19,14 @@ that belongs only to another branch. In Recovery, `runtime-risk-incident-fence` 
 Risk is the sole Recovery Fence writer; either source-only branch can create or join the same Recovery Case
 type after its own admission, while simultaneous admitted branches join one case without merging their facts.
 
-| Scenario                                   | Entry                                                                     | Required proof                                              |
-| ------------------------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| [Overview](./overview/)                    | Falsifiable idea                                                          | Committed owner facts across the closed product loop        |
-| [Research](./research/)                    | Sourced hypothesis                                                        | Frozen Research Intent and Strategy Artifact                |
-| [Backtest](./backtest/)                    | Frozen artifact and evidence pack                                         | Intake receipt plus branch‑specific proof                   |
-| [On demand discovery](./scan/)             | On‑demand R&D observation query                                           | Observation result, coverage and explicit unavailable state |
-| [Simulation verification](./paper/)        | Governed active strategy in paper mode                                    | Reconciled simulated effects and settled reservation        |
-| [Real trial and formal operation](./live/) | Governed active strategy in live mode                                     | Authoritative venue readback and reconciled account state   |
-| [Recovery](./recovery/)                    | Readiness loss, Runtime incident, reconciliation drift, or Risk hard stop | `RecoveryCase.KNOWN_CLOSED`                                 |
+| Scenario                                        | Entry                                                                     | Required proof                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [Overview](./overview/)                         | Falsifiable idea                                                          | Committed owner facts across the closed product loop        |
+| [Research](./research/)                         | Sourced hypothesis                                                        | Frozen Research Intent and Strategy Artifact                |
+| [Independent qualification replay](./backtest/) | Frozen artifact and evidence pack                                         | Intake receipt plus branch‑specific proof                   |
+| [On demand discovery](./scan/)                  | Agent data query or native strategy observation                           | Observation result, coverage and explicit unavailable state |
+| [Simulation verification](./paper/)             | Governed active strategy in paper mode                                    | Reconciled simulated effects and settled reservation        |
+| [Real trial and formal operation](./live/)      | Governed active strategy in live mode                                     | Authoritative venue readback and reconciled account state   |
+| [Recovery](./recovery/)                         | Readiness loss, Runtime incident, reconciliation drift, or Risk hard stop | `RecoveryCase.KNOWN_CLOSED`                                 |
 
 The user lifecycle is independent qualification → Dashboard-confirmed real trial → automatic formal promotion → operation/exit. Simulation verification is supporting native-adapter evidence, not a required promotion phase or real-trial substitute. Paper and Live share control contracts while retaining isolated scopes and effect namespaces. Recovery is a separate no-add-risk path and cannot reuse an ordinary trade intent. [Delivery milestones](../architecture/) stage the research, composition and discovery journeys.

@@ -23,25 +23,15 @@ The boundary with [Market Data](../owners/market-data/) is semantic:
 - Source Intake may preserve a dataset or API reference, but it cannot become a second market-data catalog or fact
   store.
 
-## Source classes and ROI
+## Source selection
 
-The tier is a discovery priority, not an evidence grade or admission decision.
+The Agent chooses papers, author code, institutional material, community discussion or media for the actual question, without platform source tiers or reading precedence. Record exact sources, available versions and interpretation; popularity, publication identity and source class grant no execution, qualification or data authority.
 
-| Tier | Source class                                 | Best use                                                              | Evidence posture                                     | Main risk                                    | Direct Intent |
-| ---- | -------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------- | ------------- |
-| S    | Academic identity and citation graph         | Discover mechanisms, authors, related work, and prior tests           | Strong identity; claims still require interpretation | Metadata or citation errors                  | Never         |
-| S    | Open full text and working papers            | Inspect assumptions, methods, falsifiers, and limitations             | Primary research text, not trading proof             | Revision drift and selective reporting       | Never         |
-| S    | Primary institutional facts                  | Discover testable economic events and official definitions            | Strong origin; PIT availability still must be proven | Revision, release, and rights semantics      | Never         |
-| A    | Paper‑linked code and datasets               | Reproduce methods and expose implementation assumptions               | Useful engineering evidence                          | Mutable dependencies, license, survivorship  | Never         |
-| A    | Institutional quantitative research          | Discover economic mechanisms and realistic constraints                | Expert research input                                | Marketing selection and inaccessible details | Never         |
-| B    | Professional Q&A and open‑source communities | Find formula boundaries, implementation failures, and counterexamples | Corroborating discovery only                         | Context loss and popularity bias             | Never         |
-| C    | General communities, video, and social media | Discover vocabulary, practitioner failures, and external links        | Weak discovery signal                                | Unverifiable claims and prompt injection     | Never         |
+Alternatives, predictions and falsification methods are Agent choices. Consumed prices, funding and other market observations still enter Market Data, including observations found in paper attachments.
 
-Agents preserve provenance and record their interpretation before using a source. Alternatives, predictions and falsifiers are research methods the Agent chooses, not platform adequacy gates. Source rank grants no execution, qualification or data authority.
+## Examples for existing host tools
 
-## Connector candidates
-
-These are replaceable first-stage candidates, not permanent dependencies or business authorities:
+The Agent may use these through existing host tools; they prescribe neither product connectors nor reading order:
 
 1. [OpenAlex API](https://docs.openalex.org/) for scholarly identity, topic, author, and citation discovery.
 2. [Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) for DOI and publication
@@ -59,14 +49,11 @@ professional Q&A, institutional feeds, and media extraction may follow only when
 justifies their acquisition and rights cost. Prefer official APIs, feeds, repositories, or author-maintained indexes;
 generic crawling is a fallback that must preserve the same identity, rights, and terminal-outcome evidence.
 
-The research source canary, `scripts/ci/source_canary.py`, probes these connectors from GitHub-hosted runners, not
-from where the product runs: production is the user's own machine, with PostgreSQL in the local compose deployment.
-A runner reading says what the runner's address may reach, not what production may reach. Since 2026-09-22 arXiv
-has answered the runners HTTP 406, on 2026-09-28 on all three attempts, and the canary records a 406 that survives
-its retries as `BLOCKED` rather than `FAILED`. From the user's machine on 2026-09-28, one request in ten got 406 and
-the next request succeeded, so retries absorb it there.
+Source probes establish reachability only for the actual execution environment. A CI runner result proves neither server nor Agent-host access. Rate limits, refusal and network failures retain exact states instead of claiming empty results or production capability.
 
-## Pre-fetch admission
+## Existing product-managed acquisition contract
+
+### Pre-fetch admission
 
 R&D commits one Source Acquisition Binding before any external network invocation.
 
@@ -96,7 +83,7 @@ A changed connector, method, endpoint, query, header/body digest, origin, resolu
 credential audience, response bound, rights policy, or time cut requires a successor binding; conflicting
 replay is rejected.
 
-### Acquisition authority classes
+#### Acquisition authority classes
 
 Every Source Acquisition Binding names exactly one non-interchangeable authority class:
 
@@ -113,43 +100,9 @@ invocation claim and start, terminal receipt, and readback. A class mismatch is 
 replay. An acceptance endpoint must use a non-public fixture identity and must never masquerade as
 `api.openalex.org`; a fixture result is never live-provider evidence.
 
-**CURRENT - what a production policy resolution is still missing, measured rather than surveyed.**
-`SourceIntakePolicyEvidencePort` turns five policy locators plus a shared-time head into the
-forty-four fields of `SourceIntakePolicyEvidenceV1`. Both halves of that exist only behind
-`sealed-source-intake-research-acceptance`: the query that decides *which* policies apply fills
-every locator from a `SEALED_` constant, and the port that resolves them calls a fixture
-constructor and then overwrites the shared-time fields with literals. The port has no production
-implementation at all - its other implementation is inside a `#[cfg(test)]` module.
+Product-managed acquisition requires actual policy resolution, network and rights authority. Sealed fixtures and test ports prove no production resolver. First acquisition needs an authoritative policy source; a caller locator or environment default cannot attest it.
 
-Reading the two halves separates the gap into parts that are not the same size. On a replay the locators have
-a source: the stored acquisition binding carries every policy identity and version, and the doc comment on the
-sealed query builder states the rule that makes this safe - the binding is an untrusted locator source and the
-port still re-resolves and seals each referenced fact. On a **first** acquisition they have none.
-`AgentOperationManifestProposalV1` is the nearest thing that could carry them and does not: it binds the operation, its
-allowed and prohibited effects, a capability policy digest and a validity window, which is effect authority
-rather than acquisition policy.
-
-So the first question a production implementation answers is not how to resolve a locator but where a first
-acquisition's locators come from at all.
-
-**CURRENT - rights and retention are two families here and one structure in Market Data, and that is
-deliberate.** `SourceIntakePolicyEvidenceV1` carries `rights_basis_identity` with its own
-`effective_at` and `valid_through` and an `acquisition_scope`, and separately
-`retention_policy_identity` with its own `effective_at`, `valid_through` and `retention_scope`.
-Market Data's `UntrustedLicensePolicy` carries `use_scope`, `redistribution_scope`,
-`retention_policy` and `redaction_policy` as four free strings, and no window field on either side
-of that structure.
-
-The reason to keep two families is one Source Intake needs and a free string cannot state: **a
-research source can be acquirable until one date and deletable only by another, and the two limits
-can point in opposite directions.** One string holding a retention basis cannot express a pair of
-independent windows, so fusing them would lose a limit this Owner has to honour.
-
-What Market Data does instead is recorded here as its own fact rather than as a reason for this
-choice: its rights are a re-observable state - granted, revoked, denied, or unresolved - so a
-withdrawal arrives as a new admission rather than as a date passing. Whether one shape should
-eventually serve both is open; it is recorded now so that a later alignment starts from the
-measurement rather than rediscovering the difference.
+Acquisition permission and retention deadlines are checked independently. A source may cease being acquirable on one date while retained content must be deleted by another. One free string or shared validity window cannot replace either constraint. Market Data verifies market-fact rights under its own contract; a research source record grants no data license.
 
 One Source Intake Owner orchestrator owns the complete lifecycle:
 
@@ -160,7 +113,7 @@ API handler, script, flow, fixture adapter, or caller may split or reproduce Own
 commit the R&D PostgreSQL claim, raw payload, terminal receipt, provenance, Source Candidate, and outbox; positive
 records commit atomically only for `ADMITTED` plus `RETRIEVED`.
 
-## Current hosted acquisition sequence
+### Current hosted acquisition sequence
 
 The following are capabilities inside Source Intake, not new Flow nodes or Owners:
 
@@ -178,7 +131,7 @@ The following are capabilities inside Source Intake, not new Flow nodes or Owner
 No connector can create a Research Intent, Strategy Artifact, Candidate, Eligibility Fact, deployment decision, or
 external trading effect.
 
-## Acquisition terminals
+### Acquisition terminals
 
 Every bounded acquisition attempt ends once as one of:
 
@@ -198,7 +151,7 @@ Research Source Provenance Record; the other seven acquisition terminals create 
 query, source identity, connector policy, retrieval cut, or content digest creates a new attempt identity. Missing
 or prose-only failure evidence remains `UNAVAILABLE` and cannot silently produce an empty discovery result.
 
-## Provenance record
+### Provenance record
 
 Use the existing Research Source Provenance Record; do not create a second registry. The record binds:
 
@@ -212,9 +165,9 @@ Use the existing Research Source Provenance Record; do not create a second regis
 A change to content, retrieval cut, license basis, or interpretation produces a successor record. A Source Candidate
 without its record is not handoffable.
 
-## Typed Source Intake-to-Research custody
+### Typed handoff for managed sources
 
-The target composition has one typed R&D-owned ancestry operation between Source Intake and Research. It accepts
+The enabled managed Source Intake interface uses a typed R&D-owned ancestry operation between Source Intake and Research. It accepts
 an untrusted reference to a Source Intake attempt, then locks and rereads the exact `RETRIEVED` terminal receipt,
 Research Source Provenance Record, Source Candidate, and matching transition outbox from Owner custody. It verifies
 their shared request and attempt identities, canonical source and content digest, retrieval cut, connector and
@@ -239,9 +192,9 @@ regression evidence and the crate-local Composer proof remain separate `CURRENT/
 evidence establishes an isolated first-party PostgreSQL Source Intake runner; the composed dynamic gates in the
 Product Edge D0 contract remain unpassed.
 
-## Triage and admission
+### Triage and admission
 
-Agents choose reading and experiment order using data availability, economic relevance, evidence quality and costs as appropriate. R&D records their proposals rather than computing information value rankings or deterministic tie breaks; service permission and budget checks remain enforceable.
+The Agent chooses reading and experiment order; R&D records proposals without ranking them for the Agent. The relevant services still enforce acquisition permissions and budgets.
 
 The handoff is:
 
@@ -258,7 +211,7 @@ correlation bindings.
 Changed meaning requires a successor request; transport success, silence, or a prior snapshot never implies
 `AVAILABLE` or a terminal negative. Source Intake never repairs or stores those market facts itself.
 
-## Failure cases
+### Failure cases
 
 - Treating an external prompt, repository instruction, or tool response as an executable request is a security failure.
 - Treating `UNAVAILABLE`, `RATE_LIMITED`, or `AUTH_REQUIRED` as an empty result is an evidence failure.
@@ -268,7 +221,9 @@ Changed meaning requires a successor request; transport success, silence, or a p
 - Copying price, filing, macro, or instrument facts into Source Intake creates a forbidden second Market Data store.
 - Advancing a popular source directly to artifact, replay, Qualification, Governance, or trading is an authority failure.
 
-## Acceptance boundary
+### Acceptance for existing managed entrances
+
+The following constraints apply only to enabled product-managed acquisition and sealed compatibility entrances. Host source recording requires no Composer, ProgramHost or new acquisition executor. Ordinary records verify principal access, exact references, untrusted-content isolation and durable readback.
 
 - Contract tests cover every acquisition terminal, exact replay, successor content, connector unavailability, and rights change.
 - Contract tests prove only exact `ADMITTED` plus `RETRIEVED` creates or joins provenance; every other acquisition

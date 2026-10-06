@@ -19,8 +19,8 @@ Recovery 中，`runtime-risk-incident-fence` 把 `runtime-incident-fact` 提交�
 | ----------------------------- | ------------------------------------------- | ------------------------------------------- |
 | [全景](./overview/)           | 可证伪想法                                  | 产品闭环中已提交的 Owner 事实               |
 | [研究](./research/)           | 带来源假设                                  | 冻结的 Research Intent 与 Strategy Artifact |
-| [回测](./backtest/)           | 冻结工件和证据包                            | Intake Receipt 与分支证明                   |
-| [按需发现](./scan/)           | R&D 按需只读发现请求                        | 发现结果、覆盖与明确不可用状态              |
+| [独立资格回测](./backtest/)   | 冻结工件和证据包                            | Intake Receipt 与分支证明                   |
+| [按需发现](./scan/)           | Agent 按需查询或原生策略观察                | 发现结果、覆盖与明确不可用状态              |
 | [模拟验证](./paper/)          | 治理已激活的模拟策略                        | 已对账模拟效果与已结算风险预留              |
 | [真实试盘与正式运行](./live/) | 治理已激活的实盘策略                        | 权威场所回读与已对账账户状态                |
 | [恢复](./recovery/)           | 就绪丢失 Runtime 事故 对账漂移 或 Risk 硬停 | `RecoveryCase.KNOWN_CLOSED`                 |
