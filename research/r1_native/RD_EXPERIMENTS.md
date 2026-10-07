@@ -25,6 +25,7 @@ This file records source observations, diagnostic hypotheses, exact data/result 
 - **D08 - 37-coin daily-rule parity:** registered extension of the same deterministic source-rule count check to the exact-source R-1u paired run, rebuilding only its daily input candles from the already-used native catalogs. No economic read or new orders are produced.
 - **D09 - native bracket-price parity:** registered read-only join of the frozen daily signal plan to all entry/stop/target orders in the exact-source R-1u report, including actual-fill reward/risk drift. It makes no replacement fills or returns.
 - **D10 - favorable-open opportunity:** registered read-only join of native filled R-1u entries to their five-minute LAST fill bars, counting openings through the submitted limit while retaining native fills and account PnL.
+- **S06 - additional primary-video source cases:** registered two TradingView Ronnie originals about DOGE support and ETH support loss. Acquire and inspect actual speech and frames before taking any new rule from them.
 
 This is a census of observed work in this Goal, not proof that every external/local historical Ronnie experiment is discoverable. Each later attempt must append a row, including failures and partial reads. All annual variants overlap the same exposed year; no row can be relabeled as an independent holdout after viewing its result.
 
@@ -140,6 +141,10 @@ H03: 989 signals, 562 native positions, 555 closed, 209 positive (**37.6577%**),
 ## Source access S05: author education and a further case
 
 The author's [YouTube listing about identifying support/resistance and standard entry actions](https://www.youtube.com/watch?v=DnReahUuAyk) appears relevant to level selection, but the current `bilibili-note-mcp` CLI returned `UNSUPPORTED_URL / url_authority_unsupported`; a page fetch did not deliver the video. An additional [Bilibili author case on what counts as a BTC break](https://www.bilibili.com/video/BV1aN6eBEEpB/) returned `SOURCE_UNAVAILABLE / source_metadata_rejected`; the page fetch returned HTTP 412. These are acquisition outcomes, not parsed speech or chart evidence. Do not infer thresholds, level-selection algorithms or profitable rules from the titles. S01-S04 remain the only parsed original videos for this Goal.
+
+## Source access S06: support reaction versus failed support
+
+**Selection registered before media acquisition:** The frozen first-party `research/ronnie/tv/video_ideas.jsonl.gz` at `0725a7b3f89902e27cd421a18b4b879a13268534` identifies Ronnie_Dong's original [2024-11-19 DOGE support video](https://video-ideas.tradingview.com/1/1416280-f1hAXIls3Y2mrc7q.mp4) (`MZNspcsN`) and [2025-03-10 ETH support-loss video](https://video-ideas.tradingview.com/1/1416280-RDuLm44RB_k-HCh2.mp4) (`Zlp57IP3`). Their titles suggest contrasting situations, but are **not** evidence of what he said or drew. Run the existing `video-note-mcp` at fast quality on each primary MP4; retain transcript, original frame paths, acquisition identity and failures. Inspect when he regards support as valid, what confirms a break, whether an entry is a resting limit or awaits a close/retest, the structural stop, target room and direction context. Where audio or pixels do not establish a rule, mark it unknown. Do not use these old spot-chart prices as Binance perpetual fills or score a new strategy merely because a chart looks favorable. Add source-case predictions before any annual PnL read for a proposed variant.
 
 ## Diagnostic D06: H03 stopped trades that first reached +1R
 
