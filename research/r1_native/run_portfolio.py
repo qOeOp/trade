@@ -226,7 +226,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--signal-variant",
-        choices=("daily-pivot", "box-4h", "box-edge-4h", *LINE_VARIANTS),
+        choices=("daily-pivot", "daily-pivot-outer-4h", "box-4h", "box-edge-4h", *LINE_VARIANTS),
         default="daily-pivot",
     )
     parser.add_argument(
@@ -316,7 +316,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 trade_start_ns=trade_start,
                 historical_daily_bars=(
                     _warmup(args.daily_root, row, start)
-                    if args.signal_variant == "daily-pivot"
+                    if args.signal_variant in ("daily-pivot", "daily-pivot-outer-4h")
                     else []
                 ),
                 execution_bar_minutes=5,
@@ -423,6 +423,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.exit_variant == "staged-r1s"
                 else "R-1u"
                 if args.signal_variant == "daily-pivot"
+                else "H12-daily-pivot-outer-4h"
+                if args.signal_variant == "daily-pivot-outer-4h"
                 else "H03-box-4h"
                 if args.signal_variant == "box-4h"
                 else "H10-box-edge-4h"
@@ -484,6 +486,15 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     "counts": row["counts"],
                     "signals": strategies[row["coin"]].signals,
                     "box_breaks": strategies[row["coin"]].box_breaks,
+                    "outer_context": (
+                        {
+                            "admitted": strategies[row["coin"]].outer_context_admitted,
+                            "rejected": strategies[row["coin"]].outer_context_rejected,
+                            "missing": strategies[row["coin"]].outer_context_missing,
+                        }
+                        if args.signal_variant == "daily-pivot-outer-4h"
+                        else None
+                    ),
                     "box_edge": (
                         {
                             "plans": strategies[row["coin"]].box_edge_plans,

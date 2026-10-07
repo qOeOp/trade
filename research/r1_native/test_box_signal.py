@@ -7,10 +7,12 @@ from types import SimpleNamespace
 
 from r1s_strategy import R1StagedStrategy
 from strategy import BOX_BARS
+from strategy import DAY_NS
 from strategy import FOUR_HOUR_NS
 from strategy import FourHour
 from strategy import R1Strategy
 from strategy import confirmed_box_break
+from strategy import outer_range_allows
 from strategy import prospective_box_edge
 
 
@@ -24,6 +26,19 @@ def _range_bars():
 
 
 class BoxSignalCases(unittest.TestCase):
+    def test_daily_outer_context_uses_only_prior_completed_day(self):
+        history = [FourHour(i * FOUR_HOUR_NS, 100.0, 90.0, 95.0) for i in range(1, BOX_BARS + 1)]
+        history.extend(
+            FourHour(i * FOUR_HOUR_NS, 110.0, 80.0, 95.0) for i in range(BOX_BARS + 1, BOX_BARS + 7)
+        )
+        available_ns = BOX_BARS * FOUR_HOUR_NS + DAY_NS
+        assert outer_range_allows(history, available_ns, 101.0, 1) is True
+        assert outer_range_allows(history, available_ns, 100.0, 1) is False
+        assert outer_range_allows(history, available_ns, 89.0, -1) is True
+        assert outer_range_allows(history, available_ns, 90.0, -1) is False
+        assert outer_range_allows(history[1:], available_ns, 101.0, 1) is None
+        assert outer_range_allows(history[:59] + history[60:], available_ns, 101.0, 1) is None
+
     def test_close_beyond_repeated_upper_edge_arms_role_reversal(self):
         history = _range_bars()
         current = FourHour(BOX_BARS * FOUR_HOUR_NS, 102.0, 99.0, 101.0)

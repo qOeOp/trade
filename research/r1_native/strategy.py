@@ -127,6 +127,30 @@ def prospective_box_edge(history: list[FourHour], current: FourHour, atr: float)
     return None
 
 
+def outer_range_allows(
+    history: list[FourHour],
+    available_ns: int,
+    close: float,
+    side: int,
+) -> bool | None:
+    """
+    Classify a daily break against the four-hour range known before its day.
+    """
+    cutoff = available_ns - DAY_NS
+    prior = [bar for bar in history if bar.ts_event <= cutoff][-BOX_BARS:]
+    if (
+        len(prior) != BOX_BARS
+        or prior[-1].ts_event != cutoff
+        or any(b.ts_event - a.ts_event != FOUR_HOUR_NS for a, b in pairwise(prior))
+    ):
+        return None
+    return (
+        close > max(bar.high for bar in prior)
+        if side == 1
+        else close < min(bar.low for bar in prior)
+    )
+
+
 class R1Strategy(Strategy):
     def __new__(
         cls,
@@ -165,7 +189,12 @@ class R1Strategy(Strategy):
             f"{instrument_id}-{execution_bar_minutes}-MINUTE-LAST-EXTERNAL",
         )
         self.execution_bar_minutes = execution_bar_minutes
-        if signal_variant not in ("daily-pivot", "box-4h", "box-edge-4h"):
+        if signal_variant not in (
+            "daily-pivot",
+            "daily-pivot-outer-4h",
+            "box-4h",
+            "box-edge-4h",
+        ):
             raise ValueError("unsupported R-1 signal variant")
         self.signal_variant = signal_variant
         self.four_hour_bar_type = BarType.from_str(
@@ -176,6 +205,9 @@ class R1Strategy(Strategy):
         self.box_edge_plans = 0
         self.box_edge_invalid_price_skips = 0
         self.box_edge_time_exits = 0
+        self.outer_context_admitted = 0
+        self.outer_context_rejected = 0
+        self.outer_context_missing = 0
         self.trade_size = trade_size
         if risk_budget_fraction is not None and not 0 < risk_budget_fraction < 1:
             raise ValueError("risk budget fraction must be between zero and one")
@@ -216,12 +248,18 @@ class R1Strategy(Strategy):
         if self.instrument is None:
             raise RuntimeError(f"missing instrument {self.instrument_id}")
         self.subscribe_bars(self.minute_bar_type)
-        if self.signal_variant == "daily-pivot":
+        if self.signal_variant in ("daily-pivot", "daily-pivot-outer-4h"):
             self.subscribe_bars(
                 BarType.from_str(
                     f"{self.daily_bar_type}@{self.execution_bar_minutes}-MINUTE-EXTERNAL",
                 ),
             )
+            if self.signal_variant == "daily-pivot-outer-4h":
+                self.subscribe_bars(
+                    BarType.from_str(
+                        f"{self.four_hour_bar_type}@{self.execution_bar_minutes}-MINUTE-EXTERNAL",
+                    ),
+                )
             for bar in self.historical_daily_bars:
                 self._on_daily_bar(bar)
         else:
@@ -239,7 +277,16 @@ class R1Strategy(Strategy):
         if bar.bar_type == self.daily_bar_type:
             self._on_daily_bar(bar)
         elif bar.bar_type == self.four_hour_bar_type:
-            self._on_four_hour_bar(bar)
+            if self.signal_variant == "daily-pivot-outer-4h":
+                self._record_outer_context_bar(bar)
+            else:
+                self._on_four_hour_bar(bar)
+
+    def _record_outer_context_bar(self, bar: Bar) -> None:
+        self.four_hour_history.append(
+            FourHour(bar.ts_event, float(bar.high), float(bar.low), float(bar.close)),
+        )
+        self.four_hour_history = self.four_hour_history[-(BOX_BARS + 6) :]
 
     def _on_four_hour_bar(self, bar: Bar) -> None:
         candle = FourHour(
@@ -369,6 +416,20 @@ class R1Strategy(Strategy):
     def _arm(self, ts_event: int, side: int, level: float, edge: float) -> None:
         if self.trade_start_ns is not None and ts_event < self.trade_start_ns:
             return
+        if self.signal_variant == "daily-pivot-outer-4h":
+            admitted = outer_range_allows(
+                self.four_hour_history,
+                ts_event,
+                self.days[-1].close,
+                side,
+            )
+            if admitted is None:
+                self.outer_context_missing += 1
+                return
+            if not admitted:
+                self.outer_context_rejected += 1
+                return
+            self.outer_context_admitted += 1
         atr = self.atr.value
         zone = max(edge, level - atr) if side == 1 else min(edge, level + atr)
         stop = zone - side * STOP_BUFFER_ATR * atr
