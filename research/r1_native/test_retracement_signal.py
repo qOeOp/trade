@@ -20,6 +20,25 @@ def _bars(*, second_support: bool = True, untouched: bool = True):
 
 
 class RetracementSignalCases(unittest.TestCase):
+    def test_prior_resistance_highs_need_confirmed_break_before_pullback(self):
+        bars = [FourHour(i * FOUR_HOUR_NS, 104.0, 100.0 + i * 0.01, 103.0) for i in range(198)]
+        for index in (80, 90):
+            bars[index] = FourHour(index * FOUR_HOUR_NS, 105.3, 100.0 + index * 0.01, 103.0)
+        bars[100] = FourHour(100 * FOUR_HOUR_NS, 104.0, 90.0, 103.0)
+        bars[185] = FourHour(185 * FOUR_HOUR_NS, 130.0, 110.0, 115.0)
+        state = ConfirmedSupportPullback(timing="confirmed-update", support_mode="prior-highs")
+        plans = [plan for bar in bars if (plan := state.on_closed(bar, 1.0)) is not None]
+        assert len(plans) == 1
+        assert plans[0].support_kind == "old-resistance-highs"
+        assert plans[0].support_high_indices == (80, 90)
+        assert plans[0].support_low_indices == ()
+        assert (plans[0].a_index, plans[0].b_index) == (100, 185)
+
+        no_break = bars.copy()
+        no_break[185] = FourHour(185 * FOUR_HOUR_NS, 130.0, 105.285, 105.29)
+        failed = ConfirmedSupportPullback(timing="confirmed-update", support_mode="prior-highs")
+        assert all(failed.on_closed(bar, 1.0) is None for bar in no_break)
+
     def test_confirmed_support_pivots_precede_high_and_reject_ordinary_lows(self):
         bars = _bars()
         confirmed = ConfirmedSupportPullback(

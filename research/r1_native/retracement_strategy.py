@@ -38,6 +38,8 @@ class RetracementPlan:
     stop: float
     target: float
     support_low_indices: tuple[int, ...]
+    support_high_indices: tuple[int, ...] = ()
+    support_kind: str = "prior-lows"
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -56,12 +58,13 @@ class ConfirmedSupportPullback:
     ) -> None:
         if timing not in ("near-tier", "immediate", "confirmed-update"):
             raise ValueError("unsupported support-pullback timing")
-        if support_mode not in ("all-lows", "confirmed-pivots"):
+        if support_mode not in ("all-lows", "confirmed-pivots", "prior-highs"):
             raise ValueError("unsupported support-pullback support mode")
         self.timing = timing
         self.support_mode = support_mode
         self.candles: list[FourHour] = []
         self.low_pivots: list[int] = []
+        self.high_pivots: list[int] = []
         self.planned_pairs: set[tuple[int, int]] = set()
         self.last_readout: dict | None = None
         self.plans = 0
@@ -90,6 +93,58 @@ class ConfirmedSupportPullback:
         window = self.candles[j - PIVOT_ORDER : j + PIVOT_ORDER + 1]
         if self.candles[j].low == min(bar.low for bar in window):
             self.low_pivots.append(j)
+        if self.candles[j].high == max(bar.high for bar in window):
+            self.high_pivots.append(j)
+
+    def _support_at(
+        self,
+        i: int,
+        b: int,
+        entry: float,
+        prior_atr: float,
+        row: dict,
+    ) -> tuple[int, ...] | None:
+        if self.support_mode == "all-lows":
+            candidates = range(i - ANCHOR_LOOKBACK + 1, b)
+        else:
+            pivots = self.high_pivots if self.support_mode == "prior-highs" else self.low_pivots
+            candidates = (j for j in pivots if i - ANCHOR_LOOKBACK + 1 <= j and j + PIVOT_ORDER < b)
+        support = tuple(
+            j
+            for j in candidates
+            if abs(
+                (
+                    self.candles[j].high
+                    if self.support_mode == "prior-highs"
+                    else self.candles[j].low
+                )
+                - entry,
+            )
+            <= SUPPORT_BAND_ATR * prior_atr
+        )
+        row["support_low_indices"] = support if self.support_mode != "prior-highs" else ()
+        row["support_high_indices"] = support if self.support_mode == "prior-highs" else ()
+        if not any(later - earlier >= MIN_ANCHOR_SPAN for earlier in support for later in support):
+            self.no_support += 1
+            row["reason"] = (
+                "no-prior-separated-resistance-highs"
+                if self.support_mode == "prior-highs"
+                else "no-prior-separated-horizontal-support"
+            )
+            return None
+        if self.support_mode == "prior-highs":
+            old_high = max(self.candles[support[0]].high, self.candles[support[-1]].high)
+            breaks = tuple(
+                j
+                for j in range(support[-1] + PIVOT_ORDER + 1, i + 1)
+                if self.candles[j].close > old_high
+            )
+            row["old_resistance_break_indices"] = breaks
+            if not breaks:
+                self.no_support += 1
+                row["reason"] = "old-resistance-not-closed-above"
+                return None
+        return support
 
     def _evaluate(self, i: int, prior_atr: float | None) -> tuple[RetracementPlan | None, dict]:
         row: dict = {"index": i, "reason": None, "impulse": None, "plan": None}
@@ -128,22 +183,8 @@ class ConfirmedSupportPullback:
             "level_764": level_764,
             "stop": stop,
         }
-        support_candidates = (
-            range(i - ANCHOR_LOOKBACK + 1, b)
-            if self.support_mode == "all-lows"
-            else (
-                j for j in self.low_pivots if i - ANCHOR_LOOKBACK + 1 <= j and j + PIVOT_ORDER < b
-            )
-        )
-        support = tuple(
-            j
-            for j in support_candidates
-            if abs(self.candles[j].low - entry) <= SUPPORT_BAND_ATR * prior_atr
-        )
-        row["support_low_indices"] = support
-        if not any(later - earlier >= MIN_ANCHOR_SPAN for earlier in support for later in support):
-            self.no_support += 1
-            row["reason"] = "no-prior-separated-horizontal-support"
+        support = self._support_at(i, b, entry, prior_atr, row)
+        if support is None:
             return None, row
         candle = self.candles[i]
         if self.timing == "near-tier":
@@ -180,7 +221,9 @@ class ConfirmedSupportPullback:
             level_764,
             stop,
             high,
-            support,
+            support if self.support_mode != "prior-highs" else (),
+            support if self.support_mode == "prior-highs" else (),
+            "old-resistance-highs" if self.support_mode == "prior-highs" else "prior-lows",
         )
         row["plan"] = plan.as_dict()
         return plan, row

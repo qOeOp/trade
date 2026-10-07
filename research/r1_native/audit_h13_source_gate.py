@@ -94,7 +94,11 @@ def _source_case(
                         "all_tiers_in_source_bands": _inside_bands(one, case["bands"]),
                         "prior_support_times": [
                             _utc(state.candles[index].ts_event)
-                            for index in one["support_low_indices"]
+                            for index in (
+                                one["support_high_indices"]
+                                if one["support_kind"] == "old-resistance-highs"
+                                else one["support_low_indices"]
+                            )
                         ],
                     }
                     for one in active
