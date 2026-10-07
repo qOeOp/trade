@@ -188,9 +188,9 @@ grants nothing, and widening the admitted set requires changing this document fi
   Qualification detail.
 - To [Portfolio](./portfolio/): account, order, fill, fee, authoritative venue facts, stable settlement/readback
   lineage, and the exact finite Execution Quality Observation used by Portfolio projection and attribution.
-- To [Strategy Governance](./strategy-governance/): directly readable committed Reconciliation Drift Facts; Event Rail is only a wake hint.
+- To [Strategy Governance](./strategy-governance/): directly readable committed Reconciliation Drift Facts; notifications are only wake hints.
 - To [Strategy Governance](./strategy-governance/): immutable `RecoveryCase.KNOWN_CLOSED` before any fresh generation decision.
-- To Event Rail: committed order, fill, and reconciliation events as wake-up hints.
+- To subscribers: committed order, fill, and reconciliation events as wake-up hints.
 
 ## Rejections and prohibitions
 

@@ -7,7 +7,7 @@
 - 产品全景包含六组职责：Market Data、Backtest、R&D、Qualification、Governance 和 Native Trading Node。原生节点包含 Runtime、Risk、Execution 和 Portfolio，共九个业务 Owner。
 - 每组可展开内部组件；视觉分组不要求独立进程，也不创建重复的原生引擎。
 - Strategy Factory 是价值流边界。R&D 是同时包含 Research 与 Develop 能力的一个业务 Owner；Backtest 保持独立的证据生产服务 Owner。
-- Product Edge、Observability 和 Event Rail 是边界或渠道，不是业务事实 Owner。
+- Product Edge 与 Observability 是边界或渠道，不是业务事实 Owner。
 - 不改变权威或 Owner 交接的新细节应写进正文，不进入全景图。
 
 ## 请求与事实权威
@@ -26,100 +26,19 @@ accepted rejected unknown replay 含义都从 `architecture-contract.json` 发�
 
 ### Product Edge 请求权威
 
-目标部署在稳定状态下只能有一个 `ACTIVE` Agent Shell binding，并选择规范 `TRADE_PRODUCT_EDGE` 准入网关，并接受此前封存的
-`WINDMILL_PRODUCT_EDGE` 拼写。 App 与 MCP 是该网关后的 channel，不是独立 writer。 只切换客户端或 transport 时，必须保持相同的有效 principal、scope
-policy、已批准 Skill/MCP 能力政策与审计政策。 切换期间允许短暂零个 `ACTIVE`，但必须失败关闭。
+外部 Agent 经领域 MCP 发起类型化请求；接收服务校验当前权限、稳定身份、冻结含义与审计关联。App/MCP/Dashboard 都不能成为业务事实 writer 或授权签发者。transport 成功只表示 `SUBMITTED_OR_UNKNOWN`；接收 Owner 的 write-once receipt 才是结果。同身份同含义加入原回执，换含义冲突；response loss 只能解析原身份，不能重试未知效果。
 
-准确前驱先提交 `SUPERSEDED`，政策等价后继才能 提交 `ACTIVE`；多个 过期或政策不匹配的 binding 都不能接纳 Owner 写请求。 在途请求始终保留原
-request 与 binding 身份。
+现有 Agent Shell binding 协议由 [Product Edge](../architecture/product-edge/)持有，不是新增统一网关的前置。它保留规范 `TRADE_PRODUCT_EDGE` 及历史 `WINDMILL_PRODUCT_EDGE` 拼写：稳态唯一 `ACTIVE`，与 canonical history head 相等；先提交准确前驱 `SUPERSEDED` 再提交政策等价后继，零活动区间失败关闭。binding/history/admission/outbox 只由 Product Edge 写入；独立 Operator Authorization Issuer 独占 issuance/revocation frontier。两者同 authority database、不同 PostgreSQL role，在准确 issuance/frontier 的共同锁截面判定授权；caller、DTO、cache、token、配置或自验签名不能签发或替代权威。
 
-每次提交绑定提交前后的权威 deployment history head。genesis 仅允许在空历史且 generation 为一时
-提交。后续 binding 必须在准确当前 head 上持久原子序列化，引用该已取代前驱，generation 只增加一，
-cutover epoch 严格递增，并使用历史唯一 identity。零活动窗口永不重置历史。
+Genesis 仅显式管理员在空历史、expected `EMPTY`、generation=1、有限有效期及准确 manifest/receipt/outbox 下执行一次。后继原子绑定前后 head，准确前驱、generation+1、严格递增 cutover epoch 与历史唯一 identity；`SUPERSEDED` 不可逆，零活动窗口不重置历史。请求原子绑定 typed digest、binding/head、principal/scope、issuer/key/authorization、expiry/revocation、manifest、operation/schema/target/effects、Time Evidence/proof/audit。合法在途请求保留原 binding；首次 downstream mutation 必须有当前授权。已提交 receipt 保留历史截面，新 provider/effect invocation 仍须当前单次 admission。
 
-每个 Product Edge 写请求都有稳定身份、受信授权上下文、类型化含义、目标 Owner 操作和审计关联。
-原子准入必须读取并绑定权威 deployment history head，且准入截面唯一 `ACTIVE` binding 必须等于该
-head。`SUPERSEDED` 单调且不可逆。Shell 或传输成功只表示 `SUBMITTED_OR_UNKNOWN`，接收 Owner 的
-回执才是权威结果。相同身份和含义加入同一回执，含义改变必须拒绝；已经合法准入的在途请求即使
-新 head 生效也继续按原 binding 解析。
+`ExpiredManifestRecoveryEpochV1` 是到期前驱唯一显式前向恢复；绑定准确 OA/PE heads、revocation frontier 及完整排序 `RETAINED/ADDED/REMOVED` transition。保留能力仅收窄，新增仅在不变 principal/audience/scope/proof/scope-policy/audit-policy 内；live/real-trading 与 protected-feedback 禁止下限不变。Issuer 的 OA2 不是 PE 权威；PE 只追加不可逆 B1 fence 与 head-CAS B2。准确重试加入同 epoch，部分恢复失败关闭，旧事实不重写。恢复配置绑定 database name、system identifier 和不同 role；写前只读验证两个 endpoint 的 database/role/system identifier 与同 cluster，环境默认、拼接、空 identity、同 role 都拒绝，secret/URL 不记录。
 
-Product Edge 是内容寻址 Agent Operation Manifest、Agent Shell Deployment Binding 及其 history head、 不可变 request
-admission 与对应 outbox 的唯一 writer。 独立命名的 **Operator Authorization Issuer** 是授权签发与 revocation frontier 的唯一
-writer。 Product Edge 只能直接解析 Issuer 的规范事实；Dashboard、 API、R&D、token、配置或 Product Edge admission 代码都不能签发或自我声明这些事实。
+旧环境授权行不得回填或追认；终态只读 quarantine，碰撞拒绝，未排空 legacy 非终态 S2 阻断 activation。`LegacyPreparedAttemptDrainV1` 只允许显式有界 admin 对准确 schema-v1 `PREPARED` APP/MCP 全目标追加 Owner receipt/outbox：先验证 attempt/column digests、build/attempt/admission/database，且 effect admission、claim、state、artifact、provider-start 和非 drain outbox 均为零。原字节不改；startup/request/Resolve 不创建 drain receipt；部分集合、目标变化、digest/effect/故障都零写。只投影 quarantine `OUTCOME_UNKNOWN / PROVIDER_NEVER_STARTED`，只准原身份读取/Resolve，绝不产生 custody/freshness/authorization/artifact/family/successor/retry/effect 权威。startup 仅可忽略 receipt/outbox 完整验证的准确行，其他行仍阻断。
 
-两个 writer 在同一 authority database 使用不同 PostgreSQL role。 Admission 提交时对准确 issuance 与 revocation frontier 持有
-共享锁，revocation 使用冲突的更新锁。 决定授权是否当前的是这一共同截面，而不是复制 DTO、cache 或由 同一 caller 校验的签名。
+治理请求保留不可拆 request lineage：identity、principal/scope、原 binding/head、Operator Authorization 与 manifest。`ATTENDED_REQUEST` 只准读及 `REDUCTION/PAUSE/RETIREMENT/DE_RISK/RECOVERY` 的非运行权威，不能创建 `ACTIVE_GENERATION/APPLIED`、正常 Paper/Live 新增风险或 adapter effect。`INITIAL_ACTIVATION/PROMOTION` 与自动 generation 另须 `UNATTENDED_REQUEST_WITH_POLICY`，绑定独立 policy version/generation、Execution Scope、intent/action、资金、expiry/revocation/manifest，并端到端传至 application/Risk/command/Effect Journal/readback。政策不替代原 lineage；增资/恢复不冒充其他动作，未定义 attended-effect 时在场不授予效果。该兼容词法不改变目标用户确认试盘与 Governance queue 路线。
 
-Deployment genesis 是显式且只执行一次的管理员操作，绝不是服务启动或请求路径默认动作。它要求完整
-验证 binding 与 head 历史为空、expected head 为 `EMPTY`、generation 为一、有限有效期、内容寻址
-manifest、一份不可变 receipt 及其 outbox。准确重放加入相同字节；并发或含义改变发生冲突，不能创建
-第二个 `ACTIVE` binding。切换必须先提交准确前驱的 `SUPERSEDED` fence，随后才可提交政策等价后继
-`ACTIVE`；零活动区间失败关闭，任何请求都不能重新创建 genesis。
-
-到期前驱不能使用普通 authorization 或 deployment successor 路径。 唯一前向恢复是显式 `ExpiredManifestRecoveryEpochV1`，它绑定准确 authorization 与
-deployment head、当前 revocation frontier， 以及完整排序的 `RETAINED`/`ADDED`/`REMOVED`
-manifest transition 集。
-
-保留能力只能收窄；新增能力必须处于 不变的 principal、audience、scope、proof、scope-policy 与 audit-policy 边界内，并保留 live-trading、
-real-trading 与 protected-feedback 禁止下限；删除项不授予任何权威。 Issuer 可以先追加 OA2，但只有 OA2 不构成 Product Edge 权威。
-
-Product Edge 只提交一个不可逆 B1 fence，再以 head compare-and-swap 提交 B2； 准确重试加入同一 epoch，部分恢复保持失败关闭，任何旧
-issuance、binding、manifest、admission、receipt、 outbox 或 Owner 事实都不得重写。 recovery 配置还内容绑定准确 authority database
-名称、PostgreSQL system identifier，以及不同的 Operator Authorization 与 Product Edge role。
-
-在任一 Owner 写入前，命令只读连接两个给定 endpoint，并要求其 database、role 和 system-identifier 回读匹配配置及同一 database cluster。 环境
-endpoint、交叉拼接、空 identity 或相同 role 一律失败关闭；URL 与 secret 不得记录。
-
-不可变 Product Edge Request Admission 绑定稳定 request identity 与 typed-payload digest、准确 deployment binding 与
-head、有效 principal 与 scope、authorization identity、issuer 与 key version、有效期与 revocation frontier、manifest
-identity 与 digest、operation、schema、target 与 effects、time evidence、request-proof digest 和 audit correlation。
-
-R&D 只接收其 locator，并在 S1 或 S2 mutation 前直接解析完整规范 admission。 若尚无 downstream custody 提交，后续到期或撤销禁止第一次提交。 已提交
-downstream receipt 仍按原 admission cut 解析，但 recovery 若要开始新的 provider 或外部 effect invocation，必须在当前授权截面取得 新的单次
-invocation admission。 取代、到期和撤销绝不重写 admission 或 downstream Owner receipt。
-
-历史上只依赖环境构造 authority 接受的行绝不回填或追认。终态 legacy 行只读并 quarantine；identity
-碰撞失败关闭，任何 legacy 非终态 S2 custody 未排空时 activation 必须停止。authority 缺失、双重、过期、
-失效、被撤销、issuer 错误、audience 错误、跨 principal、跨 scope、proof 不匹配、manifest 不匹配、digest
-不匹配或混合截面时，不得创建 Product Edge admission、downstream Owner 写入或 provider 调用。
-
-`LegacyPreparedAttemptDrainV1` 是唯一的有界例外，且仅适用于准确的历史 schema-v1 `PREPARED` APP 或 MCP 请求。 原始 attempt 字节保持不可变。
-
-显式有界 admin 只有在绑定准确 attempt 与列 digest、build 与 attempt identity、canonical Product Edge admission、目标数据库，以及
-canonical effect admission、claim、 state、artifact、provider-start custody 和非 drain attempt/build outbox
-全部为零的事实后，才可在同一事务 追加仅 Owner 可用的 canonical receipt 及其 Owner outbox event。
-
-startup、请求处理与 `Resolve` 都不能创建 该 receipt。 准确的全目标操作幂等；部分完成集合、目标变化或多出、digest 不匹配、已有 effect 或故障均
-不得写入任何内容。
-
-已验证 receipt 只投影 legacy-quarantined `OUTCOME_UNKNOWN` 与 `PROVIDER_NEVER_STARTED`，并且只允许同 identity 读取与
-`Resolve`；它绝不创建当前 custody、freshness、 authorization、artifact、family、successor、provider retry 或
-effect authority。 只有 canonical receipt 与 outbox 均验证通过后，startup 才可忽略该准确行；任何未 drain、malformed、不匹配或未知行仍阻断
-activation。
-
-隔离的本地 recovery 证据不是 production authority，也不建立默认数据库、Dashboard 或产品 成熟度 acceptance。
-
-请求 Authorization Lineage 是不可拆分元组，包含稳定 request identity 有效 principal 与 scope 已准入 `ACTIVE` Shell
-binding 与准确 deployment history head Operator Authorization 和 Agent Operation Manifest。 Governance
-接受的每个生命周期决定必须声明 `ATTENDED_REQUEST` 或 `UNATTENDED_REQUEST_WITH_POLICY`，两种模式都交叉绑定并保留完整请求 lineage。
-
-`UNATTENDED_REQUEST_WITH_POLICY` 还要求该生命周期请求准入独立 Autonomous Policy Authorization， 并限定 policy 版本 generation Execution Scope
-允许的 intent/action 类别 资金边界 有效期 revocation frontier 和 operation manifest。 该政策授权只能补充 不能替代请求 lineage。 裸决定不是自动交易权限。
-application intent Risk permit command Effect Journal 和回读必须端到端保留模式及该模式要求的全部身份。
-
-`ATTENDED_REQUEST` 只提供非运行权威。 它可以读取状态或请求只减不增的 `REDUCTION` `PAUSE` `RETIREMENT`
-`DE_RISK` 或 `RECOVERY`，但不能创建 `ACTIVE_GENERATION` `APPLIED` 正常 Paper 或 Live
-新增风险或 adapter 效果。
-
-`INITIAL_ACTIVATION` `PROMOTION` 及自动 Paper 或 Live generation 都要求 `UNATTENDED_REQUEST_WITH_POLICY`。
-`PROMOTION` 覆盖有界提高资金或活动后继转换；恢复和增资不是 生命周期动作别名。 未来若支持 attended 外部效果，必须另建显式 attended-effect 契约；principal
-在场不代表该契约存在。
-
-Research 与 Strategy Governance 各自拥有绑定请求且只写一次的终态回执。 Qualification 复用现有 只写一次 Candidate Intake Receipt 作为
-Qualification Review Request 的终态回执，通过独立已提交事实交接返回它， 并与有界状态只读模型分离。 该回执绑定稳定请求身份与 规范类型化含义。 `ACCEPTED`
-绑定准确结果 Research Intent 或 Authorized Generation Decision 身份，`REJECTED_NO_WRITE` 证明没有 Owner 转换。
-
-回执缺失时保持 `SUBMITTED_OR_UNKNOWN`，不能隐含接受或拒绝。
+Research/Governance 拥有原请求 write-once terminal receipt，Qualification Candidate Intake Receipt 通过独立已提交交接作为 review terminal。`ACCEPTED` 绑定准确 Intent/Decision，`REJECTED_NO_WRITE` 证明零 Owner 转换；缺失始终 unknown。隔离 recovery 证据不是 production authority 或 Dashboard 成熟度验收。
 
 ### 每个可变事实只有一个权威
 
@@ -403,39 +322,20 @@ uncertainty 与 skew bound restart relation 以及比较规则。消费者不能
 延长有效期。SLO 观察 admission decision effect readback projection recovery closure latency，以及 queue
 depth 与 dropped wake count；它永不改写业务事实。
 
-Time Evidence 按用途区分，不能压缩成一个 timestamp：
+原生任务绑定实际时钟、时间语义、可得性与有效区间，消费者不能混用不可比时间。现有封存 Time Evidence 协议仍要求其时间敏感对象与 `timeEvidenceCutKind` 矩阵准确双射；缺失、重复或矩阵外声明均无效，本地 timestamp 不替代该协议证据。该存储格式不是所有原生输入的新建设前置。各用途的消费边界如下：
 
-每个时间敏感 architecture object 都准确声明一个规范 `timeEvidenceCutKind`。 目标矩阵与这些对象声明必须形成严格双射：时间敏感对象未声明、矩阵重复，或声明不在矩阵中都使契约无效。
-范围包括 source binding 与 PIT request、保护 request/result/assessment 证据、Trade Intent 与 Authorized Order Command、
-incident 与 drift fact、Recovery admission 与 closure，以及所有显式时间绑定的 Portfolio fact。
+| 用途                               | 必须保留的截面                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MARKET_DATA_AS_OF`                | event‑effective、provider‑available、retrieval、correction；observation 不替代 PIT 可得性                                                                                                                                                                                                                                                                                                    |
+| `RESEARCH_AND_GOVERNANCE_DECISION` | 一个 clock epoch、monotonic sequence、observation 与排他 `valid-through`；后来 wall time 不改写当时可得证据                                                                                                                                                                                                                                                                                  |
+| `PROTECTED_EVALUATION`             | request/result/assessment 各绑定 clock/epoch、sequence、observed‑at、uncertainty/skew、restart‑continuity、排他 validity、comparison rule 与准确 stage；result 直接引用 request，assessment 直接引用 result；同 epoch 严格前进或一个 direct epoch‑successor proof；request‑to‑result 可直接 proved 换 epoch，同 assessment 的全部 per‑cell result 必须同 result epoch，assessment 在其中推进 |
+| `PORTFOLIO_FRESHNESS`              | Capacity/Performance/Exposure/Interaction/Lifecycle 共用 clock/epoch、sequence、observed‑at、uncertainty/skew、continuity、validity 及完整 source frontier；混 epoch、缺 frontier 或过期不能驱动 Governance/Risk                                                                                                                                                                             |
+| `RISK_AND_EFFECT_FRONTIER`         | decision/claim/effect/settlement 的 aggregate/effect frontier；wall‑clock 不覆盖持久序列化                                                                                                                                                                                                                                                                                                   |
+| `RECOVERY_CLOSURE`                 | Runtime/Risk/Execution/Portfolio 的共同 causal frontier/cut；混 epoch 或 continuity 不明时保持打开                                                                                                                                                                                                                                                                                           |
 
-所选行 提供完整必需 binding，本地 timestamp 不能满足该声明。
+保护证据缺失、过期、epoch 不可比/无证明、跳阶段或不前进都不能闭合 custody 或创建 Eligibility。无 continuity 的 restart 创建新 epoch；超 skew、validity 过期或缺字段只拒绝依赖转换，不能本地换算掩盖。
 
-- `MARKET_DATA_AS_OF` 为 PIT snapshot stream 与 valuation fact 绑定 event-effective provider-available
-  retrieval 和 correction time；observation time 不能替代其中任何截面。
-- `RESEARCH_AND_GOVERNANCE_DECISION` 把决定绑定到一个 clock epoch monotonic sequence observation time
-  和 `valid-through`；更晚 wall time 不能改写证据当时何时可得。
-- `PROTECTED_EVALUATION` 把每个保护 request result assessment 绑定到一个 clock identity 与 epoch、
-  monotonic sequence、observed-at、uncertainty/skew bound、restart-continuity proof、排他的 `valid-through`、
-  comparison rule 和准确 evaluation stage。request 是阶段根；每个 result 直接引用 request Time Evidence，
-  每个 assessment 直接引用 result Time Evidence。后继阶段必须在同一 epoch 严格推进 monotonic sequence，
-  或提供一个直接 epoch-successor proof。具有证明的 request-to-result 直接 epoch 转换有效；进入同一
-  assessment 的全部 per-cell result 必须共享一个 result epoch，assessment 在该 epoch 内推进。证据缺失、
-  过期、epoch 无证明或互不可比、跳过阶段或未推进时，不能关闭保护 custody，也不能创建 Eligibility。
-- **仅兼容接口：** `SCANNER_DUE_SLOT` 不属于目标对象声明；解释现有封存 Scanner schedule 时，仍绑定 time-zone ruleset 身份与版本 本地计划时间 已解析 UTC interval DST fold 或
-  gap 处置 misfire/backfill policy 和 due-slot boundary。秋季回拨 fold 产生可区分 slot，春季跳时 gap
-  按冻结 skip 或 shift 政策处理，不能重复运行。
-- `PORTFOLIO_FRESHNESS` 把 Capacity View Performance Receipt Exposure Receipt Portfolio Interaction Receipt
-  与 Portfolio Lifecycle Evidence Receipt 绑定到同一个 clock identity 和 epoch monotonic sequence
-  observed-at uncertainty/skew bound restart-continuity proof `valid-through` 与完整 source-fact frontier。
-  epoch 混合 frontier 不完整或证据过期时，不能驱动 Scanner Governance 或 Risk。
-- `RISK_AND_EFFECT_FRONTIER` 把 decision claim effect settlement 绑定到 aggregate 或 effect frontier cut，
-  wall-clock 顺序不能覆盖持久序列化。
-- `RECOVERY_CLOSURE` 在 Runtime Risk Execution 与 Portfolio 间绑定一个 causal frontier 与共同证据
-  截面；clock epoch 混合或 continuity 不确定时 case 保持打开。
-
-重启若没有 continuity 证明必须创建新 clock epoch。skew 超限 DST 解析不明 `valid-through` 过期或
-必需时间字段缺失时只阻止依赖转换，不能通过本地时间转换抹去。
+封存 Scanner 的 `SCANNER_DUE_SLOT` 不属目标对象声明；读取旧 schedule 仍校验冻结 timezone ruleset/version、local/UTC interval、due boundary、DST fold/gap 与 misfire/backfill。fold 必须区分 slot，gap 仅按冻结 skip/shift，不能重复运行；该兼容解析不授权新 Scanner 或调度服务。
 
 #### Shared Time clock-head 交接
 
@@ -539,15 +439,9 @@ Canvas 的 Owner 边界 通道和模块名称在所有语言中保持规范英�
 场景名称 导航 正文 节点描述和底部详情与证明胶囊参与本地化。切换语言只替换这些文本，不改变
 节点 连线或 viewport 身份。
 
-### Event Rail
-
-Event Rail 只是传输托管者而不是业务权威。对已提交资格变化 事故 订单 成交和对账事实，它只拥有
-Event Wake 传输 record，来源 Owner 仍拥有权威。Events → Observability 传递该 Event Wake 而不是业务结果；Observability 更新可重建状态与告警投影，Alert Routing 自己创建 Alert Delivery attempt 与 receipt 作为输出。wake 与 delivery 都不能审批 重试业务效果
-拥有终态 充当证据权威或替代 Owner 之间的直接事实读取。
-
 ### Observability
 
-领域事件使用原生 Owner transactional outbox 和至少一次 Event Rail 投递；trace、metric 与 log 使用可独立
+领域事件使用原生 Owner transactional outbox 和由来源服务管理的至少一次通知投递；trace、metric 与 log 使用可独立
 开关的 OTLP pipeline。两者都绑定稳定身份、correlation/causation、来源、时间、schema、披露与策略版本，
 但只有已提交 Owner fact 是业务事实。Projection consumer 必须幂等，并暴露 checkpoint、新鲜度、完整性、
 lag 与 rebuild 状态。即使共享物理存储或中间件，也不能合并 Owner 写凭据、schema、retention 或 effect namespace。

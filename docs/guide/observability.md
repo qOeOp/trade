@@ -41,7 +41,7 @@ disposition, or negative reason.
 All negative terminals share the same public outcome and aggregate labels: `REPLAY_REJECTED`,
 `REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, and
 `INELIGIBLE` are byte-equivalently `CLOSED_NOT_QUALIFIED`, while `QUALIFIED` remains exact.
-Event Rail never emits an internal `INELIGIBLE` or another protected-terminal event, so protected
+Notifications never emit an internal `INELIGIBLE` or another protected-terminal event, so protected
 failures remain indistinguishable outside Qualification.
 
 ## Storage boundaries
@@ -52,7 +52,7 @@ Owning services persist tasks, results, errors and runtime facts. Existing log i
 
 Use a transactional outbox or equivalent atomic source-fact publication boundary. Event delivery is at least once. Projection consumers must be idempotent, detect changed content under a reused identity, maintain checkpoints, and quarantine poison records. Backpressure is bounded; overload may defer/drop telemetry according to policy but may not silently drop admitted business facts or Recovery obligations.
 
-OTLP receivers, processors, and exporters are replaceable. A collector may batch, retry, sample, redact, and fan out, but it never reads secrets into exported attributes and never calls Owner write APIs. Alert adapters subscribe to bounded projections or Event Wakes and remain outside the correctness path.
+OTLP receivers, processors, and exporters are replaceable. A collector may batch, retry, sample, redact, and fan out, but it never reads secrets into exported attributes and never calls Owner write APIs. Alert adapters subscribe to bounded projections or committed-event hints and remain outside the correctness path.
 
 ## Acceptance for integrated capabilities
 

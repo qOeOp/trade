@@ -210,7 +210,9 @@ exists.
 - Never allow add-risk when active-generation retention is missing, expired, revoked, unknown, or
   `DE_RISK_PENDING`, or when required Eligibility, Performance, Exposure, or degradation evidence is stale.
   Decrease-only pause, reduction, and retirement remain admissible without fresh capacity or performance evidence.
-- Never create or forward an order command, retry an effect, or claim venue settlement.
+- Product Risk admission does not create orders, bypass native Execution, retry effects or claim venue settlement.
+  Native RiskEngine still forwards admitted commands through its normal ExecutionEngine route; product gates
+  enforce the required authorization before effect consumption without replacing that pipeline.
 - Never release a Reservation from Runtime acknowledgement, Execution `SETTLED` alone, or an adapter response alone.
 - Never double count one economic member or treat `UNKNOWN_EFFECT` as free capacity. `WITHDRAWN` and authoritative
   post-consumption `NO_EFFECT` may release liability; `SETTLED` retains it until one serialized frontier transition

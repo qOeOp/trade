@@ -92,7 +92,7 @@ Other rows grant no permission; widening admission requires changing this docume
 - **TARGET - Readiness Gate and checkpoint persistence:** nothing persists a checkpoint or publishes readiness to
   Risk and Execution.
 - **TARGET - input and output handoffs:** no port reaches a Governance decision, live Market Data facts, a Risk
-  decision, an Execution command or readback, or Event Rail. The compatibility repair result and its ports are also unavailable;
+  decision, an Execution command or readback, or notifications. The compatibility repair result and its ports are also unavailable;
   they are not prerequisites for native research or a server self-repair facility.
 - Paper and Live equivalence stays **TARGET / NOT_ADMITTED** as stated under the shared strategy lifecycle
   contract below; no Paper or Live Execution adapter is bound to Runtime.
@@ -102,6 +102,28 @@ Other rows grant no permission; widening admission requires changing this docume
 Runtime loads only the exact [native strategy package](../architecture/strategy-factory/#strategy-package-and-content-identity), environment, parameters and inputs authorized by current Governance.
 Native Trader/Strategy lifecycle consumes market, order, fill and timer events. Strategies express rules through native order APIs; Risk and Execution retain authorization and order facts.
 There is no product BFP/plugin kernel or parallel action state machine.
+
+Entry, cancellation, staged-exit and stop-movement rules stay in native Strategy code. Reuse OrderFactory,
+OrderManager and OrderEmulator for supported linked orders, expiry and fill-driven updates; strategies continue
+to receive native order/position callbacks. Core support does not prove every venue adapter supports the same
+contingency path. Validate the chosen Binance route; its grouped Futures order-list submission currently rejects
+linked contingencies that require adapter OCO-on-fill state. Bind native GTD-expiry and contingent-management
+configuration explicitly; their existence does not enable them by default.
+
+Stopping new entries is not stopping the native Strategy. While existing positions or protection require
+callbacks, retain the necessary running components in exit-only mode and cancel outstanding entry orders via
+native commands. Native `manage_stop`/`on_stop` may cancel or close positions; use them only when that matches
+the authorized exit policy. Native REDUCING checks net-exposure direction; it does not prove strict reduce-only or per-entry
+reduction. HALTED does not promise continued exit admission. Per-strategy entry fences and appropriate native
+reduce-only orders preserve the authorized exit policy, with native events still authoritative.
+Allocation changes do not erase actual account occupation.
+
+Position identity follows the configured native OMS: HEDGING supports separate position IDs; NETTING merges
+by instrument/strategy and does not grant each entry an independent venue position. Validate the mapping between Binance account mode,
+adapter reports and native OMS; strategy and venue OMS need not be identical, and virtual positions do not
+prove venue segregation. Preserve entry/exit attribution where required through a bounded
+logical-trade extension based on actual fills, without duplicating native account balances or margin. This
+required attribution is not evidence that the current net-target adapter already supports R-1.
 
 Checkpoints bind package, generation, complete event frontier and actual strategy state.
 Native strategy persistence is not complete node recovery: clock, cache, orders/positions/accounts, execution algorithms, timers and models need authoritative recovery/reconciliation.
@@ -146,7 +168,7 @@ Runtime does not promote strategy memory, targets or Agent explanations into acc
   request semantics. Only `REPAIRED` permits re-entry; `UNAVAILABLE` permits only the correlated
   `STOP_INPUT_UNAVAILABLE`; `OUTCOME_UNKNOWN` permits no stop, retry, successor, Artifact, Selection, or Replay
   Request. Delivery, acceptance, silence, and telemetry are not repair results.
-- To Event Rail: committed incident and readiness-change wake hints; notification delivery is never evidence of
+- To subscribers: committed incident and readiness-change wake hints; notification delivery is never evidence of
   readiness, fencing, Recovery Case closure, or lifecycle completion.
 
 ## Rejections and prohibitions

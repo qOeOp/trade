@@ -57,10 +57,15 @@ confirmation and resolution of the original qualified Artifact and stage evidenc
 authority, capital and risk checks. A stop never reactivates it automatically; missing or changed qualification
 bindings cannot be repaired by hash equality. Pool reallocations alone do not change the strategy version.
 
-Backtest qualification makes a candidate eligible, not active. Dashboard requires the user to confirm trial entry
-for the exact candidate, frozen trial conditions and capital policy; valid current authority, allocation and native
-readiness remain required. The user may keep a qualified candidate in R&D to improve it. Qualification alone never
-starts a trial or causes automatic reactivation after a user stop.
+Meeting the frozen research goal ends research iteration and delivers the candidate; it does not activate it. Further improvement requires a new user instruction.
+
+Backtest qualification makes a candidate eligible, not active. The user authorizes trial entry in Dashboard for the exact candidate, frozen trial conditions and capital policy. Governance then retains the authorized activation request in its queue and automatically dispatches it when current eligibility, authority, allocation, Risk and native readiness checks pass.
+
+Unready requests remain waiting without blocking later ready requests. Ready requests are processed in original enqueue order. Each actual admission rechecks account and allocation facts; an earlier readiness check is not a capital reservation.
+
+Waiting time alone does not expire the user's activation decision; the user may withdraw it at any time. That decision covers only the approved candidate and policies, extends no technical credential lifetime and replaces none of the current startup checks.
+
+Queued is not running; only Runtime application proves startup. This queue is Governance request state, not a new scheduler service. Qualification alone never starts a trial or reactivates a user-stopped strategy.
 
 The user may unload an economically valid strategy for improvement; an external Agent may also request this
 autonomously within prior user-approved frozen boundaries. Governance verifies the affected strategy,
@@ -79,8 +84,10 @@ conditions. Governance owns stage decisions, trial/formal membership, user-appro
 allocation; it does not produce backtest qualification, fills or profit measurements.
 
 - Qualification consumes Backtest evidence and owns backtest eligibility and protected assessments; failures stay in R&D.
-- Portfolio provides returns, NAV, fees, funding, capital-flow and attribution facts; Runtime/Execution provide actual operation, orders and fills.
+- Portfolio provides returns, NAV, fees, funding, capital-flow and strategy ownership facts; Runtime/Execution provide actual operation, orders and fills.
 - Governance consumes these facts under conditions frozen before operation to decide promotion, maximum-period trial termination and formal retention. A Dashboard selection is not a passing result.
+- Promotion also requires a frozen minimum number of independent trades. Count each independent trade once; staged exits do not add samples. The concrete duration, minimum sample count and complete return/risk thresholds remain to be approved and frozen before trial.
+
 - Approved ratios divide the common trial and formal pools; each pool allocates equally among actually running instances, recalculating on entry, unload or promotion. Unloading returns allocation immediately. Actual residual margin and exposure remain account facts checked by Risk at order admission, without retaining the unloaded strategy's running allocation.
 - Trial expiry without meeting frozen promotion conditions or failure of formal retention conditions unloads the strategy and returns it to R&D. Stop new entries, cancel unfilled entry orders and hand existing positions to the existing native Runtime/Risk/Execution path under original protections. Direct downgrade from formal to trial trading is forbidden.
 - R&D owns diagnosis, successor changes and new backtests; successors qualify again and start new trials without inheriting old results, stage decisions or authorization.
@@ -286,28 +293,13 @@ grants nothing, and widening the admitted set requires changing this document fi
 
 ## Input handoffs
 
-- [Qualification](./qualification/) supplies committed Eligibility State and Revocation facts with exact Candidate, fact, economic-condition, evaluated cost/capacity-model, and qualified-capacity versions. The optional sealed Forward Record profile additionally requires the current Forward Decision; it is not a real-trial prerequisite. Under that profile, a paper `INITIAL_ACTIVATION` binds a current `FORWARD_ADMITTED` decision for the same Eligibility Fact; any other, missing or unknown Forward Decision commits `REJECTED_NO_WRITE`.
-- **Compatibility only:** [Scanner](./scanner/) supplies one terminal Scanner Receipt per scan; condition-dependent activation must bind an exact matched proposal member with the same strategy entry, ArtifactRef, and condition version as the decision target.
-- [Portfolio](./portfolio/) supplies one Portfolio Lifecycle Evidence Receipt. `INITIAL_ACTIVATION` binds a fresh
-  candidate-neutral gross Capacity View for the pre-existing Capacity Scope; `PROMOTION` additionally binds exact
-  fresh Performance and Exposure Receipts under its own `PROMOTION` transition-evidence key. Generation-specific
-  economic conditions come from Qualification and Capital Policy, not from the pool ceiling.
-- Before creating an Execution Scope, [Portfolio](./portfolio/) supplies one current `BOUND` Capacity Scope and
-  [Execution](./execution/) supplies one current `ADMITTED` Execution Adapter Binding. Account, mode, effect
-  namespace, endpoint, capabilities, valid-through, and shared-constraint partition must match exactly; unknown
-  or conflicting prebinding creates no lifecycle authorization.
-- [Portfolio](./portfolio/) supplies a Portfolio Interaction Receipt for set-wide decisions, including
-  concentration, correlation, directional and factor overlap, tail contribution, diversification contribution,
-  and marginal portfolio value on one coherent contender and valuation cut. Missing interaction evidence makes
-  the allocation decision unavailable rather than independent per-strategy approvals.
-  The sealed priority-allocation compatibility profile requires each contender's exact Portfolio-owned interaction class; the target equal-share policy does not introduce a scoring/classification framework. Governance never
-  recomputes or substitutes the classification.
-- [Runtime](./runtime/) supplies the Generation Application Receipt and directly readable Runtime Incident Facts.
-- [Execution](./execution/) supplies immutable `RecoveryCase.KNOWN_CLOSED` before a new generation may start.
-- [Execution](./execution/) supplies directly readable committed Reconciliation Drift Facts, including explicit unknown-effect state and authoritative readback cut.
-- Product Edge supplies explicit lifecycle requests but cannot mutate governed state directly. Each request carries
-  request identity, principal, scope, admitted active-shell binding and history head, Operator Authorization, and
-  operation manifest. Governance closes each stable request identity with its own terminal receipt; absent receipt remains unknown.
+- [Qualification](./qualification/) supplies exact Candidate, eligibility/revocation versions, economic conditions, cost/capacity models and validity boundaries. After research stops the user separately requests independent assessment. QUALIFIED supports eligibility only, without trading authority. Dashboard confirmation queues real-trial INITIAL_ACTIVATION; ForwardDecision is not a prerequisite.
+- [Portfolio](./portfolio/) supplies net equity, current BOUND Capacity Scope, candidate-independent gross Capacity View and actually running members/occupancy. Approved trial/formal pool ratios divide equally among running members. A joining member waits until every existing occupancy fits the reduced share; Governance commits allocation atomically. PROMOTION additionally consumes fresh Performance/Exposure under its exact evidence key.
+- Only explicitly approved interaction-sensitive conditions consume deterministic interaction measures with complete members, methods and source cuts. Default equal shares need no Interaction Receipt. Existing capped-priority compatibility consumers still fail closed under their frozen classes/cuts and cannot silently become equal shares.
+- [Execution](./execution/) supplies ADMITTED Execution Adapter Binding. Before scope creation, account, mode, effect namespace, endpoint, capability, valid-through and shared-constraint partition must match; unknown/conflicting bindings create no add-risk authority.
+- [Runtime](./runtime/) supplies Generation Application Receipt and directly readable Incident Facts. Execution supplies Reconciliation Drift, authoritative readback and RecoveryCase.KNOWN_CLOSED for a new generation. Exit follows frozen conditions and protects real open positions, without requiring a scientific terminal falsifier.
+- Product Edge carries stable request, principal, scope, active-shell binding/history head, Operator Authorization and manifest. Governance closes it with its own terminal receipt; absence remains unknown.
+- Old ScannerConditional still refuses as ConditionalScannerNotAdmitted. Even a sealed receipt matching ArtifactRef/condition version admits no new conditional activation and does not silently migrate to unconditional activation.
 
 ## Output handoffs
 
@@ -324,7 +316,7 @@ grants nothing, and widening the admitted set requires changing this document fi
 
 ## Rejections and prohibitions
 
-- Never decide scarce capital from a partial contender set, stale or mixed Portfolio Interaction Receipt, or
+- Under the sealed priority-allocation compatibility profile only, never decide scarce capital from a partial contender set, stale or mixed Portfolio Interaction Receipt, or
   nondeterministic request arrival. Replay of the same set, facts, and policy must reproduce the same Capital
   Allocation Disposition independent of delivery order.
 - Distinct lifecycle requests for the same generation and decision frontier are resolved atomically by stable
@@ -332,13 +324,7 @@ grants nothing, and widening the admitted set requires changing this document fi
   `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION`; equal-rank conflicts use canonical request identity. Equivalent duplicates
   join one receipt, while stale, mixed-cut, or lower-precedence requests commit explicit no-write. This request
   precedence does not choose an action from adverse evidence.
-- Adverse evidence is evaluated under a separate versioned lifecycle disposition policy. `RETIREMENT` requires a
-  terminal falsifier or structural invalidity with no bounded viable successor. `PAUSE` covers unresolved safety or
-  temporarily missing required evidence. `REDUCTION` requires supported degradation plus a lower capital level that
-  remains economically and operationally viable. When multiple adverse predicates are simultaneously true, the
-  total winner order is `RETIREMENT > PAUSE > REDUCTION`; this evidence-disposition order is separate from request
-  precedence. Governance records every applicable alternative, the unique selected outcome, decisive Portfolio
-  categories and cuts, and the policy version; missing inputs create no decision.
+- Adverse evidence executes the user's frozen versioned lifecycle disposition policy. RETIREMENT consumes explicit exit conditions, PAUSE covers unresolved safety or temporarily missing evidence, and REDUCTION executes approved reduction conditions. Governance does not judge scientific terminal falsification or successor-research viability. Simultaneous frozen predicates still resolve uniquely as RETIREMENT > PAUSE > REDUCTION, recording all applicable alternatives, source cuts and policy version. Request precedence and evidence disposition remain separate. Missing positive evidence creates no add-risk decision; exit protects real positions through decrease-only/recovery closure.
 - Never register an artifact without current Qualification evidence or silently replace an ArtifactRef. A stale, cross-candidate, condition-mismatched, or widened economic-capacity binding is not current evidence.
 - On the sealed `ScannerConditional` compatibility interface, never bypass Scanner evidence or activate a negative or nonmember strategy from a `PROPOSED` batch.
 - Never copy protected Qualification measurements, parameters, results, holdout details, or evaluation output into a decision, rationale, or read model.
@@ -364,7 +350,7 @@ grants nothing, and widening the admitted set requires changing this document fi
   Risk must authorize only non-increasing exposure without an add-risk Reservation; Execution must cancel,
   reduce, flatten, or read back; and Portfolio must prove the resulting exposure. Unknown effect enters Recovery.
 - Never resume a fenced scope before `RecoveryCase.KNOWN_CLOSED`; closure permits a new decision but does not auto-activate.
-- Never use Event Rail or notification delivery as incident, drift, reconciliation, or recovery evidence; bind the exact source Owner fact identity.
+- Never use notification delivery as incident, drift, reconciliation, or recovery evidence; bind the exact source Owner fact identity.
 
 ## Failure and recovery
 
@@ -443,7 +429,7 @@ allocation. Risk then enforces, but never recomputes, those envelopes.
 - A paused or fenced generation cannot be reactivated until the required terminal facts are readable.
 - Every incident- or drift-driven lifecycle transition resolves to the exact Runtime Incident Fact or Execution Reconciliation Drift Fact that caused it.
 - Concurrent or restarted lifecycle delivery joins one write-once request receipt, and concurrent Runtime delivery joins one Generation Application Receipt and at most one Strategy Instance.
-- The same complete contender set, Portfolio Interaction Receipt, policy version, and evidence cut always produce
+- Under the sealed priority-allocation compatibility profile, the same complete contender set, Portfolio Interaction Receipt, policy version, and evidence cut always produce
   the same Capital Allocation Disposition regardless of request delivery order.
 - For the compatibility priority-allocation profile, every contender carries all three versioned priority attributes with declared source, direction, and missing-value
   disposition. Missing or unknown priority produces `INPUT_INCOMPLETE_NO_WRITE`; an exact tie resolves only by the

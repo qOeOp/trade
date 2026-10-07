@@ -178,7 +178,9 @@ Risk 的沉默从不等同批准。消费者只能在收到一个终态之后推
   `ATTENDED_REQUEST` 只允许准确 decrease-only 动作。
 - 活动 generation 保留缺失 过期 撤销 未知或为 `DE_RISK_PENDING`，或必需 Eligibility Performance
   Exposure degradation 证据过期时不得新增风险。decrease-only 暂停 降权和退役不要求新鲜容量或表现证据。
-- 不创建或转发订单命令 不重试外部效果 不宣称场所已结算。
+- 产品 Risk 准入不创建订单、不绕过原生 Execution、不重试外部效果，也不宣称场所已结算。
+  原生 RiskEngine 仍沿正常 ExecutionEngine 链路转发已接纳命令；产品门禁在效果消费前落实所需授权，
+  不替代这一链路。
 - 不依据 Runtime 确认 Execution `SETTLED` 或适配器回执单独释放 Reservation。
 - 不重复计算同一经济成员，也不把 `UNKNOWN_EFFECT` 当作空闲容量。`WITHDRAWN` 与消费后权威
   `NO_EFFECT` 可以释放 liability；`SETTLED` 必须保持到一次序列化 frontier 转换用覆盖同 lineage 的

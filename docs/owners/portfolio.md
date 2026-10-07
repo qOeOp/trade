@@ -26,70 +26,15 @@ nor duplicates deductions for accounted orders or Risk reservations, and adds no
 
 ## Authoritative facts owned
 
-- Versioned measurement methodology: the definitions Portfolio applies to turn committed Execution facts and
-  Market Data valuation facts into every projection it owns. One version fixes the reporting currency and the FX
-  conversion point, the position and PnL basis, the return and drawdown definitions, the stability measure, the
-  capital-at-risk basis, and the candidate-neutral pool methodology and its assumptions. Portfolio owns it;
-  Market Data owns the valuation facts and their own versions, and no consumer may substitute a methodology.
-  Changing any definition creates a successor version and never rewrites a committed receipt. Every receipt binds
-  the exact version it used, and receipts under different methodology versions are not comparable and cannot be
-  spliced into one evidence cut.
-- Account State: balances, positions, margin, equity, realized and unrealized PnL, bound to one Execution Scope and account namespace.
-- Exposure by account, asset, strategy, direction, currency, and relevant risk dimension.
-- Performance Receipt by strategy generation and governed time window, bound to its exact Execution Scope, Execution and account fact cut, valuation and methodology versions, capital at risk, and freshness.
-- Exposure Receipt by strategy generation, bound to its exact Execution Scope, account and exposure fact cut, valuation and methodology versions, exposure dimensions, limit context, and freshness.
-- Portfolio Lifecycle Evidence Receipt binding the target Execution Scope, exact Capacity View, and when required the Performance and Exposure Receipt identities. Every source field must equal its corresponding namespace; `INITIAL_ACTIVATION` needs compatible capacity but no invented performance history, while `PROMOTION` also requires exact fresh performance and exposure evidence under its `PROMOTION` transition-evidence key.
-- Immutable Capacity Scope identity for one account, one `PAPER` or `LIVE` mode, and one economic pool. It never contains a strategy or generation. Every shared or indivisible gross constraint maps to one and only one such key; Paper and Live keys are distinct, and unknown overlap is unavailable rather than guessed disjoint.
-- Capacity View bound to that Capacity Scope, exact account and collateral fact cut, valuation version, liquidity input cut, candidate-neutral pool methodology and assumption versions, gross ceilings by dimension and unit, measurement time, and validity deadline.
-- Portfolio Risk Evidence Bundle binding the same Capacity Scope and one coherent cut of projected exposure,
-  open orders, account state, valuation, and every incorporated Execution settlement lineage. It reports facts,
-  never Risk commitment usage or remaining headroom.
-- Portfolio Interaction Receipt for the exact complete contender set and common Capacity Scope, valuation,
-  methodology, assumption, source, and Time Evidence cuts. Its receipt state is `CURRENT`, `INSUFFICIENT`, `STALE`,
-  or `AMBIGUOUS`; under one versioned classification policy every contender receives exactly one
-  `DIVERSIFYING`, `NEUTRAL`, `CONCENTRATING`, or `UNDETERMINED` class with decisive correlation, concentration,
-  directional, tail, diversification, and marginal-value evidence. Portfolio reports facts without ranking
-  contenders or allocating capital.
-- The Portfolio Lifecycle Evidence Receipt is also Portfolio's sole degradation-attribution authority. Observed
-  return decay, drawdown, exposure concentration, slippage, or valuation loss are symptoms, not root causes. An
-  adverse receipt binds the exact generation, benchmark and measurement window, decisive Performance, Exposure,
-  Capacity, market, valuation, Execution, fee, slippage, and capital-at-risk evidence cuts, methodology, policy,
-  thresholds, and shared Time Evidence.
-- Its attribution state is `RESOLVED_ONE` for exactly one separately supported named category, `RESOLVED_MANY` for
-  at least two separately supported named categories, or `UNRESOLVED` with only `MULTI_CAUSE_UNRESOLVED` and the
-  complete non-isolating evidence set. A non-adverse transition uses `NOT_APPLICABLE` with an explicit basis. The
-  named categories are `STRATEGY_MECHANISM_DEGRADATION`, `MARKET_REGIME_CHANGE`,
-  `EXECUTION_QUALITY_DEGRADATION`, `DATA_QUALITY_DEGRADATION`, `CAPACITY_OR_LIQUIDITY_COMPRESSION`,
-  `PORTFOLIO_INTERACTION_DEGRADATION`, and `VALUATION_UNCERTAINTY`. Portfolio never discards a supported second
-  cause or chooses a convenient strategy narrative.
+- Account State: balances, positions, margin, equity and realized/unrealized PnL, bound to the exact account namespace and Execution Scope.
+- Exposure and Performance: projections by account, asset, strategy generation, direction, currency and window, bound to native Execution facts, valuation/FX, instrument precision, actual capital at risk, deterministic method version and freshness. Definition changes create successor versions; old receipts and mixed method/source cuts are not rewritten or combined.
+- Capacity Scope: immutable account, PAPER/LIVE mode and economic-pool identity, without strategy/generation. Indivisible gross constraints share one key; modes are isolated and unknown overlap remains unavailable.
+- Capacity View: candidate-independent gross ceilings bound to account/collateral, valuation, liquidity, methods/assumptions, dimensions/units, measurement time and validity.
+- Portfolio Risk Evidence Bundle: one Capacity Scope's consistent projected exposure, open order, account valuation and incorporated settlement lineage, without Risk commitment usage or remaining headroom.
+- Exact Capacity/Performance/Exposure references needed by lifecycle conditions. INITIAL_ACTIVATION invents no performance history; PROMOTION consumes exact fresh performance/exposure.
 
-Every named cause must be supported by its native source facts at one exact generation, Execution Scope,
-Capacity Scope, account, valuation, source-frontier, and Time Evidence common cut:
-
-| Cause                               | Required source authority and decisive evidence                                                                                                                                                                                           |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `STRATEGY_MECHANISM_DEGRADATION`    | R&D Research Intent plus Portfolio Performance Receipt: frozen prediction and falsifier versus performance deviation after separately supported regime, data, execution, capacity, interaction, and valuation alternatives are preserved. |
-| `MARKET_REGIME_CHANGE`              | Market Data PIT Snapshot and Valuation Facts plus Portfolio Performance Receipt: versioned regime‑boundary membership and matched response, not a later correction or execution‑only symptom.                                             |
-| `EXECUTION_QUALITY_DEGRADATION`     | Execution Account Fact plus Portfolio Performance Receipt: the complete non-`NONE_OBSERVED` category set, per‑category decisive evidence, and performance impact at one effect frontier.                                                  |
-| `DATA_QUALITY_DEGRADATION`          | Market Data PIT Snapshot plus Portfolio Performance Receipt: an Owner‑owned gap, correction, rights, or PIT semantic defect and bounded affected performance lineage.                                                                     |
-| `CAPACITY_OR_LIQUIDITY_COMPRESSION` | Portfolio Capacity View, Market Data Valuation Facts, Performance Receipt, and Exposure Receipt under one methodology, policy, and threshold version.                                                                                     |
-| `PORTFOLIO_INTERACTION_DEGRADATION` | Current Portfolio Interaction, Performance, and Exposure Receipts for the complete contender set and its marginal impact.                                                                                                                 |
-| `VALUATION_UNCERTAINTY`             | Market Data Valuation Facts plus Portfolio Performance and Exposure Receipts: explicit uncertainty state, methodology, source frontier, and bounded impact.                                                                               |
-
-Missing, stale, mixed-cut, unsupported, or non-isolating evidence commits `UNRESOLVED`; it never selects the most
-convenient named cause. Every independently supported simultaneous named cause remains in one unique supported
-category set with its own evidence. `MULTI_CAUSE_UNRESOLVED` is exclusive and represents only the complete
-non-isolating evidence set; it cannot coexist with a named cause.
-
-- `PORTFOLIO_INTERACTION_DEGRADATION` additionally binds the exact `CURRENT` Portfolio Interaction Receipt for the
-  same Capacity Scope, complete contender set, valuation and methodology cuts, and shared Time Evidence. Missing,
-  stale, ambiguous, or mismatched interaction evidence can support only `UNRESOLVED`. When interaction is not
-  decision-relevant, the lifecycle receipt records an explicit no-interaction-dependency basis that cannot coexist
-  with a claimed interaction cause.
-- `EXECUTION_QUALITY_DEGRADATION` additionally requires one exact current non-`NONE_OBSERVED` Execution Quality
-  Observation for the same generation, Execution Scope, Capacity Scope, effect namespace, policy, source frontier,
-  and Time Evidence cuts. A missing, stale, mismatched, unavailable, or `NONE_OBSERVED` observation can support only
-  `UNRESOLVED`, never execution-quality attribution.
+Portfolio supplies reproducible facts and explicit availability. Scientific causes, mechanism degradation and marginal-value explanations belong to the Agent. Governance executes user-frozen numerical or state conditions. Default equal shares among actually running members do not require an Interaction Receipt.
+Old `PortfolioInteractionReceipt` / degradation classes have no types or custody and are not target authorities. An explicitly approved condition requiring interaction measures consumes deterministic calculations with complete members, methods and source cuts; missing evidence cannot imply NEUTRAL, independence or mechanism failure.
 
 ## Modules
 
@@ -140,8 +85,7 @@ grants nothing, and widening the admitted set requires changing this document fi
   subtracts no Reservation liability and computes no remaining headroom here.
 - **TARGET - Portfolio Risk Evidence Bundle:** no coherent source cut of projected exposure, open orders, account
   state, and incorporated settlement lineages exists, so Risk has no bundle to combine with its liabilities.
-- **TARGET - Portfolio Lifecycle Evidence Receipt, Portfolio Interaction Receipt, and degradation attribution:** no
-  type or custody exists.
+- **Unimplemented:** Portfolio Lifecycle Evidence Receipt has no type or custody. Old Portfolio Interaction Receipt and degradation attribution also have no types/custody and are not default allocation targets.
 - **CURRENT_PARTIAL - read port to Governance:** the Owner's own migration in
   `crates/portfolio_owner/src/capacity_scope_postgres.rs` creates `portfolio_api.read_bound_capacity_scope_v1` and
   `portfolio_api.read_current_capacity_view_v1` and grants both to `governance_writer`, which is also the only role
@@ -165,9 +109,7 @@ grants nothing, and widening the admitted set requires changing this document fi
   incorporated Execution settlement lineages. Portfolio never reads Risk state or subtracts Reservation
   commitments; Risk alone combines the bundle with its liabilities and computes remaining headroom.
 - To [Strategy Governance](./strategy-governance/): one Portfolio Lifecycle Evidence Receipt binding a compatible Capacity View and, for `PROMOTION`, exact fresh Performance and Exposure feedback under the `PROMOTION` transition-evidence key.
-- To [Strategy Governance](./strategy-governance/): one Portfolio Interaction Receipt for every set-wide Capital
-  Allocation Disposition and the same Portfolio Lifecycle Evidence Receipt for lifecycle attribution. Governance
-  owns contender ranking and lifecycle action; Portfolio supplies only coherent source facts and attribution.
+- To [Strategy Governance](./strategy-governance/): account net equity, exact Capacity View, actually running member occupancy and fresh Performance/Exposure for approved pool ratios and equal shares. A joining member waits until all existing occupancy fits the reduced share; Governance commits allocation atomically. Only an explicitly approved interaction-sensitive condition needs deterministic interaction measures, without scientific classification receipts.
 - Legacy handoff to [Scanner](./scanner/): a bounded Capacity View used only as a proposal hint. This preserves old receipts, not a new scheduled discovery or deployment path.
 - To [Execution](./execution/) during recovery: the reconciled account closure projection for the Recovery Case.
 - To Product Edge: one bounded Portfolio View keyed by stable request, trusted principal, authorized account and Execution Scope, authorization-policy cut, and Portfolio
@@ -198,53 +140,21 @@ Missing or stale valuation inputs make affected measures explicitly unavailable 
 
 ## Decision contract
 
-- **Inputs** - committed Execution account, order, fill, fee, settlement and readback facts plus current Market
-  Data valuation, FX, contract and liquidity facts on one coherent cut.
-- **Diagnosis and decision** - project account, exposure, performance, capacity, interaction and degradation facts;
-  Portfolio decides factual availability and attribution status, not capital or trading permission.
-- **Conflict resolution** - source Owner facts and newest coherent cut outrank local projection; mixed cuts,
-  unresolved overlap, and conflicting valuation stay unavailable.
-- **Outputs and terminal negatives** - versioned receipts or `PARTIAL`, `STALE`, `UNAVAILABLE`,
-  `INCOMPLETE_FAIL_CLOSED`, and unresolved attribution with exact missing causes.
-- **Feedback and economic meaning** - reveal real PnL, exposure, marginal portfolio value, capacity compression and
-  degradation so Governance can allocate and retire capital from economic facts.
-- **Prohibitions** - no venue effect, allocation, remaining Risk headroom, permit, lifecycle transition, order, or
-  Recovery closure.
+- **Input:** consistent Execution account/order/fill/fee/settlement/readback facts and Market Data valuation, FX, terms and liquidity.
+- **Calculation:** reuse native Portfolio/cache for versioned accounts, performance, exposure and gross capacity. Portfolio decides availability, not scientific causes, capital or trading authority.
+- **Conflict:** source facts outrank local projections; mixed cuts, stale input, unresolved overlap or valuation conflicts return PARTIAL/STALE/UNAVAILABLE/INCOMPLETE_FAIL_CLOSED.
+- **Consumers:** the Agent interprets research, Governance executes approved conditions, and Risk combines its actual liability to compute headroom. A recovery projection does not close a Recovery Case.
 
 ## Subsequent implementation acceptance
 
-- Every position, balance, and PnL value resolves to committed Execution facts and identified valuation inputs.
-- Every Portfolio View resolves to one trusted principal, authorized account and Execution Scope, authorization-policy cut, and one coherent Portfolio snapshot
-  cut and valid-through time. Missing or mixed source cuts remain `INCOMPLETE_FAIL_CLOSED` or `UNAVAILABLE`; a view cannot synthesize Risk headroom or
-  authorization from Portfolio facts.
-- Cross-principal, cross-account, cross-mode, stale-policy, or conflicting replay of a stable read request is rejected without returning a view.
-- Every account, exposure, performance, and lifecycle receipt preserves the exact generation, mode, account namespace, and source effect namespace.
-- Current exposure changes when price, FX, contract, or account facts change, with freshness visible.
-- Capacity View is distinguishable from Governance's Capital Envelope chain and Risk's Aggregate Commitment Frontier and permission: it is a Portfolio-owned gross ceiling, not remaining headroom.
-- Every Portfolio Risk Evidence Bundle is a coherent source cut for one Capacity Scope and repeats each
-  incorporated Execution settlement lineage exactly once; delayed or partial bundles are unavailable for
-  liability replacement rather than spliced with another cut.
-- `AVAILABLE` Capacity View proves the immutable account-plus-mode economic-pool Capacity Scope, gross ceilings by dimension and unit, and every source input. A strategy- or generation-bearing scope, Paper/Live alias, unresolved shared-constraint overlap, or missing, partial, expired, unavailable, or mismatched input cannot support a required Scanner match, Governance add-risk transition, or Risk allow decision.
-- Performance is explicitly `AVAILABLE`, `PARTIAL`, `UNAVAILABLE`, or `STALE`; only provenance-complete fresh receipts may support `PROMOTION`.
-- `INITIAL_ACTIVATION` requires a fresh compatible Capacity View but no fabricated performance history. `PROMOTION` additionally requires fresh exact Performance and Exposure Receipts under its `PROMOTION` evidence key. `PAUSE`, `REDUCTION`, and `RETIREMENT` remain available when capacity evidence is absent.
-- A Performance Receipt from another generation, Execution Scope, measurement window, execution or account cut, valuation version, or methodology version makes the lifecycle receipt non-`AVAILABLE`; facts from different frontiers or Paper and Live namespaces cannot be spliced.
-- A Performance Receipt with mismatched capital at risk or freshness, or an Exposure Receipt with a mismatched generation, Execution Scope, fact cut, valuation or methodology version, exposure dimensions, limit context, or freshness, also makes the lifecycle receipt non-`AVAILABLE`.
-- Recovery closure cannot proceed while affected account or valuation facts remain unknown.
-- Every set-wide allocation reads one complete Portfolio Interaction Receipt with the same contender set and cut;
-  a missing contender, mixed valuation frontier, or unresolved overlap cannot be treated as independent capacity.
-- Every contender in a `CURRENT` Interaction Receipt has exactly one policy-versioned interaction class and
-  decisive evidence cuts. Missing, duplicate, stale, mixed-cut, or non-isolating evidence is `UNDETERMINED`, never
-  silently neutral; reordering the same set preserves identity, while membership change creates a successor.
-- Every degradation conclusion is carried only by the Portfolio Lifecycle Evidence Receipt and remains traceable
-  to exact source cuts and its attribution state. `RESOLVED_ONE` has one supported category, `RESOLVED_MANY` keeps
-  every separately supported category, and `UNRESOLVED` cannot be converted into a deterministic Governance cause.
-- Every named degradation category proves its category-specific source Owner objects and decisive evidence on the
-  same generation/scope/account/valuation/frontier/time cut. A missing, mixed, or unsupported cause is
-  `UNRESOLVED`, while simultaneous supported causes remain a set rather than being collapsed by precedence.
-- The same performance symptom can map to different supported causes. Execution-quality deterioration requires
-  one matching current non-none Execution observation, market-regime change requires identified Market Data facts, and mechanism degradation requires
-  evidence that survives those alternatives; an observed drawdown alone proves none of them.
+- Positions, balances, PnL and metrics are reproducible from exact Execution, Market Data, valuation and method versions, without mixing accounts, generations, windows or PAPER/LIVE namespaces.
+- Portfolio View binds trusted principal, authorization scope, consistent source cut and valid-through. Cross-account, expired, conflicting or missing-source reads refuse, without synthesizing authority or Risk headroom.
+- Capacity Scope preserves account/mode/pool, shared constraints, dimensions and units. Capacity View is a gross ceiling; the Risk bundle incorporates each settlement lineage once without subtracting Risk liability.
+- INITIAL_ACTIVATION needs compatible fresh capacity; PROMOTION additionally needs exact fresh performance/exposure. Missing capacity cannot prevent PAUSE/REDUCTION/RETIREMENT or protection of real positions.
+- Default equal shares consume approved pool ratios, actually running members and occupancy. Before joining, every existing occupancy must fit the reduced share; Governance commits allocation atomically. Interaction classification and degradation root causes are not mandatory.
+- Explicit interaction conditions consume their declared deterministic measures and complete sources only. Missing, ambiguous or mixed evidence cannot mean neutral/independent, and explanations create no capital/trading authority.
+- Unknown account/valuation sources keep recovery projections unavailable and do not close real liability.
 
 ## Observability and persistence
 
-Portfolio persists valuation-linked account state, Performance, Exposure, Capacity, Interaction, attribution, and lifecycle-evidence receipts under exact account/scope/mode/time cuts. Telemetry records projection latency, source freshness, valuation gaps, attribution completeness, and bounded degradation category. Dashboard PnL, drawdown, exposure, capacity, interaction, and strategy-duration views cite the underlying receipts and freshness; observed telemetry or a graph trend cannot create an attribution, capital decision, lifecycle change, or Risk capacity proof.
+Retain native account facts and valuation/method-bound Performance, Exposure, Capacity and condition-measure references at the exact account/scope/mode/time cut. Telemetry records projection delay, freshness and gaps; charts reference source facts and create no scientific attribution, allocation, lifecycle authority or Risk capacity proof.

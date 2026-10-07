@@ -14,16 +14,16 @@ The user approves theme, risk tolerance, data scope, resource-spend ceiling and 
 
 The product and Agent host separately cap/report consumption; unavailable model usage is not zero. Implementation repairs retain lineage and affected results. Changing passing criteria, statistical protocol, risk tolerance or scope needs user confirmation and a new frozen version. Replacing an Agent does not reset research budgets, exposure or results.
 
-| Stage         | Client action                                                       | Owning result                                                                                   |
-| ------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Register      | Agent submits sources, experiment plans and chosen research context | R&D freezes research boundaries and trial lineage                                               |
-| Prepare       | Bind instruments, history, native subscriptions and warmup          | Market Data admits PIT coverage, versions and named gaps                                        |
-| Author        | Submit native Strategy signal/protection and sizing rules           | R&D seals the Artifact with its dependencies and approved execution policy references           |
-| Replay        | Submit one bounded Backtest request                                 | Native Backtest returns orders, fills, portfolio evidence and diagnostics                       |
-| Iterate       | Compare frozen objectives and choose the next legal action          | R&D records repair, successor, stop or selection and reusable findings                          |
-| Qualify       | Submit an exact selected candidate or composition                   | Qualification independently evaluates protected evidence and returns bounded public eligibility |
-| Confirm trial | User confirms the candidate and frozen policy in Dashboard          | Governance admits first real trial only with authority, capacity and native readiness           |
-| Operate       | Query trial/formal stage and applied state                          | Governance evaluates frozen stage rules; native node executes authorized trading                |
+| Stage         | Client action                                                                                   | Owning result                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Register      | Agent submits sources, experiment plans and chosen research context                             | R&D freezes research boundaries and trial lineage                                               |
+| Prepare       | Bind instruments, history, native subscriptions and warmup                                      | Market Data admits PIT coverage, versions and named gaps                                        |
+| Author        | Submit native Strategy signal/protection and sizing rules                                       | R&D seals the Artifact with its dependencies and approved execution policy references           |
+| Replay        | Submit one bounded Backtest request                                                             | Native Backtest returns orders, fills, portfolio evidence and diagnostics                       |
+| Iterate       | Compare frozen objectives and choose the next legal action                                      | R&D records repair, successor, stop or selection and reusable findings                          |
+| Qualify       | After research stops, user explicitly requests evaluation of the exact candidate or composition | Qualification independently evaluates protected evidence and returns bounded public eligibility |
+| Confirm trial | User confirms the candidate and frozen policy in Dashboard                                      | Governance admits first real trial only with authority, capacity and native readiness           |
+| Operate       | Query trial/formal stage and applied state                                                      | Governance evaluates frozen stage rules; native node executes authorized trading                |
 
 One `backtest.run` performs deterministic request validation, research binding, data resolution and replay composition inside the backend. The Agent does not move market rows or assemble internal receipts. Same identity and meaning recover the original operation; changed meaning creates a successor or conflict. Unknown results never become economic judgments. See [Product Edge](../architecture/product-edge/) and [research acceptance](../scenarios/research/).
 
@@ -34,24 +34,27 @@ Positive and negative factor/rule findings belong to R&D knowledge, with exact v
 ```mermaid
 flowchart LR
   Research --> Replay
-  Replay --> Qualification
-  Qualification -->|Eligible| Confirmation
-  Confirmation --> Trial
+  Replay --> ResearchStop["Research goal completed: stop and deliver"]
+  ResearchStop -->|User explicitly requests independent evaluation| Qualification
+  Qualification -->|QUALIFIED: current eligibility| Confirmation
+  Qualification -->|CLOSED_NOT_QUALIFIED| QualifiedStop["Record public result and stop"]
+  Confirmation -->|User confirms exact version and frozen policy in Dashboard| Queue["Governance activation queue"]
+  Queue -->|Current authority, capacity and native readiness| Trial
   Trial -->|Current conditions + capacity| Formal
   Trial -->|Failed deadline or authorized stop| Unload
   Formal -->|Retention failure or authorized stop| Unload
   Unload -->|Stop entries and cancel entry orders| Exit
-  Unload -->|Return research status| Research
+  Unload --> UnloadedStop["Record unload and stop"]
   Exit -->|Protected positions remain| Native
 ```
 
-Exploration is not qualification. Qualification independently consumes the frozen candidate, complete trial family, cost/capacity assumptions, embargo and protected protocol. Internally it may distinguish pass, equivalence failure and insufficient evidence. Agent and Dashboard see only `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; protected numbers, reasons, timing and categories never return to research or its knowledge store. Public nonqualification alone cannot close a mechanism. New families, clients or direct MCP calls cannot bypass exposure accounting.
+Exploration is not qualification. Qualification independently consumes the frozen candidate, complete trial family, cost/capacity assumptions, embargo and protected protocol. Internally it may distinguish pass, equivalence failure and insufficient evidence. Agent and Dashboard see only `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; protected numbers, reasons, timing and categories never return to research or its knowledge store. Public nonqualification does not prove a mechanism invalid. The qualification task stops and never automatically restarts R&D; successor research requires a new explicit request. New families, clients or direct MCP calls cannot bypass exposure accounting.
 
 Only independently eligible candidates can be offered for real trial. The user confirms exact candidate, finite named condition template, exposed parameters, capital policy and authority in Dashboard. Qualification alone starts nothing; the user may keep a qualified candidate in R&D. Trial conditions freeze before operation, including observation period, net economic/risk rules and minimum independent trade samples. Concrete templates and thresholds are detailed in their owning design slice.
 
-Trial and formal pools both use real money. Promotion automatically rechecks current frozen conditions, authority and allocation feasibility at actual transition time. A qualified capacity waiter continues under trial authority, including beyond the maximum observation period while still satisfying conditions. A currently failing strategy at that deadline ends trial and returns to R&D. Formal retention failure unloads to R&D, never directly downgrades into trial.
+Trial and formal pools both use real money. Promotion automatically rechecks current frozen conditions, authority and allocation feasibility at actual transition time. A qualified capacity waiter continues under trial authority, including beyond the maximum observation period while still satisfying conditions. A currently failing strategy at that deadline ends trial, records unloading, and stops. Formal retention failure unloads and stops, never directly downgrades into trial.
 
-A user or Agent acting within previously approved bounds may unload a valid strategy for improvement. Stop new entries, cancel unfilled entry orders and release running allocation; residual fills keep their original protection and actual account exposure. Unloading records its actual reason, not an invented economic failure. Changed strategy content hash means a new version and complete qualification/trial lifecycle. Unchanged content still needs current eligibility, stage evidence and explicit restart confirmation.
+A user or Agent acting within previously approved bounds may unload a valid strategy for improvement. Stop new entries, cancel unfilled entry orders and release running allocation; residual fills keep their original protection and actual account exposure. Unloading records its actual reason, not an invented economic failure. Changed strategy content hash means a new version and complete qualification/trial lifecycle. Unloading never automatically restarts research or operation. New research requires an explicit request. Unchanged content still needs current eligibility, stage evidence and explicit restart confirmation.
 
 Qualification's record-only Forward Record is optional isolated simulation evidence. It creates no orders or capital commitments, replaces no real-trial evidence and cannot promote a strategy. Paper adapter verification is supporting evidence rather than a user promotion phase. Existing sealed protocols retain their meanings; design alone grants no implementation, deployment, trading credential or order permission.
 

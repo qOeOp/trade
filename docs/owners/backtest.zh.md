@@ -22,7 +22,7 @@
 | 余额、保证金与持仓     | 原生账户、Margin 模型、Portfolio、RiskEngine                               | 当前 Host 路径限制单 venue Margin account、NETTING                      | 原生拥有交易事实；账户池分配与研究场景政策属于产品扩展                |
 | 资金费结算             | SimulatedExchange 处理 FundingRateUpdate 与结算边界                        | 产品有数据与结果基础；当前 MCP 请求不能表达完整资金费计划               | 需要证明完整 schedule 接入、账户变动和报告一致；不另写资金费账本      |
 | 执行算法               | `add_exec_algorithm` / `add_exec_algorithms` 及原生算法接口                | 当前 MCP 无算法配置入口                                                 | 原生已有，按研究需要接入并绑定算法版本与参数                          |
-| K 线内成交顺序         | 原生 OHLC 路径假设与分钟 bar 撮合                                          | 分钟执行、原生信号聚合及保守政策仍须接通验收                            | 路径假设不证明实际先后；缺失行情不能使用兜底                          |
+| K 线内成交顺序         | 原生 OHLC 路径假设与分钟 bar 撮合                                          | 分钟执行、原生信号聚合及路径配置仍须接通验收                            | 路径假设不证明实际先后；缺失行情不能使用兜底                          |
 | 输入修复与重新回测     | 原生 reset 与完整重复运行                                                  | 输入版本改变后由 Agent 提交新封存运行                                   | 保留前驱与准确证据，不拼接运行或改写旧输入                            |
 | 运行身份与结果托管     | 原生 run/result 与统计基础                                                 | 产品有请求登记、同身份冲突检查、冻结/准入、attempt 与结果 custody       | 产品增加可接管的研究证据；是否成功须看实际终态与结果                  |
 | 报告与绩效             | 原生结果、analysis 统计、订单/成交/持仓/账户事实                           | 有 OwnerBacktestReportV1 转换；当前 MCP `report` 对已记录运行统一拒绝   | 计算基础已有，MCP 报告读取尚未交付，不能以拒绝工具算报告完成          |
@@ -191,9 +191,13 @@ OHLC/OLHC 路径假设，不能证明实际交易先后。
 `crates/backtest/src/node.rs::run_streaming` 在单数据配置时直接使用 catalog 迭代器，多个配置时先经
 `load_and_merge_data` 全量加载并归并；多标的、多周期内存目标须核验实际读取路径。
 
-完整一分钟仍不明时，止损/止盈冲突取止损优先，入场/止盈先后不明取入场后持仓，并标注政策推定。
-原生路径启发式不自动实现这一含义；须通过原生扩展及验收，未接通时返回顺序未决，不能声称政策已执行。
-缺失分钟或无效行情属于数据缺口，不能使用歧义兜底伪造结果。
+完整一分钟按冻结的原生路径撮合：默认 OHLC，或配置的高低点自适应排序。模拟入场、止损、止盈
+的先后由该路径决定，不再叠加止损优先或入场后持仓规则。记录配置，并标明 K 线模拟先后而非逐笔事实。
+Agent 可用不同原生配置分别回测比较，不在看过结果后挑选有利路径。缺失分钟或无效行情仍是数据缺口。
+
+外部执行 K 线使用 `bar_execution` 与 L1 订单簿。保留来源时间含义：原生在 `ts_init` 处理 K 线撮合，
+通常是收盘时刻；`ts_event` 按来源约定。Market Data 归一化和原生聚合设置须先确定这些边界。
+原生先处理已有挂单，再向策略交付该 K 线；收盘确认的信号不能在该 K 线更早成交。
 
 ### V0.1 研究规模与性能验收
 
@@ -238,6 +242,27 @@ V0.1 的结果读取允许 Agent 按准确 run/result 身份和时间范围，�
 
 例如 R-1 两个退出版本的最大回撤相近，Agent 可取回相应分钟序列，比较水下持续时间、恢复和重复下探，
 将结论及准确结果引用写入 R&D。序列读回必须能与主回撤使用的输入对齐；当前已有统计能力不证明该读取链路已交付。
+
+引擎结束仍执行原生 stop hooks 和排队命令。期末保留持仓须由冻结的策略生命周期配置及 `on_stop`
+保证；报告实际发生的结束阶段效果，不在事后删掉清理成交。
+
+### 原生费用与保证金模型
+
+回测复用 Nautilus 的 `FeeModel` 与 `MarginModel`，策略不另行计算费用或维护保证金账本。
+费用可选择 `MakerTakerFeeModel`、固定费用或原生接口支持的扩展；保证金采用
+`StandardMarginModel`、`LeveragedMarginModel` 或有实际消费接线的原生扩展。
+
+绑定实际安装的仓库 API。当前版本的 `MakerTakerFeeModel` 读取品种 maker/taker 费率；较新的官方示例
+可能改为向模型传费率。参数载体随版本不同，构造方法不能直接互换。策略加载前按返回的运行环境
+核实 import、配置类型和原生绑定。
+
+每次运行冻结模型、实现版本、参数及其依据。费用和保证金可以是明确选择的模拟条件，
+不要求先收集整个回放区间的历史费率档案。当前费率用于全区间时标为模拟假设，不能称为历史收费事实。
+缺少模型必需参数或实际原生消费能力仍拒绝运行，不静默补零或套用默认值。
+
+Market Data 对历史行情、资金费、标记价和已提供的历史条款负责；Backtest 对模拟模型及参数负责。
+真实历史数据与模拟条件在报告中分列。改变参数产生新的运行；Agent 可自行比较成本敏感性，
+产品不新增成本优化器。模型选择不取得资格或交易许可，Qualification 仍按独立冻结协议验证适用条件。
 
 ## TARGET - 资金与执行政策的一致回放
 
@@ -314,36 +339,15 @@ Agent 复用原生统计或自己的分析工具计算跨运行估计并作判�
 
 ## 拥有的权威事实
 
-- 重放身份 确定性时钟 冻结输入 运行与模拟版本和配置摘要。
-- 重放产生的规范订单 成交 持仓 成本和结果。
-- **CURRENT_PARTIAL：** 完整有序 shared-kernel semantic trace，把 normalized lifecycle event、checkpoint、primitive
-  与 plugin result、target/protection transition 和 fill reconciliation 绑定到规范 replay。
-- 原生输入的可用时刻、预热边界及实际订阅消费。缺失或尚不可用的输入不能当作策略条件为假的证据。需要诊断时读取原生事件与策略日志，不要求任意 Python 策略提交冻结程序图、谓词枚举或独立的逐条件普查。
-- 探索运行与 Qualification 请求的保护运行之间的完整隔离。
-- Exploratory Run Result 逐项重复实际消费的 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot
-  Universe Selection Record 与修订规则 重放配置 Runtime 内核 模拟器 成本 滑点和容量模型身份，
-  让 Research 校验请求与结果完全相等。
-- 现有兼容结果按绑定 diagnostic-policy 版本提交一个完整有限 `diagnosticCategorySet`。支持成员为
-  `NO_EXECUTION_DEFECT` `MARKET_DATA` `ARTIFACT` `RUNTIME_KERNEL` `BACKTEST_OPERATIONAL` `SIMULATOR`
-  `REPLAY_CONFIGURATION` `VALID_ECONOMIC_FAILURE` 和 `UNRESOLVED_FAILURE`。所有分别有证据支持且同时
-  出现的类别都必须保留，并分别绑定决定性证据截面。`NO_EXECUTION_DEFECT` 不能与缺陷类别共存；含糊
-  或无法隔离的证据必须为 `UNRESOLVED_FAILURE`，不能猜测缺陷或经济结果。
-- `BACKTEST_OPERATIONAL` 绑定准确 operational-profile 身份与版本、run-attempt 身份、runner/service
-  readiness、backpressure、resource exhaustion 或 outage 证据及新鲜 Time Evidence。它是 Backtest 在
-  Native Replay 服务边界拥有的 operational diagnosis，不是 Runtime kernel 或 Sim Exchange/Simulator
-  缺陷；未修复或排除前禁止经济解释。
-- 保护重放身份在执行前绑定准确 Strategy Artifact、请求 PIT 范围、PIT Market Snapshot 与 Universe
-  Selection Record 身份与摘要、calendar/session/time-zone、corporate-action 与历史 membership cut、Market
-  Semantics Compatibility 身份、快照与修订规则、重放配置摘要、Runtime 内核、simulator 成本 滑点
-  容量模型版本，以及准确 Candidate/Intake 保护决策政策身份与版本。它还在任何保护观测前重复冻结
-  Protected Robustness Plan 身份 必需单元身份 指标集 覆盖规则 容差 阈值 聚合 缺失单元和停止政策。
-- Protected Run Result 逐项重复保护请求对应的实际消费字段与保护政策 pair，并要求请求与结果完全相等。
-  它声明 `PROTECTED_EVALUATION` 为规范 `timeEvidenceCutKind`，直接绑定 request Time Evidence，并为准确
-  request、attempt、plan 与 plan cell 密封 result-stage clock cut。
-- Backtest Repair Result 绑定一个 R&D-owned `native-repair-request`、准确 `SIMULATOR` 或
-  `BACKTEST_OPERATIONAL` 类别、前驱 repair decision、稳定 correlation、原始 proof digest、类别专属旧
-  identity 与 source cut、repair policy、决定性证据和新鲜 Time Evidence；只有 Backtest 能为该 attempt
-  提交 `REPAIRED` `UNAVAILABLE` 或 `OUTCOME_UNKNOWN`。
+- 稳定任务、请求与 attempt 身份，冻结策略包、Git 来源、环境及原生运行配置。
+- 请求与实际消费逐项相等的输入版本、标的、窗口、PIT/修订范围、可得时刻、预热边界及聚合配置。
+- 原生订单、成交、拒绝、持仓、费用、资金费、账户序列和结果；模型及其准确版本随运行保管。
+- 原始错误、已取得的异常位置/调用栈及有界原生日志，明确缺失、截断、未定或部分结果。
+- 保护请求的 Candidate/Intake、冻结政策、Protected Robustness Plan 与计划单元绑定，以及仅供 Qualification 消费的保护结果和 attempt frontier。
+
+Backtest 报告实际运行事实，不拥有科学诊断类别、策略修复决定或服务器修复工作流。
+当前兼容的 semantic trace 与 diagnostic-policy 字段只解释已记录结果，不能要求原生 Python 策略提交程序图或修复协议。
+`SIMULATOR` / `BACKTEST_OPERATIONAL` repair 在四个 Backtest crate 中没有实现，不能列作已有权威事实。
 
 ## 模块
 
@@ -538,145 +542,30 @@ Agent 为新原生实验选择参考并预登记比较假设；持仓模式、�
 
 ## 输入交接
 
-- R&D 经 typed 向下端口传入完整封存 Exploratory Replay Request 值，绑定请求身份、规范含义/摘要、Artifact、PIT 范围、Intent、成本/滑点/容量及执行模型。上层边界在接纳前解析生产者托管；Backtest 检查自身准确输入绑定/当前适用性并记录 attempt/result，不反读 R&D。缺失、陈旧、冲突或未知输入保留具名无尝试/未决含义，不缺省、虚构或替换字段。
+- [R&D](./rd/) 通过 typed 向下端口传入上层已解析的完整封存请求：稳定身份、含义摘要、策略包、参数、环境、数据清单和原生模型配置。Backtest 核验自己的绑定并记录任务，不反读 R&D 或重新编译编写文档。
+- [Market Data](./market-data/) 提供准确不可变版本、完整所需窗口、多标的条款、精度、权限、PIT/修订与可得证据。原生装载/准备前拒绝缺失、过期、含义冲突或不相等绑定；运行期间不通过 MCP 补数。数据缺口不等于经济失败。
+- [Qualification](./qualification/) 仅在 `ADMITTED` intake 与 holdout 预留后发送冻结保护请求；执行身份、保护政策和计划单元在观察前固定，接入拒绝也闭合为请求相关的 `RUN_REJECTED`，细节仍受保护。
 
-**定位符协议兼容。** 下述已有解析规则只保留封存请求/回执含义；反向读取 R&D 是迁移责任，不是目标分层例外。迁移将规范解析移到上层准入边界，仍保留准确字节、稳定截面、摘要相等、未知/零写入及同身份恢复：
-
-- [R&D](./rd/) 提交一个冻结 Exploratory Replay Request，由一个 R&D 拥有的定位符寻址，该定位符携带请求身份
-  规范请求含义摘要 回执身份与封存摘要。Backtest 通过固定的只读 R&D Owner 端口重新解析该定位符，并在读取任何
-  其他字段之前先用摘要校验规范请求字节；一个定位符标签 一份下游证言 或调用方自带的字节副本都不是该请求。
-  该请求固定准确不可变 Artifact 请求的 PIT 数据范围 重放配置 其 Research Intent 冻结的同一成本 滑点与容量
-  模型版本，以及一个正向终态结果必须逐项核对的请求含义的其余每个组成部分。Backtest 在 R&D 一侧可能观察到
-  `AVAILABLE` `STALE` 或 `UNAVAILABLE`；只有 `AVAILABLE` 准入一次尝试，而 `STALE` 与 `UNAVAILABLE` 都不是对
-  请求的拒绝，它们只说明该 Owner 当前无法供给。解析不到任何东西的定位符 摘要不符的字节 同一身份下含义已变的
-  请求 以及不作答的 R&D 端口，都不产生尝试也不产生结果：沉默绝不是 `UNAVAILABLE`，而 `UNAVAILABLE` 也绝不是
-  一个终态重放结果。Backtest 绝不重建 缺省或替换任何被请求的组成部分，绝不把两份调用方自撰表示之间的相等
-  当作请求与结果的相关性，也绝不为一份它自己没有校验过规范字节的请求开始尝试。
-- 在现有兼容接口接纳 `D1_EXECUTABLE_REPAIR` 时，R&D 提交独立 `REPAIR_VALIDATION` request，绑定 D-only repair
-  admission、前驱与后继 Artifact、defect oracle、完整 non-defect regression corpus、冻结语义相等证明
-  和确定 event/signal/intent/order trace comparison。它既不是探索请求也不是保护请求。
-- [Qualification](./qualification/) 发送只在 `ADMITTED` intake 和 holdout 预留后创建的保护请求，冻结
-  全部执行身份及准确 Candidate/Intake 保护政策 pair。每个请求处理一个已声明 Protected Robustness
-  Plan 单元或准确冻结有界矩阵，Backtest 不能在观察结果后挑选单元；接入拒绝仍必须提交绑定同一请求的 `RUN_REJECTED` 结果。
-- [Market Data](./market-data/) 提供一次重放所消费的冻结 PIT 事实与标的条款：PIT Market Snapshot 身份与摘要
-  Universe Selection Record 身份与摘要 快照与更正规则 公司行动与历史成员截面 Market Semantics Compatibility
-  身份，以及逐标的的密封事实摘要 回执摘要与条款摘要，连同场所 报价与结算币种 有效期窗口 保证金模型与费用
-  条款。Backtest 以 Owner 密封回执的形式消费它们；它不查询存储 不挑选切片 也不接受调用方自带的夹具来顶替。
-  一份回执要么对准确的请求绑定范围是密封且可解析的 要么不是，不存在部分或临时形态：只有覆盖每个被请求标的
-  与整个被请求范围的完整集合才准入执行，而靠替换相邻截面 更晚的更正前沿 或不同成员来覆盖该范围的集合不准入。
-  缺失的回执 解析不了的身份 不符的摘要 请求绑定域之外的标的 不包含所请求截面的有效期窗口，或计算只容许一种
-  结算币种时出现多于一种，每一种都在 `ProgramHost` 调用之前失败且不产生任何正向回执，因为数据缺口是一个重放
-  证据事实，绝不是一个经济结果。Backtest 绝不推断缺失的价格 条款或成员，绝不悄悄改变成本，绝不替换为另一份
-  快照或另一个模拟版本，也绝不让遥测或投影顶替一份密封回执。
-- [R&D](./rd/) 还可提交一个冻结的 `SIMULATOR` 或 `BACKTEST_OPERATIONAL` `native-repair-request`。
-  `SIMULATOR` 只能指向 Backtest 的 Sim Exchange 表面 `sim-exchange`；`BACKTEST_OPERATIONAL` 只能指向
-  Native Replay 的 `BACKTEST_RUNNER_SERVICE`。目标 类别 前驱 proof 旧 identity source cut policy 时间错误或含义变化都不创建 Backtest repair
-  attempt 或 result。
-
-这两条上游契约的准入程度不高于上游自己的记载：对应的 [Market Data](./market-data/) 输出交接把直连 `BACKTEST_OWNER_V1` Instrument Master 解析标为
-**TARGET**，因此此处任何内容都不得读作一条已准入的消费路径。 探索路径在已部署的产物里同样不可达：`run_exploratory_replay_v2` 在其自身 crate 之外唯一的调用者位于 生产 feature
-`#[cfg(feature = "native-replay-execution")]` 之下，而 `product/rd-workbench/Dockerfile.owner` 构建 `strategy-factory-rd-owner-api` 时不带它。
-
-这测的是部署产物而不是历史；它没有断言 该路径是否曾在别的环境里跑过。
+现存定位符兼容解析保留准确字节、摘要相等、稳定截面、原子失败零写入及同身份恢复；上层迁移不能以调用方副本顶替来源权威。`D1_EXECUTABLE_REPAIR` / `REPAIR_VALIDATION` 只约束旧接口，不成为原生任务前提；没有 native repair 消费路径。
+直连 `BACKTEST_OWNER_V1` Instrument Master 解析仍为 TARGET；`run_exploratory_replay_v2` 的外部调用受 `native-replay-execution` feature 约束，现有部署 Dockerfile 未启用它。上述契约不证明部署可达。
 
 ## 当前兼容协议的输出交接
 
-原生运行报告引用封存 Python 包的内容摘要、Git 来源、入口、参数和固定环境，以及实际消费的多标的输入与聚合配置；不重新编译编写文档，也不要求 Composer 构建回执。下文单阈值族、V3 回执、唯一 universe 成员及对应拒绝码仅约束当前兼容报告读取形状，不能成为原生报告前提。
+目标报告引用封存 Python 包摘要、Git 来源、入口、参数、环境，以及实际消费的输入和聚合配置。向 R&D 返回任务/原生结果/原始错误，向 Qualification 返回请求相等的密封保护结果；Product Edge/Dashboard 只读取已授权探索事实，不接触保护 payload。
 
-下列类型化诊断与修复记录约束现有兼容 schema 的消费者，不是原生研究提交必须实现的科学分类或修复工作流。原生服务故障保留任务身份、实际错误与日志，由用户修复服务器并部署；策略修正产生新的封存包与实验。无效、中断、未知或输入不相等的运行仍不能作为经济或资格证据，保护诊断仍只由 Qualification 持有。
+当前兼容读口及限制：
 
-- 向 [R&D](./rd/) 返回带完整有限 `diagnosticCategorySet` 及各成员决定性证据截面的探索 Run
-  Result。任一执行缺陷成员都优先于经济解释；Research 保留全部支持成员，再按冻结优先级选择唯一修复。
-  只有不含缺陷的集合才能用 `NO_EXECUTION_DEFECT` 或 `VALID_ECONOMIC_FAILURE` 做经济解释；
-  `UNRESOLVED_FAILURE` 不允许产生决定。
-- 对 [R&D](./rd/) 的 `REPAIR_INPUTS_SIMULATOR` 或 `REPAIR_INPUTS_BACKTEST_OPERATIONAL`，只有 Backtest
-  能返回准确 request-correlated `REPAIRED` `UNAVAILABLE` 或 `OUTCOME_UNKNOWN`。`REPAIRED` 命名新
-  simulator 或 operational-profile identity，且只允许一个新请求相等 Replay Request，绑定准确前驱
-  `REPAIR_INPUTS` 决定、类别、native repair request 与 result identity、原始 proof digest、稳定
-  correlation、前驱与后继 native identity 及 cut，以及未改变的前驱请求语义。`BACKTEST_OPERATIONAL`
-  还包含后继 operational-profile identity 与 cut。只有 `REPAIRED` 允许 re-entry；`UNAVAILABLE` 只
-  允许关联 `STOP_INPUT_UNAVAILABLE`；`OUTCOME_UNKNOWN` 不允许 stop retry 后继 Artifact Selection 或
-  Replay Request。任何结果都不改写或重试已消费 run attempt。
-- 只有请求相等的探索 `TERMINAL_RESULT` 可以进入选择；被拒 无效 未知 非终态或不匹配尝试只留在
-  TrialFamily Census。
-- 向 R&D 的有人值守修复路径只返回请求相等的 `REPAIR_VALIDATION` 事实；只有通过结果可支持
-  `D1_VALIDATED`。失败 被拒 无效 未知或不相等结果不支持 Candidate，也不能重标为 Research 证据；
-  只有 R&D 能提交 D-only Repair Disposition。
-- 向 [Qualification](./qualification/) 只返回逐项重复实际消费执行身份以供完全相等校验的密封 Protected Run Result 和完整消费输入证据。
-- 只向 Product Edge 提供只读探索 Run Result 视图；保护请求 测量 结果和 holdout 细节永不投影。
-- 向 Dashboard 有两条交接，每条只承载它点名的内容：
-  - 结果读回，即 `exploratory_replay_result.shadow_read.v2` 背后的 `resolve_exploratory_replay_result_v3`，
-    只交出规范结果字节本身，不交出任何由它派生的量。它在 `product/dashboard/lib/operation-registry.ts`
-    里的条目只允许 `terminal`、`reconciliation_summary`、`diagnostic_summary` 与
-    `semantic_trace_presence`，不含任何经济字段。
-  - 运行报告，即 `crates/strategy_factory/src/backtest_run_report_read_v1.rs` 里的
-    `resolve_backtest_run_report_v1`，承载 `BacktestRunReport` 的具名字段。运行产出的部分是
-    `OwnerBacktestReportV1` 从同一份已提交字节派生出的：该次运行的 result、request 与 attempt 身份，以及其
-    结果证据所绑定的引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个
-    收益观测，时间为规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。
-    它不承载统计量映射，因为那些映射合法地含有非有限值。`EMPTY` 的报告还会以 `empty_reason` 说出这次运行
-    为什么没有记录收益，只从同一份字节推出，不引入别的输入。决定它的是引擎自己的规则：`Portfolio::statistics`
-    从组合快照取日权益收益（`calculate_snapshot_returns`），快照解不出结果时，取每个已平仓持仓的收益。一次运行
-    不记录收益，当且仅当快照解不出结果且它没有平过仓。原因是引擎的快照解析按它自己的顺序遇到的第一个成因：
-    - `MORE_THAN_ONE_EQUITY_CURRENCY`：运行某个账户的一个已定价快照带不止一个权益，或两个这样的快照币种不同。
-    - `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`：运行没有账户，或它的某个账户没有已定价快照，因为该账户的每个快照都
-      指名了一个未定价的合约。
-    - `FEWER_THAN_TWO_ENGINE_DAYS`：按引擎计日、并把每个账户的权益向后沿用的方式，已定价快照给出的「每个账户
-      都已有过权益」的天少于两个。`snapshot_day_start` 把每个账户的第一个已定价快照、以及任何恰好落在 UTC
-      零点的快照，都归到前一天，所以单账户的运行只要有一个之后的、不在零点的快照，就有两天。于是没有成交的运行是 `AVAILABLE`、收益为零，
-      有没有成交不是原因。
-    - `NO_DEFINED_DAILY_RETURN`：这样的天有两个或更多，但没有一天的收益有定义，因为每一天都需要它相对前一天
-      非零权益的有限比值。
+- `resolve_exploratory_replay_result_v3` 的 Dashboard shadow read 只提供 canonical result bytes 与 terminal/reconciliation/diagnostic/semantic-trace-presence，不提供经济字段。
+- `resolve_backtest_run_report_v1` / `OwnerBacktestReportV1` 从同一已提交引擎结果派生 run/request/attempt、收益序列、净收益、回撤和成交。收益为分数；当前交接未区分日权益收益与已平仓价格收益，不能一律展示为权益收益。
+- `EMPTY` 原因仍由引擎计算：`MORE_THAN_ONE_EQUITY_CURRENCY`、`ACCOUNT_WITHOUT_PRICED_SNAPSHOT`、`FEWER_THAN_TWO_ENGINE_DAYS` 或 `NO_DEFINED_DAILY_RETURN`；非规范结果按 `ENGINE_RESULT_NONCANONICAL` 拒绝。零成交本身不证明 EMPTY。
+- 旧报告在有界 `SERIALIZABLE, READ ONLY, DEFERRABLE` 快照内读取冻结请求/Design/程序；保留 `REPORT_SNAPSHOT_UNAVAILABLE`、`STRATEGY_NOT_ANCHORED_TO_RUN`、`ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE`、`REPLAY_REQUEST_V3_NOT_YET_REPORTED`、`UNIVERSE_SELECTION_NOT_ONE_MEMBER` 与 `UNIVERSE_SELECTION_UNAVAILABLE` 拒绝，不以新原生包绕过旧读口锚定。
+- 该报告无 HTTP 调用方；PostgreSQL 证明读取验收写入的真实引擎结果，族外运行被整体拒绝。没有链路条目提交可完整陈述的 Composer V3 族内运行，不证明原生报告旅程完成。
 
-    一份 `EMPTY` 却平过仓、或快照其实解得出日序列的 canonical result，不是引擎会写出的结果，按
-    `ENGINE_RESULT_NONCANONICAL` 拒绝，而不是给它一个原因。规则读的每个输入都在已提交的字节里：账户的身份，
-    每个组合快照的账户、`ts_event`、`total_equity`、`base_currency_equity` 与 `unpriced_instruments`，以及
-    每个持仓的 `ts_closed` 与 `realized_pnl`。投影直接向引擎的解析要它的成因，而不是另存一份规则。今天各原因
-    由什么走到：
-    - `FEWER_THAN_TWO_ENGINE_DAYS`：所有快照都落在同一个零点的运行，`a_run_whose_snapshots_all_fall_on_a_midnight_reports_empty`
-      跑的就是它，并以晚一分钟作对照；以及任何落在 epoch 第一天的运行，那里前一天不能低于第零天，例如
-      `an_authored_universe_member_program_enters_once_through_the_target_set_sim` 用的 25 ns 的 sealed 帧。
-      F 的单帧不在此列：它的注册快照在帧的零点、成交快照在其后，所以是带一个收益的 `AVAILABLE`。
-    - `MORE_THAN_ONE_EQUITY_CURRENCY`、`ACCOUNT_WITHOUT_PRICED_SNAPSHOT` 与 `NO_DEFINED_DAILY_RETURN`：没有运行
-      走得到，因为每个准入账户都只持一种币种、给它的合约定价、并以非零权益开始；各由一个对改过的快照做投影的
-      测试走到。
-
-    这个键恒在：`AVAILABLE` 的报告里为 `null`，`EMPTY` 的报告里是集合中的一个。策略与数据窗口不在回测结果里，所以取自上游：
-    该次运行所回应的 replay 请求，以及冻结在该请求所指 Design 之下的 Design 与程序。三次读取都在报告自己开的
-    一个 `SERIALIZABLE, READ ONLY, DEFERRABLE` 事务里：三者共用一个安全快照，同时保留请求存储函数的隔离规则（它只在
-    `read committed` 或 `serializable` 下作答，因为在 `repeatable read` 下它的快照早于它的请求栅栏），且 PostgreSQL
-    拒绝这条路径上的任何行锁。等待该快照有上限，超时的报告以 `REPORT_SNAPSHOT_UNAVAILABLE` 拒绝，而不是一直等。请求经
-    `rd_owner_api.read_exploratory_replay_request_v2` 读取，它不加锁；`resolve_exploratory_replay_request_v2`
-    为之后还要写入的调用方保留它的锁，并经同一个函数读取。策略只对已准入的单阈值族陈述，而且只有当把从那对冻结值读回的陈述重新编写一遍、能逐字节复现该对
-    的规范程序时才陈述；任何其他运行都以这个具名理由整体拒绝。这个族不带版本，所以由更早的编写器冻结、
-    而当前编写器已不能复现的程序，也以同样方式被拒绝。族内的运行只有在冻结程序锚定到该次运行实际执行的
-    artifact 时才被陈述：请求点名的是 Design，而不是其 artifact 构建所依据的程序。锚点是 artifact 的
-    Composer 构建回执，在报告的事务内经 Composer Owner 不上锁的回执读取读出：至少要有一条，而且每一条都必须是
-    带有该冻结 `joint_freeze_digest` 的 V3 插件构建，这个值由报告从冻结行重新推导。V2 构建不带冻结，
-    永远锚不上。未锚定的运行以 `STRATEGY_NOT_ANCHORED_TO_RUN` 拒绝，读不出回执则以
-    `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE` 拒绝。legacy 请求的 artifact 不是 Composer 构建的，所以永远锚不上。
-    Composer V3 请求在带 Composer 回放特性的构建里经其自校验的声明不加锁读取，在不带该特性的构建里（部署镜像即是）
-    以 `REPLAY_REQUEST_V3_NOT_YET_REPORTED` 拒绝。至今没有任何族内运行被端到端陈述过：没有哪条有序链路条目提交
-    Composer V3 运行。
-    通道按运行实际读取的样子陈述（角色、品种、事实、时间粒度、单位与精度），而不是按请求
-    编写它的形式；因此间接指定品种的编写形式同样给出这六个字段，编写通道的方式变了，这份交接也不变。
-    universe 成员形态只通过运行的 universe 选择给出品种。报告在自己的事务内，经 Market Data 不加锁的 R&D 读取
-    `market_data_rd_api.read_universe_selection_for_rd_v1` 读出该选择中被纳入的成员，并在冻结 Design 的 CLOSE 角色上
-    陈述通道，以唯一被纳入成员的 Instrument Master 身份作为品种。纳入成员不恰好为一个的选择以
-    `UNIVERSE_SELECTION_NOT_ONE_MEMBER` 拒绝，读不出或校验不过的选择以 `UNIVERSE_SELECTION_UNAVAILABLE` 拒绝。
-    数据窗口是通道的品种与时间粒度、请求的时间
-    窗口（结束端不含）、请求绑定的 PIT 快照个数，以及以该快照身份作为的切面。
-
-  序列不是每根 bar 一个点：组合收益按日计算，组合快照跨不到两个 UTC 日的运行退回为每个已平仓位一个收益。
-  序列中的每个值、净收益与最大回撤都是分数，0.01 即百分之一，这条交接对它们只陈述这一点。它不说明它们
-  衡量的是哪种收益：按日的点是权益收益，按平仓的点是忽略仓位大小的价格收益，而交接目前不携带一次运行
-  产出的是哪一种。因此在交接携带从规范结果读回的这一依据之前，任何消费方都不得把这些数呈现为权益收益。
-  运行报告目前没有 HTTP 调用方。它的 PostgreSQL 证明读回的是一次真实的引擎运行，但
-  那次运行是经验收模块自己的写入进入托管的，而不是经 `run_exploratory_replay_v2`；后者没有任何有序链路
-  条目驱动。而且它的程序在族外，所以链路证明的是整体拒绝与结果那一半。族内的运行在链路里今天不可构造：
-  没有任何条目从编写出的 Design 组出 replay 请求。
+旧 diagnostic-policy 与 repair schema 只保持现有记录含义；不存在的 repair 结果不作为下一实验必需交接。失败或未知运行不能作为完整经济/资格证据，保护诊断仍只由 Qualification 持有。
 
 ## 拒绝和禁止事项
+
+下述诊断类别仅限定现有兼容记录，不新增原生必经分类或修复流程。保护错误/日志及全部保护结果细节仅由 Qualification 私有持有，服务错误审阅也不解封给研究侧。
 
 - 不推断缺失数据 不静默改变成本 不替换工件或模拟版本。
 - 不混合探索与保护结果，也不把保护结果暴露给同一研发循环。
@@ -687,24 +576,16 @@ Agent 为新原生实验选择参考并预登记比较假设；持仓模式、�
   隔离的证据分类为 `UNRESOLVED_FAILURE`。
 - runner readiness、backpressure、resource exhaustion 或 service outage 证据明确时，不得重标为
   `RUNTIME_KERNEL` `SIMULATOR` 有效经济结果或 unresolved。
-- 不把 `RUNTIME_KERNEL` 当作 Backtest repair，不为含义变化改写 repair result，也不把请求投递 接受
-  静默或 telemetry 当作终态 native repair result。
+- 旧兼容分类不能改写原始错误，也不把投递、接受、静默或 telemetry 当作修复完成。
 - 即使只读也不通过 Product Edge 暴露保护结果。
 
 ## 失败与恢复
 
-数据缺口 标的条款无效 非确定性，或 Artifact PIT 范围 PIT Market Snapshot 身份 Universe Selection Record 身份或摘要 快照规则 重放配置 Runtime 内核
-模拟器 成本 滑点 容量模型有任一缺失 替换或不匹配时，以 `RUN_REJECTED` 或 `INVALID_REPLAY_EVIDENCE` 终止。 两者只是重放证据事实，不是 Candidate 准入或
-Eligibility。
+输入或运行绑定缺失、替换、不相等及数据/条款错误以具名拒绝或原始错误记录；保留任务、attempt、策略包、环境、消费版本和日志。被拒、无效、中断、部分或未定运行不是经济失败或资格。
 
-Qualification 记录对应终态尝试 disposition 和预注册 holdout 闭合，但不称为 `INELIGIBLE`；只有 `IN_PROGRESS_OR_UNKNOWN` 保持未解决。
-无法保持隔离的保护运行不能降级为探索证据。 复现必须从冻结回执开始。
+Agent 修改策略源码后封存新包并提交关联的新完整运行。服务、固定环境或模拟器问题保留准确版本和错误，供用户审阅、修复和部署；修复后显式提交关联新任务，不自动重试或创建服务 repair Owner。状态未定时先解析原身份，不能凭静默写终态。
 
-明确 runner readiness、backpressure、resource exhaustion 或 service outage 失败属于 `BACKTEST_OPERATIONAL`。
-它先于经济解释，只把修复路由到 Backtest operational profile 与 runner service，绝不声称 Runtime kernel 或 Simulator 修复。
-
-保护路径中 Qualification 只把密封类别消费为 `DIAGNOSTIC_INVALID`，按预注册政策闭合 holdout，不生成 Eligibility Fact，也不向 R&D 或 Product
-Edge 泄漏 operational evidence 或保护细节。
+保护失败由 Qualification 按冻结政策闭合 attempt 与 holdout；不能降为探索证据，不能泄露保护诊断，也不能把接入失败写成 INELIGIBLE。
 
 ## 决策契约
 
@@ -721,37 +602,12 @@ Edge 泄漏 operational evidence 或保护细节。
 
 ## 后续实现验收
 
-- 相同接纳输入可以重现同一规范事件和结果序列。
-- Protected Run Result 能证明请求与实际消费的 Artifact PIT 范围 snapshot universe
-  calendar/session/time-zone corporate-action 历史 membership market-semantics correction replay kernel
-  simulator 成本 滑点 容量模型 Protected Robustness Plan 和计划单元身份逐项完全相等。
-- 每个终态保护结果只对其请求的计划单元准确交代一次，并重复完整 cell-set digest。只有 Qualification
-  能按冻结计划解析全部密封 per-cell result，并在消费证明没有请求单元仍处于非终态的密封 Backtest
-  attempt frontier 后分配 missing-cell disposition；Backtest 不能声称完整计划已完成，也不能静默改写不可用证据。
-- 任一保护请求与结果不匹配都必须成为 `INVALID_REPLAY_EVIDENCE`，且不生成 Eligibility Fact。
-- 每个探索结果都关联同一稳定且由 R&D 拥有的请求身份；请求不匹配 可变 已取代或未解析时不生成运行。
-- 现有兼容 schema 的每个终态探索结果都只有一个完整有限 `diagnosticCategorySet` diagnostic-policy 版本，以及每个支持
-  成员的决定性证据截面或完整不可隔离证据集；同时支持的缺陷与经济失败都保持可见，Research 的
-  唯一修复选择必须确定。
-- 每个终态保护结果同样保留一个完整 有限 非空的 `diagnosticCategorySet` 与内容摘要，但只对
-  Qualification 可见。`NO_EXECUTION_DEFECT` 与 `UNRESOLVED_FAILURE` 都只能单独出现；任一受支持执行
-  缺陷优先于经济解释，任何保护集合成员都不得进入共享 telemetry 或 R&D。
-- 每个终态保护 cell result 都携带密封且由 Backtest 拥有的 applicability 与 outcome evidence，以及完整
-  `PROTECTED_EVALUATION` result-stage Time Evidence。Backtest 报告 observation，不分配 Qualification 的
-  `PASS` `FAIL` 或 non-applicability 分类。
-- 每个 `BACKTEST_OPERATIONAL` 结果都证明准确 operational profile、run attempt、readiness/backpressure/
-  resource-exhaustion/outage 证据和 Time Evidence；关联修复只指向 `BACKTEST_RUNNER_SERVICE`，后继
-  profile 只能由新 Replay Request 消费。
-- 每个已接纳 Backtest native repair request 都有一个关联且只写一次的 result。准确 replay 加入相同
-  attempt 与 result；只有 `REPAIRED` 能命名新类别专属 identity，`UNAVAILABLE` 与 `OUTCOME_UNKNOWN`
-  不授予后继 identity 或重试。
-- 每个完成的探索结果都证明 Artifact PIT 范围与 snapshot universe selection 与修订 重放配置
-  Runtime 内核 模拟器 成本 滑点和容量的请求与实际消费完全相等；只有相等的 `TERMINAL_RESULT`
-  可以进入 Research Selection。
-- 探索与保护运行的命名空间 访问路径和结果消费者可证明互相隔离。
-- Backtest 结果不能授权或应用策略 generation；Qualification 决定资格，Governance 授权，只有 Runtime 能证明应用。
-- Backtest 只能写 `RUN_REJECTED` `IN_PROGRESS_OR_UNKNOWN` `TERMINAL_RESULT` 或 `INVALID_REPLAY_EVIDENCE`，不能写准入或资格状态。
-- 已创建保护请求不能在没有 Protected Run Result 时被拒绝，该结果用于让 Qualification 闭合 holdout 托管。
+- 原生冻结任务受理、身份冲突拒绝及原身份查询恢复可由真实消费者读回；提交和封存不冒充执行完成。
+- 请求与实际消费的包、环境、PIT/修订输入、标的、窗口、聚合、模型及成本身份逐项相等，同输入可复现原生事件和结果。
+- 原生订单、成交、账户、费用/资金费、结果和有界日志可按原身份读取，部分、错误、截断和未知明确区分，报告不伪造收益口径。
+- 保护结果重复 Candidate/Intake 政策、计划与准确单元身份；每单元恰好交代一次，只有 Qualification 在完整 attempt frontier 上判定覆盖与资格。缺失、不相等或未定证据不生成 Eligibility。
+- 策略修正创建新包/任务且保留前驱；服务错误留日志供用户修复部署，不依赖不存在的 native repair 请求。
+- 已存在兼容读口按其冻结身份、拒绝、权限和保护隔离验证；旧 Composer/repair schema 不能成为原生验收前置。Owner 接受仍以 Linux 有序 PostgreSQL 链及报告为准，局部测试不是部署证明。
 
 ## 可观测性与持久化
 
@@ -759,7 +615,7 @@ Backtest 持久化每个 Replay Request、run attempt、已消费 Artifact 与 P
 readiness 与有界 backpressure/resource/outage 证据、成本/容量输入、完整 diagnostic set、Exploratory Result 和 Protected Run
 Result。
 
-运行信号覆盖 queue time、engine/simulator 时长、资源使用与 repair dependency，但不能把保护测量或内部终态 disposition 复制到共享 telemetry。 探索
+运行信号覆盖 queue time、engine/simulator 时长、资源使用与具名失败，但不能把保护测量或内部终态 disposition 复制到共享 telemetry。 探索
 投影可以暴露其 diagnostic category set；保护投影只能暴露公共终态 `CLOSED_NOT_QUALIFIED` 或 `QUALIFIED`、类型不透明且不可解引用的
 reference，以及 source-frontier freshness。
 

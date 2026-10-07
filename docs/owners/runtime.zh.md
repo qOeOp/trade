@@ -79,7 +79,7 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
   generation、checkpoint、scope 与 `valid-through` 的已提交 Readiness Fact。
 - **TARGET - Readiness Gate 与 checkpoint 持久化：** 没有任何东西持久化 checkpoint，或向 Risk 与 Execution 发布就绪状态。
 - **TARGET - 输入与输出交接：** 没有任何 port 触达 Governance 决定、实时 Market Data 事实、Risk 决定、Execution 命令或
-  回读或 Event Rail。兼容 repair result 及其端口同样不可用，
+  回读或通知。兼容 repair result 及其端口同样不可用，
   不是原生研究前置条件，也不是服务器自修复设施。
 - Paper 与 Live 等价性仍为下文共享策略生命周期契约所述的 **TARGET / NOT_ADMITTED**；没有任何 Paper 或 Live Execution
   adapter 绑定到 Runtime。
@@ -89,6 +89,23 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
 Runtime 只加载 Governance 当前授权的准确[原生策略包](../architecture/strategy-factory/#strategy-package-and-content-identity)、运行环境、参数和数据绑定。
 原生 Trader/Strategy 生命周期消费市场、订单、成交及 timer 事件；Strategy 通过原生订单接口表达规则，Risk 与 Execution 保留授权和订单事实。
 不引入产品 BFP、plugin 内核或第二套动作状态机。
+
+入场、条件撤单、分段退出和移动止损规则留在原生 Strategy 代码中。关联订单、有效期及成交后的联动
+复用 OrderFactory、OrderManager、OrderEmulator；策略继续接收原生订单/持仓回调。核心支持不证明
+每个场所适配器都支持同一关联订单路径。须验证选定的币安链路；当前 Futures 分组 order-list 提交
+会拒绝需要适配器 OCO-on-fill 状态的关联订单，不能据此宣称所有保护路径均已接通。
+明确绑定原生 GTD 到期与关联订单管理配置，能力存在不等于默认启用。
+
+停止新入场不等于停止原生 Strategy。已有持仓或保护仍需回调时，保留必要组件以只退出模式运行，
+通过原生命令撤销剩余入场单。原生 `manage_stop`/`on_stop` 可能撤单或平仓，只在符合获准退出政策时使用。
+原生 REDUCING 检查净暴露方向，不能证明严格 reduce-only 或按笔减仓；HALTED 不保证继续接纳退出。
+逐策略新入场门禁与适用的原生 reduce-only 订单共同落实退出政策，原生事件仍是事实来源。调整分配额度不会消除真实账户占用。
+
+持仓身份服从原生 OMS：HEDGING 支持独立 position ID；NETTING 按标的/策略合并，不能宣称
+每次入场都有独立场所持仓。须验证币安账户模式、适配器报告与原生 OMS 的映射；策略 OMS
+不必与场所 OMS 相同，虚拟分仓不证明场所独立分仓。需要保留按笔入场/退出
+归因时，以实际成交为依据作有界逻辑交易扩展，不重复账户余额或保证金账本；当前净目标适配器
+不能据此冒充已经支持 R-1。
 
 checkpoint 必须绑定策略包、generation、完整事件前沿及实际策略状态。
 原生策略状态保存并非完整节点恢复：clock、cache、订单/持仓/账户、执行算法、定时器和模型状态都要按各自权威恢复与对账。
@@ -132,7 +149,7 @@ Runtime 不把策略内存状态、目标数量或 Agent 解释升级为账户�
   `UNAVAILABLE` 只允许关联 `STOP_INPUT_UNAVAILABLE`；
   `OUTCOME_UNKNOWN` 不允许 stop retry 后继 Artifact Selection 或 Replay Request。投递 接受 静默与
   telemetry 都不是 repair result
-- 向 Event Rail 发布已提交事故和就绪变化唤醒提示。通知投递永远不是证据，不能证明就绪 fence
+- 向订阅者发布已提交事故和就绪变化唤醒提示。通知投递永远不是证据，不能证明就绪 fence
   Recovery Case 闭合或生命周期完成
 
 ## 拒绝和禁止事项

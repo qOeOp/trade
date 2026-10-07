@@ -4,20 +4,11 @@ Paper 通过模拟效果验证原生控制与适配器契约，属于辅助证�
 
 ## Entry / 入口
 
-Strategy Governance 已为一个模拟 generation 授权具有资格的 Strategy Artifact 并分配资金政策，但尚未 启动 Runtime。 该决定绑定一个具有隔离账户和效果命名空间的
-`PAPER` Execution Scope。 `INITIAL_ACTIVATION` 还绑定包含新鲜 Capacity View 的 Portfolio Lifecycle
-Evidence Receipt；该视图必须兼容该 scope，且不能为新 generation 编造历史表现。 Execution Scope 另绑定一个预先准入的模拟 Adapter Binding。
+此场景的入口是显式授权的隔离模拟适配器验证，不是策略上线、试盘或转正入口。验证声明准确 Strategy 包、配置、数据、`PAPER` 账户及效果命名空间和已准入 adapter；不要求先为真实策略建立模拟生命周期或分配真实资金。
 
-Runtime 已提交 `APPLIED` Generation Application Receipt，把唯一 Strategy Instance 与 checkpoint 绑定到同一决定
-generation scope 工件和 fence epoch。 Paper 与 Live 使用同一 Strategy Instance 语义；只有 Execution 选择预先 准入的模拟 adapter
-及隔离账户与效果命名空间。
+只有已有获准的 PAPER 控制链可执行以下验证。其内部 `INITIAL_ACTIVATION`/`APPLIED` 等 wire 身份不能解释为产品新增阶段或 Live 授权；原有 authorization lineage、Risk admission、一次性效果及隔离约束继续适用。没有可调用入口或必要准入时明确不可用，不凭契约页面创建它。
 
-application 还绑定完整请求 Authorization Lineage 与 `PAPER` Autonomous Policy Authorization。 此授权只适用于
-`PAPER` scope。 模拟只替换 adapter，不能取消显式无人值守交易权限要求。 `INITIAL_ACTIVATION` `PROMOTION`
-`APPLIED` 以及正常自动 Paper 新增风险或模拟效果都要求 `UNATTENDED_REQUEST_WITH_POLICY`。
-
-`PROMOTION` 按自身 transition-evidence key 绑定新鲜兼容 Capacity View Performance 与 Exposure 证据。
-`ATTENDED_REQUEST` 只能处于未运行和 decrease-only 状态；除非未来 另行定义独立 attended-effect 契约，否则不能进入 Paper。
+模拟与真实账户、效果及恢复证据不互为别名；Paper 结果不能充当真实试盘收益或自动转正证据。
 
 ## Value path / 价值路径
 

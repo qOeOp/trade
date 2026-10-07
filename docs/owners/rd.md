@@ -104,7 +104,7 @@ flowchart TD
     B -->|"Actual Result"| E["R&D Evidence"]
     E --> A
     A -->|"Record Finding"| K
-    R -->|"Frozen Candidate"| Q["Qualification"]
+    R -->|"User-requested Assessment"| Q["Qualification"]
     R -->|"Unknown Task"| W["Resolve Same Identity"]
     W --> E
 ```
@@ -113,8 +113,8 @@ flowchart TD
 2. The Agent proposes mechanisms, authors strategies and chooses experiments, including new families within the approved theme.
 3. The Agent asks Market Data to prepare or reuse initial data and obtains an available exact data reference.
 4. The Agent submits a data-bound experiment; R&D checks identity, scope, budget and authority, seals the experiment and task links, and Backtest executes native replay.
-5. The Agent reads permitted evidence and decides interpretation, iteration, review, candidate selection or stopping; R&D retains decisions and references.
-6. Independent Qualification assesses selected frozen candidates; public conclusions return to research or Governance.
+5. The Agent reads permitted evidence and decides interpretation, iteration, review or candidate selection; R&D retains decisions and references. Once the frozen research goal is met, the Agent stops new research iterations and delivers candidates, conclusions and supporting evidence. Further improvement requires a new user instruction; it may continue the same project without resetting prior evidence or trial counts.
+6. Research completion does not automatically submit assessment. When the user requests independent validation, Qualification assesses the selected frozen candidate; public conclusions return to research or Governance. If assessment fails after research has completed, record the permitted conclusion and await a new user instruction. Do not automatically reopen the stopped research project or activate the candidate; nonqualification does not itself close the mechanism.
 
 Preparation and replay execute their own admitted durable tasks. Initial preparation completion does not submit
 replay on the Agent's behalf; reusing an available data reference requires no repeated preparation. Replay uses minute

@@ -10,10 +10,10 @@ Start with Nautilus/service logs, container logs and task terminal states. Prese
 
 Committed domain events and runtime telemetry do not share authority semantics.
 
-- **Committed domain events** originate only after the native Owner commits its fact and an outbox entry in the same transaction. Event Rail provides at-least-once wake delivery; consumers deduplicate by stable event identity and then read the source Owner fact.
+- **Committed domain events** originate only after the native Owner commits its fact and an outbox entry in the same transaction. The source service retains its outbox and publication progress, using native messaging extension points or existing transport for at-least-once notifications; consumers deduplicate by stable event identity and then read the source Owner fact.
 - **Trace, metric, and log signals** use native records first, with OTLP to an existing collector when centralized collection is needed. Collection is pluggable, versioned, independently enabled or disabled, sampled, cardinality-bounded, and redacted. Losing telemetry may reduce visibility but cannot change native Owner correctness or business state.
 
-Commands and uncommitted requests remain on Owner ports. Event Rail is not a command bus, and the Telemetry Gateway is not a business workflow engine.
+Commands and uncommitted requests remain on Owner ports. Notifications announce fact changes; they do not issue business commands. Native in-process MessageBus delivery is not durable cross-service delivery. When the latter is needed, the source service resumes outbox publication without a separate notification service.
 
 ## Canonical envelope and trace context
 
@@ -52,7 +52,7 @@ Protected phase, latency, terminal timing, and timing-derived fields are forbidd
 diagnostic, assessment, and ineligibility dispositions and every category- or reason-derived aggregate remain
 indistinguishable and Qualification-only. Specifically, `REPLAY_REJECTED`, `REPLAY_INVALID`,
 `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, and `INELIGIBLE` all project
-byte-equivalently as `CLOSED_NOT_QUALIFIED`; `QUALIFIED` remains exact. Event Rail never publishes an
+byte-equivalently as `CLOSED_NOT_QUALIFIED`; `QUALIFIED` remains exact. Notifications never publish an
 internal `INELIGIBLE` or other protected-terminal event.
 
 Every field cites its source Owner facts or telemetry frontier and exposes `observed-at`, `valid-through`, completeness, lag, and rebuild state. `STALE`, `PARTIAL`, `REBUILDING`, and `UNAVAILABLE` remain visible; they cannot render as healthy or complete. A Dashboard click that requests a mutation starts a separately admitted Product Edge → Owner request and never writes through the view.
@@ -62,9 +62,15 @@ Research stage, run progress, or failure diagnosis, but it cannot store the auth
 an Iteration Decision, advance Qualification, select a successor, or infer completion from telemetry. Product
 closure remains the composition of native Owner requests, receipts, and bounded projections.
 
+## Committed notifications
+
+Notifications carry stable identity, source Owner, committed fact reference and required ordering. A wake prompts Governance to read Qualification, Runtime or Execution directly; silence cannot imply no incident or completed recovery. Notification and alert retries resend the same hint without replaying business writes. Lost notifications cannot change Owner state. Alert delivery receipts are outputs, never source events or business facts.
+
+Qualification notifications contain only public attempt correlation, public state, effective cut, sequence and a type-opaque non-dereferenceable reference. Negative outcomes with equal public inputs are indistinguishable in event presence and those fields; consumers deduplicate on these public fields. Protected metrics, internal categories, terminal timing and derived information never enter notifications.
+
 ## Alert routing
 
-When notifications are needed, an existing alert component consumes bounded Event Wakes or policy-admitted health conditions and sends them to a user-selected replaceable adapter, without a product default channel. It owns delivery preferences, attempts, and receipts only. Delivery success, silence, duplication, or failure never proves a source transition, clears a fence, retries an unknown order effect, resumes a strategy, or declares `KNOWN_CLOSED`.
+When notifications are needed, an existing alert component consumes bounded committed-event hints or policy-admitted health conditions and sends them to a user-selected replaceable adapter, without a product default channel. It owns delivery preferences, attempts, and receipts only. Delivery success, silence, duplication, or failure never proves a source transition, clears a fence, retries an unknown order effect, resumes a strategy, or declares `KNOWN_CLOSED`.
 
 ## Implementation acceptance
 

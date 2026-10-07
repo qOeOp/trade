@@ -96,7 +96,7 @@ flowchart TD
     B -->|"Actual Result"| E["R&D Evidence"]
     E --> A
     A -->|"Record Finding"| K
-    R -->|"Frozen Candidate"| Q["Qualification"]
+    R -->|"User-requested Assessment"| Q["Qualification"]
     R -->|"Unknown Task"| W["Resolve Same Identity"]
     W --> E
 ```
@@ -105,8 +105,8 @@ flowchart TD
 2. Agent 在边界内提出机制、编写策略并选择实验；可自行开立研究主题内的新家族。
 3. Agent 向 Market Data 准备或复用初始数据，取得准确可用的数据引用。
 4. Agent 提交绑定数据的实验；R&D 核验身份、输入范围、预算与授权，封存实验和任务关联，Backtest 执行原生回放。
-5. Agent 读取研究侧允许的证据，决定如何解释、继续、复核、选候选或停止；R&D 保存决定与引用。
-6. Agent 选择的冻结候选经独立 Qualification，公开结论回到研究或交给 Governance。
+5. Agent 读取研究侧允许的证据，决定如何解释、继续、复核或选候选；R&D 保存决定与引用。达到冻结研究目标后，Agent 停止新增研究迭代，交付候选、结论和依据。继续优化须用户发出新指令；可沿用原项目，不重置旧证据或试验计数。
+6. 研究完成不自动提交资格评估。用户请求独立验证后，选定的冻结候选经 Qualification 评估，公开结论回到研究或交给 Governance。研究已完成后独立评估未通过时，记录允许公开的结论并等待用户新指令，不自动重启已停止项目或上线候选；未合格本身不关闭研究机制。
 
 准备与回测分别执行已接纳的持久任务。初始数据准备完成不代替 Agent 提交下一步回测；
 复用已可用的数据引用时无需重复准备。回测固定使用一分钟执行行情，分钟内歧义按冻结政策报告；

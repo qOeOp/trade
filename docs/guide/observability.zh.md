@@ -40,7 +40,7 @@ funnel。
 
 所有负面终态共享同一个 公共 outcome 与 aggregate label：`REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID`
 `DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 和 `INELIGIBLE` 都以字节等价方式归一为
-`CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。 Event Rail 永不发出内部 `INELIGIBLE` 或其他保护终态 事件，使保护失败在
+`CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。 通知不得发出内部 `INELIGIBLE` 或其他保护终态 事件，使保护失败在
 Qualification 外保持不可区分。
 
 ## 存储边界
@@ -52,7 +52,7 @@ Qualification 外保持不可区分。
 
 使用 transactional outbox 或等价的原子来源事实发布边界。事件至少投递一次。Projection consumer 必须幂等，检测同一身份下内容变化，维护 checkpoint，并隔离 poison record。Backpressure 必须有界；过载可以按策略延迟或丢弃遥测，但不能静默丢弃已接纳业务事实或 Recovery 义务。
 
-OTLP receiver、processor 与 exporter 都可替换。Collector 可以 batch、retry、sample、redact 和 fan-out，但不能把 secret 导入属性，也不能调用 Owner write API。告警适配器订阅受限 projection 或 Event Wake，并保持在正确性路径之外。
+OTLP receiver、processor 与 exporter 都可替换。Collector 可以 batch、retry、sample、redact 和 fan-out，但不能把 secret 导入属性，也不能调用 Owner write API。告警适配器订阅受限 projection 或已提交事件提示，并保持在正确性路径之外。
 
 ## 按已接入能力验收
 

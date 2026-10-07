@@ -23,9 +23,11 @@ flowchart LR
     M -->|"Verified Inputs"| B
     B -->|"Result + Evidence"| R
     R -->|"Records + Results"| A
-    R -->|"Frozen Candidate"| Q["Qualification"]
+    R -->|"Goal reached; stop"| D["Delivery"]
+    D -->|"User requests assessment"| Q["Qualification"]
     Q -->|"Public Eligibility"| G["Governance"]
-    G -->|"Approved Deployment"| N["Trading Node"]
+    G -->|"Dashboard approval"| K["Activation Queue"]
+    K -->|"Current policy and capacity"| N["Trading Node"]
 ```
 
 Adopt native Strategy, subscriptions/history requests, indicators, timers, OrderFactory, execution algorithms, cache and Portfolio APIs.
@@ -115,8 +117,8 @@ See [Backtest](../owners/backtest/) and [Market Data](../owners/market-data/).
 3. Backtest matches on minute data, retaining native events and intraminute policy assumptions.
 4. Existing input references, packages and run configurations retain data and aggregation identity. Repairs or changed configuration require an Agent-submitted new sealed run and complete replay.
 
-When the approved finest granularity cannot resolve order, freeze and label the conservative policy: stop first for an existing position's stop/target conflict; for unordered entry/target, do not invent a same bar target exit and retain the entered position.
-Missing data is not ambiguous chronology and cannot use that fallback. Gap stops use executable prices and native fill/slippage models, not a fictitious fill at the trigger.
+Within the admitted minute resolution, use the frozen native OHLC/adaptive path and label it as simulated chronology. Do not add stop-first or enter-then-hold overrides. The Agent may compare native configurations in separate sealed runs.
+Missing data is a preparation gap, not permission to infer missing history. Gap stops use executable prices and native fill/slippage models, not a fictitious fill at the trigger.
 Keep end of run open positions and their valuation rather than forcibly closing them to improve results.
 
 ## Research and qualification boundary

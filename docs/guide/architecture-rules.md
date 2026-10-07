@@ -7,7 +7,7 @@ These rules are the stable contract between the global Flow, this documentation,
 - The product overview contains six responsibility groups: Market Data, Backtest, R&D, Qualification, Governance and Native Trading Node. The native node contains Runtime, Risk, Execution and Portfolio, giving nine business Owners.
 - A group expands into its internal components; visual grouping does not require a separate process or duplicate native engine.
 - Strategy Factory describes strategy representation and the cross-Owner value stream. R&D owns Research, Develop, knowledge and discovery; Backtest remains the independent replay-evidence Owner.
-- Product Edge, Observability, and Event Rail are boundaries or channels, not business-truth owners.
+- Product Edge and Observability are boundaries or channels, not business-truth owners.
 - New detail belongs in prose unless it changes authority or an owner handoff.
 
 ## Request and fact authority
@@ -28,125 +28,19 @@ to infer a hidden contract from test names.
 
 ### Product Edge request authority
 
-Each target deployment has exactly one `ACTIVE` Agent Shell binding selecting the canonical
-`TRADE_PRODUCT_EDGE` admission gateway in steady state, and admits the sealed `WINDMILL_PRODUCT_EDGE` spelling
-for records written before it. App and MCP are channels behind that gateway, not separate writers. A client-
-or transport-only change preserves the same effective principal, scope policy, approved Skill/MCP capability
-policy, and audit policy. During cutover, zero `ACTIVE` bindings is allowed only as a fail-closed
-interval.
+External Agents submit typed requests through domain MCP. The receiving service checks current permission, stable identity, frozen meaning, and audit correlation. App/MCP/Dashboard cannot write business facts or issue authorization. Transport success is only `SUBMITTED_OR_UNKNOWN`; the receiving Owner's write-once receipt is the result. Same identity and meaning join that receipt, changed meaning conflicts, and response loss resolves the original identity without retrying an unknown effect.
 
-The exact predecessor commits `SUPERSEDED` before the policy-equivalent successor commits
-`ACTIVE`; multiple, stale, or policy-mismatched bindings admit no mutating Owner request.
-In-flight work retains its original request and binding identities across that transition.
+The existing Agent Shell binding protocol belongs to [Product Edge](../architecture/product-edge/); it is not a prerequisite to build a new universal gateway. It retains canonical `TRADE_PRODUCT_EDGE` and historical `WINDMILL_PRODUCT_EDGE`: one steady-state `ACTIVE` binding equal to the canonical history head, exact predecessor `SUPERSEDED` before a policy-equivalent successor, and fail-closed zero-active intervals. Product Edge alone writes binding/history/admission/outbox; an independent Operator Authorization Issuer alone writes issuance/revocation frontier. Different PostgreSQL roles in the same authority database serialize authorization at the exact issuance/frontier lock cut; caller, DTO, cache, token, configuration, and self-verified signatures cannot issue or replace authority.
 
-Each commit binds the authoritative deployment-history head before and after commit. Genesis is allowed only for
-an empty history at generation one. Every later successor durably and atomically serializes against the exact current head, names that
-superseded predecessor, increments generation by one, advances cutover epoch, and uses a history-unique binding
-identity. The zero-active window never resets history.
+Genesis is one explicit admin operation on empty history, expected `EMPTY`, generation=1, finite validity, and exact manifest/receipt/outbox. Successors atomically bind both heads, the exact predecessor, generation+1, strictly advancing cutover epoch, and history-unique identity. `SUPERSEDED` is irreversible; zero-active never resets history. Atomic request admission binds typed digest, binding/head, principal/scope, issuer/key/authorization, expiry/revocation, manifest, operation/schema/target/effects, Time Evidence/proof/audit. Admitted in-flight requests retain their original binding; first downstream mutation needs current authority. Committed receipts retain their original cut; a new provider/effect invocation still needs current one-use admission.
 
-Every mutating Product Edge request has a stable identity, trusted authorization context, typed meaning, target
-Owner operation, and audit correlation. Its atomic admission reads and binds the authoritative deployment-history
-head; the unique `ACTIVE` binding must equal that head at the admission cut. `SUPERSEDED` is monotonic and
-irreversible. Shell or transport success is only `SUBMITTED_OR_UNKNOWN`; the receiving Owner receipt is
-authoritative. Same identity and meaning join the same receipt, changed meaning rejects, and an already admitted
-in-flight request continues to resolve under its original binding even after a newer head becomes active.
+`ExpiredManifestRecoveryEpochV1` is the expired predecessor's only explicit forward recovery. It binds exact OA/PE heads, revocation frontier, and the complete sorted `RETAINED/ADDED/REMOVED` transition. Retained capabilities only narrow; added ones stay within unchanged principal/audience/scope/proof/scope-policy/audit-policy. Live/real-trading and protected-feedback refusal floors remain. Issuer OA2 is not PE authority; PE appends one irreversible B1 fence and head-CAS B2. Exact retry joins that epoch; partial recovery fails closed and old facts are never rewritten. Configuration binds database name, system identifier, and distinct roles. Before writes, read-only endpoint checks prove both database/role/system identifiers and the same cluster. Environment defaults, splicing, empty identity, or identical roles reject; secret/URL values are never recorded.
 
-Product Edge is the unique writer of content-addressed Agent Operation Manifests, Agent Shell Deployment
-Bindings and their history head, immutable request admissions, and the matching outbox. A separately named
-**Operator Authorization Issuer** is the unique writer of authorization issuance and its revocation frontier.
-Product Edge may only direct-resolve the Issuer's canonical facts; the Dashboard, an API, R&D, a token,
-configuration, or Product Edge admission code cannot issue or self-assert them. Both writers use distinct
-PostgreSQL roles in one authority database.
+Old environment-authorized rows are never backfilled or ratified. Terminal rows remain read-only quarantine; collisions reject; undrained nonterminal legacy S2 blocks activation. `LegacyPreparedAttemptDrainV1` allows only explicit bounded admin append of Owner receipt/outbox for exact schema-v1 `PREPARED` APP/MCP targets after verifying attempt/column digests, build/attempt/admission/database and zero effect admission, claim, state, artifact, provider-start, and non-drain outbox. Original bytes stay immutable. Startup/request/Resolve cannot create it; partial sets, changed targets, digest/effect mismatch, or failure write nothing. It projects only quarantined `OUTCOME_UNKNOWN / PROVIDER_NEVER_STARTED` with same-identity read/Resolve, never custody/freshness/authorization/artifact/family/successor/retry/effect authority. Startup ignores only the exact row with fully verified receipt/outbox; all other rows still block.
 
-Admission holds a shared lock on the exact issuance and revocation frontier while it commits, and revocation
-takes the conflicting update lock. This common cut, rather than a copied DTO, cache, or signature checked by
-the same caller, decides whether an authorization is current.
+Governance retains indivisible request lineage: identity, principal/scope, original binding/head, Operator Authorization, and manifest. `ATTENDED_REQUEST` allows reads and non-running `REDUCTION/PAUSE/RETIREMENT/DE_RISK/RECOVERY`, never `ACTIVE_GENERATION/APPLIED`, normal Paper/Live added risk, or adapter effects. `INITIAL_ACTIVATION/PROMOTION` and automatic generation additionally require `UNATTENDED_REQUEST_WITH_POLICY`, binding independent policy version/generation, Execution Scope, intent/action, capital, expiry/revocation/manifest through application/Risk/command/Effect Journal/readback. Policy supplements lineage; funding/recovery cannot impersonate other actions, and presence supplies no undefined attended-effect contract. Compatibility vocabulary does not alter the target Dashboard trial confirmation and Governance queue.
 
-Deployment genesis is an explicit one-time administrative operation, never a service-start or request-path
-default. It requires completely verified empty binding and head history, expected head `EMPTY`, generation one,
-a finite validity interval, content-addressed manifests, one immutable receipt, and its outbox. Exact replay joins
-the same bytes; concurrent or changed meaning conflicts without creating another `ACTIVE` binding. Cutover first
-commits the exact predecessor `SUPERSEDED` fence and only then may commit its policy-equivalent successor
-`ACTIVE`; the zero-active interval is fail closed and no request may recreate genesis.
-
-An expired predecessor cannot use ordinary authorization or deployment successor paths. Its only forward
-recovery is one explicit `ExpiredManifestRecoveryEpochV1` binding exact authorization and deployment heads, the current
-revocation frontier, and a complete sorted `RETAINED`/`ADDED`/`REMOVED`
-manifest transition set. Retained capabilities only narrow; added capabilities stay inside unchanged
-principal, audience, scope, proof, scope-policy and audit-policy bounds and retain the live-trading,
-real-trading and protected-feedback prohibition floor; removal grants nothing.
-
-The Issuer may append OA2 before Product Edge commits B2, but OA2 alone grants no Product Edge authority.
-Product Edge commits one irreversible B1 fence and then B2 by head compare-and-swap; exact retry rejoins the
-same epoch, partial recovery stays fail closed, and no old issuance, binding, manifest, admission, receipt,
-outbox, or Owner fact is rewritten. The recovery config also content-binds the exact authority database name,
-PostgreSQL system identifier, and distinct Operator Authorization and Product Edge roles.
-
-Before either Owner write, the command read-only connects both supplied endpoints and requires their database,
-role, and system-identifier readbacks to match the config and the same database cluster. Ambient endpoints,
-cross-splices, empty identities, or equal roles fail closed; URLs and secrets are not logged.
-
-An immutable Product Edge Request Admission binds the stable request identity and typed-payload digest, exact
-deployment binding and head, effective principal and scope, authorization identity, issuer and key version,
-validity and revocation frontier, manifest identity and digest, operation, schema, target and effects, time
-evidence, request-proof digest, and audit correlation. R&D receives only its locator and directly resolves the
-complete canonical admission before S1 or S2 mutation. If no downstream custody has committed, later expiry or
-revocation forbids the first submission.
-
-A committed downstream receipt remains resolvable under its original admission cut, but recovery cannot start
-a new provider or external-effect invocation without a new one-use invocation admission at a current
-authorization cut. Supersession, expiry, and revocation never rewrite an admission or downstream Owner
-receipt.
-
-Rows previously accepted only from environment-constructed authority are never backfilled or retroactively
-blessed. Terminal legacy rows are read-only and quarantined; an identity collision fails closed, and activation
-stops while any legacy nonterminal S2 custody remains undrained. Missing, dual, stale, expired, revoked,
-wrong-issuer, wrong-audience, cross-principal, cross-scope, proof-mismatched, manifest-mismatched, digest-mismatched,
-or mixed-cut authority creates no Product Edge admission and no downstream Owner write or provider call.
-
-`LegacyPreparedAttemptDrainV1` is the only bounded exception for an exact historical schema-v1 `PREPARED` APP
-or MCP request. The original attempt bytes remain immutable. An explicit bounded admin may append an
-Owner-only canonical receipt and its Owner outbox event in the same transaction only when they bind the exact
-attempt and column digests, build and attempt identities, canonical Product Edge admission, target database,
-and exhaustive zero canonical effect-admission, claim, state, artifact, provider-start custody, and non-drain
-attempt/build outbox facts. Startup, request handling, and `Resolve` cannot create this receipt.
-
-The exact all-target operation is idempotent; a partial completed set, changed or extra target, digest
-mismatch, effect, or fault writes nothing. A verified receipt projects only legacy-quarantined
-`OUTCOME_UNKNOWN` with `PROVIDER_NEVER_STARTED` and permits only same-identity read and `Resolve`;
-it never creates current custody, freshness, authorization, artifact, family, successor, provider retry, or
-effect authority. Startup may ignore that exact row only after the canonical receipt and outbox both verify;
-every undrained, malformed, mismatched, or unknown row still blocks activation.
-
-Isolated local recovery evidence is not production authority and does not establish default-database,
-Dashboard, or product maturity acceptance.
-
-The request's Authorization Lineage is the indivisible tuple of stable request identity, effective principal
-and scope, admitted `ACTIVE` shell binding and exact deployment-history head, Operator
-Authorization, and Agent Operation Manifest. Every accepted Governance lifecycle decision declares either
-`ATTENDED_REQUEST` or `UNATTENDED_REQUEST_WITH_POLICY`, and both modes cross-bind and preserve that complete request
-lineage.
-
-`UNATTENDED_REQUEST_WITH_POLICY` additionally requires a separate Autonomous Policy Authorization, admitted by the
-lifecycle request and bounded to one policy version, generation, Execution Scope, allowed intent/action
-classes, capital bounds, validity, revocation frontier, and operation manifest. It augments rather than
-replaces the request lineage. A bare decision is not automatic-trading authority. Application, intent, Risk
-permit, command, Effect Journal, and readback preserve the mode and every identity required by that mode end
-to end.
-
-`ATTENDED_REQUEST` is non-running authority. It may inspect state or request a decrease-only `REDUCTION`, `PAUSE`,
-`RETIREMENT`, `DE_RISK`, or `RECOVERY` action, but it cannot create `ACTIVE_GENERATION`, `APPLIED`, normal Paper
-or Live add-risk, or an adapter effect. `INITIAL_ACTIVATION`, `PROMOTION`, and automated Paper or Live require
-`UNATTENDED_REQUEST_WITH_POLICY`. `PROMOTION` covers the bounded higher-capital or active-successor transition;
-resume and capital-increase names are not lifecycle-action aliases. A future attended external-effect path would require a separate explicit
-attended-effect contract; presence of a principal does not imply that contract.
-
-Research and Strategy Governance each own their request-correlated write-once terminal receipt. Qualification
-uses its existing write-once Candidate Intake Receipt as the terminal receipt for a Qualification Review Request
-and returns it through a dedicated committed-fact handoff separate from the bounded status read model.
-That intake receipt binds the stable request identity and canonical typed meaning. `ACCEPTED` binds the exact
-resulting Research Intent or Authorized Generation Decision identity. `REJECTED_NO_WRITE` proves no Owner
-transition. Receipt absence preserves `SUBMITTED_OR_UNKNOWN`; it is not an implicit rejection or acceptance.
+Research/Governance own write-once request terminal receipts; Qualification hands off its independently committed Candidate Intake Receipt as the review terminal. `ACCEPTED` names the exact Intent/Decision; `REJECTED_NO_WRITE` proves zero Owner transition. Missing remains unknown. Isolated recovery evidence is neither production authority nor Dashboard maturity acceptance.
 
 ### One authority per mutable fact
 
@@ -553,42 +447,20 @@ uncertainty and skew bound, restart relation, and comparison rule. A consumer ca
 unknown epochs or silently extend validity. SLOs observe admission, decision, effect-readback, projection, and
 recovery-closure latency plus queue depth and dropped wake counts; they never rewrite business truth.
 
-Time evidence is typed by use, not reduced to one timestamp:
+Native tasks bind actual clock configuration, timestamp meaning, availability and validity; consumers never mix incomparable times. The existing sealed Time Evidence protocol retains its exact object-to-`timeEvidenceCutKind` bijection: missing, duplicate or out-of-matrix declarations are invalid and local timestamps cannot replace its evidence. That storage format is not a new prerequisite for every native input. Consumption boundaries follow:
 
-Every time-sensitive architecture object declares exactly one canonical `timeEvidenceCutKind`. The target matrix
-rows and those object declarations form an exact bijection: an undeclared time-sensitive object, a duplicate row,
-or a declaration absent from the matrix is contract-invalid. This includes source bindings and PIT requests,
-protected request/result/assessment evidence, Trade Intent and Authorized Order Command, incident and drift facts,
-Recovery admission and closure, and every explicitly time-bound Portfolio fact. The selected row contributes its
-complete required bindings; a local timestamp cannot satisfy the declaration.
+| Use                                | Required cut                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MARKET_DATA_AS_OF`                | Event‑effective, provider‑available, retrieval, correction; observation never replaces PIT availability                                                                                                                                                                                                                                                                                                                                                   |
+| `RESEARCH_AND_GOVERNANCE_DECISION` | One clock epoch, monotonic sequence, observation and exclusive `valid-through`; later wall time never rewrites then‑available evidence                                                                                                                                                                                                                                                                                                                    |
+| `PROTECTED_EVALUATION`             | Each request/result/assessment binds clock/epoch, sequence, observed‑at, uncertainty/skew, restart continuity, exclusive validity, comparison rule and exact stage. Results directly name requests; assessments directly name results. Strict same‑epoch advance or one direct epoch‑successor proof; proved direct request‑to‑result epoch change is allowed, all per‑cell results in one assessment share a result epoch, and assessment advances there |
+| `PORTFOLIO_FRESHNESS`              | Capacity/Performance/Exposure/Interaction/Lifecycle share clock/epoch, sequence, observed‑at, uncertainty/skew, continuity, validity and complete source frontier; mixed epochs, missing frontier or expiry cannot drive Governance/Risk                                                                                                                                                                                                                  |
+| `RISK_AND_EFFECT_FRONTIER`         | Aggregate/effect frontier for decision/claim/effect/settlement; wall time never overrides durable serialization                                                                                                                                                                                                                                                                                                                                           |
+| `RECOVERY_CLOSURE`                 | Common causal frontier/cut across Runtime/Risk/Execution/Portfolio; mixed epochs or uncertain continuity leave the case open                                                                                                                                                                                                                                                                                                                              |
 
-- `MARKET_DATA_AS_OF` binds event-effective, provider-available, retrieval, and correction times for PIT snapshots,
-  streams, and valuation facts. Observation time cannot replace any of those cuts.
-- `RESEARCH_AND_GOVERNANCE_DECISION` binds the decision to one clock epoch, monotonic sequence, observation time,
-  and `valid-through`; a later wall time cannot rewrite when evidence was available.
-- `PROTECTED_EVALUATION` binds each protected request, result, and assessment to one clock identity and epoch,
-  monotonic sequence, observed-at, uncertainty/skew bound, restart-continuity proof, exclusive `valid-through`,
-  comparison rule, and exact evaluation stage. The request is the stage root; each result directly names the
-  request Time Evidence and each assessment directly names the result Time Evidence. A successor stage strictly
-  advances the monotonic sequence in the same epoch, or supplies one direct epoch-successor proof. A proved direct
-  request-to-result epoch transition is valid; all per-cell results entering one assessment must share one result
-  epoch, and the assessment advances in that epoch. Missing, expired, unproved or mutually incomparable epochs,
-  skipped-stage, or non-advancing evidence cannot close protected custody or create Eligibility.
-- **Compatibility only:** `SCANNER_DUE_SLOT` is excluded from target object declarations. For an existing sealed Scanner schedule, it additionally binds time-zone ruleset identity and version, local scheduled time, resolved UTC
-  interval, DST fold or gap disposition, misfire/backfill policy, and due-slot boundary. A fall-back fold yields
-  distinguishable slots; a spring-forward gap follows the frozen skip or shift policy rather than running twice.
-- `PORTFOLIO_FRESHNESS` binds Capacity View, Performance Receipt, Exposure Receipt, Portfolio Interaction Receipt,
-  and Portfolio Lifecycle Evidence Receipt to one clock identity and epoch, monotonic sequence, observed-at,
-  uncertainty/skew bound, restart-continuity proof, `valid-through`, and complete source-fact frontier. Mixed epochs,
-  incomplete frontiers, or expired evidence cannot drive Scanner, Governance, or Risk.
-- `RISK_AND_EFFECT_FRONTIER` binds each decision, claim, effect, and settlement to its aggregate or effect frontier
-  cut so wall-clock ordering cannot override durable serialization.
-- `RECOVERY_CLOSURE` binds one causal frontier and common evidence cut across Runtime, Risk, Execution, and
-  Portfolio; mixed clock epochs or uncertain continuity keep the case open.
+Missing, expired, incomparable/unproved epochs, skipped stages or non-advancing protected evidence cannot close custody or create Eligibility. Restart without continuity creates a new epoch. Excess skew, expired validity or missing fields reject the dependent transition; local conversion cannot hide them.
 
-Restart without proven continuity creates a new clock epoch. Excess skew, ambiguous DST resolution, stale
-`valid-through`, or a missing required time field fails only the dependent transition and can never be normalized
-away by local time conversion.
+Sealed Scanner `SCANNER_DUE_SLOT` is excluded from target object declarations. Existing schedule reads still verify the frozen timezone ruleset/version, local/UTC interval, due boundary, DST fold/gap, and misfire/backfill. Folds yield distinct slots; gaps follow frozen skip/shift without duplicate runs. Compatibility decoding admits no new Scanner or scheduler service.
 
 #### Shared Time clock-head handoff
 
@@ -693,7 +565,7 @@ explain progress but cannot declare a transition its source Owners have not comm
 
 Research never receives that view as source evidence. Successor-only research provenance binds exact committed
 Execution account, order, fill, quality-observation, Effect Journal, readback, or Reconciliation Drift fact
-identities and their source cuts; a mutable projection or Event Rail wake cannot stand in for those facts.
+identities and their source cuts; a mutable projection or notification cannot stand in for those facts.
 
 ## Cross-cutting facilities
 
@@ -703,17 +575,9 @@ Canvas Owner, boundary, channel, and module labels are canonical English in ever
 does not change topology or layout. Scenario labels, navigation, prose, node descriptions, and the bottom detail
 and proof capsules are localized. Locale changes replace those texts without changing node, edge, or viewport identity.
 
-### Event Rail
-
-Event Rail is transport custodian, never a business authority. For committed eligibility, incident, order, fill,
-and reconciliation facts it owns only the Event Wake transport record; the source Owner remains authoritative.
-Events → Observability carries that Event Wake, not a business result. Observability updates rebuildable status and alert projections, while Alert Routing creates delivery attempts and
-receipts as outputs. Neither wake nor delivery can approve, retry a business effect, own terminal state, act as
-evidence authority, or replace a direct owner-to-owner fact read.
-
 ### Observability
 
-Domain events use a native-Owner transactional outbox and at-least-once Event Rail delivery; traces, metrics,
+Domain events use a native-Owner transactional outbox and at-least-once delivery managed by the source service; traces, metrics,
 and logs use a separately switchable OTLP pipeline. Both bind stable identity, correlation/causation, source,
 time, schema, disclosure, and policy versions, but only the committed Owner fact is business truth. Projection
 consumers are idempotent and expose checkpoint, freshness, completeness, lag, and rebuild state. Shared physical

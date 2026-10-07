@@ -4,6 +4,8 @@
 
 Independently decide whether a frozen candidate satisfies preregistered evidence, holdout, cost, capacity, and operational conditions. Qualification owns deployability evidence, not strategy design, activation, or recovery.
 
+Research completion does not trigger qualification. The user requests independent assessment when considering activation; Qualification then admits the exact frozen candidate and protocol under current permissions. An unassessed candidate has no qualification evidence and cannot enter the activation queue. Passing assessment still requires separate user authorization in Dashboard before enqueueing.
+
 ## TARGET - Early protected scope and later assessment
 
 V0.1 reserves protected scope before opening research data. Market Data retains user-approved access partitions
@@ -239,37 +241,10 @@ than a dead relation.
 
 ## Output handoffs
 
-- To [Backtest](./backtest/): one frozen Protected Replay Request, created only after the write-once
-  request-correlated `ADMITTED` receipt and the holdout reservation, with every execution-defining identity and
-  the exact Candidate/Intake protected policy pair fixed. Each request addresses one declared Protected Robustness
-  Plan cell or the exact frozen bounded matrix, so no cell may be chosen after a result is observed. The request
-  set seals the frozen `ProtectedEconomicPolicyBundleV1` whose measurement the returned Result must repeat
-  exactly. A request this Owner did not create is not a protected request, and a Backtest admission rejection
-  closes it as a request-bound `RUN_REJECTED` Protected Run Result rather than leaving it open.
-- To [Strategy Governance](./strategy-governance/): categorical Eligibility State facts, including revocation,
-  with exact Candidate and fact versions, economic-condition version, evaluated cost/capacity-model version,
-  qualified capacity ceiling, effective time, and non-dereferenceable committed evidence references only.
-  Expiry, revocation, missing-current, and unknown-current are explicit downstream states; none permits Governance
-  to silently retain add-risk authority for an active generation.
-- `TARGET` - to [Backtest](./backtest/): one Forward Replay request per newly observed cut of a registered Forward
-  Record, bound to the registration's exact identities. A request this Owner did not create is not a forward request.
-- `TARGET` - to [Strategy Governance](./strategy-governance/): the current Forward Decision with exact Forward
-  Registration and Eligibility Fact versions. Only `FORWARD_ADMITTED` with a current `QUALIFIED` Eligibility State
-  permits a paper `INITIAL_ACTIVATION` proposal; every other, missing or unknown decision permits none.
-- To Event Rail: a wake-up hint only after the qualification fact is committed. Its protected payload contains
-  only the public terminal outcome, a type-opaque non-dereferenceable reference, and source-frontier freshness.
-  Protected phase, latency, terminal timing, and timing-derived fields are forbidden. It never emits internal
-  `INELIGIBLE` or another protected terminal disposition.
-- To Product Edge: before Research admission, the basis-bound opaque `GENESIS_EMPTY`, `FRONTIER`, or
-  `UNAVAILABLE` protected-feedback projection. For Candidate Intake, first the committed write-once
-  `NOT_ADMITTED` or `ADMITTED` receipt that authoritatively closes the exact review request; separately, a
-  request-correlated Qualification Status Summary. Receipt absence remains `SUBMITTED_OR_UNKNOWN`, and the summary
-  cannot replace or fabricate it. The summary advances the bounded protected-feedback observation frontier before
-  a successor review is admitted. `EVALUATING` derives from an `ADMITTED` receipt plus a Protected Replay Request
-  in `IN_PROGRESS_OR_UNKNOWN`; every negative internal attempt disposition or `INELIGIBLE` fact projects only
-  `CLOSED_NOT_QUALIFIED`, while a positive Eligibility Fact projects `QUALIFIED`. References are type-opaque and
-  non-dereferenceable. `UNAVAILABLE` binds only the unresolved request and phase identity. Later phases never
-  rewrite prior facts.
+- To [Backtest](./backtest/), submit frozen Protected Replay Requests only after write-once ADMITTED intake and holdout reservation, binding execution identities, Candidate/Intake policy, ProtectedEconomicPolicyBundleV1 and predeclared plan cells. Admission refusal closes the request with correlated RUN_REJECTED; cells cannot be selected after observation.
+- To [Strategy Governance](./strategy-governance/), provide current binary eligibility and necessary validity boundaries: exact Candidate/version, economic conditions, assessed cost/capacity models, capacity ceiling, effective/expiry/revocation and opaque non-dereferenceable evidence references. Expired, revoked, missing or unknown facts cannot silently retain add-risk authority. Separate Dashboard confirmation queues real-trial INITIAL_ACTIVATION. Optional ForwardDecision is neither a prerequisite nor trading authority.
+- To Product Edge, provide request-correlated Candidate Intake Receipt and a separate Qualification Status Summary. Missing receipt remains SUBMITTED_OR_UNKNOWN; the summary cannot manufacture ADMITTED. Public terminal outcomes are QUALIFIED / CLOSED_NOT_QUALIFIED; EVALUATING is in progress. There is no conditional qualification or automatic research restart.
+- Pre-research protected-scope feedback preserves basis-bound opaque GENESIS_EMPTY / FRONTIER / UNAVAILABLE. Post-commit wake hints carry only allowed public terminals, opaque non-dereferenceable references and source-frontier freshness, without protected phase, latency, terminal timing, timing-derived fields or internal negative dispositions.
 
 ## Rejections and prohibitions
 
@@ -484,91 +459,15 @@ Rollback requires the response cut to fall outside the projection's half-open va
 
 ### Closed incident reconstruction interface
 
-The feature-gated `qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba` interface is sealed to one
-incident under `DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP`. Its original evidence resource is unavailable,
-so it cannot currently execute or re-prove reconstruction. It is not a general restore/import API or a native
-Qualification prerequisite. Fixtures cannot replace the sealed resource.
-
-Its four exact resource locators, original identities, target cluster/database/role checks, canonical evidence
-verification, atomic write/replay semantics and separate executable-effect authority remain unchanged. Callers
-cannot supply reconstructed rows, timestamps, digests, genesis state or freshness. No new validity or domain wake
-may be minted; the original half-open interval leaves the ordinary current-cut resolver `UNAVAILABLE`.
-The target acceptance checks that this interface remains closed and cannot widen authority, rather than requiring
-a new recovery feature or reproduction of an unavailable developer-local resource.
+Feature-gated `qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba` remains limited to that incident under `DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP`. Sealed resources are unavailable, with no current execution consumer or rerunnable proof. It is neither general recovery nor a qualification prerequisite. The four exact resource locators, original identities, cluster/database/role, canonical evidence and independent effect authority must still match. Callers cannot supply reconstruction rows, times, digests, genesis or freshness, substitute fixtures, mint validity or issue a domain wake. Original half-open validity remains; the ordinary current resolver still returns UNAVAILABLE.
 
 ### Optional Forward Record - unavailable
 
-Forward Record is isolated record-only simulation evidence, not a required step on the
-[backtest qualification, real trial and promotion route](../scenarios/research.md#qualified-backtests-real-trading-trials-and-promotion).
-It cannot replace real trial returns, create a trial permit or promote a strategy into the formal pool. Qualification
-owns backtest eligibility and protected facts; Governance owns promotion stage, authorization and allocation;
-Runtime/Risk/Execution own actual operation and trading facts. The new route cannot silently alter sealed interfaces.
+Forward Record has no executor, scheduling/persistence or deployed consumer evidence and no construction admission. It is not a prerequisite for independent qualification, real trial or promotion. It records simulated evidence only, without capital, credentials, Strategy Instances, Runtime generations, orders or real effects, and cannot replace real-trial returns.
 
-This section states a contract with no implementation; it grants no permission to build, deploy, or drive a
-forward record.
+Sealed conditions remain: registration starts only from current QUALIFIED, writes once before the first cut, and binds exact eligibility/Candidate/Artifact, protected policy, models, scope, cadence, dates and all pre-observation method/thresholds. Changes create a new registration. Cuts are consumed once in causal order; orders, positions, occupancy and fills come from the same stateful native simulator, never a signal scorer.
 
-A Forward Record starts only from a current `QUALIFIED` Eligibility Fact and ends in one terminal Forward Decision. It
-is record-only: it creates no Strategy Instance, Runtime generation, trade intent, order command, or Execution effect,
-reads no credential, and holds no capital. Governance consumes its decision; it never runs Governance's chain.
-
-A write-once Forward Registration, committed before the first forward cut, binds:
-
-- the exact Eligibility Fact, Candidate, Artifact and protected policy pair;
-- the Runtime kernel, simulator, cost, slippage and capacity-model identities of the qualifying Protected Replay
-  Request;
-- the instrument and venue scope and the decision cadence;
-- an interim date and a decision date;
-- kill lines and admit lines, each with how it was derived (for example, percentiles of a stated number of
-  block-bootstrapped paths of the qualifying weekly stream, with the block length), and any minimum closed-trade
-  count;
-- an exact frozen `ForwardDecisionMethod`, its parameters and the forward start cut.
-
-No field changes once the first forward cut is recorded. A changed registration is a new registration with its own
-record, and both are reported.
-
-A registration chooses a deterministic, versioned `ForwardDecisionMethod` before observations. A Wald
-sequential probability-ratio test on weekly returns is one possible policy instance, not a mandatory engine or
-unspoken default. A policy choosing it explicitly freezes the hypotheses, return distribution assumptions,
-alpha, beta, haircut, dispersion and observation unit. No implicit half-Sharpe or threshold applies; changing
-method or parameters creates a new registration rather than reinterpreting observed evidence.
-
-Only a separately admitted Forward Record profile may require stateful replay across new cuts. It does not add
-resume/checkpoint infrastructure to V0.1, or gate Candidate Intake, backtest eligibility or real trial entry.
-Backtest replays the frozen Artifact on each newly observed point-in-time cut (Forward Replay) on exactly the
-registered identities, with the order types (limit, stop, validity and expiry, cancel) and decision cadence
-that qualified it. Resting orders and open positions carry from one cut to the next in Backtest custody, a
-fill is admitted only from data observed after the order existed, and slots and occupancy follow fill order
-because the one simulator that resolves them for the backtest resolves them here. A log of signals is not a
-Forward Record: it cannot hold a resting order, and it scores a signal whose stop or target had already
-traded.
-
-A separate signal scorer cannot replace stateful native execution evidence. Each consumed cut is processed
-once in causal order; slots, fills and occupancy come from the same simulator, not an independent harness.
-Scheduling and persistence of this optional profile are unimplemented and require separate admission.
-
-Each record ends in one terminal Forward Decision:
-
-- `FORWARD_KILLED`, at any cut where a kill line or the kill bound is crossed; it also commits `REVOKED` on the
-  Eligibility Fact, with the forward kill as its cause;
-- `FORWARD_ADMITTED`, at the decision date or at the scale-up bound's admit review, when every admit line holds; it
-  means only that the candidate may be proposed for paper activation;
-- `FORWARD_WITHDRAWN`, when the record ends for any other reason, such as an expired or revoked Eligibility Fact, a
-  replaced registration, or a source that stopped.
-
-The interim date checks kill lines only. A decision date that finds neither a kill nor every admit line holding commits
-`FORWARD_CONTINUES` with the next registered date, a phase fact rather than a terminal decision. Killed and withdrawn
-records are kept, never deleted.
-
-Qualification reports every Forward Registration with its current phase or terminal decision, and any report of
-admitted candidates states the whole registered census and every outcome, so incubation bias cannot select survivors
-by omission. The forward record and its measurements are protected like any Qualification result: R&D sees only the
-public phase (`FORWARD_RECORDING`, `FORWARD_CONTINUES`, `FORWARD_KILLED`, `FORWARD_ADMITTED`, `FORWARD_WITHDRAWN`), and
-each first commit of one is a public phase fact that advances the candidate's protected-feedback generation.
-
-Forward Replay needs what the product does not yet supply in deployment: point-in-time cuts as the data arrives, which
-needs the Market Data Owner clock to follow intake; a quote cut for each frame's fills; multi-frame replay; and, for
-rules with resting orders, the product path's limit entry with an expiry, take-profit and target ladder, and stop and
-target fill reconciliation.
+Old FORWARD_KILLED / FORWARD_ADMITTED / FORWARD_WITHDRAWN terminals and FORWARD_CONTINUES stage keep their meanings. Kill retains its REVOKED link; admitted permits only a proposal for simulated activation under that old policy, without real-trial authority. Retain all registrations/results without survivor selection; protected measures remain sealed from R&D. This policy cannot implicitly gate the new route or restart research.
 
 ## Implementation status ledger
 
@@ -697,7 +596,7 @@ forbidden. `REPLAY_REJECTED`, `REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTI
 `QUALIFIED` remains exact.
 
 Protected measurements, parameters, cell outcomes, holdout contents, internal terminal dispositions, negative
-reasons, and evaluator detail never enter Event Rail, traces, logs, metrics, alerts, or Dashboard. In
+reasons, and evaluator detail never enter notifications, traces, logs, metrics, alerts, or Dashboard. In
 particular, no internal `INELIGIBLE` event exists outside Qualification. Dashboard totals distinguish
 only `QUALIFIED`, `CLOSED_NOT_QUALIFIED`, expired, and revoked; all negative protected terminals share
 byte-equivalent labels and aggregates.

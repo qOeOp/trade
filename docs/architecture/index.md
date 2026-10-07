@@ -244,7 +244,7 @@ Each version exposes its supported scope and gaps while retaining existing usabl
 
 ### V0.3 - Complete operating lifecycle of one strategy
 
-Connect one supported complete strategy from research to server-hosted real trial. Qualification admits the
+Connect one supported complete strategy from research to server-hosted real trial. On user request, Qualification admits the
 selected frozen candidate and independently evaluates isolated protected evidence. The user confirms the exact
 version, trial conditions, capital and operational authority in Dashboard. Governance checks current eligibility
 and account conditions; the native trading node executes the authorized strategy. Frozen trial conditions trigger
@@ -349,7 +349,7 @@ Owner chains on Linux CI. A local build is not delivery proof. Outcomes and orde
 The product extends current Nautilus data, backtest and trading components and integrates custom R&D.
 Added responsibilities cover research, isolated qualification, lifecycle/allocation policy and data/run custody, exposed through MCP and Dashboard.
 The six groups below do not prescribe engine, container or process counts; composition follows native kernels, permission isolation and consumer evidence.
-Event Rail, databases and observability own no market or account facts. See [Capability adoption](./capability-adoption/) for integration points.
+Notifications, databases and observability own no market or account facts. See [Capability adoption](./capability-adoption/) for integration points.
 
 This page defines the complete target blueprint and current entrances, not implementation completion.
 Trial and formal stages both trade real money; their pools and lifecycle stages differ. Real trading,
@@ -609,7 +609,7 @@ flowchart TB
 
 MCP and API entrances share Product Edge admission responsibilities; they do not require a new gateway process.
 Internal calls use typed APIs, not nested MCP sessions; services do not reread another Owner's private database to
-reconstruct authority. Event Rail conveys committed wakes and consumers read back facts. The bus owns no business
+reconstruct authority. Source services send committed wakes and consumers read back facts. The bus owns no business
 terminal state, recovery or approval.
 
 ### Responsibilities and facts
@@ -837,7 +837,9 @@ sequenceDiagram
     A->>B: Query status and reports
     B-->>A: Results and evidence references
     A->>R: Record diagnosis, successor or stop decision
-    R->>Q: Selected frozen candidate for independent assessment
+    R-->>A: Goal reached, deliver and stop
+    A->>R: User requests independent assessment
+    R->>Q: Submit exact frozen candidate
     Q-->>R: Permitted public assessment conclusion
 ```
 
@@ -846,17 +848,22 @@ sequenceDiagram
 3. The Agent submits versioned native strategy source package. R&D checks mechanical conditions and seals the Artifact, delegating preparation requirements to Market Data internally.
 4. The Agent makes one identified backtest request. R&D admits research; Backtest owns the job, resolves data references and runs native replay.
 5. The Agent queries job/run status, results and reports. R&D admits diagnosed successors, stops or selection decisions; losing, failed and unknown attempts remain counted.
-6. Nonqualified candidates stay in R&D. Selected frozen candidates receive independent Qualification assessment; protected details never return to the same research loop.
+6. Candidates still short of research goals may iterate within approved bounds. Selected frozen candidates receive independent Qualification assessment only on user request; research completion alone submits no assessment. A failed assessment after research has stopped records the permitted conclusion and waits for a new user instruction, without automatic research restart. Protected details never return to research.
 
 ### Qualified backtest to real trial and formal operation
 
 ```mermaid
 flowchart TD
-    R["R&D authoring and iteration"] --> B["Backtest and qualification"]
-    B -->|"Not qualified"| R
-    B -->|"Qualified"| E["Eligible candidate<br/>May remain in R&D"]
-    E -->|"Continue improvement"| R
-    E -->|"User confirms in Dashboard<br/>Candidate, frozen conditions and pool policy"| T["Trial pool: small real trades"]
+    R["R&D authoring and iteration"] --> B["Research Backtest"]
+    B -->|"Goal not met"| R
+    B -->|"Goal met; stop research"| D["Research Delivery"]
+    D -->|"User requests assessment"| K["Qualification"]
+    K -->|"Not qualified"| H["Await User"]
+    H -->|"User requests renewed research"| R
+    K -->|"Qualified"| E["Eligible candidate<br/>May remain in R&D"]
+    E -->|"User requests further improvement"| R
+    E -->|"User authorizes in Dashboard"| Q["Activation Queue"]
+    Q -->|"Governance checks pass; automatic dispatch"| T["Trial pool: small real trades"]
     T -->|"Frozen conditions met"| P{"Formal Admission"}
     P -->|"Formal capacity admitted"| F["Automatic promotion to formal pool"]
     P -->|"Insufficient capacity or current conditions fail"| W["Wait in Trial"]
@@ -871,7 +878,7 @@ flowchart TD
     V --> B
 ```
 
-1. Frozen backtest criteria must pass before trial entry. The user confirms the exact candidate and frozen trial/pool policy in Dashboard; qualification alone never activates it. A qualified candidate may stay in R&D for improvement; the finite named-template shape is confirmed; concrete templates and exposed parameters remain to be frozen.
+1. Meeting the frozen research goal ends iteration and delivers the candidate. Frozen backtest criteria must pass before trial entry. User authorization in Dashboard binds the exact candidate and frozen trial/pool policy, then queues the activation request in Governance. Current checks precede automatic dispatch; qualification alone never activates it. Further improvement requires a new user instruction. Concrete condition templates and exposed parameters remain to be frozen.
 2. Governance decides stage, effective membership, allocation and authorization. Only Runtime application receipts prove actual operation, not UI success or request submission.
 3. Runtime produces signals under shared strategy semantics; Risk admits against allocation, actual account funds and exposure; Execution uses native mechanisms to execute, record and reconcile.
 4. Portfolio produces real net-return, sample and risk measurements; Governance automatically promotes on frozen conditions. Trial and formal pools divide equally among their own running instances.

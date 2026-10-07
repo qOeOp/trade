@@ -1,6 +1,6 @@
 # 消息总线（引擎层）
 
-本页记载既有引擎。凡与 `docs/architecture/event-rail.md` 所载目标产品架构不一致处，以该文档为准。
+本页说明原生引擎能力；跨服务通知边界见[运行观测](../architecture/observability/)。
 
 `MessageBus` 通过消息传递实现系统组件之间的通信。
 这种设计形成了松耦合架构，让组件无需直接依赖即可交互。

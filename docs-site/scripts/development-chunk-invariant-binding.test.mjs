@@ -332,7 +332,10 @@ test('every relation owns complete local semantics with no fallback registry', (
 
 test('relation selection accepts non-business channel handoffs without inventing an Owner outcome', () => {
   const record = canonicalRelationRecord('runtime-events');
-  assert.equal(record['consumer-and-scenario'].consumerId, 'event-rail');
+  const relation = contract.relations.find((entry) => entry.id === 'runtime-events');
+  const consumer = [...contract.authorityOwners, ...contract.boundaries, ...contract.channels]
+    .find((entry) => (entry.groupId ?? entry.id) === relation.targetId);
+  assert.equal(record['consumer-and-scenario'].consumerId, consumer.id);
   assert.equal(record['business-outcome-owner-or-none-with-basis'].ownerId, null);
   assert.match(record['business-outcome-owner-or-none-with-basis'].noneBasis, /transport/i);
   assert.deepEqual(validateDevelopmentChunkRecord(record, contract), { outcome: 'VALID', reasons: [] });

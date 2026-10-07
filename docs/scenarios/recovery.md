@@ -112,7 +112,7 @@ at one common evidence frontier.
 - Portfolio → Risk and Execution: one coherent account/exposure bundle and matching account closure projection.
 - Execution → Governance: immutable `RecoveryCase.KNOWN_CLOSED`; Governance alone may decide a new generation.
 
-Event Rail may wake Governance and Observability to read committed Owner facts. It is not a recovery participant or
+Notifications may wake Governance and Observability to read committed Owner facts. They are not recovery participants or
 terminal authority.
 
 ## Proof
@@ -188,6 +188,6 @@ authorization.
   new causes before commit, or mixed Execution, Portfolio, Risk, or time cuts block closure.
 - Recovery Case may reference immutable Incident, Readiness, and Drift causes; those source facts never mutate to
   point back to the case.
-- Telegram delivery, Runtime liveness, local cancellation, or Event Rail silence cannot prove closure.
+- Telegram delivery, Runtime liveness, local cancellation, or notification silence cannot prove closure.
 - `KNOWN_CLOSED` is immutable, never lifts the Risk fence, never resumes the old generation, and only permits
   Governance to consider a fresh authorization.

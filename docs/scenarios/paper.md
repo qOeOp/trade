@@ -4,24 +4,11 @@ Paper verifies native control and adapter contracts using simulated effects. It 
 
 ## Entry
 
-Strategy Governance has authorized an eligible Strategy Artifact for a paper generation and assigned its
-capital policy; it has not started Runtime. The decision binds a `PAPER` Execution Scope with
-isolated account and effect namespaces and one pre-admitted simulated Adapter Binding. `INITIAL_ACTIVATION`
-also binds a fresh Portfolio Lifecycle Evidence Receipt containing a Capacity View compatible with that scope
-and the Eligibility economic condition; no historical performance is invented for a new generation.
+The entry is explicitly authorized, isolated simulated-adapter verification, not strategy launch, real trial or promotion. It declares the exact Strategy package, configuration, data, `PAPER` account/effect namespaces and admitted adapter; it does not require a simulated product lifecycle or real capital allocation first.
 
-Runtime has committed an `APPLIED` Generation Application Receipt that binds exactly one Strategy
-Instance and checkpoint to that same decision, generation, scope, artifact, and fence epoch. The same Strategy
-Instance semantics used by Live consume the Governance-owned `PAPER` scope; only Execution
-selects the pre-admitted simulated adapter and isolated account and effect namespaces. The application also
-binds the complete request Authorization Lineage and a `PAPER` Autonomous Policy Authorization.
-Simulation changes the adapter, not the requirement for explicit unattended-trading authority.
+Only an already admitted PAPER control path can perform the verification below. Its internal `INITIAL_ACTIVATION`/`APPLIED` wire identities are not new product stages or Live authority; existing authorization lineage, Risk admission, single-use effects and isolation continue to apply. Missing callable entry or admission remains unavailable; a contract page cannot create it.
 
-`INITIAL_ACTIVATION`, `PROMOTION`, `APPLIED`, and normal automated Paper add-risk or
-simulated effects require `UNATTENDED_REQUEST_WITH_POLICY`. `PROMOTION` binds fresh compatible Capacity View,
-Performance, and Exposure evidence under its own transition-evidence key. An `ATTENDED_REQUEST` is
-non-running and decrease-only; it cannot enter Paper unless a future separately specified attended-effect
-contract exists.
+Simulated and real account, effect and recovery evidence are never aliases. Paper results cannot serve as real-trial performance or automatic-promotion evidence.
 
 ## Value path
 
