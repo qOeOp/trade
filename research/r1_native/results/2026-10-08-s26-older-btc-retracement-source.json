@@ -1,0 +1,206 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S26",
+  "source_url": "https://www.youtube.com/watch?v=OL5Cd5h0geE",
+  "source_metadata": {
+    "author_name": "罗尼交易指南",
+    "canonical_url": "https://www.youtube.com/watch?v=OL5Cd5h0geE",
+    "duration_ms": 447000,
+    "part_id": "OL5Cd5h0geE",
+    "part_index": 1,
+    "platform": "youtube",
+    "published_at": "2023-04-25T00:00:00Z",
+    "requested_url": "https://www.youtube.com/watch?v=OL5Cd5h0geE",
+    "title": "比特币BTC即将测试38.2%关键回调位，整个币圈都在等它给方向。",
+    "video_id": "OL5Cd5h0geE"
+  },
+  "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-0832adcfb923200a72af2decdf5a18977a4c4dc6534b5c05f75bdfdfa01b3b08/manifest.json",
+  "media_manifest_sha256": "0832adcfb923200a72af2decdf5a18977a4c4dc6534b5c05f75bdfdfa01b3b08",
+  "media_sha256": "abd6df12584dade486dff88d7492c7f8f52077ca0d201d24b9050f111a63b403",
+  "same_byte_media_manifest_count": 1,
+  "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-8a8a710453a958e017978ec7019e771cac492508b2328b44c52faba4d248c360/manifest.json",
+  "transcript_manifest_sha256": "8a8a710453a958e017978ec7019e771cac492508b2328b44c52faba4d248c360",
+  "transcript_method": "asr",
+  "transcript_reviews": [],
+  "relevant_segments": [
+    {
+      "end_ms": 33400,
+      "evidence_id": "E014",
+      "start_ms": 32000,
+      "text": "还是先来看一下比特币"
+    },
+    {
+      "end_ms": 34440,
+      "evidence_id": "E015",
+      "start_ms": 33400,
+      "text": "在日线图级别"
+    },
+    {
+      "end_ms": 37860,
+      "evidence_id": "E016",
+      "start_ms": 34440,
+      "text": "比特币依然保持着大周期的一个多头的方向"
+    },
+    {
+      "end_ms": 45580,
+      "evidence_id": "E020",
+      "start_ms": 43340,
+      "text": "因为咱们的周期是不一样的"
+    },
+    {
+      "end_ms": 52640,
+      "evidence_id": "E026",
+      "start_ms": 50740,
+      "text": "四小时甚至你去看空都可以"
+    },
+    {
+      "end_ms": 53840,
+      "evidence_id": "E027",
+      "start_ms": 52640,
+      "text": "但在日线图级别"
+    },
+    {
+      "end_ms": 55220,
+      "evidence_id": "E028",
+      "start_ms": 53840,
+      "text": "它依然还是在多头"
+    },
+    {
+      "end_ms": 72100,
+      "evidence_id": "E039",
+      "start_ms": 69980,
+      "text": "那我在日线图可能是逢低去做多"
+    },
+    {
+      "end_ms": 78400,
+      "evidence_id": "E043",
+      "start_ms": 77240,
+      "text": "我还是建议大家"
+    },
+    {
+      "end_ms": 79540,
+      "evidence_id": "E044",
+      "start_ms": 78400,
+      "text": "如果是现货的话"
+    },
+    {
+      "end_ms": 81140,
+      "evidence_id": "E045",
+      "start_ms": 79540,
+      "text": "继续去持有合约的话"
+    },
+    {
+      "end_ms": 83140,
+      "evidence_id": "E046",
+      "start_ms": 81140,
+      "text": "你一定要找着几个关键的位置"
+    },
+    {
+      "end_ms": 83860,
+      "evidence_id": "E047",
+      "start_ms": 83140,
+      "text": "昨天说过了"
+    },
+    {
+      "end_ms": 84540,
+      "evidence_id": "E048",
+      "start_ms": 83860,
+      "text": "再去介入"
+    },
+    {
+      "end_ms": 85640,
+      "evidence_id": "E049",
+      "start_ms": 84540,
+      "text": "不然的话止损太大"
+    },
+    {
+      "end_ms": 86740,
+      "evidence_id": "E050",
+      "start_ms": 85640,
+      "text": "你受不了回调"
+    },
+    {
+      "end_ms": 96700,
+      "evidence_id": "E057",
+      "start_ms": 95380,
+      "text": "再来看一下以太坊"
+    },
+    {
+      "end_ms": 99460,
+      "evidence_id": "E058",
+      "start_ms": 96700,
+      "text": "同样以太坊依然保持着一个多头走向"
+    },
+    {
+      "end_ms": 103280,
+      "evidence_id": "E059",
+      "start_ms": 99460,
+      "text": "现在价格回调到了38.2的关键的支撑位"
+    },
+    {
+      "end_ms": 105840,
+      "evidence_id": "E060",
+      "start_ms": 103280,
+      "text": "这种位置可能会出现一定的反弹"
+    },
+    {
+      "end_ms": 109340,
+      "evidence_id": "E061",
+      "start_ms": 105840,
+      "text": "当然整个市场现在都在等比特币给方向"
+    },
+    {
+      "end_ms": 112740,
+      "evidence_id": "E063",
+      "start_ms": 109800,
+      "text": "比特币能够直接反弹起来"
+    },
+    {
+      "end_ms": 115920,
+      "evidence_id": "E064",
+      "start_ms": 112740,
+      "text": "那么以太坊这些产品都会跟着反弹"
+    }
+  ],
+  "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-377b6554c0ea414fb38eb5ec36979d8432e6bb3afebb28d01b4333fedec2c3b9/manifest.json",
+  "frames_manifest_sha256": "377b6554c0ea414fb38eb5ec36979d8432e6bb3afebb28d01b4333fedec2c3b9",
+  "inspected_frames": [
+    {
+      "id": "F02",
+      "timestamp_ms": 32448,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-377b6554c0ea414fb38eb5ec36979d8432e6bb3afebb28d01b4333fedec2c3b9/F02.png",
+      "sha256": "35c99f7569b88736647bdd8512fc993aebe9507d2a70b03d25a9bc4f417c7a2a"
+    },
+    {
+      "id": "F21",
+      "timestamp_ms": 49150,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-377b6554c0ea414fb38eb5ec36979d8432e6bb3afebb28d01b4333fedec2c3b9/F21.png",
+      "sha256": "a31f3b8718ef858fdec094ed5737f1b107e6a93aa77f61b78e73a35bf5001546"
+    },
+    {
+      "id": "F03",
+      "timestamp_ms": 96040,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-377b6554c0ea414fb38eb5ec36979d8432e6bb3afebb28d01b4333fedec2c3b9/F03.png",
+      "sha256": "19ecd6feed17c4448b633487ba0406fd87b01013213c92cdaf12a4d551107484"
+    },
+    {
+      "id": "F30",
+      "timestamp_ms": 109190,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-377b6554c0ea414fb38eb5ec36979d8432e6bb3afebb28d01b4333fedec2c3b9/F30.png",
+      "sha256": "75d0aebffc09910cfa3bffdf44e5eb52525036199663debb8e9304eae9466d50"
+    }
+  ],
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-5081551359c8472c9e52210806a0fe28/note.md",
+  "note_sha256": "0a086e5e3b8d5f49b0b98de456e58103e9fe363cd5738d6426c0242bfb6a387c",
+  "receipt_path": "/tmp/r1-s26-note-create.json",
+  "receipt_sha256": "588107a71f8a32a1da918319a205ccc96388ffc312e4c285adc6de22402ccd14",
+  "readout": {
+    "title_vs_speech": "The title says BTC will test 38.2%, and original BTC daily F02 visibly carries a 0.382 line near a prospective lower zone. The speech at 01:39-01:45 instead explicitly names ETH as already at a 38.2 support; do not attribute that utterance to BTC.",
+    "btc_decision": "At 00:33-01:34 the speaker describes a daily bullish backdrop versus shorter bearish views, says spot may continue holding, and advises futures entries only at key locations because a far stop is hard to bear. No exact BTC impulse endpoints, structural stop or submitted futures order are stated.",
+    "eth_decision": "The ETH daily frame carries multiple historical Fibonacci overlays; the speaker calls current ETH 38.2 a possible rebound location but neither chooses the impulse-origin low/high mechanically nor supplies a new stop/order/next obstacle for that ETH idea.",
+    "anchor_decision": "The original frames show plotted levels, but no rule discriminates a major swing origin from a nearer local pivot before an order. S26 therefore cannot resolve D30 multiple-anchor ambiguity or qualify H09a for an annual native replay.",
+    "market_and_time": "Metadata confirms Ronnie Trading Guide, 2023-04-25, outside the exposed 2025-26 annual development period. The frames show TradingView BTCUSDT and ETHUSDT; venue and futures execution are not independently verified."
+  },
+  "economic_data_read": false,
+  "native_strategy_admitted": false
+}
