@@ -1,0 +1,89 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S33",
+  "registered_commit": "0494f2917e65fa47c6ba353b1712f98a93c4b211",
+  "source_url": "https://www.youtube.com/watch?v=F4KKs1I7dSA",
+  "source": {
+    "platform": "youtube",
+    "video_id": "F4KKs1I7dSA",
+    "author_name": "\u7f57\u5c3c\u4ea4\u6613\u6307\u5357",
+    "published_at": "2025-01-10T00:00:00Z",
+    "duration_ms": 551000,
+    "media_sha256": "501864a9dff4091f7eb3aba0b3513bd1cbc2401a6f82bd7c68645f41c7c145e0",
+    "same_byte_media_manifest_count": 1
+  },
+  "acquisition": {
+    "tool": "video-note-mcp --create --quality fast",
+    "first_receipt_path": "/tmp/r1-s33-note-create.json",
+    "first_receipt_sha256": "984153999f5ee7ff216ccaa800284630e6d3b9136bd3ed3a2ce2d3f9eb1d4845",
+    "first_failure": "SOURCE_UNAVAILABLE/youtube_acquisition_failed",
+    "retry_receipt_path": "/tmp/r1-s33-note-create-retry.json",
+    "retry_receipt_sha256": "a4efa5e55e3ede316c940c93216859cb315497565a216a39feb8f1f1261f0ead",
+    "retry_failure": "DISTILLATION_FAILED/author_output_budget_exceeded",
+    "source_stages_completed": true,
+    "note_completed": false,
+    "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-62798ef5041ed211b10cdcb081392aedbcd9458d4ce7c848d293a937694f7eaa/manifest.json",
+    "media_manifest_sha256": "62798ef5041ed211b10cdcb081392aedbcd9458d4ce7c848d293a937694f7eaa",
+    "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-55edcc9289bf508da7232e47bfdd479a6f98d287c48e9ab85f23fe408f720ce6/manifest.json",
+    "transcript_manifest_sha256": "55edcc9289bf508da7232e47bfdd479a6f98d287c48e9ab85f23fe408f720ce6",
+    "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-cb3c727411d65ca70893b09ffdfa07bf7d72d6d8601e6a44565b8b159ea8c101/manifest.json",
+    "frames_manifest_sha256": "cb3c727411d65ca70893b09ffdfa07bf7d72d6d8601e6a44565b8b159ea8c101",
+    "asr_quality": "fast",
+    "audio_review_count": 0,
+    "transcript_segment_count": 286,
+    "original_frame_count": 48
+  },
+  "original_frames_inspected": [
+    {
+      "id": "F01",
+      "timestamp_ms": 83890,
+      "sha256": "c191ff738f890410767ec50f0865cd993e1e82d70c586dec95c9a366203358c4",
+      "observation": "BTCUSDT four-hour chart; author has selected a broad existing band around 91,000-93,000, marked from the November chart area, with later retests visible. The selected rectangle does not expose a unique historical bar-to-edge algorithm."
+    },
+    {
+      "id": "F35",
+      "timestamp_ms": 99630,
+      "sha256": "b687d9e864d2541618aa0cf39eb537b25433523245eb06e3b0658b5bfc992cf7",
+      "observation": "BTCUSDT hourly chart displays an approximately 91,000-93,000 support area, multiple prior local tests, an overhead band near 99,000-100,000 and a broken rising line."
+    },
+    {
+      "id": "F28",
+      "timestamp_ms": 124450,
+      "sha256": "4f17f8be57609b12212d5e692f3cf01dfc8a620d35772a1bfb5a36adddb106f0",
+      "observation": "BTCUSDT four-hour chart marks several historical support tests and shows a current retest near the lower horizontal area; the clip is retrospective about earlier opportunities."
+    }
+  ],
+  "timecoded_evidence": [
+    {
+      "segment_ids": ["E018", "E021", "E022", "E025", "E029", "E030", "E036", "E037", "E038"],
+      "seconds": [38.4, 78.0],
+      "finding": "The speaker repeatedly rejects 92,000 as a single exact support price and gives an approximate 91,000-93,000 BTC area. ASR renders one numeric phrase with an extra zero; the chart and surrounding 92,000 context support the approximate 91,000-93,000 reading, not exact edges."
+    },
+    {
+      "segment_ids": ["E040", "E041", "E043", "E045", "E046", "E047", "E048", "E049", "E050", "E051"],
+      "seconds": [80.2, 106.7],
+      "finding": "He says the support band was drawn after an earlier move and counts repeated later tests from roughly November 27, including recent retests. The January video alone cannot prove the precise original publication date of the drawing or a unique edge-selection algorithm."
+    },
+    {
+      "segment_ids": ["E095", "E097", "E098", "E101", "E102", "E105", "E106", "E107"],
+      "seconds": [190.0, 215.5],
+      "finding": "ETH is range-bound; daily 50% retracement or earlier rising-channel location are alternative long ideas. The speaker invites viewers to copy his chart-drawing, but does not teach a deterministic zone-construction formula here."
+    },
+    {
+      "segment_ids": ["E153", "E162", "E166", "E167", "E173", "E174", "E177"],
+      "seconds": [290.6, 347.9],
+      "finding": "AAVE context combines a future strong four-hour bullish candle, an intact horizontal support, a rising-line confluence and an hourly range; the four-way range method is said to have been taught privately, without a public numeric rule in this clip."
+    }
+  ],
+  "source_gate": {
+    "status": "partial_temporal_method_evidence",
+    "author_area_not_point": true,
+    "historical_zone_before_later_tests_claimed": true,
+    "original_pretest_publication_verified": false,
+    "author_numeric_edge_algorithm": false,
+    "author_pivot_order_rule": false,
+    "author_universal_atr_width": false,
+    "implication": "S33 supplies a concrete broad BTC support area and a claimed earlier drawing followed by repeated tests. It rejects treating an exact 61.8% tick or a 0.25-ATR high/low-pivot band as the author's unique support rule. Verify an earlier public frame before treating the claimed pretest plan as causal."
+  },
+  "economic_read": false
+}
