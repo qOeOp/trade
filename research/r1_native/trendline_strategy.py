@@ -1,9 +1,9 @@
 """
-H06 line breaks and exploratory H08 support touches with native Nautilus orders.
+H06 line breaks and exploratory H08/H08b support entries with native Nautilus orders.
 
 The signal definition is frozen at
 0725a7b3f89902e27cd421a18b4b879a13268534:research/ronnie/combo/candidates/trendline_break_strong.py.
-The frozen old source defines H06 only; H08 is separately preregistered in
+The frozen old source defines H06 only; H08/H08b are separately preregistered in
 RD_EXPERIMENTS.md. The old research fill model is not used here.
 
 """
@@ -51,6 +51,15 @@ class LineBreak:
     ts_event: int
     side: int
     reference_close: float
+    stop: float
+    target: float
+    anchors: tuple[int, int]
+
+
+@dataclass(frozen=True)
+class LineRestingPlan:
+    ts_event: int
+    entry: float
     stop: float
     target: float
     anchors: tuple[int, int]
@@ -223,6 +232,29 @@ class ConfirmedLineSupportTouches:
         slope = (p2 - p1) / (j2 - j1)
         return pair, p2, slope, p2 + slope * (i - j2)
 
+    def next_bar_resting_plan(self, prior_atr: float | None) -> LineRestingPlan | None:
+        """
+        Use the latest completed bar to price one future four-hour limit.
+        """
+        i = len(self.candles) - 1
+        if i < 0 or prior_atr is None or prior_atr <= 0 or len(self.candles) < BOX_BARS:
+            return None
+        projected = self._latest_rising_line(i)
+        if projected is None:
+            return None
+        pair, _, slope, line = projected
+        candle = self.candles[i]
+        band = STOP_BUFFER_ATR * prior_atr
+        if candle.low <= line + band or candle.close <= line + band:
+            return None
+        next_line = line + slope
+        entry, stop = next_line + band, next_line - band
+        target = max(bar.high for bar in self.candles[-BOX_BARS:])
+        if entry >= candle.close or entry <= stop or target - entry < entry - stop:
+            self.room_skips += 1
+            return None
+        return LineRestingPlan(candle.ts_event, entry, stop, target, pair)
+
 
 class TrendlineBreakStrategy(R1Strategy):
     def __init__(
@@ -238,7 +270,7 @@ class TrendlineBreakStrategy(R1Strategy):
         max_coin_notional_fraction: float = 0.05,
         signal_variant: str = "trendline-4h",
     ) -> None:
-        if signal_variant not in ("trendline-4h", "line-support-4h"):
+        if signal_variant not in ("trendline-4h", "line-support-4h", "line-resting-4h"):
             raise ValueError("line Strategy requires a registered four-hour signal")
         super().__init__(
             instrument_id,
@@ -280,15 +312,37 @@ class TrendlineBreakStrategy(R1Strategy):
         )
         prior_atr = self.atr.value if self.atr.initialized else None
         breaks = self.line_state.on_closed(candle, prior_atr)
+        resting_plan = (
+            self.line_state.next_bar_resting_plan(prior_atr)
+            if self.signal_variant == "line-resting-4h"
+            else None
+        )
         self.atr.update_raw(true_range)
+        time_origin_ns = (
+            self.opened_ns
+            if self.signal_variant == "line-resting-4h"
+            else self.line_active_signal_ns
+        )
+        hold_bars = MAX_HOLD_BARS if self.signal_variant == "line-resting-4h" else MAX_HOLD_BARS + 1
         if (
             self.opened_ns is not None
-            and self.line_active_signal_ns is not None
-            and bar.ts_event >= self.line_active_signal_ns + (MAX_HOLD_BARS + 1) * FOUR_HOUR_NS
+            and time_origin_ns is not None
+            and bar.ts_event >= time_origin_ns + hold_bars * FOUR_HOUR_NS
         ):
             self.cancel_all_orders(self.instrument_id)
             self.close_all_positions(self.instrument_id)
             self.line_time_exits += 1
+        if self.signal_variant == "line-resting-4h":
+            if resting_plan is None or (
+                self.trade_start_ns is not None and resting_plan.ts_event < self.trade_start_ns
+            ):
+                return
+            self.signals += 1
+            if self.opened_ns is not None or self.resting_entry_id is not None:
+                self.signals_while_open += 1
+                return
+            self._submit_line_resting(resting_plan)
+            return
         for candidate in breaks:
             if self.trade_start_ns is not None and candidate.ts_event < self.trade_start_ns:
                 continue
@@ -335,6 +389,42 @@ class TrendlineBreakStrategy(R1Strategy):
         self.resting_entry_id = orders[0].client_order_id
         self.resting_signal = signal
         self.line_active_signal_ns = candidate.ts_event
+        self.entries.add(self.resting_entry_id)
+        self.submit_order_list(orders)
+        self.waiting_released += 1
+
+    def _submit_line_resting(self, plan: LineRestingPlan) -> None:
+        expires_ns = plan.ts_event + FOUR_HOUR_NS - 1
+        signal = WaitingSignal(plan.ts_event, expires_ns, 1, plan.entry, plan.stop, plan.target)
+        quantity = self._order_quantity(signal)
+        if quantity is None:
+            return
+        entry, stop, target = (
+            self.instrument.make_price(price).as_double()
+            for price in (plan.entry, plan.stop, plan.target)
+        )
+        if (
+            min(entry, stop, target) <= 0
+            or entry >= self.line_state.candles[-1].close
+            or entry <= stop
+            or target - entry < entry - stop
+        ):
+            self.line_invalid_price_skips += 1
+            return
+        orders = self.order_factory.bracket(
+            instrument_id=self.instrument_id,
+            order_side=OrderSide.BUY,
+            quantity=quantity,
+            entry_order_type=OrderType.LIMIT,
+            entry_price=self.instrument.make_price(plan.entry),
+            time_in_force=TimeInForce.GTD,
+            expire_time=expires_ns,
+            tp_price=self.instrument.make_price(plan.target),
+            tp_post_only=False,
+            sl_trigger_price=self.instrument.make_price(plan.stop),
+        )
+        self.resting_entry_id = orders[0].client_order_id
+        self.resting_signal = signal
         self.entries.add(self.resting_entry_id)
         self.submit_order_list(orders)
         self.waiting_released += 1

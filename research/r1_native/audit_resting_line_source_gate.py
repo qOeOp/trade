@@ -52,7 +52,7 @@ def _case(coin_row: dict) -> dict:
     limit = next_line + band
     stop = next_line - band
     target = decision["prior_60_bar_high"]
-    if limit <= stop or target - limit < limit - stop:
+    if limit >= decision["ohlc"][3] or limit <= stop or target - limit < limit - stop:
         return result
     result.update(
         {

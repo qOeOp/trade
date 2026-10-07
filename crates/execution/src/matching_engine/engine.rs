@@ -3004,6 +3004,30 @@ impl OrderMatchingEngine {
         let ts_now = self.clock.borrow().timestamp_ns();
         self.check_instrument_expiration(ts_now);
 
+        // An OTO entry can fill and activate its children synchronously. If
+        // the first OCO/OUO child fills immediately, the second child has not
+        // yet reached acceptance, so the normal OCO cancel path cannot see an
+        // active order. Complete that unprocessed sibling as canceled rather
+        // than rejecting an exit whose position has already been closed.
+        let sibling_filled = matches!(
+            order.contingency_type(),
+            Some(ContingencyType::Oco | ContingencyType::Ouo)
+        ) && !order.is_closed()
+            && order.linked_order_ids().is_some_and(|ids| {
+                let cache = self.cache.borrow();
+                ids.iter().any(|id| {
+                    cache
+                        .order(id)
+                        .is_some_and(|sibling| sibling.status() == OrderStatus::Filled)
+                })
+            });
+
+        if sibling_filled {
+            self.account_ids.insert(order.trader_id(), account_id);
+            self.cancel_order(order, Some(false));
+            return;
+        }
+
         // Validate inside a cache borrow scope, collecting any rejection
         // reason rather than emitting events while the borrow is held.
         // This avoids RefCell re-entrancy panics from synchronous event

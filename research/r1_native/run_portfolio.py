@@ -47,6 +47,9 @@ from vibe_trading.model import Venue
 from vibe_trading.persistence import ParquetDataCatalog
 
 
+LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
+
+
 def _month_edges(start: datetime, end: datetime):
     current = start
     while current < end:
@@ -222,7 +225,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--signal-variant",
-        choices=("daily-pivot", "box-4h", "trendline-4h", "line-support-4h"),
+        choices=("daily-pivot", "box-4h", *LINE_VARIANTS),
         default="daily-pivot",
     )
     parser.add_argument(
@@ -299,7 +302,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 R1StagedStrategy
                 if args.exit_variant == "staged-r1s"
                 else TrendlineBreakStrategy
-                if args.signal_variant in ("trendline-4h", "line-support-4h")
+                if args.signal_variant in LINE_VARIANTS
                 else R1Strategy
             )
             strategy = strategy_class(
@@ -376,7 +379,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native staged orders were denied or rejected")
-        if args.signal_variant in ("trendline-4h", "line-support-4h") and (
+        if args.signal_variant in LINE_VARIANTS and (
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native line orders were denied or rejected")
@@ -401,7 +404,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 hashlib.sha256(
                     Path(__file__).with_name("trendline_strategy.py").read_bytes(),
                 ).hexdigest()
-                if args.signal_variant in ("trendline-4h", "line-support-4h")
+                if args.signal_variant in LINE_VARIANTS
                 else None
             ),
             "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -414,6 +417,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant == "box-4h"
                 else "H06-trendline-4h"
                 if args.signal_variant == "trendline-4h"
+                else "H08b-line-resting-4h"
+                if args.signal_variant == "line-resting-4h"
                 else "H08-line-support-4h"
             ),
             "signal_variant": args.signal_variant,
@@ -487,6 +492,17 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                             "time_exits": strategies[row["coin"]].line_time_exits,
                         }
                         if args.signal_variant == "line-support-4h"
+                        else None
+                    ),
+                    "line_resting": (
+                        {
+                            "broken_pairs": strategies[row["coin"]].line_state.broken_pairs,
+                            "room_skips": strategies[row["coin"]].line_state.room_skips,
+                            "invalid_price_skips": strategies[row["coin"]].line_invalid_price_skips,
+                            "time_exits": strategies[row["coin"]].line_time_exits,
+                            "submitted_brackets": strategies[row["coin"]].waiting_released,
+                        }
+                        if args.signal_variant == "line-resting-4h"
                         else None
                     ),
                     "risk_size_skips": strategies[row["coin"]].risk_size_skips,

@@ -881,6 +881,78 @@ fn test_process_order_when_closed_linked_order(
 }
 
 #[rstest]
+fn test_process_unaccepted_oco_child_cancels_after_sibling_fill(
+    order_event_handler: TypedIntoMessageSavingHandler<OrderEventAny>,
+    account_id: AccountId,
+    instrument_eth_usdt: InstrumentAny,
+    engine_config: OrderMatchingEngineConfig,
+) {
+    let cache = Rc::new(RefCell::new(Cache::default()));
+    let mut engine = get_order_matching_engine(
+        instrument_eth_usdt.clone(),
+        None,
+        Some(cache.clone()),
+        None,
+        Some(engine_config),
+    );
+    let stop_id = ClientOrderId::from("O-19700101-000000-001-001-2");
+    let target_id = ClientOrderId::from("O-19700101-000000-001-001-3");
+    let stop = OrderTestBuilder::new(OrderType::StopMarket)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Sell)
+        .trigger_price(Price::from("1400.00"))
+        .quantity(Quantity::from("1.000"))
+        .client_order_id(stop_id)
+        .contingency_type(ContingencyType::Oco)
+        .linked_order_ids(vec![target_id])
+        .submit(true)
+        .build();
+    let mut target = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Sell)
+        .price(Price::from("1600.00"))
+        .quantity(Quantity::from("1.000"))
+        .client_order_id(target_id)
+        .contingency_type(ContingencyType::Oco)
+        .linked_order_ids(vec![stop_id])
+        .submit(true)
+        .build();
+    let mut filled_stop = TestOrderStubs::make_accepted_order(&stop);
+    let fill = build_order_filled(
+        filled_stop.trader_id(),
+        filled_stop.strategy_id(),
+        filled_stop.instrument_id(),
+        stop_id,
+        filled_stop.venue_order_id().unwrap(),
+        filled_stop.account_id().unwrap(),
+        TradeId::from("T-STOP-001"),
+        OrderSide::Sell,
+        OrderType::StopMarket,
+        Quantity::from("1.000"),
+        Price::from("1400.00"),
+        instrument_eth_usdt.quote_currency(),
+        LiquiditySide::Taker,
+        None,
+        None,
+    );
+    filled_stop.apply(OrderEventAny::Filled(fill)).unwrap();
+    cache
+        .borrow_mut()
+        .add_order(filled_stop, None, None, false)
+        .unwrap();
+    cache
+        .borrow_mut()
+        .add_order(target.clone(), None, None, false)
+        .unwrap();
+
+    engine.process_order(&mut target, account_id);
+
+    let messages = get_order_event_handler_messages(&order_event_handler);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].event_type(), OrderEventType::Canceled);
+}
+
+#[rstest]
 fn test_process_bracket_order_list_does_not_double_submit_children(
     instrument_eth_usdt: InstrumentAny,
     account_id: AccountId,
