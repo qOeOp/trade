@@ -19,6 +19,7 @@ from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
 
+from r1s_strategy import R1StagedStrategy
 from run import SOURCE_COMMIT
 from run import _json_safe
 from run import _ns
@@ -223,9 +224,16 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         choices=("daily-pivot", "box-4h"),
         default="daily-pivot",
     )
+    parser.add_argument(
+        "--exit-variant",
+        choices=("fixed-2r", "staged-r1s"),
+        default="fixed-2r",
+    )
     parser.add_argument("--risk-budget-bps", type=float)
     parser.add_argument("--coin-notional-cap-pct", type=float, default=5.0)
     args = parser.parse_args()
+    if args.exit_variant == "staged-r1s" and args.signal_variant != "daily-pivot":
+        raise ValueError("staged R-1s requires the frozen daily-pivot signal")
     if args.risk_budget_bps is not None and not 0 < args.risk_budget_bps < 10_000:
         raise ValueError("risk budget bps must be between zero and 10000")
     if not 0 < args.coin_notional_cap_pct <= 100:
@@ -286,7 +294,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         for row in rows:
             engine.add_instrument(row["instrument"])
             instrument_id = row["instrument_id"]
-            strategy = R1Strategy(
+            strategy_class = R1StagedStrategy if args.exit_variant == "staged-r1s" else R1Strategy
+            strategy = strategy_class(
                 instrument_id,
                 BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
                 Quantity.from_str(row["quantity"]),
@@ -320,8 +329,16 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 raise RuntimeError(
                     f"{row['coin']}: streamed totals do not match download receipt",
                 )
+        integrity_findings = []
         if any(strategy.slot_violations for strategy in strategies.values()):
-            raise RuntimeError("native entry fills violated a per-coin slot")
+            integrity_findings.append("native entry fills violated a per-coin slot")
+        if args.exit_variant == "staged-r1s" and any(
+            strategy.staged_protection_failures
+            or strategy.staged_order_failures
+            or strategy.staged_invalid_actual_target_closes
+            for strategy in strategies.values()
+        ):
+            integrity_findings.append("native staged order integrity failed")
         account = engine.portfolio.account(venue=Venue("BINANCE"))
         if account is None:
             raise RuntimeError("native portfolio account missing")
@@ -337,13 +354,21 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "account.csv": engine.generate_account_report(venue=Venue("BINANCE")),
         }
         for name, report in reports.items():
-            report.to_csv(args.output / name, index=False)
+            report.to_csv(
+                args.output / name,
+                index=True,
+                index_label="ts_event" if name == "account.csv" else None,
+            )
         with (args.output / "returns_series.csv").open("w", newline="") as stream:
             writer = csv.writer(stream)
             writer.writerow(("ts_event_ns", "native_return"))
             writer.writerows(sorted(result.returns_series.items()))
         positions = reports["positions.csv"]
         orders = reports["orders.csv"]
+        if args.exit_variant == "staged-r1s" and (
+            (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
+        ):
+            integrity_findings.append("native staged orders were denied or rejected")
         closed = positions[positions["ts_closed"].notna()]
         pnl = closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
         wins = int((pnl > 0).sum())
@@ -356,9 +381,23 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "strategy_source_sha256": hashlib.sha256(
                 Path(__file__).with_name("strategy.py").read_bytes(),
             ).hexdigest(),
+            "staged_strategy_source_sha256": (
+                hashlib.sha256(Path(__file__).with_name("r1s_strategy.py").read_bytes()).hexdigest()
+                if args.exit_variant == "staged-r1s"
+                else None
+            ),
             "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            "strategy": "R-1u" if args.signal_variant == "daily-pivot" else "H03-box-4h",
+            "strategy": (
+                "R-1s"
+                if args.exit_variant == "staged-r1s"
+                else "R-1u"
+                if args.signal_variant == "daily-pivot"
+                else "H03-box-4h"
+            ),
             "signal_variant": args.signal_variant,
+            "exit_variant": args.exit_variant,
+            "integrity_findings": integrity_findings,
+            "integrity_passed": not integrity_findings,
             "account_model": f"one native BacktestEngine margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
             "starting_balance_usdt": "100000",
             "sizing": (
@@ -407,6 +446,33 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     "signals": strategies[row["coin"]].signals,
                     "box_breaks": strategies[row["coin"]].box_breaks,
                     "risk_size_skips": strategies[row["coin"]].risk_size_skips,
+                    "staged_execution": (
+                        {
+                            "missing_impulse": strategies[row["coin"]].staged_missing_impulse,
+                            "split_skips": strategies[row["coin"]].staged_split_skips,
+                            "invalid_price_skips": strategies[
+                                row["coin"]
+                            ].staged_invalid_price_skips,
+                            "invalid_notional_skips": strategies[
+                                row["coin"]
+                            ].staged_invalid_notional_skips,
+                            "invalid_actual_target_closes": strategies[
+                                row["coin"]
+                            ].staged_invalid_actual_target_closes,
+                            "unallocatable_closes": strategies[
+                                row["coin"]
+                            ].staged_unallocatable_closes,
+                            "protection_failures": strategies[
+                                row["coin"]
+                            ].staged_protection_failures,
+                            "order_failures": strategies[row["coin"]].staged_order_failures,
+                            "same_bar_first_stop": strategies[
+                                row["coin"]
+                            ].staged_same_bar_first_stop,
+                        }
+                        if args.exit_variant == "staged-r1s"
+                        else None
+                    ),
                     "positions": sum(
                         positions["instrument_id"] == str(row["instrument_id"]),
                     ),
@@ -423,6 +489,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         payload = json.dumps(_json_safe(summary), indent=2, allow_nan=False)
         (args.output / "summary.json").write_text(payload + "\n")
         print(payload)
+        if integrity_findings:
+            raise RuntimeError("; ".join(integrity_findings))
     finally:
         engine.dispose()
 

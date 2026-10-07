@@ -61,6 +61,7 @@ class WaitingSignal:
     level: float
     stop: float
     target: float
+    impulse: float = 0.0
 
 
 @dataclass(frozen=True)

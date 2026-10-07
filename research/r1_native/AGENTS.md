@@ -1,6 +1,6 @@
 # R-1 native replay
 
-- `strategy.py` owns R-1u daily-pivot and registered H03 four-hour box signals, and submits native orders. It does not calculate fills or PnL. `test_box_signal.py` checks H03's source geometry; the complete economic read is native BacktestEngine output.
+- `strategy.py` owns R-1u daily-pivot and registered H03 four-hour box signals, and submits native orders. `r1s_strategy.py` owns H04 staged native exits on that daily-pivot signal. Neither calculates fills or PnL. `test_box_signal.py` checks H03's source geometry; `check_r1s_lifecycle.py` checks H04 synthetic native order events only. The complete economic read is native BacktestEngine output.
 - `prepare.py` asks the native Binance USD-M data client for historical LAST/MARK minute bars and settled funding, then writes the native Catalog and the current-instrument assumption. The replay interval defaults to one minute; five minutes is a lower-resolution sensitivity option.
 - `run.py` validates all three data timelines, runs `BacktestEngine` with native mark and funding updates, and writes native reports.
 - `run_portfolio.py` streams prepared five-minute catalogs into one native margin account, with one Strategy per contract; its reports use a shared capital denominator and distinguish input start from order eligibility for multi-timeframe warmup.
@@ -9,5 +9,6 @@
 - `audit_daily_signal_counts.py` is a read-only source-rule count check against native Catalog daily inputs and a native Strategy summary. It cannot create fills or backtest returns.
 - `audit_native_brackets.py` checks frozen daily plans against the native entry, stop and target order report, including price rounding and filled-entry order geometry. It reads existing reports and catalogs only; native fills and account reports remain authoritative.
 - `audit_fill_bar_opens.py` joins native entry fill events to five-minute LAST opens without changing fills or PnL. Its price-path counts cannot stand in for a new backtest.
+- `audit_r1s_integrity.py` reads native H04 order and position report IDs to check terminal protection and orphaned active exits. It does not create an execution ledger or return series.
 - Keep source rule custody tied to `0725a7b3f89902e27cd421a18b4b879a13268534`.
 - Check with `python -m compileall research/r1_native`, then run against a catalog containing Binance USDT perpetual minute bars and the matching instrument.
