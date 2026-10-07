@@ -202,4 +202,6 @@
 
 **第二层核对。** [罗尼 2026-07-27 原片](https://www.youtube.com/watch?v=OFHsCBc5I6g)标题提到 BTC 跌破回踩，但片中再次触线及短空仍是将来条件，没有已观察到回踩后新下单的证据；故 S13 仍不准入 H06a 年度变体。同片 LINK 段指出，上升线跌破时高低点结构仍可偏多；SOL 段指出，仅突破箱体内部三角线、尚未越过外侧高低点时空间不足。这产生与回踩时序不同的 H07 后继：区分线穿越、结构方向、外层边界和目标空间。MATIC 又显示短线突破可把前高当目标，不能把"未过前高一律不做多"写成统一规则。H07 已在[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#child-h07-line-crossing-versus-structural-direction-and-target-room)预登记来源反例与失败条件；尚无数值化规则或新年化收益结论。来源记录应让接管者看见两个后继分支各自缺什么证据，避免把"没有准入新回测"误报为"趋势线技术无效"。
 
+**正例搜索的反证。** 冻结来源目录中 [2024-11-28 原片](https://video-ideas.tradingview.com/1/1416280-9QQ2PqoCyXAoikEE.mp4)的 ETH 日线已越过前高，作者却明确说此处不新追多、等回踩；同片 ENS 把过去的箱体突破回踩称作标准进场位，但没有视频时点的新订单。这说明记录"外层结构突破"仍不能自动推出"现在入场"。后继来源或原生诊断须分别保管突破确认、可用空间、回踩状态、当前订单/持仓状态；未经独立来源和因果几何核对，不应把几者压成一个年度筛选参数。S14 的片段、原画面和失败门槛见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s14-eth-previous-high-break-for-h07-positive-case-search)。
+
 **蓝图核对点。** [R&D 探索、后继与证据台账](../owners/rd.zh.md)及 [研究旅程](../scenarios/research.zh.md)。这项发现已回填当前 R&D 蓝图，后续实现复用现有说明记录、实验关联和原生回测。
