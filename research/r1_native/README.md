@@ -97,6 +97,16 @@ Strategy in one `BacktestEngine` margin account. Pass the exact set of coins,
 quantity CSV, catalog roots, and aligned interval. The runner checks bar and
 funding coverage, streams one calendar month at a time, and exports native
 orders, fills, positions, account events, returns, and a shared-account summary.
+The default `--signal-variant daily-pivot` reproduces the R-1u signal. The
+registered H03 comparison uses `--signal-variant box-4h` with Nautilus native
+four-hour aggregation of those same five-minute LAST bars. Add
+`--trade-start 2025-10-17T00:00:00Z` to **both** runners in a paired H03
+comparison: the input starts on October 7, while the first ten days establish
+the box. The output records both input and order-eligibility starts, and
+annualizes over the eligible interval. H03 is a source-derived development
+variant with a fixed 2R target; it does not encode the author's conditional
+higher-timeframe target ladder or the R-1s staged exit.
+
 For an exit-path diagnostic on an existing run, `analyze_exits.py` reads those
 native reports and the same LAST catalog. It reports strict and permissive
 pre-exit favorable-price bounds without creating counterfactual fills or PnL:

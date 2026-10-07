@@ -1,0 +1,585 @@
+{
+  "source_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "strategy_source_sha256": "1fe014ca4f3af8be3f81a43a8863459b0583919aa36c7c697b54f40b4543dfea",
+  "runner_source_sha256": "d212fb837d7a653f4ea0b4548f30fdde014fde5b3c362753cf069ce2e374b36d",
+  "strategy": "H03-box-4h",
+  "signal_variant": "box-4h",
+  "account_model": "one native BacktestEngine margin account, 100000 USDT, 37 strategies sharing portfolio capital",
+  "starting_balance_usdt": "100000",
+  "sizing": {
+    "mode": "fixed_registered_quantity"
+  },
+  "final_equity_usdt": "102044.07503285",
+  "net_change_usdt": "2044.07503285",
+  "period_return_pct": 2.04407503285,
+  "annualized_return_pct": 2.1001386271543914,
+  "closed_trades": 555,
+  "winning_trades": 209,
+  "closed_trade_win_rate": 0.37657657657657656,
+  "win_rate_definition": "positive native closed-position realized_pnl after fill commissions; funding remains in account equity",
+  "denied_orders": 0,
+  "rejected_orders": 9,
+  "native_sharpe_252": 0.6780262923117627,
+  "native_sharpe_365": 0.8160047691102831,
+  "native_max_drawdown_daily_close": -0.015420052263128632,
+  "stats_returns": {
+    "Risk Return Ratio": 0.04212467656507783,
+    "Sortino Ratio (252 days)": 1.0018390036624856,
+    "Returns Volatility (252 days)": 0.02116878833868733,
+    "Returns Skewness": 0.6198956182838042,
+    "Sharpe Ratio (252 days)": 0.6687085095013591,
+    "Average Loss (Return)": -0.0007477661254974571,
+    "Returns Kurtosis": 15.303223271082425,
+    "Average Win (Return)": 0.0007618912771411222,
+    "Profit Factor": 1.170773992384679,
+    "Tail Ratio": 1.268949080164553,
+    "Average (Return)": 5.61736067377514e-05
+  },
+  "stats_pnls": {
+    "USDT": {
+      "Expectancy": 3.5896376800355836,
+      "Min Loser": -0.14068172,
+      "Max Loser": -161.60149447,
+      "Avg Loser": -24.769781254900845,
+      "Min Winner": 8.44876116,
+      "Max Winner": 421.14035129,
+      "PnL% (total)": 2.017376376179993,
+      "Avg Winner": 51.48856057014352,
+      "Win Rate": 0.3718861209964413,
+      "PnL (total)": 2017.3763761799928
+    }
+  },
+  "stats_general": {
+    "Long Ratio": 0.46
+  },
+  "data_interval_minutes": 5,
+  "input_start_utc": "2025-10-07T00:00:00Z",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00Z",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "quantity": "0.008",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 29,
+      "box_breaks": 29,
+      "risk_size_skips": 0,
+      "positions": 18
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "quantity": "0.214",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 22,
+      "box_breaks": 22,
+      "risk_size_skips": 0,
+      "positions": 17
+    },
+    {
+      "coin": "BNB",
+      "instrument": "BNBUSDT-PERP.BINANCE",
+      "quantity": "0.82",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 15,
+      "box_breaks": 15,
+      "risk_size_skips": 0,
+      "positions": 8
+    },
+    {
+      "coin": "ADA",
+      "instrument": "ADAUSDT-PERP.BINANCE",
+      "quantity": "1147",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 33,
+      "box_breaks": 33,
+      "risk_size_skips": 0,
+      "positions": 19
+    },
+    {
+      "coin": "XRP",
+      "instrument": "XRPUSDT-PERP.BINANCE",
+      "quantity": "334.7",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 24,
+      "box_breaks": 24,
+      "risk_size_skips": 0,
+      "positions": 15
+    },
+    {
+      "coin": "SOL",
+      "instrument": "SOLUSDT-PERP.BINANCE",
+      "quantity": "4.31",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 27,
+      "box_breaks": 27,
+      "risk_size_skips": 0,
+      "positions": 14
+    },
+    {
+      "coin": "DOGE",
+      "instrument": "DOGEUSDT-PERP.BINANCE",
+      "quantity": "3759",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 16,
+      "box_breaks": 16,
+      "risk_size_skips": 0,
+      "positions": 10
+    },
+    {
+      "coin": "LTC",
+      "instrument": "LTCUSDT-PERP.BINANCE",
+      "quantity": "8.457",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 23,
+      "box_breaks": 23,
+      "risk_size_skips": 0,
+      "positions": 14
+    },
+    {
+      "coin": "TRX",
+      "instrument": "TRXUSDT-PERP.BINANCE",
+      "quantity": "2889",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 37,
+      "box_breaks": 37,
+      "risk_size_skips": 0,
+      "positions": 19
+    },
+    {
+      "coin": "LINK",
+      "instrument": "LINKUSDT-PERP.BINANCE",
+      "quantity": "42.79",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 35,
+      "box_breaks": 35,
+      "risk_size_skips": 0,
+      "positions": 11
+    },
+    {
+      "coin": "DOT",
+      "instrument": "DOTUSDT-PERP.BINANCE",
+      "quantity": "227.4",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 19,
+      "box_breaks": 19,
+      "risk_size_skips": 0,
+      "positions": 13
+    },
+    {
+      "coin": "AVAX",
+      "instrument": "AVAXUSDT-PERP.BINANCE",
+      "quantity": "33",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 19,
+      "box_breaks": 19,
+      "risk_size_skips": 0,
+      "positions": 11
+    },
+    {
+      "coin": "BCH",
+      "instrument": "BCHUSDT-PERP.BINANCE",
+      "quantity": "1.671",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 14,
+      "box_breaks": 14,
+      "risk_size_skips": 0,
+      "positions": 7
+    },
+    {
+      "coin": "ETC",
+      "instrument": "ETCUSDT-PERP.BINANCE",
+      "quantity": "50.05",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 22,
+      "box_breaks": 22,
+      "risk_size_skips": 0,
+      "positions": 13
+    },
+    {
+      "coin": "XLM",
+      "instrument": "XLMUSDT-PERP.BINANCE",
+      "quantity": "2448",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 26,
+      "box_breaks": 26,
+      "risk_size_skips": 0,
+      "positions": 16
+    },
+    {
+      "coin": "ATOM",
+      "instrument": "ATOMUSDT-PERP.BINANCE",
+      "quantity": "234.03",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 23,
+      "box_breaks": 23,
+      "risk_size_skips": 0,
+      "positions": 14
+    },
+    {
+      "coin": "FIL",
+      "instrument": "FILUSDT-PERP.BINANCE",
+      "quantity": "415.5",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 18,
+      "box_breaks": 18,
+      "risk_size_skips": 0,
+      "positions": 8
+    },
+    {
+      "coin": "NEAR",
+      "instrument": "NEARUSDT-PERP.BINANCE",
+      "quantity": "328",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 34,
+      "box_breaks": 34,
+      "risk_size_skips": 0,
+      "positions": 17
+    },
+    {
+      "coin": "UNI",
+      "instrument": "UNIUSDT-PERP.BINANCE",
+      "quantity": "120",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 24,
+      "box_breaks": 24,
+      "risk_size_skips": 0,
+      "positions": 13
+    },
+    {
+      "coin": "AAVE",
+      "instrument": "AAVEUSDT-PERP.BINANCE",
+      "quantity": "3.4",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 33,
+      "box_breaks": 33,
+      "risk_size_skips": 0,
+      "positions": 24
+    },
+    {
+      "coin": "ICP",
+      "instrument": "ICPUSDT-PERP.BINANCE",
+      "quantity": "217",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 37,
+      "box_breaks": 37,
+      "risk_size_skips": 0,
+      "positions": 18
+    },
+    {
+      "coin": "APT",
+      "instrument": "APTUSDT-PERP.BINANCE",
+      "quantity": "189.6",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 29,
+      "box_breaks": 29,
+      "risk_size_skips": 0,
+      "positions": 18
+    },
+    {
+      "coin": "ARB",
+      "instrument": "ARBUSDT-PERP.BINANCE",
+      "quantity": "2189.6",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 31,
+      "box_breaks": 31,
+      "risk_size_skips": 0,
+      "positions": 17
+    },
+    {
+      "coin": "SUI",
+      "instrument": "SUIUSDT-PERP.BINANCE",
+      "quantity": "276.1",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 28,
+      "box_breaks": 28,
+      "risk_size_skips": 0,
+      "positions": 18
+    },
+    {
+      "coin": "OP",
+      "instrument": "OPUSDT-PERP.BINANCE",
+      "quantity": "1319.1",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 34,
+      "box_breaks": 34,
+      "risk_size_skips": 0,
+      "positions": 11
+    },
+    {
+      "coin": "INJ",
+      "instrument": "INJUSDT-PERP.BINANCE",
+      "quantity": "76.6",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 28,
+      "box_breaks": 28,
+      "risk_size_skips": 0,
+      "positions": 18
+    },
+    {
+      "coin": "TIA",
+      "instrument": "TIAUSDT-PERP.BINANCE",
+      "quantity": "648",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 2192
+      },
+      "signals": 22,
+      "box_breaks": 22,
+      "risk_size_skips": 0,
+      "positions": 13
+    },
+    {
+      "coin": "SEI",
+      "instrument": "SEIUSDT-PERP.BINANCE",
+      "quantity": "3321",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 33,
+      "box_breaks": 33,
+      "risk_size_skips": 0,
+      "positions": 16
+    },
+    {
+      "coin": "PEPE",
+      "instrument": "1000PEPEUSDT-PERP.BINANCE",
+      "quantity": "97986",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 20,
+      "box_breaks": 20,
+      "risk_size_skips": 0,
+      "positions": 12
+    },
+    {
+      "coin": "SHIB",
+      "instrument": "1000SHIBUSDT-PERP.BINANCE",
+      "quantity": "77797",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 24,
+      "box_breaks": 24,
+      "risk_size_skips": 0,
+      "positions": 16
+    },
+    {
+      "coin": "HBAR",
+      "instrument": "HBARUSDT-PERP.BINANCE",
+      "quantity": "4343",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 21,
+      "box_breaks": 21,
+      "risk_size_skips": 0,
+      "positions": 17
+    },
+    {
+      "coin": "ALGO",
+      "instrument": "ALGOUSDT-PERP.BINANCE",
+      "quantity": "4363.0",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 33,
+      "box_breaks": 33,
+      "risk_size_skips": 0,
+      "positions": 19
+    },
+    {
+      "coin": "FET",
+      "instrument": "FETUSDT-PERP.BINANCE",
+      "quantity": "1711",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 39,
+      "box_breaks": 39,
+      "risk_size_skips": 0,
+      "positions": 16
+    },
+    {
+      "coin": "WLD",
+      "instrument": "WLDUSDT-PERP.BINANCE",
+      "quantity": "765",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 26,
+      "box_breaks": 26,
+      "risk_size_skips": 0,
+      "positions": 18
+    },
+    {
+      "coin": "IMX",
+      "instrument": "IMXUSDT-PERP.BINANCE",
+      "quantity": "1312",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 2192
+      },
+      "signals": 34,
+      "box_breaks": 34,
+      "risk_size_skips": 0,
+      "positions": 18
+    },
+    {
+      "coin": "STX",
+      "instrument": "STXUSDT-PERP.BINANCE",
+      "quantity": "1588",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 25,
+      "box_breaks": 25,
+      "risk_size_skips": 0,
+      "positions": 14
+    },
+    {
+      "coin": "LDO",
+      "instrument": "LDOUSDT-PERP.BINANCE",
+      "quantity": "798",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 32,
+      "box_breaks": 32,
+      "risk_size_skips": 0,
+      "positions": 22
+    }
+  ],
+  "limitations": [
+    "Five-minute execution bars cannot resolve every intrabar order sequence",
+    "Current contract terms approximate historical metadata",
+    "Fixed 2026 coin universe is backcast into 2025",
+    "Minute-sampled portfolio drawdown is not yet reported"
+  ]
+}

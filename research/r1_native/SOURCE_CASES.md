@@ -27,3 +27,7 @@ The same video, 08:58-09:23; 09:19 original frame (`/Users/vx/.local/share/bilib
 [2025-02-21 original video](https://video-ideas.tradingview.com/0/0-aKWKvFZAvw_fZ4AQ.mp4), 00:00-01:28 and 04:03-05:45. OM rising lows/new highs favor a trend pullback long; BTC range middle is avoided; ETH has a distinct bearish bias. Context rules must be instrument-specific and must not turn every local retracement into a countertrend reversal.
 
 Fast video-note transcripts and source frames are stored under the note IDs in `RD_EXPERIMENTS.md` S01-S04. Audio was not independently reviewed. These cases specify source fidelity, not an indicator preset; a future Agent may choose another encoding and retain the old attempt and disagreement.
+
+## H03 fidelity read
+
+The registered H03 four-hour box rule passed synthetic geometry checks for C02's close requirement, C03's conditional break/retest order, and C04's idle range middle. These checks demonstrate the code's stated geometry, not that a 60-bar box exactly matches the author's drawn ETH band. C03's later daily/weekly target sequence is absent. C01's range-edge support long without a fresh closing breakout and C05's staged exits are absent. The native 37-coin replay therefore tests a bounded mechanical subrule; its score must not be described as Ronnie's full strategy.

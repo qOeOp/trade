@@ -10,6 +10,7 @@ generate signals. A native bracket owns entry, stop, target, and fill events.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 from statistics import median
 
 from vibe_trading.indicators import WilderMovingAverage
@@ -31,7 +32,10 @@ VALID_DAYS = 10
 HOLD_DAYS = 60
 STOP_BUFFER_ATR = 0.25
 DAY_NS = 86_400_000_000_000
+FOUR_HOUR_NS = DAY_NS // 6
 MILLISECOND_NS = 1_000_000
+BOX_BARS = 60
+BOX_RETEST_BARS = 12
 
 
 def daily_available_ns(ts_event: int) -> int:
@@ -52,10 +56,46 @@ class Daily:
 @dataclass(frozen=True)
 class WaitingSignal:
     armed_ns: int
+    expires_ns: int
     side: int
     level: float
     stop: float
     target: float
+
+
+@dataclass(frozen=True)
+class FourHour:
+    ts_event: int
+    high: float
+    low: float
+    close: float
+
+
+def confirmed_box_break(history: list[FourHour], current: FourHour, atr: float):
+    """
+    Return the edge and structural stop for a closed four-hour box break.
+    """
+    prior = history[-BOX_BARS:]
+    if len(prior) != BOX_BARS or atr <= 0:
+        return None
+    if current.ts_event - prior[-1].ts_event != FOUR_HOUR_NS or any(
+        b.ts_event - a.ts_event != FOUR_HOUR_NS for a, b in pairwise(prior)
+    ):
+        return None
+    high = max(bar.high for bar in prior)
+    low = min(bar.low for bar in prior)
+    width_atr = (high - low) / atr
+    if not 4 <= width_atr <= 15:
+        return None
+    upper_touches = [bar for bar in prior if bar.high >= high - 0.25 * atr]
+    lower_touches = [bar for bar in prior if bar.low <= low + 0.25 * atr]
+    if len(upper_touches) < 2 or len(lower_touches) < 2:
+        return None
+    if prior[-1].close <= high < current.close:
+        return 1, high, min(bar.low for bar in upper_touches) - STOP_BUFFER_ATR * atr
+    if current.close < low <= prior[-1].close:
+        return -1, low, max(bar.high for bar in lower_touches) + STOP_BUFFER_ATR * atr
+    return None
 
 
 class R1Strategy(Strategy):
@@ -70,6 +110,7 @@ class R1Strategy(Strategy):
         strategy_id: StrategyId | None = None,
         risk_budget_fraction: float | None = None,
         max_coin_notional_fraction: float = 0.05,
+        signal_variant: str = "daily-pivot",
     ):
         return super().__new__(cls)
 
@@ -84,6 +125,7 @@ class R1Strategy(Strategy):
         strategy_id: StrategyId | None = None,
         risk_budget_fraction: float | None = None,
         max_coin_notional_fraction: float = 0.05,
+        signal_variant: str = "daily-pivot",
     ) -> None:
         super().__init__(
             StrategyConfig(strategy_id=strategy_id) if strategy_id else None,
@@ -94,6 +136,14 @@ class R1Strategy(Strategy):
             f"{instrument_id}-{execution_bar_minutes}-MINUTE-LAST-EXTERNAL",
         )
         self.execution_bar_minutes = execution_bar_minutes
+        if signal_variant not in ("daily-pivot", "box-4h"):
+            raise ValueError("unsupported R-1 signal variant")
+        self.signal_variant = signal_variant
+        self.four_hour_bar_type = BarType.from_str(
+            f"{instrument_id}-4-HOUR-LAST-INTERNAL",
+        )
+        self.four_hour_history: list[FourHour] = []
+        self.box_breaks = 0
         self.trade_size = trade_size
         if risk_budget_fraction is not None and not 0 < risk_budget_fraction < 1:
             raise ValueError("risk budget fraction must be between zero and one")
@@ -134,13 +184,20 @@ class R1Strategy(Strategy):
         if self.instrument is None:
             raise RuntimeError(f"missing instrument {self.instrument_id}")
         self.subscribe_bars(self.minute_bar_type)
-        self.subscribe_bars(
-            BarType.from_str(
-                f"{self.daily_bar_type}@{self.execution_bar_minutes}-MINUTE-EXTERNAL",
-            ),
-        )
-        for bar in self.historical_daily_bars:
-            self._on_daily_bar(bar)
+        if self.signal_variant == "daily-pivot":
+            self.subscribe_bars(
+                BarType.from_str(
+                    f"{self.daily_bar_type}@{self.execution_bar_minutes}-MINUTE-EXTERNAL",
+                ),
+            )
+            for bar in self.historical_daily_bars:
+                self._on_daily_bar(bar)
+        else:
+            self.subscribe_bars(
+                BarType.from_str(
+                    f"{self.four_hour_bar_type}@{self.execution_bar_minutes}-MINUTE-EXTERNAL",
+                ),
+            )
         self.historical_daily_bars.clear()
 
     def on_bar(self, bar: Bar) -> None:
@@ -149,6 +206,51 @@ class R1Strategy(Strategy):
             return
         if bar.bar_type == self.daily_bar_type:
             self._on_daily_bar(bar)
+        elif bar.bar_type == self.four_hour_bar_type:
+            self._on_four_hour_bar(bar)
+
+    def _on_four_hour_bar(self, bar: Bar) -> None:
+        candle = FourHour(
+            bar.ts_event,
+            float(bar.high),
+            float(bar.low),
+            float(bar.close),
+        )
+        previous_close = (
+            self.four_hour_history[-1].close if self.four_hour_history else candle.close
+        )
+        true_range = max(
+            candle.high - candle.low,
+            abs(candle.high - previous_close),
+            abs(candle.low - previous_close),
+        )
+        if self.opened_ns is not None and bar.ts_event >= self.opened_ns + HOLD_DAYS * DAY_NS:
+            self.cancel_all_orders(self.instrument_id)
+            self.close_all_positions(self.instrument_id)
+        if self.atr.initialized:
+            candidate = confirmed_box_break(self.four_hour_history, candle, self.atr.value)
+            if candidate is not None:
+                side, level, stop = candidate
+                self.box_breaks += 1
+                if self.trade_start_ns is None or candle.ts_event >= self.trade_start_ns:
+                    target = level + side * 2 * abs(level - stop)
+                    self.waiting.append(
+                        WaitingSignal(
+                            candle.ts_event,
+                            candle.ts_event + BOX_RETEST_BARS * FOUR_HOUR_NS,
+                            side,
+                            level,
+                            stop,
+                            target,
+                        ),
+                    )
+                    self.signals += 1
+                    if self.opened_ns is not None:
+                        self.signals_while_open += 1
+        self.atr.update_raw(true_range)
+        self.four_hour_history.append(candle)
+        self.four_hour_history = self.four_hour_history[-BOX_BARS:]
+        self._release_waiting(candle.close)
 
     def _on_daily_bar(self, bar: Bar) -> None:
         self.last_daily_ns = bar.ts_event
@@ -230,7 +332,14 @@ class R1Strategy(Strategy):
         if (level - stop) * side <= 0:
             return
         target = level + side * 2 * abs(level - stop)
-        signal = WaitingSignal(ts_event, side, level, stop, target)
+        signal = WaitingSignal(
+            ts_event,
+            ts_event + VALID_DAYS * DAY_NS,
+            side,
+            level,
+            stop,
+            target,
+        )
         self.signals += 1
         if self.opened_ns is not None:
             self.signals_while_open += 1
@@ -239,7 +348,7 @@ class R1Strategy(Strategy):
     def _advance_waiting(self, bar: Bar) -> None:
         remaining = []
         for signal in self.waiting:
-            if bar.ts_event >= signal.armed_ns + VALID_DAYS * DAY_NS:
+            if bar.ts_event >= signal.expires_ns:
                 continue
             touched = (
                 float(bar.low) <= signal.level
@@ -258,9 +367,7 @@ class R1Strategy(Strategy):
     def _release_waiting(self, reference_price: float) -> None:
         self.reference_price = reference_price
         now_ns = self.clock.timestamp_ns()
-        self.waiting = [
-            signal for signal in self.waiting if now_ns < signal.armed_ns + VALID_DAYS * DAY_NS
-        ]
+        self.waiting = [signal for signal in self.waiting if now_ns < signal.expires_ns]
         if self.opened_ns is not None or self.canceling_entry_id is not None:
             return
         candidates = self.waiting + (
@@ -307,7 +414,7 @@ class R1Strategy(Strategy):
             entry_order_type=OrderType.LIMIT,
             entry_price=self.instrument.make_price(signal.level),
             time_in_force=TimeInForce.GTD,
-            expire_time=signal.armed_ns + VALID_DAYS * DAY_NS,
+            expire_time=signal.expires_ns,
             tp_price=self.instrument.make_price(signal.target),
             tp_post_only=False,
             sl_trigger_price=self.instrument.make_price(signal.stop),

@@ -1,5 +1,5 @@
 """
-Replay the prepared R-1u instruments in one native Nautilus account.
+Replay the prepared R-1 instruments in one native Nautilus account.
 
 The runner streams the already prepared catalogs in UTC calendar-month chunks. Nautilus
 owns all orders, fills, margin, funding, portfolio equity and reports.
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 from datetime import UTC
 from datetime import datetime
@@ -215,7 +216,13 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     parser.add_argument("--coins", nargs="+", required=True)
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
+    parser.add_argument("--trade-start")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--signal-variant",
+        choices=("daily-pivot", "box-4h"),
+        default="daily-pivot",
+    )
     parser.add_argument("--risk-budget-bps", type=float)
     parser.add_argument("--coin-notional-cap-pct", type=float, default=5.0)
     args = parser.parse_args()
@@ -225,15 +232,24 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         raise ValueError("coin notional cap pct must be between zero and 100")
     start_dt = datetime.fromisoformat(args.start).astimezone(UTC)
     end_dt = datetime.fromisoformat(args.end).astimezone(UTC)
+    trade_start_dt = (
+        datetime.fromisoformat(args.trade_start).astimezone(UTC)
+        if args.trade_start is not None
+        else start_dt
+    )
     if (
         not start_dt < end_dt
+        or not start_dt <= trade_start_dt < end_dt
         or start_dt.minute % 5
         or end_dt.minute % 5
+        or trade_start_dt.minute % 5
         or start_dt.second
         or end_dt.second
+        or trade_start_dt.second
     ):
         raise ValueError("replay needs a positive five-minute-aligned interval")
     start, end = _ns(args.start), _ns(args.end)
+    trade_start = _ns(trade_start_dt.isoformat())
     with args.quantity_csv.open(newline="") as stream:
         quantities = {row["coin"]: row["quantity"] for row in csv.DictReader(stream)}
     if len(args.coins) != len(set(args.coins)) or any(
@@ -274,10 +290,15 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 instrument_id,
                 BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
                 Quantity.from_str(row["quantity"]),
-                trade_start_ns=start,
-                historical_daily_bars=_warmup(args.daily_root, row, start),
+                trade_start_ns=trade_start,
+                historical_daily_bars=(
+                    _warmup(args.daily_root, row, start)
+                    if args.signal_variant == "daily-pivot"
+                    else []
+                ),
                 execution_bar_minutes=5,
                 strategy_id=StrategyId(f"R1-{row['coin']}"),
+                signal_variant=args.signal_variant,
                 risk_budget_fraction=(
                     args.risk_budget_bps / 10_000 if args.risk_budget_bps is not None else None
                 ),
@@ -326,11 +347,19 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         closed = positions[positions["ts_closed"].notna()]
         pnl = closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
         wins = int((pnl > 0).sum())
-        duration_days = Decimal(str((end_dt - start_dt) / timedelta(days=1)))
+        duration_days = Decimal(str((end_dt - trade_start_dt) / timedelta(days=1)))
+        eligible_returns = {
+            ts: value for ts, value in result.returns_series.items() if ts >= trade_start
+        }
         summary = {
             "source_commit": SOURCE_COMMIT,
-            "strategy": "R-1u",
-            "account_model": "one native BacktestEngine margin account, 100000 USDT, 37 strategies sharing portfolio capital",
+            "strategy_source_sha256": hashlib.sha256(
+                Path(__file__).with_name("strategy.py").read_bytes(),
+            ).hexdigest(),
+            "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "strategy": "R-1u" if args.signal_variant == "daily-pivot" else "H03-box-4h",
+            "signal_variant": args.signal_variant,
+            "account_model": f"one native BacktestEngine margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
             "starting_balance_usdt": "100000",
             "sizing": (
                 {
@@ -353,18 +382,21 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "win_rate_definition": "positive native closed-position realized_pnl after fill commissions; funding remains in account equity",
             "denied_orders": int((orders["status"] == "DENIED").sum()),
             "rejected_orders": int((orders["status"] == "REJECTED").sum()),
-            "native_sharpe_252": result.stats_returns.get("Sharpe Ratio (252 days)"),
+            "native_sharpe_252": SharpeRatio(252).calculate_from_returns(
+                eligible_returns,
+            ),
             "native_sharpe_365": SharpeRatio(365).calculate_from_returns(
-                result.returns_series,
+                eligible_returns,
             ),
             "native_max_drawdown_daily_close": MaxDrawdown().calculate_from_returns(
-                result.returns_series,
+                eligible_returns,
             ),
             "stats_returns": result.stats_returns,
             "stats_pnls": result.stats_pnls,
             "stats_general": result.stats_general,
             "data_interval_minutes": 5,
-            "period_start_utc": args.start,
+            "input_start_utc": args.start,
+            "period_start_utc": trade_start_dt.isoformat(),
             "period_end_utc": args.end,
             "per_coin": [
                 {
@@ -373,6 +405,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     "quantity": row["quantity"],
                     "counts": row["counts"],
                     "signals": strategies[row["coin"]].signals,
+                    "box_breaks": strategies[row["coin"]].box_breaks,
                     "risk_size_skips": strategies[row["coin"]].risk_size_skips,
                     "positions": sum(
                         positions["instrument_id"] == str(row["instrument_id"]),
