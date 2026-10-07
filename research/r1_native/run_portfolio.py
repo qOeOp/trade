@@ -20,6 +20,7 @@ from itertools import pairwise
 from pathlib import Path
 
 from r1s_strategy import R1StagedStrategy
+from retracement_strategy import RetracementStrategy
 from run import SOURCE_COMMIT
 from run import _json_safe
 from run import _ns
@@ -226,7 +227,14 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--signal-variant",
-        choices=("daily-pivot", "daily-pivot-outer-4h", "box-4h", "box-edge-4h", *LINE_VARIANTS),
+        choices=(
+            "daily-pivot",
+            "daily-pivot-outer-4h",
+            "box-4h",
+            "box-edge-4h",
+            "support-confirmed-4h",
+            *LINE_VARIANTS,
+        ),
         default="daily-pivot",
     )
     parser.add_argument(
@@ -305,6 +313,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             strategy_class = (
                 R1StagedStrategy
                 if args.exit_variant in STAGED_EXITS
+                else RetracementStrategy
+                if args.signal_variant == "support-confirmed-4h"
                 else TrendlineBreakStrategy
                 if args.signal_variant in LINE_VARIANTS
                 else R1Strategy
@@ -391,6 +401,10 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native range-edge orders were denied or rejected")
+        if args.signal_variant == "support-confirmed-4h" and (
+            (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
+        ):
+            integrity_findings.append("native support-pullback orders were denied or rejected")
         closed = positions[positions["ts_closed"].notna()]
         pnl = closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
         wins = int((pnl > 0).sum())
@@ -415,6 +429,13 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant in LINE_VARIANTS
                 else None
             ),
+            "retracement_strategy_source_sha256": (
+                hashlib.sha256(
+                    Path(__file__).with_name("retracement_strategy.py").read_bytes(),
+                ).hexdigest()
+                if args.signal_variant == "support-confirmed-4h"
+                else None
+            ),
             "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "strategy": (
                 "H11-box-edge-staged-1r"
@@ -429,6 +450,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant == "box-4h"
                 else "H10-box-edge-4h"
                 if args.signal_variant == "box-edge-4h"
+                else "H13c-support-confirmed-4h"
+                if args.signal_variant == "support-confirmed-4h"
                 else "H06-trendline-4h"
                 if args.signal_variant == "trendline-4h"
                 else "H08b-line-resting-4h"
@@ -505,6 +528,21 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                             "time_exits": strategies[row["coin"]].box_edge_time_exits,
                         }
                         if args.signal_variant == "box-edge-4h"
+                        else None
+                    ),
+                    "support_pullback": (
+                        {
+                            "source_plans": strategies[row["coin"]].support_state.plans,
+                            "submitted_brackets": strategies[row["coin"]].waiting_released,
+                            "supersessions": strategies[row["coin"]].retracement_supersessions,
+                            "cancel_race_fills": strategies[
+                                row["coin"]
+                            ].retracement_cancel_race_fills,
+                            "invalid_price_skips": strategies[
+                                row["coin"]
+                            ].retracement_invalid_price_skips,
+                        }
+                        if args.signal_variant == "support-confirmed-4h"
                         else None
                     ),
                     "line_breaks": (

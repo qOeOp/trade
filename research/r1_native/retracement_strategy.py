@@ -173,12 +173,17 @@ class ConfirmedSupportPullback:
 
 class RetracementStrategy(R1Strategy):
     """
-    Submit H13's frozen setup through the existing native bracket lifecycle.
+    Submit H13c through native brackets, with acknowledged entry replacement.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.support_state = ConfirmedSupportPullback()
+        if self.signal_variant != "support-confirmed-4h":
+            raise ValueError("retracement strategy requires support-confirmed-4h")
+        self.support_state = ConfirmedSupportPullback(timing="confirmed-update")
+        self.selected_pair: tuple[int, int] | None = None
+        self.retracement_supersessions = 0
+        self.retracement_cancel_race_fills = 0
         self.retracement_invalid_price_skips = 0
 
     def _queue_four_hour_candidate(self, candle: FourHour) -> None:
@@ -186,13 +191,29 @@ class RetracementStrategy(R1Strategy):
             candle,
             self.atr.value if self.atr.initialized else None,
         )
+        impulse = self.support_state.last_readout["impulse"]
+        if impulse is not None:
+            pair = (impulse["a_index"], impulse["b_index"])
+            if pair != self.selected_pair:
+                self.selected_pair = pair
+                self.waiting.clear()
+                if self.resting_entry_id is not None and self.opened_ns is None:
+                    self.canceling_entry_id = self.resting_entry_id
+                    self.canceling_signal = None
+                    self.resting_entry_id = None
+                    self.resting_signal = None
+                    self.retracement_supersessions += 1
+                    self.cancel_order(self.canceling_entry_id)
         if plan is None or (
             self.trade_start_ns is not None and candle.ts_event < self.trade_start_ns
         ):
             return
+        if self.opened_ns is not None:
+            self.signals_while_open += 1
+            return
         signal = WaitingSignal(
             candle.ts_event,
-            candle.ts_event + BOX_RETEST_BARS * FOUR_HOUR_NS,
+            candle.ts_event + 30 * FOUR_HOUR_NS,
             1,
             plan.entry,
             plan.stop,
@@ -200,8 +221,14 @@ class RetracementStrategy(R1Strategy):
         )
         self.waiting.append(signal)
         self.signals += 1
-        if self.opened_ns is not None:
-            self.signals_while_open += 1
+
+    def on_order_filled(self, event) -> None:
+        canceled_entry_filled = event.client_order_id == self.canceling_entry_id
+        super().on_order_filled(event)
+        if canceled_entry_filled:
+            self.retracement_cancel_race_fills += 1
+        if event.client_order_id in self.entries:
+            self.waiting.clear()
 
     def _submit_signal(self, signal: WaitingSignal) -> None:
         entry = self.instrument.make_price(signal.level).as_double()
