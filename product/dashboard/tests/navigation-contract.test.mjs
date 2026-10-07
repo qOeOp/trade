@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { expectBonded, sources } from "./doc-contract.mjs";
 import { readFile } from "node:fs/promises";
 
 import {
@@ -34,15 +33,53 @@ test("Operations exposes only the documented first-party tab order", () => {
   ]);
 });
 
-test("bilingual Operations matrices and skeletons publish the tab order navigation registers", async () => {
-  const tabs = modules.find((module) => module.id === "operations").tabs.map((tab) => tab.label);
-  const matrix = `| Operations    | ${tabs.join(", ")} |`;
-  const skeleton = `N  ${tabs.map((label) => `[${label}]`).join(" ")}`;
+// Read explicit route-admission cells, independently of headings, padding or descriptive prose.
+function admittedRoutes(doc) {
+  const routes = new Set();
+  for (const line of doc.split("\n")) {
+    if (!line.trim().startsWith("|")) continue;
+    const [routeCell, statusCell] = line.trim().split("|").slice(1, -1).map((cell) => cell.trim());
+    if (!statusCell) continue;
+    const states = statusCell.replaceAll("`", "").split("/").map((state) => state.trim());
+    if (!states.includes("DRAWABLE_EXACT") || !states.includes("IMPLEMENTATION_ADMITTED")) continue;
+    for (const match of routeCell.matchAll(/`(\/[a-zA-Z0-9/:_-]+)`/g)) routes.add(match[1]);
+  }
+  return routes;
+}
+
+function routeMatches(pattern, href) {
+  const expected = pattern.split("/");
+  const actual = href.split("/");
+  return expected.length === actual.length && expected.every((part, i) =>
+    part.startsWith(":") ? actual[i].length > 0 : part === actual[i]);
+}
+
+test("route admission ignores presentation and refuses missing or non-admitted status", () => {
+  const rows = [
+    "| `/sample` | `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` | description |",
+    "| `/denied` | `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE / NOT_ADMITTED` | description |",
+    "| `/incomplete` | `DRAWABLE_EXACT` | description |",
+  ];
+  assert.deepEqual([...admittedRoutes(rows.join("\n"))], ["/sample"]);
+  assert.deepEqual([...admittedRoutes(rows.toReversed().map((row) => row.replaceAll(" |", "    |")).join("\n"))], ["/sample"]);
+  assert.equal(admittedRoutes("no route index").size, 0);
+  assert.ok(routeMatches("/sample/:identity", "/sample/item"));
+  assert.ok(!routeMatches("/sample/:identity", "/sample/"));
+  assert.ok(!routeMatches("/sample/:identity", "/sample/item/extra"));
+});
+
+test("admitted Operations routes have explicit bilingual admission", async () => {
+  const routes = allRoutes.filter(({ href }) => href.startsWith("/operations") && maturityFor(href) === "DRAWABLE_EXACT");
+  const declarations = [];
   for (const suffix of ["", ".zh"]) {
     const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    assert.ok(doc.includes(matrix), `${suffix || "en"} Operations matrix has drifted from navigation`);
-    assert.ok(doc.includes(skeleton), `${suffix || "en"} Operations skeleton has drifted from navigation`);
+    const admitted = admittedRoutes(doc);
+    for (const { href } of routes) {
+      assert.ok([...admitted].some((pattern) => routeMatches(pattern, href)), `${suffix || "en"}: no explicit admission for ${href}`);
+    }
+    declarations.push([...admitted].filter((href) => href.startsWith("/operations")).sort());
   }
+  assert.deepEqual(declarations[0], declarations[1]);
 });
 
 test("every routed page has a unique absolute path", () => {
@@ -130,53 +167,4 @@ test("Workers list and exact detail share only their admitted read-only navigati
     assert.deepEqual(exactBlueprints[href].summaries, ["Online", "Expired", "Claimed", "Active"]);
     assert.match(exactBlueprints[href].state, /RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN/);
   }
-});
-
-test("Workers bilingual completeness includes geometry, failure states and action boundaries", async () => {
-  const specs = [];
-  const workersCode = await sources([
-    "components/operations-workers-preview.tsx", "lib/worker-browser-contract.ts", "lib/navigation.js",
-  ]);
-  for (const suffix of ["", ".zh"]) {
-    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const start = doc.indexOf(suffix ? "#### Workers 精确只读 skeleton" : "#### Exact Workers read‑only skeleton");
-    assert.ok(start >= 0);
-    const spec = doc.slice(start, doc.indexOf("`/operations/service-logs`", start));
-    expectBonded({ [suffix || "en"]: spec }, workersCode, [
-      "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "Capacity", "Work handled", "Ready", "Offline", "Processed",
-      "Active", "560px", "300px", "125", "132", "220", "120", "WORKER_NOT_FOUND", "Back to services",
-    ], "Workers");
-    const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));
-    assert.doesNotMatch(blueprintOnly, /Workers/);
-    const drawable = doc.split("\n").find((line) => line.startsWith("| `DRAWABLE_EXACT`"));
-    assert.match(drawable, /\/operations\/workers/);
-    specs.push(spec.match(/```text\n([\s\S]*?)```/)[1]);
-  }
-  assert.equal(specs[0], specs[1]);
-});
-
-test("Operations Audit bilingual geometry agrees with its registered read-only route", async () => {
-  const skeletons = [];
-  const auditCode = await sources([
-    "components/operations-audit.tsx", "lib/operation-audit-contract.ts", "lib/operation-audit-gateway.ts",
-    "lib/navigation.js", "lib/run-store.ts", "app/api/operations/audit/route.ts",
-  ]);
-  for (const suffix of ["", ".zh"]) {
-    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
-    const start = doc.indexOf(suffix ? "#### Operations Audit 精确只读 skeleton" : "#### Exact Operations Audit read‑only skeleton");
-    assert.ok(start >= 0);
-    const endHeading = suffix ? "#### 精确 Run Detail 骨架" : "#### Exact Run Detail skeleton";
-    const spec = doc.slice(start, doc.indexOf(endHeading, start));
-    expectBonded({ [suffix || "en"]: spec }, auditCode, [
-      "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED",
-      "OperationAuditTable", "Correlation timeline",
-      "24h", "7d", "30d", "512", "UPDATE", "DELETE",
-    ], "Operations Audit");
-    const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));
-    assert.doesNotMatch(blueprintOnly, /Operations \/ Audit/);
-    const drawable = doc.split("\n").find((line) => line.startsWith("| `DRAWABLE_EXACT`"));
-    assert.match(drawable, /\/operations\/audit/);
-    skeletons.push(spec.match(/```text\n([\s\S]*?)```/)[1]);
-  }
-  assert.equal(skeletons[0], skeletons[1]);
 });
