@@ -228,6 +228,8 @@
 
 **互斥路径的来源保真。** [1 月 8 日 BTC 原片](https://www.youtube.com/watch?v=Eer-lkMTCzU)在随后反弹前指出水平支撑、上升线和 61.8% 回调位的重合区域，也允许价格在更高的 50% 位直接反弹；安全止损放在更深的 76.4% 下方，短期目标看前高。[次日视频](https://www.youtube.com/watch?v=pa0lC_iQOAo)回顾 1R 反弹，却没有实际成交凭据。故 H08b 单线上挂单失败后的二级延伸，不能简单变成"所有位置必须重合"筛选器；Agent 应把不同位置、事前结构、共同失效点、目标空间和实际订单状态作为不同证据关系登记，再用因果选锚与原生完整回测检验。产品只保存这些关系和来源不确定性，不内置专用筛选策略。[C18 来源案例](../../research/r1_native/SOURCE_CASES.md#c18---btc-pre-rebound-support-tiers-and-outside-invalidation)和[S23/S24 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s23-claimed-completed-btc-support-long-for-h09)保留门槛与原片身份。
 
+**ETH 的独立来源核对。** [4 月 13 日原片](https://www.youtube.com/watch?v=_YDqAQ01LeA)把转换区域、趋势线和不同回调比例作为之后可能参与的 ETH 位置，并要求止损在更深支撑下方、止盈考虑上方下降线。它再次否定"所有支撑必须同时重合"的统一硬门槛，同时把目标障碍和止损结构连接到每条候选路径。原画面能看到重新调整的回调线，却没有可复现的高低点或斜线选锚算法；此前多空交易也只是回顾，缺少事前订单与成交证据。转录将更深回调位写为 70.4，原画面标为 0.764，具体语音仍待复听。R&D 来源记录应保存原片画面与转录分歧、位置之间的互斥关系、选锚缺口和订单时序，允许 Agent 另行提出标明为研究者假设的因果选锚方案，并在同账户经济测试前用来源案例反证。[C19 来源案例](../../research/r1_native/SOURCE_CASES.md#c19---eth-alternative-retracement-locations-and-overhead-line)及[S25 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s25-independent-author-explanation-of-an-eth-entry-location)保留可追溯证据。
+
 **接管规则。** 一次技术尝试失败时，台账不能只有"无效"：必须写清被否定的是资料、结构表示、选择规则、信号时点、原生执行，还是经济结果，并至少给出下一条有区别且可证伪的延伸或具名停止理由。延伸先预测独立来源案例和会推翻自身的观察，再决定是否准入 Nautilus Strategy 与共享账户回测。这里的延伸由 Agent 依据证据提出，产品只保存因果关系和边界；不建立固定次数的研究树或自动调参服务。多次在同一年数据上迭代仍按多重试验处理，不能把最终一次的高分当作未经污染的验证。
 
 **蓝图核对点。** [R&D 探索、后继与证据台账](../owners/rd.zh.md)及 [研究旅程](../scenarios/research.zh.md)。这项发现已回填当前 R&D 蓝图，后续实现复用现有说明记录、实验关联和原生回测。
