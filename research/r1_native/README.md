@@ -141,7 +141,11 @@ not a risk-budget sizing rule.
 variants; passing those checks is about faithful encoding, not profitability.
 `audit_daily_signal_counts.py` checks the frozen rule's daily trend-aligned
 break count against a native portfolio summary using the same prepared Catalog
-inputs. It creates no fills or PnL and does not prove order-price parity.
+inputs. It creates no fills or PnL. `audit_native_brackets.py` then compares
+that frozen plan's entry, stop, target and expiry against every submitted native
+bracket in an existing R-1u order report. It also reads the actual native entry
+price to report order-price reward/risk before fees and funding. Neither audit
+replaces native fills, account results or a backtest.
 
 For the separately registered H01 experiment, add `--risk-budget-bps 25` and
 `--coin-notional-cap-pct 5` to the portfolio command. The Strategy reads native

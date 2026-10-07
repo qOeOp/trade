@@ -23,6 +23,7 @@ This file records source observations, diagnostic hypotheses, exact data/result 
 - **D06 - H03 staged-exit opportunity:** registered native-position/linked-stop diagnostic on the exact-source H03 run. It changes no orders, fills or account return and is not a new backtest.
 - **D07 - frozen daily-rule parity:** registered read-only comparison of frozen `family_r.py` trend/break state against the BTC Nautilus daily-bar audit. It compares rule state, not toy fills or PnL.
 - **D08 - 37-coin daily-rule parity:** registered extension of the same deterministic source-rule count check to the exact-source R-1u paired run, rebuilding only its daily input candles from the already-used native catalogs. No economic read or new orders are produced.
+- **D09 - native bracket-price parity:** registered read-only join of the frozen daily signal plan to all entry/stop/target orders in the exact-source R-1u report, including actual-fill reward/risk drift. It makes no replacement fills or returns.
 
 This is a census of observed work in this Goal, not proof that every external/local historical Ronnie experiment is discoverable. Each later attempt must append a row, including failures and partial reads. All annual variants overlap the same exposed year; no row can be relabeled as an independent holdout after viewing its result.
 
@@ -167,4 +168,21 @@ python/.venv/bin/python research/r1_native/audit_daily_signal_counts.py \
   --start 2025-10-07T00:00:00Z --trade-start 2025-10-17T00:00:00Z \
   --end 2026-10-07T08:30:00Z \
   --output research/r1_native/results/2026-10-07-37coin-daily-rule-parity-d08.json
+```
+
+## Diagnostic D09: frozen plan prices versus submitted native brackets
+
+**Question registered before the read:** D08 matches 37 per-coin signal counts, but the native Strategy may still translate levels, stops, targets, expiry or later re-submission incorrectly. Using the exact-source paired R-1u `orders.csv` and the same native daily input reconstruction as D08, recompute every eligible frozen order-3 pivot break, the prior-body-to-wick/one-ATR zone, 0.25-ATR structural stop, fixed **planned-entry** 2R target and ten-day expiry. Use the cached native Instrument for price rounding. Join **every submitted ENTRY order list**, including later canceled, expired, filled or still accepted entries, by instrument, armed/expiry time, side and rounded entry price; match its linked native STOP_LOSS and TAKE_PROFIT price to one candidate. Preserve duplicate candidate ambiguity and unmatched native orders. For filled native entries, separately compute the reward/risk of the *actual native average fill* against the submitted stop and target, and count deviations from 2R caused by price improvement or gaps. The frozen `family_r.py` toy fill model puts 2R at its modeled fill price, while the current native bracket freezes target at the signal limit; this is a known possible semantic difference to quantify, not permission to fabricate fills. If planned order fields mismatch, identify concrete first cases before changing a strategy. If fields match, treat the result as order-intent parity only; fill sequence, portfolio PnL and Ronnie source fidelity still require their own evidence. No market data is downloaded and no backtest is rerun.
+
+**Observed native order read:** `audit_native_brackets.py` (SHA-256 `0b1b82847e386b76e6e4c3986d3c89776f53f863941b72b2b45c5d723738d786`) produced `results/2026-10-07-37coin-native-bracket-parity-d09.json` (SHA-256 `f1f0c0e4fdbd9fb3d4d4243bdc66d815866497e6545f6df0872a91236463727c`). All **13,872** native bracket order lists match one of the 10,385 registered daily plans by instrument, side, armed/expiry time and rounded entry, stop and target. No entry-plan, protective-price or submission-time mismatch, and no ambiguous matching plan. Repeated native submissions after cancellation explain why there are more order lists than source signals; they do not add independent signals. Exactly 1,561 entry orders filled; none has a native average price better or worse than its submitted limit. Their actual order-price reward/risk is mean 1.99991R, range 1.97059R to 2.03448R; 78 differ from 2R by more than 0.01R. With no fill-price improvement in this report, those differences arise from Instrument price rounding in the submitted stop and target, not a changed fill price. A first diagnostic read before explicit zero-count fields, `results/2026-10-07-37coin-native-bracket-parity-d09-initial.json` (SHA-256 `d9dd954a61d5a5a6bdad646108aa48a3b398d96c62c191a284c86836bd22ff93`), gave the same positive counts and reward/risk extrema; the final file makes zero counts explicit and binds the final script hash. The frozen toy `fill()` can use a more favorable daily open, whereas these native limit fills are at the limit. That is a model difference, not evidence of a bug or of how often a favorable open was actually available. D09 establishes native order-intent parity for this run but cannot explain the low win rate as a missing or wrongly priced bracket. Next quantify actual five-minute open-through cases, while keeping native fills and account results authoritative; continue source-choice and direction work rather than adjusting target ticks on the exposed year.
+
+Reproduce D09 with the exact native order report and registered catalogs:
+
+```bash
+python/.venv/bin/python research/r1_native/audit_native_brackets.py \
+  --catalog-root /tmp/r1-37-1y-5m-2026oct7 \
+  --daily-root /tmp/r1-37-2026oct7 \
+  --run-summary research/r1_native/results/2026-10-07-37coin-h03-paired-r1u-exact-source.json \
+  --run-orders /tmp/r1-rd-h03-paired-r1u-37-exact-source/orders.csv \
+  --output research/r1_native/results/2026-10-07-37coin-native-bracket-parity-d09.json
 ```
