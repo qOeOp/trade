@@ -243,3 +243,43 @@ python/.venv/bin/python research/r1_native/probe_staged_orders.py \
   --scenario normal \
   --output research/r1_native/results/2026-10-07-h04-probe-normal.json
 ```
+
+## Diagnostic D12: command-queue boundary in the same-bar collision
+
+**Question registered before the read:** D11 shows a same-bar first-target/old-stop collision despite a Strategy stop-amend request. The native matching engine's five-minute bar processor generates synthetic open/high/low/close trade ticks in one `process_bar` call, while the BacktestEngine drains Strategy trading commands around data processing. Run the identical synthetic collision with `SimulatedExchange.use_message_queue=false`, leaving Instrument, bar path, orders and Strategy callback unchanged. If the stop still fills at the old trigger, queue configuration alone cannot close the H04 semantics gap; inspect event delivery across the entire bar and avoid changing annual run configuration. If the new trigger becomes effective within the bar, determine whether synchronous processing is a supported and comparable native setting before considering it, and test entry/partial-fill/latency consequences. No economic results or variant selection follow from this diagnostic.
+
+**Observed result:** The `use_message_queue=false` collision attempt failed before any entry fill: native execution recursively reentered its `ExecutionEngine` while the initial OTO list was being accepted and raised `RefCell already borrowed` at `crates/core/src/shared.rs:64`. The backtrace passes through `SimulatedExchange::send`, `process_trading_command`, matching-engine `accept_order`, then the execution-engine order-event handler while the same engine remains borrowed. A repeat with `RUST_BACKTRACE=1` confirmed the same stack. This configuration is not a viable H04 shortcut in the current runtime; no collision trade or economic result came from it. Keep the standard queued configuration and test event delivery across distinct native input events.
+
+## Diagnostic D13: native trade-event separation of a collision bar
+
+**Question registered before the read:** D11's ordinary queued five-minute bar processes high and low inside one exchange `process_bar` call. Replace only that collision bar with four native `TradeTick` events representing the same open, high, low and close in chronological order inside the five-minute interval; keep the first two and last two bars, native Instrument, mark updates, Strategy, OTO entry, stop and targets unchanged. If the stop modification becomes effective between high and low, the D11 boundary is bar event granularity rather than an unsupported stop amendment. If it still fills at the old trigger, investigate command/event ordering independent of bar granularity. This synthetic micro-case is not market data and cannot justify filling a historical bar with invented ticks or estimating performance.
+
+**Observed native event read:** `probe_staged_orders.py` SHA-256 `a197946da11a562877227688f10a099efdd25cc0c31a73fc92e0d77214842525` produced `results/2026-10-07-h04-probe-collision-ticks.json` SHA-256 `7f8bac2b0e951f7717516e508d5a672daca215181c404e75db07deccca3fcc28`. First target filled 0.001 BTC at 85,500 on the synthetic high-side TradeTick; before the later low-side tick, native `OrderUpdated` carried both stop quantity 0.002 and new trigger 85,269.90. The remaining stop then filled 0.002 BTC at **84,900**, because the next synthetic tick jumped through that trigger. Both bar and separated-tick cases closed one native position and canceled the unused last target. The bar case had no trigger-price update before its low and filled the stop at its old 85,100 trigger. Thus the event boundary changes whether the amendment takes effect before the subsequent price observation; it does not guarantee a breakeven execution price. This is a controlled mechanics contrast, not a historical trade reconstruction or an improvement in PnL.
+
+**Decision:** Keep native message queuing. To qualify H04's staged protection, inspect *both* accepted trigger changes and native stop fill prices, and identify real historical first-target/stop collision intervals. Never synthesize four OHLC TradeTicks into the annual Catalog as if their timestamps and path were observed. Continue the native Strategy implementation with explicit collision diagnostics; evaluate whether bounded public historical futures trades can resolve observed ambiguous intervals, or report a conservative unresolved interval if not. Complete odd-quantity, partial-fill, and 60-day slot cases before the BTC/ETH pilot and full 37-coin economic comparison.
+
+Reproduce the separated-event case with the reused BTC Instrument:
+
+```bash
+python/.venv/bin/python research/r1_native/probe_staged_orders.py \
+  --catalog /tmp/r1-37-1y-5m-2026oct7/BTC/minute \
+  --scenario collision --collision-trade-ticks \
+  --output research/r1_native/results/2026-10-07-h04-probe-collision-ticks.json
+```
+
+## Diagnostic D14: native OTO coverage during a partially filled entry
+
+**Question registered before the read:** H04 splits the quantity that actually entered, while its initial protective stop must track any partially filled entry. In the same native synthetic BTC probe, enable native liquidity consumption with one Instrument quantity increment per five-minute bar, and keep a residual limit entry open. Defer profit targets until the entry is terminal so the probe isolates the OTO stop. Check each entry fill, the resulting native position quantity, stop accepted quantity, and absence of premature profit targets; a partially filled entry with no accepted full-quantity stop fails this gate. This is an execution case only, with no PnL interpretation or change to the registered annual candidate.
+
+**First execution and corrective question:** With native liquidity consumption enabled and 0.001 BTC volume per bar, the entry filled 0.001 of its requested 0.003 BTC and remained `PARTIALLY_FILLED`. The linked native stop was `ACCEPTED` at 0.003 BTC, while the native open position was 0.001 BTC; no targets were submitted. This keeps a protective stop present but does not pass H04's exact remaining-quantity rule. Before another read, try a Strategy `modify_order` of the linked stop to the cached native position quantity on each entry fill, including while the stop is newly submitted. If its accepted quantity becomes 0.001 BTC without losing protection, retain the mechanism for the H04 implementation; if rejected or delayed, record the gap and do not treat reduce-only alone as exact protection.
+
+**Corrective native result:** `probe_staged_orders.py` SHA-256 `a197946da11a562877227688f10a099efdd25cc0c31a73fc92e0d77214842525` produced `results/2026-10-07-h04-probe-partial-entry.json` SHA-256 `f3e3b4f9819a1e069d08494821a33f0dfba25f40a7aa9c542547561994159946`. After the 0.001 entry fill, the linked stop was accepted and then updated to 0.001 BTC at its original 85,100 trigger. At replay end, the native entry remained `PARTIALLY_FILLED` at 0.001/0.003, one native position remained open for 0.001, the stop was `ACCEPTED` for exactly 0.001, and neither target existed. The Strategy requested the stop quantity from `cache.position_for_order`, rather than carrying a parallel fill ledger. This demonstrates one partial-entry protection state; it does not yet cover a second entry fill, cancellation/target activation race, partial first-target fill, or a 60-day close. H04's full gate remains open.
+
+Reproduce the partial-entry case with the same native BTC Instrument:
+
+```bash
+python/.venv/bin/python research/r1_native/probe_staged_orders.py \
+  --catalog /tmp/r1-37-1y-5m-2026oct7/BTC/minute \
+  --scenario normal --partial-entry \
+  --output research/r1_native/results/2026-10-07-h04-probe-partial-entry.json
+```

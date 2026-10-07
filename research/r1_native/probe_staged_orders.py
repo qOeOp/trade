@@ -20,6 +20,7 @@ from vibe_trading.common import LogLevel
 from vibe_trading.core import UUID4
 from vibe_trading.data import DataEngineConfig
 from vibe_trading.model import AccountType
+from vibe_trading.model import AggressorSide
 from vibe_trading.model import Bar
 from vibe_trading.model import BarType
 from vibe_trading.model import ContingencyType
@@ -32,7 +33,9 @@ from vibe_trading.model import OrderSide
 from vibe_trading.model import StopMarketOrder
 from vibe_trading.model import StrategyId
 from vibe_trading.model import TimeInForce
+from vibe_trading.model import TradeId
 from vibe_trading.model import TraderId
+from vibe_trading.model import TradeTick
 from vibe_trading.model import TriggerType
 from vibe_trading.model import Venue
 from vibe_trading.persistence import ParquetDataCatalog
@@ -41,10 +44,20 @@ from vibe_trading.trading import StrategyConfig
 
 
 class Probe(Strategy):
-    def __new__(cls, instrument_id: InstrumentId, bar_type: BarType):
+    def __new__(
+        cls,
+        instrument_id: InstrumentId,
+        bar_type: BarType,
+        partial_entry: bool = False,
+    ):
         return super().__new__(cls)
 
-    def __init__(self, instrument_id: InstrumentId, bar_type: BarType) -> None:
+    def __init__(
+        self,
+        instrument_id: InstrumentId,
+        bar_type: BarType,
+        partial_entry: bool = False,
+    ) -> None:
         super().__init__(StrategyConfig(strategy_id=StrategyId("R1S-PROBE")))
         self.instrument_id = instrument_id
         self.bar_type = bar_type
@@ -53,6 +66,7 @@ class Probe(Strategy):
         self.first_id = None
         self.last_id = None
         self.events = []
+        self.partial_entry = partial_entry
 
     def on_start(self) -> None:
         self.subscribe_bars(self.bar_type)
@@ -106,7 +120,15 @@ class Probe(Strategy):
         self.submit_order_list([entry, stop])
 
     def on_order_filled(self, event) -> None:
-        self.events.append(("filled", str(event.client_order_id), str(event.last_qty)))
+        self.events.append(
+            (
+                "filled",
+                str(event.client_order_id),
+                str(event.last_qty),
+                str(event.last_px),
+                event.ts_event,
+            ),
+        )
         if event.client_order_id == self.first_id:
             position = self.cache.position_for_order(self.entry_id)
             self.events.append(
@@ -129,6 +151,12 @@ class Probe(Strategy):
             return
         if event.client_order_id != self.entry_id:
             return
+        if self.partial_entry:
+            position = self.cache.position_for_order(self.entry_id)
+            self.modify_order(self.stop_id, quantity=position.quantity)
+            entry = self.cache.order(self.entry_id)
+            if entry.is_open:
+                return
         instrument = self.cache.instrument(self.instrument_id)
         first = self.order_factory.limit(
             self.instrument_id,
@@ -176,7 +204,7 @@ class Probe(Strategy):
                     self.cancel_order(order_id)
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901 - coordinates native probe fixtures and their reports.
     parser = argparse.ArgumentParser()
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument(
@@ -185,7 +213,16 @@ def main() -> None:
         default="normal",
     )
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--immediate-commands", action="store_true")
+    parser.add_argument("--collision-trade-ticks", action="store_true")
+    parser.add_argument("--partial-entry", action="store_true")
     args = parser.parse_args()
+    if args.collision_trade_ticks and (args.scenario != "collision" or args.immediate_commands):
+        raise ValueError("trade-tick comparison requires queued collision scenario")
+    if args.partial_entry and (
+        args.scenario != "normal" or args.immediate_commands or args.collision_trade_ticks
+    ):
+        raise ValueError("partial-entry comparison requires queued normal-bar scenario")
     instrument_id = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
     instrument = ParquetDataCatalog(str(args.catalog)).instruments(
         instrument_ids=[str(instrument_id)],
@@ -211,11 +248,13 @@ def main() -> None:
             starting_balances=[Money(100_000, instrument.quote_currency)],
             default_leverage=Decimal(1),
             support_contingent_orders=True,
+            use_message_queue=not args.immediate_commands,
             bar_execution=True,
             bar_adaptive_high_low_ordering=False,
+            liquidity_consumption=args.partial_entry,
         )
         engine.add_instrument(instrument)
-        probe = Probe(instrument_id, bar_type)
+        probe = Probe(instrument_id, bar_type, args.partial_entry)
         engine.add_strategy(probe)
         prices = [
             (85_210.4, 85_421.9, 85_181.1, 85_269.9),
@@ -229,6 +268,8 @@ def main() -> None:
             prices[3:] = [(85_000.0, 85_050.0, 84_950.0, 85_000.0)] * 2
         elif args.scenario == "collision":
             prices[2] = (85_375.0, 85_754.8, 84_900.0, 85_674.4)
+        if args.partial_entry:
+            prices[2] = (85_375.0, 85_754.8, 85_301.0, 85_674.4)
         start = 1_790_000_099_999_000_000
         engine.add_data(
             [
@@ -246,37 +287,89 @@ def main() -> None:
                 Bar(
                     bar_type,
                     *(instrument.make_price(x) for x in row),
-                    instrument.make_qty(100),
+                    instrument.make_qty(0.001 if args.partial_entry else 100),
                     start + i * 300_000_000_000,
                     start + i * 300_000_000_000,
                 )
                 for i, row in enumerate(prices)
+                if not args.collision_trade_ticks or i != 2
             ],
         )
+        if args.collision_trade_ticks:
+            previous_close = start + 300_000_000_000
+            offsets = (1_000_000_000, 60_000_000_000, 120_000_000_000, 299_999_000_000)
+            sides = (
+                AggressorSide.BUYER,
+                AggressorSide.BUYER,
+                AggressorSide.SELLER,
+                AggressorSide.BUYER,
+            )
+            engine.add_data(
+                [
+                    TradeTick(
+                        instrument_id,
+                        instrument.make_price(price),
+                        instrument.make_qty(25),
+                        side,
+                        TradeId(f"R1S-COLLISION-{i}"),
+                        previous_close + offset,
+                        previous_close + offset,
+                    )
+                    for i, (price, side, offset) in enumerate(
+                        zip(prices[2], sides, offsets, strict=True),
+                    )
+                ],
+            )
         engine.run()
         orders = engine.generate_orders_report()
         positions = engine.generate_positions_report()
         order_by_id = {str(index): row for index, row in orders.iterrows()}
         stop = order_by_id[str(probe.stop_id)]
-        first = order_by_id[str(probe.first_id)]
-        last = order_by_id[str(probe.last_id)]
+        first = order_by_id.get(str(probe.first_id))
+        last = order_by_id.get(str(probe.last_id))
         expected = {
             "normal": ("CANCELED", "FILLED", "FILLED", "85269.90"),
             "stop-first": ("FILLED", "CANCELED", "CANCELED", "85100.00"),
             "collision": ("FILLED", "FILLED", "CANCELED", "85100.00"),
         }[args.scenario]
+        if args.collision_trade_ticks:
+            expected = ("FILLED", "FILLED", "CANCELED", "85269.90")
         actual = (
             str(stop.status),
-            str(first.status),
-            str(last.status),
+            str(first.status) if first is not None else None,
+            str(last.status) if last is not None else None,
             str(stop.trigger_price),
         )
-        if actual != expected or len(positions) != 1 or not positions.ts_closed.notna().all():
+        if args.partial_entry:
+            entry = order_by_id[str(probe.entry_id)]
+            valid = (
+                str(entry.status) == "PARTIALLY_FILLED"
+                and str(entry.filled_qty) == "0.001"
+                and str(stop.status) == "ACCEPTED"
+                and str(stop.quantity) == "0.001"
+                and first is None
+                and last is None
+                and len(positions) == 1
+                and positions.ts_closed.isna().all()
+            )
+        else:
+            valid = (
+                (args.immediate_commands or actual == expected)
+                and len(positions) == 1
+                and positions.ts_closed.notna().all()
+            )
+        if not valid:
             raise RuntimeError(
-                f"native staged-order probe changed: {actual} != {expected}",
+                f"native staged-order probe changed: {actual} != {expected}; "
+                f"orders={orders[['status', 'quantity', 'filled_qty']].to_dict('index')}; "
+                f"positions={positions[['quantity', 'ts_closed']].to_dict('records')}; "
+                f"events={probe.events}",
             )
         payload = {
             "scenario": args.scenario,
+            "immediate_commands": args.immediate_commands,
+            "collision_trade_ticks": args.collision_trade_ticks,
+            "partial_entry": args.partial_entry,
             "result": "native_order_events_verified",
             "price_path": prices,
             "events": probe.events,
@@ -293,6 +386,7 @@ def main() -> None:
             ],
             "positions": len(positions),
             "closed_positions": int(positions.ts_closed.notna().sum()) if len(positions) else 0,
+            "position_quantity": str(positions.iloc[0].quantity) if len(positions) else None,
         }
         rendered = json.dumps(payload, indent=2) + "\n"
         if args.output is None:
