@@ -6,5 +6,6 @@
 - `run_portfolio.py` streams prepared five-minute catalogs into one native margin account, with one Strategy per contract; its reports use a shared capital denominator and distinguish input start from order eligibility for multi-timeframe warmup.
 - `RD_EXPERIMENTS.md` is the local experiment ledger for source evidence, hypotheses, replay identity, results, and open limits. Product and process findings belong in `docs/plans/r1-native-rd-findings.zh.md` for later blueprint reconciliation.
 - `SOURCE_CASES.md` holds video/chart fidelity checks to apply before judging a new strategy variant's backtest score.
+- `audit_daily_signal_counts.py` is a read-only source-rule count check against native Catalog daily inputs and a native Strategy summary. It cannot create fills or backtest returns.
 - Keep source rule custody tied to `0725a7b3f89902e27cd421a18b4b879a13268534`.
 - Check with `python -m compileall research/r1_native`, then run against a catalog containing Binance USDT perpetual minute bars and the matching instrument.

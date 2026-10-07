@@ -139,6 +139,9 @@ observation. The current quantity schedule is frozen for baseline comparison,
 not a risk-budget sizing rule.
 `SOURCE_CASES.md` lists original chart/video checks for later source-derived
 variants; passing those checks is about faithful encoding, not profitability.
+`audit_daily_signal_counts.py` checks the frozen rule's daily trend-aligned
+break count against a native portfolio summary using the same prepared Catalog
+inputs. It creates no fills or PnL and does not prove order-price parity.
 
 For the separately registered H01 experiment, add `--risk-budget-bps 25` and
 `--coin-notional-cap-pct 5` to the portfolio command. The Strategy reads native

@@ -1,0 +1,15 @@
+{
+  "native_audit": "/tmp/r1-rd-daily-audit-5m.csv",
+  "native_audit_sha256": "42e70065df86836d765ef3de3d48300008ab3b6ab69d7fd57c1c289e56482dbb",
+  "frozen_rule_source": "0725a7b3f89902e27cd421a18b4b879a13268534:research/ronnie/loop/family_r.py",
+  "frozen_rule_source_sha256": "3180ff88e7249c2901e12501019f11f960d83a87f60825dbc482dfd0e445b84b",
+  "days": 2586,
+  "trade_start_ns": 1788220800000000000,
+  "first_mismatch": null,
+  "frozen_eligible_crossings": 41,
+  "frozen_eligible_trend_aligned_crossings": 28,
+  "frozen_eligible_signal_count": 28,
+  "native_final_signal_count": 28,
+  "method": "Read-only literal recomputation of frozen state() pivot, body and trend logic from the native daily audit OHLC. No old fill(), exit_bar(), engine score or account values used. BTC audit only.",
+  "mismatched_fields": 0
+}
