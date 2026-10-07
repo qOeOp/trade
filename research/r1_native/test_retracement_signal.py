@@ -20,6 +20,26 @@ def _bars(*, second_support: bool = True, untouched: bool = True):
 
 
 class RetracementSignalCases(unittest.TestCase):
+    def test_confirmed_update_arms_after_low_confirmation_only_if_tier_untouched(self):
+        bars = [FourHour(i * FOUR_HOUR_NS, 120.0, 110.0, 115.0) for i in range(210)]
+        for index in (80, 90):
+            bars[index] = FourHour(index * FOUR_HOUR_NS, 120.0, 105.3, 115.0)
+        bars[190] = FourHour(190 * FOUR_HOUR_NS, 120.0, 90.0, 115.0)
+        bars[196] = FourHour(196 * FOUR_HOUR_NS, 130.0, 110.0, 115.0)
+        state = ConfirmedSupportPullback(timing="confirmed-update")
+        plans = [plan for bar in bars if (plan := state.on_closed(bar, 1.0)) is not None]
+        assert len(plans) == 1
+        assert (plans[0].a_index, plans[0].b_index) == (190, 196)
+        assert plans[0].ts_event == 198 * FOUR_HOUR_NS
+
+        touched = bars.copy()
+        touched[197] = FourHour(197 * FOUR_HOUR_NS, 120.0, 105.0, 115.0)
+        touched_state = ConfirmedSupportPullback(timing="confirmed-update")
+        touched_plans = [
+            plan for bar in touched if (plan := touched_state.on_closed(bar, 1.0)) is not None
+        ]
+        assert touched_plans == []
+
     def test_immediate_plan_arms_on_new_high_before_retracement(self):
         state = ConfirmedSupportPullback(timing="immediate")
         plans = [plan for bar in _bars() if (plan := state.on_closed(bar, 1.0)) is not None]

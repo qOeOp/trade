@@ -51,6 +51,7 @@ def _source_case(
     atr = WilderMovingAverage(14)
     active: list[dict] = []
     rows = []
+    superseded = 0
     for bar in candles:
         candle = FourHour(bar.ts_event, float(bar.high), float(bar.low), float(bar.close))
         previous_close = state.candles[-1].close if state.candles else candle.close
@@ -67,6 +68,15 @@ def _source_case(
         ]
         plan = state.on_closed(candle, atr.value if atr.initialized else None)
         atr.update_raw(true_range)
+        if timing == "confirmed-update" and state.last_readout["impulse"] is not None:
+            selected = state.last_readout["impulse"]
+            before = len(active)
+            active = [
+                one
+                for one in active
+                if (one["a_index"], one["b_index"]) == (selected["a_index"], selected["b_index"])
+            ]
+            superseded += before - len(active)
         if plan is not None:
             active.append(plan.as_dict())
         if candle.ts_event in cutoffs:
@@ -75,6 +85,7 @@ def _source_case(
                 "last_close": candle.close,
                 "last_low": candle.low,
                 "current_readout": state.last_readout,
+                "superseded_unfilled_plans_to_date": superseded,
                 "active_untouched_plans": [
                     {
                         **one,
@@ -93,7 +104,11 @@ def _source_case(
             break
     if len(rows) != len(cutoffs):
         raise RuntimeError("source cutoffs lack completed native four-hour bars")
-    return {"source_case": case["source_case"], "cutoffs": rows}
+    return {
+        "source_case": case["source_case"],
+        "superseded_unfilled_plans": superseded,
+        "cutoffs": rows,
+    }
 
 
 def main() -> None:

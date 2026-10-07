@@ -49,7 +49,7 @@ class ConfirmedSupportPullback:
     """
 
     def __init__(self, *, timing: str = "near-tier") -> None:
-        if timing not in ("near-tier", "immediate"):
+        if timing not in ("near-tier", "immediate", "confirmed-update"):
             raise ValueError("unsupported support-pullback timing")
         self.timing = timing
         self.candles: list[FourHour] = []
@@ -131,18 +131,21 @@ class ConfirmedSupportPullback:
             row["reason"] = "no-prior-separated-horizontal-support"
             return None, row
         candle = self.candles[i]
-        approaching = (
-            entry < candle.close <= level_50 and candle.low > entry
-            if self.timing == "near-tier"
-            else b == i and entry < candle.close and candle.low > entry
-        )
+        if self.timing == "near-tier":
+            approaching = entry < candle.close <= level_50 and candle.low > entry
+        elif self.timing == "immediate":
+            approaching = b == i and entry < candle.close and candle.low > entry
+        else:
+            approaching = entry < candle.close and all(
+                self.candles[j].low > entry for j in range(b, i + 1)
+            )
         if not approaching:
             self.not_approaching += 1
-            row["reason"] = (
-                "not-before-61.8-touch-in-approach-zone"
-                if self.timing == "near-tier"
-                else "not-new-high-before-61.8-touch"
-            )
+            row["reason"] = {
+                "near-tier": "not-before-61.8-touch-in-approach-zone",
+                "immediate": "not-new-high-before-61.8-touch",
+                "confirmed-update": "61.8-touched-since-high-or-closed-below",
+            }[self.timing]
             return None, row
         if (a, b) in self.planned_pairs:
             row["reason"] = "pair-already-planned"
