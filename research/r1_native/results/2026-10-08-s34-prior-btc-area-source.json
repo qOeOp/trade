@@ -1,0 +1,78 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S34",
+  "registered_commit": "1b4e10f2067827f54e46d369d4e9f41b3aeecdfa",
+  "source_url": "https://www.youtube.com/watch?v=ZFFcK61EHMQ",
+  "source": {
+    "platform": "youtube",
+    "video_id": "ZFFcK61EHMQ",
+    "author_name": "\u7f57\u5c3c\u4ea4\u6613\u6307\u5357",
+    "published_at": "2024-11-29T00:00:00Z",
+    "duration_ms": 401000,
+    "media_sha256": "cfe4ba3ada7727e2ef2e7c88900c0ea1210750166a32f94fef98b42ca423721c",
+    "same_byte_media_manifest_count": 1
+  },
+  "acquisition": {
+    "tool": "video-note-mcp --create --quality fast",
+    "receipt_path": "/tmp/r1-s34-note-create.json",
+    "receipt_sha256": "b0449e0b2af778830df0af1e27ea34fa24d299a8ef03de3ea9872a7652c91cd0",
+    "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-21b19145cca545c347acc6a12e0244399df1110b4aafa2315cca9f2ab46b0405/manifest.json",
+    "media_manifest_sha256": "21b19145cca545c347acc6a12e0244399df1110b4aafa2315cca9f2ab46b0405",
+    "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-5a8acbfa55eedf629a45817c8dbb6be0bcf26a28944705cba716573acf9e6c1f/manifest.json",
+    "transcript_manifest_sha256": "5a8acbfa55eedf629a45817c8dbb6be0bcf26a28944705cba716573acf9e6c1f",
+    "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-2af208737fb22db3c4ac2358d525a34d8ef76e29ccd51f906bd7f953dc002671/manifest.json",
+    "frames_manifest_sha256": "2af208737fb22db3c4ac2358d525a34d8ef76e29ccd51f906bd7f953dc002671",
+    "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-f6db212d035445a4be57a7b734252c9d/note.md",
+    "note_sha256": "1e0fdd897e51c7009a4f78ff8e419b7415e200cdc39b9579c058e11724d4c762",
+    "asr_quality": "fast",
+    "audio_review_count": 0
+  },
+  "original_frames_inspected": [
+    {
+      "id": "F05",
+      "timestamp_ms": 3790,
+      "sha256": "d3c897c47aff6562b265d536ce48875459f9a46889bcbe7c133c5c71110f4715",
+      "observation": "BTCUSDT four-hour chart on November 29 displays a horizontal 0.236 retracement line at roughly 92,000 and a recent test. It does not display the same approximately 91,000-93,000 shaded support rectangle that the January S33 clip selects."
+    },
+    {
+      "id": "F38",
+      "timestamp_ms": 24050,
+      "sha256": "0598cc15e7afc536701dee871ec2352fae689dac5c1d052f8cf5b367edba0984",
+      "observation": "BTCUSDT four-hour wider chart retains the 0.236 line near 92,000 and alternative future paths that may retest that line or descend toward the lower 0.382 region."
+    },
+    {
+      "id": "F07",
+      "timestamp_ms": 59130,
+      "sha256": "6f1417b1d1841f971f837c52724bf3f9538ec326f5405cd81d5ff19eca706780",
+      "observation": "BTCUSDT daily chart keeps the approximate 92,000 0.236 retracement line with another lower zone near the 0.382 retracement; no January width or fixed native order is visible."
+    }
+  ],
+  "timecoded_evidence": [
+    {
+      "segment_ids": ["E002", "E003", "E004", "E005", "E007", "E008", "E009"],
+      "seconds": [3.9, 22.7],
+      "finding": "BTC has retested a previously discussed 23.6% retracement and resumed a choppy rise. The prior high is a prospective obstacle, not a filled target order."
+    },
+    {
+      "segment_ids": ["E038", "E040", "E041", "E042", "E044", "E050", "E051"],
+      "seconds": [72.4, 97.4],
+      "finding": "Chart lines and indicators are explicitly framed as revisable hypotheses; a market change calls for correction, not retroactive rewriting of an original plan."
+    },
+    {
+      "segment_ids": ["E199", "E201", "E202", "E203", "E204", "E205", "E212", "E213", "E216", "E219", "E220", "E221"],
+      "seconds": [321.7, 356.6],
+      "finding": "A planned oil resistance short did not receive a market opportunity; the author lets that plan expire, waits for a later upper or lower range edge, and leaves the middle idle. This is an action-state constraint rather than a BTC area-construction method."
+    }
+  ],
+  "source_gate": {
+    "status": "prior_level_only",
+    "prior_approximately_92000_level_visible": true,
+    "same_shaded_91000_93000_area_visible": false,
+    "claim_of_public_level_before_january_retests": "supported_at_november_29",
+    "claim_of_exact_area_edges_before_january_retests": "unverified",
+    "claim_of_level_before_november_27_test": "unverified",
+    "author_numeric_area_edge_algorithm": false,
+    "implication": "A public earlier episode shows a Fibonacci 23.6% line near the later S33 area's center but not the same shaded area or its edges. The line-to-area relationship is a research inference, not an author-stated construction rule or a validated H13f signal."
+  },
+  "economic_read": false
+}
