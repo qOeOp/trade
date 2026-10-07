@@ -48,10 +48,18 @@ class ConfirmedSupportPullback:
     Evaluate completed four-hour bars; Nautilus still owns execution.
     """
 
-    def __init__(self, *, timing: str = "near-tier") -> None:
+    def __init__(
+        self,
+        *,
+        timing: str = "near-tier",
+        support_mode: str = "all-lows",
+    ) -> None:
         if timing not in ("near-tier", "immediate", "confirmed-update"):
             raise ValueError("unsupported support-pullback timing")
+        if support_mode not in ("all-lows", "confirmed-pivots"):
+            raise ValueError("unsupported support-pullback support mode")
         self.timing = timing
+        self.support_mode = support_mode
         self.candles: list[FourHour] = []
         self.low_pivots: list[int] = []
         self.planned_pairs: set[tuple[int, int]] = set()
@@ -120,9 +128,16 @@ class ConfirmedSupportPullback:
             "level_764": level_764,
             "stop": stop,
         }
+        support_candidates = (
+            range(i - ANCHOR_LOOKBACK + 1, b)
+            if self.support_mode == "all-lows"
+            else (
+                j for j in self.low_pivots if i - ANCHOR_LOOKBACK + 1 <= j and j + PIVOT_ORDER < b
+            )
+        )
         support = tuple(
             j
-            for j in range(i - ANCHOR_LOOKBACK + 1, b)
+            for j in support_candidates
             if abs(self.candles[j].low - entry) <= SUPPORT_BAND_ATR * prior_atr
         )
         row["support_low_indices"] = support

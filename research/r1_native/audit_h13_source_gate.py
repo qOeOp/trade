@@ -45,9 +45,10 @@ def _source_case(
     *,
     timing: str = "near-tier",
     expiry_bars: int = BOX_RETEST_BARS,
+    support_mode: str = "all-lows",
 ) -> dict:
     cutoffs = {_ns(value): value for value in case["cutoffs"]}
-    state = ConfirmedSupportPullback(timing=timing)
+    state = ConfirmedSupportPullback(timing=timing, support_mode=support_mode)
     atr = WilderMovingAverage(14)
     active: list[dict] = []
     rows = []

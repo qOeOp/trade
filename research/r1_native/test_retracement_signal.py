@@ -20,6 +20,28 @@ def _bars(*, second_support: bool = True, untouched: bool = True):
 
 
 class RetracementSignalCases(unittest.TestCase):
+    def test_confirmed_support_pivots_precede_high_and_reject_ordinary_lows(self):
+        bars = _bars()
+        confirmed = ConfirmedSupportPullback(
+            timing="confirmed-update",
+            support_mode="confirmed-pivots",
+        )
+        plans = [plan for bar in bars if (plan := confirmed.on_closed(bar, 1.0)) is not None]
+        assert len(plans) == 1
+        assert plans[0].support_low_indices == (80, 90)
+        assert all(index + 8 < plans[0].b_index for index in plans[0].support_low_indices)
+
+        ordinary = bars.copy()
+        for index in (81, 91):
+            ordinary[index] = FourHour(index * FOUR_HOUR_NS, 120.0, 104.5, 115.0)
+        old_rule = ConfirmedSupportPullback(timing="confirmed-update")
+        new_rule = ConfirmedSupportPullback(
+            timing="confirmed-update",
+            support_mode="confirmed-pivots",
+        )
+        assert any(old_rule.on_closed(bar, 1.0) is not None for bar in ordinary)
+        assert all(new_rule.on_closed(bar, 1.0) is None for bar in ordinary)
+
     def test_confirmed_update_arms_after_low_confirmation_only_if_tier_untouched(self):
         bars = [FourHour(i * FOUR_HOUR_NS, 120.0, 110.0, 115.0) for i in range(210)]
         for index in (80, 90):
