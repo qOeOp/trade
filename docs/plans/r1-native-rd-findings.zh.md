@@ -212,6 +212,8 @@
 
 **机制延伸的实际门槛。** H08 从 H06 的破线追入改成上升线回踩后收盘反弹，使用原生订单和同一数据输入。合成几何与原生保护单通过，但来源日的 BTC、LINK 均未出现 H08 信号：BTC 这版"最近两个已确认低点"画出的线过陡，回弹前已经被收盘跌破；LINK 碰到线时四小时 K 仍收阴，不能通过 H08 的阳线确认。故该变体停在来源保真门槛，没有把这两个画面当作回测订单，也没有读取其年度收益。后继分成画线锚点与限价挂单时序两项各自可证伪的问题；先核对前一日原片能否证明线在回踩前存在，再决定是否封存新的原生 Strategy。这个案例说明"深入"意味着保留失败范围并拆出有区别的原因，而不是持续调整同一规则直到一年数据变好。具体证据见[H08 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h08-rising-line-support-continuation-exploratory-native-long)。
 
+**跨日来源的补证。** [7 月 23 日原片](https://www.youtube.com/watch?v=hhHTtAYMHQo)在 BTC 触线前已画出一条从更早低点延伸的缓斜支撑，并把之后下探到该线列为条件路径；[7 月 24 日原片](https://www.youtube.com/watch?v=sRwYzAKWVMY)才描述已经发生的测试与反弹。这为"事前有线"提供跨日来源证据，也解释 H08 为什么不能用最近两个四小时低点代替作者的较长尺度画线。画面没有给出可复现的唯一锚点规则、可确认的新单和止损，且两日分别使用小时与四小时视图；后继应先封存多尺度因果选线与来源预测，再考察原生订单和收益。原片帧与严格范围见[S17 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s17-previous-day-btc-support-line-provenance)。
+
 **蓝图核对点。** [R&D 探索、后继与证据台账](../owners/rd.zh.md)及 [研究旅程](../scenarios/research.zh.md)。这项发现已回填当前 R&D 蓝图，后续实现复用现有说明记录、实验关联和原生回测。
 
 ## F24：信号一致性须先证明每个合约实际读到了数据
