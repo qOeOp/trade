@@ -182,9 +182,12 @@ breakout-and-retest hypothesis, the agent registers the mechanism and builds a s
 universe that includes historical listings and delistings.
 
 R-1u rests a limit near the broken level for at most ten days and replays the stop, signal-frozen 2R reference
-target, maximum holding period, and one position per coin after fill. R-1s exits half at that target, holds
-the other half, and moves its stop to entry, proving that the same simulator can replay partial exits and
-state changes. Fills, cancels, stops, and targets follow event order; order creation order cannot allocate
+target, maximum holding period, and one position per coin after fill. R-1s exits its first half at fixed 2R;
+the remainder targets whichever is farther in the profit direction, 2R or the momentum target derived from the
+impulse already known at the signal. Once the first leg actually fills, the remaining stop moves to this trade's
+actual average entry. The 60-day holding limit still applies, and the coin slot is released only after both legs
+exit. This proves that the same simulator can replay partial exits and state changes. Fills, cancels, stops,
+and targets follow event order; order creation order cannot allocate
 slots, and pre-fill highs cannot count as post-fill profit. Register and report the variants separately.
 
 The report includes perpetual fees, funding, slippage, minimum order size, and margin constraints, and names
