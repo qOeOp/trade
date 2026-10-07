@@ -441,11 +441,12 @@ Market Data 提供。 它是 一个无状态的 stdio 进程，位于 `services/
   按每个标的追加一行代理数据读取：服务进程启动时铸出的会话身份、标的、周期、以事件纳秒计的半开区间 `[start, end)`、工具与提交 cut。
   写不了行的读取会拒绝。这些行是从 R&D 的数据读取台账迁过来的；R&D 原本打算拥有代理的工具时，由它持有代理会话的行。R&D 的 census
   向下读取它们，试验行仍由 R&D 自己写。在会话绑定到血缘之前，R&D 把一次代理读取计入每一条血缘。
-- **holdout 分区存在之前，没有市场数值能到达代理。** 还没有 Owner 定义 Qualification 的 holdout 分区，所以 `get_bars` 与
-  `get_funding` 对每个请求都按 `HOLDOUT_PARTITION_UNDEFINED` 拒绝，与 R&D 数据读取台账的每次分发一样。
-- **TARGET，U1 之后：Qualification 把分区登记进 Market Data。** Qualification 向下调用，按值登记受保护的标的与时段；Market
-  Data 只负责拒绝。届时工具对与受保护时段重叠的区间按 `RANGE_IN_HOLDOUT_PARTITION` 拒绝，窗口与之重叠的回测也按名拒绝，因为单是它的
-  结果就会泄露 holdout。分区登记之前，每份回测报告都写明没有定义 holdout 分区、结果仅作探索。
+- **CURRENT：保护分区尚未定义，行情值读取保持拒绝。** 当前没有 Owner 登记可执行的保护分区，所以 `get_bars` 与
+  `get_funding` 对每个请求都按 `HOLDOUT_PARTITION_UNDEFINED` 拒绝；这描述现状，不是 V0.1 首次读取的交付顺序。
+- **V0.1 TARGET：先登记获批准的研究与保护范围，再开放普通研究读取。** Market Data 保存准确范围版本并执行访问检查；
+  范围未定义时仍按名拒绝。登记后，工具对与受保护标的或时段重叠的请求按名拒绝，研究回测也不能读取该范围，
+  因为结果本身可能泄露保护输入。完整 Qualification 保护评估协议后续接入，不作为 V0.1 读取的前置服务。
+  尚无可证明未见的保护证据时，报告标明资格证据缺口并仅供探索，不把已定义的保护边界说成未定义。
 - **单独验收**：在部署镜像里只通过这个服务，准入 BTC、ETH 与 SOL，各自回填 `1d` 及其 `1m` fill，`coverage` 显示这些窗口，并把上面每种
   拒绝各驱动一次。
 
@@ -3232,7 +3233,7 @@ funding。 funding 是两行，channel 为 `MARKET`、data kind 为 `SCALAR`、t
 
 原生目标先准备并复用所需窗口的全量 1m，补齐实际缺分钟并证明覆盖，报告缺口/修订及有效窗口；Nautilus 原生聚合高周期。永续 funding 用独立真实来源与实际可得/结算计划取回，不用少量 fill 报价证明完整资金费或分钟输入。
 
-## 后续经济数据与原生周期接入
+## 经济输入与原生周期接入
 
 ### TARGET window funding schedule read
 

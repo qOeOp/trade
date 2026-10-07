@@ -61,6 +61,11 @@ Native HEDGING differs from Binance Hedge Mode: venue IDs aggregate by instrumen
 positionSide/reduce-only depend on venue mode. R-1 acceptance proves exit attribution, partial fills and
 reconciliation of aggregate changes/external activity; switching an OMS enum is insufficient. GTD uses venue
 support or native `manage_gtd_expiry`; GTD→GTC configurations do not guarantee venue expiry.
+The current Binance Futures adapter's `modify_order` requires a limit price and sends only quantity and price;
+this path cannot directly move a trigger-only StopMarket protection order to entry. Native replay can modify
+trigger prices, but that does not prove later Live venue wiring. Live admission must verify or extend adapter
+support and test rejection, unknown outcomes, protection continuity and authoritative readback; a local modify
+rejection cannot be reported as an updated stop.
 
 - **Order Engine** - validate permits or recovery fences and exclusively manage order creation, change, cancellation, and terminal state.
 - **Execution Adapters** - admit exactly the adapter binding fixed by Execution Scope, then translate requests,

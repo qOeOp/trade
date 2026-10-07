@@ -170,9 +170,10 @@ In V0.1, the Agent may first read admitted ordinary research bars through Market
 inspect post-breakout retracement depth, waiting times and patterns, then author a native strategy and submit formal
 replay. Analysis binds the versions read; script statistics establish neither native replay results nor eligibility.
 
-For zero fills, the Agent combines strategy diagnostic logs with native order/fill events to distinguish absent
-triggers, strategy filters, unfilled orders and rejections. The strategy author supplies diagnostic messages; absent,
-truncated or unavailable logs prove no negative condition, and native account facts still determine economic results.
+V0.1 accepts zero-fill diagnosis using an R-1 strategy with pre-order diagnostic logs. The Agent combines those logs
+with native order/fill events to distinguish absent triggers, strategy filters, submitted but unfilled orders and
+rejections. The strategy author supplies messages; other strategies need no fixed log template. If logs are absent,
+truncated or unavailable, the pre-order cause remains undetermined. Native account facts still determine economic results.
 
 **The first end-to-end acceptance example is the R-1 family.** It anchors the [confirmed V0.1
 scope](../architecture/index.md#v01---usable-r-1-data-and-backtest-journey): deliver the usable data/replay
@@ -181,18 +182,34 @@ perpetual history, not spot prices substituted for perpetual economics. Starting
 breakout-and-retest hypothesis, the agent registers the mechanism and builds a strategy on a point-in-time
 universe that includes historical listings and delistings.
 
-R-1u rests a limit near the broken level for at most ten days and replays the stop, signal-frozen 2R reference
-target, maximum holding period, and one position per coin after fill. R-1s exits half at that target, holds
-the other half, and moves its stop to entry, proving that the same simulator can replay partial exits and
-state changes. Fills, cancels, stops, and targets follow event order; order creation order cannot allocate
-slots, and pre-fill highs cannot count as post-fill profit. Register and report the variants separately.
+R-1u rests a limit near the broken level for at most ten days. After an actual entry fill, it exits under the
+original stop, signal-frozen 2R target, or a maximum 60-day holding period. At most one R-1 trade per coin occupies
+a slot at a time. The slot is occupied from the fill until that trade exits on a stop, target, or 60-day limit;
+neither order creation nor a fixed 60-day reservation determines occupancy.
+
+R-1s uses the same entry and original stop and splits the filled quantity into two legs. The first exits at the
+same frozen 2R target. The second compares that 2R target with one breakout impulse length, `1.00 × |B - A|`,
+in the trade direction from the actual fill and takes whichever lies farther in the profit direction. A and B
+are breakout impulse anchors available when the signal is issued; later information cannot redefine them. The
+second leg moves its stop to this trade's actual average entry only after the first leg's full rounded target
+quantity has actually filled through its 2R profit exit. A partial fill of that exit, target touch or order
+submission does not move the stop; the existing protection remains effective. Both legs have the same maximum
+60-day holding period from entry; the coin's slot becomes free only after both have actually exited. Native per-trade protection rules below
+govern rounding, partial fills, and failed changes; a triggered target is not treated as a fill.
+
+These rules define the R-1 acceptance example, not a template for other strategies. Fills, cancels, stops, and
+targets follow native event order; pre-fill highs cannot count as post-fill profit. Seal and report the variants
+separately. R-1s was a forward-only proposal in the source study. Its "closer target" wording conflicted with
+holding a remainder after the first 2R exit; the farther target defines this strategy version. Spot prototype
+inputs, results under the old target rule, and holdout conclusions do not prove an economic edge in a new
+perpetual replay.
 
 The report includes perpetual fees, funding, slippage, minimum order size, and margin constraints, and names
 the fill-path resolution and events that cannot be ordered within its smallest time unit. When missing data
-can change the outcome, the result stays unresolved. R-1s remained forward exploratory in the source study;
-passing this acceptance example does not establish economic edge, qualification, or trading permission. The
-source study is pinned to `claude/inspiring-gauss-pxaril` commit `0725a7b3f89902e27cd421a18b4b879a13268534`, especially `research/ronnie/roleflip/forward.py`,
-`replay.py`, and `loop/RETROSPECTIVE.md`.
+can change the outcome, the result stays unresolved. Passing this acceptance example establishes neither economic
+edge, qualification nor trading permission. The source study is pinned to `claude/inspiring-gauss-pxaril` commit
+`0725a7b3f89902e27cd421a18b4b879a13268534`, especially `research/ronnie/loop/family_r.py`,
+`loop/LOG.md`, `replay.py`, and `loop/RETROSPECTIVE.md`.
 
 ### V0.1 service handoff acceptance
 
@@ -224,6 +241,10 @@ flowchart LR
 | Replay completes and reports are read       | Extract required facts before disposal and commit custody before reading a complete result; minute reads and primary drawdown use the same input |
 | Agent disconnects or reruns after failure   | Admitted jobs persist; confirmed interruption permits a linked new full attempt while retaining original costs/records                           |
 | Storage shortage and protected scope        | Stop admission of affected new tasks without evicting formal evidence; Agent/Dashboard cannot read protected assessment detail                   |
+
+Complete zero-fill replay returns authoritative zero-fill facts with complete account, valuation and report coverage;
+undefined performance metrics are marked unavailable. Missing or partial order/fill details, reports or minute series
+leave the result incomplete or a named gap, never a successful empty result or summary substitute.
 
 V0.1 need not automatically organize research, provide complete project handover or judge economic advantage.
 Agents may keep modifying and comparing; complete management and knowledge reuse stay in V0.2, while
@@ -364,9 +385,11 @@ close boundaries, warmup, budgets, new identities after repair and refusal of re
 
 ### Planned and filled prices
 
-The fixed-target variant requires: calculate and freeze the target from planned entry and initial stop when
-the signal is generated; price improvement on actual fill does not recalculate it. Planned entry 100, stop 90
-and target 120 remain target 120 after fill at 98: gross price risk is 8, reward 22 and actual gross ratio
+R-1u and the first leg of R-1s calculate and freeze their fixed 2R target from planned entry and initial stop when
+the signal is generated; price improvement on actual fill does not recalculate it. R-1s's second-leg impulse
+target instead uses the actual fill and already known A/B anchors, then takes the farther profit-direction target
+when compared with the frozen 2R target. Planned entry 100, stop 90 and target 120 remain target 120 after fill
+at 98: gross price risk is 8, reward 22 and actual gross ratio
 2.75 rather than 2. Report planned price, actual average fill, stop, fixed target, planned R and actual
 risk/reward separately, with net-of-cost outcomes distinct. Source `replay.py` recalculates targets
 from fill price, so this is a new named strategy/trial meaning, preserving old evidence rather than claiming
@@ -374,8 +397,8 @@ exact trade reproduction.
 
 Acceptance separates registered target-basis divergence from unexplained matching divergence. Qualification
 consumes the new artifact/fixed-target identity, never reused eligibility from the earlier variant. Once
-R-1s's registered first-leg fill condition is satisfied, move the remaining stop to this trade's actual
-average entry, not its planned signal entry. Seal the fill frontier/average referenced at the transition and
+R-1s's full rounded first-leg target quantity has actually filled through its 2R profit exit, move the remaining
+stop to this trade's actual average entry, not its planned signal entry. Seal the fill frontier/average referenced at the transition and
 apply the trade identity and native price precision. This does not change the fixed target or add fee
 compensation to a different breakeven price.
 
@@ -457,11 +480,13 @@ when new independent data or an untested scope exists, a review prediction and m
 registered first, and old evidence plus new reads remain counted. Old conclusions are never rewritten. Replaying
 old data, renaming the mechanism, or restating a binary protected status cannot reopen it.
 
-**Completion criterion.** An external agent submits and reads back the full R-1 journey through domain tools and
-can resume by native identity after its session restarts. Dashboard shows the same sources, trials, reports,
-unresolved states, and admitted actions. Independent acceptance exercises missing data, unregistered trials, spend
-caps, wrong event order, protected leakage, mistaken closure after nonqualification, and a forward record trying to
-trade.
+**Completion criterion.** In V0.1, an external Agent prepares data, seals strategy source, runs native replay, and
+reads back complete results through domain tools. After a session restart, admitted jobs remain queryable by their
+original identities, with failures and gaps visible. A Dashboard report page is not a V0.1 acceptance condition.
+V0.1 also exercises missing data, unregistered trials, resource caps, wrong event order, protected read violations,
+and job recovery. The later full research and operation journey also shows sources, trials, reports, unresolved states,
+and admitted actions in Dashboard, and exercises the stage-specific refusals for mistaken closure after
+nonqualification and a forward record trying to trade.
 
 ### Reports and on-demand graphical replay
 
@@ -492,13 +517,16 @@ its own frozen simulation, preserving the actual fill facts. Strategies do not o
 
 Sizing configuration declares quantity rules; Runtime combines them with Portfolio state to calculate requested quantities. Execution policy owns waiting, retry and termination, including insufficient funds, rate limits, network failures and venue rejections. R&D jointly seals these configurations with the native Strategy package; no extra Owner, registry or strategy recovery program is required. Native Strategy declares protection rules and transition conditions; actual fill
 events activate and maintain them without per-bar strategy modification commands or broker state management.
-R-1s declares half at 2R and a stop move to entry once that exit leg actually fills to its registered
-condition.
+R-1s declares half at 2R and a stop move to actual average entry only once the first leg's full rounded
+target quantity has actually filled through that profit exit.
 
 Touch, submission and acceptance do not prove the exit filled. The native Strategy consumes fills to apply frozen
 protection rules; Execution applies native changes and records results; replay uses the same Strategy/native simulator.
 Protection quantity follows the trade's actual remaining open quantity, not another trade or assumed
-completion of a partially filled exit leg. Seal condition, exit-leg quantity basis, updated price and native
+completion of a partially filled exit leg. If the first leg is five units, a two-unit profit-exit fill retains
+the prior stop; only after the other three units also profit-exit fill does the stop move. The first actual exit
+fill still cancels any unfilled entry remainder under the separate exit-start rule. Seal condition, exit-leg
+quantity basis, updated price and native
 rounding meaning. floor preceding exit legs to the frozen instrument quantity step and assign remainder to the
 last leg. Half of three minimum units becomes legs of one and two.
 

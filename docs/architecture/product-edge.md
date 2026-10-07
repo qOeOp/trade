@@ -153,8 +153,11 @@ the run, so a replay reads the same data.
   `RANGE_TOO_LARGE_FOR_INLINE`, and `HOLDOUT_PARTITION_UNDEFINED`. A backtest never reads through it: it takes a
   `dataset_ref`.
 - `get_funding(instrument, range)` → funding rates, under the same bound and refusals.
-- Until Qualification registers its holdout partition with Market Data, by value and downward, both tools refuse every
-  request as `HOLDOUT_PARTITION_UNDEFINED`: the answer before registration is refuse all, never allow all.
+- **The current compatibility surface** has no enforceable protected partition, so both tools refuse every request
+  as `HOLDOUT_PARTITION_UNDEFINED`. **The V0.1 target** registers approved research and protected scopes with exact
+  versions in Market Data before initial ordinary research reads, then checks authorization and overlap on each read.
+  Undefined scope or protected overlap still refuses. The full Qualification protection-assessment protocol follows
+  later and is not a prerequisite service for ordinary research reads.
 - Every tool that returns market values appends its read to Market Data's agent data-read ledger in the transaction
   that answers, and refuses when it cannot ("Agent data-read ledger" in [Market Data](../owners/market-data/)). Trial
   rows stay with R&D, whose census reads Market Data's ledger downward.
@@ -303,9 +306,10 @@ repeated per-action approval. Current real effects remain unadmitted.
 
 **Verdicts, never protected values.**
 
-- No tool calls a Qualification protected read, and no run reads inside a registered holdout period: `get_bars` and
-  `get_funding` refuse everything until the partition is registered, and `backtest.run` refuses an overlapping window
-  once it is. Qualification answers only through its public status.
+- No tool calls a Qualification protected read, and no research run consumes registered protected scope. Currently
+  `get_bars` and `get_funding` refuse everything while scope is undefined; after V0.1 Market Data registration of
+  approved scope, only ordinary research reads open, while overlapping reads and replays still refuse. Later
+  Qualification answers only through its public status.
 - A refusal passes through by its name. Nothing is folded into a generic failure.
 
 **Dashboard MCP.** `/api/mcp` is a bounded preview-operation channel, not the external research agent's domain

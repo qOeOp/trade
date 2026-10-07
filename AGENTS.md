@@ -8,6 +8,11 @@
   through native APIs. Within confirmed product bounds, adopt verified native mechanisms and extensions, record the
   decision and evidence, and do not ask users to reselect native behavior. Ask only for unresolved product intent
   or tradeoffs requiring their judgment. Do not create parallel engines or ledgers, or product-specific strategy languages and compilation chains.
+- **Resolve technical uncertainty with Nautilus first.** Check this repository's Nautilus source, APIs, tests and
+  adapter wiring, then compare version-matched official guidance and concrete community strategy/backtest examples.
+  Prefer a verified native pattern within confirmed product bounds. Community examples do not prove that this version
+  or venue adapter supports a behavior; record a named gap when it cannot be verified. Leave product intent and
+  risk tradeoffs to the user.
 - **Clean ownership.** Give each responsibility one owner. Merge overlapping components; add a module only for
   an independent need. Shared storage never permits access to another owner's private tables or write authority.
 - **Local context.** Organize product extensions by independent capability, not individual MCP tools.

@@ -121,8 +121,9 @@ replay on the Agent's behalf; reusing an available data reference requires no re
 execution data and reports intraminute ambiguity under frozen policy. Agents submit successors for changed data or
 configuration without overwriting old evidence.
 
-In V0.2 the Agent reads complete permitted results and exact experiment references through MCP, compares
-metrics, plots and explains differences with its own tools, and records conclusions with evidence links in R&D.
+V0.1 already lets the Agent read complete permitted results through MCP and compare them on the host. In V0.2,
+the Agent uses exact experiment references across rounds, compares metrics, plots and explains differences with
+its own tools, and records conclusions with evidence links in R&D.
 The service persists records and supports bounded queries without another comparison analysis engine.
 Dashboard displays research progress and results; a dedicated interactive experiment comparison interface follows later.
 
@@ -183,7 +184,7 @@ service release commitments, never disconnection, error summaries or Agent infer
 | Capability  | Operation                                       | Agent supplies                                                                                     | Returned facts and custody                                                                                                        |
 | ----------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Projects    | Create or update research bounds                | Objective, approved theme/scope/resources, predecessor for updates                                 | Project identity, exact bounds version and budget facts; no Agent expansion of user authority                                     |
-| Projects    | Read project and takeover records               | Project identity and query scope                                                                   | Bounds, version/experiment links, unresolved tasks and next actions; paginated retrieval without old chats                        |
+| Projects    | Read project and linked records                 | Project identity and query scope                                                                   | V0.1: bounds and version/experiment/task/result links; V0.2: decisions, unfinished work and next actions                          |
 | Authoring   | Seal strategy package                           | Actual native source/imports, entrypoint/parameters, exact runtime and existing Git provenance     | Artifact hash, package/environment references or named gaps; no strategy generation or moving branch execution input              |
 | Authoring   | Read package and runtime capabilities           | Artifact or environment identity                                                                   | Sealed content, runtime version and supported dependencies/interfaces; explicit gaps without per strategy dependency installation |
 | Experiments | Register and submit replay                      | Project, exact Artifact, prior plan, admitted data and Run Specification                           | Frozen experiment, attempt, admission and Backtest task reference; reuse exact experiment identity for another attempt            |
@@ -224,7 +225,7 @@ service self-repair and automatic release are not research workflow capabilities
 | Timeout with unknown admission              | Query by original request identity or redeliver the same request; reconcile the original task before another attempt            |
 | Replay admitted and running                 | Return original task identity and actual status; native execution continues without an Agent connection                         |
 | Confirmed Backtest failure or interruption  | Retain failure and actual spend; Agent requests a linked complete new attempt if needed, without resuming simulator checkpoints |
-| Agent disconnected or model quota exhausted | Admitted tasks continue; successor reads original tasks, Git checkpoints and research records before deciding next actions      |
+| Agent disconnected or model quota exhausted | Admitted tasks continue; V0.1 reads original task/result, V0.2 adds project and pushed Git checkpoint takeover                  |
 | Host exploration with incomplete evidence   | Retain the conclusion with explicit incompleteness, never fabricated native results, complete trial census or independence      |
 
 V0.1 retains complete replay, serial execution with queuing and no active cancellation. This shared contract does
