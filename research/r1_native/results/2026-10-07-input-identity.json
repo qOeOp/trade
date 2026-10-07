@@ -1,0 +1,489 @@
+{
+  "digest_algorithm": "SHA-256 over each sorted relative POSIX path as 4-byte big-endian length + path UTF-8 + SHA-256 of file bytes; tree digest is SHA-256 of concatenated records",
+  "minute_catalog_root": "/tmp/r1-37-1y-5m-2026oct7",
+  "daily_catalog_root": "/tmp/r1-37-2026oct7",
+  "quantity_csv_sha256": "85f9cb6f33777d3802604ac7985bd34110d1565338251f800ccda057a5e465bc",
+  "coins": [
+    {
+      "coin": "BTC",
+      "minute_catalog": {
+        "sha256": "bd804c5865aba72d8be06c56b48482c360ffee15706b314fa7e956f48c12bad7",
+        "files": 147,
+        "bytes": 12593256
+      },
+      "daily_catalog": {
+        "sha256": "850f22d7b0f3cd9421c3fddc9baeef8b4cca61a9b453053ec02edddb8afe8939",
+        "files": 5,
+        "bytes": 180579
+      }
+    },
+    {
+      "coin": "ETH",
+      "minute_catalog": {
+        "sha256": "d7ccf00d123f58b35af8a2f3d195b9eafe203c9f4f733e692792efdc0d5d3ab1",
+        "files": 147,
+        "bytes": 12235039
+      },
+      "daily_catalog": {
+        "sha256": "59712f8c87e5eb2d5c5e9f13367416607554afb39f09c1ec133a8efe7f9a62aa",
+        "files": 5,
+        "bytes": 173319
+      }
+    },
+    {
+      "coin": "BNB",
+      "minute_catalog": {
+        "sha256": "45ef77ca40428e81d7327092dfcd99bc048b23310e2f7f141294d861ac60cfa2",
+        "files": 147,
+        "bytes": 11652232
+      },
+      "daily_catalog": {
+        "sha256": "7d3488130e828ef50a05ad8b2f4fa8690f355bb4b12e7fd0864c1111eeca30d5",
+        "files": 5,
+        "bytes": 163872
+      }
+    },
+    {
+      "coin": "ADA",
+      "minute_catalog": {
+        "sha256": "17b4c07ce44f6e98021197aebfdc068bfd8fd60e4c98cdc6a2bcaf379400dc86",
+        "files": 147,
+        "bytes": 9397867
+      },
+      "daily_catalog": {
+        "sha256": "6a27292e9d0ed2a0f2feb6007d416aa584e9df8f44e0e3a0572d72d81837760f",
+        "files": 5,
+        "bytes": 155479
+      }
+    },
+    {
+      "coin": "XRP",
+      "minute_catalog": {
+        "sha256": "993a3cd3977658abe5e39ec46cd9a3c05d1b16ef026ddbf77290c69c3ad7c722",
+        "files": 147,
+        "bytes": 10447314
+      },
+      "daily_catalog": {
+        "sha256": "614e68ef8e2e35932b9d31a0073b28e26e4903a11d9f127625145e9f86226bf8",
+        "files": 5,
+        "bytes": 158101
+      }
+    },
+    {
+      "coin": "SOL",
+      "minute_catalog": {
+        "sha256": "04d1bf85ebd24503dca8f4da077adebf61048245ee8788625a49844466e4767e",
+        "files": 147,
+        "bytes": 10377823
+      },
+      "daily_catalog": {
+        "sha256": "954774d9073ad22c648126f97247fe88d6d8593bed78d625297e342926b7579d",
+        "files": 5,
+        "bytes": 148741
+      }
+    },
+    {
+      "coin": "DOGE",
+      "minute_catalog": {
+        "sha256": "26cad621e7319c5198325314230d49b86b3a089908aaf4cce2d914832724b0f5",
+        "files": 147,
+        "bytes": 10184365
+      },
+      "daily_catalog": {
+        "sha256": "402aebf9fff9637fb106763104f1425df447269f784ab713e3b507ce98d4133c",
+        "files": 5,
+        "bytes": 147240
+      }
+    },
+    {
+      "coin": "LTC",
+      "minute_catalog": {
+        "sha256": "6cb772a9ba490595bc720868c0d58161ba60fcd7419d3f80e340f003083387b2",
+        "files": 147,
+        "bytes": 9778095
+      },
+      "daily_catalog": {
+        "sha256": "89437462156dee83c91aeb46ba1bf50746c481be3914f8d479180174a00dc62d",
+        "files": 5,
+        "bytes": 162589
+      }
+    },
+    {
+      "coin": "TRX",
+      "minute_catalog": {
+        "sha256": "d53d902387bb2c1a98dbcdc44e4812f342ed7c993d2404a3a89b91e90f94591c",
+        "files": 147,
+        "bytes": 10207562
+      },
+      "daily_catalog": {
+        "sha256": "634fcb3e5889bbe826299789a96e6b031af7f3405dedc83502d164cfc480b52f",
+        "files": 5,
+        "bytes": 156202
+      }
+    },
+    {
+      "coin": "LINK",
+      "minute_catalog": {
+        "sha256": "54bd48d29609e64cabb6e022a40eeca2870bda052895a4b93bfb5d5976ec4fca",
+        "files": 147,
+        "bytes": 10323045
+      },
+      "daily_catalog": {
+        "sha256": "823318ea1f0032bb4205a33a9b37253531fac024ce7cf71398dbede90c9166dc",
+        "files": 5,
+        "bytes": 162738
+      }
+    },
+    {
+      "coin": "DOT",
+      "minute_catalog": {
+        "sha256": "6036fe324c552cc2a40b00b069f7d59899aba7320941c252b0480c69d8a272ad",
+        "files": 147,
+        "bytes": 9430514
+      },
+      "daily_catalog": {
+        "sha256": "d516648186b9593fc153686a5e9dbb9e04c85377218c868924c4d5c764cf5602",
+        "files": 5,
+        "bytes": 146176
+      }
+    },
+    {
+      "coin": "AVAX",
+      "minute_catalog": {
+        "sha256": "5651af85eb84ac0e5f310d2cc1fb5bf135960ab69097a2a41d52b281bd3e4f07",
+        "files": 147,
+        "bytes": 10188828
+      },
+      "daily_catalog": {
+        "sha256": "dfa588de6a6a5dc17f549950e90b1a7ebaf4f8cb60ef38d2e15c2517fbc52786",
+        "files": 5,
+        "bytes": 146603
+      }
+    },
+    {
+      "coin": "BCH",
+      "minute_catalog": {
+        "sha256": "053b4b53dff900d3e28ac73c138b577a2dc59c18aa771dcc759beace7931bca8",
+        "files": 147,
+        "bytes": 11418168
+      },
+      "daily_catalog": {
+        "sha256": "59d1bb9742e70d6561859bb65ce0f53107aaf01e5ed0ce52034694518254245b",
+        "files": 5,
+        "bytes": 167528
+      }
+    },
+    {
+      "coin": "ETC",
+      "minute_catalog": {
+        "sha256": "c09cc0bdb3abf5bb01559defac44785f47e567583665384409daedbfe74a9ecf",
+        "files": 147,
+        "bytes": 10189066
+      },
+      "daily_catalog": {
+        "sha256": "5a5ff7aba2edea7f733e487e71d4b3da51da1653b1c5d6c905e04c7207224725",
+        "files": 5,
+        "bytes": 163411
+      }
+    },
+    {
+      "coin": "XLM",
+      "minute_catalog": {
+        "sha256": "f5ca5bebd5fde9aac5526f3ad44856b4a76ac4af0ed567d5f0ac9d8a72d65938",
+        "files": 147,
+        "bytes": 10750512
+      },
+      "daily_catalog": {
+        "sha256": "9a0a231c4d4be271e8cc12234854ad18c9107b0f6eb1e94bddab40a321a8e12f",
+        "files": 5,
+        "bytes": 157329
+      }
+    },
+    {
+      "coin": "ATOM",
+      "minute_catalog": {
+        "sha256": "c86452941a2733d198d89500b938570de7ae205c0f2bdc941e14e912b66c47e6",
+        "files": 147,
+        "bytes": 9085995
+      },
+      "daily_catalog": {
+        "sha256": "177abef32930ed0cd10c288b2aed2c71313a3cd7a812adf6972cb3c4c72dd6cf",
+        "files": 5,
+        "bytes": 159310
+      }
+    },
+    {
+      "coin": "FIL",
+      "minute_catalog": {
+        "sha256": "3260659962cb67e9e98d7354a4fb7fdc6c04aebdbda890de51f745d57a30a9e6",
+        "files": 147,
+        "bytes": 9406976
+      },
+      "daily_catalog": {
+        "sha256": "91a59396e197b98df9cfb5b5fcdae4dce9e39d5d8041b1e6f7957548cec5b5c3",
+        "files": 5,
+        "bytes": 142504
+      }
+    },
+    {
+      "coin": "NEAR",
+      "minute_catalog": {
+        "sha256": "4e474364144e51e8c43ac8238d5258550c66dafcc5b118fd0309809911ada5b8",
+        "files": 147,
+        "bytes": 9360986
+      },
+      "daily_catalog": {
+        "sha256": "97e6b331d0c9f0c7da396b38d93848ad2afa0264ad3be1a5fe3765e85790ff59",
+        "files": 5,
+        "bytes": 140416
+      }
+    },
+    {
+      "coin": "UNI",
+      "minute_catalog": {
+        "sha256": "bf074067dc3d9ab1fe4a1a35d46a5f3b5ce1d75a082b1d7536bb371c0fba6777",
+        "files": 147,
+        "bytes": 9744171
+      },
+      "daily_catalog": {
+        "sha256": "b669c9d25eabc7ed8706845f01f0003024ee124800b1926715cc18ca4ca3b00f",
+        "files": 5,
+        "bytes": 144373
+      }
+    },
+    {
+      "coin": "AAVE",
+      "minute_catalog": {
+        "sha256": "43438ed55060a642a713aa68da51001d73bc4f997abca693f22f851c519da743",
+        "files": 147,
+        "bytes": 10750128
+      },
+      "daily_catalog": {
+        "sha256": "f534431413ac4a55a624fd2f6f5eeab6ba8b7b8da0ce486e686263602fbcfcd2",
+        "files": 5,
+        "bytes": 146617
+      }
+    },
+    {
+      "coin": "ICP",
+      "minute_catalog": {
+        "sha256": "af062cd980ac5b3c2a6067788f68659528d216f29304832c620918295c13f7e9",
+        "files": 147,
+        "bytes": 9455217
+      },
+      "daily_catalog": {
+        "sha256": "24689463f0fb98ea2ad670f07767a5b7bb2ceece509da837b8f17e4826bdeb8c",
+        "files": 5,
+        "bytes": 98281
+      }
+    },
+    {
+      "coin": "APT",
+      "minute_catalog": {
+        "sha256": "d890ca202bc08327d1973a2449da15728d2b89e48dfa9bf6999ff3ba93a5331b",
+        "files": 147,
+        "bytes": 10519750
+      },
+      "daily_catalog": {
+        "sha256": "28287d74692c48ae74cd17c3dabe563159337011721434b00a25d9408dc4b988",
+        "files": 5,
+        "bytes": 99551
+      }
+    },
+    {
+      "coin": "ARB",
+      "minute_catalog": {
+        "sha256": "8cf754d3f70720e2183c0378a4ae0f51b01eb2409c3d36302dabc7a76187e1c2",
+        "files": 147,
+        "bytes": 9735516
+      },
+      "daily_catalog": {
+        "sha256": "d9cb290c50a867b463fc1c678d8da9a85ea3bcff77fcc173e53a2406b837711a",
+        "files": 4,
+        "bytes": 85996
+      }
+    },
+    {
+      "coin": "SUI",
+      "minute_catalog": {
+        "sha256": "e4e87d0254d621fdafc20651b0b49fa17975b433d6ef77aa1b73ebc20877280f",
+        "files": 147,
+        "bytes": 10417878
+      },
+      "daily_catalog": {
+        "sha256": "e0e481ee12b0e0cfc4400788b7f6785b7cebb1536945d5ff7442660af8de41a1",
+        "files": 4,
+        "bytes": 84628
+      }
+    },
+    {
+      "coin": "OP",
+      "minute_catalog": {
+        "sha256": "cbd864b07a08459b4958256161fe111d3bacce2242bf1f72fe2bda2cf56c942e",
+        "files": 147,
+        "bytes": 9590199
+      },
+      "daily_catalog": {
+        "sha256": "6b0c62b97c2299d5a9d22070ae35e7378820234b3d35777fce5dc4676441f3e9",
+        "files": 5,
+        "bytes": 107091
+      }
+    },
+    {
+      "coin": "INJ",
+      "minute_catalog": {
+        "sha256": "8e377a50707d20c23bab65b7cf846cdb2cf19dc250ea02e7cc4d4b8117be07af",
+        "files": 147,
+        "bytes": 9970035
+      },
+      "daily_catalog": {
+        "sha256": "95cd8ff64d196eb0417490be9106272364e9975f4345377aa6dec122ea6f8bc7",
+        "files": 5,
+        "bytes": 103442
+      }
+    },
+    {
+      "coin": "TIA",
+      "minute_catalog": {
+        "sha256": "d0a7eef45bb32bfd89ead48e1610cf139899bd3f5aaddc35825913f5124c084a",
+        "files": 148,
+        "bytes": 9905966
+      },
+      "daily_catalog": {
+        "sha256": "18e1c8819cfde3b65c847ca4322254b14f8ff3c977bbe507012fb39f8a11f16e",
+        "files": 4,
+        "bytes": 73530
+      }
+    },
+    {
+      "coin": "SEI",
+      "minute_catalog": {
+        "sha256": "3f6d282e2d7788f16f32818c46e46625d4ac4cdf9f2c4d6d6ef1bc5088df14e5",
+        "files": 147,
+        "bytes": 9565199
+      },
+      "daily_catalog": {
+        "sha256": "646580b72d30ff9072c848cfcdcb7aefe808f6e78a6559a7de7be14a86db9e2b",
+        "files": 4,
+        "bytes": 75825
+      }
+    },
+    {
+      "coin": "PEPE",
+      "minute_catalog": {
+        "sha256": "28ad029ab6d6b4c618b6b28dd85f43a8020251dccf5d25afe52c23424eda04fa",
+        "files": 147,
+        "bytes": 11002732
+      },
+      "daily_catalog": {
+        "sha256": "dd4f00135d287b95e1cd1e09bff00d5d999ccbc55653781ff3e73095a97a99f5",
+        "files": 4,
+        "bytes": 84603
+      }
+    },
+    {
+      "coin": "SHIB",
+      "minute_catalog": {
+        "sha256": "e4ec3d26e5a43b7d830d8203030d208202d3dd1be97dbd0c8234a25e70c49fdb",
+        "files": 147,
+        "bytes": 9872343
+      },
+      "daily_catalog": {
+        "sha256": "403c4c0e668daf2b61f9ed9513d578cfb5853d6c996f8239a5ff339fd0f19b2b",
+        "files": 5,
+        "bytes": 129805
+      }
+    },
+    {
+      "coin": "HBAR",
+      "minute_catalog": {
+        "sha256": "c24e09d8eabf46f5b021c5544a6b185be9f87211ac8bab2b4f445506d45e2b32",
+        "files": 147,
+        "bytes": 10156495
+      },
+      "daily_catalog": {
+        "sha256": "b89aa9a65d716c4216845d224c5742de20a9362ed0644949122839090270eaf4",
+        "files": 5,
+        "bytes": 131598
+      }
+    },
+    {
+      "coin": "ALGO",
+      "minute_catalog": {
+        "sha256": "aad015188469607a49ce436694392c37bbb83cadd7f99c9ec06992ea6efa61ac",
+        "files": 147,
+        "bytes": 9297417
+      },
+      "daily_catalog": {
+        "sha256": "33782e509130df19148934ed313a615192130c266932a8784a29cdd37b1a9110",
+        "files": 5,
+        "bytes": 143297
+      }
+    },
+    {
+      "coin": "FET",
+      "minute_catalog": {
+        "sha256": "87a53c3da7843e39645225b745a7924de88370cc6fdbc4df78a96340d544a945",
+        "files": 147,
+        "bytes": 9460113
+      },
+      "daily_catalog": {
+        "sha256": "e26589a9f03406d60e4cf506738789f38b9eaba5aa0c2156915d7cbb5fa87b3c",
+        "files": 5,
+        "bytes": 90908
+      }
+    },
+    {
+      "coin": "WLD",
+      "minute_catalog": {
+        "sha256": "359746f2cb641667fd36fdeb40334324fba4671e11c855e4b55db8e4b0f02de0",
+        "files": 147,
+        "bytes": 9991136
+      },
+      "daily_catalog": {
+        "sha256": "d2f9006dae94f8189a9e2416e7444737df8c76a5e90933b4fe200c1291af9956",
+        "files": 4,
+        "bytes": 79284
+      }
+    },
+    {
+      "coin": "IMX",
+      "minute_catalog": {
+        "sha256": "bf109dbab16b2a01140ffe484d9a5d464f4bb3695c14d86f6a22456cd676c5b7",
+        "files": 148,
+        "bytes": 9282488
+      },
+      "daily_catalog": {
+        "sha256": "40885763e7ce23f44323a7f2eeaae1977534cace54a1ac8d916d8f2408fb8b9b",
+        "files": 5,
+        "bytes": 111565
+      }
+    },
+    {
+      "coin": "STX",
+      "minute_catalog": {
+        "sha256": "5c66d8d3411e6999589e238d8e66f70b703b08c4b90ba709603a5a79c2b51d7e",
+        "files": 147,
+        "bytes": 9306325
+      },
+      "daily_catalog": {
+        "sha256": "0d8f0a96e271ca0583a6d558abf1f471b9f160b0233f87cbda1d27116febd944",
+        "files": 4,
+        "bytes": 86820
+      }
+    },
+    {
+      "coin": "LDO",
+      "minute_catalog": {
+        "sha256": "7a3f8a574ca5517df7ce9f0871469ba547af801cc58038dcbd90f5018f9470e4",
+        "files": 147,
+        "bytes": 9757077
+      },
+      "daily_catalog": {
+        "sha256": "91f3b82bfc9211c2f70ce5e2a83316c7e8d9beab835a2cca06fccec49aea35f0",
+        "files": 5,
+        "bytes": 99066
+      }
+    }
+  ]
+}

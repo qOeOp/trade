@@ -635,6 +635,33 @@ async fn handle_usdm_klines(
     futures_klines_response(&state, &raw_query, "/fapi/v1/klines")
 }
 
+async fn handle_usdm_mark_klines(
+    State(state): State<DataTestServerState>,
+    raw_query: RawQuery,
+) -> Response {
+    let query = raw_query.0.unwrap_or_default();
+    let params: HashMap<String, String> = serde_urlencoded::from_str(&query).unwrap_or_default();
+    state
+        .market_queries
+        .lock()
+        .unwrap()
+        .push(("/fapi/v1/markPriceKlines".to_string(), params));
+    json_response(&json!([[
+        1700000000000_i64,
+        "50000.12345678",
+        "50003.12345678",
+        "49999.12345678",
+        "50002.12345678",
+        "0",
+        1700000059999_i64,
+        "0",
+        60,
+        "0",
+        "0",
+        "0"
+    ]]))
+}
+
 async fn handle_coinm_klines(
     State(state): State<DataTestServerState>,
     raw_query: RawQuery,
@@ -658,6 +685,7 @@ fn create_data_test_router(state: DataTestServerState) -> Router {
         .route("/fapi/v1/aggTrades", get(handle_usdm_agg_trades))
         .route("/dapi/v1/aggTrades", get(handle_coinm_agg_trades))
         .route("/fapi/v1/klines", get(handle_usdm_klines))
+        .route("/fapi/v1/markPriceKlines", get(handle_usdm_mark_klines))
         .route("/dapi/v1/klines", get(handle_coinm_klines))
         .route("/fapi/v1/openInterest", get(handle_open_interest))
         .route("/dapi/v1/openInterest", get(handle_open_interest_coinm))
@@ -1266,8 +1294,10 @@ async fn test_request_funding_rates_emits_response() {
                     && resp.data.len() == 2
                     && resp.data[0].rate == dec!(0.0001)
                     && resp.data[0].ts_event == UnixNanos::from_millis(1700000000000)
+                    && resp.data[0].ts_init == resp.data[0].ts_event
                     && resp.data[1].rate == dec!(-0.000075)
                     && resp.data[1].ts_event == UnixNanos::from_millis(1700028800000)
+                    && resp.data[1].ts_init == resp.data[1].ts_event
             });
             async move { found }
         },
@@ -1487,6 +1517,46 @@ async fn test_request_historical_binance_bars_routes_futures_product(
     assert_eq!(bars[0].taker_buy_base_volume, dec!(3));
     assert_eq!(bars[0].taker_buy_quote_volume, dec!(162501.25));
     assert_eq!(bars[0].ts_init, bars[0].ts_event);
+}
+
+#[tokio::test]
+async fn test_request_mark_bars_uses_mark_endpoint_and_preserves_precision() {
+    let state = DataTestServerState::default();
+    let addr = start_data_test_server_with_state(state.clone()).await;
+    let (mut client, mut rx) =
+        create_test_data_client(format!("http://{addr}"), format!("ws://{addr}/ws"));
+    client.connect().await.unwrap();
+
+    while rx.try_recv().is_ok() {}
+
+    let bar_type = BarType::from("BTCUSDT-PERP.BINANCE-1-MINUTE-MARK-EXTERNAL");
+    client
+        .request_bars(RequestBars::new(
+            bar_type,
+            None,
+            None,
+            Some(NonZeroUsize::new(1).unwrap()),
+            Some(*BINANCE_CLIENT_ID),
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+        ))
+        .unwrap();
+
+    let event = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let DataEvent::Response(DataResponse::Bars(response)) = event else {
+        panic!("expected MARK bar response");
+    };
+    assert_eq!(response.data.len(), 1);
+    assert_eq!(response.data[0].bar_type, bar_type);
+    assert_eq!(response.data[0].close.as_decimal(), dec!(50002.12345678));
+    assert_eq!(
+        state.market_queries.lock().unwrap()[0].0,
+        "/fapi/v1/markPriceKlines"
+    );
 }
 
 #[rstest]

@@ -4,8 +4,9 @@ use pyo3::{exceptions::PyIOError, prelude::*, types::PyList};
 use vibe_core::{UnixNanos, python::to_pytype_err};
 use vibe_model::{
     data::{
-        Bar, Data, IndexPriceUpdate, InstrumentStatus, MarkPriceUpdate, OptionGreeks,
-        OrderBookDelta, OrderBookDepth10, QuoteTick, TradeTick, close::InstrumentClose,
+        Bar, Data, FundingRateUpdate, IndexPriceUpdate, InstrumentStatus, MarkPriceUpdate,
+        OptionGreeks, OrderBookDelta, OrderBookDepth10, QuoteTick, TradeTick,
+        close::InstrumentClose,
     },
     python::{
         data::data_to_pyobject,
@@ -288,6 +289,27 @@ impl PyParquetDataCatalog {
             )
             .map(|path| path.to_string_lossy().to_string())
             .map_err(|e| PyIOError::new_err(format!("Failed to write mark price updates: {e}")))
+    }
+
+    /// Write settled funding-rate updates to Parquet files.
+    #[pyo3(signature = (data, start=None, end=None, skip_disjoint_check=false))]
+    pub fn write_funding_rate_updates(
+        &self,
+        data: Vec<FundingRateUpdate>,
+        start: Option<u64>,
+        end: Option<u64>,
+        skip_disjoint_check: bool,
+    ) -> PyResult<String> {
+        let data = data.into_boxed_slice();
+        self.inner
+            .write_to_parquet(
+                data.as_ref(),
+                start.map(UnixNanos::from),
+                end.map(UnixNanos::from),
+                Some(skip_disjoint_check),
+            )
+            .map(|path| path.to_string_lossy().to_string())
+            .map_err(|e| PyIOError::new_err(format!("Failed to write funding rates: {e}")))
     }
 
     /// Write index price update data to Parquet files.
@@ -1264,6 +1286,27 @@ impl PyParquetDataCatalog {
                 true, // optimize_file_loading=true for directory-based registration (default)
             )
             .map_err(|e| PyIOError::new_err(format!("Failed to query data: {e}")))
+    }
+
+    /// Query settled funding-rate updates from Parquet files.
+    #[pyo3(signature = (instrument_ids=None, start=None, end=None, where_clause=None))]
+    pub fn query_funding_rate_updates(
+        &mut self,
+        instrument_ids: Option<Vec<String>>,
+        start: Option<u64>,
+        end: Option<u64>,
+        where_clause: Option<&str>,
+    ) -> PyResult<Vec<FundingRateUpdate>> {
+        self.inner
+            .query_typed_data::<FundingRateUpdate>(
+                instrument_ids,
+                start.map(UnixNanos::from),
+                end.map(UnixNanos::from),
+                where_clause,
+                None,
+                true,
+            )
+            .map_err(|e| PyIOError::new_err(format!("Failed to query funding rates: {e}")))
     }
 
     /// Query index price update data from Parquet files.

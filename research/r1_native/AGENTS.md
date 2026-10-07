@@ -1,7 +1,10 @@
 # R-1 native replay
 
 - `strategy.py` owns R-1 signal logic and submits native orders. It does not calculate fills or PnL.
-- `prepare.py` asks the native Binance USD-M data client for historical minute bars and writes the native Catalog.
-- `run.py` reads Nautilus catalog data, runs `BacktestEngine`, and writes native reports.
+- `prepare.py` asks the native Binance USD-M data client for historical LAST/MARK minute bars and settled funding, then writes the native Catalog and the current-instrument assumption. The replay interval defaults to one minute; five minutes is a lower-resolution sensitivity option.
+- `run.py` validates all three data timelines, runs `BacktestEngine` with native mark and funding updates, and writes native reports.
+- `run_portfolio.py` streams prepared five-minute catalogs into one native margin account, with one Strategy per contract; its reports use a shared capital denominator.
+- `RD_EXPERIMENTS.md` is the local experiment ledger for source evidence, hypotheses, replay identity, results, and open limits. Product and process findings belong in `docs/plans/r1-native-rd-findings.zh.md` for later blueprint reconciliation.
+- `SOURCE_CASES.md` holds video/chart fidelity checks to apply before judging a new strategy variant's backtest score.
 - Keep source rule custody tied to `0725a7b3f89902e27cd421a18b4b879a13268534`.
 - Check with `python -m compileall research/r1_native`, then run against a catalog containing Binance USDT perpetual minute bars and the matching instrument.

@@ -124,6 +124,13 @@ class ParquetDataCatalog:
         end: int | None = None,
         skip_disjoint_check: bool = False,
     ) -> str: ...
+    def write_funding_rate_updates(
+        self,
+        data: typing.Sequence[model.FundingRateUpdate],
+        start: int | None = None,
+        end: int | None = None,
+        skip_disjoint_check: bool = False,
+    ) -> str: ...
     def write_index_price_updates(
         self,
         data: typing.Sequence[model.IndexPriceUpdate],
@@ -270,6 +277,13 @@ class ParquetDataCatalog:
         end: int | None = None,
         where_clause: str | None = None,
     ) -> list[model.MarkPriceUpdate]: ...
+    def query_funding_rate_updates(
+        self,
+        instrument_ids: typing.Sequence[str] | None = None,
+        start: int | None = None,
+        end: int | None = None,
+        where_clause: str | None = None,
+    ) -> list[model.FundingRateUpdate]: ...
     def query_index_price_updates(
         self,
         instrument_ids: typing.Sequence[str] | None = None,

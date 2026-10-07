@@ -2948,8 +2948,11 @@ impl DataClient for BinanceFuturesDataClient {
             "Binance historical bars require EXTERNAL aggregation"
         );
         anyhow::ensure!(
-            bar_type.spec().price_type == PriceType::Last,
-            "Binance historical bars require LAST price type"
+            matches!(
+                bar_type.spec().price_type,
+                PriceType::Last | PriceType::Mark
+            ),
+            "Binance historical bars require LAST or MARK price type"
         );
         anyhow::ensure!(
             bar_type.spec().is_time_aggregated(),

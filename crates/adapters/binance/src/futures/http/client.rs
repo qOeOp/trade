@@ -25,7 +25,7 @@ use vibe_model::{
     data::{Bar, BarType, BookOrder, FundingRateUpdate, TradeTick},
     enums::{
         AggregationSource, AggressorSide, BarAggregation, BookType, MarketStatusAction, OrderSide,
-        OrderType, TimeInForce,
+        OrderType, PriceType, TimeInForce,
     },
     events::AccountState,
     identifiers::{AccountId, ClientOrderId, InstrumentId, TradeId, VenueOrderId},
@@ -963,6 +963,19 @@ impl BinanceRawFuturesHttpClient {
         params: &BinanceKlinesParams,
     ) -> BinanceFuturesHttpResult<Vec<BinanceFuturesKline>> {
         self.get("klines", Some(params), false, false).await
+    }
+
+    /// Fetches historical mark-price klines for a futures symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn mark_price_klines(
+        &self,
+        params: &BinanceKlinesParams,
+    ) -> BinanceFuturesHttpResult<Vec<BinanceFuturesKline>> {
+        self.get("markPriceKlines", Some(params), false, false)
+            .await
     }
 
     /// Sets leverage for a symbol.
@@ -3080,8 +3093,15 @@ impl BinanceFuturesHttpClient {
         };
 
         let instrument_id = bar_type.instrument_id();
-        let (symbol, price_precision, size_precision) =
+        let (symbol, instrument_price_precision, size_precision) =
             self.cached_precisions_by_id(instrument_id)?;
+
+        let price_precision = match spec.price_type {
+            PriceType::Last => instrument_price_precision,
+            // Mark prices carry more decimals than the order tick size.
+            PriceType::Mark => 8,
+            other => anyhow::bail!("Binance Futures does not support {other:?} kline prices"),
+        };
 
         let params = BinanceKlinesParams {
             symbol,
@@ -3091,7 +3111,11 @@ impl BinanceFuturesHttpClient {
             limit,
         };
 
-        let klines = self.inner.klines(&params).await?;
+        let klines = match spec.price_type {
+            PriceType::Last => self.inner.klines(&params).await?,
+            PriceType::Mark => self.inner.mark_price_klines(&params).await?,
+            _ => unreachable!(),
+        };
         let now = self.clock.get_time_ns();
 
         let mut result = Vec::with_capacity(klines.len());
@@ -3220,15 +3244,10 @@ impl BinanceFuturesHttpClient {
         };
 
         let rates = self.inner.funding_rate(&params).await?;
-        let ts_init = UnixNanos::default();
 
         let mut result = Vec::with_capacity(rates.len());
         for rate in rates {
-            result.push(parse_futures_funding_rate_update(
-                &rate,
-                instrument_id,
-                ts_init,
-            )?);
+            result.push(parse_futures_funding_rate_update(&rate, instrument_id)?);
         }
 
         Ok(result)
@@ -3359,7 +3378,6 @@ pub(crate) fn parse_futures_kline_binance_bar(
 fn parse_futures_funding_rate_update(
     rate: &BinanceFundingRate,
     instrument_id: InstrumentId,
-    ts_init: UnixNanos,
 ) -> anyhow::Result<FundingRateUpdate> {
     let funding_rate = rate.funding_rate.parse::<Decimal>().map_err(|e| {
         anyhow::anyhow!("invalid Futures funding rate at {}: {e}", rate.funding_time)
@@ -3372,7 +3390,7 @@ fn parse_futures_funding_rate_update(
         None, // Funding interval is not provided by the history endpoint
         None, // Next funding time is not provided by the history endpoint
         ts_event,
-        ts_init,
+        ts_event,
     ))
 }
 
