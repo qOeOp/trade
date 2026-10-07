@@ -214,6 +214,8 @@
 
 **跨日来源的补证。** [7 月 23 日原片](https://www.youtube.com/watch?v=hhHTtAYMHQo)在 BTC 触线前已画出一条从更早低点延伸的缓斜支撑，并把之后下探到该线列为条件路径；[7 月 24 日原片](https://www.youtube.com/watch?v=sRwYzAKWVMY)才描述已经发生的测试与反弹。这为"事前有线"提供跨日来源证据，也解释 H08 为什么不能用最近两个四小时低点代替作者的较长尺度画线。画面没有给出可复现的唯一锚点规则、可确认的新单和止损，且两日分别使用小时与四小时视图；后继应先封存多尺度因果选线与来源预测，再考察原生订单和收益。原片帧与严格范围见[S17 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s17-previous-day-btc-support-line-provenance)。
 
+**可选锚点并不唯一。** D24 只读取 7 月 23 日前已确认的 BTC 四小时低点，在当时 30 日窗口内找出 18 条尚未收盘跌破的上升线，其中七条在次日落入原片可粗读的 64,000-65,000 区域。较早的 7 月 1 日与 7 月 17 日低点组成缓线，之后仍有效；同一早期低点接 7 月 20 日则更陡，次日回弹前已经失效。仅凭"线附近反弹"挑出前者，会把后见走势塞回规则。后继须在前一日资料上锁定选线方法，再用 LINK/ETH 的不同来源案例检验；D24 是来源几何诊断，不是筛选后策略绩效。[D24 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d24-prior-day-causal-pivot-pair-space-for-the-broad-btc-line)保留全部候选与失效时点。
+
 **蓝图核对点。** [R&D 探索、后继与证据台账](../owners/rd.zh.md)及 [研究旅程](../scenarios/research.zh.md)。这项发现已回填当前 R&D 蓝图，后续实现复用现有说明记录、实验关联和原生回测。
 
 ## F24：信号一致性须先证明每个合约实际读到了数据
