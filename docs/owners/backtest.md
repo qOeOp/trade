@@ -80,6 +80,10 @@ exact run and strategy version. Agents may record absent triggers and filter rea
 unexpected outcomes; the product generates no research diagnosis. Native events and results remain authoritative
 for submitted, rejected or filled orders and account changes. Mark truncated or unavailable logs explicitly;
 missing messages establish no negative condition, and log text cannot replace fill or account evidence.
+The R-1 acceptance strategy records enough pre-order diagnostics to distinguish absent triggers from filters; without
+those records, the cause remains undetermined rather than product-inferred. Zero fills alone mean neither failure nor
+an empty report: a complete zero-fill result requires complete order/fill, account, valuation and required report
+coverage. Mark undefined statistics unavailable; missing or partial details cannot masquerade as empty collections.
 
 ### Failure diagnostics and durable error records
 
@@ -307,6 +311,11 @@ Freeze each run's models, implementation versions, parameters and basis. Fees an
 selected simulation conditions; a complete historical fee archive is not a prerequisite for every replay.
 Applying current rates throughout the interval is a simulation assumption, not a historical charging fact.
 Missing required parameters or native consumer support still refuses the run, without silent zeros or defaults.
+
+Accept the R-1 perpetual primary report under the [research scenario's in-run liquidation rule](../scenarios/research/#portfolio-statistics-and-terminal-valuation).
+Native `liquidation_enabled` currently checks cached quotes rather than historical marks; keeping it off does not
+remove Backtest's obligation to diagnose threshold breaches and indeterminate minute event points. The native
+continuation after either cannot feed primary complete return, drawdown, Sharpe or later qualification inputs.
 
 Market Data owns historical prices, funding, mark prices and supplied historical terms; Backtest owns simulation
 models and parameters. Report historical data separately from simulation conditions. Parameter changes produce

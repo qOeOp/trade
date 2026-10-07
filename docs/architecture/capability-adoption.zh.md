@@ -78,9 +78,83 @@ MCP、Dashboard 和包的存在不证明完整研究旅程；按照具体用户�
 | 状态与恢复 | cache、Event Store、snapshot、typed replay、原生对账                                                            | 采用已证明状态恢复范围；cache 恢复不等于完整回测回滚、场所确认或治理恢复授权                  |
 | 支撑       | clock/timer、msgbus、network、serialization、persistence、crypto、logging/observability、plugin/Python bindings | 原生基础设施；Python/Rust 能力差异、插件 host 与 feature flags 必须逐入口确认，不另开业务部门 |
 
-下表继续规定具体 crate 与权限交接；provider 的历史、实时与执行端口另按实际支持区分。
 每个开发切片同时绑定原生入口、输入类型/配置、产品补充事实和最终消费者验收。
 只有前两者不足以满足明确需求时才设计有界扩展；有功能名而没有接入链路不能进入实现方案。
+
+### 原生能力的采用与暂缓
+
+本仓库固定版本为 `0.62.0`。下列"未接入"表示没有已验收的 Trade 产品消费者，不表示原生代码不存在。
+库、测试、兼容入口或 MCP 注册均不能充当完整用户流程。清扫前须检查反向调用、Python 导出、已封存策略
+的导入和旧记录读口；"暂缓"不是删除许可。
+
+**行情与输入。**
+
+- **Binance 历史与实时。** `crates/strategy_factory_rd_owner_api` 的准入/回填和
+  `crates/market_data_resident` 使用原生
+  `BinanceFuturesHttpClient`；resident 已进入 Workbench compose，但没有生产部署或完整输入清单的验收证据。
+  `BinanceFuturesDataClient → DataEngine` 的实时订阅还没有 Trade Trading Node 消费者，保留给 V0.3；
+  V0.1 仍按准确历史版本准备和回放，不另建行情总线。
+- **Catalog 与聚合。** 原生类型化 catalog、标的专用写入、缺口区间查询及 `BarType`/内部聚合是
+  V0.1 输入绑定的目标接入点。当前下载或 coverage 不能证明 catalog→原生回放已接通；
+  来源授权、点时可得与保护分区也不是 catalog 自动提供的。
+- **经济与状态事件。** `MarkPriceUpdate`、`FundingRateUpdate`、`IndexPriceUpdate`、
+  `InstrumentStatus` 和 `InstrumentClose` 有原生数据/回放入口。R-1 必需历史标记价与资金费；
+  index、状态和关闭事件只在获准来源及真实消费者需要时绑定，类型存在不证明历史覆盖或上市成员事实。
+- **逐笔、订单簿和文件。** `QuoteTick`、`TradeTick`、订单簿及 `StreamingFeatherWriter` 保留给以后
+  有获准细数据的执行研究。V0.1 用一分钟 K 线，不能凭 OHLC 宣称真实排队；Feather 流写入不替代
+  正式 Parquet 托管。Python Arrow `DataWrangler` 可供后续外部文件准入转换，不能把任意 CSV 直接当作输入。
+- **其他数据族。** `CustomData` 与 forward-price 请求不是 R-1 首验必需；U09/U10 的 OI、宏观及事件
+  输入须先证明历史发布版本、字段和策略消费者，再决定是否走原生自定义数据入口。Option chain 与 DeFi
+  没有当前币安永续/现货故事，暂不开放产品入口；未来采用须逐项核验来源、Rust/Python 转换与消费者。
+
+**回放与运行。**
+
+- **部分成交保护。** 原生 `OrderManager`/`Emulator`、contingent order 和 `OtoTriggerMode` 是 R-1 的
+  接入点；后者可按父单部分成交释放子单或等全成。V0.1 冻结模式并以实际成交数量验收保护，
+  原生能力不证明 Binance Futures 实盘 grouped linked order-list 已接通。
+- **收盘与成交精度。** 原生 `trade_on_close` 决定收盘后新市场单是否能在同一根 K 成交；R-1 已确认的
+  收盘可得语义不允许新信号回填同根成交。兼容直接引擎配置设为 false，但当前 Node 配置未暴露它；
+  V0.1 须冻结可用原生路径或补齐 Node 映射并验收，不把兼容测试当正式接通。
+  原生 `liquidity_consumption`/`queue_position` 在一分钟 K 基线暂不采用，因为没有逐笔/簿深证据，
+  后续只按真实输入做敏感性。
+- **场所模拟模型。** 原生 Fee/Fill/Latency/Margin 模型、OHLC 路径和模拟模块可组合，但 V0.1 只绑定
+  能说明来源与单位的手续费、资金费、滑点、保证金及冻结成交路径。未校准的随机成交/延迟模型不作为
+  主报告事实；永续不使用到期结算价，借贷与冻结账户开关也不能替代真实合约账户约束。
+- **途中清算。** 原生 `liquidation_enabled` 可在持仓期间按模拟维持保证金触发清算，默认关闭；
+  当前产品 Replay 经济配置只承认 `Disabled`。其检查用缓存 bid/ask 报价算未实现盈亏，缺报价会跳过，
+  触发后关闭同结算币全部持仓，不能据此宣称符合历史标记价或币安分步清算。V0.1 R-1 主报告保持
+  关闭，但只在冻结保证金模式、覆盖实际名义额且标明事实或假设的维持保证金条款和历史标记价
+  能证明分钟事件点未触线时形成完整
+  结果；触线或无法判定时停止完整收益结论。现有 Binance 默认经济条款仅封存第一档保证金及其名义上限，超限
+  运行会拒绝，更高档与历史变更未接通。原生清算可在输入足够时另列敏感性；将其纳入主报告
+  须先在原生节点内完成标记价触发及成交/费用的消费者验收。期末不虚构平仓仍是独立规则。
+- **风险检查与仓位。** 原生 RiskEngine 的限流、单笔名义额上限、`TradingState` 和 fixed-risk sizing
+  可用于订单检查与显式仓位模型；V0.1 尚未证明完整 Trade 意图经由这些入口。固定风险算式不自动给
+  新配置设默认仓位，也不能代替组合共享额度、操作授权和 Risk Decision。原生 trailing/bracket
+  只在策略明确声明且回放与场所支持时使用；R-1s 的首段实际成交后移余仓止损要按成交事件验收，
+  不能把通用 trailing 当成该规则的证明。
+- **控制、算法与对账。** 原生 `Controller`、TWAP 等 `ExecutionAlgorithm` 和 ExecutionEngine 场所对账
+  不属于 V0.1 R-1 所需的动态控制或拆单。V0.3 在 Governance/Runtime/Risk 准入下接入节点机制；
+  Controller 不是 Agent/Dashboard 的直接写入口。原生外部订单认领按每标的一个策略处理，
+  同标的多策略的未知订单不能自动归属。
+- **估值与统计。** Portfolio 快照和 analysis/analyzer 是 V0.1 报告基础；分钟净值接到主最大回撤
+  仍需实际消费者验收，打开快照本身不改变统计口径。其他原生指标可由 Agent 封存的 Strategy 按需使用，
+  不建指标白名单，清扫前须检查 Artifact 导入。
+- **状态与恢复。** 原生 cache、Event Store、snapshot 和 typed replay 供节点恢复与可复现读口使用，
+  但其存在不证明产品 Owner 结果、授权回执或场所效果已托管。V0.1 只采用经实际消费者验证的恢复范围；
+  不为跨 Owner 事实另造共享账本，也不因产品托管存在就清扫原生节点状态机制。
+
+**清扫分类。** 非币安场所 adapter 没有获准 Trade 交易路线；`fred`/`scheduled_events`/`tardis` 只留待
+未来宏观、事件或更细历史来源故事；Binance Spot 客户端为 V0.6 保留，`sandbox` 属后续 Paper Execution，
+不是历史回测场所。非币安 adapter、期权/DeFi、Feather 可列为条件性清扫候选，但 `crates/pyo3`
+仍将多数 adapter 作为非可选依赖并导出 Python 模块。移除前须核验示例、测试、外部 API、历史记录读口
+和封存源码导入均已迁移或不存在，且保留既有拒绝、保护与恢复边界。
+
+清扫时的源码入口：`crates/adapters/binance/src/futures/data.rs`、`crates/persistence/src/backend/catalog.rs`、
+`crates/backtest/src/config.rs`、`crates/system/src/controller.rs`、`crates/execution/src/engine/mod.rs`、
+`crates/risk/src/engine/mod.rs`、`crates/pyo3/Cargo.toml`；再按真实消费者反查，不以本清单代替依赖扫描。
+
+下表规定具体 crate 与权限交接；provider 的历史、实时与执行端口另按实际支持区分。
 
 | 现有 crate 或能力                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 目标归属                                                     | 采用契约                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -116,7 +190,6 @@ MCP、Dashboard 和包的存在不证明完整研究旅程；按照具体用户�
 
 ### 当前密封边界
 
-- `crates/deployment_attestation` → **Strategy Factory 部署验证。** 只在 executable 使用边界复用密封的固定策略 verifier。其 evidence 是 consumer 输入，不是部署权威或业务事实。
 - `crates/data/src/owner/store_admission` → **Market Data 私有 Deployment Store Admission 托管。** `CURRENT` 是面向固定 `rd-owner-api` consumer 的 fail-closed、非业务 PostgreSQL 准入和前后 revalidation seam。只有 Market Data 保留 raw receipt、measurement、credential、PIT、Source Binding 与 clock evidence，执行 current-head 校验并密封 `ResearchPitTerminal`；普通 consumer 只能获得 sealed terminal resolver。其生产 custody store、signer、单机 anti-rollback mode、secret 文件 credential resolver 与 pinned-TLS direct measurer 从部署配置组成 `required` 那条缝。该私有 seam 不拥有业务事实或 deployment-service 权威；production write 与 trading 保持 `NOT_ADMITTED`。
 - `crates/observability` → **Observability 非权威边界。** 保留基于规范 Owner 记录的只读、可重建投影。它不拥有来源事实、command、retry、终态决策或交易权威。
 - `crates/execution_owner` → **Execution Owner adapter-binding custody。** `CURRENT` 是失败关闭的 PAPER adapter-binding

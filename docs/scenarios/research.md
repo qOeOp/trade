@@ -170,9 +170,10 @@ In V0.1, the Agent may first read admitted ordinary research bars through Market
 inspect post-breakout retracement depth, waiting times and patterns, then author a native strategy and submit formal
 replay. Analysis binds the versions read; script statistics establish neither native replay results nor eligibility.
 
-For zero fills, the Agent combines strategy diagnostic logs with native order/fill events to distinguish absent
-triggers, strategy filters, unfilled orders and rejections. The strategy author supplies diagnostic messages; absent,
-truncated or unavailable logs prove no negative condition, and native account facts still determine economic results.
+V0.1 accepts zero-fill diagnosis using an R-1 strategy with pre-order diagnostic logs. The Agent combines those logs
+with native order/fill events to distinguish absent triggers, strategy filters, submitted but unfilled orders and
+rejections. The strategy author supplies messages; other strategies need no fixed log template. If logs are absent,
+truncated or unavailable, the pre-order cause remains undetermined. Native account facts still determine economic results.
 
 **The first end-to-end acceptance example is the R-1 family.** It anchors the [confirmed V0.1
 scope](../architecture/index.md#v01---usable-r-1-data-and-backtest-journey): deliver the usable data/replay
@@ -181,18 +182,34 @@ perpetual history, not spot prices substituted for perpetual economics. Starting
 breakout-and-retest hypothesis, the agent registers the mechanism and builds a strategy on a point-in-time
 universe that includes historical listings and delistings.
 
-R-1u rests a limit near the broken level for at most ten days and replays the stop, signal-frozen 2R reference
-target, maximum holding period, and one position per coin after fill. R-1s exits half at that target, holds
-the other half, and moves its stop to entry, proving that the same simulator can replay partial exits and
-state changes. Fills, cancels, stops, and targets follow event order; order creation order cannot allocate
-slots, and pre-fill highs cannot count as post-fill profit. Register and report the variants separately.
+R-1u rests a limit near the broken level for at most ten days. After an actual entry fill, it exits under the
+original stop, signal-frozen 2R target, or a maximum 60-day holding period. At most one R-1 trade per coin occupies
+a slot at a time. The slot is occupied from the fill until that trade exits on a stop, target, or 60-day limit;
+neither order creation nor a fixed 60-day reservation determines occupancy.
+
+R-1s uses the same entry and original stop and splits the filled quantity into two legs. The first exits at the
+same frozen 2R target. The second compares that 2R target with one breakout impulse length, `1.00 × |B - A|`,
+in the trade direction from the actual fill and takes whichever lies farther in the profit direction. A and B
+are breakout impulse anchors available when the signal is issued; later information cannot redefine them. Only
+after the first leg meets its registered actual
+profit-fill condition does the second leg move its stop to this trade's actual average entry. Touching the target
+or submitting an exit order does not move the stop. Both legs have the same maximum 60-day holding period from
+entry; the coin's slot becomes free only after both have actually exited. Native per-trade protection rules below
+govern rounding, partial fills, and failed changes; a triggered target is not treated as a fill.
+
+These rules define the R-1 acceptance example, not a template for other strategies. Fills, cancels, stops, and
+targets follow native event order; pre-fill highs cannot count as post-fill profit. Seal and report the variants
+separately. R-1s was a forward-only proposal in the source study. Its "closer target" wording conflicted with
+holding a remainder after the first 2R exit; the farther target defines this strategy version. Spot prototype
+inputs, results under the old target rule, and holdout conclusions do not prove an economic edge in a new
+perpetual replay.
 
 The report includes perpetual fees, funding, slippage, minimum order size, and margin constraints, and names
 the fill-path resolution and events that cannot be ordered within its smallest time unit. When missing data
-can change the outcome, the result stays unresolved. R-1s remained forward exploratory in the source study;
-passing this acceptance example does not establish economic edge, qualification, or trading permission. The
-source study is pinned to `claude/inspiring-gauss-pxaril` commit `0725a7b3f89902e27cd421a18b4b879a13268534`, especially `research/ronnie/roleflip/forward.py`,
-`replay.py`, and `loop/RETROSPECTIVE.md`.
+can change the outcome, the result stays unresolved. Passing this acceptance example establishes neither economic
+edge, qualification nor trading permission. The source study is pinned to `claude/inspiring-gauss-pxaril` commit
+`0725a7b3f89902e27cd421a18b4b879a13268534`, especially `research/ronnie/loop/family_r.py`,
+`loop/LOG.md`, `replay.py`, and `loop/RETROSPECTIVE.md`.
 
 ### V0.1 service handoff acceptance
 
@@ -224,6 +241,10 @@ flowchart LR
 | Replay completes and reports are read       | Extract required facts before disposal and commit custody before reading a complete result; minute reads and primary drawdown use the same input |
 | Agent disconnects or reruns after failure   | Admitted jobs persist; confirmed interruption permits a linked new full attempt while retaining original costs/records                           |
 | Storage shortage and protected scope        | Stop admission of affected new tasks without evicting formal evidence; Agent/Dashboard cannot read protected assessment detail                   |
+
+Complete zero-fill replay returns authoritative zero-fill facts with complete account, valuation and report coverage;
+undefined performance metrics are marked unavailable. Missing or partial order/fill details, reports or minute series
+leave the result incomplete or a named gap, never a successful empty result or summary substitute.
 
 V0.1 need not automatically organize research, provide complete project handover or judge economic advantage.
 Agents may keep modifying and comparing; complete management and knowledge reuse stay in V0.2, while
@@ -280,7 +301,25 @@ data. Missing or invalid marks remain named gaps; native price fallback cannot l
 as mark valuation. Unincurred
 exit costs are not actual costs; show fill prices separately from valuation prices with source/time/staleness.
 Missing valid valuation cannot produce fictitious complete returns. Engine shutdown cleanup must not silently add
-liquidation trades to the primary report. Any liquidation sensitivity is separate and never replaces that report.
+liquidation trades to the primary report.
+
+In-run liquidation is a separate question. The V0.1 R-1 USDT perpetual primary replay leaves native
+`liquidation_enabled` off: the current native check calculates unrealized PnL from cached bid/ask quotes and skips
+when quotes are absent; its liquidation path closes all positions in the breached settlement currency. Turning on
+the switch does not establish historical-mark triggering or fidelity to the
+[Binance liquidation protocol](https://www.binance.com/en/support/faq/detail/360033525271). The primary report
+must check the liquidation threshold at decidable minute event points using frozen margin mode, maintenance-margin
+terms covering actual notional and labeled as historical facts or simulation assumptions, native MarginAccount/Portfolio
+state and historical marks, while retaining event order
+and data resolution.
+If every point is provably above the threshold, a complete report under the declared minute model is allowed;
+this does not prove the venue never liquidated intraminute. At the first threshold breach, missing mandatory input,
+or unresolved same-minute ordering, retain preceding diagnostics but draw no complete subsequent return, drawdown
+or Sharpe conclusion. Do not let an unliquidated continuation flatter results. A native liquidation sensitivity
+may be reported separately when quotes and frozen configuration are available; it neither replaces the primary
+result nor represents Binance liquidation. Reconsider in-run liquidation in the primary report only after a bounded
+native-node path for mark-price triggers, tiers, liquidation fills and fees passes real-consumer acceptance;
+do not create another ledger or matcher.
 
 Close-confirmation rule: first-version candle/indicator conditions for signals, cancellations
 and stop changes are confirmed only after the relevant bar closes and its data is available. A 15m closing indicator
@@ -364,9 +403,11 @@ close boundaries, warmup, budgets, new identities after repair and refusal of re
 
 ### Planned and filled prices
 
-The fixed-target variant requires: calculate and freeze the target from planned entry and initial stop when
-the signal is generated; price improvement on actual fill does not recalculate it. Planned entry 100, stop 90
-and target 120 remain target 120 after fill at 98: gross price risk is 8, reward 22 and actual gross ratio
+R-1u and the first leg of R-1s calculate and freeze their fixed 2R target from planned entry and initial stop when
+the signal is generated; price improvement on actual fill does not recalculate it. R-1s's second-leg impulse
+target instead uses the actual fill and already known A/B anchors, then takes the farther profit-direction target
+when compared with the frozen 2R target. Planned entry 100, stop 90 and target 120 remain target 120 after fill
+at 98: gross price risk is 8, reward 22 and actual gross ratio
 2.75 rather than 2. Report planned price, actual average fill, stop, fixed target, planned R and actual
 risk/reward separately, with net-of-cost outcomes distinct. Source `replay.py` recalculates targets
 from fill price, so this is a new named strategy/trial meaning, preserving old evidence rather than claiming
@@ -457,11 +498,13 @@ when new independent data or an untested scope exists, a review prediction and m
 registered first, and old evidence plus new reads remain counted. Old conclusions are never rewritten. Replaying
 old data, renaming the mechanism, or restating a binary protected status cannot reopen it.
 
-**Completion criterion.** An external agent submits and reads back the full R-1 journey through domain tools and
-can resume by native identity after its session restarts. Dashboard shows the same sources, trials, reports,
-unresolved states, and admitted actions. Independent acceptance exercises missing data, unregistered trials, spend
-caps, wrong event order, protected leakage, mistaken closure after nonqualification, and a forward record trying to
-trade.
+**Completion criterion.** In V0.1, an external Agent prepares data, seals strategy source, runs native replay, and
+reads back complete results through domain tools. After a session restart, admitted jobs remain queryable by their
+original identities, with failures and gaps visible. A Dashboard report page is not a V0.1 acceptance condition.
+V0.1 also exercises missing data, unregistered trials, resource caps, wrong event order, protected read violations,
+and job recovery. The later full research and operation journey also shows sources, trials, reports, unresolved states,
+and admitted actions in Dashboard, and exercises the stage-specific refusals for mistaken closure after
+nonqualification and a forward record trying to trade.
 
 ### Reports and on-demand graphical replay
 

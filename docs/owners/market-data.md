@@ -580,14 +580,16 @@ must be recreated.
   rows moved here from R&D's data-read ledger, which held the agent-session rows while R&D was meant to own the agent's
   tools; R&D's census reads them downward and still writes the trial rows itself. Until a session is bound to a
   lineage, R&D counts an agent read against every lineage.
-- **No market value reaches an agent before the holdout partition exists.** No Owner defines Qualification's holdout
-  partition yet, so `get_bars` and `get_funding` refuse every request as `HOLDOUT_PARTITION_UNDEFINED`, as every
-  hand-out of R&D's data-read ledger does.
-- **TARGET, after U1: Qualification registers its partition into Market Data.** Qualification calls down and
-  registers the protected instruments and periods by value; Market Data only refuses. Then a tool refuses a range that
-  overlaps a protected period as `RANGE_IN_HOLDOUT_PARTITION`, and a backtest whose window overlaps one is refused by
-  name, because its result alone would leak the holdout. Until the partition is registered, every backtest report
-  states that no holdout partition is defined and that its results are exploratory only.
+- **CURRENT: market-value reads remain refused while protection partitions are undefined.** No Owner has registered
+  an enforceable protected partition yet, so `get_bars` and `get_funding` refuse every request as
+  `HOLDOUT_PARTITION_UNDEFINED`. This describes current behavior, not the V0.1 delivery order for initial reads.
+- **V0.1 TARGET: register approved research and protected scopes before ordinary research reads.** Market Data keeps
+  the exact scope version and enforces access; undefined scopes still refuse by name. After registration, tools refuse
+  requests overlapping protected instruments or periods, and research backtests cannot consume those inputs because
+  their results could leak protected values. The full Qualification protection-assessment protocol follows later and
+  is not a prerequisite service for V0.1 reads. When unseen protected evidence cannot yet be established, reports
+  identify the qualification-evidence gap and remain exploratory; an established protection boundary is not described
+  as undefined.
 - **Accepted on its own** when, in the deployment image and through this server alone, BTC, ETH and SOL are admitted,
   each is backfilled for `1d` with its `1m` fill, `coverage` shows the windows, and every refusal above is driven once.
 
@@ -3174,9 +3176,11 @@ custody.
 
 **TARGET, fill quotes for a source that publishes bars only, and the Owner clock that admits them:** nothing
 here is built, and nothing is admitted until its slice is. A deployed Backtest over Binance perpetual history
-needs a fill quote between every pair of frames and has none today: Binance publishes no historical quotes
-(`bookTicker` answers only the current one), and a quote cut must sit on the frame's own Source
-Binding lineage. Every frame of such a Backtest is therefore refused as `QuoteCutMissing`.
+needs a fill quote between every pair of frames and currently has no complete product binding. Binance REST
+`bookTicker` answers only a current snapshot. Its [public archive](https://data.binance.vision/data/futures/um/monthly/bookTicker/BTCUSDT/BTCUSDT-bookTicker-2023-05.zip)
+does contain some historical `bookTicker` files, but their years, instruments, continuity and source rights have
+not been admitted for the frozen R-1 scope. A quote cut must sit on the frame's own Source Binding lineage;
+missing cuts are refused as `QuoteCutMissing`. Trade bars or mark prices are not observed bid/ask quotes.
 
 The first Composer replay meets a second gap as well: it freezes its frame at the frame's own instant, so its
 quote is retrieved after the Owner's clock head, and a snapshot retrieved after the head cannot be admitted at
