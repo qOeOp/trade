@@ -97,6 +97,17 @@ Strategy in one `BacktestEngine` margin account. Pass the exact set of coins,
 quantity CSV, catalog roots, and aligned interval. The runner checks bar and
 funding coverage, streams one calendar month at a time, and exports native
 orders, fills, positions, account events, returns, and a shared-account summary.
+For an exit-path diagnostic on an existing run, `analyze_exits.py` reads those
+native reports and the same LAST catalog. It reports strict and permissive
+pre-exit favorable-price bounds without creating counterfactual fills or PnL:
+
+```bash
+python/.venv/bin/python research/r1_native/analyze_exits.py \
+  --catalog-root /tmp/r1-37-1y-5m-2026oct7 \
+  --run /tmp/r1-rd-portfolio-37-expiry-fix \
+  --output research/r1_native/results/2026-10-07-exit-attribution-d05.json
+```
+
 For the existing one-year research sample, the invocation is:
 
 ```bash
