@@ -301,7 +301,25 @@ data. Missing or invalid marks remain named gaps; native price fallback cannot l
 as mark valuation. Unincurred
 exit costs are not actual costs; show fill prices separately from valuation prices with source/time/staleness.
 Missing valid valuation cannot produce fictitious complete returns. Engine shutdown cleanup must not silently add
-liquidation trades to the primary report. Any liquidation sensitivity is separate and never replaces that report.
+liquidation trades to the primary report.
+
+In-run liquidation is a separate question. The V0.1 R-1 USDT perpetual primary replay leaves native
+`liquidation_enabled` off: the current native check calculates unrealized PnL from cached bid/ask quotes and skips
+when quotes are absent; its liquidation path closes all positions in the breached settlement currency. Turning on
+the switch does not establish historical-mark triggering or fidelity to the
+[Binance liquidation protocol](https://www.binance.com/en/support/faq/detail/360033525271). The primary report
+must check the liquidation threshold at decidable minute event points using frozen margin mode, maintenance-margin
+terms covering actual notional and labeled as historical facts or simulation assumptions, native MarginAccount/Portfolio
+state and historical marks, while retaining event order
+and data resolution.
+If every point is provably above the threshold, a complete report under the declared minute model is allowed;
+this does not prove the venue never liquidated intraminute. At the first threshold breach, missing mandatory input,
+or unresolved same-minute ordering, retain preceding diagnostics but draw no complete subsequent return, drawdown
+or Sharpe conclusion. Do not let an unliquidated continuation flatter results. A native liquidation sensitivity
+may be reported separately when quotes and frozen configuration are available; it neither replaces the primary
+result nor represents Binance liquidation. Reconsider in-run liquidation in the primary report only after a bounded
+native-node path for mark-price triggers, tiers, liquidation fills and fees passes real-consumer acceptance;
+do not create another ledger or matcher.
 
 Close-confirmation rule: first-version candle/indicator conditions for signals, cancellations
 and stop changes are confirmed only after the relevant bar closes and its data is available. A 15m closing indicator

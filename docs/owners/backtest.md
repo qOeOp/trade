@@ -312,6 +312,11 @@ selected simulation conditions; a complete historical fee archive is not a prere
 Applying current rates throughout the interval is a simulation assumption, not a historical charging fact.
 Missing required parameters or native consumer support still refuses the run, without silent zeros or defaults.
 
+Accept the R-1 perpetual primary report under the [research scenario's in-run liquidation rule](../scenarios/research/#portfolio-statistics-and-terminal-valuation).
+Native `liquidation_enabled` currently checks cached quotes rather than historical marks; keeping it off does not
+remove Backtest's obligation to diagnose threshold breaches and indeterminate minute event points. The native
+continuation after either cannot feed primary complete return, drawdown, Sharpe or later qualification inputs.
+
 Market Data owns historical prices, funding, mark prices and supplied historical terms; Backtest owns simulation
 models and parameters. Report historical data separately from simulation conditions. Parameter changes produce
 new runs; the Agent may compare cost sensitivity without a product cost optimizer. Model selection grants neither

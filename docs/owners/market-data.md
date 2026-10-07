@@ -3176,9 +3176,11 @@ custody.
 
 **TARGET, fill quotes for a source that publishes bars only, and the Owner clock that admits them:** nothing
 here is built, and nothing is admitted until its slice is. A deployed Backtest over Binance perpetual history
-needs a fill quote between every pair of frames and has none today: Binance publishes no historical quotes
-(`bookTicker` answers only the current one), and a quote cut must sit on the frame's own Source
-Binding lineage. Every frame of such a Backtest is therefore refused as `QuoteCutMissing`.
+needs a fill quote between every pair of frames and currently has no complete product binding. Binance REST
+`bookTicker` answers only a current snapshot. Its [public archive](https://data.binance.vision/data/futures/um/monthly/bookTicker/BTCUSDT/BTCUSDT-bookTicker-2023-05.zip)
+does contain some historical `bookTicker` files, but their years, instruments, continuity and source rights have
+not been admitted for the frozen R-1 scope. A quote cut must sit on the frame's own Source Binding lineage;
+missing cuts are refused as `QuoteCutMissing`. Trade bars or mark prices are not observed bid/ask quotes.
 
 The first Composer replay meets a second gap as well: it freezes its frame at the frame's own instant, so its
 quote is retrieved after the Owner's clock head, and a snapshot retrieved after the head cannot be admitted at

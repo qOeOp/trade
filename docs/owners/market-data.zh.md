@@ -2649,8 +2649,11 @@ V1 scheduling receipt 先声明成员数，并在帧的 batch 之后绑定报价
 snapshot、fact 与 batch。 目前还没有证明在 Owner 托管数据上驱动过一次完整的首帧读取（schedule、universe 与报价 cut 齐备）。
 
 **TARGET，只发布 bar 的来源的成交报价，以及准入它们的 Owner 时钟：** 这里的任何东西都还没有构建，每一片在准入之前都不 动手。 在部署上对 Binance 永续历史做的
-Backtest，每两帧之间都需要一个成交报价，今天一个也没有：Binance 不发布历史报价 （`bookTicker` 只回答当前的一个），而报价 cut 必须与帧同属一条 Source
-Binding lineage。 所以这样的 Backtest 每一帧都会被拒为 `QuoteCutMissing`。
+Backtest，每两帧之间都需要一个成交报价，当前产品没有可用的完整绑定。Binance 的 REST `bookTicker`
+只回答当前快照；[官方公开归档](https://data.binance.vision/data/futures/um/monthly/bookTicker/BTCUSDT/BTCUSDT-bookTicker-2023-05.zip)
+确有部分历史 `bookTicker`，但其年份、标的、连续性及来源权利还没有覆盖并准入冻结的 R-1 范围。
+报价 cut 必须与帧同属一条 Source Binding lineage；缺失时按 `QuoteCutMissing` 拒绝，不能把成交 K 线
+或标记价称为观测到的 bid/ask。
 
 第一次 Composer 回放还撞上第二个缺口：它把帧冻结在帧自己的时刻，所以它的报价在 Owner 时钟 head 之后才取回， 而在 head 之后取回的快照根本无法准入。 它只是靠两个具名的 stand-in
 才走通的：它的 Data Client 用 klines 构造 Quote 行，再多准入一个 `usdm/klines/4h` Source Binding 把时钟推过帧。 本设计替换这两者。

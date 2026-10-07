@@ -161,7 +161,9 @@ views remain read-only.
 - Bind data, funding, fees, slippage, margin and terminal open-position valuation. Apply the agreed ambiguity
   policy; missing inputs cannot produce an invented complete result. Use historical mark prices for perpetual
   unrealized PnL and terminal equity; execution still uses trading market data. Missing or invalid mark prices
-  produce explicit gaps without silently falling back to trade prices. The first acceptance need not cover every
+  produce explicit gaps without silently falling back to trade prices. Apply the
+  [R-1 primary-report liquidation rule](../scenarios/research/#portfolio-statistics-and-terminal-valuation): no complete
+  return conclusion when the declared minute model cannot prove no threshold breach. The first acceptance need not cover every
   market, dynamic selection, multiple legs or every native execution capability.
 - Provide bounded reads of admitted ordinary research market data, with traceable versions and recorded read scope.
   Agents may inspect bars, calculate indicators and propose rules using their own scripts; the product adds no analysis

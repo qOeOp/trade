@@ -85,10 +85,103 @@ Inventory components and integration paths; do not turn every upstream feature i
 | State/recovery             | cache, Event Store, snapshots, typed replay, native reconciliation                                               | Adopt proven restoration scope; cache restoration is not full engine rewind, venue confirmation or restored governance authority                         |
 | Supporting capabilities    | clock/timers, msgbus, network, serialization, persistence, crypto, logging/observability, plugin/Python bindings | Native infrastructure; verify Rust/Python differences, plugin hosts and feature flags per entry without new departments                                  |
 
-The detailed crate mapping below governs permissions and handoffs; provider history, streams and execution ports
-remain distinct capabilities. Every development slice binds native entry points, input types/configuration, added
+Every development slice binds native entry points, input types/configuration, added
 product facts and final-consumer acceptance. Only a demonstrated requirement gap warrants a bounded extension;
 a feature name without its integration chain is not an implementation plan.
+
+### Native capabilities adopted or deferred
+
+This repository pins version `0.62.0`. "Not integrated" means no accepted Trade product consumer was found, not
+that native code is absent. Libraries, tests, compatibility entries and MCP registration do not complete a user
+journey. Cleanup first checks reverse callers, Python exports, imports in sealed Strategies and historical readers;
+"deferred" is no deletion authority.
+
+**Market data and inputs.**
+
+- **Binance history and live data.** `crates/strategy_factory_rd_owner_api` admission/backfill and
+  `crates/market_data_resident` use the native
+  `BinanceFuturesHttpClient`. The resident is composed in Workbench, without evidence of production deployment or
+  complete input-manifest acceptance. Native `BinanceFuturesDataClient → DataEngine` live subscriptions have no Trade
+  Trading Node consumer yet; retain them for V0.3. V0.1 prepares and replays exact historical versions without a
+  second live market-data bus.
+- **Catalog and aggregation.** Native typed catalog, dedicated instrument writes, missing-interval queries and
+  `BarType`/internal aggregation are V0.1 target integration points. Downloads or coverage do not prove that the
+  catalog-to-native-replay consumer is connected; the catalog also does not supply source authorization,
+  point-in-time availability or protected partitions.
+- **Economic and market-state events.** `MarkPriceUpdate`, `FundingRateUpdate`, `IndexPriceUpdate`,
+  `InstrumentStatus` and `InstrumentClose` have native data/replay entries. R-1 needs historical mark and funding
+  bindings; index/status/close enter manifests only with admitted sources and actual consumers. Types alone prove
+  neither historical coverage nor listing membership.
+- **Ticks, books and files.** `QuoteTick`, `TradeTick`, books and `StreamingFeatherWriter` remain native options for
+  later studies with admitted fine-grained data. V0.1 uses one-minute bars and cannot claim real queue positions from
+  OHLC. Feather streaming does not replace formal Parquet custody. Python Arrow `DataWrangler` can aid later typed
+  external-file admission, but arbitrary CSV cannot directly become a replay input.
+- **Other data families.** `CustomData` and forward-price requests are not required by the first R-1 acceptance.
+  U09/U10 OI, macro and event inputs first need historical publication versions, fields and Strategy consumers before
+  choosing a native custom-data entry. Option chains and DeFi have no current Binance perpetual/spot story, so expose
+  no product route now. Future use verifies sources, Rust/Python conversions and actual consumers separately.
+
+**Replay and operation.**
+
+- **Partial-fill protection.** Native `OrderManager`/`Emulator`, contingent orders and `OtoTriggerMode` are R-1
+  integration points; the latter can release children on partial parent fills or wait for full completion. V0.1
+  freezes the mode and verifies protection against actual filled size. Native availability does not prove live
+  Binance Futures grouped linked order lists are connected.
+- **Close timing and fill fidelity.** Native `trade_on_close` controls whether a new market order after bar close
+  may fill at that same close. R-1's confirmed close-availability semantics prohibit backfilling a new signal into
+  the closed bar. The direct-engine compatibility config sets false, but current Node configuration does not expose
+  it; V0.1 must freeze and verify a native path or complete the Node mapping, not treat compatibility tests as
+  product integration. Native `liquidity_consumption`/`queue_position` are deferred on the one-minute bar baseline
+  without tick/book evidence; later sensitivity runs require real inputs.
+- **Venue simulation models.** Native Fee/Fill/Latency/Margin models, OHLC paths and simulation modules can be
+  composed. V0.1 binds fees, funding, slippage, margin and a frozen fill path only with documented sources and units.
+  Uncalibrated random fills or latency are not main-report facts. Perpetuals do not use expiry settlement prices;
+  cash-borrowing and frozen-account toggles cannot replace actual contract-account constraints.
+- **In-run liquidation.** Native `liquidation_enabled` can liquidate during a position at a simulated maintenance
+  margin threshold and defaults off; the current product Replay economic schema accepts only `Disabled`. Its check
+  computes unrealized PnL from cached bid/ask quotes, skips missing quotes and closes every position in the breached
+  settlement currency. It cannot establish historical-mark or Binance staged-liquidation fidelity. The V0.1 R-1
+  primary report keeps it off, but produces complete results only when frozen margin mode, maintenance terms covering
+  actual notional and labeled as fact or assumption, and historical marks prove no breach at the minute event points.
+  A breach or indeterminate interval ends complete return claims. Current Binance default economic terms seal only the first margin
+  tier and its notional cap; runs above the cap are rejected, and higher or historically revised tiers are not wired.
+  Native liquidation may be a separate sensitivity with adequate inputs. Primary-report
+  adoption requires real-consumer acceptance of mark-price triggering and liquidation fills/fees inside the native
+  node. The rule against an invented close at the backtest window end remains separate.
+- **Risk checks and sizing.** Native RiskEngine rate limits, per-order notional caps, `TradingState`, and fixed-risk
+  sizing can serve order checks and explicit sizing models. V0.1 has not proved the full Trade intent path through
+  them. The fixed-risk formula supplies no default size for a new configuration and cannot replace shared portfolio
+  capacity, operator authorization or Risk Decision. Native trailing/bracket orders are used only when a Strategy
+  declares them and replay and venue support are verified. R-1s moves the remainder stop after an actual first-leg
+  fill; a generic trailing order alone does not prove that rule.
+- **Control, algorithms and reconciliation.** Native `Controller`, TWAP and other `ExecutionAlgorithm`s, and
+  ExecutionEngine venue reconciliation are not needed for V0.1 R-1 dynamic control or order slicing. V0.3
+  integrates native-node mechanisms under Governance/Runtime/Risk admission; Controller is not a direct Agent or
+  Dashboard write endpoint. Native external-order claiming handles one strategy per instrument, so unknown orders
+  with multiple strategies on an instrument cannot be assigned automatically.
+- **Valuation and statistics.** Portfolio snapshots and analysis/analyzers underpin V0.1 reports. Connecting minute
+  equity to primary max drawdown still requires consumer acceptance; enabling snapshots alone changes no statistic.
+  Agents may use other native indicators in sealed Strategies as needed. There is no indicator allowlist, and
+  cleanup must inspect Artifact imports first.
+- **State and recovery.** Native cache, Event Store, snapshots and typed replay support node recovery and reproducible
+  reads, but their presence does not prove Product Owner results, authorization receipts or venue effects are in
+  custody. V0.1 adopts only recovery ranges checked by actual consumers. Do not build a cross-Owner shared ledger,
+  or remove native node state merely because product custody exists.
+
+**Cleanup classes.** Non-Binance venue adapters have no approved Trade trading route. `fred`, `scheduled_events`
+and `tardis` await a macro/event or finer-history source story; Binance Spot clients are retained for V0.6, and
+`sandbox` is a later Paper Execution Adapter, not a historical replay venue. Non-Binance adapters, options/DeFi and
+Feather are conditional cleanup candidates, but `crates/pyo3` still depends non-optionally on most adapters and
+exports Python modules. Before removal, verify examples, tests, external APIs, historical record readers and sealed
+source imports have migrated or are absent while existing refusals, protection and recovery boundaries remain intact.
+
+Cleanup source entry points: `crates/adapters/binance/src/futures/data.rs`,
+`crates/persistence/src/backend/catalog.rs`, `crates/backtest/src/config.rs`,
+`crates/system/src/controller.rs`, `crates/execution/src/engine/mod.rs`, `crates/risk/src/engine/mod.rs`
+and `crates/pyo3/Cargo.toml`. Trace actual consumers from these paths; this list does not replace a dependency scan.
+
+The crate mapping below governs permissions and handoffs; provider history, streams and execution ports remain
+distinct capabilities.
 
 | Existing crate or capability                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Destination                                                        | Adoption contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -124,7 +217,6 @@ a feature name without its integration chain is not an implementation plan.
 
 ### Current sealed boundaries
 
-- `crates/deployment_attestation` → **Strategy Factory deployment verification.** Reuse the sealed, fixed-policy verifier only at the executable use boundary. Its evidence is a consumer input, not deployment authority or a business fact.
 - `crates/data/src/owner/store_admission` → **Market Data-private Deployment Store Admission custody.** `CURRENT` is the fail-closed, non-business PostgreSQL admission and pre/post revalidation seam for the fixed `rd-owner-api` consumer. Market Data alone retains its raw receipt, measurement, credential, PIT, Source Binding, and clock evidence, performs current-head validation, and seals `ResearchPitTerminal`; the ordinary consumer receives only the sealed terminal resolver. Its production custody store, signer, single-machine anti-rollback mode, secret-file credential resolver and pinned-TLS direct measurer compose the `required` seam from the deployment's configuration. The private seam owns no business fact or deployment-service authority; production writes and trading remain `NOT_ADMITTED`.
 - `crates/observability` → **Observability non-authoritative boundary.** Keep the read-only, rebuildable projection over canonical Owner records. It owns no source fact, command, retry, terminal decision, or trading authority.
 - `crates/execution_owner` → **Execution Owner adapter-binding custody.** `CURRENT` is the fail-closed PAPER
