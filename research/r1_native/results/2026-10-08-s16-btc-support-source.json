@@ -1,0 +1,71 @@
+{
+  "scope": "S16 exact official primary-video source fidelity; no historical orders, fills or annual PnL",
+  "source_url": "https://www.youtube.com/watch?v=sRwYzAKWVMY",
+  "video_id": "sRwYzAKWVMY",
+  "channel_id": "UCWRAtzLosbGhVt4-fDDSNPw",
+  "published_date_utc": "2026-07-24",
+  "preregistration_commit": "1a5eccc32a8be0e3d7deb19ffe556a9d005e476e",
+  "title_metadata_path": "/tmp/r1-s16-youtube-metadata.json",
+  "title_metadata_sha256": "757fbe51d6e9834bb3017c2e1ed42b9b5650aa87ba8d4891c415799135490f7e",
+  "receipt_path": "/tmp/r1-s16-note-create.json",
+  "receipt_sha256": "d4042490a0e7241f5b401441ba08032b38dffcd9a7959210f0a300b49be495d0",
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-101c7f70280f4aaabfa547ba5309f0b1/note.md",
+  "note_sha256": "7d6d7416581e05997731e10b9f27312b4ce55840d323eabbf9280c96b18a93b8",
+  "media_sha256": "68132c9296263697c478e35d509fe375d25460e4dec493c3c017ca760f066c44",
+  "independent_media_in_retained_artifacts": true,
+  "stage_ids": {
+    "media": "media-9aa29dca9e3f6c536a7ec0d6f2932c38790db1ff108cfb12f423170712762a53",
+    "transcript": "transcript-b29182b95442844060e961dc2e03c261cc6f4b0b0286c4b00a166f3678f83fdb",
+    "frames": "frames-4ab845eff7d6070489288f494334461855a39de6ed7cebaa75f2bed36a8e998c"
+  },
+  "evidence": [
+    {
+      "segments": "E002-E012",
+      "time_ms": [4880, 34260],
+      "observation": "BTC rising trend-line support was reportedly tested the previous day and again overnight, with two bullish candles after the first test. The author expects a choppy rise toward the prior horizontal high. No new long order or structural stop is given at this video decision; prior drawing time of the line is unproved."
+    },
+    {
+      "segments": "E060-E075",
+      "time_ms": [150220, 195320],
+      "observation": "ETH hourly trend-line break is explicitly not treated as a direction reversal because the effective low remains and four-hour prior high was broken. The next horizontal-support long is a future conditional plan, while an existing profitable short may be held."
+    },
+    {
+      "segments": "E080-E089",
+      "time_ms": [202500, 226220],
+      "observation": "LINK is currently testing rising trend-line support. The speaker says a few stop-outs at support longs or resistance shorts should not cause abandonment of the location technique. This is method-persistence advice, not proof of profitability or a specific filled order."
+    },
+    {
+      "segments": "E119-E129",
+      "time_ms": [288940, 313540],
+      "observation": "DOGE four-hour descending triangle has a completed strong downward break candle. Immediate break-candle short is allowed for a left-side trader; a right-side trader may wait for a later retest, including of a descending line. The latter retest has not occurred by the video decision."
+    }
+  ],
+  "original_frames": [
+    {
+      "frame_id": "F40",
+      "timestamp_ms": 14750,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-4ab845eff7d6070489288f494334461855a39de6ed7cebaa75f2bed36a8e998c/F40.png",
+      "sha256": "d63e4c03a71ea7ec431241843d1dfaa24b5471f19f229bfa9351d4d2ca9088b1",
+      "observation": "BTC chart shows a completed recent low near the drawn rising support and a rebound, plus prospective movement toward an upper resistance zone. The frame alone cannot date the original line drawing."
+    },
+    {
+      "frame_id": "F41",
+      "timestamp_ms": 210170,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-4ab845eff7d6070489288f494334461855a39de6ed7cebaa75f2bed36a8e998c/F41.png",
+      "sha256": "5586e3f5ec4e3ab50a980ebe6ed25a363dcde6153e983f417e7dc081764eaafe",
+      "observation": "LINK four-hour price is near a drawn rising line after a pullback; no exchange order or stop is visible."
+    },
+    {
+      "frame_id": "F16",
+      "timestamp_ms": 285250,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-4ab845eff7d6070489288f494334461855a39de6ed7cebaa75f2bed36a8e998c/F16.png",
+      "sha256": "9b30201498fa7357fcffb214fc1f04995f187161be5c6269a8a4ba68948220df",
+      "observation": "DOGE four-hour chart shows a descending triangle, current candles below its horizontal floor, and a later drawn descending-line retest path."
+    }
+  ],
+  "btc_new_entry_gate": "not_passed",
+  "h06a_same_line_retest_new_order_gate": "not_passed",
+  "h07_context_distinction": "supported_as_source_case",
+  "decision": "Keep the larger support/trend-line method open and differentiate immediate break, future retest, and already completed bounce. S16 supplies a distinct source rationale for a second-level mechanism hypothesis but no strict positive new-entry case and no annual native variant. Do not infer that persisting with a technique makes H06 profitable.",
+  "limits": "Fast ASR has no independently reviewed audio segments. The chart is TradingView rather than verified Binance perpetual data; exact chart-capture clock and pre-touch line-drawing time are unproved. No order/fill or post-publication price continuation was read."
+}
