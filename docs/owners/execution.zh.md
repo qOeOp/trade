@@ -53,6 +53,9 @@
 
 原生 HEDGING 不等于 Binance Hedge Mode：当前场所持仓 ID 按标的加 LONG/SHORT/BOTH 聚合， positionSide/reduce-only 受场所模式约束。 R-1
 验收须证明退出归属、部分成交、聚合持仓变化及外部活动的对账， 不能只切换 OMS 枚举就声称支持。 GTD 依赖场所支持或原生 `manage_gtd_expiry`；GTD→GTC 配置不具有场所到期保证。
+当前 Binance Futures adapter 的 `modify_order` 要求限价，只向改单接口传数量与限价；仅有触发价的 StopMarket
+保护单不能由这条路径直接移至入场价。原生回测能处理触发价修改，不证明后续 Live 场所接线可用；实盘准入须
+核验或补齐该适配能力，并验收拒绝、未知结果、保护连续性与权威回读，不能把本地改单拒绝记成保护已更新。
 
 - **Order Engine** - 验证许可或恢复围栏，并独占订单创建 修改 撤销和终态管理。
 - **Execution Adapters** - 只准入 Execution Scope 固定的 adapter binding，再转换请求 回执 成交 错误和

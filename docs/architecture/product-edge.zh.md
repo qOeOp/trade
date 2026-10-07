@@ -121,8 +121,9 @@ server 握手或一次独立编写运行不能证明整条旅程。
 - `get_bars(instrument, execution_timeframe, range)` → 内联且有界地返回 bar。拒绝：`RANGE_NOT_COVERED`、
   `RANGE_TOO_LARGE_FOR_INLINE` 与 `HOLDOUT_PARTITION_UNDEFINED`。回测从不经它读取数据：回测接收 `dataset_ref`。
 - `get_funding(instrument, range)` → 资金费率，同样有界、同一组拒绝。
-- 在 Qualification 按值、向下把其 holdout 分区登记到 Market Data 之前，这两个工具对每个请求都以
-  `HOLDOUT_PARTITION_UNDEFINED` 拒绝：登记之前的答案是全部拒绝，从不是全部放行。
+- **当前兼容入口**尚无可执行保护分区，这两个工具对每个请求都以 `HOLDOUT_PARTITION_UNDEFINED` 拒绝。
+  **V0.1 目标**是在首次普通研究读取前，由 Market Data 登记获批准的研究与保护范围及准确版本，并逐次检查授权和重叠；
+  范围未定义或请求触及保护输入仍拒绝。完整 Qualification 保护评估协议后续接入，不是开放普通研究读取的前置服务。
 - 每个返回行情数值的工具都在作答的同一事务里把这次读取追加到 Market Data 的代理数据读取台账，写不进去就拒绝
   （[Market Data](../owners/market-data/) 中的「Agent data-read ledger」）。试验行仍归 R&D，其 census 向下读取 Market Data
   的台账。
@@ -224,8 +225,9 @@ server 握手或一次独立编写运行不能证明整条旅程。
 
 **只给结论，从不给受保护数值。**
 
-- 没有工具调用 Qualification 的受保护读取，也没有运行读到已登记的 holdout 时段之内：分区登记之前 `get_bars` 与
-  `get_funding` 拒绝一切，登记之后 `backtest.run` 拒绝重叠的窗口。Qualification 只通过其公开状态作答。
+- 没有工具调用 Qualification 的受保护读取，也没有研究运行读到已登记的保护范围：当前范围未定义时 `get_bars` 与
+  `get_funding` 拒绝一切；V0.1 经 Market Data 登记获批准的范围后只开放普通研究读取，重叠的读取和回测仍拒绝。
+  后续 Qualification 只通过其公开状态作答。
 - 拒绝按名透传。没有任何拒绝被折叠成泛化失败。
 
 **Dashboard MCP。** `/api/mcp` 是 preview 界面的有界操作通道，不是外部研究代理的领域入口，
