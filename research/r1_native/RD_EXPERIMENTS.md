@@ -191,3 +191,16 @@ python/.venv/bin/python research/r1_native/audit_native_brackets.py \
 ## Diagnostic D10: favorable opens on native entry-fill bars
 
 **Question registered before the read:** D09 found no native entry fill better than its submitted limit, while the frozen research `family_r.py` fill function may credit a more favorable daily open. On the same exact-source R-1u run, join every filled native ENTRY order to its five-minute LAST bar at the native fill event, using instrument, bar timestamp and the recorded order limit. Count BUY fill bars whose open is strictly below the limit and SELL fill bars whose open is strictly above it; also count exact-open and adverse-open cases, timing mismatches, and entries whose order was not live by the interval open. Report the price difference and first examples, but do not assume the five-minute open was reachable by an order submitted later in that interval. Keep all native fills, fees, funding, balances and portfolio metrics unchanged; no alternate fill/PnL series or performance selection. If favorable opens occur, investigate engine bar-timestamp semantics and source-model comparability before making a product or strategy change. If none occur, this particular gap mechanism cannot explain the toy/native gap on filled entries in this run. The exposed year remains development evidence; no new market data is fetched.
+
+**Observed native fill-bar read:** `audit_fill_bar_opens.py` (SHA-256 `4adbaeb406d6d3e06778250e8e7bbfbb9ef1b41fa133bc97b1fa749577205bf7`) produced `results/2026-10-07-37coin-fill-bar-opens-d10.json` (SHA-256 `f98a152f16eaf9e2e23b14c3b2556f25d054fcdd05e574f07af91684999095fb`). Each of the 1,561 filled native ENTRY orders has exactly one native fill event, and each event matches a five-minute LAST bar timestamp. **Zero** fill bars opened favorably through the submitted entry limit; four opened exactly at the limit and 1,557 opened on the adverse side before touching the limit within that bar. All orders had been submitted by their fill-bar open, and the native order last-event timestamp matches each fill event. Thus no favorable five-minute opening was available on these native filled-entry bars for a limit-price improvement. This does not compare the toy's TradingView spot daily trade set with the futures native trade set; it does not prove the frozen toy never credited favorable daily opens on other orders or days. There is no alternate fill or PnL in D10. The remaining research priority is the source-rule and market/trade-set mismatch, including source examples and execution timing, rather than assigning the low native win rate to this unobserved favorable-open mechanism.
+
+Reproduce D10 against the same native report and LAST Catalog:
+
+```bash
+python/.venv/bin/python research/r1_native/audit_fill_bar_opens.py \
+  --catalog-root /tmp/r1-37-1y-5m-2026oct7 \
+  --run-summary research/r1_native/results/2026-10-07-37coin-h03-paired-r1u-exact-source.json \
+  --run-orders /tmp/r1-rd-h03-paired-r1u-37-exact-source/orders.csv \
+  --run-fills /tmp/r1-rd-h03-paired-r1u-37-exact-source/fills.csv \
+  --output research/r1_native/results/2026-10-07-37coin-fill-bar-opens-d10.json
+```

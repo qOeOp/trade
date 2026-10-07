@@ -146,6 +146,9 @@ that frozen plan's entry, stop, target and expiry against every submitted native
 bracket in an existing R-1u order report. It also reads the actual native entry
 price to report order-price reward/risk before fees and funding. Neither audit
 replaces native fills, account results or a backtest.
+`audit_fill_bar_opens.py` reads filled native entries and their corresponding
+five-minute LAST bars to count favorable, equal and adverse opens against the
+submitted limit. It does not assign another fill price or change portfolio PnL.
 
 For the separately registered H01 experiment, add `--risk-budget-bps 25` and
 `--coin-notional-cap-pct 5` to the portfolio command. The Strategy reads native

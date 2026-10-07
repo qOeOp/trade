@@ -8,5 +8,6 @@
 - `SOURCE_CASES.md` holds video/chart fidelity checks to apply before judging a new strategy variant's backtest score.
 - `audit_daily_signal_counts.py` is a read-only source-rule count check against native Catalog daily inputs and a native Strategy summary. It cannot create fills or backtest returns.
 - `audit_native_brackets.py` checks frozen daily plans against the native entry, stop and target order report, including price rounding and filled-entry order geometry. It reads existing reports and catalogs only; native fills and account reports remain authoritative.
+- `audit_fill_bar_opens.py` joins native entry fill events to five-minute LAST opens without changing fills or PnL. Its price-path counts cannot stand in for a new backtest.
 - Keep source rule custody tied to `0725a7b3f89902e27cd421a18b4b879a13268534`.
 - Check with `python -m compileall research/r1_native`, then run against a catalog containing Binance USDT perpetual minute bars and the matching instrument.
