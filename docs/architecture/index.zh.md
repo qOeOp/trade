@@ -78,15 +78,16 @@ Governance 核验准确版本与适用范围、当前授权、额度、账户/�
 
 ### V0.1 - 可用的 R-1 数据与回测流程
 
-第一版交付一个可重复使用的服务器端流程：外部 Agent 提交版本化原生策略源码包，最小 R&D 路径封存 Artifact 与
-实验输入，Market Data 准备已验证的 Binance USDT 永续点时历史，Backtest 执行 Nautilus 原生回放，
-Agent 按任务身份读取状态、成交、账户结果与报告。Agent 可在冻结边界内继续修改策略、提交新实验并
+第一版交付一个可重复使用的服务器端流程：外部 Agent 先经 Market Data 准备或复用已验证的 Binance USDT
+永续点时历史，取得准确数据引用；再提交版本化原生策略源码包，由最小 R&D 路径封存 Artifact 与实验输入。
+Agent 请求 Backtest 执行 Nautilus 原生回放，再按任务身份读取状态、成交、账户结果与报告。
+Agent 可在冻结边界内继续修改策略、提交新实验并
 自行比较结果，各轮保留准确版本和独立证据。本版不要求先完成完整研究管理、项目级接管和知识复用，
 这些交付保证属于 V0.2；假设、诊断与迭代始终由 Agent 决定。首版交付终点是 Agent 经 MCP
 读回完整结果并向用户解释；Dashboard 回测报告页面不作为 V0.1 验收条件。Dashboard 的研究视图仍只读。
 
 - 验收采用[R-1u 与 R-1s](../scenarios/research.zh.md#r-1-挂单与分段退出)：十天限价等待、成交后最长 60 天、
-  冻结 2R 目标、R-1s 双段目标与保护更新，以及两段实际退出后释放币名额，均由同一原生语义处理；
+  冻结 2R 目标、R-1s 双段目标与首段全部止盈成交后更新余仓保护，以及两段实际退出后释放币名额，均由同一原生语义处理；
   具体数据范围和执行能力在实现切片开始前明确。
   R-1 是验收故事，不是策略白名单；Agent 可自由编写使用首版已支持数据和执行能力的原生策略，
   不按策略名称或固定模板限制研究。未接入的数据或执行能力返回具名缺口，不宣称所有原生能力已可用。
@@ -444,7 +445,7 @@ flowchart TB
     A -->|"回测 MCP"| BT
     A -->|"获准的查询与请求"| Q
     A -->|"获准的查询与请求"| G
-    D -->|"同一组领域 API"| RD
+    D -->|"研究进度与结果只读"| RD
     D -->|"确认上线、上下架、政策配置"| G
     D -->|"只读运行与账户视图"| N
     RD -->|"核对获准数据绑定"| MD
@@ -548,14 +549,14 @@ Windmill 不在产品部署依赖中；历史 wire 名称只保留原记录含�
 
 #### 服务与入口
 
-| 后台服务      | 外部入口                                                         | 内部消费者                          | 持久状态与依赖                                                            |
-| ------------- | ---------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------- |
-| Market Data   | `market-data` MCP、Dashboard 数据视图                            | R&D、Backtest 与原生节点            | 自有来源/标的/托管/读取台账；原生数据存储与客户端                         |
-| Backtest      | backtest MCP、Dashboard 回放/报告                                | R&D、隔离 Qualification             | 自有任务/运行/报告；Nautilus 引擎和已准入数据                             |
-| R&D           | `strategy-authoring`、research、knowledge、scan 目录及 Dashboard | Qualification/Governance 接收其产物 | 自有项目/策略/实验/知识；数据与回测服务                                   |
-| Qualification | qualification 目录、有界资格视图                                 | R&D、Governance                     | 私有保护协议/评估/资格；隔离回测与数据读取                                |
-| Governance    | governance 目录、Dashboard 确认与控制                            | 原生节点、R&D                       | 自有生命周期当前绑定/阶段/政策/分配/授权；资格与表现事实                  |
-| 原生交易节点  | portfolio/operations 只读目录、Dashboard 视图                    | Governance 和经授权的控制消费者     | Runtime/Risk/Execution/Portfolio 的原生状态与各自事实；实时数据和场所接口 |
+| 后台服务      | 外部入口                                      | 内部消费者                          | 持久状态与依赖                                                            |
+| ------------- | --------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------- |
+| Market Data   | `market-data` MCP、Dashboard 数据视图         | R&D、Backtest 与原生节点            | 自有来源/标的/托管/读取台账；原生数据存储与客户端                         |
+| Backtest      | backtest MCP、Dashboard 回放/报告             | R&D、隔离 Qualification             | 自有任务/运行/报告；Nautilus 引擎和已准入数据                             |
+| R&D           | 编写/研究/知识/扫描 MCP；Dashboard 只读       | Qualification/Governance 接收其产物 | 自有项目/策略/实验/知识；数据与回测服务                                   |
+| Qualification | qualification 目录、有界资格视图              | R&D、Governance                     | 私有保护协议/评估/资格；隔离回测与数据读取                                |
+| Governance    | governance 目录、Dashboard 确认与控制         | 原生节点、R&D                       | 自有生命周期当前绑定/阶段/政策/分配/授权；资格与表现事实                  |
+| 原生交易节点  | portfolio/operations 只读目录、Dashboard 视图 | Governance 和经授权的控制消费者     | Runtime/Risk/Execution/Portfolio 的原生状态与各自事实；实时数据和场所接口 |
 
 当前多个领域 HTTP 路由由 `strategy-factory-rd-owner-api` 合成根装配；这不让 R&D 获得其他部门的事实写权，
 也不证明各目标服务已独立部署。Dashboard、stdio MCP 和构建 sandbox 是客户端/适配器或支撑进程，不新增业务部门。
@@ -583,7 +584,7 @@ Windmill 不在产品部署依赖中；历史 wire 名称只保留原记录含�
 | 编写 `archive`             | POST `/v1/strategies/{strategy_id}/archive`             | 归档结果                                                 | 归档不等于关闭已有真实持仓                       |
 | 回测 `run`                 | POST `/v1/backtests`                                    | run_id、strategy_id、标的、执行周期、半开窗口 → 记录结果 | 同 run_id 同含义重放，异义冲突；当前在调用内执行 |
 | 回测 `status`              | GET `/v1/backtests/{run_id}`                            | 已记录请求与回答                                         | 当前不是完整目标异步状态机                       |
-| 回测 `report`              | GET `/v1/backtests/{run_id}/report`                     | 报告或无结果拒绝                                         | 报告不创建资格                                   |
+| 回测 `report`              | GET `/v1/backtests/{run_id}/report`                     | 已记录运行当前 `RUN_HAS_NO_RESULT`；目标有界报告         | 未知运行另行拒绝；报告不创建资格                 |
 | 回测 `list`                | GET `/v1/backtests`                                     | limit → 运行列表                                         | 名字是 `list`，不是未发布的 `list_runs`          |
 
 上述编写 spec 当前接受单阈值与 `research.strategy-authoring.v1` JSON 两族。当前回测参数没有

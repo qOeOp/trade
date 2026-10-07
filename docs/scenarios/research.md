@@ -190,11 +190,11 @@ neither order creation nor a fixed 60-day reservation determines occupancy.
 R-1s uses the same entry and original stop and splits the filled quantity into two legs. The first exits at the
 same frozen 2R target. The second compares that 2R target with one breakout impulse length, `1.00 × |B - A|`,
 in the trade direction from the actual fill and takes whichever lies farther in the profit direction. A and B
-are breakout impulse anchors available when the signal is issued; later information cannot redefine them. Only
-after the first leg meets its registered actual
-profit-fill condition does the second leg move its stop to this trade's actual average entry. Touching the target
-or submitting an exit order does not move the stop. Both legs have the same maximum 60-day holding period from
-entry; the coin's slot becomes free only after both have actually exited. Native per-trade protection rules below
+are breakout impulse anchors available when the signal is issued; later information cannot redefine them. The
+second leg moves its stop to this trade's actual average entry only after the first leg's full rounded target
+quantity has actually filled through its 2R profit exit. A partial fill of that exit, target touch or order
+submission does not move the stop; the existing protection remains effective. Both legs have the same maximum
+60-day holding period from entry; the coin's slot becomes free only after both have actually exited. Native per-trade protection rules below
 govern rounding, partial fills, and failed changes; a triggered target is not treated as a fill.
 
 These rules define the R-1 acceptance example, not a template for other strategies. Fills, cancels, stops, and
@@ -415,8 +415,8 @@ exact trade reproduction.
 
 Acceptance separates registered target-basis divergence from unexplained matching divergence. Qualification
 consumes the new artifact/fixed-target identity, never reused eligibility from the earlier variant. Once
-R-1s's registered first-leg fill condition is satisfied, move the remaining stop to this trade's actual
-average entry, not its planned signal entry. Seal the fill frontier/average referenced at the transition and
+R-1s's full rounded first-leg target quantity has actually filled through its 2R profit exit, move the remaining
+stop to this trade's actual average entry, not its planned signal entry. Seal the fill frontier/average referenced at the transition and
 apply the trade identity and native price precision. This does not change the fixed target or add fee
 compensation to a different breakeven price.
 
@@ -535,13 +535,16 @@ its own frozen simulation, preserving the actual fill facts. Strategies do not o
 
 Sizing configuration declares quantity rules; Runtime combines them with Portfolio state to calculate requested quantities. Execution policy owns waiting, retry and termination, including insufficient funds, rate limits, network failures and venue rejections. R&D jointly seals these configurations with the native Strategy package; no extra Owner, registry or strategy recovery program is required. Native Strategy declares protection rules and transition conditions; actual fill
 events activate and maintain them without per-bar strategy modification commands or broker state management.
-R-1s declares half at 2R and a stop move to entry once that exit leg actually fills to its registered
-condition.
+R-1s declares half at 2R and a stop move to actual average entry only once the first leg's full rounded
+target quantity has actually filled through that profit exit.
 
 Touch, submission and acceptance do not prove the exit filled. The native Strategy consumes fills to apply frozen
 protection rules; Execution applies native changes and records results; replay uses the same Strategy/native simulator.
 Protection quantity follows the trade's actual remaining open quantity, not another trade or assumed
-completion of a partially filled exit leg. Seal condition, exit-leg quantity basis, updated price and native
+completion of a partially filled exit leg. If the first leg is five units, a two-unit profit-exit fill retains
+the prior stop; only after the other three units also profit-exit fill does the stop move. The first actual exit
+fill still cancels any unfilled entry remainder under the separate exit-start rule. Seal condition, exit-leg
+quantity basis, updated price and native
 rounding meaning. floor preceding exit legs to the frozen instrument quantity step and assign remainder to the
 last leg. Half of three minimum units becomes legs of one and two.
 

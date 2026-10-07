@@ -3236,7 +3236,7 @@ funding。 funding 是两行，channel 为 `MARKET`、data kind 为 `SCALAR`、t
 
 原生目标先准备并复用所需窗口的全量 1m，补齐实际缺分钟并证明覆盖，报告缺口/修订及有效窗口；Nautilus 原生聚合高周期。永续 funding 用独立真实来源与实际可得/结算计划取回，不用少量 fill 报价证明完整资金费或分钟输入。
 
-## 后续经济数据与原生周期接入
+## 经济输入与原生周期接入
 
 ### TARGET window funding schedule read
 

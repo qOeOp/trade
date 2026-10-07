@@ -110,9 +110,10 @@ replaces per-slice implementation admission or production-effect authority.
 
 ### V0.1 - Usable R-1 data and backtest journey
 
-Deliver a repeatable server-side journey: the external Agent submits versioned native strategy source package; the minimal R&D path seals
-the Artifact and experiment inputs; Market Data prepares validated point-in-time Binance USDT perpetual history;
-Backtest runs native Nautilus replay; and the Agent resolves job status, fills, account results and reports by
+Deliver a repeatable server-side journey: the external Agent first asks Market Data to prepare or reuse validated
+point-in-time Binance USDT perpetual history and obtains exact data references. The Agent then submits versioned
+native strategy source; the minimal R&D path seals the Artifact and experiment inputs. On the Agent's request,
+Backtest runs native Nautilus replay; the Agent resolves job status, fills, account results and reports by
 original task identity. Within frozen bounds, Agents may continue modifying strategies, submitting new experiments
 and comparing results themselves, retaining exact versions and separate evidence for each round. V0.1 does not
 require complete research management, project-level handover or knowledge reuse; those delivery guarantees belong
@@ -121,7 +122,8 @@ explaining them to the user; a Dashboard backtest-report page is not a V0.1 acce
 views remain read-only.
 
 - Accept [R-1u and R-1s](../scenarios/research.md#r-1-resting-entries-and-staged-exits): ten-day resting limits,
-  a maximum 60-day hold after entry, frozen 2R and R-1s split targets, protection updates, and slot release after
+  a maximum 60-day hold after entry, frozen 2R and R-1s split targets, a remainder stop move only after the full
+  first leg actually takes profit, and slot release after
   both legs actually exit use one native execution semantics. State the exact
   data scope and execution capabilities before each implementation slice begins. R-1 is an acceptance story, not a
   strategy whitelist. Agents may freely author native strategies using supported V0.1 data and execution capabilities;
@@ -594,7 +596,7 @@ flowchart TB
     A -->|"Backtest MCP"| BT
     A -->|"Admitted queries and requests"| Q
     A -->|"Admitted queries and requests"| G
-    D -->|"Same domain APIs"| RD
+    D -->|"Read-only research progress/results"| RD
     D -->|"Confirm activation, unload, policies"| G
     D -->|"Read-only operation and account views"| N
     RD -->|"Verify authorized data binding"| MD
@@ -711,7 +713,7 @@ effects still require their own acceptance; registered routes do not establish d
 | ------------------- | ---------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Market Data         | `market-data` MCP, Dashboard data views                    | R&D, Backtest, native node               | Source/instrument/custody/read ledgers; native storage and clients                               |
 | Backtest            | backtest MCP, Dashboard replay/reports                     | R&D, isolated Qualification              | Jobs/runs/reports; Nautilus engine and admitted inputs                                           |
-| R&D                 | `strategy-authoring`, research, knowledge, scan; Dashboard | Qualification/Governance receive outputs | Projects/strategies/experiments/knowledge; data and replay services                              |
+| R&D                 | Authoring/research/knowledge/scan MCP; Dashboard read‑only | Qualification/Governance receive outputs | Projects/strategies/experiments/knowledge; data and replay services                              |
 | Qualification       | qualification catalog, bounded status views                | R&D, Governance                          | Private protocols/assessments/eligibility; isolated replay/data                                  |
 | Governance          | governance catalog, Dashboard confirmation/control         | Native node, R&D                         | Current lifecycle bindings/stages/policy/allocation/authorization; eligibility/performance facts |
 | Native trading node | Read only portfolio/operations, Dashboard views            | Governance, authorized control consumers | Native Runtime/Risk/Execution/Portfolio facts; live data and venue interfaces                    |
@@ -743,7 +745,7 @@ These are all 18 tools across those three MCPs, excluding internal Owner receipt
 | Authoring `archive`        | POST `/v1/strategies/{strategy_id}/archive`             | Archival result                                                                          | Does not close real positions                                                             |
 | Replay `run`               | POST `/v1/backtests`                                    | run_id, strategy_id, instrument, execution timeframe, half open window → recorded result | Equal run_id/meaning replays; changed meaning conflicts; current execution occurs in call |
 | Replay `status`            | GET `/v1/backtests/{run_id}`                            | Recorded request and answer                                                              | Not the complete target async state machine                                               |
-| Replay `report`            | GET `/v1/backtests/{run_id}/report`                     | Report or no result refusal                                                              | Reports create no qualification                                                           |
+| Replay `report`            | GET `/v1/backtests/{run_id}/report`                     | Recorded runs: current `RUN_HAS_NO_RESULT`; target bounded report                        | Unknown run refuses separately; reports grant no qualification                            |
 | Replay `list`              | GET `/v1/backtests`                                     | limit → runs                                                                             | Actual name is `list`, not unreleased `list_runs`                                         |
 
 Current authoring accepts single-threshold statements and `research.strategy-authoring.v1` JSON. Current replay has
