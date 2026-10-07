@@ -5,6 +5,7 @@ Causal H13 signal cases; native Strategy owns actual orders and fills.
 import unittest
 
 from retracement_strategy import ConfirmedSupportPullback
+from retracement_strategy import classify_first_touch_rejection
 from strategy import FOUR_HOUR_NS
 from strategy import FourHour
 
@@ -20,6 +21,64 @@ def _bars(*, second_support: bool = True, untouched: bool = True):
 
 
 class RetracementSignalCases(unittest.TestCase):
+    def test_first_touch_rejection_uses_only_later_completed_bar(self):
+        state = ConfirmedSupportPullback(timing="confirmed-update")
+        bars = _bars()
+        plan = next(plan for bar in bars if (plan := state.on_closed(bar, 1.0)) is not None)
+
+        def rounded(price: float) -> float:
+            return round(price, 2)
+
+        ts = plan.ts_event + FOUR_HOUR_NS
+
+        assert (
+            classify_first_touch_rejection(
+                plan,
+                FourHour(plan.ts_event, 110, plan.entry - 1, plan.entry + 1),
+                round_price=rounded,
+            )[0]
+            == "not-after-plan"
+        )
+        assert (
+            classify_first_touch_rejection(
+                plan,
+                FourHour(ts, 110, plan.entry + 0.01, 108),
+                round_price=rounded,
+            )[0]
+            == "untouched"
+        )
+        assert (
+            classify_first_touch_rejection(
+                plan,
+                FourHour(ts, 110, plan.stop, 108),
+                round_price=rounded,
+            )[0]
+            == "stop-crossed-before-decision"
+        )
+        assert (
+            classify_first_touch_rejection(
+                plan,
+                FourHour(ts, 110, plan.entry, plan.entry),
+                round_price=rounded,
+            )[0]
+            == "close-not-above-tier"
+        )
+        assert (
+            classify_first_touch_rejection(
+                plan,
+                FourHour(ts, 110, plan.entry, 113),
+                round_price=rounded,
+            )[0]
+            == "rounded-price-or-room-invalid"
+        )
+        reason, entry = classify_first_touch_rejection(
+            plan,
+            FourHour(ts, 110, plan.entry, 107),
+            round_price=rounded,
+        )
+        assert reason == "admitted-rejection"
+        assert entry == 107
+
     def test_prior_resistance_highs_need_confirmed_break_before_pullback(self):
         bars = [FourHour(i * FOUR_HOUR_NS, 104.0, 100.0 + i * 0.01, 103.0) for i in range(198)]
         for index in (80, 90):

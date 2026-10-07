@@ -4,6 +4,7 @@ Causal H13 support-confluence signal with native Nautilus orders and fills.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 from dataclasses import dataclass
 
@@ -43,6 +44,31 @@ class RetracementPlan:
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+def classify_first_touch_rejection(
+    plan: RetracementPlan,
+    candle: FourHour,
+    *,
+    round_price: Callable[[float], float],
+) -> tuple[str, float | None]:
+    """
+    Classify one completed bar against a previously armed H13c plan.
+    """
+    if candle.ts_event <= plan.ts_event:
+        return "not-after-plan", None
+    if candle.low > plan.entry:
+        return "untouched", None
+    if candle.low <= plan.stop:
+        return "stop-crossed-before-decision", None
+    if candle.close <= plan.entry:
+        return "close-not-above-tier", None
+    if candle.close >= plan.target:
+        return "close-at-or-above-target", None
+    entry, stop, target = (round_price(price) for price in (candle.close, plan.stop, plan.target))
+    if not (0 < stop < entry < target) or target - entry < 2 * (entry - stop):
+        return "rounded-price-or-room-invalid", None
+    return "admitted-rejection", entry
 
 
 class ConfirmedSupportPullback:
