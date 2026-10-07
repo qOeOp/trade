@@ -76,14 +76,16 @@ def _position_excursion(row, by_venue_order, by_order_list, bars):
         strict,
         permissive,
         bool(strict_end <= strict_start),
+        entry["ts_event"] == exit_event["ts_event"],
     )
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901 - one read-only native position/path audit.
     parser = argparse.ArgumentParser()
     parser.add_argument("--catalog-root", type=Path, required=True)
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--allow-complex-as-unresolved", action="store_true")
     args = parser.parse_args()
 
     positions_path = args.run / "positions.csv"
@@ -108,20 +110,55 @@ def main() -> None:
     wins = 0
     valid = 0
     no_interior_bars = 0
+    complex_paths = 0
+    complex_nonwins = 0
+    complex_examples = []
+    same_event_stops = 0
+    same_event_stop_permissive_1r = 0
+    other_boundary_only_stop_permissive_1r = 0
     for instrument_id, rows in sorted(groups.items()):
         bars = _last_bars(args.catalog_root, instrument_id)
         for row in rows:
-            closing_type, is_win, strict_mfe_r, permissive_mfe_r, no_interior = _position_excursion(
-                row,
-                by_venue_order,
-                by_order_list,
-                bars,
-            )
+            events = ast.literal_eval(row["events"])
+            if len(events) != 2 or events[0]["order_type"] != "LIMIT":
+                if not args.allow_complex_as_unresolved:
+                    raise RuntimeError(f"{instrument_id}: unexpected native position fill path")
+                is_win = float(str(row["realized_pnl"]).split()[0]) > 0
+                closing[events[-1]["order_type"]] += 1
+                wins += is_win
+                valid += 1
+                complex_paths += 1
+                complex_nonwins += not is_win
+                if len(complex_examples) < 10:
+                    complex_examples.append(
+                        {
+                            "instrument_id": instrument_id,
+                            "fill_events": len(events),
+                            "closing_fill_type": events[-1]["order_type"],
+                            "native_win": is_win,
+                        },
+                    )
+                continue
+            (
+                closing_type,
+                is_win,
+                strict_mfe_r,
+                permissive_mfe_r,
+                no_interior,
+                same_event,
+            ) = _position_excursion(row, by_venue_order, by_order_list, bars)
             closing[closing_type] += 1
             wins += is_win
             valid += 1
             no_interior_bars += no_interior
             if closing_type == "STOP_MARKET":
+                same_event_stops += same_event
+                same_event_stop_permissive_1r += int(
+                    same_event and permissive_mfe_r >= 1.0,
+                )
+                other_boundary_only_stop_permissive_1r += int(
+                    not same_event and strict_mfe_r < 1.0 <= permissive_mfe_r,
+                )
                 for level in (0.5, 1.0, 1.5, 2.0):
                     if strict_mfe_r >= level:
                         stop_mfe_strict[str(level)] += 1
@@ -131,7 +168,7 @@ def main() -> None:
     if valid != len(positions):
         raise RuntimeError("native closed-position count mismatch")
     strict_same_set_rate = (wins + stop_mfe_strict["1.0"]) / valid
-    permissive_same_set_ceiling = (wins + stop_mfe_permissive["1.0"]) / valid
+    permissive_same_set_ceiling = (wins + stop_mfe_permissive["1.0"] + complex_nonwins) / valid
     report = {
         "native_run": str(args.run),
         "native_positions_sha256": _sha256(positions_path),
@@ -147,9 +184,15 @@ def main() -> None:
             sorted(stop_mfe_permissive.items()),
         ),
         "positions_without_strict_interior_bars": no_interior_bars,
+        "complex_native_fill_paths_without_excursion": complex_paths,
+        "complex_native_nonwins_assumed_rescued_for_ceiling": complex_nonwins,
+        "complex_native_fill_examples": complex_examples,
+        "simple_same_event_stops": same_event_stops,
+        "simple_same_event_stops_with_permissive_1r": same_event_stop_permissive_1r,
+        "other_stops_with_boundary_only_permissive_1r": other_boundary_only_stop_permissive_1r,
         "same_trade_set_win_rate_if_strict_1r_prior_stops_become_wins": strict_same_set_rate,
         "same_trade_set_win_rate_ceiling_if_all_permissive_1r_stops_become_wins": permissive_same_set_ceiling,
-        "method": "MFE uses native LAST five-minute bars. Strict measure excludes entry/exit bars; permissive measure includes both and may count pre-entry or post-exit price. Both use native entry fill to linked stop trigger as risk. These are opportunity bounds, not a resimulation or net PnL result; changed slot timing can change the trade set.",
+        "method": "MFE uses native LAST five-minute bars. Strict measure excludes entry/exit bars; permissive measure includes both and may count pre-entry or post-exit price. Both use native entry fill to linked stop trigger as risk. When explicitly allowed, complex native fill paths are not scanned; every nonwinning complex position is generously assumed rescued in the permissive ceiling. These are opportunity bounds, not a resimulation or net PnL result; changed slot timing can change the trade set.",
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
