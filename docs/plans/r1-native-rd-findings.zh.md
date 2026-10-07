@@ -205,3 +205,11 @@
 **正例搜索的反证。** 冻结来源目录中 [2024-11-28 原片](https://video-ideas.tradingview.com/1/1416280-9QQ2PqoCyXAoikEE.mp4)的 ETH 日线已越过前高，作者却明确说此处不新追多、等回踩；同片 ENS 把过去的箱体突破回踩称作标准进场位，但没有视频时点的新订单。这说明记录"外层结构突破"仍不能自动推出"现在入场"。后继来源或原生诊断须分别保管突破确认、可用空间、回踩状态、当前订单/持仓状态；未经独立来源和因果几何核对，不应把几者压成一个年度筛选参数。S14 的片段、原画面和失败门槛见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s14-eth-previous-high-break-for-h07-positive-case-search)。
 
 **蓝图核对点。** [R&D 探索、后继与证据台账](../owners/rd.zh.md)及 [研究旅程](../scenarios/research.zh.md)。这项发现已回填当前 R&D 蓝图，后续实现复用现有说明记录、实验关联和原生回测。
+
+## F24：信号一致性须先证明每个合约实际读到了数据
+
+**观察。** H06 初版 37 币信号核对把 PEPE、SHIB 的目录别名当作 InstrumentId 查询，得到的都是零行情、零信号，却仍把两个零集标为一致并汇总为 `all_exact=true`。原生回测实际使用 `1000PEPEUSDT-PERP.BINANCE` 与 `1000SHIBUSDT-PERP.BINANCE`，两币分别有 20、23 个信号。D21 用各 Nautilus Catalog 清单的真实合约 ID 重做只读核对，37 币共 3,893,214 根五分钟 LAST 与 630 个信号均逐事件匹配冻结旧规则、原生信号辅助逻辑和原生报告。旧假阳性证据保留，原生交易与收益没有因此修改。
+
+**产品含义。** R&D/Backtest 的比较读回在报告"一致"前，须把准确 InstrumentId、输入目录身份、请求区间、预期与实际行情量、已完成 K 线量及逐合约信号量作为覆盖前提。查询空集、缺失一个币或时间段、别名与合约 ID 不一致时应给出具名缺口，不能把两边同为零当作一致。复核修正建立新证据身份，保留旧错误与被其影响的结论范围；不能暗中覆盖原回测。此处复用 Nautilus Catalog、Strategy 与既有报告，不另建行情或信号引擎。
+
+**蓝图核对点。** [Market Data 合约与覆盖身份](../owners/market-data.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)及 [R&D 证据接管](../owners/rd.zh.md)。D21 的完整方法、旧证据和新结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d21-repair-h06-signal-parity-coverage-before-h07-geometry)。
