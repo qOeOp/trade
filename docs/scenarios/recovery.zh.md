@@ -94,7 +94,7 @@ frontier、invocation 或 uncertain-effect lineage、不确定性观察、最后
 - Portfolio → Risk 与 Execution 提供一致账户暴露 bundle 和匹配账户闭合投影
 - Execution → Governance 提供不可变 `RecoveryCase.KNOWN_CLOSED` 只有 Governance 可决定新 generation
 
-Event Rail 只能唤醒 Governance 与 Observability 读取已提交 Owner 事实，不参与恢复也不拥有业务终态。
+通知只能唤醒 Governance 与 Observability 读取已提交 Owner 事实，不参与恢复也不拥有业务终态。
 
 ## Proof / 证明
 
@@ -154,5 +154,5 @@ Authorization。 Recovery Command 只从 Execution-owned case 与完整活动 Ri
   来源；遗漏原因或效果 闭合前新增原因或混合
   Execution Portfolio Risk 时间截面都会阻止闭合
 - Recovery Case 可以引用不可变 Incident Readiness 与 Drift 原因；这些来源事实永不改写为反向指向 case
-- Telegram 投递 Runtime 存活 本地撤单或 Event Rail 沉默都不能证明闭合
+- Telegram 投递 Runtime 存活 本地撤单或没有通知都不能证明闭合
 - `KNOWN_CLOSED` 不可变 不解除 Risk fence 不恢复旧 generation，只允许 Governance 考虑新授权

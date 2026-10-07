@@ -539,16 +539,21 @@ function projectionLabels(locale) {
   };
 }
 
+export function isBlueprintRecord(record) {
+  return record.visibility !== 'contract-only';
+}
+
 function canonicalContractProjection(route, locale) {
-  const routeSurfaces = surfaces.filter((surface) => surface.docsRoute === route);
+  const routeSurfaces = surfaces.filter((surface) => surface.docsRoute === route && isBlueprintRecord(surface));
   const routeScenarios = architectureContract.scenarios.filter((scenario) => scenario.docsRoute === route);
-  const routeRelations = architectureContract.relations.filter((relation) => relation.docsRoute === route);
-  const routeInvariants = authorityLocalInvariants.filter((invariant) => invariant.docsRoute === route);
+  const routeRelations = architectureContract.relations.filter((relation) => relation.docsRoute === route && isBlueprintRecord(relation) && isBlueprintRecord(architectureObjects.get(relation.objectId)));
+  const routeInvariants = authorityLocalInvariants.filter((invariant) => invariant.docsRoute === route && isBlueprintRecord(architectureObjects.get(invariant.objectId)));
   const routeObjectProjection = projectionContract.objectRouteProjections?.find((projection) => projection.docsRoute === route);
   const routeObjectIds = new Set(routeRelations.map((relation) => relation.objectId));
 
   for (const surface of routeSurfaces) {
     for (const object of architectureContract.architectureObjects) {
+      if (!isBlueprintRecord(object)) continue;
       if (object.custodianId === surface.id || object.authorityId === surface.id) routeObjectIds.add(object.id);
     }
   }
@@ -666,6 +671,7 @@ function canonicalContractProjection(route, locale) {
 
   for (const objectId of [...routeObjectIds].sort()) {
     const object = architectureObjects.get(objectId);
+    if (object && !isBlueprintRecord(object)) continue;
     if (!object) throw new Error(`Unknown architecture object ${objectId} projected by ${route}`);
     const authority = object.authorityId ?? object.custodianId;
     if (!authority) throw new Error(`Architecture object ${object.id} has no authority or custodian`);
@@ -870,11 +876,11 @@ await writeJson(join(targetRoot, 'guide', 'meta.zh.json'), {
 });
 await writeJson(join(targetRoot, 'architecture', 'meta.json'), {
   title: 'Architecture',
-  pages: ['index', 'capability-adoption', 'product-edge', 'strategy-factory', 'event-rail', 'observability'],
+  pages: ['index', 'capability-adoption', 'product-edge', 'strategy-factory', 'observability'],
 });
 await writeJson(join(targetRoot, 'architecture', 'meta.zh.json'), {
   title: '架构边界',
-  pages: ['index', 'capability-adoption', 'product-edge', 'strategy-factory', 'event-rail', 'observability'],
+  pages: ['index', 'capability-adoption', 'product-edge', 'strategy-factory', 'observability'],
 });
 const ownerPages = architectureContract.authorityOwners.map((owner) => owner.docsRoute.split('/').at(-1));
 await writeJson(join(targetRoot, 'owners', 'meta.json'), {

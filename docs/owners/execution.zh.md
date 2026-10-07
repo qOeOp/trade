@@ -163,9 +163,9 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   改写运行中或已选择血缘，也不含保护 Qualification 细节。
 - 向 [Portfolio](./portfolio/) 提供账户 订单 成交 费用 权威场所事实、稳定 settlement/readback lineage，
   以及 Portfolio 投影与归因使用的准确有限 Execution Quality Observation。
-- 向 [Strategy Governance](./strategy-governance/) 提供可直接读取的已提交 Reconciliation Drift Fact；Event Rail 只负责唤醒。
+- 向 [Strategy Governance](./strategy-governance/) 提供可直接读取的已提交 Reconciliation Drift Fact；通知只负责唤醒。
 - 向 [Strategy Governance](./strategy-governance/) 在任何新 generation 决定前提供不可变 `RecoveryCase.KNOWN_CLOSED`。
-- 向 Event Rail 发布已提交订单 成交和对账事件作为唤醒提示。
+- 向订阅者发布已提交订单 成交和对账事件作为唤醒提示。
 
 ## 拒绝和禁止事项
 

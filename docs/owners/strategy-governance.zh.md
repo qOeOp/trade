@@ -37,9 +37,15 @@ Governance 结合当前账户事实应用已覆盖预案，不在每次发生后
 原版本未变时，只有用户确认、原已合格 Artifact 与阶段证据准确解析、当前资格/授权/资金/风险检查有效，才可按原阶段
 重新接纳；停止不自动重新上线。资格绑定缺失或已变不能靠 hash 相同补齐，单纯资金池重新分配不改变策略版本。
 
-回测合格只表示候选具备上线资格，不表示已运行。进入试盘必须由用户在 Dashboard 确认准确候选、冻结试盘条件与资金政策，
-并满足当前有效授权、分配和原生 readiness。用户可以让合格候选留在 R&D 继续改进；资格成立本身不启动试盘，
-用户停止后也不能因资格仍有效自动重新上线。
+达到冻结研究目标后停止研究迭代并交付候选，不自动上线。继续优化须用户发出新指令。
+
+回测合格只表示候选具备上线资格。用户在 Dashboard 授权准确候选、冻结试盘条件与资金政策后，Governance 保存已授权上线请求并入队；当前资格、授权、分配、Risk 与原生 readiness 检查通过后自动调度。
+
+未就绪的请求保持等待，不阻塞后续已就绪请求；当前可启动请求按原入队顺序处理。每次实际接纳仍须重查账户与分配事实，不能把前一次检查当作资金预留。
+
+等待时间不使用户的上线决定自动失效；用户可随时撤回。该决定只覆盖已批准的候选与政策，不延长技术凭证有效期，也不替代启动时的当前检查。
+
+排队不表示已运行，只有 Runtime 应用回执证明启动。队列属于 Governance 请求状态，不新增调度服务。资格成立本身不启动试盘，也不自动重新激活用户已停止的策略。
 
 用户可主动下架经济表现有效的策略用于改进；外部 Agent 也可在用户事先批准的冻结边界内自主请求下架，
 由 Governance 校验所涉策略、授权范围和当前事实后执行。无有效授权时请求不能产生下架效果。
@@ -54,6 +60,8 @@ R&D 拥有改进后继；变更候选重新取得回测资格，由用户确认�
 - Qualification 消费 Backtest 证据，拥有回测资格与受保护评估事实；不合格候选留在 R&D。
 - Portfolio 提供收益、净值、费用、资金费、资金流与归属事实；Runtime/Execution 提供实际运行、订单及成交事实。
 - Governance 消费这些证据按开始前冻结的条件决定转正、最长观察期结束及正式策略保留，不把 Dashboard 选择当作通过事实。
+- 转正必须满足冻结的最低独立交易样本量；每笔独立交易只计一次，分段退出不增加样本。具体时长、最低样本数和完整收益／风险阈值仍待批准，并在试盘前冻结。
+
 - 用户按比例划分共同试盘池与正式策略池，每池按实际运行策略实例数量等分。加入、卸载或转正时重新等分；
   卸载立即归还分配额度，剩余实际保证金与风险仍计入账户，由 Risk 检查订单准入，不继续保留卸载策略的运行额度。
 - 试盘到最长观察期仍未达标，或正式策略不满足冻结保留条件时，下架并退回 R&D；停止新入场、撤销未成交入场单，
@@ -212,26 +220,13 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 
 ## 输入交接
 
-- [Qualification](./qualification/) 提供绑定准确 Candidate 事实 经济条件 已评估成本容量模型和资格容量版本的已提交 Eligibility State 与 Revocation 事实。可选的封存 Forward Record 政策还要求当前 Forward Decision，不是真实试盘的前提；该政策下模拟盘 `INITIAL_ACTIVATION` 要绑定同一 Eligibility Fact 当前的 `FORWARD_ADMITTED` 决策；其他、缺失或未知的 Forward Decision 一律提交 `REJECTED_NO_WRITE`。
-- **仅兼容接口：** [Scanner](./scanner/) 每轮提交一个终态 Scanner Receipt；条件激活必须绑定与决定目标拥有相同策略条目 ArtifactRef 和条件版本的准确 matched proposal member。
-- [Portfolio](./portfolio/) 提供 Portfolio Lifecycle Evidence Receipt。`INITIAL_ACTIVATION` 绑定预先存在
-  Capacity Scope 的新鲜候选无关 gross Capacity View；`PROMOTION` 还必须按自身 `PROMOTION`
-  transition-evidence key 绑定准确且新鲜的 Performance 与 Exposure 回执。generation 特定经济条件来自
-  Qualification 和 Capital Policy，不属于 pool ceiling。
-- 建立 Execution Scope 前，[Portfolio](./portfolio/) 提供当前 `BOUND` Capacity Scope，
-  [Execution](./execution/) 提供当前 `ADMITTED` Execution Adapter Binding。账户 mode 效果命名空间
-  endpoint capability valid-through 与共享约束分区必须准确一致；预绑定未知或冲突时不产生生命周期授权。
-- [Portfolio](./portfolio/) 为集合资金决定提供 Portfolio Interaction Receipt，在一个一致 contender
-  与估值截面上包含集中度 相关性 方向与因子重叠 尾部贡献 分散贡献和边际组合价值。缺少交互证据时
-  整个分配决定不可用，不能把各策略独立批准后再拼接。
-  封存优先级分配兼容政策要求各 contender 携带准确 Portfolio interaction class；目标等分政策不新增评分或分类框架。Governance 不重新计算
-  或替换该分类。
-- [Runtime](./runtime/) 提供 Generation Application Receipt 和可直接读取的 Runtime Incident Fact。
-- [Execution](./execution/) 在新 generation 启动前提供不可变 `RecoveryCase.KNOWN_CLOSED`。
-- [Execution](./execution/) 提供可直接读取的已提交 Reconciliation Drift Fact，包括明确效果未知状态和权威回读切面。
-- Product Edge 提供明确生命周期请求，但不能直接修改治理状态。每个请求携带 request identity
-  principal scope 已准入 active-shell binding 与 history head Operator Authorization 和 operation
-  manifest。Governance 用自己的终态回执闭合稳定请求身份；回执缺失时保持未知。
+- [Qualification](./qualification/) 提供准确 Candidate、资格/撤销事实版本、经济条件、成本容量模型和有效边界。研究停止后由用户另行请求独立评估；QUALIFIED 仅供资格判断，不签发交易许可。Dashboard 明确确认后 INITIAL_ACTIVATION 进入真实试盘队列，ForwardDecision 不成为前置。
+- [Portfolio](./portfolio/) 提供净权益、当前 BOUND Capacity Scope、候选无关 gross Capacity View、实际运行成员和占用。默认按已批准试盘/正式池比例，等分实际运行成员；新加入等到全部原有占用适合缩小后的份额，Governance 原子分配。PROMOTION 还按准确 evidence key 消费新鲜 Performance/Exposure。
+- 仅显式批准的交互敏感条件消费带完整成员、方法与来源截面的确定交互度量；默认等分不要求 Interaction Receipt。旧 capped-priority 兼容消费者仍按其冻结分类/截面失败关闭，不能替换成默认等分。
+- [Execution](./execution/) 提供 ADMITTED Execution Adapter Binding；建立 scope 前 account、mode、effect namespace、endpoint、capability、valid-through 和共享约束分区必须一致。未知或冲突无新增风险授权。
+- [Runtime](./runtime/) 提供 Generation Application Receipt 与直接读取的 Incident Fact；Execution 提供 Reconciliation Drift、权威回读以及新 generation 所需 RecoveryCase.KNOWN_CLOSED。退出遵守冻结条件并保护真实未平仓，不以科学终态 falsifier 为前提。
+- Product Edge 携带稳定 request、principal、scope、active-shell binding/history head、Operator Authorization 和 manifest；Governance 用自身终态回执闭合，缺失保持未知。
+- 旧 ScannerConditional 仍拒绝为 ConditionalScannerNotAdmitted；封存回执即使匹配 ArtifactRef/条件版本也不授新条件激活，不静默迁移成无条件激活。
 
 ## 输出交接
 
@@ -248,17 +243,13 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 
 ## 拒绝和禁止事项
 
-- 不基于部分 contender set、过期或混合 Portfolio Interaction Receipt、或不确定请求顺序分配稀缺
+- 仅在封存优先级兼容政策中，不基于部分 contender set、过期或混合 Portfolio Interaction Receipt、或不确定请求顺序分配稀缺
   资金。相同集合 事实和政策重放时，必须与投递顺序无关地得到相同 Capital Allocation Disposition。
 - 同一 generation 和决定前沿的不同生命周期请求必须按稳定政策优先级原子解析，不能后写覆盖。
   完整规范顺序为 `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION`；
   同级冲突使用规范 request identity。等价重复加入同一回执，过期 混合截面或低优先级请求提交明确
   no-write。该请求优先级不能替代从不利证据中选择动作。
-- 不利证据使用另一套版本化 lifecycle disposition policy。`RETIREMENT` 要求终态证伪或结构无效且没有
-  有界可行后继；`PAUSE` 用于安全未解析或必需证据暂时缺失；`REDUCTION` 要求退化证据成立且更低资金
-  仍具经济与运行可行性。多个不利 predicate 同时成立时，唯一胜出顺序为
-  `RETIREMENT > PAUSE > REDUCTION`；该证据处置顺序与请求优先级相互独立。Governance 记录全部适用替代项
-  唯一选择结果 决定性 Portfolio 类别与截面和政策版本；输入缺失时不提交决定。
+- 不利证据按用户冻结的版本化 lifecycle disposition policy 执行。RETIREMENT 消费明确退出条件，PAUSE 处理安全未解析或必需证据暂缺，REDUCTION 执行已批准的缩减条件；不由 Governance 判断科学终态证伪或后继研究可行性。多个冻结 predicate 同时成立仍按 RETIREMENT > PAUSE > REDUCTION 唯一解析，记录全部适用项、来源截面和政策版本。请求优先级与证据处置顺序独立；缺失正向输入不造新增风险决定，退出仍保护真实持仓并经 decrease-only/recovery 闭合。
 - 不注册缺少当前 Qualification 证据的工件，也不静默替换 ArtifactRef。过期 跨 Candidate 条件不匹配或扩大后的经济容量绑定不属于当前证据。
 - 封存 `ScannerConditional` 兼容接口的条件激活不能绕过 Scanner 证据，也不能从 `PROPOSED` batch 激活负面或非成员策略。
 - 不把保护 Qualification 测量 参数 结果 holdout 细节或评估输出复制进决定 理由或只读视图。
@@ -282,7 +273,7 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   不含 add-risk Reservation 的决定，Execution 必须撤单 减仓 清仓或回读，Portfolio 必须证明结果暴露。
   外部效果未知时进入 Recovery。
 - `RecoveryCase.KNOWN_CLOSED` 前不得恢复围栏范围，闭合只允许重新决定而不自动启动。
-- 不把 Event Rail 或通知投递当作事故 差异 对账或恢复证据，必须绑定准确来源 Owner 事实身份。
+- 不把 通知投递当作事故 差异 对账或恢复证据，必须绑定准确来源 Owner 事实身份。
 
 ## 失败与恢复
 
@@ -351,7 +342,7 @@ interaction class、 requested capital fraction 和唯一规范 generation bytes
 - 暂停或围栏 generation 在所需终态事实可读前不能重新激活。
 - 每次由事故或对账差异驱动的生命周期转换都能解析到触发它的准确 Runtime Incident Fact 或 Execution Reconciliation Drift Fact。
 - 生命周期请求并发或重启送达时加入同一只写回执；Runtime 并发送达时加入同一 Generation Application Receipt，且最多形成一个 Strategy Instance。
-- 相同完整 contender set Portfolio Interaction Receipt policy version 与证据截面，不论请求投递顺序
+- 封存优先级兼容政策下，相同完整 contender set Portfolio Interaction Receipt policy version 与证据截面，不论请求投递顺序
   都生成相同 Capital Allocation Disposition。
 - 兼容优先级分配政策的每个 contender 都携带三项版本化 priority attribute 及其来源 方向和缺失处置。属性缺失或未知时
   产生 `INPUT_INCOMPLETE_NO_WRITE`；完全相同只按规范 strategy-generation identity 解析。

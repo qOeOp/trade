@@ -10,10 +10,10 @@ Observability 是不拥有业务事实的运行观测边界，统一处理 trace
 
 已提交领域事件和运行遥测不能混用权威语义。
 
-- **已提交领域事件** 只能在原生 Owner 同一事务提交业务事实与 outbox 后产生。Event Rail 提供至少一次唤醒投递，消费者按稳定事件身份去重，再从来源 Owner 读取事实。
+- **已提交领域事件** 只能在原生 Owner 同一事务提交业务事实与 outbox 后产生。来源服务保管 outbox 与发布进度，通过原生消息扩展点或现有传输提供至少一次通知；消费者按稳定事件身份去重，再从来源 Owner 读取事实。
 - **Trace、metric 与 log** 优先使用原生记录；需要集中采集时再通过 OTLP 接入现成 collector。采集策略可插拔、有版本、可独立开关、可采样、限制 cardinality 并在出口前脱敏。遥测丢失只降低可见性，不能改变原生 Owner 的正确性或业务状态。
 
-命令和未提交请求仍走 Owner 端口。Event Rail 不是命令总线，Telemetry Gateway 也不是业务工作流引擎。
+命令和未提交请求仍走 Owner 端口。通知只能提示事实变化，不能作为业务命令。原生 MessageBus 的进程内投递不等于持久跨服务投递；需要后者时由来源服务恢复 outbox 发布，不新增通知服务。
 
 ## 规范 envelope 与 trace context
 
@@ -52,7 +52,7 @@ timing 与 timing-derived field 明确禁止公开。
 Qualification 持有。 准确而言， `REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED`
 `ASSESSMENT_INVALID` 与 `INELIGIBLE` 都以字节等价方式投影为 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。
 
-Event Rail 永不 发布内部 `INELIGIBLE` 或其他保护终态事件。
+通知不得发布内部 `INELIGIBLE` 或其他保护终态事件。
 
 每个字段都引用来源 Owner 事实或 telemetry frontier，并显示 `observed-at`、`valid-through`、完整性、lag 与重建状态。`STALE`、`PARTIAL`、`REBUILDING`、`UNAVAILABLE` 必须明确显示，不能伪装成健康或完整。Dashboard 上触发变更的操作必须另行发起并接纳 Product Edge → Owner 请求，绝不能直接写入视图。
 
@@ -60,9 +60,15 @@ Event Rail 永不 发布内部 `INELIGIBLE` 或其他保护终态事件。
 或失败诊断，但不能保存权威工作流阶段、创建 Iteration Decision、推进 Qualification、选择后继，或从
 遥测推断完成。产品闭环仍由原生 Owner 请求、回执和有界投影组合而成。
 
+## 已提交事实的通知
+
+通知只携带稳定身份、来源 Owner、已提交事实引用与必要顺序。Governance 被唤醒后直接读取 Qualification、Runtime 或 Execution 事实；没有通知也不能推断没有事故或已经恢复。通知或告警的重试只重投同一提示，不重放业务写入。通知丢失不能改变 Owner 状态。告警投递回执是输出，不能反过来充当来源事件或事实。
+
+Qualification 通知只包含公共 attempt correlation、公共状态、effective cut、sequence 和类型不透明且不可解引用的 reference。相同公共输入的负面结果在事件是否存在及这些字段上均不可区分；消费者按这些公共字段去重。保护指标、内部类别、终态时间及其派生信息均不得进入通知。
+
 ## 告警路由
 
-需要通知时，现成告警组件消费受限 Event Wake 或已接纳的健康条件，再发送到用户选择的可替换适配器，不设产品默认通知渠道。它只拥有投递偏好、attempt 与 receipt。投递成功、静默、重复或失败都不能证明来源转换、解除围栏、重试未知订单效果、恢复策略或宣告 `KNOWN_CLOSED`。
+需要通知时，现成告警组件消费受限 已提交事件提示 或已接纳的健康条件，再发送到用户选择的可替换适配器，不设产品默认通知渠道。它只拥有投递偏好、attempt 与 receipt。投递成功、静默、重复或失败都不能证明来源转换、解除围栏、重试未知订单效果、恢复策略或宣告 `KNOWN_CLOSED`。
 
 ## 实现验收
 

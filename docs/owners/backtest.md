@@ -22,7 +22,7 @@ individual test or tool name does not establish product assembly, deployment or 
 | Balances, margin and positions            | Native accounts, Margin models, Portfolio and RiskEngine                               | Host path restricts one venue Margin account and NETTING                                           | Native components own trading facts; pool allocation and research scenarios add product policies                                  |
 | Funding settlement                        | SimulatedExchange processes FundingRateUpdate and settlement boundaries                | Product data/result foundations exist; current MCP cannot express a complete funding schedule      | Prove schedule integration, account changes and reporting consistency without another ledger                                      |
 | Execution algorithms                      | `add_exec_algorithm` / `add_exec_algorithms` and native algorithm interfaces           | No algorithm configuration through current MCP                                                     | Integrate needed algorithms with bound versions and parameters                                                                    |
-| Intrabar chronology                       | Native OHLC path assumptions with minute bar execution                                 | Minute execution, native signal aggregation and conservative policy require integration            | Path assumptions do not prove observed chronology; missing data cannot use fallback                                               |
+| Intrabar chronology                       | Native OHLC path assumptions with minute bar execution                                 | Minute execution, native signal aggregation and configured bar paths require integration           | Path assumptions do not prove observed chronology; missing data cannot use fallback                                               |
 | Input repair and new runs                 | Native reset and complete repeated replay                                              | Agent submits a new sealed run for changed input versions                                          | Retain predecessors and exact evidence; never stitch runs or mutate old inputs                                                    |
 | Run identity and result custody           | Native run/results and statistics                                                      | Product registry, identity conflicts, freeze/admission, attempts and result custody                | Adds durable research evidence; actual terminal outcome/results determine success                                                 |
 | Reports and performance                   | Native results, analysis and order/fill/position/account facts                         | OwnerBacktestReportV1 conversion exists; MCP `report` refuses all recorded runs                    | Calculation foundations exist; MCP report delivery remains incomplete                                                             |
@@ -195,8 +195,7 @@ was built.
 Current `program_host_backtest_target_set_v2.rs` fixes NETTING and one venue Margin account and creates GTC limits at snapshot
 prices. `Position` / `WeightMicros` are net target quantities/weights, not frozen limit
 prices, margin proportions or stop-risk proportions. `backtest_run_v1.rs` accepts one `strategy_id`;
-multi-instrument target sets are not compositions of independent strategies. R-1 requires versioned Host
-lowering into native `OrderFactory` and commands: exact `Price` / `Quantity`,
+multi-instrument target sets are not compositions of independent strategies. R-1 uses native Strategy `OrderFactory` and commands, binding exact `Price` / `Quantity`,
 original target price, GTD/conditional cancellation, entry-specific protection, partial-fill quantities and
 reduce-only staged exits.
 
@@ -223,10 +222,16 @@ Chunking reduces neither total events nor guarantees memory bounds on every read
 configurations first materialize and merge data through `load_and_merge_data`. Multi-instrument/timeframe memory
 targets must verify the actual reader path.
 
-For complete minute data with unresolved chronology, use stop-first for stop/target ambiguity and enter-then-hold
-for entry/target ambiguity, marking policy assumptions. Native path heuristics do not automatically implement these
-policies; native extension and acceptance are required. Until wired, report unresolved chronology. Missing minutes
-or invalid data are gaps, not permission to apply an ambiguity fallback and fabricate a result.
+Use the frozen native bar path for every complete minute: default OHLC or the configured adaptive high/low
+ordering. It determines simulated entry, stop and target order; do not override it with stop-first or
+enter-then-hold rules. Record the configuration and label bar-based outcomes as simulated chronology. The Agent
+may compare separate runs under native configurations without selecting a favorable path after inspection.
+Missing minutes or invalid data remain gaps, not permission to fabricate a result.
+
+External execution bars use `bar_execution` with an L1 book. Preserve source timestamps: native matching processes
+bars at `ts_init`, normally the close, while `ts_event` follows the source convention. Market Data normalization
+and native aggregation settings must establish those boundaries before replay. Resting orders process before
+the strategy receives that bar; a signal confirmed at its close cannot fill earlier within it.
 
 ### V0.1 research scale and performance acceptance
 
@@ -282,6 +287,31 @@ Agent charts and custom analyses remain host exploration without an upload custo
 For example, two R-1 exit versions may have similar maximum drawdown; the Agent retrieves their minute sequences
 to compare time underwater, recovery and repeated declines, then records conclusions and exact result references
 in R&D. Readback must align with primary drawdown inputs; existing statistics do not prove this interface delivered.
+
+Engine termination still runs native stop hooks and queued commands. Retaining terminal positions requires
+the frozen strategy lifecycle configuration and `on_stop` to preserve them; report every actual termination
+effect instead of deleting shutdown fills afterward.
+
+### Native fee and margin models
+
+Backtest reuses Nautilus `FeeModel` and `MarginModel`; strategies do not calculate separate fees or keep a margin ledger.
+Select `MakerTakerFeeModel`, fixed fees or an extension supported by native interfaces; use
+`StandardMarginModel`, `LeveragedMarginModel` or a native extension with proven consumer wiring for margin.
+
+Bind the repository API actually installed. In this version, `MakerTakerFeeModel` reads instrument maker/taker
+fees; newer official examples may pass fee rates to the model instead. These are version-specific parameter
+carriers, not interchangeable constructors. Resolve imports, configuration types and native bindings from the
+reported runtime environment before strategy loading.
+
+Freeze each run's models, implementation versions, parameters and basis. Fees and margin may be explicitly
+selected simulation conditions; a complete historical fee archive is not a prerequisite for every replay.
+Applying current rates throughout the interval is a simulation assumption, not a historical charging fact.
+Missing required parameters or native consumer support still refuses the run, without silent zeros or defaults.
+
+Market Data owns historical prices, funding, mark prices and supplied historical terms; Backtest owns simulation
+models and parameters. Report historical data separately from simulation conditions. Parameter changes produce
+new runs; the Agent may compare cost sensitivity without a product cost optimizer. Model selection grants neither
+qualification nor trading authority; Qualification verifies applicable conditions under its separate frozen protocol.
 
 ## TARGET - Consistent capital and execution policy replay
 
@@ -383,40 +413,15 @@ diagnostics cannot become a protected-data exit.
 
 ## Authoritative facts owned
 
-- Replay identity, deterministic clock, frozen inputs, runtime and simulation versions, and configuration digest.
-- Canonical orders, fills, positions, costs, and outcome produced by a replay.
-- **CURRENT_PARTIAL:** the complete ordered shared-kernel semantic trace, binding normalized lifecycle events, checkpoints,
-  primitive and plugin results, target/protection transitions and fill reconciliation to the canonical replay.
-- Native input availability, warmup bounds and actual subscribed data consumption. Missing or not-yet-available input is not evidence of a false strategy condition. Native events and strategy diagnostics explain behavior when needed; the service does not require a frozen program graph, predicate enumeration or a separate per-condition census from arbitrary Python strategies.
-- Complete separation between exploratory runs and Qualification-requested protected runs.
-- Exploratory Run Result repeats the consumed Strategy Artifact, requested PIT scope, PIT Market Snapshot,
-  Universe Selection Record and correction rule, replay configuration, Runtime kernel, simulator, and cost,
-  slippage, and capacity-model identities so Research can verify exact request-result equality.
-- Existing compatibility results commit a complete finite `diagnosticCategorySet` under a bound
-  diagnostic-policy version. Supported members are `NO_EXECUTION_DEFECT`, `MARKET_DATA`, `ARTIFACT`,
-  `RUNTIME_KERNEL`, `BACKTEST_OPERATIONAL`, `SIMULATOR`, `REPLAY_CONFIGURATION`, `VALID_ECONOMIC_FAILURE`, and
-  `UNRESOLVED_FAILURE`. It preserves every independently supported simultaneous category and binds each member's
-  decisive evidence cut. `NO_EXECUTION_DEFECT` cannot coexist with a defect category; ambiguous or non-isolating
-  evidence is `UNRESOLVED_FAILURE`, never a guessed defect or economic result.
-- `BACKTEST_OPERATIONAL` binds the exact operational-profile identity and version, run-attempt identity,
-  runner/service readiness, backpressure, resource-exhaustion or outage evidence, and fresh Time Evidence. It is
-  Backtest-owned operational diagnosis at the Native Replay service boundary, not a Runtime kernel or Sim
-  Exchange/Simulator defect, and it blocks economic interpretation until corrected or excluded.
-- Protected replay identity binds the exact Strategy Artifact, requested PIT scope, PIT Market Snapshot and
-  Universe Selection Record identity and digest, calendar/session/time-zone, corporate-action and historical-membership
-  cuts, Market Semantics Compatibility identity, snapshot and correction rule, replay-configuration digest,
-  Runtime kernel, simulator, cost, slippage, and capacity model versions, and the exact Candidate/Intake protected
-  decision-policy identity and version before execution. It also repeats the frozen Protected Robustness Plan
-  identity, required cell identity, metric set, coverage rule, tolerances, thresholds, aggregation, missing-cell
-  policy, and stop policy before any protected observation.
-- Protected Run Result repeats the actual consumed counterpart of every protected-request field and the protected
-  policy pair and requires exact request-to-result equality. It declares `PROTECTED_EVALUATION` as its canonical
-  `timeEvidenceCutKind`, directly binds the request Time Evidence, and seals the result-stage clock cut for the
-  exact request, attempt, plan, and plan cell.
-- Backtest Repair Result binds one R&D-owned `native-repair-request`, exact `SIMULATOR` or
-  `BACKTEST_OPERATIONAL` category, predecessor repair decision, stable correlation, original proof digest,
-  category-specific old identity and source cut, repair policy, decisive evidence, and fresh Time Evidence.
-  Backtest alone commits `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that attempt.
+- Stable task, request and attempt identities, frozen strategy package, Git source, environment and native run configuration.
+- Request-equal consumed input versions, instruments, window, PIT/correction scope, availability, warm-up boundary and aggregation configuration.
+- Native orders, fills, refusals, positions, costs, funding, account series and results, with the exact model versions used.
+- Raw errors, available exception locations/stacks and bounded native logs, with missing, truncated, unknown or partial evidence explicit.
+- Protected Candidate/Intake, frozen policy, Protected Robustness Plan and cell bindings, and protected results and attempt frontier visible only to Qualification.
+
+Backtest reports actual run facts; it does not own scientific diagnostic classes, strategy repair decisions or a server repair workflow.
+Existing semantic traces and diagnostic-policy fields describe recorded compatibility results, without requiring program graphs or repair protocols from native Python strategies.
+`SIMULATOR` / `BACKTEST_OPERATIONAL` repair is not implemented in the four Backtest crates and is not an existing authoritative fact.
 
 ## Modules
 
@@ -663,187 +668,30 @@ R-1 matching. Native acceptance compares actual order, fill and account events u
 
 ## Input handoffs
 
-- R&D passes the complete sealed Exploratory Replay Request value through the typed downward port. It binds request identity, canonical meaning/digest, Artifact, PIT scope, Intent, costs/slippage/capacity and execution models. The upper boundary resolves producer custody before admission; Backtest checks its own exact input binding/current applicability and records its attempt/result without rereading R&D. Missing, stale, conflicting or unknown inputs retain their named no-attempt/unresolved meanings; no field is defaulted, fabricated or silently replaced.
+- [R&D](./rd/) passes a complete sealed value resolved at the upper admission boundary through a typed downward port: stable identity, meaning digest, strategy package, parameters, environment, input manifest and native model configuration. Backtest validates its bindings and records the task; it does not read back into R&D or recompile authoring documents.
+- [Market Data](./market-data/) supplies exact immutable versions, complete required windows, instrument terms, precision, rights and PIT/correction/availability evidence. Missing, stale, conflicting or unequal bindings fail before native loading/preparation; MCP does not fill data during execution. Data gaps are not economic failure.
+- [Qualification](./qualification/) sends frozen protected requests only after `ADMITTED` intake and holdout reservation. Execution identities, policy and plan cells are fixed before observation; admission refusal closes the request with `RUN_REJECTED` while details remain protected.
 
-**Locator protocol compatibility.** The following existing locator-resolution rules preserve sealed request and receipt meanings only; their reverse R&D read is a migration obligation, not a target layering exception. Migration relocates canonical resolution to the upper admission boundary while retaining exact bytes, stable cut, digest equality, unknown/no-write and same-identity recovery:
-
-- [R&D](./rd/) submits one frozen Exploratory Replay Request, addressed by an R&D-owned locator carrying the
-  request identity, the canonical request meaning digest, the receipt identity and the seal digest. Backtest
-  re-resolves that locator through the fixed read-only R&D Owner port and verifies the canonical request bytes
-  against the digest before any other field is read; a locator label, a downstream attestation, or a
-  caller-supplied copy of the bytes is not the request. The request fixes the exact immutable Artifact, the
-  requested PIT data scope, the replay configuration, the same cost, slippage and capacity-model versions frozen
-  by its Research Intent, and every other component of the requested meaning that a positive terminal result must
-  reconcile exactly. Backtest may observe `AVAILABLE`, `STALE`, or `UNAVAILABLE` on the R&D side; only
-  `AVAILABLE` admits an attempt, and neither `STALE` nor `UNAVAILABLE` is a rejection of the request, because
-  both say only that this Owner cannot presently supply it. A locator that resolves to nothing, bytes whose
-  digest disagrees, a request whose meaning changed under the same identity, and an R&D port that does not answer
-  all produce no attempt and no result: silence is never `UNAVAILABLE`, and `UNAVAILABLE` is never a terminal
-  replay outcome. Backtest never reconstructs, defaults, or substitutes any requested component, never treats
-  equality between two caller-authored representations as request-result correlation, and never begins an attempt
-  for a request whose canonical bytes it has not itself verified.
-- On the existing compatibility interface, an admitted `D1_EXECUTABLE_REPAIR` makes R&D submit a distinct `REPAIR_VALIDATION` request bound to the D-only
-  repair admission, predecessor and successor Artifacts, defect oracle, complete non-defect regression corpus,
-  frozen semantic-equality proof, and deterministic event/signal/intent/order trace comparison. It is never an
-  exploratory or protected request.
-- [Qualification](./qualification/) sends a frozen protected request created only after `ADMITTED` intake and
-  holdout reservation, with every execution-defining identity and exact Candidate/Intake protected policy pair
-  fixed. Each request addresses one declared Protected Robustness Plan cell or the exact frozen bounded matrix;
-  Backtest cannot choose cells after observing results. Admission rejection must still commit a request-bound
-  `RUN_REJECTED` result.
-- [Market Data](./market-data/) supplies the frozen point-in-time facts and instrument terms one replay consumes:
-  the PIT Market Snapshot identity and digest, the Universe Selection Record identity and digest, the snapshot and
-  correction rule, the corporate-action and historical-membership cuts, the Market Semantics Compatibility
-  identity, and, per instrument, the sealed fact digest, receipt digest and terms digest together with the venue,
-  quote and settlement currencies, validity window, margin model and fee terms. Backtest consumes these as
-  Owner-sealed receipts; it does not query a store, select a slice, or accept a caller-supplied fixture in their
-  place. A receipt is either sealed and resolvable for the exact request-bound scope or it is not, and there is no
-  partial or provisional form: only a complete set covering every requested instrument and the whole requested
-  scope admits execution, and a set that covers the scope by substituting a neighbouring cut, a later correction
-  frontier, or a different membership does not. An absent receipt, an unresolvable identity, a digest that
-  disagrees, an instrument outside the request-bound universe, a validity window that does not contain the
-  requested cut, or more than one settlement currency where the computation admits one, each fails before
-  native package execution and produces no positive receipt, because a data gap is a replay-evidence fact and
-  never an economic result. Backtest never infers a missing price, term, or membership, never silently changes
-  costs, never substitutes a different snapshot or simulation version, and never lets telemetry or a projection
-  stand in for a sealed receipt.
-- The existing compatibility contract additionally defines one frozen `SIMULATOR` or `BACKTEST_OPERATIONAL`
-  `native-repair-request`. `SIMULATOR` targets only Backtest's Sim Exchange surface `sim-exchange`;
-  `BACKTEST_OPERATIONAL` targets only Native Replay's `BACKTEST_RUNNER_SERVICE`. Wrong target, category,
-  predecessor, proof, old identity, source cut, policy, time, or
-  changed meaning creates no Backtest repair attempt or result.
-
-These two upstream contracts are no more admitted than the upstream states them to be: the corresponding
-[Market Data](./market-data/) output handoff marks direct `BACKTEST_OWNER_V1` Instrument Master resolution
-**TARGET**, so nothing here may be read as an admitted consumption path. The exploratory path is also
-unreachable in what is deployed: the only caller of `run_exploratory_replay_v2` outside its own crate sits under
-`#[cfg(feature = "native-replay-execution")]`, a production feature, and `product/rd-workbench/Dockerfile.owner` builds `strategy-factory-rd-owner-api` without it.
-That measures the deployment artifact and not history; it says nothing about whether the path has ever run in
-some other environment.
+Existing locator compatibility preserves exact bytes, digest equality, stable cuts, atomic zero-write failure and same-identity recovery. Migration cannot substitute caller copies for source authority. `D1_EXECUTABLE_REPAIR` / `REPAIR_VALIDATION` constrain only the old interface and are not native task prerequisites; no native repair consumer exists.
+Direct `BACKTEST_OWNER_V1` Instrument Master resolution remains TARGET. External calls to `run_exploratory_replay_v2` are gated by `native-replay-execution`, absent from the deployed Dockerfile. These contracts do not prove deployed reachability.
 
 ## Current compatibility output handoffs
 
-The typed diagnostic and repair records below govern consumers of the existing compatibility schemas. Native research submission does not require this scientific classification or repair workflow. Native service failures retain task identity, actual errors and logs; the user repairs and deploys server changes. Strategy corrections create a new sealed package and experiment. Invalid, interrupted, unknown or input-mismatched runs remain unusable as economic or qualification evidence. Protected diagnostics stay inside Qualification.
+Target reports reference the frozen Python package digest, Git source, entry point, parameters, environment, consumed inputs and aggregation configuration. R&D receives task/native result/raw error facts; Qualification receives request-equal sealed protected results. Product Edge/Dashboard reads only authorized exploratory facts, never protected payloads.
 
-- To [R&D](./rd/): exploratory Run Results with the complete finite `diagnosticCategorySet` and each
-  member's decisive evidence cuts. Any execution-defect member preempts economic interpretation and Research
-  chooses one repair under its frozen precedence while preserving all supported members. Only a set with no
-  defect may use `NO_EXECUTION_DEFECT` or `VALID_ECONOMIC_FAILURE` for economic interpretation;
-  `UNRESOLVED_FAILURE` permits no decision.
-- To [R&D](./rd/): for `REPAIR_INPUTS_SIMULATOR` or `REPAIR_INPUTS_BACKTEST_OPERATIONAL`, Backtest alone returns
-  the exact request-correlated `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN`. `REPAIRED` names a new simulator
-  or operational-profile identity and permits only one new request-equal Replay Request bound to the exact
-  predecessor `REPAIR_INPUTS` decision, category, native repair request and result identities, original proof
-  digest, stable correlation, predecessor and successor native identities and cuts, and unchanged predecessor
-  request semantics. `BACKTEST_OPERATIONAL` includes the successor operational-profile identity and cut. Only
-  `REPAIRED` permits re-entry; `UNAVAILABLE` permits
-  only the correlated `STOP_INPUT_UNAVAILABLE`; `OUTCOME_UNKNOWN` permits no stop, retry, successor, Artifact,
-  Selection, or Replay Request. None mutates or retries the consumed run attempt.
-- Only a request-equal exploratory `TERMINAL_RESULT` is selection-eligible; rejected, invalid, unknown,
-  non-terminal, or mismatched attempts remain TrialFamily Census facts only.
-- To R&D's attended repair path: one request-equal passing `REPAIR_VALIDATION` result may support
-  `D1_VALIDATED`; a failed, rejected, invalid, unknown, or unequal result supports no Candidate and cannot be
-  relabeled as research evidence. R&D alone commits the D-only Repair Disposition.
-- To [Qualification](./qualification/): sealed Protected Run Results that repeat every consumed execution-defining identity for exact equality checking, plus complete consumed-input evidence only.
-- To Product Edge: read-only exploratory Run Result views only; protected requests, measurements, results, and holdout details are never projected.
-- To the Dashboard, two handoffs, and each carries only what it names:
-  - The result readback, `resolve_exploratory_replay_result_v3` behind
-    `exploratory_replay_result.shadow_read.v2`, carries the canonical result bytes and nothing derived from
-    them. Its entry in `product/dashboard/lib/operation-registry.ts` permits `terminal`,
-    `reconciliation_summary`, `diagnostic_summary` and `semantic_trace_presence`, and no economic field.
-  - The run report, `resolve_backtest_run_report_v1` in
-    `crates/strategy_factory/src/backtest_run_report_read_v1.rs`, carries the named `BacktestRunReport`
-    fields. What the run produced is what `OwnerBacktestReportV1` derives from those same committed
-    bytes: the run's result, request and attempt identities with the engine-result digest its outcome
-    evidence binds, an Owner-decided state (`AVAILABLE` or `EMPTY`), every return observation the run
-    recorded in canonical UTC, net return, maximum drawdown, and every execution with its side and with
-    price and quantity exactly as the engine wrote them. It carries no statistics map, because those
-    legitimately hold non-finite values. An `EMPTY` report also names why the run recorded no return, as
-    `empty_reason`, derived from those same bytes and nothing else. The engine's own rule decides it:
-    `Portfolio::statistics` takes daily equity returns from the portfolio snapshots
-    (`calculate_snapshot_returns`) and, when those resolve to nothing, the return of each closed position. A run
-    records no return exactly when the snapshots resolve to nothing and it closed no position. The reason is the
-    first cause the engine's snapshot resolution meets, in its own order:
-    - `MORE_THAN_ONE_EQUITY_CURRENCY`: a priced snapshot of one of the run's accounts carries more than one
-      equity, or two such snapshots carry different currencies.
-    - `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`: the run has no account, or one of its accounts has no priced snapshot,
-      because every snapshot of it names an unpriced instrument.
-    - `FEWER_THAN_TWO_ENGINE_DAYS`: the priced snapshots give fewer than two days on which every account has had
-      equity, as the engine counts days, carrying each account's equity forward. `snapshot_day_start` files each
-      account's first priced snapshot, and any snapshot exactly on a UTC midnight, under the previous day, so a
-      one-account run has two days as soon as it has a later snapshot not on a midnight. A run without a fill is therefore `AVAILABLE` with a return of
-      zero, and having a fill is not a reason.
-    - `NO_DEFINED_DAILY_RETURN`: two or more such days, but no day's return is defined, because each needs a finite
-      ratio to a previous day's non-zero equity.
+Existing compatibility readers and limits:
 
-    A canonical result that is `EMPTY` although it closed a position, or although its snapshots resolve to a daily
-    series, is not one the engine writes, and it is refused as `ENGINE_RESULT_NONCANONICAL` rather than given a
-    reason. Every input the rule reads is in the committed bytes: the accounts' identities, each portfolio
-    snapshot's account, `ts_event`, `total_equity`, `base_currency_equity` and `unpriced_instruments`, and each
-    position's `ts_closed` and `realized_pnl`. The projection asks the engine's resolution itself for its cause
-    rather than keeping a second copy of the rule. What reaches each reason today:
-    - `FEWER_THAN_TWO_ENGINE_DAYS`: a run whose snapshots all fall on one midnight, which
-      `a_run_whose_snapshots_all_fall_on_a_midnight_reports_empty` runs with a control a minute later; and any run
-      on the epoch's first day, where the previous day cannot go below day zero, such as the sealed frame at 25 ns
-      that `an_authored_universe_member_program_enters_once_through_the_target_set_sim` uses. F's single frame is
-      not one: its registration snapshot is at the frame's midnight and its fill snapshot after it, so it is
-      `AVAILABLE` with one return.
-    - `MORE_THAN_ONE_EQUITY_CURRENCY`, `ACCOUNT_WITHOUT_PRICED_SNAPSHOT` and `NO_DEFINED_DAILY_RETURN`: no run,
-      because every admitted account holds one currency, prices its instruments and starts with non-zero equity; a
-      projection test over edited snapshots reaches each.
+- Dashboard shadow read through `resolve_exploratory_replay_result_v3` exposes canonical result bytes and terminal/reconciliation/diagnostic/semantic-trace-presence, without economic fields.
+- `resolve_backtest_run_report_v1` / `OwnerBacktestReportV1` derives run/request/attempt, return series, net return, drawdown and fills from the same committed engine result. Returns are fractions. The handoff currently does not distinguish daily equity returns from closed-position price returns; consumers cannot label all of them equity returns.
+- The engine still supplies `EMPTY` reasons: `MORE_THAN_ONE_EQUITY_CURRENCY`, `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`, `FEWER_THAN_TWO_ENGINE_DAYS` or `NO_DEFINED_DAILY_RETURN`. Noncanonical results refuse as `ENGINE_RESULT_NONCANONICAL`; zero fills alone do not imply EMPTY.
+- The old report reads frozen request/Design/program under a bounded `SERIALIZABLE, READ ONLY, DEFERRABLE` snapshot. Preserve `REPORT_SNAPSHOT_UNAVAILABLE`, `STRATEGY_NOT_ANCHORED_TO_RUN`, `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE`, `REPLAY_REQUEST_V3_NOT_YET_REPORTED`, `UNIVERSE_SELECTION_NOT_ONE_MEMBER` and `UNIVERSE_SELECTION_UNAVAILABLE`; a new native package does not bypass the old reader's anchoring.
+- This report has no HTTP caller. Its PostgreSQL proof reads a real engine result written by acceptance and refuses an out-of-family run as a whole. No chain entry submits a fully reportable in-family Composer V3 run; it does not prove the native report journey complete.
 
-    The key is always present: `null` in an `AVAILABLE` report, one of the set in an `EMPTY` one. The strategy and the data window are not in a backtest result,
-    so they come from upstream: the replay request the run answered, and the Design and program
-    frozen under the Design it names. All three reads run in one transaction the report opens as
-    `SERIALIZABLE, READ ONLY, DEFERRABLE`: a safe snapshot the three share, with the request storage
-    function's isolation rule kept (it answers only under `read committed` or `serializable`, because
-    under `repeatable read` its snapshot predates its request fence), and PostgreSQL refusing any row
-    lock on the path. Waiting for that snapshot is bounded, and a report that runs out of time is
-    refused as `REPORT_SNAPSHOT_UNAVAILABLE` rather than left waiting. The request is read through `rd_owner_api.read_exploratory_replay_request_v2`, which
-    takes none; `resolve_exploratory_replay_request_v2` keeps its lock for the caller that writes
-    afterwards and reads through the same function. The strategy is stated only
-    for the admitted single-threshold family, and only when authoring the statement read back from that
-    frozen pair reproduces the pair's canonical program exactly; any other run is refused as a whole
-    for that named reason. The family carries no version, so a program an earlier author froze and the
-    current author no longer reproduces is refused the same way. A run inside the family is stated only
-    when the frozen program is anchored to the artifact the run executed: the request names a Design,
-    not the program its artifact was built from. The anchor is the artifact's Composer build receipts,
-    read through the Composer Owner's lock-free receipt read inside the report's transaction: there
-    must be at least one, and every one must be a V3 plugin build carrying the freeze's
-    `joint_freeze_digest`, which the report derives again from the freeze row. A V2 build carries no
-    freeze and never anchors. An unanchored run is refused as `STRATEGY_NOT_ANCHORED_TO_RUN`, and
-    receipts that cannot be read as `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE`. A legacy request's artifact was not built by Composer,
-    so it never anchors. A Composer V3 request is read through its self-verified claim, without a lock, in
-    builds with the Composer-backed Replay feature, and refused as `REPLAY_REQUEST_V3_NOT_YET_REPORTED` in
-    builds without it, the deployed image among them. No in-family run has yet been stated end to end:
-    no ordered-chain entry commits a Composer V3 run. The channel is
-    stated as the run read it - role, instrument, fact, timeframe, unit and scale - and not in the form
-    its request authored it, so an authoring form that names the instrument indirectly still yields
-    those six fields, and a change to how a channel is authored does not change this handoff. The
-    universe-member form names its instrument only through the run's universe selection. The report reads
-    that selection's included members in its own transaction through Market Data's lock-free R&D read,
-    `market_data_rd_api.read_universe_selection_for_rd_v1`, and states the channel on the frozen Design's
-    CLOSE role with the one included member's Instrument Master identity as its instrument. A selection
-    that does not include exactly one member is refused as `UNIVERSE_SELECTION_NOT_ONE_MEMBER`, and one
-    that cannot be read or does not verify as `UNIVERSE_SELECTION_UNAVAILABLE`. The data window is the channel's instrument and timeframe, the request's
-    window with an exclusive end, the number of PIT snapshots the request binds, and that snapshot's
-    identity as the cut.
-
-  The series is not one point per bar: portfolio returns are daily, and a run whose portfolio snapshots
-  span fewer than two UTC days falls back to one return per closed position. Every series value, the net
-  return and the maximum drawdown are fractions, where 0.01 is one percent, and that is all this handoff
-  states about them.
-  It does not say which return they measure. A daily point is an equity return, a closed-position point is a
-  price return that ignores position size, and nothing in the handoff yet carries which of the two a run
-  produced. So no consumer may present these numbers as an equity return until the handoff carries that
-  basis, read back from the canonical result. The run
-  report has no HTTP caller yet. Its PostgreSQL proof reads back a real engine run, but that run reaches
-  custody through the acceptance module's own writer rather than through `run_exploratory_replay_v2`, which
-  no ordered-chain entry drives, and its program is outside the family, so the chain proves the refusal
-  and the result half. A run inside the family is not constructible in the chain today: no entry
-  composes a replay request from an authored Design.
+Old diagnostic-policy and repair schemas preserve recorded meanings only. Unimplemented repair results are not required next-experiment handoffs. Failed or unknown runs are not complete economic/qualification evidence, and protected diagnostics remain visible only to Qualification.
 
 ## Rejections and prohibitions
+
+Diagnostic class names below constrain only existing compatibility records; they add no mandatory native classification or repair workflow. Protected errors/logs and all protected result detail remain private to Qualification, including server-error review.
 
 - Never infer missing data, silently change costs, or substitute a different artifact or simulation version.
 - Never mix exploratory and protected results or expose protected results to the same research loop.
@@ -855,27 +703,16 @@ The typed diagnostic and repair records below govern consumers of the existing c
   `UNRESOLVED_FAILURE`.
 - Never relabel runner readiness, backpressure, resource exhaustion, or a service outage as `RUNTIME_KERNEL`,
   `SIMULATOR`, valid economics, or unresolved when the operational evidence is decisive.
-- Never accept `RUNTIME_KERNEL` as a Backtest repair, rewrite a repair result for changed meaning, or treat request
-  delivery, acceptance, silence, or telemetry as a terminal native repair result.
+- Old compatibility classes cannot rewrite raw errors or turn delivery, acceptance, silence or telemetry into completed repair.
 - Never expose a protected result through Product Edge, even as a read-only view.
 
 ## Failure and recovery
 
-Data gaps, invalid instrument terms, non-determinism, or an omitted substituted or mismatched Artifact, PIT
-scope, PIT Market Snapshot identity, Universe Selection Record identity or digest, snapshot rule, replay
-configuration, Runtime kernel, simulator, cost, slippage, or capacity model terminate as `RUN_REJECTED`
-or `INVALID_REPLAY_EVIDENCE`. These are replay-evidence facts, never Candidate admission or Eligibility.
-Qualification records the corresponding terminal attempt disposition and preregistered holdout closure without
-calling it `INELIGIBLE`; only `IN_PROGRESS_OR_UNKNOWN` remains unresolved.
+Missing, substituted or unequal input/run bindings and data/term faults produce named refusals or raw errors, retaining task, attempt, package, environment, consumed versions and logs. Rejected, invalid, interrupted, partial or unknown runs are not economic failure or qualification.
 
-A protected run that cannot preserve isolation is not downgraded to exploratory evidence. Reproduction starts
-from the frozen receipt, not from reconstructed defaults.
+After changing strategy source, the Agent freezes a new package and submits a linked complete run. Service, fixed-environment or simulator faults retain exact versions and errors for user review, repair and deployment. A repair is followed by an explicit linked new task, without automatic retry or a service repair Owner. Unknown state resolves the original identity first; silence cannot create a terminal.
 
-A decisively identified runner readiness, backpressure, resource-exhaustion, or service-outage failure is
-`BACKTEST_OPERATIONAL`. It preempts economics and routes correction only to Backtest's operational profile and
-runner service; it never claims a Runtime kernel or Simulator repair. On the protected path Qualification consumes
-only the sealed category as `DIAGNOSTIC_INVALID`, closes holdout under the preregistered policy, emits no
-Eligibility Fact, and exposes neither the operational evidence nor protected detail to R&D or Product Edge.
+Qualification closes protected attempts and holdout under the frozen policy. Protected failures cannot become exploratory evidence, expose diagnostics, or turn admission failure into INELIGIBLE.
 
 ## Decision contract
 
@@ -895,45 +732,19 @@ Eligibility Fact, and exposes neither the operational evidence nor protected det
 
 ## Subsequent implementation acceptance
 
-- Identical admitted inputs reproduce the same canonical event and result sequence.
-- Protected Run Result proves exact equality between every requested and consumed Artifact, PIT scope, snapshot,
-  universe, calendar/session/time-zone, corporate-action, historical-membership, market-semantics, correction,
-  replay, kernel, simulator, cost, slippage, capacity-model, Protected Robustness Plan, and plan-cell identity.
-- Each terminal protected result accounts for exactly its requested plan cell and repeats the complete cell-set
-  digest. Qualification alone resolves all sealed per-cell results against the frozen plan and assigns missing-cell
-  disposition after consuming a sealed Backtest attempt frontier that proves no requested cell remains nonterminal;
-  Backtest cannot claim whole-plan completeness or silently relabel unavailable evidence.
-- Any protected request-to-result mismatch becomes `INVALID_REPLAY_EVIDENCE` and produces no Eligibility Fact.
-- Every exploratory result joins the same stable R&D-owned request identity; a mismatched, mutable, superseded, or unresolved request produces no run.
-- Every terminal exploratory result in the existing compatibility schema has one complete finite `diagnosticCategorySet`, diagnostic-policy version,
-  and decisive evidence cut per supported member or complete non-isolating evidence set; simultaneous supported
-  defects and economic failure remain visible and Research's one-repair selection is deterministic.
-- Every terminal protected result likewise preserves one complete finite non-empty `diagnosticCategorySet` and
-  content digest for Qualification only. `NO_EXECUTION_DEFECT` and `UNRESOLVED_FAILURE` are singleton-only; any
-  supported execution defect preempts economics, and no protected set membership enters shared telemetry or R&D.
-- Every terminal protected cell result carries sealed Backtest-owned applicability and outcome evidence plus one
-  complete `PROTECTED_EVALUATION` result-stage Time Evidence. Backtest reports observations; it does not assign
-  Qualification's `PASS`, `FAIL`, or non-applicability categories.
-- Every `BACKTEST_OPERATIONAL` result proves the exact operational profile, run attempt, readiness/backpressure/
-  resource-exhaustion/outage evidence, and Time Evidence; a correlated repair targets only
-  `BACKTEST_RUNNER_SERVICE`, and a successor profile is consumed only by a new Replay Request.
-- Every admitted Backtest native repair request has one correlated write-once result. Exact replay joins the same
-  attempt and result; only `REPAIRED` may name a new category-specific identity, while `UNAVAILABLE` and
-  `OUTCOME_UNKNOWN` grant no successor identity or retry.
-- Every completed exploratory result proves exact request-consumed equality for Artifact, PIT scope and snapshot,
-  universe selection and correction, replay configuration, Runtime kernel, simulator, cost, slippage, and capacity;
-  only an equal `TERMINAL_RESULT` may enter Research Selection.
-- Exploratory and protected run namespaces, access paths, and result consumers are demonstrably isolated.
-- No Backtest result can authorize or apply a strategy generation; Qualification decides eligibility, Governance authorizes, and Runtime alone proves application.
-- Backtest exposes only `RUN_REJECTED`, `IN_PROGRESS_OR_UNKNOWN`, `TERMINAL_RESULT`, or `INVALID_REPLAY_EVIDENCE`; it cannot write admission or eligibility state.
-- A created protected request is never rejected without a Protected Run Result; the result is what lets Qualification close holdout custody.
+- A real consumer reads native frozen-task admission, identity-conflict refusal and same-identity query/recovery; submission or sealing is not completion.
+- Requested and consumed package, environment, PIT/correction inputs, instruments, window, aggregation, models and costs match field by field. Equal inputs reproduce native events and results.
+- Native orders, fills, accounts, costs/funding, results and bounded logs remain readable by original identity. Partial, failed, truncated and unknown evidence stays explicit, and reports do not invent return semantics.
+- Protected results repeat Candidate/Intake policy, plan and exact cell identities, accounting for each cell once. Only Qualification decides coverage and eligibility against the complete attempt frontier. Missing, unequal or unknown evidence creates no Eligibility.
+- Strategy corrections create new packages/tasks with predecessors retained. Service errors retain logs for user repair/deployment, without requiring nonexistent native repair requests.
+- Existing compatibility readers verify their frozen identities, refusals, rights and protection isolation. Old Composer/repair schemas are not native acceptance prerequisites. Owner acceptance still requires Linux ordered PostgreSQL chains and report; local tests do not prove deployment.
 
 ## Observability and persistence
 
 Backtest persists each Replay Request, run attempt, consumed Artifact and PIT identities, operational-profile
 identity and version, runner/service readiness and bounded backpressure/resource/outage evidence,
 cost/capacity inputs, complete diagnostic set, Exploratory Result, and Protected Run Result. Operational
-signals cover queue time, engine/simulator duration, resource use, and repair dependency without copying
+signals cover queue time, engine/simulator duration, resource use, and named failure without copying
 protected measurements or an internal terminal disposition into shared telemetry.
 
 Exploratory projections may expose their diagnostic category set; protected projections expose only the

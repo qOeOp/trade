@@ -9,19 +9,15 @@ One individual gives a sourced, falsifiable market idea to an external Agent. Th
 
 ## Value path
 
-1. Market Data provides traceable point-in-time facts and canonical instrument identity.
-2. Research freezes the hypothesis and produces a reproducible Strategy Artifact.
-3. Exploratory Backtest may support another research iteration.
-4. A frozen candidate enters independent protected Qualification.
-5. Strategy Governance combines eligibility, lifecycle evidence, capital policy, complete request Authorization
-   Lineage, and an explicit Autonomous Policy Authorization into deployment decisions.
-6. R&D offers on-demand discovery using the same strategy judgments without deployment proposals. Running strategies
-   consume market data continuously; Governance evaluates frozen lifecycle conditions directly.
-7. After the user confirms first trial entry, Runtime, Risk and Execution perform real trial/formal trading through one permit-bound native write chain. Promotion rechecks frozen conditions and capacity.
-8. Portfolio projects read-only account, exposure, performance, capacity, interaction, and degradation facts.
-   Governance applies the approved trial/formal pool ratios and equal running-member allocation only when existing occupancy fits; otherwise admission waits; Risk enforces generation envelopes and joins
-   account facts, open orders, and liabilities without becoming an allocator.
-9. Committed feedback returns to Governance; Recovery fences incidents until external effects are known closed.
+1. The user gives an external Agent a goal and risk tolerance. Within approved bounds the Agent authors native Strategy code, proposes hypotheses and registers experiments.
+2. Market Data prepares/reuses exact one-minute bars and required additional data; R&D freezes Git source, parameters, environment and input references.
+3. Backtest uses Nautilus replay, matching and reports. The Agent interprets evidence; R&D retains experiments, exposure and reusable knowledge. Reaching the research goal stops research.
+4. The user separately requests independent Qualification. Protected evaluation publishes only its binary terminal result; failure does not restart research.
+5. Qualification does not launch a strategy. Dashboard user confirmation of real trial places the exact version in the Governance queue.
+6. Governance checks current eligibility, authority, frozen policy, account capacity and existing occupancy. Native Runtime/Risk/Execution/Portfolio then run the admitted deployment.
+7. Governance promotes under frozen trial conditions and unloads under frozen exit conditions or a user request. Existing positions retain protection; capital is reusable only after actual occupancy clears.
+8. Single-strategy and combination research share native backtest semantics. Combination configuration is independently versioned; R&D researches member-exit plans and Governance executes them. Portfolio provides reproducible account/performance facts; the Agent provides scientific interpretation.
+9. Failures retain source logs and unknown effects. Fact Owners close recovery under Risk fences; notifications, retries or local acknowledgements never establish success.
 
 ## Owner handoffs
 

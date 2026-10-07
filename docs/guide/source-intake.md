@@ -115,21 +115,9 @@ records commit atomically only for `ADMITTED` plus `RETRIEVED`.
 
 ### Current hosted acquisition sequence
 
-The following are capabilities inside Source Intake, not new Flow nodes or Owners:
+The existing managed interface supports bounded discovery/identity resolution, pre-fetch admission, permitted retrieval, faithful normalization, immutable provenance capture, and connector health. Retrieval still requires exact `ADMITTED` and records its cut, response/content digests, access/rights basis, and terminal. Changed content creates a successor or rejection; unavailable is never empty.
 
-`Connectors → Discovery → Identity Resolution → Admission → Fetch → Normalization → Provenance → Triage → Research Queue`
-
-| Capability  | Required semantics                                                                                                                            |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `discover`  | Return stable Source References for a bounded query, source class, time cut, and connector restrictions.                                      |
-| `resolve`   | Resolve DOI, arXiv ID, URL, repository commit, author, or post reference to a canonical Source Identity.                                      |
-| `fetch`     | After exact `ADMITTED`, retrieve only permitted content and record retrieval time, response identity, access basis, and acquisition terminal. |
-| `normalize` | Produce a Source Candidate without changing meaning; retain the raw‑content digest and transformation identity.                               |
-| `capture`   | Create or join the immutable Research Source Provenance Record; changed content creates a successor or rejection.                             |
-| `health`    | Report reachability, authorization, quota, rights change, and last successful retrieval; unavailable is not empty.                            |
-
-No connector can create a Research Intent, Strategy Artifact, Candidate, Eligibility Fact, deployment decision, or
-external trading effect.
+These capabilities maintain the existing managed interface; they are not new services, Flow nodes, a scheduler, or a target research implementation checklist. External Agent host tools acquire and record target sources; host provenance cannot impersonate a managed acquisition receipt. No connector may create a Research Intent, Strategy Artifact, Candidate, Eligibility Fact, deployment decision, or trading effect.
 
 ### Acquisition terminals
 
@@ -167,30 +155,13 @@ without its record is not handoffable.
 
 ### Typed handoff for managed sources
 
-The enabled managed Source Intake interface uses a typed R&D-owned ancestry operation between Source Intake and Research. It accepts
-an untrusted reference to a Source Intake attempt, then locks and rereads the exact `RETRIEVED` terminal receipt,
-Research Source Provenance Record, Source Candidate, and matching transition outbox from Owner custody. It verifies
-their shared request and attempt identities, canonical source and content digest, retrieval cut, connector and
-acquisition-class identity, policy/Time Evidence, and rights/retention basis, then returns sealed ancestry evidence
-only. Source content remains untrusted and never confers accepted Research custody.
+For the target route, the Agent records source references, digests, acquisition cuts, rights basis, and research interpretation. R&D retains those records and native Git Strategy lineage; provenance alone creates no Intent, strategy, eligibility, or effect authority.
 
-The typed Research `RUN` separately consumes an untrusted Research proposal and that verified ancestry evidence
-through canonical R&D Research admission. R&D is the sole Intent owner: only that admission may resolve the
-Independence Basis, current Qualification frontier, and local semantic-predecessor lineage, then freeze the Intent,
-falsifier, permanent TrialFamily authority, receipts, and current Research custody that Develop Composer may
-consume. A Source Intake attempt alone can never derive `CurrentResearchDevelopCustodyV2`.
+The existing managed protocol retains one R&D-owned ancestry operation: lock and reread the exact attempt's `RETRIEVED` receipt, Provenance Record, Source Candidate, and transition outbox; verify request/attempt, source/content digest, retrieval cut, connector/acquisition class, policy/Time Evidence, and rights/retention basis; return sealed ancestry only. Source content remains untrusted.
 
-The caller cannot supply or repair any verified member. Copying receipt fields into a Research DTO, trusting a
-locator without Owner reread, reading JSON projections as canonical records, or co-deploying Source Intake and
-Composer is not a handoff. A missing, mismatched, stale, non-`RETRIEVED`, negative, or unavailable ancestry member,
-or a failed canonical Research admission, produces no accepted Research custody, Research Intent, Design, Plan,
-Artifact, or successor authority. Same request and meaning join the byte-identical R&D operation receipt; identity
-reuse with changed meaning conflicts with zero positive writes, and response loss resolves only the same attempt.
+Its legacy Research `RUN` admission alone resolves Independence Basis, the Qualification opaque frontier, and semantic predecessor, then freezes Intent/falsifier/TrialFamily and receipts. An Intake attempt, copied DTO, unread locator, JSON projection, or co-deployment cannot create `CurrentResearchDevelopCustodyV2` or accepted Research custody; callers cannot supply verified members. Missing, mismatched, expired, negative, non-`RETRIEVED`, unavailable ancestry or failed Research admission permits zero positive Research/Design/Plan/Artifact/successor writes. Same identity and meaning join the original receipt; changed meaning conflicts; response loss resolves only the same attempt.
 
-This operation and its durable PostgreSQL custody are `TARGET`, not current. Crate-local Source Intake contract and
-regression evidence and the crate-local Composer proof remain separate `CURRENT/PARTIAL` evidence. No current
-evidence establishes an isolated first-party PostgreSQL Source Intake runner; the composed dynamic gates in the
-Product Edge D0 contract remain unpassed.
+The ancestry operation and durable PostgreSQL custody remain `TARGET`. Separate crate-local Source Intake and Composer evidence is only `CURRENT/PARTIAL`; composed dynamic gates remain unpassed. This is not a Composer prerequisite for native Git Strategy. Existing receipt consumption and refusal rules belong to [R&D](../owners/rd/) and [Product Edge](../architecture/product-edge/).
 
 ### Triage and admission
 

@@ -43,7 +43,7 @@ export const services: Service[] = [
       step('记录 Agent 实验方案与比较目标', 'Record Agent experiments and comparison goals', 'owners/rd'),
       step('原生源码包与封存 Artifact', 'Native source package and sealed Artifact', 'owners/rd'),
       step('资源准入、数据准备与回测任务', 'Resource admission, data preparation and replay jobs', 'owners/rd'),
-      step('记录 Agent 诊断、迭代与候选选择', 'Record Agent diagnosis, iteration and selection', 'owners/rd'),
+      step('记录 Agent 结论；目标达成则停止', 'Record Agent conclusions; stop on goal completion', 'owners/rd'),
       step('知识沉淀、复核与代理接管', 'Knowledge, review and Agent takeover', 'owners/rd'),
     ],
     apis: [copy('项目、家族、编写、实验与迭代', 'Projects, families, authoring, experiments and iteration'), copy('知识检索、按需发现与接管', 'Knowledge retrieval, on-demand discovery and takeover')],
@@ -68,12 +68,12 @@ export const services: Service[] = [
     summary: copy('隔离评估与资格', 'Isolated assessment and eligibility'),
     entrance: copy('资格 MCP / 有界视图', 'Qualification MCP / bounded views'),
     steps: [
-      step('接纳独立选定的策略或组合候选', 'Admit independently selected strategy or composition', 'owners/qualification'),
+      step('用户请求后接纳冻结策略或组合候选', 'Admit a frozen strategy or composition on user request', 'owners/qualification'),
       step('冻结保护协议与隔离输入', 'Bind protected protocol and isolated inputs', 'owners/qualification'),
       step('用同一原生回测语义评估', 'Assess with the same native replay semantics', 'owners/qualification'),
       step('提交资格或有界公开负结论', 'Commit eligibility or bounded public negative conclusion', 'owners/qualification'),
     ],
-    apis: [copy('候选接纳、状态、资格与撤销', 'Candidate admission, status, eligibility and revocation'), copy('可选只记录前向任务', 'Optional record-only forward jobs')],
+    apis: [copy('候选接纳、状态、资格与撤销', 'Candidate admission, status, eligibility and revocation'), copy('二级公开结论与适用边界', 'Binary public outcomes and eligibility scope')],
     boundary: copy('保护数值与内部原因留在私有域；不部署或分配资金。', 'Protected values and private reasons stay isolated; no deployment or allocation.'),
   },
   {
@@ -85,7 +85,7 @@ export const services: Service[] = [
       step('用户确认试盘条件与资金政策', 'User confirms trial conditions and capital policy', 'owners/strategy-governance'),
       step('额度不满足则排队；满足后统一分配并授权', 'Queue until usage fits; then apply allocation and authorize', 'owners/strategy-governance'),
       step('按真实表现自动转正或下架', 'Promote or unload from actual performance', 'owners/strategy-governance'),
-      step('下架事实交回 R&D 改进', 'Return unload facts to R&D for improvement', 'scenarios/research'),
+      step('记录下架；新用户指令才启动改进', 'Record unload; a new user instruction starts improvement', 'scenarios/research'),
     ],
     apis: [copy('合格目录、阶段、条件模板与资金政策', 'Eligible catalog, stages, condition templates and capital policy'), copy('生命周期请求、决定与授权读回', 'Lifecycle requests, decisions and authority readback')],
     boundary: copy('授权不证明 Runtime 已应用，更不证明实际成交。', 'Authorization proves neither Runtime application nor actual fills.'),
@@ -118,7 +118,7 @@ export const handoffs: Handoff[] = [
   handoff('rd-backtest', 'rd', 'backtest', '已登记实验', 'Registered experiment'),
   handoff('data-backtest', 'market-data', 'backtest', '已验证输入', 'Verified inputs'),
   handoff('backtest-rd', 'backtest', 'rd', '结果与证据', 'Results/evidence'),
-  handoff('rd-qualification', 'rd', 'qualification', '冻结候选', 'Frozen candidate'),
+  handoff('rd-qualification', 'rd', 'qualification', '用户请求评估的冻结候选', 'User-requested frozen candidate'),
   handoff('qualification-backtest', 'qualification', 'backtest', '隔离评估', 'Isolated assessment'),
   handoff('qualification-governance', 'qualification', 'governance', '资格事实', 'Eligibility facts'),
   handoff('data-native', 'market-data', 'native', '实时行情', 'Live data'),
@@ -130,11 +130,11 @@ export const handoffs: Handoff[] = [
 export type Scenario = { id: ScenarioId; label: Copy; summary: Copy; relations: string[]; steps: FlowStep[] };
 export const productScenarios: Scenario[] = [
   { id: 'overview', label: copy('全景', 'Overview'), summary: copy('六组后端职责。点击服务展开内部流程；MCP 和 API 是入口，不是新部门。', 'Six backend responsibility groups. Select a service for its flow; MCP/API are entrances, not departments.'), relations: handoffs.map((edge) => edge.id), steps: [] },
-  { id: 'research', label: copy('研究迭代', 'Research'), summary: copy('Agent 在冻结边界内提案，服务持久执行，R&D 保留完整实验与决定。', 'Agents propose within frozen bounds; services execute durably and R&D retains complete trials and decisions.'), relations: ['agent-rd', 'rd-data', 'data-backtest', 'rd-backtest', 'backtest-rd', 'rd-qualification'], steps: [step('主题、来源与预登记', 'Theme, sources and registration', 'owners/rd'), step('原生策略版本与封存 Artifact', 'Native strategy version and sealed Artifact', 'owners/rd'), step('数据准备与原生回测', 'Data preparation and native replay', 'scenarios/research'), step('诊断、知识与后继或停止', 'Diagnosis, knowledge, successor or stop', 'owners/rd'), step('Agent 选择候选后交独立资格评估', 'Agent selection before independent assessment', 'owners/qualification')] },
-  { id: 'r1', label: copy('R-1 回测', 'R-1 replay'), summary: copy('冻结挂单与分段退出，用原生订单、成本与实际输入顺序验证。', 'Freeze limits and staged exits; verify native orders, costs and actual input chronology.'), relations: ['agent-rd', 'rd-data', 'data-backtest', 'rd-backtest', 'backtest-rd'], steps: [step('声明挂单、撤单、止损止盈与窗口', 'Declare entries, cancellation, stops, exits and windows', 'owners/rd'), step('准备信号、预热与 fill 输入', 'Prepare signals, warmup and fill inputs', 'owners/market-data'), step('原生撮合与逐笔退出', 'Native matching and per-entry exits', 'owners/backtest'), step('歧义交数据后继，重新准入回放', 'Ambiguity creates a data successor and readmitted replay', 'scenarios/research'), step('组合报告与实现忠实性对照', 'Portfolio reports and fidelity checks', 'scenarios/research')] },
+  { id: 'research', label: copy('研究迭代', 'Research'), summary: copy('Agent 在冻结边界内提案，服务持久执行，R&D 保留完整实验与决定。', 'Agents propose within frozen bounds; services execute durably and R&D retains complete trials and decisions.'), relations: ['agent-rd', 'rd-data', 'data-backtest', 'rd-backtest', 'backtest-rd'], steps: [step('主题、来源与预登记', 'Theme, sources and registration', 'owners/rd'), step('原生策略版本与封存 Artifact', 'Native strategy version and sealed Artifact', 'owners/rd'), step('数据准备与原生回测', 'Data preparation and native replay', 'scenarios/research'), step('诊断、知识与后继或停止', 'Diagnosis, knowledge, successor or stop', 'owners/rd'), step('目标达成，交付结论并停止', 'Reach the goal, deliver conclusions and stop', 'owners/rd')] },
+  { id: 'r1', label: copy('R-1 回测', 'R-1 replay'), summary: copy('冻结挂单与分段退出，用原生订单、成本与实际输入顺序验证。', 'Freeze limits and staged exits; verify native orders, costs and actual input chronology.'), relations: ['agent-rd', 'rd-data', 'data-backtest', 'rd-backtest', 'backtest-rd'], steps: [step('声明挂单、撤单、止损止盈与窗口', 'Declare entries, cancellation, stops, exits and windows', 'owners/rd'), step('准备信号、预热与 fill 输入', 'Prepare signals, warmup and fill inputs', 'owners/market-data'), step('原生撮合与逐笔退出', 'Native matching and per-entry exits', 'owners/backtest'), step('按 1m 执行，记录原生成交假设', 'Execute at 1m and record native fill assumptions', 'scenarios/research'), step('组合报告与实现忠实性对照', 'Portfolio reports and fidelity checks', 'scenarios/research')] },
   { id: 'discovery', label: copy('按需找币', 'Discovery'), summary: copy('Agent 直接查询数据；有状态策略观察复用原生回放，R&D 保存研究引用。', 'Agents query data directly; stateful observation reuses native replay and R&D retains references.'), relations: ['agent-data', 'agent-rd', 'rd-data', 'rd-backtest', 'data-backtest', 'backtest-rd'], steps: [step('Agent 选择查询条件或准确策略版本', 'Agent chooses filters or exact strategy version', 'scenarios/scan'), step('数据查询返回截面、覆盖与缺口', 'Data queries return cuts, coverage and gaps', 'owners/market-data'), step('需状态暖机时复用原生回放', 'Reuse native replay for state and warmup', 'owners/backtest'), step('Agent 解释结果；按需保存研究引用', 'Agent interprets; retain research references as needed', 'owners/rd')] },
   { id: 'trial', label: copy('试盘转正', 'Trial promotion'), summary: copy('成员及适用组合资格有效后用户确认试盘；达到冻结条件且组合证据覆盖时自动转正。', 'User confirms trial after member and composition eligibility; frozen conditions and composition coverage govern promotion.'), relations: ['rd-qualification', 'qualification-backtest', 'qualification-governance', 'dashboard-governance', 'governance-native', 'data-native', 'native-governance'], steps: [step('准确成员版本与共享账户组合资格', 'Exact member versions and shared-account composition eligibility', 'owners/qualification'), step('Dashboard 确认条件模板与两池政策', 'Confirm condition template and two-pool policy', 'owners/strategy-governance'), step('治理授权，Runtime 应用', 'Governance authorizes; Runtime applies', 'owners/runtime'), step('真实试盘、费用与表现计量', 'Real trial, costs and performance measurement', 'owners/portfolio'), step('达标转正；到期未达标下架回 R&D', 'Promote on passing; unload to R&D on expiry without passing', 'owners/strategy-governance')] },
-  { id: 'improvement', label: copy('下架改进', 'Improvement'), summary: copy('有效策略也可主动下架；内容 hash 变更后重新走完整生命周期。', 'Valid strategies may be unloaded for improvement; changed content hashes repeat the complete lifecycle.'), relations: ['dashboard-governance', 'governance-native', 'native-governance', 'governance-rd', 'rd-backtest', 'backtest-rd'], steps: [step('用户主动下架，记录真实原因', 'User unloads with the actual reason', 'owners/strategy-governance'), step('停止新入场、撤入场挂单、归还预算', 'Stop new entries, cancel entry orders, return allocation', 'owners/strategy-governance'), step('剩余持仓继续原保护，实际风险仍计入', 'Residual positions retain protection and actual exposure', 'owners/execution'), step('表现作为 R&D 后继来源', 'Use performance as successor research sources', 'owners/rd'), step('新 hash 重新回测并由用户确认试盘', 'New hash requalifies and receives user-confirmed trial', 'scenarios/research')] },
+  { id: 'improvement', label: copy('下架改进', 'Improvement'), summary: copy('有效策略也可主动下架；内容 hash 变更后重新走完整生命周期。', 'Valid strategies may be unloaded for improvement; changed content hashes repeat the complete lifecycle.'), relations: ['dashboard-governance', 'governance-native', 'native-governance', 'governance-rd', 'rd-backtest', 'backtest-rd'], steps: [step('用户主动下架，记录真实原因', 'User unloads with the actual reason', 'owners/strategy-governance'), step('停止新入场、撤入场挂单、归还未占用额度', 'Stop new entries, cancel entry orders, return unused allocation', 'owners/strategy-governance'), step('剩余持仓继续原保护，实际风险仍计入', 'Residual positions retain protection and actual exposure', 'owners/execution'), step('记录表现；用户请求后开展改进', 'Record performance; improve on user request', 'owners/rd'), step('新 hash 重新回测并由用户确认试盘', 'New hash requalifies and receives user-confirmed trial', 'scenarios/research')] },
   { id: 'recovery', label: copy('故障恢复', 'Recovery'), summary: copy('未知结果先围栏并按原身份读回；对账完成不会复活旧授权。', 'Fence unknown outcomes and resolve original identities; reconciliation does not revive old authority.'), relations: ['governance-native', 'native-governance'], steps: [step('Runtime/Risk 限制新增风险', 'Runtime/Risk restrict new exposure', 'owners/risk'), step('Execution 回读订单、成交与账户并对账', 'Execution resolves orders, fills and account facts', 'owners/execution'), step('核对当前治理授权与资金边界', 'Check current governance authority and capital bounds', 'owners/strategy-governance'), step('由原生应用与恢复回执证明闭合', 'Native application and recovery receipts prove closure', 'scenarios/recovery')] },
 ];
 

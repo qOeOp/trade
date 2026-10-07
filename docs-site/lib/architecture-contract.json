@@ -308,9 +308,9 @@
     "signalLanes": [
       {
         "id": "COMMITTED_DOMAIN_EVENT",
-        "transport": "transactional-outbox-to-event-rail",
+        "transport": "source-owner-outbox-via-native-message-extensions-or-existing-transport",
         "delivery": "at-least-once-with-idempotent-consumer",
-        "authorityRule": "The source Owner commits the business fact and outbox entry atomically; Event Rail and Observability never become fact authority"
+        "authorityRule": "The source Owner commits the business fact and outbox entry atomically; notifications and Observability never become fact authority"
       },
       {
         "id": "TRACE_METRIC_LOG",
@@ -647,7 +647,8 @@
         "docsRoute",
         "modules",
         "authorityOwnerId",
-        "memberGroupIds"
+        "memberGroupIds",
+        "visibility"
       ],
       "channel": [
         "id",
@@ -835,7 +836,9 @@
       "semantics",
       "effectiveSemantics"
     ],
-    "relationOptionalSourceFields": [],
+    "relationOptionalSourceFields": [
+      "visibility"
+    ],
     "scenarioProjectionFields": [
       "id",
       "label",
@@ -1351,7 +1354,7 @@
         "noBusinessOutcomeBasis": "Retained immutable Scanner compatibility records preserve original due-slot and receipt identity/refusal meanings; current product discovery is R&D-owned and this boundary creates no new schedules proposals or activation authority."
       },
       {
-        "id": "portfolio-degradation-attribution",
+        "id": "portfolio-lifecycle-fact-provenance",
         "authorityId": "portfolio",
         "docsRoute": "owners/portfolio",
         "objectId": "portfolio-lifecycle-evidence-receipt",
@@ -1361,22 +1364,19 @@
         "requiredRelatedObjectIds": [
           "performance-receipt",
           "exposure-receipt",
-          "capacity-view",
-          "portfolio-interaction-receipt"
+          "capacity-view"
         ],
         "requiredGuarantees": [
-          "one-lifecycle-evidence-receipt-is-the-sole-attribution-authority",
-          "resolved-one-resolved-many-or-unresolved-attribution",
-          "complete-decisive-fact-cuts",
-          "exact-current-interaction-receipt-when-interaction-degradation-is-claimed",
-          "policy-threshold-binding",
-          "governance-does-not-invent-attribution"
+          "complete-current-account-and-member-fact-cuts",
+          "deterministic-method-and-policy-binding",
+          "no-scientific-attribution-authority",
+          "no-mixed-or-unknown-evidence-promotion"
         ],
         "semantics": {
-          "accepted": "Portfolio commits one Lifecycle Evidence Receipt with RESOLVED_ONE RESOLVED_MANY or UNRESOLVED attribution and exact decisive source cuts including the current Interaction Receipt when claimed",
-          "rejected": "Missing stale mixed-scope unsupported or interaction-mismatched attribution creates no adverse lifecycle evidence",
-          "unknown": "Unknown attribution remains UNRESOLVED with no named cause and cannot be converted into a Governance cause",
-          "replay": "The same Lifecycle Evidence Receipt fact policy and interaction cuts join one immutable attribution result"
+          "accepted": "Portfolio commits exact current account capacity performance and exposure facts with source cuts and deterministic method versions; Governance evaluates explicitly approved frozen conditions and Agent alone interprets scientific causes",
+          "rejected": "Missing stale mixed-scope conflicting or incomplete facts cannot authorize promotion allocation or other evidence-dependent transitions",
+          "unknown": "Unknown facts remain unavailable; no neutral scientific classification or Governance cause is invented",
+          "replay": "The same source cuts methods and scope resolve to the same immutable fact receipt without rewriting previous observations"
         }
       },
       {
@@ -1814,8 +1814,8 @@
           "strategy-governance"
         ],
         "firstConsumerId": "observability",
-        "canonicalSurfaceId": "event-rail",
-        "firstDevelopmentChunkId": "relation:events-observability",
+        "canonicalSurfaceId": "group-observability",
+        "firstDevelopmentChunkId": "relation:runtime-events",
         "prohibitions": [
           "no-approval",
           "no-retry-authority",
@@ -2578,7 +2578,7 @@
         "capabilityPortIds": [],
         "providerMemberPortEvidence": [],
         "adoptionRule": "Partition capture snapshot verification and replay through the native Owner append and recovery contracts",
-        "noAuthorityBasis": "Event Store is neither Event Rail nor a second ledger checkpoint or Recovery closure authority"
+        "noAuthorityBasis": "Event Store is neither a second ledger checkpoint nor Recovery closure authority"
       },
       {
         "inventoryId": "indicators",
@@ -3456,20 +3456,21 @@
           "crates/strategy_factory/src/lib.rs"
         ],
         "presentSourceFacets": [],
-        "missingSourceFacets": [
-          "strategy activation matcher",
-          "due-slot schedule",
-          "complete Scanner Receipt"
-        ],
-        "disposition": "DEFINE_TARGET_CONTRACT",
+        "missingSourceFacets": [],
+        "disposition": "DO_NOT_CREATE_SECOND_AUTHORITY",
         "destinationOwnerIds": [
-          "scanner"
+          "rd",
+          "market-data",
+          "backtest",
+          "strategy-governance"
         ],
         "destinationObjectIds": [
-          "scanner-receipt"
+          "strategy-artifact",
+          "exploratory-result",
+          "authorized-generation-decision"
         ],
-        "forbiddenAuthority": "hidden-scheduler-deployment-decision-or-runtime-activation",
-        "admissionGate": "due-slot-identity-complete-strategy-dispositions-and-proposal-only-negative-proof"
+        "forbiddenAuthority": "independent-scanner-scheduler-proposal-department-or-runtime-activation",
+        "admissionGate": "on-demand-query-or-registered-native-replay-and-separately-user-approved-governance-lifecycle"
       },
       {
         "capabilityId": "portfolio-contract",
@@ -3524,23 +3525,19 @@
         ],
         "presentSourceFacets": [],
         "missingSourceFacets": [
-          "scheduler service",
-          "strategy registry service",
-          "deployment lifecycle service"
+          "native-runtime-and-governance-integration"
         ],
         "disposition": "DO_NOT_CREATE_SECOND_AUTHORITY",
         "destinationOwnerIds": [
-          "scanner",
           "strategy-governance",
           "runtime"
         ],
         "destinationObjectIds": [
-          "scanner-schedule-definition",
           "deployable-strategy-set",
           "generation-application-receipt"
         ],
         "forbiddenAuthority": "second-scheduler-registry-lifecycle-manager-or-deployment-service",
-        "admissionGate": "legacy-writer-fenced-readers-moved-and-common-cut-reconciled"
+        "admissionGate": "native-clock-and-runtime-reuse-with-one-governance-registry-no-scanner-service"
       }
     ],
     "strategyFactoryMappingContract": {
@@ -3968,34 +3965,8 @@
       "docsRoute": "owners/rd",
       "modules": [
         {
-          "id": "source-intake",
-          "label": "Source Intake",
-          "kind": "adapter",
-          "emphasis": "support",
-          "scenarios": [
-            "research"
-          ],
-          "description": {
-            "en": "Traceable hypothesis sources only",
-            "zh": "接收论文、视频和观察记录，只把它们作为可追踪假设来源"
-          }
-        },
-        {
-          "id": "research-intent",
-          "label": "Research Intent",
-          "kind": "authority",
-          "emphasis": "core",
-          "scenarios": [
-            "research"
-          ],
-          "description": {
-            "en": "Records Agent plans and approved bounds\nPreserves predecessor and exposure frontiers\nDoes not approve scientific adequacy",
-            "zh": "记录 Agent 方案与批准边界\n保留前驱与试验暴露前沿\n不审批科学方法充分性"
-          }
-        },
-        {
-          "id": "artifact",
-          "label": "Strategy Artifact",
+          "id": "projects",
+          "label": "Projects",
           "kind": "authority",
           "emphasis": "core",
           "scenarios": [
@@ -4003,8 +3974,49 @@
             "backtest"
           ],
           "description": {
-            "en": "Seals native Strategy source parameters and environment\nSeparates package identity from experiment inputs\nNo JSON language BFP or Wasm compiler",
-            "zh": "封存原生 Strategy 源码 参数与环境\n区分包身份与实验输入\n不建立 JSON 语言 BFP 或 Wasm 编译器"
+            "en": "Records user research goals, bounds and durable handoff context",
+            "zh": "记录用户研究目标、边界与持久接管上下文"
+          }
+        },
+        {
+          "id": "authoring",
+          "label": "Authoring",
+          "kind": "authority",
+          "emphasis": "core",
+          "scenarios": [
+            "research",
+            "backtest"
+          ],
+          "description": {
+            "en": "Seals Git-backed native Strategy source, parameters and environment",
+            "zh": "封存 Git 原生 Strategy 源码、参数与环境"
+          }
+        },
+        {
+          "id": "experiments",
+          "label": "Experiments",
+          "kind": "authority",
+          "emphasis": "core",
+          "scenarios": [
+            "research",
+            "backtest"
+          ],
+          "description": {
+            "en": "Registers frozen inputs and runs; preserves trial and exposure records",
+            "zh": "登记冻结输入与运行；保留试验及暴露台账"
+          }
+        },
+        {
+          "id": "knowledge",
+          "label": "Knowledge",
+          "kind": "authority",
+          "emphasis": "core",
+          "scenarios": [
+            "research"
+          ],
+          "description": {
+            "en": "Retains Agent conclusions with evidence, scope and source commit",
+            "zh": "保存 Agent 结论及证据、适用范围与源码 commit"
           }
         }
       ]
@@ -4449,33 +4461,11 @@
           }
         }
       ],
-      "role": "stage"
+      "role": "stage",
+      "visibility": "contract-only"
     }
   ],
-  "channels": [
-    {
-      "id": "event-rail",
-      "label": "Event Rail",
-      "role": "transport",
-      "docsRoute": "architecture/event-rail",
-      "kind": "adapter",
-      "emphasis": "core",
-      "scenarios": [
-        "backtest",
-        "paper",
-        "live",
-        "recovery"
-      ],
-      "description": {
-        "en": "Broadcasts only committed eligibility incident order fill and drift events\nPreserves event identity ordering and subscriber delivery\nOwns no approval retry terminal state or recovery",
-        "zh": "只广播已经提交的资格变化 运行事故 订单 成交和对账差异\n保留事件身份 顺序和订阅投递语义供各 Owner 消费\n不承担审批 重试 业务终态或恢复流程的任何权威"
-      },
-      "eventLines": [
-        "Eligibility Changed · Runtime Incident",
-        "Order Updated · Fill Recorded · Reconcile Drift"
-      ]
-    }
-  ],
+  "channels": [],
   "scenarios": [
     {
       "id": "overview",
@@ -4508,29 +4498,23 @@
         "portfolio-governance"
       ],
       "supportingRelationIds": [
-        "backtest-qualification",
-        "data-portfolio",
-        "data-program",
-        "data-rd",
-        "data-runtime",
-        "rd-backtest-artifact",
-        "events-observability",
-        "events-governance",
-        "execution-events",
-        "execution-governance-adapter-binding",
-        "execution-governance-drift",
-        "execution-risk",
-        "execution-runtime",
-        "governance-program",
-        "governance-risk",
-        "portfolio-governance-capacity-scope",
-        "portfolio-governance-interaction",
-        "portfolio-risk",
         "product-governance",
-        "program-governance",
+        "data-rd",
+        "backtest-qualification",
+        "portfolio-governance-capacity-scope",
+        "execution-governance-adapter-binding",
+        "governance-risk",
+        "data-runtime",
+        "data-portfolio",
+        "portfolio-risk",
+        "execution-risk",
         "risk-execution-claim",
+        "execution-runtime",
+        "runtime-governance-incident",
+        "execution-governance-drift",
         "runtime-events",
-        "runtime-governance-incident"
+        "execution-events",
+        "rd-backtest-artifact"
       ]
     },
     {
@@ -4560,20 +4544,15 @@
         "backtest-rd"
       ],
       "supportingRelationIds": [
-        "backtest-rd-simulator-repair",
-        "backtest-product",
-        "data-rd-successor-feedback",
-        "data-backtest",
-        "execution-rd-successor-feedback",
-        "portfolio-rd-successor-feedback",
-        "rd-backtest-native-repair-request",
-        "rd-data-snapshot-request",
-        "rd-data-repair",
-        "rd-product",
         "rd-product-request-receipt",
-        "rd-runtime-native-repair-request",
-        "runtime-rd-kernel-repair",
-        "runtime-rd-successor-feedback"
+        "rd-product",
+        "backtest-product",
+        "rd-data-snapshot-request",
+        "data-backtest",
+        "data-rd-successor-feedback",
+        "portfolio-rd-successor-feedback",
+        "runtime-rd-successor-feedback",
+        "execution-rd-successor-feedback"
       ]
     },
     {
@@ -4603,10 +4582,10 @@
         "qualification-governance"
       ],
       "supportingRelationIds": [
-        "product-qualification",
-        "qualification-events",
+        "qualification-product-intake-receipt",
         "qualification-product",
-        "qualification-product-intake-receipt"
+        "product-qualification",
+        "qualification-events"
       ]
     },
     {
@@ -4621,8 +4600,8 @@
         "zh": "按需只读市场机会发现"
       },
       "entry": {
-        "en": "Artifact and requested market scope",
-        "zh": "工件与请求市场范围"
+        "en": "Agent market query; optional registered Strategy replay",
+        "zh": "Agent 行情查询；可选已登记 Strategy 回放"
       },
       "proof": {
         "en": "Bounded discovery result",
@@ -4647,48 +4626,42 @@
         "zh": "激活策略经过原生控制链模拟运行"
       },
       "entry": {
-        "en": "Active strategy",
-        "zh": "已激活策略"
+        "en": "Explicitly authorized isolated simulated-adapter verification",
+        "zh": "显式授权的隔离模拟适配器验证"
       },
       "proof": {
         "en": "Closed simulation",
         "zh": "闭合模拟状态"
       },
       "primaryRelationIds": [
-        "product-governance",
-        "governance-runtime",
-        "data-runtime",
         "runtime-risk",
         "risk-runtime",
         "runtime-execution",
-        "risk-execution-claim",
-        "execution-risk",
-        "execution-runtime",
         "execution-portfolio"
       ],
       "supportingRelationIds": [
-        "data-portfolio",
-        "events-observability",
-        "events-governance",
-        "execution-events",
-        "execution-governance-adapter-binding",
-        "execution-governance-drift",
-        "execution-product",
-        "governance-product",
         "governance-product-lifecycle-receipt",
-        "governance-risk",
+        "governance-product",
+        "qualification-product",
+        "execution-product",
         "portfolio-governance",
         "portfolio-governance-capacity-scope",
-        "portfolio-governance-interaction",
-        "portfolio-product",
-        "portfolio-risk",
-        "qualification-events",
-        "qualification-governance",
-        "qualification-product",
-        "runtime-events",
+        "execution-governance-adapter-binding",
         "runtime-governance-application",
+        "runtime-product-application",
+        "governance-risk",
+        "data-runtime",
+        "data-portfolio",
+        "portfolio-risk",
+        "execution-risk",
+        "risk-execution-claim",
+        "execution-runtime",
+        "portfolio-product",
         "runtime-governance-incident",
-        "runtime-product-application"
+        "execution-governance-drift",
+        "runtime-events",
+        "execution-events",
+        "qualification-events"
       ]
     },
     {
@@ -4723,28 +4696,25 @@
         "execution-portfolio"
       ],
       "supportingRelationIds": [
-        "data-portfolio",
-        "events-observability",
-        "events-governance",
-        "execution-events",
-        "execution-governance-adapter-binding",
-        "execution-governance-drift",
-        "execution-product",
-        "governance-product",
         "governance-product-lifecycle-receipt",
-        "governance-risk",
+        "governance-product",
+        "qualification-product",
+        "execution-product",
+        "qualification-governance",
         "portfolio-governance",
         "portfolio-governance-capacity-scope",
-        "portfolio-governance-interaction",
-        "portfolio-product",
-        "portfolio-risk",
-        "qualification-events",
-        "qualification-governance",
-        "qualification-product",
-        "runtime-events",
+        "execution-governance-adapter-binding",
         "runtime-governance-application",
+        "runtime-product-application",
+        "governance-risk",
+        "data-portfolio",
+        "portfolio-risk",
+        "portfolio-product",
         "runtime-governance-incident",
-        "runtime-product-application"
+        "execution-governance-drift",
+        "runtime-events",
+        "execution-events",
+        "qualification-events"
       ]
     },
     {
@@ -4786,8 +4756,7 @@
             "portfolio-execution-closure",
             "risk-execution-recovery-facts",
             "execution-governance-closed",
-            "runtime-events",
-            "events-observability"
+            "runtime-events"
           ]
         },
         {
@@ -4800,7 +4769,7 @@
             "runtime-not-ready-fact-is-required",
             "reconciliation-drift-fact-is-required",
             "risk-hard-stop-is-the-initiating-cause",
-            "event-rail-delivery-proves-the-source-fact"
+            "notification-delivery-proves-the-source-fact"
           ],
           "primaryRelationIds": [
             "runtime-risk-incident-fence",
@@ -4814,8 +4783,7 @@
             "execution-governance-closed",
             "execution-product",
             "execution-events",
-            "runtime-events",
-            "events-observability"
+            "runtime-events"
           ]
         },
         {
@@ -4828,7 +4796,7 @@
             "runtime-not-ready-fact-is-required",
             "runtime-incident-fact-is-required",
             "risk-hard-stop-is-the-initiating-cause",
-            "event-rail-delivery-proves-the-source-fact"
+            "notification-delivery-proves-the-source-fact"
           ],
           "primaryRelationIds": [
             "execution-risk-drift-fence",
@@ -4842,8 +4810,7 @@
             "execution-governance-closed",
             "execution-product",
             "execution-events",
-            "runtime-events",
-            "events-observability"
+            "runtime-events"
           ]
         },
         {
@@ -4861,8 +4828,7 @@
             "execution-risk-recovery",
             "portfolio-execution-closure",
             "risk-execution-recovery-facts",
-            "execution-governance-closed",
-            "events-observability"
+            "execution-governance-closed"
           ]
         }
       ],
@@ -4878,25 +4844,23 @@
         "execution-governance-closed"
       ],
       "supportingRelationIds": [
-        "data-portfolio",
-        "events-observability",
-        "events-governance",
-        "execution-events",
-        "execution-portfolio",
-        "execution-product",
-        "execution-governance-drift",
-        "execution-risk-recovery",
-        "execution-runtime",
         "governance-product",
-        "governance-risk",
-        "portfolio-governance",
-        "portfolio-product",
-        "portfolio-risk",
-        "qualification-events",
-        "qualification-governance",
         "qualification-product",
+        "execution-product",
+        "qualification-governance",
+        "portfolio-governance",
+        "governance-risk",
+        "data-portfolio",
+        "portfolio-risk",
+        "execution-risk-recovery",
+        "execution-portfolio",
+        "execution-runtime",
+        "portfolio-product",
+        "runtime-governance-incident",
+        "execution-governance-drift",
         "runtime-events",
-        "runtime-governance-incident"
+        "execution-events",
+        "qualification-events"
       ]
     }
   ],
@@ -4925,6 +4889,7 @@
         "SUPERSEDED"
       ],
       "invariants": [
+        "This existing Shell entry retains its sealed binding and refusals; native domain APIs enforce their own authorization and idempotency without requiring another Shell deployment-history service.",
         "ACTIVE and SUPERSEDED are the only canonical binding states and a binding identity is immutable",
         "Product Edge is the unique writer of deployment bindings history heads content-addressed operation manifests immutable request admissions and their outbox",
         "Deployment genesis is an explicit one-time administrative operation and never a service-start or request-path default",
@@ -4942,7 +4907,8 @@
         "Before either expired-manifest recovery Owner write one content-bound target must match read-only database role and PostgreSQL system-identifier readback from both supplied endpoints with distinct Owner roles in the same authority database",
         "Expired-manifest recovery appends or exact-replays OA2 before Product Edge irreversibly fences B1 and compare-and-swaps B2 while every partial state remains fail closed and no historical fact is rewritten",
         "Missing stale self-asserted or policy-mismatched binding context is rejected before any business Owner mutation"
-      ]
+      ],
+      "visibility": "contract-only"
     },
     {
       "id": "operator-authorization",
@@ -5370,11 +5336,10 @@
         "authorization-policy-identity-and-cut",
         "research-intent-identity-and-state",
         "trial-family-census-frontier-identity-and-cut",
-        "terminal-research-iteration-decision-identity-state-and-policy-version",
-        "research-selection-disposition-identity-and-selected-state-only-when-ready",
-        "strategy-artifact-and-build-receipt-identity-when-available",
-        "d-only-repair-disposition-identity-state-and-source-frontier-when-requested",
-        "source-fact-frontier-and-observed-at-valid-through"
+        "source-fact-frontier-and-observed-at-valid-through",
+        "research-project-identity-and-version",
+        "native-strategy-package-source-commit-and-environment-when-available",
+        "registered-experiment-job-result-and-conclusion-identities-when-available"
       ],
       "states": [
         "AVAILABLE",
@@ -5382,13 +5347,12 @@
         "UNAVAILABLE"
       ],
       "invariants": [
-        "AVAILABLE projects only R&D-owned frozen intent census terminal Iteration Decision selected-only Selection artifact identities and bounded D-only Repair Disposition from one source fact frontier",
+        "AVAILABLE projects R&D-owned Research Project facts and, when present, trial/exposure ledger, native package, registered experiment, result and Agent conclusion identities from one source fact frontier; no prior candidate selection, Artifact, fixed compiler or iteration-decision workflow is required.",
         "A read is admitted only for the exact trusted principal authorized Research scope and authorization policy cut bound to the stable request identity",
         "Cross-principal cross-scope stale-policy or same-request conflicting replay is rejected without returning a view",
         "STALE or UNAVAILABLE cannot be reconstructed from Product Edge agent memory events or an exploratory result alone",
         "Protected measurements holdout contents evaluation outputs and dereferenceable evidence are never projected",
-        "A D-only Repair Disposition projects only request admission attempt correlation terminal state bounded reason and Artifact or validation identities permitted by that state and never protected detail or authority",
-        "A stop or REPAIR_INPUTS Iteration Decision remains terminal and visible without creating or implying a Research Selection Disposition",
+        "A stopped project or failed task remains visible without starting another research task or qualification attempt",
         "Repeated reads preserve view identity state source cut and valid-through without creating a Research transition"
       ]
     },
@@ -5893,7 +5857,7 @@
       "invariants": [
         "The view distinguishes local preparation external invocation uncertainty authoritative no effect settlement projection incident-or-drift NO_RECOVERY_REQUIRED or RECOVERY_ADMISSION_UNRESOLVED and Recovery OPEN FENCED_OPEN and KNOWN_CLOSED without collapsing them into success",
         "Every read is authorized for the exact principal account scope policy cut execution mode effect namespace and source or Recovery evidence cuts and replay across any binding is rejected",
-        "Every state binds its exact evidence frontier freshness blockers and responsible Owner and never claims closure from Event Rail Alert delivery or Runtime local state",
+        "Every state binds its exact evidence frontier freshness blockers and responsible Owner and never claims closure from notifications Alert delivery or Runtime local state",
         "UNKNOWN_EFFECT missing readback unprojected settlement unresolved Reservation membership stale time evidence or incomplete Recovery proof remains visibly nonterminal",
         "NO_RECOVERY_REQUIRED cites the exact Execution-owned admission disposition and authoritative proof while RECOVERY_ADMISSION_UNRESOLVED exposes no case identity and cannot be displayed as Recovery OPEN or healthy closure",
         "Replay joins the same effect chain and evidence cuts while conflicting or mixed-cut facts produce an explicit blocker rather than rewriting closure"
@@ -6548,7 +6512,7 @@
         "INELIGIBLE EXPIRED and REVOKED never expose a positive capacity allowance",
         "The fact exposes categorical state conditions interval and non-dereferenceable committed evidence references only",
         "Protected measurements parameters results holdout details and evaluation outputs remain inside Qualification",
-        "Protected details never flow to Governance Product Edge Event Rail or the submitted Research and Develop lineage"
+        "Protected details never flow to Governance Product Edge notifications or the submitted Research and Develop lineage"
       ]
     },
     {
@@ -6662,15 +6626,10 @@
         "exposure.valuation-and-methodology-version",
         "exposure.dimensions-and-limit-context",
         "exposure.freshness",
-        "execution-account-fact-identity-observation-policy-complete-category-set-and-per-category-decisive-evidence-cuts-when-execution-quality-dependent",
-        "portfolio-interaction-receipt-identity-when-interaction-dependent",
-        "interaction-dependency-disposition-and-basis",
         "time-evidence-identity-clock-epoch-monotonic-sequence-uncertainty-skew-continuity-observed-valid-through-and-complete-source-frontier",
-        "bounded-degradation-category-set-when-adverse",
-        "per-category-decisive-evidence-common-cut-and-exclusion-when-adverse",
         "complete-decisive-performance-exposure-capacity-fact-identities-and-cuts-when-adverse",
         "methodology-policy-and-threshold-versions-when-adverse",
-        "attribution-time-evidence-when-adverse"
+        "frozen-governance-condition-policy-identity-and-version-when-consumed"
       ],
       "transitionEvidenceRequirements": {
         "INITIAL_ACTIVATION": [
@@ -6699,161 +6658,6 @@
         ]
       },
       "canonicalLifecycleActionContractRef": "governanceLifecycleActionContract",
-      "portfolioInteractionRequirement": {
-        "requiredWhen": [
-          "more-than-one-generation-competes-for-the-same-capacity-scope",
-          "the-applicable-capital-policy-declares-correlation-concentration-tail-or-diversification-sensitive-allocation"
-        ],
-        "omissionRequires": "NO_INTERACTION_DEPENDENCY_WITH_EXACT_POLICY_AND_CONTENDER_SET_BASIS",
-        "requiredBindings": [
-          "portfolio-interaction-receipt-identity",
-          "exact-complete-contender-generation-set",
-          "capacity-scope-and-valuation-cut",
-          "methodology-assumption-source-and-time-evidence-cuts"
-        ]
-      },
-      "degradationCategorySetRules": {
-        "supportedCategoryCardinality": "ONE_OR_MORE",
-        "multiCauseUnresolvedRule": "MULTI_CAUSE_UNRESOLVED is exclusive and cannot coexist with a named causal category",
-        "unsupportedOrUnresolvedDisposition": "MULTI_CAUSE_UNRESOLVED"
-      },
-      "executionQualityAttributionRequirement": {
-        "requiredForCategory": "EXECUTION_QUALITY_DEGRADATION",
-        "requiredBindings": [
-          "execution-account-fact-identity",
-          "matching-strategy-generation-execution-scope-capacity-scope-and-effect-namespace",
-          "observation-policy-identity-and-version",
-          "complete-non-NONE_OBSERVED-category-set",
-          "per-category-decisive-evidence-and-common-source-frontier-cuts",
-          "fresh-observed-at-and-valid-through-time-evidence"
-        ],
-        "mismatchDisposition": "UNRESOLVED"
-      },
-      "attributionStates": [
-        "NOT_APPLICABLE",
-        "RESOLVED_ONE",
-        "RESOLVED_MANY",
-        "UNRESOLVED"
-      ],
-      "attributionStateBindings": {
-        "NOT_APPLICABLE": {
-          "required": [
-            "non-adverse-transition-or-observation-disposition-and-basis"
-          ],
-          "forbidden": [
-            "bounded-degradation-category-set",
-            "multi-cause-unresolved"
-          ]
-        },
-        "RESOLVED_ONE": {
-          "required": [
-            "exactly-one-named-degradation-category",
-            "decisive-evidence-identities-and-cuts-for-that-category",
-            "methodology-policy-threshold-and-time-evidence"
-          ],
-          "forbidden": [
-            "multi-cause-unresolved"
-          ]
-        },
-        "RESOLVED_MANY": {
-          "required": [
-            "at-least-two-named-degradation-categories",
-            "decisive-evidence-identities-and-cuts-for-every-named-category",
-            "methodology-policy-threshold-and-time-evidence"
-          ],
-          "forbidden": [
-            "multi-cause-unresolved"
-          ]
-        },
-        "UNRESOLVED": {
-          "required": [
-            "multi-cause-unresolved",
-            "complete-non-isolating-evidence-set-and-cuts",
-            "methodology-policy-threshold-and-time-evidence"
-          ],
-          "forbidden": [
-            "named-degradation-category"
-          ]
-        }
-      },
-      "degradationCategories": [
-        "STRATEGY_MECHANISM_DEGRADATION",
-        "MARKET_REGIME_CHANGE",
-        "EXECUTION_QUALITY_DEGRADATION",
-        "DATA_QUALITY_DEGRADATION",
-        "CAPACITY_OR_LIQUIDITY_COMPRESSION",
-        "PORTFOLIO_INTERACTION_DEGRADATION",
-        "VALUATION_UNCERTAINTY",
-        "MULTI_CAUSE_UNRESOLVED"
-      ],
-      "categoryEvidenceContract": {
-        "commonCutContract": "exact-strategy-generation-execution-scope-capacity-scope-account-valuation-source-frontier-and-time-evidence-common-cut",
-        "missingMixedOrNonIsolatingDisposition": "UNRESOLVED",
-        "simultaneousSupportRule": "Every independently supported named category is preserved in one unique supportedCategorySet with its own decisive evidence while MULTI_CAUSE_UNRESOLVED is exclusive and only represents a complete non-isolating evidence set",
-        "namedCategories": {
-          "STRATEGY_MECHANISM_DEGRADATION": {
-            "sourceOwnerObjectIds": [
-              "research-intent",
-              "performance-receipt"
-            ],
-            "requiredEvidence": "frozen-mechanism-prediction-falsifier-and-performance-deviation-under-equal-market-data-execution-capacity-and-valuation-cuts",
-            "exclusionRule": "Mechanism attribution requires decisive evidence beyond regime data execution capacity interaction and valuation alternatives while preserving any separately supported named cause"
-          },
-          "MARKET_REGIME_CHANGE": {
-            "sourceOwnerObjectIds": [
-              "pit-market-snapshot",
-              "valuation-facts",
-              "performance-receipt"
-            ],
-            "requiredEvidence": "versioned-regime-policy-boundary-membership-and-performance-response-under-equal-strategy-execution-capacity-and-valuation-methodology-cuts",
-            "exclusionRule": "Regime attribution requires a matched regime boundary transition not explainable solely by data correction execution quality capacity interaction or valuation uncertainty"
-          },
-          "EXECUTION_QUALITY_DEGRADATION": {
-            "sourceOwnerObjectIds": [
-              "execution-account-facts",
-              "performance-receipt"
-            ],
-            "requiredEvidence": "complete-non-NONE_OBSERVED-execution-category-set-with-per-category-decisive-evidence-and-performance-impact-at-one-effect-frontier",
-            "exclusionRule": "Execution attribution requires Execution-owned observations and cannot be inferred from performance degradation latency telemetry or venue silence alone"
-          },
-          "DATA_QUALITY_DEGRADATION": {
-            "sourceOwnerObjectIds": [
-              "pit-market-snapshot",
-              "performance-receipt"
-            ],
-            "requiredEvidence": "market-data-owned-gap-correction-rights-or-PIT-semantic-defect-and-bounded-affected-performance-lineage",
-            "exclusionRule": "Data attribution requires a Market Data-owned defect fact and cannot be inferred from model loss execution anomaly or later corrected values"
-          },
-          "CAPACITY_OR_LIQUIDITY_COMPRESSION": {
-            "sourceOwnerObjectIds": [
-              "capacity-view",
-              "valuation-facts",
-              "performance-receipt",
-              "exposure-receipt"
-            ],
-            "requiredEvidence": "gross-capacity-liquidity-valuation-exposure-and-performance-cuts-under-one-methodology-policy-and-threshold-version",
-            "exclusionRule": "Capacity attribution requires a supported bound compression and cannot be inferred from allocation arrival order mechanism failure or stale valuation"
-          },
-          "PORTFOLIO_INTERACTION_DEGRADATION": {
-            "sourceOwnerObjectIds": [
-              "portfolio-interaction-receipt",
-              "performance-receipt",
-              "exposure-receipt"
-            ],
-            "requiredEvidence": "current-complete-contender-set-interaction-class-and-marginal-performance-or-exposure-impact-under-one-policy-cut",
-            "exclusionRule": "Interaction attribution requires the exact current Interaction Receipt and cannot be inferred from a single-strategy metric or omitted contender"
-          },
-          "VALUATION_UNCERTAINTY": {
-            "sourceOwnerObjectIds": [
-              "valuation-facts",
-              "performance-receipt",
-              "exposure-receipt"
-            ],
-            "requiredEvidence": "market-data-owned-valuation-uncertainty-state-methodology-source-frontier-and-bounded-performance-exposure-impact",
-            "exclusionRule": "Valuation attribution requires an explicit uncertainty fact and cannot be inferred from missing price telemetry or a stale prior valuation"
-          }
-        }
-      },
       "crossBindEquality": [
         {
           "capacityField": "capacity-scope-identity",
@@ -6934,27 +6738,25 @@
         "UNAVAILABLE",
         "STALE"
       ],
+      "portfolioInteractionRequirement": {
+        "requiredWhen": [
+          "an-explicit-approved-policy-requires-the-declared-combination-measures"
+        ],
+        "omissionRequires": "DEFAULT_EQUAL_RUNNING_MEMBER_POOL_ALLOCATION_HAS_NO_INTERACTION_DEPENDENCY",
+        "requiredBindings": [
+          "exact-required-measure-method-input-window-and-source-fact-identities"
+        ]
+      },
       "invariants": [
-        "Initial activation may omit strategy performance history but always requires an AVAILABLE Capacity View whose capacity scope is compatible with the target Execution Scope economic condition and decision time within valid-through",
-        "Resume promotion and capital increase require both the fresh compatible Capacity View and the lifecycle performance and exposure evidence applicable to the transition",
-        "Pause reduction and retirement never require add-risk capacity performance or exposure evidence but Governance cannot commit their final state until exact terminal Execution Portfolio and Risk de-risk proof is complete",
-        "Unknown effect incomplete account projection or unresolved Risk liability escalates to Recovery and keeps the prior Governance lifecycle state effective",
-        "A lifecycle decision that depends on performance and exposure binds one provenance-complete fresh Performance Receipt and one provenance-complete fresh Exposure Receipt for the exact strategy generation and Execution Scope",
-        "Every referenced Performance Receipt field exactly matches the corresponding performance namespace and every referenced Exposure Receipt field exactly matches the corresponding exposure namespace in the lifecycle receipt",
-        "Any referenced Performance Receipt strategy generation execution scope measurement window execution or account fact cut valuation or methodology version capital at risk or freshness mismatch makes the lifecycle receipt non-AVAILABLE and blocks the dependent transition",
-        "Any referenced Exposure Receipt strategy generation execution scope account or exposure fact cut valuation or methodology version exposure dimensions limit context or freshness mismatch makes the lifecycle receipt non-AVAILABLE and blocks the dependent transition",
-        "Paper lifecycle evidence can never support a Live transition and Live lifecycle evidence can never support a Paper transition",
-        "PARTIAL UNAVAILABLE or STALE blocks promotion capital increase and resume and never implies safe exposure",
-        "Portfolio reports lifecycle evidence and never grants capital or deployment authority",
-        "Portfolio Lifecycle Evidence Receipt is the sole Portfolio attribution authority while Performance Exposure Capacity and Interaction receipts remain immutable source evidence",
-        "Every named degradation cause resolves through categoryEvidenceContract source-owner objects the one common cut and its exclusion rule while missing mixed or non-isolating evidence is UNRESOLVED",
-        "EXECUTION_QUALITY_DEGRADATION requires one exact current Execution Account Fact with the complete non-NONE_OBSERVED category set and per-category evidence matching the same generation Execution Scope Capacity Scope effect namespace policy common source frontier and Time Evidence cuts otherwise attribution is UNRESOLVED",
-        "Portfolio preserves simultaneous supported Execution observation categories in the Lifecycle Evidence Receipt and never selects or overwrites one scalar category before Governance evaluates the complete fact set",
-        "Simultaneously supported named degradation causes remain together in RESOLVED_MANY and no scalar primary cause may erase another supported category",
-        "Any adverse receipt commits RESOLVED_ONE with exactly one supported named cause RESOLVED_MANY with at least two separately supported named causes or UNRESOLVED with only MULTI_CAUSE_UNRESOLVED and complete decisive fact cuts policy thresholds methodology and Time Evidence",
-        "PORTFOLIO_INTERACTION_DEGRADATION requires the exact CURRENT Interaction Receipt for the same Capacity Scope complete contender set valuation methodology and Time Evidence cuts and missing stale ambiguous or mismatched interaction evidence can support only UNRESOLVED",
-        "Portfolio binds an Interaction Receipt only when multiple generations compete or the applicable policy is interaction-sensitive and otherwise commits an explicit no-interaction-dependency basis that cannot coexist with a claimed interaction degradation",
-        "Replay of the same receipt cannot create another lifecycle decision"
+        "Portfolio projects native account, capacity, performance and exposure facts with exact source identities, methods, scope, units, input cuts and freshness; it neither grants trading nor allocates capital.",
+        "Scientific mechanism attribution and portfolio interpretation belong to the external Agent; a Portfolio measure is not a scientific verdict.",
+        "Default equal-running-member pool allocation requires account capacity and actual occupancy, not interaction classes or an attribution receipt.",
+        "Every receipt preserves all raw source facts required by the frozen condition; missing or uncertain observations are never reconstructed or erased.",
+        "Initial activation requires fresh compatible capacity; promotion requires fresh performance and exposure over the declared window; a new generation never invents prior performance.",
+        "Cross-account, cross-mode, cross-effect-scope, mixed-method, stale or mismatched source evidence blocks the dependent transition.",
+        "Frozen Governance conditions are explicit deterministic predicates; qualification content, holdout data and protected measurements never enter these receipts.",
+        "Terminal de-risk requires actual execution, settlement, exposure and Risk-liability closure, not notification or a local acknowledgement.",
+        "A repeated receipt cannot create another lifecycle decision; unknown external effects remain fenced and do not release occupancy."
       ]
     },
     {
@@ -7002,6 +6804,7 @@
         "CONDITION_FAILED"
       ],
       "invariants": [
+        "Sealed interface only. No new scheduling, Scanner persistence or deployment proposal implementation is admitted; missing identities and negative dispositions retain their original refusal.",
         "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "Every considered strategy reaches exactly one terminal disposition",
         "MATCHED requires complete registry condition market and required capacity input identities plus bounded match evidence",
@@ -7093,6 +6896,7 @@
         }
       ],
       "invariants": [
+        "Sealed interface only. No new scheduling, Scanner persistence or deployment proposal implementation is admitted; missing identities and negative dispositions retain their original refusal.",
         "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "Every scheduled scan attempt reaches exactly one terminal receipt bound to its stable attempt identity",
         "The stable attempt identity is derived from the exact Scanner Schedule Definition version scan scope identity and version and due slot so duplicate delivery concurrency crash restart and replay join one attempt and one terminal receipt",
@@ -7259,18 +7063,18 @@
         "continuity-evidence-policy-identity-and-version",
         "required-degradation-performance-and-exposure-receipt-set-at-lifecycle-evaluation",
         "candidate-neutral-capacity-view-identity-and-valid-through-when-adding-risk",
-        "capital-allocation-disposition-identity-and-exact-member-disposition-when-capital-competes",
-        "portfolio-interaction-receipt-identity-and-cut-when-set-wide-allocation-is-required",
         "activation-condition-version",
         "capital-envelope-version",
         "material-decision-evidence-set",
         "complete-adverse-fact-set-and-decisive-cuts-when-degrading",
         "bounded-lifecycle-disposition-policy-and-alternative-outcome-set",
         "selected-retire-pause-or-reduce-outcome-and-deterministic-tie-break-when-degrading",
-        "scanner-receipt-and-matched-proposal-member-when-condition-dependent",
         "decision-rationale",
         "effective-interval",
-        "de-risk-request-and-terminal-proof-identities-when-reducing-pausing-or-retiring"
+        "de-risk-request-and-terminal-proof-identities-when-reducing-pausing-or-retiring",
+        "user-confirmed-trial-version-and-frozen-template-for-initial-activation",
+        "approved-trial-and-formal-pool-ratios-running-member-set-and-allocation-version",
+        "actual-existing-occupancy-and-capacity-queue-disposition"
       ],
       "states": [
         "INACTIVE",
@@ -7289,7 +7093,7 @@
       "adverseDispositionSelectionRules": [
         {
           "outcome": "RETIREMENT",
-          "predicate": "TERMINAL_FALSIFIER_OR_STRUCTURAL_INVALIDITY_WITH_NO_BOUNDED_VIABLE_SUCCESSOR"
+          "predicate": "USER_UNLOAD_OR_FROZEN_EXIT_CONDITION"
         },
         {
           "outcome": "PAUSE",
@@ -7297,7 +7101,7 @@
         },
         {
           "outcome": "REDUCTION",
-          "predicate": "DEGRADATION_SUPPORTED_AND_LOWER_BOUNDED_CAPITAL_REMAINS_ECONOMICALLY_AND_OPERATIONALLY_VIABLE"
+          "predicate": "EXPLICIT_APPROVED_LOWER_ENVELOPE_POLICY_AND_OCCUPANCY_FITS"
         }
       ],
       "adverseDispositionPrecedence": [
@@ -7309,7 +7113,6 @@
       "adverseDispositionPolicyBindings": [
         "lifecycle-adverse-disposition-policy-identity-and-version",
         "complete-applicable-alternative-set",
-        "portfolio-degradation-categories-and-decisive-cuts",
         "qualification-and-continuity-evidence-frontier",
         "complete-triggered-predicate-set-and-retire-pause-reduce-precedence",
         "selected-outcome-and-deterministic-winner-proof"
@@ -7350,10 +7153,10 @@
       },
       "invariants": [
         "Every transition binds the exact committed input identities material to its decision rationale",
-        "When multiple generations compete for scarce capital Governance first commits one Capital Allocation Disposition over the stable complete contender set and each Authorized Generation Decision binds its exact member disposition",
+        "Default capital admission uses approved trial/formal pool ratios and equal actually-running member shares; capacity waiters receive no new-entry share and a joining member waits until every existing occupancy fits its proposed envelope before the allocation changes atomically.",
         "Risk receives only the resulting per-generation Capital Envelope and cannot convert intent arrival order into allocation priority",
         "Every adverse lifecycle evaluation binds the complete owner-committed adverse facts and decisive cuts evaluates every RETIREMENT PAUSE and REDUCTION predicate under the bounded versioned policy and selects the first triggered outcome in total RETIREMENT then PAUSE then REDUCTION precedence",
-        "Governance chooses RETIREMENT only for a terminal falsifier or structural invalidity with no bounded viable successor PAUSE for unresolved safety or required evidence and REDUCTION only when a smaller capital envelope remains economically and operationally viable",
+        "Governance executes the user-approved frozen exit conditions or explicit user unload, preserves existing protection until actual closure, and does not require a scientific terminal falsifier to unload.",
         "Every decision binds exactly one immutable Governance Authorization Lineage from an accepted Lifecycle Request Receipt and an unattended decision additionally binds explicit current Autonomous Policy Authorization while a proposal schedule or bare decision is never authority",
         "INITIAL_ACTIVATION and PROMOTION require UNATTENDED_REQUEST_WITH_POLICY while REDUCTION PAUSE RETIREMENT DE_RISK and RECOVERY are decrease-only or recovery actions admitted under the canonical authorization mapping",
         "Stale revoked cross-deployment cross-scope principal history-head manifest policy or conflicting lineage replay creates no decision and no successor may reuse the predecessor lineage identity with changed content",
@@ -7362,8 +7165,8 @@
         "The material evidence set stores fact identities versions and bounded rationale categories rather than protected Qualification content",
         "The decision Capital Envelope never exceeds the exact Qualification capacity ceiling or lifecycle ceiling bound to the same Eligibility Fact and Candidate",
         "Protected measurements parameters results holdout details and evaluation outputs never enter Governance",
-        "Condition-dependent activation binds a PROPOSED Scanner Receipt and one proposal member whose governed strategy entry artifact reference and activation condition version exactly equal the decision target",
-        "A negative or nonmember Scanner Strategy Disposition can never activate a strategy generation",
+        "Governance evaluates frozen activation conditions directly from source Owner facts; no Scanner proposal is a target prerequisite. Existing ScannerConditional requests still return ConditionalScannerNotAdmitted and cannot silently become unconditional.",
+        "An absent, false, stale or mismatched required activation condition never activates a generation; removing Scanner from the target does not bypass qualification, user authority, capacity or recovery boundaries.",
         "Initial activation promotion capital increase or resume binds a fresh compatible candidate-neutral Capacity View through the Portfolio Lifecycle Evidence Receipt for the exact Capacity Scope while generation-specific economics remain in the Capital Envelope",
         "Promotion capital increase or resume also binds a fresh provenance-complete Portfolio Lifecycle Evidence Receipt for the exact strategy generation",
         "Pause reduction and retirement remain available when Capacity View is missing stale or incompatible because they do not add risk",
@@ -7377,7 +7180,9 @@
         "DE_RISK_PENDING remains effective until terminal de-risk and Recovery closure evidence permits REDUCED PAUSED or RETIRED",
         "Missing stale mismatched or unavailable material evidence fails closed",
         "Resume and capital increases require a new decision identity",
-        "The decision is distinct from Runtime instance state"
+        "The decision is distinct from Runtime instance state",
+        "Goal completion and Qualification alone cannot start trading. Initial trial requires Dashboard confirmation, enters the Governance queue, and is admitted only against current eligibility, frozen conditions, account authority and occupancy.",
+        "At actual promotion the frozen conditions are rechecked; capacity waiting is not unconditional promotion authority."
       ]
     },
     {
@@ -8758,7 +8563,7 @@
       ],
       "invariants": [
         "An incident is committed before any wake hint is published",
-        "Governance reads this fact directly from Runtime and never treats Event Rail delivery as evidence",
+        "Governance reads this fact directly from Runtime and never treats notifications delivery as evidence",
         "The fact reports occurrence and does not imply RecoveryCase creation progress or KNOWN_CLOSED",
         "The immutable source fact never gains a Recovery Case back-reference and case association is append-only state owned by Execution",
         "Replay preserves incident identity and payload and cannot duplicate a lifecycle transition or attach the fact to a different case"
@@ -8811,7 +8616,7 @@
         "Execution commits the exact reconciliation state before any wake hint is published",
         "DRIFT_DETECTED commits one bounded drift category plus decisive effect journal authoritative readback and mismatch cuts",
         "UNKNOWN_EFFECT commits the effect journal uncertainty lineage observation last readback attempt or proven absence and complete source and Time Evidence frontier without fabricating an authoritative terminal outcome",
-        "Governance reads this fact directly from Execution and never infers closure from Event Rail delivery",
+        "Governance reads this fact directly from Execution and never infers closure from notifications delivery",
         "UNKNOWN_EFFECT remains unresolved until authoritative venue readback produces a successor fact",
         "The immutable source fact never gains a Recovery Case back-reference and case association is append-only state owned by Execution",
         "Replay joins by stable drift identity and exact payload and cannot erase earlier uncertainty or attach the fact to a different case"
@@ -8925,7 +8730,7 @@
         "projectionState": "CLOSED_NOT_QUALIFIED"
       },
       "invariants": [
-        "No protected internal phase run latency terminal timing or timing-derived field crosses this Event Rail object even when linked to the same protected terminal",
+        "No protected internal phase run latency terminal timing or timing-derived field crosses this notifications object even when linked to the same protected terminal",
         "Every negative protected terminal emits exactly one normalized CLOSED_NOT_QUALIFIED event and equal public inputs produce pairwise identical event presence state effective cut opaque reference sequence and public projection",
         "QUALIFIED EXPIRED and REVOKED remain exact public categorical states",
         "The event contains only public attempt correlation public categorical state effective cut sequence and a type-opaque non-dereferenceable reference",
@@ -9030,7 +8835,7 @@
     {
       "id": "event-wake",
       "label": "Event Wake Hint",
-      "custodianId": "event-rail",
+      "custodianId": "observability",
       "sourceAuthorityRef": "committed-source-owner-id-and-fact-identity",
       "identityBinds": [
         "committed-source-owner-id",
@@ -9038,7 +8843,7 @@
         "event-sequence-and-delivery-key"
       ],
       "invariants": [
-        "Event Rail is transport custodian only and never occupies a business authority field",
+        "Observability owns received notification custody only and never occupies a business authority field",
         "The referenced Runtime Execution or Qualification Owner remains authority for the committed fact",
         "Delivery absence duplication delay or success cannot prove reject retry or complete a business transition"
       ],
@@ -9820,6 +9625,7 @@
         "missingOrAmbiguousDisposition": "UNDETERMINED"
       },
       "invariants": [
+        "Existing categorical interaction protocol only; native target reports deterministic measures when a frozen policy explicitly requires them and does not assign scientific mechanism value.",
         "Portfolio projects interaction facts for the exact complete contender set but never ranks contenders allocates capital or grants deployment",
         "Every contender receives exactly one DIVERSIFYING NEUTRAL CONCENTRATING or UNDETERMINED class under the bound classification policy and decisive evidence cuts",
         "Missing duplicate stale mixed-cut or non-isolating contender evidence is UNDETERMINED and never silently becomes NEUTRAL",
@@ -9861,6 +9667,7 @@
         "observed-at-and-valid-through"
       ],
       "invariants": [
+        "Sealed interface only. No new scheduling, Scanner persistence or deployment proposal implementation is admitted; missing identities and negative dispositions retain their original refusal.",
         "This sealed compatibility interface does not require a native research workflow, timed Scanner or Dashboard research controls; its original identity and refusal guards remain binding for its existing consumers",
         "Each due slot derives exactly one stable scheduled scan attempt identity from only the schedule definition version scan scope identity and version and canonical unambiguous slot boundary and the clock epoch is admission evidence never part of attempt identity",
         "Duplicate triggers concurrent workers crash restart and delayed delivery join the same attempt identity and cannot create another Scanner Receipt",
@@ -10028,18 +9835,17 @@
       "relation": "request",
       "objectId": "lifecycle-request",
       "scenarios": [
-        "paper",
         "live"
       ],
       "overview": true,
       "weight": "light",
       "docsRoute": "architecture/product-edge",
       "description": {
-        "en": "The product requests a strategy lifecycle action",
-        "zh": "产品入口请求 Governance 调整策略生命周期"
+        "en": "Dashboard initial-trial confirmation queues the exact version; Governance alone admits lifecycle changes",
+        "zh": "Dashboard 首次试盘确认将准确版本排队；Governance 独占生命周期准入"
       },
       "semantics": {
-        "accepted": "Governance validates the trusted shell binding non-self-assertable Operator Authorization content-addressed Agent Operation Manifest typed strategy generation action expected state and stable request identity then commits its decision receipt",
+        "accepted": "Governance validates the trusted shell binding non-self-assertable Operator Authorization content-addressed Agent Operation Manifest typed strategy generation action expected state and stable request identity then commits its decision receipt Initial real trial additionally requires explicit Dashboard user confirmation and enters a capacity queue before application. Qualification alone is not launch authority.",
         "rejected": "Ambiguous conflicting missing stale expired revoked wrong-audience manifest-digest-mismatched unauthorized or policy-mismatched lifecycle requests create no deployment or capital-policy transition",
         "unknown": "Transport success stays SUBMITTED_OR_UNKNOWN and Product Edge resolves the same request identity without inferring activation pause or retirement",
         "replay": "Same identity and meaning join one Governance receipt while changed meaning is rejected and a new lifecycle action requires a successor identity"
@@ -10091,11 +9897,11 @@
       "weight": "light",
       "docsRoute": "architecture/product-edge",
       "description": {
-        "en": "R&D returns frozen research and D-only repair views",
-        "zh": "R&D 向产品返回冻结研究与 D-only 修复视图"
+        "en": "R&D returns current research project and available experiment views",
+        "zh": "R&D 返回当前研究项目及已有实验视图"
       },
       "semantics": {
-        "accepted": "Product Edge reads an AVAILABLE R&D View only when stable request trusted principal authorized Research scope authorization policy cut frozen Intent census selection Artifact optional bounded D-only Repair Disposition and source fact frontier all match",
+        "accepted": "Product Edge reads an AVAILABLE R&D View for the exact stable request trusted principal authorized Research scope authorization policy cut Research Project and current source fact frontier. Package experiment result and Agent conclusion bindings are checked when present; a project view requires no prior candidate selection or Artifact. Existing compiler and D-only repair fields bind only when reading those exact compatibility records.",
         "rejected": "Cross-principal cross-scope stale-policy conflicting-request Protected measurements holdout contents evaluation outputs dereferenceable evidence mixed cuts and Product-authored Research states are never projected",
         "unknown": "STALE or UNAVAILABLE remains explicit and cannot be reconstructed from events agent memory exploratory output or a prior view",
         "replay": "The same stable request principal scope and policy cut joins the same view while a conflicting replay is rejected and creates no Research transition"
@@ -10232,21 +10038,22 @@
       "scenarios": [],
       "overview": false,
       "weight": "light",
-      "docsRoute": "architecture/product-edge",
+      "docsRoute": "owners/scanner",
       "description": {
-        "en": "Scanner returns each terminal scan outcome; only PROPOSED includes a proposal",
-        "zh": "Scanner 返回每轮终态结果 仅 PROPOSED 包含提案"
+        "en": "Existing sealed interface only: Scanner returns each terminal scan outcome; only PROPOSED includes a proposal",
+        "zh": "仅现有封存接口：Scanner 返回每轮终态结果 仅 PROPOSED 包含提案"
       },
       "semantics": {
-        "accepted": "Product Edge reads the Scanner-owned terminal receipt directly with its exact completion state mutually exclusive expected-set branch terminal reason and proposal members only when PROPOSED",
-        "rejected": "NO_MATCH INSUFFICIENT_DATA COMPLETED_NO_PROPOSAL and FAILED expose their terminal reason and never expose a proposal while INCOMPLETE_FAILED never claims a complete disposition set and FAILED requires incomplete membership or an independent batch operational failure",
-        "unknown": "Unavailable receipt identity remains unavailable and cannot be reconstructed from agent memory",
-        "replay": "Refreshing preserves the same receipt state reason and optional proposal identity"
+        "accepted": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Product Edge reads the Scanner-owned terminal receipt directly with its exact completion state mutually exclusive expected-set branch terminal reason and proposal members only when PROPOSED",
+        "rejected": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. NO_MATCH INSUFFICIENT_DATA COMPLETED_NO_PROPOSAL and FAILED expose their terminal reason and never expose a proposal while INCOMPLETE_FAILED never claims a complete disposition set and FAILED requires incomplete membership or an independent batch operational failure",
+        "unknown": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Unavailable receipt identity remains unavailable and cannot be reconstructed from agent memory",
+        "replay": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Refreshing preserves the same receipt state reason and optional proposal identity"
       },
       "sourceRole": "scanner",
       "objectAuthority": "scanner",
       "businessOutcomeOwnerId": null,
-      "noBusinessOutcomeBasis": "Product Edge only reads an Owner-owned receipt or view and creates no business transition"
+      "noBusinessOutcomeBasis": "Product Edge only reads an Owner-owned receipt or view and creates no business transition",
+      "visibility": "contract-only"
     },
     {
       "id": "execution-product",
@@ -10339,25 +10146,24 @@
       "targetId": "group-data",
       "relation": "request",
       "objectId": "market-data-repair-request",
-      "scenarios": [
-        "research"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Research requests one correlated repair of unavailable market facts",
-        "zh": "Research 请求一次精确关联的市场事实修复"
+        "en": "Existing bounded interface only: Research requests one correlated repair of unavailable market facts",
+        "zh": "仅现有有界接口：Research 请求一次精确关联的市场事实修复"
       },
       "semantics": {
-        "accepted": "Market Data validates the REPAIR_INPUTS decision original PIT request proof digest instrument scope decision cut and stable correlation then resolves the request through data-research",
-        "rejected": "Missing stale cross-trial conflicting unauthorized or request-proof-mismatched repair requests create no Market Data fact",
-        "unknown": "Transport success creates no repair result and Research waits for the correlated AVAILABLE or terminal UNAVAILABLE PIT Snapshot result",
-        "replay": "The same request identity proof digest and meaning join one result while changed meaning or proof is rejected"
+        "accepted": "Existing protocol only, not automatic service repair or a native research prerequisite. Market Data validates the REPAIR_INPUTS decision original PIT request proof digest instrument scope decision cut and stable correlation then resolves the request through data-research",
+        "rejected": "Existing protocol only, not automatic service repair or a native research prerequisite. Missing stale cross-trial conflicting unauthorized or request-proof-mismatched repair requests create no Market Data fact",
+        "unknown": "Existing protocol only, not automatic service repair or a native research prerequisite. Transport success creates no repair result and Research waits for the correlated AVAILABLE or terminal UNAVAILABLE PIT Snapshot result",
+        "replay": "Existing protocol only, not automatic service repair or a native research prerequisite. The same request identity proof digest and meaning join one result while changed meaning or proof is rejected"
       },
       "sourceRole": "rd",
       "objectAuthority": "rd",
-      "businessOutcomeOwnerId": "market-data"
+      "businessOutcomeOwnerId": "market-data",
+      "visibility": "contract-only"
     },
     {
       "id": "product-qualification",
@@ -10477,7 +10283,6 @@
       "objectId": "eligibility-fact",
       "scenarios": [
         "backtest",
-        "paper",
         "live",
         "recovery"
       ],
@@ -10563,22 +10368,23 @@
       "relation": "fact",
       "objectId": "pit-market-snapshot",
       "scenarios": [],
-      "overview": true,
+      "overview": false,
       "weight": "standard",
-      "docsRoute": "scenarios/scan",
+      "docsRoute": "owners/scanner",
       "description": {
-        "en": "Market Data supplies facts for each scheduled scan",
-        "zh": "Market Data 为每轮定时扫描提供市场事实"
+        "en": "Existing sealed interface only: Market Data supplies facts for each scheduled scan",
+        "zh": "仅现有封存接口：Market Data 为每轮定时扫描提供市场事实"
       },
       "semantics": {
-        "accepted": "Scanner binds the exact PIT snapshot required by the scheduled scan and condition versions",
-        "rejected": "Stale insufficient unlicensed or unknown-instrument input blocks only dependent strategies while other complete matches may still be proposed",
-        "unknown": "Unknown or unavailable market input is recorded per dependent strategy and never treated as a match or as a batch-wide failure",
-        "replay": "The same scan attempt joins its consumed input identities or negative dispositions and terminal receipt"
+        "accepted": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Scanner binds the exact PIT snapshot required by the scheduled scan and condition versions",
+        "rejected": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Stale insufficient unlicensed or unknown-instrument input blocks only dependent strategies while other complete matches may still be proposed",
+        "unknown": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Unknown or unavailable market input is recorded per dependent strategy and never treated as a match or as a batch-wide failure",
+        "replay": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. The same scan attempt joins its consumed input identities or negative dispositions and terminal receipt"
       },
       "sourceRole": "market-data",
       "objectAuthority": "market-data",
-      "businessOutcomeOwnerId": "scanner"
+      "businessOutcomeOwnerId": "scanner",
+      "visibility": "contract-only"
     },
     {
       "id": "governance-program",
@@ -10588,22 +10394,23 @@
       "relation": "fact",
       "objectId": "deployable-strategy-set",
       "scenarios": [],
-      "overview": true,
+      "overview": false,
       "weight": "light",
-      "docsRoute": "scenarios/scan",
+      "docsRoute": "owners/scanner",
       "description": {
-        "en": "Registry supplies ArtifactRefs and activation conditions",
-        "zh": "Registry 向 Scanner 提供 ArtifactRef 和激活条件"
+        "en": "Existing sealed interface only: Registry supplies ArtifactRefs and activation conditions",
+        "zh": "仅现有封存接口：Registry 向 Scanner 提供 ArtifactRef 和激活条件"
       },
       "semantics": {
-        "accepted": "Scanner binds exact artifact eligibility activation condition and capital envelope versions",
-        "rejected": "Ineligible paused retired stale or out-of-interval entries are not evaluated",
-        "unknown": "Unknown or unavailable entry identity is recorded for that strategy and does not suppress complete matches for other strategies",
-        "replay": "The same scan attempt preserves its resolved registry identity or negative disposition"
+        "accepted": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Scanner binds exact artifact eligibility activation condition and capital envelope versions",
+        "rejected": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Ineligible paused retired stale or out-of-interval entries are not evaluated",
+        "unknown": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Unknown or unavailable entry identity is recorded for that strategy and does not suppress complete matches for other strategies",
+        "replay": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. The same scan attempt preserves its resolved registry identity or negative disposition"
       },
       "sourceRole": "strategy-governance",
       "objectAuthority": "strategy-governance",
-      "businessOutcomeOwnerId": "scanner"
+      "businessOutcomeOwnerId": "scanner",
+      "visibility": "contract-only"
     },
     {
       "id": "program-governance",
@@ -10613,22 +10420,23 @@
       "relation": "fact",
       "objectId": "scanner-receipt",
       "scenarios": [],
-      "overview": true,
+      "overview": false,
       "weight": "light",
-      "docsRoute": "scenarios/scan",
+      "docsRoute": "owners/scanner",
       "description": {
-        "en": "Scanner commits one terminal receipt; only PROPOSED carries a proposal",
-        "zh": "Scanner 提交唯一终态回执 只有 PROPOSED 携带提案"
+        "en": "Existing sealed interface only: Scanner commits one terminal receipt; only PROPOSED carries a proposal",
+        "zh": "仅现有封存接口：Scanner 提交唯一终态回执 只有 PROPOSED 携带提案"
       },
       "semantics": {
-        "accepted": "Governance records one terminal batch receipt with exact completion expected observed missing and reason facts and considers only exact matched members from a COMPLETE PROPOSED receipt under an existing current unattended Lifecycle Request lineage and Autonomous Policy Authorization",
-        "rejected": "Mismatched incomplete unauthorized negative or nonmember strategy dispositions cannot activate a strategy",
-        "unknown": "Governance resolves the same scan identity and never rescans as retry",
-        "replay": "The same receipt joins the same lifecycle evaluation and cannot create a second request receipt allocation disposition or strategy generation"
+        "accepted": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Governance records one terminal batch receipt with exact completion expected observed missing and reason facts and considers only exact matched members from a COMPLETE PROPOSED receipt under an existing current unattended Lifecycle Request lineage and Autonomous Policy Authorization",
+        "rejected": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Mismatched incomplete unauthorized negative or nonmember strategy dispositions cannot activate a strategy",
+        "unknown": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Governance resolves the same scan identity and never rescans as retry",
+        "replay": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. The same receipt joins the same lifecycle evaluation and cannot create a second request receipt allocation disposition or strategy generation"
       },
       "sourceRole": "scanner",
       "objectAuthority": "scanner",
-      "businessOutcomeOwnerId": "strategy-governance"
+      "businessOutcomeOwnerId": "strategy-governance",
+      "visibility": "contract-only"
     },
     {
       "id": "governance-runtime",
@@ -10638,7 +10446,6 @@
       "relation": "command",
       "objectId": "authorized-generation-decision",
       "scenarios": [
-        "paper",
         "live"
       ],
       "overview": true,
@@ -10784,18 +10591,19 @@
       "weight": "standard",
       "docsRoute": "owners/scanner",
       "description": {
-        "en": "Portfolio supplies a bounded capacity view for proposals",
-        "zh": "Portfolio 只向 Scanner 提供生成提案所需的容量事实投影"
+        "en": "Existing sealed interface only: Portfolio supplies a bounded capacity view for proposals",
+        "zh": "仅现有封存接口：Portfolio 只向 Scanner 提供生成提案所需的容量事实投影"
       },
       "semantics": {
-        "accepted": "Scanner may bind a fresh candidate-neutral gross Capacity View with exact Capacity Scope account fact cut valuation liquidity methodology assumption gross ceiling measurement valid-through and complete Time Evidence inputs as a bounded proposal hint",
-        "rejected": "When required any missing stale unavailable or identity-mismatched Capacity View commits INPUT_UNAVAILABLE and cannot produce MATCHED or be treated as capital authority",
-        "unknown": "The hint may be omitted only when the activation condition does not require it",
-        "replay": "The same view preserves the exact canonical Capacity View identity fields and never adds projected exposure open orders Reservation liability or net headroom"
+        "accepted": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. Scanner may bind a fresh candidate-neutral gross Capacity View with exact Capacity Scope account fact cut valuation liquidity methodology assumption gross ceiling measurement valid-through and complete Time Evidence inputs as a bounded proposal hint",
+        "rejected": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. When required any missing stale unavailable or identity-mismatched Capacity View commits INPUT_UNAVAILABLE and cannot produce MATCHED or be treated as capital authority",
+        "unknown": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. The hint may be omitted only when the activation condition does not require it",
+        "replay": "Existing sealed interface only; no new Scanner implementation or activation authority is admitted. The same view preserves the exact canonical Capacity View identity fields and never adds projected exposure open orders Reservation liability or net headroom"
       },
       "sourceRole": "portfolio",
       "objectAuthority": "portfolio",
-      "businessOutcomeOwnerId": "scanner"
+      "businessOutcomeOwnerId": "scanner",
+      "visibility": "contract-only"
     },
     {
       "id": "data-runtime",
@@ -11376,7 +11184,7 @@
       "semantics": {
         "accepted": "Governance binds the exact Runtime Incident Fact identity generation scope category severity and observation time",
         "rejected": "Missing stale mismatched or uncommitted incident facts cannot support a lifecycle transition",
-        "unknown": "Unknown incident or recovery state fails closed and cannot be inferred from Event Rail silence",
+        "unknown": "Unknown incident or recovery state fails closed and cannot be inferred from notifications silence",
         "replay": "The same incident fact identity cannot create a duplicate lifecycle transition"
       },
       "sourceRole": "runtime",
@@ -11405,7 +11213,7 @@
       "semantics": {
         "accepted": "Governance binds the exact Reconciliation Drift Fact identity generation scope readback cut category and state and may use a terminal RECONCILED fact only as the Execution component of an exact de-risk proof chain while the fact alone never proves Recovery admission or case creation",
         "rejected": "Missing stale mismatched or uncommitted drift facts cannot support a lifecycle transition",
-        "unknown": "UNKNOWN_EFFECT fails closed enters Execution Recovery Admission evaluation and cannot finalize reduction pause or retirement open a Recovery Case before RECOVERY_ADMITTED or be inferred as reconciled from Event Rail delivery",
+        "unknown": "UNKNOWN_EFFECT fails closed enters Execution Recovery Admission evaluation and cannot finalize reduction pause or retirement open a Recovery Case before RECOVERY_ADMITTED or be inferred as reconciled from notifications delivery",
         "replay": "The same drift fact identity cannot create a duplicate lifecycle transition or erase uncertainty"
       },
       "sourceRole": "execution",
@@ -11416,7 +11224,7 @@
       "id": "runtime-events",
       "class": "owner",
       "sourceId": "group-runtime",
-      "targetId": "event-rail",
+      "targetId": "group-observability",
       "relation": "event",
       "objectId": "runtime-event",
       "scenarios": [
@@ -11426,13 +11234,13 @@
       ],
       "overview": true,
       "weight": "light",
-      "docsRoute": "architecture/event-rail",
+      "docsRoute": "architecture/observability",
       "description": {
-        "en": "Runtime publishes incidents and state changes",
-        "zh": "Runtime 向 Event Rail 发布事故和状态变化"
+        "en": "Runtime publishes incidents and state changes to optional observation adapters",
+        "zh": "Runtime 向观测适配器 发布事故和状态变化"
       },
       "semantics": {
-        "accepted": "Event Rail carries only the committed Runtime Incident Fact identity category and event sequence",
+        "accepted": "The source service publishes only the committed Runtime Incident Fact identity category and event sequence",
         "rejected": "An uncommitted malformed or unidentified incident produces no wake hint",
         "unknown": "Missing delivery cannot be interpreted as absence or closure of an incident",
         "replay": "The same incident fact identity and event sequence deduplicate to one wake hint"
@@ -11440,13 +11248,13 @@
       "sourceRole": "runtime",
       "objectAuthority": "runtime",
       "businessOutcomeOwnerId": null,
-      "noBusinessOutcomeBasis": "Event Rail only transports an already committed Owner fact and creates no business transition"
+      "noBusinessOutcomeBasis": "Notification transport only announces an already committed source Owner fact; Observability owns received hint custody and rebuildable projections, never a business transition"
     },
     {
       "id": "execution-events",
       "class": "owner",
       "sourceId": "group-execution",
-      "targetId": "event-rail",
+      "targetId": "group-observability",
       "relation": "event",
       "objectId": "execution-event",
       "scenarios": [
@@ -11456,13 +11264,13 @@
       ],
       "overview": true,
       "weight": "light",
-      "docsRoute": "architecture/event-rail",
+      "docsRoute": "architecture/observability",
       "description": {
-        "en": "Execution publishes order fill and reconcile events",
+        "en": "Execution publishes order fill and reconcile events to optional observation adapters",
         "zh": "Execution 发布订单 成交和对账事件"
       },
       "semantics": {
-        "accepted": "Event Rail carries only the identified committed order fill or Reconciliation Drift Fact transition",
+        "accepted": "The source service publishes only the identified committed order fill or Reconciliation Drift Fact transition",
         "rejected": "Uncommitted malformed or unidentified effect data produces no wake hint",
         "unknown": "Missing delivery cannot be interpreted as effect closure or reconciliation success",
         "replay": "The same source fact identity and event sequence deduplicate to one wake hint"
@@ -11470,13 +11278,13 @@
       "sourceRole": "execution",
       "objectAuthority": "execution",
       "businessOutcomeOwnerId": null,
-      "noBusinessOutcomeBasis": "Event Rail only transports an already committed Owner fact and creates no business transition"
+      "noBusinessOutcomeBasis": "Notification transport only announces an already committed source Owner fact; Observability owns received hint custody and rebuildable projections, never a business transition"
     },
     {
       "id": "qualification-events",
       "class": "owner",
       "sourceId": "group-qualification",
-      "targetId": "event-rail",
+      "targetId": "group-observability",
       "relation": "event",
       "objectId": "qualification-event",
       "scenarios": [
@@ -11487,13 +11295,13 @@
       ],
       "overview": false,
       "weight": "standard",
-      "docsRoute": "architecture/event-rail",
+      "docsRoute": "architecture/observability",
       "description": {
-        "en": "Qualification publishes eligibility and revocation events",
+        "en": "Qualification publishes eligibility and revocation events to optional observation adapters",
         "zh": "Qualification 发布资格变化和撤销事件"
       },
       "semantics": {
-        "accepted": "Event Rail carries exactly one normalized CLOSED_NOT_QUALIFIED event for every negative protected terminal and exact QUALIFIED EXPIRED or REVOKED events using only public attempt correlation state effective cut sequence and one type-opaque non-dereferenceable reference",
+        "accepted": "The source service publishes exactly one normalized CLOSED_NOT_QUALIFIED event for every negative protected terminal and exact QUALIFIED EXPIRED or REVOKED events using only public attempt correlation state effective cut sequence and one type-opaque non-dereferenceable reference",
         "rejected": "Protected measurements parameters results holdout details evaluation outputs INELIGIBLE and every other protected internal terminal timing differences category-specific references and dereferenceable evidence are never published",
         "unknown": "Unknown source fact identity produces no event and cannot be inferred from notification silence",
         "replay": "The same public attempt correlation state effective cut opaque reference and event sequence deduplicate to one wake hint"
@@ -11501,67 +11309,7 @@
       "sourceRole": "qualification",
       "objectAuthority": "qualification",
       "businessOutcomeOwnerId": null,
-      "noBusinessOutcomeBasis": "Event Rail only transports an already committed Owner fact and creates no business transition"
-    },
-    {
-      "id": "events-governance",
-      "class": "owner",
-      "sourceId": "event-rail",
-      "targetId": "group-governance",
-      "relation": "event",
-      "objectId": "event-wake",
-      "scenarios": [
-        "paper",
-        "live",
-        "recovery"
-      ],
-      "overview": true,
-      "weight": "light",
-      "docsRoute": "architecture/event-rail",
-      "description": {
-        "en": "Event Rail wakes Governance to read committed owner facts",
-        "zh": "Event Rail 只唤醒 Governance 读取已提交的 Owner 事实"
-      },
-      "semantics": {
-        "accepted": "Governance treats the Event Rail delivery only as a wake signal then reads the identified committed fact directly from its authoritative Owner under the required source frontier",
-        "rejected": "Undelivered duplicate stale unauthorized source-mismatched or policy-mismatched hints create no Governance transition and cannot substitute a committed Owner fact",
-        "unknown": "Unknown Event Rail delivery or source fact state remains nonterminal and never implies lifecycle authorization recovery closure or external-effect success",
-        "replay": "Repeated hints are harmless and Governance joins the same Owner fact identity and source frontier without creating another business transition"
-      },
-      "sourceRole": "event-rail-custodian",
-      "objectAuthority": "event-rail",
-      "businessOutcomeOwnerId": null,
-      "noBusinessOutcomeBasis": "Event wake only prompts Governance to read the committed source Owner fact and creates no business transition"
-    },
-    {
-      "id": "events-observability",
-      "class": "owner",
-      "sourceId": "event-rail",
-      "targetId": "group-observability",
-      "relation": "event",
-      "objectId": "event-wake",
-      "scenarios": [
-        "paper",
-        "live",
-        "recovery"
-      ],
-      "overview": true,
-      "weight": "standard",
-      "docsRoute": "architecture/observability",
-      "description": {
-        "en": "Event Rail hands committed wake hints to Observability",
-        "zh": "Event Rail 向 Observability 交付已提交的唤醒提示"
-      },
-      "semantics": {
-        "accepted": "Observability accepts the bounded Event Wake identity category source time severity disclosure class and Owner read route then updates only rebuildable status and alert projections",
-        "rejected": "Protected payloads dereferenceable evidence uncommitted details invalid schema and changed content under one identity are dropped or quarantined before projection",
-        "unknown": "Unknown source identity disclosure class or projection outcome remains explicitly incomplete and changes no Owner state",
-        "replay": "Wake replay reuses the same Event Wake identity and idempotent projection without replaying the business transition or requiring one alert delivery"
-      },
-      "sourceRole": "event-rail-custodian",
-      "objectAuthority": "event-rail",
-      "businessOutcomeOwnerId": null,
-      "noBusinessOutcomeBasis": "Observability updates rebuildable status and alert projections only and creates no business transition"
+      "noBusinessOutcomeBasis": "Notification transport only announces an already committed source Owner fact; Observability owns received hint custody and rebuildable projections, never a business transition"
     },
     {
       "id": "observability-product-status",
@@ -11684,13 +11432,13 @@
       "weight": "light",
       "docsRoute": "architecture/strategy-factory",
       "description": {
-        "en": "Research submits its frozen candidate to Qualification",
-        "zh": "Research 向 Qualification 提交由其拥有的冻结候选"
+        "en": "On a user assessment request, Research submits the exact frozen candidate",
+        "zh": "用户请求评估后，Research 提交准确冻结候选"
       },
       "semantics": {
-        "accepted": "Qualification writes an ADMITTED intake receipt only for the exact R&D-owned candidate request identity SELECTED_FOR_QUALIFICATION Research Selection Disposition frozen Intent falsifier stop rule FROZEN Protected Robustness Plan trial family immutable exhaustive Census Frontier complete exploratory cut costs capacity assumptions complete cross-family predecessor frontier precommitted independence basis protected-feedback frontier cumulative protected-attempt and holdout disposition frontier preregistration and ADMITTED Artifact Security Admission",
+        "accepted": "Only after an explicit user assessment request, with research goal completion recorded as stopped, Qualification writes an ADMITTED intake receipt only for the exact R&D-owned candidate request identity SELECTED_FOR_QUALIFICATION Research Selection Disposition frozen Intent falsifier stop rule FROZEN Protected Robustness Plan trial family immutable exhaustive Census Frontier complete exploratory cut costs capacity assumptions complete cross-family predecessor frontier precommitted independence basis protected-feedback frontier cumulative protected-attempt and holdout disposition frontier preregistration and ADMITTED Artifact Security Admission",
         "rejected": "Qualification writes NOT_ADMITTED for every non-selected missing stale mutable or mismatched Research Selection Disposition falsifier stop rule exploratory cut cost capacity assumption mutable artifact hidden trial family missing stale revoked unknown or mismatched Artifact Security Admission mutable non-exhaustive late-divergent or renamed-away ancestry unresolved correlation late independence basis incomplete protected-feedback or cumulative holdout frontier or incomplete preregistration without creating a protected attempt or consuming holdout",
-        "unknown": "No protected attempt begins and no holdout is consumed while candidate intake is unresolved",
+        "unknown": "No protected attempt begins and no holdout is consumed while candidate intake is unresolved Goal completion alone never starts assessment and a failed assessment never automatically restarts research.",
         "replay": "The same review request Candidate selected disposition frozen Intent falsifier stop rule frontiers cuts assumptions and intake attempt join one receipt and never reset trial budget or cumulative holdout consumption while another request identity cannot duplicate intake and a later family member requires a successor Candidate"
       },
       "sourceRole": "rd",
@@ -11704,11 +11452,8 @@
       "targetId": "group-governance",
       "relation": "fact",
       "objectId": "portfolio-interaction-receipt",
-      "scenarios": [
-        "paper",
-        "live"
-      ],
-      "overview": true,
+      "scenarios": [],
+      "overview": false,
       "weight": "light",
       "docsRoute": "owners/strategy-governance",
       "description": {
@@ -11723,7 +11468,8 @@
       },
       "sourceRole": "portfolio",
       "objectAuthority": "portfolio",
-      "businessOutcomeOwnerId": "strategy-governance"
+      "businessOutcomeOwnerId": "strategy-governance",
+      "visibility": "contract-only"
     },
     {
       "id": "runtime-execution-incident",
@@ -11759,25 +11505,24 @@
       "targetId": "group-runtime",
       "relation": "handoff",
       "objectId": "native-repair-request",
-      "scenarios": [
-        "research"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Compatibility schema only; no native research repair phase. R&D requests one correlated Runtime kernel repair",
-        "zh": "仅限现有兼容 schema，不要求原生研究经过程序修复阶段。R&D 请求一次精确关联的 Runtime 内核修复"
+        "en": "Existing bounded interface only: Compatibility schema only; no native research repair phase. R&D requests one correlated Runtime kernel repair",
+        "zh": "仅现有有界接口：仅限现有兼容 schema，不要求原生研究经过程序修复阶段。R&D 请求一次精确关联的 Runtime 内核修复"
       },
       "semantics": {
-        "accepted": "Runtime admits only one frozen RUNTIME_KERNEL request bound to the exact predecessor REPAIR_INPUTS decision stable request correlation original proof digest old kernel identity source cut policy and fresh Time Evidence",
-        "rejected": "Wrong target category predecessor proof digest old identity source cut policy stale time or changed request meaning creates no Runtime repair attempt or result",
-        "unknown": "Unknown request admission attempt or delivery creates no repair result successor identity Replay Request stop decision or retry",
-        "replay": "The same request category predecessor correlation proof and meaning join one Runtime attempt while changed meaning requires a successor R&D-owned request identity"
+        "accepted": "Existing protocol only, not automatic service repair or a native research prerequisite. Runtime admits only one frozen RUNTIME_KERNEL request bound to the exact predecessor REPAIR_INPUTS decision stable request correlation original proof digest old kernel identity source cut policy and fresh Time Evidence",
+        "rejected": "Existing protocol only, not automatic service repair or a native research prerequisite. Wrong target category predecessor proof digest old identity source cut policy stale time or changed request meaning creates no Runtime repair attempt or result",
+        "unknown": "Existing protocol only, not automatic service repair or a native research prerequisite. Unknown request admission attempt or delivery creates no repair result successor identity Replay Request stop decision or retry",
+        "replay": "Existing protocol only, not automatic service repair or a native research prerequisite. The same request category predecessor correlation proof and meaning join one Runtime attempt while changed meaning requires a successor R&D-owned request identity"
       },
       "sourceRole": "rd",
       "objectAuthority": "rd",
-      "businessOutcomeOwnerId": "runtime"
+      "businessOutcomeOwnerId": "runtime",
+      "visibility": "contract-only"
     },
     {
       "id": "rd-backtest-native-repair-request",
@@ -11786,25 +11531,24 @@
       "targetId": "group-backtest",
       "relation": "handoff",
       "objectId": "native-repair-request",
-      "scenarios": [
-        "research"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Compatibility schema only; no native research repair phase. R&D requests one correlated Backtest native repair",
-        "zh": "仅限现有兼容 schema，不要求原生研究经过程序修复阶段。R&D 请求一次精确关联的 Backtest 原生修复"
+        "en": "Existing bounded interface only: Compatibility schema only; no native research repair phase. R&D requests one correlated Backtest native repair",
+        "zh": "仅现有有界接口：仅限现有兼容 schema，不要求原生研究经过程序修复阶段。R&D 请求一次精确关联的 Backtest 原生修复"
       },
       "semantics": {
-        "accepted": "Backtest admits only one frozen SIMULATOR or BACKTEST_OPERATIONAL request bound to the exact predecessor REPAIR_INPUTS decision stable request correlation original proof digest category-specific old identity source cut policy and fresh Time Evidence",
-        "rejected": "Wrong target category predecessor proof digest old identity source cut policy stale time or changed request meaning creates no Backtest repair attempt or result",
-        "unknown": "Unknown request admission attempt or delivery creates no repair result successor identity Replay Request stop decision or retry",
-        "replay": "The same request category predecessor correlation proof and meaning join one Backtest attempt while changed meaning requires a successor R&D-owned request identity"
+        "accepted": "Existing protocol only, not automatic service repair or a native research prerequisite. Backtest admits only one frozen SIMULATOR or BACKTEST_OPERATIONAL request bound to the exact predecessor REPAIR_INPUTS decision stable request correlation original proof digest category-specific old identity source cut policy and fresh Time Evidence",
+        "rejected": "Existing protocol only, not automatic service repair or a native research prerequisite. Wrong target category predecessor proof digest old identity source cut policy stale time or changed request meaning creates no Backtest repair attempt or result",
+        "unknown": "Existing protocol only, not automatic service repair or a native research prerequisite. Unknown request admission attempt or delivery creates no repair result successor identity Replay Request stop decision or retry",
+        "replay": "Existing protocol only, not automatic service repair or a native research prerequisite. The same request category predecessor correlation proof and meaning join one Backtest attempt while changed meaning requires a successor R&D-owned request identity"
       },
       "sourceRole": "rd",
       "objectAuthority": "rd",
-      "businessOutcomeOwnerId": "backtest"
+      "businessOutcomeOwnerId": "backtest",
+      "visibility": "contract-only"
     },
     {
       "id": "runtime-rd-kernel-repair",
@@ -11813,25 +11557,24 @@
       "targetId": "group-rd",
       "relation": "fact",
       "objectId": "runtime-kernel-repair-result",
-      "scenarios": [
-        "research"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Compatibility schema only; no native research repair phase. Runtime closes one correlated kernel repair attempt for R&D",
-        "zh": "仅限现有兼容 schema，不要求原生研究经过程序修复阶段。Runtime 为 R&D 关闭一次精确关联的内核修复尝试"
+        "en": "Existing bounded interface only: Compatibility schema only; no native research repair phase. Runtime closes one correlated kernel repair attempt for R&D",
+        "zh": "仅现有有界接口：仅限现有兼容 schema，不要求原生研究经过程序修复阶段。Runtime 为 R&D 关闭一次精确关联的内核修复尝试"
       },
       "semantics": {
-        "accepted": "R&D consumes only a terminal Runtime-owned result bound to the exact native repair request predecessor REPAIR_INPUTS decision RUNTIME_KERNEL category stable request attempt correlation original proof digest old and proposed kernel identities decisive source cut and Time Evidence then REPAIRED permits only one new request-equal Replay Request while UNAVAILABLE permits only the exact STOP_INPUT_UNAVAILABLE",
-        "rejected": "Missing stale wrong-request wrong-category wrong-predecessor cross-attempt changed-correlation mixed-cut or original-proof-mismatched results create no R&D decision Replay Request Artifact or Selection",
-        "unknown": "OUTCOME_UNKNOWN grants no retry successor identity stop decision or replay request and keeps the repair lineage explicitly unresolved",
-        "replay": "The same request terminal result original proof and source cut join once while changed state successor identity request source cut or proof is conflicting replay"
+        "accepted": "Existing protocol only, not automatic service repair or a native research prerequisite. R&D consumes only a terminal Runtime-owned result bound to the exact native repair request predecessor REPAIR_INPUTS decision RUNTIME_KERNEL category stable request attempt correlation original proof digest old and proposed kernel identities decisive source cut and Time Evidence then REPAIRED permits only one new request-equal Replay Request while UNAVAILABLE permits only the exact STOP_INPUT_UNAVAILABLE",
+        "rejected": "Existing protocol only, not automatic service repair or a native research prerequisite. Missing stale wrong-request wrong-category wrong-predecessor cross-attempt changed-correlation mixed-cut or original-proof-mismatched results create no R&D decision Replay Request Artifact or Selection",
+        "unknown": "Existing protocol only, not automatic service repair or a native research prerequisite. OUTCOME_UNKNOWN grants no retry successor identity stop decision or replay request and keeps the repair lineage explicitly unresolved",
+        "replay": "Existing protocol only, not automatic service repair or a native research prerequisite. The same request terminal result original proof and source cut join once while changed state successor identity request source cut or proof is conflicting replay"
       },
       "sourceRole": "runtime",
       "objectAuthority": "runtime",
-      "businessOutcomeOwnerId": "rd"
+      "businessOutcomeOwnerId": "rd",
+      "visibility": "contract-only"
     },
     {
       "id": "backtest-rd-simulator-repair",
@@ -11840,25 +11583,24 @@
       "targetId": "group-rd",
       "relation": "fact",
       "objectId": "simulator-repair-result",
-      "scenarios": [
-        "research"
-      ],
+      "scenarios": [],
       "overview": false,
       "weight": "light",
       "docsRoute": "scenarios/research",
       "description": {
-        "en": "Compatibility schema only; no native research repair phase. Backtest closes one correlated simulator or runner-service repair attempt for R&D",
-        "zh": "仅限现有兼容 schema，不要求原生研究经过程序修复阶段。Backtest 为 R&D 关闭一次精确关联的模拟器或运行服务修复尝试"
+        "en": "Existing bounded interface only: Compatibility schema only; no native research repair phase. Backtest closes one correlated simulator or runner-service repair attempt for R&D",
+        "zh": "仅现有有界接口：仅限现有兼容 schema，不要求原生研究经过程序修复阶段。Backtest 为 R&D 关闭一次精确关联的模拟器或运行服务修复尝试"
       },
       "semantics": {
-        "accepted": "R&D consumes only a terminal Backtest-owned result bound to the exact native repair request predecessor REPAIR_INPUTS decision SIMULATOR or BACKTEST_OPERATIONAL category stable request attempt correlation original proof digest old and proposed category-specific identities decisive runner service or simulator source cut and Time Evidence then REPAIRED permits only one new request-equal Replay Request while UNAVAILABLE permits only the exact STOP_INPUT_UNAVAILABLE",
-        "rejected": "Missing stale wrong-request wrong-category wrong-predecessor cross-attempt changed-correlation mixed-cut or original-proof-mismatched results create no R&D decision Replay Request Artifact or Selection",
-        "unknown": "OUTCOME_UNKNOWN grants no retry successor identity stop decision or replay request and keeps the repair lineage explicitly unresolved",
-        "replay": "The same request terminal result original proof and source cut join once while changed state successor identity request source cut or proof is conflicting replay"
+        "accepted": "Existing protocol only, not automatic service repair or a native research prerequisite. R&D consumes only a terminal Backtest-owned result bound to the exact native repair request predecessor REPAIR_INPUTS decision SIMULATOR or BACKTEST_OPERATIONAL category stable request attempt correlation original proof digest old and proposed category-specific identities decisive runner service or simulator source cut and Time Evidence then REPAIRED permits only one new request-equal Replay Request while UNAVAILABLE permits only the exact STOP_INPUT_UNAVAILABLE",
+        "rejected": "Existing protocol only, not automatic service repair or a native research prerequisite. Missing stale wrong-request wrong-category wrong-predecessor cross-attempt changed-correlation mixed-cut or original-proof-mismatched results create no R&D decision Replay Request Artifact or Selection",
+        "unknown": "Existing protocol only, not automatic service repair or a native research prerequisite. OUTCOME_UNKNOWN grants no retry successor identity stop decision or replay request and keeps the repair lineage explicitly unresolved",
+        "replay": "Existing protocol only, not automatic service repair or a native research prerequisite. The same request terminal result original proof and source cut join once while changed state successor identity request source cut or proof is conflicting replay"
       },
       "sourceRole": "backtest",
       "objectAuthority": "backtest",
-      "businessOutcomeOwnerId": "rd"
+      "businessOutcomeOwnerId": "rd",
+      "visibility": "contract-only"
     },
     {
       "id": "data-rd-successor-feedback",

@@ -27,9 +27,11 @@ flowchart LR
     M -->|"Verified Inputs"| B
     B -->|"Result + Evidence"| R
     R -->|"Records + Results"| A
-    R -->|"Frozen Candidate"| Q["Qualification"]
+    R -->|"Goal reached; stop"| D["Delivery"]
+    D -->|"User requests assessment"| Q["Qualification"]
     Q -->|"Public Eligibility"| G["Governance"]
-    G -->|"Approved Deployment"| N["Trading Node"]
+    G -->|"Dashboard approval"| K["Activation Queue"]
+    K -->|"Current policy and capacity"| N["Trading Node"]
 ```
 
 采用 Nautilus 提供的 Strategy、数据订阅/历史请求、指标、定时器、订单工厂、执行算法、cache 和 Portfolio API。
@@ -122,8 +124,8 @@ Backtest 扩展 Nautilus Engine，不复制撮合器。原生 bar 执行策略�
 3. Backtest 用分钟行情执行撮合，记录原生事件及一分钟内的政策推定。
 4. 现有输入引用、策略包和运行配置保存数据与聚合依据。数据修复或配置变化时，由 Agent 提交新封存运行并完整重放。
 
-到获准最细粒度仍无法判断时，使用显式冻结的保守政策并标注假设：已持仓止损/止盈冲突按止损优先；入场与目标先后未知时不能虚构当根止盈，入场后继续持仓。
-缺数据不是成交歧义，不得借兜底伪造历史。跳空止损使用可执行价格和原生成交/滑点模型，不假造按触发价成交。
+一分钟精度内使用冻结的原生 OHLC/自适应路径，并标注为模拟先后。不另加止损优先或入场后持仓覆盖规则。Agent 可用不同原生配置分别提交封存回测。
+缺数据属于准备缺口，不能推定缺失历史。跳空止损使用可执行价格和原生成交/滑点模型，不假造按触发价成交。
 回测末尾保留未平仓及其估值，不默认强制平仓提高表现。
 
 <a id="research-and-qualification-boundary" />

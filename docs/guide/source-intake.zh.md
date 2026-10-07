@@ -101,21 +101,9 @@ claim、raw payload、终态 receipt、provenance、Source Candidate 与 outbox�
 
 ### 当前托管采集的内部能力序列
 
-以下是 Source Intake 内部能力，不是新的 Flow 节点或 Owner：
+现有托管获取接口负责有界 discover/resolve、获取前 admission、允许内容的 fetch、保真 normalize、不可变 provenance capture 与 connector health。获取仍须先有准确 `ADMITTED`；记录检索截面、响应与内容摘要、访问/权利依据和获取终态。内容变化创建后继或拒绝，不可用不得记为空。
 
-`Connectors → Discovery → Identity Resolution → Admission → Fetch → Normalization → Provenance → Triage → Research Queue`
-
-| 能力        | 必须保持的语义                                                                         |
-| ----------- | -------------------------------------------------------------------------------------- |
-| `discover`  | 为有界查询 来源类别 时间截面和 connector 限制返回稳定 Source Reference。               |
-| `resolve`   | 把 DOI arXiv ID URL repository commit 作者或帖子引用解析成规范 Source Identity。       |
-| `fetch`     | 只在准确 `ADMITTED` 后获取允许访问的内容，并记录检索时间 响应身份 访问依据和获取终态。 |
-| `normalize` | 产出 Source Candidate 而不改变原义，保留原始内容摘要和转换身份。                       |
-| `capture`   | 创建或加入不可变 Research Source Provenance Record，变化内容创建后继或拒绝。           |
-| `health`    | 报告可达性 授权 配额 权利变化和最近成功时间，不可用不能伪装为空结果。                  |
-
-任何 connector 都不能创建 Research Intent Strategy Artifact Candidate Eligibility Fact 部署决定或
-外部交易效果。
+这些能力只维护已存在的托管接口，不是新研究路线的服务、Flow 节点、调度器或实现清单。目标来源由外部 Agent 的宿主工具获取并登记；host provenance 不能冒充托管获取回执。任何 connector 都不能创建 Research Intent、Strategy Artifact、Candidate、Eligibility Fact、部署决定或交易效果。
 
 ### 获取终态
 
@@ -152,31 +140,13 @@ connector policy retrieval cut 或内容摘要变化时创建新 attempt 身份�
 
 ### 托管来源的类型化交接
 
-现有托管协议在 Source Intake 与 Research 之间只有一个由 R&D 拥有的类型化 ancestry operation。 它接收不受信的 Source Intake attempt
-reference，然后从 Owner custody 锁定并重读准确 `RETRIEVED` terminal receipt、Research Source Provenance
-Record、Source Candidate 与匹配的 transition outbox。
+目标路线由 Agent 登记来源引用、摘要、获取截面、权利依据及研究解释，R&D 保存记录与原生 Git Strategy 血缘；来源记录不自动创建 Intent、策略、资格或执行权威。
 
-它校验 这些成员共享的 request 与 attempt identity、规范 source 与 content digest、retrieval cut、connector 与 acquisition-class
-identity、policy/Time Evidence 以及 rights/retention basis，然后只返回 sealed ancestry evidence。 Source content
-保持不受信，绝不授予 accepted Research custody。
+现有托管协议保留 R&D-owned ancestry operation：按准确 attempt reference 锁定并重读 `RETRIEVED` receipt、Provenance Record、Source Candidate 与 transition outbox，验证 request/attempt、source/content digest、retrieval cut、connector/acquisition class、policy/Time Evidence 和 rights/retention basis，只返回 sealed ancestry。来源内容始终不受信。
 
-类型化 Research `RUN` 另行把不受信 Research proposal 与该 verified ancestry evidence 交给规范 R&D Research
-admission。
+其旧 Research `RUN` admission 仍由 R&D 独自解析 Independence Basis、Qualification opaque frontier 与 semantic predecessor，冻结 Intent/falsifier/TrialFamily 及回执。Source Intake attempt、DTO 复制、未重读 locator、JSON projection 或共同部署都不能创建 `CurrentResearchDevelopCustodyV2` 或 accepted Research custody；caller 不能补造 verified member。缺失、失配、过期、负面、非 `RETRIEVED`、不可用或 Research admission 失败时，Research/Design/Plan/Artifact/successor 均零正向写入。同身份同含义加入原回执；换含义冲突，response loss 只解析同 attempt。
 
-R&D 是唯一 Intent owner：只有该 admission 可以解析 Independence Basis、当前 Qualification frontier 与本地 semantic-predecessor
-lineage，再冻结 Intent、falsifier、永久 TrialFamily authority、receipts 和 Develop Composer 可消费的 current Research
-custody。 仅凭 Source Intake attempt 绝不能派生 `CurrentResearchDevelopCustodyV2`。
-
-caller 不能提供或修复任何 verified member。 把 receipt 字段复制到 Research DTO、信任未经 Owner 重读的 locator、把 JSON projection 当作规范
-record，或把 Source Intake 与 Composer 共同部署，都不构成 handoff。
-
-任一 ancestry member 缺失、不匹配、过期、不是 `RETRIEVED`、为负面终态或不可用，或规范 Research admission 失败时，都不得创建 accepted
-Research custody、Research Intent、Design、Plan、 Artifact 或 successor authority。 相同 request 与 meaning 加入字节一致的 R&D
-operation receipt；identity 被用于 changed meaning 时发生 conflict 且零正向写入，response loss 只能解析同一 attempt。
-
-该 operation 及其持久 PostgreSQL custody 是 `TARGET`，不是当前能力。crate-local Source Intake 合同与
-回归证据和 crate-local Composer 证明继续作为相互分离的 `CURRENT/PARTIAL` evidence。当前没有证据建立
-隔离的第一方 PostgreSQL Source Intake runner；Product Edge D0 合同的组合动态 gate 仍未通过。
+该 ancestry operation 与持久 PostgreSQL custody 仍是 `TARGET`；crate-local Source Intake 与 Composer 各自只是 `CURRENT/PARTIAL`，组合动态 gate 未通过。它不成为原生 Git Strategy 的 Composer 前置；现有回执消费与拒绝规则由 [R&D](../owners/rd/) 和 [Product Edge](../architecture/product-edge/)持有。
 
 ### Triage 与准入
 

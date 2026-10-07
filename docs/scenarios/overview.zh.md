@@ -9,16 +9,15 @@
 
 ## Value path / 价值路径
 
-1. Market Data 提供可追踪 PIT 事实和规范标的身份。
-2. Research 冻结假设并生成可复现 Strategy Artifact。
-3. 探索性 Backtest 可以支持下一轮研究迭代。
-4. 冻结候选进入独立保护 Qualification。
-5. Strategy Governance 综合资格 生命周期证据 资金政策 完整请求 Authorization Lineage 和显式
-   Autonomous Policy Authorization，形成部署决定。
-6. R&D 可按需查询市场机会，复用策略判断但不生成部署提案。运行策略持续消费行情，Governance 直接判定冻结生命周期条件。
-7. 用户确认首次试盘后，Runtime、Risk 与 Execution 经绑定许可的唯一原生写链执行真实试盘或正式交易；转正重新核验冻结条件与容量。
-8. Portfolio 投影只读账户 暴露 表现 容量 交互和 degradation 事实；Governance 按获准试盘/正式池比例及运行成员等分政策分配，已有占用不满足调整后额度时排队，Risk 只执行 generation envelope 并联结账户事实 open order 与 liability，不成为 allocator。
-9. 已提交反馈返回 Governance，Recovery 围栏事故直到外部效果已知闭合。
+1. 用户通过外部 Agent 提出目标与风险容忍；Agent 在批准边界内编写原生 Strategy、提出假设并登记实验。
+2. Market Data 准备/复用准确的一分钟行情和所需附加数据；R&D 冻结 Git 源码包、参数、环境及输入引用。
+3. Backtest 使用 Nautilus 回放、撮合和报告；Agent 解释证据，R&D 保存实验、暴露和可复用知识。研究目标达成即停止。
+4. 用户另行请求独立 Qualification。保护评估只公开二级终态；失败不自动重启研究。
+5. 资格通过仍不表示上线。用户在 Dashboard 确认真实试盘后，Governance 将准确版本加入队列。
+6. Governance 校验当前资格、授权、冻结政策、账户容量与已有占用，准入后由原生 Runtime/Risk/Execution/Portfolio 运行。
+7. Governance 按试盘条件自动转正、按冻结退出条件或用户请求下架；已有持仓按原保护退出，真实占用释放后才可再分配。
+8. 单策略与组合研究共用同一原生回测语义。组合配置单独版本化，成员退出预案由 R&D 研究、Governance 执行；Portfolio 提供可复算账户和表现，科学解释由 Agent 完成。
+9. 故障保留来源日志和未知效果；恢复由事实 Owner 闭合并维持 Risk 围栏，不凭通知、重试或本地确认猜测成功。
 
 ## Owner handoffs / Owner 交接
 

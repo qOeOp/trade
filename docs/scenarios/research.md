@@ -110,104 +110,11 @@ native Strategy integration and end-to-end acceptance remain missing capabilitie
 
 ### Qualified backtests, real trading trials and promotion
 
-Strategy versions follow the R&D canonical content hash (`strategy_id`), not run or Research request IDs. A new
-hash follows the complete lifecycle. An unchanged version may return to its original stage only through user
-confirmation and resolution of the original qualified Artifact and stage evidence, with current eligibility,
-authority, capital and risk checks. A stop never reactivates it automatically; missing or changed qualification
-bindings cannot be repaired by hash equality. Pool reallocations alone do not change the strategy version.
+When the research goal is reached, the Agent records the conclusion and stops. Unassessed candidates remain in R&D custody; ownership does not imply continuing execution. Iteration continues only while the goal is unmet and existing authority remains valid, or on a new user instruction.
 
-Backtest qualification makes a candidate eligible, not active. Dashboard requires the user to confirm trial entry
-for the exact candidate, frozen trial conditions and capital policy; valid current authority, allocation and native
-readiness remain required. The user may keep a qualified candidate in R&D to improve it. Qualification alone never
-starts a trial or causes automatic reactivation after a user stop.
+Only when the user considers launch do they request independent Qualification for the exact frozen version. Failure records the binary public result and waits for another instruction; protected detail never returns to research, research does not restart automatically, and the result does not close the research mechanism.
 
-The user may unload an economically valid running strategy for R&D improvement. Governance records the explicit
-user reason separately from economic failure and preserves qualification and stage evidence; unloading does not
-fabricate a failed backtest or revoke qualification. Stop new entries, cancel entry orders, return running allocation
-immediately and keep residual positions under their original protections through the native path. R&D owns any
-successor; changed candidates requalify, receive a new user-confirmed trial and cannot inherit previous stage authority.
-
-The target has one promotion route: R&D iteration → meet frozen backtest qualification criteria → small real
-trades in the trial pool → meet frozen trial promotion criteria → formal strategy pool. Candidates without
-economic advantage, not yet evaluated, or with evidence insufficient to meet the backtest criteria stay in
-R&D; no direct trial entrance exists. If the maximum observation period frozen before the trial expires
-without meeting promotion conditions, end the trial and return the candidate to R&D.
-
-Stop new entries, cancel unfilled entry orders and manage existing positions with their original stops and
-targets; do not force liquidation or omit remaining risk to improve the expiry result. Unloading the strategy
-immediately returns its allocated budget to the pool for redistribution among running strategies; it does not
-wait for all positions to exit. The exit-management path takes over remaining positions, cancellations and
-reconciliation under frozen rules without requiring the unloaded strategy to emit signals. Actual positions,
-unresolved orders, fees and unknown effects remain account margin/risk facts, without reserving the unloaded
-strategy's running allocation.
-
-Reallocated budgets create no venue-available margin; Risk admits actual orders against current account funds
-and remaining exposure. Trials are real trading too; the formal pool is the allocation after promotion. Trial
-entry adds no separate research qualification process: backtest qualification is its research prerequisite,
-while existing account, capital and execution safety constraints govern every real order. Trials validate
-actual fills and returns; small amounts do not bypass backtest qualification. The user approves and freezes
-promotion criteria before trials; meeting them triggers automatic promotion without case-by-case confirmation.
-
-Governance updates the stage and applicable capital allocation; the strategy does not request promotion or
-take on execution duties. If formal capacity is unavailable when a trial passes, continue under effective
-trial policy, retaining trial membership, account usage and observation evidence. Waiting itself does not
-cancel entry orders or allocate formal funds. A currently passing capacity waiter may continue beyond the
-maximum observation period; a waiter that no longer passes when that period ends terminates trial and returns
-to R&D through the same stop/cancel/protected-exit route. Do not restart the observation clock.
-
-Account changes trigger successor allocation and rechecking frozen promotion conditions against current trial
-evidence, together with current eligibility/authority checks. If economic conditions no longer pass, remain in
-trial; an earlier pass does not authorize promotion. Admission transitions both pools without premature trial
-allocation release or forced reductions. If a formal strategy no longer meets retention criteria frozen before
-operation, unload it and return it to R&D; direct downgrade into the trial pool is not allowed. Stop new
-entries, cancel unfilled entry orders and hand existing positions to the exit-management path; unloading
-returns its allocation immediately.
-
-Retain old Artifacts, trial/formal evidence and exit facts without reset or overwrite. A successor must
-qualify through backtesting again and start a new trial, without inheriting old trial success or reusing old
-stage authorization. Dashboard supports selecting trial promotion conditions, through finite named templates
-with only exposed parameters adjustable, selected and approved before the trial begins. Concrete template
-names, parameter sets and thresholds remain to be frozen; examples such as one month and positive returns are
-neither published options nor fixed defaults. At start, persist the chosen version and full parameters.
-
-Later edits cannot rewrite the active trial or replace its original conditions using observed results.
-Promotion also requires a minimum trade sample; elapsed time and positive returns from a few trades are
-insufficient. Count independent trades, not each staged exit as a new sample. The duration, minimum sample
-size and complete return/risk rules remain to be frozen; one month with positive returns is a user example,
-not a complete agreed rule. Never fabricate existing `QUALIFIED` or permit facts; bind backtest
-qualification, trial progress and promotion to readable stage facts and Owner contracts in the target
-implementation.
-
-Capital is expressed as margin committed: 20U margin at 5x leverage corresponds to approximately 100U notional
-exposure before fees. This illustrates units, not default order size, recommended leverage or guaranteed
-maximum loss. Freeze actual allocation ratios and bounds approved by the user. Split account allocatable
-margin capacity by approved ratios between a common trial pool and the formal strategy pool; 20%/80% or
-30%/70% illustrate configuration, not a selected default. Each pool divides its budget equally among actually
-running strategy instances: per-strategy allocation = pool budget / running instance count.
-
-For a 100U trial pool, five strategies each receive 20U; unloading one leaves four allocations of 25U. Agent
-counts, historical strategies and order counts do not determine allocation. On entry, unload or promotion,
-Governance updates affected pool membership and allocations at one effective allocation cut; Portfolio retains
-measurements and historical attribution. Promotion moves membership from trial to formal, recalculating each
-pool independently. An empty pool retains its budget rather than transferring it automatically to the other
-pool.
-
-New allocations govern subsequent signal sizing and risk admission; they do not automatically resize existing
-positions, resting orders or frozen order quantities. Every strategy is bounded by its current equal share,
-with pool ceilings and actual account funds/risk constraints still applying. This allocates capital budgets
-rather than dividing actual positions: positions, resting orders and fee commitments still reconcile at
-account level. Ratio changes cannot automatically liquidate positions or reuse existing commitments; apply
-capital allocation change rules.
-
-Leverage/aggregate exposure caps, loss/stop/exit rules, expiry and explicit authorization contracts still
-require completion; absent required conditions admit no trial. Real account/fill facts require native node,
-Governance/Risk/Execution admission and reconciliation; neither strategy nor R&D calls trading APIs directly.
-Research and qualification evidence retain provenance, exposure and trial counts.
-
-This admits target design only, not Paper/Live implementation, credential access or actual orders. Existing
-implementation and sealed contracts do not change automatically with this target route. Migration requires versioned
-stage facts, permissions and acceptance before connecting the corresponding Owners; small size cannot bypass capital,
-risk, recovery or protected-data contracts.
+After qualification the user may still decline launch or request improvement. Initial real trial requires Dashboard confirmation of version, trial template, account authority and capital policy, then enters the Governance queue. Admission uses current eligibility, capacity, existing occupancy and frozen conditions; a strategy cannot widen authority. Promotion follows preapproved conditions automatically. Minimum samples and independent-trade counting follow [Governance](../owners/strategy-governance/); staged exits do not add samples; native Trading Node owns actual execution/account facts. Unloading stops operation and records facts without automatically starting research.
 
 ## Research story replay and capability gaps
 
@@ -218,28 +125,28 @@ source, loop, book, discovery and forward workflows. Paths are relative to `rese
 refer to their `INTENT.md`. This is contract replay against the architecture, not current runtime acceptance or adoption
 of prototype thresholds, statistical conclusions or historical holdout protocols.
 
-| Story | User goal and sources                                                                                                                    | Path, result and failure boundary                                                                                                                               | Current gap                                                                                                 |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| U01   | Interpret human methods and drawings; `community/INTENT.md; tv/; yt/; journal/score.py`                                                  | Agent interpretation → R&D provenance/annotations → frozen hypothesis; insufficient time evidence stays an outside claim                                        | Source/evidence links and Agent explanations need acceptance                                                |
-| U02   | Import data and replicate across markets; `altcoins, fxrevert, goldtrend, rangex, rangex2`                                               | Market Data admits source, clocks, price basis/revisions → Backtest; missing contract/cost facts cannot establish tradability                                   | Scope defined; family‑specific data admission/native integration missing                                    |
-| U03   | Combine multiple bar windows; `mtf, timing`                                                                                              | R&D freezes closed/forming‑bar semantics → Market Data prepares → native Strategy; future values/inconsistent aggregation refused                               | Complex windows/warmup/input binding need acceptance                                                        |
-| U04   | R-1 resting entries and partial exits; `loop/family_r.py; loop/r1_dynexit_fine.py; run_plan.py`                                          | Native Strategy → R&D Artifact → native Backtest orders; unknown/fine‑data gaps stay unresolved without duplicate coarse fills                                  | First acceptance; minute replay, aggregation, conservative policy and readback/reporting require acceptance |
-| U05   | Compare stop and exit rules; `stops, exits; loop/r1_exits.py; roleflip/`                                                                 | Same entries/capital baseline → paired Backtest controls → Agent attribution recorded by R&D; changing R units is not improved return                           | Bounded diagnostics/paired reporting need integration                                                       |
-| U06   | Select filters and learned parameters; `filters, filters2, range6; loop/r1_select.py; loop/r1_select_val.py`                             | Agent chooses/trains filters → R&D records variants and frozen inputs → native replay → Agent diagnosis; reuse is not independence                              | Native packages, data access and experiment/evidence records need integration                               |
-| U07   | Express multiple price mechanisms; `patterns, patterns2, setups, screen, range, range2, range3, range4, range5, volume2`                 | One native Strategy/Artifact expresses patterns/context → Backtest; no module per mechanism, unsupported rules refused                                          | Native APIs/package integration need acceptance; one narrow example proves no general coverage              |
-| U08   | Study mechanisms before simulating trades; `oversold, volume; community/INTENT.md`                                                       | Agent analyzes admitted Market Data with host scripts → R&D records method/evidence → Knowledge; first‑touch/correlation is not portfolio return/qualification  | Ordinary data reads and external analysis evidence records need integration                                 |
-| U09   | Study funding and market state; `carry, short; loop/fetch_funding_ext.py; loop/fetch_metrics.py; loop/overlay_x2.py`                     | Market Data economics/availability → native Strategy/Backtest → R&D; settlement costs and signal reads require distinct proof                                   | OI/taker flow/historical availability/field consumption need acceptance                                     |
-| U10   | Use macro calendars and stress inputs; `events; loop/r1_macro.py; loop/r1_crypto_stress.py`                                              | Market Data releases/vintages → causal features → Backtest; delayed latest revisions are not PIT                                                                | Source/revision/event‑calendar admission needs integration                                                  |
-| U11   | Run fixed and dynamic continuous books; `trend, combo; trend/books_pit.py; loop/ensemble.py`                                             | R&D freezes membership/subrules → Market Data timeline → one Backtest equity path; selection does not reset holdings                                            | Versioned timeline/capacity contract; current fixed path cannot satisfy B3                                  |
-| U12   | Two‑leg carry and pair trades; `carry; loop/family_h.py`                                                                                 | One frozen Artifact → native multi‑leg orders/account replay; actual fills, fees and margin per leg, no assumed atomicity                                       | Native multi‑leg integration, netting/hedging and partial‑leg failure policy need acceptance                |
-| U13   | Measure sizing and risk‑management effects; `risk; loop/r1_portfolio.py`                                                                 | Frozen sizing/risk policy → shared native account comparisons → reports → R&D; experiments cannot override production pool policy                               | Policy/cost/capital‑competition binding and reports incomplete                                              |
-| U14   | Verify source fidelity and fills; `xcheck/compare.py; replay/src/main.rs; tv_line_fidelity.py; checks.py`                                | Source annotations/exported intents → native Backtest comparison → R&D repair successor; Python is no second engine                                             | End‑to‑end repair/corresponding event evidence needs acceptance                                             |
-| U15   | Diagnose decay, attribution and false edges; `loop/attrib.py; loop/bucket_audit.py; loop/decay_diagnosis.py; loop/gatekeeper_book.py`    | Backtest results/stratified controls → Agent analysis with method/evidence/full census retained by R&D → continue/stop; retain losses, seal protected diagnosis | Result reads and Agent explanation/evidence records need integration                                        |
-| U16   | Autonomous research and session takeover; `RD_AUTONOMY.md; loop/PROTOCOL.md; loop/RETROSPECTIVE.md; loop/LOG.md`                         | Shared budgets/census → durable jobs → agent judgment → R&D Decision; atomic budget contention, unknown jobs retained                                           | Single‑Agent continuity/full research catalog/report‑decision readback need acceptance                      |
-| U17   | Retain and reuse factor knowledge; `loop/ledger.txt; loop/WORKFLOW_NOTES.md; loop/r1_select.py`                                          | Counted Result → R&D knowledge → search → new Intent/Artifact; positive estimates are not automatic stability, reuse grants no eligibility                      | Knowledge records/evidence links/search consumer unimplemented                                              |
-| U18   | Query current market opportunities; `scan/scan.py`                                                                                       | Agent → Market Data queries; stateful native Backtest replay → signals; R&D retains references as needed; no scan schedule, inferred state is not a position    | Read‑only discovery operations/native evaluation integration need acceptance                                |
-| U19   | Observe future evidence and seal qualification feedback; `loop/FORWARD_PLAN.md; trend/forward_b3.py; journal/score.py; loop/CRITERIA.md` | Frozen candidate → two‑level public qualification; qualified backtests precede real trials, optional simulation, no copied prototype thresholds                 | Protected isolation specified; real trial stages/condition choices need freezing                            |
-| U20   | Deploy findings and return to iteration; `User-approved lifecycle; product extension of forward research needs`                          | Governance pools/stages → native node → Portfolio → promote or unload to R&D; release allocation immediately, protect residual exposure                         | Target authority split; no live effect admission, stage/capital/recovery chain needs acceptance             |
+| Story | User goal and sources                                                                                                                    | Path, result and failure boundary                                                                                                                               | Current gap                                                                                          |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| U01   | Interpret human methods and drawings; `community/INTENT.md; tv/; yt/; journal/score.py`                                                  | Agent interpretation → R&D provenance/annotations → frozen hypothesis; insufficient time evidence stays an outside claim                                        | Source/evidence links and Agent explanations need acceptance                                         |
+| U02   | Import data and replicate across markets; `altcoins, fxrevert, goldtrend, rangex, rangex2`                                               | Market Data admits source, clocks, price basis/revisions → Backtest; missing contract/cost facts cannot establish tradability                                   | Scope defined; family‑specific data admission/native integration missing                             |
+| U03   | Combine multiple bar windows; `mtf, timing`                                                                                              | R&D freezes closed/forming‑bar semantics → Market Data prepares → native Strategy; future values/inconsistent aggregation refused                               | Complex windows/warmup/input binding need acceptance                                                 |
+| U04   | R-1 resting entries and partial exits; `loop/family_r.py; loop/r1_dynexit_fine.py; run_plan.py`                                          | Native Strategy → R&D Artifact → native Backtest orders; unknown/fine‑data gaps stay unresolved without duplicate coarse fills                                  | First acceptance; minute replay, aggregation, native paths and readback/reporting require acceptance |
+| U05   | Compare stop and exit rules; `stops, exits; loop/r1_exits.py; roleflip/`                                                                 | Same entries/capital baseline → paired Backtest controls → Agent attribution recorded by R&D; changing R units is not improved return                           | Bounded diagnostics/paired reporting need integration                                                |
+| U06   | Select filters and learned parameters; `filters, filters2, range6; loop/r1_select.py; loop/r1_select_val.py`                             | Agent chooses/trains filters → R&D records variants and frozen inputs → native replay → Agent diagnosis; reuse is not independence                              | Native packages, data access and experiment/evidence records need integration                        |
+| U07   | Express multiple price mechanisms; `patterns, patterns2, setups, screen, range, range2, range3, range4, range5, volume2`                 | One native Strategy/Artifact expresses patterns/context → Backtest; no module per mechanism, unsupported rules refused                                          | Native APIs/package integration need acceptance; one narrow example proves no general coverage       |
+| U08   | Study mechanisms before simulating trades; `oversold, volume; community/INTENT.md`                                                       | Agent analyzes admitted Market Data with host scripts → R&D records method/evidence → Knowledge; first‑touch/correlation is not portfolio return/qualification  | Ordinary data reads and external analysis evidence records need integration                          |
+| U09   | Study funding and market state; `carry, short; loop/fetch_funding_ext.py; loop/fetch_metrics.py; loop/overlay_x2.py`                     | Market Data economics/availability → native Strategy/Backtest → R&D; settlement costs and signal reads require distinct proof                                   | OI/taker flow/historical availability/field consumption need acceptance                              |
+| U10   | Use macro calendars and stress inputs; `events; loop/r1_macro.py; loop/r1_crypto_stress.py`                                              | Market Data releases/vintages → causal features → Backtest; delayed latest revisions are not PIT                                                                | Source/revision/event‑calendar admission needs integration                                           |
+| U11   | Run fixed and dynamic continuous books; `trend, combo; trend/books_pit.py; loop/ensemble.py`                                             | R&D freezes membership/subrules → Market Data timeline → one Backtest equity path; selection does not reset holdings                                            | Versioned timeline/capacity contract; current fixed path cannot satisfy B3                           |
+| U12   | Two‑leg carry and pair trades; `carry; loop/family_h.py`                                                                                 | One frozen Artifact → native multi‑leg orders/account replay; actual fills, fees and margin per leg, no assumed atomicity                                       | Native multi‑leg integration, netting/hedging and partial‑leg failure policy need acceptance         |
+| U13   | Measure sizing and risk‑management effects; `risk; loop/r1_portfolio.py`                                                                 | Frozen sizing/risk policy → shared native account comparisons → reports → R&D; experiments cannot override production pool policy                               | Policy/cost/capital‑competition binding and reports incomplete                                       |
+| U14   | Verify source fidelity and fills; `xcheck/compare.py; replay/src/main.rs; tv_line_fidelity.py; checks.py`                                | Source annotations/exported intents → native Backtest comparison → R&D repair successor; Python is no second engine                                             | End‑to‑end repair/corresponding event evidence needs acceptance                                      |
+| U15   | Diagnose decay, attribution and false edges; `loop/attrib.py; loop/bucket_audit.py; loop/decay_diagnosis.py; loop/gatekeeper_book.py`    | Backtest results/stratified controls → Agent analysis with method/evidence/full census retained by R&D → continue/stop; retain losses, seal protected diagnosis | Result reads and Agent explanation/evidence records need integration                                 |
+| U16   | Autonomous research and session takeover; `RD_AUTONOMY.md; loop/PROTOCOL.md; loop/RETROSPECTIVE.md; loop/LOG.md`                         | Shared budgets/census → durable jobs → agent judgment → R&D Decision; atomic budget contention, unknown jobs retained                                           | Single‑Agent continuity/full research catalog/report‑decision readback need acceptance               |
+| U17   | Retain and reuse factor knowledge; `loop/ledger.txt; loop/WORKFLOW_NOTES.md; loop/r1_select.py`                                          | Counted Result → R&D knowledge → search → new Intent/Artifact; positive estimates are not automatic stability, reuse grants no eligibility                      | Knowledge records/evidence links/search consumer unimplemented                                       |
+| U18   | Query current market opportunities; `scan/scan.py`                                                                                       | Agent → Market Data queries; stateful native Backtest replay → signals; R&D retains references as needed; no scan schedule, inferred state is not a position    | Read‑only discovery operations/native evaluation integration need acceptance                         |
+| U19   | Observe future evidence and seal qualification feedback; `loop/FORWARD_PLAN.md; trend/forward_b3.py; journal/score.py; loop/CRITERIA.md` | Frozen candidate → two‑level public qualification; qualified backtests precede real trials, optional simulation, no copied prototype thresholds                 | Protected isolation specified; real trial stages/condition choices need freezing                     |
+| U20   | Deploy findings and return to iteration; `User-approved lifecycle; product extension of forward research needs`                          | Governance pools/stages → native node → Portfolio → promote or unload to R&D; release allocation immediately, protect residual exposure                         | Target authority split; no live effect admission, stage/capital/recovery chain needs acceptance      |
 
 ### From replay to development tasks
 
@@ -313,7 +220,7 @@ flowchart LR
 | Submit R-1u and R-1s separately             | Seal distinct strategy contents; experiments bind exact manifests/run conditions and retain separately counted, queued results                   |
 | Submission times out                        | Query or resend the original request; the same attempt resolves the same job rather than duplicating execution without a receipt                 |
 | Native loading or replay fails              | Retain exact failure and available diagnostics; skipped Node items or other results cannot prove this run succeeded                              |
-| Fills and minute valuation                  | Native orders/OMS, fees, funding and Portfolio own facts; aggregates drive signals only and frozen ambiguity extensions label assumptions        |
+| Fills and minute valuation                  | Native orders/OMS, fees, funding and Portfolio own facts; aggregates drive signals only and frozen native paths label assumptions                |
 | Replay completes and reports are read       | Extract required facts before disposal and commit custody before reading a complete result; minute reads and primary drawdown use the same input |
 | Agent disconnects or reruns after failure   | Admitted jobs persist; confirmed interruption permits a linked new full attempt while retaining original costs/records                           |
 | Storage shortage and protected scope        | Stop admission of affected new tasks without evicting formal evidence; Agent/Dashboard cannot read protected assessment detail                   |
@@ -327,12 +234,11 @@ manifest, task identity and native loading contracts; this scenario creates no s
 
 ### Event causality and minimum-resolution ambiguity
 
-the finest execution data is one minute. When a complete minute reaches stop and target and cannot establish
-ordering, apply frozen conservative stop-first fallback and include it in portfolio results with a
-policy-inference flag, not claimed observed order. Report affected trades/reasons/counts and chart flags;
-ordering sensitivity may be reported without selecting favorable outcomes after inspection. This fallback
-covers ordering within complete minute data, not missing minutes, invalid market facts or unverifiable
-execution inputs. Signal bars are native aggregates of the one-minute execution base. For a daily candle reaching entry and target,
+The finest execution data is one minute. Native matching uses the frozen OHLC or adaptive high/low path;
+same-minute entry, stop and target outcomes follow that simulated path, not stop-first or enter-then-hold overrides.
+Report the path configuration and bar-resolution assumptions; the Agent may compare native configurations in
+separate runs without selecting favorable outcomes after inspection. Missing minutes, invalid market facts and
+unverifiable execution inputs remain gaps. Signal bars are native aggregates of the one-minute execution base. For a daily candle reaching entry and target,
 minute chronology governs effective orders: a pre-entry target is not profit; a later target may exit. Coarse signal
 bars do not drive matching twice. Activation, expiry, protection, capital contention and funding share one causal
 account timeline. Close-confirmed signals cannot fill earlier that day, and pre-entry extremes do not describe
@@ -394,10 +300,8 @@ Ordering applies only to new-entry admission, not existing resting-order matchin
 chronology. Acceptance varies traversal/scheduling order and preserves identical admissions and per-request
 grounds.
 
-when a complete minute still cannot order entry/target and reaches no stop, conservatively
-record entry and carry the position forward, never credit a possibly pre-entry high as profit. Continue normal
-execution on later minutes with a policy-inference flag. This is only genuine ambiguity: established ordering
-from effective open/child evidence is not subject to a blanket delay of targets.
+Within one minute, effective entry and linked-order activation follow native matching and order events.
+Do not independently delay targets or rewrite completed fills to manufacture a conservative result.
 
 ### Multi-timeframe data and execution preparation
 
@@ -432,7 +336,7 @@ original identity. Streaming does not join a new data version to an old attempt.
 fills, fees and results from different runs.
 
 Acceptance covers minute coverage, aggregation close boundaries, resting/protective orders, capital contention,
-preparation failure, same-identity recovery and intraminute conservative policy. Measure reads, memory and elapsed
+preparation failure, same-identity recovery and configured native intraminute paths. Measure reads, memory and elapsed
 time; performance optimizations preserve the complete account timeline and exact inputs.
 
 [Native capability adoption](../architecture/capability-adoption/) distinguishes engine mechanisms, product
@@ -455,7 +359,7 @@ portfolio-evidence/unknown-commitment boundaries.
 
 Current `pit_window_custody_v1` retains input/fill declarations and custody with `FillBarOpen` quote derivation.
 V1 `backtest.run` still names one member, execution timeframe and window; it establishes neither multi-instrument
-minute replay, native signal aggregation nor the conservative policy. Acceptance covers minute gaps, aggregation
+minute replay, native signal aggregation nor the configured native path. Acceptance covers minute gaps, aggregation
 close boundaries, warmup, budgets, new identities after repair and refusal of reads outside frozen scope.
 
 ### Planned and filled prices
@@ -728,8 +632,8 @@ headroom. Required margin is not full order notional. The Binance USDⓈ-M accou
 API](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/account),
 checked 2026-10-05).
 
-Freeze account mode, leverage, instrument tiers, fees and capacity dimensions, using historical point-in-time
-terms rather than today's rules. Report product risk commitments separately from venue margin without double
+Freeze account mode, leverage, fee/margin models, parameters and capacity dimensions. Separate model assumptions
+from historical facts; current rates are not historical charging facts. Follow [native fee and margin models](../owners/backtest.md#native-fee-and-margin-models). Report product risk commitments separately from venue margin without double
 deduction of one economic liability. Partial fills transfer the corresponding pending commitment to position
 commitment; the remainder stays held. Release unfilled commitment only after effective cancellation/expiry,
 not a cancel request. Unknown/racing cancellation remains held; restoration follows the original identity

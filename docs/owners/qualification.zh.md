@@ -4,6 +4,8 @@
 
 独立判断冻结候选是否满足预注册证据 holdout 成本 容量和运行条件。Qualification 拥有可部署资格证据，不拥有策略设计 激活或恢复。
 
+研究完成不触发资格评估。用户考虑上线并请求独立验证后，Qualification 才按当前权限接纳准确冻结候选与评估协议。尚未评估的候选没有资格证据，不能进入上线队列；评估通过后仍须用户另行在 Dashboard 授权入队。
+
 ## TARGET - 首版保护范围与后续评估
 
 V0.1 在研究数据开放前预留保护范围。Market Data 保管用户批准的数据访问分区并执行读检查，
@@ -178,32 +180,10 @@ vibe-strategy-factory 的生产代码调用， `admit_historical_projection_in_t
 
 ## 输出交接
 
-- 向 [Backtest](./backtest/) 提交一个冻结的 Protected Replay Request，它只在写入一次的 请求相关联的
-  `ADMITTED` 回执与 holdout 预留之后创建，固定每一个定义执行的身份以及准确的 Candidate 与 Intake 保护政策对。
-  每个请求处理一个已声明的 Protected Robustness Plan 单元或那个准确的冻结有界矩阵，因此不得在观察到结果之后
-  再挑选单元。该请求集合封存冻结的 `ProtectedEconomicPolicyBundleV1`，返回的 Result 必须逐项重复它的测量。
-  不是本 Owner 创建的请求就不是一个保护请求；而 Backtest 的接入拒绝要把它闭合为一份绑定同一请求的
-  `RUN_REJECTED` Protected Run Result，而不是让它悬着。
-- 向 [Strategy Governance](./strategy-governance/) 提供包含撤销在内的分类 Eligibility State 事实，绑定
-  准确 Candidate 与事实版本 经济条件版本 已评估成本容量模型版本 资格容量上限 生效时间及不可解引用证据引用。
-  过期 撤销 当前事实缺失和当前状态未知都是显式下游状态，任何状态都不能让 Governance 静默保留
-  活动 generation 的新增风险权限。
-- `TARGET` - 向 [Backtest](./backtest/)：已登记的 Forward Record 每有一个新观察到的 cut，就提交一个绑定该登记确切身份的
-  Forward Replay 请求。不是本 Owner 创建的请求不是前向请求。
-- `TARGET` - 向 [Strategy Governance](./strategy-governance/)：当前的 Forward Decision，以及确切的 Forward Registration 与
-  Eligibility Fact 版本。只有 `FORWARD_ADMITTED` 加上当前的 `QUALIFIED` Eligibility State 才允许提出模拟盘
-  `INITIAL_ACTIVATION` 提案；其他、缺失或未知的决策都不允许。
-- 只有资格事实提交后才向 Event Rail 发布唤醒提示。保护 payload 只能包含公共终态、类型不透明且不可
-  解引用的 reference 和 source-frontier freshness。保护 phase、latency、terminal timing 与 timing-derived
-  field 明确禁止公开；永不发布内部 `INELIGIBLE` 或其他保护终态 disposition。
-- 向 Product Edge 在 Research 准入前返回 basis 绑定的不透明 `GENESIS_EMPTY` `FRONTIER` 或
-  `UNAVAILABLE` 保护反馈投影。Candidate Intake 时，先返回直接闭合准确评估请求的已提交且只写一次
-  `NOT_ADMITTED` 或 `ADMITTED` Candidate Intake Receipt，再单独提供关联请求的 Qualification Status
-  Summary。回执缺失保持 `SUBMITTED_OR_UNKNOWN`，摘要不能替代或编造回执。摘要在接纳后继评估前推进
-  有界保护反馈观察前沿；`EVALUATING` 由 `ADMITTED` 回执与 `IN_PROGRESS_OR_UNKNOWN` 请求派生；所有
-  内部负面 attempt disposition 或 `INELIGIBLE` fact 只投影为 `CLOSED_NOT_QUALIFIED`，正向 Eligibility
-  Fact 投影为 `QUALIFIED`。引用必须类型不透明且不可解引用。`UNAVAILABLE` 只绑定未解析请求和阶段身份，
-  后续阶段不改写先前事实。
+- 向 [Backtest](./backtest/) 只在写入一次的 ADMITTED intake 和 holdout 预留之后提交冻结 Protected Replay Request，绑定执行身份、Candidate/Intake 政策、ProtectedEconomicPolicyBundleV1 与预声明计划单元。接入拒绝也用相关 RUN_REJECTED 闭合，不在观察后挑单元。
+- 向 [Strategy Governance](./strategy-governance/) 提供当前二元资格及必要有效边界：准确 Candidate/版本、经济条件、评估成本容量模型、容量上限、生效/失效与撤销以及不可解引用证据引用。过期、撤销、缺失或未知不能静默保留新增风险权限。Dashboard 另行明确确认才能进入真实试盘 INITIAL_ACTIVATION 队列；可选 ForwardDecision 不是前置，也不是交易授权。
+- 向 Product Edge 提供请求相关 Candidate Intake Receipt 与独立 Qualification Status Summary。缺回执保持 SUBMITTED_OR_UNKNOWN，摘要不能伪造 ADMITTED。终端公开仅 QUALIFIED / CLOSED_NOT_QUALIFIED，EVALUATING 是进行中状态；不输出"有条件合格"，不自动重启研究。
+- 研究前保护范围反馈保留 basis 绑定的不透明 GENESIS_EMPTY / FRONTIER / UNAVAILABLE。提交后唤醒提示只含允许公开终态、不透明不可解引用 reference 与 source-frontier freshness；不公开保护 phase、latency、terminal timing 或 timing-derived 字段，不泄露内部负面 disposition。
 
 ## 拒绝和禁止事项
 
@@ -376,70 +356,15 @@ scope 首份授权为 genesis，后继使用 `issue_successor`。准入绑定准
 
 ### 已封闭事故重建接口
 
-feature-gated `qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba` 接口在
-`DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP` 下封闭到单一事故。
-原始证据资源不可用，当前不能再次执行或证明重建；它不是通用 restore/import API，也不是原生 Qualification 的前提。
-不能用夹具替代封存资源。
-
-四个准确资源定位符、原身份、目标 cluster/database/role 核验、规范证据验证、原子写入/重放及独立可执行效果权限保持。
-调用方不能输入重建行、时间、摘要、genesis 状态或新鲜度；不能铸造新有效期或 domain wake。
-原半开区间使普通当前 cut resolver 仍为 `UNAVAILABLE`。
-目标验收检查接口继续封闭、不能扩大权限，不要求新增恢复功能或重现已不可用的开发者本地资源。
+feature-gated `qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba` 只限该事故的 `DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP`。封存资源目前不可用，无当前执行消费者或可重跑证明，不是通用恢复或资格前置。四个准确资源定位符、原身份、cluster/database/role、规范证据与独立效果权限仍须核验；调用方不能提交重建行、时间、摘要、genesis 或新鲜度，不能用夹具替代资源、铸造有效期或 domain wake。原半开有效区间保留，普通当前 resolver 仍 UNAVAILABLE。
 
 ### 可选前向记录 - 不可用
 
-Forward Record 是独立的只记录模拟证据能力，不是[回测合格、真实试盘与转正](../scenarios/research.zh.md#回测合格真实试盘与转正)
-路线的必经阶段；它不能代替真实试盘收益、创建试盘许可或触发正式策略池转正。Qualification 持有回测资格与保护事实，
-Governance 持有晋级阶段、授权和分配，Runtime/Risk/Execution 持有实际运行及交易事实；新路线不能静默改变封存接口。
+Forward Record 没有执行方、调度/持久化或部署消费证据，未准入建设，不属于独立资格、真实试盘或转正前置。只记录模拟证据，不持资金、凭据、Strategy Instance、Runtime generation、订单或真实效果，也不代替真实试盘收益。
 
-本节陈述的是一份尚无实现的契约；它不授予构建、部署或驱动前向记录的任何许可。
+封存条件保持：当前 QUALIFIED 才能登记；登记在首个 cut 前只写一次，绑定准确资格/Candidate/Artifact、保护政策、模型、范围、节奏、日期、观察前冻结的决定方法和全部阈值。改动创建新登记；cut 因果顺序恰好处理一次；订单、持仓、占用与成交必须来自同一个有状态原生模拟器，信号评分不能替代。
 
-Forward Record 只能从一个当前的 `QUALIFIED` Eligibility Fact 开始，以一个终态 Forward Decision 结束。它只做记录：不创建
-Strategy Instance、Runtime generation、trade intent、order command 或 Execution 效果，不读取任何凭据，也不持有任何资金。
-Governance 消费它的决策，它自己从不运行 Governance 的控制链。
-
-一份只写一次、在第一个前向 cut 之前提交的 Forward Registration 绑定：
-
-- 确切的 Eligibility Fact、Candidate、Artifact 与受保护策略对；
-- 取得资格时那个 Protected Replay Request 的 Runtime kernel、模拟器、成本、滑点与容量模型身份；
-- 标的与交易所范围，以及决策节奏；
-- 中期日与决策日；
-- 淘汰线与准入线，每条都写明推导方式（例如：对取得资格时的周收益流做规定条数的块自助抽样路径并取分位数，写明块长），
-  以及任何最少已平仓交易数；
-- 准确冻结的 `ForwardDecisionMethod`、参数及前向起始 cut。
-
-一旦记录了第一个前向 cut，任何字段都不再改变。改过的登记是一份新登记，有它自己的记录，两者都要报告。
-
-登记在观察前选择确定性、版本化的 `ForwardDecisionMethod`。周收益上的 Wald 序贯概率比检验可以作为
-一个政策实例，不是必需引擎或隐含默认。选择该方法时明确冻结假设、收益分布前提、alpha、beta、折扣、离散度和观测单位；
-不默认半数 Sharpe 或某组阈值。方法或参数变化创建新登记，不能重新解释已经观察的证据。
-
-只有单独准入的 Forward Record 政策才可要求新增 cut 之间的有状态回放；它不为 V0.1 增加恢复/检查点基础设施，
-也不成为 Candidate Intake、回测资格或真实试盘准入的门禁。
-Backtest 在每个新观察到的点时 cut 上（Forward Replay）按登记的确切身份回放冻结的 Artifact，使用让它取得资格的那一套订单类型 （限价、止损、有效期与到期、撤单）与决策节奏。
-挂单与未平仓位在 Backtest 的托管中从一个 cut 延续到下一个 cut，成交只能来自 订单存在之后观察到的数据，持仓槽位与占用按成交顺序决定，因为为回测决定它们的是同一个模拟器。 一份信号日志不是
-Forward Record：它无法持有挂单，还会给止损或目标早已成交的信号计分。
-
-独立信号评分器不能替代有状态的原生执行证据。消费的 cut 按因果顺序恰好处理一次，
-槽位、成交及占用来自同一个模拟器；该可选政策的调度和持久化尚未实现，须单独准入。
-
-每份记录以一个终态 Forward Decision 结束：
-
-- `FORWARD_KILLED`：在越过任一淘汰线或淘汰边界的那个 cut；它同时在 Eligibility Fact 上提交以前向淘汰为原因的 `REVOKED`；
-- `FORWARD_ADMITTED`：在决策日，或在扩大边界触发的准入复核中，每条准入线都成立时；它只表示该候选可以被提议进行模拟盘
-  激活；
-- `FORWARD_WITHDRAWN`：记录因其他任何原因结束，例如 Eligibility Fact 过期或被撤销、登记被替换，或来源停止。
-
-中期日只检查淘汰线。决策日既没有淘汰、准入线又没有全部成立时，提交带下一个登记日期的 `FORWARD_CONTINUES`，这是一个阶段
-事实，不是终态决策。被淘汰与被撤回的记录都保留，从不删除。
-
-Qualification 报告每一份 Forward Registration 及其当前阶段或终态决策；任何关于已准入候选的报告都要写出全部登记普查和
-每一个结果，使激励偏差无法通过省略来只挑幸存者。前向记录及其度量与任何 Qualification 结果一样受保护：R&D 只能看到公开
-阶段（`FORWARD_RECORDING`、`FORWARD_CONTINUES`、`FORWARD_KILLED`、`FORWARD_ADMITTED`、`FORWARD_WITHDRAWN`），它们每一个
-的首次提交都是一个公开阶段事实，会推进该候选的受保护反馈 generation。
-
-Forward Replay 需要产品在部署中尚未提供的东西：随数据到达的点时 cut，这需要 Market Data Owner 时钟随摄入推进；每个帧成交
-所需的报价 cut；多帧回放；对挂单类规则，还需要产品路径上带到期的限价入场、止盈与目标阶梯，以及止损与目标的成交对账。
+旧 FORWARD_KILLED / FORWARD_ADMITTED / FORWARD_WITHDRAWN 终态和 FORWARD_CONTINUES 阶段含义不变：kill 保留其 REVOKED 关联，admitted 仅允许提出该旧政策下的模拟激活，不授权真实试盘。保留全部登记与结果，不挑幸存者；保护度量不向 R&D 解封。该旧政策不能隐式成为新路线门禁，不自动重启研究。
 
 ## 实现状态台账
 
@@ -551,6 +476,6 @@ freshness；保护 phase、latency、terminal timing 与 timing-derived field �
 `REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 与
 `INELIGIBLE` 都以字节等价方式投影为 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。
 
-保护测量、参数、cell outcome、holdout 内容、内部终态 disposition、负面原因与 evaluator 细节绝不能进入 Event Rail、trace、log、metric、alert 或
+保护测量、参数、cell outcome、holdout 内容、内部终态 disposition、负面原因与 evaluator 细节绝不能进入 通知、trace、log、metric、alert 或
 Dashboard；Qualification 外尤其不存在内部 `INELIGIBLE` event。 Dashboard 统计只区分
 `QUALIFIED`、`CLOSED_NOT_QUALIFIED`、expired 与 revoked；全部负面保护终态共享字节等价的 label 和 aggregate。

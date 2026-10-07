@@ -14,16 +14,16 @@ Market Data 与 Backtest 扩展 Nautilus，R&D 提供研究管理。六组职责
 
 产品与 Agent 宿主分别限额并报告消耗，不可读取的模型用量不记为零。实现修复保留血缘及受影响结果；改变通过标准、统计协议、风险容忍或范围需要用户确认并冻结新版本。更换 Agent 不重置研究预算、暴露或结果。
 
-| 阶段     | 客户端动作                             | 所属结果                                                       |
-| -------- | -------------------------------------- | -------------------------------------------------------------- |
-| 登记     | Agent 提交来源、实验方案与所选研究说明 | R&D 冻结研究边界与试验血缘                                     |
-| 准备     | 绑定标的、历史范围、原生订阅与预热     | Market Data 准入点时覆盖、版本及具名缺口                       |
-| 编写     | 提交原生 Strategy 信号/保护与数量规则  | R&D 封存 Artifact、依赖与获准执行政策引用                      |
-| 回放     | 提交一个有界 Backtest 请求             | 原生 Backtest 返回订单、成交、组合证据与诊断                   |
-| 迭代     | 比较冻结目标并选择合法下一步           | R&D 记录修复、后继、停止、选择和可复用发现                     |
-| 资格     | 提交准确的已选择候选或组合             | Qualification 独立评估保护证据，返回有界公开资格               |
-| 确认试盘 | 用户在 Dashboard 确认候选与冻结政策    | Governance 在授权、容量与原生 readiness 满足时准入首次真实试盘 |
-| 运行     | 查询试盘/正式阶段及应用状态            | Governance 判定冻结阶段规则；原生节点执行获准交易              |
+| 阶段     | 客户端动作                                       | 所属结果                                                       |
+| -------- | ------------------------------------------------ | -------------------------------------------------------------- |
+| 登记     | Agent 提交来源、实验方案与所选研究说明           | R&D 冻结研究边界与试验血缘                                     |
+| 准备     | 绑定标的、历史范围、原生订阅与预热               | Market Data 准入点时覆盖、版本及具名缺口                       |
+| 编写     | 提交原生 Strategy 信号/保护与数量规则            | R&D 封存 Artifact、依赖与获准执行政策引用                      |
+| 回放     | 提交一个有界 Backtest 请求                       | 原生 Backtest 返回订单、成交、组合证据与诊断                   |
+| 迭代     | 比较冻结目标并选择合法下一步                     | R&D 记录修复、后继、停止、选择和可复用发现                     |
+| 资格     | 研究完成停止后，由用户明确请求评估准确候选或组合 | Qualification 独立评估保护证据，返回有界公开资格               |
+| 确认试盘 | 用户在 Dashboard 确认候选与冻结政策              | Governance 在授权、容量与原生 readiness 满足时准入首次真实试盘 |
+| 运行     | 查询试盘/正式阶段及应用状态                      | Governance 判定冻结阶段规则；原生节点执行获准交易              |
 
 一次 `backtest.run` 在后端完成声明校验、研究绑定、数据解析与回放组合。Agent 不搬运行情或拼接内部回执。同一身份与含义恢复原操作；改变含义产生后继或冲突。未知结果不产生经济判断。具体契约见 [Product Edge](../architecture/product-edge/) 与[研究验收](../scenarios/research/)。
 
@@ -34,24 +34,27 @@ Market Data 与 Backtest 扩展 Nautilus，R&D 提供研究管理。六组职责
 ```mermaid
 flowchart LR
   Research --> Replay
-  Replay --> Qualification
-  Qualification -->|Eligible| Confirmation
-  Confirmation --> Trial
+  Replay --> ResearchStop["Delivery"]
+  ResearchStop -->|用户明确请求独立评估| Qualification
+  Qualification -->|QUALIFIED：当前资格| Confirmation
+  Qualification -->|CLOSED_NOT_QUALIFIED| QualifiedStop["Stopped"]
+  Confirmation -->|用户在 Dashboard 确认准确版本与冻结政策| Queue["Activation Queue"]
+  Queue -->|当前授权、容量与原生 readiness| Trial
   Trial -->|Current conditions + capacity| Formal
   Trial -->|Failed deadline or authorized stop| Unload
   Formal -->|Retention failure or authorized stop| Unload
   Unload -->|Stop entries and cancel entry orders| Exit
-  Unload -->|Return research status| Research
+  Unload --> UnloadedStop["Stopped"]
   Exit -->|Protected positions remain| Native
 ```
 
-探索不是资格。Qualification 独立消费冻结候选、完整试验家族、成本/容量假设、embargo 和保护协议。内部可区分通过、等价无效与证据不足；Agent 与 Dashboard 只看 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`，保护数值、原因、时序与分类不进入研究或知识库。公开未合格结论本身不能关闭机制；换家族、客户端或直接 MCP 都不能绕过暴露记录。
+探索不是资格。Qualification 独立消费冻结候选、完整试验家族、成本/容量假设、embargo 和保护协议。内部可区分通过、等价无效与证据不足；Agent 与 Dashboard 只看 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`，保护数值、原因、时序与分类不进入研究或知识库。公开未合格结论不证明机制无效；该次资格任务终止，不自动重启 R&D。只有新的显式研究请求才开始后继研究；换家族、客户端或直接 MCP 都不能绕过暴露记录。
 
 只有独立合格候选可供真实试盘。用户在 Dashboard 确认准确候选、有限具名条件模板、开放参数、资金政策与授权。资格本身不启动交易；用户可让合格候选留在 R&D。试盘前冻结条件，包括观察期、净经济/风险规则及最低独立交易样本。具体模板与阈值在所属设计切片细化。
 
-转正在实际转换时自动重新核验当前冻结条件、授权及分配可行性。当前达标的容量等待者继续按试盘授权运行，仍达标时可超过最长观察期等待；截至该期限仍不达标则结束试盘并退回 R&D。正式策略保留条件失效则下架退回 R&D，不直接降回试盘。
+转正在实际转换时自动重新核验当前冻结条件、授权及分配可行性。当前达标的容量等待者继续按试盘授权运行，仍达标时可超过最长观察期等待；截至该期限仍不达标则结束试盘，记录卸载结果后停止。正式策略保留条件失效则下架，记录卸载结果后停止，不直接降回试盘。
 
-用户或在预先批准范围内行动的 Agent 可为改进下架有效策略。停止新入场、撤销未成交入场单并释放运行分配；剩余成交持仓保留原保护和实际账户暴露。下架记录实际原因，不伪造经济失败。策略内容 hash 改变即新版本，重新走完整资格/试盘生命周期；内容未变仍须当前资格、阶段证据与明确重新上线确认。
+用户或在预先批准范围内行动的 Agent 可为改进下架有效策略。停止新入场、撤销未成交入场单并释放运行分配；剩余成交持仓保留原保护和实际账户暴露。下架记录实际原因，不伪造经济失败。卸载不自动重启研发或运行；新研究须显式请求。策略内容 hash 改变即新版本，重新走完整资格/试盘生命周期；内容未变仍须当前资格、阶段证据与明确重新上线确认。
 
 Qualification 的只记录 Forward Record 是可选隔离模拟证据，不创建订单或资金承诺，不替代真实试盘，也不能触发转正。Paper 适配器验证是辅助证据，不是用户晋级阶段。既有封存协议保持原含义；设计本身不授予实现、部署、交易凭据或下单权限。
 
