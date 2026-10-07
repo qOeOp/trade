@@ -225,7 +225,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--signal-variant",
-        choices=("daily-pivot", "box-4h", *LINE_VARIANTS),
+        choices=("daily-pivot", "box-4h", "box-edge-4h", *LINE_VARIANTS),
         default="daily-pivot",
     )
     parser.add_argument(
@@ -383,6 +383,10 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native line orders were denied or rejected")
+        if args.signal_variant == "box-edge-4h" and (
+            (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
+        ):
+            integrity_findings.append("native range-edge orders were denied or rejected")
         closed = positions[positions["ts_closed"].notna()]
         pnl = closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
         wins = int((pnl > 0).sum())
@@ -415,6 +419,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant == "daily-pivot"
                 else "H03-box-4h"
                 if args.signal_variant == "box-4h"
+                else "H10-box-edge-4h"
+                if args.signal_variant == "box-edge-4h"
                 else "H06-trendline-4h"
                 if args.signal_variant == "trendline-4h"
                 else "H08b-line-resting-4h"
@@ -472,6 +478,18 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     "counts": row["counts"],
                     "signals": strategies[row["coin"]].signals,
                     "box_breaks": strategies[row["coin"]].box_breaks,
+                    "box_edge": (
+                        {
+                            "plans": strategies[row["coin"]].box_edge_plans,
+                            "submitted_brackets": strategies[row["coin"]].waiting_released,
+                            "invalid_price_skips": strategies[
+                                row["coin"]
+                            ].box_edge_invalid_price_skips,
+                            "time_exits": strategies[row["coin"]].box_edge_time_exits,
+                        }
+                        if args.signal_variant == "box-edge-4h"
+                        else None
+                    ),
                     "line_breaks": (
                         {
                             "first_crosses": strategies[row["coin"]].line_state.first_crosses,

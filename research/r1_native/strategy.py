@@ -72,9 +72,9 @@ class FourHour:
     close: float
 
 
-def confirmed_box_break(history: list[FourHour], current: FourHour, atr: float):
+def _confirmed_box_edges(history: list[FourHour], current: FourHour, atr: float):
     """
-    Return the edge and structural stop for a closed four-hour box break.
+    Return previously confirmed box edges and their prior touch bars.
     """
     prior = history[-BOX_BARS:]
     if len(prior) != BOX_BARS or atr <= 0:
@@ -92,10 +92,38 @@ def confirmed_box_break(history: list[FourHour], current: FourHour, atr: float):
     lower_touches = [bar for bar in prior if bar.low <= low + 0.25 * atr]
     if len(upper_touches) < 2 or len(lower_touches) < 2:
         return None
+    return high, low, upper_touches, lower_touches
+
+
+def confirmed_box_break(history: list[FourHour], current: FourHour, atr: float):
+    """
+    Return the edge and structural stop for a closed four-hour box break.
+    """
+    box = _confirmed_box_edges(history, current, atr)
+    if box is None:
+        return None
+    high, low, upper_touches, lower_touches = box
+    prior = history[-BOX_BARS:]
     if prior[-1].close <= high < current.close:
         return 1, high, min(bar.low for bar in upper_touches) - STOP_BUFFER_ATR * atr
     if current.close < low <= prior[-1].close:
         return -1, low, max(bar.high for bar in lower_touches) + STOP_BUFFER_ATR * atr
+    return None
+
+
+def prospective_box_edge(history: list[FourHour], current: FourHour, atr: float):
+    """
+    Return one next-bar range-edge limit plan, using only closed bars.
+    """
+    box = _confirmed_box_edges(history, current, atr)
+    if box is None:
+        return None
+    high, low, _, _ = box
+    midpoint = (high + low) / 2
+    if low + 0.25 * atr < current.close <= low + atr:
+        return 1, low, low - STOP_BUFFER_ATR * atr, midpoint
+    if high - atr <= current.close < high - 0.25 * atr:
+        return -1, high, high + STOP_BUFFER_ATR * atr, midpoint
     return None
 
 
@@ -137,7 +165,7 @@ class R1Strategy(Strategy):
             f"{instrument_id}-{execution_bar_minutes}-MINUTE-LAST-EXTERNAL",
         )
         self.execution_bar_minutes = execution_bar_minutes
-        if signal_variant not in ("daily-pivot", "box-4h"):
+        if signal_variant not in ("daily-pivot", "box-4h", "box-edge-4h"):
             raise ValueError("unsupported R-1 signal variant")
         self.signal_variant = signal_variant
         self.four_hour_bar_type = BarType.from_str(
@@ -145,6 +173,9 @@ class R1Strategy(Strategy):
         )
         self.four_hour_history: list[FourHour] = []
         self.box_breaks = 0
+        self.box_edge_plans = 0
+        self.box_edge_invalid_price_skips = 0
+        self.box_edge_time_exits = 0
         self.trade_size = trade_size
         if risk_budget_fraction is not None and not 0 < risk_budget_fraction < 1:
             raise ValueError("risk budget fraction must be between zero and one")
@@ -225,33 +256,44 @@ class R1Strategy(Strategy):
             abs(candle.high - previous_close),
             abs(candle.low - previous_close),
         )
-        if self.opened_ns is not None and bar.ts_event >= self.opened_ns + HOLD_DAYS * DAY_NS:
+        hold_ns = 30 * FOUR_HOUR_NS if self.signal_variant == "box-edge-4h" else HOLD_DAYS * DAY_NS
+        if self.opened_ns is not None and bar.ts_event >= self.opened_ns + hold_ns:
             self.cancel_all_orders(self.instrument_id)
             self.close_all_positions(self.instrument_id)
-        if self.atr.initialized:
-            candidate = confirmed_box_break(self.four_hour_history, candle, self.atr.value)
-            if candidate is not None:
-                side, level, stop = candidate
-                self.box_breaks += 1
-                if self.trade_start_ns is None or candle.ts_event >= self.trade_start_ns:
-                    target = level + side * 2 * abs(level - stop)
-                    self.waiting.append(
-                        WaitingSignal(
-                            candle.ts_event,
-                            candle.ts_event + BOX_RETEST_BARS * FOUR_HOUR_NS,
-                            side,
-                            level,
-                            stop,
-                            target,
-                        ),
-                    )
-                    self.signals += 1
-                    if self.opened_ns is not None:
-                        self.signals_while_open += 1
+            if self.signal_variant == "box-edge-4h":
+                self.box_edge_time_exits += 1
+        self._queue_four_hour_candidate(candle)
         self.atr.update_raw(true_range)
         self.four_hour_history.append(candle)
         self.four_hour_history = self.four_hour_history[-BOX_BARS:]
         self._release_waiting(candle.close)
+
+    def _queue_four_hour_candidate(self, candle: FourHour) -> None:
+        if not self.atr.initialized:
+            return
+        if self.signal_variant == "box-4h":
+            candidate = confirmed_box_break(self.four_hour_history, candle, self.atr.value)
+            if candidate is None:
+                return
+            side, level, stop = candidate
+            target = level + side * 2 * abs(level - stop)
+            expiry = candle.ts_event + BOX_RETEST_BARS * FOUR_HOUR_NS
+            self.box_breaks += 1
+        else:
+            candidate = prospective_box_edge(self.four_hour_history, candle, self.atr.value)
+            if candidate is None:
+                return
+            side, level, stop, target = candidate
+            expiry = candle.ts_event + FOUR_HOUR_NS
+            self.box_edge_plans += 1
+        if self.trade_start_ns is not None and candle.ts_event < self.trade_start_ns:
+            return
+        self.waiting.append(
+            WaitingSignal(candle.ts_event, expiry, side, level, stop, target),
+        )
+        self.signals += 1
+        if self.opened_ns is not None:
+            self.signals_while_open += 1
 
     def _on_daily_bar(self, bar: Bar) -> None:
         self.last_daily_ns = bar.ts_event
@@ -405,20 +447,37 @@ class R1Strategy(Strategy):
         self.waiting_released += 1
 
     def _submit_signal(self, signal: WaitingSignal) -> None:
+        if self.signal_variant == "box-edge-4h":
+            entry, stop, target = signal.level, signal.stop, signal.target
+            valid = 0 < stop < entry < target if signal.side == 1 else 0 < target < entry < stop
+            if not valid:
+                self.box_edge_invalid_price_skips += 1
+                return
         quantity = self._order_quantity(signal)
         if quantity is None:
             return
+        entry_price = self.instrument.make_price(signal.level)
+        stop_price = self.instrument.make_price(signal.stop)
+        target_price = self.instrument.make_price(signal.target)
+        if self.signal_variant == "box-edge-4h":
+            entry, stop, target = (
+                price.as_double() for price in (entry_price, stop_price, target_price)
+            )
+            valid = 0 < stop < entry < target if signal.side == 1 else 0 < target < entry < stop
+            if not valid:
+                self.box_edge_invalid_price_skips += 1
+                return
         orders = self.order_factory.bracket(
             instrument_id=self.instrument_id,
             order_side=OrderSide.BUY if signal.side == 1 else OrderSide.SELL,
             quantity=quantity,
             entry_order_type=OrderType.LIMIT,
-            entry_price=self.instrument.make_price(signal.level),
+            entry_price=entry_price,
             time_in_force=TimeInForce.GTD,
             expire_time=signal.expires_ns,
-            tp_price=self.instrument.make_price(signal.target),
+            tp_price=target_price,
             tp_post_only=False,
-            sl_trigger_price=self.instrument.make_price(signal.stop),
+            sl_trigger_price=stop_price,
         )
         self.resting_entry_id = orders[0].client_order_id
         self.resting_signal = signal
