@@ -26,6 +26,7 @@ from trendline_strategy import PIVOT_ORDER
 
 
 REGISTRATION_COMMIT = "272b341d2"
+D29_SHA256 = "af99c02990294d60daa64f89ed8b0605e337a251f2bba2f5630f5f7885b4aede"
 CASES = {
     "BTC": {
         "source_case": "C18",
@@ -124,12 +125,64 @@ def _one_cutoff(candles, cutoff: str, bands: dict) -> dict:
     return row
 
 
+def _anchor_space(candles, cutoff: str, bands: dict, d29_cutoff: dict) -> dict:
+    by_time = {bar.ts_event: i for i, bar in enumerate(candles)}
+    decision_i = by_time.get(_ns(cutoff))
+    if decision_i is None or decision_i < LOOKBACK_BARS:
+        raise RuntimeError(f"incomplete four-hour history at {cutoff}")
+    known = candles[: decision_i + 1]
+    first_b = decision_i - BOX_BARS + 1
+    b = max(range(first_b, decision_i + 1), key=lambda j: (float(known[j].high), -j))
+    frozen_impulse = d29_cutoff["impulse"]
+    if frozen_impulse is None or (
+        frozen_impulse["high_anchor_utc"] != _utc(known[b].ts_event)
+        or frozen_impulse["high"] != float(known[b].high)
+    ):
+        raise RuntimeError(f"D30 high anchor differs from D29 at {cutoff}")
+    candidates = []
+    for a in _confirmed_pivots(known, decision_i):
+        if not (decision_i - LOOKBACK_BARS <= a < b and b - a >= MIN_ANCHOR_SPAN):
+            continue
+        low, high = float(known[a].low), float(known[b].high)
+        valid = low < high and float(known[-1].close) < high
+        levels = {}
+        for ratio, (lower, upper) in bands.items():
+            value = high - float(ratio) * (high - low)
+            levels[ratio] = {
+                "price": value,
+                "source_chart_band": [lower, upper],
+                "signed_difference_from_band": _source_band_difference(value, lower, upper),
+            }
+        candidates.append(
+            {
+                "low_anchor_utc": _utc(known[a].ts_event),
+                "low_confirmed_utc": _utc(known[a + PIVOT_ORDER].ts_event),
+                "low": low,
+                "anchor_span_four_hour_bars": b - a,
+                "valid_impulse": valid,
+                "levels": levels,
+                "all_levels_in_source_bands": valid
+                and all(level["signed_difference_from_band"] == 0 for level in levels.values()),
+            },
+        )
+    return {
+        "decision_utc": cutoff,
+        "selected_high_utc": _utc(known[b].ts_event),
+        "selected_high": float(known[b].high),
+        "candidate_count": len(candidates),
+        "source_band_match_count": sum(row["all_levels_in_source_bands"] for row in candidates),
+        "candidates": candidates,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-identity", type=Path, required=True)
     parser.add_argument("--catalog-root", type=Path, required=True)
     parser.add_argument("--parity", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--anchor-space", action="store_true")
+    parser.add_argument("--d29", type=Path)
     args = parser.parse_args()
     if hashlib.sha256(args.input_identity.read_bytes()).hexdigest() != INPUT_SHA256:
         raise RuntimeError("registered input identity bytes changed")
@@ -141,9 +194,18 @@ def main() -> None:
         raise RuntimeError("corrected 37-coin signal parity is required")
     identities = {row["coin"]: row for row in identity["coins"]}
     parities = {row["coin"]: row for row in parity["coins"]}
+    d29_cases = None
+    if args.anchor_space:
+        if args.d29 is None or hashlib.sha256(args.d29.read_bytes()).hexdigest() != D29_SHA256:
+            raise RuntimeError("D30 requires the exact retained D29 result")
+        d29_cases = {row["coin"]: row for row in json.loads(args.d29.read_text())["cases"]}
     output = {
-        "scope": "D29 source-date four-hour anchor geometry only; no orders, fills, PnL or selected cutoff",
-        "registration_commit": REGISTRATION_COMMIT,
+        "scope": (
+            "D30 complete causal low-anchor space; no selection, orders, fills or PnL"
+            if args.anchor_space
+            else "D29 source-date four-hour anchor geometry only; no orders, fills, PnL or selected cutoff"
+        ),
+        "registration_commit": "38f539fad" if args.anchor_space else REGISTRATION_COMMIT,
         "input_identity_sha256": INPUT_SHA256,
         "corrected_h06_parity_sha256": PARITY_SHA256,
         "selector": {
@@ -156,6 +218,8 @@ def main() -> None:
         },
         "cases": [],
     }
+    if args.anchor_space:
+        output["d29_result_sha256"] = D29_SHA256
     for coin, spec in CASES.items():
         instrument, candles = _read_candles(
             args.catalog_root,
@@ -164,15 +228,24 @@ def main() -> None:
             _ns(parity["start_utc"]),
             _ns(parity["end_utc"]),
         )
+        d29_cutoffs = (
+            {row["decision_utc"]: row for row in d29_cases[coin]["cutoffs"]}
+            if d29_cases is not None
+            else None
+        )
+        cutoffs = [
+            _anchor_space(candles, cutoff, spec["bands"], d29_cutoffs[cutoff])
+            if d29_cutoffs is not None
+            else _one_cutoff(candles, cutoff, spec["bands"])
+            for cutoff in spec["cutoffs"]
+        ]
         output["cases"].append(
             {
                 "coin": coin,
                 "source_case": spec["source_case"],
                 "instrument_id": instrument,
                 "minute_catalog_sha256": identities[coin]["minute_catalog"]["sha256"],
-                "cutoffs": [
-                    _one_cutoff(candles, cutoff, spec["bands"]) for cutoff in spec["cutoffs"]
-                ],
+                "cutoffs": cutoffs,
             },
         )
         print(f"{coin}: registered source-date cutoffs read", flush=True)
