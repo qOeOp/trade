@@ -38,6 +38,10 @@ The same video, 08:58-09:23; 09:19 original frame (`/Users/vx/.local/share/bilib
 
 The same DOGE video at 03:13-04:02 and ETH video at 04:00-04:40. The speaker treats BTC's upper consolidation inside a larger bullish structure as a reason to wait for support/pullback rather than short merely because an upper edge exists. A proposed range strategy must distinguish the directional context and conditional trade choice from a generic symmetric box rule; other source cases allow short attempts at particular higher-timeframe resistance, so this is not a universal short ban.
 
+## C10 - one AAVE chart, two different entry decisions
+
+[2025-03-06 original video](https://video-ideas.tradingview.com/1/1416280--AdDW90B6Qsgj4nx.mp4), 04:01-04:48. The fast transcript and source frame F32 at 04:31.770 are retained under the S07 stage IDs in `RD_EXPERIMENTS.md`; the composed note failed after transcription and frame extraction. On the AAVE daily chart, a prior support/diagonal area is lower than the current price, a nearer overhead zone limits upside, and a valid long stop remains beneath the lower structure. The speaker declines a **fresh long now**, considers a long if price returns to support, and explicitly says the sketched pullback is not a short instruction. A candidate must keep support, obstacle, stop, decision time and current versus existing position separate, then predict idle now and conditional long at the support. The older hand-annotated prices are approximate chart geometry, not an uttered universal ratio or futures fills.
+
 Fast video-note transcripts and source frames are stored under the note IDs in `RD_EXPERIMENTS.md` S01-S04 and S06. Audio was not independently reviewed. These cases specify source fidelity, not an indicator preset; a future Agent may choose another encoding and retain the old attempt and disagreement.
 
 ## H03 fidelity read
