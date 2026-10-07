@@ -1,5 +1,5 @@
 """
-Bind native H13c and paired control reports to fees, funding and payoff.
+Bind paired native reports to fees, funding and payoff.
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ def main() -> None:
     result = {
         "method": "read-only native summary, fill and position report reconciliation; no alternate fills or PnL engine",
         "candidate": candidate,
-        "paired_r1u": baseline,
+        "baseline": baseline,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")

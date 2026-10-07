@@ -1,0 +1,1148 @@
+{
+  "source_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "strategy_source_sha256": "11b6a14ec941f81141a6190fb87009f0bdfdaf214fd757cc74dcca558980f0a8",
+  "staged_strategy_source_sha256": null,
+  "trendline_strategy_source_sha256": null,
+  "retracement_strategy_source_sha256": "2ae1bddf5550ae713ac02d0611d2d747fa8e4980b588fb7715867e356e4e209b",
+  "runner_source_sha256": "20eeac5a71f4ba7b3267e05b7bb659cbbff3491aec77550618baf870699beff6",
+  "strategy": "H13c-support-confirmed-4h",
+  "signal_variant": "support-confirmed-4h",
+  "exit_variant": "fixed-2r",
+  "integrity_findings": [],
+  "integrity_passed": true,
+  "account_model": "one native BacktestEngine margin account, 100000 USDT, 37 strategies sharing portfolio capital",
+  "starting_balance_usdt": "100000",
+  "sizing": {
+    "mode": "native_equity_stop_risk_with_notional_cap",
+    "risk_budget_bps": 25.0,
+    "coin_notional_cap_pct": 5.0
+  },
+  "final_equity_usdt": "94108.43980253",
+  "net_change_usdt": "-5891.56019747",
+  "period_return_pct": -5.89156019747,
+  "annualized_return_pct": -6.046548299458821,
+  "closed_trades": 477,
+  "winning_trades": 124,
+  "closed_trade_win_rate": 0.259958071278826,
+  "win_rate_definition": "positive native closed-position realized_pnl including fill commissions and position funding adjustments",
+  "denied_orders": 0,
+  "rejected_orders": 0,
+  "native_sharpe_252": -0.5336840868306507,
+  "native_sharpe_365": -0.6422888979234977,
+  "native_max_drawdown_daily_close": -0.07895696287883805,
+  "stats_returns": {
+    "Returns Skewness": -0.011291224957510563,
+    "Average Win (Return)": 0.003556539914081759,
+    "Average Loss (Return)": -0.004157436185196546,
+    "Sortino Ratio (252 days)": -0.7175654886553716,
+    "Average (Return)": -0.00015499573237110598,
+    "Sharpe Ratio (252 days)": -0.5263549326666646,
+    "Returns Kurtosis": 4.7188125107871945,
+    "Profit Factor": 0.8899592481442112,
+    "Returns Volatility (252 days)": 0.07420643777314868,
+    "Tail Ratio": 0.8533453467683544,
+    "Risk Return Ratio": -0.03315724412352719
+  },
+  "stats_pnls": {
+    "USDT": {
+      "Max Loser": -254.67403353,
+      "Expectancy": -12.426092279355428,
+      "Avg Loser": -123.66327583957977,
+      "Win Rate": 0.2577962577962578,
+      "Max Winner": 856.10813835,
+      "Min Winner": 16.40518164,
+      "Avg Winner": 307.8293474867743,
+      "PnL% (total)": -5.976950386369994,
+      "Min Loser": -0.39603715,
+      "PnL (total)": -5976.950386369994
+    }
+  },
+  "stats_general": {
+    "Long Ratio": 1.0
+  },
+  "data_interval_minutes": 5,
+  "input_start_utc": "2025-10-07T00:00:00Z",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00Z",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "quantity": "0.008",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 79,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 79,
+        "submitted_brackets": 79,
+        "supersessions": 62,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 15
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "quantity": "0.214",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 51,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 51,
+        "submitted_brackets": 51,
+        "supersessions": 35,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 15
+    },
+    {
+      "coin": "BNB",
+      "instrument": "BNBUSDT-PERP.BINANCE",
+      "quantity": "0.82",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 81,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 81,
+        "submitted_brackets": 81,
+        "supersessions": 63,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "ADA",
+      "instrument": "ADAUSDT-PERP.BINANCE",
+      "quantity": "1147",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 86,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 86,
+        "submitted_brackets": 86,
+        "supersessions": 72,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 11
+    },
+    {
+      "coin": "XRP",
+      "instrument": "XRPUSDT-PERP.BINANCE",
+      "quantity": "334.7",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 61,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 61,
+        "submitted_brackets": 61,
+        "supersessions": 48,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 12
+    },
+    {
+      "coin": "SOL",
+      "instrument": "SOLUSDT-PERP.BINANCE",
+      "quantity": "4.31",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 70,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 70,
+        "submitted_brackets": 70,
+        "supersessions": 57,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 10
+    },
+    {
+      "coin": "DOGE",
+      "instrument": "DOGEUSDT-PERP.BINANCE",
+      "quantity": "3759",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 44,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 44,
+        "submitted_brackets": 44,
+        "supersessions": 31,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 12
+    },
+    {
+      "coin": "LTC",
+      "instrument": "LTCUSDT-PERP.BINANCE",
+      "quantity": "8.457",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 91,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 91,
+        "submitted_brackets": 91,
+        "supersessions": 76,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 14
+    },
+    {
+      "coin": "TRX",
+      "instrument": "TRXUSDT-PERP.BINANCE",
+      "quantity": "2889",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 136,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 136,
+        "submitted_brackets": 136,
+        "supersessions": 117,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 18
+    },
+    {
+      "coin": "LINK",
+      "instrument": "LINKUSDT-PERP.BINANCE",
+      "quantity": "42.79",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 98,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 98,
+        "submitted_brackets": 98,
+        "supersessions": 80,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "DOT",
+      "instrument": "DOTUSDT-PERP.BINANCE",
+      "quantity": "227.4",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 75,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 75,
+        "submitted_brackets": 75,
+        "supersessions": 59,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 14
+    },
+    {
+      "coin": "AVAX",
+      "instrument": "AVAXUSDT-PERP.BINANCE",
+      "quantity": "33",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 80,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 80,
+        "submitted_brackets": 80,
+        "supersessions": 61,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 18
+    },
+    {
+      "coin": "BCH",
+      "instrument": "BCHUSDT-PERP.BINANCE",
+      "quantity": "1.671",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 66,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 66,
+        "submitted_brackets": 66,
+        "supersessions": 51,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 12
+    },
+    {
+      "coin": "ETC",
+      "instrument": "ETCUSDT-PERP.BINANCE",
+      "quantity": "50.05",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 70,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 70,
+        "submitted_brackets": 70,
+        "supersessions": 56,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 12
+    },
+    {
+      "coin": "XLM",
+      "instrument": "XLMUSDT-PERP.BINANCE",
+      "quantity": "2448",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 74,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 74,
+        "submitted_brackets": 74,
+        "supersessions": 57,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "ATOM",
+      "instrument": "ATOMUSDT-PERP.BINANCE",
+      "quantity": "234.03",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 102,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 102,
+        "submitted_brackets": 102,
+        "supersessions": 86,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 14
+    },
+    {
+      "coin": "FIL",
+      "instrument": "FILUSDT-PERP.BINANCE",
+      "quantity": "415.5",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 55,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 55,
+        "submitted_brackets": 55,
+        "supersessions": 35,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "NEAR",
+      "instrument": "NEARUSDT-PERP.BINANCE",
+      "quantity": "328",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 93,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 93,
+        "submitted_brackets": 93,
+        "supersessions": 77,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 13
+    },
+    {
+      "coin": "UNI",
+      "instrument": "UNIUSDT-PERP.BINANCE",
+      "quantity": "120",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 68,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 68,
+        "submitted_brackets": 68,
+        "supersessions": 58,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 9
+    },
+    {
+      "coin": "AAVE",
+      "instrument": "AAVEUSDT-PERP.BINANCE",
+      "quantity": "3.4",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 88,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 88,
+        "submitted_brackets": 88,
+        "supersessions": 69,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 13
+    },
+    {
+      "coin": "ICP",
+      "instrument": "ICPUSDT-PERP.BINANCE",
+      "quantity": "217",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 80,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 80,
+        "submitted_brackets": 80,
+        "supersessions": 60,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "APT",
+      "instrument": "APTUSDT-PERP.BINANCE",
+      "quantity": "189.6",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 86,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 86,
+        "submitted_brackets": 86,
+        "supersessions": 69,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "ARB",
+      "instrument": "ARBUSDT-PERP.BINANCE",
+      "quantity": "2189.6",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 90,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 90,
+        "submitted_brackets": 90,
+        "supersessions": 76,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 8
+    },
+    {
+      "coin": "SUI",
+      "instrument": "SUIUSDT-PERP.BINANCE",
+      "quantity": "276.1",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 82,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 82,
+        "submitted_brackets": 82,
+        "supersessions": 68,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 12
+    },
+    {
+      "coin": "OP",
+      "instrument": "OPUSDT-PERP.BINANCE",
+      "quantity": "1319.1",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 87,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 87,
+        "submitted_brackets": 87,
+        "supersessions": 75,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 9
+    },
+    {
+      "coin": "INJ",
+      "instrument": "INJUSDT-PERP.BINANCE",
+      "quantity": "76.6",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 88,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 88,
+        "submitted_brackets": 88,
+        "supersessions": 74,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 11
+    },
+    {
+      "coin": "TIA",
+      "instrument": "TIAUSDT-PERP.BINANCE",
+      "quantity": "648",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 2192
+      },
+      "signals": 101,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 101,
+        "submitted_brackets": 101,
+        "supersessions": 88,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 9
+    },
+    {
+      "coin": "SEI",
+      "instrument": "SEIUSDT-PERP.BINANCE",
+      "quantity": "3321",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 68,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 68,
+        "submitted_brackets": 68,
+        "supersessions": 54,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 13
+    },
+    {
+      "coin": "PEPE",
+      "instrument": "1000PEPEUSDT-PERP.BINANCE",
+      "quantity": "97986",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 60,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 60,
+        "submitted_brackets": 60,
+        "supersessions": 45,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 12
+    },
+    {
+      "coin": "SHIB",
+      "instrument": "1000SHIBUSDT-PERP.BINANCE",
+      "quantity": "77797",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 46,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 46,
+        "submitted_brackets": 46,
+        "supersessions": 33,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 11
+    },
+    {
+      "coin": "HBAR",
+      "instrument": "HBARUSDT-PERP.BINANCE",
+      "quantity": "4343",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 76,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 77,
+        "submitted_brackets": 76,
+        "supersessions": 60,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 15
+    },
+    {
+      "coin": "ALGO",
+      "instrument": "ALGOUSDT-PERP.BINANCE",
+      "quantity": "4363.0",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 96,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 96,
+        "submitted_brackets": 96,
+        "supersessions": 81,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 13
+    },
+    {
+      "coin": "FET",
+      "instrument": "FETUSDT-PERP.BINANCE",
+      "quantity": "1711",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 84,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 84,
+        "submitted_brackets": 84,
+        "supersessions": 68,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 15
+    },
+    {
+      "coin": "WLD",
+      "instrument": "WLDUSDT-PERP.BINANCE",
+      "quantity": "765",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 84,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 84,
+        "submitted_brackets": 84,
+        "supersessions": 70,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 13
+    },
+    {
+      "coin": "IMX",
+      "instrument": "IMXUSDT-PERP.BINANCE",
+      "quantity": "1312",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 2192
+      },
+      "signals": 93,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 93,
+        "submitted_brackets": 93,
+        "supersessions": 81,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 10
+    },
+    {
+      "coin": "STX",
+      "instrument": "STXUSDT-PERP.BINANCE",
+      "quantity": "1588",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 61,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 61,
+        "submitted_brackets": 61,
+        "supersessions": 49,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 11
+    },
+    {
+      "coin": "LDO",
+      "instrument": "LDOUSDT-PERP.BINANCE",
+      "quantity": "798",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 96,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": {
+        "source_plans": 96,
+        "submitted_brackets": 96,
+        "supersessions": 84,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "first_touch_reasons": {},
+        "actual_fill_protection_violations": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 11
+    }
+  ],
+  "limitations": [
+    "Five-minute execution bars cannot resolve every intrabar order sequence",
+    "Current contract terms approximate historical metadata",
+    "Fixed 2026 coin universe is backcast into 2025",
+    "Minute-sampled portfolio drawdown is not yet reported"
+  ]
+}

@@ -13,6 +13,8 @@ import pandas as pd
 
 
 OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
+FOUR_HOUR_NS = 4 * 3_600_000_000_000
+FIVE_MINUTE_NS = 5 * 60_000_000_000
 
 
 def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship audit.
@@ -48,6 +50,11 @@ def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship aud
         )
         if entry.type != expected_entry_type or entry.contingency_type != "OTO":
             findings.append(f"invalid native entry {entry.client_order_id}")
+        if entry.type == "MARKET":
+            submission_ns = int(entry.ts_init)
+            after_decision_ns = submission_ns % FOUR_HOUR_NS
+            if not 0 < after_decision_ns <= FIVE_MINUTE_NS:
+                findings.append(f"market entry not in first post-close execution bar {list_id}")
         if stop.type != "STOP_MARKET" or target.type != "LIMIT":
             findings.append(f"invalid native exits {list_id}")
         stop_price = Decimal(str(stop.trigger_price))
