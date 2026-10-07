@@ -26,7 +26,19 @@ The same video, 08:58-09:23; 09:19 original frame (`/Users/vx/.local/share/bilib
 
 [2025-02-21 original video](https://video-ideas.tradingview.com/0/0-aKWKvFZAvw_fZ4AQ.mp4), 00:00-01:28 and 04:03-05:45. OM rising lows/new highs favor a trend pullback long; BTC range middle is avoided; ETH has a distinct bearish bias. Context rules must be instrument-specific and must not turn every local retracement into a countertrend reversal.
 
-Fast video-note transcripts and source frames are stored under the note IDs in `RD_EXPERIMENTS.md` S01-S04. Audio was not independently reviewed. These cases specify source fidelity, not an indicator preset; a future Agent may choose another encoding and retain the old attempt and disagreement.
+## C07 - existing DOGE holding versus a late futures entry
+
+[2024-11-19 original video](https://video-ideas.tradingview.com/1/1416280-f1hAXIls3Y2mrc7q.mp4), 00:00-02:31; original daily frame at 02:22 (`/Users/vx/.local/share/bilibili-note-mcp/notes/note-8b5dd062e3f14ba5aa9dd460938a60fa/images/source-1-5.png`). The speaker's prior support order and already profitable holding are different decisions from opening a new leveraged long after the rise, when the structural stop still belongs below the old band. A candidate must state entry time, existing position, market type, stop location and risk budget before interpreting the same support drawing as a trade. The frame does not provide a general maximum stop-distance ratio.
+
+## C08 - ETH support is not broken by a wick or weak first close
+
+[2025-03-10 original video](https://video-ideas.tradingview.com/1/1416280-RDuLm44RB_k-HCh2.mp4), 01:13-03:51; original daily frame at 02:59 (`/Users/vx/.local/share/bilibili-note-mcp/notes/note-e49045be678d4613b06c1a8bb7b3889a/images/source-1-3.png`). Weekly bearish force is acknowledged, but the key role-reversal support may still hold. A wick below the area and one insufficient bearish daily close do not license a fresh short; the next completed daily candle could confirm deeper displacement or reclaim support. A rule must make its already-known zone and close-confirmation semantics explicit; the video supplies no universal numeric body/zone threshold.
+
+## C09 - bullish four-hour BTC range does not imply a resistance short
+
+The same DOGE video at 03:13-04:02 and ETH video at 04:00-04:40. The speaker treats BTC's upper consolidation inside a larger bullish structure as a reason to wait for support/pullback rather than short merely because an upper edge exists. A proposed range strategy must distinguish the directional context and conditional trade choice from a generic symmetric box rule; other source cases allow short attempts at particular higher-timeframe resistance, so this is not a universal short ban.
+
+Fast video-note transcripts and source frames are stored under the note IDs in `RD_EXPERIMENTS.md` S01-S04 and S06. Audio was not independently reviewed. These cases specify source fidelity, not an indicator preset; a future Agent may choose another encoding and retain the old attempt and disagreement.
 
 ## H03 fidelity read
 
