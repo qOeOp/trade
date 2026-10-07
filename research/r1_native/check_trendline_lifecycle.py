@@ -1,5 +1,5 @@
 """
-Check H06 native market entry and protective bracket on synthetic prices.
+Check native line Strategy market entry and bracket on synthetic prices.
 """
 
 from __future__ import annotations
@@ -44,6 +44,11 @@ class FixtureStrategy(TrendlineBreakStrategy):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--catalog", type=Path, required=True)
+    parser.add_argument(
+        "--signal-variant",
+        choices=("trendline-4h", "line-support-4h"),
+        default="trendline-4h",
+    )
     args = parser.parse_args()
     instrument_id = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
     instrument = ParquetDataCatalog(str(args.catalog)).instruments(
@@ -78,7 +83,10 @@ def main() -> None:
             BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
             Quantity.from_str("0.003"),
             execution_bar_minutes=5,
-            strategy_id=StrategyId("H06-CHECK"),
+            strategy_id=StrategyId(
+                "H08-CHECK" if args.signal_variant == "line-support-4h" else "H06-CHECK",
+            ),
+            signal_variant=args.signal_variant,
         )
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument_id}-5-MINUTE-LAST-EXTERNAL")

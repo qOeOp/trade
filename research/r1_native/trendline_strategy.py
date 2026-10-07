@@ -1,9 +1,10 @@
 """
-H06 strong confirmed trend-line breaks with native Nautilus orders and Portfolio.
+H06 line breaks and exploratory H08 support touches with native Nautilus orders.
 
 The signal definition is frozen at
 0725a7b3f89902e27cd421a18b4b879a13268534:research/ronnie/combo/candidates/trendline_break_strong.py.
-The old research fill model is not used here.
+The frozen old source defines H06 only; H08 is separately preregistered in
+RD_EXPERIMENTS.md. The old research fill model is not used here.
 
 """
 
@@ -11,7 +12,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from strategy import BOX_BARS
 from strategy import FOUR_HOUR_NS
+from strategy import STOP_BUFFER_ATR
 from strategy import R1Strategy
 from strategy import WaitingSignal
 
@@ -147,6 +150,80 @@ class ConfirmedLineBreaks:
         )
 
 
+class ConfirmedLineSupportTouches:
+    """
+    H08 rising-line support contacts on completed four-hour LAST bars only.
+    """
+
+    def __init__(self) -> None:
+        self.candles: list[LineCandle] = []
+        self.low_pivots: list[int] = []
+        self.dead_pairs: set[tuple[int, int]] = set()
+        self.broken_pairs = 0
+        self.touches = 0
+        self.rejections = 0
+        self.room_skips = 0
+
+    def on_closed(self, candle: LineCandle, prior_atr: float | None) -> list[LineBreak]:
+        if self.candles and candle.ts_event - self.candles[-1].ts_event != FOUR_HOUR_NS:
+            raise RuntimeError("H08 four-hour input is not contiguous")
+        prior = self.candles[-BOX_BARS:]
+        previous = self.candles[-1] if self.candles else None
+        self.candles.append(candle)
+        i = len(self.candles) - 1
+        if i >= 2 * PIVOT_ORDER:
+            j = i - PIVOT_ORDER
+            window = self.candles[j - PIVOT_ORDER : j + PIVOT_ORDER + 1]
+            if self.candles[j].low == min(bar.low for bar in window):
+                self.low_pivots.append(j)
+        projected = self._latest_rising_line(i)
+        if projected is None:
+            return []
+        pair, p2, slope, line = projected
+        j2 = pair[1]
+        if (
+            any(self.candles[k].close <= p2 + slope * (k - j2) for k in range(j2 + 1, i))
+            or candle.close <= line
+        ):
+            self.dead_pairs.add(pair)
+            self.broken_pairs += 1
+            return []
+        if prior_atr is None or prior_atr <= 0 or len(prior) != BOX_BARS or previous is None:
+            return []
+        band = STOP_BUFFER_ATR * prior_atr
+        previous_line = line - slope
+        if (
+            previous.close <= previous_line + band
+            or previous.low <= previous_line + band
+            or candle.low > line + band
+        ):
+            return []
+        self.touches += 1
+        if candle.close <= candle.open:
+            return []
+        self.rejections += 1
+        stop = min(candle.low, line) - band
+        target = max(bar.high for bar in prior)
+        risk = candle.close - stop
+        if risk <= 0 or target - candle.close < risk:
+            self.room_skips += 1
+            return []
+        return [LineBreak(candle.ts_event, 1, candle.close, stop, target, pair)]
+
+    def _latest_rising_line(self, i: int):
+        if len(self.low_pivots) < 2:
+            return None
+        j1, j2 = self.low_pivots[-2:]
+        pair = (j1, j2)
+        if pair in self.dead_pairs or j2 - j1 < MIN_ANCHOR_SPAN or i - j2 > MAX_LINE_EXTENSION:
+            return None
+        p1, p2 = self.candles[j1].low, self.candles[j2].low
+        if p2 <= p1:
+            return None
+        slope = (p2 - p1) / (j2 - j1)
+        return pair, p2, slope, p2 + slope * (i - j2)
+
+
 class TrendlineBreakStrategy(R1Strategy):
     def __init__(
         self,
@@ -161,8 +238,8 @@ class TrendlineBreakStrategy(R1Strategy):
         max_coin_notional_fraction: float = 0.05,
         signal_variant: str = "trendline-4h",
     ) -> None:
-        if signal_variant != "trendline-4h":
-            raise ValueError("H06 requires the trendline-4h signal")
+        if signal_variant not in ("trendline-4h", "line-support-4h"):
+            raise ValueError("line Strategy requires a registered four-hour signal")
         super().__init__(
             instrument_id,
             daily_bar_type,
@@ -176,7 +253,11 @@ class TrendlineBreakStrategy(R1Strategy):
             "box-4h",
         )
         self.signal_variant = signal_variant
-        self.line_state = ConfirmedLineBreaks()
+        self.line_state = (
+            ConfirmedLineBreaks()
+            if signal_variant == "trendline-4h"
+            else ConfirmedLineSupportTouches()
+        )
         self.line_invalid_price_skips = 0
         self.line_time_exits = 0
         self.line_active_signal_ns: int | None = None

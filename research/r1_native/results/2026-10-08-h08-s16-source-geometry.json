@@ -1,0 +1,1222 @@
+{
+  "scope": "read-only H08/S16 source-period geometry; no orders, fills or annual PnL",
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "corrected_h06_parity_sha256": "ee1b06ef9d42645aeb107c5e8425273827c97181c8cf942630c31bdf8cde7978",
+  "source_video_id": "sRwYzAKWVMY",
+  "source_period_start_utc": "2026-07-23T00:00:00+00:00",
+  "source_period_end_utc": "2026-07-25T00:00:00+00:00",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "complete_four_hour_bars": 2192,
+      "all_year_signal_count_without_orders": 5,
+      "source_period_signals": 0,
+      "source_period_bars": [
+        {
+          "ts_event_utc": "2026-07-23T00:00:00+00:00",
+          "ohlc": [
+            65891.2,
+            66116.5,
+            65753.0,
+            66082.0
+          ],
+          "prior_atr": 627.1199696902744,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 16,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 64967.1,
+          "touch_band": 156.7799924225686,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": true,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 0.6621948957424358
+        },
+        {
+          "ts_event_utc": "2026-07-23T04:00:00+00:00",
+          "ohlc": [
+            66082.0,
+            66284.1,
+            65548.0,
+            65626.8
+          ],
+          "prior_atr": 608.2899718552547,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 17,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 65044.0375,
+          "touch_band": 152.0724929638137,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 1.7654303516053091
+        },
+        {
+          "ts_event_utc": "2026-07-23T08:00:00+00:00",
+          "ohlc": [
+            65626.7,
+            65793.7,
+            65313.7,
+            65405.3
+          ],
+          "prior_atr": 617.4192595798798,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 18,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 65120.975,
+          "touch_band": 154.35481489496996,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 3.462206257116303
+        },
+        {
+          "ts_event_utc": "2026-07-23T12:00:00+00:00",
+          "ohlc": [
+            65405.3,
+            65756.6,
+            65383.6,
+            65525.4
+          ],
+          "prior_atr": 607.6035981813171,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 19,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 65197.9125,
+          "touch_band": 151.90089954532928,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": true,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 2.917675941525885
+        },
+        {
+          "ts_event_utc": "2026-07-23T16:00:00+00:00",
+          "ohlc": [
+            65525.4,
+            65557.8,
+            64696.2,
+            64940.4
+          ],
+          "prior_atr": 590.8461983112236,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 20,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 65274.85,
+          "touch_band": 147.7115495778059,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 5.061601277474378
+        },
+        {
+          "ts_event_utc": "2026-07-23T20:00:00+00:00",
+          "ohlc": [
+            64940.4,
+            64940.5,
+            64636.0,
+            64820.7
+          ],
+          "prior_atr": 610.1857555747081,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 21,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 65351.7875,
+          "touch_band": 152.54643889367702,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 6.2369820920871994
+        },
+        {
+          "ts_event_utc": "2026-07-24T00:00:00+00:00",
+          "ohlc": [
+            64820.7,
+            65193.5,
+            64809.7,
+            65069.6
+          ],
+          "prior_atr": 588.3510587479433,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 22,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 65428.725,
+          "touch_band": 147.08776468698582,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": true,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 4.556648039349046
+        },
+        {
+          "ts_event_utc": "2026-07-24T04:00:00+00:00",
+          "ohlc": [
+            65069.6,
+            65436.8,
+            64733.2,
+            65425.4
+          ],
+          "prior_atr": 573.7402688373761,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 23,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 65505.6625,
+          "touch_band": 143.43506720934403,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": true,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 1.7934862463407653
+        },
+        {
+          "ts_event_utc": "2026-07-24T08:00:00+00:00",
+          "ohlc": [
+            65425.5,
+            65780.0,
+            65213.0,
+            65470.0
+          ],
+          "prior_atr": 583.0159639204212,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 24,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 65582.6,
+          "touch_band": 145.7539909801053,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": true,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 3.610392528852268
+        },
+        {
+          "ts_event_utc": "2026-07-24T12:00:00+00:00",
+          "ohlc": [
+            65470.1,
+            65477.2,
+            64821.9,
+            65045.7
+          ],
+          "prior_atr": 581.871966497534,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 25,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 65659.5375,
+          "touch_band": 145.4679916243835,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 5.086820527652779
+        },
+        {
+          "ts_event_utc": "2026-07-24T16:00:00+00:00",
+          "ohlc": [
+            65045.7,
+            65110.1,
+            63666.0,
+            64065.1
+          ],
+          "prior_atr": 587.1168260334242,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 26,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 65736.475,
+          "touch_band": 146.77920650835605,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 5.237422429565013
+        },
+        {
+          "ts_event_utc": "2026-07-24T20:00:00+00:00",
+          "ohlc": [
+            64065.1,
+            64266.9,
+            63854.3,
+            64199.5
+          ],
+          "prior_atr": 648.3299098881795,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 62505.1
+            },
+            {
+              "index": 1717,
+              "low": 63736.1
+            }
+          ],
+          "pair_age_bars": 27,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 65813.4125,
+          "touch_band": 162.08247747204487,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": true,
+          "prior_60_bar_high": 66924.1,
+          "planned_room_r": 5.370972034314279
+        }
+      ]
+    },
+    {
+      "coin": "LINK",
+      "complete_four_hour_bars": 2192,
+      "all_year_signal_count_without_orders": 3,
+      "source_period_signals": 0,
+      "source_period_bars": [
+        {
+          "ts_event_utc": "2026-07-23T00:00:00+00:00",
+          "ohlc": [
+            8.623,
+            8.658,
+            8.581,
+            8.628
+          ],
+          "prior_atr": 0.12377289168100207,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 32,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.297347826086956,
+          "touch_band": 0.030943222920250518,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": true,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 0.3650488948587344
+        },
+        {
+          "ts_event_utc": "2026-07-23T04:00:00+00:00",
+          "ohlc": [
+            8.628,
+            8.68,
+            8.581,
+            8.585
+          ],
+          "prior_atr": 0.12043197084664477,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 33,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.306608695652173,
+          "touch_band": 0.030107992711661192,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 0.5672622325821796
+        },
+        {
+          "ts_event_utc": "2026-07-23T08:00:00+00:00",
+          "ohlc": [
+            8.584,
+            8.617,
+            8.52,
+            8.53
+          ],
+          "prior_atr": 0.11890111578617016,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 34,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.31586956521739,
+          "touch_band": 0.02972527894654254,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 0.9431806886241709
+        },
+        {
+          "ts_event_utc": "2026-07-23T12:00:00+00:00",
+          "ohlc": [
+            8.53,
+            8.657,
+            8.518,
+            8.635
+          ],
+          "prior_atr": 0.11733675037287239,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 35,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.325130434782606,
+          "touch_band": 0.029334187593218097,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": true,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 0.368510073854612
+        },
+        {
+          "ts_event_utc": "2026-07-23T16:00:00+00:00",
+          "ohlc": [
+            8.635,
+            8.639,
+            8.41,
+            8.493
+          ],
+          "prior_atr": 0.1188841253462386,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 36,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.334391304347823,
+          "touch_band": 0.02972103133655965,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 1.417726262705022
+        },
+        {
+          "ts_event_utc": "2026-07-23T20:00:00+00:00",
+          "ohlc": [
+            8.493,
+            8.508,
+            8.428,
+            8.456
+          ],
+          "prior_atr": 0.12674954496436436,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 37,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.343652173913041,
+          "touch_band": 0.03168738624109109,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 2.110595007196029
+        },
+        {
+          "ts_event_utc": "2026-07-24T00:00:00+00:00",
+          "ohlc": [
+            8.455,
+            8.525,
+            8.442,
+            8.466
+          ],
+          "prior_atr": 0.12341029175262393,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 38,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.352913043478258,
+          "touch_band": 0.03085257293815598,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": true,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 2.042524392730562
+        },
+        {
+          "ts_event_utc": "2026-07-24T04:00:00+00:00",
+          "ohlc": [
+            8.465,
+            8.469,
+            8.389,
+            8.451
+          ],
+          "prior_atr": 0.12052384234172223,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 39,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.362173913043476,
+          "touch_band": 0.030130960585430556,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": true,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 2.5975762376837324
+        },
+        {
+          "ts_event_utc": "2026-07-24T08:00:00+00:00",
+          "ohlc": [
+            8.451,
+            8.579,
+            8.414,
+            8.558
+          ],
+          "prior_atr": 0.11762928217445635,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 40,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.371434782608693,
+          "touch_band": 0.02940732054361409,
+          "previous_low_above_band": false,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": true,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 0.9353040989909057
+        },
+        {
+          "ts_event_utc": "2026-07-24T12:00:00+00:00",
+          "ohlc": [
+            8.558,
+            8.559,
+            8.425,
+            8.46
+          ],
+          "prior_atr": 0.12101290487628097,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 41,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 8.38069565217391,
+          "touch_band": 0.030253226219070242,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 2.738286262858803
+        },
+        {
+          "ts_event_utc": "2026-07-24T16:00:00+00:00",
+          "ohlc": [
+            8.459,
+            8.485,
+            8.286,
+            8.365
+          ],
+          "prior_atr": 0.12194055452797509,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 42,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 8.389956521739128,
+          "touch_band": 0.03048513863199377,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 3.6077955870128586
+        },
+        {
+          "ts_event_utc": "2026-07-24T20:00:00+00:00",
+          "ohlc": [
+            8.365,
+            8.37,
+            8.306,
+            8.357
+          ],
+          "prior_atr": 0.12744480063311972,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1678,
+              "low": 7.788
+            },
+            {
+              "index": 1701,
+              "low": 8.001
+            }
+          ],
+          "pair_age_bars": 43,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 8.399217391304346,
+          "touch_band": 0.03186120015827993,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 8.76,
+          "planned_room_r": 4.863554947673878
+        }
+      ]
+    },
+    {
+      "coin": "ETH",
+      "complete_four_hour_bars": 2192,
+      "all_year_signal_count_without_orders": 7,
+      "source_period_signals": 0,
+      "source_period_bars": [
+        {
+          "ts_event_utc": "2026-07-23T00:00:00+00:00",
+          "ohlc": [
+            1924.01,
+            1938.8,
+            1921.63,
+            1933.31
+          ],
+          "prior_atr": 26.183818987112552,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 16,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 1881.2199999999998,
+          "touch_band": 6.545954746778138,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": true,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 0.4338634905812268
+        },
+        {
+          "ts_event_utc": "2026-07-23T04:00:00+00:00",
+          "ohlc": [
+            1933.31,
+            1940.66,
+            1916.49,
+            1919.46
+          ],
+          "prior_atr": 25.53997477374736,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 17,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 1883.6812499999999,
+          "touch_band": 6.38499369343684,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 0.931843251056372
+        },
+        {
+          "ts_event_utc": "2026-07-23T08:00:00+00:00",
+          "ohlc": [
+            1919.46,
+            1927.79,
+            1911.44,
+            1914.61
+          ],
+          "prior_atr": 25.442119432765413,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 18,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 1886.1424999999997,
+          "touch_band": 6.360529858191353,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 1.2673699942179892
+        },
+        {
+          "ts_event_utc": "2026-07-23T12:00:00+00:00",
+          "ohlc": [
+            1914.62,
+            1930.74,
+            1913.39,
+            1924.65
+          ],
+          "prior_atr": 24.79268233042502,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 19,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 1888.6037499999998,
+          "touch_band": 6.198170582606255,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": false,
+          "current_close_above_line": true,
+          "bullish_close": true,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 0.8072071892504541
+        },
+        {
+          "ts_event_utc": "2026-07-23T16:00:00+00:00",
+          "ohlc": [
+            1924.64,
+            1926.93,
+            1882.0,
+            1894.49
+          ],
+          "prior_atr": 24.261062163966084,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 20,
+          "rising_pair": true,
+          "pair_dead_after_bar": false,
+          "projected_line": 1891.0649999999998,
+          "touch_band": 6.065265540991521,
+          "previous_low_above_band": true,
+          "previous_close_above_band": true,
+          "current_low_touches_band": true,
+          "current_close_above_line": true,
+          "bullish_close": false,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 3.4631679001326874
+        },
+        {
+          "ts_event_utc": "2026-07-23T20:00:00+00:00",
+          "ohlc": [
+            1894.49,
+            1894.7,
+            1868.18,
+            1874.74
+          ],
+          "prior_atr": 25.737414866539943,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 21,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 1893.5262499999997,
+          "touch_band": 6.434353716634986,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 6.465115682702448
+        },
+        {
+          "ts_event_utc": "2026-07-24T00:00:00+00:00",
+          "ohlc": [
+            1874.74,
+            1887.98,
+            1873.0,
+            1877.42
+          ],
+          "prior_atr": 25.79331380464423,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 22,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 1895.9874999999997,
+          "touch_band": 6.448328451161058,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": true,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 7.483211458456629
+        },
+        {
+          "ts_event_utc": "2026-07-24T04:00:00+00:00",
+          "ohlc": [
+            1877.42,
+            1881.07,
+            1858.0,
+            1879.71
+          ],
+          "prior_atr": 25.020934247169645,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 23,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 1898.4487499999998,
+          "touch_band": 6.255233561792411,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": true,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 2.826366524897842
+        },
+        {
+          "ts_event_utc": "2026-07-24T08:00:00+00:00",
+          "ohlc": [
+            1879.7,
+            1909.32,
+            1872.47,
+            1895.0
+          ],
+          "prior_atr": 24.881581800943238,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 24,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 1900.9099999999999,
+          "touch_band": 6.220395450235809,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": true,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 2.2173608050138
+        },
+        {
+          "ts_event_utc": "2026-07-24T12:00:00+00:00",
+          "ohlc": [
+            1895.0,
+            1895.0,
+            1875.22,
+            1883.03
+          ],
+          "prior_atr": 25.736468815161572,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 25,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 1903.3712499999997,
+          "touch_band": 6.434117203790393,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 5.315878753079238
+        },
+        {
+          "ts_event_utc": "2026-07-24T16:00:00+00:00",
+          "ohlc": [
+            1883.02,
+            1885.2,
+            1846.17,
+            1861.28
+          ],
+          "prior_atr": 25.311006756935747,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 26,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 1905.8324999999998,
+          "touch_band": 6.327751689233937,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": false,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 4.546652158908519
+        },
+        {
+          "ts_event_utc": "2026-07-24T20:00:00+00:00",
+          "ohlc": [
+            1861.28,
+            1865.81,
+            1852.56,
+            1862.74
+          ],
+          "prior_atr": 26.29093484572605,
+          "signal": false,
+          "latest_confirmed_low_pivots": [
+            {
+              "index": 1701,
+              "low": 1802.46
+            },
+            {
+              "index": 1717,
+              "low": 1841.84
+            }
+          ],
+          "pair_age_bars": 27,
+          "rising_pair": true,
+          "pair_dead_after_bar": true,
+          "projected_line": 1908.2937499999998,
+          "touch_band": 6.572733711431512,
+          "previous_low_above_band": false,
+          "previous_close_above_band": false,
+          "current_low_touches_band": true,
+          "current_close_above_line": false,
+          "bullish_close": true,
+          "prior_60_bar_high": 1958.75,
+          "planned_room_r": 5.731004960371666
+        }
+      ]
+    }
+  ]
+}
