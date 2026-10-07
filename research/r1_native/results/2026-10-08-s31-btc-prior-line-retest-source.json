@@ -1,0 +1,218 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S31",
+  "source_url": "https://www.youtube.com/watch?v=8_2s9EUcWIs",
+  "source_metadata": {
+    "author_name": "罗尼交易指南",
+    "canonical_url": "https://www.youtube.com/watch?v=8_2s9EUcWIs",
+    "duration_ms": 554000,
+    "part_id": "8_2s9EUcWIs",
+    "part_index": 1,
+    "platform": "youtube",
+    "published_at": "2025-12-04T00:00:00Z",
+    "requested_url": "https://www.youtube.com/watch?v=8_2s9EUcWIs",
+    "title": "【罗尼交易指南】-2025.12.4-比特币剑指96000，以太坊直逼3300。",
+    "video_id": "8_2s9EUcWIs"
+  },
+  "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-fdefe8d2155f9c2453795ded2da020f1de6d6e10d07fe672d7ec609da3dff4e5/manifest.json",
+  "media_manifest_sha256": "fdefe8d2155f9c2453795ded2da020f1de6d6e10d07fe672d7ec609da3dff4e5",
+  "media_sha256": "308b2084da26a985c7a210ff80b24900a0991c70ab08ac5c786511cf19325361",
+  "same_byte_media_manifest_count": 1,
+  "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-a9cd47656560accc894b7e5066fbf20ed528a5d78efe4a8dcf5e01d88110fce9/manifest.json",
+  "transcript_manifest_sha256": "a9cd47656560accc894b7e5066fbf20ed528a5d78efe4a8dcf5e01d88110fce9",
+  "transcript_method": "asr",
+  "transcript_reviews": [],
+  "relevant_segments": [
+    {
+      "end_ms": 6340,
+      "evidence_id": "E001",
+      "start_ms": 2780,
+      "text": "比特币如期突破这根下降趋势线"
+    },
+    {
+      "end_ms": 13860,
+      "evidence_id": "E003",
+      "start_ms": 8700,
+      "text": "我跟大家提前预判了这一波的一个回调"
+    },
+    {
+      "end_ms": 20360,
+      "evidence_id": "E005",
+      "start_ms": 15060,
+      "text": "这个回调是由于小级别明显的多头动能减弱"
+    },
+    {
+      "end_ms": 23780,
+      "evidence_id": "E006",
+      "start_ms": 20360,
+      "text": "或小级别需要走这样的一个回踩动作"
+    },
+    {
+      "end_ms": 28660,
+      "evidence_id": "E007",
+      "start_ms": 23780,
+      "text": "然后上涨是因为更大的周期完成了突破"
+    },
+    {
+      "end_ms": 37120,
+      "evidence_id": "E011",
+      "start_ms": 33800,
+      "text": "你到底是在小时图去看回调"
+    },
+    {
+      "end_ms": 39040,
+      "evidence_id": "E012",
+      "start_ms": 37120,
+      "text": "还是在四小时去看突破"
+    },
+    {
+      "end_ms": 47620,
+      "evidence_id": "E015",
+      "start_ms": 44600,
+      "text": "就是我们之前画的这根下降趋势线"
+    },
+    {
+      "end_ms": 54020,
+      "evidence_id": "E018",
+      "start_ms": 51500,
+      "text": "如果我去连接到这根影线的话"
+    },
+    {
+      "end_ms": 58040,
+      "evidence_id": "E020",
+      "start_ms": 55560,
+      "text": "昨天就是在阻力位的一个"
+    },
+    {
+      "end_ms": 64520,
+      "evidence_id": "E023",
+      "start_ms": 60140,
+      "text": "小回调完成前期的这些小位置的一个回踩"
+    },
+    {
+      "end_ms": 69520,
+      "evidence_id": "E025",
+      "start_ms": 67300,
+      "text": "然后再完成突破它"
+    },
+    {
+      "end_ms": 71980,
+      "evidence_id": "E027",
+      "start_ms": 70640,
+      "text": "这两种趋势线"
+    },
+    {
+      "end_ms": 77540,
+      "evidence_id": "E029",
+      "start_ms": 74800,
+      "text": "两种动作都解释得通"
+    },
+    {
+      "end_ms": 82280,
+      "evidence_id": "E031",
+      "start_ms": 79780,
+      "text": "无论你画哪一种都OK"
+    },
+    {
+      "end_ms": 85060,
+      "evidence_id": "E032",
+      "start_ms": 82280,
+      "text": "你怎么样去参与它也OK"
+    },
+    {
+      "end_ms": 87100,
+      "evidence_id": "E033",
+      "start_ms": 85060,
+      "text": "我们画了这些线"
+    },
+    {
+      "end_ms": 88160,
+      "evidence_id": "E034",
+      "start_ms": 87100,
+      "text": "它不是真理"
+    },
+    {
+      "end_ms": 92980,
+      "evidence_id": "E036",
+      "start_ms": 88940,
+      "text": "这都是我们提前对市场做的一些预判"
+    },
+    {
+      "end_ms": 94960,
+      "evidence_id": "E037",
+      "start_ms": 92980,
+      "text": "一些假设"
+    },
+    {
+      "end_ms": 125120,
+      "evidence_id": "E053",
+      "start_ms": 123400,
+      "text": "然后从这儿你去拉一个"
+    },
+    {
+      "end_ms": 127000,
+      "evidence_id": "E054",
+      "start_ms": 125120,
+      "text": "斐波那契的一个扩展线"
+    },
+    {
+      "end_ms": 129180,
+      "evidence_id": "E055",
+      "start_ms": 127000,
+      "text": "不能发现百分百的扩展位"
+    },
+    {
+      "end_ms": 130660,
+      "evidence_id": "E056",
+      "start_ms": 129180,
+      "text": "差不多就是96,000附近"
+    }
+  ],
+  "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-1e3c304484759e7b87e33ed354c9a7f7204a109a34fa53e082e70ab51c78937a/manifest.json",
+  "frames_manifest_sha256": "1e3c304484759e7b87e33ed354c9a7f7204a109a34fa53e082e70ab51c78937a",
+  "inspected_frames": [
+    {
+      "id": "F08",
+      "timestamp_ms": 6190,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-1e3c304484759e7b87e33ed354c9a7f7204a109a34fa53e082e70ab51c78937a/F08.png",
+      "sha256": "3887237b60c53d378c43982254866067b7ace9b6b73d57e3274a2760c6276d72"
+    },
+    {
+      "id": "F15",
+      "timestamp_ms": 40450,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-1e3c304484759e7b87e33ed354c9a7f7204a109a34fa53e082e70ab51c78937a/F15.png",
+      "sha256": "2f2c770d1102b79886e9e0efdcd85a51e6ef27c74643bed8efd60109e602afe5"
+    },
+    {
+      "id": "F21",
+      "timestamp_ms": 126850,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-1e3c304484759e7b87e33ed354c9a7f7204a109a34fa53e082e70ab51c78937a/F21.png",
+      "sha256": "dbbdb33aeecd60af706a7fe51cafb65f850e5823161863d373fb812029466934"
+    },
+    {
+      "id": "F27",
+      "timestamp_ms": 23630,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-1e3c304484759e7b87e33ed354c9a7f7204a109a34fa53e082e70ab51c78937a/F27.png",
+      "sha256": "4c87f3c7b069d56a60bdf7ebe26e6e8c68440c4d091829820f254f4d7734a216"
+    },
+    {
+      "id": "F42",
+      "timestamp_ms": 31750,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-1e3c304484759e7b87e33ed354c9a7f7204a109a34fa53e082e70ab51c78937a/F42.png",
+      "sha256": "19b287df95fcd2f801d8b9931374655c1a1e5bc60071b7b683db7b62abe5c4be"
+    }
+  ],
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-ef6e0a19e6074d98bde9b9cabdd0e1fb/note.md",
+  "note_sha256": "69dd1f0b64a6c247c908657d346631e594fc4085645dcf225282acaba1770fa8",
+  "receipt_path": "/tmp/r1-s31-note-create.json",
+  "receipt_sha256": "8cd2ce649ddec4130770adbdebaf4aade9d4fab7da645353398cd652c3a1bae9",
+  "readout": {
+    "identity": "Official Ronnie Trading Guide video published 2025-12-04, before S30 2025-12-05 by metadata day; unique MP4; exact recording clock and TradingView venue not independently verified.",
+    "prior_day_line": "Original BTC four-hour F08/F27/F21 and hourly F15/F42 already display the same broad descending line, a move above it, a first shallow retest and a future arrow that revisits the line before pointing toward about 96,000. This is drawing provenance before the S30 deeper observed retest, not proof the line was drawn before the initial break.",
+    "author_line_semantics": "E015-E038 says adjusting the line to a neighboring wick makes the apparent break/retest order differ while both narratives may be valid; drawn lines are hypotheses, not exact pivot laws. E011/E012 separates hourly pullback from four-hour break.",
+    "action": "The prior-day video discusses the already observed break and a prospective further line-region retest/continuation but gives no explicit new entry order, fill or structural stop for that future retest. The 96,000 target is derived from a 100% Fibonacci extension, not a retracement tier. S30 the next day shows a deeper completed retest and a conditional current long with stop/target.",
+    "h06a_decision": "The pair supports an H06a researcher candidate representing a previsible line region and later observed retest, with source interval uncertainty. It does not pass a strict author-order proof or uniquely specify tolerance, anchor pivots, entry and stop. A frozen native candidate may be evaluated as researcher encoding if these are declared before PnL; it cannot be described as a confirmed Ronnie fill or exact rule."
+  },
+  "economic_data_read": false,
+  "native_strategy_admitted": false
+}
