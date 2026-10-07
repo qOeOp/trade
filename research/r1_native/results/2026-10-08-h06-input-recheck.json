@@ -1,0 +1,7 @@
+{
+  "identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "catalog_trees_checked": 74,
+  "catalog_trees_matched": 74,
+  "all_matched": true,
+  "quantity_note": "H06 uses retained normalized H04 CSV; its 37 parsed coin/quantity records equal H03 and paired R1u, although original identity CSV bytes are unavailable"
+}

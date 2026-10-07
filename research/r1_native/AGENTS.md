@@ -1,6 +1,7 @@
 # R-1 native replay
 
 - `strategy.py` owns R-1u daily-pivot and registered H03 four-hour box signals, and submits native orders. `r1s_strategy.py` owns H04 staged native exits on that daily-pivot signal. Neither calculates fills or PnL. `test_box_signal.py` checks H03's source geometry; `check_r1s_lifecycle.py` checks H04 synthetic native order events only. The complete economic read is native BacktestEngine output.
+- `trendline_strategy.py` owns H06's frozen four-hour line-break signal and native market bracket. Its causal pivot/strength logic is a Strategy helper, not a fill simulator. The same `run_portfolio.py` streams the shared account; H06 cannot write its own PnL.
 - `prepare.py` asks the native Binance USD-M data client for historical LAST/MARK minute bars and settled funding, then writes the native Catalog and the current-instrument assumption. The replay interval defaults to one minute; five minutes is a lower-resolution sensitivity option.
 - `run.py` validates all three data timelines, runs `BacktestEngine` with native mark and funding updates, and writes native reports.
 - `run_portfolio.py` streams prepared five-minute catalogs into one native margin account, with one Strategy per contract; its reports use a shared capital denominator and distinguish input start from order eligibility for multi-timeframe warmup.

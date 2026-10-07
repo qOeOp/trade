@@ -25,6 +25,7 @@ from run import _json_safe
 from run import _ns
 from run import _snapshot_equity_usdt
 from strategy import R1Strategy
+from trendline_strategy import TrendlineBreakStrategy
 
 from vibe_trading.analysis import MaxDrawdown
 from vibe_trading.analysis import SharpeRatio
@@ -221,7 +222,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--signal-variant",
-        choices=("daily-pivot", "box-4h"),
+        choices=("daily-pivot", "box-4h", "trendline-4h"),
         default="daily-pivot",
     )
     parser.add_argument(
@@ -294,7 +295,13 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         for row in rows:
             engine.add_instrument(row["instrument"])
             instrument_id = row["instrument_id"]
-            strategy_class = R1StagedStrategy if args.exit_variant == "staged-r1s" else R1Strategy
+            strategy_class = (
+                R1StagedStrategy
+                if args.exit_variant == "staged-r1s"
+                else TrendlineBreakStrategy
+                if args.signal_variant == "trendline-4h"
+                else R1Strategy
+            )
             strategy = strategy_class(
                 instrument_id,
                 BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
@@ -369,6 +376,10 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native staged orders were denied or rejected")
+        if args.signal_variant == "trendline-4h" and (
+            (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
+        ):
+            integrity_findings.append("native H06 orders were denied or rejected")
         closed = positions[positions["ts_closed"].notna()]
         pnl = closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
         wins = int((pnl > 0).sum())
@@ -386,6 +397,13 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.exit_variant == "staged-r1s"
                 else None
             ),
+            "trendline_strategy_source_sha256": (
+                hashlib.sha256(
+                    Path(__file__).with_name("trendline_strategy.py").read_bytes(),
+                ).hexdigest()
+                if args.signal_variant == "trendline-4h"
+                else None
+            ),
             "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "strategy": (
                 "R-1s"
@@ -393,6 +411,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 else "R-1u"
                 if args.signal_variant == "daily-pivot"
                 else "H03-box-4h"
+                if args.signal_variant == "box-4h"
+                else "H06-trendline-4h"
             ),
             "signal_variant": args.signal_variant,
             "exit_variant": args.exit_variant,
@@ -445,6 +465,16 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     "counts": row["counts"],
                     "signals": strategies[row["coin"]].signals,
                     "box_breaks": strategies[row["coin"]].box_breaks,
+                    "line_breaks": (
+                        {
+                            "first_crosses": strategies[row["coin"]].line_state.first_crosses,
+                            "weak_crosses": strategies[row["coin"]].line_state.weak_crosses,
+                            "invalid_price_skips": strategies[row["coin"]].line_invalid_price_skips,
+                            "time_exits": strategies[row["coin"]].line_time_exits,
+                        }
+                        if args.signal_variant == "trendline-4h"
+                        else None
+                    ),
                     "risk_size_skips": strategies[row["coin"]].risk_size_skips,
                     "staged_execution": (
                         {
