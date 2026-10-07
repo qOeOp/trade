@@ -451,7 +451,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "closed_trades": len(closed),
             "winning_trades": wins,
             "closed_trade_win_rate": wins / len(closed) if len(closed) else None,
-            "win_rate_definition": "positive native closed-position realized_pnl after fill commissions; funding remains in account equity",
+            "win_rate_definition": "positive native closed-position realized_pnl including fill commissions and position funding adjustments",
             "denied_orders": int((orders["status"] == "DENIED").sum()),
             "rejected_orders": int((orders["status"] == "REJECTED").sum()),
             "native_sharpe_252": SharpeRatio(252).calculate_from_returns(
