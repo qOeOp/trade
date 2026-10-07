@@ -20,6 +20,20 @@ def _bars(*, second_support: bool = True, untouched: bool = True):
 
 
 class RetracementSignalCases(unittest.TestCase):
+    def test_immediate_plan_arms_on_new_high_before_retracement(self):
+        state = ConfirmedSupportPullback(timing="immediate")
+        plans = [plan for bar in _bars() if (plan := state.on_closed(bar, 1.0)) is not None]
+        assert len(plans) == 1
+        assert plans[0].ts_event == 185 * FOUR_HOUR_NS
+        assert plans[0].entry < 115.0 < plans[0].target
+
+    def test_immediate_plan_rejects_high_bar_that_already_touched_entry(self):
+        bars = _bars()
+        bars[185] = FourHour(185 * FOUR_HOUR_NS, 130.0, 105.0, 115.0)
+        state = ConfirmedSupportPullback(timing="immediate")
+        plans = [plan for bar in bars if (plan := state.on_closed(bar, 1.0)) is not None]
+        assert plans == []
+
     def test_prior_support_and_untouched_tier_emit_one_plan(self):
         state = ConfirmedSupportPullback()
         plans = [plan for bar in _bars() if (plan := state.on_closed(bar, 1.0)) is not None]

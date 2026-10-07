@@ -39,9 +39,15 @@ def _inside_bands(plan: dict, bands: dict) -> bool:
     )
 
 
-def _source_case(candles, case: dict) -> dict:
+def _source_case(
+    candles,
+    case: dict,
+    *,
+    timing: str = "near-tier",
+    expiry_bars: int = BOX_RETEST_BARS,
+) -> dict:
     cutoffs = {_ns(value): value for value in case["cutoffs"]}
-    state = ConfirmedSupportPullback()
+    state = ConfirmedSupportPullback(timing=timing)
     atr = WilderMovingAverage(14)
     active: list[dict] = []
     rows = []
@@ -56,7 +62,7 @@ def _source_case(candles, case: dict) -> dict:
         active = [
             plan
             for plan in active
-            if candle.ts_event < plan["ts_event"] + BOX_RETEST_BARS * FOUR_HOUR_NS
+            if candle.ts_event < plan["ts_event"] + expiry_bars * FOUR_HOUR_NS
             and not (candle.ts_event > plan["ts_event"] and candle.low <= plan["entry"])
         ]
         plan = state.on_closed(candle, atr.value if atr.initialized else None)

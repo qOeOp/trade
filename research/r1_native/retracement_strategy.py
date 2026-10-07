@@ -48,7 +48,10 @@ class ConfirmedSupportPullback:
     Evaluate completed four-hour bars; Nautilus still owns execution.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, timing: str = "near-tier") -> None:
+        if timing not in ("near-tier", "immediate"):
+            raise ValueError("unsupported support-pullback timing")
+        self.timing = timing
         self.candles: list[FourHour] = []
         self.low_pivots: list[int] = []
         self.planned_pairs: set[tuple[int, int]] = set()
@@ -128,9 +131,18 @@ class ConfirmedSupportPullback:
             row["reason"] = "no-prior-separated-horizontal-support"
             return None, row
         candle = self.candles[i]
-        if not (entry < candle.close <= level_50 and candle.low > entry):
+        approaching = (
+            entry < candle.close <= level_50 and candle.low > entry
+            if self.timing == "near-tier"
+            else b == i and entry < candle.close and candle.low > entry
+        )
+        if not approaching:
             self.not_approaching += 1
-            row["reason"] = "not-before-61.8-touch-in-approach-zone"
+            row["reason"] = (
+                "not-before-61.8-touch-in-approach-zone"
+                if self.timing == "near-tier"
+                else "not-new-high-before-61.8-touch"
+            )
             return None, row
         if (a, b) in self.planned_pairs:
             row["reason"] = "pair-already-planned"
