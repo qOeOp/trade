@@ -10,5 +10,6 @@
 - `audit_native_brackets.py` checks frozen daily plans against the native entry, stop and target order report, including price rounding and filled-entry order geometry. It reads existing reports and catalogs only; native fills and account reports remain authoritative.
 - `audit_fill_bar_opens.py` joins native entry fill events to five-minute LAST opens without changing fills or PnL. Its price-path counts cannot stand in for a new backtest.
 - `audit_r1s_integrity.py` reads native H04 order and position report IDs to check terminal protection and orphaned active exits. It does not create an execution ledger or return series.
+- `audit_source_daily_context.py` reads the reused native daily Catalogs and frozen video publication metadata to test R-1 pivot-state fidelity at source decisions. It creates no orders, fills, account returns or replacement backtest.
 - Keep source rule custody tied to `0725a7b3f89902e27cd421a18b4b879a13268534`.
 - Check with `python -m compileall research/r1_native`, then run against a catalog containing Binance USDT perpetual minute bars and the matching instrument.
