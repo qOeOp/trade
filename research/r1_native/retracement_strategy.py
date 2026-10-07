@@ -16,6 +16,10 @@ from strategy import FourHour
 from strategy import R1Strategy
 from strategy import WaitingSignal
 
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderType
+from vibe_trading.model import TimeInForce
+
 
 PIVOT_ORDER = 8
 ANCHOR_LOOKBACK = 180
@@ -69,6 +73,23 @@ def classify_first_touch_rejection(
     if not (0 < stop < entry < target) or target - entry < 2 * (entry - stop):
         return "rounded-price-or-room-invalid", None
     return "admitted-rejection", entry
+
+
+def retire_first_touch_plan(
+    active: RetracementPlan | None,
+    selected_pair: tuple[int, int] | None,
+    ts_event: int,
+) -> tuple[RetracementPlan | None, str | None]:
+    """
+    Retire a plan before its touch is assessed at this completed bar.
+    """
+    if active is None:
+        return None, None
+    if selected_pair is not None and selected_pair != (active.a_index, active.b_index):
+        return None, "superseded"
+    if ts_event >= active.ts_event + 30 * FOUR_HOUR_NS:
+        return None, "expired"
+    return active, None
 
 
 class ConfirmedSupportPullback:
@@ -257,20 +278,27 @@ class ConfirmedSupportPullback:
 
 class RetracementStrategy(R1Strategy):
     """
-    Submit H13c through native brackets, with acknowledged entry replacement.
+    Submit H13c limits or H13f close-rejection markets through native brackets.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        if self.signal_variant != "support-confirmed-4h":
-            raise ValueError("retracement strategy requires support-confirmed-4h")
+        if self.signal_variant not in ("support-confirmed-4h", "support-rejection-4h"):
+            raise ValueError("retracement strategy requires a supported pullback variant")
         self.support_state = ConfirmedSupportPullback(timing="confirmed-update")
         self.selected_pair: tuple[int, int] | None = None
         self.retracement_supersessions = 0
         self.retracement_cancel_race_fills = 0
         self.retracement_invalid_price_skips = 0
+        self.first_touch_plan: RetracementPlan | None = None
+        self.pending_rejection: tuple[FourHour, RetracementPlan, float] | None = None
+        self.first_touch_counts: dict[str, int] = {}
+        self.retracement_actual_price_violations = 0
 
     def _queue_four_hour_candidate(self, candle: FourHour) -> None:
+        if self.signal_variant == "support-rejection-4h":
+            self._queue_first_touch_rejection(candle)
+            return
         plan = self.support_state.on_closed(
             candle,
             self.atr.value if self.atr.initialized else None,
@@ -306,9 +334,108 @@ class RetracementStrategy(R1Strategy):
         self.waiting.append(signal)
         self.signals += 1
 
+    def _queue_first_touch_rejection(self, candle: FourHour) -> None:
+        plan = self.support_state.on_closed(
+            candle,
+            self.atr.value if self.atr.initialized else None,
+        )
+        impulse = self.support_state.last_readout["impulse"]
+        pair = None
+        if impulse is not None:
+            pair = (impulse["a_index"], impulse["b_index"])
+        active, retirement = retire_first_touch_plan(self.first_touch_plan, pair, candle.ts_event)
+        self.first_touch_plan = active
+        if pair is not None:
+            self.selected_pair = pair
+        if retirement is not None:
+            self.first_touch_counts[retirement] = self.first_touch_counts.get(retirement, 0) + 1
+            if retirement == "superseded":
+                self.retracement_supersessions += 1
+        if active is not None and candle.ts_event > active.ts_event and candle.low <= active.entry:
+            reason, entry = classify_first_touch_rejection(
+                active,
+                candle,
+                round_price=lambda price: self.instrument.make_price(price).as_double(),
+            )
+            self.first_touch_plan = None
+            self.first_touch_counts[reason] = self.first_touch_counts.get(reason, 0) + 1
+            if reason == "admitted-rejection" and entry is not None:
+                if (
+                    self.opened_ns is None
+                    and self.resting_entry_id is None
+                    and self.canceling_entry_id is None
+                ):
+                    self.pending_rejection = (candle, active, entry)
+                else:
+                    self.signals_while_open += 1
+        if plan is not None and (
+            self.trade_start_ns is None or candle.ts_event >= self.trade_start_ns
+        ):
+            if self.opened_ns is None and self.resting_entry_id is None:
+                self.first_touch_plan = plan
+            else:
+                self.signals_while_open += 1
+
+    def _advance_waiting(self, bar) -> None:
+        if self.signal_variant == "support-rejection-4h" and self.pending_rejection is not None:
+            candle, plan, entry = self.pending_rejection
+            if bar.ts_event > candle.ts_event:
+                self.pending_rejection = None
+                if self.opened_ns is None and self.resting_entry_id is None:
+                    self._submit_rejection_market(candle, plan, entry)
+                else:
+                    self.signals_while_open += 1
+        super()._advance_waiting(bar)
+
+    def _submit_rejection_market(
+        self,
+        candle: FourHour,
+        plan: RetracementPlan,
+        entry: float,
+    ) -> None:
+        signal = WaitingSignal(
+            candle.ts_event,
+            candle.ts_event + 30 * FOUR_HOUR_NS,
+            1,
+            entry,
+            plan.stop,
+            plan.target,
+        )
+        self.signals += 1
+        quantity = self._order_quantity(signal)
+        if quantity is None:
+            return
+        stop = self.instrument.make_price(signal.stop).as_double()
+        target = self.instrument.make_price(signal.target).as_double()
+        if not (0 < stop < entry < target and target - entry >= 2 * (entry - stop)):
+            self.retracement_invalid_price_skips += 1
+            return
+        orders = self.order_factory.bracket(
+            instrument_id=self.instrument_id,
+            order_side=OrderSide.BUY,
+            quantity=quantity,
+            entry_order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.GTC,
+            tp_price=self.instrument.make_price(signal.target),
+            tp_post_only=False,
+            sl_trigger_price=self.instrument.make_price(signal.stop),
+        )
+        self.resting_entry_id = orders[0].client_order_id
+        self.resting_signal = signal
+        self.entries.add(self.resting_entry_id)
+        self.submit_order_list(orders)
+        self.waiting_released += 1
+
     def on_order_filled(self, event) -> None:
         canceled_entry_filled = event.client_order_id == self.canceling_entry_id
+        signal = self.resting_signal if event.client_order_id in self.entries else None
         super().on_order_filled(event)
+        if self.signal_variant == "support-rejection-4h" and signal is not None:
+            actual = float(event.last_px)
+            stop = self.instrument.make_price(signal.stop).as_double()
+            target = self.instrument.make_price(signal.target).as_double()
+            if not 0 < stop < actual < target:
+                self.retracement_actual_price_violations += 1
         if canceled_entry_filled:
             self.retracement_cancel_race_fills += 1
         if event.client_order_id in self.entries:

@@ -20,7 +20,7 @@ from audit_trendline_signal_parity import INPUT_SHA256
 from retracement_strategy import ConfirmedSupportPullback
 from retracement_strategy import RetracementPlan
 from retracement_strategy import classify_first_touch_rejection
-from strategy import FOUR_HOUR_NS
+from retracement_strategy import retire_first_touch_plan
 from strategy import FourHour
 
 from vibe_trading.indicators import WilderMovingAverage
@@ -78,20 +78,6 @@ def _touch_event(plan: RetracementPlan, candle: FourHour, instrument, coin: str)
     }
 
 
-def _retire_before_touch(
-    active: RetracementPlan | None,
-    selected_pair: tuple[int, int] | None,
-    ts_event: int,
-) -> tuple[RetracementPlan | None, str | None]:
-    if active is None:
-        return None, None
-    if selected_pair is not None and selected_pair != (active.a_index, active.b_index):
-        return None, "superseded"
-    if ts_event >= active.ts_event + 30 * FOUR_HOUR_NS:
-        return None, "expired"
-    return active, None
-
-
 def _append_s23_window(rows: list[dict], item: dict, *, coin: str, ts_event: int) -> None:
     if coin == "BTC" and S23_START <= ts_event <= S23_END:
         rows.append(item)
@@ -119,7 +105,7 @@ def _scan(candles, instrument, *, coin: str, cutoffs: tuple[str, ...]) -> dict:
         atr.update_raw(true_range)
         selected = state.last_readout["impulse"]
         selected_pair = (selected["a_index"], selected["b_index"]) if selected is not None else None
-        active, retirement = _retire_before_touch(active, selected_pair, candle.ts_event)
+        active, retirement = retire_first_touch_plan(active, selected_pair, candle.ts_event)
         if retirement is not None:
             counts[retirement] += 1
         touched_here = None

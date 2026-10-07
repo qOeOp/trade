@@ -195,6 +195,7 @@ class R1Strategy(Strategy):
             "box-4h",
             "box-edge-4h",
             "support-confirmed-4h",
+            "support-rejection-4h",
         ):
             raise ValueError("unsupported R-1 signal variant")
         self.signal_variant = signal_variant
@@ -306,7 +307,8 @@ class R1Strategy(Strategy):
         )
         hold_ns = (
             30 * FOUR_HOUR_NS
-            if self.signal_variant in ("box-edge-4h", "support-confirmed-4h")
+            if self.signal_variant
+            in ("box-edge-4h", "support-confirmed-4h", "support-rejection-4h")
             else HOLD_DAYS * DAY_NS
         )
         if self.opened_ns is not None and bar.ts_event >= self.opened_ns + hold_ns:

@@ -6,6 +6,7 @@ import unittest
 
 from retracement_strategy import ConfirmedSupportPullback
 from retracement_strategy import classify_first_touch_rejection
+from retracement_strategy import retire_first_touch_plan
 from strategy import FOUR_HOUR_NS
 from strategy import FourHour
 
@@ -78,6 +79,21 @@ class RetracementSignalCases(unittest.TestCase):
         )
         assert reason == "admitted-rejection"
         assert entry == 107
+
+    def test_first_touch_plan_retires_on_new_pair_or_expiry(self):
+        state = ConfirmedSupportPullback(timing="confirmed-update")
+        plan = next(plan for bar in _bars() if (plan := state.on_closed(bar, 1.0)) is not None)
+        pair = (plan.a_index, plan.b_index)
+        assert retire_first_touch_plan(plan, pair, plan.ts_event + FOUR_HOUR_NS) == (plan, None)
+        assert retire_first_touch_plan(
+            plan,
+            (plan.a_index + 1, plan.b_index),
+            plan.ts_event + FOUR_HOUR_NS,
+        ) == (None, "superseded")
+        assert retire_first_touch_plan(plan, pair, plan.ts_event + 30 * FOUR_HOUR_NS) == (
+            None,
+            "expired",
+        )
 
     def test_prior_resistance_highs_need_confirmed_break_before_pullback(self):
         bars = [FourHour(i * FOUR_HOUR_NS, 104.0, 100.0 + i * 0.01, 103.0) for i in range(198)]
