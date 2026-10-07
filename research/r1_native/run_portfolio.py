@@ -48,6 +48,7 @@ from vibe_trading.persistence import ParquetDataCatalog
 
 
 LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
+STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
 
 
 def _month_edges(start: datetime, end: datetime):
@@ -230,14 +231,17 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     )
     parser.add_argument(
         "--exit-variant",
-        choices=("fixed-2r", "staged-r1s"),
+        choices=("fixed-2r", *STAGED_EXITS),
         default="fixed-2r",
     )
     parser.add_argument("--risk-budget-bps", type=float)
     parser.add_argument("--coin-notional-cap-pct", type=float, default=5.0)
     args = parser.parse_args()
-    if args.exit_variant == "staged-r1s" and args.signal_variant != "daily-pivot":
-        raise ValueError("staged R-1s requires the frozen daily-pivot signal")
+    if (args.exit_variant, args.signal_variant) not in (
+        ("staged-r1s", "daily-pivot"),
+        ("staged-edge-1r", "box-edge-4h"),
+    ) and args.exit_variant in STAGED_EXITS:
+        raise ValueError("staged exit variant does not match its registered entry signal")
     if args.risk_budget_bps is not None and not 0 < args.risk_budget_bps < 10_000:
         raise ValueError("risk budget bps must be between zero and 10000")
     if not 0 < args.coin_notional_cap_pct <= 100:
@@ -300,7 +304,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             instrument_id = row["instrument_id"]
             strategy_class = (
                 R1StagedStrategy
-                if args.exit_variant == "staged-r1s"
+                if args.exit_variant in STAGED_EXITS
                 else TrendlineBreakStrategy
                 if args.signal_variant in LINE_VARIANTS
                 else R1Strategy
@@ -342,7 +346,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         integrity_findings = []
         if any(strategy.slot_violations for strategy in strategies.values()):
             integrity_findings.append("native entry fills violated a per-coin slot")
-        if args.exit_variant == "staged-r1s" and any(
+        if args.exit_variant in STAGED_EXITS and any(
             strategy.staged_protection_failures
             or strategy.staged_order_failures
             or strategy.staged_invalid_actual_target_closes
@@ -375,7 +379,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             writer.writerows(sorted(result.returns_series.items()))
         positions = reports["positions.csv"]
         orders = reports["orders.csv"]
-        if args.exit_variant == "staged-r1s" and (
+        if args.exit_variant in STAGED_EXITS and (
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native staged orders were denied or rejected")
@@ -401,7 +405,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             ).hexdigest(),
             "staged_strategy_source_sha256": (
                 hashlib.sha256(Path(__file__).with_name("r1s_strategy.py").read_bytes()).hexdigest()
-                if args.exit_variant == "staged-r1s"
+                if args.exit_variant in STAGED_EXITS
                 else None
             ),
             "trendline_strategy_source_sha256": (
@@ -413,7 +417,9 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             ),
             "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "strategy": (
-                "R-1s"
+                "H11-box-edge-staged-1r"
+                if args.exit_variant == "staged-edge-1r"
+                else "R-1s"
                 if args.exit_variant == "staged-r1s"
                 else "R-1u"
                 if args.signal_variant == "daily-pivot"
@@ -548,7 +554,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                                 row["coin"]
                             ].staged_same_bar_first_stop,
                         }
-                        if args.exit_variant == "staged-r1s"
+                        if args.exit_variant in STAGED_EXITS
                         else None
                     ),
                     "positions": sum(

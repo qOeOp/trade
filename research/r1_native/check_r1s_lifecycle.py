@@ -1,5 +1,5 @@
 """
-Native execution checks for the R-1s Strategy, using synthetic prices only.
+Native execution checks for staged R-1s and H11, using synthetic prices only.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from pathlib import Path
 from r1s_strategy import R1StagedStrategy
 from run import _json_safe
 from strategy import DAY_NS
+from strategy import FOUR_HOUR_NS
 from strategy import WaitingSignal
 
 from vibe_trading.backtest import BacktestEngine
@@ -47,7 +48,8 @@ class CaseStrategy(R1StagedStrategy):
             self._submit_signal(
                 WaitingSignal(
                     bar.ts_event,
-                    bar.ts_event + 10 * DAY_NS,
+                    bar.ts_event
+                    + (FOUR_HOUR_NS if self.signal_variant == "box-edge-4h" else 10 * DAY_NS),
                     -1 if invalid_notional else 1,
                     85_300,
                     85_500
@@ -55,7 +57,11 @@ class CaseStrategy(R1StagedStrategy):
                     else -1
                     if getattr(self, "case_scenario", None) == "invalid-price"
                     else 85_100,
-                    84_900 if invalid_notional else 85_700,
+                    0.14
+                    if invalid_notional and self.signal_variant == "box-edge-4h"
+                    else 84_900
+                    if invalid_notional
+                    else 85_700,
                     85_299.9 if invalid_notional else 600,
                 ),
             )
@@ -114,6 +120,11 @@ def main() -> None:  # noqa: C901 - one native fixture driver checks several ord
     parser = argparse.ArgumentParser()
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument(
+        "--signal-variant",
+        choices=("daily-pivot", "box-edge-4h"),
+        default="daily-pivot",
+    )
+    parser.add_argument(
         "--scenario",
         choices=(
             "normal",
@@ -124,6 +135,7 @@ def main() -> None:  # noqa: C901 - one native fixture driver checks several ord
             "split-skip",
             "invalid-price",
             "invalid-notional",
+            "expiry",
         ),
         required=True,
     )
@@ -171,6 +183,7 @@ def main() -> None:  # noqa: C901 - one native fixture driver checks several ord
             ),
             execution_bar_minutes=5,
             strategy_id=StrategyId("R1S-CHECK"),
+            signal_variant=args.signal_variant,
         )
         strategy.case_scenario = args.scenario
         engine.add_strategy(strategy)
@@ -182,22 +195,56 @@ def main() -> None:  # noqa: C901 - one native fixture driver checks several ord
             (85_680.4, 85_960.0, 85_561.0, 85_954.1),
         ]
         if args.scenario == "collision":
-            prices[2] = (85_375.0, 85_754.8, 84_900.0, 85_674.4)
+            prices[2] = (
+                (85_375.0, 85_550.0, 84_900.0, 85_500.0)
+                if args.signal_variant == "box-edge-4h"
+                else (85_375.0, 85_754.8, 84_900.0, 85_674.4)
+            )
         if args.scenario == "partial":
             prices[2] = (85_375.0, 85_754.8, 85_301.0, 85_674.4)
         if args.scenario == "partial-first":
-            prices[2] = (85_375.0, 85_600.0, 85_300.0, 85_500.0)
-            prices[3] = (85_500.0, 85_750.0, 85_480.0, 85_680.4)
-            prices[4] = (85_680.4, 85_750.0, 85_600.0, 85_680.4)
+            prices[2] = (
+                (85_375.0, 85_420.0, 85_300.0, 85_400.0)
+                if args.signal_variant == "box-edge-4h"
+                else (85_375.0, 85_600.0, 85_300.0, 85_500.0)
+            )
+            prices[3] = (
+                (85_400.0, 85_420.0, 85_380.0, 85_400.0)
+                if args.signal_variant == "box-edge-4h"
+                else (85_500.0, 85_750.0, 85_480.0, 85_680.4)
+            )
+            prices[4] = (
+                (85_400.0, 85_420.0, 85_380.0, 85_400.0)
+                if args.signal_variant == "box-edge-4h"
+                else (85_680.4, 85_750.0, 85_600.0, 85_680.4)
+            )
             prices.append((85_680.4, 85_960.0, 85_600.0, 85_954.1))
         if args.scenario == "time-exit":
-            prices[2] = (85_375.0, 85_600.0, 85_300.0, 85_500.0)
-            prices[3] = (85_500.0, 85_600.0, 85_400.0, 85_500.0)
-            prices[4] = (85_500.0, 85_600.0, 85_400.0, 85_500.0)
+            prices[2] = (
+                (85_375.0, 85_420.0, 85_300.0, 85_400.0)
+                if args.signal_variant == "box-edge-4h"
+                else (85_375.0, 85_600.0, 85_300.0, 85_500.0)
+            )
+            prices[3] = (
+                (85_400.0, 85_420.0, 85_350.0, 85_400.0)
+                if args.signal_variant == "box-edge-4h"
+                else (85_500.0, 85_600.0, 85_400.0, 85_500.0)
+            )
+            prices[4] = (
+                (85_400.0, 85_420.0, 85_350.0, 85_400.0)
+                if args.signal_variant == "box-edge-4h"
+                else (85_500.0, 85_600.0, 85_400.0, 85_500.0)
+            )
+        if args.scenario == "expiry":
+            prices = [(85_500.0, 85_600.0, 85_400.0, 85_500.0)] * 5
         timestamps = [1_790_000_099_999_000_000 + i * 300_000_000_000 for i in range(len(prices))]
         if args.scenario == "time-exit":
-            timestamps[3] = timestamps[1] + 61 * DAY_NS
+            timestamps[3] = timestamps[1] + (
+                6 * DAY_NS if args.signal_variant == "box-edge-4h" else 61 * DAY_NS
+            )
             timestamps[4] = timestamps[3] + 300_000_000_000
+        if args.scenario == "expiry":
+            timestamps[4] = timestamps[0] + FOUR_HOUR_NS
         start = 1_790_000_099_999_000_000
         engine.add_data(
             [
@@ -215,7 +262,9 @@ def main() -> None:  # noqa: C901 - one native fixture driver checks several ord
                 [
                     TradeTick(
                         instrument_id,
-                        instrument.make_price(85_750),
+                        instrument.make_price(
+                            85_450 if args.signal_variant == "box-edge-4h" else 85_750,
+                        ),
                         instrument.make_qty(0.001),
                         AggressorSide.BUYER,
                         TradeId(f"R1S-PARTIAL-FIRST-{i}"),
@@ -266,15 +315,32 @@ def main() -> None:  # noqa: C901 - one native fixture driver checks several ord
                 and len(positions) == 0
                 and strategy.staged_invalid_notional_skips == 1
             )
+        elif args.scenario == "expiry":
+            valid = (
+                len(orders) == 2
+                and str(entry.status) == "EXPIRED"
+                and str(stop.status) == "CANCELED"
+                and len(positions) == 0
+                and strategy.staged_entry_id is None
+            )
         elif args.scenario == "normal":
             first, last = list(orders.iloc[2:].itertuples())
             valid = (
                 str(entry.status) == "FILLED"
                 and str(stop.status) == "CANCELED"
-                and str(stop.quantity) == "0.002"
-                and str(stop.trigger_price) == "85269.90"
+                and (
+                    (str(stop.quantity), str(stop.trigger_price))
+                    == (
+                        ("0.003", "85100.00")
+                        if args.signal_variant == "box-edge-4h"
+                        else ("0.002", "85269.90")
+                    )
+                )
                 and str(first.status) == "FILLED"
                 and str(first.quantity) == "0.001"
+                and (
+                    str(first.price) == "85439.80" if args.signal_variant == "box-edge-4h" else True
+                )
                 and str(last.status) == "FILLED"
                 and str(last.quantity) == "0.002"
                 and len(positions) == 1
@@ -353,6 +419,7 @@ def main() -> None:  # noqa: C901 - one native fixture driver checks several ord
             )
         payload = {
             "scenario": args.scenario,
+            "signal_variant": args.signal_variant,
             "fills": (
                 fills.reset_index()[["client_order_id", "last_qty", "last_px", "ts_event"]]
                 .astype(str)

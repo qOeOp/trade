@@ -5,6 +5,7 @@ Source geometry checks for the native four-hour box signal.
 import unittest
 from types import SimpleNamespace
 
+from r1s_strategy import R1StagedStrategy
 from strategy import BOX_BARS
 from strategy import FOUR_HOUR_NS
 from strategy import FourHour
@@ -97,6 +98,23 @@ class BoxSignalCases(unittest.TestCase):
             89.75,
             95.0,
         )
+
+    def test_staged_edge_targets_use_actual_entry_and_structural_midpoint(self):
+        instrument = SimpleNamespace(
+            make_price=lambda value: SimpleNamespace(as_double=lambda: round(value, 2)),
+        )
+        state = SimpleNamespace(signal_variant="box-edge-4h", instrument=instrument)
+        signal = SimpleNamespace(side=1, stop=89.75, target=95.0)
+        assert R1StagedStrategy._exit_targets(state, signal, 90.0) == (90.25, 95.0)
+        assert R1StagedStrategy._exit_targets(state, signal, 89.9) == (90.05, 95.0)
+
+    def test_staged_edge_requires_midpoint_beyond_first_target(self):
+        instrument = SimpleNamespace(
+            make_price=lambda value: SimpleNamespace(as_double=lambda: round(value, 2)),
+        )
+        state = SimpleNamespace(signal_variant="box-edge-4h", instrument=instrument)
+        too_close = SimpleNamespace(side=1, stop=89.75, target=90.2)
+        assert R1StagedStrategy._exit_targets(state, too_close, 90.0) is None
 
 
 if __name__ == "__main__":

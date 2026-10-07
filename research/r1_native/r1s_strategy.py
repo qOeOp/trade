@@ -1,5 +1,5 @@
 """
-Native R-1s staged exits on the frozen R-1u daily-pivot entry signal.
+Native staged exits for R-1s daily pivots and H11 four-hour range edges.
 
 Nautilus orders, fills, cache positions and Portfolio remain the facts. The Strategy
 retains only signal intent, order IDs and native-event progress.
@@ -44,8 +44,8 @@ class R1StagedStrategy(R1Strategy):
         max_coin_notional_fraction: float = 0.05,
         signal_variant: str = "daily-pivot",
     ) -> None:
-        if signal_variant != "daily-pivot":
-            raise ValueError("R-1s requires the frozen daily-pivot entry signal")
+        if signal_variant not in ("daily-pivot", "box-edge-4h"):
+            raise ValueError("staged exits require daily pivots or four-hour range edges")
         super().__init__(
             instrument_id,
             daily_bar_type,
@@ -135,6 +135,33 @@ class R1StagedStrategy(R1Strategy):
             for price, size in price_sizes
         )
 
+    def _exit_targets(
+        self,
+        signal: WaitingSignal,
+        entry_price: float,
+    ) -> tuple[float, float] | None:
+        if self.signal_variant == "box-edge-4h":
+            entry = self.instrument.make_price(entry_price).as_double()
+            stop = self.instrument.make_price(signal.stop).as_double()
+            risk = signal.side * (entry - stop)
+            if risk <= 0:
+                return None
+            first = self.instrument.make_price(entry + signal.side * risk).as_double()
+            last = self.instrument.make_price(signal.target).as_double()
+            if (
+                first <= 0
+                or last <= 0
+                or signal.side * (first - entry) <= 0
+                or signal.side * (last - first) < 0
+            ):
+                return None
+            return first, last
+        impulse_target = entry_price + signal.side * signal.impulse
+        last = (
+            impulse_target if signal.side * (impulse_target - signal.target) > 0 else signal.target
+        )
+        return signal.target, last
+
     def _release_waiting(self, reference_price: float) -> None:
         if self.staged_cleanup_pending:
             return
@@ -149,13 +176,14 @@ class R1StagedStrategy(R1Strategy):
             self.staged_split_skips += 1
             return
         first_qty, last_qty = split
-        impulse_target = signal.level + signal.side * signal.impulse
-        last_target = (
-            impulse_target if signal.side * (impulse_target - signal.target) > 0 else signal.target
-        )
+        targets = self._exit_targets(signal, signal.level)
+        if targets is None:
+            self.staged_invalid_price_skips += 1
+            return
+        first_target, last_target = targets
         if any(
             self.instrument.make_price(value).as_double() <= 0
-            for value in (signal.level, signal.stop, signal.target, last_target)
+            for value in (signal.level, signal.stop, first_target, last_target)
         ):
             self.staged_invalid_price_skips += 1
             return
@@ -163,7 +191,7 @@ class R1StagedStrategy(R1Strategy):
             (
                 (signal.level, quantity),
                 (signal.stop, quantity),
-                (signal.target, first_qty),
+                (first_target, first_qty),
                 (last_target, last_qty),
             ),
         ):
@@ -291,19 +319,18 @@ class R1StagedStrategy(R1Strategy):
             return
         first_qty, last_qty = split
         signal = self.staged_signal
-        impulse_target = position.avg_px_open + signal.side * signal.impulse
-        last_target = (
-            impulse_target if signal.side * (impulse_target - signal.target) > 0 else signal.target
-        )
-        if any(
-            self.instrument.make_price(value).as_double() <= 0
-            for value in (signal.target, last_target)
-        ):
+        targets = self._exit_targets(signal, position.avg_px_open)
+        if targets is None:
+            self.staged_invalid_actual_target_closes += 1
+            self.close_all_positions(self.instrument_id)
+            return
+        first_target, last_target = targets
+        if any(self.instrument.make_price(value).as_double() <= 0 for value in targets):
             self.staged_invalid_actual_target_closes += 1
             self.close_all_positions(self.instrument_id)
             return
         if not self._meets_min_notional(
-            ((signal.target, first_qty), (last_target, last_qty)),
+            ((first_target, first_qty), (last_target, last_qty)),
         ):
             self.staged_invalid_actual_target_closes += 1
             self.close_all_positions(self.instrument_id)
@@ -313,7 +340,7 @@ class R1StagedStrategy(R1Strategy):
             self.instrument_id,
             close_side,
             first_qty,
-            self.instrument.make_price(signal.target),
+            self.instrument.make_price(first_target),
             reduce_only=True,
         )
         last = self.order_factory.limit(
