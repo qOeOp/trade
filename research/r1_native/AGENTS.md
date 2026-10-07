@@ -11,5 +11,6 @@
 - `audit_fill_bar_opens.py` joins native entry fill events to five-minute LAST opens without changing fills or PnL. Its price-path counts cannot stand in for a new backtest.
 - `audit_r1s_integrity.py` reads native H04 order and position report IDs to check terminal protection and orphaned active exits. It does not create an execution ledger or return series.
 - `audit_source_daily_context.py` reads the reused native daily Catalogs and frozen video publication metadata to test R-1 pivot-state fidelity at source decisions. It creates no orders, fills, account returns or replacement backtest.
+- `audit_source_support_zones.py` reads those same native inputs to test registered, confirmed support-zone geometry and invalidation at source decisions. Its candidate list and source-distance check create no orders, fills, account returns or replacement backtest.
 - Keep source rule custody tied to `0725a7b3f89902e27cd421a18b4b879a13268534`.
 - Check with `python -m compileall research/r1_native`, then run against a catalog containing Binance USDT perpetual minute bars and the matching instrument.
