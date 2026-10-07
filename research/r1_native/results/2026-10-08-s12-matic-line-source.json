@@ -1,0 +1,66 @@
+{
+  "scope": "S12 primary-video source fidelity only; no post-publication market price, annual return, order or fill read",
+  "source_archive_ref": "0725a7b3f89902e27cd421a18b4b879a13268534:research/ronnie/tv/video_ideas.jsonl.gz",
+  "idea_uuid": "1Cy9q6Or",
+  "idea_user": "Ronnie_Dong",
+  "idea_published_utc": "2024-08-20T09:58:24.358533+00:00",
+  "video_url": "https://video-ideas.tradingview.com/1/1416280-uBKU7920tE26X5qh.mp4",
+  "receipt_path": "/tmp/r1-s12-note-create.json",
+  "receipt_sha256": "39501a60c657f46983e3f9b47a97062ced146dd49906a38fcb5553ebbd4c0b4d",
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-6e0460c663f84891b41665c163d15216/note.md",
+  "note_sha256": "59a2c6bcc06c09eaab9fd9092eea9e98818a0b91ee08f43c398742f06bc34229",
+  "stage_ids": {
+    "media": "media-a1cecdcbd088945e60df4c6e3f63e1bf5533e2db746608cf4319d8cd05e6a331",
+    "transcript": "transcript-304785775be26219d7acb46163fc97e1cfa0b2b9460fe2e55d715f2a8cb5aac4",
+    "frames": "frames-d7f7e535b3c153298eb3eea80a67726864a86f1bc4e9471373d3890a87d611e9"
+  },
+  "stage_manifest_sha256": {
+    "media": "a1cecdcbd088945e60df4c6e3f63e1bf5533e2db746608cf4319d8cd05e6a331",
+    "transcript": "304785775be26219d7acb46163fc97e1cfa0b2b9460fe2e55d715f2a8cb5aac4",
+    "frames": "d7f7e535b3c153298eb3eea80a67726864a86f1bc4e9471373d3890a87d611e9"
+  },
+  "evidence": [
+    {
+      "segments": "E047-E058",
+      "time_ms": [
+        95900,
+        124860
+      ],
+      "observation": "MATIC daily falling line was already drawn. The speaker calls the current candle an apparent break but says its bullish body is not yet large enough and watches how the day closes."
+    },
+    {
+      "segments": "E059-E070",
+      "time_ms": [
+        124860,
+        147340
+      ],
+      "observation": "He says a line break can be chased for a short-term long, names the previous high as target, and places the minimum structural stop below the prior low; that stop distance constrains size. He does not say a new order has already filled."
+    }
+  ],
+  "original_frames": [
+    {
+      "frame_id": "F32",
+      "timestamp_ms": 109110,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-d7f7e535b3c153298eb3eea80a67726864a86f1bc4e9471373d3890a87d611e9/F32.png",
+      "sha256": "d200efaef56d324abd5ccfa86a02989ee9585c7982ccf0a8ecfff99e4ce42e77",
+      "observation": "Daily chart has the pre-existing descending orange line and the current candle near its projected line; black arrows above the current area are a future path, not an observed retest."
+    },
+    {
+      "frame_id": "F17",
+      "timestamp_ms": 117890,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-d7f7e535b3c153298eb3eea80a67726864a86f1bc4e9471373d3890a87d611e9/F17.png",
+      "sha256": "ae856af8f2905458381f8c350befef327855bc347ed3d064eaa10c1ee7f8c47d",
+      "observation": "Closer daily chart shows the current blue candle above the falling line and old horizontal high and low zones; no completed break-then-retest sequence is visible."
+    },
+    {
+      "frame_id": "F10",
+      "timestamp_ms": 139710,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-d7f7e535b3c153298eb3eea80a67726864a86f1bc4e9471373d3890a87d611e9/F10.png",
+      "sha256": "c7c2ece6e93c2f9b1cb368ffc29284e742078ae93cb134de135a8da55254d40b",
+      "observation": "Wider daily chart shows historical declining line and current price near 0.44; no unique mechanical pair of pivot anchors or line tolerance is supplied."
+    }
+  ],
+  "h06a_gate": "not_passed",
+  "decision": "This earlier MATIC video shows an apparent current daily descending-line break and a possible short-term chase, not an observed completed break followed by an actual retest and new order. The previously drawn line lacks a unique anchor algorithm. S12 cannot validate H06a; retain its source gate and seek a different independent completed retest. It also shows that H06 immediate entry differs in timeframe and exact candle-strength mechanics, even though the broad breakout idea is present.",
+  "limits": "Fast ASR, no independent audio review. Generic note has unknown author/date; frozen first-party archive supplies identity. TradingView venue and exact recording clock are not proved."
+}
