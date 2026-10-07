@@ -1,0 +1,142 @@
+{
+  "source_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "strategy_source_sha256": "c691f78495154785ebea051ec4e2ba584d0e8ec60bfb3cdf6cc80a818a0cb08c",
+  "staged_strategy_source_sha256": "4e99f5dd9d7580555216cff72590018cd8e55824d74e063cc9c6fe7dd5b913e9",
+  "trendline_strategy_source_sha256": null,
+  "runner_source_sha256": "f9de9c550765d21cf51474efe30a9e91f88e1c227c09b9a8ba2174b7d24a4227",
+  "strategy": "H11-box-edge-staged-1r",
+  "signal_variant": "box-edge-4h",
+  "exit_variant": "staged-edge-1r",
+  "integrity_findings": [],
+  "integrity_passed": true,
+  "account_model": "one native BacktestEngine margin account, 100000 USDT, 2 strategies sharing portfolio capital",
+  "starting_balance_usdt": "100000",
+  "sizing": {
+    "mode": "native_equity_stop_risk_with_notional_cap",
+    "risk_budget_bps": 25.0,
+    "coin_notional_cap_pct": 5.0
+  },
+  "final_equity_usdt": "99411.94688444",
+  "net_change_usdt": "-588.05311556",
+  "period_return_pct": -0.58805311556,
+  "annualized_return_pct": -0.6039670950280198,
+  "closed_trades": 48,
+  "winning_trades": 17,
+  "closed_trade_win_rate": 0.3541666666666667,
+  "win_rate_definition": "positive native closed-position realized_pnl including fill commissions and position funding adjustments",
+  "denied_orders": 0,
+  "rejected_orders": 0,
+  "native_sharpe_252": -1.837885487725856,
+  "native_sharpe_365": -2.2118955268674014,
+  "native_max_drawdown_daily_close": -0.006632341793669742,
+  "stats_returns": {
+    "Risk Return Ratio": -0.11416674285696553,
+    "Returns Kurtosis": 65.86101049820235,
+    "Average (Return)": -1.6104401198864444e-05,
+    "Tail Ratio": 0.0,
+    "Returns Volatility (252 days)": 0.002239263704274427,
+    "Average Win (Return)": 0.00024016243371923393,
+    "Sortino Ratio (252 days)": -2.272066611964427,
+    "Average Loss (Return)": -0.0003250429645709331,
+    "Sharpe Ratio (252 days)": -1.8123408575627433,
+    "Profit Factor": 0.3283838478758317,
+    "Returns Skewness": 0.7239277311382059
+  },
+  "stats_pnls": {
+    "USDT": {
+      "PnL% (total)": -0.5880531155600037,
+      "Max Winner": 26.183739,
+      "Min Loser": -10.41348276,
+      "Avg Loser": -23.968848419354828,
+      "Expectancy": -12.25110657416666,
+      "Max Loser": -55.83452325,
+      "Avg Winner": 9.116540319999999,
+      "Min Winner": 3.0118434,
+      "Win Rate": 0.3541666666666667,
+      "PnL (total)": -588.0531155600038
+    }
+  },
+  "stats_general": {
+    "Long Ratio": 0.54
+  },
+  "data_interval_minutes": 5,
+  "input_start_utc": "2025-10-07T00:00:00+00:00",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00+00:00",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "quantity": "0.008",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 84,
+      "box_breaks": 0,
+      "box_edge": {
+        "plans": 84,
+        "submitted_brackets": 82,
+        "invalid_price_skips": 0,
+        "time_exits": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": {
+        "missing_impulse": 0,
+        "split_skips": 0,
+        "invalid_price_skips": 0,
+        "invalid_notional_skips": 0,
+        "invalid_actual_target_closes": 0,
+        "unallocatable_closes": 0,
+        "protection_failures": 0,
+        "order_failures": 0,
+        "same_bar_first_stop": 0
+      },
+      "positions": 23
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "quantity": "0.214",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 71,
+      "box_breaks": 0,
+      "box_edge": {
+        "plans": 71,
+        "submitted_brackets": 66,
+        "invalid_price_skips": 0,
+        "time_exits": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": {
+        "missing_impulse": 0,
+        "split_skips": 0,
+        "invalid_price_skips": 0,
+        "invalid_notional_skips": 0,
+        "invalid_actual_target_closes": 0,
+        "unallocatable_closes": 0,
+        "protection_failures": 0,
+        "order_failures": 0,
+        "same_bar_first_stop": 0
+      },
+      "positions": 25
+    }
+  ],
+  "limitations": [
+    "Five-minute execution bars cannot resolve every intrabar order sequence",
+    "Current contract terms approximate historical metadata",
+    "Fixed 2026 coin universe is backcast into 2025",
+    "Minute-sampled portfolio drawdown is not yet reported"
+  ]
+}

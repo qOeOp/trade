@@ -1,0 +1,72 @@
+{
+  "method": "read-only native CSV/summary audit; no alternate fill or PnL engine",
+  "runs": {
+    "h11": {
+      "run": "/tmp/r1-rd-h11-full-37-repaired",
+      "files_sha256": {
+        "summary.json": "f3ecaa606741c96dbd14cf2cf4340db4f4bc42632daccdb75c15413042fed5ba",
+        "orders.csv": "32d4b96c2e2f6260c7967b5535c056889e4c32dbabb9bb9eef7a48577890b256",
+        "fills.csv": "92280f293f95637ac390d01c3be662ceb8896806ecf2b22e86b460679043afc5",
+        "positions.csv": "30f38bc97ba757196674ca93e433b6b996467c408b15451cfff92707329c97c5",
+        "returns_series.csv": "101c6db0f07684e903558a9dcbc7a6378c2e23437703998f8ad4bbfc0953da8e",
+        "account.csv": "92970f878de2f55328ab78163989dd035f53b65f4b2b5ef9e3bbba95a843e9e9"
+      },
+      "strategy_source_sha256": "c691f78495154785ebea051ec4e2ba584d0e8ec60bfb3cdf6cc80a818a0cb08c",
+      "staged_strategy_source_sha256": "0959fc660d11c7e50c76d42f960b94c2edb14468c69d04934178c693648862ef",
+      "runner_source_sha256": "0ec1c618faa8f17b8d35f88cadaeb97ed25174142b85a799e1964964de08e8fe",
+      "closed_positions": 998,
+      "wins_with_funding": 420,
+      "funding_adjustment_events": 522,
+      "funding_adjustment_net_usdt": "74.39177955",
+      "position_fill_commissions_usdt": "3105.75918775",
+      "native_order_statuses": {
+        "LIMIT:ACCEPTED": 3,
+        "LIMIT:CANCELED": 1138,
+        "LIMIT:EXPIRED": 2078,
+        "LIMIT:FILLED": 1449,
+        "MARKET:FILLED": 13,
+        "STOP_MARKET:CANCELED": 2136,
+        "STOP_MARKET:FILLED": 959,
+        "STOP_MARKET:SUBMITTED": 3
+      },
+      "staged_execution_totals": {
+        "breakeven_unavailable": 9,
+        "stop_cancel_emergencies": 5,
+        "emergency_closes": 5,
+        "protection_failures": 0,
+        "order_failures": 0
+      }
+    },
+    "paired_h10": {
+      "run": "/tmp/r1-rd-h11-paired-h10-37",
+      "files_sha256": {
+        "summary.json": "cc883b45caff4432c7f6efca1048c215f5a278d08dddbe7cca5d99ca637aa4b5",
+        "orders.csv": "561e1da078f03451e52e366c0ed08f08ef9264fe5bdf0abe4dde6ab9741cef84",
+        "fills.csv": "0fd4ee17ecb81373ecf2ca0c37863096a2e305f2262a3ecd6e1c6ef06b636ac1",
+        "positions.csv": "7324305ef537cb5b1d7bc5ad3ce1cd5879108b0db9e16b7dca2d70a852dcf2ae",
+        "returns_series.csv": "df2b34480a6fb70ab72c7aa4fb1ee2dd9a1258428753ba3f22ccc47c855732cd",
+        "account.csv": "848a9c28a9a2225939c35bb3de2349e317758fe80251e59579527e2e0b886ea4"
+      },
+      "strategy_source_sha256": "c691f78495154785ebea051ec4e2ba584d0e8ec60bfb3cdf6cc80a818a0cb08c",
+      "staged_strategy_source_sha256": null,
+      "runner_source_sha256": "0ec1c618faa8f17b8d35f88cadaeb97ed25174142b85a799e1964964de08e8fe",
+      "closed_positions": 934,
+      "wins_with_funding": 61,
+      "funding_adjustment_events": 930,
+      "funding_adjustment_net_usdt": "256.61801112",
+      "position_fill_commissions_usdt": "3175.53222566",
+      "native_order_statuses": {
+        "LIMIT:ACCEPTED": 3,
+        "LIMIT:CANCELED": 2905,
+        "LIMIT:EXPIRED": 1978,
+        "LIMIT:FILLED": 977,
+        "LIMIT:SUBMITTED": 3,
+        "MARKET:FILLED": 16,
+        "STOP_MARKET:CANCELED": 2056,
+        "STOP_MARKET:FILLED": 874,
+        "STOP_MARKET:SUBMITTED": 3
+      },
+      "staged_execution_totals": null
+    }
+  }
+}
