@@ -24,6 +24,7 @@ This file records source observations, diagnostic hypotheses, exact data/result 
 - **D07 - frozen daily-rule parity:** registered read-only comparison of frozen `family_r.py` trend/break state against the BTC Nautilus daily-bar audit. It compares rule state, not toy fills or PnL.
 - **D08 - 37-coin daily-rule parity:** registered extension of the same deterministic source-rule count check to the exact-source R-1u paired run, rebuilding only its daily input candles from the already-used native catalogs. No economic read or new orders are produced.
 - **D09 - native bracket-price parity:** registered read-only join of the frozen daily signal plan to all entry/stop/target orders in the exact-source R-1u report, including actual-fill reward/risk drift. It makes no replacement fills or returns.
+- **D10 - favorable-open opportunity:** registered read-only join of native filled R-1u entries to their five-minute LAST fill bars, counting openings through the submitted limit while retaining native fills and account PnL.
 
 This is a census of observed work in this Goal, not proof that every external/local historical Ronnie experiment is discoverable. Each later attempt must append a row, including failures and partial reads. All annual variants overlap the same exposed year; no row can be relabeled as an independent holdout after viewing its result.
 
@@ -186,3 +187,7 @@ python/.venv/bin/python research/r1_native/audit_native_brackets.py \
   --run-orders /tmp/r1-rd-h03-paired-r1u-37-exact-source/orders.csv \
   --output research/r1_native/results/2026-10-07-37coin-native-bracket-parity-d09.json
 ```
+
+## Diagnostic D10: favorable opens on native entry-fill bars
+
+**Question registered before the read:** D09 found no native entry fill better than its submitted limit, while the frozen research `family_r.py` fill function may credit a more favorable daily open. On the same exact-source R-1u run, join every filled native ENTRY order to its five-minute LAST bar at the native fill event, using instrument, bar timestamp and the recorded order limit. Count BUY fill bars whose open is strictly below the limit and SELL fill bars whose open is strictly above it; also count exact-open and adverse-open cases, timing mismatches, and entries whose order was not live by the interval open. Report the price difference and first examples, but do not assume the five-minute open was reachable by an order submitted later in that interval. Keep all native fills, fees, funding, balances and portfolio metrics unchanged; no alternate fill/PnL series or performance selection. If favorable opens occur, investigate engine bar-timestamp semantics and source-model comparability before making a product or strategy change. If none occur, this particular gap mechanism cannot explain the toy/native gap on filled entries in this run. The exposed year remains development evidence; no new market data is fetched.
