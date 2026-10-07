@@ -380,4 +380,6 @@
 
 **流程与产品含义。** Agent 研究多档位交易时，应分别记录每种风格的资产、时间、首次可见的 A/B 与区域、入场档、结构止损、第一障碍、目标空间和订单状态；每条来源路径用自己的条件预测和完整原生账户实验验收。研究者门槛要注明适用的子风格，不能把一个变体的 2R 当作作者所有条件动作的通用法则，也不能看过年度亏盈后偷偷降门槛救旧策略。若改做 50% 风格，它是独立预登记的假设，需要真正事前的来源案例或明确标记的代理规则、负例、原生执行与 37 币对照；先核算新增机会能否补足 F36 的联合目标差距，再投入完整回放。R&D 保存来源与假设的适用范围和关系，不增加专用策略语法或自动搜索器。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[研究场景](../scenarios/research.zh.md)；原片、帧哈希、资产切换和风险空间代数见[S36/D39 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s36-whether-the-january-7-btc-plan-preceded-the-50-touch)及[S36 来源证据](../../research/r1_native/results/2026-10-08-s36-prior-btc-50-source.json)。
+**后续来源核查。** D40 在相同 Nautilus 合约输入上核对 SUI 事前画面：此前已完成的高点 **2.0266** 与图相符，现有"最近已确认低点"却选到 **1.6583**，算出的 50% 价位 **1.84245** 既高于画面档位，也已被触及。D41 在四个预定时点逐一保留所有八个合格低点；其中四个较早低点及三层回撤价都能落入画面价带，且其 50% 价位仍未触及。于是"没有当时行情／无法画出该波段"已被排除，**如何事前从多个合理低点选起点**仍未解决。产品应保留所有候选、确认时间和选择规则的来源身份；画面价格吻合不能代替唯一、可复现的选取机制，也不能按已见收益挑其中一个。
+
+**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[研究场景](../scenarios/research.zh.md)；原片、帧哈希、资产切换、风险空间代数和后续锚点核查见[S36-D41 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s36-whether-the-january-7-btc-plan-preceded-the-50-touch)、[S36 来源证据](../../research/r1_native/results/2026-10-08-s36-prior-btc-50-source.json)、[D40 结果](../../research/r1_native/results/2026-10-08-d40-sui-tier-geometry.json)与[D41 候选全集](../../research/r1_native/results/2026-10-08-d41-sui-anchor-space.json)。
