@@ -1,5 +1,5 @@
 """
-Read native R-1s reports for terminal protection and orphaned exit orders.
+Read native staged-exit reports for terminal protection and orphaned exit orders.
 
 This audits report identities and order states. It does not create fills, account equity
 or strategy returns.
@@ -21,8 +21,8 @@ OPEN_STATUSES = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
 
 def audit(run_dir: Path) -> dict:  # noqa: C901 - one report read checks native identities and states.
     summary = json.loads((run_dir / "summary.json").read_text())
-    if summary["exit_variant"] != "staged-r1s":
-        raise ValueError("native R-1s summary required")
+    if summary["exit_variant"] not in ("staged-r1s", "staged-edge-1r"):
+        raise ValueError("native staged-exit summary required")
     orders = pd.read_csv(run_dir / "orders.csv", dtype={"client_order_id": str})
     positions = pd.read_csv(run_dir / "positions.csv", dtype={"opening_order_id": str})
     if not orders.client_order_id.is_unique or orders.client_order_id.isna().any():
@@ -65,6 +65,17 @@ def audit(run_dir: Path) -> dict:  # noqa: C901 - one report read checks native 
             & (live_positions.strategy_id == order.strategy_id)
         ]
         if len(same_contract) != 1:
+            parent = (
+                by_id.loc[order.parent_order_id] if order.parent_order_id in by_id.index else None
+            )
+            if (
+                order.status == "SUBMITTED"
+                and parent is not None
+                and parent.status in OPEN_STATUSES
+                and Decimal(str(parent.filled_qty)) == 0
+                and parent.contingency_type == "OTO"
+            ):
+                continue
             findings.append(f"orphaned live exit: {order.client_order_id}")
     if summary["denied_orders"] or summary["rejected_orders"]:
         findings.append("native orders denied or rejected")

@@ -553,6 +553,13 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                             "same_bar_first_stop": strategies[
                                 row["coin"]
                             ].staged_same_bar_first_stop,
+                            "breakeven_unavailable": strategies[
+                                row["coin"]
+                            ].staged_breakeven_unavailable,
+                            "stop_cancel_emergencies": strategies[
+                                row["coin"]
+                            ].staged_stop_cancel_emergencies,
+                            "emergency_closes": strategies[row["coin"]].staged_emergency_closes,
                         }
                         if args.exit_variant in STAGED_EXITS
                         else None
