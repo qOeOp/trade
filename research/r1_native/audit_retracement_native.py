@@ -1,5 +1,5 @@
 """
-Audit H13c native bracket, replacement, position and open-protection facts.
+Audit H13c and paired R-1u native bracket and open-protection facts.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
 
 def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship audit.
     summary = json.loads((run / "summary.json").read_text())
-    if summary["signal_variant"] != "support-confirmed-4h":
-        raise ValueError("H13c native replay required")
+    if summary["signal_variant"] not in ("support-confirmed-4h", "daily-pivot"):
+        raise ValueError("H13c or paired R-1u native replay required")
     orders = pd.read_csv(run / "orders.csv", dtype={"client_order_id": str})
     positions = pd.read_csv(run / "positions.csv", dtype={"opening_order_id": str})
     findings = []
@@ -26,7 +26,9 @@ def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship aud
         findings.append("runner reported native order failure")
     if not orders.client_order_id.is_unique or orders.client_order_id.isna().any():
         findings.append("missing or duplicate native order identity")
-    if any(row["support_pullback"]["cancel_race_fills"] < 0 for row in summary["per_coin"]):
+    if summary["signal_variant"] == "support-confirmed-4h" and any(
+        row["support_pullback"]["cancel_race_fills"] < 0 for row in summary["per_coin"]
+    ):
         findings.append("invalid cancel/fill race count")
     brackets = orders[orders.tags.isin(["['ENTRY']", "['STOP_LOSS']", "['TAKE_PROFIT']"])]
     for list_id, group in brackets.groupby("order_list_id"):
@@ -37,15 +39,19 @@ def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship aud
         entry = group[group.tags == "['ENTRY']"].iloc[0]
         stop = group[group.tags == "['STOP_LOSS']"].iloc[0]
         target = group[group.tags == "['TAKE_PROFIT']"].iloc[0]
-        if entry.type != "LIMIT" or entry.side != "BUY" or entry.contingency_type != "OTO":
+        if entry.type != "LIMIT" or entry.contingency_type != "OTO":
             findings.append(f"invalid native entry {entry.client_order_id}")
         if stop.type != "STOP_MARKET" or target.type != "LIMIT":
             findings.append(f"invalid native exits {list_id}")
-        if not (
-            Decimal(str(stop.trigger_price))
-            < Decimal(str(entry.price))
-            < Decimal(str(target.price))
-        ):
+        stop_price = Decimal(str(stop.trigger_price))
+        entry_price = Decimal(str(entry.price))
+        target_price = Decimal(str(target.price))
+        valid_price_order = (
+            stop_price < entry_price < target_price
+            if entry.side == "BUY"
+            else target_price < entry_price < stop_price
+        )
+        if not valid_price_order:
             findings.append(f"invalid native bracket price order {list_id}")
         if stop.parent_order_id != entry.client_order_id:
             findings.append(f"stop parent differs from entry {list_id}")
@@ -102,8 +108,10 @@ def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship aud
         "filled_entries": int((brackets[brackets.tags == "['ENTRY']"].status == "FILLED").sum()),
         "closed_positions": int(positions.ts_closed.notna().sum()),
         "open_positions": len(live),
-        "supersessions": sum(
-            row["support_pullback"]["supersessions"] for row in summary["per_coin"]
+        "supersessions": (
+            sum(row["support_pullback"]["supersessions"] for row in summary["per_coin"])
+            if summary["signal_variant"] == "support-confirmed-4h"
+            else None
         ),
         "findings": findings,
         "passed": not findings,
