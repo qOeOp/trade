@@ -1,0 +1,122 @@
+{
+  "source_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "strategy_source_sha256": "a36102d38c2b6932758140dd98d8bb1f4d92955ecc5cda1aafc2e6f7a04b9d5c",
+  "staged_strategy_source_sha256": null,
+  "trendline_strategy_source_sha256": null,
+  "runner_source_sha256": "c7ee8565fec07c0d65a87cc4793bdd86926f1db1b043b12c93351c5a50f44102",
+  "strategy": "H12-daily-pivot-outer-4h",
+  "signal_variant": "daily-pivot-outer-4h",
+  "exit_variant": "fixed-2r",
+  "integrity_findings": [],
+  "integrity_passed": true,
+  "account_model": "one native BacktestEngine margin account, 100000 USDT, 2 strategies sharing portfolio capital",
+  "starting_balance_usdt": "100000",
+  "sizing": {
+    "mode": "native_equity_stop_risk_with_notional_cap",
+    "risk_budget_bps": 25.0,
+    "coin_notional_cap_pct": 5.0
+  },
+  "final_equity_usdt": "98239.02371912",
+  "net_change_usdt": "-1760.97628088",
+  "period_return_pct": -1.76097628088,
+  "annualized_return_pct": -1.808341923845255,
+  "closed_trades": 79,
+  "winning_trades": 25,
+  "closed_trade_win_rate": 0.31645569620253167,
+  "win_rate_definition": "positive native closed-position realized_pnl including fill commissions and position funding adjustments",
+  "denied_orders": 0,
+  "rejected_orders": 0,
+  "native_sharpe_252": -0.6181157142135913,
+  "native_sharpe_365": -0.7439023772080778,
+  "native_max_drawdown_daily_close": -0.03114139599264356,
+  "stats_returns": {
+    "Sharpe Ratio (252 days)": -0.6096238264958004,
+    "Returns Kurtosis": 12.097214848544656,
+    "Risk Return Ratio": -0.03840269138589229,
+    "Average (Return)": -4.776947497421557e-05,
+    "Sortino Ratio (252 days)": -0.8083117090250762,
+    "Average Win (Return)": 0.0010972448575329995,
+    "Returns Skewness": -0.8560765300357548,
+    "Average Loss (Return)": -0.0011670469137051638,
+    "Profit Factor": 0.8625588624293035,
+    "Returns Volatility (252 days)": 0.019746452107519866,
+    "Tail Ratio": 0.8655456977248118
+  },
+  "stats_pnls": {
+    "USDT": {
+      "PnL% (total)": -1.7609762808800007,
+      "Win Rate": 0.31645569620253167,
+      "Expectancy": -22.290838998481046,
+      "PnL (total)": -1760.9762808800006,
+      "Min Winner": 132.77888554,
+      "Avg Winner": 285.99786262239996,
+      "Min Loser": -74.58801608,
+      "Max Winner": 503.9782673,
+      "Avg Loser": -165.01708974888894,
+      "Max Loser": -257.8744443
+    }
+  },
+  "stats_general": {
+    "Long Ratio": 0.52
+  },
+  "data_interval_minutes": 5,
+  "input_start_utc": "2025-10-07T00:00:00+00:00",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00+00:00",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "quantity": "0.008",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 193,
+      "box_breaks": 0,
+      "outer_context": {
+        "admitted": 193,
+        "rejected": 102,
+        "missing": 0
+      },
+      "box_edge": null,
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 34
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "quantity": "0.214",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 326,
+      "box_breaks": 0,
+      "outer_context": {
+        "admitted": 326,
+        "rejected": 205,
+        "missing": 0
+      },
+      "box_edge": null,
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 45
+    }
+  ],
+  "limitations": [
+    "Five-minute execution bars cannot resolve every intrabar order sequence",
+    "Current contract terms approximate historical metadata",
+    "Fixed 2026 coin universe is backcast into 2025",
+    "Minute-sampled portfolio drawdown is not yet reported"
+  ]
+}
