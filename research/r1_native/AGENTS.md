@@ -15,5 +15,6 @@
 - `audit_source_support_zones.py` reads those same native inputs to test registered, confirmed support-zone geometry and invalidation at source decisions. Its candidate list and source-distance check create no orders, fills, account returns or replacement backtest.
 - `audit_source_candle_clock.py` compares a frozen source frame with completed native five-minute LAST bars and checks a prior support-breaking day. It records no orders, fills, account returns or replacement backtest; D19 records missing coverage, while S08/D20 uses a separate public Nautilus Catalog for the source period.
 - `audit_hourly_break_retracement.py` verifies the reused BTC Nautilus LAST Catalog, aggregates complete hourly candles and retains all D32 line-event/anchor candidates for source geometry. It selects no native order and computes no fills or PnL.
+- `audit_prior_break_retest.py` verifies that Catalog and enumerates D33 causal four-hour descending-line pairs at the two December source dates, including later touch bars and missing left context. Its source-band comparison selects no Strategy line and creates no orders or PnL.
 - Keep source rule custody tied to `0725a7b3f89902e27cd421a18b4b879a13268534`.
 - Check with `python -m compileall research/r1_native`, then run against a catalog containing Binance USDT perpetual minute bars and the matching instrument.
