@@ -261,7 +261,11 @@ class ConfirmedSupportPullback:
             row["reason"] = {
                 "near-tier": "not-before-61.8-touch-in-approach-zone",
                 "immediate": "not-new-high-before-61.8-touch",
-                "confirmed-update": "61.8-touched-since-high-or-closed-below",
+                "confirmed-update": (
+                    "50-touched-since-high-or-closed-below"
+                    if self.entry_ratio == NEAR_RATIO
+                    else "61.8-touched-since-high-or-closed-below"
+                ),
             }[self.timing]
             return None, row
         if (a, b) in self.planned_pairs:
