@@ -104,12 +104,17 @@ class ConfirmedSupportPullback:
         support_mode: str = "all-lows",
         entry_ratio: float = ENTRY_RATIO,
         minimum_target_r: float = 2.0,
+        stop_at_origin: bool = False,
     ) -> None:
         if timing not in ("near-tier", "immediate", "confirmed-update"):
             raise ValueError("unsupported support-pullback timing")
         if support_mode not in ("all-lows", "confirmed-pivots", "prior-highs", "none"):
             raise ValueError("unsupported support-pullback support mode")
-        if (entry_ratio, minimum_target_r) not in ((ENTRY_RATIO, 2.0), (NEAR_RATIO, 1.5)):
+        if (entry_ratio, minimum_target_r, stop_at_origin) not in (
+            (ENTRY_RATIO, 2.0, False),
+            (NEAR_RATIO, 1.5, False),
+            (NEAR_RATIO, 0.0, True),
+        ):
             raise ValueError("unsupported pullback entry and room pairing")
         if entry_ratio == NEAR_RATIO and support_mode != "none":
             raise ValueError("the separate 50-percent style has no mandatory 61.8 support test")
@@ -117,6 +122,7 @@ class ConfirmedSupportPullback:
         self.support_mode = support_mode
         self.entry_ratio = entry_ratio
         self.minimum_target_r = minimum_target_r
+        self.stop_at_origin = stop_at_origin
         self.candles: list[FourHour] = []
         self.low_pivots: list[int] = []
         self.high_pivots: list[int] = []
@@ -231,7 +237,7 @@ class ConfirmedSupportPullback:
         level_50 = high - NEAR_RATIO * span
         entry = high - self.entry_ratio * span
         level_764 = high - STOP_RATIO * span
-        stop = level_764 - STOP_BUFFER_ATR * prior_atr
+        stop = (low if self.stop_at_origin else level_764) - STOP_BUFFER_ATR * prior_atr
         row["impulse"] = {
             "a_index": a,
             "b_index": b,
@@ -275,7 +281,11 @@ class ConfirmedSupportPullback:
             high - entry
         ) < self.minimum_target_r * (entry - stop):
             self.no_room += 1
-            row["reason"] = "invalid-price-or-less-than-2r-room"
+            row["reason"] = (
+                "invalid-price-or-no-room"
+                if self.stop_at_origin
+                else "invalid-price-or-less-than-2r-room"
+            )
             return None, row
         plan = RetracementPlan(
             candle.ts_event,

@@ -26,6 +26,7 @@ from run import _json_safe
 from run import _ns
 from run import _snapshot_equity_usdt
 from strategy import R1Strategy
+from tiered_retracement_strategy import TieredRetracementStrategy
 from trendline_strategy import TrendlineBreakStrategy
 
 from vibe_trading.analysis import MaxDrawdown
@@ -50,6 +51,7 @@ from vibe_trading.persistence import ParquetDataCatalog
 
 LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
 RETRACEMENT_VARIANTS = ("support-confirmed-4h", "support-rejection-4h", "support-near50-4h")
+TIERED_VARIANT = "support-three-tier-4h"
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
 
 
@@ -236,13 +238,14 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "support-confirmed-4h",
             "support-rejection-4h",
             "support-near50-4h",
+            TIERED_VARIANT,
             *LINE_VARIANTS,
         ),
         default="daily-pivot",
     )
     parser.add_argument(
         "--exit-variant",
-        choices=("fixed-2r", *STAGED_EXITS),
+        choices=("fixed-2r", "tier-target-b", *STAGED_EXITS),
         default="fixed-2r",
     )
     parser.add_argument("--risk-budget-bps", type=float)
@@ -253,6 +256,12 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         ("staged-edge-1r", "box-edge-4h"),
     ) and args.exit_variant in STAGED_EXITS:
         raise ValueError("staged exit variant does not match its registered entry signal")
+    if (args.signal_variant == TIERED_VARIANT) != (args.exit_variant == "tier-target-b"):
+        raise ValueError("H15a three-tier signal requires its frozen target-B exit")
+    if args.signal_variant == TIERED_VARIANT and (
+        args.risk_budget_bps != 25.0 or args.coin_notional_cap_pct != 5.0
+    ):
+        raise ValueError("H15a requires 25-bp total stop risk and 5% coin notional cap")
     if args.risk_budget_bps is not None and not 0 < args.risk_budget_bps < 10_000:
         raise ValueError("risk budget bps must be between zero and 10000")
     if not 0 < args.coin_notional_cap_pct <= 100:
@@ -316,6 +325,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             strategy_class = (
                 R1StagedStrategy
                 if args.exit_variant in STAGED_EXITS
+                else TieredRetracementStrategy
+                if args.signal_variant == TIERED_VARIANT
                 else RetracementStrategy
                 if args.signal_variant in RETRACEMENT_VARIANTS
                 else TrendlineBreakStrategy
@@ -408,6 +419,12 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native support-pullback orders were denied or rejected")
+        if args.signal_variant == TIERED_VARIANT and (
+            (orders["status"] == "DENIED").any()
+            or (orders["status"] == "REJECTED").any()
+            or any(strategy.bundle_order_failures for strategy in strategies.values())
+        ):
+            integrity_findings.append("native three-tier orders were denied or rejected")
         if args.signal_variant == "support-rejection-4h" and any(
             strategy.retracement_actual_price_violations for strategy in strategies.values()
         ):
@@ -440,7 +457,14 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 hashlib.sha256(
                     Path(__file__).with_name("retracement_strategy.py").read_bytes(),
                 ).hexdigest()
-                if args.signal_variant in RETRACEMENT_VARIANTS
+                if args.signal_variant in (*RETRACEMENT_VARIANTS, TIERED_VARIANT)
+                else None
+            ),
+            "tiered_strategy_source_sha256": (
+                hashlib.sha256(
+                    Path(__file__).with_name("tiered_retracement_strategy.py").read_bytes(),
+                ).hexdigest()
+                if args.signal_variant == TIERED_VARIANT
                 else None
             ),
             "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -463,6 +487,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant == "support-rejection-4h"
                 else "H14a-support-near50-4h"
                 if args.signal_variant == "support-near50-4h"
+                else "H15a-support-three-tier-4h"
+                if args.signal_variant == TIERED_VARIANT
                 else "H06-trendline-4h"
                 if args.signal_variant == "trendline-4h"
                 else "H08b-line-resting-4h"
@@ -558,6 +584,23 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                             ].retracement_actual_price_violations,
                         }
                         if args.signal_variant in RETRACEMENT_VARIANTS
+                        else None
+                    ),
+                    "tiered_pullback": (
+                        {
+                            "source_plans": strategies[row["coin"]].support_state.plans,
+                            "submitted_bundles": strategies[row["coin"]].bundle_submissions,
+                            "retired_bundles": strategies[row["coin"]].bundle_retirements,
+                            "supersessions": strategies[row["coin"]].bundle_supersessions,
+                            "cancel_race_fills": strategies[row["coin"]].bundle_cancel_race_fills,
+                            "invalid_price_skips": strategies[
+                                row["coin"]
+                            ].bundle_invalid_price_skips,
+                            "minimum_skips": strategies[row["coin"]].bundle_minimum_skips,
+                            "order_failures": strategies[row["coin"]].bundle_order_failures,
+                            "untouched_plan_voids": strategies[row["coin"]].waiting_voided,
+                        }
+                        if args.signal_variant == TIERED_VARIANT
                         else None
                     ),
                     "line_breaks": (
