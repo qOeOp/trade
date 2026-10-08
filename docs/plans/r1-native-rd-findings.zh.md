@@ -549,3 +549,11 @@
 **产品判断。** 研究和策略合同应把**进场前已承诺的保护止损**、持仓后观察到的证据失效、以及到达事前目标后的止盈动作分开。标题中的"带止损了吗"不等于作者提供了一个在原止损之前生效的新退出触发器。S44 的双档入场与深回撤止损可能是另一套入场／风险几何，和 H15a 的三档及共用波段起点下方止损不能混写；若继续研究，先固定原片价位、数据时钟、合约映射及来源正反例，再做原生订单容量与共享账户比较。该方向是待验线索，不能从视频中推出收益改进。
 
 **核查证据。** [S44 来源预登记与结论](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s44-does-the-author-separate-a-held-longs-original-stop-from-later-invalidation)、[原视频、转录和画面身份记录](../../research/r1_native/results/2026-10-08-s44-held-long-stop-source.json)、[原帧标签局部放大](../../research/r1_native/results/2026-10-08-s44-deep-label-crop.png)、[H15a 原生策略](../../research/r1_native/tiered_retracement_strategy.py)。
+
+## F55：止损比例相同也要核对波段锚点和计划存续
+
+**来源一致性核查。** S44 画面可见的较宽 BTC 波段约从 64,000 至 69,000 上行至 80,000 至 84,000；D59 在读取币安合约数值前冻结这两个宽带、原片可见截止时点，以及 H15a 原本的四小时选点／30 根有效期。在同一原生 LAST Catalog 的 372 根完整四小时 K 线中，H15a 选出 30 个不同波段、建立 29 个计划，却没有一个波段同时落在原图 A/B 宽带内。接近原图高点时，它选择的 B 为 **82,828.7**，A 却是更近的 **74,868.0**，相应 50% 入场位约 **78,848.35**；这不是原片所讨论的较大回撤。故不能只因 S44 原图有 `0.764`，就把 H15a 的止损从波段起点改到 76.4% 下方并声称复刻原片。
+
+**产品判断。** 一笔计划应保存首次可见的 A/B、波段尺度、首次形成与失效时间、入场档位、止损所依附的波段，以及具体来源案例。研究 Agent 若提出较大波段版本，应先用同一套因果选点在 S44 正例和 S27 较局部的反例上固定规则，再核查 37 币原生订单机会容量；来源与容量不过关就不进入年度收益筛选。拒绝的是"沿用 H15a 选点只换止损"这一精确子方案，不是两档或结构保护技术家族。Nautilus 保持订单、成交、保护单和账户的唯一执行权威。
+
+**核查证据。** [D59 预登记和结果](../../research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d59-can-the-frozen-h15a-selector-reproduce-the-s44-btc-impulse-before-first-touch)、[逐波段与计划读回](../../research/r1_native/results/2026-10-08-d59-s44-h15a-geometry.json)、[只读来源几何核查](../../research/r1_native/audit_s44_h15a_source_geometry.py)。
