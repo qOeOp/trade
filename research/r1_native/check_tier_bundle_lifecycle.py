@@ -309,10 +309,16 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             "filled_stops": int((stops.status == "FILLED").sum()),
             "filled_targets": int((targets.status == "FILLED").sum()),
             "denied_or_rejected": int(orders.status.isin(("DENIED", "REJECTED")).sum()),
+            "nonterminal_orders": int(
+                (
+                    ~orders.status.isin(("FILLED", "CANCELED", "EXPIRED", "REJECTED", "DENIED"))
+                ).sum(),
+            ),
             "native_fills": len(fills),
             "native_position_rows": len(positions),
             "closed_position_rows": int(positions.ts_closed.notna().sum()) if len(positions) else 0,
             "open_position_rows": int(positions.ts_closed.isna().sum()) if len(positions) else 0,
+            "position_sides": list(positions.side.astype(str)) if len(positions) else [],
             "order_report_columns": list(orders.columns),
             "orders": [
                 {field: str(row[field]) for field in visible_order_fields}
@@ -348,6 +354,36 @@ def main() -> None:
             ),
         )
     results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
+    if args.strategy == "h15":
+        expected = {
+            "target": (3, 0, 3),
+            "stop": (3, 3, 0),
+            "target_then_retrace": (1, 0, 1),
+            "two_tier_target_then_retrace": (2, 0, 2),
+            "same_bar_stop": (3, 3, 0),
+            "unfilled_expiry": (0, 0, 0),
+            "time_exit": (3, 0, 0),
+            "supersede_unfilled": (1, 0, 1),
+            "old_fill_before_cancel_request": (1, 0, 1),
+        }
+        for result in results:
+            observed = (
+                result["filled_entries"],
+                result["filled_stops"],
+                result["filled_targets"],
+            )
+            if (
+                observed != expected[result["exit_kind"]]
+                or any(
+                    (
+                        result["denied_or_rejected"],
+                        result["nonterminal_orders"],
+                        result["open_position_rows"],
+                    ),
+                )
+                or any(side != "LONG" for side in result["position_sides"])
+            ):
+                raise RuntimeError(f"H15 native lifecycle failed: {result['exit_kind']}: {result}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(
