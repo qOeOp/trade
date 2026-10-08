@@ -103,9 +103,18 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
             or target.parent_order_id != entry.client_order_id
         ):
             findings.append(f"invalid native bracket topology {list_id}")
+        original_qty = _decimal(entry.quantity)
+        filled_qty = _decimal(entry.filled_qty)
+        stop_qty = _decimal(stop.quantity)
+        target_qty = _decimal(target.quantity)
+        child_qty_valid = (
+            stop_qty == target_qty == original_qty
+            if filled_qty == 0
+            else 0 < stop_qty <= original_qty and 0 < target_qty <= original_qty
+        )
         if (
-            _decimal(entry.quantity) != _decimal(stop.quantity)
-            or _decimal(entry.quantity) != _decimal(target.quantity)
+            not 0 <= filled_qty <= original_qty
+            or not child_qty_valid
             or not 0 < _decimal(stop.trigger_price) < _decimal(entry.price) < _decimal(target.price)
         ):
             findings.append(f"invalid native bracket prices or quantities {list_id}")
@@ -113,11 +122,13 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         life_bars = 180 if summary["signal_variant"] == "support-broad-two-tier-4h" else 30
         if int(entry.expire_time_ns) != decision_ns + life_bars * FOUR_HOUR_NS:
             findings.append(f"entry GTD deadline differs {list_id}")
-        if entry.status in {"CANCELED", "EXPIRED"} and (
-            stop.status != "CANCELED" or target.status != "CANCELED"
+        if (
+            entry.status in {"CANCELED", "EXPIRED"}
+            and filled_qty == 0
+            and (stop.status != "CANCELED" or target.status != "CANCELED")
         ):
             findings.append(f"terminal unfilled entry retains child {list_id}")
-        if entry.status == "FILLED" and int(entry.ts_last) <= int(entry.ts_init):
+        if filled_qty > 0 and int(entry.ts_last) <= int(entry.ts_init):
             findings.append(f"entry filled at or before submission {list_id}")
     for (strategy_id, ts_init), group in entries.groupby(["strategy_id", "ts_init"]):
         sorted_group = group.sort_values("price", ascending=False)
@@ -159,7 +170,11 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         linked = orders[
             (orders.strategy_id == position.strategy_id)
             & (orders.status == "ACCEPTED")
-            & (orders.parent_order_id.isin(entries[entries.status == "FILLED"].client_order_id))
+            & (
+                orders.parent_order_id.isin(
+                    entries[entries.filled_qty.map(_decimal) > 0].client_order_id,
+                )
+            )
         ]
         stops = linked[linked.tags == "['STOP_LOSS']"]
         targets = linked[linked.tags == "['TAKE_PROFIT']"]
@@ -181,16 +196,21 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         )
         if net != position_qty:
             findings.append(f"native fill net differs from open position: {strategy_id}")
-    entry_status = entries.set_index("client_order_id").status.to_dict()
+    entry_by_id = entries.set_index("client_order_id")
     for row in orders[
         orders.status.isin(OPEN) & orders.tags.isin(("['STOP_LOSS']", "['TAKE_PROFIT']"))
     ].itertuples():
-        parent_status = entry_status.get(row.parent_order_id)
+        parent = (
+            entry_by_id.loc[row.parent_order_id]
+            if row.parent_order_id in entry_by_id.index
+            else None
+        )
+        parent_status = parent.status if parent is not None else None
         if row.status == "SUBMITTED":
             # Native OTO children wait at SUBMITTED until their entry fills.
             if parent_status not in {"ACCEPTED", "SUBMITTED", "PARTIALLY_FILLED", "PENDING_UPDATE"}:
                 findings.append(f"dormant exit has no live entry {row.client_order_id}")
-        elif parent_status not in {"FILLED", "PARTIALLY_FILLED"}:
+        elif parent is None or _decimal(parent.filled_qty) <= 0:
             findings.append(f"active exit has no filled parent {row.client_order_id}")
     file_names = (
         "summary.json",
@@ -205,7 +225,10 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         "file_sha256": {name: _sha(run / name) for name in file_names},
         "native_bundles": int(entries.groupby(["strategy_id", "ts_init"]).ngroups),
         "native_brackets": int(entries.order_list_id.nunique()),
-        "filled_entries": int((entries.status == "FILLED").sum()),
+        "filled_entries": int((entries.filled_qty.map(_decimal) > 0).sum()),
+        "partially_filled_then_canceled_entries": int(
+            ((entries.status == "CANCELED") & (entries.filled_qty.map(_decimal) > 0)).sum(),
+        ),
         "closed_positions": int(positions.ts_closed.notna().sum()),
         "open_positions": len(live),
         "accepted_exit_orders": int(

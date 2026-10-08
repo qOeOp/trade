@@ -575,3 +575,13 @@
 **首次相邻方法线索，尚非 H19a 的效果证据。** [Lo、Mamaysky、Wang 的原论文](https://business.columbia.edu/sites/default/files-efs/pubfiles/19268/Lo-Mamaysky_wang_foundations.pdf)研究如何把主观图形变成可重复的形态定义，适合检视当前 A/B 选锚歧义；其样本是美股，不验证币安合约回撤盈利。[Osler 的原研究](https://www.newyorkfed.org/medialibrary/media/research/epr/00v06n2/0007osle.pdf)用外汇机构事前发布的支撑阻力水平检验价格反应，是检视关键位证据来源的类比，不能推出加密合约存在相同订单聚集。[Sullivan、Timmermann、White 的原论文](https://eprints.lse.ac.uk/119144/1/dp303.pdf)针对技术规则全集和数据窥探偏差，支持保留完整试验台账与多重尝试界限。这三者均未用于回头修改已冻结的 H19a 规则；下一候选需另行预登记它们引出的具体差异预测。
 
 **核查证据。** [F23 二级延伸](#f23单次规则失败应引出有区别的机制延伸)、[F40 联合目标缺口](#f40二级延伸要验证机会盈亏结构与目标缺口的共同变化)、[H15a/H16a 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[D53 至 D58 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d53-fixed-post-entry-evidence-persistence-landmarks)。
+
+## F58：账户收益与资金使用效率必须同时读回，且不得互换分母
+
+**核查结果。** H19a 37 币原生回放从同一个 100,000 USDT 账户开始，期末 Nautilus Portfolio 净值 **111,664.47**；原生账户已实现余额 **111,358.27** 加未实现盈亏 **306.20** 与之相符。因此约 **12.00%** 的年化净收益是全账户口径，没有把 200 USDT 盈利错误除以一笔 200 USDT 仓位，也没有重复缩小利润。用户担心的低资金利用率却是真实且先前报告不足：同一年的实际持仓按每根五分钟 MARK 价计，时间加权名义额均值 **30,124.14 USDT**、峰值 **87,787.11**；原生锁定保证金均值 **7,704.20**、峰值 **16,244.27**。锁定保证金包含订单与持仓预留，不能代替成交名义敞口。H18a／H15a 同口径平均持仓名义额仅 **14,723.28／15,478.14 USDT**，可见 H19a 的较高账户收益同时伴随更多平均敞口；它的胜率却只有 **42.74%**、日收盘回撤 **15.33%**，并未满足 Goal。
+
+**产品含义。** R&D 对共享账户策略应并列展示原生账户期初／期末净值、净收益及年化、已实现与未实现拆分、按时间加权的 MARK 持仓名义额、峰值敞口、原生锁定保证金和同时持仓数，并注明价格采样与保证金语义。可以附上"净收益／平均持仓名义额"作为描述性的资金效率；H19a 为约 **38.7%**，但这不是可以直接投资获得的年化收益，因为回测仓位、风险约束与共享账户净值都依赖原有 100,000 USDT。收益／平均锁定保证金约 **151.4%** 更受保证金规则影响，不能冒充策略收益。若产品意图改为以更少本金运行，必须重新以该初始本金和同一风险／订单约束做 Nautilus 共享账户回放；不能仅更换现有结果的分母。历史收益看过之后放大仓位属于新候选，须预登记并审查回撤与独立验证。R&D 保存这些审计口径及证据，Portfolio 仍是账户净值权威，不另建盈亏账本。
+
+**审计反例。** H19a 的首版独立审计把一笔 IMX 入场"部分成交后撤销剩余量"误当作零成交，错误要求两条子单维持原始数量并同时撤销。原生订单显示 21,307 单位中成交 13,414，止盈成交 13,414，剩余止损撤销 7,893；持仓归零且无孤立保护单。修正审计器只接受正成交量与原生缩量子单的对应关系，并对 H19a、H18a、H15a 全量重读通过。产品验收不能用最终订单状态代替累计成交量，尤其不能因为独立审计的表示错误悄悄修改已冻结的 Strategy。
+
+**核查证据。** [H19a／D61 完整台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[账户与敞口只读诊断](../../research/r1_native/results/2026-10-08-h19a-37-capital-usage.json)、[初版失败审计](../../research/r1_native/results/2026-10-08-h19a-37-native-audit-attempt1.json)、[修正后原生审计](../../research/r1_native/results/2026-10-08-h19a-37-native-audit.json)。
