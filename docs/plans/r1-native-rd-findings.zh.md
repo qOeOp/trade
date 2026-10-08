@@ -416,4 +416,6 @@
 
 **产品与研究含义。** Agent 应为每个来源动作分别绑定波段起点、各档入场、共用失效条件、首个障碍、总风险预算和在途订单状态；只匹配了入场档位不能把止损和盈亏空间也标为已复刻。若研究低点外共同止损与三档分批入场，需先固定仍有歧义的选锚规则及每档预算，再用 Nautilus 原生多订单、保护和共享账户回测完整验证，不能扩大 H14a 旧订单的止损后沿用其收益或胜率。现有 R&D 来源和假设关系可表达这些互斥分支；Backtest 继续由 Nautilus 持有真实模拟仓位、费用和资金费，不新增产品专用成交账本。
 
-**核查证据。** [D45 来源几何与限制](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](../../research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[S27 原片证据](../../research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)。
+**后继范围。** H15a 已把三档总风险固定为 25 基点、总名义敞口上限固定为 5%，并只在 4 月 BTC 来源案例通过只读几何门槛：低点外共用止损 **67,441.1**，三个原生取整档位到前高的空间分别约 **0.91R、1.42R、2.65R**。这只验证候选价格关系；三档同时挂单、分次成交后的共用保护与净值仍须通过 Nautilus 原生事件和完整账户回放，SUI 选锚失配也仍在。
+
+**核查证据。** [D45 来源几何与限制](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](../../research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[H15a 预登记与来源门槛](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H15a 来源结果](../../research/r1_native/results/2026-10-08-h15a-source-gate.json)、[S27 原片证据](../../research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)。

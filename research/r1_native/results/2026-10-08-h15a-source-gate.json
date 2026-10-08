@@ -1,0 +1,294 @@
+{
+  "method": "read-only H15a source geometry from frozen H14a case states and native Instrument; no new orders, fills or PnL",
+  "h14a_source_gate_sha256": "99a7280b6fd5f187fc626dedf1c96092bfb18da206f0b9b7c213c5c9630f8084",
+  "d45_source_geometry_sha256": "fbd1fa189f62014569debbb0efb69f4fd3a4ebe778de92b48f3c4317837a2482",
+  "instrument": "BTCUSDT-PERP.BINANCE",
+  "s27_bundles": [
+    {
+      "cutoff_utc": "2026-04-09T00:00:00+00:00",
+      "selected_a_b": [
+        "67711.0",
+        "72858.5"
+      ],
+      "source_plan_armed_utc": "2026-04-09T00:00:00+00:00",
+      "all_tiers_untouched_since_b": true,
+      "common_stop_below_a": true,
+      "native_common_stop": 67441.1,
+      "native_first_target": 72858.5,
+      "prior_atr_quarter_buffer_from_frozen_h14a_plan": "269.91152411752",
+      "tiers": [
+        {
+          "retracement_ratio": "0.5",
+          "native_limit_price": 70284.8,
+          "native_target_r": 0.9050532756619896
+        },
+        {
+          "retracement_ratio": "0.618",
+          "native_limit_price": 69677.3,
+          "native_target_r": 1.4225918969680713
+        },
+        {
+          "retracement_ratio": "0.764",
+          "native_limit_price": 68925.8,
+          "native_target_r": 2.648817943018795
+        }
+      ]
+    },
+    {
+      "cutoff_utc": "2026-04-09T04:00:00+00:00",
+      "selected_a_b": [
+        "67711.0",
+        "72858.5"
+      ],
+      "source_plan_armed_utc": "2026-04-09T00:00:00+00:00",
+      "all_tiers_untouched_since_b": true,
+      "common_stop_below_a": true,
+      "native_common_stop": 67441.1,
+      "native_first_target": 72858.5,
+      "prior_atr_quarter_buffer_from_frozen_h14a_plan": "269.91152411752",
+      "tiers": [
+        {
+          "retracement_ratio": "0.5",
+          "native_limit_price": 70284.8,
+          "native_target_r": 0.9050532756619896
+        },
+        {
+          "retracement_ratio": "0.618",
+          "native_limit_price": 69677.3,
+          "native_target_r": 1.4225918969680713
+        },
+        {
+          "retracement_ratio": "0.764",
+          "native_limit_price": 68925.8,
+          "native_target_r": 2.648817943018795
+        }
+      ]
+    }
+  ],
+  "s24_new_three_tier_order_claim": false,
+  "s24_decision_reasons": [
+    "50-touched-since-high-or-closed-below",
+    "no-recent-confirmed-impulse"
+  ],
+  "c19_wrong_anchor_false_source_match": false,
+  "sui_four_hour_selector_disagreement": [
+    {
+      "decision_utc": "2026-01-07T00:00:00+00:00",
+      "last_completed_four_hour_utc": "2026-01-07T00:00:00+00:00",
+      "last_completed_close": 1.9029,
+      "impulse": {
+        "low_anchor_utc": "2026-01-05T16:00:00+00:00",
+        "low_confirmed_utc": "2026-01-07T00:00:00+00:00",
+        "low": 1.6583,
+        "high_anchor_utc": "2026-01-06T16:00:00+00:00",
+        "high": 2.0266,
+        "high_age_four_hour_bars": 2,
+        "anchor_span_four_hour_bars": 6,
+        "confirmed_low_candidates_before_high": 8
+      },
+      "no_impulse_reason": null,
+      "levels": {
+        "0.5": {
+          "price": 1.8424500000000001,
+          "source_chart_band": [
+            1.68,
+            1.74
+          ],
+          "signed_difference_from_band": 0.10245000000000015,
+          "inside_observed_impulse": true
+        },
+        "0.618": {
+          "price": 1.7989906000000002,
+          "source_chart_band": [
+            1.6,
+            1.67
+          ],
+          "signed_difference_from_band": 0.1289906000000003,
+          "inside_observed_impulse": true
+        },
+        "0.764": {
+          "price": 1.7452188000000002,
+          "source_chart_band": [
+            1.5,
+            1.58
+          ],
+          "signed_difference_from_band": 0.1652188000000001,
+          "inside_observed_impulse": true
+        }
+      },
+      "all_levels_in_source_bands": false,
+      "levels_ordered": true,
+      "anchor_band_differences": {
+        "low_anchor": 0.23830000000000018,
+        "high_anchor": 0.0
+      },
+      "first_50_touch_after_high_utc": "2026-01-06T20:00:00+00:00",
+      "first_618_touch_after_high_utc": null,
+      "source_geometry_lead": false
+    },
+    {
+      "decision_utc": "2026-01-07T04:00:00+00:00",
+      "last_completed_four_hour_utc": "2026-01-07T04:00:00+00:00",
+      "last_completed_close": 1.8711,
+      "impulse": {
+        "low_anchor_utc": "2026-01-05T16:00:00+00:00",
+        "low_confirmed_utc": "2026-01-07T00:00:00+00:00",
+        "low": 1.6583,
+        "high_anchor_utc": "2026-01-06T16:00:00+00:00",
+        "high": 2.0266,
+        "high_age_four_hour_bars": 3,
+        "anchor_span_four_hour_bars": 6,
+        "confirmed_low_candidates_before_high": 8
+      },
+      "no_impulse_reason": null,
+      "levels": {
+        "0.5": {
+          "price": 1.8424500000000001,
+          "source_chart_band": [
+            1.68,
+            1.74
+          ],
+          "signed_difference_from_band": 0.10245000000000015,
+          "inside_observed_impulse": true
+        },
+        "0.618": {
+          "price": 1.7989906000000002,
+          "source_chart_band": [
+            1.6,
+            1.67
+          ],
+          "signed_difference_from_band": 0.1289906000000003,
+          "inside_observed_impulse": true
+        },
+        "0.764": {
+          "price": 1.7452188000000002,
+          "source_chart_band": [
+            1.5,
+            1.58
+          ],
+          "signed_difference_from_band": 0.1652188000000001,
+          "inside_observed_impulse": true
+        }
+      },
+      "all_levels_in_source_bands": false,
+      "levels_ordered": true,
+      "anchor_band_differences": {
+        "low_anchor": 0.23830000000000018,
+        "high_anchor": 0.0
+      },
+      "first_50_touch_after_high_utc": "2026-01-06T20:00:00+00:00",
+      "first_618_touch_after_high_utc": null,
+      "source_geometry_lead": false
+    },
+    {
+      "decision_utc": "2026-01-07T08:00:00+00:00",
+      "last_completed_four_hour_utc": "2026-01-07T08:00:00+00:00",
+      "last_completed_close": 1.9322,
+      "impulse": {
+        "low_anchor_utc": "2026-01-05T16:00:00+00:00",
+        "low_confirmed_utc": "2026-01-07T00:00:00+00:00",
+        "low": 1.6583,
+        "high_anchor_utc": "2026-01-06T16:00:00+00:00",
+        "high": 2.0266,
+        "high_age_four_hour_bars": 4,
+        "anchor_span_four_hour_bars": 6,
+        "confirmed_low_candidates_before_high": 8
+      },
+      "no_impulse_reason": null,
+      "levels": {
+        "0.5": {
+          "price": 1.8424500000000001,
+          "source_chart_band": [
+            1.68,
+            1.74
+          ],
+          "signed_difference_from_band": 0.10245000000000015,
+          "inside_observed_impulse": true
+        },
+        "0.618": {
+          "price": 1.7989906000000002,
+          "source_chart_band": [
+            1.6,
+            1.67
+          ],
+          "signed_difference_from_band": 0.1289906000000003,
+          "inside_observed_impulse": true
+        },
+        "0.764": {
+          "price": 1.7452188000000002,
+          "source_chart_band": [
+            1.5,
+            1.58
+          ],
+          "signed_difference_from_band": 0.1652188000000001,
+          "inside_observed_impulse": true
+        }
+      },
+      "all_levels_in_source_bands": false,
+      "levels_ordered": true,
+      "anchor_band_differences": {
+        "low_anchor": 0.23830000000000018,
+        "high_anchor": 0.0
+      },
+      "first_50_touch_after_high_utc": "2026-01-06T20:00:00+00:00",
+      "first_618_touch_after_high_utc": null,
+      "source_geometry_lead": false
+    },
+    {
+      "decision_utc": "2026-01-07T12:00:00+00:00",
+      "last_completed_four_hour_utc": "2026-01-07T12:00:00+00:00",
+      "last_completed_close": 1.9089,
+      "impulse": {
+        "low_anchor_utc": "2026-01-05T16:00:00+00:00",
+        "low_confirmed_utc": "2026-01-07T00:00:00+00:00",
+        "low": 1.6583,
+        "high_anchor_utc": "2026-01-06T16:00:00+00:00",
+        "high": 2.0266,
+        "high_age_four_hour_bars": 5,
+        "anchor_span_four_hour_bars": 6,
+        "confirmed_low_candidates_before_high": 8
+      },
+      "no_impulse_reason": null,
+      "levels": {
+        "0.5": {
+          "price": 1.8424500000000001,
+          "source_chart_band": [
+            1.68,
+            1.74
+          ],
+          "signed_difference_from_band": 0.10245000000000015,
+          "inside_observed_impulse": true
+        },
+        "0.618": {
+          "price": 1.7989906000000002,
+          "source_chart_band": [
+            1.6,
+            1.67
+          ],
+          "signed_difference_from_band": 0.1289906000000003,
+          "inside_observed_impulse": true
+        },
+        "0.764": {
+          "price": 1.7452188000000002,
+          "source_chart_band": [
+            1.5,
+            1.58
+          ],
+          "signed_difference_from_band": 0.1652188000000001,
+          "inside_observed_impulse": true
+        }
+      },
+      "all_levels_in_source_bands": false,
+      "levels_ordered": true,
+      "anchor_band_differences": {
+        "low_anchor": 0.23830000000000018,
+        "high_anchor": 0.0
+      },
+      "first_50_touch_after_high_utc": "2026-01-06T20:00:00+00:00",
+      "first_618_touch_after_high_utc": null,
+      "source_geometry_lead": false
+    }
+  ],
+  "passed_scoped_s27_source_gate": true,
+  "economic_data_read": false
+}
