@@ -585,3 +585,19 @@
 **审计反例。** H19a 的首版独立审计把一笔 IMX 入场"部分成交后撤销剩余量"误当作零成交，错误要求两条子单维持原始数量并同时撤销。原生订单显示 21,307 单位中成交 13,414，止盈成交 13,414，剩余止损撤销 7,893；持仓归零且无孤立保护单。修正审计器只接受正成交量与原生缩量子单的对应关系，并对 H19a、H18a、H15a 全量重读通过。产品验收不能用最终订单状态代替累计成交量，尤其不能因为独立审计的表示错误悄悄修改已冻结的 Strategy。
 
 **核查证据。** [H19a／D61 完整台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[账户与敞口只读诊断](../../research/r1_native/results/2026-10-08-h19a-37-capital-usage.json)、[初版失败审计](../../research/r1_native/results/2026-10-08-h19a-37-native-audit-attempt1.json)、[修正后原生审计](../../research/r1_native/results/2026-10-08-h19a-37-native-audit.json)。
+
+## F59：一倍初始风险触价不足以直接修复 H19a 的固定样本胜率
+
+**只读诊断。** D62 将每笔原生持仓的第一笔实际买入及其原始 OTO 止损作为初始风险 R。496 笔已平仓中有 212 笔净盈利、11 笔仍开仓；284 笔非盈利仓位中，只有 **60** 笔在首次成交后、最终平仓前的完整五分钟 LAST K 线触及 +1R，连包含边界歧义的宽松计数也只有 **68** 笔。固定 496 笔若要达到 60% 需多 86 笔赢家。因此即使把所有宽松触价的非赢家都无代价转为赢家，胜率也只到 **56.45%**；严格触价对应 **54.84%**。这关闭的是"在当前 H19a 固定交易集上，仅靠所有触及 +1R 的非赢家得到保证盈利就能达到约 60%"这一精确定义，不能外推到改变入场、分批出场或改变交易集。K 线高点不是可执行成交，且原生 B 目标原本距首仓 **1.55-3.76R**，提早全平可能削减已有赢家收益。
+
+**产品含义。** 对原生多档持仓的退出机制诊断，要以实际首笔成交、对应原生保护单和最终原生净盈亏为锚，保留后续部分成交、资金费和边界截尾；不得沿用单次成交的路径分析脚本，也不能把触价机会直接写成新策略年化或胜率。若研究分批退出，应先给出与上述失败机制不同的来源和可反证预测，再冻结原生 OTO 生命周期与同账户配对试验。
+
+**核查证据。** [D62 预登记、完整读数与判定](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d62-can-an-already-registered-first-risk-unit-target-possibly-repair-h19as-win-rate-gap)、[逐仓只读结果](../../research/r1_native/results/2026-10-08-d62-h19a-first-r.json)。
+
+## F60：策略机会与原生委托须分开管理，近价挂单仍是待验证假设
+
+**现状核查。** H19a 已在 Nautilus Strategy 内暂存 `waiting_plan`，但下一次五分钟执行事件通常立即把两档计划变成原生 GTD OTO 限价单，最多保留 **180 根四小时 K 线，即 30 天**；它没有"接近入场价才挂、远离后主动撤"的距离状态。每币实例在提交时按当时 `Portfolio.equity`、总止损风险 25 基点和该币名义额 5% 上限确定两档数量，没有跨 37 币的策略级机会优先级或总目标敞口预算。旧计划的未成交订单可因更高 B 被撤换，但撤单和成交竞态已由原生事件处理。H19a 回放的第一笔实际成交发生在 2025-11-09 03:19:59.999 UTC；原生账户快照在 2025-11-06 00:00 UTC 已显示 **49.584636 USDT** 锁定保证金且维护保证金为零，证明这一路径中未成交委托也占用可用资金。全年原生拒单／风控否决为零，因此不能声称已有机会因保证金不足而被挡住。
+
+**待验证的设计方向。** Strategy 可以只保存带来源时刻、价位、失效条件、有效期和标的唯一身份的机会，不立即生成委托；到事先定义的近价触发事件，再读取原生 Portfolio／Cache、按当前共享账户预算和 Instrument 条款确定数量，提交 Nautilus 原生限价 OTO。远离或被更好同币机会取代时请求撤销未成交入场单，必须等原生撤单确认才释放策略预算；撤单中成交或部分成交则保留原生持仓及保护单。已提交订单不因另一单撤销而悄悄变大；只在新单提交前或经过明确的原生改量／撤换事件重算。这个状态管理属于 Strategy 的交易决策，不另建执行器或资金账本。近价触发的阈值、优先级、可用资金算法、同币替换条件与五分钟事件时序尚未冻结，也没有证明能提高全年净收益、胜率或 Sharpe；先对未成交订单的距离与锁定资金做只读机制诊断，再预登记一个可反证的候选，用相同 37 币和完整原生账户配对回放。
+
+**核查证据。** [H19a Strategy 源码](../../research/r1_native/tiered_retracement_strategy.py)、[原生账户使用率审计](../../research/r1_native/results/2026-10-08-h19a-37-capital-usage.json)、[H19a 原生年度结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[Nautilus Strategies](https://nautilustrader.io/docs/latest/concepts/strategies/)、[Nautilus Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)。
