@@ -306,6 +306,8 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             "tags",
         )
         visible_order_fields = [field for field in order_fields if field in orders.columns]
+        fill_fields = ("side", "order_side", "last_qty", "ts_event", "client_order_id")
+        visible_fill_fields = [field for field in fill_fields if field in fills.columns]
         return {
             "exit_kind": exit_kind,
             "strategy_kind": strategy_kind,
@@ -335,6 +337,11 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             "open_position_rows": int(positions.ts_closed.isna().sum()) if len(positions) else 0,
             "position_sides": list(positions.side.astype(str)) if len(positions) else [],
             "order_report_columns": list(orders.columns),
+            "fill_report_columns": list(fills.columns),
+            "fills": [
+                {field: str(row[field]) for field in visible_fill_fields}
+                for _, row in fills.iterrows()
+            ],
             "orders": [
                 {field: str(row[field]) for field in visible_order_fields}
                 for _, row in orders.iterrows()
