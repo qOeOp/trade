@@ -48,12 +48,14 @@ from vibe_trading.model import StrategyId
 from vibe_trading.model import TraderId
 from vibe_trading.model import Venue
 from vibe_trading.persistence import ParquetDataCatalog
+from vibe_trading.risk import RiskEngineConfig
 
 
 LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
 RETRACEMENT_VARIANTS = ("support-confirmed-4h", "support-rejection-4h", "support-near50-4h")
 TIERED_VARIANT = "support-three-tier-4h"
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
+REPLAY_SUBMIT_RATE = "200/00:00:01"
 
 
 def _orders_with_native_deadlines(engine: BacktestEngine, report):
@@ -321,6 +323,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 time_bars_skip_first_non_full_bar=False,
                 validate_data_sequence=True,
             ),
+            risk_engine=RiskEngineConfig(max_order_submit_rate=REPLAY_SUBMIT_RATE),
         ),
     )
     try:
@@ -520,6 +523,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "integrity_passed": not integrity_findings,
             "account_model": f"one native BacktestEngine margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
             "starting_balance_usdt": "100000",
+            "native_risk_submit_rate": REPLAY_SUBMIT_RATE,
             "sizing": (
                 {
                     "mode": "native_equity_stop_risk_with_notional_cap",

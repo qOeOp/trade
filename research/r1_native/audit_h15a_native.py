@@ -163,14 +163,17 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         )
         if net != position_qty:
             findings.append(f"native fill net differs from open position: {strategy_id}")
-    filled_parent_ids = set(entries[entries.status == "FILLED"].client_order_id)
-    findings.extend(
-        f"open exit has no filled parent {row.client_order_id}"
-        for row in orders[
-            orders.status.isin(OPEN) & orders.tags.isin(("['STOP_LOSS']", "['TAKE_PROFIT']"))
-        ].itertuples()
-        if row.parent_order_id not in filled_parent_ids
-    )
+    entry_status = entries.set_index("client_order_id").status.to_dict()
+    for row in orders[
+        orders.status.isin(OPEN) & orders.tags.isin(("['STOP_LOSS']", "['TAKE_PROFIT']"))
+    ].itertuples():
+        parent_status = entry_status.get(row.parent_order_id)
+        if row.status == "SUBMITTED":
+            # Native OTO children wait at SUBMITTED until their entry fills.
+            if parent_status not in {"ACCEPTED", "SUBMITTED", "PARTIALLY_FILLED", "PENDING_UPDATE"}:
+                findings.append(f"dormant exit has no live entry {row.client_order_id}")
+        elif parent_status not in {"FILLED", "PARTIALLY_FILLED"}:
+            findings.append(f"active exit has no filled parent {row.client_order_id}")
     file_names = (
         "summary.json",
         "orders.csv",

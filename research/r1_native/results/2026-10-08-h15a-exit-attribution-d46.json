@@ -1,0 +1,118 @@
+{
+  "method": "read-only native closing_order_id attribution by filled order type and tag; fixed prior D46 identity; no replacement fills or PnL",
+  "readback_sha256": "e4bf7cbd750bc00a419b333d1153cb10b111cf5d95068d73acd7a25737282c4a",
+  "candidate": {
+    "run": "/tmp/r1-rd-h15a-full-37-v2",
+    "reports_sha256": {
+      "summary.json": "adbd663fb6880d4781e013f0c603121d5ec9b43c204b7911438c64207a056a99",
+      "orders.csv": "b49a9b860da1326f90997cabdbfa5ed6ea2e0071569efb5b1f1010e93ef2db5e",
+      "positions.csv": "5659583d7d21a7079cd28c7d9efafddf479cfa8f40809c4d4d35525fabd8735e",
+      "fills.csv": "be104d10b860e145e3c14ac8c930f7aea615449566497e4611390536389ea852"
+    },
+    "closed_total": {
+      "closed_positions": 676,
+      "positive_positions": 382,
+      "signed_realized_pnl_usdt": "4205.83489648",
+      "average_duration_days": "3.324519235443376068376068383",
+      "median_duration_days": "3.852430555555555555555555556"
+    },
+    "buckets": {
+      "stop_loss": {
+        "closed_positions": 175,
+        "positive_positions": 0,
+        "signed_realized_pnl_usdt": "-35570.42588535",
+        "average_duration_days": "2.435079365079365079365079366",
+        "median_duration_days": "2.190972222222222222222222222"
+      },
+      "take_profit": {
+        "closed_positions": 228,
+        "positive_positions": 228,
+        "signed_realized_pnl_usdt": "35352.21306560",
+        "average_duration_days": "1.908168859649122807017543860",
+        "median_duration_days": "1.532986111111111111111111112"
+      },
+      "market_time": {
+        "closed_positions": 273,
+        "positive_positions": 154,
+        "signed_realized_pnl_usdt": "4424.04771623",
+        "average_duration_days": "5.077559026633089133089133095",
+        "median_duration_days": "5.072916678240740740740740741"
+      },
+      "other_unknown": {
+        "closed_positions": 0,
+        "positive_positions": 0,
+        "signed_realized_pnl_usdt": "0",
+        "average_duration_days": null,
+        "median_duration_days": null
+      }
+    },
+    "open_position_ids": [
+      "BTCUSDT-PERP.BINANCE-R1-BTC",
+      "STXUSDT-PERP.BINANCE-R1-STX",
+      "LINKUSDT-PERP.BINANCE-R1-LINK",
+      "IMXUSDT-PERP.BINANCE-R1-IMX",
+      "FETUSDT-PERP.BINANCE-R1-FET",
+      "WLDUSDT-PERP.BINANCE-R1-WLD",
+      "INJUSDT-PERP.BINANCE-R1-INJ",
+      "AAVEUSDT-PERP.BINANCE-R1-AAVE",
+      "ADAUSDT-PERP.BINANCE-R1-ADA",
+      "FILUSDT-PERP.BINANCE-R1-FIL"
+    ]
+  },
+  "baseline": {
+    "run": "/tmp/r1-rd-h15a-paired-h14a-37",
+    "reports_sha256": {
+      "summary.json": "6345c3cf566b788abfa9d40fae4ded9774bbdedc7b957efc22e58f49b969e5f9",
+      "orders.csv": "cc48e4038acd4ebd0986056585b6043578d5e7a17c60f9c49c5ff15945adeb33",
+      "positions.csv": "68fac7b5b38e032782d1c881b52da65868451fcbf924b1d4e11edd5f582b8287",
+      "fills.csv": "66a624b1b7bf91746dac1aefc9809d69818ec5b76cdef493b7436c22f9b5c080"
+    },
+    "closed_total": {
+      "closed_positions": 651,
+      "positive_positions": 254,
+      "signed_realized_pnl_usdt": "-10204.86312660",
+      "average_duration_days": "2.437089309626927234454116171",
+      "median_duration_days": "1.875"
+    },
+    "buckets": {
+      "stop_loss": {
+        "closed_positions": 330,
+        "positive_positions": 0,
+        "signed_realized_pnl_usdt": "-60341.82674583",
+        "average_duration_days": "1.628019781144781144781144779",
+        "median_duration_days": "1.322916666666666666666666666"
+      },
+      "take_profit": {
+        "closed_positions": 176,
+        "positive_positions": 176,
+        "signed_realized_pnl_usdt": "46911.35486273",
+        "average_duration_days": "1.775134154040404040404040403",
+        "median_duration_days": "1.388888888888888888888888889"
+      },
+      "market_time": {
+        "closed_positions": 145,
+        "positive_positions": 78,
+        "signed_realized_pnl_usdt": "3225.60875650",
+        "average_duration_days": "5.081896563298212005108556832",
+        "median_duration_days": "5.079861122685185185185185185"
+      },
+      "other_unknown": {
+        "closed_positions": 0,
+        "positive_positions": 0,
+        "signed_realized_pnl_usdt": "0",
+        "average_duration_days": null,
+        "median_duration_days": null
+      }
+    },
+    "open_position_ids": [
+      "BTCUSDT-PERP.BINANCE-R1-BTC",
+      "STXUSDT-PERP.BINANCE-R1-STX",
+      "LINKUSDT-PERP.BINANCE-R1-LINK",
+      "IMXUSDT-PERP.BINANCE-R1-IMX",
+      "WLDUSDT-PERP.BINANCE-R1-WLD",
+      "AAVEUSDT-PERP.BINANCE-R1-AAVE",
+      "ADAUSDT-PERP.BINANCE-R1-ADA",
+      "FILUSDT-PERP.BINANCE-R1-FIL"
+    ]
+  }
+}

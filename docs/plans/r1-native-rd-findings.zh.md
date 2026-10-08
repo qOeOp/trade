@@ -408,7 +408,9 @@
 
 **这次的二级核查。** D43 用实际平仓订单确认，H14a 的 330 笔止损亏损约 **60,342 USDT**，176 笔止盈盈利约 **46,911 USDT**。D44 再检查止损单的既有五分钟价格路径：即使把达到过 +1R 的止损与唯一复杂亏损路径全部宽松地改算为盈利，固定交易集合的胜率上限也只有 **46.70%**，达不到事前设定的 55% 筛查线。因此关闭"只加 +1R 退出"这条子路径，保留下一步对**事前入场条件及选锚规则**的研究；这个算术界不是可成交回测，也不能作为筛币或改阈值依据。这说明二级延伸应允许继续探索，同时以低成本反证及时结束无足够容量的精确分支。
 
-**核查证据。** [H14a 预登记、来源门槛与完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h14a-separate-prospective-50-pullback-entry-with-structural-invalidation)、[H14a 原生组合报告](../../research/r1_native/results/2026-10-08-h14a-37-summary.json)、[配对 H13f 报告](../../research/r1_native/results/2026-10-08-h14a-paired-h13f-summary.json)、[D43 原生平仓归因](../../research/r1_native/results/2026-10-08-h14a-exit-attribution-d43.json)、[D44 +1R 机会界](../../research/r1_native/results/2026-10-08-h14a-exit-opportunity-d44.json)及[原生费用与资金费读回](../../research/r1_native/results/2026-10-08-h14a-native-readback.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)和 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**后续验证。** H15a 沿来源中的三档入场和旧低点外共用止损继续延伸，37 币原生共享账户胜率达到 **56.51%**、年化 **+4.28%**、日收盘回撤 **6.88%**，相对同配置 H14a 的 **39.02%**、**-10.43%** 与 **15.37%** 明显改善点估计。这证明后续迭代并非都无价值，但其已平仓平均盈亏比只有 **0.85**，距 20% 年化所需期末权益仍差超过 **15,262 USDT**；配对周重采样收益差区间仍跨零。D46 的原生退出归因显示止损损失约 **35,570 USDT**、止盈贡献约 **35,352 USDT**，到期平仓净贡献约 **4,424 USDT**。因此下一轮要用来源与必要容量同时约束"选锚／结构失效"及"首个真实障碍／盈利空间"，不能只因为胜率接近 60% 就宣布接近联合目标，也不能从已看过的止损交易中反推过滤器。
+
+**核查证据。** [H14a 预登记、来源门槛与完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h14a-separate-prospective-50-pullback-entry-with-structural-invalidation)、[H14a 原生组合报告](../../research/r1_native/results/2026-10-08-h14a-37-summary.json)、[配对 H13f 报告](../../research/r1_native/results/2026-10-08-h14a-paired-h13f-summary.json)、[D43 原生平仓归因](../../research/r1_native/results/2026-10-08-h14a-exit-attribution-d43.json)、[D44 +1R 机会界](../../research/r1_native/results/2026-10-08-h14a-exit-opportunity-d44.json)、[H15a 同口径摘要](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)、[D46 原生平仓归因](../../research/r1_native/results/2026-10-08-h15a-exit-attribution-d46.json)、[H15a 配对不确定区间](../../research/r1_native/results/2026-10-08-h15a-paired-weekly-bootstrap.json)及[费用与资金费读回](../../research/r1_native/results/2026-10-08-h15a-native-readback.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)和 [Backtest 输入与结果](../owners/backtest.zh.md)。
 
 ## F41：多档位共用止损不能由单档位回测隐含代表
 
@@ -439,3 +441,19 @@
 **改进方法与产品含义。** 原生订单报告应保留订单对象的整数到期时刻，并同时保存已完成决策 K 线、实际提交及首个可执行事件；审核 GTD 时相对决策边界核对，审核价格时使用 Instrument 的 `price_increment`。原始订单、成交与持仓身份仍是事实来源，审计衍生计数需能回到这些行。H15a 修正导出和审计后，同一 BTC/ETH 回放经济数字逐项不变；独立审计通过 158 组原生订单及开放持仓保护数量。这项修复改善了证据可信度，没有改变策略收益。
 
 **核查证据。** [H15a 完整实验记录](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[首次审计异常](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit-attempt1.json)、[修正后原生审计](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit.json)、[两币原生摘要](../../research/r1_native/results/2026-10-08-h15a-pilot-btc-eth-summary.json)。蓝图核对 [Backtest 输入与结果](../owners/backtest.zh.md)。
+
+## F44：多策略同步回放须显式核对原生风控吞吐
+
+**已验证的流程缺陷。** H15a 在 BTC/ETH 两币试跑中无拒单，37 币共享账户回放却在两个四小时决策时刻各提交 102 张入场单，超过 Nautilus RiskEngine 默认的每秒 100 次提交上限。结果最后四张 LDO 入场单及各自两张保护单共 12 张订单被拒；账户在对应时刻仍有超过 9 万 USDT 可用。虽然回放已到期末并生成净值，订单集合已偏离预登记规则，不能把该收益、胜率或与 H14a 的差异认定为策略经济结果。首次报告没有导出拒单事件的 `reason`；显式设置每秒 200 次原生提交上限后，同数据完整回放与配对对照均为零拒单，支持限流归因。
+
+**改进方法与产品含义。** 多标的原生回测除价格、资金费和策略源码外，应封存 BacktestEngine 的 RiskEngineConfig，并在试跑前按策略数、每次信号最多提交的订单组数核算同步峰值。完整运行以原生拒单、拒绝、成交和未平仓保护核查为收益门槛；只要出现非策略预期拒单，保留失败回执，修复基础设施配置后用同一配置重跑候选及对照。此例将回放提交上限显式设为每秒 200 次，保留原生风控与 25 基点风险、5% 币种名义上限；它不是实盘发送速率的建议。Agent 根据失败回执决定复跑，Backtest 只需记录运行配置和原生报告，不增加另一套订单调度或绩效账本。
+
+**核查证据。** [H15a 失败回执](../../research/r1_native/results/2026-10-08-h15a-37-attempt1-rate-limit.json)、[修正后 H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)、[同配置 H14a 对照](../../research/r1_native/results/2026-10-08-h15a-paired-h14a-summary.json)、[H15a 完整台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+
+## F45：OTO 子单的已创建状态不等于已激活保护
+
+**已验证的流程缺陷。** H15a 的 37 币回放在零拒单后，第一版独立审计仍报十个"没有已成交父单的开放退出单"。逐行核对 Nautilus 原生报告发现：这十张止损／止盈子单为 `SUBMITTED`，对应五张入场父单仍为 `ACCEPTED` 且未成交。OTO 列表会预先创建子单，但父单成交之前子单尚未激活。审计把所有非终态子单一律当作活动保护，因而误报；真正已成交的开放持仓另有 `ACCEPTED` 止损与止盈，数量与原生持仓对齐。
+
+**改进方法与产品含义。** 多腿策略的订单审计需按原生父子关系和状态转换判断：未成交的活动入场单可以有 `SUBMITTED` 的休眠子单；已成交／部分成交的入场必须有对应活动保护；父单终止未成交后，子单也须按原生事件收束。保留首次失败报告，修正审计后对同一原始报告重验；不因审计程序自身的状态模型错误而重跑策略或淘汰多档机制。Backtest 产品保存父子订单、状态、成交、持仓和校验结果，复用 Nautilus 的 OTO 生命周期，不另建订单状态机。
+
+**核查证据。** [首次审计失败](../../research/r1_native/results/2026-10-08-h15a-37-native-audit-attempt1.json)、[修正后审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)、[H15a 完整实验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 [Backtest 输入与结果](../owners/backtest.zh.md)。

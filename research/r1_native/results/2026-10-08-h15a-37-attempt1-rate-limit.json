@@ -1,0 +1,31 @@
+{
+  "status": "failed_integrity_not_economic_result",
+  "run_path": "/tmp/r1-rd-h15a-full-37",
+  "summary_sha256": "db1825c679d6d67c1b3c000bb219c9b0a0d9262487c4339cb1b4926a84e31759",
+  "orders_sha256": "c1a6b1bf2222c3c166c95d4e2b53ed9579a9f3cb33192443d05d9ea84eaf0ecc",
+  "runner_source_sha256": "79895063f14797110e402ad3818eeb805c38b467e3fdb7ef108974169593c9ec",
+  "strategy_source_sha256": "c2f705415fea04cdc72053a86a2c57c5d545756d2c9c5925f1fdc7e3c4d31b65",
+  "engine_default_submit_rate": "100/00:00:01",
+  "max_same_event_entry_submissions": 102,
+  "entry_submission_events_above_default": {
+    "1787357099999000000": 102,
+    "1787371499999000000": 102
+  },
+  "denied_orders": 12,
+  "denied_by_event": {
+    "1787357099999000000": 6,
+    "1787371499999000000": 6
+  },
+  "denied_by_strategy": {
+    "R1-LDO": 12
+  },
+  "denied_tags": {
+    "['ENTRY']": 4,
+    "['STOP_LOSS']": 4,
+    "['TAKE_PROFIT']": 4
+  },
+  "native_integrity_findings": [
+    "native three-tier orders were denied or rejected"
+  ],
+  "inference": "Native default 100 per second submit throttle matches exactly the two events with 102 entry orders; event reason was not exported in first attempt. Re-run with explicit 200/s native risk limit; retain this failed attempt."
+}
