@@ -38,6 +38,7 @@ from vibe_trading.common import LogLevel
 from vibe_trading.data import DataEngineConfig
 from vibe_trading.model import AccountType
 from vibe_trading.model import BarType
+from vibe_trading.model import ClientOrderId
 from vibe_trading.model import InstrumentId
 from vibe_trading.model import MarkPriceUpdate
 from vibe_trading.model import Money
@@ -53,6 +54,21 @@ LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
 RETRACEMENT_VARIANTS = ("support-confirmed-4h", "support-rejection-4h", "support-near50-4h")
 TIERED_VARIANT = "support-three-tier-4h"
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
+
+
+def _orders_with_native_deadlines(engine: BacktestEngine, report):
+    """
+    Export optional GTD nanoseconds from native Orders without float coercion.
+    """
+    result = report.copy()
+    deadlines = []
+    for order_id in report.index:
+        order = engine.cache.order(ClientOrderId.from_str(str(order_id)))
+        if order is None:
+            raise RuntimeError("native order missing during GTD deadline export")
+        deadlines.append(str(order.expire_time_ns) if order.expire_time_ns is not None else "")
+    result["expire_time_ns"] = deadlines
+    return result
 
 
 def _month_edges(start: datetime, end: datetime):
@@ -386,7 +402,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         result = engine.get_result()
         args.output.mkdir(parents=True, exist_ok=True)
         reports = {
-            "orders.csv": engine.generate_orders_report(),
+            "orders.csv": _orders_with_native_deadlines(engine, engine.generate_orders_report()),
             "fills.csv": engine.generate_fills_report(),
             "positions.csv": engine.generate_positions_report(),
             "account.csv": engine.generate_account_report(venue=Venue("BINANCE")),
