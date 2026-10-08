@@ -20,6 +20,7 @@ from vibe_trading.backtest import BacktestEngineConfig
 from vibe_trading.common import LoggerConfig
 from vibe_trading.common import LogLevel
 from vibe_trading.data import DataEngineConfig
+from vibe_trading.execution import StaticLatencyModel
 from vibe_trading.model import AccountType
 from vibe_trading.model import Bar
 from vibe_trading.model import BarType
@@ -97,6 +98,7 @@ class H15StrategyFixture(TieredRetracementStrategy):
             if getattr(self, "fixture_exit_kind", None) in (
                 "supersede_unfilled",
                 "old_fill_before_cancel_request",
+                "fill_during_pending_cancel",
             ):
                 self.fixture_bar_count += 1
                 if self.fixture_bar_count == 2:
@@ -178,6 +180,11 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             reject_stop_orders=False,
             bar_execution=True,
             bar_adaptive_high_low_ordering=False,
+            latency_model=(
+                StaticLatencyModel(cancel_latency_nanos=600_000_000_000)
+                if exit_kind == "fill_during_pending_cancel"
+                else None
+            ),
         )
         engine.add_instrument(instrument)
         strategy_class = H15StrategyFixture if strategy_kind == "h15" else ThreeBracketFixture
@@ -195,7 +202,15 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
         strategy.fixture_exit_kind = exit_kind
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument.id}-5-MINUTE-LAST-EXTERNAL")
-        if exit_kind == "old_fill_before_cancel_request":
+        if exit_kind == "fill_during_pending_cancel":
+            prices = [
+                (71_000, 71_100, 70_900, 71_000),
+                (71_000, 71_100, 70_900, 71_000),
+                (71_000, 71_100, 70_200, 70_250),
+                (70_250, 72_900, 70_200, 72_800),
+                (72_800, 72_850, 68_800, 68_950),
+            ]
+        elif exit_kind == "old_fill_before_cancel_request":
             prices = [
                 (71_000, 71_100, 70_900, 71_000),
                 (71_000, 71_100, 70_200, 70_250),
@@ -351,6 +366,7 @@ def main() -> None:
                 "time_exit",
                 "supersede_unfilled",
                 "old_fill_before_cancel_request",
+                "fill_during_pending_cancel",
             ),
         )
     results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
@@ -365,6 +381,7 @@ def main() -> None:
             "time_exit": (3, 0, 0),
             "supersede_unfilled": (1, 0, 1),
             "old_fill_before_cancel_request": (1, 0, 1),
+            "fill_during_pending_cancel": (1, 0, 1),
         }
         for result in results:
             observed = (
