@@ -129,23 +129,30 @@ def _scenario(instrument, exit_kind: str) -> dict:
         orders = engine.generate_orders_report()
         positions = engine.generate_positions_report()
         fills = engine.generate_fills_report()
-        entry = orders[orders.tags == "['ENTRY']"]
-        stops = orders[orders.tags == "['STOP_LOSS']"]
-        targets = orders[orders.tags == "['TAKE_PROFIT']"]
+        order_fields = (
+            "client_order_id",
+            "side",
+            "type",
+            "quantity",
+            "filled_qty",
+            "price",
+            "trigger_price",
+            "status",
+            "tags",
+        )
+        visible_order_fields = [field for field in order_fields if field in orders.columns]
         return {
             "exit_kind": exit_kind,
-            "entry_statuses": list(entry.status.astype(str)),
-            "stop_statuses": list(stops.status.astype(str)),
-            "target_statuses": list(targets.status.astype(str)),
-            "filled_entries": int((entry.status == "FILLED").sum()),
-            "filled_stops": int((stops.status == "FILLED").sum()),
-            "filled_targets": int((targets.status == "FILLED").sum()),
             "denied_or_rejected": int(orders.status.isin(("DENIED", "REJECTED")).sum()),
             "native_fills": len(fills),
             "native_position_rows": len(positions),
             "closed_position_rows": int(positions.ts_closed.notna().sum()) if len(positions) else 0,
             "open_position_rows": int(positions.ts_closed.isna().sum()) if len(positions) else 0,
-            "all_order_statuses": list(orders.status.astype(str)),
+            "order_report_columns": list(orders.columns),
+            "orders": [
+                {field: str(row[field]) for field in visible_order_fields}
+                for _, row in orders.iterrows()
+            ],
         }
     finally:
         engine.dispose()
