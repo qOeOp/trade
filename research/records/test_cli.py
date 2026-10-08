@@ -7,6 +7,7 @@ from research.records.cli import (
     RecordError,
     _check_family,
     _check_source_revision,
+    _brief,
     _compare,
     _lineage,
     _load_records,
@@ -62,6 +63,29 @@ class ResearchRecordBoundaryTests(unittest.TestCase):
             result["metrics"]["final_equity_usdt"]["difference"], "-582.64175047"
         )
         self.assertEqual(result["source_revision_status"], ["verified", "verified"])
+
+    def test_brief_preserves_decision_control_and_evidence_status(self):
+        brief = _brief("F01", self.attempts, self.runs)
+        self.assertEqual(brief["decision"]["outcome"], "failed")
+        self.assertEqual(
+            {parent["record"]["attempt_id"] for parent in brief["lineage"]["parents"]},
+            {"H19a", "H18a"},
+        )
+        self.assertEqual(set(brief["comparison_family"]), {"00", "10", "01", "11"})
+        self.assertEqual(
+            next(run for run in brief["runs"] if run["run_id"] == "F01-11-20261008")[
+                "control_run_id"
+            ],
+            "F01-10-20261008",
+        )
+        self.assertTrue(
+            all(item["status"] == "verified" for item in brief["evidence_status"])
+        )
+        lineage = _brief("H13c", self.attempts, self.runs)["lineage"]
+        self.assertEqual(
+            lineage["parents"][0]["record"]["parents"][0]["record"]["attempt_id"],
+            "H13",
+        )
 
     def test_four_cell_index_rejects_missing_run(self):
         attempt = self.attempts["F01"]

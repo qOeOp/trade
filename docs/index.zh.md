@@ -7,6 +7,7 @@
 - [研发发现](plans/r1-native-rd-findings.zh.md)：后续产品设计需要保留的发现和边界。
 - [投研记录设计与效能试点](plans/research-record-contract.zh.md)：外部依据、Git 记录与本机封存形态，以及尚待执行的效能量化验收。
 - [投研产物单机验收](plans/research-artifact-custody-acceptance.zh.md)：冻结运行、输入校验、封存、第二目录恢复与原生配对的真实结果。
+- [投研记录检索效率](plans/research-record-efficiency.zh.md)：真实任务的命令层基准、简要读回改进与 Agent 盲评边界。
 - [F01 四格原生回放](plans/r1-factorial-line-cancel-result.zh.md)：两项可开关研究方向的 00/10/01/11 配对、账户结果与记录读回。
 
 可运行入口与本地数据要求见 [仓库 README](https://github.com/qOeOp/trade/blob/main/README.md)。研究回测不连接交易账户，也不会下实盘订单。

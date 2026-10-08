@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import stat
 import tempfile
 import unittest
 from argparse import Namespace
@@ -11,6 +12,7 @@ from research.records.artifacts import ArtifactError
 from research.records.artifacts import _files
 from research.records.artifacts import _sha
 from research.records.artifacts import _check_inputs
+from research.records.artifacts import _private_root
 from research.records.artifacts import backup
 from research.records.artifacts import create_input_identity
 from research.records.artifacts import restore
@@ -47,7 +49,15 @@ class ArtifactCustodyTests(unittest.TestCase):
 
     def test_backup_can_restore_without_primary(self):
         backup_root = Path(self.temp.name) / "backup"
-        backup(self.root, self.run_id, backup_root)
+        result = backup(self.root, self.run_id, backup_root)
+        self.assertTrue(result["same_device_as_primary"])
+        self.assertEqual(stat.S_IMODE(backup_root.stat().st_mode), 0o700)
+        self.assertEqual(
+            stat.S_IMODE(
+                (backup_root / self.run_id / "reports" / "orders.csv").stat().st_mode
+            ),
+            0o600,
+        )
         self.assertEqual(
             _sha(self.root / self.run_id / "manifest.json"),
             _sha(backup_root / self.run_id / "manifest.json"),
@@ -58,6 +68,13 @@ class ArtifactCustodyTests(unittest.TestCase):
         self.assertEqual(
             (output / "orders.csv").read_text(), "order_id,status\na,FILLED\n"
         )
+        self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((output / "orders.csv").stat().st_mode), 0o600)
+
+    def test_permissive_root_is_rejected(self):
+        self.root.chmod(0o755)
+        with self.assertRaisesRegex(ArtifactError, "private"):
+            _private_root(self.root)
 
     def test_tampered_or_extra_file_is_rejected(self):
         report = self.seal / "reports" / "orders.csv"

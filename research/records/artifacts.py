@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -53,6 +54,27 @@ SOURCE_DIGEST_FILES = {
 
 class ArtifactError(Exception):
     pass
+
+
+def _private_root(root: Path) -> Path:
+    if root.is_symlink():
+        raise ArtifactError(f"artifact root must not be a symlink: {root}")
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = root.stat()
+    mode = stat.S_IMODE(info.st_mode)
+    if info.st_uid != os.geteuid() or mode != 0o700:
+        raise ArtifactError(
+            f"artifact root must be owned by this user and private (0700): {root}"
+        )
+    return root.resolve()
+
+
+def _private_tree(root: Path) -> None:
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ArtifactError(f"artifact symlink is forbidden: {path}")
+        path.chmod(0o700 if path.is_dir() else 0o600)
+    root.chmod(0o700)
 
 
 def _sha(path: Path) -> str:
@@ -258,28 +280,28 @@ def run(
     identity = _read_json(input_identity)
     identity_digest = _sha(input_identity)
     checked_before = _check_inputs(identity, replay)
-    root = root.resolve()
-    if root.is_relative_to(ROOT) or root.is_relative_to(
+    root = root.absolute()
+    if root.resolve().is_relative_to(ROOT) or root.resolve().is_relative_to(
         Path(tempfile.gettempdir()).resolve()
     ):
         raise ArtifactError(
             "artifact root must be outside Git and the system temp directory"
         )
-    root.mkdir(parents=True, exist_ok=True)
+    root = _private_root(root)
     target = root / run_id
     if target.exists():
         raise ArtifactError(f"run ID already sealed: {run_id}")
     locks = root / ".locks"
     staging = root / ".staging"
-    locks.mkdir(exist_ok=True)
-    staging.mkdir(exist_ok=True)
+    locks.mkdir(mode=0o700, exist_ok=True)
+    staging.mkdir(mode=0o700, exist_ok=True)
     lock = locks / run_id
     try:
-        lock.mkdir()
+        lock.mkdir(mode=0o700)
     except FileExistsError as exc:
         raise ArtifactError(f"run ID is already in progress: {run_id}") from exc
     stage = staging / f"{run_id}-{uuid.uuid4().hex}"
-    stage.mkdir()
+    stage.mkdir(mode=0o700)
     try:
         commit = _snapshot_source(source_ref, stage)
         registration_commit = _attempt(attempt_id)["registration"][
@@ -385,6 +407,7 @@ def run(
             "files": _files(stage),
         }
         _write_json(stage / "manifest.json", manifest)
+        _private_tree(stage)
         _sync_tree(stage)
         if target.exists():
             raise ArtifactError(f"run ID already sealed: {run_id}")
@@ -404,7 +427,7 @@ def run(
     finally:
         if stage.exists():
             quarantine = root / ".quarantine"
-            quarantine.mkdir(exist_ok=True)
+            quarantine.mkdir(mode=0o700, exist_ok=True)
             os.rename(stage, quarantine / stage.name)
         lock.rmdir()
 
@@ -452,14 +475,17 @@ def restore(root: Path, run_id: str, destination: Path) -> dict:
     if not source.is_dir():
         raise ArtifactError("sealed run has no native reports")
     stage = destination.parent / f".{destination.name}-{uuid.uuid4().hex}.restore"
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
-        shutil.copytree(source, stage)
+        stage.mkdir(mode=0o700)
+        shutil.copytree(source, stage, dirs_exist_ok=True)
         expected = _read_json(root.resolve() / run_id / "manifest.json")["files"]
         for file in stage.rglob("*"):
             if file.is_file():
                 name = "reports/" + file.relative_to(stage).as_posix()
                 if name not in expected or _sha(file) != expected[name]["sha256"]:
                     raise ArtifactError(f"restored report differs from seal: {name}")
+        _private_tree(stage)
         os.rename(stage, destination)
     finally:
         if stage.exists():
@@ -470,10 +496,12 @@ def restore(root: Path, run_id: str, destination: Path) -> dict:
 def backup(root: Path, run_id: str, backup_root: Path) -> dict:
     checked = verify(root, run_id)
     source = root.resolve() / run_id
-    backup_root = backup_root.resolve()
-    if backup_root == root.resolve() or backup_root.is_relative_to(root.resolve()):
+    backup_root = backup_root.absolute()
+    if backup_root.resolve() == root.resolve() or backup_root.resolve().is_relative_to(
+        root.resolve()
+    ):
         raise ArtifactError("backup root must differ from the primary root")
-    backup_root.mkdir(parents=True, exist_ok=True)
+    backup_root = _private_root(backup_root)
     target = backup_root / run_id
     if target.exists():
         raise ArtifactError(f"backup run ID already exists: {run_id}")
@@ -484,6 +512,7 @@ def backup(root: Path, run_id: str, backup_root: Path) -> dict:
             stage
         ) != _files(source):
             raise ArtifactError("backup bytes differ from primary")
+        _private_tree(stage)
         _sync_tree(stage)
         os.rename(stage, target)
         fd = os.open(backup_root, os.O_RDONLY)
@@ -494,7 +523,12 @@ def backup(root: Path, run_id: str, backup_root: Path) -> dict:
     finally:
         if stage.exists():
             shutil.rmtree(stage)
-    return {**verify(backup_root, run_id), "backup_path": str(target)}
+    return {
+        **verify(backup_root, run_id),
+        "backup_path": str(target),
+        "same_device_as_primary": root.resolve().stat().st_dev
+        == backup_root.stat().st_dev,
+    }
 
 
 def register(

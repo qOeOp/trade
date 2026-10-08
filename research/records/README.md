@@ -18,11 +18,17 @@ TRADE_RESEARCH_ARTIFACT_ROOT=/path/to/local/artifacts uv run --frozen python -m 
 uv run --frozen python -m research.records.cli show H13c
 uv run --frozen python -m research.records.cli show H18a
 uv run --frozen python -m research.records.cli show F01
+uv run --frozen python -m research.records.cli show F01 --brief
 uv run --frozen python -m research.records.cli find --mechanism 61.8% --failure-layer source
 uv run --frozen python -m research.records.cli compare H19a-2026-10-08 H18a-paired-2026-10-08
 uv run --frozen python -m research.records.cli compare H18a-2026-10-08 H15a-paired-2026-10-08
 uv run --frozen python -m research.records.cli compare F01-11-20261008 F01-10-20261008
 ```
+
+Use `show <attempt-id> --brief` first for the hypothesis chain, decision,
+four-cell run IDs, and evidence availability; use full `show` when checking
+the exact record and report references. The compact view never substitutes
+for `compare` or the native reports when deciding whether a result improved.
 
 `validate` checks JSON Schema, references, SHA-256 of retained small reports,
 the H19a/H18a summary's recorded window/account/source fields, and the native
@@ -104,7 +110,32 @@ SHA-256. The read-only record CLI resolves `artifact://` refs through
 without inventing a native summary. Full raw inputs are referenced by their
 verified identity and remain in the source Catalog.
 
-The second directory can recover a run after the primary directory is lost;
-placing both on one disk does not protect against disk loss. Interrupted staging
-is retained under `.staging` or `.quarantine` for inspection; only a directory
-with a verified final manifest is a sealed run.
+## Access, retention, and disaster recovery
+
+The configured artifact root and backup root must be owned by the account
+running custody and have mode `0700`. New sealed and restored directories use
+`0700`; files use `0600`. The command rejects a permissive root instead of
+silently changing a shared directory when creating a run or backup. On an existing root, restrict the root,
+all run directories, and files before the next write, then run `verify` again.
+Do not put exchange credentials in the artifact root.
+
+Git records and sealed runs, including failed runs, have **no automatic expiry**:
+retain them while a Git run record cites their hashes. A deletion requires an
+explicit research decision, a record update marking unavailable evidence, and
+a verified replacement or an accepted loss of replay detail. This version has
+no deletion command. Review abandoned `.staging` and `.quarantine` directories
+after seven days; after checking no live lock or registered run depends on
+them, remove unneeded diagnostic copies within 30 days. They are not sealed
+evidence. Monitor disk capacity before starting large native replays; move the
+root to larger storage rather than pruning referenced runs to free space.
+
+`backup` proves a second copy has the same bytes; its result reports
+`same_device_as_primary`. A second directory on the same machine is only local
+copy recovery. To accept disaster recovery, place the backup on a separately
+administered host or object store, record its owner and physical storage
+boundary, verify the manifest there, make the primary unavailable, and restore
+the reports on that independent host. Recheck the restored hashes against the
+Git run record. Repeat a restore drill at least quarterly. An SSH or object
+storage destination needs a separately authorized transport or mounted remote
+filesystem; this CLI accepts filesystem paths only. Catalog inputs are not
+copied by this command and need their own recovery plan.

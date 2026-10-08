@@ -336,6 +336,61 @@ def _show(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> di
     }
 
 
+def _brief(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> dict:
+    if identity not in attempts:
+        raise RecordError(f"unknown attempt: {identity}")
+    attempt = attempts[identity]
+
+    def compact_lineage(node: dict) -> dict:
+        return {
+            "attempt_id": node["attempt_id"],
+            "decision_layer": node["decision"]["layer"],
+            "decision_outcome": node["decision"]["outcome"],
+            "parents": [
+                {
+                    "relationship": parent["relationship"],
+                    "difference": parent["difference"],
+                    "record": compact_lineage(parent["record"]),
+                }
+                for parent in node["parents"]
+            ],
+        }
+
+    return {
+        "attempt_id": identity,
+        "question": attempt["question"],
+        "mechanism": attempt["mechanism"],
+        "registration_status": attempt["registration"]["status"],
+        "code_parent": attempt["code_parent"],
+        "lineage": compact_lineage(_lineage(identity, attempts)),
+        "mechanism_refs": attempt.get("mechanism_refs", []),
+        "decision": attempt["decision"],
+        "comparison_family": (
+            attempt["comparison_family"]["cells"]
+            if attempt.get("comparison_family")
+            else None
+        ),
+        "runs": [
+            {
+                key: run[key]
+                for key in (
+                    "run_id",
+                    "role",
+                    "integrity",
+                    "control_run_id",
+                    "raw_reports",
+                )
+            }
+            for run in runs.values()
+            if run["attempt_id"] == identity
+        ],
+        "evidence_status": [
+            {"path": ref["path"], "status": _check_ref(ref)}
+            for ref in attempt["evidence_refs"]
+        ],
+    }
+
+
 def _find(
     mechanism: str | None, layer: str | None, attempts: dict[str, dict]
 ) -> list[dict]:
@@ -429,6 +484,9 @@ def main() -> int:
     command.add_parser("validate")
     show = command.add_parser("show")
     show.add_argument("attempt_id")
+    show.add_argument(
+        "--brief", action="store_true", help="show a compact research decision view"
+    )
     find = command.add_parser("find")
     find.add_argument("--mechanism")
     find.add_argument(
@@ -443,7 +501,11 @@ def main() -> int:
         if args.command == "validate":
             output = _validate(attempts, runs)
         elif args.command == "show":
-            output = _show(args.attempt_id, attempts, runs)
+            output = (
+                _brief(args.attempt_id, attempts, runs)
+                if args.brief
+                else _show(args.attempt_id, attempts, runs)
+            )
         elif args.command == "find":
             output = _find(args.mechanism, args.failure_layer, attempts)
         else:

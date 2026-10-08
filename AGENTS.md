@@ -9,7 +9,7 @@
 
 ## Research records and retained results
 
-- Before extending a prior hypothesis or combining strategy variants, search the Git research index with `uv run --frozen python -m research.records.cli` (`find`, `show`, or `compare`). For a new hypothesis, commit its attempt and preregistration before inspecting its result. Follow `research/records/README.md` for the record contract.
+- Before extending a prior hypothesis or combining strategy variants, search the Git research index with `uv run --frozen python -m research.records.cli` (`find`, `show <id> --brief`, then full `show` or `compare` for evidence). For a new hypothesis, commit its attempt and preregistration before inspecting its result. Follow `research/records/README.md` for the record contract.
 - For a registered R1 tiered replay intended to inform a research decision, run the existing native runner through `uv run --frozen python -m research.records.artifacts run`, then verify, register and back up the sealed result as described in that guide. The artifact root is a configurable local directory outside Git and `/tmp`.
 - Direct `run_portfolio.py` outputs under `/tmp` are useful for diagnostics and historical replay; label them temporary rather than recoverable research evidence. The Agent still chooses the question, method and next experiment; a passed artifact audit is not strategy qualification.
 
