@@ -72,6 +72,12 @@
     "questions_per_agent": 8,
     "control_mean_score_of_32": 30.0,
     "index_mean_score_of_32": 32.0,
+    "shared_information_adjustment": {
+      "excluded_point": "Q5 fact 1, because its required F01-00/10/01/11-20261008 registry run IDs exist only in the index arm; the control answers correctly identified the four attempt/cell mappings.",
+      "control_mean_score_of_31": 30.0,
+      "index_mean_score_of_31": 31.0,
+      "remaining_difference": "Q4 exact original H19a run difference versus the later F01-10 rerun; the numerical gap is 0.00352690 USDT and did not change the economic or next-step conclusion."
+    },
     "control_median_active_seconds": 38.048,
     "index_median_active_seconds": 53.398,
     "index_minus_control_median_active_seconds": 15.35,
@@ -83,6 +89,7 @@
   "interpretation_limits": [
     "C4/I4 from the frozen replication plan were not run; this is a six-run pilot, not the planned eight-run replication.",
     "The clean control has the same legacy evidence bytes but an independent, shorter Git graph. Its corpus does not contain the new registered F01 run IDs, so Q5 measures information availability as well as retrieval skill.",
+    "The 32-point protocol score is retained for audit, but the 31-point shared-information adjustment is the appropriate comparison of facts available to both arms. It was calculated after the Agent runs and is descriptive, not a replacement preregistered endpoint.",
     "The Q4 numerical miss is 0.00352690 USDT and identifies run lineage, not a material economic conclusion difference.",
     "The first two valid pairs were not concurrent; cache, scheduling, Agent variation and order affect active time. Tool calls were self-reported, and tokens plus record-maintenance time were unavailable.",
     "No new strategy was built, no forward data were tested, and strategy success rate cannot be inferred."
