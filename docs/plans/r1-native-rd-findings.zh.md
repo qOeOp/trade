@@ -418,7 +418,7 @@
 
 **产品与研究含义。** Agent 应为每个来源动作分别绑定波段起点、各档入场、共用失效条件、首个障碍、总风险预算和在途订单状态；只匹配了入场档位不能把止损和盈亏空间也标为已复刻。若研究低点外共同止损与三档分批入场，需先固定仍有歧义的选锚规则及每档预算，再用 Nautilus 原生多订单、保护和共享账户回测完整验证，不能扩大 H14a 旧订单的止损后沿用其收益或胜率。现有 R&D 来源和假设关系可表达这些互斥分支；Backtest 继续由 Nautilus 持有真实模拟仓位、费用和资金费，不新增产品专用成交账本。
 
-**后继范围。** H15a 已把三档总风险固定为 25 基点、总名义敞口上限固定为 5%，并只在 4 月 BTC 来源案例通过只读几何门槛：低点外共用止损 **67,441.1**，三个原生取整档位到前高的空间分别约 **0.91R、1.42R、2.65R**。这只验证候选价格关系；三档同时挂单、分次成交后的共用保护与净值仍须通过 Nautilus 原生事件和完整账户回放，SUI 选锚失配也仍在。
+**后继范围。** H15a 把三档总风险固定为 25 基点、总名义敞口上限固定为 5%；4 月 BTC 来源案例的低点外共用止损为 **67,441.1**，三个原生取整档位到前高的空间约 **0.91R、1.42R、2.65R**。其后已通过 Nautilus 原生订单生命周期和 37 币完整回放：年化 **+4.28%**、胜率 **56.51%**，仍未达到 20% 年化；SUI 选锚失配也仍在。来源几何、原生执行、经济结果分别成立到各自证据边界。
 
 **核查证据。** [D45 来源几何与限制](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](../../research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[H15a 预登记与来源门槛](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H15a 来源结果](../../research/r1_native/results/2026-10-08-h15a-source-gate.json)、[S27 原片证据](../../research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)。
 
@@ -432,7 +432,7 @@
 
 **后继验收。** H15a 的正式 Strategy 已在合成 Nautilus 事件中通过三档止盈／止损、首档或两档止盈后再回撤、同根止损、全部挂单到期、定时退出、旧计划撤单确认后替换，以及旧单在撤单请求前已成交的九条路径。另用原生延迟模型将撤单确认推迟十分钟：旧单在撤单请求后、确认前成交时，Strategy 保留其保护单、放弃新计划，结算后无残留订单或持仓。十条路径的原生成交序列均未出现净空，终态净额为零。实际四小时聚合触发时钟及真实共享账户中的费用与资金费仍需继续验收，不能把这轮合成结果称作年度收益改善。
 
-**核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[未收束原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)、[撤单修复原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-cancel-probe.json)、[正式 Strategy 十路径事件报告](../../research/r1_native/results/2026-10-08-h15a-strategy-lifecycle-race.json)、[正式选锚来源核查](../../research/r1_native/results/2026-10-08-h15a-actual-selector.json)。这些诊断不含真实行情收益；H15a 的一年经济结果尚未验收。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)及 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[未收束原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)、[撤单修复原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-cancel-probe.json)、[正式 Strategy 十路径事件报告](../../research/r1_native/results/2026-10-08-h15a-strategy-lifecycle-race.json)、[正式选锚来源核查](../../research/r1_native/results/2026-10-08-h15a-actual-selector.json)、[一年原生订单审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)与[组合摘要](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。合成诊断本身不含真实行情收益；完整回放另行证明上述经济指标。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)及 [Backtest 输入与结果](../owners/backtest.zh.md)。
 
 ## F43：订单时钟和合约最小跳动要按原生值验收
 
@@ -457,3 +457,11 @@
 **改进方法与产品含义。** 多腿策略的订单审计需按原生父子关系和状态转换判断：未成交的活动入场单可以有 `SUBMITTED` 的休眠子单；已成交／部分成交的入场必须有对应活动保护；父单终止未成交后，子单也须按原生事件收束。保留首次失败报告，修正审计后对同一原始报告重验；不因审计程序自身的状态模型错误而重跑策略或淘汰多档机制。Backtest 产品保存父子订单、状态、成交、持仓和校验结果，复用 Nautilus 的 OTO 生命周期，不另建订单状态机。
 
 **核查证据。** [首次审计失败](../../research/r1_native/results/2026-10-08-h15a-37-native-audit-attempt1.json)、[修正后审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)、[H15a 完整实验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 [Backtest 输入与结果](../owners/backtest.zh.md)。
+
+## F46：提高仓位前先核算原生计划的风险利用率与触及容量
+
+**流程问题与证据。** H15a 年化仅 +4.28% 时，直接提高每币 5% 名义上限似乎可以放大收益，但这把一个未验证的杠杆调整当成策略改善。D47 在已封存的 3,271 组 Nautilus 原生订单上，按每档入场价、共用止损与 25 基点总预算核算：三档计划止损风险中位数约 **24.23 基点**，只有 **34.97%** 的档位被名义上限约束；预登记的"风险显著未用足"门槛失败。50%／61.8%／76.4% 档分别成交 **680／510／361** 次，最深档仅触及全部计划的 **11.04%**。提高名义上限缺少足够的机械依据；把资金全移到深档又会改变可成交机会，不能用旧组合收益乘一个系数。
+
+**流程改进与产品含义。** Agent 提出仓位、杠杆或档位权重延伸前，应先用原生订单几何与实际触及数做低成本容量核查，并把风险上限、止损距离、价格取整、未成交计划和净额持仓分开记录。若证据指向档位选择，应在来源允许的条件路径中冻结一条新规则，先过事前来源正反例与原生订单生命周期门槛，再做同账户、同费用资金费的完整配对回放；退出目标仍按年化、胜率、夏普及回撤联合判断。订单触及频率只能决定是否值得测试机制，不能派生每档利润或从已见年份挑最优权重。Backtest 继续由 Nautilus 持有订单和账户，R&D 只保存诊断与假设关系。
+
+**核查证据。** [D47 预登记与结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d47-native-tier-reach-and-frozen-risk-capacity-screen)、[原生档位容量结果](../../research/r1_native/results/2026-10-08-h15a-tier-capacity-d47.json)、[H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
