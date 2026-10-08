@@ -146,7 +146,25 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
         )
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument.id}-5-MINUTE-LAST-EXTERNAL")
-        if exit_kind == "target_then_retrace":
+        if exit_kind == "unfilled_expiry":
+            prices = [(71_000, 71_100, 70_900, 71_000)] + [
+                (71_000, 71_050, 70_950, 71_000),
+            ] * 1_441
+        elif exit_kind == "same_bar_stop":
+            prices = [
+                (71_000, 71_100, 70_900, 71_000),
+                (71_000, 71_100, 67_400, 67_450),
+                (67_450, 67_500, 67_400, 67_450),
+            ]
+        elif exit_kind == "two_tier_target_then_retrace":
+            prices = [
+                (71_000, 71_100, 70_900, 71_000),
+                (70_900, 71_000, 70_200, 70_250),
+                (70_250, 70_300, 69_600, 69_700),
+                (69_700, 72_900, 69_600, 72_800),
+                (72_800, 72_850, 68_800, 68_950),
+            ]
+        elif exit_kind == "target_then_retrace":
             prices = [
                 (71_000, 71_100, 70_900, 71_000),
                 (70_900, 71_000, 70_200, 70_250),
@@ -245,10 +263,10 @@ def main() -> None:
     )
     if len(instruments) != 1:
         raise RuntimeError("one BTC native Instrument is required")
-    results = [
-        _scenario(instruments[0], kind, args.strategy)
-        for kind in ("target", "stop", "target_then_retrace")
-    ]
+    kinds = ["target", "stop", "target_then_retrace"]
+    if args.strategy == "h15":
+        kinds.extend(("two_tier_target_then_retrace", "same_bar_stop", "unfilled_expiry"))
+    results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(
