@@ -1,0 +1,65 @@
+{
+  "schema": "r1-native-source-check/v1",
+  "id": "S44",
+  "registration_commit": "cdcced4479e23bed29b1bfe3d3e263364010ec0b",
+  "source": {
+    "url": "https://www.youtube.com/watch?v=HmpJXCY5BrU",
+    "author_original": "\u7f57\u5c3c\u4ea4\u6613\u6307\u5357",
+    "published_at_utc": "2026-06-02T00:00:00Z",
+    "duration_ms": 748000,
+    "original_media_sha256": "4befdf10b7dfafcc3ba27d754720d1395986d3bcdf9ddcd9ffc28c5524c620b4",
+    "known_duplicate_media_in_retained_results": false,
+    "media_manifest": "/Users/vx/.local/share/video-note-mcp/artifacts/media-9b07eb58585df8e79063a545f1098cd3869fa94d81dc66d6512d486bdcb8b2b1/manifest.json",
+    "media_manifest_sha256": "9b07eb58585df8e79063a545f1098cd3869fa94d81dc66d6512d486bdcb8b2b1",
+    "transcript_manifest": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-09f9735183a242c00067af5c5f0aedce65f08c49e41deae7006bbe63fe351b3f/manifest.json",
+    "transcript_manifest_sha256": "09f9735183a242c00067af5c5f0aedce65f08c49e41deae7006bbe63fe351b3f",
+    "frames_manifest": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-25d935d4ab02bd5bd90268d943c8f1edf6b34b16cfa0ac6b84bb0c4a6261a920/manifest.json",
+    "frames_manifest_sha256": "25d935d4ab02bd5bd90268d943c8f1edf6b34b16cfa0ac6b84bb0c4a6261a920",
+    "note": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-4577f4860379425aa7dde98a66a79de8/note.md",
+    "note_sha256": "51508c950888a832b56be0e3619ccef8fa13af719ba9bf102628ad82ee8f7b0d",
+    "acquisition_receipt": "/tmp/r1-s44-held-long-stop-create.json",
+    "acquisition_receipt_sha256": "76648392d7e45fa5ced1f5216aa31b69b49a1243b1044c8e5ba2a8fbf78cd17d"
+  },
+  "observations": [
+    {
+      "asset": "BTC",
+      "transcript_refs": ["E004-E049"],
+      "time_ms": [6200, 99100],
+      "original_frame_refs": ["F46", "F02", "F16"],
+      "frame_sha256": [
+        "1a7e708588d2a21717607a4f97aedd545a3b6135746ad13537aabbd1026f372b",
+        "f75c7b4a884f23d2b01a04926fb4f04ba5e3e87198005b3c4c31fb67f67b8055",
+        "01816f51f0ffc07ccb2b595cbcfc4d5c3b0737c6d10b406f643a2aacf3bc9a0f"
+      ],
+      "previsible_plan": "Hypothetical four-hour long at the 50 and 61.8 percent retracement supports when the rising line was judged valid; stop was supposed to be placed below a deeper Fibonacci retracement at entry, with position risk controlled.",
+      "later_observation": "The four-hour rising line and a prior low have now broken; the speaker says the original stop may not have triggered yet and warns that further decline is plausible.",
+      "new_post_entry_reduce_or_close_action_before_original_stop": null,
+      "stop_level_transcription_conflict": "Fast ASR says 76.8 percent (E029-E031), while the original chart appears to label a 0.786 retracement; no audio review or verified drawing-anchor mapping, so no numerical stop ratio is certified."
+    },
+    {
+      "asset": "NEAR",
+      "transcript_refs": ["E270-E303"],
+      "time_ms": [553600, 601000],
+      "state": "A prior 50 percent pullback/breakout plan had not yet reached its previous-high target; existing profitable holders were told to continue while a larger daily level was described as a staged profit-taking area.",
+      "early_invalidation_exit_specified": false
+    },
+    {
+      "asset": "HYPE",
+      "time_ms": [501000, 545000],
+      "state": "Strong daily/weekly uptrend with consecutive positive days; the speaker permits current longs to keep holding but sees no clear new entry.",
+      "early_invalidation_exit_specified": false
+    }
+  ],
+  "preregistered_gate": {
+    "actual_held_crypto_futures_long_proven": false,
+    "initial_protective_stop_described": true,
+    "distinct_post_entry_state_and_action_before_stop": false,
+    "conditional_exit_lead_passed": false
+  },
+  "decision": "Source-inconclusive for a separate post-entry early exit. It supports distinguishing an entry-time protective stop from later weak price action and may motivate a separately registered two-entry stop-geometry source case, but the ambiguous deep Fibonacci ratio, venue, causal anchors and conflict with H15a's three-tier common below-origin stop forbid direct parameter substitution or an annual replay from S44 alone.",
+  "limitations": [
+    "Fast ASR and selected original frames were inspected, without independent audio review.",
+    "The visible TradingView BTCUSDT chart does not prove Binance perpetual execution venue.",
+    "The source date is inside the exposed annual backtest period and is not an independent economic holdout."
+  ]
+}
