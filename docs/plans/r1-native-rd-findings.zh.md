@@ -557,3 +557,21 @@
 **产品判断。** 一笔计划应保存首次可见的 A/B、波段尺度、首次形成与失效时间、入场档位、止损所依附的波段，以及具体来源案例。研究 Agent 若提出较大波段版本，应先用同一套因果选点在 S44 正例和 S27 较局部的反例上固定规则，再核查 37 币原生订单机会容量；来源与容量不过关就不进入年度收益筛选。拒绝的是"沿用 H15a 选点只换止损"这一精确子方案，不是两档或结构保护技术家族。Nautilus 保持订单、成交、保护单和账户的唯一执行权威。
 
 **核查证据。** [D59 预登记和结果](../../research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d59-can-the-frozen-h15a-selector-reproduce-the-s44-btc-impulse-before-first-touch)、[逐波段与计划读回](../../research/r1_native/results/2026-10-08-d59-s44-h15a-geometry.json)、[只读来源几何核查](../../research/r1_native/audit_s44_h15a_source_geometry.py)。
+
+## F56：来源几何通过与原生策略盈利之间仍有两道门槛
+
+**已验证的研究边界。** D59 说明 H15a 的近端波段不能代表 S44 原图较宽的 BTC 波段。另行预登记的 D60 改用在 B 完成时已确认的较低 A，并把待成交计划有效期固定为 180 根完整四小时 K 线。在原片可见时点之前，该规则选到 A=**67,711**、B=**82,828.7**，首次 50%／61.8% 触价分别发生在 2026 年 5 月 23／28 日；这通过来源宽带和事前存续检查。但同一规则在 S27 的局部波段案例选到 A=**64,918.2**、B=**73,128**，并不复现作者的局部 A/B。它只能作为研究者定义的宽波段代理，不能标为完整的罗尼选点规则。
+
+**原生机会与产品含义。** D60 再逐一读取已登记的 37 份币安合约 Nautilus LAST Catalog 和当前 Instrument 条款。按 100,000 USDT 静态参考权益及原有总风险 25 基点／每币名义 5% 上限，**1,492** 组计划的取整价格、最小数量和风险可行；有效期内有 **303** 组首次触及 50%，**255** 组触及 61.8%，超过预登记的 200／100 容量门槛。两组首次触价 K 线同时越过计划止损，已单列为同根先后不明。K 线触价不等于 Nautilus 成交，固定权益核算不等于共享账户资金路径，当前合约条款也不能证明历史条款。因此下一步是冻结完整 Nautilus OTO 生命周期并跑同账户配对，而不是从触价数推算利润。R&D 保存选点、订单机会与来源反例；Backtest 以原生订单、成交、资金费和 Portfolio 净值裁定经济结果，不增加替代执行器或收益账本。
+
+**核查证据。** [H19a/D60 预登记与完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[BTC 来源门槛](../../research/r1_native/results/2026-10-08-d60-broad-swing-source.json)、[37 币容量门槛](../../research/r1_native/results/2026-10-08-d60-broad-swing-capacity.json.gz)。
+
+## F57：二级延伸已有实践，但缺少跨来源的机制学习记录
+
+**流程核查。** 本 Goal 不是"视频假设试一次失败就放弃"：F23 已规定只关闭失败的精确定义，F40 要求二级机制同时解释机会、胜率、盈亏结构和目标缺口；实际也有 H14a→H15a→H16a 及 D53→D55／D56→H18a→D57／D58 的连续试验。可是本次核对 `RD_EXPERIMENTS.md`、`SOURCE_CASES.md` 与本 finding，未找到论文、DOI、同类策略研究的显式引用或从外部技术定义提炼新假设的记录。只能确认**现存研究记录缺这一环**，不能证明研究者从未在记录之外读过文献，也不能把年化不足 20% 直接归因为这一缺环。严格意义上的"0 个独立证实收益优势"还因为所有年度候选重复使用已暴露的一年，H15a／H18a 的正向点估计没有独立前向资格。
+
+**可执行的改进。** 当视频动作的机械化选点不唯一，或同一机制连续两个有区别的子方案失败时，Agent 应先做一次有边界的**相邻方法学习**：找原始论文或可核验的公开同类策略，摘取其事前状态定义、作用机制、交易与数据时钟、适用市场、失败反例和费用假设；写明哪些可以迁移到 Binance 合约，哪些只是跨市场启发。随后提出一个与前驱不同、事前可反证的机制预测，先过来源正反例及 Nautilus 原生机会门槛，再冻结完整 Strategy／共享账户对照。论文只提供可检验假设，不把别的市场的收益搬来，也不从已看过的一年挑数值。新机制、所有未通过的子试验和外部材料都留在同一试验谱系中；独立验证仍要靠延迟或前向样本。外部 Agent 自行决定阅读与选题，不新增产品内论文搜索服务、优化器或第二套回测框架。
+
+**首次相邻方法线索，尚非 H19a 的效果证据。** [Lo、Mamaysky、Wang 的原论文](https://business.columbia.edu/sites/default/files-efs/pubfiles/19268/Lo-Mamaysky_wang_foundations.pdf)研究如何把主观图形变成可重复的形态定义，适合检视当前 A/B 选锚歧义；其样本是美股，不验证币安合约回撤盈利。[Osler 的原研究](https://www.newyorkfed.org/medialibrary/media/research/epr/00v06n2/0007osle.pdf)用外汇机构事前发布的支撑阻力水平检验价格反应，是检视关键位证据来源的类比，不能推出加密合约存在相同订单聚集。[Sullivan、Timmermann、White 的原论文](https://eprints.lse.ac.uk/119144/1/dp303.pdf)针对技术规则全集和数据窥探偏差，支持保留完整试验台账与多重尝试界限。这三者均未用于回头修改已冻结的 H19a 规则；下一候选需另行预登记它们引出的具体差异预测。
+
+**核查证据。** [F23 二级延伸](#f23单次规则失败应引出有区别的机制延伸)、[F40 联合目标缺口](#f40二级延伸要验证机会盈亏结构与目标缺口的共同变化)、[H15a/H16a 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[D53 至 D58 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d53-fixed-post-entry-evidence-persistence-landmarks)。
