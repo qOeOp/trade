@@ -94,7 +94,10 @@ class H15StrategyFixture(TieredRetracementStrategy):
         if bar.bar_type != self.minute_bar_type:
             return
         if getattr(self, "submitted", False):
-            if getattr(self, "fixture_exit_kind", None) == "supersede_unfilled":
+            if getattr(self, "fixture_exit_kind", None) in (
+                "supersede_unfilled",
+                "old_fill_before_cancel_request",
+            ):
                 self.fixture_bar_count += 1
                 if self.fixture_bar_count == 2:
                     replacement = RetracementPlan(
@@ -192,7 +195,14 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
         strategy.fixture_exit_kind = exit_kind
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument.id}-5-MINUTE-LAST-EXTERNAL")
-        if exit_kind == "supersede_unfilled":
+        if exit_kind == "old_fill_before_cancel_request":
+            prices = [
+                (71_000, 71_100, 70_900, 71_000),
+                (71_000, 71_100, 70_200, 70_250),
+                (70_250, 72_900, 70_200, 72_800),
+                (72_800, 72_850, 68_800, 68_950),
+            ]
+        elif exit_kind == "supersede_unfilled":
             prices = [
                 (71_000, 71_100, 70_900, 71_000),
                 (71_000, 71_100, 70_900, 71_000),
@@ -334,6 +344,7 @@ def main() -> None:
                 "unfilled_expiry",
                 "time_exit",
                 "supersede_unfilled",
+                "old_fill_before_cancel_request",
             ),
         )
     results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
