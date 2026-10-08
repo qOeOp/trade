@@ -9,7 +9,9 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
+from retracement_strategy import RetracementPlan
 from strategy import R1Strategy
+from tiered_retracement_strategy import TieredRetracementStrategy
 
 from vibe_trading.backtest import BacktestEngine
 from vibe_trading.backtest import BacktestEngineConfig
@@ -81,7 +83,33 @@ class ThreeBracketFixture(R1Strategy):
                 self.cancel_order(entry_id)
 
 
-def _scenario(instrument, exit_kind: str) -> dict:
+class H15StrategyFixture(TieredRetracementStrategy):
+    """
+    Inject frozen S27 geometry into the actual H15 native order lifecycle.
+    """
+
+    def on_bar(self, bar: Bar) -> None:
+        if bar.bar_type != self.minute_bar_type or getattr(self, "submitted", False):
+            return
+        self.submitted = True
+        self._submit_bundle(
+            RetracementPlan(
+                ts_event=bar.ts_event,
+                a_index=0,
+                b_index=1,
+                a_low=67_711,
+                b_high=72_858.5,
+                level_50=70_284.75,
+                entry=70_284.75,
+                level_764=68_926,
+                stop=STOP,
+                target=TARGET,
+                support_low_indices=(),
+            ),
+        )
+
+
+def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
     engine = BacktestEngine(
         BacktestEngineConfig(
             trader_id=TraderId("H15A-OTO-PROBE-001"),
@@ -104,13 +132,17 @@ def _scenario(instrument, exit_kind: str) -> dict:
             bar_adaptive_high_low_ordering=False,
         )
         engine.add_instrument(instrument)
-        strategy = ThreeBracketFixture(
+        strategy_class = H15StrategyFixture if strategy_kind == "h15" else ThreeBracketFixture
+        strategy = strategy_class(
             instrument.id,
             BarType.from_str(f"{instrument.id}-1-DAY-LAST-INTERNAL"),
             Quantity.from_str("0.001"),
             execution_bar_minutes=5,
             strategy_id=StrategyId("H15A-OTO-PROBE"),
-            signal_variant="support-near50-4h",
+            signal_variant=(
+                "support-three-tier-4h" if strategy_kind == "h15" else "support-near50-4h"
+            ),
+            risk_budget_fraction=0.0025 if strategy_kind == "h15" else None,
         )
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument.id}-5-MINUTE-LAST-EXTERNAL")
@@ -174,6 +206,10 @@ def _scenario(instrument, exit_kind: str) -> dict:
         visible_order_fields = [field for field in order_fields if field in orders.columns]
         return {
             "exit_kind": exit_kind,
+            "strategy_kind": strategy_kind,
+            "bundle_submissions": getattr(strategy, "bundle_submissions", None),
+            "bundle_retirements": getattr(strategy, "bundle_retirements", None),
+            "bundle_order_failures": getattr(strategy, "bundle_order_failures", None),
             "closed_callbacks": getattr(strategy, "closed_callbacks", 0),
             "entry_state_at_close": getattr(strategy, "entry_state_at_close", []),
             "entry_statuses": list(entry.status.astype(str)),
@@ -201,6 +237,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--strategy", choices=("primitive", "h15"), default="primitive")
     args = parser.parse_args()
     instrument_id = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
     instruments = ParquetDataCatalog(str(args.catalog)).instruments(
@@ -209,12 +246,13 @@ def main() -> None:
     if len(instruments) != 1:
         raise RuntimeError("one BTC native Instrument is required")
     results = [
-        _scenario(instruments[0], kind) for kind in ("target", "stop", "target_then_retrace")
+        _scenario(instruments[0], kind, args.strategy)
+        for kind in ("target", "stop", "target_then_retrace")
     ]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(
-            {"method": "native Nautilus OTO probe", "results": results},
+            {"method": "native Nautilus OTO probe", "strategy": args.strategy, "results": results},
             indent=2,
         )
         + "\n",
