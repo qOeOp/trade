@@ -48,6 +48,7 @@ class ThreeBracketFixture(R1Strategy):
         if bar.bar_type != self.minute_bar_type or getattr(self, "submitted", False):
             return
         self.submitted = True
+        self.bundle_entries = []
         for price in ENTRY_PRICES:
             orders = self.order_factory.bracket(
                 instrument_id=self.instrument_id,
@@ -60,7 +61,15 @@ class ThreeBracketFixture(R1Strategy):
                 tp_post_only=False,
                 sl_trigger_price=self.instrument.make_price(STOP),
             )
+            self.bundle_entries.append(orders[0].client_order_id)
             self.submit_order_list(orders)
+
+    def on_position_closed(self, event) -> None:
+        super().on_position_closed(event)
+        for entry_id in self.bundle_entries:
+            order = self.cache.order(entry_id)
+            if order is not None and order.is_open:
+                self.cancel_order(order)
 
 
 def _scenario(instrument, exit_kind: str) -> dict:
