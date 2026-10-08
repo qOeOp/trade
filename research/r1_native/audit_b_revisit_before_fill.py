@@ -264,18 +264,21 @@ def _scan_paths(
     identity,
     catalog_root,
 ):
-    by_coin = defaultdict(list)
+    by_instrument = defaultdict(list)
     for bundle in bundles:
-        by_coin[bundle["instrument"].split("USDT-")[0]].append(bundle)
+        by_instrument[bundle["instrument"]].append(bundle)
     exposed = []
+    scanned = 0
     for identity_row in identity["coins"]:
         coin = identity_row["coin"]
-        coin_bundles = by_coin.get(coin, [])
+        completion = json.loads(
+            (catalog_root / coin / "minute" / "r1-download-complete.json").read_text(),
+        )
+        instrument = completion["instrument"]
+        coin_bundles = by_instrument.get(instrument, [])
         if not coin_bundles:
             continue
-        instrument = coin_bundles[0]["instrument"]
-        if any(bundle["instrument"] != instrument for bundle in coin_bundles):
-            raise RuntimeError(f"{label}: mixed native instrument for {coin}")
+        scanned += len(coin_bundles)
         bars = _native_bars(catalog_root, coin, identity_row, instrument)
         timestamps = [bar.ts_event for bar in bars]
         for bundle in coin_bundles:
@@ -290,6 +293,8 @@ def _scan_paths(
             )
             if path is not None:
                 exposed.append(path)
+    if scanned != len(bundles):
+        raise RuntimeError(f"{label}: some native bundles were not scanned")
     return exposed
 
 
