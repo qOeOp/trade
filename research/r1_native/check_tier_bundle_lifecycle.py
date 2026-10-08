@@ -308,6 +308,12 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
         visible_order_fields = [field for field in order_fields if field in orders.columns]
         fill_fields = ("side", "order_side", "last_qty", "ts_event", "client_order_id")
         visible_fill_fields = [field for field in fill_fields if field in fills.columns]
+        net = Decimal(0)
+        minimum_net = Decimal(0)
+        for fill in fills.sort_values("ts_event", kind="stable").itertuples():
+            quantity = Decimal(str(fill.last_qty))
+            net += quantity if fill.order_side == "BUY" else -quantity
+            minimum_net = min(minimum_net, net)
         return {
             "exit_kind": exit_kind,
             "strategy_kind": strategy_kind,
@@ -332,6 +338,8 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
                 ).sum(),
             ),
             "native_fills": len(fills),
+            "minimum_native_fill_net_qty": str(minimum_net),
+            "final_native_fill_net_qty": str(net),
             "native_position_rows": len(positions),
             "closed_position_rows": int(positions.ts_closed.notna().sum()) if len(positions) else 0,
             "open_position_rows": int(positions.ts_closed.isna().sum()) if len(positions) else 0,
@@ -406,6 +414,8 @@ def main() -> None:
                     ),
                 )
                 or any(side == "SHORT" for side in result["position_sides"])
+                or Decimal(result["minimum_native_fill_net_qty"]) < 0
+                or Decimal(result["final_native_fill_net_qty"]) != 0
             ):
                 raise RuntimeError(f"H15 native lifecycle failed: {result['exit_kind']}: {result}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
