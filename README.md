@@ -31,4 +31,4 @@ The historical Catalog is external to Git and must be supplied at the paths show
 - [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): 37-instrument paired replay evidence and migration findings.
 - [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): durable product and process findings from the R&D work.
 
-The old vendored Nautilus source, parallel product services and CI/CD workflows have been removed after paired replay acceptance. The published package version is pinned in `pyproject.toml` and `uv.lock`; changing it requires a fresh paired native replay.
+The old vendored Nautilus source, parallel product services and CI/CD workflows have been removed after paired replay acceptance. A minimal `quality` workflow checks the locked Python environment and runnable native entry because the repository requires that status for main-branch merges. The published package version is pinned in `pyproject.toml` and `uv.lock`; changing it requires a fresh paired native replay.

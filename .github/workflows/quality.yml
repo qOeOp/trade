@@ -1,0 +1,36 @@
+name: quality
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.14
+      - run: uv sync --frozen
+      - run: uv run --frozen python -m compileall -q strategies/r1
+      - run: uv run --frozen python strategies/r1/run_portfolio.py --help > /dev/null
+      - name: Check frozen native parity receipts
+        run: |
+          uv run --frozen python - <<'PY'
+          import json
+          from pathlib import Path
+
+          for name in (
+              'parity-h18a.json',
+              'parity-h19a.json',
+              'parity-cleanup-h19a.json',
+          ):
+              receipt = json.loads((Path('strategies/r1') / name).read_text())
+              assert receipt['parity_passed'], name
+          PY
