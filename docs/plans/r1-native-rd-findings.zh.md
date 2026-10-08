@@ -409,3 +409,11 @@
 **这次的二级核查。** D43 用实际平仓订单确认，H14a 的 330 笔止损亏损约 **60,342 USDT**，176 笔止盈盈利约 **46,911 USDT**。D44 再检查止损单的既有五分钟价格路径：即使把达到过 +1R 的止损与唯一复杂亏损路径全部宽松地改算为盈利，固定交易集合的胜率上限也只有 **46.70%**，达不到事前设定的 55% 筛查线。因此关闭"只加 +1R 退出"这条子路径，保留下一步对**事前入场条件及选锚规则**的研究；这个算术界不是可成交回测，也不能作为筛币或改阈值依据。这说明二级延伸应允许继续探索，同时以低成本反证及时结束无足够容量的精确分支。
 
 **核查证据。** [H14a 预登记、来源门槛与完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h14a-separate-prospective-50-pullback-entry-with-structural-invalidation)、[H14a 原生组合报告](../../research/r1_native/results/2026-10-08-h14a-37-summary.json)、[配对 H13f 报告](../../research/r1_native/results/2026-10-08-h14a-paired-h13f-summary.json)、[D43 原生平仓归因](../../research/r1_native/results/2026-10-08-h14a-exit-attribution-d43.json)、[D44 +1R 机会界](../../research/r1_native/results/2026-10-08-h14a-exit-opportunity-d44.json)及[原生费用与资金费读回](../../research/r1_native/results/2026-10-08-h14a-native-readback.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)和 [Backtest 输入与结果](../owners/backtest.zh.md)。
+
+## F41：多档位共用止损不能由单档位回测隐含代表
+
+**来源与实现差别。** 4 月 BTC 原片提出 50%／61.8%／76.4% 三个可分配资金的候选档位，止损共用线外或旧低点外的失效位置；H14a 只验证一个 50% 限价单，止损固定在 76.4% 下方再减 0.25 ATR。D45 在其已见 BTC 来源案例中确认，H14a 止损分别比选定的 A 低点**高约 945 与 1,516 USDT**。这并不能判定它是否在线外，因为原片没有可复现的线价算法；可以判定它**不是**"低点 A 下方"这一来源分支。若把共同止损放在 A 或更低、第一目标仍为 B，则 50% 入场至 B 最多 1R，61.8% 最多约 1.62R，76.4% 最多约 3.24R；H14a 的 50% 至少 1.5R 门槛不能直接移植到这个分支。
+
+**产品与研究含义。** Agent 应为每个来源动作分别绑定波段起点、各档入场、共用失效条件、首个障碍、总风险预算和在途订单状态；只匹配了入场档位不能把止损和盈亏空间也标为已复刻。若研究低点外共同止损与三档分批入场，需先固定仍有歧义的选锚规则及每档预算，再用 Nautilus 原生多订单、保护和共享账户回测完整验证，不能扩大 H14a 旧订单的止损后沿用其收益或胜率。现有 R&D 来源和假设关系可表达这些互斥分支；Backtest 继续由 Nautilus 持有真实模拟仓位、费用和资金费，不新增产品专用成交账本。
+
+**核查证据。** [D45 来源几何与限制](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](../../research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[S27 原片证据](../../research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)。
