@@ -12,7 +12,7 @@ from pathlib import Path
 from retracement_strategy import RetracementPlan
 from strategy import FourHour
 from strategy import R1Strategy
-from tiered_retracement_strategy import LIFETIME_NS
+from tiered_retracement_strategy import BROAD_LIFETIME_NS
 from tiered_retracement_strategy import TieredRetracementStrategy
 
 from vibe_trading.backtest import BacktestEngine
@@ -24,6 +24,7 @@ from vibe_trading.execution import StaticLatencyModel
 from vibe_trading.model import AccountType
 from vibe_trading.model import Bar
 from vibe_trading.model import BarType
+from vibe_trading.model import ClientOrderId
 from vibe_trading.model import InstrumentId
 from vibe_trading.model import MarkPriceUpdate
 from vibe_trading.model import Money
@@ -40,6 +41,7 @@ from vibe_trading.persistence import ParquetDataCatalog
 
 ENTRY_PRICES = (70_284.8, 69_677.3, 68_925.8)
 STOP = 67_441.1
+H19_STOP = 68_500.0
 TARGET = 72_858.5
 STEP_NS = 300_000_000_000
 
@@ -91,6 +93,14 @@ class H15StrategyFixture(TieredRetracementStrategy):
     Inject frozen S27 geometry into the actual H15 native order lifecycle.
     """
 
+    def _submit_bundle(self, plan: RetracementPlan) -> None:
+        super()._submit_bundle(plan)
+        if self.bundle is None:
+            return
+        decision_times = getattr(self, "fixture_entry_decision_ns", {})
+        decision_times.update({str(entry_id): plan.ts_event for entry_id in self.bundle.entry_ids})
+        self.fixture_entry_decision_ns = decision_times
+
     def on_bar(self, bar: Bar) -> None:
         if bar.bar_type != self.minute_bar_type:
             return
@@ -115,7 +125,10 @@ class H15StrategyFixture(TieredRetracementStrategy):
                         target=73_000,
                         support_low_indices=(),
                     )
-                    self.support_state = _ReplacementSelector(replacement)
+                    if self.broad_enabled:
+                        self.broad_state = _ReplacementSelector(replacement)
+                    else:
+                        self.support_state = _ReplacementSelector(replacement)
                     self._queue_four_hour_candidate(
                         FourHour(bar.ts_event, float(bar.high), float(bar.low), float(bar.close)),
                     )
@@ -124,7 +137,7 @@ class H15StrategyFixture(TieredRetracementStrategy):
             if (
                 getattr(self, "fixture_exit_kind", None) == "time_exit"
                 and self.opened_ns is not None
-                and bar.ts_event >= self.opened_ns + LIFETIME_NS
+                and bar.ts_event >= self.opened_ns + self.bundle_lifetime_ns
             ):
                 self._on_four_hour_bar(bar)
             return
@@ -140,7 +153,7 @@ class H15StrategyFixture(TieredRetracementStrategy):
                 level_50=70_284.75,
                 entry=70_284.75,
                 level_764=68_926,
-                stop=STOP,
+                stop=H19_STOP if self.broad_enabled else STOP,
                 target=TARGET,
                 support_low_indices=(),
             ),
@@ -183,6 +196,11 @@ class _ReplacementSelector:
     def on_closed(self, candle: FourHour, prior_atr: float | None) -> RetracementPlan:
         self.last_readout = {
             "impulse": {"a_index": self.plan.a_index, "b_index": self.plan.b_index},
+        }
+        self.last_selected = {
+            "a_index": self.plan.a_index,
+            "b_index": self.plan.b_index,
+            "b_high": self.plan.b_high,
         }
         return self.plan
 
@@ -230,7 +248,7 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: 
             H18StrategyFixture
             if strategy_kind == "h18"
             else H15StrategyFixture
-            if strategy_kind in ("h15", "h16")
+            if strategy_kind in ("h15", "h16", "h19")
             else ThreeBracketFixture
         )
         strategy = strategy_class(
@@ -246,9 +264,11 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: 
                 if strategy_kind == "h18"
                 else "support-deep-two-tier-4h"
                 if strategy_kind == "h16"
+                else "support-broad-two-tier-4h"
+                if strategy_kind == "h19"
                 else "support-near50-4h"
             ),
-            risk_budget_fraction=0.0025 if strategy_kind in ("h15", "h16", "h18") else None,
+            risk_budget_fraction=0.0025 if strategy_kind in ("h15", "h16", "h18", "h19") else None,
         )
         strategy.fixture_exit_kind = exit_kind
         engine.add_strategy(strategy)
@@ -280,11 +300,11 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: 
             prices = [
                 (71_000, 71_100, 70_900, 71_000),
                 (71_000, 71_100, 68_800, 69_000),
-            ] + [(69_000, 69_050, 68_950, 69_000)] * 1_441
+            ] + [(69_000, 69_050, 68_950, 69_000)] * (8_641 if strategy_kind == "h19" else 1_441)
         elif exit_kind == "unfilled_expiry":
             prices = [(71_000, 71_100, 70_900, 71_000)] + [
                 (71_000, 71_050, 70_950, 71_000),
-            ] * 1_441
+            ] * (8_641 if strategy_kind == "h19" else 1_441)
         elif exit_kind == "same_bar_stop":
             prices = [
                 (71_000, 71_100, 70_900, 71_000),
@@ -347,6 +367,11 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: 
         fills = engine.generate_fills_report()
         typed_tags = orders.tags.astype(str)
         entry = orders[typed_tags == "['ENTRY']"]
+        native_entries = [
+            engine.cache.order(ClientOrderId.from_str(str(order_id))) for order_id in entry.index
+        ]
+        if any(order is None for order in native_entries):
+            raise RuntimeError("native fixture entry missing from cache")
         stops = orders[typed_tags == "['STOP_LOSS']"]
         targets = orders[typed_tags == "['TAKE_PROFIT']"]
         order_fields = (
@@ -359,6 +384,8 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: 
             "trigger_price",
             "status",
             "tags",
+            "ts_init",
+            "expire_time_ns",
         )
         visible_order_fields = [field for field in order_fields if field in orders.columns]
         fill_fields = ("side", "order_side", "last_qty", "ts_event", "client_order_id")
@@ -382,6 +409,14 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: 
             "stop_statuses": list(stops.status.astype(str)),
             "target_statuses": list(targets.status.astype(str)),
             "filled_entries": int((entry.status == "FILLED").sum()),
+            "entry_gtd_lifetimes_ns": [
+                int(order.expire_time)
+                - getattr(strategy, "fixture_entry_decision_ns", {}).get(
+                    str(order.client_order_id),
+                    int(order.ts_init),
+                )
+                for order in native_entries
+            ],
             "filled_stops": int((stops.status == "FILLED").sum()),
             "filled_targets": int((targets.status == "FILLED").sum()),
             "denied_or_rejected": int(orders.status.isin(("DENIED", "REJECTED")).sum()),
@@ -485,7 +520,7 @@ def main() -> None:  # noqa: C901 - probes native order lifecycle scenarios.
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--strategy",
-        choices=("primitive", "h15", "h16", "h18"),
+        choices=("primitive", "h15", "h16", "h18", "h19"),
         default="primitive",
     )
     args = parser.parse_args()
@@ -496,7 +531,7 @@ def main() -> None:  # noqa: C901 - probes native order lifecycle scenarios.
     if len(instruments) != 1:
         raise RuntimeError("one BTC native Instrument is required")
     kinds = ["target", "stop", "target_then_retrace"]
-    if args.strategy in ("h15", "h16"):
+    if args.strategy in ("h15", "h16", "h19"):
         kinds.extend(
             (
                 "two_tier_target_then_retrace",
@@ -523,7 +558,7 @@ def main() -> None:  # noqa: C901 - probes native order lifecycle scenarios.
             "delayed_fill",
         ]
     results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
-    if args.strategy in ("h15", "h16"):
+    if args.strategy in ("h15", "h16", "h19"):
         expected = {
             "target": (3, 0, 3),
             "stop": (3, 3, 0),
@@ -536,7 +571,7 @@ def main() -> None:  # noqa: C901 - probes native order lifecycle scenarios.
             "old_fill_before_cancel_request": (1, 0, 1),
             "fill_during_pending_cancel": (1, 0, 1),
         }
-        if args.strategy == "h16":
+        if args.strategy in ("h16", "h19"):
             expected.update(
                 target=(2, 0, 2),
                 stop=(2, 2, 0),
@@ -562,6 +597,18 @@ def main() -> None:  # noqa: C901 - probes native order lifecycle scenarios.
                 or any(side == "SHORT" for side in result["position_sides"])
                 or Decimal(result["minimum_native_fill_net_qty"]) < 0
                 or Decimal(result["final_native_fill_net_qty"]) != 0
+                or (
+                    args.strategy == "h19"
+                    and any(
+                        lifetime != BROAD_LIFETIME_NS
+                        for lifetime in result["entry_gtd_lifetimes_ns"]
+                    )
+                )
+                or (
+                    args.strategy == "h19"
+                    and result["exit_kind"] == "fill_during_pending_cancel"
+                    and result["bundle_cancel_race_fills"] != 1
+                )
             ):
                 raise RuntimeError(f"H15 native lifecycle failed: {result['exit_kind']}: {result}")
     elif args.strategy == "h18":

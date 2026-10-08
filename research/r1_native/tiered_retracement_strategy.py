@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import pairwise
 
+from broad_swing_signal import BroadSwingPullback
 from retracement_strategy import ConfirmedSupportPullback
 from retracement_strategy import RetracementPlan
 from strategy import FOUR_HOUR_NS
@@ -24,9 +25,11 @@ from vibe_trading.model import TimeInForce
 
 THREE_TIER_RATIOS = (0.5, 0.618, 0.764)
 DEEP_TIER_RATIOS = (0.618, 0.764)
+BROAD_TIER_RATIOS = (0.5, 0.618)
 TOTAL_RISK_FRACTION = 0.0025
 TOTAL_NOTIONAL_FRACTION = 0.05
 LIFETIME_NS = 30 * FOUR_HOUR_NS
+BROAD_LIFETIME_NS = 180 * FOUR_HOUR_NS
 
 
 @dataclass
@@ -36,6 +39,7 @@ class TierBundle:
     filled_ids: set
     net_flat: bool = True
     retiring: bool = False
+    b_high: float | None = None
 
 
 class TieredRetracementStrategy(R1Strategy):
@@ -52,6 +56,8 @@ class TieredRetracementStrategy(R1Strategy):
             self.tier_ratios = THREE_TIER_RATIOS
         elif self.signal_variant == "support-deep-two-tier-4h":
             self.tier_ratios = DEEP_TIER_RATIOS
+        elif self.signal_variant == "support-broad-two-tier-4h":
+            self.tier_ratios = BROAD_TIER_RATIOS
         else:
             raise ValueError("unsupported budgeted tier signal")
         if (
@@ -59,12 +65,20 @@ class TieredRetracementStrategy(R1Strategy):
             or self.max_coin_notional_fraction != TOTAL_NOTIONAL_FRACTION
         ):
             raise ValueError("budgeted tiers require 25-bp risk and 5% coin notional cap")
-        self.support_state = ConfirmedSupportPullback(
-            timing="confirmed-update",
-            support_mode="none",
-            entry_ratio=0.5,
-            minimum_target_r=0.0,
-            stop_at_origin=True,
+        self.broad_enabled = self.signal_variant == "support-broad-two-tier-4h"
+        self.bundle_lifetime_ns = BROAD_LIFETIME_NS if self.broad_enabled else LIFETIME_NS
+        self.broad_state = BroadSwingPullback() if self.broad_enabled else None
+        self.broad_planned_pairs: set[tuple[int, int]] = set()
+        self.support_state = (
+            None
+            if self.broad_enabled
+            else ConfirmedSupportPullback(
+                timing="confirmed-update",
+                support_mode="none",
+                entry_ratio=0.5,
+                minimum_target_r=0.0,
+                stop_at_origin=True,
+            )
         )
         self.selected_pair: tuple[int, int] | None = None
         self.bundle: TierBundle | None = None
@@ -144,6 +158,9 @@ class TieredRetracementStrategy(R1Strategy):
                 self.line_cancel_requests += 1
 
     def _queue_four_hour_candidate(self, candle: FourHour) -> None:
+        if self.broad_enabled:
+            self._queue_broad_candidate(candle)
+            return
         plan = self.support_state.on_closed(
             candle,
             self.atr.value if self.atr.initialized else None,
@@ -168,11 +185,49 @@ class TieredRetracementStrategy(R1Strategy):
             return
         self.waiting_plan = plan
 
+    def _queue_broad_candidate(self, candle: FourHour) -> None:
+        plan = self.broad_state.on_closed(
+            candle,
+            self.atr.value if self.atr.initialized else None,
+        )
+        selected = self.broad_state.last_selected
+        if selected is None:
+            return
+        new_high = selected["b_high"]
+        if self.waiting_plan is not None and new_high > self.waiting_plan.b_high:
+            self.waiting_plan = None
+        if (
+            self.bundle is not None
+            and self.bundle.net_flat
+            and not self.bundle.retiring
+            and self.bundle.b_high is not None
+            and new_high > self.bundle.b_high
+        ):
+            self.bundle_supersessions += 1
+            self.release_after_ns = candle.ts_event
+            self._retire_bundle()
+        if plan is None or (
+            self.trade_start_ns is not None and candle.ts_event < self.trade_start_ns
+        ):
+            return
+        pair = (plan.a_index, plan.b_index)
+        if pair in self.broad_planned_pairs or self.waiting_plan is not None:
+            return
+        if self.bundle is not None:
+            if not self.bundle.net_flat:
+                self.signals_while_open += 1
+                return
+            if not self.bundle.retiring:
+                return
+        self.broad_planned_pairs.add(pair)
+        self.waiting_plan = plan
+        self.signals += 1
+
     def _advance_waiting(self, bar: Bar) -> None:
         plan = self.waiting_plan
         if plan is not None:
             entry = self.instrument.make_price(plan.entry).as_double()
-            if bar.ts_event >= plan.ts_event + LIFETIME_NS:
+            if bar.ts_event >= plan.ts_event + self.bundle_lifetime_ns:
                 self.waiting_plan = None
             elif bar.ts_event > plan.ts_event and float(bar.low) <= entry:
                 self.waiting_plan = None
@@ -186,7 +241,7 @@ class TieredRetracementStrategy(R1Strategy):
         if (
             plan is None
             or self.bundle is not None
-            or now_ns >= plan.ts_event + LIFETIME_NS
+            or now_ns >= plan.ts_event + self.bundle_lifetime_ns
             or (self.release_after_ns is not None and now_ns <= self.release_after_ns)
         ):
             return
@@ -252,7 +307,7 @@ class TieredRetracementStrategy(R1Strategy):
                 entry_order_type=OrderType.LIMIT,
                 entry_price=price,
                 time_in_force=TimeInForce.GTD,
-                expire_time=plan.ts_event + LIFETIME_NS,
+                expire_time=plan.ts_event + self.bundle_lifetime_ns,
                 tp_price=target,
                 tp_post_only=False,
                 sl_trigger_price=stop,
@@ -263,6 +318,7 @@ class TieredRetracementStrategy(R1Strategy):
             pair=(plan.a_index, plan.b_index),
             entry_ids=tuple(orders[0].client_order_id for orders in order_lists),
             filled_ids=set(),
+            b_high=plan.b_high,
         )
         for orders in order_lists:
             self.submit_order_list(orders)

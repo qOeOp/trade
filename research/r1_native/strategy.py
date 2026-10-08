@@ -200,6 +200,7 @@ class R1Strategy(Strategy):
             "support-three-tier-4h",
             "support-three-tier-line-cancel-4h",
             "support-deep-two-tier-4h",
+            "support-broad-two-tier-4h",
         ):
             raise ValueError("unsupported R-1 signal variant")
         self.signal_variant = signal_variant
@@ -310,7 +311,9 @@ class R1Strategy(Strategy):
             abs(candle.low - previous_close),
         )
         hold_ns = (
-            30 * FOUR_HOUR_NS
+            180 * FOUR_HOUR_NS
+            if self.signal_variant == "support-broad-two-tier-4h"
+            else 30 * FOUR_HOUR_NS
             if self.signal_variant
             in (
                 "box-edge-4h",

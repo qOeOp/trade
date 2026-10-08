@@ -56,7 +56,8 @@ RETRACEMENT_VARIANTS = ("support-confirmed-4h", "support-rejection-4h", "support
 TIERED_VARIANT = "support-three-tier-4h"
 LINE_CANCEL_TIER_VARIANT = "support-three-tier-line-cancel-4h"
 DEEP_TIER_VARIANT = "support-deep-two-tier-4h"
-TIERED_VARIANTS = (TIERED_VARIANT, LINE_CANCEL_TIER_VARIANT, DEEP_TIER_VARIANT)
+BROAD_TIER_VARIANT = "support-broad-two-tier-4h"
+TIERED_VARIANTS = (TIERED_VARIANT, LINE_CANCEL_TIER_VARIANT, DEEP_TIER_VARIANT, BROAD_TIER_VARIANT)
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
 REPLAY_SUBMIT_RATE = "200/00:00:01"
 
@@ -492,6 +493,13 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant in TIERED_VARIANTS
                 else None
             ),
+            "broad_swing_signal_source_sha256": (
+                hashlib.sha256(
+                    Path(__file__).with_name("broad_swing_signal.py").read_bytes(),
+                ).hexdigest()
+                if args.signal_variant == BROAD_TIER_VARIANT
+                else None
+            ),
             "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "strategy": (
                 "H11-box-edge-staged-1r"
@@ -518,6 +526,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant == LINE_CANCEL_TIER_VARIANT
                 else "H16a-support-deep-two-tier-4h"
                 if args.signal_variant == DEEP_TIER_VARIANT
+                else "H19a-support-broad-two-tier-4h"
+                if args.signal_variant == BROAD_TIER_VARIANT
                 else "H06-trendline-4h"
                 if args.signal_variant == "trendline-4h"
                 else "H08b-line-resting-4h"
@@ -618,7 +628,11 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     ),
                     "tiered_pullback": (
                         {
-                            "source_plans": strategies[row["coin"]].support_state.plans,
+                            "source_plans": (
+                                len(strategies[row["coin"]].broad_planned_pairs)
+                                if args.signal_variant == BROAD_TIER_VARIANT
+                                else strategies[row["coin"]].support_state.plans
+                            ),
                             "submitted_bundles": strategies[row["coin"]].bundle_submissions,
                             "retired_bundles": strategies[row["coin"]].bundle_retirements,
                             "supersessions": strategies[row["coin"]].bundle_supersessions,

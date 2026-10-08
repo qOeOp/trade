@@ -27,6 +27,7 @@ TIER_RATIOS = {
         Decimal("0.764"),
     ),
     "support-deep-two-tier-4h": (Decimal("0.618"), Decimal("0.764")),
+    "support-broad-two-tier-4h": (Decimal("0.5"), Decimal("0.618")),
 }
 
 
@@ -109,7 +110,8 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         ):
             findings.append(f"invalid native bracket prices or quantities {list_id}")
         decision_ns = int(entry.ts_init) // FOUR_HOUR_NS * FOUR_HOUR_NS
-        if int(entry.expire_time_ns) != decision_ns + 30 * FOUR_HOUR_NS:
+        life_bars = 180 if summary["signal_variant"] == "support-broad-two-tier-4h" else 30
+        if int(entry.expire_time_ns) != decision_ns + life_bars * FOUR_HOUR_NS:
             findings.append(f"entry GTD deadline differs {list_id}")
         if entry.status in {"CANCELED", "EXPIRED"} and (
             stop.status != "CANCELED" or target.status != "CANCELED"
@@ -140,9 +142,12 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         instrument = instruments[sorted_group.instrument_id.iloc[0]]
         tick = instrument.price_increment.as_decimal()
         span = target - estimated_a
-        if not (0 < stop < estimated_a < levels[-1] < target) or any(
-            higher <= lower for higher, lower in pairwise(levels)
-        ):
+        proper_stop = (
+            0 < estimated_a < stop < levels[-1] < target
+            if summary["signal_variant"] == "support-broad-two-tier-4h"
+            else 0 < stop < estimated_a < levels[-1] < target
+        )
+        if not proper_stop or any(higher <= lower for higher, lower in pairwise(levels)):
             findings.append(f"bundle tier geometry differs: {strategy_id} {ts_init}")
         if any(
             abs(level - (target - ratio * span)) > 2 * tick
