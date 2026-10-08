@@ -419,3 +419,11 @@
 **后继范围。** H15a 已把三档总风险固定为 25 基点、总名义敞口上限固定为 5%，并只在 4 月 BTC 来源案例通过只读几何门槛：低点外共用止损 **67,441.1**，三个原生取整档位到前高的空间分别约 **0.91R、1.42R、2.65R**。这只验证候选价格关系；三档同时挂单、分次成交后的共用保护与净值仍须通过 Nautilus 原生事件和完整账户回放，SUI 选锚失配也仍在。
 
 **核查证据。** [D45 来源几何与限制](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](../../research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[H15a 预登记与来源门槛](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H15a 来源结果](../../research/r1_native/results/2026-10-08-h15a-source-gate.json)、[S27 原片证据](../../research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)。
+
+## F42：多档研究要验收整个订单组的收束
+
+**已验证的流程缺陷。** H15a 的合成 Nautilus 回放将三个原生 OTO 列表挂在同一净额账户：三档均成交后，到共同止损或目标时，各列表的保护与 OCO 撤单正常，最终无持仓。但若第一档先到目标、其余两档尚未成交，第一档平仓不会自动撤销另外两张入场单；价格再次回撤时，两单成交并留下新持仓。这说明"每档都有原生保护"不足以证明"这一轮研究计划已完全结束"。另一次报表读取把 `tags` 的列表值当作字符串比较，误得零个入场／退出单，虽然原生报告实际有六笔成交；核查不能只看衍生计数。
+
+**改进方法与产品含义。** Agent 为分批入场机制预登记订单组的结束条件；Strategy 持有该组的在途订单身份，在首档止盈、共同止损、到期及波段替换时按规则请求原生撤单，并以原生确认和持仓读回验收。合成事件至少覆盖"首档止盈后再回撤"、分次成交、撤单前成交、同根冲突和时间退出，再读取真实 Catalog；每个阶段保留原始订单／成交／持仓报告和校验计数。失败归因为执行生命周期，先修复再讨论胜率与收益，不能据此淘汰多档技术，也不另建成交或资金账本。
+
+**核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[合成原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)。该诊断不含真实行情收益；H15a 的完整 Strategy 与一年经济结果尚未验收。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)及 [Backtest 输入与结果](../owners/backtest.zh.md)。

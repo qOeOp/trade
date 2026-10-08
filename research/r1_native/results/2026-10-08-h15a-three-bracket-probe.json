@@ -1,0 +1,479 @@
+{
+  "method": "native Nautilus OTO probe",
+  "results": [
+    {
+      "exit_kind": "target",
+      "entry_statuses": [
+        "FILLED",
+        "FILLED",
+        "FILLED"
+      ],
+      "stop_statuses": [
+        "CANCELED",
+        "CANCELED",
+        "CANCELED"
+      ],
+      "target_statuses": [
+        "FILLED",
+        "FILLED",
+        "FILLED"
+      ],
+      "filled_entries": 3,
+      "filled_stops": 0,
+      "filled_targets": 3,
+      "denied_or_rejected": 0,
+      "native_fills": 6,
+      "native_position_rows": 1,
+      "closed_position_rows": 1,
+      "open_position_rows": 0,
+      "order_report_columns": [
+        "trader_id",
+        "strategy_id",
+        "instrument_id",
+        "side",
+        "type",
+        "quantity",
+        "price",
+        "status",
+        "time_in_force",
+        "expire_time_ns",
+        "is_post_only",
+        "is_reduce_only",
+        "is_quote_quantity",
+        "filled_qty",
+        "init_id",
+        "ts_init",
+        "ts_last",
+        "commissions",
+        "venue_order_id",
+        "display_qty",
+        "emulation_trigger",
+        "trigger_instrument_id",
+        "contingency_type",
+        "order_list_id",
+        "linked_order_ids",
+        "parent_order_id",
+        "exec_algorithm_id",
+        "exec_algorithm_params",
+        "exec_spawn_id",
+        "tags",
+        "account_id",
+        "slippage",
+        "position_id",
+        "liquidity_side",
+        "last_trade_id",
+        "avg_px",
+        "trigger_price",
+        "trigger_type"
+      ],
+      "orders": [
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "70284.80",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "CANCELED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['TAKE_PROFIT']"
+        },
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "69677.30",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "CANCELED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['TAKE_PROFIT']"
+        },
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "68925.80",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "CANCELED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['TAKE_PROFIT']"
+        }
+      ]
+    },
+    {
+      "exit_kind": "stop",
+      "entry_statuses": [
+        "FILLED",
+        "FILLED",
+        "FILLED"
+      ],
+      "stop_statuses": [
+        "FILLED",
+        "FILLED",
+        "FILLED"
+      ],
+      "target_statuses": [
+        "CANCELED",
+        "CANCELED",
+        "CANCELED"
+      ],
+      "filled_entries": 3,
+      "filled_stops": 3,
+      "filled_targets": 0,
+      "denied_or_rejected": 0,
+      "native_fills": 6,
+      "native_position_rows": 1,
+      "closed_position_rows": 1,
+      "open_position_rows": 0,
+      "order_report_columns": [
+        "trader_id",
+        "strategy_id",
+        "instrument_id",
+        "side",
+        "type",
+        "quantity",
+        "price",
+        "status",
+        "time_in_force",
+        "expire_time_ns",
+        "is_post_only",
+        "is_reduce_only",
+        "is_quote_quantity",
+        "filled_qty",
+        "init_id",
+        "ts_init",
+        "ts_last",
+        "commissions",
+        "venue_order_id",
+        "display_qty",
+        "emulation_trigger",
+        "trigger_instrument_id",
+        "contingency_type",
+        "order_list_id",
+        "linked_order_ids",
+        "parent_order_id",
+        "exec_algorithm_id",
+        "exec_algorithm_params",
+        "exec_spawn_id",
+        "tags",
+        "account_id",
+        "slippage",
+        "position_id",
+        "liquidity_side",
+        "last_trade_id",
+        "avg_px",
+        "trigger_price",
+        "trigger_type"
+      ],
+      "orders": [
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "70284.80",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "FILLED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "CANCELED",
+          "tags": "['TAKE_PROFIT']"
+        },
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "69677.30",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "FILLED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "CANCELED",
+          "tags": "['TAKE_PROFIT']"
+        },
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "68925.80",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "FILLED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "CANCELED",
+          "tags": "['TAKE_PROFIT']"
+        }
+      ]
+    },
+    {
+      "exit_kind": "target_then_retrace",
+      "entry_statuses": [
+        "FILLED",
+        "FILLED",
+        "FILLED"
+      ],
+      "stop_statuses": [
+        "CANCELED",
+        "ACCEPTED",
+        "ACCEPTED"
+      ],
+      "target_statuses": [
+        "FILLED",
+        "ACCEPTED",
+        "ACCEPTED"
+      ],
+      "filled_entries": 3,
+      "filled_stops": 0,
+      "filled_targets": 1,
+      "denied_or_rejected": 0,
+      "native_fills": 4,
+      "native_position_rows": 2,
+      "closed_position_rows": 1,
+      "open_position_rows": 1,
+      "order_report_columns": [
+        "trader_id",
+        "strategy_id",
+        "instrument_id",
+        "side",
+        "type",
+        "quantity",
+        "price",
+        "status",
+        "time_in_force",
+        "expire_time_ns",
+        "is_post_only",
+        "is_reduce_only",
+        "is_quote_quantity",
+        "filled_qty",
+        "init_id",
+        "ts_init",
+        "ts_last",
+        "commissions",
+        "venue_order_id",
+        "display_qty",
+        "emulation_trigger",
+        "trigger_instrument_id",
+        "contingency_type",
+        "order_list_id",
+        "linked_order_ids",
+        "parent_order_id",
+        "exec_algorithm_id",
+        "exec_algorithm_params",
+        "exec_spawn_id",
+        "tags",
+        "account_id",
+        "slippage",
+        "position_id",
+        "liquidity_side",
+        "last_trade_id",
+        "avg_px",
+        "trigger_price",
+        "trigger_type"
+      ],
+      "orders": [
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "70284.80",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "CANCELED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['TAKE_PROFIT']"
+        },
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "69677.30",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "ACCEPTED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "ACCEPTED",
+          "tags": "['TAKE_PROFIT']"
+        },
+        {
+          "side": "BUY",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.001",
+          "price": "68925.80",
+          "trigger_price": "nan",
+          "status": "FILLED",
+          "tags": "['ENTRY']"
+        },
+        {
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "nan",
+          "trigger_price": "67441.10",
+          "status": "ACCEPTED",
+          "tags": "['STOP_LOSS']"
+        },
+        {
+          "side": "SELL",
+          "type": "LIMIT",
+          "quantity": "0.001",
+          "filled_qty": "0.000",
+          "price": "72858.50",
+          "trigger_price": "nan",
+          "status": "ACCEPTED",
+          "tags": "['TAKE_PROFIT']"
+        }
+      ]
+    }
+  ]
+}
