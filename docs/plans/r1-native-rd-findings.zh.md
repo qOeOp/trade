@@ -426,4 +426,6 @@
 
 **改进方法与产品含义。** Agent 为分批入场机制预登记订单组的结束条件；Strategy 持有该组的在途订单身份，在首档止盈、共同止损、到期及波段替换时按规则请求原生撤单，并以原生确认和持仓读回验收。合成事件至少覆盖"首档止盈后再回撤"、分次成交、撤单前成交、同根冲突和时间退出，再读取真实 Catalog；每个阶段保留原始订单／成交／持仓报告和校验计数。失败归因为执行生命周期，先修复再讨论胜率与收益，不能据此淘汰多档技术，也不另建成交或资金账本。
 
-**核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[合成原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)。该诊断不含真实行情收益；H15a 的完整 Strategy 与一年经济结果尚未验收。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)及 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**已验证的修复方向。** 在同一合成情景的 Strategy 关闭持仓回调里，按 Nautilus 客户端订单 ID 请求撤销余下入场单后，首档止盈再回撤仅留下第一档的两笔成交，其余两档入场及子单均取消，最终无持仓。传入缓存 Order 对象的先前尝试没有撤成；该运行环境实际验收的是订单 ID。这只证明局部收束机制，完整 H15a 仍须处理波段更替、撤单前成交、到期与共享账户。
+
+**核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[未收束原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)、[撤单修复原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-cancel-probe.json)。这些诊断不含真实行情收益；H15a 的完整 Strategy 与一年经济结果尚未验收。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)及 [Backtest 输入与结果](../owners/backtest.zh.md)。
