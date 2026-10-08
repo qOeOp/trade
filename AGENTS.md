@@ -7,6 +7,12 @@
 - Keep one current product blueprint in `docs/architecture.zh.md`. Record research/product findings under `docs/plans/`.
 - Research backtests are read-only. Real trading, production writes, or changing a refusal or risk boundary require explicit user authority. Do not use exchange trading credentials for research.
 
+## Research records and retained results
+
+- Before extending a prior hypothesis or combining strategy variants, search the Git research index with `uv run --frozen python -m research.records.cli` (`find`, `show`, or `compare`). For a new hypothesis, commit its attempt and preregistration before inspecting its result. Follow `research/records/README.md` for the record contract.
+- For a registered R1 tiered replay intended to inform a research decision, run the existing native runner through `uv run --frozen python -m research.records.artifacts run`, then verify, register and back up the sealed result as described in that guide. The artifact root is a configurable local directory outside Git and `/tmp`.
+- Direct `run_portfolio.py` outputs under `/tmp` are useful for diagnostics and historical replay; label them temporary rather than recoverable research evidence. The Agent still chooses the question, method and next experiment; a passed artifact audit is not strategy qualification.
+
 ## Using Nautilus APIs
 
 - Work against the version pinned in `pyproject.toml` and `uv.lock` (currently `nautilus_trader==2.0.0rc3`). Inspect the installed package and the runnable examples in `strategies/r1/` before assuming an API or behavior exists.
