@@ -10,6 +10,3 @@ dependencies = [
 
 [tool.uv]
 package = false
-
-[dependency-groups]
-docs = ["Markdown==3.9"]
