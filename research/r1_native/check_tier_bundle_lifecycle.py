@@ -11,6 +11,7 @@ from pathlib import Path
 
 from retracement_strategy import RetracementPlan
 from strategy import R1Strategy
+from tiered_retracement_strategy import LIFETIME_NS
 from tiered_retracement_strategy import TieredRetracementStrategy
 
 from vibe_trading.backtest import BacktestEngine
@@ -89,7 +90,15 @@ class H15StrategyFixture(TieredRetracementStrategy):
     """
 
     def on_bar(self, bar: Bar) -> None:
-        if bar.bar_type != self.minute_bar_type or getattr(self, "submitted", False):
+        if bar.bar_type != self.minute_bar_type:
+            return
+        if getattr(self, "submitted", False):
+            if (
+                getattr(self, "fixture_exit_kind", None) == "time_exit"
+                and self.opened_ns is not None
+                and bar.ts_event >= self.opened_ns + LIFETIME_NS
+            ):
+                self._on_four_hour_bar(bar)
             return
         self.submitted = True
         self._submit_bundle(
@@ -144,9 +153,15 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             ),
             risk_budget_fraction=0.0025 if strategy_kind == "h15" else None,
         )
+        strategy.fixture_exit_kind = exit_kind
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument.id}-5-MINUTE-LAST-EXTERNAL")
-        if exit_kind == "unfilled_expiry":
+        if exit_kind == "time_exit":
+            prices = [
+                (71_000, 71_100, 70_900, 71_000),
+                (71_000, 71_100, 68_800, 69_000),
+            ] + [(69_000, 69_050, 68_950, 69_000)] * 1_441
+        elif exit_kind == "unfilled_expiry":
             prices = [(71_000, 71_100, 70_900, 71_000)] + [
                 (71_000, 71_050, 70_950, 71_000),
             ] * 1_441
@@ -265,7 +280,9 @@ def main() -> None:
         raise RuntimeError("one BTC native Instrument is required")
     kinds = ["target", "stop", "target_then_retrace"]
     if args.strategy == "h15":
-        kinds.extend(("two_tier_target_then_retrace", "same_bar_stop", "unfilled_expiry"))
+        kinds.extend(
+            ("two_tier_target_then_retrace", "same_bar_stop", "unfilled_expiry", "time_exit"),
+        )
     results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
