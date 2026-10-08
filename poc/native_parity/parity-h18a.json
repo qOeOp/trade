@@ -1,0 +1,29 @@
+{
+  "reference": "/tmp/r1-rd-h18a-full-37",
+  "candidate": "/tmp/nautilus-upstream-final-h18a-37",
+  "reference_equity_usdt": "104901.95547793",
+  "candidate_equity_usdt": "104901.95547793",
+  "equity_gap_usdt": "0E-8",
+  "commission_gap_usdt": "0E-8",
+  "sharpe_gap": "3.6E-15",
+  "drawdown_gap": "5.8E-16",
+  "order_count": [
+    29712,
+    29712
+  ],
+  "fill_count": [
+    2589,
+    2589
+  ],
+  "position_count": [
+    686,
+    686
+  ],
+  "missing_order_ids": [],
+  "extra_order_ids": [],
+  "mismatched_orders": [],
+  "mismatched_fills": [],
+  "within_instrument_increment_fills": [],
+  "metric_differences": [],
+  "parity_passed": true
+}
