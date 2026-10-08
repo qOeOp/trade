@@ -159,9 +159,15 @@ def compare(
         )
         for cell, summary in summaries.items()
     }
-    if cancels["11"] <= 0 or cancels["00"] or cancels["10"]:
+    if (
+        summaries["10"]["broad_swing_signal_source_sha256"]
+        != summaries["11"]["broad_swing_signal_source_sha256"]
+        or summaries["10"]["broad_swing_signal_source_sha256"] is None
+    ):
+        raise ValueError("broad selector source differs between A-on cells")
+    if cancels["01"] <= 0 or cancels["11"] <= 0 or cancels["00"] or cancels["10"]:
         raise ValueError(
-            "combined cancellation was absent or leaked into an untreated cell"
+            "cancellation was absent from a B-on cell or leaked into a B-off cell"
         )
     equities = {
         cell: Decimal(summary["final_equity_usdt"])
