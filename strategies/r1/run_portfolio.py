@@ -39,11 +39,13 @@ TIERED_VARIANT = "support-three-tier-4h"
 LINE_CANCEL_TIER_VARIANT = "support-three-tier-line-cancel-4h"
 DEEP_TIER_VARIANT = "support-deep-two-tier-4h"
 BROAD_TIER_VARIANT = "support-broad-two-tier-4h"
+BROAD_LINE_CANCEL_VARIANT = "support-broad-two-tier-line-cancel-4h"
 TIERED_VARIANTS = (
     TIERED_VARIANT,
     LINE_CANCEL_TIER_VARIANT,
     DEEP_TIER_VARIANT,
     BROAD_TIER_VARIANT,
+    BROAD_LINE_CANCEL_VARIANT,
 )
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
 REPLAY_SUBMIT_RATE = "200/00:00:01"
@@ -287,7 +289,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             hashlib.sha256(
                 Path(__file__).with_name("broad_swing_signal.py").read_bytes(),
             ).hexdigest()
-            if args.signal_variant == BROAD_TIER_VARIANT
+            if args.signal_variant in (BROAD_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT)
             else None
         ),
         "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -318,6 +320,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             if args.signal_variant == DEEP_TIER_VARIANT
             else "H19a-support-broad-two-tier-4h"
             if args.signal_variant == BROAD_TIER_VARIANT
+            else "H20a-support-broad-two-tier-line-cancel-4h"
+            if args.signal_variant == BROAD_LINE_CANCEL_VARIANT
             else "H06-trendline-4h"
             if args.signal_variant == "trendline-4h"
             else "H08b-line-resting-4h"
@@ -425,7 +429,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     {
                         "source_plans": (
                             len(strategies[row["coin"]].broad_planned_pairs)
-                            if args.signal_variant == BROAD_TIER_VARIANT
+                            if args.signal_variant
+                            in (BROAD_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT)
                             else strategies[row["coin"]].support_state.plans
                         ),
                         "submitted_bundles": strategies[row["coin"]].bundle_submissions,
@@ -455,7 +460,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                             row["coin"]
                         ].line_cancel_race_fills,
                     }
-                    if args.signal_variant == LINE_CANCEL_TIER_VARIANT
+                    if args.signal_variant
+                    in (LINE_CANCEL_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT)
                     else None
                 ),
                 "line_breaks": (
