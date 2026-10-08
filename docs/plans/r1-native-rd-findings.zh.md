@@ -609,3 +609,13 @@
 **下一步边界。** 881 个实际成交的原生入场限价单从提交到首笔成交的中位等待 **2.83 天**，90 分位 **10.81 天**；仅 155 个在一天内首次成交。近价激活若要研究，应解释可事前识别的机会持续性或成交质量，并核查快速触价导致的漏单，而不能拿释放保证金直接推断年化提高。若产品改用共享账户剩余风险预算动态分配，它是另一条预登记的组合仓位规则，仍应由 Nautilus Portfolio／Risk／Execution 给出账户与订单事实，不增设第二套账本。现有 D63 只关闭"原样 H19a 因远价单占资而使下一单变小"的机制，没有回测新 Strategy，也没有改变 Goal 年化、胜率或 Sharpe 结论。
 
 **核查证据。** [D63 预登记与判定](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d63-are-h19a-distant-resting-entries-actually-a-binding-capital-constraint)、[原生资金占用逐时审计](../../research/r1_native/results/2026-10-08-d63-h19a-capital-binding.json)、[实际数量公式](../../research/r1_native/tiered_retracement_strategy.py)。
+
+## F62：凯利研究应从共享风险与估计误差入手，而非代入年度胜率
+
+**当前仓位机制。** H19a／H18a 的每档数量取两种上限的较小者：计划止损损失不超过账户净值的总计 25 基点（档间均分），且单币名义额不超过净值的总计 5%（档间均分）。37 个 Strategy 共用一个 Nautilus 账户，但没有策略级的总持仓风险预算、机会优先级或币间相关风险调整。D64 在全量原生入场订单上核对各档和原始保护止损：H19a **3,138／5,878（53.39%）** 的原始数量由止损风险限制，**2,739** 档由名义额限制；H18a 对应 **6,381／9,813（65.03%）** 与 **3,432** 档。风险／名义上限的交点是止损距离占入场价 **5%**。单改任一上限都不能一致地扩大所有订单；改动后的真实成交、费用、资金费和回撤也不能从原始订单几何直接推算。
+
+**研究依据及限制。** [Kelly 原论文](https://onlinelibrary.wiley.com/doi/10.1002/j.1538-7305.1956.tb03809.x)讨论在已知机会概率和赔率下最大化长期对数增长；[MacLean、Thorp、Ziemba](https://escholarship.org/uc/item/5mr5k8qj)说明满凯利的短期大幅亏损风险和分数凯利的增长／安全权衡；[Busseti、Ryu、Boyd](https://www.web.stanford.edu/~boyd/papers/kelly.html)给出带回撤风险约束的扩展。它们提供研究方法，不证明罗尼使用凯利，也不能把 H19a 的 **42.74%** 胜率与平均盈利／亏损金额比 **1.608** 直接代入二元独立赌局公式：这里多档部分成交、不同止损距离、限价未成交、时间退出、手续费、资金费和币间同时敞口都会改变实际收益分布；而一年样本已多次被看过，优势估计尚未经独立验证。
+
+**产品与试验边界。** R&D 应让外部 Agent 先用原生成交／持仓／Portfolio 路径，按决策时可得数据构造净收益及初始 R 的一致口径，检查有效样本、估计误差、同时持仓相关性及可承受回撤。若证据支持，再预登记**一个**有明确缩减和组合风险上限的凯利家族候选，在 Nautilus Strategy 中读取 Portfolio／Cache、用原生订单执行，并对同一 37 币共享账户做配对回测与延迟／前向核验。不创建产品内优化器、额外资金账本或固定研究预设。单纯改变仓位而不改变交易选择和净胜负，无法解决 H19a 目前 **42.74%** 对约 60% 目标的缺口；仓位方向要与入场／退出机制分别归因。
+
+**核查证据。** [D64 预登记与原生结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d64-which-current-sizing-bound-actually-controls-the-native-entry-tiers)、[逐币订单几何](../../research/r1_native/results/2026-10-08-d64-sizing-geometry.json)、[Nautilus Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)。

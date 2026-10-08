@@ -1,0 +1,427 @@
+{
+  "schema": "r1-native-d64-sizing-geometry/v1",
+  "preregistration_commit": "9cc1efa4f",
+  "input_sha256": {
+    "H19a": {
+      "summary.json": "7d95658949badb9b76ead4b7fcbebda8b5901c836b332bc9bec57dc0d859f7ec",
+      "orders.csv": "9bc7228673948e0299e2f208405d870eb7c8b2215ce44b0b10006102da97feaa"
+    },
+    "H18a": {
+      "summary.json": "6298b850bc3100c7845dc9ee801ae4a899f3a94c64a5004ec2bdf0c61a8b8c80",
+      "orders.csv": "35169fc9298c78e6b15e73b958fa147bfb018485571bc3122ce7cbc36410d763"
+    }
+  },
+  "method": "Unique native BUY LIMIT parent and original parent-linked SELL STOP_MARKET; raw sizing branch from initial stop distance versus the registered 5% crossover. No PnL or resimulation.",
+  "risk_vs_notional_crossover_stop_distance_pct": 5.0,
+  "runs": {
+    "H19a": {
+      "run": "/tmp/r1-rd-h19a-37",
+      "native_entry_tiers": 5878,
+      "native_parent_linked_stops": 5878,
+      "raw_risk_bound_tiers": 3138,
+      "raw_notional_bound_tiers": 2739,
+      "raw_ties": 1,
+      "raw_risk_bound_fraction": 0.5338550527390269,
+      "initial_stop_distance_pct": {
+        "min": 0.7809378518760617,
+        "median": 5.277869139183452,
+        "p90": 11.792296742612688,
+        "max": 39.377884122372244
+      },
+      "per_coin": {
+        "1000PEPE": {
+          "native_entry_tiers": 142,
+          "raw_risk_bound_tiers": 99,
+          "raw_notional_bound_tiers": 43
+        },
+        "1000SHIB": {
+          "native_entry_tiers": 88,
+          "raw_risk_bound_tiers": 37,
+          "raw_notional_bound_tiers": 51
+        },
+        "AAVE": {
+          "native_entry_tiers": 140,
+          "raw_risk_bound_tiers": 100,
+          "raw_notional_bound_tiers": 40
+        },
+        "ADA": {
+          "native_entry_tiers": 120,
+          "raw_risk_bound_tiers": 74,
+          "raw_notional_bound_tiers": 46
+        },
+        "ALGO": {
+          "native_entry_tiers": 184,
+          "raw_risk_bound_tiers": 92,
+          "raw_notional_bound_tiers": 92
+        },
+        "APT": {
+          "native_entry_tiers": 154,
+          "raw_risk_bound_tiers": 98,
+          "raw_notional_bound_tiers": 56
+        },
+        "ARB": {
+          "native_entry_tiers": 196,
+          "raw_risk_bound_tiers": 131,
+          "raw_notional_bound_tiers": 65
+        },
+        "ATOM": {
+          "native_entry_tiers": 218,
+          "raw_risk_bound_tiers": 104,
+          "raw_notional_bound_tiers": 114
+        },
+        "AVAX": {
+          "native_entry_tiers": 148,
+          "raw_risk_bound_tiers": 67,
+          "raw_notional_bound_tiers": 81
+        },
+        "BCH": {
+          "native_entry_tiers": 148,
+          "raw_risk_bound_tiers": 80,
+          "raw_notional_bound_tiers": 68
+        },
+        "BNB": {
+          "native_entry_tiers": 176,
+          "raw_risk_bound_tiers": 14,
+          "raw_notional_bound_tiers": 162
+        },
+        "BTC": {
+          "native_entry_tiers": 162,
+          "raw_risk_bound_tiers": 29,
+          "raw_notional_bound_tiers": 133
+        },
+        "DOGE": {
+          "native_entry_tiers": 106,
+          "raw_risk_bound_tiers": 50,
+          "raw_notional_bound_tiers": 56
+        },
+        "DOT": {
+          "native_entry_tiers": 124,
+          "raw_risk_bound_tiers": 62,
+          "raw_notional_bound_tiers": 62
+        },
+        "ETC": {
+          "native_entry_tiers": 118,
+          "raw_risk_bound_tiers": 41,
+          "raw_notional_bound_tiers": 77
+        },
+        "ETH": {
+          "native_entry_tiers": 134,
+          "raw_risk_bound_tiers": 49,
+          "raw_notional_bound_tiers": 85
+        },
+        "FET": {
+          "native_entry_tiers": 182,
+          "raw_risk_bound_tiers": 135,
+          "raw_notional_bound_tiers": 47
+        },
+        "FIL": {
+          "native_entry_tiers": 124,
+          "raw_risk_bound_tiers": 90,
+          "raw_notional_bound_tiers": 34
+        },
+        "HBAR": {
+          "native_entry_tiers": 150,
+          "raw_risk_bound_tiers": 51,
+          "raw_notional_bound_tiers": 99
+        },
+        "ICP": {
+          "native_entry_tiers": 184,
+          "raw_risk_bound_tiers": 130,
+          "raw_notional_bound_tiers": 54
+        },
+        "IMX": {
+          "native_entry_tiers": 160,
+          "raw_risk_bound_tiers": 120,
+          "raw_notional_bound_tiers": 40
+        },
+        "INJ": {
+          "native_entry_tiers": 196,
+          "raw_risk_bound_tiers": 139,
+          "raw_notional_bound_tiers": 57
+        },
+        "LDO": {
+          "native_entry_tiers": 192,
+          "raw_risk_bound_tiers": 126,
+          "raw_notional_bound_tiers": 66
+        },
+        "LINK": {
+          "native_entry_tiers": 158,
+          "raw_risk_bound_tiers": 71,
+          "raw_notional_bound_tiers": 87
+        },
+        "LTC": {
+          "native_entry_tiers": 144,
+          "raw_risk_bound_tiers": 41,
+          "raw_notional_bound_tiers": 103
+        },
+        "NEAR": {
+          "native_entry_tiers": 240,
+          "raw_risk_bound_tiers": 192,
+          "raw_notional_bound_tiers": 48
+        },
+        "OP": {
+          "native_entry_tiers": 176,
+          "raw_risk_bound_tiers": 117,
+          "raw_notional_bound_tiers": 59
+        },
+        "SEI": {
+          "native_entry_tiers": 140,
+          "raw_risk_bound_tiers": 70,
+          "raw_notional_bound_tiers": 70
+        },
+        "SOL": {
+          "native_entry_tiers": 148,
+          "raw_risk_bound_tiers": 69,
+          "raw_notional_bound_tiers": 79
+        },
+        "STX": {
+          "native_entry_tiers": 150,
+          "raw_risk_bound_tiers": 100,
+          "raw_notional_bound_tiers": 49
+        },
+        "SUI": {
+          "native_entry_tiers": 162,
+          "raw_risk_bound_tiers": 92,
+          "raw_notional_bound_tiers": 70
+        },
+        "TIA": {
+          "native_entry_tiers": 178,
+          "raw_risk_bound_tiers": 126,
+          "raw_notional_bound_tiers": 52
+        },
+        "TRX": {
+          "native_entry_tiers": 286,
+          "raw_risk_bound_tiers": 0,
+          "raw_notional_bound_tiers": 286
+        },
+        "UNI": {
+          "native_entry_tiers": 150,
+          "raw_risk_bound_tiers": 125,
+          "raw_notional_bound_tiers": 25
+        },
+        "WLD": {
+          "native_entry_tiers": 164,
+          "raw_risk_bound_tiers": 123,
+          "raw_notional_bound_tiers": 41
+        },
+        "XLM": {
+          "native_entry_tiers": 144,
+          "raw_risk_bound_tiers": 64,
+          "raw_notional_bound_tiers": 80
+        },
+        "XRP": {
+          "native_entry_tiers": 92,
+          "raw_risk_bound_tiers": 30,
+          "raw_notional_bound_tiers": 62
+        }
+      }
+    },
+    "H18a": {
+      "run": "/tmp/r1-rd-h19a-paired-h18a-37",
+      "native_entry_tiers": 9813,
+      "native_parent_linked_stops": 9813,
+      "raw_risk_bound_tiers": 6381,
+      "raw_notional_bound_tiers": 3432,
+      "raw_ties": 0,
+      "raw_risk_bound_fraction": 0.6502598593702231,
+      "initial_stop_distance_pct": {
+        "min": 0.49033128007109505,
+        "median": 6.378178835110735,
+        "p90": 14.086184408079463,
+        "max": 58.986539984164686
+      },
+      "per_coin": {
+        "1000PEPE": {
+          "native_entry_tiers": 228,
+          "raw_risk_bound_tiers": 177,
+          "raw_notional_bound_tiers": 51
+        },
+        "1000SHIB": {
+          "native_entry_tiers": 162,
+          "raw_risk_bound_tiers": 116,
+          "raw_notional_bound_tiers": 46
+        },
+        "AAVE": {
+          "native_entry_tiers": 270,
+          "raw_risk_bound_tiers": 220,
+          "raw_notional_bound_tiers": 50
+        },
+        "ADA": {
+          "native_entry_tiers": 279,
+          "raw_risk_bound_tiers": 215,
+          "raw_notional_bound_tiers": 64
+        },
+        "ALGO": {
+          "native_entry_tiers": 294,
+          "raw_risk_bound_tiers": 227,
+          "raw_notional_bound_tiers": 67
+        },
+        "APT": {
+          "native_entry_tiers": 246,
+          "raw_risk_bound_tiers": 175,
+          "raw_notional_bound_tiers": 71
+        },
+        "ARB": {
+          "native_entry_tiers": 285,
+          "raw_risk_bound_tiers": 230,
+          "raw_notional_bound_tiers": 55
+        },
+        "ATOM": {
+          "native_entry_tiers": 327,
+          "raw_risk_bound_tiers": 182,
+          "raw_notional_bound_tiers": 145
+        },
+        "AVAX": {
+          "native_entry_tiers": 258,
+          "raw_risk_bound_tiers": 138,
+          "raw_notional_bound_tiers": 120
+        },
+        "BCH": {
+          "native_entry_tiers": 207,
+          "raw_risk_bound_tiers": 134,
+          "raw_notional_bound_tiers": 73
+        },
+        "BNB": {
+          "native_entry_tiers": 294,
+          "raw_risk_bound_tiers": 44,
+          "raw_notional_bound_tiers": 250
+        },
+        "BTC": {
+          "native_entry_tiers": 279,
+          "raw_risk_bound_tiers": 35,
+          "raw_notional_bound_tiers": 244
+        },
+        "DOGE": {
+          "native_entry_tiers": 153,
+          "raw_risk_bound_tiers": 102,
+          "raw_notional_bound_tiers": 51
+        },
+        "DOT": {
+          "native_entry_tiers": 231,
+          "raw_risk_bound_tiers": 163,
+          "raw_notional_bound_tiers": 68
+        },
+        "ETC": {
+          "native_entry_tiers": 222,
+          "raw_risk_bound_tiers": 146,
+          "raw_notional_bound_tiers": 76
+        },
+        "ETH": {
+          "native_entry_tiers": 195,
+          "raw_risk_bound_tiers": 84,
+          "raw_notional_bound_tiers": 111
+        },
+        "FET": {
+          "native_entry_tiers": 297,
+          "raw_risk_bound_tiers": 261,
+          "raw_notional_bound_tiers": 36
+        },
+        "FIL": {
+          "native_entry_tiers": 156,
+          "raw_risk_bound_tiers": 137,
+          "raw_notional_bound_tiers": 19
+        },
+        "HBAR": {
+          "native_entry_tiers": 252,
+          "raw_risk_bound_tiers": 148,
+          "raw_notional_bound_tiers": 104
+        },
+        "ICP": {
+          "native_entry_tiers": 261,
+          "raw_risk_bound_tiers": 218,
+          "raw_notional_bound_tiers": 43
+        },
+        "IMX": {
+          "native_entry_tiers": 285,
+          "raw_risk_bound_tiers": 224,
+          "raw_notional_bound_tiers": 61
+        },
+        "INJ": {
+          "native_entry_tiers": 306,
+          "raw_risk_bound_tiers": 244,
+          "raw_notional_bound_tiers": 62
+        },
+        "LDO": {
+          "native_entry_tiers": 324,
+          "raw_risk_bound_tiers": 244,
+          "raw_notional_bound_tiers": 80
+        },
+        "LINK": {
+          "native_entry_tiers": 312,
+          "raw_risk_bound_tiers": 150,
+          "raw_notional_bound_tiers": 162
+        },
+        "LTC": {
+          "native_entry_tiers": 303,
+          "raw_risk_bound_tiers": 107,
+          "raw_notional_bound_tiers": 196
+        },
+        "NEAR": {
+          "native_entry_tiers": 384,
+          "raw_risk_bound_tiers": 334,
+          "raw_notional_bound_tiers": 50
+        },
+        "OP": {
+          "native_entry_tiers": 261,
+          "raw_risk_bound_tiers": 213,
+          "raw_notional_bound_tiers": 48
+        },
+        "SEI": {
+          "native_entry_tiers": 225,
+          "raw_risk_bound_tiers": 161,
+          "raw_notional_bound_tiers": 64
+        },
+        "SOL": {
+          "native_entry_tiers": 240,
+          "raw_risk_bound_tiers": 122,
+          "raw_notional_bound_tiers": 118
+        },
+        "STX": {
+          "native_entry_tiers": 228,
+          "raw_risk_bound_tiers": 187,
+          "raw_notional_bound_tiers": 41
+        },
+        "SUI": {
+          "native_entry_tiers": 270,
+          "raw_risk_bound_tiers": 193,
+          "raw_notional_bound_tiers": 77
+        },
+        "TIA": {
+          "native_entry_tiers": 309,
+          "raw_risk_bound_tiers": 267,
+          "raw_notional_bound_tiers": 42
+        },
+        "TRX": {
+          "native_entry_tiers": 480,
+          "raw_risk_bound_tiers": 0,
+          "raw_notional_bound_tiers": 480
+        },
+        "UNI": {
+          "native_entry_tiers": 264,
+          "raw_risk_bound_tiers": 226,
+          "raw_notional_bound_tiers": 38
+        },
+        "WLD": {
+          "native_entry_tiers": 273,
+          "raw_risk_bound_tiers": 253,
+          "raw_notional_bound_tiers": 20
+        },
+        "XLM": {
+          "native_entry_tiers": 255,
+          "raw_risk_bound_tiers": 195,
+          "raw_notional_bound_tiers": 60
+        },
+        "XRP": {
+          "native_entry_tiers": 198,
+          "raw_risk_bound_tiers": 109,
+          "raw_notional_bound_tiers": 89
+        }
+      }
+    }
+  },
+  "limitations": [
+    "The raw cap branch can be obscured by native quantity rounding at the final order quantity.",
+    "A different risk or notional cap may change fills, portfolio path and correlation; no counterfactual return follows from this geometry read.",
+    "Neither native outcome distribution nor source evidence validates a Kelly fraction."
+  ]
+}
