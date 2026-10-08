@@ -77,8 +77,8 @@ class ThreeBracketFixture(R1Strategy):
         super().on_position_closed(event)
         for entry_id in self.bundle_entries:
             order = self.cache.order(entry_id)
-            if order is not None and order.is_open:
-                self.cancel_order(order)
+            if order is not None and order.is_open and not order.is_pending_cancel:
+                self.cancel_order(entry_id)
 
 
 def _scenario(instrument, exit_kind: str) -> dict:
