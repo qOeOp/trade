@@ -102,13 +102,21 @@ class ConfirmedSupportPullback:
         *,
         timing: str = "near-tier",
         support_mode: str = "all-lows",
+        entry_ratio: float = ENTRY_RATIO,
+        minimum_target_r: float = 2.0,
     ) -> None:
         if timing not in ("near-tier", "immediate", "confirmed-update"):
             raise ValueError("unsupported support-pullback timing")
-        if support_mode not in ("all-lows", "confirmed-pivots", "prior-highs"):
+        if support_mode not in ("all-lows", "confirmed-pivots", "prior-highs", "none"):
             raise ValueError("unsupported support-pullback support mode")
+        if (entry_ratio, minimum_target_r) not in ((ENTRY_RATIO, 2.0), (NEAR_RATIO, 1.5)):
+            raise ValueError("unsupported pullback entry and room pairing")
+        if entry_ratio == NEAR_RATIO and support_mode != "none":
+            raise ValueError("the separate 50-percent style has no mandatory 61.8 support test")
         self.timing = timing
         self.support_mode = support_mode
+        self.entry_ratio = entry_ratio
+        self.minimum_target_r = minimum_target_r
         self.candles: list[FourHour] = []
         self.low_pivots: list[int] = []
         self.high_pivots: list[int] = []
@@ -151,6 +159,10 @@ class ConfirmedSupportPullback:
         prior_atr: float,
         row: dict,
     ) -> tuple[int, ...] | None:
+        if self.support_mode == "none":
+            row["support_low_indices"] = ()
+            row["support_high_indices"] = ()
+            return ()
         if self.support_mode == "all-lows":
             candidates = range(i - ANCHOR_LOOKBACK + 1, b)
         else:
@@ -217,7 +229,7 @@ class ConfirmedSupportPullback:
             return None, row
         span = high - low
         level_50 = high - NEAR_RATIO * span
-        entry = high - ENTRY_RATIO * span
+        entry = high - self.entry_ratio * span
         level_764 = high - STOP_RATIO * span
         stop = level_764 - STOP_BUFFER_ATR * prior_atr
         row["impulse"] = {
@@ -226,9 +238,11 @@ class ConfirmedSupportPullback:
             "a_low": low,
             "b_high": high,
             "level_50": level_50,
-            "level_618": entry,
+            "level_618": high - ENTRY_RATIO * span,
             "level_764": level_764,
             "stop": stop,
+            "entry": entry,
+            "entry_ratio": self.entry_ratio,
         }
         support = self._support_at(i, b, entry, prior_atr, row)
         if support is None:
@@ -253,7 +267,9 @@ class ConfirmedSupportPullback:
         if (a, b) in self.planned_pairs:
             row["reason"] = "pair-already-planned"
             return None, row
-        if not (0 < stop < entry < candle.close < high) or (high - entry) < 2 * (entry - stop):
+        if not (0 < stop < entry < candle.close < high) or (
+            high - entry
+        ) < self.minimum_target_r * (entry - stop):
             self.no_room += 1
             row["reason"] = "invalid-price-or-less-than-2r-room"
             return None, row
@@ -270,7 +286,11 @@ class ConfirmedSupportPullback:
             high,
             support if self.support_mode != "prior-highs" else (),
             support if self.support_mode == "prior-highs" else (),
-            "old-resistance-highs" if self.support_mode == "prior-highs" else "prior-lows",
+            "old-resistance-highs"
+            if self.support_mode == "prior-highs"
+            else "none"
+            if self.support_mode == "none"
+            else "prior-lows",
         )
         row["plan"] = plan.as_dict()
         return plan, row
