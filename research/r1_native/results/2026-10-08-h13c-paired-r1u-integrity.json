@@ -1,0 +1,10 @@
+{
+  "run": "/tmp/r1-h13c-paired-r1u-2026oct8",
+  "native_brackets": 13872,
+  "filled_entries": 1561,
+  "closed_positions": 1544,
+  "open_positions": 17,
+  "supersessions": null,
+  "findings": [],
+  "passed": true
+}

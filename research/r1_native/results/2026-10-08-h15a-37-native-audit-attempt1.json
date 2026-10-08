@@ -1,0 +1,31 @@
+{
+  "run": "/tmp/r1-rd-h15a-full-37-v2",
+  "file_sha256": {
+    "summary.json": "adbd663fb6880d4781e013f0c603121d5ec9b43c204b7911438c64207a056a99",
+    "orders.csv": "b49a9b860da1326f90997cabdbfa5ed6ea2e0071569efb5b1f1010e93ef2db5e",
+    "fills.csv": "be104d10b860e145e3c14ac8c930f7aea615449566497e4611390536389ea852",
+    "positions.csv": "5659583d7d21a7079cd28c7d9efafddf479cfa8f40809c4d4d35525fabd8735e",
+    "account.csv": "76917316a7bd217944c8428c549f3b43ef90c9d5aeb0cf7853ba84e6b4e14cf3",
+    "returns_series.csv": "262cbeab208ef93d01491598ee2041edfad941f25bb62143f08d4842398f5fde"
+  },
+  "native_bundles": 3271,
+  "native_brackets": 9813,
+  "filled_entries": 1551,
+  "closed_positions": 676,
+  "open_positions": 10,
+  "accepted_exit_orders": 44,
+  "native_market_time_exits": 273,
+  "findings": [
+    "open exit has no filled parent O-20261003-080000-001-IMX-858",
+    "open exit has no filled parent O-20261003-080000-001-IMX-859",
+    "open exit has no filled parent O-20261006-040459-001-AAVE-812",
+    "open exit has no filled parent O-20261006-040459-001-AAVE-813",
+    "open exit has no filled parent O-20261006-040459-001-AAVE-815",
+    "open exit has no filled parent O-20261006-040459-001-AAVE-816",
+    "open exit has no filled parent O-20261006-200000-001-FIL-474",
+    "open exit has no filled parent O-20261006-200000-001-FIL-475",
+    "open exit has no filled parent O-20261006-200000-001-FIL-477",
+    "open exit has no filled parent O-20261006-200000-001-FIL-478"
+  ],
+  "passed": false
+}

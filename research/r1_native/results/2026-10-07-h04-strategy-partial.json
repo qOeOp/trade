@@ -1,0 +1,59 @@
+{
+  "scenario": "partial",
+  "fills": [
+    {
+      "client_order_id": "O-20260921-141459-001-CHECK-1",
+      "last_qty": "0.001",
+      "last_px": "85269.90",
+      "ts_event": "2026-09-21 14:14:59.999000+00:00"
+    },
+    {
+      "client_order_id": "O-20260921-141459-001-CHECK-3",
+      "last_qty": "0.001",
+      "last_px": "85269.90",
+      "ts_event": "2026-09-21 14:14:59.999000+00:00"
+    }
+  ],
+  "orders": {
+    "O-20260921-141459-001-CHECK-1": {
+      "type": "LIMIT",
+      "status": "CANCELED",
+      "quantity": "0.003",
+      "filled_qty": "0.001",
+      "trigger_price": null
+    },
+    "O-20260921-141459-001-CHECK-2": {
+      "type": "STOP_MARKET",
+      "status": "CANCELED",
+      "quantity": "0.001",
+      "filled_qty": "0.000",
+      "trigger_price": "85100.00"
+    },
+    "O-20260921-141459-001-CHECK-3": {
+      "type": "MARKET",
+      "status": "FILLED",
+      "quantity": "0.001",
+      "filled_qty": "0.001",
+      "trigger_price": null
+    }
+  },
+  "positions": [
+    {
+      "quantity": "0.000",
+      "ts_closed": "2026-09-21 14:14:59.999000+00:00"
+    }
+  ],
+  "protection_failures": 0,
+  "same_bar_first_stop": 0,
+  "split_skips": 0,
+  "invalid_price_skips": 0,
+  "invalid_notional_skips": 0,
+  "unallocatable_closes": 1,
+  "events": [
+    [
+      "stop_updated",
+      "0.001",
+      "85100.00"
+    ]
+  ]
+}

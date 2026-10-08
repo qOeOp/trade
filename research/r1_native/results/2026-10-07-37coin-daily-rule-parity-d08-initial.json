@@ -1,0 +1,349 @@
+{
+  "frozen_rule_source": "0725a7b3f89902e27cd421a18b4b879a13268534:research/ronnie/loop/family_r.py",
+  "frozen_rule_source_sha256": "3180ff88e7249c2901e12501019f11f960d83a87f60825dbc482dfd0e445b84b",
+  "diagnostic_source_sha256": "3208f009614187381c306e44a675e115e57dbe5722c5f20edd1ae7d2365c0986",
+  "native_run_summary": "research/r1_native/results/2026-10-07-37coin-h03-paired-r1u-exact-source.json",
+  "native_run_summary_sha256": "76d5fc8a5fd2b31e4fe1ba08905a73dedb437434223356d9e5239626e3f5f82a",
+  "catalog_root": "/tmp/r1-37-1y-5m-2026oct7",
+  "daily_root": "/tmp/r1-37-2026oct7",
+  "start_utc": "2025-10-07T00:00:00Z",
+  "trade_start_utc": "2025-10-17T00:00:00Z",
+  "end_utc": "2026-10-07T08:30:00Z",
+  "coins": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2221,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 295,
+      "native_strategy_signals": 295,
+      "matches": true
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2141,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 531,
+      "native_strategy_signals": 531,
+      "matches": true
+    },
+    {
+      "coin": "BNB",
+      "instrument": "BNBUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2066,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 369,
+      "native_strategy_signals": 369,
+      "matches": true
+    },
+    {
+      "coin": "ADA",
+      "instrument": "ADAUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2076,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 323,
+      "native_strategy_signals": 323,
+      "matches": true
+    },
+    {
+      "coin": "XRP",
+      "instrument": "XRPUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2101,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 215,
+      "native_strategy_signals": 215,
+      "matches": true
+    },
+    {
+      "coin": "SOL",
+      "instrument": "SOLUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1849,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 326,
+      "native_strategy_signals": 326,
+      "matches": true
+    },
+    {
+      "coin": "DOGE",
+      "instrument": "DOGEUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1915,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 435,
+      "native_strategy_signals": 435,
+      "matches": true
+    },
+    {
+      "coin": "LTC",
+      "instrument": "LTCUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2098,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 519,
+      "native_strategy_signals": 519,
+      "matches": true
+    },
+    {
+      "coin": "TRX",
+      "instrument": "TRXUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2092,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 130,
+      "native_strategy_signals": 130,
+      "matches": true
+    },
+    {
+      "coin": "LINK",
+      "instrument": "LINKUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2090,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 470,
+      "native_strategy_signals": 470,
+      "matches": true
+    },
+    {
+      "coin": "DOT",
+      "instrument": "DOTUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1872,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 70,
+      "native_strategy_signals": 70,
+      "matches": true
+    },
+    {
+      "coin": "AVAX",
+      "instrument": "AVAXUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1840,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 260,
+      "native_strategy_signals": 260,
+      "matches": true
+    },
+    {
+      "coin": "BCH",
+      "instrument": "BCHUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2119,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 717,
+      "native_strategy_signals": 717,
+      "matches": true
+    },
+    {
+      "coin": "ETC",
+      "instrument": "ETCUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2091,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 222,
+      "native_strategy_signals": 222,
+      "matches": true
+    },
+    {
+      "coin": "XLM",
+      "instrument": "XLMUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2087,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 260,
+      "native_strategy_signals": 260,
+      "matches": true
+    },
+    {
+      "coin": "ATOM",
+      "instrument": "ATOMUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 2069,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 114,
+      "native_strategy_signals": 114,
+      "matches": true
+    },
+    {
+      "coin": "FIL",
+      "instrument": "FILUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1817,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 176,
+      "native_strategy_signals": 176,
+      "matches": true
+    },
+    {
+      "coin": "NEAR",
+      "instrument": "NEARUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1818,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 577,
+      "native_strategy_signals": 577,
+      "matches": true
+    },
+    {
+      "coin": "UNI",
+      "instrument": "UNIUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1845,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 637,
+      "native_strategy_signals": 637,
+      "matches": true
+    },
+    {
+      "coin": "AAVE",
+      "instrument": "AAVEUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1817,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 568,
+      "native_strategy_signals": 568,
+      "matches": true
+    },
+    {
+      "coin": "ICP",
+      "instrument": "ICPUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1106,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 258,
+      "native_strategy_signals": 258,
+      "matches": true
+    },
+    {
+      "coin": "APT",
+      "instrument": "APTUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1084,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 83,
+      "native_strategy_signals": 83,
+      "matches": true
+    },
+    {
+      "coin": "ARB",
+      "instrument": "ARBUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 929,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 107,
+      "native_strategy_signals": 107,
+      "matches": true
+    },
+    {
+      "coin": "SUI",
+      "instrument": "SUIUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 888,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 241,
+      "native_strategy_signals": 241,
+      "matches": true
+    },
+    {
+      "coin": "OP",
+      "instrument": "OPUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1224,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 128,
+      "native_strategy_signals": 128,
+      "matches": true
+    },
+    {
+      "coin": "INJ",
+      "instrument": "INJUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1147,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 203,
+      "native_strategy_signals": 203,
+      "matches": true
+    },
+    {
+      "coin": "TIA",
+      "instrument": "TIAUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 707,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 115,
+      "native_strategy_signals": 115,
+      "matches": true
+    },
+    {
+      "coin": "SEI",
+      "instrument": "SEIUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 782,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 133,
+      "native_strategy_signals": 133,
+      "matches": true
+    },
+    {
+      "coin": "PEPE",
+      "instrument": "1000PEPEUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 886,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 158,
+      "native_strategy_signals": 158,
+      "matches": true
+    },
+    {
+      "coin": "SHIB",
+      "instrument": "1000SHIBUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1611,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 298,
+      "native_strategy_signals": 298,
+      "matches": true
+    },
+    {
+      "coin": "HBAR",
+      "instrument": "HBARUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1665,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 294,
+      "native_strategy_signals": 294,
+      "matches": true
+    },
+    {
+      "coin": "ALGO",
+      "instrument": "ALGOUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1939,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 319,
+      "native_strategy_signals": 319,
+      "matches": true
+    },
+    {
+      "coin": "FET",
+      "instrument": "FETUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 994,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 275,
+      "native_strategy_signals": 275,
+      "matches": true
+    },
+    {
+      "coin": "WLD",
+      "instrument": "WLDUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 806,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 153,
+      "native_strategy_signals": 153,
+      "matches": true
+    },
+    {
+      "coin": "IMX",
+      "instrument": "IMXUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1334,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 114,
+      "native_strategy_signals": 114,
+      "matches": true
+    },
+    {
+      "coin": "STX",
+      "instrument": "STXUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 959,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 141,
+      "native_strategy_signals": 141,
+      "matches": true
+    },
+    {
+      "coin": "LDO",
+      "instrument": "LDOUSDT-PERP.BINANCE",
+      "warmup_daily_bars": 1111,
+      "aggregated_full_daily_bars": 365,
+      "frozen_trend_aligned_breaks": 151,
+      "native_strategy_signals": 151,
+      "matches": true
+    }
+  ],
+  "mismatched_coins": [],
+  "method": "Read-only frozen daily pivot/body/trend signal-count recomputation over native Catalog LAST bars. No toy or native fill, exit, PnL or account replay is created. Counts do not prove order-price parity."
+}

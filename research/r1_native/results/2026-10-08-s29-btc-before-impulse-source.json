@@ -1,0 +1,212 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S29",
+  "source_url": "https://www.youtube.com/watch?v=HBB8rwjRFEQ",
+  "source_metadata": {
+    "author_name": "罗尼交易指南",
+    "canonical_url": "https://www.youtube.com/watch?v=HBB8rwjRFEQ",
+    "duration_ms": 491000,
+    "part_id": "HBB8rwjRFEQ",
+    "part_index": 1,
+    "platform": "youtube",
+    "published_at": "2026-04-07T00:00:00Z",
+    "requested_url": "https://www.youtube.com/watch?v=HBB8rwjRFEQ",
+    "title": "比特币再回70000，继续涨还是逢高空？",
+    "video_id": "HBB8rwjRFEQ"
+  },
+  "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-6887a65a3c398bf5504f15ca41c893c8603f47163a3dcd30a377e6c5e340211b/manifest.json",
+  "media_manifest_sha256": "6887a65a3c398bf5504f15ca41c893c8603f47163a3dcd30a377e6c5e340211b",
+  "media_sha256": "59ef400fb8d96d824d70becef65b03cffd296299f27b65f15357e71eaa86bebd",
+  "same_byte_media_manifest_count": 1,
+  "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-20696ee78a9aa3e94c2e6aa72629f07316a963b71de808989605771d71bb44b1/manifest.json",
+  "transcript_manifest_sha256": "20696ee78a9aa3e94c2e6aa72629f07316a963b71de808989605771d71bb44b1",
+  "transcript_method": "asr",
+  "transcript_reviews": [],
+  "relevant_segments": [
+    {
+      "end_ms": 8300,
+      "evidence_id": "E003",
+      "start_ms": 5740,
+      "text": "比特币又一次破七万"
+    },
+    {
+      "end_ms": 14680,
+      "evidence_id": "E005",
+      "start_ms": 10680,
+      "text": "这个位置走了一个小小的突破回踩"
+    },
+    {
+      "end_ms": 17420,
+      "evidence_id": "E007",
+      "start_ms": 15660,
+      "text": "然后紧接着又掉下来"
+    },
+    {
+      "end_ms": 44200,
+      "evidence_id": "E016",
+      "start_ms": 41480,
+      "text": "你就需要把视野放大一点"
+    },
+    {
+      "end_ms": 51000,
+      "evidence_id": "E018",
+      "start_ms": 46640,
+      "text": "四小时日线图都依然是在区间震荡"
+    },
+    {
+      "end_ms": 53320,
+      "evidence_id": "E019",
+      "start_ms": 51000,
+      "text": "并且是在区间中部"
+    },
+    {
+      "end_ms": 63360,
+      "evidence_id": "E023",
+      "start_ms": 59700,
+      "text": "小级别这个位置突破又回来"
+    },
+    {
+      "end_ms": 72100,
+      "evidence_id": "E026",
+      "start_ms": 68560,
+      "text": "但是在更大周期之下会被压制"
+    },
+    {
+      "end_ms": 80800,
+      "evidence_id": "E031",
+      "start_ms": 79480,
+      "text": "七万四七万五这里"
+    },
+    {
+      "end_ms": 86260,
+      "evidence_id": "E033",
+      "start_ms": 83580,
+      "text": "那它的有效性就会更强一点"
+    },
+    {
+      "end_ms": 101640,
+      "evidence_id": "E040",
+      "start_ms": 98520,
+      "text": "我们现在找到了一个新的有效高点"
+    },
+    {
+      "end_ms": 105740,
+      "evidence_id": "E042",
+      "start_ms": 103520,
+      "text": "我们之前的飞波是从这儿到这儿拉的"
+    },
+    {
+      "end_ms": 112940,
+      "evidence_id": "E045",
+      "start_ms": 109560,
+      "text": "现在你的飞波那些回调线需要调整到这里"
+    },
+    {
+      "end_ms": 115540,
+      "evidence_id": "E046",
+      "start_ms": 113460,
+      "text": "想要下一次介入多头"
+    },
+    {
+      "end_ms": 118560,
+      "evidence_id": "E047",
+      "start_ms": 115540,
+      "text": "在这一波的回调去找"
+    },
+    {
+      "end_ms": 120800,
+      "evidence_id": "E049",
+      "start_ms": 119700,
+      "text": "50%"
+    },
+    {
+      "end_ms": 123340,
+      "evidence_id": "E050",
+      "start_ms": 121560,
+      "text": "以及61.8%"
+    },
+    {
+      "end_ms": 125820,
+      "evidence_id": "E051",
+      "start_ms": 123900,
+      "text": "甚至更深的76.4%"
+    },
+    {
+      "end_ms": 136380,
+      "evidence_id": "E057",
+      "start_ms": 133660,
+      "text": "最小的止损需要76.4下面"
+    },
+    {
+      "end_ms": 139420,
+      "evidence_id": "E058",
+      "start_ms": 136960,
+      "text": "更合理的需要这个支撑带下面"
+    },
+    {
+      "end_ms": 145620,
+      "evidence_id": "E061",
+      "start_ms": 144060,
+      "text": "然后上方的目标"
+    },
+    {
+      "end_ms": 146500,
+      "evidence_id": "E062",
+      "start_ms": 145620,
+      "text": "那就先看它"
+    },
+    {
+      "end_ms": 163100,
+      "evidence_id": "E069",
+      "start_ms": 159640,
+      "text": "就是最近比特币就是在震荡"
+    }
+  ],
+  "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-cff6044f38e3d2732cce811ae48cb134f984213d3c4264572e152893a076b74c/manifest.json",
+  "frames_manifest_sha256": "cff6044f38e3d2732cce811ae48cb134f984213d3c4264572e152893a076b74c",
+  "inspected_frames": [
+    {
+      "id": "F12",
+      "timestamp_ms": 54190,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-cff6044f38e3d2732cce811ae48cb134f984213d3c4264572e152893a076b74c/F12.png",
+      "sha256": "d5bb7d654a87043d50530786f94d6cef8a40499981d0ae9595c16e408ffceafd"
+    },
+    {
+      "id": "F19",
+      "timestamp_ms": 79330,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-cff6044f38e3d2732cce811ae48cb134f984213d3c4264572e152893a076b74c/F19.png",
+      "sha256": "19068ae0eff879ae1e01d711735a9b37cae8d7229e114ff23019d723e964795b"
+    },
+    {
+      "id": "F24",
+      "timestamp_ms": 120650,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-cff6044f38e3d2732cce811ae48cb134f984213d3c4264572e152893a076b74c/F24.png",
+      "sha256": "4d361897c89c0e69b4398d742da4780e5f293545286e8f20acc9639a3f48f10b"
+    },
+    {
+      "id": "F31",
+      "timestamp_ms": 151190,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-cff6044f38e3d2732cce811ae48cb134f984213d3c4264572e152893a076b74c/F31.png",
+      "sha256": "8a09d5c20a9d687ba8b232d8506dba694369daee1007f2e7275cc641d97b3f54"
+    },
+    {
+      "id": "F40",
+      "timestamp_ms": 112790,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-cff6044f38e3d2732cce811ae48cb134f984213d3c4264572e152893a076b74c/F40.png",
+      "sha256": "b5b7f416f3305aab2b876981cdb1bff4609cc4a1b3dcc88f33128b65228859d5"
+    }
+  ],
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-25ec78d7db784bd9bc4e58f9e4c87c6c/note.md",
+  "note_sha256": "27a0764ed8b6a350364f7c0bb8ca20629d20d097ab93eca0c0d0cb518c8afa3a",
+  "receipt_path": "/tmp/r1-s29-note-create.json",
+  "receipt_sha256": "2a76b1d0342b6c2357ae33454d453bee4c0f77c6122b5c9ae2d5f3f2ab6f54bd",
+  "readout": {
+    "temporal_identity": "Author metadata publication day 2026-04-07, preceding S28 2026-04-08; chart screen clock reads about 10:55 UTC+8 but exact recording date/clock is not independently verified.",
+    "btc_source": "Original F24/F31/F40 show BTCUSDT hourly price around 68,000-70,000, a long descending line, a lower support zone near 65,500, a retracement currently drawn from that lower area to a newer high near 70,400, and prospective arrows. Original F19 is four-hour wider range context. The later S28/S27 roughly 67,700-to-72,800 impulse is not already an observed completed move in these frames.",
+    "break_vs_context": "E003-E007 describes a small break above 70,000, retest, rise and reversal. E016-E034 says four-hour/daily range middle remains random; lower-timeframe key breaks can be suppressed by the wider range, while 74,000-75,000 is a stronger upper boundary. The visible diagonal does not prove a specific closed break or exact pivot pair.",
+    "fib_update_and_action": "E040-E045 explicitly updates the Fibonacci high to a newly effective high; E046-E058 presents future 50/61.8/76.4 pullback longs, with minimum stop below 76.4 and preferable stop below structural support. E061-E063 states nearby and then higher targets without exact native orders.",
+    "h09d_limit": "This earlier related market episode does not show the S27 pre-break 67,711 low or a unique rule for selecting it. It cannot independently validate the post-exposure H09d selector. A new candidate must handle higher-timeframe range position and distinguish a failed small break from a later qualifying impulse; no fill is proven."
+  },
+  "economic_data_read": false,
+  "native_strategy_admitted": false
+}

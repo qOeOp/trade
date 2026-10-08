@@ -1,0 +1,150 @@
+{
+  "scope": "H08b read-only pre-touch order geometry; native orders/fills/PnL not computed",
+  "registration_commit": "687ff3b36",
+  "h08_geometry_sha256": "eba4ca34c4ad8a0fd558c8db136055d286edaa5afef43b428d77924400959239",
+  "decision_utc": "2026-07-24T00:00:00+00:00",
+  "test_utc": "2026-07-24T04:00:00+00:00",
+  "cases": [
+    {
+      "coin": "BTC",
+      "decision_utc": "2026-07-24T00:00:00+00:00",
+      "test_utc": "2026-07-24T04:00:00+00:00",
+      "decision_bar": {
+        "ts_event_utc": "2026-07-24T00:00:00+00:00",
+        "ohlc": [
+          64820.7,
+          65193.5,
+          64809.7,
+          65069.6
+        ],
+        "prior_atr": 588.3510587479433,
+        "signal": false,
+        "latest_confirmed_low_pivots": [
+          {
+            "index": 1701,
+            "low": 62505.1
+          },
+          {
+            "index": 1717,
+            "low": 63736.1
+          }
+        ],
+        "pair_age_bars": 22,
+        "rising_pair": true,
+        "pair_dead_after_bar": true,
+        "projected_line": 65428.725,
+        "touch_band": 147.08776468698582,
+        "previous_low_above_band": false,
+        "previous_close_above_band": false,
+        "current_low_touches_band": true,
+        "current_close_above_line": false,
+        "bullish_close": true,
+        "prior_60_bar_high": 66924.1,
+        "planned_room_r": 4.556648039349046
+      },
+      "next_bar_low": 64733.2,
+      "eligible_intent": false,
+      "next_low_crosses_limit": false
+    },
+    {
+      "coin": "LINK",
+      "decision_utc": "2026-07-24T00:00:00+00:00",
+      "test_utc": "2026-07-24T04:00:00+00:00",
+      "decision_bar": {
+        "ts_event_utc": "2026-07-24T00:00:00+00:00",
+        "ohlc": [
+          8.455,
+          8.525,
+          8.442,
+          8.466
+        ],
+        "prior_atr": 0.12341029175262393,
+        "signal": false,
+        "latest_confirmed_low_pivots": [
+          {
+            "index": 1678,
+            "low": 7.788
+          },
+          {
+            "index": 1701,
+            "low": 8.001
+          }
+        ],
+        "pair_age_bars": 38,
+        "rising_pair": true,
+        "pair_dead_after_bar": false,
+        "projected_line": 8.352913043478258,
+        "touch_band": 0.03085257293815598,
+        "previous_low_above_band": true,
+        "previous_close_above_band": true,
+        "current_low_touches_band": false,
+        "current_close_above_line": true,
+        "bullish_close": true,
+        "prior_60_bar_high": 8.76,
+        "planned_room_r": 2.042524392730562
+      },
+      "next_bar_low": 8.389,
+      "eligible_intent": true,
+      "next_low_crosses_limit": true,
+      "anchors": [
+        {
+          "index": 1678,
+          "low": 7.788
+        },
+        {
+          "index": 1701,
+          "low": 8.001
+        }
+      ],
+      "decision_line": 8.352913043478258,
+      "projected_next_line": 8.362173913043476,
+      "prior_atr_touch_band": 0.03085257293815598,
+      "planned_limit": 8.393026485981633,
+      "planned_stop": 8.331321340105319,
+      "planned_target": 8.76,
+      "planned_room_r": 5.947210865589011,
+      "next_close_above_line": true
+    },
+    {
+      "coin": "ETH",
+      "decision_utc": "2026-07-24T00:00:00+00:00",
+      "test_utc": "2026-07-24T04:00:00+00:00",
+      "decision_bar": {
+        "ts_event_utc": "2026-07-24T00:00:00+00:00",
+        "ohlc": [
+          1874.74,
+          1887.98,
+          1873.0,
+          1877.42
+        ],
+        "prior_atr": 25.79331380464423,
+        "signal": false,
+        "latest_confirmed_low_pivots": [
+          {
+            "index": 1701,
+            "low": 1802.46
+          },
+          {
+            "index": 1717,
+            "low": 1841.84
+          }
+        ],
+        "pair_age_bars": 22,
+        "rising_pair": true,
+        "pair_dead_after_bar": true,
+        "projected_line": 1895.9874999999997,
+        "touch_band": 6.448328451161058,
+        "previous_low_above_band": false,
+        "previous_close_above_band": false,
+        "current_low_touches_band": true,
+        "current_close_above_line": false,
+        "bullish_close": true,
+        "prior_60_bar_high": 1958.75,
+        "planned_room_r": 7.483211458456629
+      },
+      "next_bar_low": 1858.0,
+      "eligible_intent": false,
+      "next_low_crosses_limit": false
+    }
+  ]
+}

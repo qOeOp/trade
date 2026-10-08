@@ -1,0 +1,20 @@
+{
+  "method": "read-only native order and position identity audit",
+  "run": "/tmp/r1-rd-h12-full-37",
+  "files_sha256": {
+    "summary.json": "3bd4e81185254649a4502bedc35e55c58c91a9e9eefedaf43d9e362067a16159",
+    "orders.csv": "d4a8d614069c0026a8c49855ef3aa5e3d6872a8ddd8810e5827f888ba8d787c9",
+    "fills.csv": "845cc664e6fc3af3095eb6678e5fc68756b818c110bbdfc851482d6ff3c438f7",
+    "positions.csv": "eaade0b9c97006725672080504e0a92594dc7d927c570b7b1ac559ebb37fca1b",
+    "returns_series.csv": "fef269b85e5bc71ed8a921dad11c090da5741bdedf265cbfcc2a8d54c5253c1e",
+    "account.csv": "acb974dad8067a1f854ce241e4bcfeb4cacf6b6467253b16e36fd2240367f1a7"
+  },
+  "positions": 1085,
+  "closed_positions": 1072,
+  "open_positions": 13,
+  "open_reduce_only_exits": 28,
+  "denied_orders": 0,
+  "rejected_orders": 0,
+  "findings": [],
+  "passed": true
+}

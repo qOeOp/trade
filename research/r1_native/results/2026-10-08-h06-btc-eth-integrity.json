@@ -1,0 +1,23 @@
+{
+  "run": "/tmp/r1-rd-h06-pilot-BTC-ETH",
+  "summary_sha256": "0b7a469b098c21dd8101c7110ce3e0d9f1cf1407a9a232269649b1f56fe26dfe",
+  "orders_sha256": "013ee9b8b6831f7c53eaee22bf7269bc9401d4711b71083134a65d62806883ef",
+  "positions_sha256": "90db34ac37001daea237412f624ae7953271336574c13aef679dd40a60251b8a",
+  "entry_brackets": 31,
+  "closed_positions": 30,
+  "open_positions": 1,
+  "time_exit_market_orders": 8,
+  "order_statuses": {
+    "LIMIT:ACCEPTED": 1,
+    "LIMIT:CANCELED": 22,
+    "LIMIT:FILLED": 8,
+    "MARKET:FILLED": 39,
+    "STOP_MARKET:ACCEPTED": 1,
+    "STOP_MARKET:CANCELED": 16,
+    "STOP_MARKET:FILLED": 14
+  },
+  "denied": 0,
+  "rejected": 0,
+  "problems": [],
+  "passed": true
+}

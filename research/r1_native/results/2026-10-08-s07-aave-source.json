@@ -1,0 +1,103 @@
+{
+  "source_url": "https://video-ideas.tradingview.com/1/1416280--AdDW90B6Qsgj4nx.mp4",
+  "source_archive_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "quality": "fast",
+  "note_status": "DISTILLATION_FAILED",
+  "note_reason": "chapter_order_invalid",
+  "media_id": "media-7c6661399958869975a1020555447b35c32b04d4121632db0382b05512d35913",
+  "transcript_id": "transcript-76ae3b5160a9d7bb711e0caedfd971dcce5c8d607ad1695ffd66da2c9cd8bcdf",
+  "transcript_manifest_sha256": "76ae3b5160a9d7bb711e0caedfd971dcce5c8d607ad1695ffd66da2c9cd8bcdf",
+  "frames_id": "frames-eae69bc7187f2984953016c80d5ec29428097313dbe38409ffb73224fab8727c",
+  "frames_manifest_sha256": "eae69bc7187f2984953016c80d5ec29428097313dbe38409ffb73224fab8727c",
+  "asr_segments_uncorrected": [
+    {
+      "end_ms": 264080,
+      "evidence_id": "E118",
+      "start_ms": 261620,
+      "text": "当然我不建议你在这里着急去追多"
+    },
+    {
+      "end_ms": 266620,
+      "evidence_id": "E119",
+      "start_ms": 264080,
+      "text": "因为你现在所有的做多有效之所"
+    },
+    {
+      "end_ms": 267540,
+      "evidence_id": "E120",
+      "start_ms": 266640,
+      "text": "都应该在这里"
+    },
+    {
+      "end_ms": 269840,
+      "evidence_id": "E121",
+      "start_ms": 267540,
+      "text": "而上方的目标空间很小"
+    },
+    {
+      "end_ms": 271920,
+      "evidence_id": "E122",
+      "start_ms": 270360,
+      "text": "所以不建议你去追多"
+    },
+    {
+      "end_ms": 274980,
+      "evidence_id": "E124",
+      "start_ms": 272840,
+      "text": "当然你也别傻乎乎的在这去做空"
+    },
+    {
+      "end_ms": 279220,
+      "evidence_id": "E125",
+      "start_ms": 274980,
+      "text": "我给的这个只是让你逢低做多的"
+    },
+    {
+      "end_ms": 281160,
+      "evidence_id": "E126",
+      "start_ms": 279220,
+      "text": "如果价格回来"
+    },
+    {
+      "end_ms": 282920,
+      "evidence_id": "E127",
+      "start_ms": 281160,
+      "text": "那么你去做多"
+    },
+    {
+      "end_ms": 285560,
+      "evidence_id": "E128",
+      "start_ms": 282920,
+      "text": "而不是我要在这做空"
+    },
+    {
+      "end_ms": 287020,
+      "evidence_id": "E129",
+      "start_ms": 285560,
+      "text": "然后要在这做多"
+    }
+  ],
+  "source_frames": [
+    {
+      "frame_id": "F03",
+      "timestamp_ms": 240892,
+      "sha256": "921b2353780de1319e47b341d884c67a3fb1f34b86a883e7d288036d394ad5b0"
+    },
+    {
+      "frame_id": "F11",
+      "timestamp_ms": 282770,
+      "sha256": "113bb559110e3a044555ad1f3f16044546cf79cdcd18c85d800d71b11eff87ab"
+    },
+    {
+      "frame_id": "F27",
+      "timestamp_ms": 260550,
+      "sha256": "7aec8cccfe6a4dbee4e8a041755a42c58b5497fa14dad2449569bb769c508a51"
+    },
+    {
+      "frame_id": "F32",
+      "timestamp_ms": 271770,
+      "sha256": "098011d0681c064d948e1713863b78b5c02f26fcafd517899003531e37a9d8ba"
+    }
+  ],
+  "scope": "Source fidelity only; no futures fills or strategy PnL."
+}

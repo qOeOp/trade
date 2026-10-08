@@ -1,0 +1,37 @@
+{
+  "minute_catalog_root": "/tmp/r1-s08-aave-clock-2025feb05-mar07",
+  "layout": "direct",
+  "source": "prepare.py public native Binance USD-M data client",
+  "requested_utc_window": [
+    "2025-02-05T00:00:00+00:00",
+    "2025-03-07T00:00:00+00:00"
+  ],
+  "completion": {
+    "instrument": "AAVEUSDT-PERP.BINANCE",
+    "start_ns": 1738713600000000000,
+    "end_ns": 1741305600000000000,
+    "bar_minutes": 5,
+    "counts": {
+      "funding": 90,
+      "last": 8640,
+      "mark": 8640
+    }
+  },
+  "instrument_assumption_sha256": "34f05c35b86ceaf64a00b1b5746414d45dafa7d5d11e0db2bbcdb61ceadb6dbd",
+  "coins": [
+    {
+      "coin": "AAVE",
+      "minute_catalog": {
+        "sha256": "ae8347bd47aab3038f74671394ce95fc44f6fe306139b334a03135d41ff45d0d",
+        "files": 16,
+        "bytes": 965210
+      }
+    }
+  ],
+  "instrument_assumption": {
+    "instrument": "AAVEUSDT-PERP.BINANCE",
+    "source": "Binance current public exchangeInfo via native instrument provider",
+    "fetched_at_utc": "2026-10-07T15:49:23.955462+00:00",
+    "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION"
+  }
+}

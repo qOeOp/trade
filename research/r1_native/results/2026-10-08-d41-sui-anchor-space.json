@@ -1,0 +1,1264 @@
+{
+  "method": "D41 complete causal SUI order-8 low space; no anchor selected, orders, fills, PnL or account replay",
+  "registration_commit": "13b040b40",
+  "audit_source_sha256": "8df60aecbaa68cd9564267d3b4b7790118bcce55772e1efcafb9e313f8235fb0",
+  "d40_result_sha256": "bb18921df9639f8d1383fb1580638b06e42c2f48aace4a546136829994ff0aee",
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "corrected_parity_sha256": "ee1b06ef9d42645aeb107c5e8425273827c97181c8cf942630c31bdf8cde7978",
+  "instrument": "SUIUSDT-PERP.BINANCE",
+  "minute_catalog_sha256": "e4e87d0254d621fdafc20651b0b49fa17975b433d6ef77aa1b73ebc20877280f",
+  "source_bands": {
+    "low_anchor": [
+      1.35,
+      1.42
+    ],
+    "high_anchor": [
+      2.0,
+      2.06
+    ],
+    "0.5": [
+      1.68,
+      1.74
+    ],
+    "0.618": [
+      1.6,
+      1.67
+    ],
+    "0.764": [
+      1.5,
+      1.58
+    ]
+  },
+  "cutoffs": [
+    {
+      "decision_utc": "2026-01-07T00:00:00+00:00",
+      "selected_high_utc": "2026-01-06T16:00:00+00:00",
+      "selected_high": 2.0266,
+      "candidate_count": 8,
+      "source_band_match_count": 4,
+      "candidates": [
+        {
+          "low_anchor_utc": "2025-12-11T16:00:00+00:00",
+          "low_confirmed_utc": "2025-12-13T00:00:00+00:00",
+          "low": 1.5188,
+          "anchor_span_four_hour_bars": 156,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7727,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.03269999999999995
+            },
+            "0.618": {
+              "price": 1.7127796,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.04277960000000003
+            },
+            "0.764": {
+              "price": 1.6386408000000001,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.05864080000000005
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": 0.0988,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-15T20:00:00+00:00",
+          "low_confirmed_utc": "2025-12-17T04:00:00+00:00",
+          "low": 1.43,
+          "anchor_span_four_hour_bars": 131,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7283,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6579012,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5707976,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.010000000000000009,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-18T20:00:00+00:00",
+          "low_confirmed_utc": "2025-12-20T04:00:00+00:00",
+          "low": 1.326,
+          "anchor_span_four_hour_bars": 113,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.6763000000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": -0.0036999999999998145
+            },
+            "0.618": {
+              "price": 1.5936292,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": -0.00637080000000001
+            },
+            "0.764": {
+              "price": 1.4913416000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": -0.008658399999999844
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": -0.02400000000000002,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-21T16:00:00+00:00",
+          "low_confirmed_utc": "2025-12-23T00:00:00+00:00",
+          "low": 1.4129,
+          "anchor_span_four_hour_bars": 96,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7197500000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6473334000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5577332000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2025-12-26T00:00:00+00:00",
+          "low_confirmed_utc": "2025-12-27T08:00:00+00:00",
+          "low": 1.3522,
+          "anchor_span_four_hour_bars": 70,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.6894,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6098208,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5113584000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2025-12-30T04:00:00+00:00",
+          "low_confirmed_utc": "2025-12-31T12:00:00+00:00",
+          "low": 1.4156,
+          "anchor_span_four_hour_bars": 45,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7211,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.649002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.559796,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2026-01-01T00:00:00+00:00",
+          "low_confirmed_utc": "2026-01-02T08:00:00+00:00",
+          "low": 1.3869,
+          "anchor_span_four_hour_bars": 34,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.70675,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6312654000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5378692,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2026-01-05T16:00:00+00:00",
+          "low_confirmed_utc": "2026-01-07T00:00:00+00:00",
+          "low": 1.6583,
+          "anchor_span_four_hour_bars": 6,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.8424500000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.10245000000000015
+            },
+            "0.618": {
+              "price": 1.7989906000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.1289906000000003
+            },
+            "0.764": {
+              "price": 1.7452188000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.1652188000000001
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": 0.23830000000000018,
+          "first_50_touch_after_high_utc": "2026-01-06T20:00:00+00:00",
+          "all_anchor_and_tier_bands_match": false
+        }
+      ],
+      "last_completed_close": 1.9029,
+      "untouched_source_band_match_count": 4
+    },
+    {
+      "decision_utc": "2026-01-07T04:00:00+00:00",
+      "selected_high_utc": "2026-01-06T16:00:00+00:00",
+      "selected_high": 2.0266,
+      "candidate_count": 8,
+      "source_band_match_count": 4,
+      "candidates": [
+        {
+          "low_anchor_utc": "2025-12-11T16:00:00+00:00",
+          "low_confirmed_utc": "2025-12-13T00:00:00+00:00",
+          "low": 1.5188,
+          "anchor_span_four_hour_bars": 156,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7727,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.03269999999999995
+            },
+            "0.618": {
+              "price": 1.7127796,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.04277960000000003
+            },
+            "0.764": {
+              "price": 1.6386408000000001,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.05864080000000005
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": 0.0988,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-15T20:00:00+00:00",
+          "low_confirmed_utc": "2025-12-17T04:00:00+00:00",
+          "low": 1.43,
+          "anchor_span_four_hour_bars": 131,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7283,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6579012,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5707976,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.010000000000000009,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-18T20:00:00+00:00",
+          "low_confirmed_utc": "2025-12-20T04:00:00+00:00",
+          "low": 1.326,
+          "anchor_span_four_hour_bars": 113,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.6763000000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": -0.0036999999999998145
+            },
+            "0.618": {
+              "price": 1.5936292,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": -0.00637080000000001
+            },
+            "0.764": {
+              "price": 1.4913416000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": -0.008658399999999844
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": -0.02400000000000002,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-21T16:00:00+00:00",
+          "low_confirmed_utc": "2025-12-23T00:00:00+00:00",
+          "low": 1.4129,
+          "anchor_span_four_hour_bars": 96,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7197500000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6473334000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5577332000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2025-12-26T00:00:00+00:00",
+          "low_confirmed_utc": "2025-12-27T08:00:00+00:00",
+          "low": 1.3522,
+          "anchor_span_four_hour_bars": 70,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.6894,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6098208,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5113584000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2025-12-30T04:00:00+00:00",
+          "low_confirmed_utc": "2025-12-31T12:00:00+00:00",
+          "low": 1.4156,
+          "anchor_span_four_hour_bars": 45,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7211,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.649002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.559796,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2026-01-01T00:00:00+00:00",
+          "low_confirmed_utc": "2026-01-02T08:00:00+00:00",
+          "low": 1.3869,
+          "anchor_span_four_hour_bars": 34,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.70675,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6312654000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5378692,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2026-01-05T16:00:00+00:00",
+          "low_confirmed_utc": "2026-01-07T00:00:00+00:00",
+          "low": 1.6583,
+          "anchor_span_four_hour_bars": 6,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.8424500000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.10245000000000015
+            },
+            "0.618": {
+              "price": 1.7989906000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.1289906000000003
+            },
+            "0.764": {
+              "price": 1.7452188000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.1652188000000001
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": 0.23830000000000018,
+          "first_50_touch_after_high_utc": "2026-01-06T20:00:00+00:00",
+          "all_anchor_and_tier_bands_match": false
+        }
+      ],
+      "last_completed_close": 1.8711,
+      "untouched_source_band_match_count": 4
+    },
+    {
+      "decision_utc": "2026-01-07T08:00:00+00:00",
+      "selected_high_utc": "2026-01-06T16:00:00+00:00",
+      "selected_high": 2.0266,
+      "candidate_count": 8,
+      "source_band_match_count": 4,
+      "candidates": [
+        {
+          "low_anchor_utc": "2025-12-11T16:00:00+00:00",
+          "low_confirmed_utc": "2025-12-13T00:00:00+00:00",
+          "low": 1.5188,
+          "anchor_span_four_hour_bars": 156,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7727,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.03269999999999995
+            },
+            "0.618": {
+              "price": 1.7127796,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.04277960000000003
+            },
+            "0.764": {
+              "price": 1.6386408000000001,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.05864080000000005
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": 0.0988,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-15T20:00:00+00:00",
+          "low_confirmed_utc": "2025-12-17T04:00:00+00:00",
+          "low": 1.43,
+          "anchor_span_four_hour_bars": 131,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7283,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6579012,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5707976,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.010000000000000009,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-18T20:00:00+00:00",
+          "low_confirmed_utc": "2025-12-20T04:00:00+00:00",
+          "low": 1.326,
+          "anchor_span_four_hour_bars": 113,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.6763000000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": -0.0036999999999998145
+            },
+            "0.618": {
+              "price": 1.5936292,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": -0.00637080000000001
+            },
+            "0.764": {
+              "price": 1.4913416000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": -0.008658399999999844
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": -0.02400000000000002,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-21T16:00:00+00:00",
+          "low_confirmed_utc": "2025-12-23T00:00:00+00:00",
+          "low": 1.4129,
+          "anchor_span_four_hour_bars": 96,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7197500000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6473334000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5577332000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2025-12-26T00:00:00+00:00",
+          "low_confirmed_utc": "2025-12-27T08:00:00+00:00",
+          "low": 1.3522,
+          "anchor_span_four_hour_bars": 70,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.6894,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6098208,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5113584000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2025-12-30T04:00:00+00:00",
+          "low_confirmed_utc": "2025-12-31T12:00:00+00:00",
+          "low": 1.4156,
+          "anchor_span_four_hour_bars": 45,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7211,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.649002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.559796,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2026-01-01T00:00:00+00:00",
+          "low_confirmed_utc": "2026-01-02T08:00:00+00:00",
+          "low": 1.3869,
+          "anchor_span_four_hour_bars": 34,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.70675,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6312654000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5378692,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2026-01-05T16:00:00+00:00",
+          "low_confirmed_utc": "2026-01-07T00:00:00+00:00",
+          "low": 1.6583,
+          "anchor_span_four_hour_bars": 6,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.8424500000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.10245000000000015
+            },
+            "0.618": {
+              "price": 1.7989906000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.1289906000000003
+            },
+            "0.764": {
+              "price": 1.7452188000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.1652188000000001
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": 0.23830000000000018,
+          "first_50_touch_after_high_utc": "2026-01-06T20:00:00+00:00",
+          "all_anchor_and_tier_bands_match": false
+        }
+      ],
+      "last_completed_close": 1.9322,
+      "untouched_source_band_match_count": 4
+    },
+    {
+      "decision_utc": "2026-01-07T12:00:00+00:00",
+      "selected_high_utc": "2026-01-06T16:00:00+00:00",
+      "selected_high": 2.0266,
+      "candidate_count": 8,
+      "source_band_match_count": 4,
+      "candidates": [
+        {
+          "low_anchor_utc": "2025-12-11T16:00:00+00:00",
+          "low_confirmed_utc": "2025-12-13T00:00:00+00:00",
+          "low": 1.5188,
+          "anchor_span_four_hour_bars": 156,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7727,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.03269999999999995
+            },
+            "0.618": {
+              "price": 1.7127796,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.04277960000000003
+            },
+            "0.764": {
+              "price": 1.6386408000000001,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.05864080000000005
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": 0.0988,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-15T20:00:00+00:00",
+          "low_confirmed_utc": "2025-12-17T04:00:00+00:00",
+          "low": 1.43,
+          "anchor_span_four_hour_bars": 131,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7283,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6579012,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5707976,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.010000000000000009,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-18T20:00:00+00:00",
+          "low_confirmed_utc": "2025-12-20T04:00:00+00:00",
+          "low": 1.326,
+          "anchor_span_four_hour_bars": 113,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.6763000000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": -0.0036999999999998145
+            },
+            "0.618": {
+              "price": 1.5936292,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": -0.00637080000000001
+            },
+            "0.764": {
+              "price": 1.4913416000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": -0.008658399999999844
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": -0.02400000000000002,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": false
+        },
+        {
+          "low_anchor_utc": "2025-12-21T16:00:00+00:00",
+          "low_confirmed_utc": "2025-12-23T00:00:00+00:00",
+          "low": 1.4129,
+          "anchor_span_four_hour_bars": 96,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7197500000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6473334000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5577332000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2025-12-26T00:00:00+00:00",
+          "low_confirmed_utc": "2025-12-27T08:00:00+00:00",
+          "low": 1.3522,
+          "anchor_span_four_hour_bars": 70,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.6894,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6098208,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5113584000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2025-12-30T04:00:00+00:00",
+          "low_confirmed_utc": "2025-12-31T12:00:00+00:00",
+          "low": 1.4156,
+          "anchor_span_four_hour_bars": 45,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.7211,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.649002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.559796,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2026-01-01T00:00:00+00:00",
+          "low_confirmed_utc": "2026-01-02T08:00:00+00:00",
+          "low": 1.3869,
+          "anchor_span_four_hour_bars": 34,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.70675,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.618": {
+              "price": 1.6312654000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.0
+            },
+            "0.764": {
+              "price": 1.5378692,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.0
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "low_anchor_band_difference": 0.0,
+          "first_50_touch_after_high_utc": null,
+          "all_anchor_and_tier_bands_match": true
+        },
+        {
+          "low_anchor_utc": "2026-01-05T16:00:00+00:00",
+          "low_confirmed_utc": "2026-01-07T00:00:00+00:00",
+          "low": 1.6583,
+          "anchor_span_four_hour_bars": 6,
+          "valid_impulse": true,
+          "levels": {
+            "0.5": {
+              "price": 1.8424500000000001,
+              "source_chart_band": [
+                1.68,
+                1.74
+              ],
+              "signed_difference_from_band": 0.10245000000000015
+            },
+            "0.618": {
+              "price": 1.7989906000000002,
+              "source_chart_band": [
+                1.6,
+                1.67
+              ],
+              "signed_difference_from_band": 0.1289906000000003
+            },
+            "0.764": {
+              "price": 1.7452188000000002,
+              "source_chart_band": [
+                1.5,
+                1.58
+              ],
+              "signed_difference_from_band": 0.1652188000000001
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "low_anchor_band_difference": 0.23830000000000018,
+          "first_50_touch_after_high_utc": "2026-01-06T20:00:00+00:00",
+          "all_anchor_and_tier_bands_match": false
+        }
+      ],
+      "last_completed_close": 1.9089,
+      "untouched_source_band_match_count": 4
+    }
+  ],
+  "any_source_band_match": true,
+  "economic_data_read": false
+}

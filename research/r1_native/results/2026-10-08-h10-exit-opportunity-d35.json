@@ -1,0 +1,96 @@
+{
+  "native_run": "/tmp/r1-rd-h10-full-37",
+  "native_positions_sha256": "d088e962dc506026a2f709e5f6a4f53c2257bea634a4c4edccbee518e7d74d87",
+  "native_orders_sha256": "f0ae85dd4f13ea2f6d198f00f8a14dd7e162d3b76dfd21474a8df154e733741b",
+  "catalog_root": "/tmp/r1-37-1y-5m-2026oct7",
+  "closed_positions": 934,
+  "positive_native_positions": 61,
+  "closing_fill_types": {
+    "LIMIT": 44,
+    "MARKET": 16,
+    "STOP_MARKET": 874
+  },
+  "stop_positions_with_strict_interior_mfe_at_least_r": {
+    "0.5": 441,
+    "1.0": 338,
+    "1.5": 259,
+    "2.0": 205
+  },
+  "stop_positions_with_permissive_boundary_mfe_at_least_r": {
+    "0.5": 795,
+    "1.0": 537,
+    "1.5": 368,
+    "2.0": 246
+  },
+  "positions_without_strict_interior_bars": 305,
+  "complex_native_fill_paths_without_excursion": 11,
+  "complex_native_nonwins_assumed_rescued_for_ceiling": 7,
+  "complex_native_fill_examples": [
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    },
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    },
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 9,
+      "closing_fill_type": "MARKET",
+      "native_win": true
+    },
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 4,
+      "closing_fill_type": "LIMIT",
+      "native_win": true
+    },
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": true
+    },
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    },
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    },
+    {
+      "instrument_id": "SEIUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    },
+    {
+      "instrument_id": "STXUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "LIMIT",
+      "native_win": true
+    },
+    {
+      "instrument_id": "STXUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    }
+  ],
+  "simple_same_event_stops": 199,
+  "simple_same_event_stops_with_permissive_1r": 97,
+  "other_stops_with_boundary_only_permissive_1r": 102,
+  "same_trade_set_win_rate_if_strict_1r_prior_stops_become_wins": 0.4271948608137045,
+  "same_trade_set_win_rate_ceiling_if_all_permissive_1r_stops_become_wins": 0.6477516059957173,
+  "method": "MFE uses native LAST five-minute bars. Strict measure excludes entry/exit bars; permissive measure includes both and may count pre-entry or post-exit price. Both use native entry fill to linked stop trigger as risk. When explicitly allowed, complex native fill paths are not scanned; every nonwinning complex position is generously assumed rescued in the permissive ceiling. These are opportunity bounds, not a resimulation or net PnL result; changed slot timing can change the trade set."
+}

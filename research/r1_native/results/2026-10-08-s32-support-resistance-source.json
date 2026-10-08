@@ -1,0 +1,94 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S32",
+  "registered_commit": "aecc07b595587bf8fffab4187961dd8e8c9978a9",
+  "source_url": "https://www.youtube.com/watch?v=DnReahUuAyk",
+  "source": {
+    "platform": "youtube",
+    "video_id": "DnReahUuAyk",
+    "author_name": "\u7f57\u5c3c\u4ea4\u6613\u6307\u5357",
+    "published_at": "2023-08-11T00:00:00Z",
+    "duration_ms": 449000,
+    "media_sha256": "1bc82624e3ff9db8289dfe5e66e0d63fb74977e52a1b07ec8324137944fbb7da",
+    "same_byte_media_manifest_count": 1
+  },
+  "acquisition": {
+    "tool": "video-note-mcp --create --quality fast",
+    "receipt_path": "/tmp/r1-s32-note-create.json",
+    "receipt_sha256": "3d3597bcd12ebff3665e9d02b2a6e1bd9f7fcb9ed18fd757e8651affaff7c394",
+    "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-7630f99ec60eec93ebdf314073c1c67cff3df053750929890b3eecbdc3c9c2fc/manifest.json",
+    "media_manifest_sha256": "7630f99ec60eec93ebdf314073c1c67cff3df053750929890b3eecbdc3c9c2fc",
+    "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-8de4c9ec6d311a3a12abfe8f588aedc5e21b601c20f9b4f636ff490f741875e4/manifest.json",
+    "transcript_manifest_sha256": "8de4c9ec6d311a3a12abfe8f588aedc5e21b601c20f9b4f636ff490f741875e4",
+    "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-5b01e8721f88cdde9d9a0cf42c8a92aed7e9d09133e334171a7741b64ca120ae/manifest.json",
+    "frames_manifest_sha256": "5b01e8721f88cdde9d9a0cf42c8a92aed7e9d09133e334171a7741b64ca120ae",
+    "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-1fbccbea03cc4fb886026142a479587a/note.md",
+    "note_sha256": "cd79ba139debe1bf28b2119139bdc69ec246009e1b3c5ff6f47823b50ca7fc7c",
+    "asr_quality": "fast",
+    "audio_review_count": 0
+  },
+  "original_frames_inspected": [
+    {
+      "id": "F02",
+      "timestamp_ms": 105808,
+      "sha256": "7724caa9ca97536ccf0905b8363ec4e0089009b6497ad8c725c189ef39906caf",
+      "observation": "ETHUSDT four-hour chart has several shaded horizontal zones and a rising diagonal; the speaker says to wait until a key location, without a numeric construction rule."
+    },
+    {
+      "id": "F08",
+      "timestamp_ms": 152130,
+      "sha256": "a45180bb0fe989f6a27e11aac1db507a8a381577ff5fa09e04c51384e9019914",
+      "observation": "LINKUSDT four-hour chart shows a falling-back test near diagonal lines and an earlier overhead horizontal band. The author discusses the candle close as the decision boundary."
+    },
+    {
+      "id": "F05",
+      "timestamp_ms": 199910,
+      "sha256": "872470e1e4261ccdd73aa227b191f44684f6737ffcd7411210d2fb9fbfb4b19e",
+      "observation": "UNIUSDT four-hour chart shows separately drawn overhead and lower support bands plus a rising diagonal; a past short is reported, not a new long-order rule."
+    },
+    {
+      "id": "F10",
+      "timestamp_ms": 331170,
+      "sha256": "28c4e61707d6b2a0d64da4cd6bf890411c0c6105edd4c52bc416a885e61d0cb0",
+      "observation": "DXY four-hour chart shows a wide bounded range with repeated tests; the speaker maintains range treatment until a genuine break."
+    },
+    {
+      "id": "F06",
+      "timestamp_ms": 371070,
+      "sha256": "b2423c41ba9fa4be5cf5f1f2de7f9c2b1d0fb2d5dc12abc01c6b0a71eebfcaac",
+      "observation": "USOIL four-hour chart shows a rising support diagonal near a horizontal band, with an alternate downward path if support breaks."
+    }
+  ],
+  "timecoded_evidence": [
+    {
+      "segment_ids": ["E025", "E026", "E028", "E030", "E031"],
+      "seconds": [70.2, 88.0],
+      "finding": "BTC is treated as range-bound and awaits a daily diagonal test; ETH is in a range and should not be acted on before a key location. This is a negative action example."
+    },
+    {
+      "segment_ids": ["E039", "E040", "E050", "E054", "E058", "E059", "E061", "E064"],
+      "seconds": [101.7, 149.9],
+      "finding": "Support-long/resistance-short is the broad principle. For LINK the prior rising line was broken and retested; a strong candle initially appeared bullish, but the author explicitly waited for its close and treats a close back below the line at resistance as bearish."
+    },
+    {
+      "segment_ids": ["E093", "E094", "E103", "E104", "E110", "E111", "E112", "E114"],
+      "seconds": [193.6, 233.2],
+      "finding": "UNI prior resistance retest was described as an already profitable short; a separate horizontal support preserving the broad bullish state was mentioned. Gold is to await a daily support near 1900 rather than trade its present decline."
+    },
+    {
+      "segment_ids": ["E160", "E161", "E175", "E176", "E177", "E181", "E183", "E184", "E192", "E194", "E197", "E200", "E201", "E207", "E208"],
+      "seconds": [299.8, 374.0],
+      "finding": "DXY uses levels drawn on prior days and stays a range until a genuine large-candle break. Oil may be bought on a rising-line retest with a stop; if support breaks, the opposite side becomes possible. The transcript does not specify a quantified close strength, stop distance or zone width."
+    }
+  ],
+  "source_gate": {
+    "status": "qualitative_only",
+    "author_numeric_zone_edge_rule": false,
+    "author_pivot_order_rule": false,
+    "author_atr_band_rule": false,
+    "author_unique_resistance_to_support_rule": false,
+    "causal_action_evidence": "Wait for a completed candle at the LINK diagonal resistance; no action at ETH range middle; stop and break-dependent reversal at oil support.",
+    "implication": "The title promises finding support/resistance, but the actual video applies previously drawn areas and does not specify how to construct them from bars. It cannot select H13f parameters or validate H13e's four-hour order-8 0.25-ATR encoding."
+  },
+  "economic_read": false
+}

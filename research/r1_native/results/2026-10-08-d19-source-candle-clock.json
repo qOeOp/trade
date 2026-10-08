@@ -1,0 +1,20 @@
+{
+  "source_archive_sha256": "272a1a9cafdf6c2fb301b2bdafa0d9ead3326e65535b7488e18c8339d81eee60",
+  "source_idea_uuid": "daIJgg2k",
+  "source_published_utc": "2025-03-06T03:38:57.280742+00:00",
+  "source_frame_sha256": "098011d0681c064d948e1713863b78b5c02f26fcafd517899003531e37a9d8ba",
+  "source_frame_clock_assumption_utc": "2025-03-06T03:00:55+00:00",
+  "source_frame_ohlc_approx": {
+    "open": 220.91,
+    "high": 241.83,
+    "low": 219.55,
+    "close": 238.03
+  },
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "minute_catalog_sha256": "43438ed55060a642a713aa68da51001d73bc4f997abca693f22f851c519da743",
+  "instrument": "AAVEUSDT-PERP.BINANCE",
+  "catalog_start_ns": 1759795200000000000,
+  "catalog_end_ns": 1791361800000000000,
+  "status": "unavailable_outside_registered_catalog_window",
+  "scope": "Catalog coverage only; no bars, orders or PnL were read."
+}

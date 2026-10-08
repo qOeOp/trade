@@ -1,0 +1,71 @@
+{
+  "schema": "r1-native-source-check/v1",
+  "id": "S42",
+  "registration_commit": "5dca69e62e7299d9ac677dc5c07a669bf6bc064c",
+  "source": {
+    "url": "https://www.youtube.com/watch?v=FLg_WR2ZAFE",
+    "author": "Ronnie Trading Guide",
+    "author_original": "\u7f57\u5c3c\u4ea4\u6613\u6307\u5357",
+    "published_at_utc": "2026-07-09T00:00:00Z",
+    "duration_ms": 427000,
+    "original_media_sha256": "ee06df7129470272a8fb7b0265b0157ed225001e96bad74d7113caa928175017",
+    "media_manifest": "/Users/vx/.local/share/video-note-mcp/artifacts/media-689f2360d01409c541ca88a1bef08d187b78d71ea3290d5e20f6e1731dd66afb/manifest.json",
+    "media_manifest_sha256": "689f2360d01409c541ca88a1bef08d187b78d71ea3290d5e20f6e1731dd66afb",
+    "transcript_manifest": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-41f48bd032f13770c31144d7f01335760b6d91699584d68d851c6f73dd516538/manifest.json",
+    "transcript_manifest_sha256": "41f48bd032f13770c31144d7f01335760b6d91699584d68d851c6f73dd516538",
+    "frames_manifest": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-047efd18f11896bed75021df813a23ed4b296ff434a6ff7cdcabf82f67192d71/manifest.json",
+    "frames_manifest_sha256": "047efd18f11896bed75021df813a23ed4b296ff434a6ff7cdcabf82f67192d71",
+    "note": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-57372d517c5f4d15bf02afa083d5a822/note.md",
+    "note_sha256": "e075e5ca30feda16e2f85b00b16c01934b70e8ed4907e5cc8af553cdaf92abe8",
+    "acquisition_attempt1_receipt": "/tmp/r1-s42-held-position-create.json",
+    "acquisition_attempt1_sha256": "984153999f5ee7ff216ccaa800284630e6d3b9136bd3ed3a2ce2d3f9eb1d4845",
+    "acquisition_attempt1_result": "SOURCE_UNAVAILABLE/youtube_acquisition_failed; direct metadata and media-worker diagnostic succeeded; retry of the complete unchanged pipeline succeeded",
+    "acquisition_attempt2_receipt": "/tmp/r1-s42-held-position-create-attempt2.json",
+    "acquisition_attempt2_sha256": "bfe5b540ce97981c06e9ad40a9889db1e134e3bd726767275ca4437f33f2dfd1",
+    "known_duplicate_media_in_retained_results": false
+  },
+  "observations": [
+    {
+      "asset": "BTC",
+      "transcript_refs": ["E001-E020"],
+      "time_ms": [3120, 57660],
+      "frame_refs": ["F41"],
+      "state": "Prior low and 50 percent retracement after a large drop; the speaker calls the range middle random and advises waiting for lower/deeper levels for a new long.",
+      "already_held_futures_exit_action": null
+    },
+    {
+      "asset": "SOL",
+      "transcript_refs": ["E045-E071"],
+      "time_ms": [116920, 172200],
+      "frame_refs": ["F13", "F45"],
+      "state": "After a four-hour break above former horizontal resistance, price retests the role-reversal level near the displayed 38.2 percent retracement.",
+      "already_held_action": "Continue holding long positions patiently while describing this intact support state (E063-E064).",
+      "new_entry_action": "For a new long at this location, the speaker places the stop at least below 50 percent and warns that a tighter stop may be swept before rebound (E065-E071).",
+      "explicit_early_exit_on_support_loss": false,
+      "candle_completion_or_anchor_rule_specified": false
+    },
+    {
+      "asset": "XAUUSD",
+      "transcript_refs": ["E132-E159"],
+      "time_ms": [291040, 348540],
+      "frame_refs": ["F16"],
+      "state": "A descending line still caps price; the speaker describes the bearish direction as intact absent a large bullish break.",
+      "already_held_action": "Continue holding existing shorts (E154).",
+      "explicit_early_exit_on_line_break": false,
+      "market_in_37_coin_futures_universe": false
+    }
+  ],
+  "preregistered_gate": {
+    "named_previsible_condition": "partial: SOL role-reversal support/retracement and XAUUSD descending resistance are described, but their exact causal anchors and completion clocks are unspecified",
+    "actionable_response_to_loss_of_condition": false,
+    "distinguishable_negative_case": "yes for premature exit: SOL intact support calls for holding, consistent with S35 slow-winner countercase; S40 still limits unconditional futures holding beyond prior-high target",
+    "conditional_exit_lead_passed": false
+  },
+  "decision": "Source-positive persistence/hold counterexample; source-inconclusive for a specific conditional full or partial exit. No native Strategy or annual score authorized by S42. A separately preregistered source-case and native-event capacity test would be needed for any researcher-defined proxy.",
+  "limitations": [
+    "Fast ASR and selected original frames were inspected; no independent audio review.",
+    "The source chart venue and its four-hour levels are not established as Binance perpetual execution prices.",
+    "A title about BTC holders does not specify a BTC held-futures exit rule.",
+    "This source date falls inside the previously viewed backtest year; it supplies no clean economic holdout."
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "catalog_trees_checked": 74,
+  "catalog_trees_matched": 74,
+  "all_catalog_trees_matched": true,
+  "quantity_csv_sha256": "f77a5fccb8c8119d000eca40dc9d6353838a25d5c56ab54f263cf5c6b8a5f5d6",
+  "parsed_quantity_count": 37,
+  "quantity_note": "Retained normalized H04 CSV; exact original identity CSV bytes are unavailable, but 37 parsed quantities match prior H06/H03 paired use"
+}

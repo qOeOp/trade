@@ -1,0 +1,297 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S27",
+  "source_url": "https://www.youtube.com/watch?v=wDlDZ2iNxik",
+  "source_metadata": {
+    "author_name": "罗尼交易指南",
+    "canonical_url": "https://www.youtube.com/watch?v=wDlDZ2iNxik",
+    "duration_ms": 481000,
+    "part_id": "wDlDZ2iNxik",
+    "part_index": 1,
+    "platform": "youtube",
+    "published_at": "2026-04-09T00:00:00Z",
+    "requested_url": "https://www.youtube.com/watch?v=wDlDZ2iNxik",
+    "title": "比特币继续震荡上行，关键回调位可介入",
+    "video_id": "wDlDZ2iNxik"
+  },
+  "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-29448a44d5966fddd5ce730d579800f22d3936e42cf63d1e3188206268d59f4c/manifest.json",
+  "media_manifest_sha256": "29448a44d5966fddd5ce730d579800f22d3936e42cf63d1e3188206268d59f4c",
+  "media_sha256": "87ef3af52805f130540af366c50cbac2f262ba0c530d0e97bbd45e0163a5112c",
+  "same_byte_media_manifest_count": 1,
+  "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-1d58bc727cc2971636a6d88ac9c0dcc3b313e4d442a85fc312c8dd61d93ba9a1/manifest.json",
+  "transcript_manifest_sha256": "1d58bc727cc2971636a6d88ac9c0dcc3b313e4d442a85fc312c8dd61d93ba9a1",
+  "transcript_method": "asr",
+  "transcript_reviews": [],
+  "relevant_segments": [
+    {
+      "end_ms": 10520,
+      "evidence_id": "E002",
+      "start_ms": 4420,
+      "text": "比特币这一波小视图级别明确的下降趋势线突破之后震荡上行"
+    },
+    {
+      "end_ms": 18720,
+      "evidence_id": "E004",
+      "start_ms": 14780,
+      "text": "我们依然还是去考虑震荡下行去做多"
+    },
+    {
+      "end_ms": 21000,
+      "evidence_id": "E005",
+      "start_ms": 18720,
+      "text": "这里有几个位置可以参考"
+    },
+    {
+      "end_ms": 23720,
+      "evidence_id": "E006",
+      "start_ms": 21000,
+      "text": "你可以在这里拉出一个斐波那契的回调线"
+    },
+    {
+      "end_ms": 26960,
+      "evidence_id": "E007",
+      "start_ms": 23720,
+      "text": "当然你连了这个尖尖这个尖尖没太大所谓"
+    },
+    {
+      "end_ms": 33780,
+      "evidence_id": "E008",
+      "start_ms": 28100,
+      "text": "然后重点考虑的就是50%61.8%以及76.4%这三个深灰条位"
+    },
+    {
+      "end_ms": 36020,
+      "evidence_id": "E009",
+      "start_ms": 33780,
+      "text": "也就是说现在38.2这里"
+    },
+    {
+      "end_ms": 39140,
+      "evidence_id": "E010",
+      "start_ms": 36020,
+      "text": "你如果够激进的话想要参与也行"
+    },
+    {
+      "end_ms": 44240,
+      "evidence_id": "E013",
+      "start_ms": 42100,
+      "text": "但是我更建议你们找更好的位置"
+    },
+    {
+      "end_ms": 47680,
+      "evidence_id": "E014",
+      "start_ms": 44240,
+      "text": "因为我们要把仓位分到三个位置去进场"
+    },
+    {
+      "end_ms": 50700,
+      "evidence_id": "E015",
+      "start_ms": 47680,
+      "text": "你的有效止损应该无论在哪进"
+    },
+    {
+      "end_ms": 54060,
+      "evidence_id": "E016",
+      "start_ms": 50700,
+      "text": "统一止损都应该在这种位置最少"
+    },
+    {
+      "end_ms": 58100,
+      "evidence_id": "E018",
+      "start_ms": 56260,
+      "text": "一小时或四小时看罗K的话"
+    },
+    {
+      "end_ms": 59840,
+      "evidence_id": "E019",
+      "start_ms": 58100,
+      "text": "有效地点只有一个就是他"
+    },
+    {
+      "end_ms": 89600,
+      "evidence_id": "E034",
+      "start_ms": 85820,
+      "text": "但实际上有效止损就这两个懂了吧"
+    },
+    {
+      "end_ms": 98880,
+      "evidence_id": "E038",
+      "start_ms": 96520,
+      "text": "这里去拉一根上升趋势线"
+    },
+    {
+      "end_ms": 105540,
+      "evidence_id": "E040",
+      "start_ms": 102000,
+      "text": "那就是测试趋势线的时候去参与也行"
+    },
+    {
+      "end_ms": 111740,
+      "evidence_id": "E042",
+      "start_ms": 108040,
+      "text": "基本上在61.8或者76.4才会测试"
+    },
+    {
+      "end_ms": 115700,
+      "evidence_id": "E044",
+      "start_ms": 113100,
+      "text": "所以现在有多单的"
+    },
+    {
+      "end_ms": 118240,
+      "evidence_id": "E046",
+      "start_ms": 116640,
+      "text": "在前期高点需要去落袋的"
+    },
+    {
+      "end_ms": 121320,
+      "evidence_id": "E049",
+      "start_ms": 120340,
+      "text": "这里不要参与空"
+    },
+    {
+      "end_ms": 122560,
+      "evidence_id": "E050",
+      "start_ms": 121320,
+      "text": "回来之后找位置"
+    },
+    {
+      "end_ms": 124020,
+      "evidence_id": "E051",
+      "start_ms": 122560,
+      "text": "重新参与多头就行了"
+    },
+    {
+      "end_ms": 128960,
+      "evidence_id": "E053",
+      "start_ms": 125660,
+      "text": "无论4小时日线图都还是在区间中部震荡"
+    },
+    {
+      "end_ms": 129700,
+      "evidence_id": "E054",
+      "start_ms": 128960,
+      "text": "没得做"
+    },
+    {
+      "end_ms": 132600,
+      "evidence_id": "E055",
+      "start_ms": 129700,
+      "text": "4小时只有上面这种位置去做空"
+    },
+    {
+      "end_ms": 134060,
+      "evidence_id": "E056",
+      "start_ms": 132600,
+      "text": "以及突破之后去做多"
+    },
+    {
+      "end_ms": 149140,
+      "evidence_id": "E064",
+      "start_ms": 146420,
+      "text": "然后小时图即便现在就是回踩"
+    },
+    {
+      "end_ms": 151960,
+      "evidence_id": "E065",
+      "start_ms": 149140,
+      "text": "前期高点关键水平支撑阻力转换"
+    },
+    {
+      "end_ms": 154180,
+      "evidence_id": "E066",
+      "start_ms": 151960,
+      "text": "在这去参与多头也行"
+    },
+    {
+      "end_ms": 158140,
+      "evidence_id": "E067",
+      "start_ms": 154620,
+      "text": "或者说从这重新这一波去拉一个飞波"
+    },
+    {
+      "end_ms": 160920,
+      "evidence_id": "E068",
+      "start_ms": 158140,
+      "text": "那这里刚好也是50%的位置"
+    },
+    {
+      "end_ms": 162880,
+      "evidence_id": "E069",
+      "start_ms": 160920,
+      "text": "这里有可能直接上去"
+    },
+    {
+      "end_ms": 164980,
+      "evidence_id": "E070",
+      "start_ms": 162880,
+      "text": "或者说掉下来61.8"
+    },
+    {
+      "end_ms": 172540,
+      "evidence_id": "E073",
+      "start_ms": 167720,
+      "text": "然后同样在这几个位置想要去做多的话"
+    },
+    {
+      "end_ms": 175160,
+      "evidence_id": "E074",
+      "start_ms": 172540,
+      "text": "我更建议的还是趋势线下方的止损"
+    },
+    {
+      "end_ms": 176820,
+      "evidence_id": "E075",
+      "start_ms": 175160,
+      "text": "以及前期低点下方的止损"
+    }
+  ],
+  "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-85d904a55b7b1bca63688946b4412939a2057a0bbd53dd96f33a75455055779e/manifest.json",
+  "frames_manifest_sha256": "85d904a55b7b1bca63688946b4412939a2057a0bbd53dd96f33a75455055779e",
+  "inspected_frames": [
+    {
+      "id": "F16",
+      "timestamp_ms": 26810,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-85d904a55b7b1bca63688946b4412939a2057a0bbd53dd96f33a75455055779e/F16.png",
+      "sha256": "f7a03cec05fee3633ee99e5e07647f10117cca35fc114e365db0330bd9036907"
+    },
+    {
+      "id": "F28",
+      "timestamp_ms": 38990,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-85d904a55b7b1bca63688946b4412939a2057a0bbd53dd96f33a75455055779e/F28.png",
+      "sha256": "eab232668c0adee18d02467917239a5e93e28160b22b92a65a82ac2cacfb6b1f"
+    },
+    {
+      "id": "F10",
+      "timestamp_ms": 50550,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-85d904a55b7b1bca63688946b4412939a2057a0bbd53dd96f33a75455055779e/F10.png",
+      "sha256": "0c9c6fc9eea75d3ace441fc9d5b1def08bfcfadbc6e80580a99e95af8542780b"
+    },
+    {
+      "id": "F32",
+      "timestamp_ms": 105390,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-85d904a55b7b1bca63688946b4412939a2057a0bbd53dd96f33a75455055779e/F32.png",
+      "sha256": "3eeda3c6c85c30f7ee07b85dda84965a26c74420505b762e06f1ae129cf4509c"
+    },
+    {
+      "id": "F15",
+      "timestamp_ms": 160770,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-85d904a55b7b1bca63688946b4412939a2057a0bbd53dd96f33a75455055779e/F15.png",
+      "sha256": "aa311ef541f9f212845fe124ed2443e942aeb0be92a8597e8568ed158bd056ea"
+    }
+  ],
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-6f3fe18e534646119020b7c8133f5d6e/note.md",
+  "note_sha256": "79e243b7a4abd4a1cb434bc03ced30ea5e92a3239462b79da20dde57a3b9e9c9",
+  "receipt_path": "/tmp/r1-s27-note-create.json",
+  "receipt_sha256": "b7360336d9ab3c998da9f1745f11426cd74516e34cbd19cf4e09ffc6419cfea2",
+  "readout": {
+    "btc_source_geometry": "Original BTCUSDT hourly F16/F28 shows retracement 0 near 72,775 and 1 near 67,749, with 50%, 61.8% and 76.4% below the current ~70,970 price. The speaker offers 38.2% for an aggressive entry but prefers three deeper, separately budgeted tiers, not three mandatory overlapping support lines.",
+    "anchor_precision": "At E007 he says connecting one tip or the other does not matter much. This explicitly weakens any inference of one exact wick/pivot anchor or tick-perfect source match; a causal broad-swing proxy must be labeled researcher-defined.",
+    "stop_action_context": "At 00:47-01:08 he wants a common valid stop below the trend line or prior low, not a close stop at each tier. At 01:53-02:14 existing longs should take profit near prior high; do not short the pullback; four-hour/daily range middle is idle outside the smaller-scale plan. No public exchange order/fill is established for the proposed BTC tiers.",
+    "eth_context": "At 02:26-02:59 the ETH hourly role-reversal area or 50%/61.8% retracement are distinct possible long paths, with stop below line or previous low. The four-hour descending line can instead be a short location.",
+    "capture_time": "Original F28 bottom-right screen clock reads about 15:49 UTC+8, and the chart shows April 9 current hourly candles. If the desktop date matches published 2026-04-09, this corresponds to about 07:49 UTC and last completed four-hour bar at 04:00 UTC; exact recording clock and TradingView venue are not independently verified.",
+    "decision": "S27 independently supports optional budgeted tiers, broad structural invalidation and a separate scale/context gate. It does not state the deterministic lowest-confirmed-order-8-low rule; H09b remains a researcher proxy awaiting source-date native geometry and full action semantics."
+  },
+  "economic_data_read": false,
+  "native_strategy_admitted": false
+}

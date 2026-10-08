@@ -1,0 +1,56 @@
+{
+  "method": "read-only native OTO order geometry/status capacity screen; no tier PnL or alternate fill ledger",
+  "frozen_report_sha256": {
+    "summary.json": "adbd663fb6880d4781e013f0c603121d5ec9b43c204b7911438c64207a056a99",
+    "orders.csv": "b49a9b860da1326f90997cabdbfa5ed6ea2e0071569efb5b1f1010e93ef2db5e",
+    "native_audit.json": "606d54b072c5f522781ba9ee581583289d0220cb0a70dc9452a574e3fcc76095"
+  },
+  "native_bundles": 3271,
+  "native_brackets": 9813,
+  "native_filled_entries": 1551,
+  "filled_entries_per_bundle": {
+    "0": 2591,
+    "1": 170,
+    "2": 149,
+    "3": 361
+  },
+  "cap_bound_tier_fraction": "0.3497401406297768266585142158",
+  "planned_total_stop_risk_bp_of_equity_upper_bound": {
+    "p10": "15.64730922162271911454597949",
+    "p50": "24.22558174003260708463020602",
+    "p90": "25.00000000000000000000000000"
+  },
+  "tiers": {
+    "50pct": {
+      "submitted": 3271,
+      "filled": 680,
+      "filled_fraction_of_submitted_bundles": "0.2078874961785386731886273311",
+      "cap_bound": 585,
+      "planned_stop_risk_bp_p50": "8.333333333333333333333333333",
+      "target_room_r_p50": "0.9304911955514365152919369787"
+    },
+    "61_8pct": {
+      "submitted": 3271,
+      "filled": 510,
+      "filled_fraction_of_submitted_bundles": "0.1559156221339040048914704983",
+      "cap_bound": 984,
+      "planned_stop_risk_bp_p50": "8.333333333333333333333333333",
+      "target_room_r_p50": "1.473214285714285714285714286"
+    },
+    "76_4pct": {
+      "submitted": 3271,
+      "filled": 361,
+      "filled_fraction_of_submitted_bundles": "0.1103638031183124426780800978",
+      "cap_bound": 1863,
+      "planned_stop_risk_bp_p50": "7.558915073365940417963539351",
+      "target_room_r_p50": "2.793442622950819672131147541"
+    }
+  },
+  "precommitted_cap_material_screen": false,
+  "precommitted_deep_tier_reach_screen": true,
+  "limitations": [
+    "Pre-rounding stop-risk formula upper-bounds actual submitted risk after quantity rounding",
+    "Tier fills are not independent positions or additive PnL in the native netting account",
+    "The reused development year cannot qualify a risk or allocation change"
+  ]
+}

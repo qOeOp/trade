@@ -1,0 +1,233 @@
+{
+  "method": "read-only native Position replay at preregistered complete LAST landmarks; indicative exit values are not executable fills or alternate account PnL",
+  "registration": "RD_EXPERIMENTS.md D53",
+  "frozen_sha256": {
+    "summary.json": "adbd663fb6880d4781e013f0c603121d5ec9b43c204b7911438c64207a056a99",
+    "orders.csv": "b49a9b860da1326f90997cabdbfa5ed6ea2e0071569efb5b1f1010e93ef2db5e",
+    "fills.csv": "be104d10b860e145e3c14ac8c930f7aea615449566497e4611390536389ea852",
+    "positions.csv": "5659583d7d21a7079cd28c7d9efafddf479cfa8f40809c4d4d35525fabd8735e",
+    "native_audit": "606d54b072c5f522781ba9ee581583289d0220cb0a70dc9452a574e3fcc76095",
+    "input_identity": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+    "h06_complete_four_hour_parity": "ee1b06ef9d42645aeb107c5e8425273827c97181c8cf942630c31bdf8cde7978"
+  },
+  "native_positions": 686,
+  "native_closed_positions": 676,
+  "native_winning_closed_positions": 382,
+  "landmarks_complete_four_hour_bars": [
+    1,
+    3,
+    5,
+    10
+  ],
+  "summary": {
+    "1": {
+      "state_counts": {
+        "observed": 666,
+        "closed_censored": 20
+      },
+      "observed": 666,
+      "descriptive_conditionals": {
+        "mfe_below_half_r=False;approx_a_low_breached=False": {
+          "observed": 52,
+          "closed": 52,
+          "eventual_winners": 42,
+          "eventual_target_exits": 29,
+          "eventual_target_pnl_usdt": "2661.19418226",
+          "actual_continuation_minus_indicative_sum_usdt": "-430.9026988485",
+          "actual_continuation_minus_indicative_mean_usdt": "-8.286590362471153846153846154",
+          "later_entry_count": 17
+        },
+        "mfe_below_half_r=True;approx_a_low_breached=False": {
+          "observed": 611,
+          "closed": 601,
+          "eventual_winners": 332,
+          "eventual_target_exits": 191,
+          "eventual_target_pnl_usdt": "32161.15844179",
+          "actual_continuation_minus_indicative_sum_usdt": "4934.92296676505",
+          "actual_continuation_minus_indicative_mean_usdt": "8.211186300773793677204658902",
+          "later_entry_count": 369
+        },
+        "mfe_below_half_r=True;approx_a_low_breached=True": {
+          "observed": 3,
+          "closed": 3,
+          "eventual_winners": 0,
+          "eventual_target_exits": 0,
+          "eventual_target_pnl_usdt": "0",
+          "actual_continuation_minus_indicative_sum_usdt": "-164.867491895",
+          "actual_continuation_minus_indicative_mean_usdt": "-54.95583063166666666666666667",
+          "later_entry_count": 0
+        }
+      }
+    },
+    "3": {
+      "state_counts": {
+        "closed_censored": 58,
+        "observed": 624,
+        "end_censored": 4
+      },
+      "observed": 624,
+      "descriptive_conditionals": {
+        "mfe_below_half_r=False;approx_a_low_breached=False": {
+          "observed": 95,
+          "closed": 95,
+          "eventual_winners": 66,
+          "eventual_target_exits": 43,
+          "eventual_target_pnl_usdt": "4930.43281657",
+          "actual_continuation_minus_indicative_sum_usdt": "-2057.72866045085",
+          "actual_continuation_minus_indicative_mean_usdt": "-21.66030168895631578947368421",
+          "later_entry_count": 44
+        },
+        "mfe_below_half_r=False;approx_a_low_breached=True": {
+          "observed": 1,
+          "closed": 1,
+          "eventual_winners": 1,
+          "eventual_target_exits": 1,
+          "eventual_target_pnl_usdt": "460.62865663",
+          "actual_continuation_minus_indicative_sum_usdt": "256.08563007",
+          "actual_continuation_minus_indicative_mean_usdt": "256.08563007",
+          "later_entry_count": 0
+        },
+        "mfe_below_half_r=True;approx_a_low_breached=False": {
+          "observed": 523,
+          "closed": 517,
+          "eventual_winners": 278,
+          "eventual_target_exits": 147,
+          "eventual_target_pnl_usdt": "27024.72067369",
+          "actual_continuation_minus_indicative_sum_usdt": "5384.04461017480",
+          "actual_continuation_minus_indicative_mean_usdt": "10.41401278563791102514506770",
+          "later_entry_count": 253
+        },
+        "mfe_below_half_r=True;approx_a_low_breached=True": {
+          "observed": 5,
+          "closed": 5,
+          "eventual_winners": 0,
+          "eventual_target_exits": 0,
+          "eventual_target_pnl_usdt": "0",
+          "actual_continuation_minus_indicative_sum_usdt": "-575.402703240",
+          "actual_continuation_minus_indicative_mean_usdt": "-115.080540648",
+          "later_entry_count": 0
+        }
+      },
+      "primary_slow": {
+        "observed_count": 528,
+        "closed_count": 522,
+        "open_at_end_count": 6,
+        "eventual_winners": 278,
+        "eventual_target_exits": 147,
+        "eventual_target_pnl_usdt": "27024.72067369",
+        "actual_continuation_minus_indicative_sum_usdt": "4808.64190693480",
+        "later_entry_count": 253,
+        "entry_fill_count_by_landmark": {
+          "1": 232,
+          "3": 99,
+          "2": 197
+        },
+        "close_causes": {
+          "target": 147,
+          "stop": 136,
+          "time_market": 239
+        }
+      }
+    },
+    "5": {
+      "state_counts": {
+        "closed_censored": 87,
+        "observed": 594,
+        "end_censored": 5
+      },
+      "observed": 594,
+      "descriptive_conditionals": {
+        "mfe_below_half_r=False;approx_a_low_breached=False": {
+          "observed": 126,
+          "closed": 126,
+          "eventual_winners": 94,
+          "eventual_target_exits": 60,
+          "eventual_target_pnl_usdt": "7129.48538149",
+          "actual_continuation_minus_indicative_sum_usdt": "34.41102863150",
+          "actual_continuation_minus_indicative_mean_usdt": "0.2731034018373015873015873016",
+          "later_entry_count": 49
+        },
+        "mfe_below_half_r=False;approx_a_low_breached=True": {
+          "observed": 1,
+          "closed": 1,
+          "eventual_winners": 1,
+          "eventual_target_exits": 1,
+          "eventual_target_pnl_usdt": "460.62865663",
+          "actual_continuation_minus_indicative_sum_usdt": "278.12822730",
+          "actual_continuation_minus_indicative_mean_usdt": "278.12822730",
+          "later_entry_count": 0
+        },
+        "mfe_below_half_r=True;approx_a_low_breached=False": {
+          "observed": 457,
+          "closed": 452,
+          "eventual_winners": 229,
+          "eventual_target_exits": 109,
+          "eventual_target_pnl_usdt": "22258.08180309",
+          "actual_continuation_minus_indicative_sum_usdt": "3842.54782169695",
+          "actual_continuation_minus_indicative_mean_usdt": "8.501211994904756637168141593",
+          "later_entry_count": 179
+        },
+        "mfe_below_half_r=True;approx_a_low_breached=True": {
+          "observed": 10,
+          "closed": 10,
+          "eventual_winners": 2,
+          "eventual_target_exits": 2,
+          "eventual_target_pnl_usdt": "771.06947602",
+          "actual_continuation_minus_indicative_sum_usdt": "357.09600060740",
+          "actual_continuation_minus_indicative_mean_usdt": "35.70960006074",
+          "later_entry_count": 0
+        }
+      }
+    },
+    "10": {
+      "state_counts": {
+        "closed_censored": 193,
+        "observed": 487,
+        "end_censored": 6
+      },
+      "observed": 487,
+      "descriptive_conditionals": {
+        "mfe_below_half_r=False;approx_a_low_breached=False": {
+          "observed": 133,
+          "closed": 132,
+          "eventual_winners": 97,
+          "eventual_target_exits": 46,
+          "eventual_target_pnl_usdt": "8010.86894504",
+          "actual_continuation_minus_indicative_sum_usdt": "472.49761619660",
+          "actual_continuation_minus_indicative_mean_usdt": "3.579527395428787878787878788",
+          "later_entry_count": 35
+        },
+        "mfe_below_half_r=False;approx_a_low_breached=True": {
+          "observed": 1,
+          "closed": 1,
+          "eventual_winners": 0,
+          "eventual_target_exits": 0,
+          "eventual_target_pnl_usdt": "0",
+          "actual_continuation_minus_indicative_sum_usdt": "-33.47283264",
+          "actual_continuation_minus_indicative_mean_usdt": "-33.47283264",
+          "later_entry_count": 0
+        },
+        "mfe_below_half_r=True;approx_a_low_breached=False": {
+          "observed": 337,
+          "closed": 334,
+          "eventual_winners": 156,
+          "eventual_target_exits": 53,
+          "eventual_target_pnl_usdt": "12043.23248554",
+          "actual_continuation_minus_indicative_sum_usdt": "-202.66392291610",
+          "actual_continuation_minus_indicative_mean_usdt": "-0.6067782123236526946107784431",
+          "later_entry_count": 80
+        },
+        "mfe_below_half_r=True;approx_a_low_breached=True": {
+          "observed": 16,
+          "closed": 16,
+          "eventual_winners": 3,
+          "eventual_target_exits": 3,
+          "eventual_target_pnl_usdt": "1110.16478449",
+          "actual_continuation_minus_indicative_sum_usdt": "108.33056437310",
+          "actual_continuation_minus_indicative_mean_usdt": "6.77066027331875",
+          "later_entry_count": 0
+        }
+      }
+    }
+  }
+}

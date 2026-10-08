@@ -1,0 +1,46 @@
+{
+  "schema": "r1-native-capital-utilization-diagnostic/v1",
+  "run": "/tmp/r1-rd-h19a-paired-h18a-37",
+  "input_sha256": {
+    "summary.json": "6298b850bc3100c7845dc9ee801ae4a899f3a94c64a5004ec2bdf0c61a8b8c80",
+    "account.csv": "2c39007fec955b02ba1343a05b1bca62c440ab479528488cd6bd916c730c0c14",
+    "fills.csv": "b92effc8ccbfced1c81f388f8f4ce4cc28b68517079057cc8c985ca016cba64a",
+    "positions.csv": "6555dbd3315ae11108198fc04116fb1da43d58c3207dd45a3f753e4995b5436e"
+  },
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00Z",
+  "initial_portfolio_equity_usdt": 100000.0,
+  "final_native_portfolio_equity_usdt": 104901.95547793,
+  "ending_unrealized_pnl_usdt": -39.248845010006335,
+  "account_period_return_pct": 4.90195547793,
+  "account_annualized_return_pct": 5.038313333471677,
+  "descriptive_net_change_over_mean_locked_margin": 1.2319553513652477,
+  "descriptive_net_change_over_mean_marked_open_notional": 0.3329391321636287,
+  "account": {
+    "account_report_rows": 3857,
+    "final_realized_account_balance_usdt": 104941.20432294,
+    "final_locked_margin_usdt": 3050.00161509,
+    "peak_locked_margin_usdt": 15117.39743355,
+    "peak_locked_margin_utc": "2026-03-17T00:04:59.999000+00:00",
+    "time_weighted_mean_locked_margin_usdt": 3979.004168046892,
+    "time_weighted_mean_locked_fraction_of_account_total": 0.039400849534354195,
+    "time_fraction_zero_locked_margin": 0.1233608874492714
+  },
+  "positions": {
+    "mark_observations": 102342,
+    "native_fills": 2589,
+    "final_open_positions": 10,
+    "final_marked_open_notional_usdt": 23886.560464992104,
+    "peak_marked_open_notional_usdt": 92958.76044884455,
+    "peak_marked_open_notional_utc": "2026-04-20T21:04:59.999000+00:00",
+    "time_weighted_mean_marked_open_notional_usdt": 14723.278234295522,
+    "time_fraction_zero_open_notional": 0.06441148306658068,
+    "peak_simultaneously_open_coins": 31,
+    "time_weighted_mean_simultaneously_open_coins": 6.386263704051123
+  },
+  "limitations": [
+    "Locked margin includes native order/position reservations and is not the same as executed notional.",
+    "Marked position notional uses five-minute MARK closes and native fill quantity, so same-bar event order is only five-minute resolved.",
+    "Return over average occupied capital is descriptive and must not replace shared-account annualized return or be interpreted as a standalone investable CAGR."
+  ]
+}
