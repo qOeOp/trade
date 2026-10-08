@@ -1,10 +1,11 @@
 """
-H15a three-tier pullback using native Nautilus contingent order lists.
+Budgeted pullback tiers using native Nautilus contingent order lists.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 
 from retracement_strategy import ConfirmedSupportPullback
 from retracement_strategy import RetracementPlan
@@ -18,7 +19,8 @@ from vibe_trading.model import OrderType
 from vibe_trading.model import TimeInForce
 
 
-TIER_RATIOS = (0.5, 0.618, 0.764)
+THREE_TIER_RATIOS = (0.5, 0.618, 0.764)
+DEEP_TIER_RATIOS = (0.618, 0.764)
 TOTAL_RISK_FRACTION = 0.0025
 TOTAL_NOTIONAL_FRACTION = 0.05
 LIFETIME_NS = 30 * FOUR_HOUR_NS
@@ -35,18 +37,22 @@ class TierBundle:
 
 class TieredRetracementStrategy(R1Strategy):
     """
-    Own one three-entry bundle while Nautilus owns orders and portfolio state.
+    Own one tier bundle while Nautilus owns orders and portfolio state.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        if self.signal_variant != "support-three-tier-4h":
-            raise ValueError("tiered pullback requires support-three-tier-4h")
+        if self.signal_variant == "support-three-tier-4h":
+            self.tier_ratios = THREE_TIER_RATIOS
+        elif self.signal_variant == "support-deep-two-tier-4h":
+            self.tier_ratios = DEEP_TIER_RATIOS
+        else:
+            raise ValueError("unsupported budgeted tier signal")
         if (
             self.risk_budget_fraction != TOTAL_RISK_FRACTION
             or self.max_coin_notional_fraction != TOTAL_NOTIONAL_FRACTION
         ):
-            raise ValueError("H15a requires its frozen 25-bp risk and 5% coin notional cap")
+            raise ValueError("budgeted tiers require 25-bp risk and 5% coin notional cap")
         self.support_state = ConfirmedSupportPullback(
             timing="confirmed-update",
             support_mode="none",
@@ -151,12 +157,17 @@ class TieredRetracementStrategy(R1Strategy):
     def _submit_bundle(self, plan: RetracementPlan) -> None:
         span = plan.b_high - plan.a_low
         prices = tuple(
-            self.instrument.make_price(plan.b_high - ratio * span) for ratio in TIER_RATIOS
+            self.instrument.make_price(plan.b_high - ratio * span) for ratio in self.tier_ratios
         )
         stop = self.instrument.make_price(plan.stop)
         target = self.instrument.make_price(plan.target)
         levels = tuple(price.as_double() for price in prices)
-        if not (0 < stop.as_double() < levels[2] < levels[1] < levels[0] < target.as_double()):
+        if not (
+            stop.as_double() > 0
+            and stop.as_double() < levels[-1]
+            and all(higher > lower for higher, lower in pairwise(levels))
+            and levels[0] < target.as_double()
+        ):
             self.bundle_invalid_price_skips += 1
             return
         quantities = self._tier_quantities(levels, stop.as_double())

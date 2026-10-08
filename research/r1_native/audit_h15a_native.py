@@ -1,5 +1,5 @@
 """
-Audit H15 native bundle orders, fills and open protection from reports.
+Audit budgeted native tier orders, fills and open protection from reports.
 """
 
 from __future__ import annotations
@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 from decimal import Decimal
+from itertools import pairwise
 from pathlib import Path
 
 import pandas as pd
@@ -18,6 +19,10 @@ from vibe_trading.persistence import ParquetDataCatalog
 TERMINAL = {"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"}
 OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
 FOUR_HOUR_NS = 4 * 3_600_000_000_000
+TIER_RATIOS = {
+    "support-three-tier-4h": (Decimal("0.5"), Decimal("0.618"), Decimal("0.764")),
+    "support-deep-two-tier-4h": (Decimal("0.618"), Decimal("0.764")),
+}
 
 
 def _sha(path: Path) -> str:
@@ -41,13 +46,14 @@ def _native_instruments(root: Path, summary: dict) -> dict:
 
 def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native report audit.
     summary = json.loads((run / "summary.json").read_text())
-    if summary["signal_variant"] != "support-three-tier-4h":
-        raise ValueError("H15a native replay required")
+    ratios = TIER_RATIOS.get(summary["signal_variant"])
+    if ratios is None:
+        raise ValueError("budgeted native tier replay required")
     if (
         summary["sizing"]["risk_budget_bps"] != 25
         or summary["sizing"]["coin_notional_cap_pct"] != 5
     ):
-        raise ValueError("H15a frozen risk settings differ")
+        raise ValueError("budgeted native tier risk settings differ")
     instruments = _native_instruments(catalog_root, summary)
     orders = pd.read_csv(
         run / "orders.csv",
@@ -108,7 +114,7 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
             findings.append(f"entry filled at or before submission {list_id}")
     for (strategy_id, ts_init), group in entries.groupby(["strategy_id", "ts_init"]):
         sorted_group = group.sort_values("price", ascending=False)
-        if len(sorted_group) != 3:
+        if len(sorted_group) != len(ratios):
             findings.append(f"bundle has {len(sorted_group)} tiers: {strategy_id} {ts_init}")
             continue
         child = brackets[brackets.order_list_id.isin(sorted_group.order_list_id)]
@@ -123,17 +129,19 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
             findings.append(f"bundle stop or target differs: {strategy_id} {ts_init}")
             continue
         target = _decimal(targets.price.iloc[0])
-        first, second, third = (_decimal(value) for value in sorted_group.price)
+        levels = tuple(_decimal(value) for value in sorted_group.price)
         stop = _decimal(stops.trigger_price.iloc[0])
-        estimated_a = 2 * first - target
+        estimated_a = target - (target - levels[0]) / ratios[0]
         instrument = instruments[sorted_group.instrument_id.iloc[0]]
         tick = instrument.price_increment.as_decimal()
         span = target - estimated_a
-        if not (0 < stop < estimated_a < third < second < first < target):
+        if not (0 < stop < estimated_a < levels[-1] < target) or any(
+            higher <= lower for higher, lower in pairwise(levels)
+        ):
             findings.append(f"bundle tier geometry differs: {strategy_id} {ts_init}")
-        if (
-            abs(second - (target - Decimal("0.618") * span)) > 2 * tick
-            or abs(third - (target - Decimal("0.764") * span)) > 2 * tick
+        if any(
+            abs(level - (target - ratio * span)) > 2 * tick
+            for level, ratio in zip(levels, ratios, strict=True)
         ):
             findings.append(f"bundle ratios differ: {strategy_id} {ts_init}")
     live = positions[positions.ts_closed.isna()]

@@ -198,7 +198,9 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             ),
         )
         engine.add_instrument(instrument)
-        strategy_class = H15StrategyFixture if strategy_kind == "h15" else ThreeBracketFixture
+        strategy_class = (
+            H15StrategyFixture if strategy_kind in ("h15", "h16") else ThreeBracketFixture
+        )
         strategy = strategy_class(
             instrument.id,
             BarType.from_str(f"{instrument.id}-1-DAY-LAST-INTERNAL"),
@@ -206,9 +208,13 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             execution_bar_minutes=5,
             strategy_id=StrategyId("H15A-OTO-PROBE"),
             signal_variant=(
-                "support-three-tier-4h" if strategy_kind == "h15" else "support-near50-4h"
+                "support-three-tier-4h"
+                if strategy_kind == "h15"
+                else "support-deep-two-tier-4h"
+                if strategy_kind == "h16"
+                else "support-near50-4h"
             ),
-            risk_budget_fraction=0.0025 if strategy_kind == "h15" else None,
+            risk_budget_fraction=0.0025 if strategy_kind in ("h15", "h16") else None,
         )
         strategy.fixture_exit_kind = exit_kind
         engine.add_strategy(strategy)
@@ -277,6 +283,8 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
                 if exit_kind == "target"
                 else (68_950, 69_000, 67_400, 67_450),
             ]
+        if strategy_kind == "h16":
+            prices = _deep_tier_prices(exit_kind)
         start = 1_790_000_099_999_000_000
         times = [start + index * STEP_NS for index in range(len(prices))]
         engine.add_data(
@@ -365,11 +373,39 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
         engine.dispose()
 
 
+def _deep_tier_prices(exit_kind: str) -> list[tuple[int, int, int, int]]:
+    untouched = (71_000, 71_100, 70_900, 71_000)
+    first = (70_900, 71_000, 69_600, 69_700)
+    second = (69_700, 69_800, 68_800, 68_950)
+    target = (68_950, 72_900, 68_900, 72_800)
+    stop = (68_950, 69_000, 67_400, 67_450)
+    if exit_kind == "unfilled_expiry":
+        return [untouched] + [(71_000, 71_050, 70_950, 71_000)] * 1_441
+    if exit_kind == "time_exit":
+        return [untouched, second] + [(69_000, 69_050, 68_950, 69_000)] * 1_441
+    if exit_kind == "same_bar_stop":
+        return [untouched, (71_000, 71_100, 67_400, 67_450), stop]
+    if exit_kind == "supersede_unfilled":
+        return [untouched] * 3 + [
+            (71_000, 71_100, 70_400, 70_450),
+            (70_450, 73_100, 69_800, 73_000),
+        ]
+    if exit_kind == "old_fill_before_cancel_request":
+        return [untouched, first, (69_700, 72_900, 69_600, 72_800), second]
+    if exit_kind == "fill_during_pending_cancel":
+        return [untouched, untouched, first, (69_700, 72_900, 69_600, 72_800), second]
+    if exit_kind == "target_then_retrace":
+        return [untouched, first, (69_700, 72_900, 69_600, 72_800), second, untouched]
+    if exit_kind == "two_tier_target_then_retrace":
+        return [untouched, first, second, target, second]
+    return [untouched, first, second, target if exit_kind == "target" else stop]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--strategy", choices=("primitive", "h15"), default="primitive")
+    parser.add_argument("--strategy", choices=("primitive", "h15", "h16"), default="primitive")
     args = parser.parse_args()
     instrument_id = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
     instruments = ParquetDataCatalog(str(args.catalog)).instruments(
@@ -378,7 +414,7 @@ def main() -> None:
     if len(instruments) != 1:
         raise RuntimeError("one BTC native Instrument is required")
     kinds = ["target", "stop", "target_then_retrace"]
-    if args.strategy == "h15":
+    if args.strategy in ("h15", "h16"):
         kinds.extend(
             (
                 "two_tier_target_then_retrace",
@@ -391,7 +427,7 @@ def main() -> None:
             ),
         )
     results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
-    if args.strategy == "h15":
+    if args.strategy in ("h15", "h16"):
         expected = {
             "target": (3, 0, 3),
             "stop": (3, 3, 0),
@@ -404,6 +440,14 @@ def main() -> None:
             "old_fill_before_cancel_request": (1, 0, 1),
             "fill_during_pending_cancel": (1, 0, 1),
         }
+        if args.strategy == "h16":
+            expected.update(
+                target=(2, 0, 2),
+                stop=(2, 2, 0),
+                two_tier_target_then_retrace=(2, 0, 2),
+                same_bar_stop=(2, 2, 0),
+                time_exit=(2, 0, 0),
+            )
         for result in results:
             observed = (
                 result["filled_entries"],
