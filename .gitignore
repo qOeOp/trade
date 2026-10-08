@@ -27,3 +27,6 @@ __pycache__/
 /output/
 /build/
 /dist/
+
+# Generated documentation site
+/_site/
