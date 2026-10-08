@@ -465,3 +465,11 @@
 **流程改进与产品含义。** Agent 提出仓位、杠杆或档位权重延伸前，应先用原生订单几何与实际触及数做低成本容量核查，并把风险上限、止损距离、价格取整、未成交计划和净额持仓分开记录。若证据指向档位选择，应在来源允许的条件路径中冻结一条新规则，先过事前来源正反例与原生订单生命周期门槛，再做同账户、同费用资金费的完整配对回放；退出目标仍按年化、胜率、夏普及回撤联合判断。订单触及频率只能决定是否值得测试机制，不能派生每档利润或从已见年份挑最优权重。Backtest 继续由 Nautilus 持有订单和账户，R&D 只保存诊断与假设关系。
 
 **核查证据。** [D47 预登记与结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d47-native-tier-reach-and-frozen-risk-capacity-screen)、[原生档位容量结果](../../research/r1_native/results/2026-10-08-h15a-tier-capacity-d47.json)、[H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+
+## F47：删除一个入场档位会改变整组订单的后续路径
+
+**已验证的流程缺陷。** H16a 保留与 H15a 相同的事前波段、共用止损、前高目标、25 基点风险预算和共享账户，只删去 50% 入场档，把预算均分给 61.8% 与 76.4%。单笔已平仓平均盈亏比由 **0.85** 升至 **1.12**，但一年 37 币回测的胜率由 **56.51%** 降至 **47.49%**，年化由 **+4.28%** 降至 **+0.57%**。原生退出订单显示：止损反而从 **175 笔／-35,570 USDT** 增至 **193 笔／-37,583 USDT**，止盈从 **228 笔／+35,352 USDT** 降至 **125 笔／+31,167 USDT**。50% 档不只是较差价格的一份仓位；它若先成交并止盈，会触发整个计划剩余挂单的撤销。删除它改变了后续计划存续、触及与账户占用，无法用旧订单的档位价格直接推算新策略。
+
+**改进方法与产品含义。** Agent 研究多档入场的二级延伸时，应预登记整个计划的**状态转移**：每档成交、任一档止盈／止损、剩余单撤销、重新触及和新波段替换。先用原生订单生命周期覆盖这些路径，再用完整共享账户比较机会数、止损、止盈、到期、资金费、胜率、盈亏比、净值、夏普和回撤。档位删减或权重变化若提高一个指标却破坏联合目标，应关闭该精确定义，并根据原生退出原因转向事前可识别的结构／目标问题；不在已见年度继续试权重。Backtest 保存并核对原生父子订单与持仓事实，R&D 记录父子假设和失败归因，不造第二套档位盈亏账本。
+
+**核查证据。** [H16a 预登记、来源和完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)、[H16a 原生组合摘要](../../research/r1_native/results/2026-10-08-h16a-37-summary.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h16a-paired-h15a-summary.json)、[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)、[H16a 原生订单审计](../../research/r1_native/results/2026-10-08-h16a-37-native-audit.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
