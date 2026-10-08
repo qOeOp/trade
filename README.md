@@ -27,10 +27,10 @@ The current documentation is published at [Trade 研究文档](https://qoeop.git
 
 ## Repository map
 
-- [`strategies/r1/`](strategies/r1/): current native Strategy source, legacy funding-data adapter, replay and paired-result checker.
+- [`strategies/r1/`](strategies/r1/): native Strategy source, one `BacktestNode` replay entry, input validation and paired-result checkers.
 - [`research/r1_native/`](research/r1_native/): frozen R&D experiment ledger, source checks, results and historical analysis scripts. Scripts importing the removed fork are retained as provenance, not supported entry points; develop new diagnostics against the published package and current strategy source.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md): current product blueprint.
 - [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): 37-instrument paired replay evidence and migration findings.
 - [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): durable product and process findings from the R&D work.
 
-The old vendored Nautilus source, parallel product services and CI/CD workflows have been removed after paired replay acceptance. A minimal `quality` workflow checks the locked Python environment and runnable native entry because the repository requires that status for main-branch merges. The published package version is pinned in `pyproject.toml` and `uv.lock`; changing it requires a fresh paired native replay.
+The old vendored Nautilus source and parallel product services have been removed after paired replay acceptance. Minimal `quality` and documentation publishing workflows remain. The published package version is pinned in `pyproject.toml` and `uv.lock`; changing it requires a fresh paired native replay.

@@ -1,14 +1,12 @@
-# Official Nautilus replay POC
+# R1 native replay
 
-This is the read-only native replay entry for current R1 research. The
-strategy files are frozen native `Strategy` source copied from `research/r1_native`
-with package imports changed from `vibe_trading` to the published
-`nautilus_trader`. There is no replacement matching engine, portfolio ledger,
-or optimizer. `run_portfolio.py` runs one native margin account shared by the
-37 instruments, exactly as the research control does. Each independent future
-strategy could later receive a separately fixed-capital account.
+`run_portfolio.py` is the single R1 backtest entry. It runs the existing native
+Strategy variants in one 100,000 USDT Nautilus `BacktestNode` margin account.
+The published `nautilus_trader==2.0.0rc3` package owns data replay, orders,
+fills, funding settlement, risk, portfolio accounting and reports. No exchange
+trading credential is needed.
 
-## Run
+## Run H19a
 
 ```bash
 uv sync --frozen
@@ -22,25 +20,37 @@ uv run --frozen python strategies/r1/run_portfolio.py \
   --end 2026-10-07T08:30:00Z \
   --signal-variant support-broad-two-tier-4h --exit-variant tier-target-b \
   --risk-budget-bps 25 --coin-notional-cap-pct 5 \
-  --output /tmp/nautilus-poc-h19a
+  --output /tmp/r1-node-h19a-37
 ```
 
-For H18a, change `--signal-variant` to
-`support-three-tier-line-cancel-4h`. The existing Catalog is read only. The
-published rc3 Catalog reads its bars and instruments; `funding_catalog.py`
-decodes the fork's legacy funding Parquet rows into native `FundingRateUpdate`
-objects. Nautilus processes the settlement, orders, fills, account and reports.
+For H18a, use `--signal-variant support-three-tier-line-cancel-4h` and a
+different output directory. Other accepted signal and exit variants are listed
+by `--help`. `--mark-root` optionally selects the derived MARK Catalog cache;
+the default cache is keyed by input Catalog path and interval under the system
+temporary directory. The downloaded source Catalog stays read only.
 
-`compare.py REFERENCE_DIR CANDIDATE_DIR --catalog-root CATALOG_ROOT` compares
-native order identity/status, fills, account economics and integrity. The final
-37-instrument H18a and H19a runs pass; see `parity-h18a.json`,
-`parity-h19a.json`, `parity-cleanup-h19a.json` and `evidence.json`. The Strategy places the take-profit ID
-first in the parent OTO activation list to avoid a late sibling rejection
-when the stop fills synchronously. This remains a pinned rc3 behavior and must
-be reverified before any Nautilus upgrade.
+`BacktestNode` loads funding from the existing Catalog directly. `native_node.py`
+turns the existing MARK bar closes into native `MarkPriceUpdate` data, validates
+LAST/MARK alignment, and verifies cached mark events before reuse.
+`replay_inputs.py` checks the input receipts and funding settlement coverage.
+There is no funding event decoder or second matching/account engine.
 
-The published rc6 was also tested from the same data. It requires an official
-Catalog format migration and a venue `MakerTakerFeeModel(0.0002, 0.0005)` to
-restore the historical instrument fee settings. Its unadapted 37-instrument replay diverged; see
-`../../docs/plans/nautilus-upstream-poc.zh.md`. The rc6 migration/output remain
-diagnostic files under `/tmp`, not a new product path.
+## Paired acceptance
+
+```bash
+uv run --frozen python strategies/r1/compare_node.py \
+  /tmp/nautilus-minimal-cleanup-h19a-37 /tmp/r1-node-h19a-37
+```
+
+The H18a control is `/tmp/nautilus-upstream-final-h18a-37`. Both full annual
+37-instrument results matched the former native runner exactly. The migration
+receipt `parity-node-migration.json` covers 16 tested combinations across
+all signal families and both staged exits. Two combinations already failed
+order integrity in the former runner; the Node entry reproduces those failures
+and does not qualify them as strategies. Historical proof receipts
+`parity-node-h18a.json` and `parity-node-h19a.json` remain for the funding-loader
+transition. All result paths under `/tmp` are local evidence, not repository data.
+
+The pinned rc3 Strategy activates its native take-profit child before the
+stop child to avoid a synchronous sibling rejection. Recheck that behavior,
+fees, funding and full paired results before changing Nautilus versions.

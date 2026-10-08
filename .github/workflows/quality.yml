@@ -33,4 +33,10 @@ jobs:
           ):
               receipt = json.loads((Path('strategies/r1') / name).read_text())
               assert receipt['parity_passed'], name
+          for name in ('parity-node-h18a.json', 'parity-node-h19a.json'):
+              receipt = json.loads((Path('strategies/r1') / name).read_text())
+              assert receipt['passed'], name
+          migration = json.loads((Path('strategies/r1') / 'parity-node-migration.json').read_text())
+          assert migration['all_behavior_matched']
+          assert len(migration['variants']) == 16
           PY
