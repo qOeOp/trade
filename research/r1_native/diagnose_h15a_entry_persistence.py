@@ -158,7 +158,11 @@ def _inspect_position(
     landmarks = {}
     for n in LANDMARKS:
         if len(eligible) < n:
-            landmarks[str(n)] = {"state": "end_censored"}
+            landmarks[str(n)] = (
+                {"state": "closed_censored", "close_cause": cause}
+                if closed_ns is not None
+                else {"state": "end_censored"}
+            )
             continue
         bar = eligible[n - 1]
         if closed_ns is not None and closed_ns <= bar.ts_event:
