@@ -517,3 +517,11 @@
 **二级延伸实测。** D57 在读取分组结果前固定一个更强的原结构条件：首次跌破入场时冻结的上升线时，该根完整 K 线还要收在当时已确认的第二个上升低点以下。184 次原线跌破里仅 **一次**也跌破这个低点，且当时没有已确认待成交入场单；72 笔有待成交单与 95 次被避免的成交全落在"只跌破趋势线"组。事前设定的 30 笔／30 次／5,000 USDT 容量门槛全部落空，因此关闭这一条精确定义，不为它再跑一次年度回测。结果说明该低点对待加仓决策过深或过晚；不能事后抬高低点、放宽收盘条件或调线斜率来获得样本。入场后条件退出方向尚未被整体否定，下一问题仍须找到足够容量、具有来源依据且事前可见的状态。
 
 **核查证据。** [H18a 预登记与完整回放](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h18a-cancel-unfilled-pullback-tiers-after-a-completed-entry-time-line-break)、[原生生命周期](../../research/r1_native/results/2026-10-08-h18a-native-lifecycle.json)、[37 币摘要](../../research/r1_native/results/2026-10-08-h18a-37-summary.json)、[独立原生订单审计](../../research/r1_native/results/2026-10-08-h18a-37-native-audit.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h18a-paired-h15a-summary.json)、[手续费与资金费读回](../../research/r1_native/results/2026-10-08-h18a-paired-native-economics.json)、[配对周不确定区间](../../research/r1_native/results/2026-10-08-h18a-paired-weekly-bootstrap.json)、[原生持仓差额归因](../../research/r1_native/results/2026-10-08-h18a-paired-position-attribution.json)及[D57 原低点二级延伸](../../research/r1_native/results/2026-10-08-d57-h18a-second-pivot-low.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+
+## F51：持仓依据仍成立的来源建议不能倒推出失效时立即退出
+
+**来源核查。** S42 在预登记后解析罗尼 2026 年 7 月 9 日的[原片](https://www.youtube.com/watch?v=FLg_WR2ZAFE)。标题提到 BTC 跌后持仓者该看什么，BTC 正文却只谈区间中部随机、等更深位置重新参与，未给已有 BTC 合约持仓的退出条件。SOL 段说明四小时突破后的原阻力转支撑与 38.2% 回踩仍在，明确建议已有多单耐心持有；"止损至少放在 50% 下方"针对的是**当时新进场**的人。黄金段在下降线仍压制时建议已有空单继续持有，但没有说后来突破下降线应立即平仓，而且黄金不在这次 37 币合约样本内。原视频快档转录和画面支持这些区别，但尚无人工听音复核、唯一画线锚点或可执行的收线时钟。
+
+**产品判断。** 来源中的"继续持有"是入场后证据持续性的正例，也为 D53 的慢启动赢家提供反例；它本身不定义"条件失效 → 减仓／退出"。研究 Agent 应在来源记录里分开保存资产、市场、已有仓位或新订单、观察状态、可见时点及实际动作。缺失的反事实动作要标成**来源未证实**，不能通过把新单止损搬到旧仓或把标题当规则补齐。若后续提出研究者自己的条件退出代理，先固定来源正反例与原生事件容量，再决定是否做 Nautilus 共享账户配对回放；这次 S42 只读核查没有新订单或收益结论。产品仍由 Nautilus 持有成交、保护订单和账户，研究记录只保存判断与证据。
+
+**核查证据。** [S42 来源预登记、原片结论](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s42-what-should-an-already-held-position-watch-after-a-sharp-move)、[原视频、转录、画面与获取回执的身份记录](../../research/r1_native/results/2026-10-08-s42-held-position-source.json)，以及[D53 原生持仓观察](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-summary.json)。
