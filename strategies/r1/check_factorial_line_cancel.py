@@ -1,4 +1,4 @@
-"""Small native OTO probe for the preregistered H20a combined variant."""
+"""Small native OTO probe for the preregistered F01-11 combined variant."""
 
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ def _bars(case: str) -> list[tuple[int, int, int, int]]:
 def _scenario(instrument, case: str) -> dict:
     engine = BacktestEngine(
         BacktestEngineConfig(
-            trader_id=TraderId("H20A-OTO-PROBE-001"),
+            trader_id=TraderId("F01-OTO-PROBE-001"),
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
             data_engine=DataEngineConfig(validate_data_sequence=True),
         ),
@@ -144,7 +144,7 @@ def _scenario(instrument, case: str) -> dict:
             BarType.from_str(f"{instrument.id}-1-DAY-LAST-INTERNAL"),
             Quantity.from_str("0.001"),
             execution_bar_minutes=5,
-            strategy_id=StrategyId("H20A-OTO-PROBE"),
+            strategy_id=StrategyId("F01-OTO-PROBE"),
             signal_variant=BROAD_LINE_CANCEL_VARIANT,
             risk_budget_fraction=0.0025,
         )
@@ -247,7 +247,7 @@ def _scenario(instrument, case: str) -> dict:
             or minimum_net < 0
             or net != 0
         ):
-            raise RuntimeError(f"native H20a lifecycle failed: {result}")
+            raise RuntimeError(f"native F01-11 lifecycle failed: {result}")
         return result
     finally:
         engine.dispose()
@@ -279,7 +279,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(
-            {"method": "native Nautilus H20a OTO probe", "results": results}, indent=2
+            {"method": "native Nautilus F01-11 OTO probe", "results": results}, indent=2
         )
         + "\n",
     )

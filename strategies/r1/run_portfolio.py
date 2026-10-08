@@ -320,7 +320,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             if args.signal_variant == DEEP_TIER_VARIANT
             else "H19a-support-broad-two-tier-4h"
             if args.signal_variant == BROAD_TIER_VARIANT
-            else "H20a-support-broad-two-tier-line-cancel-4h"
+            else "F01-11-support-broad-two-tier-line-cancel-4h"
             if args.signal_variant == BROAD_LINE_CANCEL_VARIANT
             else "H06-trendline-4h"
             if args.signal_variant == "trendline-4h"
