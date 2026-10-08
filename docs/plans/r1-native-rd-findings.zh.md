@@ -1,6 +1,6 @@
 # R-1 原生研究：流程与产品发现
 
-本页记录需要回填到产品蓝图的流程与能力发现，不作为策略绩效结论。视频证据、假设、试验身份和回测结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。来源是 Goal `01a11518-fb33-7853-a31c-b8c43df5be60`；以下仍待蓝图核对，不授予交易、资格或发布权限。
+本页保存 R&D 中识别的流程与产品能力发现，不作为策略绩效结论。旧架构章节已清理，下文原蓝图核对点保留为历史需求语境；当前设计见[架构蓝图](../architecture.zh.md)。视频证据、假设、试验身份和回测结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。来源是 Goal `01a11518-fb33-7853-a31c-b8c43df5be60`；以下仍待蓝图核对，不授予交易、资格或发布权限。
 
 ## F01：视频来源要分开报告发现、获取与解析
 
@@ -8,7 +8,7 @@
 
 **产品含义。** R&D 来源记录需要保留原始 URL、来源身份/日期的核实依据、获取阶段、解析版本、时间点和截图引用，失败时保留具名原因。相同原片可能被不同标题、目录记录或解析任务重复发现；用原始媒体字节身份合并来源案例，保留各次解析结果和差异，避免把重处理误计为独立验证。有视频列表不等于拿到了原片，有字幕不等于核对了画面。当前重定向拒绝边界不能为这次研究暗中放宽。
 
-**蓝图核对点。** [R&D 来源与知识证据](../owners/rd.zh.md)及 [Agent 研究旅程](../scenarios/research.zh.md)。描述来源降级和核验状态即可，无须另建视频研究编排服务。
+**原蓝图核对点（历史）。** R&D 来源与知识证据及 Agent 研究旅程。描述来源降级和核验状态即可，无须另建视频研究编排服务。
 
 ## F02：已收盘日线需要统一的可用时刻语义
 
@@ -16,7 +16,7 @@
 
 **产品含义。** Market Data 应表达来源事件时间与策略可消费的收盘可用时间，并保留时区、区间端点及聚合方式。Backtest 的暖机和交易窗口应使用同一可用时间判定，报告中可核查外部日线与内部聚合日线的配对关系。当前 Strategy 的局部修补不应自动成为另一套全局时间规则。
 
-**蓝图核对点。** [Market Data](../owners/market-data.zh.md) 的时间语义及 [Backtest](../owners/backtest.zh.md) 的输入契约；先核对现有 Nautilus Bar 语义，再决定产品扩展。
+**原蓝图核对点（历史）。** Market Data 的时间语义及 Backtest 的输入契约；先核对现有 Nautilus Bar 语义，再决定产品扩展。
 
 ## F03：多币绩效的资金口径属于回测身份
 
@@ -24,7 +24,7 @@
 
 **产品含义。** Backtest 结果须绑定账户数量、初始权益、计价币、共享/隔离资金模型、杠杆和保证金设定、分配规则、手续费与资金费来源。组合年化、胜率、夏普及回撤须由同一次原生账户回放生成；R&D 应拒绝资金口径不一致的候选比较。
 
-**蓝图核对点。** [回测场景](../scenarios/backtest.zh.md)、[Backtest 任务与结果](../owners/backtest.zh.md)及 [R&D 实验比较](../owners/rd.zh.md)。
+**原蓝图核对点（历史）。** 回测场景、Backtest 任务与结果及 R&D 实验比较。
 
 ## F04：合约历史条款的近似性须随数据一起保管
 
@@ -32,7 +32,7 @@
 
 **产品含义。** Market Data 准备结果应逐种事实标明来源、覆盖区间、完整性、快照时间和历史/当前近似。Backtest 应消费有身份的数据集与 Instrument，并向结果传递近似性；报告可按原生订单核对计划入场、保护价、取整后的实际 R 与撮合价。数据缺口不停止研究，但限制结论等级；可对同一缓存做关键近似的敏感性比较。
 
-**蓝图核对点。** [数据接入](../guide/market-data-intake.zh.md)、[Market Data](../owners/market-data.zh.md)及 [Backtest](../owners/backtest.zh.md)。优先复用原生 Instrument 与 Catalog。
+**原蓝图核对点（历史）。** 数据接入、Market Data及 Backtest。优先复用原生 Instrument 与 Catalog。
 
 ## F05：已见数据需要完整暴露台账与后继前向证据
 
@@ -40,7 +40,7 @@
 
 **产品含义。** R&D 应保留每次尝试、变体、失败、读取、重叠范围、选择理由及前向观察。Agent 先登记机制和主要对照，再读结果；重复尝试需调整不确定性，已见历史只算开发证据。数据暂缺或不完美不构成本 Goal 的退出理由，也不能被写成已通过独立资格。
 
-**蓝图核对点。** [R&D attempt/census 与知识边界](../owners/rd.zh.md)及 [研究接管和验证旅程](../scenarios/research.zh.md)。现有蓝图已覆盖部分原则；需按此次实测补消费者和可观测结果，避免再造研究工作流。
+**原蓝图核对点（历史）。** R&D attempt/census 与知识边界及 研究接管和验证旅程。现有蓝图已覆盖部分原则；需按此次实测补消费者和可观测结果，避免再造研究工作流。
 
 ## F06：订单拒绝与回撤采样须进入可核查结果
 
@@ -48,7 +48,7 @@
 
 **产品含义。** Backtest 结果应把入场拒绝、保护单异常、时间原因、诊断日志和账户结果关联起来，Agent 才能区分策略失效与执行缺陷。回撤必须标明估值源与采样周期；没有接通分钟估值时，日末回撤只能带正确标签报告，不能充当主回撤。修复同一数据上的执行缺陷，应形成有父子关系的新 attempt 和结果，不覆盖旧读回。
 
-**蓝图核对点。** [R-1 回放场景](../scenarios/research.zh.md#r-1-挂单与分段退出) 已提出事件诊断和分钟主回撤要求；此次研究验证了消费者为何需要这些信息。后续先接通现有 Nautilus Portfolio 快照和结果查询，再决定是否有产品扩展缺口。
+**原蓝图核对点（历史）。** R-1 回放场景 已提出事件诊断和分钟主回撤要求；此次研究验证了消费者为何需要这些信息。后续先接通现有 Nautilus Portfolio 快照和结果查询，再决定是否有产品扩展缺口。
 
 ## F07：复刻策略需追踪来源规则与机械化假设的距离
 
@@ -58,7 +58,7 @@
 
 **时间线补证。** S41 对照 2025 年 2 月 25 日 BTC 已持有空单回顾和此前 2 月 22、24 日两段原片。2 月 24 日图上确有约 98.6k-99.2k 上方区域和约 94k 下方区域，作者也说四小时区间可在上方做空；但画面里较早的上方触及和回落已经发生。两段前片均没有在**首次触及前**公开给出后来回顾图上的入场、99,688 止损及三档目标全套计划。产品在记录来源关系时应分别保留"首次触及前已公开的位置"、"触及后公开的区域"、"后来回顾的止损／目标"和"原生成交"，不能因相邻发布日期较早就把后来的整套计划倒填为事前订单。研究者仍可明确标注自己的机械代理并做原生回测。[S41 来源与画面身份](../../research/r1_native/results/2026-10-08-s41-prior-resistance-source.json)。
 
-**蓝图核对点。** [R&D 研究与知识](../owners/rd.zh.md)及 [R-1 用户故事](../scenarios/research.zh.md)。现有来源引用与 Artifact 契约可承载大部分关系，待补的是读回时怎样呈现来源保真度与未覆盖条件。
+**原蓝图核对点（历史）。** R&D 研究与知识及 R-1 用户故事。现有来源引用与 Artifact 契约可承载大部分关系，待补的是读回时怎样呈现来源保真度与未覆盖条件。
 
 ## F08：目标判定需要显示收益、胜率和风险的共同状态
 
@@ -66,7 +66,7 @@
 
 **产品含义。** R&D 的 Goal/实验读回要对每个预设条件给出同一 run、同一账户口径下的通过/未通过/不可判定，并同时展示风险和证据等级。Agent 可继续研究未满足的机制，却不能把单一指标的改善当成整项目标完成；对有明显风险代价的变体要保存负面结论和下一次复核条件。保持具体 Goal 由用户/Agent 定义，不内置 R-1 专用优化器或绩效门槛。
 
-**蓝图核对点。** [R&D Goal 与实验台账](../owners/rd.zh.md)、[研究场景](../scenarios/research.zh.md)和 [Backtest 结果](../owners/backtest.zh.md)。这次结果用于核对现有目标状态及多指标消费者，不改变当前产品范围。
+**原蓝图核对点（历史）。** R&D Goal 与实验台账、研究场景和 Backtest 结果。这次结果用于核对现有目标状态及多指标消费者，不改变当前产品范围。
 
 ## F09：完整组合回放应是可恢复的长任务，报告要有界读取
 
@@ -74,7 +74,7 @@
 
 **产品含义。** Backtest 接纳后应持久保管任务身份、数据版本、策略版本、进度和完整结果；Agent 断线后按同一身份读回，不重跑或拼接部分账户时间线。报告接口先提供摘要、具名诊断及按交易/时间窗有界查询，完整事实仍由 Backtest 保管。运行日志需按异常与结果关联，而非让海量正常账户事件淹没拒单原因。
 
-**蓝图核对点。** [Backtest 长任务与结果](../owners/backtest.zh.md)、[R&D 接管](../owners/rd.zh.md)及 [研究场景](../scenarios/research.zh.md)已有相应方向；这次实测可用于容量和读取验收，不需要另建组合回测引擎。
+**原蓝图核对点（历史）。** Backtest 长任务与结果、R&D 接管及 研究场景已有相应方向；这次实测可用于容量和读取验收，不需要另建组合回测引擎。
 
 ## F10：研究诊断需要区分已成交路径与反事实机会
 
@@ -82,7 +82,7 @@
 
 **产品含义。** Backtest 应支持按交易身份有界读取原生订单、成交、保护价和相邻行情，附带价格路径的时间与撮合歧义。R&D 可以据此先筛掉不可能单独满足目标的机制，并将可证实的订单路径与跨市场、跨周期的交易集合差异分开；一旦改变退出订单、槽位占用或资金竞争，仍须封存新策略并让同一原生模拟器完整重放。诊断脚本不得写入新的成交、净值或资格事实。
 
-**蓝图核对点。** [R-1 图形回放与分段保护](../scenarios/research.zh.md#r-1-挂单与分段退出)、[Backtest 结果查询](../owners/backtest.zh.md)及 [R&D 实验比较](../owners/rd.zh.md)。优先通过已有原生报告和有界数据读取实现，不增设平行回测器。
+**原蓝图核对点（历史）。** R-1 图形回放与分段保护、Backtest 结果查询及 R&D 实验比较。优先通过已有原生报告和有界数据读取实现，不增设平行回测器。
 
 ## F11：多周期策略的预热与可交易窗口必须分别绑定
 
@@ -90,7 +90,7 @@
 
 **产品含义。** Backtest 输入契约应分别保存每种原生聚合周期所需的预热覆盖、输入开始、策略可下单开始和报告结束；比较器核对共同可交易窗口与同一数据身份。缺少足够预热时，应明确缩短可比较窗口或补齐具名预热数据，不能把预热空档当作策略主动持币。结果读回还需标明多周期目标/区域是否真的由决策时已完成的 K 线给出，避免把视频画面上的未来路径当成同时生效的订单。
 
-**蓝图核对点。** [Market Data 时间语义](../owners/market-data.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)和 [R&D 成对比较](../owners/rd.zh.md)。复用 Nautilus 聚合与现有数据身份，不另建 K 线或回测引擎。
+**原蓝图核对点（历史）。** Market Data 时间语义、Backtest 输入与结果和 R&D 成对比较。复用 Nautilus 聚合与现有数据身份，不另建 K 线或回测引擎。
 
 ## F12：可复现性要同时绑定源码字节与原生经济事实
 
@@ -98,7 +98,7 @@
 
 **产品含义。** Backtest 任务受理时应封存实际执行的策略、runner/配置、数据身份和原生引擎版本，结果引用这一不可变输入集合。比较重放时既保留原始报告及其字节哈希，也提供明确字段口径的经济事实比较；重放生成的新事件身份不应冒充交易差异。源码提交号只有在执行字节确实来自该提交时才足以代表运行身份。
 
-**蓝图核对点。** [Backtest 任务与结果](../owners/backtest.zh.md)、[R&D 实验身份与比较](../owners/rd.zh.md)及 [研究场景](../scenarios/research.zh.md)。先核对现有任务封存、原生报告与版本字段，不引入平行账本。
+**原蓝图核对点（历史）。** Backtest 任务与结果、R&D 实验身份与比较及 研究场景。先核对现有任务封存、原生报告与版本字段，不引入平行账本。
 
 ## F13：来源图例必须保留做决策时的仓位和周期
 
@@ -108,7 +108,7 @@
 
 **产品含义。** R&D 来源案例应保存当时的市场类型、已有仓位/候选新单、所看的周期、有效支撑阻力区、止损所依据的结构、等待的收盘条件和互斥后续路径。Agent 在编写 Nautilus Strategy 变体前先给案例预测；不明确的阈值作为研究者假设登记，不把视频中的现货持仓判断翻译成历史合约挂单。Backtest 仍负责原生订单与账户结果，来源案例负责检验策略意图是否表达了作者在该画面里的决策。
 
-**蓝图核对点。** [R&D 来源与策略评审](../owners/rd.zh.md)、[研究场景](../scenarios/research.zh.md)和 [Backtest 结果](../owners/backtest.zh.md)。用现有证据与实验身份承载这些关系，不增加专用策略语言或视频研究服务。
+**原蓝图核对点（历史）。** R&D 来源与策略评审、研究场景和 Backtest 结果。用现有证据与实验身份承载这些关系，不增加专用策略语言或视频研究服务。
 
 ## F14：分段保护要核查原生改单的生效事件
 
@@ -116,7 +116,7 @@
 
 **产品含义。** R&D 与 Backtest 应把计划保护、提交修改、订单更新、实际触发和持仓变动分别作为可查询事实。分段策略的验收应检查每个事件前沿的原生持仓量、有效止损数量和有效触发价；同一根执行 K 的目标/止损碰撞要保留路径与先后次序，不能只用该 K 的最高最低价推定已经移保本。若当前粒度无法满足已声明的 R-1s 语义，应明确标记语义差异并继续验证原生机制或更细数据，不读取年度绩效来绕过订单完整性门槛。
 
-**蓝图核对点。** [研究场景的分段保护](../scenarios/research.zh.md#r-1-挂单与分段退出)、[Backtest 原生报告](../owners/backtest.zh.md)和 [R&D 验证](../owners/rd.zh.md)。复用 Nautilus 的订单、成交、持仓及改单事件，不建立第二套执行账本。
+**原蓝图核对点（历史）。** 研究场景的分段保护、Backtest 原生报告和 R&D 验证。复用 Nautilus 的订单、成交、持仓及改单事件，不建立第二套执行账本。
 
 **后续核查。** D12 证明关闭原生命令队列会在 OTO 订单接纳时造成执行引擎重入错误，不能据此模拟瞬时改单。D13 在相同开高低收价格上把碰撞 K 换成四条按时间排列的原生 TradeTick 后，止损数量和入场价触发条件在高点与低点之间更新；但低点跳过触发价，止损市价单仍以更差的 84,900 成交。产品报告必须分别呈现"新触发价已生效"和"实际保护成交价"，且不得把合成 TradeTick 当作观察到的历史交易。这个差异要求对历史碰撞区间继续寻找有来源的逐笔数据，或明确保留回测粒度限制。
 
@@ -126,7 +126,7 @@
 
 **产品含义。** Backtest 和 R&D 验收应在每次原生入场成交后检查有效保护订单与真实持仓的数量对应，并区分订单已提交、已接纳、已更新和部分成交。Strategy 可以用 Nautilus 的缓存、成交回调和改单 API 管理保护意图；不应从预设委托量推断实际敞口，也不应自建第二套成交账本。部分入场若尚不能安全拆成两段，必须在原生保护下继续等待或执行具名收尾，而不能提前认定两段目标已成立。
 
-**蓝图核对点。** [研究场景的分段保护](../scenarios/research.zh.md#r-1-挂单与分段退出)、[Backtest 原生执行](../owners/backtest.zh.md)和 [R&D 资格门槛](../owners/rd.zh.md)。
+**原蓝图核对点（历史）。** 研究场景的分段保护、Backtest 原生执行和 R&D 资格门槛。
 
 **后续核查。** H04 的实际 Strategy 在合成原生事件中，入场只成交一个最小步长后撤掉未成交余量；若实际持仓无法拆成两个正的最小步长，则由原生市价单收尾。首段目标分两次成交的案例中，第一次成交后原生止损只缩减数量，保留原触发价；第二次补齐首段后，原生改单事件才把剩余止损移到实际入场价。另一个 60 天到期案例由原生日线事件触发退出，旧止损和目标终结后才接纳下一笔挂单。这些都是执行夹具，不是历史策略收益证据；同根目标与止损碰撞仍受 F14 的限制。
 
@@ -136,7 +136,7 @@
 
 **产品含义。** Backtest 结果契约应完整保留 Nautilus 报表的原生索引和父子单、成交、持仓关联字段，使 R&D 能从不可变原生事件重建订单状态与保护证据。导出层要校验身份列存在且唯一；仅保存汇总胜率或去索引的 CSV，不足以解释分段执行、拒单或异常敞口。实现仍由 Nautilus 的订单、Portfolio 和报告拥有事实，不另建持仓账本。
 
-**蓝图核对点。** [Backtest 原生报告](../owners/backtest.zh.md)、[R&D 验证与实验身份](../owners/rd.zh.md)和 [研究场景的分段保护](../scenarios/research.zh.md#r-1-挂单与分段退出)。
+**原蓝图核对点（历史）。** Backtest 原生报告、R&D 验证与实验身份和 研究场景的分段保护。
 
 **失败证据补充。** 首次 37 币 H04 回放在结束后发现 39 次非正价格拒单，runner 在保存原生报告前即因完整性失败退出，只留下错误日志，无法逐单复核。Backtest 应把原生报告、运行身份和完整性结论一起持久化，再将任务标为失败；失败状态不能删除用来解释失败的证据。对于事先就能识别的非正价格，Strategy 应按原生合约精度检查并计数跳过不可执行计划，保留原始信号统计，而不把价格钳到正数来改变策略意图。
 
@@ -148,7 +148,7 @@
 
 **产品含义。** Backtest 先展示原生订单保护、拒单、持仓身份和报告完整性是否可接受，再展示账户收益、交易集合变化、费用资金费、回撤采样与统计不确定性。R&D 不应让通过执行验收自动成为策略资格，或用只看单笔退出的比较归因组合差异。Agent 下一轮应优先用来源图例检验入场区域和方向选择；已看过的一年回放继续作为开发证据，独立资格仍需预先锁定的延迟观察和多次尝试校正。
 
-**蓝图核对点。** [Backtest 原生结果与保护证据](../owners/backtest.zh.md)、[R&D 实验与资格](../owners/rd.zh.md)及 [R-1 来源场景](../scenarios/research.zh.md)。复用 Nautilus 原生 Strategy、订单、Portfolio 和报告，不另建账户或执行逻辑。
+**原蓝图核对点（历史）。** Backtest 原生结果与保护证据、R&D 实验与资格及 R-1 来源场景。复用 Nautilus 原生 Strategy、订单、Portfolio 和报告，不另建账户或执行逻辑。
 
 ## F18：同一来源图上的箭头须绑定决策时点和实际仓位
 
@@ -156,7 +156,7 @@
 
 **产品含义。** R&D 的来源案例应能记录一幅画面上的多个**互斥、带时点的计划**：当时已有持仓、新开仓市场类型、关键支撑、下一阻力、有效止损、触发条件及作者明确拒绝的动作。Agent 先用这些案例检验候选 Nautilus Strategy 的订单意图，再读经济结果；箭头和未来回踩不能在当前时点同时变成订单。一个视频案例只约束来源保真，不能证明策略盈利，也不能替 Agent 选择未声明的数值阈值。
 
-**蓝图核对点。** [R&D 来源与实验身份](../owners/rd.zh.md)及 [R-1 场景中的条件计划](../scenarios/research.zh.md#r-1-挂单与分段退出)。
+**原蓝图核对点（历史）。** R&D 来源与实验身份及 R-1 场景中的条件计划。
 
 ## F19：视频成稿失败仍应保留已完成的来源阶段
 
@@ -164,7 +164,7 @@
 
 **产品含义。** 研究来源接管应分别引用媒体、转写、画面和成稿的身份及状态，并在组合步骤失败时保留前阶段可读结果与失败原因。Agent 可以继续用已取得的证据进行有界复核，但不应把它包装成一份成功生成的视频笔记。后续产品读回与重试依这些阶段身份恢复，避免重复采集和丢失失败证据。
 
-**蓝图核对点。** [R&D 来源证据和失败接管](../owners/rd.zh.md)及 [研究旅程](../scenarios/research.zh.md)。
+**原蓝图核对点（历史）。** R&D 来源证据和失败接管及 研究旅程。
 
 ## F20：趋势状态相同的时间标签仍可能代表不同结构尺度
 
@@ -172,7 +172,7 @@
 
 **产品含义。** R&D 的来源保真读回要把每个方向判断绑定到生成它的周期、枢轴阶数、已确认时间、被保护的具体结构位，以及作者当时是否要求再等收盘。Agent 可使用 Nautilus 的已收盘 K 线和原生 Strategy 构建另一种更大尺度的结构状态，但必须先展示它对来源案例的预测；不能仅把一个 `多/空` 标签贴到不同图例后宣称复刻成功。这个差异目前只否决直接复用阶数 3 趋势作下一版来源方向门槛，不证明它在回测里必然亏损。
 
-**蓝图核对点。** [Market Data 已知时间](../owners/market-data.zh.md)、[R&D 来源验证](../owners/rd.zh.md)和 [研究场景](../scenarios/research.zh.md)。
+**原蓝图核对点（历史）。** Market Data 已知时间、R&D 来源验证和 研究场景。
 
 ## F21：支撑位置一致仍须核对失效与来源时钟
 
@@ -180,7 +180,7 @@
 
 **产品含义。** R&D 的来源案例需要同时保留图表的交易所、现货或合约、K 线周期、录制画面时间、发布时点、原始结构线、已确认时间以及失效或收回证据。Agent 应先给出每个条件计划在当时是否仍可执行的解释，并明确来源与执行市场之间的映射，再提交原生 Strategy 候选。短时价格接近可以排除明显时钟错位，却不能验证水平支撑、斜线或跌破后收回的规则；宽 ATR 容差、复用旧支撑、改失效门槛都不能替代来源核对。
 
-**蓝图核对点。** [Market Data 已知时间](../owners/market-data.zh.md)、[R&D 来源与资格](../owners/rd.zh.md)及 [R-1 条件计划](../scenarios/research.zh.md#r-1-挂单与分段退出)。
+**原蓝图核对点（历史）。** Market Data 已知时间、R&D 来源与资格及 R-1 条件计划。
 
 ## F22：先前挂单、随后确认与已有持仓不是同一次决策
 
@@ -188,7 +188,7 @@
 
 **产品含义。** 来源案例和 Strategy 验证要分别表达计划提出、限价单在场、支撑测试、已完成 K 线确认、实际成交与持仓管理的时间。确认形态可以成为下一次决策的输入，不能回填为旧挂单的前提；结构止损也不能因画线而缩进到线内。Agent 可据来源选择不同的原生订单路径，但须先说明每条路径在当时的已知信息和互斥关系。IMX 证据不足以为 AAVE 自动补出失效支撑"重新生效"的规则。
 
-**蓝图核对点。** [R&D 来源时序](../owners/rd.zh.md)、[Backtest 原生订单与持仓](../owners/backtest.zh.md)及 [R-1 来源场景](../scenarios/research.zh.md)。
+**原蓝图核对点（历史）。** R&D 来源时序、Backtest 原生订单与持仓及 R-1 来源场景。
 
 ## F23：单次规则失败应引出有区别的机制延伸
 
@@ -254,7 +254,7 @@
 
 **接管规则。** 一次技术尝试失败时，台账不能只有"无效"：必须写清被否定的是资料、结构表示、选择规则、信号时点、原生执行，还是经济结果，并至少给出下一条有区别且可证伪的延伸或具名停止理由。延伸先预测独立来源案例和会推翻自身的观察，再决定是否准入 Nautilus Strategy 与共享账户回测。这里的延伸由 Agent 依据证据提出，产品只保存因果关系和边界；不建立固定次数的研究树或自动调参服务。多次在同一年数据上迭代仍按多重试验处理，不能把最终一次的高分当作未经污染的验证。
 
-**蓝图核对点。** [R&D 探索、后继与证据台账](../owners/rd.zh.md)及 [研究旅程](../scenarios/research.zh.md)。这项发现已回填当前 R&D 蓝图，后续实现复用现有说明记录、实验关联和原生回测。
+**原蓝图核对点（历史）。** R&D 探索、后继与证据台账及 研究旅程。这项发现已回填当前 R&D 蓝图，后续实现复用现有说明记录、实验关联和原生回测。
 
 ## F24：信号一致性须先证明每个合约实际读到了数据
 
@@ -262,7 +262,7 @@
 
 **产品含义。** R&D/Backtest 的比较读回在报告"一致"前，须把准确 InstrumentId、输入目录身份、请求区间、预期与实际行情量、已完成 K 线量及逐合约信号量作为覆盖前提。查询空集、缺失一个币或时间段、别名与合约 ID 不一致时应给出具名缺口，不能把两边同为零当作一致。复核修正建立新证据身份，保留旧错误与被其影响的结论范围；不能暗中覆盖原回测。此处复用 Nautilus Catalog、Strategy 与既有报告，不另建行情或信号引擎。
 
-**蓝图核对点。** [Market Data 合约与覆盖身份](../owners/market-data.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)及 [R&D 证据接管](../owners/rd.zh.md)。D21 的完整方法、旧证据和新结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d21-repair-h06-signal-parity-coverage-before-h07-geometry)。
+**原蓝图核对点（历史）。** Market Data 合约与覆盖身份、Backtest 输入与结果及 R&D 证据接管。D21 的完整方法、旧证据和新结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d21-repair-h06-signal-parity-coverage-before-h07-geometry)。
 
 ## F25：研究迭代须衡量目标距离与信息增量
 
@@ -280,7 +280,7 @@
 
 **流程改进。** 每个负结果先定位是来源、数据覆盖、原生执行还是经济机制，再列出该结论真正否定的最窄命题。若上位机制仍有独立来源依据，Agent 提出至少一个与失败原因相区别、可被反证的后继动作；若没有，写明停止理由，不能靠延伸层数本身证明价值。后继动作要预先说明它改变交易选择、入场位置、退出还是风险暴露，预期需要跨过的**年化与胜率联合缺口**，以及能快速否定它的最小证据；先做来源和订单检查，再在必要时冻结原生 Strategy 跑完整账户经济回放。比较分支时同时看收益、胜率、盈亏比、夏普、回撤和信息增量，不按诊断数量或单一胜率排序，也不从已见年份挑参数。此判断由外部 Agent 完成，R&D 只保存前驱、差异、结果、数据暴露和选择／停止理由，不新增自动研究工作流。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)及[Agent 研究旅程](../scenarios/research.zh.md)；各次来源、反证、经济结果和修正见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断及Agent 研究旅程；各次来源、反证、经济结果和修正见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
 
 ## F26：回测胜率定义须跟随 Nautilus 仓位记账
 
@@ -288,7 +288,7 @@
 
 **产品含义。** Backtest/R&D 输出胜率时，应把分母、胜场条件、费用及资金费率进入仓位 PnL 的路径写成与原生模型一致的明确字段，并由原生仓位与账户报表核对。历史产物的说明若有语义错误，用新的有来源和哈希的更正记录关联，不覆盖原报告；这样后续比较不会把账户费用与仓位胜负误认为两套互不相干的口径。
 
-**蓝图核对点。** [Backtest 输入与结果](../owners/backtest.zh.md)及 [R&D 证据接管](../owners/rd.zh.md)；逐笔核对、原始报告哈希和 H10 结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h10-prospective-four-hour-range-edge-order-direct-economic-test)。
+**原蓝图核对点（历史）。** Backtest 输入与结果及 R&D 证据接管；逐笔核对、原始报告哈希和 H10 结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h10-prospective-four-hour-range-edge-order-direct-economic-test)。
 
 ## F27：来源形态吻合与事先可执行计划须分别验收
 
@@ -296,7 +296,7 @@
 
 **产品含义。** R&D 验收一项"来源支持的策略"时，应分别保存并展示图上结构、因果确认时间、计划首次可下单时间、有效期、首次触及／失效和原生订单事件。几何价格接近不能替代订单意图的先后关系；来源门槛失败也应指出落在锚点、支撑还是挂单时机，供 Agent 提出有区别的二级假设。H13b 独立预登记了"突破后立即预挂"并在另一个已登记来源时点检查；结果仍未过门槛，因为所需低点在高点之后两根四小时 K 线才确认，且旧锚点的未成交计划没有被取代。下一子问题 H13c 明确检查确认后更新与旧单撤销。不能把 H13 的狭窄接近区在看过结果后悄悄放宽，也不能把来源图上的箭头当成交易所成交。R&D 保留关联证据和前驱差异，订单、成交与账户事实仍由 Nautilus Backtest 产生。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；来源窗口、失败报告与 H13b 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；来源窗口、失败报告与 H13b 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
 
 ## F28：失败实验应交接可证伪的下一机制与首次可下单时间
 
@@ -306,7 +306,7 @@
 
 **验证反馈。** H13c 按这个交接方式先通过 S27/S24 来源正例与 ETH 错锚反例，再通过 Nautilus 的撤单确认、合成事件和完整 37 币订单审计；S27 的 BTC 计划确有原生预挂单。但年度共享账户净值年化 **-6.05%**、已平仓胜率 **26.00%**、夏普(365) **-0.64**，远未达到 Goal。这个顺序使失败可明确归入**经济效果**，而不是继续猜测锚点、缺数据或订单根本没挂出。D36 随后用原生仓位和五分钟路径核查：即使把所有在止损前严格到过 +1R 的单子都算成盈利，固定交易集合胜率也仅 **48.43%**；把边界时序含糊的机会和未解析复杂路径都乐观计入，仍只有 **50.73%**，低于 55% 入门门槛。因此这条 +1R 单项退出延伸已按事先门槛停止，不再投入一轮完整回测。后继须先找到能显著改变入场选择或结构失效判断、且有独立来源正反例的机制；来源保真通过不能替代经济验收，单一年度经济失败也不自动否定整类支撑技术。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；H13→H13c 的来源、原生订单、经济结果与 D36 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；H13→H13c 的来源、原生订单、经济结果与 D36 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
 
 ## F29：支撑位必须记录其历史角色与形成尺度
 
@@ -314,7 +314,7 @@
 
 **产品含义。** R&D 不能只存一个数值"支撑价"，还应保存该区域在决策前的来源关系：原支撑低点、旧阻力高点、趋势线、回撤层级分别由哪些已完成 K 线建立，属于哪个周期，何时确认、何时突破及何时允许作为回踩计划。Agent 负责提出和否证具体表示法；产品保存这些关系与不确定性，并使回测订单能追溯到当时可见的结构。H13e 预登记的"旧阻力转支撑"四小时高枢轴编码也未通过来源门槛：两个正例在原 0.25 ATR 窄带内均没有合格高枢轴。这否定的是该周期、枢轴阶数和窄带的组合，不能据此断言图上的区域不存在，或在看过失败后改宽容差宣称通过。下一轮先找作者关于支撑／阻力**区间如何形成**的直接来源证据。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；H13d 失败报告、原片帧哈希及 H13e 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；H13d 失败报告、原片帧哈希及 H13e 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
 
 ## F30：研究应先识别缺失的交易决策，再选择验证成本
 
@@ -324,7 +324,7 @@
 
 **改进方法。** 每轮先按目标差距写明需要改变的决策环节，并用最便宜、能推翻该机制的证据检验：来源语义不明先查原片的画线前后和首次可见时间；几何不符先做固定正反例的因果来源门槛；订单时序不明再跑 Nautilus 事件核查；前面通过才花成本跑 37 币共享账户年度经济回放。来源只提供定性区域时，Agent 应把"作者规则未知"作为明确结果，另立研究者代理规则并预登记其来源正反例，不能回填已暴露收益来定区域宽度。失败要同时留下**被否证的最小机制、尚未覆盖的邻近机制、下一证据的判别力和停止条件**；同一技术可以继续二级延伸，但每次延伸必须改变一个有来源依据的决策，而非改名重试。台账身份须唯一，S32 在采集前纠正了误用 S30 的编号，避免不同视频的证据混接。产品保留这些假设关系、门槛状态与证据，不内置研究树或优化器。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；S32 的媒体、转写、原帧哈希、时间点与来源判定见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)和[来源证据](../../research/r1_native/results/2026-10-08-s32-support-resistance-source.json)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S32 的媒体、转写、原帧哈希、时间点与来源判定见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)和[来源证据](../../research/r1_native/results/2026-10-08-s32-support-resistance-source.json)。
 
 ## F31：价格区域要保存首次可见版本，不能把后来的宽度倒填到过去
 
@@ -332,7 +332,7 @@
 
 **产品含义与流程改进。** R&D 来源证据应把水平线、宽区域、斐波那契层级、趋势线分成可修订的计划版本，分别记首次可见时点、当时上下沿或线价、所属周期、画线依据、后续修改、触及与失效。较晚视频的「八次测试都有效」只可描述回顾，不得把最后一版区域倒填为八次事前都能挂的订单。Agent 可以由旧线和后来的宽带提出「层级逐步发展为支撑区」假想，但在作者未给出转换算法时必须标为研究者推断；先预登记事前可计算的区域规则及正反来源门槛，再用 Nautilus 订单和共享账户核算经济效果。作者也明确说画线与指标是要随市场新信息修正的假设，因此版本修订要留痕，不能用后来边界抹掉旧计划。S33 的笔记成稿失败没有丢失原始证据：媒体、完整转写和 48 帧均有独立身份，流程应以已完成的来源阶段继续核对，无须重拉并误报来源失败。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；S33/S34 的转写、原帧、首次失败与恢复回执以及判定见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)、[S33 来源证据](../../research/r1_native/results/2026-10-08-s33-key-location-source.json)和[S34 来源证据](../../research/r1_native/results/2026-10-08-s34-prior-btc-area-source.json)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S33/S34 的转写、原帧、首次失败与恢复回执以及判定见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)、[S33 来源证据](../../research/r1_native/results/2026-10-08-s33-key-location-source.json)和[S34 来源证据](../../research/r1_native/results/2026-10-08-s34-prior-btc-area-source.json)。
 
 ## F32：收盘确认策略须核对决策与成交的事件顺序
 
@@ -340,7 +340,7 @@
 
 **流程改进。** 对任何依赖收盘价、确认枢轴或先触及后反应的 Agent 假设，R&D 证据需保存信号所用最后一根已完成 K 线、订单提交时刻、首个可执行事件、实际成交时刻及其保护单状态，并要求执行事件**严格晚于**决策事件。即使几何来源吻合、回测引擎有原生订单，缺少这条事件顺序也不能进入收益比较。用一正一反的合成原生路径先验证顺序和 OTO/OCO 收束，再跑真实 Catalog；发现同刻成交应标为实现失败并修复，不应记为该交易技术的经济失败。该检查是 Nautilus 事件证据的验收条件，不需要新建策略语言或第二套成交引擎。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；冻结来源判定、同刻失败与修正后的原生合成回执见[H13f 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h13f-first-touch-close-rejection-instead-of-a-blind-618-limit)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；冻结来源判定、同刻失败与修正后的原生合成回执见[H13f 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h13f-first-touch-close-rejection-instead-of-a-blind-618-limit)。
 
 ## F33：小范围试跑只能验收执行，不能挑选组合收益
 
@@ -348,7 +348,7 @@
 
 **流程改进。** 先明确每个研究门槛回答什么：来源案例检验语义与当时可见性，合成原生事件检验时序和保护，两币试跑检验真实数据路径能否运行，完整共享账户才检验组合经济。试跑的胜率或收益不得决定是否跳过已预登记的完整样本，也不得对外称为策略胜率。对已反复查看的一年数据，配对差值还要保留不确定区间和多次尝试身份；区间跨零时只能说机制有正向点估计。下一轮应从 37 币的错误入场与上方障碍等具体失败类型提出可证伪的二级延伸，保留 H13f 对照，先做来源和订单门槛，再复核组合。这样一次编码失败不会放弃整个技术家族，一次小样本好看也不会提前宣告成功。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；原生完整性、费用、资金费、组合与配对区间见[H13f 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h13f-first-touch-close-rejection-instead-of-a-blind-618-limit)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；原生完整性、费用、资金费、组合与配对区间见[H13f 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h13f-first-touch-close-rejection-instead-of-a-blind-618-limit)。
 
 ## F34：失败后先按原生平仓原因定位下一层假设
 
@@ -356,7 +356,7 @@
 
 **流程改进。** 每次完成组合回放，应先用原生成交、订单和持仓身份核对止损、止盈、到期与未归类平仓的数量、胜负和净贡献，再选择下一层研究问题。负贡献主要来自止损时，先找来源支持的事前位置、区间状态和失效条件；来自到期时，再追查持有与退出；身份对不齐则先修回测完整性。诊断只能为下一项可证伪假想排序，不能在已看过的一年结果上按币种、价格带或持有天数选出所谓赢家规则。产品证据应保存原生退出原因、归因口径、开放持仓和下一假想的关系，由 Agent 决定后续实验，不增加另一套成交或收益账本。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；预登记、报告哈希、原生退出归因与后继问题见[D37 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d37-classify-h13fs-native-exits-before-choosing-a-secondary-mechanism)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；预登记、报告哈希、原生退出归因与后继问题见[D37 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d37-classify-h13fs-native-exits-before-choosing-a-secondary-mechanism)。
 
 ## F35：局部做多与上层趋势反转是两种不同判断
 
@@ -364,7 +364,7 @@
 
 **产品含义与流程改进。** 来源和实验记录要分别表示局部交易方向、上层趋势状态、阻力／目标障碍、确认周期、计划首次可见时刻和实际订单状态。Agent 若要测试更严格的顺势回踩，应把它命名为研究者代理规则，先用事前已完成 K 线给出可证伪的趋势确认，再对 BTC 来源正例与 SOL 等反例做来源门槛；不能把作者允许的局部逆势交易错误改写为一条通用禁令。若上层趋势证据不能由当时数据唯一重建，就继续保留来源缺口，而不是按已看过的 37 币止损结果优化门槛。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；S35 的原片、转写、帧哈希、视频服务失败阶段和来源结论见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s35-distinguish-a-key-location-entry-from-a-range-middle-wait)及[来源证据](../../research/r1_native/results/2026-10-08-s35-entry-location-source.json)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S35 的原片、转写、帧哈希、视频服务失败阶段和来源结论见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s35-distinguish-a-key-location-entry-from-a-range-middle-wait)及[来源证据](../../research/r1_native/results/2026-10-08-s35-entry-location-source.json)。
 
 ## F36：二级延伸前先核算它能否同时填平目标缺口
 
@@ -374,7 +374,7 @@
 
 **改进方法与产品含义。** Agent 在选二级延伸时，除写清父假设的最小失败原因、来源正反例和最便宜的反证，还应核算**联合目标的必要变化量**：至少要改变多少亏损单、盈利机会、单笔盈亏或有效资金使用，且这一机制为什么可能在因果上做到。若一种过滤只会避开旧止损，固定集合的乐观界仍不够，就把它作为局部诊断，另外寻找有来源依据的新增机会或收益结构机制；不为达标而在已见年度逐笔结果上挑过滤阈值。来源、订单、经济三个门槛仍分别验收，Agent 可以继续同一技术的不同子路径，产品只保留目标差距、容量推算、假设关系与选择理由，不新增自动研究树或优化器。年度重放后用同口径原生共享账户与冻结对照检验，结果和多次尝试身份完整保留。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)；固定路径的输入、公式、限制与后继判断见[D38 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d38-joint-goal-capacity-of-a-stop-avoidance-child)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；固定路径的输入、公式、限制与后继判断见[D38 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d38-joint-goal-capacity-of-a-stop-avoidance-child)。
 
 ## F37：不同入场档位不能共用未经核对的盈亏比门槛
 
@@ -386,7 +386,7 @@
 
 **后续来源核查。** D40 在相同 Nautilus 合约输入上核对 SUI 事前画面：此前已完成的高点 **2.0266** 与图相符，现有"最近已确认低点"却选到 **1.6583**，算出的 50% 价位 **1.84245** 既高于画面档位，也已被触及。D41 在四个预定时点逐一保留所有八个合格低点；其中四个较早低点及三层回撤价都能落入画面价带，且其 50% 价位仍未触及。于是"没有当时行情／无法画出该波段"已被排除，**如何事前从多个合理低点选起点**仍未解决。产品应保留所有候选、确认时间和选择规则的来源身份；画面价格吻合不能代替唯一、可复现的选取机制，也不能按已见收益挑其中一个。
 
-**蓝图核对点。** [R&D 研究实验与判断](../owners/rd.zh.md)、[研究场景](../scenarios/research.zh.md)；原片、帧哈希、资产切换、风险空间代数和后续锚点核查见[S36-D41 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s36-whether-the-january-7-btc-plan-preceded-the-50-touch)、[S36 来源证据](../../research/r1_native/results/2026-10-08-s36-prior-btc-50-source.json)、[D40 结果](../../research/r1_native/results/2026-10-08-d40-sui-tier-geometry.json)与[D41 候选全集](../../research/r1_native/results/2026-10-08-d41-sui-anchor-space.json)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、研究场景；原片、帧哈希、资产切换、风险空间代数和后续锚点核查见[S36-D41 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s36-whether-the-january-7-btc-plan-preceded-the-50-touch)、[S36 来源证据](../../research/r1_native/results/2026-10-08-s36-prior-btc-50-source.json)、[D40 结果](../../research/r1_native/results/2026-10-08-d40-sui-tier-geometry.json)与[D41 候选全集](../../research/r1_native/results/2026-10-08-d41-sui-anchor-space.json)。
 
 ## F38：研究效率应先消除规则歧义，再增加回测轮次
 
@@ -416,7 +416,7 @@
 
 **原生成交事件筛查。** H11 将 H10 的箱体边缘交易改成半仓在 +1R 止盈，胜率升至 **42.08%** 但年化仍为负。D50 在冻结的 H11 原生订单、成交和持仓事件中确认，998 笔平仓仅 **430 笔（43.09%）** 实际成交过第一或更远的止盈限价单；其中 **392 笔** 最终仍由止损单结束。即使宽松地把所有触及目标的原交易都当作全仓 +1R 赢家，也缺少达到 55% 筛查线的 **119 笔**。因此可关闭这一精确退出子机制，继续追问事前入场位置和结构止损；成交事件提供的是低成本机会筛查，不能替代新 Strategy 在共享账户下的经济回测。详见 [D50](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d50-actual-h11-first-target-fill-coverage-before-a-full-1r-exit-child)。
 
-**核查证据。** [H14a 预登记、来源门槛与完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h14a-separate-prospective-50-pullback-entry-with-structural-invalidation)、[H14a 原生组合报告](../../research/r1_native/results/2026-10-08-h14a-37-summary.json)、[配对 H13f 报告](../../research/r1_native/results/2026-10-08-h14a-paired-h13f-summary.json)、[D43 原生平仓归因](../../research/r1_native/results/2026-10-08-h14a-exit-attribution-d43.json)、[D44 +1R 机会界](../../research/r1_native/results/2026-10-08-h14a-exit-opportunity-d44.json)、[H15a 同口径摘要](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)、[D46 原生平仓归因](../../research/r1_native/results/2026-10-08-h15a-exit-attribution-d46.json)、[H15a 配对不确定区间](../../research/r1_native/results/2026-10-08-h15a-paired-weekly-bootstrap.json)及[费用与资金费读回](../../research/r1_native/results/2026-10-08-h15a-native-readback.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)和 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [H14a 预登记、来源门槛与完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h14a-separate-prospective-50-pullback-entry-with-structural-invalidation)、[H14a 原生组合报告](../../research/r1_native/results/2026-10-08-h14a-37-summary.json)、[配对 H13f 报告](../../research/r1_native/results/2026-10-08-h14a-paired-h13f-summary.json)、[D43 原生平仓归因](../../research/r1_native/results/2026-10-08-h14a-exit-attribution-d43.json)、[D44 +1R 机会界](../../research/r1_native/results/2026-10-08-h14a-exit-opportunity-d44.json)、[H15a 同口径摘要](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)、[D46 原生平仓归因](../../research/r1_native/results/2026-10-08-h15a-exit-attribution-d46.json)、[H15a 配对不确定区间](../../research/r1_native/results/2026-10-08-h15a-paired-weekly-bootstrap.json)及[费用与资金费读回](../../research/r1_native/results/2026-10-08-h15a-native-readback.json)。蓝图核对 R&D 研究与判断和 Backtest 输入与结果。
 
 ## F41：多档位共用止损不能由单档位回测隐含代表
 
@@ -426,7 +426,7 @@
 
 **后继范围。** H15a 把三档总风险固定为 25 基点、总名义敞口上限固定为 5%；4 月 BTC 来源案例的低点外共用止损为 **67,441.1**，三个原生取整档位到前高的空间约 **0.91R、1.42R、2.65R**。其后已通过 Nautilus 原生订单生命周期和 37 币完整回放：年化 **+4.28%**、胜率 **56.51%**，仍未达到 20% 年化；SUI 选锚失配也仍在。来源几何、原生执行、经济结果分别成立到各自证据边界。
 
-**核查证据。** [D45 来源几何与限制](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](../../research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[H15a 预登记与来源门槛](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H15a 来源结果](../../research/r1_native/results/2026-10-08-h15a-source-gate.json)、[S27 原片证据](../../research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)、[Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [D45 来源几何与限制](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](../../research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[H15a 预登记与来源门槛](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H15a 来源结果](../../research/r1_native/results/2026-10-08-h15a-source-gate.json)、[S27 原片证据](../../research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 R&D 研究与判断、Backtest 输入与结果。
 
 ## F42：多档研究要验收整个订单组的收束
 
@@ -438,7 +438,7 @@
 
 **后继验收。** H15a 的正式 Strategy 已在合成 Nautilus 事件中通过三档止盈／止损、首档或两档止盈后再回撤、同根止损、全部挂单到期、定时退出、旧计划撤单确认后替换，以及旧单在撤单请求前已成交的九条路径。另用原生延迟模型将撤单确认推迟十分钟：旧单在撤单请求后、确认前成交时，Strategy 保留其保护单、放弃新计划，结算后无残留订单或持仓。十条路径的原生成交序列均未出现净空，终态净额为零。实际四小时聚合触发时钟及真实共享账户中的费用与资金费仍需继续验收，不能把这轮合成结果称作年度收益改善。
 
-**核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[未收束原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)、[撤单修复原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-cancel-probe.json)、[正式 Strategy 十路径事件报告](../../research/r1_native/results/2026-10-08-h15a-strategy-lifecycle-race.json)、[正式选锚来源核查](../../research/r1_native/results/2026-10-08-h15a-actual-selector.json)、[一年原生订单审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)与[组合摘要](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。合成诊断本身不含真实行情收益；完整回放另行证明上述经济指标。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)及 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[未收束原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)、[撤单修复原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-cancel-probe.json)、[正式 Strategy 十路径事件报告](../../research/r1_native/results/2026-10-08-h15a-strategy-lifecycle-race.json)、[正式选锚来源核查](../../research/r1_native/results/2026-10-08-h15a-actual-selector.json)、[一年原生订单审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)与[组合摘要](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。合成诊断本身不含真实行情收益；完整回放另行证明上述经济指标。蓝图核对 R&D 研究与判断及 Backtest 输入与结果。
 
 ## F43：订单时钟和合约最小跳动要按原生值验收
 
@@ -446,7 +446,7 @@
 
 **改进方法与产品含义。** 原生订单报告应保留订单对象的整数到期时刻，并同时保存已完成决策 K 线、实际提交及首个可执行事件；审核 GTD 时相对决策边界核对，审核价格时使用 Instrument 的 `price_increment`。原始订单、成交与持仓身份仍是事实来源，审计衍生计数需能回到这些行。H15a 修正导出和审计后，同一 BTC/ETH 回放经济数字逐项不变；独立审计通过 158 组原生订单及开放持仓保护数量。这项修复改善了证据可信度，没有改变策略收益。
 
-**核查证据。** [H15a 完整实验记录](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[首次审计异常](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit-attempt1.json)、[修正后原生审计](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit.json)、[两币原生摘要](../../research/r1_native/results/2026-10-08-h15a-pilot-btc-eth-summary.json)。蓝图核对 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [H15a 完整实验记录](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[首次审计异常](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit-attempt1.json)、[修正后原生审计](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit.json)、[两币原生摘要](../../research/r1_native/results/2026-10-08-h15a-pilot-btc-eth-summary.json)。蓝图核对 Backtest 输入与结果。
 
 ## F44：多策略同步回放须显式核对原生风控吞吐
 
@@ -454,7 +454,7 @@
 
 **改进方法与产品含义。** 多标的原生回测除价格、资金费和策略源码外，应封存 BacktestEngine 的 RiskEngineConfig，并在试跑前按策略数、每次信号最多提交的订单组数核算同步峰值。完整运行以原生拒单、拒绝、成交和未平仓保护核查为收益门槛；只要出现非策略预期拒单，保留失败回执，修复基础设施配置后用同一配置重跑候选及对照。此例将回放提交上限显式设为每秒 200 次，保留原生风控与 25 基点风险、5% 币种名义上限；它不是实盘发送速率的建议。Agent 根据失败回执决定复跑，Backtest 只需记录运行配置和原生报告，不增加另一套订单调度或绩效账本。
 
-**核查证据。** [H15a 失败回执](../../research/r1_native/results/2026-10-08-h15a-37-attempt1-rate-limit.json)、[修正后 H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)、[同配置 H14a 对照](../../research/r1_native/results/2026-10-08-h15a-paired-h14a-summary.json)、[H15a 完整台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [H15a 失败回执](../../research/r1_native/results/2026-10-08-h15a-37-attempt1-rate-limit.json)、[修正后 H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)、[同配置 H14a 对照](../../research/r1_native/results/2026-10-08-h15a-paired-h14a-summary.json)、[H15a 完整台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 ## F45：OTO 子单的已创建状态不等于已激活保护
 
@@ -462,7 +462,7 @@
 
 **改进方法与产品含义。** 多腿策略的订单审计需按原生父子关系和状态转换判断：未成交的活动入场单可以有 `SUBMITTED` 的休眠子单；已成交／部分成交的入场必须有对应活动保护；父单终止未成交后，子单也须按原生事件收束。保留首次失败报告，修正审计后对同一原始报告重验；不因审计程序自身的状态模型错误而重跑策略或淘汰多档机制。Backtest 产品保存父子订单、状态、成交、持仓和校验结果，复用 Nautilus 的 OTO 生命周期，不另建订单状态机。
 
-**核查证据。** [首次审计失败](../../research/r1_native/results/2026-10-08-h15a-37-native-audit-attempt1.json)、[修正后审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)、[H15a 完整实验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [首次审计失败](../../research/r1_native/results/2026-10-08-h15a-37-native-audit-attempt1.json)、[修正后审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)、[H15a 完整实验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 Backtest 输入与结果。
 
 ## F46：提高仓位前先核算原生计划的风险利用率与触及容量
 
@@ -470,7 +470,7 @@
 
 **流程改进与产品含义。** Agent 提出仓位、杠杆或档位权重延伸前，应先用原生订单几何与实际触及数做低成本容量核查，并把风险上限、止损距离、价格取整、未成交计划和净额持仓分开记录。若证据指向档位选择，应在来源允许的条件路径中冻结一条新规则，先过事前来源正反例与原生订单生命周期门槛，再做同账户、同费用资金费的完整配对回放；退出目标仍按年化、胜率、夏普及回撤联合判断。订单触及频率只能决定是否值得测试机制，不能派生每档利润或从已见年份挑最优权重。Backtest 继续由 Nautilus 持有订单和账户，R&D 只保存诊断与假设关系。
 
-**核查证据。** [D47 预登记与结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d47-native-tier-reach-and-frozen-risk-capacity-screen)、[原生档位容量结果](../../research/r1_native/results/2026-10-08-h15a-tier-capacity-d47.json)、[H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [D47 预登记与结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d47-native-tier-reach-and-frozen-risk-capacity-screen)、[原生档位容量结果](../../research/r1_native/results/2026-10-08-h15a-tier-capacity-d47.json)、[H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 ## F47：删除一个入场档位会改变整组订单的后续路径
 
@@ -480,7 +480,7 @@
 
 **后续容量核查。** D49 用同一原生订单和完整五分钟 LAST 数据检查"挂单尚未成交、价格先重访前高 B、之后旧挂单才成交"。第一次读取按币种简称连接合约，漏掉 `1000PEPE`／`1000SHIB`；修复为 Catalog 的精确 InstrumentId 并要求覆盖全部订单组后，H15a 的 3,271 组计划里有 **30** 组走到这一路径，其后 34 个已平仓持仓只有 17 个非盈利，合计亏损约 **1,733 USDT**；H16a 为 15 组、17 个已平仓持仓、9 个非盈利，合计约 **1,245 USDT**。这表明旧计划存续是实际路径，但即使乐观地删除 H15a 这 17 笔亏损，也不足以填平年化 20% 所需的 **15,263 USDT** 权益缺口，且会改变后续机会和账户状态。来源没有明确规定触及 B 后必须撤单，因此只保留为具名生命周期问题；下一轮先找能增加有效机会或改善首个障碍收益的事前机制，不把这项小容量修补做成又一轮完整回测。
 
-**核查证据。** [H16a 预登记、来源和完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)、[H16a 原生组合摘要](../../research/r1_native/results/2026-10-08-h16a-37-summary.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h16a-paired-h15a-summary.json)、[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)、[D49 事前 B 重访诊断](../../research/r1_native/results/2026-10-08-d49-b-revisit-before-fill.json)、[H16a 原生订单审计](../../research/r1_native/results/2026-10-08-h16a-37-native-audit.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [H16a 预登记、来源和完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)、[H16a 原生组合摘要](../../research/r1_native/results/2026-10-08-h16a-37-summary.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h16a-paired-h15a-summary.json)、[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)、[D49 事前 B 重访诊断](../../research/r1_native/results/2026-10-08-d49-b-revisit-before-fill.json)、[H16a 原生订单审计](../../research/r1_native/results/2026-10-08-h16a-37-native-audit.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 ## F48：跨机制组合可以扩展搜索，但组件成绩不能遗传
 
@@ -492,7 +492,7 @@
 
 **改进方法与产品含义。** Agent 可把已有候选拆成有来源和准确实现身份的入场条件、结构失效、首个障碍、退出、预算及订单组收束规则，先比较它们各自解决的失败原因，再提出少数**机制相容**且能填补年化与胜率共同缺口的组合假设。组合前写明来源支持与研究者代理的界限、组件间预计的交互、首次可用时刻、必要机会容量、反例和会使组合被否定的观察；冲突的行动路径应互斥，不能把同一视频的条件分支算作同时成交。通过事前来源案例及 Nautilus 原生生命周期门槛后，冻结完整 Strategy 与同账户对照，读回交易集合、原生订单／持仓、费用资金费、胜率、盈亏比、净值、夏普和回撤；必要时用预登记的消融对照辨别增益来自哪项交互。即使采用遗传算法生成候选，其每个后代、筛选反馈和数据暴露都计入同一试验谱系；已反复查看的一年数据只能作开发证据，需保留多重比较和后续前向资格。R&D 保存组件来源、父子关系、冻结输入及结果，外部 Agent 决定生成和筛选方法；产品不增设自动育种器、策略语言或另一套回测引擎。
 
-**核查证据。** [F23 二级延伸](#f23单次规则失败应引出有区别的机制延伸)、[F40 联合目标缺口](#f40二级延伸要验证机会盈亏结构与目标缺口的共同变化)、[H15a 完整试验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H16a 完整试验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)及[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)；该组合方法目前是待试的流程改进，不是已验证的收益改进。
+**核查证据。** [F23 二级延伸](#f23单次规则失败应引出有区别的机制延伸)、[F40 联合目标缺口](#f40二级延伸要验证机会盈亏结构与目标缺口的共同变化)、[H15a 完整试验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H16a 完整试验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)及[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)。蓝图核对 R&D 研究与判断；该组合方法目前是待试的流程改进，不是已验证的收益改进。
 
 ## F49：入场后推进不足须与慢启动赢家和原生截尾一起判断
 
@@ -504,7 +504,7 @@
 
 **订单组延伸的证据边界。** D56 把 D55 的破线时刻连接到原生三档 OTO 订单。**72** 笔持仓在破线当时确有尚未成交的入场档位，随后这些档位发生 **95** 次原生成交；另有 **28** 笔的最终订单行无法证明破线时是否仍可撤，单列为状态不明。这通过了事前设定的事件容量门槛，允许开发一个"破线时仅撤销仍开放入场单、保留已成交仓位及原生保护单"的 Nautilus 子策略并完整配对回放。72 笔既有持仓合计亏损约 **3,799 USDT**，这是整笔净额持仓的实际结果，不能当成后来档位的单独亏损，更不能当成撤单后的收益。产品上的关键合同是订单组在持仓期间的时点状态与撤单确认、填单竞态，而非事后把订单结果相减。
 
-**核查证据。** [D53 预登记、修正和结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d53-fixed-post-entry-evidence-persistence-landmarks)、[D53 汇总](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-summary.json)及[逐笔原生路径报告](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence.json.gz)、[首读截尾修正留痕](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-attempt1.json)、[D54 来源延伸](../../research/r1_native/results/2026-10-08-d54-post-entry-invalidation-source.json)、[D55 原生结构事件容量](../../research/r1_native/results/2026-10-08-d55-h15a-preentry-line-break.json)、[D56 原生订单组时点状态](../../research/r1_native/results/2026-10-08-d56-h15a-line-break-pending-entries.json)、[H15a 原生订单审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [D53 预登记、修正和结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d53-fixed-post-entry-evidence-persistence-landmarks)、[D53 汇总](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-summary.json)及[逐笔原生路径报告](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence.json.gz)、[首读截尾修正留痕](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-attempt1.json)、[D54 来源延伸](../../research/r1_native/results/2026-10-08-d54-post-entry-invalidation-source.json)、[D55 原生结构事件容量](../../research/r1_native/results/2026-10-08-d55-h15a-preentry-line-break.json)、[D56 原生订单组时点状态](../../research/r1_native/results/2026-10-08-d56-h15a-line-break-pending-entries.json)、[H15a 原生订单审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 ## F50：持仓证据失效与待成交加仓失效须分开验证
 
@@ -516,7 +516,7 @@
 
 **二级延伸实测。** D57 在读取分组结果前固定一个更强的原结构条件：首次跌破入场时冻结的上升线时，该根完整 K 线还要收在当时已确认的第二个上升低点以下。184 次原线跌破里仅 **一次**也跌破这个低点，且当时没有已确认待成交入场单；72 笔有待成交单与 95 次被避免的成交全落在"只跌破趋势线"组。事前设定的 30 笔／30 次／5,000 USDT 容量门槛全部落空，因此关闭这一条精确定义，不为它再跑一次年度回测。结果说明该低点对待加仓决策过深或过晚；不能事后抬高低点、放宽收盘条件或调线斜率来获得样本。入场后条件退出方向尚未被整体否定，下一问题仍须找到足够容量、具有来源依据且事前可见的状态。
 
-**核查证据。** [H18a 预登记与完整回放](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h18a-cancel-unfilled-pullback-tiers-after-a-completed-entry-time-line-break)、[原生生命周期](../../research/r1_native/results/2026-10-08-h18a-native-lifecycle.json)、[37 币摘要](../../research/r1_native/results/2026-10-08-h18a-37-summary.json)、[独立原生订单审计](../../research/r1_native/results/2026-10-08-h18a-37-native-audit.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h18a-paired-h15a-summary.json)、[手续费与资金费读回](../../research/r1_native/results/2026-10-08-h18a-paired-native-economics.json)、[配对周不确定区间](../../research/r1_native/results/2026-10-08-h18a-paired-weekly-bootstrap.json)、[原生持仓差额归因](../../research/r1_native/results/2026-10-08-h18a-paired-position-attribution.json)及[D57 原低点二级延伸](../../research/r1_native/results/2026-10-08-d57-h18a-second-pivot-low.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**核查证据。** [H18a 预登记与完整回放](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h18a-cancel-unfilled-pullback-tiers-after-a-completed-entry-time-line-break)、[原生生命周期](../../research/r1_native/results/2026-10-08-h18a-native-lifecycle.json)、[37 币摘要](../../research/r1_native/results/2026-10-08-h18a-37-summary.json)、[独立原生订单审计](../../research/r1_native/results/2026-10-08-h18a-37-native-audit.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h18a-paired-h15a-summary.json)、[手续费与资金费读回](../../research/r1_native/results/2026-10-08-h18a-paired-native-economics.json)、[配对周不确定区间](../../research/r1_native/results/2026-10-08-h18a-paired-weekly-bootstrap.json)、[原生持仓差额归因](../../research/r1_native/results/2026-10-08-h18a-paired-position-attribution.json)及[D57 原低点二级延伸](../../research/r1_native/results/2026-10-08-d57-h18a-second-pivot-low.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 ## F51：持仓依据仍成立的来源建议不能倒推出失效时立即退出
 

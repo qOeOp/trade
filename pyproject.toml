@@ -1,0 +1,12 @@
+[project]
+name = "trade-research"
+version = "0.1.0"
+description = "Native Nautilus strategy research and reproducible backtests"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+  "nautilus_trader[visualization]==2.0.0rc3",
+  "pyarrow==23.0.1",
+]
+
+[tool.uv]
+package = false
