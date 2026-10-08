@@ -47,16 +47,38 @@ def _costs(run: Path) -> dict:
             commissions += _money(row["commission"])
     funding = Decimal(0)
     funding_events = 0
+    positive = []
+    nonpositive = []
     with (run / "positions.csv").open(newline="") as stream:
         for row in csv.DictReader(stream):
+            if row["ts_closed"]:
+                pnl = _money(row["realized_pnl"])
+                (positive if pnl > 0 else nonpositive).append(pnl)
             for event in ast.literal_eval(row["adjustments"] or "[]"):
                 if event.get("adjustment_type") == "FUNDING":
                     funding += _money(event["pnl_change"])
                     funding_events += 1
+    average_positive = sum(positive, Decimal(0)) / len(positive) if positive else None
+    average_nonpositive = (
+        -sum(nonpositive, Decimal(0)) / len(nonpositive) if nonpositive else None
+    )
     return {
         "fill_commissions_usdt": str(commissions),
         "position_funding_adjustments_usdt": str(funding),
         "position_funding_events": funding_events,
+        "closed_positive_count": len(positive),
+        "closed_nonpositive_count": len(nonpositive),
+        "average_positive_closed_pnl_usdt": (
+            str(average_positive) if average_positive is not None else None
+        ),
+        "average_nonpositive_closed_magnitude_usdt": (
+            str(average_nonpositive) if average_nonpositive is not None else None
+        ),
+        "realized_payoff_ratio": (
+            str(average_positive / average_nonpositive)
+            if average_positive is not None and average_nonpositive
+            else None
+        ),
     }
 
 
@@ -145,6 +167,17 @@ def compare(
         cell: Decimal(summary["final_equity_usdt"])
         for cell, summary in summaries.items()
     }
+    economics = {cell: _costs(run) for cell, run in runs.items()}
+    for cell, summary in summaries.items():
+        if (
+            economics[cell]["closed_positive_count"] != summary["winning_trades"]
+            or economics[cell]["closed_positive_count"]
+            + economics[cell]["closed_nonpositive_count"]
+            != summary["closed_trades"]
+        ):
+            raise ValueError(
+                f"{cell}: native closed position economics differ from summary"
+            )
     b_effect_base = equities["01"] - equities["00"]
     b_effect_broad = equities["11"] - equities["10"]
     interaction = b_effect_broad - b_effect_base
@@ -195,7 +228,7 @@ def compare(
                     "native_max_drawdown_daily_close"
                 ],
                 "entry_cancel_requests": cancels[cell],
-                **_costs(runs[cell]),
+                **economics[cell],
             }
             for cell, summary in summaries.items()
         },
