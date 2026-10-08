@@ -66,7 +66,10 @@ def _orders_with_native_deadlines(engine: BacktestEngine, report):
         order = engine.cache.order(ClientOrderId.from_str(str(order_id)))
         if order is None:
             raise RuntimeError("native order missing during GTD deadline export")
-        deadlines.append(str(order.expire_time_ns) if order.expire_time_ns is not None else "")
+        deadline = getattr(order, "expire_time", None)
+        if str(order.time_in_force) == "GTD" and deadline is None:
+            raise RuntimeError("native GTD order has no deadline")
+        deadlines.append(str(deadline) if deadline is not None else "")
     result["expire_time_ns"] = deadlines
     return result
 
