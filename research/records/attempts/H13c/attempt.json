@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "attempt_id": "H13c",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "strategy",
+  "question": "每根完成 4h bar 更新已确认 A/B 并替换未成交计划能否通过来源与原生经济门槛？",
+  "mechanism": "新确认 A/B 与未成交计划的取消确认后替换",
+  "hypothesis": "每根完成 4h bar 选最新已确认 A/B，取消确认后替换旧未成交计划，可保留 S27 的有效单且保持原生订单完整性。",
+  "parents": [
+    {
+      "attempt_id": "H13b",
+      "relationship": "repair",
+      "difference": "不再限定 B 首次新高当根；允许 A 后确认且仅在原生取消确认后替换旧计划。"
+    }
+  ],
+  "code_parent": "e2e751aa7",
+  "registration": {
+    "status": "retrospective",
+    "reference": "research/r1_native/RD_EXPERIMENTS.md",
+    "original_registration_commit": "f4e4a42c1"
+  },
+  "decision": {
+    "layer": "economics",
+    "outcome": "failed",
+    "scope": "来源门槛和原生完整性通过；37 币同账户年化 -6.05%、正收益平仓率 26.00%，未达到联合 Goal。",
+    "next_action": "保留来源与执行反例，停止该完整候选；寻求不同的来源可见机制。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "source_gate",
+      "path": "research/r1_native/results/2026-10-08-h13c-source-gate.json",
+      "sha256": "ba18a083f09b68fcb0c6b002c303c9f39400fe0f7699e3cad6e674cda44ab2dd"
+    },
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-08-h13c-37-summary.json",
+      "sha256": "ba8fb756b204a2bfe167f04f0661ce179b8e9325f2aa1e46be93c0f77880d112"
+    },
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-08-h13c-37-integrity.json",
+      "sha256": "b8872cf654e9dd7bd209331a80f12e36b830739704e7ced59bdadbe4161507eb"
+    }
+  ]
+}

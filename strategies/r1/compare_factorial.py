@@ -203,6 +203,9 @@ def compare(
             tuple(returns[cell][timestamp] for cell in ("00", "10", "01", "11")),
         )
     blocks = list(weeks.values())
+    observed_annual = {
+        cell: _annualized(list(values.values())) for cell, values in returns.items()
+    }
     generator = random.Random(seed)  # noqa: S311 - reproducible research resampling.
     interaction_samples = []
     b_broad_samples = []
@@ -248,6 +251,13 @@ def compare(
             "draws": draws,
             "days": len(keys),
             "week_blocks": len(blocks),
+            "observed_b_on_h19a_annualized_daily_return_difference_pp": (
+                observed_annual["11"] - observed_annual["10"]
+            ),
+            "observed_interaction_annualized_daily_return_difference_pp": (
+                (observed_annual["11"] - observed_annual["10"])
+                - (observed_annual["01"] - observed_annual["00"])
+            ),
             "b_on_h19a_annualized_daily_return_difference_pp_interval_95": _interval(
                 b_broad_samples
             ),

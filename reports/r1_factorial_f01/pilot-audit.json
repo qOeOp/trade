@@ -1,0 +1,21 @@
+{
+  "run": "/tmp/r1-factorial-f01-pilot-btc-eth",
+  "file_sha256": {
+    "summary.json": "bf2e86bb2f4b74f1b1130c70f542a5b48c49a93513be39e79b48774efd8e7ce5",
+    "orders.csv": "0c39d822c05e9d486e9b0c6125176832f734f1abdd3829b553baab545abd8bc3",
+    "fills.csv": "99e465f82318838c48e1032ed65b4c6e2a0cc9d21b89f691898c106443347e86",
+    "positions.csv": "45d403cd24b8a2ce9a7209c1dd326aadb5b0d1da7b0e24a1a55e642439cfbbb5",
+    "account.csv": "37eee397d35eefcd8a08a13f2e5e0c76806dd9f65ea7a8314915cb4909525d3d",
+    "returns_series.csv": "36bc84f8bbabd8fae3183e7fe3e292c9532dac06cc546e56b16a54574653a446"
+  },
+  "native_bundles": 148,
+  "native_brackets": 296,
+  "filled_entries": 31,
+  "partially_filled_then_canceled_entries": 0,
+  "closed_positions": 19,
+  "open_positions": 0,
+  "accepted_exit_orders": 0,
+  "native_market_time_exits": 0,
+  "findings": [],
+  "passed": true
+}
