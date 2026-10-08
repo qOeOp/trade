@@ -544,8 +544,8 @@
 
 ## F54：原计划保护止损与入场后条件退出要分别保存
 
-**原片核查。** S44 预登记后看到罗尼 2026 年 6 月 2 日的[原片](https://www.youtube.com/watch?v=HmpJXCY5BrU)：BTC 四小时上升线和前低已破，他回顾的是若此前按 50%／61.8% 回撤做多，进场时就应在更深回撤位下方放止损并控制单笔风险；此时该止损可能尚未触发，行情仍可能继续下跌。他没有要求该笔旧多单立即全平、减仓或移止损。快档转录将深位读成"76.8%"，原图似有 `0.786` 标记；音频与画线锚点未复核，不能把任一数字直接写入 H15a。后面的 NEAR／HYPE 段还分别保留浮盈持仓的继续持有情形。
+**原片核查。** S44 预登记后看到罗尼 2026 年 6 月 2 日的[原片](https://www.youtube.com/watch?v=HmpJXCY5BrU)：BTC 四小时上升线和前低已破，他回顾的是若此前按 50%／61.8% 回撤做多，进场时就应在更深回撤位下方放止损并控制单笔风险；此时该止损可能尚未触发，行情仍可能继续下跌。他没有要求该笔旧多单立即全平、减仓或移止损。快档转录将深位读成"76.8%"；放大**原始画面**后读到 `0.764`，纠正了初看成 `0.786` 的记录。语音和画线锚点仍未核准，因此 `0.764` 只是画面可见级别，尚不能直接写入 H15a。后面的 NEAR／HYPE 段还分别保留浮盈持仓的继续持有情形。
 
 **产品判断。** 研究和策略合同应把**进场前已承诺的保护止损**、持仓后观察到的证据失效、以及到达事前目标后的止盈动作分开。标题中的"带止损了吗"不等于作者提供了一个在原止损之前生效的新退出触发器。S44 的双档入场与深回撤止损可能是另一套入场／风险几何，和 H15a 的三档及共用波段起点下方止损不能混写；若继续研究，先固定原片价位、数据时钟、合约映射及来源正反例，再做原生订单容量与共享账户比较。该方向是待验线索，不能从视频中推出收益改进。
 
-**核查证据。** [S44 来源预登记与结论](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s44-does-the-author-separate-a-held-longs-original-stop-from-later-invalidation)、[原视频、转录和画面身份记录](../../research/r1_native/results/2026-10-08-s44-held-long-stop-source.json)、[H15a 原生策略](../../research/r1_native/tiered_retracement_strategy.py)。
+**核查证据。** [S44 来源预登记与结论](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s44-does-the-author-separate-a-held-longs-original-stop-from-later-invalidation)、[原视频、转录和画面身份记录](../../research/r1_native/results/2026-10-08-s44-held-long-stop-source.json)、[原帧标签局部放大](../../research/r1_native/results/2026-10-08-s44-deep-label-crop.png)、[H15a 原生策略](../../research/r1_native/tiered_retracement_strategy.py)。

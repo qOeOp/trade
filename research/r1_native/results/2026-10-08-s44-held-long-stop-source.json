@@ -34,7 +34,9 @@
       "previsible_plan": "Hypothetical four-hour long at the 50 and 61.8 percent retracement supports when the rising line was judged valid; stop was supposed to be placed below a deeper Fibonacci retracement at entry, with position risk controlled.",
       "later_observation": "The four-hour rising line and a prior low have now broken; the speaker says the original stop may not have triggered yet and warns that further decline is plausible.",
       "new_post_entry_reduce_or_close_action_before_original_stop": null,
-      "stop_level_transcription_conflict": "Fast ASR says 76.8 percent (E029-E031), while the original chart appears to label a 0.786 retracement; no audio review or verified drawing-anchor mapping, so no numerical stop ratio is certified."
+      "stop_level_transcription_conflict": "Fast ASR says 76.8 percent (E029-E031), while magnified inspection of original frame F02 at 45.838 seconds shows the deeper retracement label as 0.764. The original spoken number and drawing anchors were not audio/geometry verified, so 0.764 is a frame-visible level rather than a certified author-spoken ratio.",
+      "magnified_original_frame_crop": "results/2026-10-08-s44-deep-label-crop.png",
+      "magnified_original_frame_crop_sha256": "a2f7dab9bd004a8683b36c8274b1254176529b9ee109421f83bca1134042cf36"
     },
     {
       "asset": "NEAR",
@@ -56,7 +58,7 @@
     "distinct_post_entry_state_and_action_before_stop": false,
     "conditional_exit_lead_passed": false
   },
-  "decision": "Source-inconclusive for a separate post-entry early exit. It supports distinguishing an entry-time protective stop from later weak price action and may motivate a separately registered two-entry stop-geometry source case, but the ambiguous deep Fibonacci ratio, venue, causal anchors and conflict with H15a's three-tier common below-origin stop forbid direct parameter substitution or an annual replay from S44 alone.",
+  "decision": "Source-inconclusive for a separate post-entry early exit. The original frame supports a distinct 50/61.8 two-entry plan with protection under its displayed 0.764 retracement, unlike H15a's three-tier common below-origin stop. Venue, causal anchors and the spoken ratio remain unverified; a separately preregistered source geometry gate is required before numerical substitution or annual replay.",
   "limitations": [
     "Fast ASR and selected original frames were inspected, without independent audio review.",
     "The visible TradingView BTCUSDT chart does not prove Binance perpetual execution venue.",
