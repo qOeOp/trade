@@ -10,6 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from retracement_strategy import RetracementPlan
+from strategy import FourHour
 from strategy import R1Strategy
 from tiered_retracement_strategy import LIFETIME_NS
 from tiered_retracement_strategy import TieredRetracementStrategy
@@ -93,6 +94,28 @@ class H15StrategyFixture(TieredRetracementStrategy):
         if bar.bar_type != self.minute_bar_type:
             return
         if getattr(self, "submitted", False):
+            if getattr(self, "fixture_exit_kind", None) == "supersede_unfilled":
+                self.fixture_bar_count += 1
+                if self.fixture_bar_count == 2:
+                    replacement = RetracementPlan(
+                        ts_event=bar.ts_event,
+                        a_index=2,
+                        b_index=3,
+                        a_low=68_000,
+                        b_high=73_000,
+                        level_50=70_500,
+                        entry=70_500,
+                        level_764=69_180,
+                        stop=67_750,
+                        target=73_000,
+                        support_low_indices=(),
+                    )
+                    self.support_state = _ReplacementSelector(replacement)
+                    self._queue_four_hour_candidate(
+                        FourHour(bar.ts_event, float(bar.high), float(bar.low), float(bar.close)),
+                    )
+                else:
+                    self._advance_waiting(bar)
             if (
                 getattr(self, "fixture_exit_kind", None) == "time_exit"
                 and self.opened_ns is not None
@@ -101,6 +124,7 @@ class H15StrategyFixture(TieredRetracementStrategy):
                 self._on_four_hour_bar(bar)
             return
         self.submitted = True
+        self.fixture_bar_count = 1
         self._submit_bundle(
             RetracementPlan(
                 ts_event=bar.ts_event,
@@ -116,6 +140,18 @@ class H15StrategyFixture(TieredRetracementStrategy):
                 support_low_indices=(),
             ),
         )
+
+
+class _ReplacementSelector:
+    def __init__(self, plan: RetracementPlan) -> None:
+        self.plan = plan
+        self.last_readout = None
+
+    def on_closed(self, candle: FourHour, prior_atr: float | None) -> RetracementPlan:
+        self.last_readout = {
+            "impulse": {"a_index": self.plan.a_index, "b_index": self.plan.b_index},
+        }
+        return self.plan
 
 
 def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
@@ -156,7 +192,15 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
         strategy.fixture_exit_kind = exit_kind
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument.id}-5-MINUTE-LAST-EXTERNAL")
-        if exit_kind == "time_exit":
+        if exit_kind == "supersede_unfilled":
+            prices = [
+                (71_000, 71_100, 70_900, 71_000),
+                (71_000, 71_100, 70_900, 71_000),
+                (71_000, 71_100, 70_900, 71_000),
+                (71_000, 71_100, 70_400, 70_450),
+                (70_450, 73_100, 70_400, 73_000),
+            ]
+        elif exit_kind == "time_exit":
             prices = [
                 (71_000, 71_100, 70_900, 71_000),
                 (71_000, 71_100, 68_800, 69_000),
@@ -242,6 +286,9 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             "strategy_kind": strategy_kind,
             "bundle_submissions": getattr(strategy, "bundle_submissions", None),
             "bundle_retirements": getattr(strategy, "bundle_retirements", None),
+            "bundle_supersessions": getattr(strategy, "bundle_supersessions", None),
+            "bundle_cancel_race_fills": getattr(strategy, "bundle_cancel_race_fills", None),
+            "waiting_voided": getattr(strategy, "waiting_voided", None),
             "bundle_order_failures": getattr(strategy, "bundle_order_failures", None),
             "closed_callbacks": getattr(strategy, "closed_callbacks", 0),
             "entry_state_at_close": getattr(strategy, "entry_state_at_close", []),
@@ -281,7 +328,13 @@ def main() -> None:
     kinds = ["target", "stop", "target_then_retrace"]
     if args.strategy == "h15":
         kinds.extend(
-            ("two_tier_target_then_retrace", "same_bar_stop", "unfilled_expiry", "time_exit"),
+            (
+                "two_tier_target_then_retrace",
+                "same_bar_stop",
+                "unfilled_expiry",
+                "time_exit",
+                "supersede_unfilled",
+            ),
         )
     results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
     args.output.parent.mkdir(parents=True, exist_ok=True)
