@@ -49,7 +49,10 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
     ):
         raise ValueError("H15a frozen risk settings differ")
     instruments = _native_instruments(catalog_root, summary)
-    orders = pd.read_csv(run / "orders.csv", dtype={"client_order_id": str})
+    orders = pd.read_csv(
+        run / "orders.csv",
+        dtype={"client_order_id": str, "ts_init": str, "expire_time_ns": str},
+    )
     fills = pd.read_csv(run / "fills.csv", dtype={"client_order_id": str})
     positions = pd.read_csv(run / "positions.csv", dtype={"opening_order_id": str})
     findings = []
@@ -94,7 +97,8 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
             or not 0 < _decimal(stop.trigger_price) < _decimal(entry.price) < _decimal(target.price)
         ):
             findings.append(f"invalid native bracket prices or quantities {list_id}")
-        if int(entry.expire_time_ns) != int(entry.ts_init) + 30 * FOUR_HOUR_NS:
+        decision_ns = int(entry.ts_init) // FOUR_HOUR_NS * FOUR_HOUR_NS
+        if int(entry.expire_time_ns) != decision_ns + 30 * FOUR_HOUR_NS:
             findings.append(f"entry GTD deadline differs {list_id}")
         if entry.status in {"CANCELED", "EXPIRED"} and (
             stop.status != "CANCELED" or target.status != "CANCELED"
@@ -123,7 +127,7 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         stop = _decimal(stops.trigger_price.iloc[0])
         estimated_a = 2 * first - target
         instrument = instruments[sorted_group.instrument_id.iloc[0]]
-        tick = Decimal(10) ** -instrument.price_precision
+        tick = instrument.price_increment.as_decimal()
         span = target - estimated_a
         if not (0 < stop < estimated_a < third < second < first < target):
             findings.append(f"bundle tier geometry differs: {strategy_id} {ts_init}")
