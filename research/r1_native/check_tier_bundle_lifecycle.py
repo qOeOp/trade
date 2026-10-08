@@ -147,6 +147,34 @@ class H15StrategyFixture(TieredRetracementStrategy):
         )
 
 
+class H18StrategyFixture(H15StrategyFixture):
+    """
+    Drive the actual native cancel method with a frozen synthetic line.
+    """
+
+    def _freeze_entry_line(self) -> None:
+        self.line_frozen_for_position = True
+        if self.fixture_exit_kind == "no_line":
+            return
+        self.frozen_line = (
+            -100 if self.fixture_exit_kind == "expired_line" else -1,
+            69_700 if self.fixture_exit_kind in ("two_filled", "all_filled") else 70_100,
+            0.0,
+        )
+        self.line_snapshots += 1
+
+    def on_bar(self, bar: Bar) -> None:
+        if (
+            bar.bar_type == self.minute_bar_type
+            and self.opened_ns is not None
+            and bar.ts_event >= self.opened_ns + 4 * 3_600_000_000_000
+            and not getattr(self, "fixture_line_checked", False)
+        ):
+            self.fixture_line_checked = True
+            self._cancel_pending_on_frozen_line_break(bar)
+        super().on_bar(bar)
+
+
 class _ReplacementSelector:
     def __init__(self, plan: RetracementPlan) -> None:
         self.plan = plan
@@ -170,7 +198,7 @@ def _fill_net(fills) -> tuple[str, str]:
     return str(minimum_net), str(net)
 
 
-def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
+def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: C901
     engine = BacktestEngine(
         BacktestEngineConfig(
             trader_id=TraderId("H15A-OTO-PROBE-001"),
@@ -193,13 +221,17 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             bar_adaptive_high_low_ordering=False,
             latency_model=(
                 StaticLatencyModel(cancel_latency_nanos=600_000_000_000)
-                if exit_kind == "fill_during_pending_cancel"
+                if exit_kind in ("fill_during_pending_cancel", "delayed_fill")
                 else None
             ),
         )
         engine.add_instrument(instrument)
         strategy_class = (
-            H15StrategyFixture if strategy_kind in ("h15", "h16") else ThreeBracketFixture
+            H18StrategyFixture
+            if strategy_kind == "h18"
+            else H15StrategyFixture
+            if strategy_kind in ("h15", "h16")
+            else ThreeBracketFixture
         )
         strategy = strategy_class(
             instrument.id,
@@ -210,11 +242,13 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             signal_variant=(
                 "support-three-tier-4h"
                 if strategy_kind == "h15"
+                else "support-three-tier-line-cancel-4h"
+                if strategy_kind == "h18"
                 else "support-deep-two-tier-4h"
                 if strategy_kind == "h16"
                 else "support-near50-4h"
             ),
-            risk_budget_fraction=0.0025 if strategy_kind in ("h15", "h16") else None,
+            risk_budget_fraction=0.0025 if strategy_kind in ("h15", "h16", "h18") else None,
         )
         strategy.fixture_exit_kind = exit_kind
         engine.add_strategy(strategy)
@@ -285,6 +319,8 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             ]
         if strategy_kind == "h16":
             prices = _deep_tier_prices(exit_kind)
+        elif strategy_kind == "h18":
+            prices = _line_cancel_prices(exit_kind)
         start = 1_790_000_099_999_000_000
         times = [start + index * STEP_NS for index in range(len(prices))]
         engine.add_data(
@@ -337,6 +373,9 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:
             "bundle_cancel_race_fills": getattr(strategy, "bundle_cancel_race_fills", None),
             "waiting_voided": getattr(strategy, "waiting_voided", None),
             "bundle_order_failures": getattr(strategy, "bundle_order_failures", None),
+            "line_break_events": getattr(strategy, "line_break_events", None),
+            "line_cancel_requests": getattr(strategy, "line_cancel_requests", None),
+            "line_cancel_race_fills": getattr(strategy, "line_cancel_race_fills", None),
             "closed_callbacks": getattr(strategy, "closed_callbacks", 0),
             "entry_state_at_close": getattr(strategy, "entry_state_at_close", []),
             "entry_statuses": list(entry.status.astype(str)),
@@ -401,11 +440,54 @@ def _deep_tier_prices(exit_kind: str) -> list[tuple[int, int, int, int]]:
     return [untouched, first, second, target if exit_kind == "target" else stop]
 
 
-def main() -> None:
+def _line_cancel_prices(exit_kind: str) -> list[tuple[int, int, int, int]]:
+    untouched = (71_000, 71_100, 70_900, 71_000)
+    first = (71_000, 71_050, 70_200, 70_250)
+    second = (70_250, 70_300, 69_600, 69_750)
+    third = (69_750, 69_800, 68_800, 69_000)
+    if exit_kind == "all_filled":
+        opening = [untouched, third]
+        line_bar = (69_000, 69_100, 68_950, 69_000)
+    elif exit_kind == "two_filled":
+        opening = [untouched, first, second]
+        line_bar = (69_750, 69_800, 69_650, 69_650)
+    else:
+        opening = [untouched, first]
+        line_bar = (70_250, 70_300, 69_850, 69_900)
+    if exit_kind == "at_line":
+        line_bar = (70_250, 70_300, 70_050, 70_100)
+    elif exit_kind == "wick_only":
+        line_bar = (70_250, 70_300, 70_050, 70_200)
+    elif exit_kind == "fill_before_cancel":
+        line_bar = (70_250, 70_300, 69_600, 69_650)
+    elif exit_kind == "same_bar_stop":
+        line_bar = (70_250, 70_300, 67_400, 67_450)
+    elif exit_kind == "same_bar_target":
+        line_bar = (70_250, 72_900, 70_200, 72_800)
+    filler = opening[-1][3]
+    bars = opening + [(filler, filler + 50, filler - 50, filler)] * (49 - len(opening))
+    bars.append(line_bar)
+    if exit_kind == "delayed_fill":
+        bars.extend(
+            [
+                (69_900, 70_000, 69_500, 69_650),
+                (69_650, 72_900, 69_600, 72_800),
+            ],
+        )
+    elif exit_kind not in ("same_bar_stop", "same_bar_target"):
+        bars.append((line_bar[3], 72_900, line_bar[3] - 50, 72_800))
+    return bars
+
+
+def main() -> None:  # noqa: C901 - probes native order lifecycle scenarios.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--strategy", choices=("primitive", "h15", "h16"), default="primitive")
+    parser.add_argument(
+        "--strategy",
+        choices=("primitive", "h15", "h16", "h18"),
+        default="primitive",
+    )
     args = parser.parse_args()
     instrument_id = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
     instruments = ParquetDataCatalog(str(args.catalog)).instruments(
@@ -426,6 +508,20 @@ def main() -> None:
                 "fill_during_pending_cancel",
             ),
         )
+    elif args.strategy == "h18":
+        kinds = [
+            "one_filled",
+            "two_filled",
+            "at_line",
+            "wick_only",
+            "no_line",
+            "expired_line",
+            "all_filled",
+            "same_bar_stop",
+            "same_bar_target",
+            "fill_before_cancel",
+            "delayed_fill",
+        ]
     results = [_scenario(instruments[0], kind, args.strategy) for kind in kinds]
     if args.strategy in ("h15", "h16"):
         expected = {
@@ -468,6 +564,42 @@ def main() -> None:
                 or Decimal(result["final_native_fill_net_qty"]) != 0
             ):
                 raise RuntimeError(f"H15 native lifecycle failed: {result['exit_kind']}: {result}")
+    elif args.strategy == "h18":
+        expected = {
+            "one_filled": (1, 0, 1, 1, 2, 0),
+            "two_filled": (2, 0, 2, 1, 1, 0),
+            "at_line": (1, 0, 1, 0, 0, 0),
+            "wick_only": (1, 0, 1, 0, 0, 0),
+            "no_line": (1, 0, 1, 0, 0, 0),
+            "expired_line": (1, 0, 1, 0, 0, 0),
+            "all_filled": (3, 0, 3, 1, 0, 0),
+            "same_bar_stop": (3, 3, 0, 0, 0, 0),
+            "same_bar_target": (1, 0, 1, 0, 0, 0),
+            "fill_before_cancel": (2, 0, 2, 1, 1, 0),
+            "delayed_fill": (2, 0, 2, 1, 2, 1),
+        }
+        for result in results:
+            observed = tuple(
+                result[field]
+                for field in (
+                    "filled_entries",
+                    "filled_stops",
+                    "filled_targets",
+                    "line_break_events",
+                    "line_cancel_requests",
+                    "line_cancel_race_fills",
+                )
+            )
+            if (
+                observed != expected[result["exit_kind"]]
+                or result["denied_or_rejected"]
+                or result["nonterminal_orders"]
+                or result["open_position_rows"]
+                or any(side == "SHORT" for side in result["position_sides"])
+                or Decimal(result["minimum_native_fill_net_qty"]) < 0
+                or Decimal(result["final_native_fill_net_qty"]) != 0
+            ):
+                raise RuntimeError(f"H18 native lifecycle failed: {result['exit_kind']}: {result}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(

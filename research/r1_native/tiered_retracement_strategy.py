@@ -12,6 +12,9 @@ from retracement_strategy import RetracementPlan
 from strategy import FOUR_HOUR_NS
 from strategy import FourHour
 from strategy import R1Strategy
+from trendline_strategy import MAX_LINE_EXTENSION
+from trendline_strategy import ConfirmedLineSupportTouches
+from trendline_strategy import LineCandle
 
 from vibe_trading.model import Bar
 from vibe_trading.model import OrderSide
@@ -42,7 +45,10 @@ class TieredRetracementStrategy(R1Strategy):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        if self.signal_variant == "support-three-tier-4h":
+        if self.signal_variant in (
+            "support-three-tier-4h",
+            "support-three-tier-line-cancel-4h",
+        ):
             self.tier_ratios = THREE_TIER_RATIOS
         elif self.signal_variant == "support-deep-two-tier-4h":
             self.tier_ratios = DEEP_TIER_RATIOS
@@ -71,6 +77,71 @@ class TieredRetracementStrategy(R1Strategy):
         self.bundle_invalid_price_skips = 0
         self.bundle_minimum_skips = 0
         self.bundle_order_failures = 0
+        self.line_cancel_enabled = self.signal_variant == "support-three-tier-line-cancel-4h"
+        self.line_state = ConfirmedLineSupportTouches() if self.line_cancel_enabled else None
+        self.line_frozen_for_position = False
+        self.frozen_line: tuple[int, float, float] | None = None
+        self.line_break_triggered = False
+        self.line_cancel_requested_ids: set = set()
+        self.line_snapshots = 0
+        self.line_break_events = 0
+        self.line_cancel_requests = 0
+        self.line_cancel_race_fills = 0
+
+    def _on_four_hour_bar(self, bar: Bar) -> None:
+        if self.line_cancel_enabled:
+            self.line_state.on_closed(
+                LineCandle(
+                    bar.ts_event,
+                    float(bar.open),
+                    float(bar.high),
+                    float(bar.low),
+                    float(bar.close),
+                ),
+                None,
+            )
+            self._cancel_pending_on_frozen_line_break(bar)
+        super()._on_four_hour_bar(bar)
+
+    def _freeze_entry_line(self) -> None:
+        self.line_frozen_for_position = True
+        i = len(self.line_state.candles) - 1
+        if i < 0:
+            return
+        projected = self.line_state._latest_rising_line(i)
+        if projected is None:
+            return
+        (_, j2), p2, slope, _ = projected
+        self.frozen_line = (j2, p2, slope)
+        self.line_snapshots += 1
+
+    def _cancel_pending_on_frozen_line_break(self, bar: Bar) -> None:
+        if (
+            not self.line_frozen_for_position
+            or self.frozen_line is None
+            or self.line_break_triggered
+            or self.opened_ns is None
+            or bar.ts_event < self.opened_ns + FOUR_HOUR_NS
+            or bar.ts_event >= self.opened_ns + LIFETIME_NS
+        ):
+            return
+        bundle = self.bundle
+        if bundle is None or bundle.net_flat or bundle.retiring:
+            return
+        i = len(self.line_state.candles) - 1
+        j2, p2, slope = self.frozen_line
+        if i - j2 > MAX_LINE_EXTENSION or float(bar.close) >= p2 + slope * (i - j2):
+            return
+        self.line_break_triggered = True
+        self.line_break_events += 1
+        for entry_id in bundle.entry_ids:
+            if entry_id in bundle.filled_ids:
+                continue
+            order = self.cache.order(entry_id)
+            if order is not None and order.is_open and not order.is_pending_cancel:
+                self.cancel_order(entry_id)
+                self.line_cancel_requested_ids.add(entry_id)
+                self.line_cancel_requests += 1
 
     def _queue_four_hour_candidate(self, candle: FourHour) -> None:
         plan = self.support_state.on_closed(
@@ -225,6 +296,9 @@ class TieredRetracementStrategy(R1Strategy):
             self._release_waiting(self.reference_price)
 
     def on_order_filled(self, event) -> None:
+        first_fill_of_position = self.line_cancel_enabled and self.opened_ns is None
+        if self.line_cancel_enabled and event.client_order_id in self.line_cancel_requested_ids:
+            self.line_cancel_race_fills += 1
         bundle = self.bundle
         if bundle is None or event.client_order_id not in bundle.entry_ids:
             return
@@ -236,9 +310,16 @@ class TieredRetracementStrategy(R1Strategy):
         bundle.net_flat = False
         if self.opened_ns is None:
             self.opened_ns = event.ts_event
+        if first_fill_of_position:
+            self._freeze_entry_line()
 
     def on_position_closed(self, event) -> None:
         self.opened_ns = None
+        if self.line_cancel_enabled:
+            self.line_frozen_for_position = False
+            self.frozen_line = None
+            self.line_break_triggered = False
+            self.line_cancel_requested_ids.clear()
         if self.bundle is not None:
             self.bundle.net_flat = True
             self._retire_bundle()

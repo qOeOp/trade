@@ -54,8 +54,9 @@ from vibe_trading.risk import RiskEngineConfig
 LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
 RETRACEMENT_VARIANTS = ("support-confirmed-4h", "support-rejection-4h", "support-near50-4h")
 TIERED_VARIANT = "support-three-tier-4h"
+LINE_CANCEL_TIER_VARIANT = "support-three-tier-line-cancel-4h"
 DEEP_TIER_VARIANT = "support-deep-two-tier-4h"
-TIERED_VARIANTS = (TIERED_VARIANT, DEEP_TIER_VARIANT)
+TIERED_VARIANTS = (TIERED_VARIANT, LINE_CANCEL_TIER_VARIANT, DEEP_TIER_VARIANT)
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
 REPLAY_SUBMIT_RATE = "200/00:00:01"
 
@@ -354,7 +355,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 else RetracementStrategy
                 if args.signal_variant in RETRACEMENT_VARIANTS
                 else TrendlineBreakStrategy
-                if args.signal_variant in LINE_VARIANTS
+                if args.signal_variant in (*LINE_VARIANTS, LINE_CANCEL_TIER_VARIANT)
                 else R1Strategy
             )
             strategy = strategy_class(
@@ -513,6 +514,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant == "support-near50-4h"
                 else "H15a-support-three-tier-4h"
                 if args.signal_variant == TIERED_VARIANT
+                else "H18a-support-three-tier-line-cancel-4h"
+                if args.signal_variant == LINE_CANCEL_TIER_VARIANT
                 else "H16a-support-deep-two-tier-4h"
                 if args.signal_variant == DEEP_TIER_VARIANT
                 else "H06-trendline-4h"
@@ -628,6 +631,16 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                             "untouched_plan_voids": strategies[row["coin"]].waiting_voided,
                         }
                         if args.signal_variant in TIERED_VARIANTS
+                        else None
+                    ),
+                    "entry_line_cancel": (
+                        {
+                            "frozen_valid_lines": strategies[row["coin"]].line_snapshots,
+                            "line_break_events": strategies[row["coin"]].line_break_events,
+                            "entry_cancel_requests": strategies[row["coin"]].line_cancel_requests,
+                            "fills_during_cancel": strategies[row["coin"]].line_cancel_race_fills,
+                        }
+                        if args.signal_variant == LINE_CANCEL_TIER_VARIANT
                         else None
                     ),
                     "line_breaks": (

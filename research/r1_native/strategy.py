@@ -198,6 +198,7 @@ class R1Strategy(Strategy):
             "support-rejection-4h",
             "support-near50-4h",
             "support-three-tier-4h",
+            "support-three-tier-line-cancel-4h",
             "support-deep-two-tier-4h",
         ):
             raise ValueError("unsupported R-1 signal variant")
@@ -317,6 +318,7 @@ class R1Strategy(Strategy):
                 "support-rejection-4h",
                 "support-near50-4h",
                 "support-three-tier-4h",
+                "support-three-tier-line-cancel-4h",
                 "support-deep-two-tier-4h",
             )
             else HOLD_DAYS * DAY_NS

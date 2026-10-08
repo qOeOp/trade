@@ -21,6 +21,11 @@ OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
 FOUR_HOUR_NS = 4 * 3_600_000_000_000
 TIER_RATIOS = {
     "support-three-tier-4h": (Decimal("0.5"), Decimal("0.618"), Decimal("0.764")),
+    "support-three-tier-line-cancel-4h": (
+        Decimal("0.5"),
+        Decimal("0.618"),
+        Decimal("0.764"),
+    ),
     "support-deep-two-tier-4h": (Decimal("0.618"), Decimal("0.764")),
 }
 
