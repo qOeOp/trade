@@ -44,3 +44,33 @@ Catalog format migration and a venue `MakerTakerFeeModel(0.0002, 0.0005)` to
 restore the historical instrument fee settings. Its unadapted 37-instrument replay diverged; see
 `../../docs/plans/nautilus-upstream-poc.zh.md`. The rc6 migration/output remain
 diagnostic files under `/tmp`, not a new product path.
+
+## Native funding loader proof
+
+`run_portfolio_node.py` is a separate H18a/H19a proof using rc3 `BacktestNode`.
+It loads `FundingRateUpdate` directly from the same existing Catalog, without
+importing `funding_catalog.py` or downloading data. It materializes native
+`MarkPriceUpdate` data from the existing MARK bars into a derived local Catalog;
+when reused, that Catalog is checked against each source event. The original
+Catalog remains read only.
+
+```bash
+uv run --frozen python strategies/r1/run_portfolio_node.py \
+  --catalog-root /tmp/r1-37-1y-5m-2026oct7 \
+  --quantity-csv /tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv \
+  --coins "${R1_COINS[@]}" \
+  --start 2025-10-07T00:00:00Z --trade-start 2025-10-17T00:00:00Z \
+  --end 2026-10-07T08:30:00Z \
+  --signal-variant support-broad-two-tier-4h \
+  --mark-root /tmp/r1-native-node-mark --output /tmp/r1-native-node-h19a-37
+uv run --frozen python strategies/r1/compare_node.py \
+  /tmp/nautilus-minimal-cleanup-h19a-37 /tmp/r1-native-node-h19a-37
+```
+
+For H18a use `support-three-tier-line-cancel-4h` and compare with
+`/tmp/nautilus-upstream-final-h18a-37`. The retained receipts are
+`parity-node-h18a.json` and `parity-node-h19a.json`. Both match the existing
+annual 37-instrument shared-account native reports, including every funding
+adjustment and account row. The older runner remains available for its other
+research variants and full per-coin report contract; its funding decoder can
+be removed when those consumers move to the Node entry.

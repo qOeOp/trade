@@ -30,7 +30,6 @@ from nautilus_trader.data import DataEngineConfig
 from nautilus_trader.model import AccountType
 from nautilus_trader.model import BarType
 from nautilus_trader.model import ClientOrderId
-from nautilus_trader.model import InstrumentId
 from nautilus_trader.model import MarkPriceUpdate
 from nautilus_trader.model import Money
 from nautilus_trader.model import OmsType
@@ -45,6 +44,8 @@ from replay_util import SOURCE_COMMIT
 from replay_util import _json_safe
 from replay_util import _ns
 from replay_util import _snapshot_equity_usdt
+from replay_inputs import month_edges as _month_edges
+from replay_inputs import read_instruments as _read_instruments
 from retracement_strategy import RetracementStrategy
 from strategy import R1Strategy
 from tiered_retracement_strategy import TieredRetracementStrategy
@@ -78,68 +79,6 @@ def _orders_with_native_deadlines(engine: BacktestEngine, report):
         deadlines.append(str(deadline) if deadline is not None else "")
     result["expire_time_ns"] = deadlines
     return result
-
-
-def _month_edges(start: datetime, end: datetime):
-    current = start
-    while current < end:
-        next_month = (
-            current.replace(year=current.year + 1, month=1, day=1)
-            if current.month == 12
-            else current.replace(month=current.month + 1, day=1)
-        )
-        edge = min(next_month, end)
-        yield current, edge
-        current = edge
-
-
-def _read_instruments(
-    root: Path,
-    coins: list[str],
-    quantities: dict[str, str],
-    start: int,
-    end: int,
-):
-    rows = []
-    for coin in coins:
-        catalog_path = root / coin / "minute"
-        catalog = ParquetDataCatalog(str(catalog_path))
-        completion = json.loads(
-            (catalog_path / "r1-download-complete.json").read_text(),
-        )
-        if (
-            completion.get("start_ns"),
-            completion.get("end_ns"),
-            completion.get("bar_minutes"),
-        ) != (start, end, 5):
-            raise RuntimeError(
-                f"{coin}: prepared minute interval does not match replay",
-            )
-        instrument_id = InstrumentId.from_str(completion["instrument"])
-        instruments = catalog.instruments(instrument_ids=[str(instrument_id)])
-        if len(instruments) != 1 or instruments[0].quote_currency.code != "USDT":
-            raise RuntimeError(f"{coin}: one Binance USDT instrument is required")
-        assumption = json.loads(
-            (catalog_path / "instrument-assumption.json").read_text(),
-        )
-        if assumption.get("historical_terms") != "CURRENT_SNAPSHOT_APPROXIMATION":
-            raise RuntimeError(f"{coin}: missing historical instrument assumption")
-        rows.append(
-            {
-                "coin": coin,
-                "catalog": catalog,
-                "catalog_path": catalog_path,
-                "completion": completion,
-                "instrument": instruments[0],
-                "instrument_id": instrument_id,
-                "quantity": quantities[coin],
-                "counts": {"last": 0, "mark": 0, "funding": 0},
-                "previous_last": None,
-                "previous_mark": None,
-                "previous_funding": None,
-            },
-        )
-    return rows
 
 
 def _warmup(daily_root: Path, row: dict, start: int):
