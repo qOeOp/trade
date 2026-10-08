@@ -22,6 +22,34 @@ def _bars(*, second_support: bool = True, untouched: bool = True):
 
 
 class RetracementSignalCases(unittest.TestCase):
+    def test_near50_style_waits_for_confirmed_low_and_untouched_upper_tier(self):
+        bars = [FourHour(i * FOUR_HOUR_NS, 120.0, 111.5, 115.0) for i in range(210)]
+        bars[190] = FourHour(190 * FOUR_HOUR_NS, 120.0, 90.0, 115.0)
+        bars[196] = FourHour(196 * FOUR_HOUR_NS, 130.0, 111.5, 115.0)
+        state = ConfirmedSupportPullback(
+            timing="confirmed-update",
+            support_mode="none",
+            entry_ratio=0.5,
+            minimum_target_r=1.5,
+        )
+        plans = [plan for bar in bars if (plan := state.on_closed(bar, 1.0)) is not None]
+        assert len(plans) == 1
+        assert plans[0].ts_event == 198 * FOUR_HOUR_NS
+        assert (plans[0].a_index, plans[0].b_index) == (190, 196)
+        assert plans[0].entry == plans[0].level_50 == 110.0
+        assert plans[0].support_kind == "none"
+        assert plans[0].support_low_indices == ()
+
+        touched = bars.copy()
+        touched[197] = FourHour(197 * FOUR_HOUR_NS, 120.0, 109.9, 115.0)
+        touched_state = ConfirmedSupportPullback(
+            timing="confirmed-update",
+            support_mode="none",
+            entry_ratio=0.5,
+            minimum_target_r=1.5,
+        )
+        assert all(touched_state.on_closed(bar, 1.0) is None for bar in touched)
+
     def test_first_touch_rejection_uses_only_later_completed_bar(self):
         state = ConfirmedSupportPullback(timing="confirmed-update")
         bars = _bars()

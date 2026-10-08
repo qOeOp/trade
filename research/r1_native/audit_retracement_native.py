@@ -22,9 +22,10 @@ def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship aud
     if summary["signal_variant"] not in (
         "support-confirmed-4h",
         "support-rejection-4h",
+        "support-near50-4h",
         "daily-pivot",
     ):
-        raise ValueError("H13c, H13f or paired R-1u native replay required")
+        raise ValueError("H13c, H13f, H14a or paired R-1u native replay required")
     orders = pd.read_csv(run / "orders.csv", dtype={"client_order_id": str})
     positions = pd.read_csv(run / "positions.csv", dtype={"opening_order_id": str})
     findings = []
@@ -68,6 +69,11 @@ def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship aud
         )
         if (entry.type != "MARKET" or entry.status == "FILLED") and not valid_price_order:
             findings.append(f"invalid native bracket price order {list_id}")
+        if summary["signal_variant"] == "support-near50-4h" and entry_price is not None:
+            if target_price - entry_price < Decimal("1.5") * (entry_price - stop_price):
+                findings.append(f"50-percent bracket has less than 1.5R room {list_id}")
+            if entry.status == "FILLED" and int(entry.ts_last) <= int(entry.ts_init):
+                findings.append(f"50-percent entry filled at or before submission {list_id}")
         if stop.parent_order_id != entry.client_order_id:
             findings.append(f"stop parent differs from entry {list_id}")
         if entry.status in {"CANCELED", "EXPIRED"} and (
@@ -125,7 +131,8 @@ def audit(run: Path) -> dict:  # noqa: C901 - one native report relationship aud
         "open_positions": len(live),
         "supersessions": (
             sum(row["support_pullback"]["supersessions"] for row in summary["per_coin"])
-            if summary["signal_variant"] in ("support-confirmed-4h", "support-rejection-4h")
+            if summary["signal_variant"]
+            in ("support-confirmed-4h", "support-rejection-4h", "support-near50-4h")
             else None
         ),
         "findings": findings,

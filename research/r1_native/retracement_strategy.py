@@ -302,14 +302,27 @@ class ConfirmedSupportPullback:
 
 class RetracementStrategy(R1Strategy):
     """
-    Submit H13c limits or H13f close-rejection markets through native brackets.
+    Submit frozen retracement styles through Nautilus native brackets.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        if self.signal_variant not in ("support-confirmed-4h", "support-rejection-4h"):
+        if self.signal_variant not in (
+            "support-confirmed-4h",
+            "support-rejection-4h",
+            "support-near50-4h",
+        ):
             raise ValueError("retracement strategy requires a supported pullback variant")
-        self.support_state = ConfirmedSupportPullback(timing="confirmed-update")
+        self.support_state = (
+            ConfirmedSupportPullback(
+                timing="confirmed-update",
+                support_mode="none",
+                entry_ratio=NEAR_RATIO,
+                minimum_target_r=1.5,
+            )
+            if self.signal_variant == "support-near50-4h"
+            else ConfirmedSupportPullback(timing="confirmed-update")
+        )
         self.selected_pair: tuple[int, int] | None = None
         self.retracement_supersessions = 0
         self.retracement_cancel_race_fills = 0
@@ -469,7 +482,8 @@ class RetracementStrategy(R1Strategy):
         entry = self.instrument.make_price(signal.level).as_double()
         stop = self.instrument.make_price(signal.stop).as_double()
         target = self.instrument.make_price(signal.target).as_double()
-        if not (0 < stop < entry < target and target - entry >= 2 * (entry - stop)):
+        minimum_room = 1.5 if self.signal_variant == "support-near50-4h" else 2.0
+        if not (0 < stop < entry < target and target - entry >= minimum_room * (entry - stop)):
             self.retracement_invalid_price_skips += 1
             return
         super()._submit_signal(signal)

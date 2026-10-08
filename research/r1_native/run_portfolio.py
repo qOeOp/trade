@@ -49,6 +49,7 @@ from vibe_trading.persistence import ParquetDataCatalog
 
 
 LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
+RETRACEMENT_VARIANTS = ("support-confirmed-4h", "support-rejection-4h", "support-near50-4h")
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
 
 
@@ -234,6 +235,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "box-edge-4h",
             "support-confirmed-4h",
             "support-rejection-4h",
+            "support-near50-4h",
             *LINE_VARIANTS,
         ),
         default="daily-pivot",
@@ -315,7 +317,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 R1StagedStrategy
                 if args.exit_variant in STAGED_EXITS
                 else RetracementStrategy
-                if args.signal_variant in ("support-confirmed-4h", "support-rejection-4h")
+                if args.signal_variant in RETRACEMENT_VARIANTS
                 else TrendlineBreakStrategy
                 if args.signal_variant in LINE_VARIANTS
                 else R1Strategy
@@ -402,7 +404,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native range-edge orders were denied or rejected")
-        if args.signal_variant in ("support-confirmed-4h", "support-rejection-4h") and (
+        if args.signal_variant in RETRACEMENT_VARIANTS and (
             (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
         ):
             integrity_findings.append("native support-pullback orders were denied or rejected")
@@ -438,7 +440,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 hashlib.sha256(
                     Path(__file__).with_name("retracement_strategy.py").read_bytes(),
                 ).hexdigest()
-                if args.signal_variant in ("support-confirmed-4h", "support-rejection-4h")
+                if args.signal_variant in RETRACEMENT_VARIANTS
                 else None
             ),
             "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -459,6 +461,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 if args.signal_variant == "support-confirmed-4h"
                 else "H13f-support-rejection-4h"
                 if args.signal_variant == "support-rejection-4h"
+                else "H14a-support-near50-4h"
+                if args.signal_variant == "support-near50-4h"
                 else "H06-trendline-4h"
                 if args.signal_variant == "trendline-4h"
                 else "H08b-line-resting-4h"
@@ -553,7 +557,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                                 row["coin"]
                             ].retracement_actual_price_violations,
                         }
-                        if args.signal_variant in ("support-confirmed-4h", "support-rejection-4h")
+                        if args.signal_variant in RETRACEMENT_VARIANTS
                         else None
                     ),
                     "line_breaks": (

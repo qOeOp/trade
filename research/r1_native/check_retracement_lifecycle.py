@@ -77,7 +77,7 @@ class FixtureStrategy(RetracementStrategy):
         super().on_bar(bar)
 
 
-def _scenario(instrument, scenario: str) -> dict:
+def _scenario(instrument, scenario: str, signal_variant: str) -> dict:
     engine = BacktestEngine(
         BacktestEngineConfig(
             trader_id=TraderId("H13C-CHECK-001"),
@@ -107,7 +107,7 @@ def _scenario(instrument, scenario: str) -> dict:
             Quantity.from_str("0.003"),
             execution_bar_minutes=5,
             strategy_id=StrategyId("H13C-CHECK"),
-            signal_variant="support-confirmed-4h",
+            signal_variant=signal_variant,
         )
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument_id}-5-MINUTE-LAST-EXTERNAL")
@@ -165,14 +165,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--signal-variant",
+        choices=("support-confirmed-4h", "support-near50-4h"),
+        default="support-confirmed-4h",
+    )
     args = parser.parse_args()
     instrument_id = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
     instrument = ParquetDataCatalog(str(args.catalog)).instruments(
         instrument_ids=[str(instrument_id)],
     )[0]
     results = [
-        _scenario(instrument, "cancel_then_new_fill"),
-        _scenario(instrument, "old_fill_before_cancel"),
+        _scenario(instrument, "cancel_then_new_fill", args.signal_variant),
+        _scenario(instrument, "old_fill_before_cancel", args.signal_variant),
     ]
     canceled, raced = results
     assert canceled["entry_statuses"] == ["CANCELED", "FILLED"]
@@ -186,7 +191,11 @@ def main() -> None:
     assert raced["supersessions"] == 0
     assert all(row["slot_violations"] == 0 for row in results)
     args.output.write_text(
-        json.dumps({"scope": "native H13c replacement", "results": results}, indent=2) + "\n",
+        json.dumps(
+            {"scope": f"native {args.signal_variant} replacement", "results": results},
+            indent=2,
+        )
+        + "\n",
     )
 
 
