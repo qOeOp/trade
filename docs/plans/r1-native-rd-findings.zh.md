@@ -431,3 +431,11 @@
 **后继验收。** H15a 的正式 Strategy 已在合成 Nautilus 事件中通过三档止盈／止损、首档或两档止盈后再回撤、同根止损、全部挂单到期、定时退出、旧计划撤单确认后替换，以及旧单在撤单请求前已成交的九条路径。另用原生延迟模型将撤单确认推迟十分钟：旧单在撤单请求后、确认前成交时，Strategy 保留其保护单、放弃新计划，结算后无残留订单或持仓。十条路径的原生成交序列均未出现净空，终态净额为零。实际四小时聚合触发时钟及真实共享账户中的费用与资金费仍需继续验收，不能把这轮合成结果称作年度收益改善。
 
 **核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[未收束原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)、[撤单修复原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-cancel-probe.json)、[正式 Strategy 十路径事件报告](../../research/r1_native/results/2026-10-08-h15a-strategy-lifecycle-race.json)、[正式选锚来源核查](../../research/r1_native/results/2026-10-08-h15a-actual-selector.json)。这些诊断不含真实行情收益；H15a 的一年经济结果尚未验收。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)及 [Backtest 输入与结果](../owners/backtest.zh.md)。
+
+## F43：订单时钟和合约最小跳动要按原生值验收
+
+**已验证的流程缺陷。** H15a 两币试跑的第一版独立报告审计报出 411 项异常，实际混有两种核查口径错误：含空值的 `expire_time_ns` 经 CSV 输出变成低精度科学记数，丢失精确纳秒；另外用价格显示精度推测价格最小跳动，而 BTC 原生 Instrument 的显示精度与 `price_increment` 并不相同。有些四小时决策又是在下一根五分钟执行事件才正式提交，不能把订单提交时刻直接当作计划起算时刻。直接据这些衍生异常否定策略，会把报告表示问题误判为交易规则失败。
+
+**改进方法与产品含义。** 原生订单报告应保留订单对象的整数到期时刻，并同时保存已完成决策 K 线、实际提交及首个可执行事件；审核 GTD 时相对决策边界核对，审核价格时使用 Instrument 的 `price_increment`。原始订单、成交与持仓身份仍是事实来源，审计衍生计数需能回到这些行。H15a 修正导出和审计后，同一 BTC/ETH 回放经济数字逐项不变；独立审计通过 158 组原生订单及开放持仓保护数量。这项修复改善了证据可信度，没有改变策略收益。
+
+**核查证据。** [H15a 完整实验记录](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[首次审计异常](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit-attempt1.json)、[修正后原生审计](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit.json)、[两币原生摘要](../../research/r1_native/results/2026-10-08-h15a-pilot-btc-eth-summary.json)。蓝图核对 [Backtest 输入与结果](../owners/backtest.zh.md)。
