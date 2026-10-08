@@ -133,7 +133,7 @@ def _classify(
         "first_target_b_r": str((target - entry) / risk),
         "native_fill_events": len(events),
         "later_distinct_entry_orders": len(later_entries),
-        "strict_interior_five_minute_bars": max(0, strict_end - strict_start),
+        "strict_interior_five_minute_bars": int(max(0, strict_end - strict_start)),
         "strict_first_r_reached": strict_high is not None and strict_high >= threshold,
         "permissive_first_r_reached": permissive_high is not None and permissive_high >= threshold,
         "same_event_first_and_final_fill": first_ns == final_ns if is_closed else False,
