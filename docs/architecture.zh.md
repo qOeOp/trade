@@ -20,7 +20,7 @@ R1 当前的 37 个合约在**同一个**初始 100,000 USDT 的原生保证金�
 
 ## 当前可运行切片
 
-`strategies/r1/run_portfolio.py` 读取现有 LAST/MARK K 线、资金费率和合约假设，调用原生 `BacktestEngine`，输出订单、成交、仓位、账户与指标报告。仓库自写的 `funding_catalog.py` 只是旧数据格式适配器：用 PyArrow 读取现有资金费率 Parquet 行，转成 Nautilus 原生 `FundingRateUpdate` 并交给 `BacktestEngine.add_data()`；资金费结算仍由 Nautilus 执行。仅重新同步旧数据不能移除它：锁定的 rc3 Catalog 没有资金费率专用读写入口，现有资金费率目录经通用 `query()` 也读不到；只有换成经验证可直接提供原生资金费率输入的版本或数据入口，并通过配对回放，才可移除适配器。`compare.py` 对冻结的本地引擎结果与发布版结果做配对检查。运行方式和数据路径见 `strategies/r1/README.md`；已验证的 H18a/H19a 全年 37 币结果见 `docs/plans/nautilus-upstream-poc.zh.md`。
+`strategies/r1/run_portfolio.py` 读取现有 LAST/MARK K 线、资金费率和合约假设，调用原生 `BacktestEngine`，输出订单、成交、仓位、账户与指标报告。仓库自写的 `funding_catalog.py` 只是旧数据格式适配器：用 PyArrow 读取现有资金费率 Parquet 行，转成 Nautilus 原生 `FundingRateUpdate` 并交给 `BacktestEngine.add_data()`；资金费结算仍由 Nautilus 执行。这个脚本是当前手动 `BacktestEngine.add_data()` 回放入口的适配层，并非资金费结算引擎。锁定的 rc3 没有 `ParquetDataCatalog.query_funding_rate_updates()` Python 方法，通用 `query()` 也读不到这份旧目录；但同版本的原生 `BacktestNode` 可以用 `BacktestDataConfig(data_type="FundingRateUpdate")` 从现有 Catalog 加载资金费率。单币短窗口只读试跑与旧脚本的事件数量一致。未来可只改回放入口、不重下数据来移除该脚本；删除前仍须在 37 币共享账户全年回放中配对订单、成交、资金费与净值。`compare.py` 对冻结的本地引擎结果与发布版结果做配对检查。运行方式和数据路径见 `strategies/r1/README.md`；已验证的 H18a/H19a 全年 37 币结果见 `docs/plans/nautilus-upstream-poc.zh.md`。
 
 固定版本为 `nautilus_trader==2.0.0rc3`。这是在同一数据、同一参数、同一共享账户上通过订单与经济结果配对的版本；升级前必须重新检查原生订单完整性及全年配对。当前合约元数据来自研究时保存的现行规则假设，不能据此声称历史逐日合约条款精确。历史研究数据留在外部 Catalog，不复制进 Git。研究脚本与已暴露年度结果可用于机制诊断；新候选的确认需独立的事前规则、配对与样本外/多重尝试处理。
 
