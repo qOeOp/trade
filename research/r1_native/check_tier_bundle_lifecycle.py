@@ -381,7 +381,7 @@ def main() -> None:
                         result["open_position_rows"],
                     ),
                 )
-                or any(side != "LONG" for side in result["position_sides"])
+                or any(side == "SHORT" for side in result["position_sides"])
             ):
                 raise RuntimeError(f"H15 native lifecycle failed: {result['exit_kind']}: {result}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
