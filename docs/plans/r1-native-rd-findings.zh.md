@@ -472,7 +472,9 @@
 
 **改进方法与产品含义。** Agent 研究多档入场的二级延伸时，应预登记整个计划的**状态转移**：每档成交、任一档止盈／止损、剩余单撤销、重新触及和新波段替换。先用原生订单生命周期覆盖这些路径，再用完整共享账户比较机会数、止损、止盈、到期、资金费、胜率、盈亏比、净值、夏普和回撤。档位删减或权重变化若提高一个指标却破坏联合目标，应关闭该精确定义，并根据原生退出原因转向事前可识别的结构／目标问题；不在已见年度继续试权重。Backtest 保存并核对原生父子订单与持仓事实，R&D 记录父子假设和失败归因，不造第二套档位盈亏账本。
 
-**核查证据。** [H16a 预登记、来源和完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)、[H16a 原生组合摘要](../../research/r1_native/results/2026-10-08-h16a-37-summary.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h16a-paired-h15a-summary.json)、[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)、[H16a 原生订单审计](../../research/r1_native/results/2026-10-08-h16a-37-native-audit.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
+**后续容量核查。** D49 用同一原生订单和完整五分钟 LAST 数据检查"挂单尚未成交、价格先重访前高 B、之后旧挂单才成交"。第一次读取按币种简称连接合约，漏掉 `1000PEPE`／`1000SHIB`；修复为 Catalog 的精确 InstrumentId 并要求覆盖全部订单组后，H15a 的 3,271 组计划里有 **30** 组走到这一路径，其后 34 个已平仓持仓只有 17 个非盈利，合计亏损约 **1,733 USDT**；H16a 为 15 组、17 个已平仓持仓、9 个非盈利，合计约 **1,245 USDT**。这表明旧计划存续是实际路径，但即使乐观地删除 H15a 这 17 笔亏损，也不足以填平年化 20% 所需的 **15,263 USDT** 权益缺口，且会改变后续机会和账户状态。来源没有明确规定触及 B 后必须撤单，因此只保留为具名生命周期问题；下一轮先找能增加有效机会或改善首个障碍收益的事前机制，不把这项小容量修补做成又一轮完整回测。
+
+**核查证据。** [H16a 预登记、来源和完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)、[H16a 原生组合摘要](../../research/r1_native/results/2026-10-08-h16a-37-summary.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h16a-paired-h15a-summary.json)、[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)、[D49 事前 B 重访诊断](../../research/r1_native/results/2026-10-08-d49-b-revisit-before-fill.json)、[H16a 原生订单审计](../../research/r1_native/results/2026-10-08-h16a-37-native-audit.json)。蓝图核对 [R&D 研究与判断](../owners/rd.zh.md)与 [Backtest 输入与结果](../owners/backtest.zh.md)。
 
 ## F48：跨机制组合可以扩展搜索，但组件成绩不能遗传
 
