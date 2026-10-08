@@ -96,15 +96,24 @@ def _scenario(instrument, exit_kind: str) -> dict:
         )
         engine.add_strategy(strategy)
         bar_type = BarType.from_str(f"{instrument.id}-5-MINUTE-LAST-EXTERNAL")
-        prices = [
-            (71_000, 71_100, 70_900, 71_000),
-            (70_900, 71_000, 70_200, 70_250),
-            (70_250, 70_300, 69_600, 69_700),
-            (69_700, 69_800, 68_800, 68_950),
-            (68_950, 72_900, 68_900, 72_800)
-            if exit_kind == "target"
-            else (68_950, 69_000, 67_400, 67_450),
-        ]
+        if exit_kind == "target_then_retrace":
+            prices = [
+                (71_000, 71_100, 70_900, 71_000),
+                (70_900, 71_000, 70_200, 70_250),
+                (70_250, 72_900, 70_200, 72_800),
+                (72_800, 72_850, 68_800, 68_950),
+                (68_950, 69_000, 68_900, 68_950),
+            ]
+        else:
+            prices = [
+                (71_000, 71_100, 70_900, 71_000),
+                (70_900, 71_000, 70_200, 70_250),
+                (70_250, 70_300, 69_600, 69_700),
+                (69_700, 69_800, 68_800, 68_950),
+                (68_950, 72_900, 68_900, 72_800)
+                if exit_kind == "target"
+                else (68_950, 69_000, 67_400, 67_450),
+            ]
         start = 1_790_000_099_999_000_000
         times = [start + index * STEP_NS for index in range(len(prices))]
         engine.add_data(
@@ -129,6 +138,10 @@ def _scenario(instrument, exit_kind: str) -> dict:
         orders = engine.generate_orders_report()
         positions = engine.generate_positions_report()
         fills = engine.generate_fills_report()
+        typed_tags = orders.tags.astype(str)
+        entry = orders[typed_tags == "['ENTRY']"]
+        stops = orders[typed_tags == "['STOP_LOSS']"]
+        targets = orders[typed_tags == "['TAKE_PROFIT']"]
         order_fields = (
             "client_order_id",
             "side",
@@ -143,6 +156,12 @@ def _scenario(instrument, exit_kind: str) -> dict:
         visible_order_fields = [field for field in order_fields if field in orders.columns]
         return {
             "exit_kind": exit_kind,
+            "entry_statuses": list(entry.status.astype(str)),
+            "stop_statuses": list(stops.status.astype(str)),
+            "target_statuses": list(targets.status.astype(str)),
+            "filled_entries": int((entry.status == "FILLED").sum()),
+            "filled_stops": int((stops.status == "FILLED").sum()),
+            "filled_targets": int((targets.status == "FILLED").sum()),
             "denied_or_rejected": int(orders.status.isin(("DENIED", "REJECTED")).sum()),
             "native_fills": len(fills),
             "native_position_rows": len(positions),
@@ -169,10 +188,16 @@ def main() -> None:
     )
     if len(instruments) != 1:
         raise RuntimeError("one BTC native Instrument is required")
-    results = [_scenario(instruments[0], kind) for kind in ("target", "stop")]
+    results = [
+        _scenario(instruments[0], kind) for kind in ("target", "stop", "target_then_retrace")
+    ]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
-        json.dumps({"method": "native Nautilus OTO probe", "results": results}, indent=2) + "\n",
+        json.dumps(
+            {"method": "native Nautilus OTO probe", "results": results},
+            indent=2,
+        )
+        + "\n",
     )
 
 
