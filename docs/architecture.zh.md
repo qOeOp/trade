@@ -20,7 +20,7 @@ R1 当前的 37 个合约在**同一个**初始 100,000 USDT 的原生保证金�
 
 ## 当前可运行切片
 
-当前正式入口 `strategies/r1/run_portfolio.py` 用原生 `BacktestEngine` 回放 LAST/MARK K 线、资金费率与合约假设。它通过 `funding_catalog.py` 解码旧研究 Parquet 行，再把原生 `FundingRateUpdate` 交给 Nautilus 结算。锁定的 rc3 没有直接的 Python `ParquetDataCatalog.query_funding_rate_updates()` 方法，但 `BacktestNode` 可从**同一份现有 Catalog** 原生加载资金费率。`strategies/r1/run_portfolio_node.py` 已以一个 100,000 USDT 共享账户完成 H18a/H19a 全年 37 币配对：订单、成交、持仓、资金费调整、账户流水、收益序列与指标均一致。因此替换回放入口不需要重下资金费数据，也不需要维护资金费解码器。现有 MARK 数据存为 K 线，Node 路径仍须从这些已下载的 K 线生成原生 `MarkPriceUpdate` 派生 Catalog；这是本地格式转换，不是重新获取历史数据。旧入口仍支持其他研究变体，故其解码器暂时保留，待入口和报告契约一并迁移后删除。运行方式与配对回执见 `strategies/r1/README.md` 和 `docs/plans/nautilus-upstream-poc.zh.md`。
+唯一回放入口 `strategies/r1/run_portfolio.py` 以原生 `BacktestNode` 回放现有 LAST K 线、资金费率和合约假设，并输出原有逐币与账户报告。资金费率直接从现有 Catalog 加载，由 Nautilus 结算；仓库不再保留资金费解码器。已有 MARK 数据存为 K 线，`native_node.py` 将其收盘价写成原生 `MarkPriceUpdate` 派生 Catalog，复用时逐事件核对时间与价格。`replay_inputs.py` 校验数据回执及资金费结算覆盖。H18a/H19a 全年 37 币共享账户回放，以及覆盖全部信号族和分段退出的 16 组测试组合，均已与原生旧入口做配对；其中两组原本就因订单完整性失败而不构成合格策略结果。运行方式和配对回执见 `strategies/r1/README.md` 与 `docs/plans/nautilus-upstream-poc.zh.md`。
 
 固定版本为 `nautilus_trader==2.0.0rc3`。这是在同一数据、同一参数、同一共享账户上通过订单与经济结果配对的版本；升级前必须重新检查原生订单完整性及全年配对。当前合约元数据来自研究时保存的现行规则假设，不能据此声称历史逐日合约条款精确。历史研究数据留在外部 Catalog，不复制进 Git。研究脚本与已暴露年度结果可用于机制诊断；新候选的确认需独立的事前规则、配对与样本外/多重尝试处理。
 

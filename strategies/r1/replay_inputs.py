@@ -2,9 +2,11 @@
 
 import json
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 
-from nautilus_trader.model import InstrumentId
+import pyarrow.parquet as parquet
+from nautilus_trader.model import BarType, InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 
 
@@ -68,3 +70,70 @@ def read_instruments(
             }
         )
     return rows
+
+
+def warmup_daily_bars(
+    daily_root: Path,
+    coin: str,
+    instrument_id: InstrumentId,
+    start: int,
+):
+    path = daily_root / coin / "daily"
+    completion = json.loads((path / "r1-daily-download-complete.json").read_text())
+    if (
+        completion.get("instrument") != str(instrument_id)
+        or completion.get("end_ns", 0) < start
+    ):
+        raise RuntimeError(f"{coin}: daily warmup identity does not cover replay")
+    catalog = ParquetDataCatalog(str(path))
+    bar_type = BarType.from_str(f"{instrument_id}-1-DAY-LAST-EXTERNAL")
+    bars = sorted(
+        (
+            bar
+            for bar in catalog.query_bars([str(instrument_id)])
+            if bar.bar_type == bar_type and bar.ts_event < start
+        ),
+        key=lambda bar: bar.ts_event,
+    )
+    if (
+        len(bars) < 200
+        or bars[-1].ts_event != start - 1_000_000
+        or any(b.ts_event - a.ts_event != 86_400_000_000_000 for a, b in pairwise(bars))
+    ):
+        raise RuntimeError(f"{coin}: daily warmup is not contiguous")
+    return bars
+
+
+def validate_funding_receipt(row: dict, start: int, end: int) -> None:
+    """Audit legacy event coverage; BacktestNode itself loads the native data."""
+    files = row["catalog"].query_files(
+        "funding_rate_update",
+        identifiers=[str(row["instrument_id"])],
+    )
+    timestamps = []
+    for relative_path in files:
+        table = parquet.read_table(
+            row["catalog_path"] / relative_path,
+            columns=["ts_event", "next_funding_ns"],
+        )
+        for event, settlement in zip(
+            table["ts_event"].to_pylist(),
+            table["next_funding_ns"].to_pylist(),
+            strict=True,
+        ):
+            if event != settlement:
+                raise RuntimeError(
+                    f"{row['coin']}: funding settlement timestamp mismatch"
+                )
+            if start <= event < end:
+                timestamps.append(event)
+    timestamps.sort()
+    if (
+        len(timestamps) != row["completion"]["counts"]["funding"]
+        or not timestamps
+        or any(
+            b - a > 8 * 3_600_000_000_000 + 1_000_000_000
+            for a, b in pairwise(timestamps)
+        )
+    ):
+        raise RuntimeError(f"{row['coin']}: funding settlement coverage mismatch")
