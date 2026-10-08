@@ -1,3 +1,5 @@
+> **历史研究资产。** 这里的旧脚本与实验记录保留用于溯源；部分脚本依赖已移除的 `vibe_trading` 本地分叉，不能作为当前运行入口。当前官方 Nautilus 策略与回放见 [`strategies/r1/`](../../strategies/r1/)。以下内容记录清理前的研究状态。
+
 # R-1 native replay
 
 This slice reimplements the source R-1u role-reversal rule from commit

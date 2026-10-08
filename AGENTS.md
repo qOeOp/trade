@@ -1,30 +1,12 @@
-# Project Principles
+# Project principles
 
-- **Agent first.** External Agents choose research methods, parameters, comparisons and next actions.
-  Use their existing tools and analysis scripts; do not build another research workflow, optimizer or research preset system.
-- **Minimal deterministic services.** Code provides explicit parameterized operations, durable tasks,
-  reproducible evidence and enforced boundaries. Determinism alone does not justify a new product service.
-- **Build on Nautilus.** Reuse and extend its data, Strategy, backtest, Risk, Execution and Portfolio capabilities
-  through native APIs. Within confirmed product bounds, adopt verified native mechanisms and extensions, record the
-  decision and evidence, and do not ask users to reselect native behavior. Ask only for unresolved product intent
-  or tradeoffs requiring their judgment. Do not create parallel engines or ledgers, or product-specific strategy languages and compilation chains.
-- **Clean ownership.** Give each responsibility one owner. Merge overlapping components; add a module only for
-  an independent need. Shared storage never permits access to another owner's private tables or write authority.
-- **Local context.** Organize product extensions by independent capability, not individual MCP tools.
-  Keep related entry points, behavior, adapters and tests together; keep shared Nautilus foundations shared.
-  Use short local `AGENTS.md` files for responsibilities, source entry points, contracts and checks.
-  Migrate existing paths only when needed by a delivery slice; do not copy shared code to make directories self-contained.
-- **Deliver user stories.** Build the smallest complete vertical flow for the current milestone. Close higher
-  design layers before lower details; replay research stories against the design before adding general infrastructure.
-- **Keep one current blueprint.** Documentation defines the intended product and may lead implementation.
-  Revise it when evidence changes the design; keep chapters, diagrams and contracts coherent, without patch diaries.
-- **Verify outcomes.** Check native capabilities and actual consumers before inventing solutions. Test observable
-  results, failures and recovery; avoid tests tied to document wording or a prescribed Agent call sequence.
+- Agent first: external Agents choose research questions and methods. Use native Nautilus APIs and scripts; do not build a parallel research workflow, strategy language, matching engine or ledger.
+- Strategy source is the primary product artifact. Bind each independent strategy to a fixed-capital native account. R1's 37 instruments form one strategy/account for the current replay.
+- Keep adapters thin and explicit. `strategies/r1/funding_catalog.py` only decodes the legacy research funding format; Nautilus owns settlement, orders, fills, risk and account state.
+- Preserve reproducible research evidence and data lineage. A strategy, dependency or data change requires a new paired replay before claiming parity.
+- Keep one current product blueprint in `docs/architecture.zh.md`. Record research/product findings under `docs/plans/`.
+- Research backtests are read-only. Real trading, production writes, or changing a refusal or risk boundary require explicit user authority. Do not use exchange trading credentials for research.
 
-## Working Boundaries
+## Checks
 
-- Preserve unrelated work. Use the current Makefile, pre-commit and CI workflows; Owner implementation acceptance
-  requires the affected Linux Owner chains, not merely a local pass or a successful build.
-- Real trading or another production write, changing product purpose/user routes, or weakening a stated refusal,
-  seal, bound or invariant requires explicit user authority. Dashboard implementation stays within documented admitted slices.
-- Use approved research credentials only within the task. Never expose secrets or use exchange trading credentials.
+Run `uv sync --frozen`, `uv run --frozen python strategies/r1/run_portfolio.py --help`, and the paired replay described in `strategies/r1/README.md` when its inputs are available. Inspect native order integrity and account economics; a successful process exit alone is insufficient.

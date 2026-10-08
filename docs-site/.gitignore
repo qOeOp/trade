@@ -1,9 +1,0 @@
-/.next/
-/.source/
-/content/docs/
-/node_modules/
-/out/
-/public/icon-dark.svg
-/public/icon.svg
-*.tsbuildinfo
-next-env.d.ts
