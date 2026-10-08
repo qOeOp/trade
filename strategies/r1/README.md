@@ -38,9 +38,8 @@ There is no funding event decoder or second matching/account engine.
 ## Paired acceptance
 
 ```bash
-uv run --frozen python strategies/r1/compare.py \
-  /tmp/nautilus-minimal-cleanup-h19a-37 /tmp/r1-node-h19a-37 \
-  --catalog-root /tmp/r1-37-1y-5m-2026oct7
+uv run --frozen python strategies/r1/compare_node.py \
+  /tmp/nautilus-minimal-cleanup-h19a-37 /tmp/r1-node-h19a-37
 ```
 
 The H18a control is `/tmp/nautilus-upstream-final-h18a-37`. Both full annual
