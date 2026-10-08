@@ -65,6 +65,15 @@ class ThreeBracketFixture(R1Strategy):
             self.submit_order_list(orders)
 
     def on_position_closed(self, event) -> None:
+        self.closed_callbacks = getattr(self, "closed_callbacks", 0) + 1
+        self.entry_state_at_close = [
+            (
+                str(entry_id),
+                str(self.cache.order(entry_id).status),
+                self.cache.order(entry_id).is_open,
+            )
+            for entry_id in self.bundle_entries
+        ]
         super().on_position_closed(event)
         for entry_id in self.bundle_entries:
             order = self.cache.order(entry_id)
@@ -165,6 +174,8 @@ def _scenario(instrument, exit_kind: str) -> dict:
         visible_order_fields = [field for field in order_fields if field in orders.columns]
         return {
             "exit_kind": exit_kind,
+            "closed_callbacks": getattr(strategy, "closed_callbacks", 0),
+            "entry_state_at_close": getattr(strategy, "entry_state_at_close", []),
             "entry_statuses": list(entry.status.astype(str)),
             "stop_statuses": list(stops.status.astype(str)),
             "target_statuses": list(targets.status.astype(str)),
