@@ -1,0 +1,220 @@
+{
+  "scope": "D29 source-date four-hour anchor geometry only; no orders, fills, PnL or selected cutoff",
+  "registration_commit": "272b341d2",
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "corrected_h06_parity_sha256": "ee1b06ef9d42645aeb107c5e8425273827c97181c8cf942630c31bdf8cde7978",
+  "selector": {
+    "recent_high_bars": 60,
+    "confirmed_low_order": 8,
+    "low_lookback_bars": 180,
+    "minimum_anchor_span_bars": 6,
+    "equal_high_tie": "earliest",
+    "low_choice": "latest eligible"
+  },
+  "cases": [
+    {
+      "coin": "BTC",
+      "source_case": "C18",
+      "instrument_id": "BTCUSDT-PERP.BINANCE",
+      "minute_catalog_sha256": "bd804c5865aba72d8be06c56b48482c360ffee15706b314fa7e956f48c12bad7",
+      "cutoffs": [
+        {
+          "decision_utc": "2026-01-08T00:00:00+00:00",
+          "last_completed_four_hour_utc": "2026-01-08T00:00:00+00:00",
+          "last_completed_close": 91328.0,
+          "impulse": {
+            "low_anchor_utc": "2026-01-01T00:00:00+00:00",
+            "low_confirmed_utc": "2026-01-02T08:00:00+00:00",
+            "low": 87189.2,
+            "high_anchor_utc": "2026-01-06T00:00:00+00:00",
+            "high": 94760.3,
+            "high_age_four_hour_bars": 12,
+            "anchor_span_four_hour_bars": 30,
+            "confirmed_low_candidates_before_high": 8
+          },
+          "no_impulse_reason": null,
+          "levels": {
+            "0.5": {
+              "price": 90974.75,
+              "source_chart_band": [
+                90800,
+                91300
+              ],
+              "signed_difference_from_band": 0.0,
+              "inside_observed_impulse": true
+            },
+            "0.618": {
+              "price": 90081.3602,
+              "source_chart_band": [
+                89700,
+                90400
+              ],
+              "signed_difference_from_band": 0.0,
+              "inside_observed_impulse": true
+            },
+            "0.764": {
+              "price": 88975.97959999999,
+              "source_chart_band": [
+                88500,
+                89300
+              ],
+              "signed_difference_from_band": 0.0,
+              "inside_observed_impulse": true
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "levels_ordered": true
+        },
+        {
+          "decision_utc": "2026-01-08T04:00:00+00:00",
+          "last_completed_four_hour_utc": "2026-01-08T04:00:00+00:00",
+          "last_completed_close": 90780.1,
+          "impulse": {
+            "low_anchor_utc": "2026-01-01T00:00:00+00:00",
+            "low_confirmed_utc": "2026-01-02T08:00:00+00:00",
+            "low": 87189.2,
+            "high_anchor_utc": "2026-01-06T00:00:00+00:00",
+            "high": 94760.3,
+            "high_age_four_hour_bars": 13,
+            "anchor_span_four_hour_bars": 30,
+            "confirmed_low_candidates_before_high": 8
+          },
+          "no_impulse_reason": null,
+          "levels": {
+            "0.5": {
+              "price": 90974.75,
+              "source_chart_band": [
+                90800,
+                91300
+              ],
+              "signed_difference_from_band": 0.0,
+              "inside_observed_impulse": true
+            },
+            "0.618": {
+              "price": 90081.3602,
+              "source_chart_band": [
+                89700,
+                90400
+              ],
+              "signed_difference_from_band": 0.0,
+              "inside_observed_impulse": true
+            },
+            "0.764": {
+              "price": 88975.97959999999,
+              "source_chart_band": [
+                88500,
+                89300
+              ],
+              "signed_difference_from_band": 0.0,
+              "inside_observed_impulse": true
+            }
+          },
+          "all_levels_in_source_bands": true,
+          "levels_ordered": true
+        }
+      ]
+    },
+    {
+      "coin": "ETH",
+      "source_case": "C19",
+      "instrument_id": "ETHUSDT-PERP.BINANCE",
+      "minute_catalog_sha256": "d7ccf00d123f58b35af8a2f3d195b9eafe203c9f4f733e692792efdc0d5d3ab1",
+      "cutoffs": [
+        {
+          "decision_utc": "2026-04-13T00:00:00+00:00",
+          "last_completed_four_hour_utc": "2026-04-13T00:00:00+00:00",
+          "last_completed_close": 2190.62,
+          "impulse": {
+            "low_anchor_utc": "2026-04-09T16:00:00+00:00",
+            "low_confirmed_utc": "2026-04-11T00:00:00+00:00",
+            "low": 2156.0,
+            "high_anchor_utc": "2026-04-11T20:00:00+00:00",
+            "high": 2329.99,
+            "high_age_four_hour_bars": 7,
+            "anchor_span_four_hour_bars": 13,
+            "confirmed_low_candidates_before_high": 9
+          },
+          "no_impulse_reason": null,
+          "levels": {
+            "0.5": {
+              "price": 2242.995,
+              "source_chart_band": [
+                2170,
+                2210
+              ],
+              "signed_difference_from_band": 32.99499999999989,
+              "inside_observed_impulse": true
+            },
+            "0.618": {
+              "price": 2222.46418,
+              "source_chart_band": [
+                2135,
+                2175
+              ],
+              "signed_difference_from_band": 47.46417999999994,
+              "inside_observed_impulse": true
+            },
+            "0.764": {
+              "price": 2197.06164,
+              "source_chart_band": [
+                2100,
+                2145
+              ],
+              "signed_difference_from_band": 52.0616399999999,
+              "inside_observed_impulse": true
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "levels_ordered": true
+        },
+        {
+          "decision_utc": "2026-04-13T04:00:00+00:00",
+          "last_completed_four_hour_utc": "2026-04-13T04:00:00+00:00",
+          "last_completed_close": 2193.27,
+          "impulse": {
+            "low_anchor_utc": "2026-04-09T16:00:00+00:00",
+            "low_confirmed_utc": "2026-04-11T00:00:00+00:00",
+            "low": 2156.0,
+            "high_anchor_utc": "2026-04-11T20:00:00+00:00",
+            "high": 2329.99,
+            "high_age_four_hour_bars": 8,
+            "anchor_span_four_hour_bars": 13,
+            "confirmed_low_candidates_before_high": 9
+          },
+          "no_impulse_reason": null,
+          "levels": {
+            "0.5": {
+              "price": 2242.995,
+              "source_chart_band": [
+                2170,
+                2210
+              ],
+              "signed_difference_from_band": 32.99499999999989,
+              "inside_observed_impulse": true
+            },
+            "0.618": {
+              "price": 2222.46418,
+              "source_chart_band": [
+                2135,
+                2175
+              ],
+              "signed_difference_from_band": 47.46417999999994,
+              "inside_observed_impulse": true
+            },
+            "0.764": {
+              "price": 2197.06164,
+              "source_chart_band": [
+                2100,
+                2145
+              ],
+              "signed_difference_from_band": 52.0616399999999,
+              "inside_observed_impulse": true
+            }
+          },
+          "all_levels_in_source_bands": false,
+          "levels_ordered": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,278 @@
+{
+  "schema": "r1-native-h19a-signal-parity/v1",
+  "input_sha256": {
+    "identity": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+    "parity": "ee1b06ef9d42645aeb107c5e8425273827c97181c8cf942630c31bdf8cde7978"
+  },
+  "source_reader_sha256": "f2ae538096df254d7037523ce6744d80cd898707074536138eb8616d4355f8cc",
+  "strategy_signal_sha256": "c8dcb097b924dc90339207bf3f751fc88b3b95acf9512ba3689ab62e4e7b57cd",
+  "coins": [
+    {
+      "coin": "BTC",
+      "instrument_id": "BTCUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1958,
+      "eligible_decisions": 1017
+    },
+    {
+      "coin": "ETH",
+      "instrument_id": "ETHUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1964,
+      "eligible_decisions": 1067
+    },
+    {
+      "coin": "BNB",
+      "instrument_id": "BNBUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1976,
+      "eligible_decisions": 951
+    },
+    {
+      "coin": "ADA",
+      "instrument_id": "ADAUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1967,
+      "eligible_decisions": 629
+    },
+    {
+      "coin": "XRP",
+      "instrument_id": "XRPUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1989,
+      "eligible_decisions": 610
+    },
+    {
+      "coin": "SOL",
+      "instrument_id": "SOLUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1985,
+      "eligible_decisions": 904
+    },
+    {
+      "coin": "DOGE",
+      "instrument_id": "DOGEUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2001,
+      "eligible_decisions": 492
+    },
+    {
+      "coin": "LTC",
+      "instrument_id": "LTCUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1991,
+      "eligible_decisions": 795
+    },
+    {
+      "coin": "TRX",
+      "instrument_id": "TRXUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1980,
+      "eligible_decisions": 1027
+    },
+    {
+      "coin": "LINK",
+      "instrument_id": "LINKUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1984,
+      "eligible_decisions": 978
+    },
+    {
+      "coin": "DOT",
+      "instrument_id": "DOTUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1970,
+      "eligible_decisions": 684
+    },
+    {
+      "coin": "AVAX",
+      "instrument_id": "AVAXUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1982,
+      "eligible_decisions": 817
+    },
+    {
+      "coin": "BCH",
+      "instrument_id": "BCHUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1959,
+      "eligible_decisions": 815
+    },
+    {
+      "coin": "ETC",
+      "instrument_id": "ETCUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1970,
+      "eligible_decisions": 498
+    },
+    {
+      "coin": "XLM",
+      "instrument_id": "XLMUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2000,
+      "eligible_decisions": 580
+    },
+    {
+      "coin": "ATOM",
+      "instrument_id": "ATOMUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2006,
+      "eligible_decisions": 755
+    },
+    {
+      "coin": "FIL",
+      "instrument_id": "FILUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2000,
+      "eligible_decisions": 692
+    },
+    {
+      "coin": "NEAR",
+      "instrument_id": "NEARUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2000,
+      "eligible_decisions": 984
+    },
+    {
+      "coin": "UNI",
+      "instrument_id": "UNIUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1971,
+      "eligible_decisions": 790
+    },
+    {
+      "coin": "AAVE",
+      "instrument_id": "AAVEUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1987,
+      "eligible_decisions": 960
+    },
+    {
+      "coin": "ICP",
+      "instrument_id": "ICPUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2008,
+      "eligible_decisions": 631
+    },
+    {
+      "coin": "APT",
+      "instrument_id": "APTUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1981,
+      "eligible_decisions": 606
+    },
+    {
+      "coin": "ARB",
+      "instrument_id": "ARBUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1976,
+      "eligible_decisions": 767
+    },
+    {
+      "coin": "SUI",
+      "instrument_id": "SUIUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1961,
+      "eligible_decisions": 654
+    },
+    {
+      "coin": "OP",
+      "instrument_id": "OPUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1985,
+      "eligible_decisions": 558
+    },
+    {
+      "coin": "INJ",
+      "instrument_id": "INJUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2002,
+      "eligible_decisions": 818
+    },
+    {
+      "coin": "TIA",
+      "instrument_id": "TIAUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2006,
+      "eligible_decisions": 716
+    },
+    {
+      "coin": "SEI",
+      "instrument_id": "SEIUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1986,
+      "eligible_decisions": 565
+    },
+    {
+      "coin": "PEPE",
+      "instrument_id": "1000PEPEUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1978,
+      "eligible_decisions": 782
+    },
+    {
+      "coin": "SHIB",
+      "instrument_id": "1000SHIBUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2006,
+      "eligible_decisions": 538
+    },
+    {
+      "coin": "HBAR",
+      "instrument_id": "HBARUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2003,
+      "eligible_decisions": 583
+    },
+    {
+      "coin": "ALGO",
+      "instrument_id": "ALGOUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1991,
+      "eligible_decisions": 689
+    },
+    {
+      "coin": "FET",
+      "instrument_id": "FETUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2004,
+      "eligible_decisions": 752
+    },
+    {
+      "coin": "WLD",
+      "instrument_id": "WLDUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1956,
+      "eligible_decisions": 541
+    },
+    {
+      "coin": "IMX",
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1986,
+      "eligible_decisions": 732
+    },
+    {
+      "coin": "STX",
+      "instrument_id": "STXUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 2003,
+      "eligible_decisions": 605
+    },
+    {
+      "coin": "LDO",
+      "instrument_id": "LDOUSDT-PERP.BINANCE",
+      "complete_four_hour_bars": 2192,
+      "selected_decisions": 1993,
+      "eligible_decisions": 775
+    }
+  ],
+  "totals": {
+    "coins": 37,
+    "complete_four_hour_bars": 81104,
+    "selected_decisions": 73465,
+    "eligible_decisions": 27357
+  },
+  "all_exact": true,
+  "economic_data_read": false
+}

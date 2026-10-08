@@ -1,0 +1,128 @@
+{
+  "method": "registered H13 source-date signal availability on verified native LAST catalogs; no orders, fills, PnL or account replay",
+  "registration_commit": "c5e8fb341",
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "corrected_parity_sha256": "ee1b06ef9d42645aeb107c5e8425273827c97181c8cf942630c31bdf8cde7978",
+  "s24_source_sha256": "4cac7ad01f5825513f615dad9d73abc946c43bbba93dd1417fb22c7e1bdfd577",
+  "d29_source_case_sha256": "af99c02990294d60daa64f89ed8b0605e337a251f2bba2f5630f5f7885b4aede",
+  "coins": {
+    "BTC": {
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "source_case": "C18",
+      "cutoffs": [
+        {
+          "cutoff_utc": "2026-01-08T00:00:00+00:00",
+          "last_close": 91328.0,
+          "last_low": 90740.5,
+          "current_readout": {
+            "index": 557,
+            "reason": "not-before-61.8-touch-in-approach-zone",
+            "impulse": {
+              "a_index": 515,
+              "b_index": 545,
+              "a_low": 87189.2,
+              "b_high": 94760.3,
+              "level_50": 90974.75,
+              "level_618": 90081.3602,
+              "level_764": 88975.97959999999,
+              "stop": 88704.71553177456
+            },
+            "plan": null,
+            "support_low_indices": [
+              380,
+              381,
+              392,
+              401,
+              402,
+              403,
+              404,
+              405,
+              406,
+              408,
+              409,
+              528,
+              532,
+              533
+            ]
+          },
+          "active_untouched_plans": []
+        },
+        {
+          "cutoff_utc": "2026-01-08T04:00:00+00:00",
+          "last_close": 90780.1,
+          "last_low": 90555.1,
+          "current_readout": {
+            "index": 558,
+            "reason": "no-recent-confirmed-impulse",
+            "impulse": null,
+            "plan": null
+          },
+          "active_untouched_plans": []
+        }
+      ]
+    },
+    "ETH": {
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "source_case": "C19",
+      "cutoffs": [
+        {
+          "cutoff_utc": "2026-04-13T00:00:00+00:00",
+          "last_close": 2190.62,
+          "last_low": 2182.65,
+          "current_readout": {
+            "index": 1127,
+            "reason": "not-before-61.8-touch-in-approach-zone",
+            "impulse": {
+              "a_index": 1107,
+              "b_index": 1120,
+              "a_low": 2156.0,
+              "b_high": 2329.99,
+              "level_50": 2242.995,
+              "level_618": 2222.46418,
+              "level_764": 2197.06164,
+              "stop": 2187.7408259859903
+            },
+            "plan": null,
+            "support_low_indices": [
+              1098,
+              1114,
+              1117,
+              1118
+            ]
+          },
+          "active_untouched_plans": []
+        },
+        {
+          "cutoff_utc": "2026-04-13T04:00:00+00:00",
+          "last_close": 2193.27,
+          "last_low": 2186.12,
+          "current_readout": {
+            "index": 1128,
+            "reason": "not-before-61.8-touch-in-approach-zone",
+            "impulse": {
+              "a_index": 1107,
+              "b_index": 1120,
+              "a_low": 2156.0,
+              "b_high": 2329.99,
+              "level_50": 2242.995,
+              "level_618": 2222.46418,
+              "level_764": 2197.06164,
+              "stop": 2187.7807055584194
+            },
+            "plan": null,
+            "support_low_indices": [
+              1098,
+              1114,
+              1117,
+              1118
+            ]
+          },
+          "active_untouched_plans": []
+        }
+      ]
+    }
+  },
+  "btc_positive_source_gate": false,
+  "eth_wrong_anchor_false_match": false,
+  "passed": false
+}

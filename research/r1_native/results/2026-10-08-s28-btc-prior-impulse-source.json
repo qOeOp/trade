@@ -1,0 +1,202 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S28",
+  "source_url": "https://www.youtube.com/watch?v=JDfiSUqT0Kw",
+  "source_metadata": {
+    "author_name": "罗尼交易指南",
+    "canonical_url": "https://www.youtube.com/watch?v=JDfiSUqT0Kw",
+    "duration_ms": 714000,
+    "part_id": "JDfiSUqT0Kw",
+    "part_index": 1,
+    "platform": "youtube",
+    "published_at": "2026-04-08T00:00:00Z",
+    "requested_url": "https://www.youtube.com/watch?v=JDfiSUqT0Kw",
+    "title": "比特币隔夜5000点涨幅，还能追多吗？",
+    "video_id": "JDfiSUqT0Kw"
+  },
+  "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-1c24abd67ccdd6f1055bc93447951df31be60b5f677402e3197455ea17787fa8/manifest.json",
+  "media_manifest_sha256": "1c24abd67ccdd6f1055bc93447951df31be60b5f677402e3197455ea17787fa8",
+  "media_sha256": "99c53afac5029ff52ebfffe1a64ddec9e33d28d0d115d9a875977c27d2086797",
+  "same_byte_media_manifest_count": 1,
+  "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-b994d42a25d65216c97be4628812b02006ca7e23fce35881555ef1eb6d2ca85e/manifest.json",
+  "transcript_manifest_sha256": "b994d42a25d65216c97be4628812b02006ca7e23fce35881555ef1eb6d2ca85e",
+  "transcript_method": "asr",
+  "transcript_reviews": [],
+  "relevant_segments": [
+    {
+      "end_ms": 14040,
+      "evidence_id": "E004",
+      "start_ms": 12240,
+      "text": "前期高点完成突破"
+    },
+    {
+      "end_ms": 16840,
+      "evidence_id": "E006",
+      "start_ms": 14760,
+      "text": "底部一直是在这测试"
+    },
+    {
+      "end_ms": 19040,
+      "evidence_id": "E007",
+      "start_ms": 16840,
+      "text": "这里甚至完成了一个低点的抬升"
+    },
+    {
+      "end_ms": 25200,
+      "evidence_id": "E010",
+      "start_ms": 22340,
+      "text": "我们从这到这拉了个飞波大气回调线"
+    },
+    {
+      "end_ms": 30800,
+      "evidence_id": "E012",
+      "start_ms": 29220,
+      "text": "昨天晚上50%"
+    },
+    {
+      "end_ms": 32940,
+      "evidence_id": "E013",
+      "start_ms": 30800,
+      "text": "这里测试并没有再往下了"
+    },
+    {
+      "end_ms": 37080,
+      "evidence_id": "E015",
+      "start_ms": 34800,
+      "text": "然后下一个目标就是前期高点"
+    },
+    {
+      "end_ms": 75680,
+      "evidence_id": "E031",
+      "start_ms": 73300,
+      "text": "你想要去参与多头两个位置"
+    },
+    {
+      "end_ms": 76640,
+      "evidence_id": "E032",
+      "start_ms": 75680,
+      "text": "一个是50%"
+    },
+    {
+      "end_ms": 79960,
+      "evidence_id": "E033",
+      "start_ms": 76640,
+      "text": "这里一个是61.8对吧"
+    },
+    {
+      "end_ms": 82280,
+      "evidence_id": "E034",
+      "start_ms": 79960,
+      "text": "74.4下面三个位置"
+    },
+    {
+      "end_ms": 96180,
+      "evidence_id": "E042",
+      "start_ms": 93940,
+      "text": "必须有大阳线重新冲上去"
+    },
+    {
+      "end_ms": 102860,
+      "evidence_id": "E044",
+      "start_ms": 97860,
+      "text": "然后现在的小师徒依然是在四小时级别的区间中部阵的"
+    },
+    {
+      "end_ms": 106460,
+      "evidence_id": "E045",
+      "start_ms": 102860,
+      "text": "所以更建议的还是等回调再去参与多头"
+    },
+    {
+      "end_ms": 111100,
+      "evidence_id": "E047",
+      "start_ms": 109040,
+      "text": "在这儿还是要先去落袋啊"
+    },
+    {
+      "end_ms": 129740,
+      "evidence_id": "E057",
+      "start_ms": 126720,
+      "text": "等价格再一次来测试就好了嘛"
+    },
+    {
+      "end_ms": 133080,
+      "evidence_id": "E058",
+      "start_ms": 130300,
+      "text": "你提前计划好价格来到这一片"
+    },
+    {
+      "end_ms": 137640,
+      "evidence_id": "E060",
+      "start_ms": 135080,
+      "text": "然后价格在这儿完成大阳线突破"
+    },
+    {
+      "end_ms": 141640,
+      "evidence_id": "E062",
+      "start_ms": 139800,
+      "text": "突破之后再去追多"
+    }
+  ],
+  "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5/manifest.json",
+  "frames_manifest_sha256": "18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5",
+  "inspected_frames": [
+    {
+      "id": "F01",
+      "timestamp_ms": 22683,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5/F01.png",
+      "sha256": "fdd027037304baf93cfa2799aab6b6de3d5ec7da7f715ba8a36e9fa73e3f90b8"
+    },
+    {
+      "id": "F02",
+      "timestamp_ms": 23770,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5/F02.png",
+      "sha256": "0e85c4dcba1be21b35d0e11c5b8bdfafdbac37b0c2b72195151cacdfbcfd49e7"
+    },
+    {
+      "id": "F12",
+      "timestamp_ms": 79810,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5/F12.png",
+      "sha256": "b96159445ed154e80a56e281e78c47ce64f859762d0979f9f5e5d96dbbcbc6e2"
+    },
+    {
+      "id": "F20",
+      "timestamp_ms": 52570,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5/F20.png",
+      "sha256": "501366de1ca6926620e74e04e739df0bb36c0298afa38ef2d9af305c75086765"
+    },
+    {
+      "id": "F21",
+      "timestamp_ms": 106310,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5/F21.png",
+      "sha256": "50ed3ffd60b7031bc6ae77608ab299bc35d5a4620b87f5959aaa739ca4517a83"
+    },
+    {
+      "id": "F39",
+      "timestamp_ms": 91550,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5/F39.png",
+      "sha256": "436946c08d876ece03d20392457ed4df425ac7123f7ce184d3cf8570ad8bb3ee"
+    },
+    {
+      "id": "F40",
+      "timestamp_ms": 118030,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-18c68dbabed22aaf8334ce2c382e2f91017377d9a26b947088cca22a77a943c5/F40.png",
+      "sha256": "93c6ca19fe7406fe491980e7e87960253a83ebd1358cb5a880366ffd85c0edfb"
+    }
+  ],
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-1702aa76798a4ee39308c6c2284c8a94/note.md",
+  "note_sha256": "b307dae49c54b889938fff0a7c9fe92744c2eed7959a3c289a96885f20ed48c1",
+  "receipt_path": "/tmp/r1-s28-note-create.json",
+  "receipt_sha256": "5b30b547404294372b131196ed18e73bf485154b379737428d19f2d27561a9e6",
+  "readout": {
+    "temporal_identity": "2026-04-08 publication precedes S27 2026-04-09 by calendar date; exact recording clocks unverified",
+    "btc_hourly_chart": "Original F01/F02/F12/F20/F21/F39 show BTCUSDT hourly chart, already drawn descending line, breakout/reclaim and a newer retracement from a low visually around 67,700-67,900 to a high around 72,700-72,900. This is a visual band, not an exact Binance perpetual anchor. S27 F16/F28 later show similar endpoints.",
+    "author_speech": "E004/E006/E007 describe a prior-high break and raised low; E010-E017 retrospectively discuss a previous 50% pullback and hypothetical filled long; E031-E045 give prospective 50%/61.8%/deeper pullback alternatives or a strong-candle chase condition, while discouraging a fresh long at the four-hour range middle.",
+    "line_limit": "The diagonal and breakout are visible in the original chart, but this source does not say which line pivots, break-confirmation candle or event-to-impulse-low selection algorithm is mandatory. The already completed rise cannot be converted into a pre-break fill.",
+    "asr_correction": "E034 says 74.4 in fast ASR; original F12 visibly labels the deeper tier 0.764. No independent audio review.",
+    "action_and_protection": "Existing bottom longs should take profit; new pullback long is conditional. No public exchange order/fill, size, common stop for the new tier set, or exact recording clock is proven.",
+    "next": "S28 gives a prior-day provenance for approximate S27 impulse anchors and a visible line, but H09c still needs a registered causal hourly selector and a distinct event/decision check before native annual economics."
+  },
+  "economic_data_read": false,
+  "native_strategy_admitted": false
+}

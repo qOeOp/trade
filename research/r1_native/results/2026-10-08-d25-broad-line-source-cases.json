@@ -1,0 +1,206 @@
+{
+  "scope": "D25 read-only causal source geometry; no orders, fills, or PnL",
+  "registration_commit": "8e2618d9e",
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "corrected_h06_parity_sha256": "ee1b06ef9d42645aeb107c5e8425273827c97181c8cf942630c31bdf8cde7978",
+  "selector": {
+    "pivot_order": 8,
+    "first_anchor_lookback_bars": 180,
+    "minimum_anchor_span_bars": 6,
+    "touch_band_atr_fraction": 0.25
+  },
+  "cases": [
+    {
+      "coin": "BTC",
+      "instrument_id": "BTCUSDT-PERP.BINANCE",
+      "decision_utc": "2026-07-23T00:00:00+00:00",
+      "selected_pair": {
+        "first_utc": "2026-07-01T04:00:00+00:00",
+        "first_low": 57758.6,
+        "second_utc": "2026-07-17T16:00:00+00:00",
+        "second_low": 62505.1,
+        "confirmed_by_decision": true
+      },
+      "source_window_bars": [
+        {
+          "utc": "2026-07-23T00:00:00+00:00",
+          "low": 65753.0,
+          "close": 66082.0,
+          "line": 64039.32222222222,
+          "prior_atr": 627.1199696902744,
+          "low_minus_line_in_prior_atr": 2.7326155450354155,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-23T04:00:00+00:00",
+          "low": 65548.0,
+          "close": 65626.8,
+          "line": 64087.26666666666,
+          "prior_atr": 608.2899718552547,
+          "low_minus_line_in_prior_atr": 2.401376647519228,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-23T08:00:00+00:00",
+          "low": 65313.7,
+          "close": 65405.3,
+          "line": 64135.21111111111,
+          "prior_atr": 617.4192595798798,
+          "low_minus_line_in_prior_atr": 1.908733604602465,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-23T12:00:00+00:00",
+          "low": 65383.6,
+          "close": 65525.4,
+          "line": 64183.15555555555,
+          "prior_atr": 607.6035981813171,
+          "low_minus_line_in_prior_atr": 1.9757033171587908,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-23T16:00:00+00:00",
+          "low": 64696.2,
+          "close": 64940.4,
+          "line": 64231.1,
+          "prior_atr": 590.8461983112236,
+          "low_minus_line_in_prior_atr": 0.7871760896987455,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-23T20:00:00+00:00",
+          "low": 64636.0,
+          "close": 64820.7,
+          "line": 64279.044444444444,
+          "prior_atr": 610.1857555747081,
+          "low_minus_line_in_prior_atr": 0.584994900805829,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-24T00:00:00+00:00",
+          "low": 64809.7,
+          "close": 65069.6,
+          "line": 64326.98888888889,
+          "prior_atr": 588.3510587479433,
+          "low_minus_line_in_prior_atr": 0.8204474249410798,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-24T04:00:00+00:00",
+          "low": 64733.2,
+          "close": 65425.4,
+          "line": 64374.933333333334,
+          "prior_atr": 573.7402688373761,
+          "low_minus_line_in_prior_atr": 0.6244405110219163,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-24T08:00:00+00:00",
+          "low": 65213.0,
+          "close": 65470.0,
+          "line": 64422.87777777778,
+          "prior_atr": 583.0159639204212,
+          "low_minus_line_in_prior_atr": 1.3552325684345552,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        }
+      ]
+    },
+    {
+      "coin": "LINK",
+      "instrument_id": "LINKUSDT-PERP.BINANCE",
+      "decision_utc": "2026-07-24T00:00:00+00:00",
+      "selected_pair": {
+        "first_utc": "2026-06-25T16:00:00+00:00",
+        "first_low": 7.001,
+        "second_utc": "2026-07-01T04:00:00+00:00",
+        "second_low": 7.07,
+        "confirmed_by_decision": true
+      },
+      "source_window_bars": [
+        {
+          "utc": "2026-07-24T00:00:00+00:00",
+          "low": 8.442,
+          "close": 8.466,
+          "line": 7.356454545454546,
+          "prior_atr": 0.12341029175262393,
+          "low_minus_line_in_prior_atr": 8.796231166209635,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-24T04:00:00+00:00",
+          "low": 8.389,
+          "close": 8.451,
+          "line": 7.358545454545455,
+          "prior_atr": 0.12052384234172223,
+          "low_minus_line_in_prior_atr": 8.549798325653178,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-24T08:00:00+00:00",
+          "low": 8.414,
+          "close": 8.558,
+          "line": 7.360636363636364,
+          "prior_atr": 0.11762928217445635,
+          "low_minus_line_in_prior_atr": 8.95494401471726,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        }
+      ]
+    },
+    {
+      "coin": "ETH",
+      "instrument_id": "ETHUSDT-PERP.BINANCE",
+      "decision_utc": "2026-07-24T00:00:00+00:00",
+      "selected_pair": {
+        "first_utc": "2026-06-26T04:00:00+00:00",
+        "first_low": 1510.87,
+        "second_utc": "2026-06-30T16:00:00+00:00",
+        "second_low": 1549.16,
+        "confirmed_by_decision": true
+      },
+      "source_window_bars": [
+        {
+          "utc": "2026-07-24T00:00:00+00:00",
+          "low": 1873.0,
+          "close": 1877.42,
+          "line": 1747.7007407407418,
+          "prior_atr": 25.79331380464423,
+          "low_minus_line_in_prior_atr": 4.857819363896443,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-24T04:00:00+00:00",
+          "low": 1858.0,
+          "close": 1879.71,
+          "line": 1749.11888888889,
+          "prior_atr": 25.020934247169645,
+          "low_minus_line_in_prior_atr": 4.351600545188536,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        },
+        {
+          "utc": "2026-07-24T08:00:00+00:00",
+          "low": 1872.47,
+          "close": 1895.0,
+          "line": 1750.537037037038,
+          "prior_atr": 24.881581800943238,
+          "low_minus_line_in_prior_atr": 4.9005310007396545,
+          "near_touch": false,
+          "line_invalidated_by_close": false
+        }
+      ]
+    }
+  ]
+}

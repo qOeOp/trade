@@ -1,0 +1,141 @@
+{
+  "scope": "Source-fidelity excerpt only; no fills, economic return or new rule.",
+  "source_archive_ref": "0725a7b3f89902e27cd421a18b4b879a13268534:research/ronnie/tv/video_ideas.jsonl.gz",
+  "source_archive_sha256": "272a1a9cafdf6c2fb301b2bdafa0d9ead3326e65535b7488e18c8339d81eee60",
+  "idea_uuid": "XTSAcSVK",
+  "idea_published_utc": "2024-10-11T03:28:31.945215+00:00",
+  "idea_metadata_symbol": "FX:USOIL",
+  "video_url": "https://video-ideas.tradingview.com/1/1416280-Js98IM_uEBnfyAGi.mp4",
+  "receipt_sha256": "f3685554e873f39fa2ec63897e0bec5db24a25a85f78bde2b5862e3908698921",
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-6e12968d4e4a49068303303f9b7d5ebb/note.md",
+  "note_sha256": "3d7bd099e2cc948f98350f59e8b84170354668516cc9eb5a4af4efd0a0b5a8e0",
+  "stage_ids": {
+    "media": "media-59db7958cf5f833d11a6565c2c0cf44e775d8fc731c58fb3299d89382da18d56",
+    "transcript": "transcript-3194ae83be36baa71733cf5f1523a5df5f84a89c87602172ed8bae5fd4968c69",
+    "frames": "frames-4e7455d1bf748a9f1fd32178411313791669922e2240912d4881c41109c8f85d"
+  },
+  "full_transcript_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-3194ae83be36baa71733cf5f1523a5df5f84a89c87602172ed8bae5fd4968c69/manifest.json",
+  "full_transcript_sha256": "3194ae83be36baa71733cf5f1523a5df5f84a89c87602172ed8bae5fd4968c69",
+  "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-4e7455d1bf748a9f1fd32178411313791669922e2240912d4881c41109c8f85d/manifest.json",
+  "frames_manifest_sha256": "4e7455d1bf748a9f1fd32178411313791669922e2240912d4881c41109c8f85d",
+  "excerpt_segments": [
+    {
+      "end_ms": 54220,
+      "evidence_id": "E026",
+      "start_ms": 53040,
+      "text": "上升趋势线这里"
+    },
+    {
+      "end_ms": 58080,
+      "evidence_id": "E028",
+      "start_ms": 56740,
+      "text": "在这可以进场做多"
+    },
+    {
+      "end_ms": 95180,
+      "evidence_id": "E048",
+      "start_ms": 91340,
+      "text": "这个你要知道我们画了些线都是假设啊"
+    },
+    {
+      "end_ms": 96420,
+      "evidence_id": "E049",
+      "start_ms": 95180,
+      "text": "他不是事实啊"
+    },
+    {
+      "end_ms": 102840,
+      "evidence_id": "E051",
+      "start_ms": 99420,
+      "text": "你要实时的去调整自己的思路和想法啊"
+    },
+    {
+      "end_ms": 109160,
+      "evidence_id": "E054",
+      "start_ms": 106040,
+      "text": "你的止损最少是在这个低点下面的啊"
+    },
+    {
+      "end_ms": 141980,
+      "evidence_id": "E071",
+      "start_ms": 139760,
+      "text": "我们小造型的策略也是在这挂单"
+    },
+    {
+      "end_ms": 149040,
+      "evidence_id": "E075",
+      "start_ms": 146720,
+      "text": "看涨吞没对吧啊"
+    },
+    {
+      "end_ms": 155540,
+      "evidence_id": "E078",
+      "start_ms": 154180,
+      "text": "在关键的支撑位啊"
+    },
+    {
+      "end_ms": 157480,
+      "evidence_id": "E079",
+      "start_ms": 155540,
+      "text": "收出这些看多的k线形态"
+    },
+    {
+      "end_ms": 165820,
+      "evidence_id": "E083",
+      "start_ms": 163340,
+      "text": "有挂单进场的你的止损在这里啊"
+    },
+    {
+      "end_ms": 169580,
+      "evidence_id": "E084",
+      "start_ms": 165820,
+      "text": "然后多单继续去持有短期目标前期高点啊"
+    },
+    {
+      "end_ms": 174160,
+      "evidence_id": "E086",
+      "start_ms": 171500,
+      "text": "那同样你想把它看作通道也行"
+    },
+    {
+      "end_ms": 181520,
+      "evidence_id": "E091",
+      "start_ms": 179040,
+      "text": "你的目标也是可以去看到通道上轨啊"
+    }
+  ],
+  "original_frames": [
+    {
+      "asset_ref": "45dd94613c3d26d049f870438ffbcdf212e1ccaeff992fed8b6c3e89d3bbc388",
+      "frame_id": "F08",
+      "group_id": "G08",
+      "height": 1048,
+      "selection_reason": "coverage",
+      "timestamp_ms": 152470,
+      "transcript_refs": [
+        "E076"
+      ],
+      "width": 1920,
+      "sha256": "45dd94613c3d26d049f870438ffbcdf212e1ccaeff992fed8b6c3e89d3bbc388"
+    },
+    {
+      "asset_ref": "7b61c000fe41c1528409d6f6d9a24de560f6f163e210131be91f7546b7e98e0d",
+      "frame_id": "F15",
+      "group_id": "G15",
+      "height": 1048,
+      "selection_reason": "coverage",
+      "timestamp_ms": 174010,
+      "transcript_refs": [
+        "E086"
+      ],
+      "width": 1920,
+      "sha256": "7b61c000fe41c1528409d6f6d9a24de560f6f163e210131be91f7546b7e98e0d"
+    }
+  ],
+  "interpretation": {
+    "IMX": "Speech names key support, bullish engulfing, a pre-existing limit order, stop for filled orders, continued holding, and a prior-high or channel-upper target. The original daily frames show a rising diagonal at the support. The speaker does not specify anchor selection or a numeric line tolerance.",
+    "break_reclaim": "No explicit break-then-reclaim condition appears in the IMX segment; this case cannot justify a reclaim rule.",
+    "UNI": "A separate segment explicitly refers to a rising trend line, states drawing lines are hypotheses that should be revised with market changes, and places a valid stop below a local low; it does not provide a mechanical anchor algorithm."
+  },
+  "idea_user": "Ronnie_Dong"
+}

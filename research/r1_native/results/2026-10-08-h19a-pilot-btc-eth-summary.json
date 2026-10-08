@@ -1,0 +1,144 @@
+{
+  "source_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "strategy_source_sha256": "2570d5419fbbed0f086410a9bc6cb2b03582d11fc3d3c180888ea698f6703c68",
+  "staged_strategy_source_sha256": null,
+  "trendline_strategy_source_sha256": null,
+  "retracement_strategy_source_sha256": "1cf4b5240f4341d24dbcf98c8755ee5d424c3882cb1d4369b645549eefdbb12e",
+  "tiered_strategy_source_sha256": "fb4c1a689f9734c27b354c0a97c89d45ec9ae4ee1928896e14c0699c0c623e36",
+  "broad_swing_signal_source_sha256": "c8dcb097b924dc90339207bf3f751fc88b3b95acf9512ba3689ab62e4e7b57cd",
+  "runner_source_sha256": "e49d7db11d5d0be9d2a09449eeab7c55663aff75fba6d006aab23cc2d8d7a430",
+  "strategy": "H19a-support-broad-two-tier-4h",
+  "signal_variant": "support-broad-two-tier-4h",
+  "exit_variant": "tier-target-b",
+  "integrity_findings": [],
+  "integrity_passed": true,
+  "account_model": "one native BacktestEngine margin account, 100000 USDT, 2 strategies sharing portfolio capital",
+  "starting_balance_usdt": "100000",
+  "native_risk_submit_rate": "200/00:00:01",
+  "sizing": {
+    "mode": "native_equity_stop_risk_with_notional_cap",
+    "risk_budget_bps": 25.0,
+    "coin_notional_cap_pct": 5.0
+  },
+  "final_equity_usdt": "102098.91727721",
+  "net_change_usdt": "2098.91727721",
+  "period_return_pct": 2.09891727721,
+  "annualized_return_pct": 2.15650088435891,
+  "closed_trades": 19,
+  "winning_trades": 10,
+  "closed_trade_win_rate": 0.5263157894736842,
+  "win_rate_definition": "positive native closed-position realized_pnl including fill commissions and position funding adjustments",
+  "denied_orders": 0,
+  "rejected_orders": 0,
+  "native_sharpe_252": 1.2050820237678155,
+  "native_sharpe_365": 1.4503164401056212,
+  "native_max_drawdown_daily_close": -0.007065907619899885,
+  "stats_returns": {
+    "Average Win (Return)": 0.0008430105762286317,
+    "Average (Return)": 5.704475330457721e-05,
+    "Average Loss (Return)": -0.0007239705777997496,
+    "Risk Return Ratio": 0.07486575727326097,
+    "Returns Kurtosis": 19.557291422621553,
+    "Profit Factor": 1.5243402362597676,
+    "Tail Ratio": 1.4486487911758046,
+    "Returns Skewness": 1.784634660286243,
+    "Returns Volatility (252 days)": 0.012095748684733818,
+    "Sortino Ratio (252 days)": 2.0366909540334044,
+    "Sharpe Ratio (252 days)": 1.1884570527574418
+  },
+  "stats_pnls": {
+    "USDT": {
+      "Avg Loser": -197.2311163077778,
+      "Win Rate": 0.5263157894736842,
+      "Max Loser": -246.77850869,
+      "Max Winner": 685.15916833,
+      "Min Winner": 142.0898046,
+      "PnL% (total)": 2.098917277209999,
+      "Expectancy": 110.46933037947365,
+      "PnL (total)": 2098.917277209999,
+      "Avg Winner": 387.39973239799997,
+      "Min Loser": -131.28375602
+    }
+  },
+  "stats_general": {
+    "Long Ratio": 1.0
+  },
+  "data_interval_minutes": 5,
+  "input_start_utc": "2025-10-07T00:00:00Z",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00Z",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "quantity": "0.008",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 81,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 81,
+        "submitted_bundles": 81,
+        "retired_bundles": 80,
+        "supersessions": 70,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": null,
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 10
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "quantity": "0.214",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 67,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 67,
+        "submitted_bundles": 67,
+        "retired_bundles": 66,
+        "supersessions": 57,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": null,
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 9
+    }
+  ],
+  "limitations": [
+    "Five-minute execution bars cannot resolve every intrabar order sequence",
+    "Current contract terms approximate historical metadata",
+    "Fixed 2026 coin universe is backcast into 2025",
+    "Minute-sampled portfolio drawdown is not yet reported"
+  ]
+}

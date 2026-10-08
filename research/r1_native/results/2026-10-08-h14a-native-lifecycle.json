@@ -1,0 +1,41 @@
+{
+  "scope": "native support-near50-4h replacement",
+  "results": [
+    {
+      "scenario": "cancel_then_new_fill",
+      "entry_statuses": [
+        "CANCELED",
+        "FILLED"
+      ],
+      "order_statuses": [
+        "CANCELED",
+        "CANCELED",
+        "CANCELED",
+        "FILLED",
+        "CANCELED",
+        "FILLED"
+      ],
+      "fills": 2,
+      "closed_positions": 1,
+      "slot_violations": 0,
+      "supersessions": 1,
+      "cancel_race_fills": 0
+    },
+    {
+      "scenario": "old_fill_before_cancel",
+      "entry_statuses": [
+        "FILLED"
+      ],
+      "order_statuses": [
+        "FILLED",
+        "CANCELED",
+        "FILLED"
+      ],
+      "fills": 2,
+      "closed_positions": 1,
+      "slot_violations": 0,
+      "supersessions": 0,
+      "cancel_race_fills": 0
+    }
+  ]
+}

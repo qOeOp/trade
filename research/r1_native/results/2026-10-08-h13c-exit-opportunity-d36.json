@@ -1,0 +1,72 @@
+{
+  "native_run": "/tmp/r1-h13c-37-2026oct8",
+  "native_positions_sha256": "74bb48d771cca9e7327ff1562a55930cae749fe6d8d9bc7e0fc84f0d95506c30",
+  "native_orders_sha256": "b0ba5125b7bf078737c85d1e4c935e65e11b6a62b8d429c2201e6b5d2bc31bc9",
+  "catalog_root": "/tmp/r1-37-1y-5m-2026oct7",
+  "closed_positions": 477,
+  "positive_native_positions": 124,
+  "closing_fill_types": {
+    "LIMIT": 83,
+    "MARKET": 56,
+    "STOP_MARKET": 338
+  },
+  "stop_positions_with_strict_interior_mfe_at_least_r": {
+    "0.5": 164,
+    "1.0": 107,
+    "1.5": 52,
+    "2.0": 29
+  },
+  "stop_positions_with_permissive_boundary_mfe_at_least_r": {
+    "0.5": 185,
+    "1.0": 115,
+    "1.5": 57,
+    "2.0": 34
+  },
+  "positions_without_strict_interior_bars": 13,
+  "complex_native_fill_paths_without_excursion": 6,
+  "complex_native_nonwins_assumed_rescued_for_ceiling": 3,
+  "complex_native_fill_examples": [
+    {
+      "instrument_id": "ALGOUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "MARKET",
+      "native_win": true
+    },
+    {
+      "instrument_id": "ATOMUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    },
+    {
+      "instrument_id": "ICPUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "MARKET",
+      "native_win": true
+    },
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    },
+    {
+      "instrument_id": "IMXUSDT-PERP.BINANCE",
+      "fill_events": 4,
+      "closing_fill_type": "STOP_MARKET",
+      "native_win": false
+    },
+    {
+      "instrument_id": "LDOUSDT-PERP.BINANCE",
+      "fill_events": 3,
+      "closing_fill_type": "MARKET",
+      "native_win": true
+    }
+  ],
+  "simple_same_event_stops": 11,
+  "simple_same_event_stops_with_permissive_1r": 5,
+  "other_stops_with_boundary_only_permissive_1r": 3,
+  "same_trade_set_win_rate_if_strict_1r_prior_stops_become_wins": 0.48427672955974843,
+  "same_trade_set_win_rate_ceiling_if_all_permissive_1r_stops_become_wins": 0.5073375262054507,
+  "method": "MFE uses native LAST five-minute bars. Strict measure excludes entry/exit bars; permissive measure includes both and may count pre-entry or post-exit price. Both use native entry fill to linked stop trigger as risk. When explicitly allowed, complex native fill paths are not scanned; every nonwinning complex position is generously assumed rescued in the permissive ceiling. These are opportunity bounds, not a resimulation or net PnL result; changed slot timing can change the trade set."
+}

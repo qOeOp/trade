@@ -1,0 +1,311 @@
+{
+  "method": "read-only D37 native closing-order attribution; no replacement fills or PnL",
+  "registration_commit": "56e74720d",
+  "report_sha256": {
+    "summary.json": "a401a4edd0d0412726b59adf1d96769a0fe6af26c5bdef9711efb78951994f5e",
+    "orders.csv": "48c689e9e5fbae9dee400ea157bfc9612cf8a7901c15a3c699488f4dcd2d846a",
+    "positions.csv": "bb745c7194b2ca981db970bff226a1df96c6084676e2df0bd384d4ca0618fea7",
+    "fills.csv": "98c20caa1e881160185b6f789ac3ebea01ae431f482cb461cd191940a7efe788"
+  },
+  "closed_total": {
+    "closed_positions": 177,
+    "positive_positions": 64,
+    "signed_realized_pnl_usdt": "236.76133493",
+    "average_duration_days": "2.174219242323184766687591545",
+    "median_duration_days": "1.451388888888888888888888889"
+  },
+  "buckets": {
+    "stop_loss": {
+      "closed_positions": 104,
+      "positive_positions": 0,
+      "signed_realized_pnl_usdt": "-16906.56872472",
+      "average_duration_days": "1.405482104700854700854700855",
+      "median_duration_days": "0.9913194444444444444444444445"
+    },
+    "take_profit": {
+      "closed_positions": 44,
+      "positive_positions": 44,
+      "signed_realized_pnl_usdt": "15427.37471473",
+      "average_duration_days": "2.021227904040404040404040404",
+      "median_duration_days": "1.692708333333333333333333334"
+    },
+    "market_time": {
+      "closed_positions": 29,
+      "positive_positions": 20,
+      "signed_realized_pnl_usdt": "1715.95534492",
+      "average_duration_days": "5.163194456018518518518518514",
+      "median_duration_days": "5.163194456018518518518518519"
+    },
+    "other_unknown": {
+      "closed_positions": 0,
+      "positive_positions": 0,
+      "signed_realized_pnl_usdt": "0",
+      "average_duration_days": null,
+      "median_duration_days": null
+    }
+  },
+  "per_coin": {
+    "1000PEPE": {
+      "closed_positions": 3,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "691.05468662",
+      "average_duration_days": "1.259259259259259259259259259",
+      "median_duration_days": "0.8784722222222222222222222222"
+    },
+    "1000SHIB": {
+      "closed_positions": 3,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "135.81696033",
+      "average_duration_days": "2.059027781635802469135802469",
+      "median_duration_days": "0.7743055555555555555555555556"
+    },
+    "AAVE": {
+      "closed_positions": 5,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "489.79494076",
+      "average_duration_days": "1.577083333333333333333333333",
+      "median_duration_days": "1.34375"
+    },
+    "ADA": {
+      "closed_positions": 2,
+      "positive_positions": 0,
+      "signed_realized_pnl_usdt": "-315.16866294",
+      "average_duration_days": "2.394097222222222222222222222",
+      "median_duration_days": "2.394097222222222222222222222"
+    },
+    "ALGO": {
+      "closed_positions": 6,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "-764.28411149",
+      "average_duration_days": "2.36400463348765432098765432",
+      "median_duration_days": "1.526041666666666666666666667"
+    },
+    "APT": {
+      "closed_positions": 5,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "157.04422325",
+      "average_duration_days": "0.8625000000000000000000000002",
+      "median_duration_days": "0.8888888888888888888888888889"
+    },
+    "ARB": {
+      "closed_positions": 2,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "322.91211579",
+      "average_duration_days": "4.239583333333333333333333334",
+      "median_duration_days": "4.239583333333333333333333334"
+    },
+    "ATOM": {
+      "closed_positions": 3,
+      "positive_positions": 0,
+      "signed_realized_pnl_usdt": "-492.38988220",
+      "average_duration_days": "0.6064814814814814814814814813",
+      "median_duration_days": "0.4131944444444444444444444444"
+    },
+    "AVAX": {
+      "closed_positions": 10,
+      "positive_positions": 3,
+      "signed_realized_pnl_usdt": "-224.10412997",
+      "average_duration_days": "1.476388888888888888888888889",
+      "median_duration_days": "0.979166666666666666666666667"
+    },
+    "BCH": {
+      "closed_positions": 5,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "526.16250843",
+      "average_duration_days": "1.975000000000000000000000000",
+      "median_duration_days": "1.420138888888888888888888889"
+    },
+    "BNB": {
+      "closed_positions": 4,
+      "positive_positions": 4,
+      "signed_realized_pnl_usdt": "743.51994195",
+      "average_duration_days": "3.83159722800925925925925926",
+      "median_duration_days": "4.175347228009259259259259260"
+    },
+    "BTC": {
+      "closed_positions": 5,
+      "positive_positions": 3,
+      "signed_realized_pnl_usdt": "237.87088606",
+      "average_duration_days": "1.856250002314814814814814815",
+      "median_duration_days": "1.395833333333333333333333333"
+    },
+    "DOGE": {
+      "closed_positions": 5,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "-463.42532119",
+      "average_duration_days": "2.39375000462962962962962963",
+      "median_duration_days": "0.8854166666666666666666666667"
+    },
+    "DOT": {
+      "closed_positions": 4,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "-356.34894058",
+      "average_duration_days": "3.03472222800925925925925926",
+      "median_duration_days": "3.071180561342592592592592593"
+    },
+    "ETC": {
+      "closed_positions": 6,
+      "positive_positions": 0,
+      "signed_realized_pnl_usdt": "-1150.56606166",
+      "average_duration_days": "1.390625000000000000000000000",
+      "median_duration_days": "0.722222222222222222222222222"
+    },
+    "ETH": {
+      "closed_positions": 5,
+      "positive_positions": 4,
+      "signed_realized_pnl_usdt": "537.52823880",
+      "average_duration_days": "2.519444449074074074074074074",
+      "median_duration_days": "1.09375"
+    },
+    "FET": {
+      "closed_positions": 5,
+      "positive_positions": 0,
+      "signed_realized_pnl_usdt": "-931.82503875",
+      "average_duration_days": "1.765277777777777777777777778",
+      "median_duration_days": "1.513888888888888888888888889"
+    },
+    "FIL": {
+      "closed_positions": 10,
+      "positive_positions": 5,
+      "signed_realized_pnl_usdt": "-158.87616317",
+      "average_duration_days": "2.848611114583333333333333334",
+      "median_duration_days": "3.173611111111111111111111112"
+    },
+    "HBAR": {
+      "closed_positions": 5,
+      "positive_positions": 3,
+      "signed_realized_pnl_usdt": "130.48921044",
+      "average_duration_days": "3.343055560185185185185185186",
+      "median_duration_days": "4.479166666666666666666666667"
+    },
+    "ICP": {
+      "closed_positions": 4,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "186.04417400",
+      "average_duration_days": "3.210937502893518518518518518",
+      "median_duration_days": "3.401041666666666666666666666"
+    },
+    "IMX": {
+      "closed_positions": 2,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "134.61348143",
+      "average_duration_days": "0.8524305555555555555555555555",
+      "median_duration_days": "0.8524305555555555555555555555"
+    },
+    "INJ": {
+      "closed_positions": 5,
+      "positive_positions": 4,
+      "signed_realized_pnl_usdt": "1255.66744648",
+      "average_duration_days": "1.979166666666666666666666667",
+      "median_duration_days": "1.277777777777777777777777778"
+    },
+    "LDO": {
+      "closed_positions": 3,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "1.04868902",
+      "average_duration_days": "4.820601859567901234567901233",
+      "median_duration_days": "5.163194456018518518518518519"
+    },
+    "LINK": {
+      "closed_positions": 7,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "-447.62731807",
+      "average_duration_days": "2.23859127149470899470899471",
+      "median_duration_days": "2.333333333333333333333333333"
+    },
+    "LTC": {
+      "closed_positions": 3,
+      "positive_positions": 0,
+      "signed_realized_pnl_usdt": "-450.70160672",
+      "average_duration_days": "3.067129629629629629629629630",
+      "median_duration_days": "2.666666666666666666666666667"
+    },
+    "NEAR": {
+      "closed_positions": 6,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "8.86316876",
+      "average_duration_days": "2.196180557484567901234567902",
+      "median_duration_days": "1.109375000000000000000000000"
+    },
+    "OP": {
+      "closed_positions": 3,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "-95.77238886",
+      "average_duration_days": "1.428240740740740740740740741",
+      "median_duration_days": "0.875"
+    },
+    "SEI": {
+      "closed_positions": 5,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "233.63338083",
+      "average_duration_days": "1.577083333333333333333333333",
+      "median_duration_days": "0.8819444444444444444444444444"
+    },
+    "SOL": {
+      "closed_positions": 3,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "-113.44393377",
+      "average_duration_days": "1.473379629629629629629629630",
+      "median_duration_days": "1.770833333333333333333333333"
+    },
+    "STX": {
+      "closed_positions": 4,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "-241.41247315",
+      "average_duration_days": "1.383680555555555555555555556",
+      "median_duration_days": "1.203125000000000000000000000"
+    },
+    "SUI": {
+      "closed_positions": 4,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "295.77371814",
+      "average_duration_days": "1.555555555555555555555555556",
+      "median_duration_days": "1.032986111111111111111111111"
+    },
+    "TIA": {
+      "closed_positions": 3,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "-41.18604173",
+      "average_duration_days": "2.046296296296296296296296297",
+      "median_duration_days": "2.493055555555555555555555556"
+    },
+    "TRX": {
+      "closed_positions": 9,
+      "positive_positions": 4,
+      "signed_realized_pnl_usdt": "285.82253094",
+      "average_duration_days": "1.940586421039094650205761317",
+      "median_duration_days": "1.569444444444444444444444444"
+    },
+    "UNI": {
+      "closed_positions": 4,
+      "positive_positions": 1,
+      "signed_realized_pnl_usdt": "-348.72694324",
+      "average_duration_days": "4.250000008680555555555555555",
+      "median_duration_days": "5.16319445601851851851851852"
+    },
+    "WLD": {
+      "closed_positions": 6,
+      "positive_positions": 3,
+      "signed_realized_pnl_usdt": "1504.64029409",
+      "average_duration_days": "1.831018518518518518518518518",
+      "median_duration_days": "1.546875000000000000000000000"
+    },
+    "XLM": {
+      "closed_positions": 4,
+      "positive_positions": 0,
+      "signed_realized_pnl_usdt": "-527.05716987",
+      "average_duration_days": "0.8489583333333333333333333332",
+      "median_duration_days": "0.878472222222222222222222222"
+    },
+    "XRP": {
+      "closed_positions": 9,
+      "positive_positions": 2,
+      "signed_realized_pnl_usdt": "-518.62307383",
+      "average_duration_days": "2.755787040895061728395061728",
+      "median_duration_days": "2.864583333333333333333333333"
+    }
+  },
+  "open_position_ids": [
+    "LINKUSDT-PERP.BINANCE-R1-LINK"
+  ]
+}

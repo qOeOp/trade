@@ -1,72 +1,34 @@
-# Vibe Trading
+# Trade research
 
-Vibe Trading is a Rust-native trading engine with Python bindings for research,
-deterministic simulation, and live execution. The repository is an internal
-development base: crates and Python artifacts are not configured for public
-publication.
+This repository keeps trading strategies as source code and replays them with the published [NautilusTrader](https://nautilustrader.io/) package. The current runnable slice is R1: one strategy family, 37 Binance USDⓈ-M perpetual instruments, and one fixed-capital native margin account. It uses native data, orders, fills, risk, execution, portfolio accounting, and reports.
 
-## Architecture
+## Run the verified R1 replay
 
-The runtime is organized around a shared event-driven kernel:
-
-- `vibe-core`, `vibe-common`, and `vibe-model` own foundational types and contracts.
-- `vibe-data`, `vibe-execution`, `vibe-portfolio`, and `vibe-risk` own the engine planes.
-- `vibe-system`, `vibe-backtest`, and `vibe-live` compose those planes for simulation and live use.
-- `vibe-pyo3` exposes the Rust implementation through `vibe_trading._libvibe`.
-- `crates/adapters/` contains venue and data-provider integrations.
-
-The Rust crate names use `vibe-*`, Rust imports use `vibe_*`, and the Python package is
-`vibe_trading`. These are the only supported project identities; compatibility aliases and
-forwarding packages are intentionally absent.
-
-## Product architecture
-
-The crates above are the engine layer. Above them sits a product layer that defines who owns each
-mutable business fact: ten business Owners (Market Data, R&D, Backtest, Qualification, Strategy
-Governance, Scanner, Runtime, Risk, Execution, Portfolio) plus the non-authoritative Product Edge,
-Strategy Factory, and Observability boundaries. A crate can support an Owner, but a crate is never an
-authority.
-
-- [`docs/guide/`](docs/guide/index.md) - product loop, architecture rules, and the Dashboard contract.
-- [`docs/owners/`](docs/owners/index.md) - the ten business fact writers and their handoffs.
-- [`docs/architecture/`](docs/architecture/index.md) - authority boundaries and
-  [capability adoption](docs/architecture/capability-adoption.md), which maps each crate to a target
-  Owner without claiming the Owner contract is implemented.
-
-Implementation maturity varies sharply by Owner and is tracked inside each document. Read the status
-markers there rather than inferring progress from crate size.
-
-## Repository layout
-
-- [`crates/`](crates/) - Rust workspace and adapters.
-- [`product/`](product/) - the R&D deployment package and the first-party Dashboard.
-- [`python/vibe_trading/`](python/vibe_trading/) - Python package and type stubs.
-- [`python/tests/`](python/tests/) - Python unit, integration, acceptance, and performance tests.
-- [`docs/`](docs/) - concepts, integration guides, tutorials, and API sources.
-- [`examples/`](examples/) - backtest, sandbox, and live examples.
-- [`schema/`](schema/) - database schemas.
-- [`scripts/`](scripts/) - local build, validation, and development tooling.
-- [`test_data/`](test_data/) - repository test fixtures.
-
-## Development
-
-The pinned toolchain is defined by [`rust-toolchain.toml`](rust-toolchain.toml),
-[`python/pyproject.toml`](python/pyproject.toml), and the repository lockfiles.
-
-Common commands:
+Install Python 3.14 and [uv](https://docs.astral.sh/uv/), then:
 
 ```bash
-cargo check --workspace --all-targets
-make build
-make cargo-test
-make pytest
-make format
+uv sync --frozen
+R1_COINS=(BTC ETH BNB ADA XRP SOL DOGE LTC TRX LINK DOT AVAX BCH ETC XLM ATOM FIL NEAR UNI AAVE ICP APT ARB SUI OP INJ TIA SEI PEPE SHIB HBAR ALGO FET WLD IMX STX LDO)
+uv run --frozen python strategies/r1/run_portfolio.py \
+  --catalog-root /tmp/r1-37-1y-5m-2026oct7 \
+  --daily-root /tmp/r1-37-2026oct7 \
+  --quantity-csv /tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv \
+  --coins "${R1_COINS[@]}" \
+  --start 2025-10-07T00:00:00Z --trade-start 2025-10-17T00:00:00Z \
+  --end 2026-10-07T08:30:00Z \
+  --signal-variant support-broad-two-tier-4h --exit-variant tier-target-b \
+  --risk-budget-bps 25 --coin-notional-cap-pct 5 \
+  --output /tmp/r1-h19a-replay
 ```
 
-Use [`docs/getting_started/installation.md`](docs/getting_started/installation.md) for the
-source-development setup and [`CONTRIBUTING.md`](CONTRIBUTING.md) for repository conventions.
+The historical Catalog is external to Git and must be supplied at the paths shown or replaced with equivalent explicit paths. No exchange trading credential is needed. The command is a backtest; it does not place live orders. See [R1 usage](strategies/r1/README.md) for H18a and comparison commands.
 
-## Branding status
+## Repository map
 
-No official Vibe Trading visual asset is included in this baseline. Artwork inherited from the
-source project must not be renamed or displayed as Vibe Trading branding.
+- [`strategies/r1/`](strategies/r1/): current native Strategy source, legacy funding-data adapter, replay and paired-result checker.
+- [`research/r1_native/`](research/r1_native/): frozen R&D experiment ledger, source checks, results and historical analysis scripts. Scripts importing the removed fork are retained as provenance, not supported entry points; develop new diagnostics against the published package and current strategy source.
+- [`docs/architecture.zh.md`](docs/architecture.zh.md): current product blueprint.
+- [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): 37-instrument paired replay evidence and migration findings.
+- [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): durable product and process findings from the R&D work.
+
+The old vendored Nautilus source, parallel product services and CI/CD workflows have been removed after paired replay acceptance. A minimal `quality` workflow checks the locked Python environment and runnable native entry because the repository requires that status for main-branch merges. The published package version is pinned in `pyproject.toml` and `uv.lock`; changing it requires a fresh paired native replay.

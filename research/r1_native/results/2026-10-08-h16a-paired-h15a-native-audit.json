@@ -1,0 +1,20 @@
+{
+  "run": "/tmp/r1-rd-h16a-paired-h15a-37",
+  "file_sha256": {
+    "summary.json": "889487354aecc95cf16977f1f85040df0f2150ab00ad0e29cad99f6579575feb",
+    "orders.csv": "fd1960c9b2f87e05c61f8765c3cb46a5df509e84664db07c7bff3ece0cbc9edb",
+    "fills.csv": "f3a760ce0648d502775edd0469812a0aeab5c75fe3b89eba68cce05924616b3f",
+    "positions.csv": "bf415c887e7e6234790a8f9c204cce283cfdab45822f2538c878874a5a30e7cd",
+    "account.csv": "76917316a7bd217944c8428c549f3b43ef90c9d5aeb0cf7853ba84e6b4e14cf3",
+    "returns_series.csv": "262cbeab208ef93d01491598ee2041edfad941f25bb62143f08d4842398f5fde"
+  },
+  "native_bundles": 3271,
+  "native_brackets": 9813,
+  "filled_entries": 1551,
+  "closed_positions": 676,
+  "open_positions": 10,
+  "accepted_exit_orders": 44,
+  "native_market_time_exits": 273,
+  "findings": [],
+  "passed": true
+}

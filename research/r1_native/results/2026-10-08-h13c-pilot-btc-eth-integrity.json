@@ -1,0 +1,10 @@
+{
+  "run": "/tmp/r1-h13c-pilot-btc-eth-2026oct8",
+  "native_brackets": 130,
+  "filled_entries": 30,
+  "closed_positions": 29,
+  "open_positions": 1,
+  "supersessions": 97,
+  "findings": [],
+  "passed": true
+}

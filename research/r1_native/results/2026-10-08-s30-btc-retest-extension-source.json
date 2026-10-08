@@ -1,0 +1,182 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S30",
+  "source_url": "https://www.youtube.com/watch?v=w9xZPjr6CpE",
+  "source_metadata": {
+    "author_name": "罗尼交易指南",
+    "canonical_url": "https://www.youtube.com/watch?v=w9xZPjr6CpE",
+    "duration_ms": 584000,
+    "part_id": "w9xZPjr6CpE",
+    "part_index": 1,
+    "platform": "youtube",
+    "published_at": "2025-12-05T00:00:00Z",
+    "requested_url": "https://www.youtube.com/watch?v=w9xZPjr6CpE",
+    "title": "【罗尼交易指南】-2025.12.5-比特币完成突破回踩动作，本周96000目标能否达成？",
+    "video_id": "w9xZPjr6CpE"
+  },
+  "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-bcb3984f29235410264420765514aa665bb9d3f3795ea191acb9c36ba58ed499/manifest.json",
+  "media_manifest_sha256": "bcb3984f29235410264420765514aa665bb9d3f3795ea191acb9c36ba58ed499",
+  "media_sha256": "61778b2fe95398d9a2b2a628fdc72486a8d7abcb57c4943ecd7e0c923e1c4b2f",
+  "same_byte_media_manifest_count": 1,
+  "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-aef847d074128ffaa0e10adc9edb02ff89f0d2c5ed2b60833a931a8d256c3625/manifest.json",
+  "transcript_manifest_sha256": "aef847d074128ffaa0e10adc9edb02ff89f0d2c5ed2b60833a931a8d256c3625",
+  "transcript_method": "asr",
+  "transcript_reviews": [],
+  "relevant_segments": [
+    {
+      "end_ms": 10940,
+      "evidence_id": "E003",
+      "start_ms": 7480,
+      "text": "修正的趋势线被完成突破回踩动作"
+    },
+    {
+      "end_ms": 13120,
+      "evidence_id": "E004",
+      "start_ms": 10940,
+      "text": "你这里可以认为有两次回踩"
+    },
+    {
+      "end_ms": 15200,
+      "evidence_id": "E005",
+      "start_ms": 13120,
+      "text": "昨天踩的更深一点"
+    },
+    {
+      "end_ms": 20280,
+      "evidence_id": "E007",
+      "start_ms": 16800,
+      "text": "后面还是我们继续要大概率往上去看的"
+    },
+    {
+      "end_ms": 24580,
+      "evidence_id": "E008",
+      "start_ms": 20280,
+      "text": "然后在这一波上涨回调"
+    },
+    {
+      "end_ms": 27020,
+      "evidence_id": "E009",
+      "start_ms": 24580,
+      "text": "我们拉了一个斐波那契的扩展线"
+    },
+    {
+      "end_ms": 29460,
+      "evidence_id": "E010",
+      "start_ms": 27020,
+      "text": "目标100%的一个目标位在这"
+    },
+    {
+      "end_ms": 33220,
+      "evidence_id": "E012",
+      "start_ms": 31600,
+      "text": "想要在这做多的朋友"
+    },
+    {
+      "end_ms": 34520,
+      "evidence_id": "E013",
+      "start_ms": 33220,
+      "text": "你的止损最少在这里"
+    },
+    {
+      "end_ms": 38940,
+      "evidence_id": "E014",
+      "start_ms": 34520,
+      "text": "短期的第一目标可以看到100%的位置附近"
+    },
+    {
+      "end_ms": 52560,
+      "evidence_id": "E018",
+      "start_ms": 49740,
+      "text": "如果本周能够收成当前这个样子"
+    },
+    {
+      "end_ms": 62040,
+      "evidence_id": "E023",
+      "start_ms": 59300,
+      "text": "刺透甚至看涨吞没的一个图形结构"
+    },
+    {
+      "end_ms": 66460,
+      "evidence_id": "E024",
+      "start_ms": 62040,
+      "text": "同时是出现在了这根大级别的上升趋势线这里"
+    },
+    {
+      "end_ms": 75340,
+      "evidence_id": "E029",
+      "start_ms": 73700,
+      "text": "当然还要再坚持两天"
+    },
+    {
+      "end_ms": 78160,
+      "evidence_id": "E030",
+      "start_ms": 75340,
+      "text": "周末看看能不能继续往上涨一涨"
+    },
+    {
+      "end_ms": 91360,
+      "evidence_id": "E036",
+      "start_ms": 89300,
+      "text": "所以如果能够完成日线图"
+    },
+    {
+      "end_ms": 95640,
+      "evidence_id": "E037",
+      "start_ms": 91360,
+      "text": "或者说认为4小时这根趋势线的一个破位之后"
+    },
+    {
+      "end_ms": 103880,
+      "evidence_id": "E041",
+      "start_ms": 101480,
+      "text": "有可能会慢慢的上涨"
+    }
+  ],
+  "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-db792ca0f1c78e58b860d15f63552a9700e20f51c91c8420eafb0103ca8c8688/manifest.json",
+  "frames_manifest_sha256": "db792ca0f1c78e58b860d15f63552a9700e20f51c91c8420eafb0103ca8c8688",
+  "inspected_frames": [
+    {
+      "id": "F01",
+      "timestamp_ms": 4620,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-db792ca0f1c78e58b860d15f63552a9700e20f51c91c8420eafb0103ca8c8688/F01.png",
+      "sha256": "cc5e4fffd7093658f8f59f49d5e17bc78a14cef537e4d957762e1bfe2dc24ebd"
+    },
+    {
+      "id": "F02",
+      "timestamp_ms": 37525,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-db792ca0f1c78e58b860d15f63552a9700e20f51c91c8420eafb0103ca8c8688/F02.png",
+      "sha256": "fa1ae10935e1f3d1b784a0ceffa1a01eefb3e93d559f2e2298f4cf4b10068021"
+    },
+    {
+      "id": "F03",
+      "timestamp_ms": 57620,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-db792ca0f1c78e58b860d15f63552a9700e20f51c91c8420eafb0103ca8c8688/F03.png",
+      "sha256": "77c4841bf047801b8d9c258a78b01c7ec81c19e0ce2c4de85d2176592277ae98"
+    },
+    {
+      "id": "F36",
+      "timestamp_ms": 20130,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-db792ca0f1c78e58b860d15f63552a9700e20f51c91c8420eafb0103ca8c8688/F36.png",
+      "sha256": "e3fd75178d0fc8ec9fd00518abaa9f4e97b26cb1349b6a8ded070f9f5f0912a6"
+    },
+    {
+      "id": "F38",
+      "timestamp_ms": 29310,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-db792ca0f1c78e58b860d15f63552a9700e20f51c91c8420eafb0103ca8c8688/F38.png",
+      "sha256": "1e26e6d42ce1400463e6974b3b5190b069b686ca4a53d0b71d84276867b628f7"
+    }
+  ],
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-cb1ed4264845406c82c4b23ceb653835/note.md",
+  "note_sha256": "ec3623ad2e0f578f092cd78f06e4a60dc8ad054f188de249adaa82a6d1f90bf0",
+  "receipt_path": "/tmp/r1-s30-note-create.json",
+  "receipt_sha256": "8019ece836a0f582d3369134f0c84d99d3c317003d1b2e1ff3eb861d2d6a9523",
+  "readout": {
+    "identity": "Ronnie Trading Guide, official YouTube video published 2025-12-05; a unique primary media byte identity; exact recording time and TradingView venue are unverified.",
+    "btc_geometry": "Original F01/F36/F38/F02 show a four-hour BTC descending correction line, a completed break and two observed retests with the later one deeper, then a Fibonacci extension with 100% target near 96,000. F03 shows weekly rising-line and candle context conditional on the future weekly close.",
+    "action": "E003-E014 describes the already observed retest, a prospective long for willing viewers, a nearby structural stop and the 100% extension as first target. It does not show a new exchange order, fill, exact entry price or objectively confirmed pre-retest line drawing time.",
+    "h09d_gate": "Inapplicable to H09d numeric source gate: this is a four-hour break-and-retest followed by a Fibonacci extension target, not a completed hourly descending-line break followed by a new high and prospective 50/61.8/76.4 retracement-long tiers. Do not read December native bars to fit the April selector.",
+    "h06a_lead": "The distinct H06a later-retest mechanism has a stronger observed-retest source case than prior future-arrow clips, but a new-entry decision and causal line anchors remain insufficiently explicit for its strict gate. A dated prior-day source could test line provenance and plan timing before a new native candidate."
+  },
+  "economic_data_read": false,
+  "native_strategy_admitted": false
+}

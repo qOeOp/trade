@@ -1,0 +1,93 @@
+{
+  "source_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "strategy": "R-1u",
+  "signal_variant": "daily-pivot",
+  "account_model": "one native BacktestEngine margin account, 100000 USDT, 2 strategies sharing portfolio capital",
+  "starting_balance_usdt": "100000",
+  "sizing": {
+    "mode": "fixed_registered_quantity"
+  },
+  "final_equity_usdt": "100022.70148756",
+  "net_change_usdt": "22.70148756",
+  "period_return_pct": 0.02270148756,
+  "annualized_return_pct": 0.023317774954461697,
+  "closed_trades": 110,
+  "winning_trades": 38,
+  "closed_trade_win_rate": 0.34545454545454546,
+  "win_rate_definition": "positive native closed-position realized_pnl after fill commissions; funding remains in account equity",
+  "denied_orders": 0,
+  "rejected_orders": 0,
+  "native_sharpe_252": 0.05160976955357804,
+  "native_sharpe_365": 0.06211236727238602,
+  "native_max_drawdown_daily_close": -0.0037583661087171485,
+  "stats_returns": {
+    "Sharpe Ratio (252 days)": 0.05090178652698599,
+    "Returns Kurtosis": 6.2822467301526626,
+    "Average Win (Return)": 0.0001535542993985014,
+    "Average Loss (Return)": -0.0001529736793736192,
+    "Risk Return Ratio": 0.00320651115331674,
+    "Average (Return)": 6.400559640905173e-07,
+    "Returns Volatility (252 days)": 0.003168731668490634,
+    "Profit Factor": 1.0110171058295805,
+    "Sortino Ratio (252 days)": 0.07422469538540274,
+    "Tail Ratio": 1.1065068059116632,
+    "Returns Skewness": 0.3643006380148366
+  },
+  "stats_pnls": {
+    "USDT": {
+      "Avg Winner": 37.402417917894724,
+      "Avg Loser": -19.424866573888888,
+      "Min Loser": -8.70533466,
+      "Max Loser": -63.29602476,
+      "Expectancy": 0.20637715963635986,
+      "PnL% (total)": 0.022701487559999803,
+      "Min Winner": 14.31548892,
+      "Win Rate": 0.34545454545454546,
+      "Max Winner": 128.54749605,
+      "PnL (total)": 22.701487559999805
+    }
+  },
+  "stats_general": {
+    "Long Ratio": 0.55
+  },
+  "data_interval_minutes": 5,
+  "input_start_utc": "2025-10-07T00:00:00Z",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00Z",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "quantity": "0.008",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 295,
+      "box_breaks": 0,
+      "risk_size_skips": 0,
+      "positions": 51
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "quantity": "0.214",
+      "counts": {
+        "last": 105222,
+        "mark": 105222,
+        "funding": 1097
+      },
+      "signals": 531,
+      "box_breaks": 0,
+      "risk_size_skips": 0,
+      "positions": 59
+    }
+  ],
+  "limitations": [
+    "Five-minute execution bars cannot resolve every intrabar order sequence",
+    "Current contract terms approximate historical metadata",
+    "Fixed 2026 coin universe is backcast into 2025",
+    "Minute-sampled portfolio drawdown is not yet reported"
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "source_archive_sha256": "272a1a9cafdf6c2fb301b2bdafa0d9ead3326e65535b7488e18c8339d81eee60",
+  "source_idea_uuid": "daIJgg2k",
+  "source_published_utc": "2025-03-06T03:38:57.280742+00:00",
+  "source_frame_sha256": "098011d0681c064d948e1713863b78b5c02f26fcafd517899003531e37a9d8ba",
+  "source_frame_clock_assumption_utc": "2025-03-06T03:00:55+00:00",
+  "source_frame_ohlc_approx": {
+    "open": 220.91,
+    "high": 241.83,
+    "low": 219.55,
+    "close": 238.03
+  },
+  "input_identity_sha256": "dbc34799b8b82c4706b45b1d8b7f5a8a20cd208a7c8599c813c052c3ec6dff88",
+  "minute_catalog_sha256": "ae8347bd47aab3038f74671394ce95fc44f6fe306139b334a03135d41ff45d0d",
+  "instrument": "AAVEUSDT-PERP.BINANCE",
+  "catalog_start_ns": 1738713600000000000,
+  "catalog_end_ns": 1741305600000000000,
+  "status": "read",
+  "scope": "Source-clock price alignment only; no orders or PnL.",
+  "frame_clock_cutoff": {
+    "cutoff_ns": 1741230055000000000,
+    "bar_count": 36,
+    "first_bar_event_ns": 1741219499999000000,
+    "last_bar_event_ns": 1741229999999000000,
+    "last_bar_complete_ns": 1741230000000000000,
+    "ohlc": {
+      "open": 220.75,
+      "high": 239.55,
+      "low": 219.34,
+      "close": 237.91
+    },
+    "difference_from_frame": {
+      "open": -0.16,
+      "high": -2.28,
+      "low": -0.21,
+      "close": -0.12
+    },
+    "relative_difference_from_frame": {
+      "open": 0.00072428,
+      "high": 0.00942811,
+      "low": 0.0009565,
+      "close": 0.00050414
+    },
+    "close_within_one_percent": true
+  },
+  "publication_cutoff": {
+    "cutoff_ns": 1741232337280741888,
+    "bar_count": 43,
+    "first_bar_event_ns": 1741219499999000000,
+    "last_bar_event_ns": 1741232099999000000,
+    "last_bar_complete_ns": 1741232100000000000,
+    "ohlc": {
+      "open": 220.75,
+      "high": 239.55,
+      "low": 219.34,
+      "close": 236.19
+    }
+  },
+  "support_break_day": {
+    "cutoff_ns": 1741046400000000000,
+    "bar_count": 288,
+    "first_bar_event_ns": 1740960299999000000,
+    "last_bar_event_ns": 1741046399999000000,
+    "last_bar_complete_ns": 1741046400000000000,
+    "ohlc": {
+      "open": 223.39,
+      "high": 224.34,
+      "low": 177.64,
+      "close": 180.85
+    },
+    "registered_daily_close": 180.85,
+    "registered_support_lower": 191.99,
+    "five_minute_close_matches_daily": true,
+    "five_minute_close_below_support": true
+  }
+}

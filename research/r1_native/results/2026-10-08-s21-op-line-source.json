@@ -1,0 +1,197 @@
+{
+  "schema": "r1.source_case.v1",
+  "case": "S21",
+  "hypothesis": "H09 mandatory confluence falsifier",
+  "source_url": "https://www.youtube.com/watch?v=A2X9HxCvmQo",
+  "source_metadata": {
+    "author_name": "罗尼交易指南",
+    "canonical_url": "https://www.youtube.com/watch?v=A2X9HxCvmQo",
+    "duration_ms": 392000,
+    "part_id": "A2X9HxCvmQo",
+    "part_index": 1,
+    "platform": "youtube",
+    "published_at": "2024-02-21T00:00:00Z",
+    "requested_url": "https://www.youtube.com/watch?v=A2X9HxCvmQo",
+    "title": "比特币BTC上下2000点震荡，OP一根线完成进场到止盈。",
+    "video_id": "A2X9HxCvmQo"
+  },
+  "media_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/media-9b95c9994e80ee76be143d9da2c9409f134319c393d9c3582d07dc526464733d/manifest.json",
+  "media_manifest_sha256": "9b95c9994e80ee76be143d9da2c9409f134319c393d9c3582d07dc526464733d",
+  "media_sha256": "8d1b1afcd1165369961f0662b1372e6f742014a577f33d128924830da3132dda",
+  "transcript_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/transcript-32b7e0369828f1acce57de181f49e18f5a982c4be161526f88467b804ac2a1f0/manifest.json",
+  "transcript_manifest_sha256": "32b7e0369828f1acce57de181f49e18f5a982c4be161526f88467b804ac2a1f0",
+  "transcript_method": "asr",
+  "transcript_reviews": [],
+  "segments": [
+    {
+      "end_ms": 86260,
+      "evidence_id": "E034",
+      "start_ms": 85480,
+      "text": "我们在"
+    },
+    {
+      "end_ms": 88760,
+      "evidence_id": "E035",
+      "start_ms": 86760,
+      "text": "周一晚上我们小群里面的直播"
+    },
+    {
+      "end_ms": 90800,
+      "evidence_id": "E036",
+      "start_ms": 88760,
+      "text": "给了大家的一个挂单策略"
+    },
+    {
+      "end_ms": 92880,
+      "evidence_id": "E037",
+      "start_ms": 90800,
+      "text": "昨天晚上直接是一根线"
+    },
+    {
+      "end_ms": 94320,
+      "evidence_id": "E038",
+      "start_ms": 92880,
+      "text": "四小时级别这一根线"
+    },
+    {
+      "end_ms": 95560,
+      "evidence_id": "E039",
+      "start_ms": 94320,
+      "text": "直接影线进场"
+    },
+    {
+      "end_ms": 97180,
+      "evidence_id": "E040",
+      "start_ms": 95560,
+      "text": "回来影线抽回来"
+    },
+    {
+      "end_ms": 97840,
+      "evidence_id": "E041",
+      "start_ms": 97180,
+      "text": "指引走人"
+    },
+    {
+      "end_ms": 100000,
+      "evidence_id": "E042",
+      "start_ms": 98440,
+      "text": "我们非常漂亮的一个"
+    },
+    {
+      "end_ms": 105020,
+      "evidence_id": "E043",
+      "start_ms": 101640,
+      "text": "抓顶的一个一比一短线"
+    },
+    {
+      "end_ms": 106840,
+      "evidence_id": "E044",
+      "start_ms": 105460,
+      "text": "阻力位做空策略"
+    },
+    {
+      "end_ms": 108320,
+      "evidence_id": "E045",
+      "start_ms": 106840,
+      "text": "这种不建议"
+    },
+    {
+      "end_ms": 110940,
+      "evidence_id": "E046",
+      "start_ms": 108800,
+      "text": "没有学过的投资者去搞这种事情"
+    },
+    {
+      "end_ms": 113140,
+      "evidence_id": "E047",
+      "start_ms": 111560,
+      "text": "咱们小赵群里面"
+    },
+    {
+      "end_ms": 114440,
+      "evidence_id": "E048",
+      "start_ms": 113140,
+      "text": "跟大家教了一些东西"
+    },
+    {
+      "end_ms": 118020,
+      "evidence_id": "E049",
+      "start_ms": 116760,
+      "text": "会千万别瞎搞"
+    },
+    {
+      "end_ms": 119460,
+      "evidence_id": "E050",
+      "start_ms": 118020,
+      "text": "你别看我这样写的"
+    },
+    {
+      "end_ms": 121460,
+      "evidence_id": "E051",
+      "start_ms": 120240,
+      "text": "真正你实操的时候"
+    },
+    {
+      "end_ms": 122680,
+      "evidence_id": "E052",
+      "start_ms": 122000,
+      "text": "没有那么简单"
+    }
+  ],
+  "frames_manifest_path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-8df83e4be191e4acf38c731b3d6e91435cb8e2b10b1dd9e13dbe3583a2994606/manifest.json",
+  "frames_manifest_sha256": "8df83e4be191e4acf38c731b3d6e91435cb8e2b10b1dd9e13dbe3583a2994606",
+  "inspected_frames": [
+    {
+      "id": "F32",
+      "timestamp_ms": 90650,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-8df83e4be191e4acf38c731b3d6e91435cb8e2b10b1dd9e13dbe3583a2994606/F32.png",
+      "sha256": "27f04dfc9df2869b2481665d873125fe1d8fcd68bf87988bb225c855bcc24980"
+    },
+    {
+      "id": "F11",
+      "timestamp_ms": 99850,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-8df83e4be191e4acf38c731b3d6e91435cb8e2b10b1dd9e13dbe3583a2994606/F11.png",
+      "sha256": "e5ab7bf36de99854d356533bb609804aa5f4aa31bb5aca2b9f8d74f083834956"
+    },
+    {
+      "id": "F21",
+      "timestamp_ms": 110790,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-8df83e4be191e4acf38c731b3d6e91435cb8e2b10b1dd9e13dbe3583a2994606/F21.png",
+      "sha256": "1b0155dd0a80cc9e818bab5281278bd1ca59e617b690d9d088b3537f4547e3ad"
+    },
+    {
+      "id": "F15",
+      "timestamp_ms": 121310,
+      "path": "/Users/vx/.local/share/video-note-mcp/artifacts/frames-8df83e4be191e4acf38c731b3d6e91435cb8e2b10b1dd9e13dbe3583a2994606/F15.png",
+      "sha256": "6f172a874a3b8b5faf3c917c3ecb71466bc4f00231d3cb63f27c9ac34b893ae5"
+    }
+  ],
+  "note_path": "/Users/vx/.local/share/bilibili-note-mcp/notes/note-74a00d662af04febb80aa39d1f2ed718/note.md",
+  "note_sha256": "3e4126172a41cad933e8c615f114e5d69a838e8b262a0da3b306b031bcb79ce6",
+  "receipt_path": "/tmp/r1-s21-note-create.json",
+  "receipt_sha256": "da56436226117d4d9bc2c84fb2b4f39744ccb994abebcbb25534b5a9dc34f6f3",
+  "readout": {
+    "author_claim": "Monday-night small-group resting-order plan; previous-night OP resistance short entered and exited at one-to-one.",
+    "visible_plan": {
+      "sell_limit": 4.2,
+      "stop": 4.4,
+      "take_profit": 4.0,
+      "size_text": "5%仓位"
+    },
+    "visible_other_structure": [
+      "prior horizontal resistance band at the planned entry vicinity",
+      "displayed 61.8% retracement near the entry vicinity"
+    ],
+    "provenance_limits": [
+      "small-group Monday source not obtained",
+      "public video is Wednesday retrospective",
+      "no exchange order or fill record",
+      "drawing existence before touch not independently shown",
+      "speaker does not state overlay requirement",
+      "no declined bare-line comparison"
+    ],
+    "decision": "The title is not evidence for line-only trading. Mandatory confluence remains unproved and unfalsified; seek public pre-touch source."
+  },
+  "economic_data_read": false,
+  "native_strategy_admitted": false
+}

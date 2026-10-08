@@ -1,0 +1,15 @@
+{
+  "run": "/tmp/r1-rd-h04-37-guard",
+  "positions": 1218,
+  "closed_positions": 1194,
+  "open_positions": 24,
+  "native_stops": 11336,
+  "open_reduce_only_exits": 60,
+  "same_bar_first_stop": 0,
+  "findings": [
+    "runner reported order integrity failure",
+    "native orders denied or rejected",
+    "Strategy reported order integrity failure"
+  ],
+  "passed": false
+}

@@ -1,0 +1,28 @@
+{
+  "native_run": "/tmp/r1-rd-box-h03-37-exact-source",
+  "native_positions_sha256": "e6c3c869fe2b2fdb47b9a56c5c0404c7b980bbc2279b67da13f5d9fa5aa55d82",
+  "native_orders_sha256": "fcd27d2b742c2ad3682899d395784c18411defde4f4ae54dc14ec6c6346f1dc2",
+  "catalog_root": "/tmp/r1-37-1y-5m-2026oct7",
+  "closed_positions": 555,
+  "positive_native_positions": 209,
+  "closing_fill_types": {
+    "LIMIT": 205,
+    "MARKET": 6,
+    "STOP_MARKET": 344
+  },
+  "stop_positions_with_strict_interior_mfe_at_least_r": {
+    "0.5": 162,
+    "1.0": 80,
+    "1.5": 35
+  },
+  "stop_positions_with_permissive_boundary_mfe_at_least_r": {
+    "0.5": 173,
+    "1.0": 87,
+    "1.5": 39,
+    "2.0": 4
+  },
+  "positions_without_strict_interior_bars": 12,
+  "same_trade_set_win_rate_if_strict_1r_prior_stops_become_wins": 0.5207207207207207,
+  "same_trade_set_win_rate_ceiling_if_all_permissive_1r_stops_become_wins": 0.5333333333333333,
+  "method": "MFE uses native LAST five-minute bars. Strict measure excludes entry/exit bars; permissive measure includes both and may count pre-entry or post-exit price. Both use native entry fill to linked stop trigger as risk. These are opportunity bounds, not a resimulation or net PnL result; changed slot timing can change the trade set."
+}
