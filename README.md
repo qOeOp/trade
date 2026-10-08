@@ -23,7 +23,7 @@ uv run --frozen python strategies/r1/run_portfolio.py \
 
 The historical Catalog is external to Git and must be supplied at the paths shown or replaced with equivalent explicit paths. No exchange trading credential is needed. The command is a backtest; it does not place live orders. See [R1 usage](strategies/r1/README.md) for H18a and comparison commands.
 
-The current documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/). Build its static pages locally with `uv run --frozen --group docs python docs/site/build.py`.
+The current documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/). Build the original Next.js/Fumadocs site locally with `npm ci --prefix docs-site && npm run build --prefix docs-site`; the static export is `docs-site/out`.
 
 ## Repository map
 
