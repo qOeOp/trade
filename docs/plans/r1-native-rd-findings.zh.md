@@ -784,7 +784,7 @@
 
 **产品与下一机制。** R&D 应把机会形成时刻、支撑／区间锚点、原生挂单身份、首次实际成交年龄及其后续结构更新分开保存。单看挂单年龄既会错杀慢到但盈利的机会，也不足以指认哪张旧单的前提已失效。下一层可事前定义「入场前结构变化导致机会失效」并同时保留仍有效的反例，先验证来源与原生事件容量，再决定是否预登记新的 Strategy 和同账户配对回放；不新增独立订单引擎或收益账本。D67 不改变 H19a 的 **+12.00% 年化、42.74% 胜率**，也不证明独立收益优势。
 
-**核查证据。** [D67 预登记与结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d67-do-old-h19a-resting-opportunities-explain-the-win-rate-gap)、[全量原生持仓年龄读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d67-h19a-first-fill-age.json)、[官方 Nautilus 配对回执](../../strategies/r1/parity-cleanup-h19a.json)。
+**核查证据。** [D67 预登记与结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d67-do-old-h19a-resting-opportunities-explain-the-win-rate-gap)、[全量原生持仓年龄读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d67-h19a-first-fill-age.json)、[官方 Nautilus 配对回执](../../backtest/r1/receipts/parity-cleanup-h19a.json)。
 
 <a id="f66"></a>
 
@@ -816,7 +816,7 @@
 
 **产品与试验含义。** 当前 25 基点限制只作用于各币的单组挂单，没有限制所有币挂单与持仓合计承诺；这是真实的账户级风险控制缺口。上述金额是按原始止损与实际原生事件计算的**风险承诺代理**，不是可能跳空、滑点或止损执行失败时的最大亏损；9.86% 的分母是固定初始 10 万 USDT，并非该时刻 Nautilus Portfolio 净值。下一步先明确事前账户风险目标、机会排序、占用和释放规则，再用 Nautilus 的 Portfolio／Cache 与原生订单状态实现单一组合控制，不能从这条已见风险路径挑一个使回测最漂亮的上限。候选须和现有 H19a 在同一年度、同一 37 币共享账户中配对，检查拒单、被挤掉的机会、成交与净值路径、费用/资金费、胜率、Sharpe、回撤，并留待延迟／前向验证。降低合计风险可能改善回撤，也可能压低收益；D69 没有生成反事实回测，不能声称风险上限已经有效，更不解决入场胜率问题。
 
-**核查证据。** [D69 预登记、失败读回及最终判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d69-how-much-original-stop-risk-do-simultaneous-h19a-pending-and-filled-orders-commit)、[完整原生风险事件路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d69-combined-stop-risk.json.gz)、[H19a 原生配对身份](../../strategies/r1/parity-cleanup-h19a.json)。
+**核查证据。** [D69 预登记、失败读回及最终判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d69-how-much-original-stop-risk-do-simultaneous-h19a-pending-and-filled-orders-commit)、[完整原生风险事件路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d69-combined-stop-risk.json.gz)、[H19a 原生配对身份](../../backtest/r1/receipts/parity-cleanup-h19a.json)。
 
 <a id="f69"></a>
 

@@ -105,6 +105,9 @@ activates its native take-profit child before the stop child to avoid a
 synchronous sibling rejection; recheck this behavior before changing Nautilus.
 
 Receipts in `receipts/` retain their original bytes and source identities.
+The `parity_receipts` paths in `receipts/evidence.json` are historical locators;
+their [fixed Git archive](https://github.com/qOeOp/trade/tree/44e229331fdc7d9b78e234079673b8df71faefc4/strategies/r1) contains the original three receipts.
+Their same-named current copies under `receipts/` are byte-identical.
 `parity-node-migration.json` describes the historical 16-combination Node
 transition, including two pre-existing order-integrity failures. The H18a/H19a
 funding-loader receipts and `parity-single-file-h19a.json` describe their own
