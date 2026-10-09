@@ -25,16 +25,26 @@
     "original_registration_commit": "a3566ea70"
   },
   "decision": {
-    "layer": "pending",
-    "outcome": "pending",
-    "scope": "事前固定一轮只读 37 币原生 H26a 路径；已暴露 2025-10-07 至 2026-10-07 年度。",
-    "next_action": "先提交登记，再实现只读 reader 和执行一次冻结事件审计；只有双门槛通过才另行预注册 H28a 原生配对回测。"
+    "layer": "economics",
+    "outcome": "failed",
+    "scope": "71/179 仓有成交前合格低点；28 仓触发、27 已平，其中八仓后来到 B。指示性退出减原生实际继续持有 -3325.43 USDT，未达到事前 30 仓与 >+6000 USDT 双门槛。",
+    "next_action": "停止此单点局部低点全仓退出子例，不运行 H28a；另行事前定义来源支撑区域或未成交二档生命周期，保留慢赢家和原止损截尾。"
   },
   "evidence_refs": [
     {
       "kind": "input_identity",
       "path": "research/r1_native/results/2026-10-07-input-identity.json",
       "sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc"
+    },
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-09-d98-h26a-local-support.json",
+      "sha256": "b7f10f18134bb924d059651f586264e0f278624b1cbf9df842d131f17fe2f46f"
+    },
+    {
+      "kind": "comparison",
+      "path": "research/r1_native/results/2026-10-09-d98-h26a-local-support-positions.json",
+      "sha256": "8e1757a347dd9109a608862c2eaf4678c0d2b639942a5e4b2003faf7ef8a6391"
     }
   ]
 }

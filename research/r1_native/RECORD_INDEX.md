@@ -123,3 +123,4 @@
 | [F95](../../docs/plans/r1-native-rd-findings.zh.md#f95) | 历史研究/过程结论 | [H26a](../records/attempts/H26a/attempt.json) | H26a, D92 |
 | [F96](../../docs/plans/r1-native-rd-findings.zh.md#f96) | 历史研究/过程结论 | [H26a](../records/attempts/H26a/attempt.json), [H25a](../records/attempts/H25a/attempt.json) | D93, H26a, H25a, D92 |
 | [F97](../../docs/plans/r1-native-rd-findings.zh.md#f97) | 历史研究/过程结论 | [H27a](../records/attempts/H27a/attempt.json), [H25a](../records/attempts/H25a/attempt.json) | D94, H27a, D95, S46, H25a |
+| [F98](../../docs/plans/r1-native-rd-findings.zh.md#f98) | 历史研究/过程结论 | [D98](../records/attempts/D98/attempt.json), [H26a](../records/attempts/H26a/attempt.json) | D98, D55, D96, D97, H26a, C20 |

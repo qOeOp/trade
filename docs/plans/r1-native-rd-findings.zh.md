@@ -1149,3 +1149,15 @@
 **核查证据。** [D94 登记、结果与 H27a 契约](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d94-does-the-native-764-buffer-stop-invalidate-prior-a-support-before-a-fails)、[全部订单和止损路径摘要](../../research/r1_native/results/2026-10-09-d94-stop-vs-a.json)、[逐组来源与真实退出](../../research/r1_native/results/2026-10-09-d94-stop-vs-a-bundles.json.gz)、[罗尼来源案例](../../research/r1_native/SOURCE_CASES.md)。
 
 **事后归位与纠错。** 上述 C02“区外止损”归因已由 [S46 来源复核](../../research/r1_native/RD_EXPERIMENTS.md#source-recheck-s46-c02-is-not-an-outside-a-stop-rule)收窄：C02 本段没有给 ETH 多单止损；C18 明说一／四小时至少低于 76.4%，C20 的线／先前低点没有唯一机械选择器。H27a 随后按原登记仅测试研究者的 A 外止损代理，原生年度收益未改善；[H27a 结果与 D95 失败归因](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h27a-h26a-prior-a-support-plans-with-the-common-stop-outside-a)是策略结论的权威位置。F97 保留其历史文字与原始 D94 几何证据，不再作为产品能力候选或“作者统一 A 外止损”证据。
+
+<a id="f98"></a>
+
+## F98：已确认的单点局部低点不是可靠的提前全退条件，结构失效仍需区域与订单生命周期语义
+
+**事前机制。** D98 在看结果前用现有记录工具登记：H26a 原生首笔成交前，选择最近的、order-8 双侧已确认且此后未被完整收盘破坏、严格位于首笔成交价与原生止损之间的局部低点。首笔成交后只在整根四小时 LAST K 线收盘严格跌破该冻结低点、原仓仍存续时标记事件。C20 提到先前有效低点，但没有给出这一机械选点或提前退出指令；D98 是研究者代理。事前要求至少 30 个已平仓触发，并且含原生佣金／资金费及指示性 taker 出场费的即时退出比真实继续持有合计严格多 6,000 USDT，才考虑另行登记 Nautilus 原生退出回放。
+
+**原生路径及反例。** 冻结的 H26a 37 币共享账户有 179 个原生 Position、170 已平／85 赢、九个年末未平。71 个仓在首笔成交前找到合格局部低点，108 个没有；28 个仓在原止损前观察到收盘失守，其中 27 已平、一个未平。27 个已平事件仓后来 **18 止损、八到 B、一个时间退出**，九个最终盈利。事件收盘中位约为首笔风险的 **−0.420R**，中位持仓年龄 **9.5 根完整四小时线**；八仓后来还有第二档真实 BUY。指示性提前全退减原生实际继续持有合计 **−3,325.43 USDT**，两道事前门槛均失败。此数不是新账户净值，原账户的订单容量、后续机会和风险路径不会由只读计算重放。
+
+**产品结论。** 一个可因果冻结的单点低价，不等于罗尼图上的支撑*区域*，也不足以把失守解释为整仓信号死亡。此结果和 D55 上升线、D96 61.8% 及 D97 双强空头的失败共同限制简化全退规则；不能把四种不同机制混成一条失败证明，也不能在已暴露年度改摆动阶数、价差容差、观察年龄或币种来挑成功样本。下一次最小研究应单独定义事前支撑区域或只取消未成交母单的因果动作，并保留慢启动赢家与原止损截尾。没有新 H28a Nautilus 年度回放，年化 >20%／胜率约 60% 目标未完成。
+
+**核查证据。** [D98 单轮契约及结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d98-pre-fill-confirmed-local-low-support-break-while-h26a-remains-open)、[事前登记](r1-d98-local-low-support-prereg.zh.md)、[37 币原生 Position 只读汇总](../../research/r1_native/results/2026-10-09-d98-h26a-local-support.json)、[逐仓冻结低点与后续路径](../../research/r1_native/results/2026-10-09-d98-h26a-local-support-positions.json)、[结构来源 C20](../../research/r1_native/SOURCE_CASES.md#c20---btc-prospective-tiers-with-a-common-outside-stop)。
