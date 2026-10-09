@@ -1,0 +1,9 @@
+{
+  "method": "SHA-256 over each sorted relative POSIX path as 4-byte big-endian length + path UTF-8 + SHA-256 of file bytes; tree digest is SHA-256 of concatenated records",
+  "identity_file": "research/r1_native/results/2026-10-07-input-identity.json",
+  "identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "catalog_trees_checked": 74,
+  "quantity_csv_sha256": "85f9cb6f33777d3802604ac7985bd34110d1565338251f800ccda057a5e465bc",
+  "findings": [],
+  "passed": true
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "strategy",
+  "code_parent": null,
+  "registration": {
+    "status": "retrospective",
+    "reference": "research/r1_native/RD_EXPERIMENTS.md"
+  },
+  "attempt_id": "H08",
+  "question": "已确认的上升趋势线支撑触碰能否形成来源一致的新入场？",
+  "mechanism": "上升趋势线支撑触碰后的新入场",
+  "hypothesis": "已确认趋势线的首次支撑触碰和收盘反弹可形成来源一致的原生多头计划。",
+  "parents": [],
+  "decision": {
+    "layer": "source",
+    "outcome": "failed",
+    "scope": "S16 的 BTC/LINK 正例没有通过 H08 已冻结的来源门槛；没有 H08 37 币年度经济结果。",
+    "next_action": "停止 H08 的完整入场规则；其 ConfirmedLineSupportTouches 状态类仍可作为单独组件被审查和复用。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "source_gate",
+      "path": "research/r1_native/results/2026-10-08-h08-s16-source-geometry.json",
+      "sha256": "eba4ca34c4ad8a0fd558c8db136055d286edaa5afef43b428d77924400959239"
+    }
+  ]
+}

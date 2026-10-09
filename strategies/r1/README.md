@@ -6,6 +6,11 @@ The published `nautilus_trader==2.0.0rc3` package owns data replay, orders,
 fills, funding settlement, risk, portfolio accounting and reports. No exchange
 trading credential is needed.
 
+For a new registered tiered experiment, first read the [research record and
+artifact guide](../../research/records/README.md). Its custody command calls
+this same native runner with frozen source and seals the result in a configurable
+local directory. The direct `/tmp` example below is a temporary replay.
+
 ## Run H19a
 
 ```bash
