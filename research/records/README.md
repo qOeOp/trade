@@ -1,9 +1,10 @@
 # Research records, materials and native artifact custody
 
-Dolt is the only persistent owner of research registrations, decisions,
-material revisions and relationships. The existing `research.records` domain
+Dolt is the only persistent owner of complete strategy source revisions,
+research registrations, decisions, material revisions and relationships. The existing `research.records` domain
 interface owns the contract; its adapter owns storage and atomic publication.
-Git keeps maintained strategy/tool source and retained source evidence. There
+Git keeps maintained shared tools, runtime image build inputs, tests and
+retained historical source evidence. Strategy drafts stay outside product Git. There
 are no experiment JSON receipts in the product tree and no Git metadata backend.
 The native runner and Nautilus reports remain the trading facts; the records
 API does not schedule research or create a second account ledger.
@@ -195,6 +196,55 @@ of C02 while retaining the existing D94/H27a/D95 evidence and H27a's economic
 failure. Such review does not change a Strategy, backdate registration or
 replace a new paired native replay when strategy or data behavior changes.
 
+## Complete strategy source and fixed lineage
+
+The `strategy` commands reuse existing Dolt objects, append-only revisions and
+fixed relations. One independent strategy has one logical `strategy_id` and a
+complete UTF-8 Python file. Publication retains the exact bytes, SHA-256 and
+byte length; it checks syntax and one top-level entry class without importing
+or executing the strategy. The Agent still reviews whether the file includes
+all trading rules and whether its imports belong to the selected runtime.
+An API source check does not prove strategy safety or qualification.
+
+Metadata contains `strategy_id`, `family_id`, `description`, `entry_class`,
+`runtime_contract` and `status` (`research`, `retired` or `archived`). Optional
+`parents` entries contain `{strategy_id, revision, difference}`; optional
+`attempt_refs` contain `{attempt_id, revision}`. A derivation uses a new strategy
+ID and reviewed fixed parent revisions. A new revision of the same strategy
+retains its ID and family. No relation is inferred from filenames, Git ancestry
+or code similarity. `legacy_git: {commit, path, sha256}` can preserve the exact
+historical origin of byte-identical imported source; it is not the new run's
+execution identity.
+
+```bash
+uv run --frozen python -m research.records.cli ledger status
+uv run --frozen python -m research.records.cli strategy publish \
+  --file /tmp/strategy-metadata.json --source /tmp/strategy-draft.py \
+  --expected-version CURRENT-VERSION --operation-id UNIQUE-SOURCE-PUBLICATION-ID
+uv run --frozen python -m research.records.cli strategy list --family-id r1
+uv run --frozen python -m research.records.cli --at EXACT-DOLT-SOURCE-COMMIT \
+  strategy show r1.broad-two-tier --revision 1 --brief
+uv run --frozen python -m research.records.cli --at EXACT-DOLT-SOURCE-COMMIT \
+  strategy lineage r1.broad-two-tier --revision 1
+uv run --frozen python -m research.records.cli --at EXACT-DOLT-SOURCE-COMMIT \
+  strategy export r1.broad-two-tier --revision 1 \
+  --destination /tmp/new-strategy-workdir/strategy.py \
+  --binding-output /tmp/new-strategy-workdir/binding.json
+```
+
+`strategy publish` uses the same guarded publication and operation-retry rules
+as records. `export` refuses existing destinations and verifies the exact bytes.
+The returned `strategy_binding` has exactly `database`, `commit`, `strategy_id`,
+`revision`, `source_sha256`, `entry_class` and `runtime_contract`. Bind this full
+identity in the preregistered attempt before executing its source. A later
+source change needs a new source revision and a new attempt; it cannot replace
+that attempt's fixed source under the same registration.
+
+The first migration slice is H19a: `r1.broad-two-tier`, family `r1`, entry class
+`R1Strategy`, contract `r1-native-v1`. Other historical multi-module variants
+are not complete current Dolt strategies until individually consolidated,
+published and checked by native paired replay.
+
 ## One research round (Agent-owned)
 
 The research Agent chooses the next question and the smallest experiment that
@@ -242,9 +292,10 @@ uv run --frozen python -m research.records.cli publish attempt \
 
 The returned `registration_receipt` identifies the initial attempt ID, revision
 and actual Dolt publication commit. Retain that fixed identity when citing the
-research contract. Git strategy revisions and input identities remain explicit
-independent references; the native custody runner verifies them and binds the
-initial Dolt registration before invoking Nautilus.
+research contract. Complete Dolt strategy revisions, OCI runtime identities and
+input identities remain explicit independent references. Include the exact
+`strategy_binding` in the pending attempt; the native custody runner verifies
+that source and binds the initial Dolt registration before invoking Nautilus.
 
 Question, mechanism, hypothesis, scope/plan, parents, code parent, component
 boundaries and other intent fields cannot change under the same attempt ID.
@@ -266,44 +317,53 @@ successful Dolt publication; later decisions also use temporary payloads.
 
 ## Seal a new native R1 run
 
-Use a directory outside Git and `/tmp`; the path below is an example. The
-attempt must already have a committed preregistration. `--source-ref` identifies
-the frozen strategy commit. The wrapper runs the **existing** native R1 runner
-from those exact source bytes. New frozen commits use
-`python -m backtest.r1.run_portfolio`; old commits retain their original
-`strategies/r1/run_portfolio.py` entry. Source capture freezes the dependency
-pins from the same commit, and new summaries bind each digest to its actual
-source path. Historical seals keep their original path and hash contract.
-Execution uses the invoking Python environment; capturing an older lockfile
-does not provision its dependencies. Before replaying a commit with different
-pins, prepare an environment matching that commit.
-For a new input dataset, first create and review its identity with
+Use a private artifact root outside Git and `/tmp`. Publish the v2 pending
+attempt before inspecting the new result. For the current path, select a fixed
+Dolt source revision with `--strategy-id`, `--strategy-revision` and `--source-at`,
+and supply `--runtime` with a retained runtime identity JSON. Its exact fields
+are `image_ref` (registry path plus `@sha256:` manifest digest), matching
+`image_digest`, `platform` (`linux/arm64` or `linux/amd64`) and
+`runtime_contract: r1-native-v1`. Tags and Docker configuration IDs cannot
+replace the manifest digest. Pull that exact reference before running; the
+wrapper refuses an unavailable or mismatched image.
+
+For new input data, create and review its identity with
 `research.records.artifacts input-identity --catalog-root ... --daily-root ...
---quantity-csv ... --coins ... --output ...` and commit that small JSON file.
+--quantity-csv ... --coins ... --output ...`. Retain that small JSON with its
+canonical input contract; the inputs themselves stay in external Catalogs.
 
 ```bash
 ARTIFACT_ROOT=/Users/vx/.local/share/trade/research-artifacts
 uv run --frozen python -m research.records.artifacts run \
   --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID --attempt-id MY-ATTEMPT-ID \
-  --source-ref MY-FROZEN-COMMIT \
+  --strategy-id r1.broad-two-tier --strategy-revision 1 \
+  --source-at EXACT-DOLT-SOURCE-COMMIT --runtime /path/to/runtime-identity.json \
   --input-identity /path/to/retained/input-identity.json -- \
   --catalog-root /path/to/minute-catalog --daily-root /path/to/daily-catalog \
   --quantity-csv /path/to/quantities.csv --coins BTC ETH \
   --start 2025-10-07T00:00:00Z --trade-start 2025-10-17T00:00:00Z \
   --end 2026-10-07T08:30:00Z \
-  --signal-variant support-broad-two-tier-line-cancel-4h \
+  --signal-variant support-broad-two-tier-4h \
   --exit-variant tier-target-b --risk-budget-bps 25 \
   --coin-notional-cap-pct 5
 ```
 
-The wrapper currently covers **R1 tiered variants with the pinned native tier
-auditor**. It hashes selected minute/daily Catalog trees and quantity CSV before
-and after replay, saves frozen source, lockfile, stdout/stderr, the six native
-reports and the native audit, then atomically publishes `<root>/<run-id>`.
-It never overwrites an existing run ID. A failed process also gets a sealed
-`failed` manifest and remains available for diagnosis. `passed` means these
-integrity checks passed; it does not mean that the strategy meets its economic
-goal. The local root needs its own backup plan before disaster-recovery claims.
+The wrapper exports and verifies the complete source without capturing a
+product Git checkout. Image preflight verifies the actual manifest/platform and
+observes Python, Nautilus, dependency-lock and shared runner/auditor hashes.
+It resolves defaults before hashing the effective configuration, including the
+native account contract. The run binds these observations, its fixed source,
+initial attempt registration and exact input identity. Replay and native tier
+audit use the same image with no network, read-only source/input mounts and
+only `/reports` writable on the host.
+
+The current image contract supports H19a tiered rules only. The wrapper hashes
+selected minute/daily Catalog trees and quantity CSV before and after replay,
+retains exported source, bindings, stdout/stderr, the six native reports and
+audit, then atomically publishes `<root>/<run-id>`. It never overwrites a run ID.
+Failed execution retains a sealed `failed` manifest for diagnosis; absent native
+summaries are not replaced with invented account results. `passed` means custody
+and integrity checks passed, not that the strategy meets an economic goal.
 
 ```bash
 uv run --frozen python -m research.records.artifacts verify --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID
@@ -313,12 +373,25 @@ uv run --frozen python -m research.records.artifacts register --root "$ARTIFACT_
 TRADE_RESEARCH_ARTIFACT_ROOT="$ARTIFACT_ROOT" uv run --frozen python -m research.records.cli validate
 ```
 
-`register` publishes a schema-checked run revision to Dolt; it does not create
-another Git `run.json`. The record binds the external manifest by SHA-256 and
-preserves the existing native evidence checks. The record CLI resolves `artifact://` refs through
-`TRADE_RESEARCH_ARTIFACT_ROOT`. A failed run can be registered as a diagnostic
-without inventing a native summary. Full raw inputs are referenced by their
-verified identity and remain in the source Catalog.
+`register` publishes a schema-checked Dolt run, binding the external manifest
+by SHA-256 and the source/runtime identities. It creates no Git `run.json`.
+The record CLI resolves `artifact://` refs through
+`TRADE_RESEARCH_ARTIFACT_ROOT`. Failed execution can be registered as a diagnostic
+without a native summary. Full raw inputs remain in the source Catalog.
+
+Ordinary `compare` requires matching image, platform and effective configuration
+for two migrated runs, alongside the research control, data, account, costs and
+audit contracts. A legacy-versus-migrated comparison requires explicit
+`compare --engineering-audit`; it is an implementation comparison, not evidence
+that a different runtime or source is scientifically equivalent.
+
+`--source-ref` remains an explicit frozen historical source mode. It captures
+that Git commit's source paths and lockfile and runs the matching historical
+entry in the invoking environment; capturing a lockfile does not install it.
+Historical manifests retain their original source/hash contract. A valid v2
+start-time registration is still required for new registrations through that
+mode; unsupported trial seals cannot be supplied a registration after the fact.
+There is no Git metadata backend or implicit source fallback.
 
 ## Access, retention, and disaster recovery
 
@@ -332,8 +405,9 @@ Do not put exchange credentials in the artifact root.
 New exploration defaults to temporary scripts and outputs under `/tmp`. A
 formal experiment retains a compact preregistration/exposure/decision record,
 including useful negative results; execution logs are not automatically useful
-knowledge. Git keeps maintained Strategy/tooling/tests and retained source evidence.
-Dolt keeps research metadata, explicit knowledge claims and source identities;
+knowledge. Git keeps shared tooling, image build inputs, tests and retained
+historical evidence. Dolt keeps complete strategy bytes, research metadata,
+explicit knowledge claims and source identities;
 Catalog holds exact reusable inputs once. One-off code necessary to reconstruct
 an admitted claim belongs in a frozen external recipe, not the product tree.
 
@@ -366,7 +440,9 @@ the reports on that independent host. Recheck the restored hashes against the
 Dolt run record at its cited commit. Repeat a restore drill at least quarterly. An SSH or object
 storage destination needs a separately authorized transport or mounted remote
 filesystem; this CLI accepts filesystem paths only. Catalog inputs are not
-copied by this command and need their own recovery plan.
+copied by this command and need their own recovery plan. Image bytes are also
+not copied: retain a digest-addressable registry backup or image archive and
+verify it on restoration. Report restoration alone is not replay recovery.
 
 ## Back up and restore the record database
 
@@ -420,5 +496,8 @@ separate `TRADE_RECORDS_CONFIG`.
 An independent disaster-recovery acceptance additionally makes the primary
 unavailable and performs this drill on another administered host or storage
 boundary. A backup and server restored in two directories on this machine prove
-local recovery only. Restoring Dolt does not restore Catalog inputs or native
-report directories; preserve and test those recovery chains separately.
+local recovery only. Restoring Dolt does not restore OCI images, Catalog inputs or native report
+directories. Full replay recovery verifies and exports the source at the saved
+Dolt commit, restores the exact image manifest/platform and canonical inputs,
+then invokes the same native runner without requiring the current product Git
+checkout. Preserve and test these recovery chains separately.

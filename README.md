@@ -1,38 +1,52 @@
 # Trade research
 
-This repository keeps trading strategies as source code and replays them with the published [NautilusTrader](https://nautilustrader.io/) package. The current runnable slice is R1: the standalone H19a strategy, 37 Binance USDⓈ-M perpetual instruments, and one fixed-capital native margin account. It uses native data, orders, fills, risk, execution, portfolio accounting, and reports.
+Agents develop complete single-file Nautilus strategies in temporary directories
+and publish source bytes, revisions and derivation relations to Dolt. This
+repository maintains shared replay, evidence checks and runtime image build
+inputs. The current migration slice is H19a (`r1.broad-two-tier`), 37 Binance
+USDⓈ-M perpetual instruments and one fixed-capital native margin account.
+The published [NautilusTrader](https://nautilustrader.io/) package owns data,
+orders, fills, risk, execution, portfolio accounting and reports.
 
-## Run the verified R1 replay
+## Run R1
 
-Install Python 3.14 and [uv](https://docs.astral.sh/uv/), then:
+Install Python 3.14 and [uv](https://docs.astral.sh/uv/), configure the local
+Dolt store and export an exact strategy revision. Follow
+[R1 usage](backtest/r1/README.md) for a temporary host diagnostic, or the
+[research record and artifact guide](research/records/README.md) for a
+preregistered run in a fixed OCI image. The current `r1-native-v1` contract
+supports H19a only; unconverted historical variants require explicit archived
+source and its matching environment.
 
 ```bash
 uv sync --frozen
-R1_COINS=(BTC ETH BNB ADA XRP SOL DOGE LTC TRX LINK DOT AVAX BCH ETC XLM ATOM FIL NEAR UNI AAVE ICP APT ARB SUI OP INJ TIA SEI PEPE SHIB HBAR ALGO FET WLD IMX STX LDO)
-uv run --frozen python -m backtest.r1.run_portfolio \
-  --catalog-root /tmp/r1-37-1y-5m-2026oct7 \
-  --daily-root /tmp/r1-37-2026oct7 \
-  --quantity-csv /tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv \
-  --coins "${R1_COINS[@]}" \
-  --start 2025-10-07T00:00:00Z --trade-start 2025-10-17T00:00:00Z \
-  --end 2026-10-07T08:30:00Z \
-  --signal-variant support-broad-two-tier-4h --exit-variant tier-target-b \
-  --risk-budget-bps 25 --coin-notional-cap-pct 5 \
-  --output /tmp/r1-h19a-replay
+uv run --frozen python -m research.records.cli strategy list
+uv run --frozen python -m research.records.cli strategy show r1.broad-two-tier --brief
+uv run --frozen python -m backtest.r1.run_portfolio --help
 ```
 
-The historical Catalog is external to Git and must be supplied at the paths shown or replaced with equivalent explicit paths. No exchange trading credential is needed. The command is a backtest; it does not place live orders. Its `/tmp` output is temporary. For a new registered R1 tiered experiment whose result will guide strategy iteration, use the [research record and artifact guide](research/records/README.md) to preregister the hypothesis, run this same native replay with a frozen source, and retain its result. See [R1 usage](backtest/r1/README.md) for H18a and comparison commands.
+Historical Catalog inputs remain outside Git. Research needs no exchange
+trading credential. Direct `/tmp` reports are temporary; registered artifacts,
+Dolt backups and retained image bytes belong in private external directories.
+New runs bind the Dolt strategy revision, actual image manifest digest,
+platform, inputs and resolved configuration.
 
-The current documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/). Build the original Next.js/Fumadocs site locally with `npm ci --prefix docs-site && npm run build --prefix docs-site`; the static export is `docs-site/out`.
+The documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/).
+Build the original Next.js/Fumadocs site locally with
+`npm ci --prefix docs-site && npm run build --prefix docs-site`; the static
+export is `docs-site/out`.
 
 ## Repository map
 
-- [`strategies/r1.py`](strategies/r1.py): complete H19a signal, sizing and native order lifecycle in one file.
-- [`backtest/r1/`](backtest/r1/): the shared `BacktestNode` replay, input validation, report checks and small historical receipts.
-- [`research/r1_variants/`](research/r1_variants/): other supported research variants, awaiting the same source consolidation.
-- [`research/records/`](research/records/): Dolt research decisions, explicit knowledge admission, source retrieval and native artifact custody. Historical scripts, ledger copies and derived reports are outside the current worktree; [`history.json`](research/records/history.json) fixes their read-only Git source archive.
+- [`backtest/r1/`](backtest/r1/): the shared `BacktestNode` replay, external-source loader, native report checks and historical receipts.
+- [`backtest/r1/runtime/`](backtest/r1/runtime/): image build inputs for Python, Nautilus, shared runner and auditor; strategy bodies are excluded.
+- [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, explicit knowledge admission and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md): current product blueprint.
-- [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): 37-instrument paired replay evidence and migration findings.
-- [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): durable product and process findings from the R&D work.
+- [`docs/plans/dolt-strategy-oci-migration.zh.md`](docs/plans/dolt-strategy-oci-migration.zh.md): source/runtime migration contract and remaining scope.
+- [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): historical 37-instrument paired replay evidence.
+- [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): retained product and process findings.
 
-The old vendored Nautilus source and parallel product services have been removed after paired replay acceptance. Minimal `quality` and documentation publishing workflows remain. The published package version is pinned in `pyproject.toml` and `uv.lock`; changing it requires a fresh paired native replay.
+The vendored Nautilus source and parallel product services have been removed.
+Minimal quality and documentation publishing workflows remain. Image builds use
+`pyproject.toml` and `uv.lock`; changing a strategy, dependency or data requires
+a fresh paired native replay before claiming parity.

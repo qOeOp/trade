@@ -15,7 +15,7 @@ import uuid
 
 from research.records.common import RecordError
 from research.records.dolt_store import ConflictError, DoltStore
-from research.records.store import canonical
+from research.records.store import DoltRecords, canonical
 from research.records import strategies
 
 
@@ -243,12 +243,13 @@ class StrategyPolicyTests(unittest.TestCase):
         self.assertEqual(json.loads(binding.read_bytes()), first["binding"])
         self.assertEqual(json.loads(buffer.getvalue())["commit"], first["commit"])
 
-    def test_git_backend_and_historical_writes_are_explicitly_rejected(self):
-        with self.assertRaisesRegex(RecordError, "require Dolt"):
-            strategies.command(SimpleNamespace(backend="git", action="list"))
+    def test_unavailable_dolt_and_historical_writes_fail_visibly(self):
+        with patch("research.records.store.open_store", side_effect=RecordError("Dolt is unavailable")):
+            with self.assertRaisesRegex(RecordError, "Dolt is unavailable"):
+                strategies.command(SimpleNamespace(action="list"))
         with patch("research.records.store.open_store", return_value=SimpleNamespace(adapter=self.adapter)):
             with self.assertRaisesRegex(RecordError, "historical snapshot"):
-                strategies.command(SimpleNamespace(backend="dolt", action="publish", at="0" * 32))
+                strategies.command(SimpleNamespace(action="publish", at="0" * 32))
 
     def test_lineage_rejects_missing_relations_and_corrupt_cycles(self):
         self.publish(metadata("r1-parent"))
@@ -322,6 +323,65 @@ class StrategyDoltIntegrationTests(unittest.TestCase):
         self.assertEqual(value["parents"][0]["strategy"]["binding"]["revision"], 1)
         self.assertEqual(value["parents"][0]["strategy"]["description"], "Native source experiment")
         self.assertEqual(strategies.lineage(self.adapter, "r1-child", at=child["commit"])["binding"]["commit"], child["commit"])
+
+    def test_schema2_preregistration_binds_strategy_through_decision_revisions(self):
+        source = strategies.publish(self.adapter, metadata(), self.source, "source", 0)
+        records = DoltRecords(self.config)
+        attempt = {"schema_version": 2, "attempt_id": "STRATEGY-BINDING-01", "goal_id": "registry-integration",
+                   "kind": "strategy", "question": "Can the initial source binding remain fixed?",
+                   "mechanism": "Immutable source snapshot", "hypothesis": "Decision revisions retain their registered source",
+                   "parents": [], "code_parent": None, "strategy_binding": source["binding"],
+                   "contract": {"scope": "Disposable API custody probe; no research outcome", "plan": "Publish source, preregister, then alter only a decision"},
+                   "registration": {"status": "preregistered"},
+                   "decision": {"layer": "pending", "outcome": "pending", "scope": "No replay performed", "next_action": "Exercise record custody"},
+                   "evidence_refs": []}
+        first = records.publish_record("attempt", attempt, operation_id="preregister", expected_version=1)
+        self.assertEqual(first["registration_receipt"], {"id": "attempt:STRATEGY-BINDING-01", "revision": 1, "commit": first["commit"]})
+        self.source.write_bytes(SOURCE + b"# Later strategy edit\n")
+        later_source = strategies.publish(self.adapter, metadata(description="Later source revision"), self.source, "later-source", 2)
+        decision = copy.deepcopy(attempt)
+        decision["decision"].update(layer="execution", outcome="inconclusive", scope="Only the API custody probe; no replay", next_action="Keep native replay separate")
+        later = records.publish_record("attempt", decision, operation_id="decision", expected_version=3)
+        self.assertEqual(records.adapter.get_object("attempt:STRATEGY-BINDING-01")["revision"], 2)
+        original, receipt = records.registration_snapshot("STRATEGY-BINDING-01")
+        self.assertEqual(original, attempt)
+        self.assertEqual(receipt, first["registration_receipt"])
+        for revision in (1, 2):
+            edges = [edge for edge in self.adapter.list_relations(commit=later["commit"])
+                     if edge["kind"] == "uses_strategy" and edge["from_id"] == "attempt:STRATEGY-BINDING-01"
+                     and edge["from_revision"] == revision]
+            self.assertEqual(len(edges), 1)
+            self.assertEqual({key: edges[0][key] for key in ("from_kind", "to_id", "to_revision", "to_kind", "body")},
+                             {"from_kind": "attempt", "to_id": "strategy:r1-example", "to_revision": 1,
+                              "to_kind": "strategy", "body": {"binding": source["binding"]}})
+        before = self.adapter.status()
+        rebound = copy.deepcopy(decision)
+        rebound["strategy_binding"] = later_source["binding"]
+        with self.assertRaisesRegex(ConflictError, "original registration contract"):
+            records.publish_record("attempt", rebound, operation_id="rebind", expected_version=before["version"])
+        dropped = copy.deepcopy(decision)
+        dropped.pop("strategy_binding")
+        with self.assertRaisesRegex(ConflictError, "original registration contract"):
+            records.publish_record("attempt", dropped, operation_id="drop-binding", expected_version=before["version"])
+        self.assertEqual(self.adapter.status(), before)
+        retried = records.publish_record("attempt", attempt, operation_id="preregister", expected_version=1)
+        self.assertEqual(retried, {**first, "replayed": True})
+        self.assertEqual(self.adapter.status(), before)
+
+    def test_initial_preregistration_rejects_corrupt_strategy_binding_without_write(self):
+        source = strategies.publish(self.adapter, metadata(), self.source, "source", 0)
+        records = DoltRecords(self.config)
+        attempt = {"schema_version": 2, "attempt_id": "STRATEGY-BINDING-BAD", "goal_id": "registry-integration", "kind": "strategy",
+                   "question": "Can corrupt source bindings be published?", "mechanism": "Exact source verification", "hypothesis": "A mismatch is refused",
+                   "parents": [], "code_parent": None, "strategy_binding": {**source["binding"], "source_sha256": "0" * 64},
+                   "contract": {"scope": "Disposable refusal probe", "plan": "Attempt a mismatched source binding"},
+                   "registration": {"status": "preregistered"},
+                   "decision": {"layer": "pending", "outcome": "pending", "scope": "No replay", "next_action": "Verify refusal"}, "evidence_refs": []}
+        before = self.adapter.status()
+        with self.assertRaisesRegex(RecordError, "binding differs"):
+            records.publish_record("attempt", attempt, operation_id="bad-binding", expected_version=1)
+        self.assertEqual(self.adapter.status(), before)
+        self.assertIsNone(self.adapter.get_object("attempt:STRATEGY-BINDING-BAD"))
 
 
 if __name__ == "__main__":

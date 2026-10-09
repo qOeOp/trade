@@ -364,7 +364,7 @@ def list_strategies(adapter, at=None, family_id=None, status=None, all_revisions
 def command(args):
     from research.records.store import open_store
     from research.records.common import _read_json
-    store = open_store(args.backend)
+    store = open_store()
     if not hasattr(store, "adapter"):
         raise RecordError("strategy APIs require Dolt; Git is read-only research history")
     adapter = store.adapter

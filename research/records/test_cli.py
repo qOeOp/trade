@@ -5,14 +5,13 @@ import unittest
 
 from research.records.cli import (
     RecordError,
-    _check_family,
     _check_source_revision,
     _brief,
     _compare,
     _lineage,
-    _load_records,
     _show,
 )
+from research.records.contracts import _check_family
 from research.records.fixtures.contract_repository import ContractRepository
 
 
