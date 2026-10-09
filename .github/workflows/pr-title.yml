@@ -17,14 +17,15 @@ concurrency:
 jobs:
   validate:
     name: pr-title
+    if: github.event.pull_request.state == 'open'
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
-      - name: Checkout exact base revision
+      - name: Checkout trusted workflow revision
         # https://github.com/actions/checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
           fetch-depth: 1
 
@@ -32,6 +33,7 @@ jobs:
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          VALIDATOR_SHA: ${{ github.workflow_sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
@@ -40,7 +42,7 @@ jobs:
         run: |-
           set -euo pipefail
 
-          test "$(git rev-parse HEAD)" = "$EVENT_BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$VALIDATOR_SHA"
 
           read_current_pr() {
             local snapshot
