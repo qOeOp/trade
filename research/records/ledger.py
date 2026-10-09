@@ -14,7 +14,7 @@ import pymysql
 
 from research.records.common import ROOT, RecordError, _read_json
 from research.records.dolt_store import DoltStore, DOLT_VERSION
-from research.records.materials import retained_historical_refs, scan
+from research.records.materials import scan
 from research.records.migration import original_bytes, publish
 from research.records.store import DEFAULT_ROOT, canonical, config_path, configuration, open_store
 
@@ -188,17 +188,8 @@ def command(args):
             return adapter.status()
         if args.action == "backup":
             return backup(config, args.destination)
-        historical = retained_historical_refs() if args.historical_c02 else None
-        if args.legacy_all:
-            from research.records.history import load_archive
-            archive = load_archive(ROOT)
-            if archive:
-                historical = [*(historical or []), {"commit": archive.commit,
-                              "paths": [path for prefix in archive.prefixes for path in archive.paths(prefix)]}]
-        return publish(adapter, scan(historical_refs=historical, selected_paths=args.paths), args.dry_run)
-    store = open_store(args.backend)
-    if not hasattr(store, "adapter"):
-        raise RecordError("material and publication APIs require Dolt")
+        return publish(adapter, scan(selected_paths=args.paths), args.dry_run)
+    store = open_store()
     if args.command == "material":
         if args.action == "admit":
             if args.at:
@@ -239,5 +230,4 @@ def command(args):
         raise RecordError("cannot publish to a historical read snapshot")
     body = _read_json(args.file)
     return store.publish_record("attempt", body, operation_id=args.operation_id, expected_version=args.expected_version,
-                                provenance={"origin": "agent_publication", "input_sha256": hashlib.sha256(args.file.read_bytes()).hexdigest()},
-                                receipt_path=args.file)
+                                provenance={"origin": "agent_publication", "input_sha256": hashlib.sha256(args.file.read_bytes()).hexdigest()})

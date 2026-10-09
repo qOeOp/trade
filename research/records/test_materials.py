@@ -11,6 +11,11 @@ import unittest
 from research.records.materials import HISTORICAL_MANIFEST, retained_historical_refs, scan
 from research.records.fixtures.contract_repository import ContractRepository, EXPERIMENTS, OBSERVATIONS
 
+RESEARCH_PROJECTIONS = {
+    "hypothesis_extension", "repair", "composition", "component_reuse", "component_index",
+    "comparison_family", "comparison_cell", "run_of", "compared_with", "controlled_by",
+}
+
 
 class MaterialFixtureTests(unittest.TestCase):
     def setUp(self):
@@ -138,7 +143,7 @@ class MaterialFixtureTests(unittest.TestCase):
         self.assertFalse(any("SENTINEL" in o["body"].get("text", "") for o in result["objects"]))
         self.assertNotIn("material:reports/new.md", {o["id"] for o in scan(self.root, include_untracked=False)["objects"]})
 
-    def test_explicit_fields_preserve_record_body_and_do_not_infer_from_prose(self):
+    def test_archived_record_fields_are_references_without_registration_or_lineage(self):
         data = {"attempt_id": "H18a", "parents": [{"attempt_id": "H15a", "relationship": "hypothesis_extension", "difference": "bounded"}], "mechanism_refs": [{"attempt_id": "H08", "relationship": "component_reuse", "component": "ConfirmedLineSupportTouches", "boundary": "state only; no inherited entry"}], "decision": {"scope": "corrects C02 and supports every hypothesis"}}
         self.write("research/records/attempts/H18a/attempt.json", json.dumps(data, ensure_ascii=False))
         self.write("research/records/attempts/H08/attempt.json", json.dumps({"attempt_id": "H08", "parents": []}))
@@ -146,14 +151,58 @@ class MaterialFixtureTests(unittest.TestCase):
         self.write("research/r1_native/RD_EXPERIMENTS.md", "## Candidate H18a: corrects C02, inherits H08, supports H99\nOnly text.\n")
         self.commit()
         result = scan(self.root)
-        obj = next(o for o in result["objects"] if o["id"] == "attempt:H18a")
+        obj = next(o for o in result["objects"] if o["id"] == "evidence_json:research/records/attempts/H18a/attempt.json")
         self.assertEqual(obj["body"], data)
-        relations = {(r["kind"], r["from_id"], r["to_id"]) for r in result["relations"]}
-        self.assertIn(("component_reuse", "attempt:H18a", "attempt:H08"), relations)
-        self.assertIn(("hypothesis_extension", "attempt:H18a", "attempt:H15a"), relations)
-        self.assertNotIn(("hypothesis_extension", "attempt:H18a", "attempt:H08"), relations)
-        self.assertFalse({r["kind"] for r in result["relations"]} & {"corrects", "supports", "inherits"})
+        self.assertEqual(base64.b64decode(obj["provenance"]["raw_content_base64"]), (self.root / obj["provenance"]["path"]).read_bytes())
+        objects = {o["id"]: o for o in result["objects"]}
+        declared = [(objects[r["to_id"]]["body"], r["body"]) for r in result["relations"]
+                    if r["from_id"] == obj["id"] and r["kind"] == "references"]
+        self.assertEqual({target["target"] for target, _ in declared}, {"attempt:H08", "attempt:H15a"})
+        self.assertEqual({body["reference"]["relationship"] for _, body in declared}, {"component_reuse", "hypothesis_extension"})
+        self.assertFalse({r["kind"] for r in result["relations"]} & (RESEARCH_PROJECTIONS | {"corrects", "supports", "inherits"}))
+        self.assertFalse({o["kind"] for o in result["objects"]} & {"attempt", "run", "component"})
+        self.assertIn("archived_record_requires_registration", result["statistics"]["review_by_reason"])
         self.assertEqual(scan(self.root), result)
+
+    def test_historical_and_selected_record_json_remain_lossless_source_custody(self):
+        from research.records.migration import original_bytes
+        path = "research/records/runs/run-1/run.json"
+        raw = b'{ "run_id": "run-1", "attempt_id": "H01", "control_run_id": "run-0" }\r\n'
+        self.write(path, raw)
+        historical = self.commit()
+        self.write(path, b'{ "run_id": "run-1", "attempt_id": "H02" }\n')
+        self.commit()
+        result = scan(self.root, include_untracked=False,
+                      historical_refs=[{"commit": historical, "paths": [path]}], selected_paths=[path])
+        versions = [obj for obj in result["objects"] if obj["provenance"].get("path") == path]
+        self.assertEqual([obj["kind"] for obj in versions], ["evidence_json", "evidence_json"])
+        self.assertEqual([original_bytes(obj) for obj in versions], [raw, (self.root / path).read_bytes()])
+        self.assertFalse({edge["kind"] for edge in result["relations"]} & RESEARCH_PROJECTIONS)
+        self.assertFalse(any(obj["id"].startswith(("attempt:", "run:")) for obj in result["objects"]))
+
+    def test_retained_legacy_record_for_link_resolution_is_projected_to_source(self):
+        from research.records.migration import original_bytes
+        path = "retained/attempt.json"
+        raw = b'{"attempt_id":"H01","parents":[]}\n'
+        self.write("notes.md", f"# Navigation\n[old record]({path})\n")
+        self.commit()
+        legacy = {"id": "attempt:H01", "kind": "attempt", "revision": 1,
+                  "body": json.loads(raw), "provenance": {"path": path, "git_commit": None,
+                  "blob_sha256": hashlib.sha256(raw).hexdigest(),
+                  "raw_content_base64": base64.b64encode(raw).decode("ascii")}}
+        result = scan(self.root, supplemental_objects=[legacy])
+        archived = next(obj for obj in result["objects"] if obj["id"] == "evidence_json:" + path)
+        self.assertEqual(original_bytes(archived), raw)
+        self.assertFalse(any(obj["kind"] in {"attempt", "run"} for obj in result["objects"]))
+
+    def test_material_import_rejects_record_kind_or_namespace_before_database_access(self):
+        from research.records.common import RecordError
+        from research.records.migration import plan
+        for kind, identity in (("attempt", "any-id"), ("run", "any-id"),
+                               ("material", "attempt:H01"), ("evidence_json", "run:R01")):
+            with self.subTest(kind=kind, identity=identity):
+                with self.assertRaisesRegex(RecordError, "publish through the Dolt record API"):
+                    plan(None, {"objects": [{"kind": kind, "id": identity}]})
 
     def test_historical_sections_and_edges_bind_to_historical_bytes(self):
         path = "research/r1_native/SOURCE_CASES.md"
@@ -330,18 +379,18 @@ class FrozenMaterialContractTests(unittest.TestCase):
     def test_reliable_source_facts_and_required_human_review(self):
         actual = {(r["kind"], r["from_id"], r["to_id"]) for r in self.result["relations"]}
         for expected in self.golden["reliable_relations"]:
-            self.assertIn((expected["kind"], expected["from_id"], expected["to_id"]), actual)
+            if expected["kind"] not in RESEARCH_PROJECTIONS:
+                self.assertIn((expected["kind"], expected["from_id"], expected["to_id"]), actual)
         self.assertFalse(set(self.golden["forbidden_inferred_relations"]) & {r["kind"] for r in self.result["relations"]})
+        self.assertFalse(RESEARCH_PROJECTIONS & {r["kind"] for r in self.result["relations"]})
         for reason in self.golden["review_required"]:
             self.assertIn(reason, self.result["statistics"]["review_by_reason"])
-        self.assertNotIn(("hypothesis_extension", "attempt:H18a", "attempt:H08"), actual)
-        component_edges = [r for r in self.result["relations"] if r["kind"] == "component_index"]
-        self.assertEqual({r["to_id"] for r in component_edges}, {"attempt:H18a", "attempt:H08"})
+        self.assertFalse({obj["kind"] for obj in self.result["objects"]} & {"attempt", "run", "component"})
         same_media = [r for r in self.result["relations"] if r["kind"] == "same_media"]
         self.assertEqual(len(same_media), 2)
         self.assertEqual(len({r["to_id"] for r in same_media}), 1)
         for obj in self.result["objects"]:
-            if obj["kind"] in {"attempt", "run"}:
+            if obj["kind"] == "evidence_json":
                 self.assertEqual(obj["body"], json.loads(base64.b64decode(obj["provenance"]["raw_content_base64"])))
 
 

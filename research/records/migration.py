@@ -7,7 +7,7 @@ from collections import Counter
 import hashlib
 
 from research.records.common import RecordError
-from research.records.store import canonical, validate_record
+from research.records.store import canonical
 
 
 def _fingerprint(obj):
@@ -17,11 +17,13 @@ def _fingerprint(obj):
 
 
 def plan(adapter, inventory):
+    for incoming in inventory["objects"]:
+        if incoming["kind"] in ("attempt", "run") or incoming["id"].startswith(("attempt:", "run:")):
+            raise RecordError(f"material import cannot register or revise research records: {incoming['id']}; publish through the Dolt record API")
     status = adapter.status()
     if status["dirty"]:
         raise RecordError("migration requires a clean Dolt working set")
     existing = adapter.list_objects(commit=status["commit"], latest=False)
-    metadata_already_owned = any(obj["kind"] in ("attempt", "run") for obj in existing)
     indexed = {(obj["id"], _fingerprint(obj)): obj for obj in existing}
     latest = {}
     for obj in existing:
@@ -29,13 +31,9 @@ def plan(adapter, inventory):
             latest[obj["id"]] = obj["revision"]
     rows, endpoints = [], {}
     for incoming in inventory["objects"]:
-        if incoming["kind"] in ("attempt", "run"):
-            validate_record(incoming["kind"], incoming["body"])
         key = (incoming["id"], _fingerprint(incoming))
         obj = indexed.get(key)
         if obj is None:
-            if metadata_already_owned and incoming["kind"] in ("attempt", "run"):
-                raise RecordError(f"Git metadata is a frozen import, not a writer: {incoming['id']}; publish through the Dolt record API")
             revision = latest.get(incoming["id"], 0) + 1
             obj = {**incoming, "revision": revision}
             indexed[key] = obj

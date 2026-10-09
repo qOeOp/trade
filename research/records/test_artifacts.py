@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from research.records import artifacts
@@ -21,6 +22,7 @@ from research.records.artifacts import backup
 from research.records.artifacts import create_input_identity
 from research.records.artifacts import restore
 from research.records.artifacts import verify
+from research.records.common import RecordError
 
 
 class FrozenSourceLayoutTests(unittest.TestCase):
@@ -278,6 +280,12 @@ output.mkdir(exist_ok=True)
 files = {'strategy_source_sha256': 'strategies/r1.py',
          'runner_source_sha256': 'backtest/r1/run_portfolio.py'}
 summary = {'source_file_paths': files, 'integrity_passed': True}
+summary.update({'input_start_utc': '2024-01-01T00:00:00Z',
+                'period_start_utc': '2024-01-02T00:00:00Z',
+                'period_end_utc': '2024-01-03T00:00:00Z',
+                'data_interval_minutes': 5,
+                'account_model': 'Synthetic contract; no account replay',
+                'starting_balance_usdt': '100000', 'sizing': {}})
 summary.update({field: hashlib.sha256(Path(name).read_bytes()).hexdigest()
                 for field, name in files.items()})
 (output / 'summary.json').write_text(json.dumps(summary))
@@ -300,11 +308,41 @@ print(Path.cwd())
         quantity = self.workspace / "quantity.csv"
         quantity.write_text("synthetic fixture")
         root = self.workspace / "artifact-root"
-        binding = {"id": "attempt:fixture-attempt", "commit": "fixture-fixed", "revision": 1}
-        with patch.object(artifacts, "_attempt_snapshot", return_value=({
-                 "registration": {"original_registration_commit": commit}}, binding)), \
+        binding = {"id": "attempt:fixture-attempt", "commit": "a" * 32, "revision": 1}
+        events = []
+        status = {"commit": binding["commit"], "version": 1}
+
+        def registration_snapshot(attempt_id, fixed=None):
+            self.assertEqual(attempt_id, "fixture-attempt")
+            if fixed is None:
+                events.append("registration-before-run")
+            else:
+                self.assertEqual(fixed, binding)
+                events.append("verify-fixed-registration")
+            return {"schema_version": 2, "registration": {"status": "preregistered"}}, dict(binding)
+
+        store = SimpleNamespace(
+            adapter=SimpleNamespace(status=lambda: dict(status)),
+            registration_snapshot=registration_snapshot,
+            publish_record=Mock(return_value={"commit": "c" * 32}),
+        )
+        original_process = subprocess.run
+
+        def process(command, *args, **kwargs):
+            if command[:3] == [sys.executable, "-m", "backtest.r1.run_portfolio"]:
+                self.assertEqual(events, ["registration-before-run"])
+                events.append("runner")
+                # A later decision published during the subprocess must not
+                # become the experiment's starting intent.
+                status.update(commit="b" * 32, version=2)
+            elif command[:3] == [sys.executable, "-m", "backtest.r1.checks.audit_tiered_native"]:
+                events.append("audit")
+            return original_process(command, *args, **kwargs)
+
+        with patch("research.records.store.open_store", return_value=store), \
              patch.object(artifacts, "_check_inputs", return_value={"fixture": "no Catalog mutation"}), \
              patch.object(artifacts.importlib.metadata, "version", return_value="fixture-native-version"), \
+             patch.object(artifacts.subprocess, "run", side_effect=process), \
              patch.object(artifacts.tempfile, "gettempdir", return_value="/system-temp-fixture"):
             result = artifacts.run(root=root, run_id="fixture-run", attempt_id="fixture-attempt",
                                    source_ref=commit, input_identity=identity, runner_argv=[
@@ -312,6 +350,9 @@ print(Path.cwd())
                                        "--daily-root", str(self.workspace / "daily"),
                                        "--quantity-csv", str(quantity), "--coins", "BTC",
                                        "--signal-variant", "support-broad-two-tier-4h"])
+            artifacts.register(root=root, run_id="fixture-run", role="diagnostic",
+                               cost_model="Synthetic fixture; no native economics.",
+                               control_run_id=None, evidence_grade="unknown")
         self.assertEqual(result["status"], "passed")
         seal = root / "fixture-run"
         native_cwd = (seal / "native.stdout.txt").read_text().strip()
@@ -323,6 +364,33 @@ print(Path.cwd())
         self.assertEqual(manifest["source_commit"], commit)
         self.assertEqual(manifest["record_binding"], binding)
         self.assertEqual(manifest["dependency_lock_sha256"], _sha(seal / "source/uv.lock"))
+        self.assertEqual(events, ["registration-before-run", "runner", "audit", "verify-fixed-registration"])
+        publication = store.publish_record.call_args
+        self.assertEqual(publication.kwargs["provenance"]["record_binding"], binding)
+        self.assertEqual(publication.kwargs["provenance"]["binding_origin"], "sealed_start")
+        self.assertEqual(publication.kwargs["endpoint_revisions"], {"attempt:fixture-attempt": 1})
+        self.assertEqual(publication.kwargs["expected_version"], 2)
+        self.assertEqual(publication.args[1]["source_revision"]["commit"], commit)
+
+    def test_invalid_registration_prevents_processes_and_artifact_creation(self):
+        root = self.workspace / "never-created-seals"
+        for reason in ("unknown registered attempt", "retrospective attempt has no preregistration",
+                       "registration is not an initial pending receipt"):
+            with self.subTest(reason=reason):
+                store = SimpleNamespace(registration_snapshot=Mock(side_effect=RecordError(reason)))
+                with patch("research.records.store.open_store", return_value=store), \
+                     patch.object(artifacts.subprocess, "run") as processes:
+                    with self.assertRaisesRegex(ArtifactError, reason):
+                        artifacts.run(root=root, run_id="fixture-run", attempt_id="fixture-attempt",
+                                      source_ref="HEAD", input_identity=self.workspace / "missing.json",
+                                      runner_argv=[])
+                processes.assert_not_called()
+                self.assertFalse(root.exists())
+
+    def test_history_reader_cannot_supply_a_registered_custody_start(self):
+        with patch("research.records.store.open_store", return_value=SimpleNamespace()):
+            with self.assertRaisesRegex(ArtifactError, "requires the Dolt metadata owner"):
+                artifacts._attempt_snapshot("fixture-attempt")
 
 
 class ArtifactCustodyTests(unittest.TestCase):
@@ -427,6 +495,27 @@ class ArtifactCustodyTests(unittest.TestCase):
         (minute / "bars.parquet").write_bytes(b"changed")
         with self.assertRaisesRegex(ArtifactError, "bytes differ"):
             _check_inputs(identity, replay)
+
+    def test_registration_requires_sealed_start_binding_even_if_a_run_exists(self):
+        manifest_path = self.seal / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["attempt_id"] = "fixture-attempt"
+        manifest_path.write_text(json.dumps(manifest))
+        adapter = Mock()
+        # An old run_of edge cannot reconstruct a contract that the seal never
+        # captured before execution.
+        adapter.get_object.return_value = {"id": "run:" + self.run_id, "revision": 1}
+        adapter.list_relations.return_value = [{
+            "kind": "run_of", "from_id": "run:" + self.run_id,
+            "from_revision": 1, "to_id": "attempt:fixture-attempt", "to_revision": 1,
+        }]
+        with patch("research.records.store.open_store", return_value=SimpleNamespace(adapter=adapter)):
+            with self.assertRaisesRegex(ArtifactError, "no start-time Dolt registration binding"):
+                artifacts.register(root=self.root, run_id=self.run_id, role="diagnostic",
+                                   cost_model="Synthetic test; no native economics.",
+                                   control_run_id=None, evidence_grade="unknown")
+        adapter.get_object.assert_not_called()
+        adapter.list_relations.assert_not_called()
 
 
 if __name__ == "__main__":

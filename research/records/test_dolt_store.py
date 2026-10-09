@@ -75,6 +75,16 @@ class DoltStoreIntegrationTests(unittest.TestCase):
             self._publish([altered], operation="change-json-type", expected=2)
         self.assertEqual(before, self.store.status())
 
+    def test_operation_receipt_uses_the_original_commit_and_fixed_visibility(self):
+        first = self._publish([_object()], operation="registered")
+        later = self._publish([_object("attempt:later")], operation="later", expected=1)
+        expected = {key: first[key] for key in ("operation_id", "version", "commit")}
+        self.assertEqual(self.store.operation_receipt("registered"), expected)
+        self.assertEqual(self.store.operation_receipt("registered", first["commit"]), expected)
+        self.assertEqual(self.store.operation_receipt("registered", later["commit"]), expected)
+        with self.assertRaisesRegex(RecordError, "unknown publication operation"):
+            self.store.operation_receipt("later", first["commit"])
+
     def test_invalid_native_foreign_keys_abort_entire_publication(self):
         self._publish([_object()])
         before = self.store.status()
