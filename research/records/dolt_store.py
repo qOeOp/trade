@@ -250,10 +250,22 @@ class DoltStore:
     def list_objects(self, kind=None, commit=None, latest=True):
         """Read at one native commit; optionally retain all revision rows."""
         suffix, params = self._as_of(commit)
+        snapshot_params = params
+        where = ""
+        if kind is not None:
+            _text(kind, "object kind", 64)
+            where = " WHERE kind=%s"
+            params += (kind,)
         with self._connection() as conn:
             self._check_schema(conn)
             rows = self._sql(conn, "SELECT id,kind,revision,body,provenance FROM objects" +
-                             suffix + " ORDER BY id,revision DESC", params)[0]
+                             suffix + where + " ORDER BY id,revision DESC", params)[0]
+            if latest and kind is not None:
+                # Filtering a mutable kind must not resurrect an older row of
+                # an identity whose latest revision has a different kind.
+                revisions = dict(self._sql(conn, "SELECT id,MAX(revision) FROM objects" +
+                                           suffix + " GROUP BY id", snapshot_params)[0])
+                rows = [row for row in rows if revisions[row[0]] == row[2]]
         if not latest:
             return [self._object(row) for row in rows if kind is None or row[1] == kind]
         current = {}

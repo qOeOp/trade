@@ -1,8 +1,8 @@
 # R-1 原生研究：流程与产品发现
 
-本页原先混存 R&D 的流程、产品能力与策略观察。现将**共用工作台能力候选**集中在页首，下方 F01–F97 保留原始历史正文；策略绩效结论以[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)为准。旧架构章节已清理，原蓝图核对点只保留历史需求语境；当前设计见[架构蓝图](../architecture.zh.md)。来源是 Goal `01a11518-fb33-7853-a31c-b8c43df5be60`；这些记录不授予交易、资格或发布权限。
+本页原先混存 R&D 的流程、产品能力与策略观察。现将**共用工作台能力候选**集中在页首，下方 F01–F97 保留原始历史正文；策略绩效结论以[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)为准。旧架构章节已清理，原蓝图核对点只保留历史需求语境；当前设计见[架构蓝图](../architecture.zh.md)。来源是 Goal `01a11518-fb33-7853-a31c-b8c43df5be60`；这些记录不授予交易、资格或发布权限。
 
-**现行归属。** F01–F97 是按产生顺序保留的**历史混合记录**，其中不少条目的“观察”“下一步”实际是策略试验结论。编号、正文和证据链接保留以免断开引用；策略假设、原生结果、失败范围与下一轮判断的权威记录在对应 H/D/S 段落。逐项归属与交叉引用见[研究记录索引](../../research/r1_native/RECORD_INDEX.md)。F 编号不是模块或开发排期。后续新增产品 finding，须证明是多次 attempt 共用的 Agent 能力缺口，并同时列出受影响 attempt、受阻任务、直接证据、迭代成本、现有绕行和最小共用能力；单次策略有效/无效只进入研究台账。已转录的试验先用 [`research.records`](../../research/records/README.md) 读回 attempt/run，再核对原 H/D/S 登记及原生结果。H25a/H26a/H27a 的结构化条目是事后转录，旧 `/tmp` CSV 未封存；未迁移的历史记录仍查原台账，不倒填事前身份。
+**现行归属。** F01–F97 是按产生顺序保留的**历史混合记录**，其中不少条目的“观察”“下一步”实际是策略试验结论。编号、正文和证据链接保留以免断开引用；策略假设、原生结果、失败范围与下一轮判断的权威记录在对应 H/D/S 段落。逐项归属与交叉引用见[研究记录索引](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RECORD_INDEX.md)。F 编号不是模块或开发排期。后续新增产品 finding，须证明是多次 attempt 共用的 Agent 能力缺口，并同时列出受影响 attempt、受阻任务、直接证据、迭代成本、现有绕行和最小共用能力；单次策略有效/无效只进入研究台账。已转录的试验先用 [`research.records`](../../research/records/README.md) 读回 attempt/run，再核对原 H/D/S 登记及原生结果。H25a/H26a/H27a 的结构化条目是事后转录，旧 `/tmp` CSV 未封存；未迁移的历史记录仍查原台账，不倒填事前身份。
 
 ### 共用工作台能力候选的优先核对
 
@@ -12,7 +12,7 @@
 
 **原生运行与有界事件读回（F03/F06/F09/F14–F17/F26/F42–F45/F58）。** 受影响：H04、H15a、H18a、H19a、H25a–H27a、D91、D95。Agent 受阻于长期 37 币共享账户回放的可恢复身份和按来源追溯 ENTRY/OTO 子单、成交、Position 与账户资金；D95 的首次读取因错误假定“一组订单只对应一笔 Position”中止，H27a 全量原生账户 CSV 保存在临时目录，摘要才进入 Git。代价是重复写专用审计和在报告失存时重跑全年。绕行是本地 `/tmp` 原生报告、精确文件哈希、`audit_native_tiers.py` 和只读归因脚本。最小共用能力是对原生 Backtest 任务/报告的持久身份、状态及按订单组/Position/时间窗的有界查询，**不引入第二套撮合、风险或账户账本**；先用现有 Nautilus 事件与报表验证查询能力。此项可能影响 Backtest 结果契约，具体实现仍需一个真实消费者和 Owner Linux 验收。
 
-**已有契约与策略结论。** F02/F04/F11/F24/F73/F75 提醒数据收盘时钟、合约条款近似、LAST/MARK 和触发语义，现有 Catalog/Instrument/输入身份与审计先承接，尚未证明需要新组件。其余大量 F（特别是 F59–F97）是研究方法或具体 H/D/S 的历史结论；在[索引](../../research/r1_native/RECORD_INDEX.md)中回到原 attempt，不按 F 编号拆服务。当前没有一个新 finding 单独证明必须改变“Agent 选方法、Nautilus 管执行和账户、证据文件可重放”的架构边界。
+**已有契约与策略结论。** F02/F04/F11/F24/F73/F75 提醒数据收盘时钟、合约条款近似、LAST/MARK 和触发语义，现有 Catalog/Instrument/输入身份与审计先承接，尚未证明需要新组件。其余大量 F（特别是 F59–F97）是研究方法或具体 H/D/S 的历史结论；在[索引](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RECORD_INDEX.md)中回到原 attempt，不按 F 编号拆服务。当前没有一个新 finding 单独证明必须改变“Agent 选方法、Nautilus 管执行和账户、证据文件可重放”的架构边界。
 
 <a id="f01"></a>
 
@@ -82,7 +82,7 @@
 
 **产品含义。** R&D 保存策略源码之外，还应关联每条关键规则的原片时间点/画面、来源明确程度、机械化定义和覆盖不到的情境。Agent 可用原生 Strategy 编写新变体并比较回测，但应先用少量来源图例检查定义是否真的表达了所说结构，再解读收益差异；未经核对的参数应标为研究假设。读回时分别呈现源码规则状态是否转写一致、订单与账户是否按原生引擎执行、机械规则是否忠实表达作者图例，三者不能互相代证。此记录可作为后续知识条目和策略审查的依据，不需要新的策略语言或编译链。
 
-**时间线补证。** S41 对照 2025 年 2 月 25 日 BTC 已持有空单回顾和此前 2 月 22、24 日两段原片。2 月 24 日图上确有约 98.6k-99.2k 上方区域和约 94k 下方区域，作者也说四小时区间可在上方做空；但画面里较早的上方触及和回落已经发生。两段前片均没有在**首次触及前**公开给出后来回顾图上的入场、99,688 止损及三档目标全套计划。产品在记录来源关系时应分别保留"首次触及前已公开的位置"、"触及后公开的区域"、"后来回顾的止损／目标"和"原生成交"，不能因相邻发布日期较早就把后来的整套计划倒填为事前订单。研究者仍可明确标注自己的机械代理并做原生回测。[S41 来源与画面身份](../../research/r1_native/results/2026-10-08-s41-prior-resistance-source.json)。
+**时间线补证。** S41 对照 2025 年 2 月 25 日 BTC 已持有空单回顾和此前 2 月 22、24 日两段原片。2 月 24 日图上确有约 98.6k-99.2k 上方区域和约 94k 下方区域，作者也说四小时区间可在上方做空；但画面里较早的上方触及和回落已经发生。两段前片均没有在**首次触及前**公开给出后来回顾图上的入场、99,688 止损及三档目标全套计划。产品在记录来源关系时应分别保留"首次触及前已公开的位置"、"触及后公开的区域"、"后来回顾的止损／目标"和"原生成交"，不能因相邻发布日期较早就把后来的整套计划倒填为事前订单。研究者仍可明确标注自己的机械代理并做原生回测。[S41 来源与画面身份](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s41-prior-resistance-source.json)。
 
 **原蓝图核对点（历史）。** R&D 研究与知识及 R-1 用户故事。现有来源引用与 Artifact 契约可承载大部分关系，待补的是读回时怎样呈现来源保真度与未覆盖条件。
 
@@ -142,7 +142,7 @@
 
 **观察。** 新解析的 DOGE 原片把低位支撑挂单、已有浮盈持仓与上涨后新开合约单分成三种判断：支撑带下方的结构止损对旧持仓可接受，对追价合约入场可能过远。ETH 原片同时看到周线空头力度和未确认跌破的日线关键支撑，因此暂不追空；BTC 四小时偏多震荡也不能只因上沿阻力就机械做空。原片没有给出统一的支撑宽度、止损距离或大阴线数值阈值，现有日线枢轴与对称箱体不能直接宣称覆盖这些判断。具体时间点和截图见实验台账 S06、来源案例 C07-C09。
 
-**跨日补证。** 2025 年 5 月 21 日的 BTC 原片在价格接近前高时，允许现货继续持有等待突破，同时要求从低位支撑进入的合约多单在阻力附近短期落袋；次日原片虽称价格突破旧高，却明确反对在当前高位新追合约多单，建议低位合约兑现、现货继续持有，新的合约多单只在未来回落关键位置后再考虑。次日的日线画面也不足以证明当前 K 线已收盘。S40 的这个正反对照使"突破后延长现有合约仓位"和"突破即新开合约仓位"均未通过来源门槛；作者对现货方向的判断不能代替合约订单及更远目标。原始视频身份、转录与画面见[S40 来源结果](../../research/r1_native/results/2026-10-08-s40-prior-high-continuation-source.json)。
+**跨日补证。** 2025 年 5 月 21 日的 BTC 原片在价格接近前高时，允许现货继续持有等待突破，同时要求从低位支撑进入的合约多单在阻力附近短期落袋；次日原片虽称价格突破旧高，却明确反对在当前高位新追合约多单，建议低位合约兑现、现货继续持有，新的合约多单只在未来回落关键位置后再考虑。次日的日线画面也不足以证明当前 K 线已收盘。S40 的这个正反对照使"突破后延长现有合约仓位"和"突破即新开合约仓位"均未通过来源门槛；作者对现货方向的判断不能代替合约订单及更远目标。原始视频身份、转录与画面见[S40 来源结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s40-prior-high-continuation-source.json)。
 
 **产品含义。** R&D 来源案例应保存当时的市场类型、已有仓位/候选新单、所看的周期、有效支撑阻力区、止损所依据的结构、等待的收盘条件和互斥后续路径。Agent 在编写 Nautilus Strategy 变体前先给案例预测；不明确的阈值作为研究者假设登记，不把视频中的现货持仓判断翻译成历史合约挂单。Backtest 仍负责原生订单与账户结果，来源案例负责检验策略意图是否表达了作者在该画面里的决策。
 
@@ -260,55 +260,55 @@
 
 **另一条延伸。** S11 核对罗尼 MATIC/FTM 原片后，发现画的是下降阻力线突破，不是 AAVE 所需的上升支撑线：MATIC 前一日已收出有效阳线，已有多单继续持有并以结构低点或突破阳线开盘价作为止损参考；FTM 突破力度不足，作者等待更强阳线或未来回踩旧阻力线。因此 S11 未证实 H05a，却产生单独的线突破机制与一组通过/等待的来源对照。图中虽可见过去高点，作者没有给出唯一的锚点算法或数值力度阈值；下一步先检验来源几何，不把已见收益倒推成这些参数。
 
-**原生回测后的范围。** H06 把一条早已冻结的强四小时线突破规则逐信号核对后接入 Nautilus 原生订单与共享账户。37 币一年结果为负，订单保护检查通过；这否定了该具体的"首次强收盘后立即市价进入"候选，不能否定 S11 中不同的回踩入场或已有持仓管理。后继 H06a 先寻找作者实际观察到回踩并作出新单决策的独立原片，确认画线锚点与决策时序，再决定是否封存新 Strategy；无需从负收益里调一个恰好盈利的力度阈值。已核对的前一日 MATIC 原片只显示当日正在破线及可能追多，没有实际完成的回踩，所以 H06a 仍未通过来源门槛。实验身份、数值和限制见 [H06 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h06-frozen-strong-four-hour-trend-line-break-native-port)。
+**原生回测后的范围。** H06 把一条早已冻结的强四小时线突破规则逐信号核对后接入 Nautilus 原生订单与共享账户。37 币一年结果为负，订单保护检查通过；这否定了该具体的"首次强收盘后立即市价进入"候选，不能否定 S11 中不同的回踩入场或已有持仓管理。后继 H06a 先寻找作者实际观察到回踩并作出新单决策的独立原片，确认画线锚点与决策时序，再决定是否封存新 Strategy；无需从负收益里调一个恰好盈利的力度阈值。已核对的前一日 MATIC 原片只显示当日正在破线及可能追多，没有实际完成的回踩，所以 H06a 仍未通过来源门槛。实验身份、数值和限制见 [H06 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h06-frozen-strong-four-hour-trend-line-break-native-port)。
 
-**第二层核对。** [罗尼 2026-07-27 原片](https://www.youtube.com/watch?v=OFHsCBc5I6g)标题提到 BTC 跌破回踩，但片中再次触线及短空仍是将来条件，没有已观察到回踩后新下单的证据；故 S13 仍不准入 H06a 年度变体。同片 LINK 段指出，上升线跌破时高低点结构仍可偏多；SOL 段指出，仅突破箱体内部三角线、尚未越过外侧高低点时空间不足。这产生与回踩时序不同的 H07 后继：区分线穿越、结构方向、外层边界和目标空间。MATIC 又显示短线突破可把前高当目标，不能把"未过前高一律不做多"写成统一规则。H07 已在[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#child-h07-line-crossing-versus-structural-direction-and-target-room)预登记来源反例与失败条件；尚无数值化规则或新年化收益结论。来源记录应让接管者看见两个后继分支各自缺什么证据，避免把"没有准入新回测"误报为"趋势线技术无效"。
+**第二层核对。** [罗尼 2026-07-27 原片](https://www.youtube.com/watch?v=OFHsCBc5I6g)标题提到 BTC 跌破回踩，但片中再次触线及短空仍是将来条件，没有已观察到回踩后新下单的证据；故 S13 仍不准入 H06a 年度变体。同片 LINK 段指出，上升线跌破时高低点结构仍可偏多；SOL 段指出，仅突破箱体内部三角线、尚未越过外侧高低点时空间不足。这产生与回踩时序不同的 H07 后继：区分线穿越、结构方向、外层边界和目标空间。MATIC 又显示短线突破可把前高当目标，不能把"未过前高一律不做多"写成统一规则。H07 已在[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#child-h07-line-crossing-versus-structural-direction-and-target-room)预登记来源反例与失败条件；尚无数值化规则或新年化收益结论。来源记录应让接管者看见两个后继分支各自缺什么证据，避免把"没有准入新回测"误报为"趋势线技术无效"。
 
-**正例搜索的反证。** 冻结来源目录中 [2024-11-28 原片](https://video-ideas.tradingview.com/1/1416280-9QQ2PqoCyXAoikEE.mp4)的 ETH 日线已越过前高，作者却明确说此处不新追多、等回踩；同片 ENS 把过去的箱体突破回踩称作标准进场位，但没有视频时点的新订单。这说明记录"外层结构突破"仍不能自动推出"现在入场"。后继来源或原生诊断须分别保管突破确认、可用空间、回踩状态、当前订单/持仓状态；未经独立来源和因果几何核对，不应把几者压成一个年度筛选参数。S14 的片段、原画面和失败门槛见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s14-eth-previous-high-break-for-h07-positive-case-search)。
+**正例搜索的反证。** 冻结来源目录中 [2024-11-28 原片](https://video-ideas.tradingview.com/1/1416280-9QQ2PqoCyXAoikEE.mp4)的 ETH 日线已越过前高，作者却明确说此处不新追多、等回踩；同片 ENS 把过去的箱体突破回踩称作标准进场位，但没有视频时点的新订单。这说明记录"外层结构突破"仍不能自动推出"现在入场"。后继来源或原生诊断须分别保管突破确认、可用空间、回踩状态、当前订单/持仓状态；未经独立来源和因果几何核对，不应把几者压成一个年度筛选参数。S14 的片段、原画面和失败门槛见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s14-eth-previous-high-break-for-h07-positive-case-search)。
 
-**信号结构核对。** D21 先修复两种 `1000...` 合约漏读导致的信号一致性假阳性，再以完整 630 个 H06 信号做 D22 只读诊断：544 个破线信号仍位于此前 60 根四小时 K 的高低区间内；340 个信号在原定 2R 目标前会先遇到这个区间的方向边界。线突破与外层结构显然不等价，目标空间可能是 H06 未表达的条件。这里的 60 根窗口沿用 H03 冻结定义，只是诊断代理，既未证明它等于作者画出的箱体，也未测试过滤后的胜率和收益；[D22 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d22-h06-line-breaks-inside-or-beyond-an-existing-four-hour-box)保留逐币计数和限制。后继须先确立来源一致、仅使用决策时数据的几何与入场规则，再由 Nautilus 共享账户完整回放。
+**信号结构核对。** D21 先修复两种 `1000...` 合约漏读导致的信号一致性假阳性，再以完整 630 个 H06 信号做 D22 只读诊断：544 个破线信号仍位于此前 60 根四小时 K 的高低区间内；340 个信号在原定 2R 目标前会先遇到这个区间的方向边界。线突破与外层结构显然不等价，目标空间可能是 H06 未表达的条件。这里的 60 根窗口沿用 H03 冻结定义，只是诊断代理，既未证明它等于作者画出的箱体，也未测试过滤后的胜率和收益；[D22 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d22-h06-line-breaks-inside-or-beyond-an-existing-four-hour-box)保留逐币计数和限制。后继须先确立来源一致、仅使用决策时数据的几何与入场规则，再由 Nautilus 共享账户完整回放。
 
 **来源重复核对。** S15 以 DOGE 回踩标题挑出的原片，媒体字节与已研究的 S01 完全相同。再次解析仍只显示过去的 38.2% 与前高回踩，以及视频时点互斥的未来入场路径；没有提供 H07/H06a 所需的新订单正例。它保留为一次重复来源尝试，不能累加为独立支持，也不能据此宣称突破回踩机制失败。后继应先用原片身份去重，再寻找能区分已完成入场、持仓管理与未来条件单的案例。
 
-**独立原片的再核对。** [罗尼 2026-07-24 视频](https://www.youtube.com/watch?v=sRwYzAKWVMY)中，LINK 段明确劝观众不要因数次支撑做多或阻力做空止损就放弃这类位置交易；这支持继续研究机制，但并未证明任一机械参数或年化收益。BTC 显示已发生的上升线测试与反弹，未交代视频时点新多单和止损；DOGE 则把已完成的下跌三角形破位即时做空、等待未来回踩再空列成两种不同路径。因而 R&D 接管失败规则时，应保留作者技术家族及互斥入场路径，逐条登记可证伪的二级解释；不能机械重复同一亏损规则，也不能把未来回踩画成已成交。S16 的原片、时间点和严格门槛见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s16-btc-completed-support-retest-versus-new-entry-timing)。
+**独立原片的再核对。** [罗尼 2026-07-24 视频](https://www.youtube.com/watch?v=sRwYzAKWVMY)中，LINK 段明确劝观众不要因数次支撑做多或阻力做空止损就放弃这类位置交易；这支持继续研究机制，但并未证明任一机械参数或年化收益。BTC 显示已发生的上升线测试与反弹，未交代视频时点新多单和止损；DOGE 则把已完成的下跌三角形破位即时做空、等待未来回踩再空列成两种不同路径。因而 R&D 接管失败规则时，应保留作者技术家族及互斥入场路径，逐条登记可证伪的二级解释；不能机械重复同一亏损规则，也不能把未来回踩画成已成交。S16 的原片、时间点和严格门槛见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s16-btc-completed-support-retest-versus-new-entry-timing)。
 
-**机制延伸的实际门槛。** H08 从 H06 的破线追入改成上升线回踩后收盘反弹，使用原生订单和同一数据输入。合成几何与原生保护单通过，但来源日的 BTC、LINK 均未出现 H08 信号：BTC 这版"最近两个已确认低点"画出的线过陡，回弹前已经被收盘跌破；LINK 碰到线时四小时 K 仍收阴，不能通过 H08 的阳线确认。故该变体停在来源保真门槛，没有把这两个画面当作回测订单，也没有读取其年度收益。后继分成画线锚点与限价挂单时序两项各自可证伪的问题；先核对前一日原片能否证明线在回踩前存在，再决定是否封存新的原生 Strategy。这个案例说明"深入"意味着保留失败范围并拆出有区别的原因，而不是持续调整同一规则直到一年数据变好。具体证据见[H08 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h08-rising-line-support-continuation-exploratory-native-long)。
+**机制延伸的实际门槛。** H08 从 H06 的破线追入改成上升线回踩后收盘反弹，使用原生订单和同一数据输入。合成几何与原生保护单通过，但来源日的 BTC、LINK 均未出现 H08 信号：BTC 这版"最近两个已确认低点"画出的线过陡，回弹前已经被收盘跌破；LINK 碰到线时四小时 K 仍收阴，不能通过 H08 的阳线确认。故该变体停在来源保真门槛，没有把这两个画面当作回测订单，也没有读取其年度收益。后继分成画线锚点与限价挂单时序两项各自可证伪的问题；先核对前一日原片能否证明线在回踩前存在，再决定是否封存新的原生 Strategy。这个案例说明"深入"意味着保留失败范围并拆出有区别的原因，而不是持续调整同一规则直到一年数据变好。具体证据见[H08 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h08-rising-line-support-continuation-exploratory-native-long)。
 
-**跨日来源的补证。** [7 月 23 日原片](https://www.youtube.com/watch?v=hhHTtAYMHQo)在 BTC 触线前已画出一条从更早低点延伸的缓斜支撑，并把之后下探到该线列为条件路径；[7 月 24 日原片](https://www.youtube.com/watch?v=sRwYzAKWVMY)才描述已经发生的测试与反弹。这为"事前有线"提供跨日来源证据，也解释 H08 为什么不能用最近两个四小时低点代替作者的较长尺度画线。画面没有给出可复现的唯一锚点规则、可确认的新单和止损，且两日分别使用小时与四小时视图；后继应先封存多尺度因果选线与来源预测，再考察原生订单和收益。原片帧与严格范围见[S17 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s17-previous-day-btc-support-line-provenance)。
+**跨日来源的补证。** [7 月 23 日原片](https://www.youtube.com/watch?v=hhHTtAYMHQo)在 BTC 触线前已画出一条从更早低点延伸的缓斜支撑，并把之后下探到该线列为条件路径；[7 月 24 日原片](https://www.youtube.com/watch?v=sRwYzAKWVMY)才描述已经发生的测试与反弹。这为"事前有线"提供跨日来源证据，也解释 H08 为什么不能用最近两个四小时低点代替作者的较长尺度画线。画面没有给出可复现的唯一锚点规则、可确认的新单和止损，且两日分别使用小时与四小时视图；后继应先封存多尺度因果选线与来源预测，再考察原生订单和收益。原片帧与严格范围见[S17 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s17-previous-day-btc-support-line-provenance)。
 
-**可选锚点并不唯一。** D24 只读取 7 月 23 日前已确认的 BTC 四小时低点，在当时 30 日窗口内找出 18 条尚未收盘跌破的上升线，其中七条在次日落入原片可粗读的 64,000-65,000 区域。较早的 7 月 1 日与 7 月 17 日低点组成缓线，之后仍有效；同一早期低点接 7 月 20 日则更陡，次日回弹前已经失效。仅凭"线附近反弹"挑出前者，会把后见走势塞回规则。后继须在前一日资料上锁定选线方法，再用 LINK/ETH 的不同来源案例检验；D24 是来源几何诊断，不是筛选后策略绩效。[D24 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d24-prior-day-causal-pivot-pair-space-for-the-broad-btc-line)保留全部候选与失效时点。
+**可选锚点并不唯一。** D24 只读取 7 月 23 日前已确认的 BTC 四小时低点，在当时 30 日窗口内找出 18 条尚未收盘跌破的上升线，其中七条在次日落入原片可粗读的 64,000-65,000 区域。较早的 7 月 1 日与 7 月 17 日低点组成缓线，之后仍有效；同一早期低点接 7 月 20 日则更陡，次日回弹前已经失效。仅凭"线附近反弹"挑出前者，会把后见走势塞回规则。后继须在前一日资料上锁定选线方法，再用 LINK/ETH 的不同来源案例检验；D24 是来源几何诊断，不是筛选后策略绩效。[D24 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d24-prior-day-causal-pivot-pair-space-for-the-broad-btc-line)保留全部候选与失效时点。
 
-**二级延伸实测。** H08a 先锁定"30 日最低锚点接最早仍有效的较高锚点"，再看 LINK 来源日。它在 BTC 画出较缓的线，却在 LINK 画出约 7.36 的线，距画面讨论的 8.389 低点约 8.5 个此前 ATR，因此这条事前选线规则明确失败，未进入年度回测。D26 接着问失败是在四小时枢轴表达能力还是在选线方法：LINK 当时 16 条事前有效的候选线中有三条落在原已冻结的 0.25 ATR 触线带内；7 月 24 日原片可见一条由较早的 7 月低点延伸到当前测试区，但仍不能唯一指认数值锚点。故当前可归因于**选线歧义与入场时序**，不能因 H08/H08a 两次失败丢弃支撑测试家族，也不能从三条候选中事后挑最贴近低点的一条当作新策略。原始候选、失效和触线距离见[D25/D26 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d25-frozen-broad-line-selector-for-h08a)。
+**二级延伸实测。** H08a 先锁定"30 日最低锚点接最早仍有效的较高锚点"，再看 LINK 来源日。它在 BTC 画出较缓的线，却在 LINK 画出约 7.36 的线，距画面讨论的 8.389 低点约 8.5 个此前 ATR，因此这条事前选线规则明确失败，未进入年度回测。D26 接着问失败是在四小时枢轴表达能力还是在选线方法：LINK 当时 16 条事前有效的候选线中有三条落在原已冻结的 0.25 ATR 触线带内；7 月 24 日原片可见一条由较早的 7 月低点延伸到当前测试区，但仍不能唯一指认数值锚点。故当前可归因于**选线歧义与入场时序**，不能因 H08/H08a 两次失败丢弃支撑测试家族，也不能从三条候选中事后挑最贴近低点的一条当作新策略。原始候选、失效和触线距离见[D25/D26 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d25-frozen-broad-line-selector-for-h08a)。
 
-**补查同一原片。** 对已解析的 [7 月 23 日视频](https://www.youtube.com/watch?v=hhHTtAYMHQo)再查 LINK 段，发现作者在次日测试前已画出上升线，并说若之后横盘测试该线可考虑做多；当时已有的多单来自更早的水平支撑，不能算次日触线的新成交。这补上了"事前有线"，却仍未给出唯一数值锚点、预挂限价和止损。后继重点已从寻找是否有线，转为识别可复现的选锚方法，并独立验证原生挂单时序；来源对齐后方可读取同账户年度收益。同一视频的补读不能重复计为独立来源，[S18 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-reinspection-s18-pre-touch-link-line-in-the-retained-s17-video)保留原帧与证据界限。
+**补查同一原片。** 对已解析的 [7 月 23 日视频](https://www.youtube.com/watch?v=hhHTtAYMHQo)再查 LINK 段，发现作者在次日测试前已画出上升线，并说若之后横盘测试该线可考虑做多；当时已有的多单来自更早的水平支撑，不能算次日触线的新成交。这补上了"事前有线"，却仍未给出唯一数值锚点、预挂限价和止损。后继重点已从寻找是否有线，转为识别可复现的选锚方法，并独立验证原生挂单时序；来源对齐后方可读取同账户年度收益。同一视频的补读不能重复计为独立来源，[S18 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-reinspection-s18-pre-touch-link-line-in-the-retained-s17-video)保留原帧与证据界限。
 
-**相邻来源的界限。** 预登记核对 [7 月 22 日](https://www.youtube.com/watch?v=2jVpJGFN810)和 [7 月 21 日](https://www.youtube.com/watch?v=rrwbwujEPhs)两段独立原片后，完整快速转录均未出现 LINK，未找到更早的该币画线说明；逐日倒查在此停止。这是具名来源缺口，不能用事后触线补锚点。7 月 22 日 LTC 段却把旧水平阻力转支撑、上升线与 50%/61.8% 回调位并列作为未来回踩位置，还区分突破当下追入和等待回踩。它提示"只有一条线碰到就买"可能遗漏位置重合与交易时序，但没有给出可直接编码的重合阈值或已成交限价单。后继可据此预登记另一条机制假设及反例，不能把 LTC 的未来路径直接记为收益。来源细节见[S19/S20 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s19-july-22-link-anchor-provenance)。
+**相邻来源的界限。** 预登记核对 [7 月 22 日](https://www.youtube.com/watch?v=2jVpJGFN810)和 [7 月 21 日](https://www.youtube.com/watch?v=rrwbwujEPhs)两段独立原片后，完整快速转录均未出现 LINK，未找到更早的该币画线说明；逐日倒查在此停止。这是具名来源缺口，不能用事后触线补锚点。7 月 22 日 LTC 段却把旧水平阻力转支撑、上升线与 50%/61.8% 回调位并列作为未来回踩位置，还区分突破当下追入和等待回踩。它提示"只有一条线碰到就买"可能遗漏位置重合与交易时序，但没有给出可直接编码的重合阈值或已成交限价单。后继可据此预登记另一条机制假设及反例，不能把 LTC 的未来路径直接记为收益。来源细节见[S19/S20 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s19-july-22-link-anchor-provenance)。
 
-**从执行失败延伸到经济失败。** H08b 先用已确认的上升线在下一根四小时 K 预挂原生限价单：来源日 LINK 的研究者订单确实在测试前提交并由 Nautilus 成交，但首次年度试跑的同根入场/止损使尚未接纳的止盈子单遭拒。这是执行完整性失败，不能据当时的收益淘汰策略。把订单列表调换顺序的 D27 被合成事件推翻；D28 才定位为原生 OTO 激活期间，已成交的 OCO 同组订单应使尚未受理的另一退出单取消。修正后原生事件检查和 37 币共享账户回放通过，零拒单/否单；但 592 笔平仓仅 74 笔盈利，年化约 -0.98%、365 日夏普约 -1.76，518 笔由止损平仓。这个结果否定的是当前**单线、固定窄带、事前限价**编码的经济效果；它不能自动否定作者提到的多位置重合、不同失效点或已有持仓管理。下一层应先找原片中真正已下单、事前结构位与止损可核对的案例，再冻结与单线版本不同的来源预测。产品记录要能串起"来源 → 规则 → 原生执行 → 共享账户经济"的失败层级，保留 D27 的反证和 D28 的修复身份，避免把一次失败写成技术家族结论。详见[H08b/D27/D28 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h08b-one-bar-resting-limit-at-a-known-rising-line-band)。
+**从执行失败延伸到经济失败。** H08b 先用已确认的上升线在下一根四小时 K 预挂原生限价单：来源日 LINK 的研究者订单确实在测试前提交并由 Nautilus 成交，但首次年度试跑的同根入场/止损使尚未接纳的止盈子单遭拒。这是执行完整性失败，不能据当时的收益淘汰策略。把订单列表调换顺序的 D27 被合成事件推翻；D28 才定位为原生 OTO 激活期间，已成交的 OCO 同组订单应使尚未受理的另一退出单取消。修正后原生事件检查和 37 币共享账户回放通过，零拒单/否单；但 592 笔平仓仅 74 笔盈利，年化约 -0.98%、365 日夏普约 -1.76，518 笔由止损平仓。这个结果否定的是当前**单线、固定窄带、事前限价**编码的经济效果；它不能自动否定作者提到的多位置重合、不同失效点或已有持仓管理。下一层应先找原片中真正已下单、事前结构位与止损可核对的案例，再冻结与单线版本不同的来源预测。产品记录要能串起"来源 → 规则 → 原生执行 → 共享账户经济"的失败层级，保留 D27 的反证和 D28 的修复身份，避免把一次失败写成技术家族结论。详见[H08b/D27/D28 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h08b-one-bar-resting-limit-at-a-known-rising-line-band)。
 
-**标题与事前证据。** [罗尼 2024-02-21 原片](https://www.youtube.com/watch?v=A2X9HxCvmQo)标题说 OP"一根线"进场止盈，画面却同时可见旧水平阻力带和回调比例线，并标出限价、止损、目标及仓位。作者把挂单方案归于此前小群直播；相邻两日的公开原片没有找到 OP 计划。因此标题既不能证明"单线足够"，复盘图也不能证明某一重合位是作者事前的必需条件。R&D 来源记录要分别保留选片标题、原画面实际结构、计划首次可核查时刻和私域证据缺口；看不到事前计划就标为不可判定，继续找独立正反例，而不把复盘图翻译成历史订单。[S21/S22 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s21-alleged-completed-op-line-trade-as-an-h09-falsifier)保存原片身份、时间点与核查范围。
+**标题与事前证据。** [罗尼 2024-02-21 原片](https://www.youtube.com/watch?v=A2X9HxCvmQo)标题说 OP"一根线"进场止盈，画面却同时可见旧水平阻力带和回调比例线，并标出限价、止损、目标及仓位。作者把挂单方案归于此前小群直播；相邻两日的公开原片没有找到 OP 计划。因此标题既不能证明"单线足够"，复盘图也不能证明某一重合位是作者事前的必需条件。R&D 来源记录要分别保留选片标题、原画面实际结构、计划首次可核查时刻和私域证据缺口；看不到事前计划就标为不可判定，继续找独立正反例，而不把复盘图翻译成历史订单。[S21/S22 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s21-alleged-completed-op-line-trade-as-an-h09-falsifier)保存原片身份、时间点与核查范围。
 
-**互斥路径的来源保真。** [1 月 8 日 BTC 原片](https://www.youtube.com/watch?v=Eer-lkMTCzU)在随后反弹前指出水平支撑、上升线和 61.8% 回调位的重合区域，也允许价格在更高的 50% 位直接反弹；安全止损放在更深的 76.4% 下方，短期目标看前高。[次日视频](https://www.youtube.com/watch?v=pa0lC_iQOAo)回顾 1R 反弹，却没有实际成交凭据。故 H08b 单线上挂单失败后的二级延伸，不能简单变成"所有位置必须重合"筛选器；Agent 应把不同位置、事前结构、共同失效点、目标空间和实际订单状态作为不同证据关系登记，再用因果选锚与原生完整回测检验。产品只保存这些关系和来源不确定性，不内置专用筛选策略。[C18 来源案例](../../research/r1_native/SOURCE_CASES.md#c18---btc-pre-rebound-support-tiers-and-outside-invalidation)和[S23/S24 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s23-claimed-completed-btc-support-long-for-h09)保留门槛与原片身份。
+**互斥路径的来源保真。** [1 月 8 日 BTC 原片](https://www.youtube.com/watch?v=Eer-lkMTCzU)在随后反弹前指出水平支撑、上升线和 61.8% 回调位的重合区域，也允许价格在更高的 50% 位直接反弹；安全止损放在更深的 76.4% 下方，短期目标看前高。[次日视频](https://www.youtube.com/watch?v=pa0lC_iQOAo)回顾 1R 反弹，却没有实际成交凭据。故 H08b 单线上挂单失败后的二级延伸，不能简单变成"所有位置必须重合"筛选器；Agent 应把不同位置、事前结构、共同失效点、目标空间和实际订单状态作为不同证据关系登记，再用因果选锚与原生完整回测检验。产品只保存这些关系和来源不确定性，不内置专用筛选策略。[C18 来源案例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md#c18---btc-pre-rebound-support-tiers-and-outside-invalidation)和[S23/S24 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s23-claimed-completed-btc-support-long-for-h09)保留门槛与原片身份。
 
-**ETH 的独立来源核对。** [4 月 13 日原片](https://www.youtube.com/watch?v=_YDqAQ01LeA)把转换区域、趋势线和不同回调比例作为之后可能参与的 ETH 位置，并要求止损在更深支撑下方、止盈考虑上方下降线。它再次否定"所有支撑必须同时重合"的统一硬门槛，同时把目标障碍和止损结构连接到每条候选路径。原画面能看到重新调整的回调线，却没有可复现的高低点或斜线选锚算法；此前多空交易也只是回顾，缺少事前订单与成交证据。转录将更深回调位写为 70.4，原画面标为 0.764，具体语音仍待复听。R&D 来源记录应保存原片画面与转录分歧、位置之间的互斥关系、选锚缺口和订单时序，允许 Agent 另行提出标明为研究者假设的因果选锚方案，并在同账户经济测试前用来源案例反证。[C19 来源案例](../../research/r1_native/SOURCE_CASES.md#c19---eth-alternative-retracement-locations-and-overhead-line)及[S25 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s25-independent-author-explanation-of-an-eth-entry-location)保留可追溯证据。
+**ETH 的独立来源核对。** [4 月 13 日原片](https://www.youtube.com/watch?v=_YDqAQ01LeA)把转换区域、趋势线和不同回调比例作为之后可能参与的 ETH 位置，并要求止损在更深支撑下方、止盈考虑上方下降线。它再次否定"所有支撑必须同时重合"的统一硬门槛，同时把目标障碍和止损结构连接到每条候选路径。原画面能看到重新调整的回调线，却没有可复现的高低点或斜线选锚算法；此前多空交易也只是回顾，缺少事前订单与成交证据。转录将更深回调位写为 70.4，原画面标为 0.764，具体语音仍待复听。R&D 来源记录应保存原片画面与转录分歧、位置之间的互斥关系、选锚缺口和订单时序，允许 Agent 另行提出标明为研究者假设的因果选锚方案，并在同账户经济测试前用来源案例反证。[C19 来源案例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md#c19---eth-alternative-retracement-locations-and-overhead-line)及[S25 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s25-independent-author-explanation-of-an-eth-entry-location)保留可追溯证据。
 
-**选锚歧义的实测。** D29 只用已完成的币安合约四小时 K 线，把最近已确认低点连接到过去 60 根 K 线的最高点：BTC 两个来源日时点可重建画面回调区，ETH 却因选到更晚的局部低点而三层比例同时偏高。D30 不改参数，只列出当时全部已确认候选：BTC 的 8 个低点与 ETH 的 9 个低点中，各有 2 个能落入事先画面区间。因此问题不在于该历史数据完全缺少可用低点，而在于**多个因果锚点如何事前选择**。产品的来源核查结果应分别显示输入覆盖、候选全集、确定性选择、画面吻合和选择歧义；一个候选能贴合旧图，不能自动成为罗尼规则或回测入场信号。只有独立来源或预登记的研究者规则能决定下一次 Nautilus Strategy 候选。[D29/D30 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d29-frozen-causal-retracement-anchor-proxy-for-h09a)保存选锚、失配和完整候选身份。
+**选锚歧义的实测。** D29 只用已完成的币安合约四小时 K 线，把最近已确认低点连接到过去 60 根 K 线的最高点：BTC 两个来源日时点可重建画面回调区，ETH 却因选到更晚的局部低点而三层比例同时偏高。D30 不改参数，只列出当时全部已确认候选：BTC 的 8 个低点与 ETH 的 9 个低点中，各有 2 个能落入事先画面区间。因此问题不在于该历史数据完全缺少可用低点，而在于**多个因果锚点如何事前选择**。产品的来源核查结果应分别显示输入覆盖、候选全集、确定性选择、画面吻合和选择歧义；一个候选能贴合旧图，不能自动成为罗尼规则或回测入场信号。只有独立来源或预登记的研究者规则能决定下一次 Nautilus Strategy 候选。[D29/D30 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d29-frozen-causal-retracement-anchor-proxy-for-h09a)保存选锚、失配和完整候选身份。
 
-**标题不能代替资产级证据。** [2023 年 4 月原片](https://www.youtube.com/watch?v=OL5Cd5h0geE)标题提及 BTC 将测试 38.2% 回调，BTC 日线图也画了该比例；视频中明确说"已到 38.2% 支撑、可能反弹"的却是 ETH 段。BTC 段还把继续持有现货和合约等待关键位置分开。来源接管必须把标题、实际讲述的资产、图上的层级、当前持仓与将来合约动作逐一绑定，不能跨资产拼成一笔回测订单。该独立旧片没有说明高低点选锚方法，因此不能用它从 D30 的多个候选中挑赢家；[S26 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s26-older-independent-btc-retracement-anchor-explanation)保留原帧及转录范围。
+**标题不能代替资产级证据。** [2023 年 4 月原片](https://www.youtube.com/watch?v=OL5Cd5h0geE)标题提及 BTC 将测试 38.2% 回调，BTC 日线图也画了该比例；视频中明确说"已到 38.2% 支撑、可能反弹"的却是 ETH 段。BTC 段还把继续持有现货和合约等待关键位置分开。来源接管必须把标题、实际讲述的资产、图上的层级、当前持仓与将来合约动作逐一绑定，不能跨资产拼成一笔回测订单。该独立旧片没有说明高低点选锚方法，因此不能用它从 D30 的多个候选中挑赢家；[S26 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s26-older-independent-btc-retracement-anchor-explanation)保留原帧及转录范围。
 
-**波段尺度依附于市场事件。** [4 月 9 日 BTC 原片](https://www.youtube.com/watch?v=wDlDZ2iNxik)先说小级别下降线已突破，再讨论从这一波上涨回调到 50%／61.8%／76.4% 的三条可分配仓位的路径；较激进者可在 38.2% 参与，止损仍应放在线或旧低点下方。作者明确说相邻尖点的连法影响不大，不能把精确单根影线当成来源规定。D31 用"过去 60 根四小时 K 的最低确认低点"事前选出了 4 月 2 日约 65,676，而原片的**小时图**围绕 4 月 7 日约 67,749 的破线后上涨：高点虽接近，三层回调价均明显偏低。这与 D29 选到过近低点的失败相反，提示产品需在来源案例和研究结果中保存**决策尺度、启动波段的事件、候选锚点及确认时刻**，使 Agent 能追查选锚失配，而不是为每次失配另调一个窗口。后继先检验破线事件是否可在当时已完成小时 K 线上因果识别，再决定是否试 Nautilus 原生分层订单；[C20 案例](../../research/r1_native/SOURCE_CASES.md#c20---btc-prospective-tiers-with-a-common-outside-stop)与[D31 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d31-independent-s27-source-date-geometry-for-h09b)保留动作和失配边界。
+**波段尺度依附于市场事件。** [4 月 9 日 BTC 原片](https://www.youtube.com/watch?v=wDlDZ2iNxik)先说小级别下降线已突破，再讨论从这一波上涨回调到 50%／61.8%／76.4% 的三条可分配仓位的路径；较激进者可在 38.2% 参与，止损仍应放在线或旧低点下方。作者明确说相邻尖点的连法影响不大，不能把精确单根影线当成来源规定。D31 用"过去 60 根四小时 K 的最低确认低点"事前选出了 4 月 2 日约 65,676，而原片的**小时图**围绕 4 月 7 日约 67,749 的破线后上涨：高点虽接近，三层回调价均明显偏低。这与 D29 选到过近低点的失败相反，提示产品需在来源案例和研究结果中保存**决策尺度、启动波段的事件、候选锚点及确认时刻**，使 Agent 能追查选锚失配，而不是为每次失配另调一个窗口。后继先检验破线事件是否可在当时已完成小时 K 线上因果识别，再决定是否试 Nautilus 原生分层订单；[C20 案例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md#c20---btc-prospective-tiers-with-a-common-outside-stop)与[D31 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d31-independent-s27-source-date-geometry-for-h09b)保留动作和失配边界。
 
 **跨日画线与规则仍需分离。** [4 月 8 日 BTC 原片](https://www.youtube.com/watch?v=JDfiSUqT0Kw)比上述视频早一天，小时图已画出下降线，以及约 67,700-67,900 至 72,700-72,900 的回调波段；隔日讨论的主要锚点因此有公开的较早画面佐证。该片自身仍在上涨后回顾上一晚的 50% 测试，不能证明线在突破前已经画好，更没有说出唯一的破线确认 K 线或低点选法。产品证据需分别存**画线首次可见时刻、所描述市场事件、当时已知 K 线、事后回顾与未来条件计划**；前一天看得到图形，只能提高来源可信度，不能把事后叙述自动编译成历史挂单。S28/C21 的原片身份、画面和不确定性均已落盘。
 
-**事件顺序决定锚点是否可用。** D32 用同一币安合约 Nautilus 五分钟 Catalog 聚成已完成小时 K 线，列出 101 组因果破线事件；86 组较早事件都能连接到同一个已确认的约 67,711 低点，并算出与原片接近的回调位。这不是 86 次独立验证：按事前冻结的"最近破线后找低点"规则，最近一次破线发生在该低点之后，根本没有可用低点，H09c 因而失败。低点形成、低点被后续 K 线确认、下降线被收盘突破、波段高点形成和作者提出未来挂单，是五种不同时间。产品台账要保留各自时刻和完整候选数，避免 Agent 在看到图形吻合后从旧事件中任选一条冒充原规则。若研究者下一步检验"破线前低点、决策前确认"，必须另立 H09d 和来源反例；本次没有年度经济结论。[D32 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d32--exploratory-h09c-hourly-break-segmented-retracement)保存所有候选与失败边界。
+**事件顺序决定锚点是否可用。** D32 用同一币安合约 Nautilus 五分钟 Catalog 聚成已完成小时 K 线，列出 101 组因果破线事件；86 组较早事件都能连接到同一个已确认的约 67,711 低点，并算出与原片接近的回调位。这不是 86 次独立验证：按事前冻结的"最近破线后找低点"规则，最近一次破线发生在该低点之后，根本没有可用低点，H09c 因而失败。低点形成、低点被后续 K 线确认、下降线被收盘突破、波段高点形成和作者提出未来挂单，是五种不同时间。产品台账要保留各自时刻和完整候选数，避免 Agent 在看到图形吻合后从旧事件中任选一条冒充原规则。若研究者下一步检验"破线前低点、决策前确认"，必须另立 H09d 和来源反例；本次没有年度经济结论。[D32 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d32--exploratory-h09c-hourly-break-segmented-retracement)保存所有候选与失败边界。
 
-**小级别突破需要上层情境。** [4 月 7 日 BTC 原片](https://www.youtube.com/watch?v=HBB8rwjRFEQ)回顾 70,000 的小突破、回踩、再涨和随后的回落，并指出四小时和日线区间中部仍很随机，较小级别关键位会受更大边界压制。他同时把回调线高点更新到新出现的有效高点，把 50%／61.8%／76.4% 作为之后可能的多头位置，止损至少在深层回调位下方，最好在结构支撑外。产品不能因小时线已破就自动生成即时追多单；须记录上层区间位置、画线所对应的高点版本、何时从观察切换到未来回调计划，以及止损/目标所依附的结构。该片没有展示后来约 67,711 的低点，不能替 H09d 证明选锚算法；[C22 来源案例](../../research/r1_native/SOURCE_CASES.md#c22---small-btc-break-reversal-within-a-wider-range)保留其动作边界。
+**小级别突破需要上层情境。** [4 月 7 日 BTC 原片](https://www.youtube.com/watch?v=HBB8rwjRFEQ)回顾 70,000 的小突破、回踩、再涨和随后的回落，并指出四小时和日线区间中部仍很随机，较小级别关键位会受更大边界压制。他同时把回调线高点更新到新出现的有效高点，把 50%／61.8%／76.4% 作为之后可能的多头位置，止损至少在深层回调位下方，最好在结构支撑外。产品不能因小时线已破就自动生成即时追多单；须记录上层区间位置、画线所对应的高点版本、何时从观察切换到未来回调计划，以及止损/目标所依附的结构。该片没有展示后来约 67,711 的低点，不能替 H09d 证明选锚算法；[C22 来源案例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md#c22---small-btc-break-reversal-within-a-wider-range)保留其动作边界。
 
-**同一工具名下仍有不同交易路径。** [2025 年 12 月 5 日 BTC 原片](https://www.youtube.com/watch?v=w9xZPjr6CpE)讲的是四小时下降线已经突破并回踩两次，随后用 Fibonacci **扩展**的 100% 位作上方目标；这不能被当作 H09d 小时线上涨后的 50%／61.8%／76.4% **回撤入场**验证。它反而给 H06a"突破后回踩"提供了更接近实际的正向来源线索，但画线事前存在性、新单价格和成交仍待核查。来源记录须保存 Fibonacci 用途（入场回撤或目标扩展）、时间尺度、事件发生状态和订单状态；不能因都画了比例线就归入同一策略版本。[C23 案例](../../research/r1_native/SOURCE_CASES.md#c23---four-hour-line-retest-and-extension-target-are-a-separate-path)与 S30 台账保留了这条分支。
+**同一工具名下仍有不同交易路径。** [2025 年 12 月 5 日 BTC 原片](https://www.youtube.com/watch?v=w9xZPjr6CpE)讲的是四小时下降线已经突破并回踩两次，随后用 Fibonacci **扩展**的 100% 位作上方目标；这不能被当作 H09d 小时线上涨后的 50%／61.8%／76.4% **回撤入场**验证。它反而给 H06a"突破后回踩"提供了更接近实际的正向来源线索，但画线事前存在性、新单价格和成交仍待核查。来源记录须保存 Fibonacci 用途（入场回撤或目标扩展）、时间尺度、事件发生状态和订单状态；不能因都画了比例线就归入同一策略版本。[C23 案例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md#c23---four-hour-line-retest-and-extension-target-are-a-separate-path)与 S30 台账保留了这条分支。
 
-**画线区域可以先于下一次测试，成交不能倒推。** [12 月 4 日 BTC 原片](https://www.youtube.com/watch?v=8_2s9EUcWIs)已画出四小时下降线、当时的浅回踩和小时图将来再次触线的路径；[12 月 5 日原片](https://www.youtube.com/watch?v=w9xZPjr6CpE)才回顾更深的第二次回踩，并说明当前想做多者应有结构止损。跨日对照支持把 H06a 的研究对象缩小为"已知线区域、后来实际触及、触及后的新决策"，但不能证明作者预先下过限价单或成交。作者还指出邻近影线、收盘价的连接会改变破线与回踩的表面顺序，线是市场假设而非唯一像素公式。产品记录须保留线的首次可见画面、允许的区域误差、各次触线、订单意图与实际成交的不同身份；[C24 案例](../../research/r1_native/SOURCE_CASES.md#c24---prior-day-line-region-before-a-deeper-retest)保存配对原片和限制。
+**画线区域可以先于下一次测试，成交不能倒推。** [12 月 4 日 BTC 原片](https://www.youtube.com/watch?v=8_2s9EUcWIs)已画出四小时下降线、当时的浅回踩和小时图将来再次触线的路径；[12 月 5 日原片](https://www.youtube.com/watch?v=w9xZPjr6CpE)才回顾更深的第二次回踩，并说明当前想做多者应有结构止损。跨日对照支持把 H06a 的研究对象缩小为"已知线区域、后来实际触及、触及后的新决策"，但不能证明作者预先下过限价单或成交。作者还指出邻近影线、收盘价的连接会改变破线与回踩的表面顺序，线是市场假设而非唯一像素公式。产品记录须保留线的首次可见画面、允许的区域误差、各次触线、订单意图与实际成交的不同身份；[C24 案例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md#c24---prior-day-line-region-before-a-deeper-retest)保存配对原片和限制。
 
-**结构存在与选中结构是两道门槛。** D33 使用原有 Nautilus 合约 Catalog，在 12 月 4／5 日各自预登记的两个时点找到了 28 对已确认高点构成的因果下降线候选；各时点只有一对既落在两个原片画面的宽价格区间，又出现后续触线收回。旧 H06 的"最近两个高点"投影明显偏低，根本没有这个回踩。但进一步按原片**可见画线锚点日期和价格**核对时，D33 那条匹配线的首个高点是 10 月 13 日，而画面中的下方下降线指向 10 月下旬高点；后者对应的两对原生枢轴又都未通过预登记的投影、近期首次突破及回踩联合条件。D33 只证明价格区域巧合与候选存在，不能证明找到了作者画的线。产品应同时展示候选全集、当前确定性规则选中的线、原片锚点、首次及再次越线、画面误差和触线状态；接管者不能把事后找到的唯一价格匹配候选升级成策略。复用数据比画面左侧少一天，其影响范围也应保留。[D33/D34 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d34-visible-anchor-and-crossing-chronology-for-the-december-line)留有两组完整读回和未准入年度收益的原因。
+**结构存在与选中结构是两道门槛。** D33 使用原有 Nautilus 合约 Catalog，在 12 月 4／5 日各自预登记的两个时点找到了 28 对已确认高点构成的因果下降线候选；各时点只有一对既落在两个原片画面的宽价格区间，又出现后续触线收回。旧 H06 的"最近两个高点"投影明显偏低，根本没有这个回踩。但进一步按原片**可见画线锚点日期和价格**核对时，D33 那条匹配线的首个高点是 10 月 13 日，而画面中的下方下降线指向 10 月下旬高点；后者对应的两对原生枢轴又都未通过预登记的投影、近期首次突破及回踩联合条件。D33 只证明价格区域巧合与候选存在，不能证明找到了作者画的线。产品应同时展示候选全集、当前确定性规则选中的线、原片锚点、首次及再次越线、画面误差和触线状态；接管者不能把事后找到的唯一价格匹配候选升级成策略。复用数据比画面左侧少一天，其影响范围也应保留。[D33/D34 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d34-visible-anchor-and-crossing-chronology-for-the-december-line)留有两组完整读回和未准入年度收益的原因。
 
 **接管规则。** 一次技术尝试失败时，台账不能只有"无效"：必须写清被否定的是资料、结构表示、选择规则、信号时点、原生执行，还是经济结果，并至少给出下一条有区别且可证伪的延伸或具名停止理由。延伸先预测独立来源案例和会推翻自身的观察，再决定是否准入 Nautilus Strategy 与共享账户回测。这里的延伸由 Agent 依据证据提出，产品只保存因果关系和边界；不建立固定次数的研究树或自动调参服务。多次在同一年数据上迭代仍按多重试验处理，不能把最终一次的高分当作未经污染的验证。
 
@@ -322,7 +322,7 @@
 
 **产品含义。** R&D/Backtest 的比较读回在报告"一致"前，须把准确 InstrumentId、输入目录身份、请求区间、预期与实际行情量、已完成 K 线量及逐合约信号量作为覆盖前提。查询空集、缺失一个币或时间段、别名与合约 ID 不一致时应给出具名缺口，不能把两边同为零当作一致。复核修正建立新证据身份，保留旧错误与被其影响的结论范围；不能暗中覆盖原回测。此处复用 Nautilus Catalog、Strategy 与既有报告，不另建行情或信号引擎。
 
-**原蓝图核对点（历史）。** Market Data 合约与覆盖身份、Backtest 输入与结果及 R&D 证据接管。D21 的完整方法、旧证据和新结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d21-repair-h06-signal-parity-coverage-before-h07-geometry)。
+**原蓝图核对点（历史）。** Market Data 合约与覆盖身份、Backtest 输入与结果及 R&D 证据接管。D21 的完整方法、旧证据和新结果见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d21-repair-h06-signal-parity-coverage-before-h07-geometry)。
 
 <a id="f25"></a>
 
@@ -342,7 +342,7 @@
 
 **流程改进。** 每个负结果先定位是来源、数据覆盖、原生执行还是经济机制，再列出该结论真正否定的最窄命题。若上位机制仍有独立来源依据，Agent 提出至少一个与失败原因相区别、可被反证的后继动作；若没有，写明停止理由，不能靠延伸层数本身证明价值。后继动作要预先说明它改变交易选择、入场位置、退出还是风险暴露，预期需要跨过的**年化与胜率联合缺口**，以及能快速否定它的最小证据；先做来源和订单检查，再在必要时冻结原生 Strategy 跑完整账户经济回放。比较分支时同时看收益、胜率、盈亏比、夏普、回撤和信息增量，不按诊断数量或单一胜率排序，也不从已见年份挑参数。此判断由外部 Agent 完成，R&D 只保存前驱、差异、结果、数据暴露和选择／停止理由，不新增自动研究工作流。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断及Agent 研究旅程；各次来源、反证、经济结果和修正见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断及Agent 研究旅程；各次来源、反证、经济结果和修正见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)。
 
 <a id="f26"></a>
 
@@ -352,7 +352,7 @@
 
 **产品含义。** Backtest/R&D 输出胜率时，应把分母、胜场条件、费用及资金费率进入仓位 PnL 的路径写成与原生模型一致的明确字段，并由原生仓位与账户报表核对。历史产物的说明若有语义错误，用新的有来源和哈希的更正记录关联，不覆盖原报告；这样后续比较不会把账户费用与仓位胜负误认为两套互不相干的口径。
 
-**原蓝图核对点（历史）。** Backtest 输入与结果及 R&D 证据接管；逐笔核对、原始报告哈希和 H10 结果见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h10-prospective-four-hour-range-edge-order-direct-economic-test)。
+**原蓝图核对点（历史）。** Backtest 输入与结果及 R&D 证据接管；逐笔核对、原始报告哈希和 H10 结果见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h10-prospective-four-hour-range-edge-order-direct-economic-test)。
 
 <a id="f27"></a>
 
@@ -362,7 +362,7 @@
 
 **产品含义。** R&D 验收一项"来源支持的策略"时，应分别保存并展示图上结构、因果确认时间、计划首次可下单时间、有效期、首次触及／失效和原生订单事件。几何价格接近不能替代订单意图的先后关系；来源门槛失败也应指出落在锚点、支撑还是挂单时机，供 Agent 提出有区别的二级假设。H13b 独立预登记了"突破后立即预挂"并在另一个已登记来源时点检查；结果仍未过门槛，因为所需低点在高点之后两根四小时 K 线才确认，且旧锚点的未成交计划没有被取代。下一子问题 H13c 明确检查确认后更新与旧单撤销。不能把 H13 的狭窄接近区在看过结果后悄悄放宽，也不能把来源图上的箭头当成交易所成交。R&D 保留关联证据和前驱差异，订单、成交与账户事实仍由 Nautilus Backtest 产生。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；来源窗口、失败报告与 H13b 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；来源窗口、失败报告与 H13b 预登记见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)。
 
 <a id="f28"></a>
 
@@ -374,7 +374,7 @@
 
 **验证反馈。** H13c 按这个交接方式先通过 S27/S24 来源正例与 ETH 错锚反例，再通过 Nautilus 的撤单确认、合成事件和完整 37 币订单审计；S27 的 BTC 计划确有原生预挂单。但年度共享账户净值年化 **-6.05%**、已平仓胜率 **26.00%**、夏普(365) **-0.64**，远未达到 Goal。这个顺序使失败可明确归入**经济效果**，而不是继续猜测锚点、缺数据或订单根本没挂出。D36 随后用原生仓位和五分钟路径核查：即使把所有在止损前严格到过 +1R 的单子都算成盈利，固定交易集合胜率也仅 **48.43%**；把边界时序含糊的机会和未解析复杂路径都乐观计入，仍只有 **50.73%**，低于 55% 入门门槛。因此这条 +1R 单项退出延伸已按事先门槛停止，不再投入一轮完整回测。后继须先找到能显著改变入场选择或结构失效判断、且有独立来源正反例的机制；来源保真通过不能替代经济验收，单一年度经济失败也不自动否定整类支撑技术。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；H13→H13c 的来源、原生订单、经济结果与 D36 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；H13→H13c 的来源、原生订单、经济结果与 D36 预登记见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)。
 
 <a id="f29"></a>
 
@@ -384,7 +384,7 @@
 
 **产品含义。** R&D 不能只存一个数值"支撑价"，还应保存该区域在决策前的来源关系：原支撑低点、旧阻力高点、趋势线、回撤层级分别由哪些已完成 K 线建立，属于哪个周期，何时确认、何时突破及何时允许作为回踩计划。Agent 负责提出和否证具体表示法；产品保存这些关系与不确定性，并使回测订单能追溯到当时可见的结构。H13e 预登记的"旧阻力转支撑"四小时高枢轴编码也未通过来源门槛：两个正例在原 0.25 ATR 窄带内均没有合格高枢轴。这否定的是该周期、枢轴阶数和窄带的组合，不能据此断言图上的区域不存在，或在看过失败后改宽容差宣称通过。下一轮先找作者关于支撑／阻力**区间如何形成**的直接来源证据。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；H13d 失败报告、原片帧哈希及 H13e 预登记见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；H13d 失败报告、原片帧哈希及 H13e 预登记见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)。
 
 <a id="f30"></a>
 
@@ -396,7 +396,7 @@
 
 **改进方法。** 每轮先按目标差距写明需要改变的决策环节，并用最便宜、能推翻该机制的证据检验：来源语义不明先查原片的画线前后和首次可见时间；几何不符先做固定正反例的因果来源门槛；订单时序不明再跑 Nautilus 事件核查；前面通过才花成本跑 37 币共享账户年度经济回放。来源只提供定性区域时，Agent 应把"作者规则未知"作为明确结果，另立研究者代理规则并预登记其来源正反例，不能回填已暴露收益来定区域宽度。失败要同时留下**被否证的最小机制、尚未覆盖的邻近机制、下一证据的判别力和停止条件**；同一技术可以继续二级延伸，但每次延伸必须改变一个有来源依据的决策，而非改名重试。台账身份须唯一，S32 在采集前纠正了误用 S30 的编号，避免不同视频的证据混接。产品保留这些假设关系、门槛状态与证据，不内置研究树或优化器。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S32 的媒体、转写、原帧哈希、时间点与来源判定见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)和[来源证据](../../research/r1_native/results/2026-10-08-s32-support-resistance-source.json)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S32 的媒体、转写、原帧哈希、时间点与来源判定见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)和[来源证据](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s32-support-resistance-source.json)。
 
 <a id="f31"></a>
 
@@ -406,7 +406,7 @@
 
 **产品含义与流程改进。** R&D 来源证据应把水平线、宽区域、斐波那契层级、趋势线分成可修订的计划版本，分别记首次可见时点、当时上下沿或线价、所属周期、画线依据、后续修改、触及与失效。较晚视频的「八次测试都有效」只可描述回顾，不得把最后一版区域倒填为八次事前都能挂的订单。Agent 可以由旧线和后来的宽带提出「层级逐步发展为支撑区」假想，但在作者未给出转换算法时必须标为研究者推断；先预登记事前可计算的区域规则及正反来源门槛，再用 Nautilus 订单和共享账户核算经济效果。作者也明确说画线与指标是要随市场新信息修正的假设，因此版本修订要留痕，不能用后来边界抹掉旧计划。S33 的笔记成稿失败没有丢失原始证据：媒体、完整转写和 48 帧均有独立身份，流程应以已完成的来源阶段继续核对，无须重拉并误报来源失败。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S33/S34 的转写、原帧、首次失败与恢复回执以及判定见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md)、[S33 来源证据](../../research/r1_native/results/2026-10-08-s33-key-location-source.json)和[S34 来源证据](../../research/r1_native/results/2026-10-08-s34-prior-btc-area-source.json)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S33/S34 的转写、原帧、首次失败与恢复回执以及判定见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)、[S33 来源证据](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s33-key-location-source.json)和[S34 来源证据](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s34-prior-btc-area-source.json)。
 
 <a id="f32"></a>
 
@@ -416,7 +416,7 @@
 
 **流程改进。** 对任何依赖收盘价、确认枢轴或先触及后反应的 Agent 假设，R&D 证据需保存信号所用最后一根已完成 K 线、订单提交时刻、首个可执行事件、实际成交时刻及其保护单状态，并要求执行事件**严格晚于**决策事件。即使几何来源吻合、回测引擎有原生订单，缺少这条事件顺序也不能进入收益比较。用一正一反的合成原生路径先验证顺序和 OTO/OCO 收束，再跑真实 Catalog；发现同刻成交应标为实现失败并修复，不应记为该交易技术的经济失败。该检查是 Nautilus 事件证据的验收条件，不需要新建策略语言或第二套成交引擎。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；冻结来源判定、同刻失败与修正后的原生合成回执见[H13f 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h13f-first-touch-close-rejection-instead-of-a-blind-618-limit)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；冻结来源判定、同刻失败与修正后的原生合成回执见[H13f 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h13f-first-touch-close-rejection-instead-of-a-blind-618-limit)。
 
 <a id="f33"></a>
 
@@ -426,7 +426,7 @@
 
 **流程改进。** 先明确每个研究门槛回答什么：来源案例检验语义与当时可见性，合成原生事件检验时序和保护，两币试跑检验真实数据路径能否运行，完整共享账户才检验组合经济。试跑的胜率或收益不得决定是否跳过已预登记的完整样本，也不得对外称为策略胜率。对已反复查看的一年数据，配对差值还要保留不确定区间和多次尝试身份；区间跨零时只能说机制有正向点估计。下一轮应从 37 币的错误入场与上方障碍等具体失败类型提出可证伪的二级延伸，保留 H13f 对照，先做来源和订单门槛，再复核组合。这样一次编码失败不会放弃整个技术家族，一次小样本好看也不会提前宣告成功。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；原生完整性、费用、资金费、组合与配对区间见[H13f 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h13f-first-touch-close-rejection-instead-of-a-blind-618-limit)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；原生完整性、费用、资金费、组合与配对区间见[H13f 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h13f-first-touch-close-rejection-instead-of-a-blind-618-limit)。
 
 <a id="f34"></a>
 
@@ -436,7 +436,7 @@
 
 **流程改进。** 每次完成组合回放，应先用原生成交、订单和持仓身份核对止损、止盈、到期与未归类平仓的数量、胜负和净贡献，再选择下一层研究问题。负贡献主要来自止损时，先找来源支持的事前位置、区间状态和失效条件；来自到期时，再追查持有与退出；身份对不齐则先修回测完整性。诊断只能为下一项可证伪假想排序，不能在已看过的一年结果上按币种、价格带或持有天数选出所谓赢家规则。产品证据应保存原生退出原因、归因口径、开放持仓和下一假想的关系，由 Agent 决定后续实验，不增加另一套成交或收益账本。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；预登记、报告哈希、原生退出归因与后继问题见[D37 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d37-classify-h13fs-native-exits-before-choosing-a-secondary-mechanism)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；预登记、报告哈希、原生退出归因与后继问题见[D37 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d37-classify-h13fs-native-exits-before-choosing-a-secondary-mechanism)。
 
 <a id="f35"></a>
 
@@ -446,7 +446,7 @@
 
 **产品含义与流程改进。** 来源和实验记录要分别表示局部交易方向、上层趋势状态、阻力／目标障碍、确认周期、计划首次可见时刻和实际订单状态。Agent 若要测试更严格的顺势回踩，应把它命名为研究者代理规则，先用事前已完成 K 线给出可证伪的趋势确认，再对 BTC 来源正例与 SOL 等反例做来源门槛；不能把作者允许的局部逆势交易错误改写为一条通用禁令。若上层趋势证据不能由当时数据唯一重建，就继续保留来源缺口，而不是按已看过的 37 币止损结果优化门槛。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S35 的原片、转写、帧哈希、视频服务失败阶段和来源结论见[实验台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s35-distinguish-a-key-location-entry-from-a-range-middle-wait)及[来源证据](../../research/r1_native/results/2026-10-08-s35-entry-location-source.json)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；S35 的原片、转写、帧哈希、视频服务失败阶段和来源结论见[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s35-distinguish-a-key-location-entry-from-a-range-middle-wait)及[来源证据](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s35-entry-location-source.json)。
 
 <a id="f36"></a>
 
@@ -458,7 +458,7 @@
 
 **改进方法与产品含义。** Agent 在选二级延伸时，除写清父假设的最小失败原因、来源正反例和最便宜的反证，还应核算**联合目标的必要变化量**：至少要改变多少亏损单、盈利机会、单笔盈亏或有效资金使用，且这一机制为什么可能在因果上做到。若一种过滤只会避开旧止损，固定集合的乐观界仍不够，就把它作为局部诊断，另外寻找有来源依据的新增机会或收益结构机制；不为达标而在已见年度逐笔结果上挑过滤阈值。来源、订单、经济三个门槛仍分别验收，Agent 可以继续同一技术的不同子路径，产品只保留目标差距、容量推算、假设关系与选择理由，不新增自动研究树或优化器。年度重放后用同口径原生共享账户与冻结对照检验，结果和多次尝试身份完整保留。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；固定路径的输入、公式、限制与后继判断见[D38 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d38-joint-goal-capacity-of-a-stop-avoidance-child)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、Backtest 输入与结果；固定路径的输入、公式、限制与后继判断见[D38 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d38-joint-goal-capacity-of-a-stop-avoidance-child)。
 
 <a id="f37"></a>
 
@@ -472,7 +472,7 @@
 
 **后续来源核查。** D40 在相同 Nautilus 合约输入上核对 SUI 事前画面：此前已完成的高点 **2.0266** 与图相符，现有"最近已确认低点"却选到 **1.6583**，算出的 50% 价位 **1.84245** 既高于画面档位，也已被触及。D41 在四个预定时点逐一保留所有八个合格低点；其中四个较早低点及三层回撤价都能落入画面价带，且其 50% 价位仍未触及。于是"没有当时行情／无法画出该波段"已被排除，**如何事前从多个合理低点选起点**仍未解决。产品应保留所有候选、确认时间和选择规则的来源身份；画面价格吻合不能代替唯一、可复现的选取机制，也不能按已见收益挑其中一个。
 
-**原蓝图核对点（历史）。** R&D 研究实验与判断、研究场景；原片、帧哈希、资产切换、风险空间代数和后续锚点核查见[S36-D41 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s36-whether-the-january-7-btc-plan-preceded-the-50-touch)、[S36 来源证据](../../research/r1_native/results/2026-10-08-s36-prior-btc-50-source.json)、[D40 结果](../../research/r1_native/results/2026-10-08-d40-sui-tier-geometry.json)与[D41 候选全集](../../research/r1_native/results/2026-10-08-d41-sui-anchor-space.json)。
+**原蓝图核对点（历史）。** R&D 研究实验与判断、研究场景；原片、帧哈希、资产切换、风险空间代数和后续锚点核查见[S36-D41 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s36-whether-the-january-7-btc-plan-preceded-the-50-touch)、[S36 来源证据](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s36-prior-btc-50-source.json)、[D40 结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d40-sui-tier-geometry.json)与[D41 候选全集](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d41-sui-anchor-space.json)。
 
 <a id="f38"></a>
 
@@ -482,7 +482,7 @@
 
 **改进方法与产品含义。** 对来源驱动的规则，Agent 先写下"这次失败究竟在数据、候选集合、候选选择、首次可下单时刻、原生执行还是组合经济"，并保存所有事前合格候选和确认时间。出现多个同样吻合的候选时，研究状态应是**规则未识别**；下一轮必须提出能区分候选的来源条件或明确命名的研究者代理，预先固定跨币正反例与否证条件，再做低成本来源核查。单币成功不能替代跨情境门槛，来源门槛通过也不能替代 Nautilus 原生订单和共享账户回放。每次决定进入年度实验前再核算 F36 的联合目标缺口，预计机制能改变多少有效机会、盈亏结构或资金利用率；保留已见数据暴露、多次尝试身份与后续前向验证。R&D 只持久化问题、前驱与后继、来源证据、候选歧义、门槛结果和停止理由，由外部 Agent 选研究动作，不增设自动优化器或另一套回测引擎。
 
-**核查证据。** [D40-D42 与 S37 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d40-causal-sui-tier-geometry-before-an-h14-source-gate)、[D41 候选全集](../../research/r1_native/results/2026-10-08-d41-sui-anchor-space.json)、[S37 来源证据](../../research/r1_native/results/2026-10-08-s37-fibonacci-lesson-source.json)、[D42 三币结果](../../research/r1_native/results/2026-10-08-d42-daily-pivot-origin.json)。
+**核查证据。** [D40-D42 与 S37 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d40-causal-sui-tier-geometry-before-an-h14-source-gate)、[D41 候选全集](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d41-sui-anchor-space.json)、[S37 来源证据](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s37-fibonacci-lesson-source.json)、[D42 三币结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d42-daily-pivot-origin.json)。
 
 <a id="f39"></a>
 
@@ -492,7 +492,7 @@
 
 **流程与产品含义。** 研究记录应把同一画面的波段起点、扩展目标、可入场支撑、首次可见日期和行动条件分别关联原片，允许目标障碍得到跨日证实而回撤选锚仍处于未知状态。Agent 不能因为 100% 扩展预测正确就宣布 50%／61.8% 回撤策略已忠实复刻。进入下一次完整组合回放的假设须同时说明：事前障碍如何影响新机会或盈亏结构，在哪个未来事件首次可下单，为什么可能填平 F36 的年化与胜率共同缺口；单纯避开旧亏单不足以达到收益门槛。检验沿用 Nautilus 原生订单和账户，不增加专用预测或成交系统。
 
-**核查证据。** [S38/S39 台账](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s38-whether-the-authors-n-shaped-structure-teaches-a-causal-impulse-origin)、[10 月 2 日来源](../../research/r1_native/results/2026-10-08-s39-prior-n-extension-source.json)、[10 月 3 日来源](../../research/r1_native/results/2026-10-08-s38-n-structure-source.json)。这两片均在当前一年回测窗口之外，不是经济验证样本。
+**核查证据。** [S38/S39 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s38-whether-the-authors-n-shaped-structure-teaches-a-causal-impulse-origin)、[10 月 2 日来源](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s39-prior-n-extension-source.json)、[10 月 3 日来源](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s38-n-structure-source.json)。这两片均在当前一年回测窗口之外，不是经济验证样本。
 
 <a id="f40"></a>
 
@@ -506,9 +506,9 @@
 
 **后续验证。** H15a 沿来源中的三档入场和旧低点外共用止损继续延伸，37 币原生共享账户胜率达到 **56.51%**、年化 **+4.28%**、日收盘回撤 **6.88%**，相对同配置 H14a 的 **39.02%**、**-10.43%** 与 **15.37%** 明显改善点估计。这证明后续迭代并非都无价值，但其已平仓平均盈亏比只有 **0.85**，距 20% 年化所需期末权益仍差超过 **15,262 USDT**；配对周重采样收益差区间仍跨零。D46 的原生退出归因显示止损损失约 **35,570 USDT**、止盈贡献约 **35,352 USDT**，到期平仓净贡献约 **4,424 USDT**。因此下一轮要用来源与必要容量同时约束"选锚／结构失效"及"首个真实障碍／盈利空间"，不能只因为胜率接近 60% 就宣布接近联合目标，也不能从已看过的止损交易中反推过滤器。
 
-**原生成交事件筛查。** H11 将 H10 的箱体边缘交易改成半仓在 +1R 止盈，胜率升至 **42.08%** 但年化仍为负。D50 在冻结的 H11 原生订单、成交和持仓事件中确认，998 笔平仓仅 **430 笔（43.09%）** 实际成交过第一或更远的止盈限价单；其中 **392 笔** 最终仍由止损单结束。即使宽松地把所有触及目标的原交易都当作全仓 +1R 赢家，也缺少达到 55% 筛查线的 **119 笔**。因此可关闭这一精确退出子机制，继续追问事前入场位置和结构止损；成交事件提供的是低成本机会筛查，不能替代新 Strategy 在共享账户下的经济回测。详见 [D50](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d50-actual-h11-first-target-fill-coverage-before-a-full-1r-exit-child)。
+**原生成交事件筛查。** H11 将 H10 的箱体边缘交易改成半仓在 +1R 止盈，胜率升至 **42.08%** 但年化仍为负。D50 在冻结的 H11 原生订单、成交和持仓事件中确认，998 笔平仓仅 **430 笔（43.09%）** 实际成交过第一或更远的止盈限价单；其中 **392 笔** 最终仍由止损单结束。即使宽松地把所有触及目标的原交易都当作全仓 +1R 赢家，也缺少达到 55% 筛查线的 **119 笔**。因此可关闭这一精确退出子机制，继续追问事前入场位置和结构止损；成交事件提供的是低成本机会筛查，不能替代新 Strategy 在共享账户下的经济回测。详见 [D50](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d50-actual-h11-first-target-fill-coverage-before-a-full-1r-exit-child)。
 
-**核查证据。** [H14a 预登记、来源门槛与完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h14a-separate-prospective-50-pullback-entry-with-structural-invalidation)、[H14a 原生组合报告](../../research/r1_native/results/2026-10-08-h14a-37-summary.json)、[配对 H13f 报告](../../research/r1_native/results/2026-10-08-h14a-paired-h13f-summary.json)、[D43 原生平仓归因](../../research/r1_native/results/2026-10-08-h14a-exit-attribution-d43.json)、[D44 +1R 机会界](../../research/r1_native/results/2026-10-08-h14a-exit-opportunity-d44.json)、[H15a 同口径摘要](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)、[D46 原生平仓归因](../../research/r1_native/results/2026-10-08-h15a-exit-attribution-d46.json)、[H15a 配对不确定区间](../../research/r1_native/results/2026-10-08-h15a-paired-weekly-bootstrap.json)及[费用与资金费读回](../../research/r1_native/results/2026-10-08-h15a-native-readback.json)。蓝图核对 R&D 研究与判断和 Backtest 输入与结果。
+**核查证据。** [H14a 预登记、来源门槛与完整结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h14a-separate-prospective-50-pullback-entry-with-structural-invalidation)、[H14a 原生组合报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h14a-37-summary.json)、[配对 H13f 报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h14a-paired-h13f-summary.json)、[D43 原生平仓归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h14a-exit-attribution-d43.json)、[D44 +1R 机会界](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h14a-exit-opportunity-d44.json)、[H15a 同口径摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-summary.json)、[D46 原生平仓归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-exit-attribution-d46.json)、[H15a 配对不确定区间](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-paired-weekly-bootstrap.json)及[费用与资金费读回](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-native-readback.json)。蓝图核对 R&D 研究与判断和 Backtest 输入与结果。
 
 <a id="f41"></a>
 
@@ -520,7 +520,7 @@
 
 **后继范围。** H15a 把三档总风险固定为 25 基点、总名义敞口上限固定为 5%；4 月 BTC 来源案例的低点外共用止损为 **67,441.1**，三个原生取整档位到前高的空间约 **0.91R、1.42R、2.65R**。其后已通过 Nautilus 原生订单生命周期和 37 币完整回放：年化 **+4.28%**、胜率 **56.51%**，仍未达到 20% 年化；SUI 选锚失配也仍在。来源几何、原生执行、经济结果分别成立到各自证据边界。
 
-**核查证据。** [D45 来源几何与限制](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](../../research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[H15a 预登记与来源门槛](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H15a 来源结果](../../research/r1_native/results/2026-10-08-h15a-source-gate.json)、[S27 原片证据](../../research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 R&D 研究与判断、Backtest 输入与结果。
+**核查证据。** [D45 来源几何与限制](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d45-source-stop-and-tier-room-geometry-before-another-native-variant)、[D45 结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d45-source-stop-geometry.json)、[H15a 预登记与来源门槛](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H15a 来源结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-source-gate.json)、[S27 原片证据](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s27-btc-pullback-source.json)。蓝图核对 R&D 研究与判断、Backtest 输入与结果。
 
 <a id="f42"></a>
 
@@ -534,7 +534,7 @@
 
 **后继验收。** H15a 的正式 Strategy 已在合成 Nautilus 事件中通过三档止盈／止损、首档或两档止盈后再回撤、同根止损、全部挂单到期、定时退出、旧计划撤单确认后替换，以及旧单在撤单请求前已成交的九条路径。另用原生延迟模型将撤单确认推迟十分钟：旧单在撤单请求后、确认前成交时，Strategy 保留其保护单、放弃新计划，结算后无残留订单或持仓。十条路径的原生成交序列均未出现净空，终态净额为零。实际四小时聚合触发时钟及真实共享账户中的费用与资金费仍需继续验收，不能把这轮合成结果称作年度收益改善。
 
-**核查证据。** [H15a 原生生命周期诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[未收束原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)、[撤单修复原生订单报告](../../research/r1_native/results/2026-10-08-h15a-three-bracket-cancel-probe.json)、[正式 Strategy 十路径事件报告](../../research/r1_native/results/2026-10-08-h15a-strategy-lifecycle-race.json)、[正式选锚来源核查](../../research/r1_native/results/2026-10-08-h15a-actual-selector.json)、[一年原生订单审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)与[组合摘要](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。合成诊断本身不含真实行情收益；完整回放另行证明上述经济指标。蓝图核对 R&D 研究与判断及 Backtest 输入与结果。
+**核查证据。** [H15a 原生生命周期诊断](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[未收束原生订单报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-three-bracket-probe.json)、[撤单修复原生订单报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-three-bracket-cancel-probe.json)、[正式 Strategy 十路径事件报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-strategy-lifecycle-race.json)、[正式选锚来源核查](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-actual-selector.json)、[一年原生订单审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-native-audit.json)与[组合摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-summary.json)。合成诊断本身不含真实行情收益；完整回放另行证明上述经济指标。蓝图核对 R&D 研究与判断及 Backtest 输入与结果。
 
 <a id="f43"></a>
 
@@ -544,7 +544,7 @@
 
 **改进方法与产品含义。** 原生订单报告应保留订单对象的整数到期时刻，并同时保存已完成决策 K 线、实际提交及首个可执行事件；审核 GTD 时相对决策边界核对，审核价格时使用 Instrument 的 `price_increment`。原始订单、成交与持仓身份仍是事实来源，审计衍生计数需能回到这些行。H15a 修正导出和审计后，同一 BTC/ETH 回放经济数字逐项不变；独立审计通过 158 组原生订单及开放持仓保护数量。这项修复改善了证据可信度，没有改变策略收益。
 
-**核查证据。** [H15a 完整实验记录](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[首次审计异常](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit-attempt1.json)、[修正后原生审计](../../research/r1_native/results/2026-10-08-h15a-pilot-native-audit.json)、[两币原生摘要](../../research/r1_native/results/2026-10-08-h15a-pilot-btc-eth-summary.json)。蓝图核对 Backtest 输入与结果。
+**核查证据。** [H15a 完整实验记录](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[首次审计异常](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-pilot-native-audit-attempt1.json)、[修正后原生审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-pilot-native-audit.json)、[两币原生摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-pilot-btc-eth-summary.json)。蓝图核对 Backtest 输入与结果。
 
 <a id="f44"></a>
 
@@ -554,7 +554,7 @@
 
 **改进方法与产品含义。** 多标的原生回测除价格、资金费和策略源码外，应封存 BacktestEngine 的 RiskEngineConfig，并在试跑前按策略数、每次信号最多提交的订单组数核算同步峰值。完整运行以原生拒单、拒绝、成交和未平仓保护核查为收益门槛；只要出现非策略预期拒单，保留失败回执，修复基础设施配置后用同一配置重跑候选及对照。此例将回放提交上限显式设为每秒 200 次，保留原生风控与 25 基点风险、5% 币种名义上限；它不是实盘发送速率的建议。Agent 根据失败回执决定复跑，Backtest 只需记录运行配置和原生报告，不增加另一套订单调度或绩效账本。
 
-**核查证据。** [H15a 失败回执](../../research/r1_native/results/2026-10-08-h15a-37-attempt1-rate-limit.json)、[修正后 H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)、[同配置 H14a 对照](../../research/r1_native/results/2026-10-08-h15a-paired-h14a-summary.json)、[H15a 完整台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
+**核查证据。** [H15a 失败回执](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-attempt1-rate-limit.json)、[修正后 H15a 完整回放](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-summary.json)、[同配置 H14a 对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-paired-h14a-summary.json)、[H15a 完整台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 <a id="f45"></a>
 
@@ -564,7 +564,7 @@
 
 **改进方法与产品含义。** 多腿策略的订单审计需按原生父子关系和状态转换判断：未成交的活动入场单可以有 `SUBMITTED` 的休眠子单；已成交／部分成交的入场必须有对应活动保护；父单终止未成交后，子单也须按原生事件收束。保留首次失败报告，修正审计后对同一原始报告重验；不因审计程序自身的状态模型错误而重跑策略或淘汰多档机制。Backtest 产品保存父子订单、状态、成交、持仓和校验结果，复用 Nautilus 的 OTO 生命周期，不另建订单状态机。
 
-**核查证据。** [首次审计失败](../../research/r1_native/results/2026-10-08-h15a-37-native-audit-attempt1.json)、[修正后审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)、[H15a 完整实验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 Backtest 输入与结果。
+**核查证据。** [首次审计失败](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-native-audit-attempt1.json)、[修正后审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-native-audit.json)、[H15a 完整实验](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)。蓝图核对 Backtest 输入与结果。
 
 <a id="f46"></a>
 
@@ -574,7 +574,7 @@
 
 **流程改进与产品含义。** Agent 提出仓位、杠杆或档位权重延伸前，应先用原生订单几何与实际触及数做低成本容量核查，并把风险上限、止损距离、价格取整、未成交计划和净额持仓分开记录。若证据指向档位选择，应在来源允许的条件路径中冻结一条新规则，先过事前来源正反例与原生订单生命周期门槛，再做同账户、同费用资金费的完整配对回放；退出目标仍按年化、胜率、夏普及回撤联合判断。订单触及频率只能决定是否值得测试机制，不能派生每档利润或从已见年份挑最优权重。Backtest 继续由 Nautilus 持有订单和账户，R&D 只保存诊断与假设关系。
 
-**核查证据。** [D47 预登记与结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d47-native-tier-reach-and-frozen-risk-capacity-screen)、[原生档位容量结果](../../research/r1_native/results/2026-10-08-h15a-tier-capacity-d47.json)、[H15a 完整回放](../../research/r1_native/results/2026-10-08-h15a-37-summary.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
+**核查证据。** [D47 预登记与结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d47-native-tier-reach-and-frozen-risk-capacity-screen)、[原生档位容量结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-tier-capacity-d47.json)、[H15a 完整回放](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-summary.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 <a id="f47"></a>
 
@@ -586,7 +586,7 @@
 
 **后续容量核查。** D49 用同一原生订单和完整五分钟 LAST 数据检查"挂单尚未成交、价格先重访前高 B、之后旧挂单才成交"。第一次读取按币种简称连接合约，漏掉 `1000PEPE`／`1000SHIB`；修复为 Catalog 的精确 InstrumentId 并要求覆盖全部订单组后，H15a 的 3,271 组计划里有 **30** 组走到这一路径，其后 34 个已平仓持仓只有 17 个非盈利，合计亏损约 **1,733 USDT**；H16a 为 15 组、17 个已平仓持仓、9 个非盈利，合计约 **1,245 USDT**。这表明旧计划存续是实际路径，但即使乐观地删除 H15a 这 17 笔亏损，也不足以填平年化 20% 所需的 **15,263 USDT** 权益缺口，且会改变后续机会和账户状态。来源没有明确规定触及 B 后必须撤单，因此只保留为具名生命周期问题；下一轮先找能增加有效机会或改善首个障碍收益的事前机制，不把这项小容量修补做成又一轮完整回测。
 
-**核查证据。** [H16a 预登记、来源和完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)、[H16a 原生组合摘要](../../research/r1_native/results/2026-10-08-h16a-37-summary.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h16a-paired-h15a-summary.json)、[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)、[D49 事前 B 重访诊断](../../research/r1_native/results/2026-10-08-d49-b-revisit-before-fill.json)、[H16a 原生订单审计](../../research/r1_native/results/2026-10-08-h16a-37-native-audit.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
+**核查证据。** [H16a 预登记、来源和完整结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)、[H16a 原生组合摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h16a-37-summary.json)、[同 runner H15a 对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h16a-paired-h15a-summary.json)、[D48 原生退出归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)、[D49 事前 B 重访诊断](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d49-b-revisit-before-fill.json)、[H16a 原生订单审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h16a-37-native-audit.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 <a id="f48"></a>
 
@@ -594,13 +594,13 @@
 
 **证据与判断。** F23/F40 已要求失败后追问有区别的二级机制和联合目标缺口；这避免过早丢弃技术，却仍可能让 Agent 长期只在一个家族内顺序修改。遗传算法提供另一种搜索思路：把候选表示为规则组件，选择、交叉、变异后比较完整后代。不过"优秀部分"并非单独可继承的交易收益。H15a 将来源中的三档入场、共同结构止损和固定总风险放到一个原生订单组后，相对 H14a 改善了胜率与年化；H16a 仅移除其中 50% 档，单笔盈亏比从 **0.85** 升到 **1.12**，胜率却从 **56.51%** 降到 **47.49%**、年化从 **+4.28%** 降到 **+0.57%**，止损次数还增加。组件会改变信号集合、订单组生命周期、账户资金占用和相互竞争，不能把父策略的指标相加或把一个指标最好的组件直接拼成后代。由此可以确认"组件独立打分再拼接"不成立；**跨家族组合能否提高联合目标尚未经过经济验证**。
 
-**来源门槛实例。** D51 试将 H15a 的确认枢轴／回撤几何镜像到罗尼 7 月 27 日讨论的 BTC 未来短空，并加上现成 R-1u 日线方向。事前冻结原片正反案例和唯一 UTC 截点后，币安合约四小时数据选出的却是 7 月 15-17 日旧波段，不是原片讨论的 7 月 24 日局部跌破；50%／61.8% 价位与原片均不合，BTC 日线方向也与作者当时的判断相反。这否定了这一精确组件组合的**来源匹配**，所以没有读取年度收益；不能从原片另选更合适的窗口或枢轴阶数后称其为同一次验证。下一层研究应先解释事前可见破线如何划分局部波段，并区分 LINK 所示"破线但高低点仍向上"。详见 [D51](../../research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d51-bearish-retracement-geometry-and-direction-before-h17)。
+**来源门槛实例。** D51 试将 H15a 的确认枢轴／回撤几何镜像到罗尼 7 月 27 日讨论的 BTC 未来短空，并加上现成 R-1u 日线方向。事前冻结原片正反案例和唯一 UTC 截点后，币安合约四小时数据选出的却是 7 月 15-17 日旧波段，不是原片讨论的 7 月 24 日局部跌破；50%／61.8% 价位与原片均不合，BTC 日线方向也与作者当时的判断相反。这否定了这一精确组件组合的**来源匹配**，所以没有读取年度收益；不能从原片另选更合适的窗口或枢轴阶数后称其为同一次验证。下一层研究应先解释事前可见破线如何划分局部波段，并区分 LINK 所示"破线但高低点仍向上"。详见 [D51](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d51-bearish-retracement-geometry-and-direction-before-h17)。
 
-**二级延伸结果。** D52 按原片提到的已完成破线，预先改用旧 H06 的确认枢轴、首次穿线和强势收盘规则。BTC 的四小时线确实在原片所述时间附近首次被收盘跌破，但该根阴线实体为 **585 USDT**，略低于规则要求的事前 ATR **590.85 USDT**，因此 H06 没有发出空头信号；ETH、LINK 在相同窗口也各有一次未过强度门槛的首次破线。直接把 H06 与 H15a 的回撤几何组合，仍未通过 BTC 正例，不能用事后下调门槛来补。流程上应把**来源案例匹配和反例区分**作为组件组合的前置门槛；门槛失败可精确关闭该组合，同时保留破线后局部波段这个独立问题。见 [D52](../../research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d52-completed-line-break-event-as-a-local-bearish-impulse-boundary)。
+**二级延伸结果。** D52 按原片提到的已完成破线，预先改用旧 H06 的确认枢轴、首次穿线和强势收盘规则。BTC 的四小时线确实在原片所述时间附近首次被收盘跌破，但该根阴线实体为 **585 USDT**，略低于规则要求的事前 ATR **590.85 USDT**，因此 H06 没有发出空头信号；ETH、LINK 在相同窗口也各有一次未过强度门槛的首次破线。直接把 H06 与 H15a 的回撤几何组合，仍未通过 BTC 正例，不能用事后下调门槛来补。流程上应把**来源案例匹配和反例区分**作为组件组合的前置门槛；门槛失败可精确关闭该组合，同时保留破线后局部波段这个独立问题。见 [D52](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d52-completed-line-break-event-as-a-local-bearish-impulse-boundary)。
 
 **改进方法与产品含义。** Agent 可把已有候选拆成有来源和准确实现身份的入场条件、结构失效、首个障碍、退出、预算及订单组收束规则，先比较它们各自解决的失败原因，再提出少数**机制相容**且能填补年化与胜率共同缺口的组合假设。组合前写明来源支持与研究者代理的界限、组件间预计的交互、首次可用时刻、必要机会容量、反例和会使组合被否定的观察；冲突的行动路径应互斥，不能把同一视频的条件分支算作同时成交。通过事前来源案例及 Nautilus 原生生命周期门槛后，冻结完整 Strategy 与同账户对照，读回交易集合、原生订单／持仓、费用资金费、胜率、盈亏比、净值、夏普和回撤；必要时用预登记的消融对照辨别增益来自哪项交互。即使采用遗传算法生成候选，其每个后代、筛选反馈和数据暴露都计入同一试验谱系；已反复查看的一年数据只能作开发证据，需保留多重比较和后续前向资格。R&D 保存组件来源、父子关系、冻结输入及结果，外部 Agent 决定生成和筛选方法；产品不增设自动育种器、策略语言或另一套回测引擎。
 
-**核查证据。** [F23 二级延伸](#f23单次规则失败应引出有区别的机制延伸)、[F40 联合目标缺口](#f40二级延伸要验证机会盈亏结构与目标缺口的共同变化)、[H15a 完整试验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H16a 完整试验](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)及[D48 原生退出归因](../../research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)。蓝图核对 R&D 研究与判断；该组合方法目前是待试的流程改进，不是已验证的收益改进。
+**核查证据。** [F23 二级延伸](#f23单次规则失败应引出有区别的机制延伸)、[F40 联合目标缺口](#f40二级延伸要验证机会盈亏结构与目标缺口的共同变化)、[H15a 完整试验](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[H16a 完整试验](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h16a-fresh-618764-pullback-tiers-under-the-same-structural-stop)及[D48 原生退出归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h16a-exit-attribution-d48.json)。蓝图核对 R&D 研究与判断；该组合方法目前是待试的流程改进，不是已验证的收益改进。
 
 <a id="f49"></a>
 
@@ -614,7 +614,7 @@
 
 **订单组延伸的证据边界。** D56 把 D55 的破线时刻连接到原生三档 OTO 订单。**72** 笔持仓在破线当时确有尚未成交的入场档位，随后这些档位发生 **95** 次原生成交；另有 **28** 笔的最终订单行无法证明破线时是否仍可撤，单列为状态不明。这通过了事前设定的事件容量门槛，允许开发一个"破线时仅撤销仍开放入场单、保留已成交仓位及原生保护单"的 Nautilus 子策略并完整配对回放。72 笔既有持仓合计亏损约 **3,799 USDT**，这是整笔净额持仓的实际结果，不能当成后来档位的单独亏损，更不能当成撤单后的收益。产品上的关键合同是订单组在持仓期间的时点状态与撤单确认、填单竞态，而非事后把订单结果相减。
 
-**核查证据。** [D53 预登记、修正和结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d53-fixed-post-entry-evidence-persistence-landmarks)、[D53 汇总](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-summary.json)及[逐笔原生路径报告](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence.json.gz)、[首读截尾修正留痕](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-attempt1.json)、[D54 来源延伸](../../research/r1_native/results/2026-10-08-d54-post-entry-invalidation-source.json)、[D55 原生结构事件容量](../../research/r1_native/results/2026-10-08-d55-h15a-preentry-line-break.json)、[D56 原生订单组时点状态](../../research/r1_native/results/2026-10-08-d56-h15a-line-break-pending-entries.json)、[H15a 原生订单审计](../../research/r1_native/results/2026-10-08-h15a-37-native-audit.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
+**核查证据。** [D53 预登记、修正和结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d53-fixed-post-entry-evidence-persistence-landmarks)、[D53 汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-summary.json)及[逐笔原生路径报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d53-h15a-entry-persistence.json.gz)、[首读截尾修正留痕](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-attempt1.json)、[D54 来源延伸](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d54-post-entry-invalidation-source.json)、[D55 原生结构事件容量](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d55-h15a-preentry-line-break.json)、[D56 原生订单组时点状态](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d56-h15a-line-break-pending-entries.json)、[H15a 原生订单审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h15a-37-native-audit.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 <a id="f50"></a>
 
@@ -628,7 +628,7 @@
 
 **二级延伸实测。** D57 在读取分组结果前固定一个更强的原结构条件：首次跌破入场时冻结的上升线时，该根完整 K 线还要收在当时已确认的第二个上升低点以下。184 次原线跌破里仅 **一次**也跌破这个低点，且当时没有已确认待成交入场单；72 笔有待成交单与 95 次被避免的成交全落在"只跌破趋势线"组。事前设定的 30 笔／30 次／5,000 USDT 容量门槛全部落空，因此关闭这一条精确定义，不为它再跑一次年度回测。结果说明该低点对待加仓决策过深或过晚；不能事后抬高低点、放宽收盘条件或调线斜率来获得样本。入场后条件退出方向尚未被整体否定，下一问题仍须找到足够容量、具有来源依据且事前可见的状态。
 
-**核查证据。** [H18a 预登记与完整回放](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h18a-cancel-unfilled-pullback-tiers-after-a-completed-entry-time-line-break)、[原生生命周期](../../research/r1_native/results/2026-10-08-h18a-native-lifecycle.json)、[37 币摘要](../../research/r1_native/results/2026-10-08-h18a-37-summary.json)、[独立原生订单审计](../../research/r1_native/results/2026-10-08-h18a-37-native-audit.json)、[同 runner H15a 对照](../../research/r1_native/results/2026-10-08-h18a-paired-h15a-summary.json)、[手续费与资金费读回](../../research/r1_native/results/2026-10-08-h18a-paired-native-economics.json)、[配对周不确定区间](../../research/r1_native/results/2026-10-08-h18a-paired-weekly-bootstrap.json)、[原生持仓差额归因](../../research/r1_native/results/2026-10-08-h18a-paired-position-attribution.json)及[D57 原低点二级延伸](../../research/r1_native/results/2026-10-08-d57-h18a-second-pivot-low.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
+**核查证据。** [H18a 预登记与完整回放](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h18a-cancel-unfilled-pullback-tiers-after-a-completed-entry-time-line-break)、[原生生命周期](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h18a-native-lifecycle.json)、[37 币摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h18a-37-summary.json)、[独立原生订单审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h18a-37-native-audit.json)、[同 runner H15a 对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h18a-paired-h15a-summary.json)、[手续费与资金费读回](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h18a-paired-native-economics.json)、[配对周不确定区间](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h18a-paired-weekly-bootstrap.json)、[原生持仓差额归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h18a-paired-position-attribution.json)及[D57 原低点二级延伸](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d57-h18a-second-pivot-low.json)。蓝图核对 R&D 研究与判断与 Backtest 输入与结果。
 
 <a id="f51"></a>
 
@@ -638,7 +638,7 @@
 
 **产品判断。** 来源中的"继续持有"是入场后证据持续性的正例，也为 D53 的慢启动赢家提供反例；它本身不定义"条件失效 → 减仓／退出"。研究 Agent 应在来源记录里分开保存资产、市场、已有仓位或新订单、观察状态、可见时点及实际动作。缺失的反事实动作要标成**来源未证实**，不能通过把新单止损搬到旧仓或把标题当规则补齐。若后续提出研究者自己的条件退出代理，先固定来源正反例与原生事件容量，再决定是否做 Nautilus 共享账户配对回放；这次 S42 只读核查没有新订单或收益结论。产品仍由 Nautilus 持有成交、保护订单和账户，研究记录只保存判断与证据。
 
-**核查证据。** [S42 来源预登记、原片结论](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s42-what-should-an-already-held-position-watch-after-a-sharp-move)、[原视频、转录、画面与获取回执的身份记录](../../research/r1_native/results/2026-10-08-s42-held-position-source.json)，以及[D53 原生持仓观察](../../research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-summary.json)。
+**核查证据。** [S42 来源预登记、原片结论](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s42-what-should-an-already-held-position-watch-after-a-sharp-move)、[原视频、转录、画面与获取回执的身份记录](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s42-held-position-source.json)，以及[D53 原生持仓观察](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d53-h15a-entry-persistence-summary.json)。
 
 <a id="f52"></a>
 
@@ -648,7 +648,7 @@
 
 **产品判断。** 一个已完成四小时破线只证明该级别状态变化，不能替代日线／周线结构，也不能自动决定既有持仓、待成交档位、新入场单使用同一动作。Agent 的研究记录要绑定规则所作用的仓位角色、原图级别、完成柱时点与更高周期状态；无法从来源证明的退出动作保持未知。若研究"弱反弹只持一两根"，须先限定可事前识别的**猜底短线**类型和原作者的时钟，再做原生事件容量核查，不能在已暴露年度扫描第 1／3／5／10 根挑出看起来有利的一根。这是研究设计边界，尚非新策略收益提升。
 
-**核查证据。** [S43 预登记与原片结论](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s43-does-a-four-hour-line-break-change-an-existing-futures-position)、[完整转录及原画面身份](../../research/r1_native/results/2026-10-08-s43-completed-line-break-source.json)、[D55 原生线破位筛查](../../research/r1_native/results/2026-10-08-d55-h15a-preentry-line-break.json)。
+**核查证据。** [S43 预登记与原片结论](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s43-does-a-four-hour-line-break-change-an-existing-futures-position)、[完整转录及原画面身份](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s43-completed-line-break-source.json)、[D55 原生线破位筛查](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d55-h15a-preentry-line-break.json)。
 
 <a id="f53"></a>
 
@@ -658,7 +658,7 @@
 
 **产品判断。** 研究记录要保留四小时持仓事件与严格先于事件的日线状态、原生止盈／止损／到期原因、事件时假设费用、真实资金费，以及预登记时被指定的主组与反例组。即使来源讨论了多周期，也不能只靠一个方向标签决定提前退出；本次精确二级假设已关闭，入场后证据持续性的整个方向仍开放。若下一机制涉及短线猜底，必须先证明该笔交易在**入场当时**属于那类计划，再定义期限和目标；不能把此处事后观察到的盈利组或四小时根数当筛选器。Nautilus 继续是成交、持仓与账户唯一权威，D58 只保存只读关联和失败归因。
 
-**核查证据。** [D58 预登记、结果与失败边界](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d58-is-a-four-hour-line-break-materially-different-under-prior-bearish-daily-direction)、[37 币逐事件诊断](../../research/r1_native/results/2026-10-08-d58-h15a-daily-context-at-line-break.json)、[只读连接脚本](../../research/r1_native/diagnose_h15a_daily_context_at_line_break.py)。
+**核查证据。** [D58 预登记、结果与失败边界](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d58-is-a-four-hour-line-break-materially-different-under-prior-bearish-daily-direction)、[37 币逐事件诊断](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d58-h15a-daily-context-at-line-break.json)、[只读连接脚本](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/diagnose_h15a_daily_context_at_line_break.py)。
 
 <a id="f54"></a>
 
@@ -668,7 +668,7 @@
 
 **产品判断。** 研究和策略合同应把**进场前已承诺的保护止损**、持仓后观察到的证据失效、以及到达事前目标后的止盈动作分开。标题中的"带止损了吗"不等于作者提供了一个在原止损之前生效的新退出触发器。S44 的双档入场与深回撤止损可能是另一套入场／风险几何，和 H15a 的三档及共用波段起点下方止损不能混写；若继续研究，先固定原片价位、数据时钟、合约映射及来源正反例，再做原生订单容量与共享账户比较。该方向是待验线索，不能从视频中推出收益改进。
 
-**核查证据。** [S44 来源预登记与结论](../../research/r1_native/RD_EXPERIMENTS.md#source-check-s44-does-the-author-separate-a-held-longs-original-stop-from-later-invalidation)、[原视频、转录和画面身份记录](../../research/r1_native/results/2026-10-08-s44-held-long-stop-source.json)、[原帧标签局部放大](../../research/r1_native/results/2026-10-08-s44-deep-label-crop.png)、[H15a 原生策略](../../research/r1_native/tiered_retracement_strategy.py)。
+**核查证据。** [S44 来源预登记与结论](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-check-s44-does-the-author-separate-a-held-longs-original-stop-from-later-invalidation)、[原视频、转录和画面身份记录](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s44-held-long-stop-source.json)、[原帧标签局部放大](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s44-deep-label-crop.png)、[H15a 原生策略](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/tiered_retracement_strategy.py)。
 
 <a id="f55"></a>
 
@@ -678,7 +678,7 @@
 
 **产品判断。** 一笔计划应保存首次可见的 A/B、波段尺度、首次形成与失效时间、入场档位、止损所依附的波段，以及具体来源案例。研究 Agent 若提出较大波段版本，应先用同一套因果选点在 S44 正例和 S27 较局部的反例上固定规则，再核查 37 币原生订单机会容量；来源与容量不过关就不进入年度收益筛选。拒绝的是"沿用 H15a 选点只换止损"这一精确子方案，不是两档或结构保护技术家族。Nautilus 保持订单、成交、保护单和账户的唯一执行权威。
 
-**核查证据。** [D59 预登记和结果](../../research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d59-can-the-frozen-h15a-selector-reproduce-the-s44-btc-impulse-before-first-touch)、[逐波段与计划读回](../../research/r1_native/results/2026-10-08-d59-s44-h15a-geometry.json)、[只读来源几何核查](../../research/r1_native/audit_s44_h15a_source_geometry.py)。
+**核查证据。** [D59 预登记和结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-diagnostic-d59-can-the-frozen-h15a-selector-reproduce-the-s44-btc-impulse-before-first-touch)、[逐波段与计划读回](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d59-s44-h15a-geometry.json)、[只读来源几何核查](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/audit_s44_h15a_source_geometry.py)。
 
 <a id="f56"></a>
 
@@ -688,7 +688,7 @@
 
 **原生机会与产品含义。** D60 再逐一读取已登记的 37 份币安合约 Nautilus LAST Catalog 和当前 Instrument 条款。按 100,000 USDT 静态参考权益及原有总风险 25 基点／每币名义 5% 上限，**1,492** 组计划的取整价格、最小数量和风险可行；有效期内有 **303** 组首次触及 50%，**255** 组触及 61.8%，超过预登记的 200／100 容量门槛。两组首次触价 K 线同时越过计划止损，已单列为同根先后不明。K 线触价不等于 Nautilus 成交，固定权益核算不等于共享账户资金路径，当前合约条款也不能证明历史条款。因此下一步是冻结完整 Nautilus OTO 生命周期并跑同账户配对，而不是从触价数推算利润。R&D 保存选点、订单机会与来源反例；Backtest 以原生订单、成交、资金费和 Portfolio 净值裁定经济结果，不增加替代执行器或收益账本。
 
-**核查证据。** [H19a/D60 预登记与完整结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[BTC 来源门槛](../../research/r1_native/results/2026-10-08-d60-broad-swing-source.json)、[37 币容量门槛](../../research/r1_native/results/2026-10-08-d60-broad-swing-capacity.json.gz)。
+**核查证据。** [H19a/D60 预登记与完整结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[BTC 来源门槛](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d60-broad-swing-source.json)、[37 币容量门槛](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d60-broad-swing-capacity.json.gz)。
 
 <a id="f57"></a>
 
@@ -700,7 +700,7 @@
 
 **首次相邻方法线索，尚非 H19a 的效果证据。** [Lo、Mamaysky、Wang 的原论文](https://business.columbia.edu/sites/default/files-efs/pubfiles/19268/Lo-Mamaysky_wang_foundations.pdf)研究如何把主观图形变成可重复的形态定义，适合检视当前 A/B 选锚歧义；其样本是美股，不验证币安合约回撤盈利。[Osler 的原研究](https://www.newyorkfed.org/medialibrary/media/research/epr/00v06n2/0007osle.pdf)用外汇机构事前发布的支撑阻力水平检验价格反应，是检视关键位证据来源的类比，不能推出加密合约存在相同订单聚集。[Sullivan、Timmermann、White 的原论文](https://eprints.lse.ac.uk/119144/1/dp303.pdf)针对技术规则全集和数据窥探偏差，支持保留完整试验台账与多重尝试界限。这三者均未用于回头修改已冻结的 H19a 规则；下一候选需另行预登记它们引出的具体差异预测。
 
-**核查证据。** [F23 二级延伸](#f23单次规则失败应引出有区别的机制延伸)、[F40 联合目标缺口](#f40二级延伸要验证机会盈亏结构与目标缺口的共同变化)、[H15a/H16a 台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[D53 至 D58 台账](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d53-fixed-post-entry-evidence-persistence-landmarks)。
+**核查证据。** [F23 二级延伸](#f23单次规则失败应引出有区别的机制延伸)、[F40 联合目标缺口](#f40二级延伸要验证机会盈亏结构与目标缺口的共同变化)、[H15a/H16a 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h15a-budgeted-three-tier-pullback-with-one-below-origin-stop)、[D53 至 D58 台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d53-fixed-post-entry-evidence-persistence-landmarks)。
 
 <a id="f58"></a>
 
@@ -712,7 +712,7 @@
 
 **审计反例。** H19a 的首版独立审计把一笔 IMX 入场"部分成交后撤销剩余量"误当作零成交，错误要求两条子单维持原始数量并同时撤销。原生订单显示 21,307 单位中成交 13,414，止盈成交 13,414，剩余止损撤销 7,893；持仓归零且无孤立保护单。修正审计器只接受正成交量与原生缩量子单的对应关系，并对 H19a、H18a、H15a 全量重读通过。产品验收不能用最终订单状态代替累计成交量，尤其不能因为独立审计的表示错误悄悄修改已冻结的 Strategy。
 
-**核查证据。** [H19a／D61 完整台账](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[账户与敞口只读诊断](../../research/r1_native/results/2026-10-08-h19a-37-capital-usage.json)、[初版失败审计](../../research/r1_native/results/2026-10-08-h19a-37-native-audit-attempt1.json)、[修正后原生审计](../../research/r1_native/results/2026-10-08-h19a-37-native-audit.json)。
+**核查证据。** [H19a／D61 完整台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[账户与敞口只读诊断](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h19a-37-capital-usage.json)、[初版失败审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h19a-37-native-audit-attempt1.json)、[修正后原生审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h19a-37-native-audit.json)。
 
 <a id="f59"></a>
 
@@ -722,7 +722,7 @@
 
 **产品含义。** 对原生多档持仓的退出机制诊断，要以实际首笔成交、对应原生保护单和最终原生净盈亏为锚，保留后续部分成交、资金费和边界截尾；不得沿用单次成交的路径分析脚本，也不能把触价机会直接写成新策略年化或胜率。若研究分批退出，应先给出与上述失败机制不同的来源和可反证预测，再冻结原生 OTO 生命周期与同账户配对试验。
 
-**核查证据。** [D62 预登记、完整读数与判定](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d62-can-an-already-registered-first-risk-unit-target-possibly-repair-h19as-win-rate-gap)、[逐仓只读结果](../../research/r1_native/results/2026-10-08-d62-h19a-first-r.json)。
+**核查证据。** [D62 预登记、完整读数与判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d62-can-an-already-registered-first-risk-unit-target-possibly-repair-h19as-win-rate-gap)、[逐仓只读结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d62-h19a-first-r.json)。
 
 <a id="f60"></a>
 
@@ -732,7 +732,7 @@
 
 **待验证的设计方向。** Strategy 可以只保存带来源时刻、价位、失效条件、有效期和标的唯一身份的机会，不立即生成委托；到事先定义的近价触发事件，再读取原生 Portfolio／Cache、按当前共享账户预算和 Instrument 条款确定数量，提交 Nautilus 原生限价 OTO。远离或被更好同币机会取代时请求撤销未成交入场单，必须等原生撤单确认才释放策略预算；撤单中成交或部分成交则保留原生持仓及保护单。已提交订单不因另一单撤销而悄悄变大；只在新单提交前或经过明确的原生改量／撤换事件重算。这个状态管理属于 Strategy 的交易决策，不另建执行器或资金账本。F61 已排除原样 H19a 靠释放保证金放大下一单的机制；近价触发的阈值、优先级、同币替换条件与五分钟事件时序仍未冻结，也没有证明能提高全年净收益、胜率或 Sharpe。未来若有与资金约束不同的来源机制，需另行预登记并用相同 37 币的原生共享账户配对回放。
 
-**核查证据。** [H19a Strategy 源码](../../research/r1_native/tiered_retracement_strategy.py)、[原生账户使用率审计](../../research/r1_native/results/2026-10-08-h19a-37-capital-usage.json)、[H19a 原生年度结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[Nautilus Strategies](https://nautilustrader.io/docs/latest/concepts/strategies/)、[Nautilus Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)。
+**核查证据。** [H19a Strategy 源码](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/tiered_retracement_strategy.py)、[原生账户使用率审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h19a-37-capital-usage.json)、[H19a 原生年度结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h19a--source-capacity-diagnostic-d60-a-distinct-broad-swing-two-tier-pullback)、[Nautilus Strategies](https://nautilustrader.io/docs/latest/concepts/strategies/)、[Nautilus Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)。
 
 <a id="f61"></a>
 
@@ -742,7 +742,7 @@
 
 **下一步边界。** 881 个实际成交的原生入场限价单从提交到首笔成交的中位等待 **2.83 天**，90 分位 **10.81 天**；仅 155 个在一天内首次成交。近价激活若要研究，应解释可事前识别的机会持续性或成交质量，并核查快速触价导致的漏单，而不能拿释放保证金直接推断年化提高。若产品改用共享账户剩余风险预算动态分配，它是另一条预登记的组合仓位规则，仍应由 Nautilus Portfolio／Risk／Execution 给出账户与订单事实，不增设第二套账本。现有 D63 只关闭"原样 H19a 因远价单占资而使下一单变小"的机制，没有回测新 Strategy，也没有改变 Goal 年化、胜率或 Sharpe 结论。
 
-**核查证据。** [D63 预登记与判定](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d63-are-h19a-distant-resting-entries-actually-a-binding-capital-constraint)、[原生资金占用逐时审计](../../research/r1_native/results/2026-10-08-d63-h19a-capital-binding.json)、[实际数量公式](../../research/r1_native/tiered_retracement_strategy.py)。
+**核查证据。** [D63 预登记与判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d63-are-h19a-distant-resting-entries-actually-a-binding-capital-constraint)、[原生资金占用逐时审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d63-h19a-capital-binding.json)、[实际数量公式](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/tiered_retracement_strategy.py)。
 
 <a id="f62"></a>
 
@@ -754,7 +754,7 @@
 
 **产品与试验边界。** R&D 应让外部 Agent 先用原生成交／持仓／Portfolio 路径，按决策时可得数据构造净收益及初始 R 的一致口径，检查有效样本、估计误差、同时持仓相关性及可承受回撤。若证据支持，再预登记**一个**有明确缩减和组合风险上限的凯利家族候选，在 Nautilus Strategy 中读取 Portfolio／Cache、用原生订单执行，并对同一 37 币共享账户做配对回测与延迟／前向核验。不创建产品内优化器、额外资金账本或固定研究预设。单纯改变仓位而不改变交易选择和净胜负，无法解决 H19a 目前 **42.74%** 对约 60% 目标的缺口；仓位方向要与入场／退出机制分别归因。
 
-**核查证据。** [D64 预登记与原生结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d64-which-current-sizing-bound-actually-controls-the-native-entry-tiers)、[逐币订单几何](../../research/r1_native/results/2026-10-08-d64-sizing-geometry.json)、[Nautilus Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)。
+**核查证据。** [D64 预登记与原生结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d64-which-current-sizing-bound-actually-controls-the-native-entry-tiers)、[逐币订单几何](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d64-sizing-geometry.json)、[Nautilus Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)。
 
 <a id="f63"></a>
 
@@ -764,7 +764,7 @@
 
 **研究含义。** 原生收益序列末点比回放最终账户时刻早 **8.5 小时**，故上述日序列等价值与完整账户年化数字略有差别；整周重抽样也未校正既往多次试验，不能视为独立检验。这一结果只说明当前样本不足以稳健地推出**当前仓位**的正对数增长，更不足以选出凯利倍数；它不否定更小规模、不同信号或受回撤约束的规则。下一层应核对每笔实际净盈亏对应的决策时初始风险 R、部分成交及同时持仓风险，并用只依赖当时已完成数据的估计器给候选规则设收缩和账户级上限。候选仍须预登记、跑 Nautilus 原生共享账户及延迟／前向验证；不得对已暴露年度扫描凯利分数挑年化最高者。
 
-**核查证据。** [D65 预登记与结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d65-is-the-native-portfolio-log-growth-estimate-stable-enough-to-inform-kelly-sizing)、[原生日收益及并仓诊断](../../research/r1_native/results/2026-10-08-d65-kelly-estimator.json)、[H19a 原生账户结果](../../research/r1_native/results/2026-10-08-h19a-37-summary.json)。
+**核查证据。** [D65 预登记与结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d65-is-the-native-portfolio-log-growth-estimate-stable-enough-to-inform-kelly-sizing)、[原生日收益及并仓诊断](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d65-kelly-estimator.json)、[H19a 原生账户结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h19a-37-summary.json)。
 
 <a id="f64"></a>
 
@@ -774,7 +774,7 @@
 
 **因果样本深度。** 在每笔持仓的**首张入场订单提交时**，严格只数此前已经平仓的同币持仓：H19a 中位 **6**、最多 **20**；H18a 中位 **9**、最多 **29**。两组均没有一笔在提交时拥有 30 个先前同币已完成结果。由此关闭的是"直接用当前一年逐币历史胜率与平均盈亏比代入凯利公式"这一子方案；30 笔本身也不是统计充分性的证明。组合层跨币共享估计、分数凯利或回撤约束仍可研究，但必须显式处理各币机会机制差异、同时持仓相关性、估计收缩、账户总风险与独立验证。提高现有持仓大小不会直接把 H19a 固定交易集的 **42.74%** 胜率推到约 60%，入场／退出证据仍需并行改进。
 
-**核查证据。** [D66 预登记与完整判定](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d66-do-actual-net-position-outcomes-provide-causal-per-coin-kelly-evidence)、[逐仓原生净 R 与先验样本](../../research/r1_native/results/2026-10-08-d66-native-position-r.json.gz)、[原生读数脚本](../../research/r1_native/audit_d66_native_position_r.py)。
+**核查证据。** [D66 预登记与完整判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d66-do-actual-net-position-outcomes-provide-causal-per-coin-kelly-evidence)、[逐仓原生净 R 与先验样本](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d66-native-position-r.json.gz)、[原生读数脚本](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/audit_d66_native_position_r.py)。
 
 <a id="f65"></a>
 
@@ -784,7 +784,7 @@
 
 **产品与下一机制。** R&D 应把机会形成时刻、支撑／区间锚点、原生挂单身份、首次实际成交年龄及其后续结构更新分开保存。单看挂单年龄既会错杀慢到但盈利的机会，也不足以指认哪张旧单的前提已失效。下一层可事前定义「入场前结构变化导致机会失效」并同时保留仍有效的反例，先验证来源与原生事件容量，再决定是否预登记新的 Strategy 和同账户配对回放；不新增独立订单引擎或收益账本。D67 不改变 H19a 的 **+12.00% 年化、42.74% 胜率**，也不证明独立收益优势。
 
-**核查证据。** [D67 预登记与结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d67-do-old-h19a-resting-opportunities-explain-the-win-rate-gap)、[全量原生持仓年龄读数](../../research/r1_native/results/2026-10-08-d67-h19a-first-fill-age.json)、[官方 Nautilus 配对回执](../../strategies/r1/parity-cleanup-h19a.json)。
+**核查证据。** [D67 预登记与结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d67-do-old-h19a-resting-opportunities-explain-the-win-rate-gap)、[全量原生持仓年龄读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d67-h19a-first-fill-age.json)、[官方 Nautilus 配对回执](../../strategies/r1/parity-cleanup-h19a.json)。
 
 <a id="f66"></a>
 
@@ -796,7 +796,7 @@
 
 失败候选的可选运行分支已在结果落盘后撤下；预登记、冻结源码提交、原生报告和审计仍可按 Git 提交身份复现，不把每次失败都永久叠加为现行策略开关。
 
-**核查证据。** [H20a 预登记、试跑与全量决策](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h20a-require-a-completed-outer-range-close-before-b-becomes-a-pullback-anchor)、[37 币原生摘要](../../research/r1_native/results/2026-10-08-h20a-37-summary.json)、[H19a 同代码对照](../../research/r1_native/results/2026-10-08-h20a-paired-h19a-summary.json)、[订单保护审计](../../research/r1_native/results/2026-10-08-h20a-37-native-audit.json)、[手续费资金费读回](../../research/r1_native/results/2026-10-08-h20a-native-economics.json)、[配对周不确定区间](../../research/r1_native/results/2026-10-08-h20a-paired-weekly.json)。
+**核查证据。** [H20a 预登记、试跑与全量决策](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h20a-require-a-completed-outer-range-close-before-b-becomes-a-pullback-anchor)、[37 币原生摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h20a-37-summary.json)、[H19a 同代码对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h20a-paired-h19a-summary.json)、[订单保护审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h20a-37-native-audit.json)、[手续费资金费读回](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h20a-native-economics.json)、[配对周不确定区间](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h20a-paired-weekly.json)。
 
 <a id="f67"></a>
 
@@ -806,7 +806,7 @@
 
 **产品与下一层。** 当前仓位管理缺少账户级的同时止损风险上限、挂单与持仓合计风险、币间同向相关敞口及机会优先级；这比单纯提高每币 25 基点或套用凯利倍数更值得作为独立风险能力检查。先用 Nautilus 原生 Portfolio／Cache／订单事实核对决策时的**计划风险和已占风险**，再考虑一个预登记的组合上限；不可把事后已成交 R 当作事前可知风险，也不可另造账户账本。分数凯利、收缩估计和带回撤约束的凯利仍可研究，但需要更可信的条件优势估计、相关性与估计误差处理，以及同一 37 币原生共享账户的配对与延迟／前向检验。当前 D68 只排除了把这一年跨币点估计直接转为正凯利仓位的做法，没有进行新 Strategy 回测，也不能修复 H19a **42.74%** 的胜率缺口。R&D 应把仓位研究与来源驱动的入场／退出研究并行，分别报告对收益、胜率、Sharpe 与回撤的贡献。
 
-**核查证据。** [D68 预登记与完整判定](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d68-can-prior-closed-positions-support-a-pooled-causal-kelly-estimate)、[因果逐仓与逐月读回](../../research/r1_native/results/2026-10-08-d68-causal-pooled-kelly.json.gz)、[D66 原生净 R 与止损风险对账](../../research/r1_native/results/2026-10-08-d66-native-position-r.json.gz)、[Nautilus Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)、[Nautilus Cache](https://nautilustrader.io/docs/latest/concepts/cache/)。
+**核查证据。** [D68 预登记与完整判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d68-can-prior-closed-positions-support-a-pooled-causal-kelly-estimate)、[因果逐仓与逐月读回](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d68-causal-pooled-kelly.json.gz)、[D66 原生净 R 与止损风险对账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d66-native-position-r.json.gz)、[Nautilus Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)、[Nautilus Cache](https://nautilustrader.io/docs/latest/concepts/cache/)。
 
 <a id="f68"></a>
 
@@ -816,7 +816,7 @@
 
 **产品与试验含义。** 当前 25 基点限制只作用于各币的单组挂单，没有限制所有币挂单与持仓合计承诺；这是真实的账户级风险控制缺口。上述金额是按原始止损与实际原生事件计算的**风险承诺代理**，不是可能跳空、滑点或止损执行失败时的最大亏损；9.86% 的分母是固定初始 10 万 USDT，并非该时刻 Nautilus Portfolio 净值。下一步先明确事前账户风险目标、机会排序、占用和释放规则，再用 Nautilus 的 Portfolio／Cache 与原生订单状态实现单一组合控制，不能从这条已见风险路径挑一个使回测最漂亮的上限。候选须和现有 H19a 在同一年度、同一 37 币共享账户中配对，检查拒单、被挤掉的机会、成交与净值路径、费用/资金费、胜率、Sharpe、回撤，并留待延迟／前向验证。降低合计风险可能改善回撤，也可能压低收益；D69 没有生成反事实回测，不能声称风险上限已经有效，更不解决入场胜率问题。
 
-**核查证据。** [D69 预登记、失败读回及最终判定](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d69-how-much-original-stop-risk-do-simultaneous-h19a-pending-and-filled-orders-commit)、[完整原生风险事件路径](../../research/r1_native/results/2026-10-08-d69-combined-stop-risk.json.gz)、[H19a 原生配对身份](../../strategies/r1/parity-cleanup-h19a.json)。
+**核查证据。** [D69 预登记、失败读回及最终判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d69-how-much-original-stop-risk-do-simultaneous-h19a-pending-and-filled-orders-commit)、[完整原生风险事件路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d69-combined-stop-risk.json.gz)、[H19a 原生配对身份](../../strategies/r1/parity-cleanup-h19a.json)。
 
 <a id="f69"></a>
 
@@ -828,7 +828,7 @@
 
 失败 H21a 的现行策略分支已经撤下；冻结实现和完整试验仍由 Git 提交及原生报表保存。撤下后重新跑的 37 币 H19a 订单、成交、持仓与净值同旧基线精确配对，原生保护审计通过。
 
-**核查证据。** [H21a 预登记、失败尝试、配对结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h21a-replace-the-broad-waves-old-low-with-the-latest-decision-confirmed-effective-a)、[37 币原生摘要](../../research/r1_native/results/2026-10-08-h21a-37-summary.json)、[H19a 同代码摘要](../../research/r1_native/results/2026-10-08-h21a-paired-h19a-summary.json)、[两组原生订单审计](../../research/r1_native/results/2026-10-08-h21a-37-native-audit.json)、[配对订单几何](../../research/r1_native/results/2026-10-08-h21a-paired-entry-geometry.json)、[费用资金费对账](../../research/r1_native/results/2026-10-08-h21a-native-economics.json)、[配对周不确定区间](../../research/r1_native/results/2026-10-08-h21a-paired-weekly.json)。
+**核查证据。** [H21a 预登记、失败尝试、配对结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h21a-replace-the-broad-waves-old-low-with-the-latest-decision-confirmed-effective-a)、[37 币原生摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h21a-37-summary.json)、[H19a 同代码摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h21a-paired-h19a-summary.json)、[两组原生订单审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h21a-37-native-audit.json)、[配对订单几何](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h21a-paired-entry-geometry.json)、[费用资金费对账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h21a-native-economics.json)、[配对周不确定区间](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h21a-paired-weekly.json)。
 
 <a id="f70"></a>
 
@@ -838,7 +838,7 @@
 
 **产品判断。** 当前低仓位／低保证金占用确实可能压低以完整 10 万 USDT 账户为分母的收益；不能把账户收益改除以平均占用保证金来声称完成了年化目标。原生 `free` 是保证金余额，不是可无风险投入的新资金；放大仓位也不会把固定交易集合的 **42.74%** 胜率变成约 60%。D68 的因果跨币净 R 均值区间没有一次在十个月初获得严格正的探索性下界，直接据此算正凯利比例不成立。下一层仓位能力应让单一 Nautilus Portfolio／Cache 组合所有待成交及在仓止损承诺，明确总风险预算、同向相关敞口、候选机会优先级与撤单释放，再在有可信条件优势时研究分数凯利、估计收缩及回撤约束。任何具体预算及优先级都需预登记并以同 37 币原生共享账户配对验证；D70 是只读诊断，没有检验新的收益策略。
 
-**核查证据。** [D70 预登记与完整读数](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d70-how-much-native-margin-balance-is-reserved-while-stop-risk-commitments-coexist)、[原生保证金占用结果](../../research/r1_native/results/2026-10-08-d70-native-margin-occupancy.json)、[原生止损承诺路径](../../research/r1_native/results/2026-10-08-d69-combined-stop-risk.json.gz)、[跨币凯利可估性](../../research/r1_native/results/2026-10-08-d68-causal-pooled-kelly.json.gz)。
+**核查证据。** [D70 预登记与完整读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d70-how-much-native-margin-balance-is-reserved-while-stop-risk-commitments-coexist)、[原生保证金占用结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d70-native-margin-occupancy.json)、[原生止损承诺路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d69-combined-stop-risk.json.gz)、[跨币凯利可估性](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d68-causal-pooled-kelly.json.gz)。
 
 <a id="f71"></a>
 
@@ -848,7 +848,7 @@
 
 **经济取舍。** 同一 37 币、10 万 USDT 共享账户全年回放：H22a 年化净收益 **+3.46%**、已平仓胜率 **356/662 = 53.78%**、盈亏比 **0.917**、Sharpe(365) **0.270**、日收盘最大回撤 **14.04%**。H21a 为 **−6.18%／36.78%／1.569／−0.248／17.63%**；H19a 为 **+12.00%／42.74%／1.608／0.658／15.33%**。更宽的结构外止损相对 H21a 明显减少净亏损并提高胜率，却使每笔平均盈利相对平均亏损不足 1，且最终账户净值比 H19a 少 **8,300.45 USDT**。这些点估计来自已反复暴露年度；配对周重采样的收益及 Sharpe 差区间均跨零，不能宣布稳定优势。此结果关闭精确的 H22a 止损公式，不继续在同一年加宽止损或靠提高杠杆凑年化。后继需要事前市场／资产环境证据，判断何时局部结构值得参与，同时保留 H19a 的收益与 H15a 较高胜率作为不同取舍的参照。
 
-**核查证据。** [H22a 来源、预登记和配对判定](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h22a-put-the-local-effective-as-common-stop-outside-a)、[37 币摘要](../../research/r1_native/results/2026-10-08-h22a-37-summary.json)、[H22a 原生订单审计](../../research/r1_native/results/2026-10-08-h22a-37-native-audit.json)、[同代码 H21a 对照](../../research/r1_native/results/2026-10-08-h22a-paired-h21a-summary.json)、[同代码 H19a 对照](../../research/r1_native/results/2026-10-08-h22a-paired-h19a-summary.json)、[费用与资金费](../../research/r1_native/results/2026-10-08-h22a-vs-h21a-economics.json)、[配对周不确定区间](../../research/r1_native/results/2026-10-08-h22a-vs-h19a-weekly.json)。
+**核查证据。** [H22a 来源、预登记和配对判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h22a-put-the-local-effective-as-common-stop-outside-a)、[37 币摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h22a-37-summary.json)、[H22a 原生订单审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h22a-37-native-audit.json)、[同代码 H21a 对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h22a-paired-h21a-summary.json)、[同代码 H19a 对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h22a-paired-h19a-summary.json)、[费用与资金费](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h22a-vs-h21a-economics.json)、[配对周不确定区间](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h22a-vs-h19a-weekly.json)。
 
 <a id="f72"></a>
 
@@ -860,7 +860,7 @@
 
 **产品与下一步。** R&D 应保存每笔候选订单形成时可见的资产状态、特征数据时点、原生实际成交、期末截尾、所属类别及同账户资金占用，让 Agent 区分稳定币种特征与变化的市场状态，再提出跨币共用的条件规则。下一层先研究五分钟异常影线和 LAST/MARK 偏离是否实际关联止损，以及上述类别差异能否在币内／跨月维度重现；若机制成立，只预登记一条通用选择或预算规则，用同 37 币 Nautilus 原生账户配对与延迟／前向验证。现有已见年度的低波动或低影线优势只是描述，不能据此宣布筛币有效，更不应为每币配置不同策略参数。
 
-**核查证据。** [D71 方法、覆盖修正和全部结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d71-do-causally-known-asset-regimes-explain-distinct-strategy-behavior)、[全部币月特征与原生分组](../../research/r1_native/results/2026-10-08-d71-asset-regimes.json)、[逐仓特征映射](../../research/r1_native/results/2026-10-08-d71-asset-regime-positions.json.gz)、[同代码 H15a 原生订单审计](../../research/r1_native/results/2026-10-08-d71-h15a-native-audit.json)、[视频案例库存](../../research/r1_native/SOURCE_CASES.md)。
+**核查证据。** [D71 方法、覆盖修正和全部结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d71-do-causally-known-asset-regimes-explain-distinct-strategy-behavior)、[全部币月特征与原生分组](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d71-asset-regimes.json)、[逐仓特征映射](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d71-asset-regime-positions.json.gz)、[同代码 H15a 原生订单审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d71-h15a-native-audit.json)、[视频案例库存](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md)。
 
 <a id="f73"></a>
 
@@ -872,7 +872,7 @@
 
 **产品含义与后续。** 研究记录要把实际使用的 LAST、MARK 数据、原生止损触发价、触发类型和成交路径一起保存；资产状态可作为同一组合策略的因果输入研究，但不能从已看过的一年结果生成逐币参数表。下一层应检验入场前可观测的五分钟 LAST／MARK 偏离是否持续存在，并核对交易所与 Nautilus 的保护单触发语义、延迟触发及更坏成交风险。只有冻结一条跨币通用规则并完成同账户原生配对及后续独立验证，才能声称收益改善。
 
-**核查证据。** [D72 预登记、口径修正和结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d72-were-native-protective-exits-associated-with-five-minute-last-spikes-absent-in-mark)、[37 币原生止损分叉汇总](../../research/r1_native/results/2026-10-08-d72-native-stop-spikes.json)、[逐仓订单与 K 线匹配](../../research/r1_native/results/2026-10-08-d72-native-stop-spike-positions.json)。
+**核查证据。** [D72 预登记、口径修正和结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d72-were-native-protective-exits-associated-with-five-minute-last-spikes-absent-in-mark)、[37 币原生止损分叉汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d72-native-stop-spikes.json)、[逐仓订单与 K 线匹配](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d72-native-stop-spike-positions.json)。
 
 <a id="f74"></a>
 
@@ -884,7 +884,7 @@
 
 **产品判断。** R&D 需要保留特征的可用时点、币种组成、同币换档、成交选择及开放仓位截尾，让 Agent 看清跨币关联与同币机制的区别。这个二级延伸关闭了“60 日五分钟低点价差第 99 百分位可直接作为筛币或保护单规则”的本次尝试；不在已看过年度改分位数、回看期或单币阈值。下一步核对交易所与 Nautilus 的原生止损触发语义，并研究罗尼来源中的入场结构和市场状态，再预登记一条跨币共用、可原生配对回放的规则。
 
-**核查证据。** [D73 预登记与完整读数](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d73-does-prior-five-minute-downside-lastmark-divergence-persist-into-native-stop-events)、[全部币月特征及分组](../../research/r1_native/results/2026-10-08-d73-prior-gap-states.json)、[逐仓事前状态映射](../../research/r1_native/results/2026-10-08-d73-prior-gap-positions.json)。
+**核查证据。** [D73 预登记与完整读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d73-does-prior-five-minute-downside-lastmark-divergence-persist-into-native-stop-events)、[全部币月特征及分组](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d73-prior-gap-states.json)、[逐仓事前状态映射](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d73-prior-gap-positions.json)。
 
 <a id="f75"></a>
 
@@ -896,7 +896,7 @@
 
 **产品判断。** 当前 37 币 R1 回放的默认止损和费用、资金费、净值证据仍可按其既定 LAST 语义使用；不能仅更改一个触发字段，就把同一年结果标为“MARK 止损”。若将来研究 MARK 触发，需要先在固定 Nautilus 版本证明原生数据流、匹配和订单保护的分叉，再检查触发延迟及不利成交，最后才做全组合配对回放。不要为此新增 Python 撮合或止损账本。
 
-**核查证据。** [D74 来源、失败尝试及隔离试验](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d74-can-pinned-nautilus-replay-a-binance-style-mark-protective-trigger-with-the-present-data-stream)、[完整原生双路径报告](../../research/r1_native/results/2026-10-08-d74-mark-trigger-native-probe.json)。
+**核查证据。** [D74 来源、失败尝试及隔离试验](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d74-can-pinned-nautilus-replay-a-binance-style-mark-protective-trigger-with-the-present-data-stream)、[完整原生双路径报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d74-mark-trigger-native-probe.json)。
 
 <a id="f76"></a>
 
@@ -908,7 +908,7 @@
 
 **产品判断。** 资产特征应记录为每次决策时可见、会变化的状态，而非逐币固定策略配置；至少区分来源提及、候选出现、挂单、实际成交、右截尾与同账户资金占用。下一层优先检查 H19a 的低波动差异是否来自来源结构有效性，还是候选／成交选择及组合并发；若形成具体共用参与或预算规则，再预登记并保持 37 币同一 Nautilus 账户做配对回放和延迟／前向验证。当前不能以此删去其他 29 币，也不能宣称达到收益目标。
 
-**核查证据。** [D75 预登记和完整逐币／逐月结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d75-do-asset-state-differences-survive-comparison-within-the-same-coin-and-calendar-month)、[D75 冻结输入对照报告](../../research/r1_native/results/2026-10-08-d75-within-asset-regimes.json)、[D71 原始资产状态](../../research/r1_native/results/2026-10-08-d71-asset-regimes.json)。
+**核查证据。** [D75 预登记和完整逐币／逐月结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d75-do-asset-state-differences-survive-comparison-within-the-same-coin-and-calendar-month)、[D75 冻结输入对照报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d75-within-asset-regimes.json)、[D71 原始资产状态](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d71-asset-regimes.json)。
 
 <a id="f77"></a>
 
@@ -920,7 +920,7 @@
 
 **失败与产品含义。** 初版读取把账户时间误按微秒、订单按纳秒相接，产生约 56 年的错误快照时距；该输出已保留并标记无效，修正后强制核查时间单位与时距。研究记录需要显式保存信号计划、原生挂单组合、真实成交与 Position 的多对多关系、事前状态、账户时点及开放仓位截尾。H19a 高波动档已平仓胜率仍是 **36.6%**，低档 **47.4%**；D76 仅说明挂单成交率和简单可用保证金没有解释这个差距，尚未证明波动本身有因果效应。下一步比较同一来源结构的入场、止损、目标几何与成交后路径，再决定是否能提出一条跨币共用规则；继续保留完整 37 币共享账户，不以逐币表筛选盈利币。
 
-**核查证据。** [D76 预登记、原生单位修正及结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d76-is-h19as-low-volatility-association-shaped-by-native-opportunity-fill-or-account-capacity-selection)、[修正后汇总](../../research/r1_native/results/2026-10-08-d76-native-opportunity-selection.json)、[逐组合原生明细](../../research/r1_native/results/2026-10-08-d76-native-bundles.json.gz)。
+**核查证据。** [D76 预登记、原生单位修正及结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d76-is-h19as-low-volatility-association-shaped-by-native-opportunity-fill-or-account-capacity-selection)、[修正后汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d76-native-opportunity-selection.json)、[逐组合原生明细](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d76-native-bundles.json.gz)。
 
 <a id="f78"></a>
 
@@ -930,7 +930,7 @@
 
 **判断与边界。** D75 的高波动档胜率差，既没有被 D76 的挂单成交率或简单余额解释，也没有被 D77 的计划目标／止损 R 明显不足解释。高波动档有 **14/160** 个成交组合的最早 BUY 成交同一时间出现多笔，低档为 **3/174**；原生同时间事件不能随意规定先后成交路径。后续应在第一笔原生成交之后，按已完成的策略决策 K 线比较初始风险 R 标准化的推进、回撤、结构是否仍成立、赢家慢启动反例，以及原生退出截尾。D77 是只读订单几何，不是筛币后的组合收益，也不能用微调 50%／61.8% 或目标比例追求已暴露年度的赢家。
 
-**核查证据。** [D77 预登记、原生核对和结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d77-does-h19as-source-aligned-planned-and-filled-order-geometry-differ-by-prior-volatility-state)、[汇总](../../research/r1_native/results/2026-10-08-d77-native-entry-geometry.json)、[逐组合订单几何](../../research/r1_native/results/2026-10-08-d77-native-entry-geometry-bundles.json.gz)。
+**核查证据。** [D77 预登记、原生核对和结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d77-does-h19as-source-aligned-planned-and-filled-order-geometry-differ-by-prior-volatility-state)、[汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d77-native-entry-geometry.json)、[逐组合订单几何](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d77-native-entry-geometry-bundles.json.gz)。
 
 <a id="f79"></a>
 
@@ -942,7 +942,7 @@
 
 **产品和研究判断。** 资产状态、同币换档、挂单组合、原生 Position 与市场共同冲击需要同时保存；胜率按 Position 统计，机会和早停机制还需按组合统计。眼下值得深挖的是多个币在共同冲击前的账户风险叠加和止损路径，并从罗尼来源寻找事前可识别的市场结构／入场条件。不能依据这两个日期或已见年度的币种标签调规则。若形成一条跨币共用机制，仍须预登记、37 币同一 Nautilus 账户配对回放及延迟／前向验证。
 
-**核查证据。** [D78 预登记、原生单位修正和完整结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d78-does-post-fill-evidence-persistence-separate-h19a-asset-states-without-discarding-slow-winners)、[组合与观察汇总](../../research/r1_native/results/2026-10-08-d78-post-fill-asset-path.json)、[逐仓原生路径](../../research/r1_native/results/2026-10-08-d78-post-fill-asset-path-positions.json.gz)。
+**核查证据。** [D78 预登记、原生单位修正和完整结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d78-does-post-fill-evidence-persistence-separate-h19a-asset-states-without-discarding-slow-winners)、[组合与观察汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d78-post-fill-asset-path.json)、[逐仓原生路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d78-post-fill-asset-path-positions.json.gz)。
 
 <a id="f80"></a>
 
@@ -950,9 +950,9 @@
 
 **容量证据。** D79 固定 H19a 的 507 个 Nautilus 原生 Position、手续费／资金费与 10 万 USDT 共享账户终值，做只读且不可交易的路径算术。严格超过 20% 年化需要期末净值超过 **119,423.21 USDT**，现有 H19a 为 **111,664.47 USDT**。事后完美删除首根完整四小时线前全部 **24 个**止损 Position，净值的固定路径算术也仅为 **115,237.23 USDT、15.68% 年化**，胜率 **44.92%**；这 24 仓只来自 17 个成交挂单组合。即使把它们全部改判为盈利，胜率也只有 **47.58%**。事后仅删除高波动档 **104 个**亏损仓位，算术收益可超过 20%，胜率仍只有 **54.08%**；删掉高波动档全部已平仓交易反而使年化算术降至 **10.98%**。若维持 212 个原有赢家，至少须删去 **143 个**输家才到 60% 胜率。上述删除会改变后续仓位、手续费、资金费和资本占用，绝非真实策略回测。
 
-**研究方向与产品边界。** 高波动／共同冲击可以继续作为风险控制二级方向，但无法单独成为达成双目标的短路径。罗尼公开视频不足以恢复完整离散决策；可引入 Al Brooks 的**一手价格行为材料**作为独立机制来源，先辨别行情处于区间、突破还是通道，再看突破是否由收盘和后续已完成 K 线确认，以及回踩是否守住突破位。Brooks 的 [Advanced Gap Techniques 原始讲义](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)把前后 K 线不重叠、实体缺口及未填补的突破空间也称为 gap；不能把它简单搬成 24 小时币安合约的隔夜跳空规则。H19a 目前只选 60 根四小时 K 线最高影线 B，未要求 B 的**收盘突破**或突破后跟进，这一缺口覆盖大量候选，因而先做 D80 只读机制核对。任何观察到的分组盈利差异都不是验证优势；随后仍需一条预登记的 Nautilus 原生 37 币共享账户配对回测和独立前向证据。整个价格行为体系的[来源与优先级图](../../research/r1_native/PRICE_ACTION_SOURCE_MAP.md)记录已覆盖／未覆盖的模块，避免把“读过一个视频、试一个阈值”当成深挖。
+**研究方向与产品边界。** 高波动／共同冲击可以继续作为风险控制二级方向，但无法单独成为达成双目标的短路径。罗尼公开视频不足以恢复完整离散决策；可引入 Al Brooks 的**一手价格行为材料**作为独立机制来源，先辨别行情处于区间、突破还是通道，再看突破是否由收盘和后续已完成 K 线确认，以及回踩是否守住突破位。Brooks 的 [Advanced Gap Techniques 原始讲义](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)把前后 K 线不重叠、实体缺口及未填补的突破空间也称为 gap；不能把它简单搬成 24 小时币安合约的隔夜跳空规则。H19a 目前只选 60 根四小时 K 线最高影线 B，未要求 B 的**收盘突破**或突破后跟进，这一缺口覆盖大量候选，因而先做 D80 只读机制核对。任何观察到的分组盈利差异都不是验证优势；随后仍需一条预登记的 Nautilus 原生 37 币共享账户配对回测和独立前向证据。整个价格行为体系的[来源与优先级图](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/PRICE_ACTION_SOURCE_MAP.md)记录已覆盖／未覆盖的模块，避免把“读过一个视频、试一个阈值”当成深挖。
 
-**核查证据。** [D79 预登记、固定路径结果及 S45／D80 来源边界](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d79-can-asset-class-or-first-bar-stop-repair-alone-close-the-joint-goal-gap)、[D79 原生输入绑定算术](../../research/r1_native/results/2026-10-08-d79-goal-headroom.json)、[Brooks 官方手册](https://www.brookstradingcourse.com/how-to-trade-price-action-manual/)、[Brooks 官方讲义](https://www.brookstradingcourse.com/wp-content/uploads/2016/05/Al-Brooks-Webinar-Distinguishing-Strong-Legs-TR-vs-Trends-May-3-2016.pdf)。
+**核查证据。** [D79 预登记、固定路径结果及 S45／D80 来源边界](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d79-can-asset-class-or-first-bar-stop-repair-alone-close-the-joint-goal-gap)、[D79 原生输入绑定算术](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d79-goal-headroom.json)、[Brooks 官方手册](https://www.brookstradingcourse.com/how-to-trade-price-action-manual/)、[Brooks 官方讲义](https://www.brookstradingcourse.com/wp-content/uploads/2016/05/Al-Brooks-Webinar-Distinguishing-Strong-Legs-TR-vs-Trends-May-3-2016.pdf)。
 
 <a id="f81"></a>
 
@@ -964,7 +964,7 @@
 
 **后续机制。** 价格行为学应作为行情状态、交易位置、入场确认、结构止损、目标与持仓管理的连贯决策，而不是从术语中抽一项布尔指标。下一层聚焦“区间边缘的回落买入”与“真正突破后的回踩”是不同入场时钟与目标；检查 Ronnie C01/C04/C20/C22 对这种区分的支持，并保留未突破组大量赢家以及突破组 54 个赢家的反例。只有一条事前冻结的共同规则通过来源案例和完整 37 币 Nautilus 原生配对、延迟／前向验证后，才可写成产品策略结论。
 
-**核查证据。** [S45/D80 预登记、完整读数与失败判定](../../research/r1_native/RD_EXPERIMENTS.md#source-s45-and-diagnostic-d80-al-brooks-price-action-context-before-a-new-native-variant)、[全池分组汇总](../../research/r1_native/results/2026-10-08-d80-brooks-breakout-context.json)、[全部原生挂单及持仓归属](../../research/r1_native/results/2026-10-08-d80-brooks-breakout-context-bundles.json.gz)、[价格行为来源地图](../../research/r1_native/PRICE_ACTION_SOURCE_MAP.md)。
+**核查证据。** [S45/D80 预登记、完整读数与失败判定](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-s45-and-diagnostic-d80-al-brooks-price-action-context-before-a-new-native-variant)、[全池分组汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d80-brooks-breakout-context.json)、[全部原生挂单及持仓归属](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d80-brooks-breakout-context-bundles.json.gz)、[价格行为来源地图](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/PRICE_ACTION_SOURCE_MAP.md)。
 
 <a id="f82"></a>
 
@@ -974,7 +974,7 @@
 
 **边界与下一步。** 这并未推翻 Brooks 对*真正横盘区间*的判断：60 根高低点和“B 没有收盘新高”都不足以证明此时是区间；H19 的 50%／61.8% 分档还可能跨越两个位置。120 个中部赢家是简单删中部规则的反例。下一层采用 Brooks 原文关于下跌腿强时等待第二买入信号或强势反转的机制，与罗尼 C08/C13 的“弱首根不能确认破位／等待强 K 线”相互核对；先明确触及、确认、发单和失效各自发生在何时，再做一条原生候选。不能把成交后才出现的反转线写回原限价单的事前条件。
 
-**核查证据。** [D81 事前定义、全量结果和反例](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d81-does-h19a-buy-the-middle-of-its-own-causal-range)、[分档汇总](../../research/r1_native/results/2026-10-08-d81-brooks-range-location.json)、[逐组合计划价位置](../../research/r1_native/results/2026-10-08-d81-brooks-range-location-bundles.json.gz)、[Brooks 的区间交易章](https://www.brookstradingcourse.com/how-to-trade-manual/trading-ranges/)、[Brooks 的第二信号讨论](https://www.brookstradingcourse.com/trading-strategies/trading-range-weak-signal-bar-needs-breakout/)。
+**核查证据。** [D81 事前定义、全量结果和反例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d81-does-h19a-buy-the-middle-of-its-own-causal-range)、[分档汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d81-brooks-range-location.json)、[逐组合计划价位置](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d81-brooks-range-location-bundles.json.gz)、[Brooks 的区间交易章](https://www.brookstradingcourse.com/how-to-trade-manual/trading-ranges/)、[Brooks 的第二信号讨论](https://www.brookstradingcourse.com/trading-strategies/trading-range-weak-signal-bar-needs-breakout/)。
 
 <a id="f83"></a>
 
@@ -984,7 +984,7 @@
 
 **价格代价。** 对这 43 个机会，事后仅按当时原生合约最小跳价计算的假设触发价，至原 B 目标相对原止损的空间中位数为 **0.967R**，对照原第一档计划 **1.726R**；确认延迟中位数 **195 分钟**。这只是几何可下单性，没有发送原生订单或模拟其是否成交。已见样本中的“等首根强阳再进”既遗漏多数既有赢家，又恶化盈亏空间，因此不值得直接占用一次完整 37 币候选回测。按照“失败后二级延伸”的研究约束，下一步独立预登记 Brooks High 2／第二信号在少数完整 K 线内的机会覆盖；若仍稀少，再回到市场状态与目标管理机制，而不是扫阳线强度或等待根数挑成绩。
 
-**核查证据。** [D82 原始定义、完整结果及 D83 二级预登记](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d82-can-a-completed-post-touch-bull-signal-support-a-new-native-order-without-discarding-the-old-winners)、[D82 原生触及读数](../../research/r1_native/results/2026-10-08-d82-post-touch-bull-response.json)、[逐组合完整路径](../../research/r1_native/results/2026-10-08-d82-post-touch-bull-response-bundles.json.gz)、[Brooks 官方 High 2 定义](https://www.brookstradingcourse.com/price-action-trading-terms-glossary/)。
+**核查证据。** [D82 原始定义、完整结果及 D83 二级预登记](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d82-can-a-completed-post-touch-bull-signal-support-a-new-native-order-without-discarding-the-old-winners)、[D82 原生触及读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d82-post-touch-bull-response.json)、[逐组合完整路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d82-post-touch-bull-response-bundles.json.gz)、[Brooks 官方 High 2 定义](https://www.brookstradingcourse.com/price-action-trading-terms-glossary/)。
 
 <a id="f84"></a>
 
@@ -996,7 +996,7 @@
 
 **产品和流程判断。** High 2 是一种可观察的后触及状态，应作为价格行为研究状态保留，不能独自晋升为 37 币策略筛选器。Brooks 同一来源还给出“强势多头突破”作为与第二信号并列的应对方式，因此 D84 一次性冻结该分支与 High 2 的重叠、漏掉的赢家和几何容量；这延伸失败机制，而非调 High 2 的等待根数挑赢家。若两者合并仍无法合理接近双目标，就把研究重心转向目标管理和账户资金分配，而不是反复增加窄信号。
 
-**核查证据。** [D83 全量读数与 D84 独立预登记](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d83-is-a-second-buy-signal-after-a-failed-first-response-a-feasible-deeper-brooks-child)、[High 2 原生触及汇总](../../research/r1_native/results/2026-10-08-d83-high2-post-touch.json)、[逐机会因果线与原仓路径](../../research/r1_native/results/2026-10-08-d83-high2-post-touch-bundles.json.gz)、[Brooks 官方定义](https://www.brookstradingcourse.com/price-action-trading-terms-glossary/)。
+**核查证据。** [D83 全量读数与 D84 独立预登记](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d83-is-a-second-buy-signal-after-a-failed-first-response-a-feasible-deeper-brooks-child)、[High 2 原生触及汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d83-high2-post-touch.json)、[逐机会因果线与原仓路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d83-high2-post-touch-bundles.json.gz)、[Brooks 官方定义](https://www.brookstradingcourse.com/price-action-trading-terms-glossary/)。
 
 <a id="f85"></a>
 
@@ -1008,7 +1008,7 @@
 
 **产品决策。** 注册一次 H23a 原生 Strategy 对照：保留 H19a 的 37 币、资金、A/B、止损和 B 目标，只把回撤层级的预挂限价改为实际触及后等待完整 K 线第二信号或强突破，再用下一根有效的原生 STOP_MARKET 母单与 OTO 保护订单成交。两种信号按当时可知的时间先后执行，未成交的单过期后才可考虑尚未用过的另一分支；不能事后挑先触发者。该子策略借鉴 Brooks，不冒充罗尼原样复刻。先过原生事件及账户完整性，再做同一年度 37 币共享账户配对回放；费用、资金费、完整订单拓扑、净值、胜率、盈亏比、夏普、回撤、交易数与多次试验风险一并报告。若失败，优先分解延迟入场价差、漏单、风险和资金占用，再研究目标或账户分配，不扫描同一年上的阈值挑胜者。
 
-**核查证据。** [D84 完整结果与 H23a 预登记](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h23a-native-post-touch-brooks-high-2-or-strong-breakout-entry)、[D84 500 组合路径](../../research/r1_native/results/2026-10-08-d84-later-bull-breakout-bundles.json.gz)、[Brooks 弱信号与强突破说明](https://www.brookstradingcourse.com/trading-strategies/trading-range-weak-signal-bar-needs-breakout/)。
+**核查证据。** [D84 完整结果与 H23a 预登记](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h23a-native-post-touch-brooks-high-2-or-strong-breakout-entry)、[D84 500 组合路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d84-later-bull-breakout-bundles.json.gz)、[Brooks 弱信号与强突破说明](https://www.brookstradingcourse.com/trading-strategies/trading-range-weak-signal-bar-needs-breakout/)。
 
 <a id="f86"></a>
 
@@ -1020,7 +1020,7 @@
 
 **后续产品边界。** Nautilus 原生母单可在触及后基于完整 K 线发送并带 OTO 保护，框架可行性已得到实际回放支持；交易优势没有得到支持。D85 只读核对相同 A/B/止损组合中的触发价格、目标 R 与原有赢家遗漏，含糊或重复匹配单列，不替未下的单模拟收益。随后研究 Brooks 的微型／突破测试／测量缺口持续性及目标管理时，先明确在 24/7 合约市场可观察的结构与时钟，不能直接移植股票开盘跳空，也不能凭一次缺口反复扫描阈值。当前仍缺注册的合成边界场景全套验证和独立前向确认。
 
-**核查证据。** [H23a 完整登记、原生结果及 D85 机制预登记](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h23a-native-post-touch-brooks-high-2-or-strong-breakout-entry)、[H23a 37 币摘要](../../research/r1_native/results/2026-10-08-h23a-37-summary.json)、[原生订单保护审计](../../research/r1_native/results/2026-10-08-h23a-37-native-audit.json)、[完整 K 线与一跳触发核对](../../research/r1_native/results/2026-10-08-h23a-37-order-clock.json)、[H19a 完全对照](../../research/r1_native/results/2026-10-08-h23a-paired-h19a-parity.json)、[原生费用及资金费](../../research/r1_native/results/2026-10-08-h23a-vs-h19a-economics.json)、[配对周风险读数](../../research/r1_native/results/2026-10-08-h23a-vs-h19a-paired.json)、[Brooks《Advanced Gap Techniques》](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
+**核查证据。** [H23a 完整登记、原生结果及 D85 机制预登记](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h23a-native-post-touch-brooks-high-2-or-strong-breakout-entry)、[H23a 37 币摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h23a-37-summary.json)、[原生订单保护审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h23a-37-native-audit.json)、[完整 K 线与一跳触发核对](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h23a-37-order-clock.json)、[H19a 完全对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h23a-paired-h19a-parity.json)、[原生费用及资金费](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h23a-vs-h19a-economics.json)、[配对周风险读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h23a-vs-h19a-paired.json)、[Brooks《Advanced Gap Techniques》](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
 
 <a id="f87"></a>
 
@@ -1034,7 +1034,7 @@
 
 **下一层研究。** 按 Brooks 官方《Advanced Gap Techniques》对突破前后两根 K 线非重叠、缺口持续以及测量移动的定义，D86 先只读检查 H19a 已按 B 止盈后的四小时结构和旧止损生存情况。由于“缺口是否持续”要在 B 止盈之后才知道，任何未来保留仓位的方案都必须先处理如何事前留有受保护的 runner，再由 Nautilus 原生订单与共享账户检验；不能把事后持续状态当作原始买入筛选。现阶段只是机制研究，不是 Brooks 或罗尼原策略的获利证明。
 
-**核查证据。** [D85 全量匹配及 D86 事前定义](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d85-does-the-h23a-shortfall-come-from-lost-breadth-or-worse-entry-geometry)、[D85 汇总](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall.json)、[全部唯一匹配路径](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall-matches.json.gz)、[D102 预登记与容量结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d102-first-role-reversal-retest-capacity-after-a-strong-horizontal-breakout)、[Brooks《Advanced Gap Techniques》](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
+**核查证据。** [D85 全量匹配及 D86 事前定义](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d85-does-the-h23a-shortfall-come-from-lost-breadth-or-worse-entry-geometry)、[D85 汇总](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d85-h23a-shortfall.json)、[全部唯一匹配路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d85-h23a-shortfall-matches.json.gz)、[D102 预登记与容量结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d102-first-role-reversal-retest-capacity-after-a-strong-horizontal-breakout)、[Brooks《Advanced Gap Techniques》](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
 
 <a id="f88"></a>
 
@@ -1046,7 +1046,7 @@
 
 **产品及研究决策。** 这超过事前登记的至少 30 个可观察缺口门槛，足以只测试一次 H24a 原生 runner：维持 H19a 的总仓位和止损风险，把每档数量分成 B 止盈和固定 B+1R 延伸两半；B 真成交后，待下一根完整 K 线判断微型缺口，缺口未形成则原生市价退出剩余受保护仓位，形成则保留原生止损/延伸止盈。手续费、资金费、账户占用、四组原生保护订单以及早于缺口观察的止盈止损都必须在同一 37 币 Nautilus 回放中真实发生。D86 是已选 B 止盈样本的**事后几何路径**，没有保留仓位的原生净值或独立验证；H24a 若失败，应按损益、费用、最小下单量和机会占用做二级归因。
 
-**核查证据。** [D86 完整读数及 H24a 事前规则](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d86-after-a-native-b-target-does-a-brooks-micro-gap-persist-often-enough-to-justify-a-protected-runner)、[全部 B 止盈路径](../../research/r1_native/results/2026-10-08-d86-b-target-micro-gap-cases.json.gz)、[Brooks 官方讲稿](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
+**核查证据。** [D86 完整读数及 H24a 事前规则](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d86-after-a-native-b-target-does-a-brooks-micro-gap-persist-often-enough-to-justify-a-protected-runner)、[全部 B 止盈路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d86-b-target-micro-gap-cases.json.gz)、[Brooks 官方讲稿](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
 
 <a id="f89"></a>
 
@@ -1058,7 +1058,7 @@
 
 **研究决策。** D86 的已选旧 B 止盈样本显示几何后续推进差异，但不能外推成新账户收益。H24a 证实 Nautilus 能原生执行分档 OTO、完成线缺口观察与条件市价退出；利润来源和机会占用仍需解释。D87 已事前登记只读生命周期归因：分开 B 部分止盈、runner 提前止盈止损、76 次无缺口退出、82 次持续持有、持仓截尾以及旧新机会错位；只汇总原生仓位和账户损益，不制造平行现金流台账，也不在这一年扫描 runner 比例或目标距离。合成竞态全套尚未覆盖，因此本策略仍是研究子例，不进入产品资格判定。
 
-**核查证据。** [H24a 完整登记与 D87 事前诊断](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h24a-native-half-bhalf-runner-exit-after-source-defined-micro-gap-test)、[37 币原生结果](../../research/r1_native/results/2026-10-08-h24a-37-summary.json)、[四组 OTO 与风险审计](../../research/r1_native/results/2026-10-08-h24a-37-native-audit.json)、[缺口时钟审计](../../research/r1_native/results/2026-10-08-h24a-37-gap-clock.json)、[同代码 H19a 完全对照](../../research/r1_native/results/2026-10-08-h24a-paired-h19a-parity.json)、[配对周不确定性](../../research/r1_native/results/2026-10-08-h24a-vs-h19a-paired.json)、[Brooks 官方讲稿](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
+**核查证据。** [H24a 完整登记与 D87 事前诊断](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h24a-native-half-bhalf-runner-exit-after-source-defined-micro-gap-test)、[37 币原生结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h24a-37-summary.json)、[四组 OTO 与风险审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h24a-37-native-audit.json)、[缺口时钟审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h24a-37-gap-clock.json)、[同代码 H19a 完全对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h24a-paired-h19a-parity.json)、[配对周不确定性](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h24a-vs-h19a-paired.json)、[Brooks 官方讲稿](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
 
 <a id="f90"></a>
 
@@ -1070,7 +1070,7 @@
 
 **后续产品及研究方向。** H24a 的原生风险／名义仓位提交上界分别低于 25bp／5%，最小下单量没有跳过，因此不是该两项实现缺陷导致收益微增。Brooks 价格行为的下一层应在**挂单之前**区分真正的强 A→B 趋势腿与区间内部的貌似强腿，并用已完成 K 线检查“能够到达 B 的概率”；D88 已登记只读方向效率、K 线重叠和 60 根突破状态及赢家反例，不从这份年度回测扫阈值挑策略。只有发现跨时间和资产稳定、容量足够的机制，才注册一条新的原生经济候选并做延迟／前向验证。H24a 仍未满足年化严格超过 20% 与胜率约 60% 的双目标。
 
-**核查证据。** [D87 原生生命周期、精确配对与 D88 预登记](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d87-why-did-the-source-consistent-b-runner-geometry-barely-change-the-native-account)、[D87 冻结报表读数](../../research/r1_native/results/2026-10-08-d87-h24a-lifecycle.json)、[价格行为来源图谱](../../research/r1_native/PRICE_ACTION_SOURCE_MAP.md)、[Brooks 强势趋势腿与区间讲稿](https://www.brookstradingcourse.com/wp-content/uploads/2016/05/Al-Brooks-Webinar-Distinguishing-Strong-Legs-TR-vs-Trends-May-3-2016.pdf)。
+**核查证据。** [D87 原生生命周期、精确配对与 D88 预登记](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d87-why-did-the-source-consistent-b-runner-geometry-barely-change-the-native-account)、[D87 冻结报表读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d87-h24a-lifecycle.json)、[价格行为来源图谱](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/PRICE_ACTION_SOURCE_MAP.md)、[Brooks 强势趋势腿与区间讲稿](https://www.brookstradingcourse.com/wp-content/uploads/2016/05/Al-Brooks-Webinar-Distinguishing-Strong-Legs-TR-vs-Trends-May-3-2016.pdf)。
 
 <a id="f91"></a>
 
@@ -1082,7 +1082,7 @@
 
 **产品及流程结论。** 价格行为研究需要在挂单前识别具有多次摆动、区间边界和回调结构的市场状态；把 Brooks 的图表论述压成一个 A→B 直线效率或四小时 K 线重叠标志，信息不够。D88 失败后执行 D89 二级延伸，而不是放弃整类技术；但 D89 仍未给出稳定、宽样本的事前规则。下一层先用来源明示的摆动及支撑／区间结构做只读定义与反例检查，再预登记单条 Nautilus 原生经济规则；不得按本年度已实现收益选择币或扫阈值。目标仍是同一 37 币年度原生账户年化严格超过 20%、胜率约 60%，并独立验证。
 
-**核查证据。** [D88／D89 预登记、完整读数与失败归因](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d88-distinguish-a-strong-a-to-b-leg-from-a-range-leg-before-planning-a-pullback)、[D88 全量指标](../../research/r1_native/results/2026-10-08-d88-brooks-leg-context.json)、[D89 二级指标](../../research/r1_native/results/2026-10-08-d89-brooks-pullback-context.json)、[Brooks 官方强势腿与区间讲稿](https://www.brookstradingcourse.com/wp-content/uploads/2016/05/Al-Brooks-Webinar-Distinguishing-Strong-Legs-TR-vs-Trends-May-3-2016.pdf)、[Brooks 官方价格行为手册](https://www.brookstradingcourse.com/how-to-trade-price-action-manual/)。
+**核查证据。** [D88／D89 预登记、完整读数与失败归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d88-distinguish-a-strong-a-to-b-leg-from-a-range-leg-before-planning-a-pullback)、[D88 全量指标](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d88-brooks-leg-context.json)、[D89 二级指标](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d89-brooks-pullback-context.json)、[Brooks 官方强势腿与区间讲稿](https://www.brookstradingcourse.com/wp-content/uploads/2016/05/Al-Brooks-Webinar-Distinguishing-Strong-Legs-TR-vs-Trends-May-3-2016.pdf)、[Brooks 官方价格行为手册](https://www.brookstradingcourse.com/how-to-trade-price-action-manual/)。
 
 <a id="f92"></a>
 
@@ -1094,7 +1094,7 @@
 
 **产品决策。** 该结构比 D81 的机械 60 根区间三等分和 D88/D89 的 A→B 单项指标更贴近来源，也有更明确的可观察时钟，足以注册**一条探索性**原生 H25a：保留原两档限价、止损、B 止盈和风险，仅在已测试 A 支撑且没有旧 B 阻力测试时提交。由于组合是在已看样本中挑出的，H25a 必须接受完整 37 币同代码配对回放、原生订单审计和独立后续验证；不能通过调整 ATR 容差、摆动阶数或币种选择进一步挑年度成绩。
 
-**核查证据。** [D90 全量结构结果及 H25a 事前规则](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d90-were-a-and-b-tests-of-previously-confirmed-swing-support-and-resistance)、[D90 原生计划结果](../../research/r1_native/results/2026-10-08-d90-brooks-structural-range.json)、[Brooks 支撑阻力说明](https://www.brookstradingcourse.com/price-action/what-is-price-action-6-aspects/)、[Brooks 区间交易说明](https://www.brookstradingcourse.com/how-to-trade-manual/trading-ranges/)。
+**核查证据。** [D90 全量结构结果及 H25a 事前规则](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d90-were-a-and-b-tests-of-previously-confirmed-swing-support-and-resistance)、[D90 原生计划结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d90-brooks-structural-range.json)、[Brooks 支撑阻力说明](https://www.brookstradingcourse.com/price-action/what-is-price-action-6-aspects/)、[Brooks 区间交易说明](https://www.brookstradingcourse.com/how-to-trade-manual/trading-ranges/)。
 
 <a id="f93"></a>
 
@@ -1106,7 +1106,7 @@
 
 **后续方向。** 根源是来源一致的候选只覆盖旧成交机会的一小部分，并使账户大部分时间缺少占用。下一层应从 Brooks 的已测试支撑、区间边界和失败突破中寻找**新增可交易机会**，或者先登记账户级风险与机会分配的明确边界，再以 Nautilus 原生 Portfolio/Risk/Execution 验证；不能直接把每笔风险倍增、对 37 币做收益筛选或在这一年扫 ATR 阈值。新机会还须保持原生净收益、胜率、盈亏比、Sharpe、回撤和样本外风险的共同评估。
 
-**核查证据。** [H25a 完整回放及 D91 归因](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h25a-native-prior-a-support-pullback-without-prior-b-resistance-test)、[H25a 37 币原生净值](../../research/r1_native/results/2026-10-08-h25a-37-summary.json)、[原生订单保护审计](../../research/r1_native/results/2026-10-08-h25a-37-native-audit.json)、[结构判断时钟审计](../../research/r1_native/results/2026-10-08-h25a-37-support-clock.json)、[H19a 完全对照](../../research/r1_native/results/2026-10-08-h25a-paired-h19a-parity.json)、[原生手续费资金费](../../research/r1_native/results/2026-10-08-h25a-vs-h19a-economics.json)、[配对周不确定性](../../research/r1_native/results/2026-10-08-h25a-vs-h19a-paired.json)、[D91 机会与保证金读数](../../research/r1_native/results/2026-10-08-d91-h25a-capacity.json)。
+**核查证据。** [H25a 完整回放及 D91 归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h25a-native-prior-a-support-pullback-without-prior-b-resistance-test)、[H25a 37 币原生净值](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h25a-37-summary.json)、[原生订单保护审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h25a-37-native-audit.json)、[结构判断时钟审计](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h25a-37-support-clock.json)、[H19a 完全对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h25a-paired-h19a-parity.json)、[原生手续费资金费](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h25a-vs-h19a-economics.json)、[配对周不确定性](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-h25a-vs-h19a-paired.json)、[D91 机会与保证金读数](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-d91-h25a-capacity.json)。
 
 <a id="f94"></a>
 
@@ -1118,7 +1118,7 @@
 
 **产品与研究决定。** 这轮证实原生机会数量和已平仓数量可以在同一支撑定义下扩充，但未达到登记的年化严格超 20%、胜率 55%–65% 双门槛，因此停止 H26a，不据已暴露年度调 B 距离、ATR、币种或止盈。下一次最小研究应事前登记**只读**的新增 482 组原生路径归因：B 目标、止损、时间退出及慢启动赢家、未平仓截尾，再判断是否存在可事前识别的结构失效条件。单轮契约使报告接线修复与结果驱动改参数分开；它尚未提供独立收益验证。
 
-**核查证据。** [H26a 登记与结果](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h26a-retain-prior-a-support-plans-even-when-prior-b-resistance-exists)、[37 币原生摘要](../../research/r1_native/results/2026-10-09-h26a-37-summary.json)、[订单保护](../../research/r1_native/results/2026-10-09-h26a-37-native-audit.json)、[结构时钟](../../research/r1_native/results/2026-10-09-h26a-37-support-clock.json)、[同代码 H25a 对照](../../research/r1_native/results/2026-10-09-h26a-control-h25a-parity.json)、[同代码 H19a 对照](../../research/r1_native/results/2026-10-09-h26a-control-h19a-parity.json)、[来源机会与账户占用](../../research/r1_native/results/2026-10-09-h26a-vs-h25a-flow.json)、[手续费和资金费](../../research/r1_native/results/2026-10-09-h26a-vs-h25a-economics.json)、[配对区间](../../research/r1_native/results/2026-10-09-h26a-vs-h25a-paired.json)。
+**核查证据。** [H26a 登记与结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h26a-retain-prior-a-support-plans-even-when-prior-b-resistance-exists)、[37 币原生摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h26a-37-summary.json)、[订单保护](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h26a-37-native-audit.json)、[结构时钟](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h26a-37-support-clock.json)、[同代码 H25a 对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h26a-control-h25a-parity.json)、[同代码 H19a 对照](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h26a-control-h19a-parity.json)、[来源机会与账户占用](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h26a-vs-h25a-flow.json)、[手续费和资金费](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h26a-vs-h25a-economics.json)、[配对区间](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h26a-vs-h25a-paired.json)。
 
 <a id="f95"></a>
 
@@ -1128,7 +1128,7 @@
 
 **二级机制与反例。** 两档母单都实际成交的 **52 仓**里，最终 36 仓止损、16 仓到 B；只成交一档的 16 仓为 2 止损、14 到 B。深档成交发生在更深的价格回撤之后，这种已选择路径的差异**不能证明**删掉第二档会改善账户。慢启动也真实存在：第 3 根完整四小时线收盘仍不高于首次成交价、最终原生盈利的有 **11 仓**；第 10 根仍有 **6 仓**。按来源月份，2026 年 7 月的新增仓为 0/8 赢，9 月为 3/3，说明不能从本已暴露年度挑月份或币种。下一步先只读检查第二档触及时已完成 K 线上的结构证据与随后原生结局，并保留慢启动赢家作为反例；不直接取消第二档或设固定时间退出。
 
-**核查证据。** [D92 事前条件及结论](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d92-did-prior-b-resistance-actually-obstruct-h26as-added-native-opportunities)、[D92 摘要](../../research/r1_native/results/2026-10-09-d92-h26a-b-obstacle.json)、[482 组逐笔路径](../../research/r1_native/results/2026-10-09-d92-h26a-b-obstacle-bundles.json.gz)。
+**核查证据。** [D92 事前条件及结论](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d92-did-prior-b-resistance-actually-obstruct-h26as-added-native-opportunities)、[D92 摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d92-h26a-b-obstacle.json)、[482 组逐笔路径](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d92-h26a-b-obstacle-bundles.json.gz)。
 
 <a id="f96"></a>
 
@@ -1138,7 +1138,7 @@
 
 **反证及产品边界。** 在 36 个较晚成交仓位中，第二档前最近完整线收盘不高于首次成交价的有 **24 仓**，但其中 **5 仓最终原生盈利**；没有一仓收盘跌破原来确认的 A 支撑。H25a 共同来源参照也有 65 个较晚第二档成交，其中 52 仓呈现这种弱收盘，**23 仓最终盈利**。所以直接根据弱收盘或 A 下破取消第二档，既可能删掉赢家，又缺少可用的结构失效事件。D92 的 1/3/5/10 根慢启动赢家进一步限制固定时间退出。下一步需要先从来源图形确认*事前存在*、可在完整线时钟上观察的另一个结构边界，并同时核查赢家与输家的反例；不要在这批已看过的 36 次止损里拟合一条线或按币种筛选。D93 没有模拟替代订单、净值或新收益优势。
 
-**核查证据。** [D93 预登记与结论](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d93-is-completed-bar-evidence-available-before-the-deeper-native-tier-fills)、[原生时钟摘要](../../research/r1_native/results/2026-10-09-d93-second-tier-clock.json)、[逐仓成交顺序](../../research/r1_native/results/2026-10-09-d93-second-tier-clock-positions.json.gz)。
+**核查证据。** [D93 预登记与结论](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d93-is-completed-bar-evidence-available-before-the-deeper-native-tier-fills)、[原生时钟摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d93-second-tier-clock.json)、[逐仓成交顺序](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d93-second-tier-clock-positions.json.gz)。
 
 <a id="f97"></a>
 
@@ -1148,9 +1148,9 @@
 
 **风险与产品决定。** 若只把止损改到 `A − 0.25 个事前 ATR` 而保持原 50%／61.8% 入场和 B 目标，H26a 首档的计划目标空间中位从 **1.718R 缩为 0.949R**、深档从 **3.574R 缩为 1.511R**；同一 25 bp 风险预算下首档理论数量中位只剩旧版 **55.2%**，还需受原生 5% 币种名义上限约束。旧仓的“提前止损”不代表放宽后会赢，较宽止损也可能减少组合净收益。值得用**一次**已登记的 H27a 原生共同账户回放同时检验胜率与收益容量，而不在已暴露年度反复选缓冲或加杠杆。
 
-**核查证据。** [D94 登记、结果与 H27a 契约](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d94-does-the-native-764-buffer-stop-invalidate-prior-a-support-before-a-fails)、[全部订单和止损路径摘要](../../research/r1_native/results/2026-10-09-d94-stop-vs-a.json)、[逐组来源与真实退出](../../research/r1_native/results/2026-10-09-d94-stop-vs-a-bundles.json.gz)、[罗尼来源案例](../../research/r1_native/SOURCE_CASES.md)。
+**核查证据。** [D94 登记、结果与 H27a 契约](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d94-does-the-native-764-buffer-stop-invalidate-prior-a-support-before-a-fails)、[全部订单和止损路径摘要](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d94-stop-vs-a.json)、[逐组来源与真实退出](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d94-stop-vs-a-bundles.json.gz)、[罗尼来源案例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md)。
 
-**事后归位与纠错。** 上述 C02“区外止损”归因已由 [S46 来源复核](../../research/r1_native/RD_EXPERIMENTS.md#source-recheck-s46-c02-is-not-an-outside-a-stop-rule)收窄：C02 本段没有给 ETH 多单止损；C18 明说一／四小时至少低于 76.4%，C20 的线／先前低点没有唯一机械选择器。H27a 随后按原登记仅测试研究者的 A 外止损代理，原生年度收益未改善；[H27a 结果与 D95 失败归因](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h27a-h26a-prior-a-support-plans-with-the-common-stop-outside-a)是策略结论的权威位置。F97 保留其历史文字与原始 D94 几何证据，不再作为产品能力候选或“作者统一 A 外止损”证据。
+**事后归位与纠错。** 上述 C02“区外止损”归因已由 [S46 来源复核](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-recheck-s46-c02-is-not-an-outside-a-stop-rule)收窄：C02 本段没有给 ETH 多单止损；C18 明说一／四小时至少低于 76.4%，C20 的线／先前低点没有唯一机械选择器。H27a 随后按原登记仅测试研究者的 A 外止损代理，原生年度收益未改善；[H27a 结果与 D95 失败归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h27a-h26a-prior-a-support-plans-with-the-common-stop-outside-a)是策略结论的权威位置。F97 保留其历史文字与原始 D94 几何证据，不再作为产品能力候选或“作者统一 A 外止损”证据。
 
 <a id="f99"></a>
 
@@ -1162,4 +1162,4 @@
 
 **D101 进一步界定对照门槛。** 对旧 Engine 与现行 Node 已有 H10 报告逐项只读比较后，1,887 笔原生成交的非 ID 字段、934 笔 Position 实现盈亏和 930 条资金费一致；91 个每日原生收益差异最大仅约 `3.331e-16`。但八个未成交、已撤销 BTC 目标单的原生限价字段相差 0.10 USDT，原生账户事件数量和 OTO 关联顺序也不同。事件日的已结算账户余额逐日一致，不能代替 366 天完整盯市净值一致。产品级执行验收应事前区分“订单执行经济一致”与“逐事件严格一致”，核对已完成日的原生 Portfolio 盯市净值；不能在看结果后放宽 H29a 的旧门槛。后续候选应预登记同代码现行 Node 对照。此 finding 描述可复用的审计契约，不把 H29a 的收益差额当作已验证优势。
 
-**证据。** [H29a 对照失败与修复](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h29a-native-next-bar-failed-range-breakout-buy-stop)、[严格旧 Engine／新 Node 报告](../../research/r1_native/results/2026-10-09-h29a-h10-historical-parity.json)、[D100 真实 1m 时序](../../research/r1_native/results/2026-10-09-d100-h10-one-minute-collision.json)、[两例原生局部重放](../../research/r1_native/results/2026-10-09-d100-h10-native-one-vs-five-minute.json)、[D101 差异归因](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d101-h10-old-enginecurrent-node-native-parity-adjudication)及[逐项报告](../../research/r1_native/results/2026-10-09-d101-h10-native-parity-adjudication.json)。
+**证据。** [H29a 对照失败与修复](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#candidate-h29a-native-next-bar-failed-range-breakout-buy-stop)、[严格旧 Engine／新 Node 报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-h29a-h10-historical-parity.json)、[D100 真实 1m 时序](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d100-h10-one-minute-collision.json)、[两例原生局部重放](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d100-h10-native-one-vs-five-minute.json)、[D101 差异归因](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d101-h10-old-enginecurrent-node-native-parity-adjudication)及[逐项报告](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-09-d101-h10-native-parity-adjudication.json)。

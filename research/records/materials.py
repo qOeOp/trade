@@ -269,7 +269,7 @@ def _json_path_kind(path: str) -> str | None:
     return None
 
 
-def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Iterable[str | dict] | None = None, *, supplemental_objects: Iterable[dict] = ()) -> dict:
+def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Iterable[str | dict] | None = None, *, supplemental_objects: Iterable[dict] = (), selected_paths: Iterable[str] | None = None) -> dict:
     """Collect tracked Markdown, record JSON, and explicitly cited JSON evidence.
 
     Untracked Markdown is limited to reports, research_notes, docs/plans, and the
@@ -330,7 +330,14 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
         if isinstance(selection, dict) and "paths" in selection:
             files &= set(selection["paths"])
         snapshots.append((commit, files, {}))
-    snapshots.append((None, tracked | {p for p in untracked if _untracked_material(p)}, {}))
+    current = tracked | {p for p in untracked if _untracked_material(p)}
+    if selected_paths is not None:
+        selected = set(selected_paths)
+        if not selected or any(not _safe_path(path) or path not in current for path in selected):
+            from research.records.common import RecordError
+            raise RecordError("selected archive paths must be explicit safe tracked or allowed untracked files")
+        current &= selected
+    snapshots.append((None, current, {}))
     bytes_scanned = 0
     snapshot_statistics = []
     for historical_commit, inventory, retained in snapshots:
@@ -471,6 +478,22 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
             obj_id = f"{kind}:{identifier}"
             add({"id": obj_id, "kind": kind, "body": data, "provenance": dict(prov, raw_content_base64=base64.b64encode(raw).decode("ascii"))})
             path_to_object[path] = obj_id
+
+        if historical_commit is None and selected_paths is not None:
+            # Explicit selection promises custody of each selected file, even
+            # when it is not Markdown or a known structured record. Never
+            # report a successful import that silently retained zero bytes.
+            for path in sorted(inventory):
+                if path in path_to_object:
+                    continue
+                value = read(path)
+                if value is None:
+                    from research.records.common import RecordError
+                    raise RecordError(f"explicit archive source is unavailable or unsafe: {path}")
+                raw, prov = value
+                obj_id = f"material:{path}"
+                add({"id": obj_id, "kind": "material", "body": _material_body(raw, path, PurePosixPath(path).suffix.lstrip(".") or "binary"), "provenance": prov})
+                path_to_object[path] = obj_id
 
         def ref_object(target: str, **metadata: object) -> str:
             identity = {"target": target, **metadata}

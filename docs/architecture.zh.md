@@ -30,6 +30,10 @@ R1 当前的 37 个合约在**同一个**初始 100,000 USDT 的原生保证金�
 
 自动资料整理保存原文、字节哈希、Git commit/path 和片段定位，把明示链接与结构化引用接成固定 revision 关系；标题相似或文本中出现编号不自动证明纠错、支持或继承。含糊语义进入待审列表，由 Agent 按证据发表关系。`material:<path>` 与 `attempt:<id>` 等类型化身份区分资料段落和实验编号；读取旧 commit 可以保留当时的依据。Dolt 中追加 revision 是发表协议，不能据此声称拥有 SQL 管理权限者无法修改数据。资料导入不倒填事前身份：历史记录仍是事后转录，[F01](plans/r1-factorial-line-cancel-result.zh.md)保留其原预登记及四格事实。
 
+资料保管与研究知识准入分别处理。探索脚本、调试输出和可派生报告默认在 `/tmp`；Git 仅维护策略、共享运行/验收能力、测试与一个冻结的事前 JSON 凭证。正式实验保留小型意图、暴露范围、实际观察和停止决定，失败不自动成为无用资料。Dolt 的 `retention_decision` 由 Agent 明确陈述结论、适用范围、决策收益、未知项及固定证据；发布接口校验合同与引用，不能替 Agent 证明科学价值。默认资料检索只读研究决策和已准入的结论，排除哈希、原始大载荷及管理收据；旧资料须显式 `--include-archive` 展开。来源纠正显示固定端点与窄适用范围，保留当时的实验事实。
+
+长期结论依赖的一次性生成器及其本地依赖冻结在外置复建配方中，绑定环境锁、可访问的精确输入、参数、命令和验证回执；只存哈希不代表可以复建。Catalog 输入共享保存一次，已验证可复建的完整结果作为缓存，无法复建的来源或重建成本有明确收益的结果才按理由持久化。既有封存证据在验证替代和发表保留决定前保持原合同。历史脚本、attempt/run 文件副本和报告已撤出产品工作树，由 `research/records/history.json` 固定 Git 原文位置；这不是元数据后端回退，也不将历史归档自动接纳为当前知识。
+
 导入 inventory 的原待审队列保持不变。Agent 通过 `material review status/prepare/apply` 复核：固定 inventory ID/revision 与原 source commit，按每次原 occurrence 保存决定、证据与适用范围；prepare 在 Git 和 `/tmp` 之外冻结 JSON 计划，apply 将 proof、固定端点关系及逐项 `review_decision` 在本机 Dolt 同事务发表。版本冲突先重读并重新准备，不自动覆盖。当前引用投影采用最新决定的有效解析，旧解析与旧依据保留历史；补采资料记录后续来源和 custody，不能冒充原快照已有证据。来源解释由 Agent 负责，复核不会自动改写实验经济结论或策略资格。
 
 新假设仍先提交冻结的 Git 预登记凭据，再发表 Dolt attempt；结果、下一步及新的 run 登记只写 Dolt。原生封存命令继续从冻结源码运行 R1、核对输入及报告，Dolt run 以哈希引用外部封存目录，不把账户事实复制成第二本交易账。原始来源、Catalog 与既有小型原生证据路径保留各自职责。操作与恢复边界见[记录命令](../research/records/README.md)；资料管理发现见[评审记录](plans/rd-material-management-review.zh.md)。

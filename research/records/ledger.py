@@ -134,18 +134,14 @@ def backup(config, destination):
             "restore": {"binary": str(_binary(config)), "url": destination.as_uri(), "database": config["database"]}}
 
 
-def material(adapter, action, *, at=None, identity=None, revision=None, query=None, destination=None, brief=False):
+def material(adapter, action, *, at=None, identity=None, revision=None, query=None, destination=None,
+             brief=False, include_archive=False):
     fixed = at or adapter.status()["commit"]
     if action == "search":
-        term = query.casefold()
-        results = []
-        for obj in adapter.list_objects(commit=fixed):
-            body = obj["body"]
-            text = body.get("text") or canonical(body)
-            if term in (obj["id"] + " " + text).casefold():
-                results.append({"id": obj["id"], "kind": obj["kind"], "revision": obj["revision"],
-                                "title": body.get("title"), "source": obj["provenance"].get("path")})
-        return {"commit": fixed, "matches": results}
+        from research.records.retrieval import load_search, search
+        objects, relations = load_search(adapter, fixed, include_archive=include_archive)
+        return {"commit": fixed, **search(objects, relations, query,
+                                         include_archive=include_archive)}
     obj = adapter.get_object(identity, revision=revision, commit=fixed)
     if obj is None:
         raise RecordError(f"unknown material revision: {identity}@{revision or 'latest'}")
@@ -165,14 +161,17 @@ def material(adapter, action, *, at=None, identity=None, revision=None, query=No
     relations = [edge for edge in all_relations if
                  (edge["from_id"], edge["from_revision"]) == (identity, obj["revision"]) or
                  (edge["to_id"], edge["to_revision"]) == (identity, obj["revision"])]
+    from research.records.retrieval import admission_view, admissions, corrections, load_show, resolved_references
+    reader, correction_relations = load_show(adapter, fixed, obj, all_relations)
+    active = resolved_references(reader, obj, all_relations)
+    correction = corrections(obj, list(reader.objects.values()), correction_relations)
+    decision = admission_view(admissions(list(reader.objects.values())).get((identity, obj["revision"])))
     if brief:
         obj = {**obj, "body": {key: value for key, value in obj["body"].items() if key not in ("text", "content_base64")},
                "provenance": {key: value for key, value in obj["provenance"].items() if key != "raw_content_base64"}}
-    from research.records.reviews import active_resolutions
-    active = active_resolutions(adapter.list_objects(commit=fixed, latest=False), all_relations)
     return {"commit": fixed, "object": obj, "relations": relations,
-            "resolved_references": [edge for edge in active if
-                                    (edge["from_id"], edge["from_revision"]) == (identity, obj["revision"])]}
+            "retention_decision": decision, "corrections": correction,
+            "resolved_references": active}
 
 
 def command(args):
@@ -190,11 +189,23 @@ def command(args):
         if args.action == "backup":
             return backup(config, args.destination)
         historical = retained_historical_refs() if args.historical_c02 else None
-        return publish(adapter, scan(historical_refs=historical), args.dry_run)
+        if args.legacy_all:
+            from research.records.history import load_archive
+            archive = load_archive(ROOT)
+            if archive:
+                historical = [*(historical or []), {"commit": archive.commit,
+                              "paths": [path for prefix in archive.prefixes for path in archive.paths(prefix)]}]
+        return publish(adapter, scan(historical_refs=historical, selected_paths=args.paths), args.dry_run)
     store = open_store(args.backend)
     if not hasattr(store, "adapter"):
         raise RecordError("material and publication APIs require Dolt")
     if args.command == "material":
+        if args.action == "admit":
+            if args.at:
+                raise RecordError("knowledge admission cannot write to a historical snapshot")
+            from research.records.retention import publish as admit
+            return admit(store.adapter, _read_json(args.file), operation_id=args.operation_id,
+                         expected_version=args.expected_version)
         if args.action == "review":
             from research.records import reviews
             if args.review_action == "status":
@@ -222,7 +233,8 @@ def command(args):
                     "expected_version": payload["expected_version"], "counts": payload["counts"]}
         return material(store.adapter, args.action, at=args.at, identity=getattr(args, "identity", None),
                         revision=getattr(args, "revision", None), query=getattr(args, "query", None),
-                        destination=getattr(args, "destination", None), brief=getattr(args, "brief", False))
+                        destination=getattr(args, "destination", None), brief=getattr(args, "brief", False),
+                        include_archive=getattr(args, "include_archive", False))
     if args.at:
         raise RecordError("cannot publish to a historical read snapshot")
     body = _read_json(args.file)

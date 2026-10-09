@@ -6,9 +6,9 @@
 
 ## 实际案例
 
-使用已登记的 F01，源码从 `e0412366d` 提取到独立运行目录，37 币 minute/daily 共 74 棵 Catalog 树及数量 CSV 在回放前后分别逐字节核对。`BacktestNode` 使用现有 runner 完成年回放，独立 tier 审计通过；零拒单、零否单。封存运行 ID 为 `CUSTODY-F01-37-20261008`，manifest SHA-256 为 `cfe63e0a21f5c2225af942afd2d71b17da009e736bca22abe29c160df461bdce`，含 40 个文件。Git [run 记录](../../research/records/runs/CUSTODY-F01-37-20261008/run.json)绑定了该 manifest 与原生摘要、审计哈希。
+使用已登记的 F01，源码从 `e0412366d` 提取到独立运行目录，37 币 minute/daily 共 74 棵 Catalog 树及数量 CSV 在回放前后分别逐字节核对。`BacktestNode` 使用现有 runner 完成年回放，独立 tier 审计通过；零拒单、零否单。封存运行 ID 为 `CUSTODY-F01-37-20261008`，manifest SHA-256 为 `cfe63e0a21f5c2225af942afd2d71b17da009e736bca22abe29c160df461bdce`，含 40 个文件。Git [run 记录](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/records/runs/CUSTODY-F01-37-20261008/run.json)绑定了该 manifest 与原生摘要、审计哈希。
 
-从新封存目录恢复出的完整报告与先前 F01-11 运行作[原生配对](../../reports/research_artifact_custody/37-parity.json)：17,665 个订单、1,668 个成交、507 个仓位，比较列无差异；13,470 笔资金费调整、51,968 行账户序列及 366 行收益序列一致。期末权益同为 `111081.82813736` USDT，496 个平仓、212 个正收益平仓。原始订单/成交 CSV 字节哈希不同，原因是原生运行 ID 等非经济字段变化；按业务列配对及账户序列一致，不将字节不同误报成经济不一致。
+从新封存目录恢复出的完整报告与先前 F01-11 运行作[原生配对](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/reports/research_artifact_custody/37-parity.json)：17,665 个订单、1,668 个成交、507 个仓位，比较列无差异；13,470 笔资金费调整、51,968 行账户序列及 366 行收益序列一致。期末权益同为 `111081.82813736` USDT，496 个平仓、212 个正收益平仓。原始订单/成交 CSV 字节哈希不同，原因是原生运行 ID 等非经济字段变化；按业务列配对及账户序列一致，不将字节不同误报成经济不一致。
 
 单独运行 BTC/ETH pilot 验证了当前封存入口；故意让 runner 拒绝无效参数时，失败的 stderr 和源码仍以 `failed` 状态封存，允许写出诊断 run 记录，不伪造摘要或经济结果。修改封存副本的订单 CSV 后 `verify` 拒绝；重复运行 ID 拒绝覆盖。37 币产物从第二个本机目录复制并校验，随后只以该副本为来源恢复报告，manifest 哈希一致。`research.records.cli validate` 在配置保管根目录后通过；`compare CUSTODY-F01-37-20261008 F01-10-20261008` 读回 `−582.64175047` USDT 的同口径开发年差值。
 

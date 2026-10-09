@@ -2,7 +2,7 @@
 
 ## 已测结果（2026-10-08）
 
-使用真实 H13c、H18a、F01 问题，固定命令各运行 10 次；原始读数在[基准回执](../../reports/research_record_efficiency/retrieval-proxy-20261008.json)。这是**命令层代理指标**，不是独立 Agent 盲评。原台账路线用 `rg` 在最相关的旧台账或 F01 结果文档查词；索引路线用 `research.records.cli` 的 `show` / `compare`。两者输出内容和人工综合成本不同，因此不把命令耗时比值称为 Agent 效率提升。
+使用真实 H13c、H18a、F01 问题，固定命令各运行 10 次；原始读数在[基准回执](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/reports/research_record_efficiency/retrieval-proxy-20261008.json)。这是**命令层代理指标**，不是独立 Agent 盲评。原台账路线用 `rg` 在最相关的旧台账或 F01 结果文档查词；索引路线用 `research.records.cli` 的 `show` / `compare`。两者输出内容和人工综合成本不同，因此不把命令耗时比值称为 Agent 效率提升。
 
 | 真实问题 | 索引命令中位耗时 / 输出 | 旧文件搜索中位耗时 / 输出 | 已验证的能力 |
 | --- | ---: | ---: | --- |
@@ -15,9 +15,9 @@
 
 ## 隔离 Agent 对照试验（2026-10-09）
 
-在运行前冻结[八道真实题与评分法](../../reports/research_record_efficiency/isolated_trial_protocol_20261009.json)、[逐题答案键](../../reports/research_record_efficiency/isolated_trial_key_20261009.json)。题目覆盖 H13→H13b→H13c 失败链、H18a 父假设与组件、H19a 已登记对照、F01 四格、源码身份和下一步停机规则。每题四个二值点：两个事实、一个证据路径、一个推论或下一步边界；满分 32。同一题序和倒序均安排独立 Agent；每次限 30 次工具调用、八分钟，仅读指定仓库，不运行回测。
+在运行前冻结[八道真实题与评分法](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/reports/research_record_efficiency/isolated_trial_protocol_20261009.json)、[逐题答案键](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/reports/research_record_efficiency/isolated_trial_key_20261009.json)。题目覆盖 H13→H13b→H13c 失败链、H18a 父假设与组件、H19a 已登记对照、F01 四格、源码身份和下一步停机规则。每题四个二值点：两个事实、一个证据路径、一个推论或下一步边界；满分 32。同一题序和倒序均安排独立 Agent；每次限 30 次工具调用、八分钟，仅读指定仓库，不运行回测。
 
-索引组有相同旧台账、报告和 `research/records`；对照组只有旧资料。第一版对照工作树的 `git status` 泄露了被删记录的文件名，故在阅卷前把 C1/C2 **整组剔除**，以无该目录、无旧 Git 历史的独立仓库重跑 C1R/C2R；[修正说明](../../reports/research_record_efficiency/isolated_trial_amendment_20261009.json)保留。随后并行复测 C3/I3。原定的 C4/I4 未执行，不能按四组样本报告。逐次时间、调用数和失分见[结果回执](../../reports/research_record_efficiency/isolated_trial_results_20261009.json)。
+索引组有相同旧台账、报告和 `research/records`；对照组只有旧资料。第一版对照工作树的 `git status` 泄露了被删记录的文件名，故在阅卷前把 C1/C2 **整组剔除**，以无该目录、无旧 Git 历史的独立仓库重跑 C1R/C2R；[修正说明](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/reports/research_record_efficiency/isolated_trial_amendment_20261009.json)保留。随后并行复测 C3/I3。原定的 C4/I4 未执行，不能按四组样本报告。逐次时间、调用数和失分见[结果回执](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/reports/research_record_efficiency/isolated_trial_results_20261009.json)。
 
 | 有效试次 | 对照：得分 / 活跃秒 / 工具调用 | 索引：得分 / 活跃秒 / 工具调用 |
 | --- | ---: | ---: |

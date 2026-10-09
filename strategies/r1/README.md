@@ -65,7 +65,7 @@ fees, funding and full paired results before changing Nautilus versions.
 The H23a–H27a Strategy variants were ported onto the same `BacktestNode`
 entrypoint. Their historical annual 37-instrument `BacktestEngine` reports
 remain the controls. The paired receipts in
-[`research/r1_native/results/`](../../research/r1_native/results/) compare
+[fixed historical result receipts](https://github.com/qOeOp/trade/tree/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results) compare
 orders, fills, positions, funding adjustments, account snapshots, daily returns
 and account metrics; companion tier audits check native order lifecycle. These
 are implementation parity checks on the already exposed year, not new strategy

@@ -8,8 +8,8 @@ import subprocess
 import tempfile
 import unittest
 
-from research.records.common import ROOT
 from research.records.materials import HISTORICAL_MANIFEST, retained_historical_refs, scan
+from research.records.fixtures.contract_repository import ContractRepository, EXPERIMENTS, OBSERVATIONS
 
 
 class MaterialFixtureTests(unittest.TestCase):
@@ -49,6 +49,19 @@ class MaterialFixtureTests(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps({"schema_version": 1, "sources": [source]}) + "\n")
         return target, source
+
+    def test_explicit_archive_selection_keeps_python_and_ordinary_json_bytes(self):
+        from research.records.migration import original_bytes
+        payloads = {"keep.py": b"print('one-off probe')\n", "keep.json": b'{"observed": false}\n'}
+        for path, raw in payloads.items():
+            self.write(path, raw)
+        self.commit()
+        result = scan(self.root, include_untracked=False, selected_paths=payloads)
+        self.assertEqual(len(result["objects"]), 2)
+        for obj in result["objects"]:
+            self.assertEqual(obj["kind"], "material")
+            self.assertEqual(original_bytes(obj), payloads[obj["provenance"]["path"]])
+        self.assertEqual(result["statistics"]["bytes_scanned"], sum(map(len, payloads.values())))
 
     def test_fenced_headings_links_and_inline_code_are_not_structure(self):
         self.write("notes.md", "# Real\n## Repeat\n[a](README.md)\n```md\n## False\n[fake](fake.md)\n```\n`[inline](inline.md)`\n## Repeat\n[second](README.md)\n")
@@ -238,16 +251,21 @@ class MaterialFixtureTests(unittest.TestCase):
         self.assertEqual(set(result["statistics"]["relations_by_kind"]), {"contains"})
 
 
-class CurrentMaterialGoldenTests(unittest.TestCase):
+class FrozenMaterialContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.golden = json.loads((Path(__file__).parent / "fixtures" / "materials_golden.json").read_text())
-        cls.retained_refs = retained_historical_refs(ROOT)
-        cls.result = scan(ROOT, include_untracked=False, historical_refs=cls.retained_refs)
-        cls.current = {o["id"]: o for o in cls.result["objects"]}
+        cls.golden = json.loads((Path(__file__).parent / "fixtures" / "material_contract.json").read_text())
+        cls.fixture = ContractRepository()
+        cls.addClassCleanup(cls.fixture.close)
         paths = {expected["id"].removeprefix("section:").rsplit("#", 1)[0] for expected in cls.golden["sections"]}
-        cls.source_blobs = {path: subprocess.check_output(["git", "show", f"{cls.golden['section_source_commit']}:{path}"], cwd=ROOT) for path in paths}
-        cls.current_blobs = {path: (ROOT / path).read_bytes() for path in paths}
+        cls.source_blobs = {path: subprocess.check_output(["git", "show", f"{cls.fixture.current_source_commit}:{path}"], cwd=cls.fixture.root) for path in paths}
+        # Navigation may move byte offsets without changing the observed source.
+        cls.fixture.write(EXPERIMENTS, b"# Navigation added later\n\n" + OBSERVATIONS)
+        cls.fixture.commit("Synthetic navigation change")
+        cls.result = scan(cls.fixture.root, include_untracked=False,
+                          historical_refs=cls.fixture.historical_refs())
+        cls.current = {o["id"]: o for o in cls.result["objects"]}
+        cls.current_blobs = {path: (cls.fixture.root / path).read_bytes() for path in paths}
 
     def test_golden_byte_spans_are_bound_to_original_git_source(self):
         for expected in self.golden["sections"]:
@@ -278,9 +296,26 @@ class CurrentMaterialGoldenTests(unittest.TestCase):
             self.assertEqual(fragment, self.source_blobs[path][expected["start_byte"]:expected["end_byte"]])
 
     def test_historical_c02_retained_source_bytes_and_locator(self):
-        expected = self.golden["historical_c02"]
-        obj = next(o for o in self.result["objects"] if o["id"] == expected["id"] and o["provenance"]["git_commit"] == self.golden["historical_commit"])
-        payload = next(payload for selection in self.retained_refs for payload in selection["retained_payloads"] if payload["original_commit"] == self.golden["historical_commit"] and payload["path"] == obj["provenance"]["path"])
+        # The retained original bytes are the one real historical recovery case;
+        # read only that fixture in a separate tiny clone, not current research.
+        fixtures = Path(__file__).parent / "fixtures"
+        historical = json.loads((fixtures / "materials_golden.json").read_text())
+        expected = historical["historical_c02"]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.check_call(["git", "init", "-q"], cwd=root)
+            subprocess.check_call(["git", "config", "user.name", "Historical fixture"], cwd=root)
+            subprocess.check_call(["git", "config", "user.email", "historical@example.invalid"], cwd=root)
+            (root / "README.md").write_text("# Isolated retained source reader\n")
+            target = root / HISTORICAL_MANIFEST
+            target.parent.mkdir(parents=True)
+            target.write_bytes((fixtures / "historical_sources.json").read_bytes())
+            subprocess.check_call(["git", "add", "."], cwd=root)
+            subprocess.check_call(["git", "commit", "-qm", "Independent historical source reader"], cwd=root)
+            refs = retained_historical_refs(root)
+            result = scan(root, include_untracked=False, historical_refs=refs)
+        obj = next(o for o in result["objects"] if o["id"] == expected["id"] and o["provenance"]["git_commit"] == historical["historical_commit"])
+        payload = next(payload for selection in refs for payload in selection["retained_payloads"] if payload["original_commit"] == historical["historical_commit"] and payload["path"] == obj["provenance"]["path"])
         raw = base64.b64decode(payload["content_base64"])
         self.assertEqual(obj["provenance"]["origin"], "retained_git_blob")
         self.assertEqual(obj["provenance"]["verify_source"], "retained_bytes")

@@ -77,8 +77,21 @@ def _preregistration_receipt(body, receipt_path):
     reference = Path(registration["reference"])
     if reference.is_absolute() or ".." in reference.parts:
         raise RecordError("preregistration reference must be a repository path")
+    if reference.as_posix() != relative:
+        raise RecordError("new preregistration reference must point to its single JSON receipt")
     if git("cat-file", "-t", f"{commit}:{reference.as_posix()}").strip() != b"blob":
         raise RecordError("preregistration reference must exist at its original Git commit")
+    if reference.as_posix() == relative:
+        # A one-file receipt may add its first commit's identity in a second
+        # commit; it may not change the registered intent in that step.
+        try:
+            original = json.loads(git("show", f"{commit}:{relative}"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RecordError("original preregistration receipt must contain JSON") from exc
+        without_anchor = json.loads(json.dumps(body))
+        without_anchor["registration"].pop("original_registration_commit", None)
+        if canonical(original) != canonical(without_anchor):
+            raise RecordError("original preregistration intent changed; only its commit anchor may be added")
     committed = git("show", f"HEAD:{relative}")
     if committed != receipt.read_bytes():
         raise RecordError("preregistration receipt must be committed unchanged at HEAD")
@@ -95,19 +108,33 @@ class GitHistoryStore:
 
     def snapshot(self, commit=None):
         if commit is not None:
-            raise RecordError("--at is a Dolt commit; Git history must be checked out explicitly")
+            raise RecordError("--at is a Dolt commit; Git history uses its fixed archive index or explicit checkout")
+        from research.records.history import load_archive
+        archive = load_archive(ROOT)
         collections = []
         for kind in ("attempt", "run"):
             found = {}
-            for path in sorted((RECORDS / f"{kind}s").glob(f"*/{kind}.json")):
-                body = _read_json(path)
+            if archive:
+                paths = [Path(path) for path in archive.paths(f"research/records/{kind}s/")
+                         if len(Path(path).parts) == 5 and path.endswith(f"/{kind}.json")]
+            else:
+                paths = sorted((RECORDS / f"{kind}s").glob(f"*/{kind}.json"))
+            for path in paths:
+                if archive:
+                    try:
+                        body = json.loads(archive.read_bytes(path.as_posix()))
+                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                        raise RecordError(f"invalid archived {kind} JSON: {path}") from exc
+                else:
+                    body = _read_json(path)
                 validate_record(kind, body)
                 identity = body[f"{kind}_id"]
                 if identity != path.parent.name or identity in found:
                     raise RecordError(f"invalid or duplicated identity: {path}")
                 found[identity] = body
             collections.append(found)
-        return (*collections, {"backend": "git", "read_only": True})
+        return (*collections, {"backend": "git", "read_only": True,
+                              **({"git_commit": archive.commit} if archive else {})})
 
     def publish_record(self, *args, **kwargs):
         raise RecordError("Git metadata is read-only; publications require Dolt")

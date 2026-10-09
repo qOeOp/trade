@@ -1,4 +1,4 @@
-"""Boundary checks for the read-only research record pilot."""
+"""Records contracts against a tiny synthetic Git/evidence repository."""
 
 import copy
 import unittest
@@ -13,12 +13,17 @@ from research.records.cli import (
     _load_records,
     _show,
 )
+from research.records.fixtures.contract_repository import ContractRepository
 
 
 class ResearchRecordBoundaryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from research.records.store import GitHistoryStore
+        cls.fixture = ContractRepository()
+        cls.addClassCleanup(cls.fixture.close)
+        cls.context = cls.fixture.patches()
+        cls.addClassCleanup(cls.context.close)
         cls.attempts, cls.runs = _load_records(GitHistoryStore())
 
     def test_h13c_lineage_keeps_both_failed_source_gates(self):
@@ -47,7 +52,7 @@ class ResearchRecordBoundaryTests(unittest.TestCase):
     def test_h18a_has_a_paired_account_control(self):
         result = _compare("H18a-2026-10-08", "H15a-paired-2026-10-08", self.runs)
         self.assertEqual(
-            result["metrics"]["final_equity_usdt"]["difference"], "741.36172627"
+            result["metrics"]["final_equity_usdt"]["difference"], "10.25"
         )
         self.assertEqual(result["evidence_grade"], "development_exposed")
 
@@ -61,7 +66,7 @@ class ResearchRecordBoundaryTests(unittest.TestCase):
         self.assertEqual(set(record["comparison_runs"]), {"00", "10", "01", "11"})
         result = _compare("F01-11-20261008", "F01-10-20261008", self.runs)
         self.assertEqual(
-            result["metrics"]["final_equity_usdt"]["difference"], "-582.64175047"
+            result["metrics"]["final_equity_usdt"]["difference"], "-5.50"
         )
         self.assertEqual(result["source_revision_status"], ["verified", "verified"])
 

@@ -1,16 +1,17 @@
-"""Real repository-to-Dolt migration and consumer checks.
+"""Small synthetic Git-to-Dolt migration and consumer checks.
 
 Opt in with RESEARCH_DOLT_TEST_CONFIG (JSON connection configuration). Native
-artifact validation additionally uses TRADE_RESEARCH_ARTIFACT_ROOT. The suite
-scans once and publishes only into one randomly named disposable database.
+The suite scans an isolated Git fixture, including two source revisions, and
+publishes only into one randomly named disposable database. No native replay
+or formal research database is used.
 """
 
-import base64
 import copy
 import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -18,9 +19,10 @@ from unittest.mock import patch
 import uuid
 
 from research.records import cli, migration
-from research.records.common import RECORDS, ROOT, RecordError
+from research.records.common import RecordError
 from research.records.dolt_store import ConflictError
-from research.records.materials import retained_historical_refs, scan
+from research.records.materials import scan
+from research.records.fixtures.contract_repository import ContractRepository, SOURCE_CASES, OLD_CASES, CURRENT_CASES
 from research.records.store import DoltRecords, GitHistoryStore, validate_record
 
 
@@ -37,12 +39,15 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         cls.store = DoltRecords(cls.config)
         cls.addClassCleanup(cls._remove_test_database)
         cls.store.adapter.initialize()
+        cls.fixture = ContractRepository()
+        cls.addClassCleanup(cls.fixture.close)
+        cls.context = cls.fixture.patches()
+        cls.addClassCleanup(cls.context.close)
         cls.git_attempts, cls.git_runs, _ = GitHistoryStore().snapshot()
-        golden = json.loads((RECORDS / "fixtures/materials_golden.json").read_text())
-        cls.historical_commit = golden["historical_commit"]
-        cls.c02_id = golden["historical_c02"]["id"]
-        # Historical selection reads one ledger, then scans the worktree once.
-        cls.inventory = scan(ROOT, include_untracked=False, historical_refs=retained_historical_refs())
+        cls.historical_commit = cls.fixture.historical_commit
+        cls.c02_id = f"section:{SOURCE_CASES}#C02"
+        cls.inventory = scan(cls.fixture.root, include_untracked=False,
+                             historical_refs=cls.fixture.historical_refs())
         cls.imported = migration.publish(cls.store.adapter, cls.inventory)
         cls.baseline_commit = cls.imported["commit"]
 
@@ -168,16 +173,17 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
             self._publish_record("run", run, endpoint_revisions="invalid")
         self.assertEqual(before, self.store.adapter.status())
 
-    def test_first_preregistration_gate_is_enforced_inside_store_api(self):
+    def test_first_preregistration_requires_committed_pending_receipt(self):
         body = self._attempt_copy("PREREG")
-        body["registration"] = {"status": "preregistered", "reference": "docs/prereg.md"}
+        relative = "research/records/preregistrations/attempt.json"
+        body["registration"] = {"status": "preregistered", "reference": relative}
         body["decision"].update(layer="pending", outcome="pending")
         before = self.store.adapter.status()
         with self.assertRaisesRegex(RecordError, "receipt_path"):
             self._publish_record("attempt", body)
         self.assertEqual(before, self.store.adapter.status())
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
 
             def git(*args):
                 return subprocess.check_output(["git", *args], cwd=root).decode().strip()
@@ -185,32 +191,49 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
             git("init", "-q")
             git("config", "user.name", "Preregistration fixture")
             git("config", "user.email", "fixture@example.invalid")
-            (root / "docs").mkdir()
-            (root / "docs/prereg.md").write_text("# Frozen preregistration\n")
+            git("config", "core.hooksPath", str(root / "no-hooks"))
+            receipt = root / relative
+            receipt.parent.mkdir(parents=True)
+            original = copy.deepcopy(body)
+            receipt.write_text(json.dumps(original, ensure_ascii=False))
             git("add", ".")
-            git("commit", "-qm", "Freeze preregistration reference")
+            git("commit", "-qm", "Freeze pending preregistration JSON without its anchor")
             body["registration"]["original_registration_commit"] = git("rev-parse", "HEAD")
-            receipt = root / "attempt.json"
             receipt.write_text(json.dumps(body, ensure_ascii=False))
             with patch("research.records.store.ROOT", root):
-                with self.assertRaisesRegex(RecordError, "not committed"):
+                with self.assertRaisesRegex(RecordError, "committed unchanged"):
                     self._publish_record("attempt", body, receipt_path=receipt)
                 git("add", ".")
-                git("commit", "-qm", "Retain pending attempt receipt")
+                git("commit", "-qm", "Add only the original preregistration commit anchor")
+                retained_original = json.loads(git("show", f"{body['registration']['original_registration_commit']}:{relative}"))
+                self.assertEqual(retained_original, original)
+                without_anchor = copy.deepcopy(body)
+                without_anchor["registration"].pop("original_registration_commit")
+                self.assertEqual(without_anchor, original)
                 nonpending = copy.deepcopy(body)
                 nonpending["decision"]["outcome"] = "passed"
                 with self.assertRaisesRegex(RecordError, "pending/pending"):
                     self._publish_record("attempt", nonpending, receipt_path=receipt)
+                changed_intent = copy.deepcopy(body)
+                changed_intent["hypothesis"] += " Changed after registration."
+                with self.assertRaisesRegex(RecordError, "original preregistration intent changed"):
+                    self._publish_record("attempt", changed_intent, receipt_path=receipt)
                 receipt.write_text(json.dumps(body, ensure_ascii=False) + "\n")
                 with self.assertRaisesRegex(RecordError, "committed unchanged"):
                     self._publish_record("attempt", body, receipt_path=receipt)
                 receipt.write_text(json.dumps(body, ensure_ascii=False))
+                frozen_receipt = receipt.read_bytes()
+                frozen_pending = copy.deepcopy(body)
+                self.assertEqual(before, self.store.adapter.status())
                 first = self._publish_record("attempt", body, receipt_path=receipt)
                 body["decision"]["next_action"] += " Later pending update without a receipt."
                 self._publish_record("attempt", body)
                 self.assertEqual(self.store.adapter.get_object("attempt:" + body["attempt_id"])["revision"], 2)
                 self.assertEqual(self.store.adapter.get_object("attempt:" + body["attempt_id"],
                                                              commit=first["commit"])["revision"], 1)
+                self.assertEqual(self.store.adapter.get_object("attempt:" + body["attempt_id"],
+                                                             commit=first["commit"])["body"], frozen_pending)
+                self.assertEqual(receipt.read_bytes(), frozen_receipt)
 
     def test_frozen_git_metadata_cannot_become_a_second_writer(self):
         before = self.store.adapter.status()
@@ -247,13 +270,47 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
                              cli._compare(candidate, control, self.git_runs))
 
     def test_full_native_evidence_validation_matches_git(self):
-        if not os.environ.get("TRADE_RESEARCH_ARTIFACT_ROOT"):
-            self.skipTest("full native custody validation requires TRADE_RESEARCH_ARTIFACT_ROOT")
+        from research.records import artifacts
+
         attempts, runs = self._baseline_records()
-        expected = cli._validate(self.git_attempts, self.git_runs)
-        self.assertEqual(cli._validate(attempts, runs), expected)
-        self.assertEqual((expected["attempts"], expected["runs"]),
-                         (len(self.git_attempts), len(self.git_runs)))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            body = copy.deepcopy(self.git_runs["F01-11-20261008"])
+            body["run_id"] = "SYNTHETIC-SEALED-" + uuid.uuid4().hex
+            archive = root / body["run_id"]
+            reports = archive / "reports"
+            reports.mkdir(parents=True)
+            for name in artifacts.REPORTS:
+                (reports / name).write_text("synthetic_column\nsynthetic_value\n")
+            for name, reference in (("summary.json", body["summary_ref"]), ("audit.json", body["audit_ref"])):
+                shutil.copyfile(self.fixture.root / reference["path"], reports / name)
+            for relative in body["source_revision"]["files"].values():
+                target = archive / "source" / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(self.fixture.root / relative, target)
+            manifest = {"schema_version": 1, "run_id": body["run_id"], "status": "passed",
+                        "native_exit_code": 0, "audit_exit_code": 0,
+                        "nature": "Synthetic seal contract; no native run was executed.",
+                        "files": artifacts._files(archive)}
+            manifest_path = archive / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest))
+            body.update(raw_reports="sealed_local", artifact_manifest_ref={
+                "path": f"artifact://{body['run_id']}/manifest.json",
+                "sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            })
+            expected_runs = dict(self.git_runs, **{body["run_id"]: body})
+            published = self._publish_record("run", body)
+            retained = self.store.adapter.get_object("run:" + body["run_id"], commit=published["commit"])
+            actual_runs = dict(runs, **{body["run_id"]: retained["body"]})
+            with patch.dict(os.environ, {"TRADE_RESEARCH_ARTIFACT_ROOT": str(root)}):
+                expected = cli._validate(self.git_attempts, expected_runs)
+                self.assertEqual(cli._validate(attempts, actual_runs), expected)
+                self.assertEqual((expected["attempts"], expected["runs"]),
+                                 (len(self.git_attempts), len(self.git_runs) + 1))
+                self.assertTrue(all(status == "verified" for status in expected["source_revision_status"].values()))
+                (reports / "orders.csv").write_text("modified after sealing\n")
+                with self.assertRaisesRegex(RecordError, "sealed artifact verification failed"):
+                    cli._validate(attempts, actual_runs)
 
     def test_reimport_of_identical_inventory_creates_no_revision_or_commit(self):
         before = self.store.adapter.status()
@@ -269,17 +326,7 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(sorted(obj["revision"] for obj in revisions), [1, 2])
 
     def test_both_c02_source_revisions_restore_exact_original_bytes(self):
-        source_path = "research/r1_native/SOURCE_CASES.md"
-        retained_source = next(
-            source
-            for selection in retained_historical_refs(ROOT)
-            if selection["commit"] == self.historical_commit
-            for source in selection["retained_payloads"]
-            if source["path"] == source_path
-        )
-        old_file = base64.b64decode(retained_source["content_base64"], validate=True)
-        current_file = (ROOT / source_path).read_bytes()
-        expected_sources = [old_file, current_file]
+        expected_sources = [OLD_CASES, CURRENT_CASES]
         values = []
         for revision, source_bytes in enumerate(expected_sources, start=1):
             obj = self.store.adapter.get_object(
@@ -318,8 +365,8 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
 
     def test_run_publication_writes_dolt_and_preserves_git_files(self):
         def git_run_bytes():
-            return {str(path.relative_to(RECORDS)): hashlib.sha256(path.read_bytes()).hexdigest()
-                    for path in (RECORDS / "runs").glob("*/run.json")}
+            return {str(path.relative_to(self.fixture.records)): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in (self.fixture.records / "runs").glob("*/run.json")}
 
         before_git = git_run_bytes()
         body = copy.deepcopy(self.git_runs["F01-11-20261008"])
@@ -345,7 +392,7 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(self.store.adapter.get_object("run:" + body["run_id"])["body"], body)
         self.assertNotIn(body["run_id"], self._baseline_records()[1])
         self.assertEqual(git_run_bytes(), before_git)
-        self.assertFalse((RECORDS / "runs" / body["run_id"]).exists())
+        self.assertFalse((self.fixture.records / "runs" / body["run_id"]).exists())
         after = self.store.adapter.status()
         recovered = self.store.publish_record(
             "run", body, operation_id=operation_id,

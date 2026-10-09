@@ -1,7 +1,0 @@
-# D98: confirmed local-low support after native entry
-
-The preregistered event, capacity gates, budget, legal control, exposed window and conditional native candidate are in `docs/plans/r1-d98-local-low-support-prereg.zh.md` and `research/r1_native/RD_EXPERIMENTS.md`. Registration `a3566ea70` and reader freeze `bee698931` preceded the one read-only H26a path audit. The event is a researcher proxy for a source-discussed prior low, not an author-exact order or a simulated account exit.
-
-The same-code H26a native control and all 37 Catalogs reconciled: 179 Positions, 170 closed, 85 positive and nine censored open. A pre-fill eligible local support existed for 71 Positions; 28 breached it while still open, 27 later closed, eight later hit the original B target. The indicative exit minus actual continuation sum was -3,325.43 USDT. Both registered gates failed, so no H28a Strategy or economic replay followed. This observed path association cannot quantify the equity effect of executing a different order, because the shared account, pending tier fills and later opportunities would change. The annual window is exposed development data.
-
-The next minimum experiment needs an independently specified source support *area* or a native unfilled-tier cancellation action, with slow winners and native stop/target censoring explicit. This D98 result cannot choose a pivot size, tolerance, coin or age threshold for the next rule.
