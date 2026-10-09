@@ -1,16 +1,16 @@
 # Research records and local artifact custody
 
 Git records are the research lineage; the native runner and Nautilus reports
-remain the trading facts. Ten attempt records, including H25a/H26a/H27a, and
-ten historical run records are **retrospective transcriptions** of
+remain the trading facts. The index currently contains 14 attempts and 15 runs.
+H25a/H26a/H27a and older runs are **retrospective transcriptions** of
 [`RD_EXPERIMENTS.md`](../r1_native/RD_EXPERIMENTS.md) and the hashed reports under
-`research/r1_native/results/`. The eighth attempt, F01, was registered before
-its new combined strategy and economic result; four new same-runner native
-replays fill its 00/10/01/11 family. One later sealed 37-coin repeat brings the
-index to eleven attempts and fifteen runs. The H25a/H26a/H27a raw reports
-remain `temporary`; their structured entries do not backdate registration or
-seal their old `/tmp` CSVs. These are development evidence, not
-independent strategy qualification.
+`research/r1_native/results/`. F01 was registered before its combined strategy
+and economic result; four same-runner native replays fill its 00/10/01/11 family,
+and one later 37-coin repeat was sealed. D97/D98 are preregistered read-only
+diagnostics with no new native run. The H25a/H26a/H27a raw reports remain
+`temporary`; their structured entries do not backdate registration or seal
+their old `/tmp` CSVs. These are development evidence, not independent strategy
+qualification.
 
 ## One research round (Agent-owned)
 
