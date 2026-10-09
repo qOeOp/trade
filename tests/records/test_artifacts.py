@@ -518,5 +518,126 @@ class ArtifactCustodyTests(unittest.TestCase):
         adapter.list_relations.assert_not_called()
 
 
+class DoltOciCustodyTests(unittest.TestCase):
+    """Synthetic orchestration, including failures before a native summary exists."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.workspace = Path(self.temp.name)
+        self.root = self.workspace / "seals"
+        self.source = b"# synthetic complete strategy; no economics\n"
+        import hashlib
+        self.binding = {"database": "fixture", "commit": "a" * 32, "strategy_id": "fixture",
+                        "revision": 1, "source_sha256": hashlib.sha256(self.source).hexdigest(),
+                        "entry_class": "FixtureStrategy", "runtime_contract": "r1-native-v1"}
+        self.identity = {"image_ref": "registry.invalid/native@sha256:" + "b" * 64,
+                         "image_digest": "sha256:" + "b" * 64, "platform": "linux/arm64",
+                         "runtime_contract": "r1-native-v1"}
+        from research.records.runtime import SOURCE_PATHS
+        self.probe = {"runtime_contract": "r1-native-v1", "nautilus_version": "fixture-native",
+                      "python_version": "fixture-python", "dependency_lock_sha256": "c" * 64,
+                      "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},
+                      "source_file_paths": SOURCE_PATHS.copy(),
+                      "audit_source_sha256": "e" * 64, "platform": "linux/arm64",
+                      "effective_config": {"fixture": True}}
+        self.record_binding = {"id": "attempt:fixture-attempt", "revision": 1, "commit": "f" * 32}
+        self.input = self.workspace / "input.json"
+        self.input.write_text("{}")
+        for name in ("minute", "daily"):
+            (self.workspace / name).mkdir()
+        self.quantity = self.workspace / "quantity.csv"
+        self.quantity.write_text("fixture")
+        self.argv = ["--catalog-root", str(self.workspace / "minute"), "--daily-root", str(self.workspace / "daily"),
+                     "--quantity-csv", str(self.quantity), "--coins", "BTC"]
+
+    def run_fixture(self, passed=False, source=None):
+        mounts = [(self.workspace / "minute", "/inputs/catalog", True),
+                  (self.workspace / "daily", "/inputs/daily", True), (self.quantity, "/inputs/quantity.csv", True)]
+        prepared = (self.binding, self.source if source is None else source, self.identity, self.probe,
+                    ["--catalog-root", "/inputs/catalog", "--daily-root", "/inputs/daily", "--quantity-csv", "/inputs/quantity.csv", "--coins", "BTC"], mounts)
+
+        def execute(command, **kwargs):
+            stage = kwargs["cwd"].parent
+            if "backtest.r1.run_portfolio" in command and passed:
+                summary = {"strategy_binding": self.binding, "runtime_identity": self.identity,
+                           "effective_config_sha256": artifacts._config_sha(self.probe["effective_config"]),
+                           "strategy_source_sha256": self.binding["source_sha256"],
+                           **self.probe["source_files_sha256"], "source_file_paths": self.probe["source_file_paths"],
+                           "integrity_passed": True}
+                (stage / "reports/summary.json").write_text(json.dumps(summary))
+                for name in artifacts.REPORTS[1:]:
+                    (stage / "reports" / name).write_text("synthetic reports; no native economics\n")
+            if "backtest.r1.checks.audit_tiered_native" in command:
+                (stage / "reports/audit.json").write_text(json.dumps({"passed": True, "findings": []}))
+            return subprocess.CompletedProcess(command, 0 if passed else 23)
+
+        with patch.object(artifacts, "_attempt_snapshot", return_value=({"strategy_binding": self.binding}, self.record_binding)), \
+             patch.object(artifacts, "_check_inputs", return_value={"fixture": "unchanged"}), \
+             patch.object(artifacts, "_dolt_source", return_value=prepared), \
+             patch.object(artifacts, "_snapshot_source", side_effect=AssertionError("new source must not use Git")), \
+             patch.object(artifacts.subprocess, "run", side_effect=execute) as calls, \
+             patch.object(artifacts.tempfile, "gettempdir", return_value="/system-temp-fixture"):
+            result = artifacts.run(root=self.root, run_id="fixture-run", attempt_id="fixture-attempt", strategy_id="fixture",
+                                   strategy_revision=1, source_at="a" * 32, runtime=self.workspace / "runtime.json",
+                                   input_identity=self.input, runner_argv=self.argv)
+        return result, calls
+
+    def test_dolt_oci_seal_freezes_source_and_audits_same_digest(self):
+        result, calls = self.run_fixture(passed=True)
+        self.assertEqual(result["status"], "passed")
+        archive = self.root / "fixture-run"
+        manifest = json.loads((archive / "manifest.json").read_text())
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertNotIn("source_commit", manifest)
+        self.assertEqual((archive / "source/strategy.py").read_bytes(), self.source)
+        self.assertEqual(manifest["strategy_binding"], self.binding)
+        self.assertEqual(manifest["runtime_identity"], self.identity)
+        self.assertEqual(len(calls.call_args_list), 2)
+        for call in calls.call_args_list:
+            command = call.args[0]
+            self.assertIn(self.identity["image_ref"], command)
+            self.assertIn("--network", command)
+            self.assertIn("none", command)
+            self.assertNotIn(str(artifacts.ROOT), command)
+        self.assertTrue(verify(self.root, "fixture-run")["verified"])
+
+    def test_failed_before_summary_registers_frozen_identity_without_economics(self):
+        result, _ = self.run_fixture()
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(verify(self.root, "fixture-run")["verified"])
+        store = Mock()
+        store.adapter.status.return_value = {"version": "fixture-version"}
+        store.publish_record.return_value = {"commit": "fixture-published"}
+        with patch("research.records.store.open_store", return_value=store), \
+             patch.object(artifacts, "_attempt_snapshot", return_value=({}, self.record_binding)), \
+             patch("research.records.strategies.validate_binding", return_value={}):
+            artifacts.register(root=self.root, run_id="fixture-run", role="diagnostic", cost_model="Synthetic fixture only",
+                               control_run_id=None, evidence_grade="unknown")
+        record = store.publish_record.call_args.args[1]
+        self.assertEqual(record["strategy_binding"], self.binding)
+        self.assertEqual(record["runtime_identity"], self.identity)
+        self.assertNotIn("source_revision", record)
+        self.assertNotIn("window", record)
+        self.assertNotIn("account", record)
+        self.assertNotIn("summary_ref", record)
+        self.assertIn("native runner exited 23", record["failure_reasons"])
+
+    def test_resolved_byte_hash_mismatch_refuses_launch(self):
+        with self.assertRaisesRegex(ArtifactError, "resolved strategy bytes"):
+            self.run_fixture(source=b"changed bytes")
+        self.assertFalse((self.root / "fixture-run").exists())
+
+    def test_preregistered_binding_and_source_authority_are_required(self):
+        with patch.object(artifacts, "_attempt_snapshot", return_value=({}, self.record_binding)), \
+             patch.object(artifacts, "_dolt_source", return_value=(self.binding,)):
+            with self.assertRaisesRegex(ArtifactError, "preregistered attempt"):
+                artifacts.run(root=self.root, run_id="fixture-run", attempt_id="fixture-attempt", strategy_id="fixture",
+                              strategy_revision=1, source_at="a" * 32, runtime=Path("fixture"), input_identity=self.input, runner_argv=self.argv)
+        with self.assertRaisesRegex(ArtifactError, "exactly one"):
+            artifacts.run(root=self.root, run_id="fixture-run", attempt_id="fixture-attempt", source_ref="HEAD", strategy_id="fixture",
+                          input_identity=self.input, runner_argv=self.argv)
+
+
 if __name__ == "__main__":
     unittest.main()

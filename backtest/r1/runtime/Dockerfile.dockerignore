@@ -1,0 +1,12 @@
+**
+!pyproject.toml
+!uv.lock
+!backtest/
+!backtest/__init__.py
+!backtest/r1/
+!backtest/r1/*.py
+backtest/r1/test_*.py
+!backtest/r1/checks/
+!backtest/r1/checks/__init__.py
+!backtest/r1/checks/audit_tiered_native.py
+!backtest/r1/checks/compare_node.py

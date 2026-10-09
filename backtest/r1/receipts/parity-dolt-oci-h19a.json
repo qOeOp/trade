@@ -1,0 +1,267 @@
+{
+  "reference": "retained H19a single-file native control at Git 24a8461586abac914a496fd68c1fb6d1c0e95137",
+  "candidate": "artifact://D103-OCI-37-20261009/reports",
+  "nautilus_version": "2.0.0rc3",
+  "reference_summary_sha256": "4d3fcff1d49a4e83a6aad30384a5b3b231bf38ce6837d0ca769da085eaf6020f",
+  "candidate_summary_sha256": "c5af7e1a942ee8fa7666702d6ff043769191807680ab8ee20d7bfc03ed402b56",
+  "orders": {
+    "counts": [
+      17665,
+      17665
+    ],
+    "column_match": true,
+    "compared_columns": 36,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "fills": {
+    "counts": [
+      1722,
+      1722
+    ],
+    "column_match": true,
+    "compared_columns": 18,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "positions": {
+    "counts": [
+      507,
+      507
+    ],
+    "column_match": true,
+    "compared_columns": 28,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "funding_adjustments": {
+    "counts": [
+      13470,
+      13470
+    ],
+    "exact_match": true,
+    "total_usdt": "46.21351633"
+  },
+  "account": {
+    "counts": [
+      52019,
+      52019
+    ],
+    "column_match": true,
+    "compared_columns": 11,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "returns_series": {
+    "counts": [
+      366,
+      366
+    ],
+    "column_match": true,
+    "compared_columns": 2,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "metrics": {
+    "final_equity_usdt": [
+      "111664.46988783",
+      "111664.46988783"
+    ],
+    "annualized_return_pct": [
+      11.999382174085868,
+      11.999382174085868
+    ],
+    "closed_trades": [
+      496,
+      496
+    ],
+    "winning_trades": [
+      212,
+      212
+    ],
+    "native_sharpe_365": [
+      0.6579792334383158,
+      0.6579792334383158
+    ],
+    "native_max_drawdown_daily_close": [
+      -0.15326607666342182,
+      -0.15326607666342182
+    ]
+  },
+  "passed": true,
+  "attempt_id": "D103-dolt-oci-20261009",
+  "strategy_binding": {
+    "database": "research_records",
+    "commit": "rpt92n73bf09k0maitsqjhj5k14vh7oh",
+    "strategy_id": "r1.broad-two-tier",
+    "revision": 1,
+    "source_sha256": "8b708592a27732311071b0b00d237001b6e6bb96725bcc3a842cf35ae2184b4a",
+    "entry_class": "R1Strategy",
+    "runtime_contract": "r1-native-v1"
+  },
+  "runtime_identity": {
+    "image_ref": "localhost:15000/trade-r1-runtime@sha256:b751d5a7e2e9c2922bdcbd7b85f25dd3d7737537b3e746114fc79f52664e35a6",
+    "image_digest": "sha256:b751d5a7e2e9c2922bdcbd7b85f25dd3d7737537b3e746114fc79f52664e35a6",
+    "platform": "linux/arm64",
+    "runtime_contract": "r1-native-v1"
+  },
+  "effective_config_sha256": "1b1004312da0f64f38e25d48b567d81ea25682fd41e471af932a1c79555a099f",
+  "legacy_source": {
+    "commit": "24a8461586abac914a496fd68c1fb6d1c0e95137",
+    "path": "strategies/r1.py"
+  },
+  "per_coin_diagnostics_exact": true,
+  "independent_native_audit": {
+    "run": "/reports",
+    "file_sha256": {
+      "summary.json": "c5af7e1a942ee8fa7666702d6ff043769191807680ab8ee20d7bfc03ed402b56",
+      "orders.csv": "069f3ba26eeac21e552a8d6c8e667971511f73dd178bd8319b4531bc1d8f8099",
+      "fills.csv": "607d4541f2c5146f2d3d75c91fb62db11c27c6351c6ea04889e5325441ce15d8",
+      "positions.csv": "13ce01e9daf45d92181c471525b9aa3b7433a0efcec40c9455385e9c316bf603",
+      "account.csv": "69530413f22af40f57c5290dcc06417580c9f95f395b0c7c465b1d95ac2ab33e",
+      "returns_series.csv": "c34ff1ce36167b8165f1ba49b419ad84209854578b377e0d0b143e6d6d31370e"
+    },
+    "native_bundles": 2939,
+    "native_brackets": 5878,
+    "filled_entries": 881,
+    "partially_filled_then_canceled_entries": 1,
+    "closed_positions": 496,
+    "open_positions": 11,
+    "accepted_exit_orders": 32,
+    "native_market_time_exits": 31,
+    "findings": [],
+    "passed": true
+  },
+  "native_order_integrity": {
+    "integrity_passed": true,
+    "denied_orders": 0,
+    "rejected_orders": 0
+  },
+  "runtime_source_sha256": {
+    "backtest/r1/native_node.py": "e317ebb1963cb4accee5ffb58bc677510b24b13d7382d606d0de0d9f4541ed8d",
+    "backtest/r1/node_strategy.py": "3a8f1007b4764e52483ff327f84d644f75a039a876650cc100fef7b4e26ddcdc",
+    "backtest/r1/replay_inputs.py": "9e49fbc2b2dfe82c803e8019efb57eab1e0359d46f3d760324ab312ee266ba0b",
+    "backtest/r1/replay_util.py": "667ebba06f65b0e396ed655e0f351c0c1b5e74e032dcb34a2008d389d7ff4e75",
+    "backtest/r1/run_portfolio.py": "81f03b3d36cd8b0808e541843a85042ee319fdcd4781cc0eafb0a6b22b3e68a7",
+    "backtest/r1/strategy_loader.py": "d14dea06c91f9f5e026b76f11142d15753b7d4d06133c8432df1e1222cf154c3",
+    "backtest/r1/checks/audit_tiered_native.py": "bcc3fe5d7cf811956d7039669f3f6c8ebfb03d2fb7cc1f5f77efb7f61bc469c4"
+  },
+  "recovery": {
+    "passed": true,
+    "scope": "Local backup restore and BTC/ETH replay with no product Git mount; not an independent-failure-domain backup.",
+    "dolt_restored": true,
+    "source_bytes_exact": true,
+    "image_archive_complete_blobs_verified": true,
+    "image_removed_loaded_and_republished_same_manifest": true,
+    "replay": {
+      "passed": true,
+      "orders": {
+        "counts": [
+          888,
+          888
+        ],
+        "column_match": true,
+        "compared_columns": 36,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "fills": {
+        "counts": [
+          66,
+          66
+        ],
+        "column_match": true,
+        "compared_columns": 18,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "positions": {
+        "counts": [
+          19,
+          19
+        ],
+        "column_match": true,
+        "compared_columns": 28,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "funding_adjustments": {
+        "counts": [
+          439,
+          439
+        ],
+        "exact_match": true,
+        "total_usdt": "-33.26180486"
+      },
+      "account": {
+        "counts": [
+          2117,
+          2117
+        ],
+        "column_match": true,
+        "compared_columns": 11,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "returns_series": {
+        "counts": [
+          366,
+          366
+        ],
+        "column_match": true,
+        "compared_columns": 2,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "metrics": {
+        "final_equity_usdt": [
+          "102098.92127801",
+          "102098.92127801"
+        ],
+        "annualized_return_pct": [
+          2.1565049960754448,
+          2.1565049960754448
+        ],
+        "closed_trades": [
+          19,
+          19
+        ],
+        "winning_trades": [
+          10,
+          10
+        ],
+        "native_sharpe_365": [
+          1.4503191325227278,
+          1.4503191325227278
+        ],
+        "native_max_drawdown_daily_close": [
+          -0.007065907619899882,
+          -0.007065907619899882
+        ]
+      }
+    },
+    "per_coin_diagnostics_exact": true,
+    "native_audit": {
+      "run": "/reports",
+      "file_sha256": {
+        "summary.json": "5e2e7327327dd45a263e4ea78b3129fae10168b1853595e5870c25143d297054",
+        "orders.csv": "53d80fb04746fcba8b04fb95736ca46e9235204b8931b3f1db8edcb8ef9644b0",
+        "fills.csv": "11b55b3db9c06ce2b47967e56e9b296e48588d214a52583087a89474a7f68e0e",
+        "positions.csv": "9e21e5f4b376f18f173a86e01f705e09936da2b78e47a188027bc295c18e1872",
+        "account.csv": "7e4381da6bd2a0c098399f724a45c2734093a65ff8615817414afbe5f8e7930a",
+        "returns_series.csv": "a1324b39a2422ce49e5e252ea86bf45b2d8d8e2ff1e026009fb4934e0558146e"
+      },
+      "native_bundles": 148,
+      "native_brackets": 296,
+      "filled_entries": 33,
+      "partially_filled_then_canceled_entries": 0,
+      "closed_positions": 19,
+      "open_positions": 0,
+      "accepted_exit_orders": 0,
+      "native_market_time_exits": 0,
+      "findings": [],
+      "passed": true
+    }
+  },
+  "qualification": "Engineering parity on an already exposed year only. Existing H19a failed economics decision is unchanged."
+}

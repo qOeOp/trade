@@ -26,6 +26,7 @@
       }
     },
     "code_parent": {"type": ["string", "null"]},
+    "strategy_binding": {"$ref": "#/$defs/strategy_binding"},
     "composition_mode": {"enum": ["dependent", "factorial"]},
     "comparison_family": {
       "type": "object",
@@ -112,6 +113,22 @@
           "path": {"type": "string", "minLength": 1},
           "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
         }
+      }
+    }
+  },
+  "$defs": {
+    "strategy_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["database", "commit", "strategy_id", "revision", "source_sha256", "entry_class", "runtime_contract"],
+      "properties": {
+        "database": {"type": "string", "minLength": 1},
+        "commit": {"type": "string", "pattern": "^[0-9a-v]{32}$"},
+        "strategy_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1},
+        "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "entry_class": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+        "runtime_contract": {"const": "r1-native-v1"}
       }
     }
   }

@@ -16,129 +16,41 @@ from nautilus_trader.analysis import MaxDrawdown
 from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
-from research.r1_variants.brooks_confirmed_strategy import BrooksConfirmedStrategy
-from research.r1_variants.gap_runner_strategy import GapRunnerStrategy
-from research.r1_variants.failed_range_breakout_strategy import FailedRangeBreakoutStrategy
-from backtest.r1.native_node import run_native_node
-from research.r1_variants.r1s_strategy import R1StagedStrategy
-from backtest.r1.replay_util import SOURCE_COMMIT
-from backtest.r1.replay_util import _json_safe
-from backtest.r1.replay_util import _ns
-from backtest.r1.replay_util import _snapshot_equity_usdt
+from backtest.r1.native_node import ACCOUNT_CONTRACT, run_native_node
+from backtest.r1.replay_util import _json_safe, _ns, _snapshot_equity_usdt
 from backtest.r1.replay_inputs import read_instruments as _read_instruments
-from research.r1_variants.retracement_strategy import RetracementStrategy
-from research.r1_variants.strategy import R1Strategy as LegacyR1Strategy
-from research.r1_variants.structural_support_strategy import StructuralSupportStrategy
-from research.r1_variants.tiered_retracement_strategy import TieredRetracementStrategy
-from research.r1_variants.trendline_strategy import TrendlineBreakStrategy
-from strategies.r1 import R1Strategy
+from backtest.r1.strategy_loader import RUNTIME_CONTRACT, LoadedStrategy, load_strategy, _read_regular_file
 
 
-LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
-RETRACEMENT_VARIANTS = (
-    "support-confirmed-4h",
-    "support-rejection-4h",
-    "support-near50-4h",
-)
-TIERED_VARIANT = "support-three-tier-4h"
-LINE_CANCEL_TIER_VARIANT = "support-three-tier-line-cancel-4h"
-DEEP_TIER_VARIANT = "support-deep-two-tier-4h"
 BROAD_TIER_VARIANT = "support-broad-two-tier-4h"
-BROAD_LINE_CANCEL_VARIANT = "support-broad-two-tier-line-cancel-4h"
-BROOKS_CONFIRMED_VARIANT = "support-brooks-confirmed-4h"
-GAP_RUNNER_VARIANT = "support-broad-gap-runner-4h"
-FAILED_RANGE_VARIANT = "box-failed-breakout-4h"
-STRUCTURAL_SUPPORT_VARIANT = "support-broad-prior-a-support-4h"
-ANY_PRIOR_A_SUPPORT_VARIANT = "support-broad-any-prior-a-support-4h"
-OUTSIDE_A_STOP_VARIANT = "support-broad-any-prior-a-outside-stop-4h"
-STRUCTURAL_SUPPORT_VARIANTS = (
-    STRUCTURAL_SUPPORT_VARIANT,
-    ANY_PRIOR_A_SUPPORT_VARIANT,
-    OUTSIDE_A_STOP_VARIANT,
-)
-TIERED_VARIANTS = (
-    TIERED_VARIANT,
-    LINE_CANCEL_TIER_VARIANT,
-    DEEP_TIER_VARIANT,
-    BROAD_TIER_VARIANT,
-    BROAD_LINE_CANCEL_VARIANT,
-    BROOKS_CONFIRMED_VARIANT,
-    GAP_RUNNER_VARIANT,
-    *STRUCTURAL_SUPPORT_VARIANTS,
-)
-STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
-REPLAY_SUBMIT_RATE = "200/00:00:01"
+REPLAY_SUBMIT_RATE = ACCOUNT_CONTRACT["max_order_submit_rate"]
 
 
-def _source_metadata(signal_variant: str, exit_variant: str) -> dict:
-    """Bind source hashes to the files used by this replay configuration."""
-    is_h19a = signal_variant == BROAD_TIER_VARIANT
-    variants = "research/r1_variants/"
-    paths = {
-        "strategy_source_sha256": (
-            "strategies/r1.py" if is_h19a else variants + "strategy.py"
-        ),
-        "staged_strategy_source_sha256": (
-            variants + "r1s_strategy.py" if exit_variant in STAGED_EXITS else None
-        ),
-        "trendline_strategy_source_sha256": (
-            variants + "trendline_strategy.py" if signal_variant in LINE_VARIANTS else None
-        ),
-        "retracement_strategy_source_sha256": (
-            variants + "retracement_strategy.py"
-            if not is_h19a and signal_variant in (*RETRACEMENT_VARIANTS, *TIERED_VARIANTS)
-            else None
-        ),
-        "tiered_strategy_source_sha256": (
-            variants + "tiered_retracement_strategy.py"
-            if not is_h19a and signal_variant in TIERED_VARIANTS
-            else None
-        ),
-        "brooks_confirmed_strategy_source_sha256": (
-            variants + "brooks_confirmed_strategy.py"
-            if signal_variant == BROOKS_CONFIRMED_VARIANT else None
-        ),
-        "failed_range_breakout_strategy_source_sha256": (
-            variants + "failed_range_breakout_strategy.py"
-            if signal_variant == FAILED_RANGE_VARIANT else None
-        ),
-        "stop_entry_source_sha256": (
-            "backtest/r1/stop_entry.py"
-            if signal_variant in (FAILED_RANGE_VARIANT, BROOKS_CONFIRMED_VARIANT) else None
-        ),
-        "gap_runner_strategy_source_sha256": (
-            variants + "gap_runner_strategy.py"
-            if signal_variant == GAP_RUNNER_VARIANT else None
-        ),
-        "structural_support_strategy_source_sha256": (
-            variants + "structural_support_strategy.py"
-            if signal_variant in STRUCTURAL_SUPPORT_VARIANTS else None
-        ),
-        "broad_swing_signal_source_sha256": (
-            variants + "broad_swing_signal.py"
-            if not is_h19a and signal_variant in (
-                BROAD_LINE_CANCEL_VARIANT, BROOKS_CONFIRMED_VARIANT,
-                GAP_RUNNER_VARIANT, *STRUCTURAL_SUPPORT_VARIANTS,
-            )
-            else None
-        ),
-        "runner_source_sha256": "backtest/r1/run_portfolio.py",
-        "native_node_source_sha256": "backtest/r1/native_node.py",
-        "node_strategy_source_sha256": "backtest/r1/node_strategy.py",
-        "replay_inputs_source_sha256": "backtest/r1/replay_inputs.py",
-        "replay_util_source_sha256": "backtest/r1/replay_util.py",
-    }
+RUNTIME_SOURCE_PATHS = {
+    "runner_source_sha256": "backtest/r1/run_portfolio.py",
+    "native_node_source_sha256": "backtest/r1/native_node.py",
+    "node_strategy_source_sha256": "backtest/r1/node_strategy.py",
+    "replay_inputs_source_sha256": "backtest/r1/replay_inputs.py",
+    "replay_util_source_sha256": "backtest/r1/replay_util.py",
+    "strategy_loader_source_sha256": "backtest/r1/strategy_loader.py",
+}
+
+
+def runtime_source_metadata() -> dict:
+    """Inspect runtime bytes independently of an external strategy revision."""
     root = Path(__file__).resolve().parents[2]
     return {
         **{
             field: hashlib.sha256((root / path).read_bytes()).hexdigest()
-            if path is not None else None
-            for field, path in paths.items()
+            for field, path in RUNTIME_SOURCE_PATHS.items()
         },
-        "source_file_paths": {
-            field: path for field, path in paths.items() if path is not None
-        },
+        "source_file_paths": RUNTIME_SOURCE_PATHS.copy(),
     }
+
+
+def _source_metadata(strategy: LoadedStrategy) -> dict:
+    """Bind executed strategy bytes and current runtime code independently."""
+    return {**strategy.metadata(), **runtime_source_metadata()}
 
 
 def _orders_with_native_deadlines(engine, report):
@@ -159,7 +71,7 @@ def _orders_with_native_deadlines(engine, report):
     return result
 
 
-def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay lifecycle.
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--catalog-root", type=Path, required=True)
     parser.add_argument("--daily-root", type=Path, required=True)
@@ -170,57 +82,81 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     parser.add_argument("--end", required=True)
     parser.add_argument("--trade-start")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument(
-        "--signal-variant",
-        choices=(
-            "daily-pivot",
-            "daily-pivot-outer-4h",
-            "box-4h",
-            "box-edge-4h",
-            FAILED_RANGE_VARIANT,
-            "support-confirmed-4h",
-            "support-rejection-4h",
-            "support-near50-4h",
-            *TIERED_VARIANTS,
-            *LINE_VARIANTS,
-        ),
-        default="daily-pivot",
-    )
-    parser.add_argument(
-        "--exit-variant",
-        choices=("fixed-2r", "tier-target-b", *STAGED_EXITS),
-        default="fixed-2r",
-    )
-    parser.add_argument("--risk-budget-bps", type=float)
+    parser.add_argument("--strategy-file", type=Path, required=True)
+    parser.add_argument("--strategy-class", required=True)
+    parser.add_argument("--strategy-sha256", required=True)
+    parser.add_argument("--strategy-binding", type=Path)
+    parser.add_argument("--execution-binding", type=Path)
+    parser.add_argument("--signal-variant", default=BROAD_TIER_VARIANT)
+    parser.add_argument("--exit-variant", default="tier-target-b")
+    parser.add_argument("--risk-budget-bps", type=float, default=25.0)
     parser.add_argument("--coin-notional-cap-pct", type=float, default=5.0)
-    args = parser.parse_args()
-    if (args.exit_variant, args.signal_variant) not in (
-        ("staged-r1s", "daily-pivot"),
-        ("staged-edge-1r", "box-edge-4h"),
-    ) and args.exit_variant in STAGED_EXITS:
-        raise ValueError(
-            "staged exit variant does not match its registered entry signal"
+    return parser
+
+
+def parse_configuration(argv: list[str] | None = None):
+    """Resolve runner defaults without executing source or opening research data."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.signal_variant != BROAD_TIER_VARIANT or args.exit_variant != "tier-target-b":
+        parser.error(
+            "current external strategy contract supports only H19a "
+            "support-broad-two-tier-4h / tier-target-b; replay unconverted variants "
+            "from a frozen historical Git ref"
         )
-    if (args.signal_variant in TIERED_VARIANTS) != (
-        args.exit_variant == "tier-target-b"
-    ):
-        raise ValueError("budgeted tier signal requires its frozen target-B exit")
-    if args.signal_variant in TIERED_VARIANTS and (
-        args.risk_budget_bps != 25.0 or args.coin_notional_cap_pct != 5.0
-    ):
-        raise ValueError(
-            "budgeted tiers require 25-bp total stop risk and 5% coin notional cap"
-        )
-    if args.signal_variant == FAILED_RANGE_VARIANT and (
-        args.exit_variant != "fixed-2r"
-        or args.risk_budget_bps != 25.0
-        or args.coin_notional_cap_pct != 5.0
-    ):
-        raise ValueError("H29a requires the registered 25-bp / 5% native bracket")
-    if args.risk_budget_bps is not None and not 0 < args.risk_budget_bps < 10_000:
-        raise ValueError("risk budget bps must be between zero and 10000")
-    if not 0 < args.coin_notional_cap_pct <= 100:
-        raise ValueError("coin notional cap pct must be between zero and 100")
+    if args.risk_budget_bps != 25.0 or args.coin_notional_cap_pct != 5.0:
+        parser.error("H19a requires 25-bp total stop risk and 5% coin notional cap")
+    return args
+
+
+def effective_configuration(args) -> dict:
+    """Canonical experiment configuration, including native execution defaults."""
+    return {
+        "runtime_contract": RUNTIME_CONTRACT,
+        "catalog_root": str(args.catalog_root),
+        "daily_root": str(args.daily_root),
+        "quantity_csv": str(args.quantity_csv),
+        "mark_root": str(args.mark_root) if args.mark_root is not None else None,
+        "coins": args.coins,
+        "start": args.start,
+        "end": args.end,
+        "trade_start": args.trade_start if args.trade_start is not None else args.start,
+        "signal_variant": args.signal_variant,
+        "exit_variant": args.exit_variant,
+        "risk_budget_bps": args.risk_budget_bps,
+        "coin_notional_cap_pct": args.coin_notional_cap_pct,
+        "native_account": ACCOUNT_CONTRACT.copy(),
+    }
+
+
+def _execution_metadata(args) -> dict:
+    if args.execution_binding is None:
+        return {}
+    try:
+        binding = json.loads(_read_regular_file(args.execution_binding))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("execution binding is not valid JSON") from error
+    if not isinstance(binding, dict) or set(binding) != {
+        "runtime_identity", "effective_config", "effective_config_sha256",
+    }:
+        raise ValueError("execution binding must contain runtime and effective configuration")
+    effective = effective_configuration(args)
+    encoded = json.dumps(effective, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+    digest = hashlib.sha256(encoded).hexdigest()
+    if binding["effective_config"] != effective or binding["effective_config_sha256"] != digest:
+        raise ValueError("execution binding differs from actual resolved runner configuration")
+    identity = binding["runtime_identity"]
+    if not isinstance(identity, dict) or identity.get("runtime_contract") != RUNTIME_CONTRACT:
+        raise ValueError("execution binding runtime contract is unsupported")
+    return {"runtime_identity": identity, "effective_config_sha256": digest}
+
+
+def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay lifecycle.
+    args = parse_configuration()
+    execution_metadata = _execution_metadata(args)
+    strategy = load_strategy(
+        args.strategy_file, args.strategy_class, args.strategy_sha256, args.strategy_binding,
+    )
     start_dt = datetime.fromisoformat(args.start).astimezone(UTC)
     end_dt = datetime.fromisoformat(args.end).astimezone(UTC)
     trade_start_dt = (
@@ -248,34 +184,13 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     ):
         raise ValueError("coins must be unique and have registered quantities")
     rows = _read_instruments(args.catalog_root, args.coins, quantities, start, end)
-    strategy_class = (
-        R1StagedStrategy
-        if args.exit_variant in STAGED_EXITS
-        else StructuralSupportStrategy
-        if args.signal_variant in STRUCTURAL_SUPPORT_VARIANTS
-        else GapRunnerStrategy
-        if args.signal_variant == GAP_RUNNER_VARIANT
-        else FailedRangeBreakoutStrategy
-        if args.signal_variant == FAILED_RANGE_VARIANT
-        else BrooksConfirmedStrategy
-        if args.signal_variant == BROOKS_CONFIRMED_VARIANT
-        else R1Strategy
-        if args.signal_variant == BROAD_TIER_VARIANT
-        else TieredRetracementStrategy
-        if args.signal_variant in TIERED_VARIANTS
-        else RetracementStrategy
-        if args.signal_variant in RETRACEMENT_VARIANTS
-        else TrendlineBreakStrategy
-        if args.signal_variant in LINE_VARIANTS
-        else LegacyR1Strategy
-    )
     engine, strategies = run_native_node(
         rows,
         args,
         start_dt,
         end_dt,
         trade_start,
-        strategy_class,
+        strategy,
     )
     for row in rows:
         if row["counts"] != row["completion"].get("counts"):
@@ -285,13 +200,6 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     integrity_findings = []
     if any(strategy.slot_violations for strategy in strategies.values()):
         integrity_findings.append("native entry fills violated a per-coin slot")
-    if args.exit_variant in STAGED_EXITS and any(
-        strategy.staged_protection_failures
-        or strategy.staged_order_failures
-        or strategy.staged_invalid_actual_target_closes
-        for strategy in strategies.values()
-    ):
-        integrity_findings.append("native staged order integrity failed")
     account = engine.portfolio.account(venue=Venue("BINANCE"))
     if account is None:
         raise RuntimeError("native portfolio account missing")
@@ -320,42 +228,12 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         writer.writerows(sorted(result.returns_series.items()))
     positions = reports["positions.csv"]
     orders = reports["orders.csv"]
-    if args.exit_variant in STAGED_EXITS and (
-        (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
-    ):
-        integrity_findings.append("native staged orders were denied or rejected")
-    if args.signal_variant in LINE_VARIANTS and (
-        (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
-    ):
-        integrity_findings.append("native line orders were denied or rejected")
-    if args.signal_variant == "box-edge-4h" and (
-        (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
-    ):
-        integrity_findings.append("native range-edge orders were denied or rejected")
-    if args.signal_variant == FAILED_RANGE_VARIANT and (
-        (orders["status"] == "DENIED").any()
-        or (orders["status"] == "REJECTED").any()
-        or any(strategy.slot_violations for strategy in strategies.values())
-    ):
-        integrity_findings.append("native failed-range orders failed or coin slot violated")
-    if args.signal_variant in RETRACEMENT_VARIANTS and (
-        (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
-    ):
-        integrity_findings.append(
-            "native support-pullback orders were denied or rejected"
-        )
-    if args.signal_variant in TIERED_VARIANTS and (
+    if (
         (orders["status"] == "DENIED").any()
         or (orders["status"] == "REJECTED").any()
         or any(strategy.bundle_order_failures for strategy in strategies.values())
     ):
         integrity_findings.append("native budgeted-tier orders were denied or rejected")
-    if args.signal_variant == "support-rejection-4h" and any(
-        strategy.retracement_actual_price_violations for strategy in strategies.values()
-    ):
-        integrity_findings.append(
-            "market fill broke frozen stop/target protection relation"
-        )
     closed = positions[positions["ts_closed"].notna()]
     pnl = (
         closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
@@ -366,61 +244,15 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         ts: value for ts, value in result.returns_series.items() if ts >= trade_start
     }
     summary = {
-        "source_commit": SOURCE_COMMIT,
-        **_source_metadata(args.signal_variant, args.exit_variant),
-        "strategy": (
-            "H11-box-edge-staged-1r"
-            if args.exit_variant == "staged-edge-1r"
-            else "R-1s"
-            if args.exit_variant == "staged-r1s"
-            else "R-1u"
-            if args.signal_variant == "daily-pivot"
-            else "H12-daily-pivot-outer-4h"
-            if args.signal_variant == "daily-pivot-outer-4h"
-            else "H03-box-4h"
-            if args.signal_variant == "box-4h"
-            else "H10-box-edge-4h"
-            if args.signal_variant == "box-edge-4h"
-            else "H29a-box-failed-breakout-4h"
-            if args.signal_variant == FAILED_RANGE_VARIANT
-            else "H13c-support-confirmed-4h"
-            if args.signal_variant == "support-confirmed-4h"
-            else "H13f-support-rejection-4h"
-            if args.signal_variant == "support-rejection-4h"
-            else "H14a-support-near50-4h"
-            if args.signal_variant == "support-near50-4h"
-            else "H15a-support-three-tier-4h"
-            if args.signal_variant == TIERED_VARIANT
-            else "H18a-support-three-tier-line-cancel-4h"
-            if args.signal_variant == LINE_CANCEL_TIER_VARIANT
-            else "H16a-support-deep-two-tier-4h"
-            if args.signal_variant == DEEP_TIER_VARIANT
-            else "H19a-support-broad-two-tier-4h"
-            if args.signal_variant == BROAD_TIER_VARIANT
-            else "F01-11-support-broad-two-tier-line-cancel-4h"
-            if args.signal_variant == BROAD_LINE_CANCEL_VARIANT
-            else "H23a-support-brooks-confirmed-4h"
-            if args.signal_variant == BROOKS_CONFIRMED_VARIANT
-            else "H24a-support-broad-gap-runner-4h"
-            if args.signal_variant == GAP_RUNNER_VARIANT
-            else "H25a-support-broad-prior-a-support-4h"
-            if args.signal_variant == STRUCTURAL_SUPPORT_VARIANT
-            else "H26a-support-broad-any-prior-a-support-4h"
-            if args.signal_variant == ANY_PRIOR_A_SUPPORT_VARIANT
-            else "H27a-support-broad-any-prior-a-outside-stop-4h"
-            if args.signal_variant == OUTSIDE_A_STOP_VARIANT
-            else "H06-trendline-4h"
-            if args.signal_variant == "trendline-4h"
-            else "H08b-line-resting-4h"
-            if args.signal_variant == "line-resting-4h"
-            else "H08-line-support-4h"
-        ),
+        **_source_metadata(strategy),
+        **execution_metadata,
+        "strategy": "H19a-support-broad-two-tier-4h",
         "signal_variant": args.signal_variant,
         "exit_variant": args.exit_variant,
         "integrity_findings": integrity_findings,
         "integrity_passed": not integrity_findings,
         "account_model": f"one native BacktestNode margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
-        "starting_balance_usdt": "100000",
+        "starting_balance_usdt": ACCOUNT_CONTRACT["starting_balance_usdt"],
         "native_risk_submit_rate": REPLAY_SUBMIT_RATE,
         "sizing": (
             {
@@ -468,215 +300,30 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 "counts": row["counts"],
                 "signals": strategies[row["coin"]].signals,
                 "box_breaks": strategies[row["coin"]].box_breaks,
-                "outer_context": (
-                    {
-                        "admitted": strategies[row["coin"]].outer_context_admitted,
-                        "rejected": strategies[row["coin"]].outer_context_rejected,
-                        "missing": strategies[row["coin"]].outer_context_missing,
-                    }
-                    if args.signal_variant == "daily-pivot-outer-4h"
-                    else None
-                ),
-                "box_edge": (
-                    {
-                        "plans": strategies[row["coin"]].box_edge_plans,
-                        "submitted_brackets": strategies[row["coin"]].waiting_released,
-                        "invalid_price_skips": strategies[
-                            row["coin"]
-                        ].box_edge_invalid_price_skips,
-                        "time_exits": strategies[row["coin"]].box_edge_time_exits,
-                    }
-                    if args.signal_variant == "box-edge-4h"
-                    else None
-                ),
-                "failed_range_breakout": (
-                    {
-                        "valid_signals": strategies[row["coin"]].failed_range_valid_signals,
-                        "occupied_skips": strategies[row["coin"]].failed_range_occupied_skips,
-                        "submitted_brackets": strategies[row["coin"]].failed_range_submitted_brackets,
-                        "invalid_price_skips": strategies[row["coin"]].failed_range_invalid_price_skips,
-                    }
-                    if args.signal_variant == FAILED_RANGE_VARIANT else None
-                ),
-                "support_pullback": (
-                    {
-                        "source_plans": strategies[row["coin"]].support_state.plans,
-                        "submitted_brackets": strategies[row["coin"]].waiting_released,
-                        "supersessions": strategies[
-                            row["coin"]
-                        ].retracement_supersessions,
-                        "cancel_race_fills": strategies[
-                            row["coin"]
-                        ].retracement_cancel_race_fills,
-                        "invalid_price_skips": strategies[
-                            row["coin"]
-                        ].retracement_invalid_price_skips,
-                        "first_touch_reasons": strategies[
-                            row["coin"]
-                        ].first_touch_counts,
-                        "actual_fill_protection_violations": strategies[
-                            row["coin"]
-                        ].retracement_actual_price_violations,
-                    }
-                    if args.signal_variant in RETRACEMENT_VARIANTS
-                    else None
-                ),
-                "tiered_pullback": (
-                    {
-                        "source_plans": (
-                            len(strategies[row["coin"]].broad_planned_pairs)
-                            if args.signal_variant
-                            in (
-                                BROAD_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT,
-                                BROOKS_CONFIRMED_VARIANT, GAP_RUNNER_VARIANT,
-                                *STRUCTURAL_SUPPORT_VARIANTS,
-                            )
-                            else strategies[row["coin"]].support_state.plans
-                        ),
-                        "submitted_bundles": strategies[row["coin"]].bundle_submissions,
-                        "retired_bundles": strategies[row["coin"]].bundle_retirements,
-                        "supersessions": strategies[row["coin"]].bundle_supersessions,
-                        "cancel_race_fills": strategies[
-                            row["coin"]
-                        ].bundle_cancel_race_fills,
-                        "invalid_price_skips": strategies[
-                            row["coin"]
-                        ].bundle_invalid_price_skips,
-                        "minimum_skips": strategies[row["coin"]].bundle_minimum_skips,
-                        "order_failures": strategies[row["coin"]].bundle_order_failures,
-                        "untouched_plan_voids": strategies[row["coin"]].waiting_voided,
-                    }
-                    if args.signal_variant in TIERED_VARIANTS
-                    else None
-                ),
-                "entry_line_cancel": (
-                    {
-                        "frozen_valid_lines": strategies[row["coin"]].line_snapshots,
-                        "line_break_events": strategies[row["coin"]].line_break_events,
-                        "entry_cancel_requests": strategies[
-                            row["coin"]
-                        ].line_cancel_requests,
-                        "fills_during_cancel": strategies[
-                            row["coin"]
-                        ].line_cancel_race_fills,
-                    }
-                    if args.signal_variant
-                    in (LINE_CANCEL_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT)
-                    else None
-                ),
-                "brooks_confirmation": (
-                    {
-                        "touched_watches": strategies[row["coin"]].watch_touches,
-                        "invalidated_watches": strategies[row["coin"]].watch_invalidations,
-                        "expired_watches": strategies[row["coin"]].watch_expiries,
-                        "high2_signals": strategies[row["coin"]].high2_signals,
-                        "strong_signals": strategies[row["coin"]].strong_signals,
-                        "high2_brackets": strategies[row["coin"]].high2_submissions,
-                        "strong_brackets": strategies[row["coin"]].strong_submissions,
-                    }
-                    if args.signal_variant == BROOKS_CONFIRMED_VARIANT else None
-                ),
-                "gap_runner": (
-                    {
-                        "b_target_fills": strategies[row["coin"]].b_target_fills,
-                        "persistent_gap_decisions": strategies[row["coin"]].gap_persistent_decisions,
-                        "no_gap_decisions": strategies[row["coin"]].no_gap_decisions,
-                        "no_gap_market_exits": strategies[row["coin"]].no_gap_market_exits,
-                        "early_runner_targets": strategies[row["coin"]].runner_targets_before_decision,
-                        "minimum_share_skips": strategies[row["coin"]].runner_minimum_skips,
-                        "max_submitted_stop_risk_fraction": strategies[row["coin"]].max_submitted_stop_risk_fraction,
-                        "max_submitted_notional_fraction": strategies[row["coin"]].max_submitted_notional_fraction,
-                    }
-                    if args.signal_variant == GAP_RUNNER_VARIANT else None
-                ),
-                "structural_support": (
-                    {
-                        "accepted": strategies[row["coin"]].structural_accepted,
-                        "rejected": strategies[row["coin"]].structural_rejected,
-                        "decisions": strategies[row["coin"]].structural_state_decisions,
-                    }
-                    if args.signal_variant in STRUCTURAL_SUPPORT_VARIANTS else None
-                ),
-                "line_breaks": (
-                    {
-                        "first_crosses": strategies[
-                            row["coin"]
-                        ].line_state.first_crosses,
-                        "weak_crosses": strategies[row["coin"]].line_state.weak_crosses,
-                        "invalid_price_skips": strategies[
-                            row["coin"]
-                        ].line_invalid_price_skips,
-                        "time_exits": strategies[row["coin"]].line_time_exits,
-                    }
-                    if args.signal_variant == "trendline-4h"
-                    else None
-                ),
-                "line_support": (
-                    {
-                        "broken_pairs": strategies[row["coin"]].line_state.broken_pairs,
-                        "touches": strategies[row["coin"]].line_state.touches,
-                        "rejections": strategies[row["coin"]].line_state.rejections,
-                        "room_skips": strategies[row["coin"]].line_state.room_skips,
-                        "invalid_price_skips": strategies[
-                            row["coin"]
-                        ].line_invalid_price_skips,
-                        "time_exits": strategies[row["coin"]].line_time_exits,
-                    }
-                    if args.signal_variant == "line-support-4h"
-                    else None
-                ),
-                "line_resting": (
-                    {
-                        "broken_pairs": strategies[row["coin"]].line_state.broken_pairs,
-                        "room_skips": strategies[row["coin"]].line_state.room_skips,
-                        "invalid_price_skips": strategies[
-                            row["coin"]
-                        ].line_invalid_price_skips,
-                        "time_exits": strategies[row["coin"]].line_time_exits,
-                        "submitted_brackets": strategies[row["coin"]].waiting_released,
-                    }
-                    if args.signal_variant == "line-resting-4h"
-                    else None
-                ),
+                "outer_context": None,
+                "box_edge": None,
+                "failed_range_breakout": None,
+                "support_pullback": None,
+                "tiered_pullback": {
+                    "source_plans": len(strategies[row["coin"]].broad_planned_pairs),
+                    "submitted_bundles": strategies[row["coin"]].bundle_submissions,
+                    "retired_bundles": strategies[row["coin"]].bundle_retirements,
+                    "supersessions": strategies[row["coin"]].bundle_supersessions,
+                    "cancel_race_fills": strategies[row["coin"]].bundle_cancel_race_fills,
+                    "invalid_price_skips": strategies[row["coin"]].bundle_invalid_price_skips,
+                    "minimum_skips": strategies[row["coin"]].bundle_minimum_skips,
+                    "order_failures": strategies[row["coin"]].bundle_order_failures,
+                    "untouched_plan_voids": strategies[row["coin"]].waiting_voided,
+                },
+                "entry_line_cancel": None,
+                "brooks_confirmation": None,
+                "gap_runner": None,
+                "structural_support": None,
+                "line_breaks": None,
+                "line_support": None,
+                "line_resting": None,
                 "risk_size_skips": strategies[row["coin"]].risk_size_skips,
-                "staged_execution": (
-                    {
-                        "missing_impulse": strategies[
-                            row["coin"]
-                        ].staged_missing_impulse,
-                        "split_skips": strategies[row["coin"]].staged_split_skips,
-                        "invalid_price_skips": strategies[
-                            row["coin"]
-                        ].staged_invalid_price_skips,
-                        "invalid_notional_skips": strategies[
-                            row["coin"]
-                        ].staged_invalid_notional_skips,
-                        "invalid_actual_target_closes": strategies[
-                            row["coin"]
-                        ].staged_invalid_actual_target_closes,
-                        "unallocatable_closes": strategies[
-                            row["coin"]
-                        ].staged_unallocatable_closes,
-                        "protection_failures": strategies[
-                            row["coin"]
-                        ].staged_protection_failures,
-                        "order_failures": strategies[row["coin"]].staged_order_failures,
-                        "same_bar_first_stop": strategies[
-                            row["coin"]
-                        ].staged_same_bar_first_stop,
-                        "breakeven_unavailable": strategies[
-                            row["coin"]
-                        ].staged_breakeven_unavailable,
-                        "stop_cancel_emergencies": strategies[
-                            row["coin"]
-                        ].staged_stop_cancel_emergencies,
-                        "emergency_closes": strategies[
-                            row["coin"]
-                        ].staged_emergency_closes,
-                    }
-                    if args.exit_variant in STAGED_EXITS
-                    else None
-                ),
+                "staged_execution": None,
                 "positions": sum(
                     positions["instrument_id"] == str(row["instrument_id"]),
                 ),

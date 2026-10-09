@@ -58,7 +58,10 @@
     "raw_reports": {"enum": ["sealed_local", "durable", "temporary", "unavailable"]},
     "artifact_manifest_ref": {"$ref": "#/$defs/file_ref"},
     "failure_reasons": {"type": "array", "items": {"type": "string", "minLength": 1}},
-    "control_run_id": {"type": ["string", "null"]}
+    "control_run_id": {"type": ["string", "null"]},
+    "strategy_binding": {"$ref": "#/$defs/strategy_binding"},
+    "runtime_identity": {"$ref": "#/$defs/runtime_identity"},
+    "effective_config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   },
   "allOf": [
     {
@@ -68,9 +71,13 @@
     {
       "if": {"properties": {"raw_reports": {"enum": ["sealed_local", "durable"]}}},
       "then": {"required": ["artifact_manifest_ref"]}
-    }
+    },
+    {"if": {"required": ["strategy_binding"]}, "then": {"required": ["runtime_identity", "effective_config_sha256"], "not": {"required": ["source_revision"]}}},
+    {"if": {"anyOf": [{"required": ["runtime_identity"]}, {"required": ["effective_config_sha256"]}]}, "then": {"required": ["strategy_binding", "runtime_identity", "effective_config_sha256"]}}
   ],
   "$defs": {
+    "strategy_binding": {"title": "Fixed Dolt strategy source binding", "type": "object", "additionalProperties": false, "required": ["database", "commit", "strategy_id", "revision", "source_sha256", "entry_class", "runtime_contract"], "properties": {"database": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"}, "commit": {"type": "string", "pattern": "^[0-9a-v]{32}$"}, "strategy_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"}, "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647}, "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "entry_class": {"type": "string", "minLength": 1, "maxLength": 100}, "runtime_contract": {"const": "r1-native-v1"}}},
+    "runtime_identity": {"type": "object", "additionalProperties": false, "required": ["image_ref", "image_digest", "platform", "runtime_contract"], "properties": {"image_ref": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$"}, "image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "platform": {"enum": ["linux/arm64", "linux/amd64"]}, "runtime_contract": {"const": "r1-native-v1"}}},
     "file_ref": {
       "type": "object",
       "additionalProperties": false,
