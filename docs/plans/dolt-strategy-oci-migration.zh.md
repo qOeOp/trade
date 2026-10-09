@@ -50,8 +50,8 @@ Docker 加载无 tag 的归档后需要恢复 registry 引用并重新核对 dig
 
 维护验收回执见 `backtest/r1/receipts/parity-dolt-oci-h19a.json`；原始报告位于
 `/Users/vx/.local/share/trade/research-artifacts-acceptance`，镜像、Dolt/报告备份与复建包位于上述外置迁移根。
-`research/strategy-history.json` 记录已移出产品目录的历史源码路径和哈希，外置
-`legacy-source.bundle` 保存包含原来源 commit 的完整 Git 历史。其余多模块变体尚未发表为完整 Dolt 策略。
+外置 `legacy-source.bundle` 保存包含原来源 commit 的完整 Git 历史。
+其余多模块变体尚未发表为完整 Dolt 策略。
 
 ## 剩余范围与工作台发现
 
