@@ -19,7 +19,7 @@ from research.records.dolt_store import ConflictError
 from research.records.store import canonical
 
 
-RUNTIME_CONTRACT = "r1-native-v1"
+RUNTIME_CONTRACTS = {"r1-native-v1", "r1-native-v2"}
 STATUSES = {"research", "retired", "archived"}
 BINDING_FIELDS = {"database", "commit", "strategy_id", "revision", "source_sha256",
                   "entry_class", "runtime_contract"}
@@ -68,7 +68,7 @@ def _metadata(value):
               "runtime_contract": value["runtime_contract"], "status": value["status"]}
     if not result["entry_class"].isidentifier():
         raise RecordError("entry_class must be a Python class identifier")
-    if result["runtime_contract"] != RUNTIME_CONTRACT:
+    if result["runtime_contract"] not in RUNTIME_CONTRACTS:
         raise RecordError(f"unsupported runtime contract: {result['runtime_contract']}")
     if not isinstance(result["status"], str) or result["status"] not in STATUSES:
         raise RecordError("strategy status must be research, retired or archived")

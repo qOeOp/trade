@@ -1,11 +1,13 @@
 """rc3 BacktestNode bridge for one verified external native strategy class."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from nautilus_trader.model import BarType, InstrumentId, Quantity, StrategyId
 from nautilus_trader.trading import Strategy
 
 from backtest.r1.strategy_loader import LoadedStrategy
+from backtest.r1.replay_inputs import warmup_daily_bars
 
 
 STRATEGIES: dict[str, Strategy] = {}
@@ -23,10 +25,11 @@ class NodeStrategyConfig:
     daily_root: str | None = None
     risk_budget_fraction: float | None = None
     max_coin_notional_fraction: float = 0.05
+    daily_warmup: bool = False
 
 
 class _NodeConfigured:
-    """Preserve the H19a constructor/account contract at the native boundary."""
+    """Adapt frozen native constructor and input configuration."""
 
     def __new__(cls, config: NodeStrategyConfig):
         return Strategy.__new__(cls)
@@ -38,7 +41,10 @@ class _NodeConfigured:
             BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
             Quantity.from_str(config.trade_size),
             trade_start_ns=config.trade_start_ns,
-            historical_daily_bars=[],
+            historical_daily_bars=(
+                warmup_daily_bars(Path(config.daily_root), config.coin, instrument_id, config.input_start_ns)
+                if config.daily_warmup else []
+            ),
             execution_bar_minutes=5,
             strategy_id=StrategyId(config.strategy_id),
             signal_variant=config.signal_variant,

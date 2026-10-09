@@ -17,7 +17,7 @@ from types import ModuleType
 from nautilus_trader.trading import Strategy
 
 
-RUNTIME_CONTRACT = "r1-native-v1"
+RUNTIME_CONTRACT = "r1-native-v2"
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 

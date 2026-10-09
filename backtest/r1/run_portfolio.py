@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -22,7 +23,6 @@ from backtest.r1.replay_inputs import read_instruments as _read_instruments
 from backtest.r1.strategy_loader import RUNTIME_CONTRACT, LoadedStrategy, load_strategy, _read_regular_file
 
 
-BROAD_TIER_VARIANT = "support-broad-two-tier-4h"
 REPLAY_SUBMIT_RATE = ACCOUNT_CONTRACT["max_order_submit_rate"]
 
 
@@ -87,10 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--strategy-sha256", required=True)
     parser.add_argument("--strategy-binding", type=Path)
     parser.add_argument("--execution-binding", type=Path)
-    parser.add_argument("--signal-variant", default=BROAD_TIER_VARIANT)
-    parser.add_argument("--exit-variant", default="tier-target-b")
-    parser.add_argument("--risk-budget-bps", type=float, default=25.0)
+    parser.add_argument("--signal-variant", required=True)
+    parser.add_argument("--exit-variant", required=True)
+    parser.add_argument("--risk-budget-bps", type=float)
     parser.add_argument("--coin-notional-cap-pct", type=float, default=5.0)
+    parser.add_argument("--daily-warmup", action="store_true")
     return parser
 
 
@@ -98,14 +99,12 @@ def parse_configuration(argv: list[str] | None = None):
     """Resolve runner defaults without executing source or opening research data."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.signal_variant != BROAD_TIER_VARIANT or args.exit_variant != "tier-target-b":
-        parser.error(
-            "current external strategy contract supports only H19a "
-            "support-broad-two-tier-4h / tier-target-b; replay unconverted variants "
-            "from a frozen historical Git ref"
-        )
-    if args.risk_budget_bps != 25.0 or args.coin_notional_cap_pct != 5.0:
-        parser.error("H19a requires 25-bp total stop risk and 5% coin notional cap")
+    if args.risk_budget_bps is not None and (
+        not math.isfinite(args.risk_budget_bps) or not 0 < args.risk_budget_bps < 10_000
+    ):
+        parser.error("risk budget must be finite and between 0 and 10000 bps")
+    if not math.isfinite(args.coin_notional_cap_pct) or not 0 < args.coin_notional_cap_pct <= 100:
+        parser.error("coin notional cap must be finite and between 0 and 100 percent")
     return args
 
 
@@ -125,8 +124,26 @@ def effective_configuration(args) -> dict:
         "exit_variant": args.exit_variant,
         "risk_budget_bps": args.risk_budget_bps,
         "coin_notional_cap_pct": args.coin_notional_cap_pct,
+        "daily_warmup": args.daily_warmup,
         "native_account": ACCOUNT_CONTRACT.copy(),
     }
+
+
+def validate_strategy_configuration(strategy: LoadedStrategy, args) -> None:
+    """Let the complete source own its selected rules and sizing contract."""
+    cls = strategy.strategy_class
+    for name in ("validate_replay_configuration", "replay_diagnostics", "replay_integrity_findings"):
+        if not callable(getattr(cls, name, None)):
+            raise ValueError(f"{RUNTIME_CONTRACT} strategy requires {name}")
+    cls.validate_replay_configuration(effective_configuration(args))
+
+
+def _diagnostics(strategy) -> dict:
+    value = strategy.replay_diagnostics()
+    reserved = {"coin", "instrument", "quantity", "counts", "positions"}
+    if not isinstance(value, dict) or reserved.intersection(value):
+        raise ValueError("strategy diagnostics must not replace native report facts")
+    return value
 
 
 def _execution_metadata(args) -> dict:
@@ -157,6 +174,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     strategy = load_strategy(
         args.strategy_file, args.strategy_class, args.strategy_sha256, args.strategy_binding,
     )
+    validate_strategy_configuration(strategy, args)
     start_dt = datetime.fromisoformat(args.start).astimezone(UTC)
     end_dt = datetime.fromisoformat(args.end).astimezone(UTC)
     trade_start_dt = (
@@ -198,8 +216,6 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 f"{row['coin']}: streamed totals do not match download receipt",
             )
     integrity_findings = []
-    if any(strategy.slot_violations for strategy in strategies.values()):
-        integrity_findings.append("native entry fills violated a per-coin slot")
     account = engine.portfolio.account(venue=Venue("BINANCE"))
     if account is None:
         raise RuntimeError("native portfolio account missing")
@@ -228,12 +244,16 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         writer.writerows(sorted(result.returns_series.items()))
     positions = reports["positions.csv"]
     orders = reports["orders.csv"]
-    if (
-        (orders["status"] == "DENIED").any()
-        or (orders["status"] == "REJECTED").any()
-        or any(strategy.bundle_order_failures for strategy in strategies.values())
-    ):
-        integrity_findings.append("native budgeted-tier orders were denied or rejected")
+    denied_or_rejected = bool(orders["status"].isin(("DENIED", "REJECTED")).any())
+    for native_strategy in strategies.values():
+        findings = native_strategy.replay_integrity_findings(denied_or_rejected)
+        if not isinstance(findings, list) or any(not isinstance(item, str) or not item for item in findings):
+            raise ValueError("strategy integrity findings must be nonempty strings")
+        for finding in findings:
+            if finding not in integrity_findings:
+                integrity_findings.append(finding)
+    if denied_or_rejected and not integrity_findings:
+        integrity_findings.append("native orders were denied or rejected")
     closed = positions[positions["ts_closed"].notna()]
     pnl = (
         closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
@@ -246,7 +266,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     summary = {
         **_source_metadata(strategy),
         **execution_metadata,
-        "strategy": "H19a-support-broad-two-tier-4h",
+        "strategy": strategy.binding["strategy_id"] if strategy.binding else strategy.entry_class,
         "signal_variant": args.signal_variant,
         "exit_variant": args.exit_variant,
         "integrity_findings": integrity_findings,
@@ -298,35 +318,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 "instrument": str(row["instrument_id"]),
                 "quantity": row["quantity"],
                 "counts": row["counts"],
-                "signals": strategies[row["coin"]].signals,
-                "box_breaks": strategies[row["coin"]].box_breaks,
-                "outer_context": None,
-                "box_edge": None,
-                "failed_range_breakout": None,
-                "support_pullback": None,
-                "tiered_pullback": {
-                    "source_plans": len(strategies[row["coin"]].broad_planned_pairs),
-                    "submitted_bundles": strategies[row["coin"]].bundle_submissions,
-                    "retired_bundles": strategies[row["coin"]].bundle_retirements,
-                    "supersessions": strategies[row["coin"]].bundle_supersessions,
-                    "cancel_race_fills": strategies[row["coin"]].bundle_cancel_race_fills,
-                    "invalid_price_skips": strategies[row["coin"]].bundle_invalid_price_skips,
-                    "minimum_skips": strategies[row["coin"]].bundle_minimum_skips,
-                    "order_failures": strategies[row["coin"]].bundle_order_failures,
-                    "untouched_plan_voids": strategies[row["coin"]].waiting_voided,
-                },
-                "entry_line_cancel": None,
-                "brooks_confirmation": None,
-                "gap_runner": None,
-                "structural_support": None,
-                "line_breaks": None,
-                "line_support": None,
-                "line_resting": None,
-                "risk_size_skips": strategies[row["coin"]].risk_size_skips,
-                "staged_execution": None,
-                "positions": sum(
-                    positions["instrument_id"] == str(row["instrument_id"]),
-                ),
+                **_diagnostics(strategies[row["coin"]]),
+                "positions": sum(positions["instrument_id"] == str(row["instrument_id"])),
             }
             for row in rows
         ],

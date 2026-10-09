@@ -14,7 +14,7 @@ from research.records.common import RecordError
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
-CONTRACT = "r1-native-v1"
+CONTRACTS = {"r1-native-v1", "r1-native-v2"}
 SOURCE_PATHS = {f"{name}_source_sha256": f"backtest/r1/{name}.py"
                 for name in ("runner", "native_node", "node_strategy", "replay_inputs", "replay_util", "strategy_loader")}
 SOURCE_PATHS["runner_source_sha256"] = "backtest/r1/run_portfolio.py"
@@ -33,7 +33,7 @@ def validate_identity(value: dict) -> dict:
         raise RecordError("runtime image_ref and image_digest disagree")
     if value["platform"] not in {"linux/arm64", "linux/amd64"}:
         raise RecordError("runtime platform must be linux/arm64 or linux/amd64")
-    if value["runtime_contract"] != CONTRACT:
+    if value["runtime_contract"] not in CONTRACTS:
         raise RecordError("unsupported runtime contract")
     return dict(value)
 

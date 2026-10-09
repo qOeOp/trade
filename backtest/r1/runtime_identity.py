@@ -7,14 +7,14 @@ import json
 from pathlib import Path
 import sys
 
-from backtest.r1.run_portfolio import effective_configuration, parse_configuration, runtime_source_metadata
+from backtest.r1.run_portfolio import RUNTIME_CONTRACT, effective_configuration, parse_configuration, runtime_source_metadata
 
 
 def inspect(runner_args=None):
     metadata = runtime_source_metadata()
     root = Path(__file__).resolve().parents[2]
     result = {
-        "runtime_contract": "r1-native-v1",
+        "runtime_contract": RUNTIME_CONTRACT,
         "nautilus_version": importlib.metadata.version("nautilus_trader"),
         "python_version": sys.version.split()[0],
         "dependency_lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),

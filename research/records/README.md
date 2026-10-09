@@ -236,11 +236,11 @@ uv run --frozen python -m research.records.cli strategy publish \
   --expected-version CURRENT-VERSION --operation-id UNIQUE-SOURCE-PUBLICATION-ID
 uv run --frozen python -m research.records.cli strategy list --family-id r1
 uv run --frozen python -m research.records.cli --at EXACT-DOLT-SOURCE-COMMIT \
-  strategy show r1.broad-two-tier --revision 1 --brief
+  strategy show r1.broad-two-tier --revision 2 --brief
 uv run --frozen python -m research.records.cli --at EXACT-DOLT-SOURCE-COMMIT \
-  strategy lineage r1.broad-two-tier --revision 1
+  strategy lineage r1.broad-two-tier --revision 2
 uv run --frozen python -m research.records.cli --at EXACT-DOLT-SOURCE-COMMIT \
-  strategy export r1.broad-two-tier --revision 1 \
+  strategy export r1.broad-two-tier --revision 2 \
   --destination /tmp/new-strategy-workdir/strategy.py \
   --binding-output /tmp/new-strategy-workdir/binding.json
 ```
@@ -253,10 +253,30 @@ identity in the preregistered attempt before executing its source. A later
 source change needs a new source revision and a new attempt; it cannot replace
 that attempt's fixed source under the same registration.
 
-The first migration slice is H19a: `r1.broad-two-tier`, family `r1`, entry class
-`R1Strategy`, contract `r1-native-v1`. Other historical multi-module variants
-are not complete current Dolt strategies until individually consolidated,
-published and checked by native paired replay.
+The local framework demonstration dataset now contains 26 complete R1 strategy
+identities and 27 source revisions. The current files use `PublishedR1Strategy`
+and `r1-native-v2`; H19a is `r1.broad-two-tier@2`. Each file includes ordinary
+Python trading rules plus `validate_replay_configuration`, `replay_diagnostics`
+and `replay_integrity_findings`. The shared runner transports scalar
+configuration and explicit `daily_warmup`, without a strategy identity allowlist.
+The published source decides which signal, exit, warmup and sizing values it
+accepts. Fixed derivation relations explain reviewed rule reuse, not economic
+support or qualification.
+
+The original `r1.broad-two-tier@1` remains readable as `R1Strategy` /
+`r1-native-v1`, and its retained accepted image can still execute those original
+bytes. The current v2 runner requires the source hooks rather than silently
+adapting v1. D105 sealed five representative native migration pairs (H19a,
+H18a, R-1u, H04 staged exits and H29a), plus the complete 37-instrument H19a
+pair. These checks do not establish native parity for every stored variant.
+The framework suite passed 199 tests, including real isolated Dolt integration.
+
+These strategy and experiment objects are disposable R&D demos for exploring
+the framework. They are not a permanent product strategy inventory or admitted
+knowledge; clearing that demo dataset is a separate action and has not been
+performed. Missing historical demo source does not require a recovery project.
+Future research still publishes its exact source and initial contract before
+reading a new result.
 
 ## One research round (Agent-owned)
 
@@ -336,7 +356,7 @@ Dolt source revision with `--strategy-id`, `--strategy-revision` and `--source-a
 and supply `--runtime` with a retained runtime identity JSON. Its exact fields
 are `image_ref` (registry path plus `@sha256:` manifest digest), matching
 `image_digest`, `platform` (`linux/arm64` or `linux/amd64`) and
-`runtime_contract: r1-native-v1`. Tags and Docker configuration IDs cannot
+`runtime_contract: r1-native-v2`. Tags and Docker configuration IDs cannot
 replace the manifest digest. Pull that exact reference before running; the
 wrapper refuses an unavailable or mismatched image.
 
@@ -349,7 +369,7 @@ canonical input contract; the inputs themselves stay in external Catalogs.
 ARTIFACT_ROOT=/Users/vx/.local/share/trade/research-artifacts
 uv run --frozen python -m research.records.artifacts run \
   --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID --attempt-id MY-ATTEMPT-ID \
-  --strategy-id r1.broad-two-tier --strategy-revision 1 \
+  --strategy-id r1.broad-two-tier --strategy-revision 2 \
   --source-at EXACT-DOLT-SOURCE-COMMIT --runtime /path/to/runtime-identity.json \
   --input-identity /path/to/retained/input-identity.json -- \
   --catalog-root /path/to/minute-catalog --daily-root /path/to/daily-catalog \
@@ -370,8 +390,14 @@ initial attempt registration and exact input identity. Replay and native tier
 audit use the same image with no network, read-only source/input mounts and
 only `/reports` writable on the host.
 
-The current image contract supports H19a tiered rules only. The wrapper hashes
-selected minute/daily Catalog trees and quantity CSV before and after replay,
+The current image contract executes complete v2 source and its validation,
+diagnostic and integrity hooks. Its native auditor checks report identities,
+links, final protection and reported economics, with additional geometry,
+quantity and risk gates for recognized budgeted tier shapes. The generic audit
+does not prove every strategy's signal clock, staged-exit race or source-specific
+risk invariant. A candidate needs the relevant independent native checks before
+claiming those properties. The wrapper hashes selected minute/daily Catalog
+trees and quantity CSV before and after replay,
 retains exported source, bindings, stdout/stderr, the six native reports and
 audit, then atomically publishes `<root>/<run-id>`. It never overwrites a run ID.
 Failed execution retains a sealed `failed` manifest for diagnosis; absent native

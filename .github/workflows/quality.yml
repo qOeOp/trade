@@ -75,7 +75,8 @@ jobs:
           assert current['recovery']['passed']
           assert current['native_order_integrity'] == {'integrity_passed': True, 'denied_orders': 0, 'rejected_orders': 0}
           for name, digest in current['runtime_source_sha256'].items():
-              assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
+              raw = subprocess.check_output(['git', 'show', 'c77702fc5c4a8afba318f32913ba9582df4677a4:' + name])
+              assert hashlib.sha256(raw).hexdigest() == digest, name
           source = current['legacy_source']
           raw = subprocess.check_output(['git', 'show', source['commit'] + ':' + source['path']])
           assert hashlib.sha256(raw).hexdigest() == current['strategy_binding']['source_sha256']
