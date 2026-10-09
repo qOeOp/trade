@@ -20,16 +20,26 @@
     "original_registration_commit": "1cde9ac59"
   },
   "decision": {
-    "layer": "pending",
-    "outcome": "pending",
-    "scope": "一次只读 37 币 Catalog 容量核验；年度和 H10/H23a/H26a 结果已暴露。",
-    "next_action": "登记和冻结 reader 后只运行一次；四个容量门槛全部通过才另行登记 H29a 原生年度候选。"
+    "layer": "source",
+    "outcome": "passed",
+    "scope": "37 Catalog、158 有效几何信号、下一根 120 次触发价可达、37 币及 13 月，事前 100/40/15/6 容量门槛全部通过；未生成原生成交或收益。",
+    "next_action": "另行预注册一条 H29a Nautilus 原生 STOP_MARKET/OTO 策略、BTC/ETH 完整性 pilot 和同代码 H10 37 币共享账户配对回放。"
   },
   "evidence_refs": [
     {
       "kind": "input_identity",
       "path": "research/r1_native/results/2026-10-07-input-identity.json",
       "sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc"
+    },
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-09-d99-failed-range-break-capacity.json",
+      "sha256": "0ccd6de847327963d070e97509f8e2162cbea443dcd7eb799d4536ecaddb6d24"
+    },
+    {
+      "kind": "source_gate",
+      "path": "research/r1_native/results/2026-10-09-d99-failed-range-break-events.json",
+      "sha256": "fe291be8173049f167d3012231459cc3e311de453039c7959adeb9480ab9c408"
     }
   ]
 }
