@@ -5,7 +5,7 @@
 - Use `BacktestNode` to load funding from the existing Catalog. `strategies/r1/native_node.py` validates inputs and derives native MARK updates from the prepared MARK bars; Nautilus owns settlement, orders, fills, risk and account state.
 - Preserve reproducible research evidence and data lineage. A strategy, dependency or data change requires a new paired replay before claiming parity.
 - Keep one current product blueprint in `docs/architecture.zh.md`. Record research/product findings under `docs/plans/`.
-- During strategy R&D, record material or recurring failures or missing capabilities of the shared research workbench as product findings under `docs/plans/`: include the blocked Agent task, evidence, iteration cost, workaround, and smallest shared capability needed; keep strategy-specific hypotheses in research records.
+- During strategy R&D, keep hypotheses, results and next decisions in their attempt/run records; separately record material or recurring research-workbench gaps as product findings under `docs/plans/` with affected attempt IDs, blocked Agent task, evidence, iteration cost, workaround and smallest shared capability needed.
 - Research backtests are read-only. Real trading, production writes, or changing a refusal or risk boundary require explicit user authority. Do not use exchange trading credentials for research.
 
 ## Research records and retained results
