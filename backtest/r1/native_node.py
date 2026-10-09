@@ -28,13 +28,33 @@ from nautilus_trader.model import (
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.risk import RiskEngineConfig
 
-from backtest.r1.node_strategy import STRATEGIES
+from backtest.r1.node_strategy import STRATEGIES, register_strategy
 from backtest.r1.replay_inputs import month_edges, validate_funding_receipt
 from backtest.r1.replay_util import _ns
-from strategies.r1 import R1Strategy
+from backtest.r1.strategy_loader import LoadedStrategy
 
 
 BAR_INTERVAL_NS = 5 * 60_000_000_000
+ACCOUNT_CONTRACT = {
+    "venue": "BINANCE",
+    "oms_type": "NETTING",
+    "account_type": "MARGIN",
+    "book_type": "L1_MBP",
+    "base_currency": "USDT",
+    "starting_balance_usdt": "100000",
+    "default_leverage": "1",
+    "support_gtd_orders": True,
+    "support_contingent_orders": True,
+    "reject_stop_orders": False,
+    "bar_execution": True,
+    "bar_adaptive_high_low_ordering": False,
+    "trader_id": "R1-PORTFOLIO-001",
+    "time_bars_timestamp_on_close": True,
+    "time_bars_skip_first_non_full_bar": False,
+    "validate_data_sequence": True,
+    "max_order_submit_rate": "200/00:00:01",
+    "chunk_size": 50_000,
+}
 
 
 class NodeReports:
@@ -154,7 +174,7 @@ def _prepare_mark_catalog(row: dict, target: Path, start, end) -> None:
 
 
 def run_native_node(
-    rows: list[dict], args, start_dt, end_dt, trade_start: int, strategy_class
+    rows: list[dict], args, start_dt, end_dt, trade_start: int, strategy: LoadedStrategy
 ):
     mark_root = _mark_root(args)
     data = []
@@ -186,47 +206,43 @@ def run_native_node(
     config = BacktestRunConfig(
         venues=[
             BacktestVenueConfig(
-                name="BINANCE",
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.MARGIN,
-                book_type=BookType.L1_MBP,
-                base_currency=Currency.from_str("USDT"),
-                starting_balances=["100000 USDT"],
-                default_leverage=Decimal(1),
-                support_gtd_orders=True,
-                support_contingent_orders=True,
-                reject_stop_orders=False,
-                bar_execution=True,
-                bar_adaptive_high_low_ordering=False,
+                name=ACCOUNT_CONTRACT["venue"],
+                oms_type=getattr(OmsType, ACCOUNT_CONTRACT["oms_type"]),
+                account_type=getattr(AccountType, ACCOUNT_CONTRACT["account_type"]),
+                book_type=getattr(BookType, ACCOUNT_CONTRACT["book_type"]),
+                base_currency=Currency.from_str(ACCOUNT_CONTRACT["base_currency"]),
+                starting_balances=[f"{ACCOUNT_CONTRACT['starting_balance_usdt']} {ACCOUNT_CONTRACT['base_currency']}"],
+                default_leverage=Decimal(ACCOUNT_CONTRACT["default_leverage"]),
+                support_gtd_orders=ACCOUNT_CONTRACT["support_gtd_orders"],
+                support_contingent_orders=ACCOUNT_CONTRACT["support_contingent_orders"],
+                reject_stop_orders=ACCOUNT_CONTRACT["reject_stop_orders"],
+                bar_execution=ACCOUNT_CONTRACT["bar_execution"],
+                bar_adaptive_high_low_ordering=ACCOUNT_CONTRACT["bar_adaptive_high_low_ordering"],
             )
         ],
         data=data,
         engine=BacktestEngineConfig(
-            trader_id=TraderId("R1-PORTFOLIO-001"),
+            trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
             data_engine=DataEngineConfig(
-                time_bars_timestamp_on_close=True,
-                time_bars_skip_first_non_full_bar=False,
-                validate_data_sequence=True,
+                time_bars_timestamp_on_close=ACCOUNT_CONTRACT["time_bars_timestamp_on_close"],
+                time_bars_skip_first_non_full_bar=ACCOUNT_CONTRACT["time_bars_skip_first_non_full_bar"],
+                validate_data_sequence=ACCOUNT_CONTRACT["validate_data_sequence"],
             ),
-            risk_engine=RiskEngineConfig(max_order_submit_rate="200/00:00:01"),
+            risk_engine=RiskEngineConfig(max_order_submit_rate=ACCOUNT_CONTRACT["max_order_submit_rate"]),
         ),
-        chunk_size=50_000,
+        chunk_size=ACCOUNT_CONTRACT["chunk_size"],
         dispose_on_completion=False,
     )
     node = BacktestNode([config])
     node.build()
     STRATEGIES.clear()
-    wrapper_name = (
-        "NodeH19aStrategy"
-        if strategy_class is R1Strategy
-        else f"Node{strategy_class.__name__}"
-    )
+    strategy_path = register_strategy(strategy)
     for row in rows:
         node.add_strategy_from_config(
             config.id,
             ImportableStrategyConfig(
-                strategy_path=f"backtest.r1.node_strategy:{wrapper_name}",
+                strategy_path=strategy_path,
                 config_path="backtest.r1.node_strategy:NodeStrategyConfig",
                 config={
                     "coin": row["coin"],

@@ -82,6 +82,32 @@ def _read_evidence_json(ref: dict) -> dict:
 
 
 def _check_source_revision(run: dict) -> str:
+    if "strategy_binding" in run:
+        from research.records.artifacts import ArtifactError, verify
+        from research.records.runtime import validate_identity
+        from research.records.store import open_store
+        from research.records.strategies import validate_binding
+        if "source_revision" in run:
+            raise RecordError(f"{run['run_id']}: conflicting Git and Dolt strategy identities")
+        store = open_store()
+        if not hasattr(store, "adapter"):
+            raise RecordError("Dolt strategy source validation requires its database owner")
+        validate_binding(store.adapter, run["strategy_binding"])
+        validate_identity(run["runtime_identity"])
+        ref = run.get("artifact_manifest_ref")
+        if ref is None:
+            raise RecordError(f"{run['run_id']}: Dolt/OCI run has no sealed execution manifest")
+        manifest = _read_evidence_json(ref)
+        for field in ("strategy_binding", "runtime_identity", "effective_config_sha256"):
+            if manifest.get(field) != run[field]:
+                raise RecordError(f"{run['run_id']}: {field} differs from sealed manifest")
+        try:
+            verify(Path(os.environ["TRADE_RESEARCH_ARTIFACT_ROOT"]), run["run_id"])
+        except (ArtifactError, OSError, KeyError) as exc:
+            raise RecordError(f"{run['run_id']}: sealed source verification failed: {exc}") from exc
+        if run["source_files_sha256"].get("strategy_source_sha256") != run["strategy_binding"]["source_sha256"]:
+            raise RecordError(f"{run['run_id']}: source digest differs from Dolt binding")
+        return "verified_dolt_oci"
     revision = run.get("source_revision")
     if revision is None:
         return "unknown"
@@ -216,6 +242,10 @@ def _summary(run: dict) -> dict:
             raise RecordError(
                 f"{run['run_id']}: {field} digest disagrees with native summary"
             )
+    if "strategy_binding" in run:
+        for field in ("strategy_binding", "runtime_identity", "effective_config_sha256"):
+            if summary.get(field) != run[field]:
+                raise RecordError(f"{run['run_id']}: {field} disagrees with native summary")
     return summary
 
 
@@ -380,7 +410,7 @@ def _find(
     ]
 
 
-def _compare(candidate_id: str, control_id: str, runs: dict[str, dict]) -> dict:
+def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engineering_audit: bool = False) -> dict:
     if candidate_id not in runs or control_id not in runs:
         raise RecordError("unknown candidate or control run")
     candidate, control = runs[candidate_id], runs[control_id]
@@ -397,9 +427,22 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict]) -> dict:
         "cost_model",
         "nautilus_version",
     )
-    mismatches = [field for field in fields if candidate[field] != control[field]]
+    mismatches = [field for field in fields if candidate[field] != control[field]
+                  and not (engineering_audit and field == "nautilus_version")]
     if mismatches:
         raise RecordError(f"incomparable runs: {', '.join(mismatches)}")
+    modern = ["strategy_binding" in run for run in (candidate, control)]
+    environment_changes = []
+    if modern[0] != modern[1]:
+        environment_changes.append("source_custody_backend")
+    if all(modern):
+        for field in ("image_digest", "platform", "runtime_contract"):
+            if candidate["runtime_identity"][field] != control["runtime_identity"][field]:
+                environment_changes.append(field)
+        if candidate["effective_config_sha256"] != control["effective_config_sha256"]:
+            raise RecordError("incomparable runs: effective configuration differs")
+    if environment_changes and not engineering_audit:
+        raise RecordError("incomparable runs: " + ", ".join(environment_changes) + "; use --engineering-audit for an environment migration")
     source_revision_status = [
         _check_source_revision(run) for run in (candidate, control)
     ]
@@ -426,7 +469,8 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict]) -> dict:
     return {
         "candidate": candidate_id,
         "control": control_id,
-        "comparability": "recorded_contract_matches",
+        "comparability": "engineering_environment_migration" if engineering_audit else "recorded_contract_matches",
+        **({"environment_changes": environment_changes} if engineering_audit else {}),
         "evidence_grade": (
             "independent"
             if candidate["evidence_grade"] == control["evidence_grade"] == "independent"
@@ -437,7 +481,8 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict]) -> dict:
         ),
         "raw_report_status": [candidate["raw_reports"], control["raw_reports"]],
         "source_revision_status": source_revision_status,
-        "scope": "descriptive paired development read; not independent qualification",
+        "scope": ("engineering migration audit; not a paired research decision or strategy qualification"
+                  if engineering_audit else "descriptive paired development read; not independent qualification"),
         "metrics": {
             metric: {
                 "candidate": left[metric],
@@ -471,6 +516,8 @@ def main() -> int:
     compare = command.add_parser("compare")
     compare.add_argument("candidate_run")
     compare.add_argument("control_run")
+    compare.add_argument("--engineering-audit", action="store_true",
+                         help="explicitly compare legacy and migrated run custody for implementation parity")
     ledger = command.add_parser("ledger", help="manage the local Dolt metadata store")
     lifecycle = ledger.add_subparsers(dest="action", required=True)
     initialize = lifecycle.add_parser("init")
@@ -527,8 +574,33 @@ def main() -> int:
     attempt.add_argument("--file", type=Path, required=True)
     attempt.add_argument("--expected-version", type=int, required=True)
     attempt.add_argument("--operation-id", required=True)
+    strategies = command.add_parser("strategy", help="publish and export complete Dolt strategy source revisions")
+    strategy_actions = strategies.add_subparsers(dest="action", required=True)
+    strategy_publish = strategy_actions.add_parser("publish")
+    strategy_publish.add_argument("--file", type=Path, required=True, help="strategy metadata JSON")
+    strategy_publish.add_argument("--source", type=Path, required=True, help="complete UTF-8 Python source file")
+    strategy_publish.add_argument("--expected-version", type=int, required=True)
+    strategy_publish.add_argument("--operation-id", required=True)
+    strategy_list = strategy_actions.add_parser("list")
+    strategy_list.add_argument("--family-id")
+    strategy_list.add_argument("--status", choices=("research", "retired", "archived"))
+    strategy_list.add_argument("--all-revisions", action="store_true", help="include immutable older source revisions")
+    for name in ("show", "lineage", "export"):
+        action = strategy_actions.add_parser(name)
+        action.add_argument("strategy_id")
+        action.add_argument("--revision", type=int)
+        if name == "show":
+            action.add_argument("--brief", action="store_true")
+        elif name == "export":
+            action.add_argument("--destination", type=Path, required=True)
+            action.add_argument("--binding-output", type=Path, help="also write a new exact source binding JSON file")
     args = parser.parse_args()
     try:
+        if args.command == "strategy":
+            from research.records.strategies import command as strategy_command
+            output = strategy_command(args)
+            print(json.dumps(output, ensure_ascii=False, indent=2))
+            return 0
         if args.command in ("ledger", "material", "publish"):
             from research.records.ledger import command as ledger_command
             output = ledger_command(args)
@@ -562,7 +634,8 @@ def main() -> int:
                               and edge["from_revision"] == component["revision"]}
                 output = [item for item in output if item["attempt_id"] in identities]
         else:
-            output = _compare(args.candidate_run, args.control_run, runs)
+            output = _compare(args.candidate_run, args.control_run, runs,
+                              engineering_audit=args.engineering_audit)
         storage = snapshot_storage
         output = {"storage": storage, "matches": output} if isinstance(output, list) else {**output, "storage": storage}
     except RecordError as exc:

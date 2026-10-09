@@ -51,10 +51,16 @@ def validate_record(kind, body):
 
 
 def _preregistration_receipt(body, receipt_path):
-    """Require the first prospective record to match a retained Git receipt."""
+    """Freeze prospective intent in Dolt, or verify an original Git receipt."""
     registration = body["registration"]
     if body["decision"]["layer"] != "pending" or body["decision"]["outcome"] != "pending":
         raise RecordError("first preregistered attempt must have a pending/pending decision")
+    if registration.get("backend") == "dolt":
+        if receipt_path is not None or "original_registration_commit" in registration:
+            raise RecordError("Dolt preregistration cannot claim a Git receipt")
+        if registration["reference"] != f"dolt:attempt:{body['attempt_id']}@1":
+            raise RecordError("Dolt preregistration must identify its immutable first attempt revision")
+        return
     if receipt_path is None:
         raise RecordError("first preregistered attempt requires a committed receipt_path")
     root = ROOT.resolve()
@@ -199,6 +205,8 @@ class DoltRecords:
             previous = self.adapter.get_object(identity, commit=base)
             if kind == "attempt" and previous and previous["body"]["registration"] != body["registration"]:
                 raise ConflictError("an attempt revision cannot rewrite its original registration")
+            if kind == "attempt" and previous and previous["body"].get("strategy_binding") != body.get("strategy_binding"):
+                raise ConflictError("an attempt revision cannot rewrite its registered strategy binding")
             if kind == "attempt" and previous is None and body["registration"]["status"] == "preregistered":
                 _preregistration_receipt(body, receipt_path)
             if kind == "run" and previous is not None:
@@ -217,6 +225,11 @@ class DoltRecords:
         from research.records.contracts import _validate_records
         _validate_records(attempts, runs)
         objects, related = {identity: obj, context_id: context}, []
+
+        strategy_binding = body.get("strategy_binding")
+        if strategy_binding:
+            from research.records.strategies import validate_binding
+            validate_binding(self.adapter, strategy_binding)
 
         def endpoint(target):
             if target in objects:
@@ -253,6 +266,13 @@ class DoltRecords:
             target = derived("reference:" + hashlib.sha256(canonical(value).encode()).hexdigest(),
                              "reference", value, field)
             edge("evidence_ref", obj, target, {"field": field, "reference": reference, "source": obj["provenance"]})
+
+        if strategy_binding:
+            target = self.adapter.get_object(
+                "strategy:" + strategy_binding["strategy_id"],
+                revision=strategy_binding["revision"], commit=strategy_binding["commit"],
+            )
+            edge("uses_strategy", obj, target, {"binding": strategy_binding})
 
         if kind == "attempt":
             for index, parent in enumerate(body["parents"]):
