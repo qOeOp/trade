@@ -145,6 +145,31 @@ class RetrievalTests(unittest.TestCase):
         matches = search([attempt], [], "ConfirmedLineSupportTouches")["matches"]
         self.assertEqual([item["id"] for item in matches], ["attempt:H18a"])
 
+    def test_admitted_component_is_discoverable_by_exact_declared_symbol(self):
+        symbol = "ConfirmedLineSupportTouches"
+        for field in ("name", "component_id"):
+            with self.subTest(field=field):
+                component = obj("component:" + symbol, "component", {
+                    field: symbol, "text": "Historical implementation diagnostic.",
+                    "content_base64": base64.b64encode(symbol.encode()).decode(),
+                })
+                approved = admission(component, statement="已确认支撑触碰状态可供后续实验复用。")
+                hash_value = "a" * 64
+                noise = obj("component:" + hash_value, "component", {"name": "Unrelated",
+                            "text": symbol, "description": hash_value})
+                prose = obj("section:other", "material_section", {"name": symbol, "text": symbol})
+                objects = [component, approved, noise, admission(noise), prose, admission(prose)]
+                result = search(objects, [], symbol.lower())
+                self.assertEqual(result["query_mode"], "text")
+                self.assertEqual([item["id"] for item in result["matches"]], [component["id"]])
+                match = result["matches"][0]
+                self.assertEqual(match["scope"], "admitted_knowledge")
+                self.assertEqual(match["match_basis"], "declared_id")
+                self.assertEqual(match["claim"], approved["body"]["claim"])
+                for query in ("ConfirmedLineSupport", "Historical implementation diagnostic", hash_value,
+                              component["id"]):
+                    self.assertEqual(search(objects, [], query)["matches"], [])
+
     def test_read_projection_uses_one_snapshot_for_objects_and_relations(self):
         adapter = SnapshotAdapter([obj("attempt:D99", "attempt", {"attempt_id": "D99"})])
         result = material(adapter, "search", at="historical-snapshot", query="D99")

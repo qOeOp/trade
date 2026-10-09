@@ -74,9 +74,13 @@ def _strings(value, fields, key=None):
 
 def _declared_ids(obj):
     body = obj["body"]
-    for name in ("attempt_id", "run_id", "explicit_id", "declared_id"):
+    for name in ("attempt_id", "run_id", "component_id", "explicit_id", "declared_id"):
         if isinstance(body.get(name), str):
             yield body[name]
+    # Retained component definitions declare their symbol as name. A name in
+    # another record is prose, not an alias for admitted knowledge.
+    if obj["kind"] == "component" and isinstance(body.get("name"), str):
+        yield body["name"]
 
 
 def admission_view(decision):
@@ -283,7 +287,7 @@ def search(objects, relations, query, *, include_archive=False):
         # Object IDs contain hash-based receipts and are not full-text fields.
         # Exact declared record IDs take precedence over textual references.
         direct = query.casefold() in {identity.casefold() for identity in identifiers}
-        matches = (direct or bool(pattern.search(text))) if pattern else query.casefold() in text.casefold()
+        matches = direct or (bool(pattern.search(text)) if pattern else query.casefold() in text.casefold())
         match_basis = "declared_id" if direct else "reviewed_claim" if is_knowledge else "retained_record"
         if not matches and include_archive and is_knowledge:
             retained_text = "\n".join(_strings(obj["body"], fields))
