@@ -11,6 +11,7 @@ import os
 import threading
 import unittest
 import uuid
+from unittest.mock import patch
 
 import pymysql
 
@@ -114,6 +115,55 @@ class DoltStoreIntegrationTests(unittest.TestCase):
         self.assertEqual(self.store.list_objects(kind="attempt", latest=False), [old])
         self.assertEqual(self.store.list_objects(kind="attempt", commit=first["commit"]), [old])
 
+    def test_latest_query_returns_only_selected_json_rows_at_the_fixed_commit(self):
+        versions = [_object("attempt:many", revision=revision,
+                            body={"revision": revision, "payload": "x" * 16384})
+                    for revision in range(1, 8)]
+        old_kind = _object("attempt:switched")
+        steady = _object("claim:steady")
+        first = self._publish([versions[0], old_kind, steady])
+        new_kind = dict(old_kind, kind="claim", revision=2)
+        later = _object("attempt:later")
+        self._publish([*versions[1:], new_kind, later], operation="many-revisions", expected=1)
+
+        native_sql = self.store._sql
+
+        def read(**kwargs):
+            selected_rows = []
+
+            def observe(conn, statement, params=None):
+                result = native_sql(conn, statement, params)
+                if statement.startswith("SELECT ") and "body" in statement and "provenance" in statement:
+                    selected_rows.append(result[0])
+                return result
+
+            # Observe the real protocol result before Python decoding so the
+            # test fails if old revision JSON is transferred then discarded.
+            with patch.object(self.store, "_sql", side_effect=observe):
+                objects = self.store.list_objects(**kwargs)
+            self.assertEqual(len(selected_rows), 1)
+            self.assertEqual(len(selected_rows[0]), len(objects))
+            json_bytes = sum(len(value.encode("utf-8")) for row in selected_rows[0]
+                             for value in row[3:5])
+            return objects, json_bytes
+
+        current, current_bytes = read()
+        self.assertEqual(current, [later, versions[-1], new_kind, steady])
+        historical, _ = read(commit=first["commit"])
+        self.assertEqual(historical, [versions[0], old_kind, steady])
+        self.assertEqual(read(kind="attempt")[0], [later, versions[-1]])
+        self.assertEqual(read(kind="claim")[0], [new_kind, steady])
+        self.assertEqual(read(kind="attempt", commit=first["commit"])[0],
+                         [versions[0], old_kind])
+        self.assertEqual(read(kind="claim", commit=first["commit"])[0], [steady])
+        all_revisions, all_bytes = read(latest=False)
+        self.assertEqual(all_revisions, [later, *reversed(versions), new_kind, old_kind, steady])
+        self.assertLess(current_bytes * 5, all_bytes)
+        self.assertEqual(read(kind="attempt", latest=False)[0],
+                         [later, *reversed(versions), old_kind])
+        self.assertEqual(read(commit=first["commit"], latest=False)[0],
+                         [versions[0], old_kind, steady])
+
     def test_relations_are_fixed_to_revision_and_historical_commit(self):
         attempt, claim = _object(), _object("claim:evidence")
         relation = {"id": "relation:uses", "kind": "uses_claim",
@@ -132,6 +182,73 @@ class DoltStoreIntegrationTests(unittest.TestCase):
             self._publish([], [changed], operation="rewrite-relation", expected=2)
         self.assertEqual(before, self.store.status())
 
+    def test_relation_filters_preserve_snapshot_revision_scope_and_index_reads(self):
+        first, second = _object("attempt:source"), _object("claim:target")
+        newer = _object(first["id"], revision=2)
+        edges = [
+            {"id": "edge:old", "kind": "corrects", "from_id": first["id"], "from_revision": 1,
+             "to_id": second["id"], "to_revision": 1, "body": {"scope": {
+                 "retained_research_decisions": [{"object_ref": "d94_section"}]}}},
+            {"id": "edge:new", "kind": "narrows", "from_id": first["id"], "from_revision": 2,
+             "to_id": second["id"], "to_revision": 1, "body": {"scope": {
+                 "retained_research_decisions": [{"object_ref": {"id": "attempt:D94", "revision": 1}}]}}},
+        ]
+        frozen = self._publish([first, second], [edges[0]])["commit"]
+        self._publish([newer], [edges[1]], operation="next-relation", expected=1)
+        self.assertEqual([edge["id"] for edge in self.store.list_relations(
+            from_refs=((first["id"], 1),))], ["edge:old"])
+        self.assertEqual([edge["id"] for edge in self.store.list_relations(
+            from_refs=((first["id"], None),))], ["edge:new", "edge:old"])
+        self.assertEqual([edge["id"] for edge in self.store.list_relations(
+            commit=frozen, to_refs=((second["id"], 1),))], ["edge:old"])
+        self.assertEqual([edge["id"] for edge in self.store.list_relations(
+            kinds=("corrects",), from_refs=((first["id"], 2),), to_refs=((second["id"], 1),))], ["edge:old"])
+        self.assertEqual([edge["id"] for edge in self.store.list_relations(
+            scope_refs=("d94_section",))], ["edge:old"])
+        self.assertEqual([edge["id"] for edge in self.store.list_relations(
+            scope_refs=({"id": "attempt:D94"},))], ["edge:new"])
+        self.assertEqual(self.store.list_relations(scope_refs=({"id": "attempt:D94", "revision": 2},)), [])
+        self.assertEqual(self.store.list_relations(commit=frozen, ids=("edge:new",)), [])
+        indexed = self.store.list_relations(ids=("edge:new",), include_body=False)
+        self.assertEqual(len(indexed), 1)
+        self.assertNotIn("body", indexed[0])
+        for filters in ({"kinds": ()}, {"ids": ()}, {"from_refs": ()}, {"scope_refs": ()}):
+            self.assertEqual(self.store.list_relations(**filters), [])
+        for filters in ({"from_refs": ((first["id"], 0),)}, {"kinds": "corrects"},
+                        {"scope_refs": ({"unknown": "value"},)}, {"include_body": 1}):
+            with self.assertRaises(RecordError):
+                self.store.list_relations(**filters)
+
+    def test_object_path_filters_keep_all_fixed_sections_and_historical_revisions(self):
+        material = _object("material:source")
+        section = _object("section:source#one")
+        section["kind"] = "material_section"
+        noise = _object("material:unrelated")
+        noise["provenance"]["path"] = "other/path.md"
+        frozen = self._publish([material, section, noise])["commit"]
+        moved = copy.deepcopy(material)
+        moved["revision"] = 2
+        moved["provenance"]["path"] = "moved/source.md"
+        self._publish([moved], operation="move-path", expected=1)
+        path = material["provenance"]["path"]
+        self.assertEqual({value["id"] for value in self.store.list_objects(commit=frozen, paths=(path,))},
+                         {material["id"], section["id"]})
+        self.assertEqual([value["id"] for value in self.store.list_objects(paths=(path,))], [section["id"]])
+        self.assertEqual({(value["id"], value["revision"]) for value in self.store.list_objects(
+            latest=False, paths=(path,))}, {(material["id"], 1), (section["id"], 1)})
+        self.assertEqual(self.store.list_objects(paths=()), [])
+        with self.assertRaises(RecordError):
+            self.store.list_objects(paths=path)
+
+    def test_material_show_accepts_maximum_length_identity_without_impossible_legacy_lookup(self):
+        from research.records.ledger import material
+
+        selected = _object("material:" + "x" * (160 - len("material:")))
+        published = self._publish([selected])
+        result = material(self.store, "show", identity=selected["id"], at=published["commit"])
+        self.assertEqual(result["object"]["id"], selected["id"])
+        self.assertIsNone(result["retention_decision"])
+
     def test_identical_operation_recovers_original_persistent_commit(self):
         first = self._publish([_object()], operation="retriable", message="snapshot migration")
         self._publish([_object("attempt:later")], operation="later", expected=1)
@@ -145,6 +262,30 @@ class DoltStoreIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ConflictError, "operation-content"):
             self._publish([_object()], operation="retriable", expected=0, message="changed message")
         self.assertEqual(before, self.store.status())
+
+    def test_version_feedback_allows_checked_retry_and_rejects_changed_intent(self):
+        self._publish([_object()], operation="first")
+        before = self.store.status()
+        payload = [_object("attempt:second")]
+        with self.assertRaises(ConflictError) as caught:
+            self._publish(payload, operation="second", expected=0)
+        error = caught.exception.as_dict()
+        self.assertEqual((error["code"], error["path"], error["expected"], error["write_status"]),
+                         ("EXPECTED_VERSION_CONFLICT", "/expected_version", 1, "not_written"))
+        self.assertIn("operation receipt", error["next_actions"][0])
+        self.assertEqual(self.store.status(), before)
+        with self.assertRaisesRegex(RecordError, "unknown publication operation"):
+            self.store.operation_receipt("second")
+        result = self._publish(payload, operation="second", expected=1)
+        self.assertEqual(self.store.operation_receipt("second")["commit"], result["commit"])
+        self.assertEqual(self._publish(payload, operation="second", expected=0), dict(result, replayed=True))
+        after = self.store.status()
+        with self.assertRaises(ConflictError) as caught:
+            self._publish([_object("attempt:second", body={"changed": True})], operation="second", expected=2)
+        error = caught.exception.as_dict()
+        self.assertEqual((error["code"], error["path"], error["write_status"]),
+                         ("OPERATION_CONTENT_CONFLICT", "/operation_id", "not_written"))
+        self.assertEqual(self.store.status(), after)
 
     def test_integral_json_floats_are_stable_across_native_roundtrip(self):
         obj = _object(body={"value": 25.0, "nested": [5.0, 0.25, True]})

@@ -17,6 +17,7 @@ from research.records.common import RecordError
 from research.records.dolt_store import ConflictError, DoltStore
 from research.records.store import DoltRecords, canonical
 from research.records import strategies
+from tests.records.fixtures.contract_repository import v3_pending
 
 
 SOURCE = '# 中文 source\r\nclass Example:\r\n    pass\r\nraise RuntimeError("never execute during publication")\r\n'.encode("utf-8")
@@ -56,8 +57,9 @@ class MemoryAdapter:
             values = [value for value in values if self.get_object(value["id"], commit=commit)["revision"] == value["revision"]]
         return copy.deepcopy([value for value in values if kind is None or value["kind"] == kind])
 
-    def list_relations(self, commit=None):
-        return copy.deepcopy(list(self.snapshots[commit or self.status()["commit"]][1].values()))
+    def list_relations(self, commit=None, **filters):
+        from tests.records.fixtures.relations import select_relations
+        return select_relations(self.snapshots[commit or self.status()["commit"]][1].values(), **filters)
 
     def publish(self, objects, relations, operation_id, expected_version, message):
         payload = canonical({"objects": objects, "relations": relations, "message": message})
@@ -270,6 +272,33 @@ class StrategyPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(RecordError, "cycle in fixed strategy"):
             strategies.lineage(self.adapter, "r1-child")
 
+    def test_lineage_and_parent_publication_read_only_fixed_strategy_edges(self):
+        self.publish(metadata("r1-grandparent"))
+        self.publish(metadata("r1-parent", parents=[{"strategy_id": "r1-grandparent", "revision": 1,
+                                                     "difference": "Parent change"}]), "parent")
+        _, edges = self.adapter.snapshots[self.adapter.status()["commit"]]
+        for index in range(100):
+            edge = {"id": "noise:" + str(index), "kind": "strategy_parent", "from_id": "strategy:unrelated",
+                    "from_revision": 1, "to_id": "strategy:other", "to_revision": 1, "body": {"blob": "x" * 4096}}
+            edges[edge["id"]] = edge
+        original_read = self.adapter.list_relations
+        reads = []
+
+        def selected_read(commit=None, **filters):
+            selected = original_read(commit, **filters)
+            self.assertIn("from_refs", filters)
+            self.assertEqual(set(filters["kinds"]), {"strategy_parent", "strategy_attempt"})
+            reads.extend(edge["id"] for edge in selected)
+            return selected
+
+        with patch.object(self.adapter, "list_relations", side_effect=selected_read):
+            self.publish(metadata("r1-child", parents=[{"strategy_id": "r1-parent", "revision": 1,
+                                                        "difference": "Child change"}]), "child")
+            value = strategies.lineage(self.adapter, "r1-child")
+        self.assertEqual(value["parents"][0]["strategy"]["parents"][0]["strategy"]["binding"]["strategy_id"], "r1-grandparent")
+        self.assertTrue(reads)
+        self.assertFalse(any(identity.startswith("noise:") for identity in reads))
+
 
 class StrategyDoltIntegrationTests(unittest.TestCase):
     @classmethod
@@ -324,7 +353,7 @@ class StrategyDoltIntegrationTests(unittest.TestCase):
         self.assertEqual(value["parents"][0]["strategy"]["description"], "Native source experiment")
         self.assertEqual(strategies.lineage(self.adapter, "r1-child", at=child["commit"])["binding"]["commit"], child["commit"])
 
-    def test_schema2_preregistration_binds_strategy_through_decision_revisions(self):
+    def test_schema3_preregistration_binds_strategy_through_decision_revisions(self):
         source = strategies.publish(self.adapter, metadata(), self.source, "source", 0)
         records = DoltRecords(self.config)
         attempt = {"schema_version": 2, "attempt_id": "STRATEGY-BINDING-01", "goal_id": "registry-integration",
@@ -335,12 +364,14 @@ class StrategyDoltIntegrationTests(unittest.TestCase):
                    "registration": {"status": "preregistered"},
                    "decision": {"layer": "pending", "outcome": "pending", "scope": "No replay performed", "next_action": "Exercise record custody"},
                    "evidence_refs": []}
+        attempt = v3_pending(attempt)
         first = records.publish_record("attempt", attempt, operation_id="preregister", expected_version=1)
         self.assertEqual(first["registration_receipt"], {"id": "attempt:STRATEGY-BINDING-01", "revision": 1, "commit": first["commit"]})
         self.source.write_bytes(SOURCE + b"# Later strategy edit\n")
         later_source = strategies.publish(self.adapter, metadata(description="Later source revision"), self.source, "later-source", 2)
         decision = copy.deepcopy(attempt)
         decision["decision"].update(layer="execution", outcome="inconclusive", scope="Only the API custody probe; no replay", next_action="Keep native replay separate")
+        decision["decision"]["basis"] = {"mode": "descriptive", "evidence_refs": [{"id": "strategy:r1-example", "revision": 1}]}
         later = records.publish_record("attempt", decision, operation_id="decision", expected_version=3)
         self.assertEqual(records.adapter.get_object("attempt:STRATEGY-BINDING-01")["revision"], 2)
         original, receipt = records.registration_snapshot("STRATEGY-BINDING-01")
@@ -378,6 +409,7 @@ class StrategyDoltIntegrationTests(unittest.TestCase):
                    "registration": {"status": "preregistered"},
                    "decision": {"layer": "pending", "outcome": "pending", "scope": "No replay", "next_action": "Verify refusal"}, "evidence_refs": []}
         before = self.adapter.status()
+        attempt = v3_pending(attempt)
         with self.assertRaisesRegex(RecordError, "binding differs"):
             records.publish_record("attempt", attempt, operation_id="bad-binding", expected_version=1)
         self.assertEqual(self.adapter.status(), before)

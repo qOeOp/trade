@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from research.records.common import RecordError
 from research.records.ledger import material
-from research.records.retrieval import corrections, search
+from research.records.retrieval import corrections, reference_view, search
+from tests.records.fixtures.relations import select_relations
 
 
 def obj(identity, kind, body, revision=1):
@@ -35,6 +36,7 @@ class SnapshotAdapter:
         self.reads = []
         self.object_lists = []
         self.object_gets = []
+        self.relation_queries = []
 
     def status(self):
         return {"commit": self.commit}
@@ -51,9 +53,11 @@ class SnapshotAdapter:
             selected = list(current.values())
         return copy.deepcopy(selected)
 
-    def list_relations(self, *, commit):
+    def list_relations(self, *, commit, **filters):
         self.reads.append(commit)
-        return copy.deepcopy(self.relations)
+        selected = select_relations(self.relations, **filters)
+        self.relation_queries.append((filters, [edge["id"] for edge in selected]))
+        return selected
 
     def get_object(self, identity, *, revision=None, commit):
         self.reads.append(commit)
@@ -166,9 +170,11 @@ class RetrievalTests(unittest.TestCase):
                 self.assertEqual(match["scope"], "admitted_knowledge")
                 self.assertEqual(match["match_basis"], "declared_id")
                 self.assertEqual(match["claim"], approved["body"]["claim"])
-                for query in ("ConfirmedLineSupport", "Historical implementation diagnostic", hash_value,
-                              component["id"]):
+                for query in ("ConfirmedLineSupport", "Historical implementation diagnostic", hash_value):
                     self.assertEqual(search(objects, [], query)["matches"], [])
+                exact = search(objects, [], component["id"])["matches"]
+                self.assertEqual([item["id"] for item in exact], [component["id"]])
+                self.assertEqual(exact[0]["match_basis"], "declared_id")
 
     def test_read_projection_uses_one_snapshot_for_objects_and_relations(self):
         adapter = SnapshotAdapter([obj("attempt:D99", "attempt", {"attempt_id": "D99"})])
@@ -198,9 +204,36 @@ class RetrievalTests(unittest.TestCase):
         adapter = SnapshotAdapter([source, huge])
         result = material(adapter, "show", at="historical-snapshot", identity=source["id"], brief=True)
         self.assertEqual(result["object"]["id"], source["id"])
-        self.assertEqual(adapter.object_lists, [("retention_decision", True)])
-        self.assertEqual(adapter.object_gets, [(source["id"], None)])
+        self.assertEqual(adapter.object_lists, [])
+        self.assertIn((source["id"], None), adapter.object_gets)
+        self.assertNotIn((huge["id"], None), adapter.object_gets)
         self.assertEqual(set(adapter.reads), {"historical-snapshot"})
+
+    def test_show_ignores_unrelated_incompatible_admission_and_uses_current_indexed_decision(self):
+        source = obj("material:good", "material", {"text": "Bounded source."})
+        old = admission(source)
+        old["id"] = "retention:old-import-id"
+        current = copy.deepcopy(old)
+        current["revision"] = 2
+        current["body"]["disposition"] = "archive"
+        incompatible = obj("retention:unrelated", "retention_decision", {
+            "target": {"id": "material:other"}, "disposition": "knowledge"})
+        edge = {"id": "retention-index", "kind": "retention_of", "from_id": old["id"],
+                "from_revision": 1, "to_id": source["id"], "to_revision": 1, "body": {}}
+        adapter = SnapshotAdapter([source, old, current, incompatible], [edge])
+        result = material(adapter, "show", at="historical-snapshot", identity=source["id"])
+        self.assertEqual(result["retention_decision"]["id"], old["id"])
+        self.assertEqual(result["retention_decision"]["revision"], 2)
+        self.assertEqual(result["retention_decision"]["disposition"], "archive")
+        self.assertEqual(adapter.object_lists, [])
+        self.assertNotIn((incompatible["id"], None), adapter.object_gets)
+
+    def test_show_preserves_legacy_unindexed_retention_identity(self):
+        source = obj("material:good", "material", {"text": "Bounded source."})
+        approved = admission(source)
+        adapter = SnapshotAdapter([source, approved])
+        result = material(adapter, "show", identity=source["id"])
+        self.assertEqual(result["retention_decision"]["id"], approved["id"])
 
     def test_archive_expansion_is_the_only_unqualified_inventory_read(self):
         adapter = SnapshotAdapter([obj("material:source", "material", {"text": "Archived source."})])
@@ -211,6 +244,78 @@ class RetrievalTests(unittest.TestCase):
     def test_empty_query_rejects_instead_of_dumping_the_archive(self):
         with self.assertRaisesRegex(RecordError, "nonempty"):
             search([], [], "  ", include_archive=True)
+
+    def test_facets_use_typed_purpose_and_keep_failed_and_uncertain_decisions(self):
+        failed = obj("attempt:H1", "attempt", {"attempt_id": "H1", "purpose": "research", "question": "support mechanism",
+                     "decision": {"layer": "economics", "outcome": "failed"}})
+        uncertain = obj("attempt:H2", "attempt", {"attempt_id": "H2", "purpose": "research", "question": "support mechanism",
+                        "decision": {"layer": "economics", "outcome": "inconclusive"}})
+        demo = obj("attempt:D1", "attempt", {"attempt_id": "D1", "purpose": "demo",
+                   "question": "support mechanism", "decision": {"layer": "economics", "outcome": "passed"}})
+        prose = obj("attempt:D2", "attempt", {"attempt_id": "D2", "question": "research support mechanism"})
+        matches = search([demo, prose, failed, uncertain], [], "support", purpose="research")["matches"]
+        self.assertEqual({item["id"] for item in matches}, {failed["id"], uncertain["id"]})
+        self.assertTrue(all(item["match_reasons"][0]["path"] == "body.question" for item in matches))
+        self.assertEqual(search([demo, prose, failed], [], "support", outcome="failed")["matches"][0]["id"], failed["id"])
+        self.assertEqual(search([prose], [], "support", purpose="unknown")["matches"][0]["purpose"], "unknown")
+        self.assertEqual(search([demo], [], "D1")["matches"][0]["id"], demo["id"])
+        legacy_execution = obj("attempt:D3", "attempt", {"attempt_id": "D3", "question": "support",
+                               "decision": {"layer": "execution", "outcome": "passed"}})
+        self.assertEqual(search([legacy_execution], [], "support")["matches"][0]["purpose"], "unknown")
+
+    def test_reviewed_alias_requires_admission_and_fixed_component_dependency(self):
+        symbol = "ConfirmedLineSupportTouches"
+        component = obj("component:" + symbol, "component", {"name": symbol})
+        approved = admission(component)
+        approved["body"]["claim"]["aliases"] = ["支撑", "support"]
+        approved["body"]["evidence"] = [{"id": "attempt:H08", "revision": 1}]
+        consumer = obj("attempt:H18a", "attempt", {"attempt_id": "H18a", "decision": {
+            "layer": "economics", "outcome": "failed"}, "mechanism_refs": [
+            {"attempt_id": "H08", "component": symbol, "boundary": "State computation only."}]})
+        edge = {"id": "reuse", "kind": "component_reuse", "from_id": consumer["id"], "from_revision": 1,
+                "to_id": "attempt:H08", "to_revision": 1, "body": {}}
+        objects = [component, approved, consumer]
+        isolated = search(objects, [], "支撑")["matches"]
+        self.assertEqual([item["id"] for item in isolated], [component["id"]])
+        matches = search(objects, [edge], "支撑")["matches"]
+        self.assertEqual([item["id"] for item in matches], [component["id"], consumer["id"]])
+        reason = matches[1]["match_reasons"][0]
+        self.assertEqual(reason["claim_scope"], approved["body"]["claim"]["scope"])
+        self.assertEqual(reason["fixed_dependency"], {"id": "attempt:H08", "revision": 1})
+        approved["body"]["disposition"] = "archive"
+        self.assertEqual(search(objects, [edge], "支撑")["matches"], [])
+
+    def test_pending_typed_repair_prompts_reassessment_without_downgrading(self):
+        target = obj("attempt:D105", "attempt", {"attempt_id": "D105", "decision": {
+            "layer": "execution", "outcome": "passed"}})
+        repair = obj("attempt:D106", "attempt", {"attempt_id": "D106", "decision": {
+            "layer": "pending", "outcome": "pending", "scope": "Audit findings", "next_action": "Reaudit"}})
+        edge = {"id": "repair", "kind": "repair", "from_id": repair["id"], "from_revision": 1,
+                "to_id": target["id"], "to_revision": 1, "body": {}}
+        result = material(SnapshotAdapter([target, repair], [edge]), "show", identity=target["id"], brief=True)
+        self.assertEqual(result["object"]["body"]["decision"]["outcome"], "passed")
+        self.assertEqual(result["incoming_repairs"][0]["repair_ref"]["id"], repair["id"])
+        self.assertTrue(result["incoming_repairs"][0]["original_decision_preserved"])
+
+    def test_fixed_archive_hash_readback_distinguishes_declared_verified_unavailable(self):
+        import hashlib
+        from types import SimpleNamespace
+        raw = b"fixed history"
+        archive = SimpleNamespace(commit="a" * 40, allows=lambda path: path.startswith("reports/"),
+                                  read_bytes=lambda path: raw)
+        source = obj("attempt:D98", "attempt", {"evidence_refs": [
+            {"path": "reports/old.json", "sha256": hashlib.sha256(raw).hexdigest()},
+            {"path": "reports/changed.json", "sha256": "f" * 64},
+            {"path": "/tmp/missing.json", "sha256": "f" * 64}]})
+        with patch("research.records.history.load_archive", return_value=archive):
+            results = reference_view(source)
+        self.assertEqual([item["status"] for item in results], ["verified", "unavailable", "declared"])
+        self.assertEqual(results[0]["source"]["commit"], "a" * 40)
+        navigation = {"id": "external", "to_id": "reference:url", "to_revision": 1,
+                      "body": {"proof": {"target_content_read": False}, "review_id": "r", "review_revision": 1}}
+        self.assertEqual(reference_view(obj("x", "material", {}), [navigation])[0]["status"], "declared")
+        navigation["body"]["proof"] = {"sha256": "a" * 64, "target_content_read": True}
+        self.assertEqual(reference_view(obj("x", "material", {}), [navigation])[0]["status"], "declared")
 
 
 class CorrectionTests(unittest.TestCase):
@@ -228,7 +333,33 @@ class CorrectionTests(unittest.TestCase):
                               "scope": {"fields": ["Source attribution only."],
                                         "retained_research_decisions": [
                                             {"object_ref": "d94_section", "preserve": "Native outcomes remain valid."}]}}}
+        self.review["body"]["edge_ids"] = [self.edge["id"]]
+        self.review["body"]["proof"] = {"semantic_relations": [{
+            **{key: self.edge[key] for key in ("kind", "from_id", "from_revision", "to_id", "to_revision")},
+            "scope": copy.deepcopy(self.edge["body"]["scope"])}]}
         self.objects = [self.old, self.current, self.d94, self.unrelated, self.review]
+
+    def test_show_scopes_semantic_bodies_without_losing_non_endpoint_section_alias(self):
+        noise = [{**self.edge, "id": f"edge:noise-{index}",
+                  "kind": ("corrects", "narrows", "refutes")[index % 3],
+                  "from_id": "section:unrelated-source", "to_id": "section:unrelated-target",
+                  "body": {"review_id": "review:unrelated", "review_revision": 1,
+                           "scope": {"retained_research_decisions": [{"object_ref": "unrelated_section"}]},
+                           "payload": "x" * 4096}}
+                 for index in range(100)]
+        adapter = SnapshotAdapter(self.objects, [self.edge, *noise])
+        shown = material(adapter, "show", identity=self.d94["id"])
+        self.assertEqual(shown["corrections"][0]["effect"], "scoped_source_correction")
+        self.assertEqual(shown["relations"], [])
+        self.assertEqual([identity for _, values in adapter.relation_queries for identity in values],
+                         [self.edge["id"]])
+        self.assertTrue(all(filters for filters, _ in adapter.relation_queries))
+        self.assertNotIn(("review:unrelated", None), adapter.object_gets)
+
+    def test_scoped_correction_still_reports_a_dangling_fixed_endpoint(self):
+        adapter = SnapshotAdapter([value for value in self.objects if value is not self.old], [self.edge])
+        with self.assertRaisesRegex(RecordError, "retrieval fixed object is missing"):
+            material(adapter, "show", identity=self.d94["id"])
 
     def test_correction_keeps_fixed_revisions_narrow_scope_and_preserved_outcomes(self):
         before = copy.deepcopy(self.objects)
@@ -245,6 +376,64 @@ class CorrectionTests(unittest.TestCase):
     def test_superseded_review_does_not_present_old_correction_as_active(self):
         superseding = obj(self.review["id"], self.review["kind"], {"status": "pending"}, 2)
         self.assertEqual(corrections(self.old, [*self.objects, superseding], [self.edge]), [])
+
+    def test_narrows_and_refutes_are_guarded_by_the_same_fixed_review(self):
+        for kind in ("narrows", "refutes"):
+            edge = copy.deepcopy(self.edge)
+            edge["kind"] = kind
+            review = copy.deepcopy(self.review)
+            review["body"]["proof"]["semantic_relations"][0]["kind"] = kind
+            objects = [self.old, self.current, self.d94, self.unrelated, review]
+            result = corrections(self.d94, objects, [edge])[0]
+            self.assertEqual(result["relation_kind"], kind)
+            self.assertEqual(result["evidence_group"], "review:fixed@1")
+            del edge["body"]["review_id"]
+            self.assertEqual(corrections(self.d94, objects, [edge]), [])
+
+    def test_correction_rejects_forged_membership_endpoints_or_scope(self):
+        for change in ("membership", "revision", "scope"):
+            review = copy.deepcopy(self.review)
+            if change == "membership":
+                review["body"]["edge_ids"] = []
+            elif change == "revision":
+                review["body"]["proof"]["semantic_relations"][0]["to_revision"] = 99
+            else:
+                review["body"]["proof"]["semantic_relations"][0]["scope"] = {"fields": ["Other scope"]}
+            objects = [self.old, self.current, self.d94, self.unrelated, review]
+            self.assertEqual(corrections(self.d94, objects, [self.edge]), [])
+
+    def test_typed_review_source_bridges_historical_section_and_current_attempt(self):
+        source = obj("evidence:s46", "evidence_json", {})
+        s46 = obj("section:research#S46", "material_section", {"explicit_id": "S46"})
+        past = obj("attempt:D94", "attempt", {"attempt_id": "D94", "decision": {
+            "layer": "economics", "outcome": "failed"}})
+        current = obj(past["id"], past["kind"], past["body"], 2)
+        review = copy.deepcopy(self.review)
+        review["body"]["source_ref"] = {"id": source["id"], "revision": 1}
+        review["body"]["evidence_refs"] += [{"id": source["id"], "revision": 1}, {"id": s46["id"], "revision": 1}]
+        dep = {"id": "dep", "kind": "references", "from_id": source["id"], "from_revision": 1,
+               "to_id": past["id"], "to_revision": 1, "body": {}}
+        documents = {**dep, "id": "documents", "kind": "documents_source_check", "to_id": s46["id"]}
+        proof = {**dep, "id": "proof", "kind": "review_evidence", "from_id": review["id"], "to_id": source["id"]}
+        objects = [self.old, self.current, self.d94, review, source, s46, past, current]
+        relations = [self.edge, dep, documents, proof]
+        shown = material(SnapshotAdapter(objects, relations), "show", identity=current["id"], brief=True)
+        impact = shown["corrections"][0]
+        self.assertEqual(impact["effect"], "historical_dependency")
+        self.assertEqual(impact["dependency_ref"], {"id": past["id"], "revision": 1})
+        self.assertEqual(shown["object"]["body"]["decision"]["outcome"], "failed")
+        section = material(SnapshotAdapter(objects, relations), "show", identity=s46["id"], brief=True)
+        self.assertEqual(section["corrections"][0]["effect"], "shared_review_context")
+        self.assertEqual(section["corrections"][0]["evidence_group"], impact["evidence_group"])
+        self.assertEqual(corrections(current, objects, [self.edge]), [])
+
+    def test_current_revision_reports_historical_dependency_without_implicit_revocation(self):
+        newer = obj(self.d94["id"], self.d94["kind"], {"explicit_id": "D94", "text": "Revised decision."}, 2)
+        result = corrections(newer, [*self.objects, newer], [self.edge])[0]
+        self.assertEqual(result["effect"], "historical_dependency")
+        self.assertTrue(result["requires_reassessment"])
+        self.assertEqual(result["preserve"], "Native outcomes remain valid.")
+        self.assertEqual(result["evidence_group"], corrections(self.current, self.objects, [self.edge])[0]["evidence_group"])
 
     def test_search_and_show_expose_correction_without_invalidating_the_whole_record(self):
         approved = admission(self.current, statement="C02 specifies no numeric stop.")

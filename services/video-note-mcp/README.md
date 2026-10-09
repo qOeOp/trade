@@ -74,6 +74,7 @@ support. New generic downloads resolve the URL again; explicit IDs reuse the ret
 Python 3.14, FFmpeg and the locked service environment are required:
 
 ```bash
+cd services/video-note-mcp # From the repository root.
 uvx --from 'uv==0.12.3' uv sync --frozen --all-groups
 export DEEPSEEK_API_KEY='set-in-your-private-shell'
 # Required for standard/precise audio review or cloud primary ASR:
@@ -91,7 +92,8 @@ uvx --from 'uv==0.12.3' uv pip install --python ~/.local/share/bilibili-note-mcp
 ```
 
 `BILIBILI_NOTE_ASR=mlx|siliconflow` overrides engine selection. `BILIBILI_NOTE_MLX_PYTHON` can select
-another compatible runtime. Missing weights or a failed local worker produce an explicit error;
+another compatible runtime; a leading `~` is expanded to the current user's home directory.
+Missing weights or a failed local worker produce an explicit error;
 there is no automatic paid fallback. The visual note model uses official DeepSeek.
 The cloud ASR profile uses `Qwen/Qwen3-ASR-1.7B`. Its text-only responses retain host-owned
 45-second time windows, not word or sentence timestamps.
@@ -110,6 +112,13 @@ private local environment configuration. The optional `BILIBILI_NOTE_OUTPUT_DIR`
 absolute output directory; the default is `~/.local/share/bilibili-note-mcp/notes`. Each completed
 request gets a unique directory. Outputs remain until explicitly deleted. Retained source media stays in the separate artifact store;
 provider credentials are never included. Interrupted delivery can leave a completed local bundle.
+The artifact, import and output directory settings expand a leading `~`; other relative directory
+paths are rejected, so switching the client's working directory cannot silently move saved notes.
+
+For Bilibili acquisition, optional `BILIBILI_NOTE_COOKIE_FILE` selects an existing absolute regular
+cookie file for yt-dlp; symbolic links are rejected. Set its full path in the private client environment
+(for example, `"$HOME/.config/video-note-mcp/cookies.txt"` in a shell assignment). No cookie file is
+discovered automatically, and this setting does not apply to YouTube or generic video links.
 
 `BILIBILI_NOTE_EGRESS_PROXY` and `BILIBILI_NOTE_MEDIA_PROXY`, if used, must be explicit unauthenticated
 loopback HTTP endpoints. No proxy is required by default.
@@ -118,6 +127,8 @@ The public success schema is `bilibili-note.result/v4`; errors use
 `bilibili-note.error/v1`. This replaces the old text-only result. The direct-create input is unchanged.
 
 ## Verification
+
+Run these commands from `services/video-note-mcp`, the same directory used during setup:
 
 ```bash
 uvx --from 'uv==0.12.3' uv run --frozen python scripts/export_schemas.py --check

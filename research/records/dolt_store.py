@@ -194,8 +194,17 @@ class DoltStore:
             yield conn
         except pymysql.MySQLError as exc:
             if exc.args and exc.args[0] == 1213:
-                raise ConflictError("native Dolt transaction conflict (1213); retry the same operation only after rereading") from exc
-            raise RecordError(f"Dolt SQL error: {exc}") from exc
+                raise ConflictError(
+                    "native Dolt transaction conflict (1213); retry the same operation only after rereading",
+                    code="NATIVE_TRANSACTION_CONFLICT", path="/operation_id",
+                    expected="one atomic publication at the current version",
+                    next_actions=["Check the original operation receipt before retrying. If absent, reread the ledger and recheck the fixed evidence, then retry the same operation and unchanged payload; do not invent a replacement operation to bypass the conflict."],
+                ) from exc
+            raise RecordError(
+                f"Dolt SQL error: {exc}", code="DOLT_SQL_ERROR",
+                expected="a reachable pinned Dolt backend and valid native constraints",
+                next_actions=["Check backend availability and the reported constraint. For a publication, query its original operation receipt before retrying; an unconfirmed result is not proof that nothing was written."],
+            ) from exc
         finally:
             if conn is not None:
                 conn.close()
@@ -247,32 +256,45 @@ class DoltStore:
             raise RecordError("historical reads require an exact 32-character Dolt commit hash")
         return " AS OF %s", (commit,)
 
-    def list_objects(self, kind=None, commit=None, latest=True):
+    def list_objects(self, kind=None, commit=None, latest=True, *, paths=None):
         """Read at one native commit; optionally retain all revision rows."""
         suffix, params = self._as_of(commit)
-        snapshot_params = params
-        where = ""
+        if latest:
+            # Find each identity's current revision before filtering its kind,
+            # and return JSON only for those revisions. Both table reads must
+            # use the same historical snapshot when a commit is supplied.
+            query = (
+                "SELECT current.id,current.kind,current.revision,current.body,current.provenance "
+                "FROM objects" + suffix + " AS current INNER JOIN "
+                "(SELECT id,MAX(revision) AS revision FROM objects" + suffix +
+                " GROUP BY id) AS newest "
+                "ON current.id=newest.id AND current.revision=newest.revision"
+            )
+            params += params
+            kind_column = "current.kind"
+            order = " ORDER BY current.id,current.revision DESC"
+        else:
+            query = "SELECT id,kind,revision,body,provenance FROM objects" + suffix
+            kind_column = "kind"
+            order = " ORDER BY id,revision DESC"
+        predicates = []
         if kind is not None:
             _text(kind, "object kind", 64)
-            where = " WHERE kind=%s"
+            predicates.append(f"{kind_column}=%s")
             params += (kind,)
+        if paths is not None:
+            if isinstance(paths, str):
+                raise RecordError("object path filter must be a collection")
+            paths = tuple(_text(path, "object source path", 4096) for path in paths)
+            column = "current.provenance" if latest else "provenance"
+            predicates.append("JSON_UNQUOTE(JSON_EXTRACT(" + column + ",'$.path')) IN (" +
+                              ",".join(["%s"] * len(paths)) + ")" if paths else "FALSE")
+            params += paths
+        where = " WHERE " + " AND ".join(predicates) if predicates else ""
         with self._connection() as conn:
             self._check_schema(conn)
-            rows = self._sql(conn, "SELECT id,kind,revision,body,provenance FROM objects" +
-                             suffix + where + " ORDER BY id,revision DESC", params)[0]
-            if latest and kind is not None:
-                # Filtering a mutable kind must not resurrect an older row of
-                # an identity whose latest revision has a different kind.
-                revisions = dict(self._sql(conn, "SELECT id,MAX(revision) FROM objects" +
-                                           suffix + " GROUP BY id", snapshot_params)[0])
-                rows = [row for row in rows if revisions[row[0]] == row[2]]
-        if not latest:
-            return [self._object(row) for row in rows if kind is None or row[1] == kind]
-        current = {}
-        for row in rows:
-            if row[0] not in current:
-                current[row[0]] = self._object(row)
-        return [obj for obj in current.values() if kind is None or obj["kind"] == kind]
+            rows = self._sql(conn, query + where + order, params)[0]
+        return [self._object(row) for row in rows]
 
     def get_object(self, id, revision=None, commit=None):
         _text(id, "object id", 160)
@@ -288,14 +310,70 @@ class DoltStore:
             rows = self._sql(conn, query, params)[0]
         return self._object(rows[0]) if rows else None
 
-    def list_relations(self, commit=None):
+    def list_relations(self, commit=None, *, kinds=None, from_refs=None, to_refs=None,
+                       ids=None, scope_refs=None, include_body=True):
+        """Filter existing relation columns at one snapshot.
+
+        Endpoints are ``(id, revision)`` pairs; ``revision=None`` selects the
+        identity across revisions. From/to selections are alternatives, while
+        kinds and relation IDs further restrict them. Retained scope references
+        also match existing body.scope.retained_research_decisions.object_ref
+        values. Empty selections return no rows. Index reads omit JSON without
+        joining away dangling endpoints.
+        """
         suffix, params = self._as_of(commit)
+        if type(include_body) is not bool:
+            raise RecordError("include_body must be a boolean")
+        predicates, endpoints = [], []
+        for column, values, limit in (("kind", kinds, 40), ("id", ids, 160)):
+            if values is None:
+                continue
+            if isinstance(values, str):
+                raise RecordError(f"relation {column} filter must be a collection")
+            values = tuple(_text(value, "relation " + column, limit) for value in values)
+            predicates.append(column + " IN (" + ",".join(["%s"] * len(values)) + ")" if values else "FALSE")
+            params += values
+        for side, references in (("from", from_refs), ("to", to_refs)):
+            if references is None:
+                continue
+            selected = []
+            for reference in references:
+                if not isinstance(reference, (tuple, list)) or len(reference) != 2:
+                    raise RecordError("relation endpoint filter requires (id, revision) pairs")
+                identity, revision = reference
+                _text(identity, "relation endpoint id", 160)
+                predicate = f"{side}_id=%s"
+                params += (identity,)
+                if revision is not None:
+                    predicate += f" AND {side}_revision=%s"
+                    params += (_revision(revision),)
+                selected.append("(" + predicate + ")")
+            endpoints.extend(selected)
+        if scope_refs is not None:
+            for reference in scope_refs:
+                if isinstance(reference, str):
+                    _text(reference, "retained scope reference", 160)
+                elif isinstance(reference, dict) and set(reference) <= {"id", "revision"} and "id" in reference:
+                    _text(reference["id"], "retained scope object id", 160)
+                    if "revision" in reference:
+                        _revision(reference["revision"])
+                else:
+                    raise RecordError("retained scope reference must be an object ref or alias")
+                endpoints.append("JSON_CONTAINS(body,%s,'$.scope.retained_research_decisions')")
+                params += (_canonical({"object_ref": reference}),)
+        if from_refs is not None or to_refs is not None or scope_refs is not None:
+            predicates.append("(" + " OR ".join(endpoints) + ")" if endpoints else "FALSE")
+        where = " WHERE " + " AND ".join(predicates) if predicates else ""
+        columns = "id,kind,from_id,from_revision,from_kind,to_id,to_revision,to_kind"
+        if include_body:
+            columns += ",body"
         with self._connection() as conn:
             self._check_schema(conn)
-            rows = self._sql(conn,
-                "SELECT id,kind,from_id,from_revision,from_kind,to_id,to_revision,to_kind,body "
-                "FROM relations" + suffix + " ORDER BY id", params)[0]
-        return [self._relation(row) for row in rows]
+            rows = self._sql(conn, "SELECT " + columns + " FROM relations" + suffix +
+                             where + " ORDER BY id", params)[0]
+        if include_body:
+            return [self._relation(row) for row in rows]
+        return [dict(zip(columns.split(","), row)) for row in rows]
 
     def _read_head(self, conn, commit=None):
         suffix, params = self._as_of(commit)
@@ -346,7 +424,13 @@ class DoltStore:
             return None
         digest, version, message = rows[0]
         if digest != payload_sha256:
-            raise ConflictError(f"operation-content conflict: {operation_id}")
+            raise ConflictError(
+                f"operation-content conflict: {operation_id}",
+                code="OPERATION_CONTENT_CONFLICT", path="/operation_id",
+                expected="the exact original content for an existing operation ID",
+                next_actions=["Read the original operation receipt and fixed content. Retry that operation with its unchanged payload; use a new operation ID only for an intentional new publication after reviewing its evidence."],
+                write_status="not_written",
+            )
         commits = self._sql(conn, "SELECT commit_hash FROM dolt_log WHERE message=%s", (message,))[0]
         if len(commits) != 1:
             raise RecordError(f"operation {operation_id} must bind to exactly one native commit")
@@ -415,12 +499,24 @@ class DoltStore:
                     return prior
                 observed, _ = self._read_head(conn)
                 if observed != expected_version:
-                    raise ConflictError(f"expected-version conflict: expected {expected_version}, observed {observed}")
+                    raise ConflictError(
+                        f"expected-version conflict: expected {expected_version}, observed {observed}",
+                        code="EXPECTED_VERSION_CONFLICT", path="/expected_version",
+                        expected=observed,
+                        next_actions=["Read the current ledger status and the original operation receipt. If the operation is absent, recheck the payload and fixed evidence against the current snapshot before retrying with its current version."],
+                        write_status="not_written",
+                    )
                 changed = self._sql(conn,
                     "UPDATE write_head SET version=version+1,writer=%s WHERE singleton=1 AND version=%s",
                     (uuid.uuid4().hex, expected_version))[1]
                 if changed != 1:
-                    raise ConflictError("conditional publication version guard rejected operation")
+                    raise ConflictError(
+                        "conditional publication version guard rejected operation",
+                        code="PUBLICATION_VERSION_GUARD", path="/expected_version",
+                        expected="the current version at the atomic write guard",
+                        next_actions=["Reread the ledger and original operation receipt; recheck fixed evidence before retrying the unchanged operation at the observed version."],
+                        write_status="not_written",
+                    )
                 for obj in payload["objects"]:
                     self._insert_object(conn, obj)
                 for rel in payload["relations"]:

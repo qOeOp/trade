@@ -22,7 +22,7 @@ from research.records import cli, migration
 from research.records.common import RecordError
 from research.records.dolt_store import ConflictError
 from research.records.materials import scan
-from tests.records.fixtures.contract_repository import ContractRepository, SOURCE_CASES, OLD_CASES, CURRENT_CASES
+from tests.records.fixtures.contract_repository import ContractRepository, SOURCE_CASES, OLD_CASES, CURRENT_CASES, v3_pending
 from research.records.store import DoltRecords, validate_record
 
 
@@ -175,12 +175,13 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(before, self.store.adapter.status())
 
     def test_first_preregistration_is_committed_only_to_dolt(self):
-        body = self._attempt_copy("PREREG")
+        body = v3_pending(self._attempt_copy("PREREG"))
         body["registration"] = {"status": "preregistered"}
         body["decision"].update(layer="pending", outcome="pending")
         before = self.store.adapter.status()
         nonpending = copy.deepcopy(body)
-        nonpending["decision"]["outcome"] = "passed"
+        nonpending["decision"].update(layer="source", outcome="passed",
+                                     basis={"mode": "source", "evidence_refs": [{"id": "attempt:H08", "revision": 1}]})
         with self.assertRaisesRegex(RecordError, "pending/pending"):
             self._publish_record("attempt", nonpending)
         self.assertEqual(before, self.store.adapter.status())
@@ -192,6 +193,7 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(self.store.registration_snapshot(body["attempt_id"]), (frozen, binding))
         body["decision"].update(layer="source", outcome="failed", scope="A later result scope",
                                 next_action="A later next research decision")
+        body["decision"]["basis"] = {"mode": "source", "evidence_refs": [{"id": "attempt:H08", "revision": 1}]}
         result = self._publish_record("attempt", body)
         self.assertEqual(result["registration_receipt"], binding)
         self.assertEqual(self.store.adapter.get_object(identity)["revision"], 2)
@@ -203,12 +205,13 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         self.assertFalse((self.fixture.records / "preregistrations").exists())
 
     def test_run_publication_defaults_to_initial_registration_not_latest_decision(self):
-        body = self._attempt_copy("PREREG-RUN")
+        body = v3_pending(self._attempt_copy("PREREG-RUN"))
         body["registration"] = {"status": "preregistered"}
         body["decision"].update(layer="pending", outcome="pending")
         self._publish_record("attempt", body)
         later = copy.deepcopy(body)
         later["decision"].update(layer="economics", outcome="failed")
+        later["decision"]["basis"] = {"mode": "descriptive", "evidence_refs": [{"id": "attempt:H08", "revision": 1}]}
         self._publish_record("attempt", later)
         run = copy.deepcopy(self.fixture_runs["F01-11-20261008"])
         run.update(run_id="PREREG-RUN-" + uuid.uuid4().hex, attempt_id=body["attempt_id"],
@@ -230,7 +233,7 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(recovered, dict(first, replayed=True))
 
     def test_first_registration_retry_recovers_original_commit_after_results(self):
-        body = self._attempt_copy("RETRY-PREREG")
+        body = v3_pending(self._attempt_copy("RETRY-PREREG"))
         body["registration"] = {"status": "preregistered"}
         body["decision"].update(layer="pending", outcome="pending")
         operation = "prereg-retry-" + uuid.uuid4().hex
@@ -239,6 +242,7 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
                                           expected_version=before["version"])
         later = copy.deepcopy(body)
         later["decision"].update(layer="economics", outcome="failed")
+        later["decision"]["basis"] = {"mode": "descriptive", "evidence_refs": [{"id": "attempt:H08", "revision": 1}]}
         self._publish_record("attempt", later)
         after = self.store.adapter.status()
         recovered = self.store.publish_record("attempt", body, operation_id=operation,
@@ -409,18 +413,19 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(after, self.store.adapter.status())
 
     def test_original_registration_contract_cannot_be_rewritten(self):
-        original = self._attempt_copy("FROZEN")
+        original = v3_pending(self._attempt_copy("FROZEN"))
         original["registration"] = {"status": "preregistered"}
         original["decision"].update(layer="pending", outcome="pending")
         first = self._publish_record("attempt", original)
         later = copy.deepcopy(original)
         later["decision"].update(layer="source", outcome="inconclusive", scope="Later observed scope",
                                  next_action="Later decision")
+        later["decision"]["basis"] = {"mode": "source", "evidence_refs": [{"id": "attempt:H08", "revision": 1}]}
         self._publish_record("attempt", later)
         edits = {"question": "Replaced question", "hypothesis": "Replaced hypothesis", "mechanism": "Replaced mechanism",
                  "goal_id": "CHANGED", "kind": "diagnostic", "code_parent": None,
                  "parents": [{"attempt_id": "H08", "relationship": "hypothesis_extension", "difference": "New parent"}],
-                 "contract": {"scope": "Changed scope", "plan": "Changed plan"},
+                 "contract": {**later["contract"], "scope": "Changed scope", "plan": "Changed plan"},
                  "registration": {"status": "retrospective"}, "composition_mode": "dependent",
                  "mechanism_refs": [{"attempt_id": "H08", "relationship": "component_reuse", "component": "New",
                                      "boundary": "New mechanism boundary"}]}

@@ -20,7 +20,7 @@ import uuid
 
 from research.records import artifacts, cli
 from research.records.common import RecordError
-from tests.records.fixtures.contract_repository import ContractRepository
+from tests.records.fixtures.contract_repository import ContractRepository, v3_pending
 from research.records.store import DoltRecords, canonical
 
 
@@ -96,7 +96,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.prereg_id = "BINDING-PREREG-" + uuid.uuid4().hex
-        prospective = copy.deepcopy(self.seed_attempts["F01"])
+        prospective = v3_pending(self.seed_attempts["F01"])
         prospective.update(attempt_id=self.prereg_id, registration={"status": "preregistered"})
         prospective.pop("comparison_family", None)
         prospective["decision"].update(layer="pending", outcome="pending")
@@ -176,7 +176,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         self.assertNotEqual(self.store.adapter.get_object("attempt:H15a")["body"]["decision"], current["parents"][0]["record"]["decision"])
 
     def test_later_child_decision_retains_registered_parent_and_component_sources(self):
-        child = copy.deepcopy(self.seed_attempts["H18a"])
+        child = v3_pending(self.seed_attempts["H18a"])
         child["attempt_id"] = "BINDING-CHILD-" + uuid.uuid4().hex
         child["registration"] = {"status": "preregistered"}
         child["decision"].update(layer="pending", outcome="pending")
@@ -189,6 +189,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         self._change_decision("H15a")
         decision = copy.deepcopy(child)
         decision["decision"].update(layer="source", outcome="inconclusive", next_action="A later decision only.")
+        decision["decision"]["basis"] = {"mode": "source", "evidence_refs": [{"id": "attempt:H08", "revision": 1}]}
         before = self.store.adapter.status()
         for source in ("H08", "H15a"):
             with self.subTest(source=source), self.assertRaisesRegex(RecordError, "cannot rebind"):

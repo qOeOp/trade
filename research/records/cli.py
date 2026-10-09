@@ -179,8 +179,7 @@ def _dolt_lineage(adapter, identity, commit, revision=None, seen=frozenset()):
     key = (obj["id"], obj["revision"])
     if key in seen:
         raise RecordError(f"cycle in fixed lineage: {key}")
-    edges = [edge for edge in adapter.list_relations(commit=commit)
-             if (edge["from_id"], edge["from_revision"]) == key]
+    edges = adapter.list_relations(commit=commit, from_refs=(key,))
     body = obj["body"]
 
     def endpoint(kind, target, detail):
@@ -204,6 +203,15 @@ def _dolt_lineage(adapter, identity, commit, revision=None, seen=frozenset()):
     return {"attempt_id": identity, "revision": obj["revision"], "commit": commit,
             "hypothesis": body["hypothesis"], "decision": body["decision"],
             "composition_mode": body.get("composition_mode"), "mechanism_sources": sources, "parents": parents}
+
+
+def _contract(kind):
+    from research.records.common import RECORDS, _read_json
+    schema = _read_json(RECORDS / "schemas" / f"{kind}.schema.json")
+    return {"kind": kind, "schema": schema,
+            "guidance": ["Unknown is a valid declaration when evidence is unavailable. Required text is not proof of quality.",
+                         "A changed research intention requires a new attempt; decisions cite fixed evidence revisions.",
+                         "The publication API enforces these contracts. SQL administrators can bypass the API."]}
 
 
 def _summary(run: dict) -> dict:
@@ -354,6 +362,7 @@ def _brief(identity: str, attempts: dict[str, dict], runs: dict[str, dict], line
 
     return {
         "attempt_id": identity,
+        "purpose": attempt.get("purpose", "unknown"),
         "question": attempt["question"],
         "mechanism": attempt["mechanism"],
         "registration_status": attempt["registration"]["status"],
@@ -362,6 +371,7 @@ def _brief(identity: str, attempts: dict[str, dict], runs: dict[str, dict], line
         **({"mechanism_sources": lineage["mechanism_sources"]} if lineage else {}),
         "mechanism_refs": attempt.get("mechanism_refs", []),
         "decision": attempt["decision"],
+        **({"selection": attempt["contract"]["selection"]} if "selection" in attempt["contract"] else {}),
         "comparison_family": (
             attempt["comparison_family"]["cells"]
             if attempt.get("comparison_family")
@@ -397,6 +407,8 @@ def _find(
             "question": attempt["question"],
             "mechanism": attempt["mechanism"],
             "decision": attempt["decision"],
+            "purpose": attempt.get("purpose", "unknown"),
+            **({"selection": attempt["contract"]["selection"]} if "selection" in attempt["contract"] else {}),
         }
         for attempt in attempts.values()
         if (not mechanism or mechanism.casefold() in attempt["mechanism"].casefold())
@@ -493,16 +505,24 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engin
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--at", help="read one exact Dolt commit")
+    parser.add_argument("--error-format", choices=("json", "text"), default="json",
+                        help="structured repair context on stderr (default: json)")
     command = parser.add_subparsers(dest="command", required=True)
     command.add_parser("validate")
+    contract = command.add_parser("contract", help="discover record fields and publication guidance without a database")
+    contract.add_argument("kind", choices=("attempt", "run"))
     show = command.add_parser("show")
     show.add_argument("attempt_id")
+    show.add_argument("--revision", type=int, help="read one fixed attempt revision")
     show.add_argument(
         "--brief", action="store_true", help="show a compact research decision view"
     )
     find = command.add_parser("find")
     find.add_argument("--mechanism")
     find.add_argument("--component", help="find explicit component reuse and sources")
+    find.add_argument("--purpose", choices=("research", "engineering", "demo", "unknown"))
+    find.add_argument("--outcome", choices=("pending", "passed", "failed", "inconclusive"))
+    find.add_argument("--family-id", help="read the preregistered selection family, including failures")
     find.add_argument(
         "--failure-layer", choices=("source", "data", "execution", "economics")
     )
@@ -529,6 +549,9 @@ def main() -> int:
     actions = materials.add_subparsers(dest="action", required=True)
     search = actions.add_parser("search")
     search.add_argument("query")
+    search.add_argument("--purpose", choices=("knowledge", "research", "engineering", "demo", "source", "diagnostic", "pending", "unknown"))
+    search.add_argument("--outcome", choices=("pending", "passed", "failed", "inconclusive"))
+    search.add_argument("--view", choices=("knowledge", "research", "archive", "native_run_identity", "admitted_knowledge", "research_decision", "legacy_archive"))
     admission = actions.add_parser("admit", help="publish an explicit Agent knowledge/retention decision")
     admission.add_argument("--file", type=Path, required=True)
     admission.add_argument("--expected-version", type=int, required=True)
@@ -564,6 +587,7 @@ def main() -> int:
     attempt.add_argument("--file", type=Path, required=True)
     attempt.add_argument("--expected-version", type=int, required=True)
     attempt.add_argument("--operation-id", required=True)
+    attempt.add_argument("--dry-run", action="store_true", help="validate the identical publication path without writing")
     strategies = command.add_parser("strategy", help="publish and export complete Dolt strategy source revisions")
     strategy_actions = strategies.add_subparsers(dest="action", required=True)
     strategy_publish = strategy_actions.add_parser("publish")
@@ -586,6 +610,9 @@ def main() -> int:
             action.add_argument("--binding-output", type=Path, help="also write a new exact source binding JSON file")
     args = parser.parse_args()
     try:
+        if args.command == "contract":
+            print(json.dumps(_contract(args.kind), ensure_ascii=False, indent=2))
+            return 0
         if args.command == "strategy":
             from research.records.strategies import command as strategy_command
             output = strategy_command(args)
@@ -599,9 +626,9 @@ def main() -> int:
         from research.records.store import open_store
         store = open_store()
         fixed = args.at or store.adapter.status()["commit"]
-        attempts, runs, snapshot_storage = store.snapshot(fixed)
-        _validate_records(attempts, runs)
         if args.command == "validate":
+            attempts, runs, snapshot_storage = store.snapshot(fixed)
+            _validate_records(attempts, runs)
             output = _validate(attempts, runs, check_lineage=not fixed)
             output["registration_receipts"] = {
                 identity: store.registration_snapshot(identity, at=fixed)[1]
@@ -612,32 +639,58 @@ def main() -> int:
                 for identity in attempts:
                     _dolt_lineage(store.adapter, identity, fixed)
         elif args.command == "show":
-            lineage = _dolt_lineage(store.adapter, args.attempt_id, fixed) if fixed else None
+            attempts, runs, snapshot_storage = store.selected_snapshot(
+                attempt_ids=(args.attempt_id,), commit=fixed,
+                revisions={"attempt:" + args.attempt_id: args.revision} if args.revision is not None else None)
+            lineage = _dolt_lineage(store.adapter, args.attempt_id, fixed, args.revision)
             output = (
                 _brief(args.attempt_id, attempts, runs, lineage)
                 if args.brief
                 else _show(args.attempt_id, attempts, runs, lineage)
             )
+            from research.records.contracts import decision_basis_refs
+            from research.records.store import paired_control_relations
+            controls = [ref for role, ref in decision_basis_refs(attempts[args.attempt_id],
+                        relations=paired_control_relations(store.adapter, fixed, attempts[args.attempt_id])) if role == "control"]
+            if controls:
+                output["paired_control_ref"] = controls[0]
+            from research.records.ledger import material
+            context = material(store.adapter, "show", at=fixed,
+                               identity="attempt:" + args.attempt_id, revision=lineage["revision"])
+            output.update({key: context[key] for key in
+                           ("retention_decision", "corrections", "incoming_repairs", "reference_status")})
             if attempts[args.attempt_id]["registration"]["status"] == "preregistered":
                 initial, binding = store.registration_snapshot(args.attempt_id, at=fixed)
                 output["registration_receipt"] = binding
                 if not args.brief:
                     output["registered_contract"] = initial
         elif args.command == "find":
+            attempts, unreadable, snapshot_storage = store.find_snapshot(
+                mechanism=args.mechanism, layer=args.failure_layer, component=args.component,
+                commit=fixed, purpose=args.purpose, outcome=args.outcome, family_id=args.family_id)
             output = _find(args.mechanism, args.failure_layer, attempts)
-            if args.component:
-                component = store.adapter.get_object("component:" + args.component, commit=fixed)
-                identities = {edge["to_id"].removeprefix("attempt:") for edge in store.adapter.list_relations(commit=fixed)
-                              if component and edge["kind"] == "component_index" and edge["from_id"] == component["id"]
-                              and edge["from_revision"] == component["revision"]}
-                output = [item for item in output if item["attempt_id"] in identities]
+            output = {"matches": output, "unreadable": unreadable}
         else:
+            # The candidate's comparison relation owns the control revision.
+            # Loading a latest control explicitly would overwrite fixed history.
+            attempts, runs, snapshot_storage = store.selected_snapshot(
+                run_ids=(args.candidate_run,), commit=fixed, include_runs=False)
             output = _compare(args.candidate_run, args.control_run, runs,
                               engineering_audit=args.engineering_audit)
         storage = snapshot_storage
         output = {"storage": storage, "matches": output} if isinstance(output, list) else {**output, "storage": storage}
+        if args.command == "show" and args.brief:
+            from research.records.projections import bounded_brief
+            output = bounded_brief(output, at=fixed, identity=args.attempt_id,
+                                   revision=lineage["revision"], command="show")
     except RecordError as exc:
-        parser.exit(2, f"research record error: {exc}\n")
+        if args.error_format == "text":
+            parser.exit(2, f"research record error: {exc}\n")
+        version = _contract("attempt")["schema"]["title"] if args.command == "publish" else None
+        error = exc.as_dict(contract_version=version)
+        if not error["next_actions"]:
+            error["next_actions"] = ["Inspect the fixed object, operation receipt and field contract. Correct the fact or retain it as unresolved; do not weaken the evidence boundary."]
+        parser.exit(2, json.dumps({"error": error}, ensure_ascii=False) + "\n")
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 

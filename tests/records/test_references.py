@@ -68,6 +68,19 @@ class ReferenceResolutionTests(unittest.TestCase):
         self.assertEqual(body["line"], 2)
         self.assertNotIn("content_base64", body)
 
+    def test_lazy_objects_receive_only_the_checked_normalized_path(self):
+        paths = []
+
+        def selected(path):
+            paths.append(path)
+            return []
+
+        self.assertEqual(self.resolve("folder/../tracked.py:2", selected)["status"], "resolved")
+        self.assertEqual(paths, ["tracked.py"])
+        for href in ("../outside", ".env", ".git/config", "https://example.invalid/page"):
+            self.resolve(href, selected)
+        self.assertEqual(paths, ["tracked.py"])
+
     def test_git_tree_is_navigation_without_research_evidence(self):
         result = self.resolve("folder/")
         self.assertEqual(result["status"], "resolved")
