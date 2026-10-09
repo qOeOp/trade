@@ -1,0 +1,1230 @@
+{
+  "schema_version": 1,
+  "kind": "native_implementation_integration_acceptance",
+  "candidate_git_head": "52e50942794de0b1d3cc1bfb5424fdd1d226c6f5",
+  "replay_source_head": "e076b3472be949fcac516bdcc986a404ff1c1975",
+  "source_and_dependency_sha256": {
+    "strategies/r1/brooks_confirmed_strategy.py": "10581105d3db55823d233b13bd007db9f5b1242706756c73721878d963fd4ae0",
+    "strategies/r1/readback_native_economics.py": "e926cf03dc4e3247b639039aebd49f4749263564f04ec09a7ffffb2afb2734e0",
+    "strategies/r1/structural_support_strategy.py": "02f84fc30c36ea63d5672fe8620f236ed4d9717f519c102052585fe1035f9ad8",
+    "strategies/r1/compare_factorial.py": "cfebd5f17718850b6902fabb920a25fed6b7a9915be350b7adb5b3b17e373520",
+    "strategies/r1/broad_swing_signal.py": "c8dcb097b924dc90339207bf3f751fc88b3b95acf9512ba3689ab62e4e7b57cd",
+    "strategies/r1/compare_paired_returns.py": "10d7a137c30548b260a02b33f8d4c8829726b5e544b8ed63426ed32dd0e2c2e6",
+    "strategies/r1/tiered_retracement_strategy.py": "0dc7158b380104f8ee2115cc73ff714b605e4fdab519f7cdad95fe90a02e2011",
+    "strategies/r1/strategy.py": "e520c51721303ff5afa1093640f111716107e320dd46a10d02a1865ada4c2294",
+    "strategies/r1/replay_inputs.py": "9e49fbc2b2dfe82c803e8019efb57eab1e0359d46f3d760324ab312ee266ba0b",
+    "strategies/r1/gap_runner_strategy.py": "b0fc43d22bccfc152d5c5b679c1b9cfbb616b3ff312b0c44c609564bfac3f8a5",
+    "strategies/r1/trendline_strategy.py": "5ccac83ffcaf8ecfec4c6409022da70bb267fbf184089db191c9f83d3b5d6bd0",
+    "strategies/r1/compare_node.py": "5f8c1cddbad120c2473d5d8ab3dfbef19abdfb9a0cb919d98d7b782cbe9d6827",
+    "strategies/r1/failed_range_breakout_strategy.py": "5116706f4af2b8b8b47100effd38a05b02bdc0866a369743af3c3380b0d419d1",
+    "strategies/r1/retracement_strategy.py": "19217066925b704c430b67b0495c677692dc62c7515c42fa6dd17e0295f18f03",
+    "strategies/r1/native_node.py": "26f9b34202d7996289e182415df0a617e0ecc5cfe8a3b10544f40830c56cee57",
+    "strategies/r1/audit_tiered_native.py": "bcc3fe5d7cf811956d7039669f3f6c8ebfb03d2fb7cc1f5f77efb7f61bc469c4",
+    "strategies/r1/r1s_strategy.py": "00f667e2cc7c6d5ee579ed71439175bd23bf2552953f020094478a3a13d5c194",
+    "strategies/r1/replay_util.py": "667ebba06f65b0e396ed655e0f351c0c1b5e74e032dcb34a2008d389d7ff4e75",
+    "strategies/r1/run_portfolio.py": "f561fe8a04c426761d1bee601c0fa59a790d3db946f46298d335fbbfd909836e",
+    "strategies/r1/check_factorial_line_cancel.py": "28916e5e00482286f355cb1407b924c0ac33bdb5670c694a76e8f4c51d518385",
+    "strategies/r1/stop_entry.py": "49ac0becef9f4e9dcb6b5ef825122d4e121d95197cde128d2bcbb2cef1dfc869",
+    "strategies/r1/compare.py": "32453bec379bb63068726f2f14100bbcd6b2bfe80941adb9bbcfde286544c456",
+    "strategies/r1/node_strategy.py": "e93e5b2ade095d9e9463c95028d108c8069f8942ea6c064b77a0a28e5a7a9465",
+    "pyproject.toml": "616231f71ee5d70c76ccb3a5d325433152877c4a03476f44921ac1680aca8059",
+    "uv.lock": "24efe25b446e7b060bcb1079bf68c44c0bf8d19a2c4f1c96ac2fb41c8ca4b7f9",
+    "research/r1_native/audit_h29a_native.py": "b3ac5d3f3270ce0b4a431ef831c10c1358d0d9b0734eee4f42b8be1de5508970"
+  },
+  "source_hashes_unchanged_at_candidate": true,
+  "nautilus_version": "2.0.0rc3",
+  "passed": true,
+  "runs": [
+    {
+      "name": "h23a-pilot",
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "strategies/r1/run_portfolio.py",
+        "--catalog-root",
+        "/tmp/r1-37-1y-5m-2026oct7",
+        "--daily-root",
+        "/tmp/r1-37-2026oct7",
+        "--quantity-csv",
+        "/tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv",
+        "--coins",
+        "BTC",
+        "ETH",
+        "--start",
+        "2025-10-07T00:00:00Z",
+        "--trade-start",
+        "2025-10-17T00:00:00Z",
+        "--end",
+        "2026-10-07T08:30:00Z",
+        "--signal-variant",
+        "support-brooks-confirmed-4h",
+        "--exit-variant",
+        "tier-target-b",
+        "--risk-budget-bps",
+        "25",
+        "--coin-notional-cap-pct",
+        "5",
+        "--output",
+        "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h23a-pilot"
+      ],
+      "exit_code": 0,
+      "summary": {
+        "strategy": "H23a-support-brooks-confirmed-4h",
+        "integrity_passed": true,
+        "integrity_findings": [],
+        "denied_orders": 0,
+        "rejected_orders": 0,
+        "starting_balance_usdt": "100000",
+        "final_equity_usdt": "100307.37203101",
+        "closed_trades": 7,
+        "winning_trades": 4,
+        "annualized_return_pct": 0.3157285813536807,
+        "native_sharpe_365": 0.4669641209634111,
+        "native_max_drawdown_daily_close": -0.0059868284941621925
+      },
+      "coins": [
+        "BTC",
+        "ETH"
+      ],
+      "report_hashes": {
+        "summary.json": "ce4d40f3615ac3a077202658981ad9672e984b8dffc7f0166239614005650e6d",
+        "fills.csv": "9e4cd24d8cfc0406583baa79e96b8ecce4a206bb5e84888cfda79448fd992f1e",
+        "orders.csv": "f8a2a2d75bf217bd2a342f87cf034533571f7ddcbb7b66aa6d678e37dec99a90",
+        "returns_series.csv": "f86dc14eb2c73fea0f58a11aa1de671fd84a4ec3f4bd041ca8fcf11791b7aaf8",
+        "positions.csv": "1982cc970e72d12b1d0f466af48758793c639e73321a341654c0f5b94b50e163",
+        "account.csv": "5166ab4ed74ea5005c46ff6e92ff188a7e3646210b030affef6b97a429829bfc"
+      }
+    },
+    {
+      "name": "h29a-pilot",
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "strategies/r1/run_portfolio.py",
+        "--catalog-root",
+        "/tmp/r1-37-1y-5m-2026oct7",
+        "--daily-root",
+        "/tmp/r1-37-2026oct7",
+        "--quantity-csv",
+        "/tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv",
+        "--coins",
+        "BTC",
+        "ETH",
+        "--start",
+        "2025-10-07T00:00:00Z",
+        "--trade-start",
+        "2025-10-17T00:00:00Z",
+        "--end",
+        "2026-10-07T08:30:00Z",
+        "--signal-variant",
+        "box-failed-breakout-4h",
+        "--exit-variant",
+        "fixed-2r",
+        "--risk-budget-bps",
+        "25",
+        "--coin-notional-cap-pct",
+        "5",
+        "--output",
+        "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h29a-pilot"
+      ],
+      "exit_code": 0,
+      "summary": {
+        "strategy": "H29a-box-failed-breakout-4h",
+        "integrity_passed": true,
+        "integrity_findings": [],
+        "denied_orders": 0,
+        "rejected_orders": 0,
+        "starting_balance_usdt": "100000",
+        "final_equity_usdt": "99999.73306679",
+        "closed_trades": 6,
+        "winning_trades": 2,
+        "annualized_return_pct": -0.0002741789101114431,
+        "native_sharpe_365": 0.0021995581307239125,
+        "native_max_drawdown_daily_close": -0.002607673252121367
+      },
+      "coins": [
+        "BTC",
+        "ETH"
+      ],
+      "report_hashes": {
+        "summary.json": "447b1c49e4dc0a4576e88430d555d1196e4f61fd8578056bdc037c662fcc1b3a",
+        "fills.csv": "cb3d79ec091ae5676eaae20ec8da9387619b58d593e6d9ce6d20f877ccd4cae6",
+        "orders.csv": "110e1b5648f17e4e3f42cad449d962f5f80b0b69bba34260c4eda77064de2ee4",
+        "returns_series.csv": "e62e6101dce8f495ca48e2b9a4924faa32213ad6126b432c342f92a24be4c838",
+        "positions.csv": "d9f6298bde51278395b4bf02906e3ad01facea403da7421165ece65b01af2da4",
+        "account.csv": "58247181805b29b598ceeee8e642f4b0192436a7a4d32dd9257c477b16a443f7"
+      }
+    },
+    {
+      "name": "h10-pilot",
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "strategies/r1/run_portfolio.py",
+        "--catalog-root",
+        "/tmp/r1-37-1y-5m-2026oct7",
+        "--daily-root",
+        "/tmp/r1-37-2026oct7",
+        "--quantity-csv",
+        "/tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv",
+        "--coins",
+        "BTC",
+        "ETH",
+        "--start",
+        "2025-10-07T00:00:00Z",
+        "--trade-start",
+        "2025-10-17T00:00:00Z",
+        "--end",
+        "2026-10-07T08:30:00Z",
+        "--signal-variant",
+        "box-edge-4h",
+        "--exit-variant",
+        "fixed-2r",
+        "--risk-budget-bps",
+        "25",
+        "--coin-notional-cap-pct",
+        "5",
+        "--output",
+        "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h10-pilot"
+      ],
+      "exit_code": 0,
+      "summary": {
+        "strategy": "H10-box-edge-4h",
+        "integrity_passed": true,
+        "integrity_findings": [],
+        "denied_orders": 0,
+        "rejected_orders": 0,
+        "starting_balance_usdt": "100000",
+        "final_equity_usdt": "99207.12585628",
+        "closed_trades": 43,
+        "winning_trades": 1,
+        "annualized_return_pct": -0.8143082788489847,
+        "native_sharpe_365": -1.3474829520768756,
+        "native_max_drawdown_daily_close": -0.009807664584304076
+      },
+      "coins": [
+        "BTC",
+        "ETH"
+      ],
+      "report_hashes": {
+        "summary.json": "11e2070d887c6e6037f24f4889305a52c5c6e378136ae16aeea192b3c7801e12",
+        "fills.csv": "ce3b01d09452b5e571418b918e2e2d98f9841cef5c935e154012daacd7f78fe9",
+        "orders.csv": "053ee77182d294347ead8a968d69bae7a3490b70ca9d772a444a38e8fe5eee24",
+        "returns_series.csv": "20aa04fe3a1d4f3f7789bc554207a57db3619cf2801e89b31fae010eb62e061e",
+        "positions.csv": "e1f89e112df50e1fe08155bfe64fa7934cc1921f1a7f3e4e9525cf3454cc2f58",
+        "account.csv": "e69c79f3952c5564dc02ad2f3c18cb193c5df7bc953b0488f67bb4fe8b757718"
+      }
+    },
+    {
+      "name": "h23a-annual37",
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "strategies/r1/run_portfolio.py",
+        "--catalog-root",
+        "/tmp/r1-37-1y-5m-2026oct7",
+        "--daily-root",
+        "/tmp/r1-37-2026oct7",
+        "--quantity-csv",
+        "/tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv",
+        "--coins",
+        "BTC",
+        "ETH",
+        "BNB",
+        "ADA",
+        "XRP",
+        "SOL",
+        "DOGE",
+        "LTC",
+        "TRX",
+        "LINK",
+        "DOT",
+        "AVAX",
+        "BCH",
+        "ETC",
+        "XLM",
+        "ATOM",
+        "FIL",
+        "NEAR",
+        "UNI",
+        "AAVE",
+        "ICP",
+        "APT",
+        "ARB",
+        "SUI",
+        "OP",
+        "INJ",
+        "TIA",
+        "SEI",
+        "PEPE",
+        "SHIB",
+        "HBAR",
+        "ALGO",
+        "FET",
+        "WLD",
+        "IMX",
+        "STX",
+        "LDO",
+        "--start",
+        "2025-10-07T00:00:00Z",
+        "--trade-start",
+        "2025-10-17T00:00:00Z",
+        "--end",
+        "2026-10-07T08:30:00Z",
+        "--signal-variant",
+        "support-brooks-confirmed-4h",
+        "--exit-variant",
+        "tier-target-b",
+        "--risk-budget-bps",
+        "25",
+        "--coin-notional-cap-pct",
+        "5",
+        "--output",
+        "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h23a-annual37"
+      ],
+      "exit_code": 0,
+      "summary": {
+        "strategy": "H23a-support-brooks-confirmed-4h",
+        "integrity_passed": true,
+        "integrity_findings": [],
+        "denied_orders": 0,
+        "rejected_orders": 0,
+        "starting_balance_usdt": "100000",
+        "final_equity_usdt": "102902.76292368",
+        "closed_trades": 242,
+        "winning_trades": 125,
+        "annualized_return_pct": 2.9827200694829044,
+        "native_sharpe_365": 0.352816976842976,
+        "native_max_drawdown_daily_close": -0.08794016869154957
+      },
+      "coins": [
+        "BTC",
+        "ETH",
+        "BNB",
+        "ADA",
+        "XRP",
+        "SOL",
+        "DOGE",
+        "LTC",
+        "TRX",
+        "LINK",
+        "DOT",
+        "AVAX",
+        "BCH",
+        "ETC",
+        "XLM",
+        "ATOM",
+        "FIL",
+        "NEAR",
+        "UNI",
+        "AAVE",
+        "ICP",
+        "APT",
+        "ARB",
+        "SUI",
+        "OP",
+        "INJ",
+        "TIA",
+        "SEI",
+        "PEPE",
+        "SHIB",
+        "HBAR",
+        "ALGO",
+        "FET",
+        "WLD",
+        "IMX",
+        "STX",
+        "LDO"
+      ],
+      "report_hashes": {
+        "summary.json": "c139a7379708b9c912bf2bb6a658a40f78477c7660319dbf0958c2821ba32892",
+        "fills.csv": "6d4fc44c811aa81697a064e55c664ef9e92feb25bac3af862df098352e1f7cbd",
+        "orders.csv": "e33d993bb72c9171f673ea6bbb7708ea98fedc7b1684a3ef7879a2d802e3e908",
+        "returns_series.csv": "e61de3088a82025fe32933c7914d331930744edc17a14f29a8e68d8d57617a0a",
+        "positions.csv": "3e1a56112a9e97ec521481bd56384c4e2c90bdc99a15a1945f22ef16edceb068",
+        "account.csv": "84d3f0a663b21167299a479266eb7a40496e3d65854122e2b4eb2e2ba67da12b"
+      }
+    },
+    {
+      "name": "h29a-annual37",
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "strategies/r1/run_portfolio.py",
+        "--catalog-root",
+        "/tmp/r1-37-1y-5m-2026oct7",
+        "--daily-root",
+        "/tmp/r1-37-2026oct7",
+        "--quantity-csv",
+        "/tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv",
+        "--coins",
+        "BTC",
+        "ETH",
+        "BNB",
+        "ADA",
+        "XRP",
+        "SOL",
+        "DOGE",
+        "LTC",
+        "TRX",
+        "LINK",
+        "DOT",
+        "AVAX",
+        "BCH",
+        "ETC",
+        "XLM",
+        "ATOM",
+        "FIL",
+        "NEAR",
+        "UNI",
+        "AAVE",
+        "ICP",
+        "APT",
+        "ARB",
+        "SUI",
+        "OP",
+        "INJ",
+        "TIA",
+        "SEI",
+        "PEPE",
+        "SHIB",
+        "HBAR",
+        "ALGO",
+        "FET",
+        "WLD",
+        "IMX",
+        "STX",
+        "LDO",
+        "--start",
+        "2025-10-07T00:00:00Z",
+        "--trade-start",
+        "2025-10-17T00:00:00Z",
+        "--end",
+        "2026-10-07T08:30:00Z",
+        "--signal-variant",
+        "box-failed-breakout-4h",
+        "--exit-variant",
+        "fixed-2r",
+        "--risk-budget-bps",
+        "25",
+        "--coin-notional-cap-pct",
+        "5",
+        "--output",
+        "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h29a-annual37"
+      ],
+      "exit_code": 0,
+      "summary": {
+        "strategy": "H29a-box-failed-breakout-4h",
+        "integrity_passed": true,
+        "integrity_findings": [],
+        "denied_orders": 0,
+        "rejected_orders": 0,
+        "starting_balance_usdt": "100000",
+        "final_equity_usdt": "102499.69400885",
+        "closed_trades": 120,
+        "winning_trades": 52,
+        "annualized_return_pct": 2.5684105009340623,
+        "native_sharpe_365": 0.5273239162595204,
+        "native_max_drawdown_daily_close": -0.02657300558050891
+      },
+      "coins": [
+        "BTC",
+        "ETH",
+        "BNB",
+        "ADA",
+        "XRP",
+        "SOL",
+        "DOGE",
+        "LTC",
+        "TRX",
+        "LINK",
+        "DOT",
+        "AVAX",
+        "BCH",
+        "ETC",
+        "XLM",
+        "ATOM",
+        "FIL",
+        "NEAR",
+        "UNI",
+        "AAVE",
+        "ICP",
+        "APT",
+        "ARB",
+        "SUI",
+        "OP",
+        "INJ",
+        "TIA",
+        "SEI",
+        "PEPE",
+        "SHIB",
+        "HBAR",
+        "ALGO",
+        "FET",
+        "WLD",
+        "IMX",
+        "STX",
+        "LDO"
+      ],
+      "report_hashes": {
+        "summary.json": "27bed04ebf7dd027ef5e63e7e4468914e6e1185b55c0abee25a58b053643e47e",
+        "fills.csv": "832d533aeb0743b5c3ec462c29badb8d8051e4aaa7785980ccd1e82498dcb7c8",
+        "orders.csv": "f6f51d4f8f23623a3e5d599fd73e939e8ece26995b1d430d2a563607a23b25b2",
+        "returns_series.csv": "9e2cb3d0c1b671e3674bdedfd33ace5c0e9cfcd89347f6e275fe85a6e19b8c3a",
+        "positions.csv": "713fafbac3c383a6b42e79a8a2e5edc352fa9f76810253fde33a3db99068ee88",
+        "account.csv": "711e8f56e706d3e0885ea805420c84f2a9b8fe10b16108d2511b4b136b531b4a"
+      }
+    },
+    {
+      "name": "h10-annual37",
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "strategies/r1/run_portfolio.py",
+        "--catalog-root",
+        "/tmp/r1-37-1y-5m-2026oct7",
+        "--daily-root",
+        "/tmp/r1-37-2026oct7",
+        "--quantity-csv",
+        "/tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv",
+        "--coins",
+        "BTC",
+        "ETH",
+        "BNB",
+        "ADA",
+        "XRP",
+        "SOL",
+        "DOGE",
+        "LTC",
+        "TRX",
+        "LINK",
+        "DOT",
+        "AVAX",
+        "BCH",
+        "ETC",
+        "XLM",
+        "ATOM",
+        "FIL",
+        "NEAR",
+        "UNI",
+        "AAVE",
+        "ICP",
+        "APT",
+        "ARB",
+        "SUI",
+        "OP",
+        "INJ",
+        "TIA",
+        "SEI",
+        "PEPE",
+        "SHIB",
+        "HBAR",
+        "ALGO",
+        "FET",
+        "WLD",
+        "IMX",
+        "STX",
+        "LDO",
+        "--start",
+        "2025-10-07T00:00:00Z",
+        "--trade-start",
+        "2025-10-17T00:00:00Z",
+        "--end",
+        "2026-10-07T08:30:00Z",
+        "--signal-variant",
+        "box-edge-4h",
+        "--exit-variant",
+        "fixed-2r",
+        "--risk-budget-bps",
+        "25",
+        "--coin-notional-cap-pct",
+        "5",
+        "--output",
+        "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h10-annual37"
+      ],
+      "exit_code": 0,
+      "summary": {
+        "strategy": "H10-box-edge-4h",
+        "integrity_passed": true,
+        "integrity_findings": [],
+        "denied_orders": 0,
+        "rejected_orders": 0,
+        "starting_balance_usdt": "100000",
+        "final_equity_usdt": "95055.27668156",
+        "closed_trades": 934,
+        "winning_trades": 61,
+        "annualized_return_pct": -5.0754797446685584,
+        "native_sharpe_365": -1.0516365046412384,
+        "native_max_drawdown_daily_close": -0.07691446371641915
+      },
+      "coins": [
+        "BTC",
+        "ETH",
+        "BNB",
+        "ADA",
+        "XRP",
+        "SOL",
+        "DOGE",
+        "LTC",
+        "TRX",
+        "LINK",
+        "DOT",
+        "AVAX",
+        "BCH",
+        "ETC",
+        "XLM",
+        "ATOM",
+        "FIL",
+        "NEAR",
+        "UNI",
+        "AAVE",
+        "ICP",
+        "APT",
+        "ARB",
+        "SUI",
+        "OP",
+        "INJ",
+        "TIA",
+        "SEI",
+        "PEPE",
+        "SHIB",
+        "HBAR",
+        "ALGO",
+        "FET",
+        "WLD",
+        "IMX",
+        "STX",
+        "LDO"
+      ],
+      "report_hashes": {
+        "summary.json": "a036cecb83ba2b3031d43376d71e2a72c14d517487258fcccdf9b025b0262458",
+        "fills.csv": "243ead89368a7912d2c7c160f4bab2deaeb4803e79612ee2bd4b7342542e162d",
+        "orders.csv": "56f554c3c5581f59250ac3d191d714513651e7bcd2244914277cd098fb239c0f",
+        "returns_series.csv": "dd32ab6f39f369ec7ce3b6e873902f517d7fedcce2161e37e5f5ec71ac642123",
+        "positions.csv": "01e3527a652549c46e5f8d0e1f81972fe4febbba17d3f27fbb6e5f6c1c3fe04c",
+        "account.csv": "9f9d9c7a946e4bae9d585b73523f2fe5dd353f7d444d6881f165ffac93bad893"
+      }
+    }
+  ],
+  "paired_comparisons": {
+    "h23a-pair": {
+      "reference": "/tmp/r1-delivery-final-node-h23-37",
+      "candidate": "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h23a-annual37",
+      "nautilus_version": "2.0.0rc3",
+      "reference_summary_sha256": "d01bf885cda0a3c8c1abfe126584865798d057acfb2ee8738d8d42c916d39872",
+      "candidate_summary_sha256": "c139a7379708b9c912bf2bb6a658a40f78477c7660319dbf0958c2821ba32892",
+      "orders": {
+        "counts": [
+          1314,
+          1314
+        ],
+        "column_match": true,
+        "compared_columns": 36,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "fills": {
+        "counts": [
+          495,
+          495
+        ],
+        "column_match": true,
+        "compared_columns": 18,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "positions": {
+        "counts": [
+          251,
+          251
+        ],
+        "column_match": true,
+        "compared_columns": 28,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "funding_adjustments": {
+        "counts": [
+          7302,
+          7302
+        ],
+        "exact_match": true,
+        "total_usdt": "-57.00919193"
+      },
+      "account": {
+        "counts": [
+          16836,
+          16836
+        ],
+        "column_match": true,
+        "compared_columns": 11,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "returns_series": {
+        "counts": [
+          366,
+          366
+        ],
+        "column_match": true,
+        "compared_columns": 2,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "metrics": {
+        "final_equity_usdt": [
+          "102902.76292368",
+          "102902.76292368"
+        ],
+        "annualized_return_pct": [
+          2.9827200694829044,
+          2.9827200694829044
+        ],
+        "closed_trades": [
+          242,
+          242
+        ],
+        "winning_trades": [
+          125,
+          125
+        ],
+        "native_sharpe_365": [
+          0.352816976842976,
+          0.352816976842976
+        ],
+        "native_max_drawdown_daily_close": [
+          -0.08794016869154957,
+          -0.08794016869154957
+        ]
+      },
+      "passed": true
+    },
+    "h29a-pair": {
+      "reference": "/tmp/r1-h29a-37-native-repaired-pair",
+      "candidate": "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h29a-annual37",
+      "nautilus_version": "2.0.0rc3",
+      "reference_summary_sha256": "6e1fef2875ee5577c1be128947a4d467c6a7ad043e888748a5853bc5b01d0615",
+      "candidate_summary_sha256": "27bed04ebf7dd027ef5e63e7e4468914e6e1185b55c0abee25a58b053643e47e",
+      "orders": {
+        "counts": [
+          484,
+          484
+        ],
+        "column_match": true,
+        "compared_columns": 36,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "fills": {
+        "counts": [
+          246,
+          246
+        ],
+        "column_match": true,
+        "compared_columns": 18,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "positions": {
+        "counts": [
+          120,
+          120
+        ],
+        "column_match": true,
+        "compared_columns": 28,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "funding_adjustments": {
+        "counts": [
+          680,
+          680
+        ],
+        "exact_match": true,
+        "total_usdt": "133.36006247"
+      },
+      "account": {
+        "counts": [
+          2247,
+          2247
+        ],
+        "column_match": true,
+        "compared_columns": 11,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "returns_series": {
+        "counts": [
+          366,
+          366
+        ],
+        "column_match": true,
+        "compared_columns": 2,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "metrics": {
+        "final_equity_usdt": [
+          "102499.69400885",
+          "102499.69400885"
+        ],
+        "annualized_return_pct": [
+          2.5684105009340623,
+          2.5684105009340623
+        ],
+        "closed_trades": [
+          120,
+          120
+        ],
+        "winning_trades": [
+          52,
+          52
+        ],
+        "native_sharpe_365": [
+          0.5273239162595204,
+          0.5273239162595204
+        ],
+        "native_max_drawdown_daily_close": [
+          -0.02657300558050891,
+          -0.02657300558050891
+        ]
+      },
+      "passed": true
+    },
+    "h10-pair": {
+      "reference": "/tmp/r1-h29a-paired-h10-37-native-repaired",
+      "candidate": "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h10-annual37",
+      "nautilus_version": "2.0.0rc3",
+      "reference_summary_sha256": "ca42700568b49b7608f8a457355794e52224c581181c2c57955111fbb6abfb25",
+      "candidate_summary_sha256": "a036cecb83ba2b3031d43376d71e2a72c14d517487258fcccdf9b025b0262458",
+      "orders": {
+        "counts": [
+          8815,
+          8815
+        ],
+        "column_match": true,
+        "compared_columns": 36,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "fills": {
+        "counts": [
+          1887,
+          1887
+        ],
+        "column_match": true,
+        "compared_columns": 18,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "positions": {
+        "counts": [
+          934,
+          934
+        ],
+        "column_match": true,
+        "compared_columns": 28,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "funding_adjustments": {
+        "counts": [
+          930,
+          930
+        ],
+        "exact_match": true,
+        "total_usdt": "256.61801112"
+      },
+      "account": {
+        "counts": [
+          15294,
+          15294
+        ],
+        "column_match": true,
+        "compared_columns": 11,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "returns_series": {
+        "counts": [
+          366,
+          366
+        ],
+        "column_match": true,
+        "compared_columns": 2,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "metrics": {
+        "final_equity_usdt": [
+          "95055.27668156",
+          "95055.27668156"
+        ],
+        "annualized_return_pct": [
+          -5.0754797446685584,
+          -5.0754797446685584
+        ],
+        "closed_trades": [
+          934,
+          934
+        ],
+        "winning_trades": [
+          61,
+          61
+        ],
+        "native_sharpe_365": [
+          -1.0516365046412384,
+          -1.0516365046412384
+        ],
+        "native_max_drawdown_daily_close": [
+          -0.07691446371641915,
+          -0.07691446371641915
+        ]
+      },
+      "passed": true
+    },
+    "h18a": {
+      "reference": "/Users/vx/.local/share/trade/records/acceptance/native-h18a",
+      "candidate": "/Users/vx/.local/share/trade/records/acceptance/pr1477-shared-20261009/h18a",
+      "nautilus_version": "2.0.0rc3",
+      "reference_summary_sha256": "07f5be07436995ec1a8d98998eb78fc41834347f41eab4ea133c101f976a98a1",
+      "candidate_summary_sha256": "17cef0aa0ced6d46dd5e09028386e576e3beb9db74cbbe089c8adf79f15db19a",
+      "orders": {
+        "counts": [
+          29712,
+          29712
+        ],
+        "column_match": true,
+        "compared_columns": 36,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "fills": {
+        "counts": [
+          2589,
+          2589
+        ],
+        "column_match": true,
+        "compared_columns": 18,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "positions": {
+        "counts": [
+          686,
+          686
+        ],
+        "column_match": true,
+        "compared_columns": 28,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "funding_adjustments": {
+        "counts": [
+          7079,
+          7079
+        ],
+        "exact_match": true,
+        "total_usdt": "211.33124803"
+      },
+      "account": {
+        "counts": [
+          56531,
+          56531
+        ],
+        "column_match": true,
+        "compared_columns": 11,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "returns_series": {
+        "counts": [
+          366,
+          366
+        ],
+        "column_match": true,
+        "compared_columns": 2,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "metrics": {
+        "final_equity_usdt": [
+          "104901.95547793",
+          "104901.95547793"
+        ],
+        "annualized_return_pct": [
+          5.038313333471677,
+          5.038313333471677
+        ],
+        "closed_trades": [
+          676,
+          676
+        ],
+        "winning_trades": [
+          380,
+          380
+        ],
+        "native_sharpe_365": [
+          0.5068918382168315,
+          0.5068918382168315
+        ],
+        "native_max_drawdown_daily_close": [
+          -0.07053910249770194,
+          -0.07053910249770194
+        ]
+      },
+      "passed": true
+    },
+    "h19a": {
+      "reference": "/Users/vx/.local/share/trade/records/acceptance/native-h19a",
+      "candidate": "/Users/vx/.local/share/trade/records/acceptance/pr1477-shared-20261009/h19a",
+      "nautilus_version": "2.0.0rc3",
+      "reference_summary_sha256": "2c78646e6c352fefb6ff68d8201ea832f26d8c25842298dcacc60192538046d8",
+      "candidate_summary_sha256": "2687ba04dc9fc30abd251c7d79d5d96fbbd9611e317a49554eabed4c45150ad8",
+      "orders": {
+        "counts": [
+          17665,
+          17665
+        ],
+        "column_match": true,
+        "compared_columns": 36,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "fills": {
+        "counts": [
+          1722,
+          1722
+        ],
+        "column_match": true,
+        "compared_columns": 18,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "positions": {
+        "counts": [
+          507,
+          507
+        ],
+        "column_match": true,
+        "compared_columns": 28,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "funding_adjustments": {
+        "counts": [
+          13470,
+          13470
+        ],
+        "exact_match": true,
+        "total_usdt": "46.21351633"
+      },
+      "account": {
+        "counts": [
+          52019,
+          52019
+        ],
+        "column_match": true,
+        "compared_columns": 11,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "returns_series": {
+        "counts": [
+          366,
+          366
+        ],
+        "column_match": true,
+        "compared_columns": 2,
+        "mismatch_count": 0,
+        "first_mismatches": []
+      },
+      "metrics": {
+        "final_equity_usdt": [
+          "111664.46988783",
+          "111664.46988783"
+        ],
+        "annualized_return_pct": [
+          11.999382174085868,
+          11.999382174085868
+        ],
+        "closed_trades": [
+          496,
+          496
+        ],
+        "winning_trades": [
+          212,
+          212
+        ],
+        "native_sharpe_365": [
+          0.6579792334383158,
+          0.6579792334383158
+        ],
+        "native_max_drawdown_daily_close": [
+          -0.15326607666342182,
+          -0.15326607666342182
+        ]
+      },
+      "passed": true
+    }
+  },
+  "native_audits": {
+    "h23a-audit": {
+      "run": "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h23a-annual37",
+      "file_sha256": {
+        "summary.json": "c139a7379708b9c912bf2bb6a658a40f78477c7660319dbf0958c2821ba32892",
+        "orders.csv": "e33d993bb72c9171f673ea6bbb7708ea98fedc7b1684a3ef7879a2d802e3e908",
+        "fills.csv": "6d4fc44c811aa81697a064e55c664ef9e92feb25bac3af862df098352e1f7cbd",
+        "positions.csv": "3e1a56112a9e97ec521481bd56384c4e2c90bdc99a15a1945f22ef16edceb068",
+        "account.csv": "84d3f0a663b21167299a479266eb7a40496e3d65854122e2b4eb2e2ba67da12b",
+        "returns_series.csv": "e61de3088a82025fe32933c7914d331930744edc17a14f29a8e68d8d57617a0a"
+      },
+      "native_bundles": 431,
+      "native_brackets": 431,
+      "filled_entries": 251,
+      "partially_filled_then_canceled_entries": 0,
+      "closed_positions": 242,
+      "open_positions": 9,
+      "accepted_exit_orders": 18,
+      "native_market_time_exits": 21,
+      "findings": [],
+      "passed": true
+    },
+    "h29a-audit": {
+      "schema": "r1-native-h29a-source-order-audit/v1",
+      "summary_sha256": "27bed04ebf7dd027ef5e63e7e4468914e6e1185b55c0abee25a58b053643e47e",
+      "orders_sha256": "f6f51d4f8f23623a3e5d599fd73e939e8ece26995b1d430d2a563607a23b25b2",
+      "positions_sha256": "713fafbac3c383a6b42e79a8a2e5edc352fa9f76810253fde33a3db99068ee88",
+      "d99_events_sha256": "fe291be8173049f167d3012231459cc3e311de453039c7959adeb9480ab9c408",
+      "coins": 37,
+      "valid_signals": 158,
+      "native_parent_orders": 156,
+      "native_filled_parents": 120,
+      "native_positions": 120,
+      "findings": [],
+      "passed": true
+    },
+    "h10-native-integrity": {
+      "schema": "h10-native-report-readback/v1",
+      "order_integrity": {
+        "strategy": "H10-box-edge-4h",
+        "integrity_passed": true,
+        "integrity_findings": [],
+        "denied_orders": 0,
+        "rejected_orders": 0,
+        "starting_balance_usdt": "100000",
+        "final_equity_usdt": "95055.27668156",
+        "closed_trades": 934,
+        "winning_trades": 61,
+        "annualized_return_pct": -5.0754797446685584,
+        "native_sharpe_365": -1.0516365046412384,
+        "native_max_drawdown_daily_close": -0.07691446371641915
+      },
+      "orders": 8815,
+      "fills": 1887,
+      "positions": 934,
+      "account_snapshots": 15294,
+      "commission_usdt": "3175.53222566",
+      "funding_adjustments": 930,
+      "funding_total_usdt": "256.61801112",
+      "account_first": {
+        "ts_event": "2025-10-07 00:00:00+00:00",
+        "total": "100000.00000000",
+        "locked": "0.00000000",
+        "free": "100000.00000000",
+        "currency": "USDT",
+        "account_id": "BINANCE-001",
+        "account_type": "MARGIN",
+        "margins": "[]",
+        "reported": "True",
+        "info": "{}",
+        "base_currency": "USDT"
+      },
+      "account_last": {
+        "ts_event": "2026-10-07 08:04:59.999000+00:00",
+        "total": "95055.27668156",
+        "locked": "1425.78866000",
+        "free": "93629.48802156",
+        "currency": "USDT",
+        "account_id": "BINANCE-001",
+        "account_type": "MARGIN",
+        "margins": "[{'type': 'MarginBalance', 'initial': '475.23998000', 'maintenance': '0.00000000', 'currency': 'USDT', 'instrument_id': 'STXUSDT-PERP.BINANCE'}, {'type': 'MarginBalance', 'initial': '475.27500000', 'maintenance': '0.00000000', 'currency': 'USDT', 'instrument_id': 'APTUSDT-PERP.BINANCE'}, {'type': 'MarginBalance', 'initial': '475.27368000', 'maintenance': '0.00000000', 'currency': 'USDT', 'instrument_id': 'LDOUSDT-PERP.BINANCE'}]",
+        "reported": "False",
+        "info": "{}",
+        "base_currency": "USDT"
+      },
+      "exact_paired_reports": "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/h10-pair.json",
+      "old_engine_parity_claimed": false
+    },
+    "h18a": {
+      "run": "/Users/vx/.local/share/trade/records/acceptance/pr1477-shared-20261009/h18a",
+      "file_sha256": {
+        "summary.json": "17cef0aa0ced6d46dd5e09028386e576e3beb9db74cbbe089c8adf79f15db19a",
+        "orders.csv": "d8e58c4ec22a9f79ff344ef30b32547329f22999f31979537bfc58fd2ee6bb43",
+        "fills.csv": "9e206f6be1732e4a79049db86582f91dd8a026edd1c050e9f580f86fc770b7c2",
+        "positions.csv": "43933dcd8b5878ac6dd00f3e7a17665806a43c9039f406eccca535d2e6e60424",
+        "account.csv": "411c1b9caf0af040e218eac677d69f2d9ab020362078b1dc7d2e4ab1ab76f4ed",
+        "returns_series.csv": "62e368686fe1d15adbe3cd537e27222dfb5e781825bfae23c64d926971c1cd89"
+      },
+      "native_bundles": 3271,
+      "native_brackets": 9813,
+      "filled_entries": 1456,
+      "partially_filled_then_canceled_entries": 0,
+      "closed_positions": 676,
+      "open_positions": 10,
+      "accepted_exit_orders": 44,
+      "native_market_time_exits": 273,
+      "findings": [],
+      "passed": true
+    },
+    "h19a": {
+      "run": "/Users/vx/.local/share/trade/records/acceptance/pr1477-shared-20261009/h19a",
+      "file_sha256": {
+        "summary.json": "2687ba04dc9fc30abd251c7d79d5d96fbbd9611e317a49554eabed4c45150ad8",
+        "orders.csv": "be8adbe5342c279be66455b380e91c4f5641ba6b8467e57da66e9f1ec98efd75",
+        "fills.csv": "e6fb3a5f77109313a234fc00b090a046e3ae8b0e8a84301f381f73ad8f646c69",
+        "positions.csv": "9bbf96033b60c791c1c1e12663630c87c7afb9e4ee5c314e8ff5885a9cc464cc",
+        "account.csv": "69530413f22af40f57c5290dcc06417580c9f95f395b0c7c465b1d95ac2ab33e",
+        "returns_series.csv": "c34ff1ce36167b8165f1ba49b419ad84209854578b377e0d0b143e6d6d31370e"
+      },
+      "native_bundles": 2939,
+      "native_brackets": 5878,
+      "filled_entries": 881,
+      "partially_filled_then_canceled_entries": 1,
+      "closed_positions": 496,
+      "open_positions": 11,
+      "accepted_exit_orders": 32,
+      "native_market_time_exits": 31,
+      "findings": [],
+      "passed": true
+    }
+  },
+  "evidence": {
+    "native_acceptance": {
+      "path": "/Users/vx/.local/share/trade/records/acceptance/pr1477-native-20261009/acceptance.json",
+      "sha256": "7fd858fa1c23e59924feade795937cc0121385dca1aa02d5c8d113035edece56"
+    },
+    "shared_acceptance": {
+      "path": "/Users/vx/.local/share/trade/records/acceptance/pr1477-shared-20261009/acceptance.json",
+      "sha256": "d262ba300a3f207f33668765d5dd3d8086b4cedff5675bf6b131fd68c1a012ce"
+    }
+  },
+  "limitations": [
+    "Native implementation regression on a previously exposed annual window; not new strategy qualification.",
+    "H10 is compared with the frozen repaired Node; old Engine versus Node strict parity still failed.",
+    "Direct native replay outputs are retained local acceptance evidence, not sealed registered research artifacts.",
+    "Comparisons follow compare_node.py native ID normalization; this does not claim equality of randomly generated IDs."
+  ]
+}
