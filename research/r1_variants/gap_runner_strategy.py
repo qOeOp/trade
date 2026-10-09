@@ -10,11 +10,11 @@ from nautilus_trader.model import OrderSide
 from nautilus_trader.model import OrderType
 from nautilus_trader.model import Quantity
 from nautilus_trader.model import TimeInForce
-from retracement_strategy import RetracementPlan
-from strategy import FOUR_HOUR_NS
-from tiered_retracement_strategy import BROAD_LIFETIME_NS
-from tiered_retracement_strategy import TierBundle
-from tiered_retracement_strategy import TieredRetracementStrategy
+from research.r1_variants.retracement_strategy import RetracementPlan
+from research.r1_variants.strategy import FOUR_HOUR_NS
+from research.r1_variants.tiered_retracement_strategy import BROAD_LIFETIME_NS
+from research.r1_variants.tiered_retracement_strategy import TierBundle
+from research.r1_variants.tiered_retracement_strategy import TieredRetracementStrategy
 
 
 class GapRunnerStrategy(TieredRetracementStrategy):

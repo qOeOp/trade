@@ -9,10 +9,10 @@ positions, and account equity.
 
 from __future__ import annotations
 
-from retracement_strategy import RetracementPlan
-from strategy import FOUR_HOUR_NS
-from strategy import STOP_BUFFER_ATR
-from strategy import FourHour
+from research.r1_variants.retracement_strategy import RetracementPlan
+from research.r1_variants.strategy import FOUR_HOUR_NS
+from research.r1_variants.strategy import STOP_BUFFER_ATR
+from research.r1_variants.strategy import FourHour
 
 
 PIVOT_ORDER = 8

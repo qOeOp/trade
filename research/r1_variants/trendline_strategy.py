@@ -20,11 +20,11 @@ from nautilus_trader.model import OrderType
 from nautilus_trader.model import Quantity
 from nautilus_trader.model import StrategyId
 from nautilus_trader.model import TimeInForce
-from strategy import BOX_BARS
-from strategy import FOUR_HOUR_NS
-from strategy import STOP_BUFFER_ATR
-from strategy import R1Strategy
-from strategy import WaitingSignal
+from research.r1_variants.strategy import BOX_BARS
+from research.r1_variants.strategy import FOUR_HOUR_NS
+from research.r1_variants.strategy import STOP_BUFFER_ATR
+from research.r1_variants.strategy import R1Strategy
+from research.r1_variants.strategy import WaitingSignal
 
 
 PIVOT_ORDER = 8

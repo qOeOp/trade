@@ -3,11 +3,15 @@
 import json
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import Mock, patch
 
+from research.records import artifacts
 from research.records.artifacts import ArtifactError
 from research.records.artifacts import _files
 from research.records.artifacts import _sha
@@ -17,6 +21,308 @@ from research.records.artifacts import backup
 from research.records.artifacts import create_input_identity
 from research.records.artifacts import restore
 from research.records.artifacts import verify
+
+
+class FrozenSourceLayoutTests(unittest.TestCase):
+    """Disposable Git fixtures; no native economics or Dolt writes are asserted."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.workspace = Path(self.temp.name)
+        self.repo = self.workspace / "repo"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        self.root_patch = patch.object(artifacts, "ROOT", self.repo)
+        self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
+        self.stage = self.workspace / "stage"
+        self.stage.mkdir()
+
+    def write(self, name, content):
+        path = self.repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def commit(self):
+        self.write("pyproject.toml", "# frozen project dependencies\n")
+        self.write("uv.lock", "# frozen dependency lock\n")
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "Disposable frozen source fixture"], cwd=self.repo, check=True)
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo).decode().strip()
+
+    def module_layout(self):
+        self.write("backtest/__init__.py", "")
+        self.write("backtest/r1/__init__.py", "")
+        self.write("backtest/r1/run_portfolio.py", "from backtest.r1.helper import VALUE\nprint(VALUE)\n")
+        self.write("backtest/r1/helper.py", "from research.r1_variants.variant import VALUE\n")
+        self.write("research/r1_variants/__init__.py", "")
+        self.write("research/r1_variants/variant.py", "from .leaf import VALUE\n")
+        self.write("research/r1_variants/leaf.py", "VALUE = 'frozen import closure'\n")
+        self.write("strategies/r1.py", "# complete strategy source fixture\n")
+        self.write("backtest/r1/checks/__init__.py", "")
+        self.write("backtest/r1/checks/audit_tiered_native.py", "print('frozen audit')\n")
+        self.write("backtest/r1/unused_diagnostic.py", "# captured R1 diagnostic source\n")
+        self.write("research/unrelated.py", "# outside R1 snapshot roots\n")
+
+    def summary(self):
+        files = {
+            "strategy_source_sha256": "strategies/r1.py",
+            "runner_source_sha256": "backtest/r1/run_portfolio.py",
+        }
+        return {"source_file_paths": files, **{field: _sha(self.stage / "source" / name)
+                for field, name in files.items()}}
+
+    def seal(self, summary, runner_args=None):
+        reports = self.stage / "reports"
+        reports.mkdir()
+        if summary is not None:
+            (reports / "summary.json").write_text(json.dumps(summary))
+        manifest = {
+            "schema_version": 1, "run_id": "fixture", "attempt_id": "fixture-attempt",
+            "source_commit": self.commit_id, "input_identity_sha256": "a" * 64,
+            "status": "failed", "problems": ["Synthetic fixture, no native replay"],
+            "record_binding": {"id": "attempt:fixture-attempt", "commit": "fixture-fixed", "revision": 1},
+            "files": _files(self.stage),
+        }
+        if runner_args is not None:
+            manifest["runner_args"] = runner_args
+        (self.stage / "manifest.json").write_text(json.dumps(manifest))
+        root = self.workspace / "seals"
+        root.mkdir()
+        self.stage.rename(root / "fixture")
+        return root
+
+    def test_legacy_snapshot_resolves_sibling_imports_and_frozen_dependency_pins(self):
+        self.write("strategies/r1/run_portfolio.py", "from replay_util import VALUE\nprint(VALUE)\n")
+        self.write("strategies/r1/replay_util.py", "VALUE = 'old frozen source'\n")
+        self.write("strategies/r1/audit_tiered_native.py", "print('legacy audit')\n")
+        self.write("strategies/r1/unused.py", "# preserved legacy source root\n")
+        commit = self.commit()
+        self.write("pyproject.toml", "# live project changed\n")
+        self.write("uv.lock", "# live lock changed\n")
+        self.write("strategies/r1/replay_util.py", "VALUE = 'live mutation'\n")
+        self.assertEqual(artifacts._snapshot_source(commit, self.stage), commit)
+        frozen = self.stage / "source"
+        self.assertEqual((frozen / "uv.lock").read_text(), "# frozen dependency lock\n")
+        self.assertEqual((frozen / "pyproject.toml").read_text(), "# frozen project dependencies\n")
+        self.assertEqual((frozen / "strategies/r1/unused.py").read_text(), "# preserved legacy source root\n")
+        command = artifacts._source_command(frozen)
+        self.assertEqual(command, [sys.executable, str(frozen / artifacts.LEGACY_RUNNER)])
+        self.assertEqual(subprocess.check_output(command, cwd=frozen).decode().strip(), "old frozen source")
+        self.assertEqual(artifacts._source_command(frozen, audit=True)[1], str(frozen / artifacts.LEGACY_AUDIT))
+
+    def test_module_snapshot_includes_known_roots_and_runs_from_frozen_source(self):
+        self.module_layout()
+        commit = self.commit()
+        self.write("research/r1_variants/leaf.py", "VALUE = 'live mutation'\n")
+        artifacts._snapshot_source(commit, self.stage)
+        frozen = self.stage / "source"
+        self.assertTrue((frozen / "strategies/r1.py").is_file())
+        self.assertTrue((frozen / "research/r1_variants/leaf.py").is_file())
+        self.assertTrue((frozen / "backtest/r1/unused_diagnostic.py").is_file())
+        self.assertFalse((frozen / "research/unrelated.py").exists())
+        self.assertEqual(artifacts._source_command(frozen), [sys.executable, "-m", "backtest.r1.run_portfolio"])
+        self.assertEqual(subprocess.check_output(artifacts._source_command(frozen), cwd=frozen).decode().strip(), "frozen import closure")
+        self.assertEqual(artifacts._source_command(frozen, audit=True), [sys.executable, "-m", "backtest.r1.checks.audit_tiered_native"])
+
+    def test_conflicting_or_missing_standalone_layout_is_rejected(self):
+        self.module_layout()
+        self.write("strategies/r1/run_portfolio.py", "")
+        with self.assertRaisesRegex(ArtifactError, "conflicting"):
+            artifacts._snapshot_source(self.commit(), self.stage)
+        with self.assertRaisesRegex(ArtifactError, "standalone strategy"):
+            artifacts._source_layout({artifacts.MODULE_RUNNER})
+
+    def test_missing_frozen_variant_root_is_rejected(self):
+        self.module_layout()
+        shutil.rmtree(self.repo / "research/r1_variants")
+        with self.assertRaisesRegex(ArtifactError, "no R1 Python source root"):
+            artifacts._snapshot_source(self.commit(), self.stage)
+
+    def test_missing_frozen_module_audit_is_rejected(self):
+        self.module_layout()
+        (self.repo / artifacts.MODULE_AUDIT).unlink()
+        with self.assertRaisesRegex(ArtifactError, "no native audit source"):
+            artifacts._snapshot_source(self.commit(), self.stage)
+
+    def test_git_symlink_cannot_be_captured_as_python_source(self):
+        self.module_layout()
+        (self.repo / "strategies/r1.py").unlink()
+        (self.repo / "strategies/r1.py").symlink_to("../outside.py")
+        with self.assertRaisesRegex(ArtifactError, "regular Git file"):
+            artifacts._snapshot_source(self.commit(), self.stage)
+
+    def test_new_summary_requires_exact_safe_source_paths_and_digest_binding(self):
+        self.module_layout()
+        artifacts._snapshot_source(self.commit(), self.stage)
+        summary = self.summary()
+        artifacts._check_source_summary(self.stage, summary)
+        for name in ("../outside.py", "/absolute.py", "backtest//r1/run_portfolio.py", "backtest/r1/./run_portfolio.py"):
+            summary["source_file_paths"]["strategy_source_sha256"] = name
+            with self.assertRaisesRegex(ArtifactError, "unsafe"):
+                artifacts._check_source_summary(self.stage, summary)
+        summary = self.summary()
+        summary["source_file_paths"]["strategy_source_sha256"] = "research/r1_variants/missing.py"
+        with self.assertRaisesRegex(ArtifactError, "no frozen"):
+            artifacts._check_source_summary(self.stage, summary)
+        summary = self.summary()
+        summary["source_file_paths"]["strategy_source_sha256"] = artifacts.MODULE_RUNNER
+        with self.assertRaisesRegex(ArtifactError, "disagrees with digest field"):
+            artifacts._check_source_summary(self.stage, summary)
+        summary = self.summary()
+        summary["native_node_source_sha256"] = "b" * 64
+        with self.assertRaisesRegex(ArtifactError, "every non-null source digest"):
+            artifacts._check_source_summary(self.stage, summary)
+        summary = self.summary()
+        del summary["source_file_paths"]
+        with self.assertRaisesRegex(ArtifactError, "no source_file_paths"):
+            artifacts._check_source_summary(self.stage, summary)
+        summary = self.summary()
+        summary["strategy_source_sha256"] = "c" * 64
+        with self.assertRaisesRegex(ArtifactError, "differs from frozen"):
+            artifacts._check_source_summary(self.stage, summary)
+
+    def test_legacy_seal_keeps_original_summary_mapping_and_manifest_bytes(self):
+        source = self.stage / "source/strategies/r1/strategy.py"
+        source.parent.mkdir(parents=True)
+        source.write_text("# old frozen strategy\n")
+        self.commit_id = "a" * 40
+        root = self.seal({"strategy_source_sha256": _sha(source), "brooks_confirmed_strategy_source_sha256": "b" * 64})
+        manifest = root / "fixture/manifest.json"
+        before = manifest.read_bytes()
+        self.assertTrue(verify(root, "fixture")["verified"])
+        self.assertEqual(manifest.read_bytes(), before)
+
+    def test_registration_uses_new_actual_paths_with_mocked_publication_boundary(self):
+        self.module_layout()
+        self.commit_id = self.commit()
+        artifacts._snapshot_source(self.commit_id, self.stage)
+        summary = self.summary()
+        root = self.seal(summary)
+        store = Mock()
+        store.adapter.status.return_value = {"version": "fixture-version"}
+        store.publish_record.return_value = {"commit": "fixture-publication"}
+        with patch("research.records.store.open_store", return_value=store), \
+             patch.object(artifacts, "_attempt_snapshot", return_value=({}, {})), \
+             patch.object(artifacts.importlib.metadata, "version", return_value="fixture-native-version"):
+            artifacts.register(root=root, run_id="fixture", role="diagnostic", cost_model="Synthetic fixture only",
+                               control_run_id=None, evidence_grade="unknown")
+        record = store.publish_record.call_args.args[1]
+        self.assertEqual(record["source_revision"]["files"], summary["source_file_paths"])
+        self.assertEqual(record["source_files_sha256"], {field: summary[field] for field in summary["source_file_paths"]})
+        self.assertEqual(record["source_revision"]["commit"], self.commit_id)
+
+    def register_failed_module(self, signal_variant):
+        self.module_layout()
+        self.write("research/r1_variants/strategy.py", "# legacy base strategy fixture\n")
+        self.write("backtest/r1/native_node.py", "# frozen native runtime fixture\n")
+        self.commit_id = self.commit()
+        artifacts._snapshot_source(self.commit_id, self.stage)
+        root = self.seal(None, ["--signal-variant", signal_variant])
+        store = Mock()
+        store.adapter.status.return_value = {"version": "fixture-version"}
+        store.publish_record.return_value = {"commit": "fixture-publication"}
+        with patch("research.records.store.open_store", return_value=store), \
+             patch.object(artifacts, "_attempt_snapshot", return_value=({}, {})), \
+             patch.object(artifacts.importlib.metadata, "version", return_value="fixture-native-version"):
+            result = artifacts.register(root=root, run_id="fixture", role="diagnostic", cost_model="Synthetic pre-summary failure",
+                                        control_run_id=None, evidence_grade="unknown")
+        self.assertEqual(result["status"], "failed")
+        record = store.publish_record.call_args.args[1]
+        self.assertEqual(record["integrity"], "failed")
+        self.assertEqual(record["failure_reasons"], ["Synthetic fixture, no native replay"])
+        self.assertNotIn("window", record)
+        self.assertNotIn("account", record)
+        self.assertNotIn("summary_ref", record)
+        self.assertEqual(record["source_revision"]["files"]["native_node_source_sha256"], "backtest/r1/native_node.py")
+        for field, path in record["source_revision"]["files"].items():
+            self.assertEqual(record["source_files_sha256"][field], _sha(root / "fixture/source" / path))
+        return record
+
+    def test_failed_module_registration_without_summary_keeps_h19a_strategy_identity(self):
+        record = self.register_failed_module("support-broad-two-tier-4h")
+        self.assertEqual(record["source_revision"]["files"]["strategy_source_sha256"], "strategies/r1.py")
+
+    def test_failed_module_registration_without_summary_keeps_legacy_variant_identity(self):
+        record = self.register_failed_module("box-failed-breakout-4h")
+        self.assertEqual(record["source_revision"]["files"]["strategy_source_sha256"], "research/r1_variants/strategy.py")
+
+    def test_failed_module_registration_without_summary_requires_frozen_runner_arguments(self):
+        self.module_layout()
+        artifacts._snapshot_source(self.commit(), self.stage)
+        with self.assertRaisesRegex(ArtifactError, "no frozen runner arguments"):
+            artifacts._summary_source_files(self.stage, None)
+
+    def test_input_paths_survive_frozen_working_directory(self):
+        original = ["--catalog-root", "inputs/minute", "--daily-root=inputs/daily", "--quantity-csv", "q.csv", "--start", "2026-01-01"]
+        actual = artifacts._absolute_runner_args(original)
+        self.assertEqual(actual[1], str(Path("inputs/minute").resolve()))
+        self.assertEqual(actual[2], "--daily-root=" + str(Path("inputs/daily").resolve()))
+        self.assertEqual(actual[4], str(Path("q.csv").resolve()))
+        self.assertEqual(actual[-2:], ["--start", "2026-01-01"])
+
+    def test_run_seals_frozen_module_execution_and_audit_without_external_state_writes(self):
+        self.module_layout()
+        self.write("backtest/r1/run_portfolio.py", """
+import hashlib
+import json
+import sys
+from pathlib import Path
+from strategies import r1
+
+# Synthetic custody orchestration fixture, not a native backtest.
+output = Path(sys.argv[sys.argv.index('--output') + 1])
+output.mkdir(exist_ok=True)
+files = {'strategy_source_sha256': 'strategies/r1.py',
+         'runner_source_sha256': 'backtest/r1/run_portfolio.py'}
+summary = {'source_file_paths': files, 'integrity_passed': True}
+summary.update({field: hashlib.sha256(Path(name).read_bytes()).hexdigest()
+                for field, name in files.items()})
+(output / 'summary.json').write_text(json.dumps(summary))
+for name in ('orders.csv', 'fills.csv', 'positions.csv', 'account.csv', 'returns_series.csv'):
+    (output / name).write_text('synthetic custody fixture, no economics\\n')
+print(Path.cwd())
+""")
+        self.write("backtest/r1/checks/audit_tiered_native.py", """
+import json
+import sys
+from pathlib import Path
+# Synthetic audit fixture, not an order-integrity claim.
+output = Path(sys.argv[sys.argv.index('--output') + 1])
+output.write_text(json.dumps({'passed': True, 'findings': []}))
+print(Path.cwd())
+""")
+        commit = self.commit()
+        identity = self.workspace / "identity.json"
+        identity.write_text("{}")
+        quantity = self.workspace / "quantity.csv"
+        quantity.write_text("synthetic fixture")
+        root = self.workspace / "artifact-root"
+        binding = {"id": "attempt:fixture-attempt", "commit": "fixture-fixed", "revision": 1}
+        with patch.object(artifacts, "_attempt_snapshot", return_value=({
+                 "registration": {"original_registration_commit": commit}}, binding)), \
+             patch.object(artifacts, "_check_inputs", return_value={"fixture": "no Catalog mutation"}), \
+             patch.object(artifacts.importlib.metadata, "version", return_value="fixture-native-version"), \
+             patch.object(artifacts.tempfile, "gettempdir", return_value="/system-temp-fixture"):
+            result = artifacts.run(root=root, run_id="fixture-run", attempt_id="fixture-attempt",
+                                   source_ref=commit, input_identity=identity, runner_argv=[
+                                       "--catalog-root", str(self.workspace / "minute"),
+                                       "--daily-root", str(self.workspace / "daily"),
+                                       "--quantity-csv", str(quantity), "--coins", "BTC",
+                                       "--signal-variant", "support-broad-two-tier-4h"])
+        self.assertEqual(result["status"], "passed")
+        seal = root / "fixture-run"
+        native_cwd = (seal / "native.stdout.txt").read_text().strip()
+        self.assertTrue(native_cwd.startswith(str(root.resolve() / ".staging")))
+        self.assertTrue(native_cwd.endswith("/source"))
+        self.assertEqual((seal / "audit.stdout.txt").read_text().strip(), native_cwd)
+        self.assertTrue(verify(root, "fixture-run")["verified"])
+        manifest = json.loads((seal / "manifest.json").read_text())
+        self.assertEqual(manifest["source_commit"], commit)
+        self.assertEqual(manifest["record_binding"], binding)
+        self.assertEqual(manifest["dependency_lock_sha256"], _sha(seal / "source/uv.lock"))
 
 
 class ArtifactCustodyTests(unittest.TestCase):

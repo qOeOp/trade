@@ -28,9 +28,10 @@ from nautilus_trader.model import (
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.risk import RiskEngineConfig
 
-from node_strategy import STRATEGIES
-from replay_inputs import month_edges, validate_funding_receipt
-from replay_util import _ns
+from backtest.r1.node_strategy import STRATEGIES
+from backtest.r1.replay_inputs import month_edges, validate_funding_receipt
+from backtest.r1.replay_util import _ns
+from strategies.r1 import R1Strategy
 
 
 BAR_INTERVAL_NS = 5 * 60_000_000_000
@@ -216,12 +217,17 @@ def run_native_node(
     node = BacktestNode([config])
     node.build()
     STRATEGIES.clear()
+    wrapper_name = (
+        "NodeH19aStrategy"
+        if strategy_class is R1Strategy
+        else f"Node{strategy_class.__name__}"
+    )
     for row in rows:
         node.add_strategy_from_config(
             config.id,
             ImportableStrategyConfig(
-                strategy_path=f"node_strategy:Node{strategy_class.__name__}",
-                config_path="node_strategy:NodeStrategyConfig",
+                strategy_path=f"backtest.r1.node_strategy:{wrapper_name}",
+                config_path="backtest.r1.node_strategy:NodeStrategyConfig",
                 config={
                     "coin": row["coin"],
                     "instrument_id": str(row["instrument_id"]),

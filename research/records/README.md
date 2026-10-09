@@ -358,8 +358,15 @@ old `/tmp` runs sealed. The contract and limits are in
 
 Use a directory outside Git and `/tmp`; the path below is an example. The
 attempt must already have a committed preregistration. `--source-ref` identifies
-the frozen strategy commit. The wrapper runs the **existing** native
-`run_portfolio.py` from those exact source bytes, not a second backtest engine.
+the frozen strategy commit. The wrapper runs the **existing** native R1 runner
+from those exact source bytes. New frozen commits use
+`python -m backtest.r1.run_portfolio`; old commits retain their original
+`strategies/r1/run_portfolio.py` entry. Source capture freezes the dependency
+pins from the same commit, and new summaries bind each digest to its actual
+source path. Historical seals keep their original path and hash contract.
+Execution uses the invoking Python environment; capturing an older lockfile
+does not provision its dependencies. Before replaying a commit with different
+pins, prepare an environment matching that commit.
 For a new input dataset, first create and review its identity with
 `research.records.artifacts input-identity --catalog-root ... --daily-root ...
 --quantity-csv ... --coins ... --output ...` and commit that small JSON file.

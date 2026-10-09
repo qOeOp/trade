@@ -1,36 +1,137 @@
-"""
-Budgeted pullback tiers using native Nautilus contingent order lists.
+"""Complete native R1 H19a broad-swing, two-tier strategy.
+
+All strategy rules live in this file: causal four-hour LAST selection, prior-bar
+Wilder ATR, 50%/61.8% entry tiers, structural stop, swing-high target, sizing and
+native bracket lifecycle. The shared runner supplies market data and a fixed
+capital account; Nautilus owns orders, fills, fees, funding and account state.
+
+Behavioral source: H19a support-broad-two-tier-4h at 44e229331. Historical
+variants and research evidence are managed outside the strategy directory.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from itertools import pairwise
 
-from broad_swing_signal import BroadSwingPullback
-from nautilus_trader.model import Bar
-from nautilus_trader.model import LimitOrder
-from nautilus_trader.model import OrderSide
-from nautilus_trader.model import OrderType
-from nautilus_trader.model import TimeInForce
-from retracement_strategy import ConfirmedSupportPullback
-from retracement_strategy import RetracementPlan
-from strategy import FOUR_HOUR_NS
-from strategy import FourHour
-from strategy import R1Strategy
-from trendline_strategy import MAX_LINE_EXTENSION
-from trendline_strategy import ConfirmedLineSupportTouches
-from trendline_strategy import LineCandle
+from nautilus_trader.indicators import WilderMovingAverage
+from nautilus_trader.model import Bar, BarType, InstrumentId, LimitOrder
+from nautilus_trader.model import OrderSide, OrderType, Quantity, StrategyId, TimeInForce
+from nautilus_trader.trading import Strategy, StrategyConfig
 
 
-THREE_TIER_RATIOS = (0.5, 0.618, 0.764)
-DEEP_TIER_RATIOS = (0.618, 0.764)
+SIGNAL_VARIANT = "support-broad-two-tier-4h"
+FOUR_HOUR_NS = 86_400_000_000_000 // 6
+STOP_BUFFER_ATR = 0.25
+PIVOT_ORDER = 8
+ANCHOR_LOOKBACK = 180
+BOX_BARS = 60
+MIN_ANCHOR_SPAN = 6
+DEEP_STOP_RATIO = 0.764
 BROAD_TIER_RATIOS = (0.5, 0.618)
-BROAD_LINE_CANCEL_VARIANT = "support-broad-two-tier-line-cancel-4h"
 TOTAL_RISK_FRACTION = 0.0025
 TOTAL_NOTIONAL_FRACTION = 0.05
-LIFETIME_NS = 30 * FOUR_HOUR_NS
 BROAD_LIFETIME_NS = 180 * FOUR_HOUR_NS
+
+
+@dataclass(frozen=True)
+class FourHour:
+    ts_event: int
+    high: float
+    low: float
+    close: float
+
+
+@dataclass(frozen=True)
+class RetracementPlan:
+    ts_event: int
+    a_index: int
+    b_index: int
+    a_low: float
+    b_high: float
+    level_50: float
+    entry: float
+    level_764: float
+    stop: float
+    target: float
+    support_low_indices: tuple[int, ...]
+    support_high_indices: tuple[int, ...] = ()
+    support_kind: str = "prior-lows"
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+class BroadSwingPullback:
+    """
+    Track complete LAST candles and expose D60's selected A/B and eligible plan.
+    """
+
+    def __init__(self) -> None:
+        self.candles: list[FourHour] = []
+        self.last_selected: dict | None = None
+
+    def _pivot_low(self, j: int) -> bool:
+        window = self.candles[j - PIVOT_ORDER : j + PIVOT_ORDER + 1]
+        return self.candles[j].low == min(bar.low for bar in window)
+
+    def _selected(self, i: int, prior_atr: float | None) -> dict | None:
+        if i + 1 < ANCHOR_LOOKBACK or prior_atr is None or prior_atr <= 0:
+            return None
+        b = max(range(i - BOX_BARS + 1, i + 1), key=lambda j: (self.candles[j].high, -j))
+        eligible = [
+            j
+            for j in range(max(PIVOT_ORDER, b - ANCHOR_LOOKBACK + 1), b - MIN_ANCHOR_SPAN + 1)
+            if j + PIVOT_ORDER <= b and self._pivot_low(j)
+        ]
+        if not eligible:
+            return None
+        a = min(eligible, key=lambda j: (self.candles[j].low, j))
+        low, high = self.candles[a].low, self.candles[b].high
+        if not 0 < low < high:
+            return None
+        span = high - low
+        return {
+            "a_index": a,
+            "b_index": b,
+            "a_low": low,
+            "b_high": high,
+            "level_50": high - 0.5 * span,
+            "level_618": high - 0.618 * span,
+            "level_764": high - DEEP_STOP_RATIO * span,
+            "stop": high - DEEP_STOP_RATIO * span - STOP_BUFFER_ATR * prior_atr,
+            "target": high,
+        }
+
+    def _eligible(self, i: int, selected: dict) -> bool:
+        b = selected["b_index"]
+        return self.candles[i].close > selected["level_50"] and all(
+            self.candles[j].low > selected["level_50"] for j in range(b + 1, i + 1)
+        )
+
+    def on_closed(self, candle: FourHour, prior_atr: float | None) -> RetracementPlan | None:
+        if self.candles and candle.ts_event - self.candles[-1].ts_event != FOUR_HOUR_NS:
+            raise RuntimeError("broad-swing four-hour LAST input is not contiguous")
+        self.candles.append(candle)
+        i = len(self.candles) - 1
+        selected = self._selected(i, prior_atr)
+        self.last_selected = selected
+        if selected is None or selected["stop"] <= 0 or not self._eligible(i, selected):
+            return None
+        return RetracementPlan(
+            ts_event=candle.ts_event,
+            a_index=selected["a_index"],
+            b_index=selected["b_index"],
+            a_low=selected["a_low"],
+            b_high=selected["b_high"],
+            level_50=selected["level_50"],
+            entry=selected["level_50"],
+            level_764=selected["level_764"],
+            stop=selected["stop"],
+            target=selected["target"],
+            support_low_indices=(),
+            support_kind="broad-confirmed-swing",
+        )
 
 
 @dataclass
@@ -43,65 +144,90 @@ class TierBundle:
     b_high: float | None = None
 
 
-class TieredRetracementStrategy(R1Strategy):
-    """
-    Own one tier bundle while Nautilus owns orders and portfolio state.
+class R1Strategy(Strategy):
+    """Execute one instrument's H19a rules in the supplied native account.
+
+    Constructor arguments retain the existing native runner interface. Daily
+    bars and trade_size are compatibility inputs; H19a uses four-hour signals
+    and native equity sizing with the required 25-bp risk and 5% notional cap.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        if self.signal_variant in (
-            "support-three-tier-4h",
-            "support-three-tier-line-cancel-4h",
-        ):
-            self.tier_ratios = THREE_TIER_RATIOS
-        elif self.signal_variant == "support-deep-two-tier-4h":
-            self.tier_ratios = DEEP_TIER_RATIOS
-        elif self.signal_variant in (
-            "support-broad-two-tier-4h",
-            BROAD_LINE_CANCEL_VARIANT,
-            "support-brooks-confirmed-4h",
-            "support-broad-gap-runner-4h",
-            "support-broad-prior-a-support-4h",
-            "support-broad-any-prior-a-support-4h",
-            "support-broad-any-prior-a-outside-stop-4h",
-        ):
-            self.tier_ratios = BROAD_TIER_RATIOS
-        else:
-            raise ValueError("unsupported budgeted tier signal")
+    def __new__(
+        cls,
+        instrument_id: InstrumentId,
+        daily_bar_type: BarType,
+        trade_size: Quantity,
+        trade_start_ns: int | None = None,
+        historical_daily_bars: list[Bar] | None = None,
+        execution_bar_minutes: int = 1,
+        strategy_id: StrategyId | None = None,
+        risk_budget_fraction: float | None = None,
+        max_coin_notional_fraction: float = 0.05,
+        signal_variant: str = SIGNAL_VARIANT,
+    ):
+        return super().__new__(cls)
+
+    def __init__(
+        self,
+        instrument_id: InstrumentId,
+        daily_bar_type: BarType,
+        trade_size: Quantity,
+        trade_start_ns: int | None = None,
+        historical_daily_bars: list[Bar] | None = None,
+        execution_bar_minutes: int = 1,
+        strategy_id: StrategyId | None = None,
+        risk_budget_fraction: float | None = None,
+        max_coin_notional_fraction: float = 0.05,
+        signal_variant: str = SIGNAL_VARIANT,
+    ) -> None:
+        super().__init__(
+            StrategyConfig(strategy_id=strategy_id) if strategy_id else None,
+        )
+        self.instrument_id = instrument_id
+        self.daily_bar_type = daily_bar_type
+        self.minute_bar_type = BarType.from_str(
+            f"{instrument_id}-{execution_bar_minutes}-MINUTE-LAST-EXTERNAL",
+        )
+        self.execution_bar_minutes = execution_bar_minutes
+        if signal_variant != SIGNAL_VARIANT:
+            raise ValueError("unsupported R-1 signal variant")
+        self.signal_variant = signal_variant
+        self.four_hour_bar_type = BarType.from_str(
+            f"{instrument_id}-4-HOUR-LAST-INTERNAL",
+        )
+        self.four_hour_history: list[FourHour] = []
+        self.trade_size = trade_size
+        if risk_budget_fraction is not None and not 0 < risk_budget_fraction < 1:
+            raise ValueError("risk budget fraction must be between zero and one")
+        if not 0 < max_coin_notional_fraction <= 1:
+            raise ValueError("coin notional cap must be between zero and one")
         if (
-            self.risk_budget_fraction != TOTAL_RISK_FRACTION
-            or self.max_coin_notional_fraction != TOTAL_NOTIONAL_FRACTION
+            risk_budget_fraction != TOTAL_RISK_FRACTION
+            or max_coin_notional_fraction != TOTAL_NOTIONAL_FRACTION
         ):
             raise ValueError(
                 "budgeted tiers require 25-bp risk and 5% coin notional cap"
             )
-        self.broad_enabled = self.signal_variant in (
-            "support-broad-two-tier-4h",
-            BROAD_LINE_CANCEL_VARIANT,
-            "support-brooks-confirmed-4h",
-            "support-broad-gap-runner-4h",
-            "support-broad-prior-a-support-4h",
-            "support-broad-any-prior-a-support-4h",
-            "support-broad-any-prior-a-outside-stop-4h",
-        )
-        self.bundle_lifetime_ns = (
-            BROAD_LIFETIME_NS if self.broad_enabled else LIFETIME_NS
-        )
-        self.broad_state = BroadSwingPullback() if self.broad_enabled else None
+        self.risk_budget_fraction = risk_budget_fraction
+        self.max_coin_notional_fraction = max_coin_notional_fraction
+        self.trade_start_ns = trade_start_ns
+        self.historical_daily_bars = historical_daily_bars or []
+        # Seed with the first TR and update with alpha=1/14, adjust=False.
+        self.atr = WilderMovingAverage(14)
+        self.reference_price: float | None = None
+        self.opened_ns: int | None = None
+        self.signals = 0
+        self.signals_while_open = 0
+        self.waiting_voided = 0
+        self.waiting_released = 0
+        # Retain the generic runner's zero-valued report fields for parity.
+        self.slot_violations = 0
+        self.box_breaks = 0
+        self.risk_size_skips = 0
+        self.tier_ratios = BROAD_TIER_RATIOS
+        self.bundle_lifetime_ns = BROAD_LIFETIME_NS
+        self.broad_state = BroadSwingPullback()
         self.broad_planned_pairs: set[tuple[int, int]] = set()
-        self.support_state = (
-            None
-            if self.broad_enabled
-            else ConfirmedSupportPullback(
-                timing="confirmed-update",
-                support_mode="none",
-                entry_ratio=0.5,
-                minimum_target_r=0.0,
-                stop_at_origin=True,
-            )
-        )
-        self.selected_pair: tuple[int, int] | None = None
         self.bundle: TierBundle | None = None
         self.waiting_plan: RetracementPlan | None = None
         self.release_after_ns: int | None = None
@@ -112,106 +238,53 @@ class TieredRetracementStrategy(R1Strategy):
         self.bundle_invalid_price_skips = 0
         self.bundle_minimum_skips = 0
         self.bundle_order_failures = 0
-        self.line_cancel_enabled = self.signal_variant in (
-            "support-three-tier-line-cancel-4h",
-            BROAD_LINE_CANCEL_VARIANT,
+
+    def on_start(self) -> None:
+        self.instrument = self.cache.instrument(self.instrument_id)
+        if self.instrument is None:
+            raise RuntimeError(f"missing instrument {self.instrument_id}")
+        self.subscribe_bars(self.minute_bar_type)
+        self.subscribe_bars(
+            BarType.from_str(
+                f"{self.four_hour_bar_type}@{self.execution_bar_minutes}-MINUTE-EXTERNAL",
+            ),
         )
-        self.line_state = (
-            ConfirmedLineSupportTouches() if self.line_cancel_enabled else None
-        )
-        self.line_frozen_for_position = False
-        self.frozen_line: tuple[int, float, float] | None = None
-        self.line_break_triggered = False
-        self.line_cancel_requested_ids: set = set()
-        self.line_snapshots = 0
-        self.line_break_events = 0
-        self.line_cancel_requests = 0
-        self.line_cancel_race_fills = 0
+        self.historical_daily_bars.clear()
+
+    def on_bar(self, bar: Bar) -> None:
+        if bar.bar_type == self.minute_bar_type:
+            self._advance_waiting(bar)
+            return
+        if bar.bar_type == self.four_hour_bar_type:
+            self._on_four_hour_bar(bar)
 
     def _on_four_hour_bar(self, bar: Bar) -> None:
-        if self.line_cancel_enabled:
-            self.line_state.on_closed(
-                LineCandle(
-                    bar.ts_event,
-                    float(bar.open),
-                    float(bar.high),
-                    float(bar.low),
-                    float(bar.close),
-                ),
-                None,
-            )
-            self._cancel_pending_on_frozen_line_break(bar)
-        super()._on_four_hour_bar(bar)
-
-    def _freeze_entry_line(self) -> None:
-        self.line_frozen_for_position = True
-        i = len(self.line_state.candles) - 1
-        if i < 0:
-            return
-        projected = self.line_state._latest_rising_line(i)
-        if projected is None:
-            return
-        (_, j2), p2, slope, _ = projected
-        self.frozen_line = (j2, p2, slope)
-        self.line_snapshots += 1
-
-    def _cancel_pending_on_frozen_line_break(self, bar: Bar) -> None:
-        if (
-            not self.line_frozen_for_position
-            or self.frozen_line is None
-            or self.line_break_triggered
-            or self.opened_ns is None
-            or bar.ts_event < self.opened_ns + FOUR_HOUR_NS
-            or bar.ts_event >= self.opened_ns + self.bundle_lifetime_ns
-        ):
-            return
-        bundle = self.bundle
-        if bundle is None or bundle.net_flat or bundle.retiring:
-            return
-        i = len(self.line_state.candles) - 1
-        j2, p2, slope = self.frozen_line
-        if i - j2 > MAX_LINE_EXTENSION or float(bar.close) >= p2 + slope * (i - j2):
-            return
-        self.line_break_triggered = True
-        self.line_break_events += 1
-        for entry_id in bundle.entry_ids:
-            if entry_id in bundle.filled_ids:
-                continue
-            order = self.cache.order(entry_id)
-            if order is not None and order.is_open and not order.is_pending_cancel:
-                self.cancel_order(entry_id)
-                self.line_cancel_requested_ids.add(entry_id)
-                self.line_cancel_requests += 1
+        candle = FourHour(
+            bar.ts_event,
+            float(bar.high),
+            float(bar.low),
+            float(bar.close),
+        )
+        previous_close = (
+            self.four_hour_history[-1].close if self.four_hour_history else candle.close
+        )
+        true_range = max(
+            candle.high - candle.low,
+            abs(candle.high - previous_close),
+            abs(candle.low - previous_close),
+        )
+        hold_ns = 180 * FOUR_HOUR_NS
+        if self.opened_ns is not None and bar.ts_event >= self.opened_ns + hold_ns:
+            self.cancel_all_orders(self.instrument_id)
+            self.close_all_positions(self.instrument_id)
+        # The signal sees the previous closed bar's ATR; update only after it.
+        self._queue_four_hour_candidate(candle)
+        self.atr.update_raw(true_range)
+        self.four_hour_history.append(candle)
+        self.four_hour_history = self.four_hour_history[-BOX_BARS:]
+        self._release_waiting(candle.close)
 
     def _queue_four_hour_candidate(self, candle: FourHour) -> None:
-        if self.broad_enabled:
-            self._queue_broad_candidate(candle)
-            return
-        plan = self.support_state.on_closed(
-            candle,
-            self.atr.value if self.atr.initialized else None,
-        )
-        impulse = self.support_state.last_readout["impulse"]
-        if impulse is not None:
-            pair = (impulse["a_index"], impulse["b_index"])
-            if pair != self.selected_pair:
-                self.selected_pair = pair
-                self.waiting_plan = None
-                if self.bundle is not None and self.bundle.net_flat:
-                    self.bundle_supersessions += 1
-                    self.release_after_ns = candle.ts_event
-                    self._retire_bundle()
-        if plan is None or (
-            self.trade_start_ns is not None and candle.ts_event < self.trade_start_ns
-        ):
-            return
-        self.signals += 1
-        if self.bundle is not None and not self.bundle.net_flat:
-            self.signals_while_open += 1
-            return
-        self.waiting_plan = plan
-
-    def _queue_broad_candidate(self, candle: FourHour) -> None:
         plan = self.broad_state.on_closed(
             candle,
             self.atr.value if self.atr.initialized else None,
@@ -405,12 +478,6 @@ class TieredRetracementStrategy(R1Strategy):
             self._release_waiting(self.reference_price)
 
     def on_order_filled(self, event) -> None:
-        first_fill_of_position = self.line_cancel_enabled and self.opened_ns is None
-        if (
-            self.line_cancel_enabled
-            and event.client_order_id in self.line_cancel_requested_ids
-        ):
-            self.line_cancel_race_fills += 1
         bundle = self.bundle
         if bundle is None or event.client_order_id not in bundle.entry_ids:
             return
@@ -422,16 +489,9 @@ class TieredRetracementStrategy(R1Strategy):
         bundle.net_flat = False
         if self.opened_ns is None:
             self.opened_ns = event.ts_event
-        if first_fill_of_position:
-            self._freeze_entry_line()
 
     def on_position_closed(self, event) -> None:
         self.opened_ns = None
-        if self.line_cancel_enabled:
-            self.line_frozen_for_position = False
-            self.frozen_line = None
-            self.line_break_triggered = False
-            self.line_cancel_requested_ids.clear()
         if self.bundle is not None:
             self.bundle.net_flat = True
             self._retire_bundle()

@@ -22,12 +22,12 @@ from nautilus_trader.model import StopMarketOrder
 from nautilus_trader.model import StrategyId
 from nautilus_trader.model import TimeInForce
 from nautilus_trader.model import TriggerType
-from strategy import DAY_NS
-from strategy import FOUR_HOUR_NS
-from strategy import STOP_BUFFER_ATR
-from strategy import VALID_DAYS
-from strategy import R1Strategy
-from strategy import WaitingSignal
+from research.r1_variants.strategy import DAY_NS
+from research.r1_variants.strategy import FOUR_HOUR_NS
+from research.r1_variants.strategy import STOP_BUFFER_ATR
+from research.r1_variants.strategy import VALID_DAYS
+from research.r1_variants.strategy import R1Strategy
+from research.r1_variants.strategy import WaitingSignal
 
 
 class R1StagedStrategy(R1Strategy):

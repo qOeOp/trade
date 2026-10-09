@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from nautilus_trader.model import Bar, OrderSide, OrderType, TimeInForce
 
-from stop_entry import with_buy_stop_parent
-from strategy import (
+from backtest.r1.stop_entry import with_buy_stop_parent
+from research.r1_variants.strategy import (
     FOUR_HOUR_NS,
     STOP_BUFFER_ATR,
     FourHour,

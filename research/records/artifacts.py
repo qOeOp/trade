@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from research.records.common import ROOT
 from research.records.common import RecordError
@@ -48,6 +48,19 @@ SOURCE_DIGEST_FILES = {
     "tiered_strategy_source_sha256": "tiered_retracement_strategy.py",
     "broad_swing_signal_source_sha256": "broad_swing_signal.py",
     "runner_source_sha256": "run_portfolio.py",
+}
+LEGACY_RUNNER = "strategies/r1/run_portfolio.py"
+LEGACY_AUDIT = "strategies/r1/audit_tiered_native.py"
+MODULE_RUNNER = "backtest/r1/run_portfolio.py"
+MODULE_AUDIT = "backtest/r1/checks/audit_tiered_native.py"
+MODULE_DIGEST_FILES = {
+    **{field: f"research/r1_variants/{name}" for field, name in SOURCE_DIGEST_FILES.items()
+       if field not in {"strategy_source_sha256", "runner_source_sha256"}},
+    **{f"{name}_strategy_source_sha256": f"research/r1_variants/{name}_strategy.py"
+       for name in ("brooks_confirmed", "failed_range_breakout", "gap_runner", "structural_support")},
+    **{f"{name}_source_sha256": f"backtest/r1/{name}.py"
+       for name in ("native_node", "node_strategy", "replay_inputs", "replay_util", "stop_entry")},
+    "runner_source_sha256": MODULE_RUNNER,
 }
 
 
@@ -182,26 +195,137 @@ def _git(*args: str) -> bytes:
     return result.stdout
 
 
+def _safe_source_path(value: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_./-]+", value):
+        raise ArtifactError(f"unsafe frozen source path: {value!r}")
+    path = PurePosixPath(value)
+    if path.is_absolute() or any(part in {".", ".."} for part in path.parts) or path.as_posix() != value:
+        raise ArtifactError(f"unsafe frozen source path: {value!r}")
+    return value
+
+
+def _source_layout(paths: set[str]) -> str:
+    legacy = LEGACY_RUNNER in paths
+    module = MODULE_RUNNER in paths
+    if legacy and module:
+        raise ArtifactError("frozen source contains conflicting native R1 layouts")
+    if module:
+        if "strategies/r1.py" not in paths:
+            raise ArtifactError("module R1 layout has no standalone strategy source")
+        return "module"
+    if legacy:
+        return "legacy"
+    raise ArtifactError("source commit has no native R1 runner")
+
+
 def _snapshot_source(ref: str, stage: Path) -> str:
+    """Capture the known R1 source layout and dependency pins from one commit."""
     commit = _git("rev-parse", "--verify", f"{ref}^{{commit}}").decode().strip()
-    files = _git("ls-tree", "-r", "--name-only", commit, "strategies/r1").decode()
-    paths = [name for name in files.splitlines() if name.endswith(".py")]
-    if "strategies/r1/run_portfolio.py" not in paths:
-        raise ArtifactError("source commit has no native R1 runner")
-    for name in paths:
+    entries = {}
+    for record in _git("ls-tree", "-r", "-z", commit).split(b"\0"):
+        if record:
+            metadata, name = record.decode().split("\t", 1)
+            entries[name] = metadata.split()[0]
+    layout = _source_layout(set(entries))
+    roots = ("backtest/r1/", "research/r1_variants/") if layout == "module" else ("strategies/r1/",)
+    paths = set()
+    for root in roots:
+        found = {name for name in entries if name.startswith(root) and name.endswith(".py")}
+        if not found:
+            raise ArtifactError(f"source commit has no R1 Python source root: {root}")
+        paths.update(found)
+    if layout == "module":
+        paths.add("strategies/r1.py")
+        if MODULE_AUDIT not in entries:
+            raise ArtifactError("module R1 layout has no native audit source")
+        paths.update(name for name in ("backtest/__init__.py", "research/__init__.py", "strategies/__init__.py")
+                     if name in entries)
+    paths.update(("pyproject.toml", "uv.lock"))
+    for name in sorted(paths):
+        _safe_source_path(name)
+        if entries.get(name) not in {"100644", "100755"}:
+            raise ArtifactError(f"frozen source is not a regular Git file: {name}")
         target = stage / "source" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(_git("show", f"{commit}:{name}"))
-    for name in ("pyproject.toml", "uv.lock"):
-        shutil.copyfile(ROOT / name, stage / "source" / name)
     return commit
 
 
+def _source_command(source: Path, *, audit: bool = False) -> list[str]:
+    paths = {path.relative_to(source).as_posix() for path in source.rglob("*.py")}
+    if _source_layout(paths) == "module":
+        module = "backtest.r1.checks.audit_tiered_native" if audit else "backtest.r1.run_portfolio"
+        return [sys.executable, "-m", module]
+    return [sys.executable, str(source / (LEGACY_AUDIT if audit else LEGACY_RUNNER))]
+
+
+def _absolute_runner_args(argv: list[str]) -> list[str]:
+    """Retain input locations when executing from the frozen source directory."""
+    options = {"--catalog-root", "--daily-root", "--quantity-csv", "--mark-root"}
+    result = list(argv)
+    for index, value in enumerate(argv):
+        if value in options and index + 1 < len(argv):
+            result[index + 1] = str(Path(argv[index + 1]).resolve())
+        elif value.split("=", 1)[0] in options and "=" in value:
+            option, path = value.split("=", 1)
+            result[index] = option + "=" + str(Path(path).resolve())
+    return result
+
+
+def _summary_source_files(
+    stage: Path, summary: dict | None, runner_args: list[str] | None = None,
+) -> dict[str, str]:
+    source = stage / "source"
+    if summary is None:
+        if (source / MODULE_RUNNER).is_file():
+            # A failure before summary still has a frozen source identity.
+            # Record captured modules; no claim about executed rules is made.
+            paths = {path.relative_to(source).as_posix() for path in source.rglob("*.py")}
+            _source_layout(paths)
+            if runner_args is None:
+                raise ArtifactError("failed module R1 seal has no frozen runner arguments")
+            parser = argparse.ArgumentParser(add_help=False)
+            parser.add_argument("--signal-variant", default="daily-pivot")
+            requested, _ = parser.parse_known_args(runner_args)
+            strategy = "strategies/r1.py" if requested.signal_variant == "support-broad-two-tier-4h" else "research/r1_variants/strategy.py"
+            if strategy not in paths:
+                raise ArtifactError(f"failed module R1 seal has no requested strategy source: {strategy}")
+            files = {"strategy_source_sha256": strategy, **MODULE_DIGEST_FILES}
+            return {field: name for field, name in files.items() if name in paths}
+        # Preserve partial failed legacy seals used by historical registration.
+        return {field: f"strategies/r1/{name}" for field, name in SOURCE_DIGEST_FILES.items()
+                if (source / "strategies" / "r1" / name).is_file()}
+    if "source_file_paths" not in summary:
+        if (source / MODULE_RUNNER).is_file() or (source / "strategies/r1.py").is_file():
+            raise ArtifactError("module R1 summary has no source_file_paths")
+        return {field: f"strategies/r1/{name}" for field, name in SOURCE_DIGEST_FILES.items()
+                if summary.get(field) is not None}
+    paths = {path.relative_to(source).as_posix() for path in source.rglob("*.py")}
+    if _source_layout(paths) != "module":
+        raise ArtifactError("source_file_paths disagrees with frozen source layout")
+    files = summary["source_file_paths"]
+    fields = {field for field, value in summary.items()
+              if field.endswith("_source_sha256") and value is not None}
+    if not isinstance(files, dict) or set(files) != fields:
+        raise ArtifactError("source_file_paths must name every non-null source digest exactly once")
+    if not {"strategy_source_sha256", "runner_source_sha256"}.issubset(fields):
+        raise ArtifactError("module R1 summary has no strategy or runner source digest")
+    if files.get("runner_source_sha256") != MODULE_RUNNER:
+        raise ArtifactError("source_file_paths differs from frozen native runner")
+    for field, name in files.items():
+        name = _safe_source_path(name)
+        if name not in paths or not (name == "strategies/r1.py" or name.startswith(("backtest/r1/", "research/r1_variants/"))):
+            raise ArtifactError(f"source_file_paths has no frozen R1 Python source: {field}: {name}")
+        allowed = {"strategies/r1.py", "research/r1_variants/strategy.py"} if field == "strategy_source_sha256" else {MODULE_DIGEST_FILES.get(field)}
+        if name not in allowed:
+            raise ArtifactError(f"source_file_paths disagrees with digest field: {field}: {name}")
+    return dict(files)
+
+
 def _check_source_summary(stage: Path, summary: dict) -> None:
-    source = stage / "source" / "strategies" / "r1"
-    for field, name in SOURCE_DIGEST_FILES.items():
-        expected = summary.get(field)
-        if expected is not None and _sha(source / name) != expected:
+    for field, name in _summary_source_files(stage, summary).items():
+        path = stage / "source" / name
+        if not path.is_file() or path.is_symlink() or _sha(path) != summary[field]:
             raise ArtifactError(f"native summary differs from frozen {name}")
 
 
@@ -327,10 +451,10 @@ def run(
         if _sha(stage / "input-identity.json") != identity_digest:
             raise ArtifactError("input identity changed during source capture")
         (stage / "reports").mkdir()
+        frozen_source = stage / "source"
         native_command = [
-            sys.executable,
-            str(stage / "source" / "strategies" / "r1" / "run_portfolio.py"),
-            *runner_argv,
+            *_source_command(frozen_source),
+            *_absolute_runner_args(runner_argv),
             "--output",
             str(stage / "reports"),
         ]
@@ -338,18 +462,17 @@ def run(
             (stage / "native.stdout.txt").open("wb") as out,
             (stage / "native.stderr.txt").open("wb") as err,
         ):
-            native = subprocess.run(native_command, cwd=ROOT, stdout=out, stderr=err)
+            native = subprocess.run(native_command, cwd=frozen_source, stdout=out, stderr=err)
         audit_exit = None
         if replay.signal_variant.startswith(
             ("support-three-tier", "support-deep-two-tier", "support-broad-two-tier")
         ) and all((stage / "reports" / name).is_file() for name in REPORTS):
             audit_command = [
-                sys.executable,
-                str(stage / "source" / "strategies" / "r1" / "audit_tiered_native.py"),
+                *_source_command(frozen_source, audit=True),
                 "--run",
                 str(stage / "reports"),
                 "--catalog-root",
-                str(replay.catalog_root),
+                str(replay.catalog_root.resolve()),
                 "--output",
                 str(stage / "reports" / "audit.json"),
             ]
@@ -358,7 +481,7 @@ def run(
                 (stage / "audit.stderr.txt").open("wb") as err,
             ):
                 audit_exit = subprocess.run(
-                    audit_command, cwd=ROOT, stdout=out, stderr=err
+                    audit_command, cwd=frozen_source, stdout=out, stderr=err
                 ).returncode
         problems = []
         try:
@@ -575,15 +698,7 @@ def register(
     _attempt_snapshot(attempt_id, binding)
     summary_path = archive / "reports" / "summary.json"
     summary = _read_json(summary_path) if summary_path.is_file() else None
-    files = {
-        field: f"strategies/r1/{name}"
-        for field, name in SOURCE_DIGEST_FILES.items()
-        if (summary is not None and summary.get(field) is not None)
-        or (
-            summary is None
-            and (archive / "source" / "strategies" / "r1" / name).is_file()
-        )
-    }
+    files = _summary_source_files(archive, summary, manifest.get("runner_args"))
     record = {
         "schema_version": 1,
         "run_id": run_id,
