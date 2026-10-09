@@ -1,4 +1,4 @@
-"""Read-only pilot for research lineage and native-run comparison.
+"""Agent API for versioned research records, materials and native-run comparison.
 
 The records include retrospective examples and a prospectively registered
 four-cell experiment. This tool never runs a backtest or promotes development
@@ -16,31 +16,10 @@ from decimal import Decimal
 from pathlib import Path
 
 from research.records.common import ROOT
-from research.records.common import RECORDS
 from research.records.common import RecordError
 from research.records.common import _check_commit
 from research.records.common import _read_json
-from research.records.common import _validator
-
-
-def _load_all(kind: str, id_key: str) -> dict[str, dict]:
-    validator = _validator(kind)
-    found: dict[str, dict] = {}
-    for path in sorted((RECORDS / f"{kind}s").glob(f"*/{kind}.json")):
-        item = _read_json(path)
-        problems = sorted(
-            validator.iter_errors(item), key=lambda issue: str(issue.path)
-        )
-        if problems:
-            issue = problems[0]
-            raise RecordError(f"{path}: {list(issue.path)}: {issue.message}")
-        identity = item[id_key]
-        if identity != path.parent.name:
-            raise RecordError(f"{path}: {id_key} does not match directory")
-        if identity in found:
-            raise RecordError(f"duplicate {id_key}: {identity}")
-        found[identity] = item
-    return found
+from research.records.contracts import _check_family, _validate_records
 
 
 def _repo_file(ref: dict) -> Path:
@@ -102,81 +81,11 @@ def _check_source_revision(run: dict) -> str:
     return "verified"
 
 
-def _load_records() -> tuple[dict[str, dict], dict[str, dict]]:
-    attempts = _load_all("attempt", "attempt_id")
-    runs = _load_all("run", "run_id")
-    for item in attempts.values():
-        for parent in item["parents"]:
-            if parent["attempt_id"] not in attempts:
-                raise RecordError(
-                    f"{item['attempt_id']}: missing parent {parent['attempt_id']}"
-                )
-        for source in item.get("mechanism_refs", []):
-            if source["attempt_id"] not in attempts:
-                raise RecordError(
-                    f"{item['attempt_id']}: missing mechanism source {source['attempt_id']}"
-                )
-    for item in runs.values():
-        if item["attempt_id"] not in attempts:
-            raise RecordError(f"{item['run_id']}: missing attempt {item['attempt_id']}")
-        control = item["control_run_id"]
-        if control is not None and control not in runs:
-            raise RecordError(f"{item['run_id']}: missing control run {control}")
-    for item in attempts.values():
-        if family := item.get("comparison_family"):
-            _check_family(item, family, attempts, runs)
+def _load_records(store=None, commit=None) -> tuple[dict[str, dict], dict[str, dict]]:
+    from research.records.store import open_store
+    attempts, runs, _ = (store or open_store()).snapshot(commit)
+    _validate_records(attempts, runs)
     return attempts, runs
-
-
-def _check_family(
-    item: dict, family: dict, attempts: dict[str, dict], runs: dict[str, dict]
-) -> None:
-    identity = item["attempt_id"]
-    if item.get("composition_mode") != "factorial":
-        raise RecordError(
-            f"{identity}: four-cell family requires factorial composition"
-        )
-    factors = {family["factor_a_attempt_id"], family["factor_b_attempt_id"]}
-    if len(factors) != 2 or not factors.issubset(attempts):
-        raise RecordError(f"{identity}: missing or duplicated factor attempts")
-    parent_ids = {
-        parent["attempt_id"]
-        for parent in item["parents"]
-        if parent["relationship"] == "composition"
-    }
-    if parent_ids != factors:
-        raise RecordError(f"{identity}: composition parents differ from factors")
-    expected_attempts = {
-        "00": family["origin_attempt_id"],
-        "10": family["factor_a_attempt_id"],
-        "01": family["factor_b_attempt_id"],
-        "11": identity,
-    }
-    if len(set(family["cells"].values())) != 4:
-        raise RecordError(f"{identity}: four-cell run IDs are duplicated")
-    selected = {}
-    for cell, run_id in family["cells"].items():
-        run = runs.get(run_id)
-        if run is None or run["attempt_id"] != expected_attempts[cell]:
-            raise RecordError(f"{identity}: {cell} missing or belongs to wrong attempt")
-        if run["role"] != ("candidate" if cell == "11" else "control"):
-            raise RecordError(f"{identity}: {cell} has wrong candidate/control role")
-        selected[cell] = run
-    if selected["11"]["control_run_id"] != family["cells"]["10"]:
-        raise RecordError(f"{identity}: 11 must register 10 as direct control")
-    fields = (
-        "input_identity_sha256",
-        "window",
-        "account",
-        "cost_model",
-        "nautilus_version",
-    )
-    if any(
-        selected[cell][field] != selected["00"][field]
-        for cell in selected
-        for field in fields
-    ):
-        raise RecordError(f"{identity}: four-cell recorded contracts differ")
 
 
 def _lineage(
@@ -206,6 +115,40 @@ def _lineage(
             for parent in attempt["parents"]
         ],
     }
+
+
+def _dolt_lineage(adapter, identity, commit, revision=None, seen=frozenset()):
+    obj = adapter.get_object("attempt:" + identity, revision=revision, commit=commit)
+    if obj is None:
+        raise RecordError(f"missing lineage revision: {identity}@{revision}")
+    key = (obj["id"], obj["revision"])
+    if key in seen:
+        raise RecordError(f"cycle in fixed lineage: {key}")
+    edges = [edge for edge in adapter.list_relations(commit=commit)
+             if (edge["from_id"], edge["from_revision"]) == key]
+    body = obj["body"]
+
+    def endpoint(kind, target, detail):
+        matches = [edge for edge in edges if edge["kind"] == kind and edge["to_id"] == "attempt:" + target
+                   and edge["body"].get("reference", edge["body"]) == detail]
+        revisions = {edge["to_revision"] for edge in matches}
+        if len(revisions) != 1:
+            raise RecordError(f"missing or ambiguous fixed {kind} relation: {key} -> {target}")
+        return revisions.pop()
+
+    sources = []
+    for source in body.get("mechanism_refs", []):
+        fixed = endpoint("component_reuse", source["attempt_id"], source)
+        source_obj = adapter.get_object("attempt:" + source["attempt_id"], revision=fixed, commit=commit)
+        sources.append({**source, "source_revision": fixed, "source_decision": source_obj["body"]["decision"]})
+    parents = []
+    for parent in body["parents"]:
+        fixed = endpoint(parent["relationship"], parent["attempt_id"], parent)
+        parents.append({"relationship": parent["relationship"], "difference": parent["difference"],
+                        "record": _dolt_lineage(adapter, parent["attempt_id"], commit, fixed, seen | {key})})
+    return {"attempt_id": identity, "revision": obj["revision"], "commit": commit,
+            "hypothesis": body["hypothesis"], "decision": body["decision"],
+            "composition_mode": body.get("composition_mode"), "mechanism_sources": sources, "parents": parents}
 
 
 def _summary(run: dict) -> dict:
@@ -249,9 +192,10 @@ def _summary(run: dict) -> dict:
     return summary
 
 
-def _validate(attempts: dict[str, dict], runs: dict[str, dict]) -> dict:
-    for identity in attempts:
-        _lineage(identity, attempts)
+def _validate(attempts: dict[str, dict], runs: dict[str, dict], *, check_lineage=True) -> dict:
+    if check_lineage:
+        for identity in attempts:
+            _lineage(identity, attempts)
     statuses = {}
     commits = {}
     source_revisions = {}
@@ -313,13 +257,13 @@ def _validate(attempts: dict[str, dict], runs: dict[str, dict]) -> dict:
     }
 
 
-def _show(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> dict:
+def _show(identity: str, attempts: dict[str, dict], runs: dict[str, dict], lineage=None) -> dict:
     if identity not in attempts:
         raise RecordError(f"unknown attempt: {identity}")
     attempt = attempts[identity]
     return {
         "attempt": attempt,
-        "lineage": _lineage(identity, attempts),
+        "lineage": lineage or _lineage(identity, attempts),
         "runs": [run for run in runs.values() if run["attempt_id"] == identity],
         "comparison_runs": (
             {
@@ -336,7 +280,7 @@ def _show(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> di
     }
 
 
-def _brief(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> dict:
+def _brief(identity: str, attempts: dict[str, dict], runs: dict[str, dict], lineage=None) -> dict:
     if identity not in attempts:
         raise RecordError(f"unknown attempt: {identity}")
     attempt = attempts[identity]
@@ -344,6 +288,7 @@ def _brief(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> d
     def compact_lineage(node: dict) -> dict:
         return {
             "attempt_id": node["attempt_id"],
+            **({"revision": node["revision"]} if "revision" in node else {}),
             "decision_layer": node["decision"]["layer"],
             "decision_outcome": node["decision"]["outcome"],
             "parents": [
@@ -362,7 +307,8 @@ def _brief(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> d
         "mechanism": attempt["mechanism"],
         "registration_status": attempt["registration"]["status"],
         "code_parent": attempt["code_parent"],
-        "lineage": compact_lineage(_lineage(identity, attempts)),
+        "lineage": compact_lineage(lineage or _lineage(identity, attempts)),
+        **({"mechanism_sources": lineage["mechanism_sources"]} if lineage else {}),
         "mechanism_refs": attempt.get("mechanism_refs", []),
         "decision": attempt["decision"],
         "comparison_family": (
@@ -480,6 +426,8 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict]) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--backend", choices=("dolt", "git"))
+    parser.add_argument("--at", help="read one exact Dolt commit")
     command = parser.add_subparsers(dest="command", required=True)
     command.add_parser("validate")
     show = command.add_parser("show")
@@ -489,27 +437,97 @@ def main() -> int:
     )
     find = command.add_parser("find")
     find.add_argument("--mechanism")
+    find.add_argument("--component", help="find explicit component reuse and sources")
     find.add_argument(
         "--failure-layer", choices=("source", "data", "execution", "economics")
     )
     compare = command.add_parser("compare")
     compare.add_argument("candidate_run")
     compare.add_argument("control_run")
+    ledger = command.add_parser("ledger", help="manage the local Dolt metadata store")
+    lifecycle = ledger.add_subparsers(dest="action", required=True)
+    initialize = lifecycle.add_parser("init")
+    initialize.add_argument("--binary", type=Path, required=True)
+    from research.records.store import DEFAULT_ROOT
+    initialize.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    initialize.add_argument("--port", type=int, default=13326)
+    for name in ("start", "stop", "status"):
+        lifecycle.add_parser(name)
+    import_ = lifecycle.add_parser("import")
+    import_.add_argument("--historical-c02", action="store_true")
+    import_.add_argument("--dry-run", action="store_true")
+    backup = lifecycle.add_parser("backup")
+    backup.add_argument("--destination", type=Path, required=True)
+    materials = command.add_parser("material")
+    actions = materials.add_subparsers(dest="action", required=True)
+    search = actions.add_parser("search")
+    search.add_argument("query")
+    for name in ("show", "restore"):
+        action = actions.add_parser(name)
+        action.add_argument("identity")
+        action.add_argument("--revision", type=int)
+        if name == "show":
+            action.add_argument("--brief", action="store_true")
+        else:
+            action.add_argument("--destination", type=Path, required=True)
+    review = actions.add_parser("review", help="review an immutable material import queue")
+    review_actions = review.add_subparsers(dest="review_action", required=True)
+    for name in ("status", "prepare"):
+        action = review_actions.add_parser(name)
+        action.add_argument("inventory_id")
+        action.add_argument("--revision", type=int, default=1)
+        action.add_argument("--source-at", required=True, help="exact original inventory Dolt commit")
+        if name == "status":
+            action.add_argument("--items", action="store_true")
+        else:
+            action.add_argument("--decisions", type=Path, help="Agent decisions and retained evidence manifest")
+            action.add_argument("--supplemental", type=Path, help="explicitly retained supplemental object DTOs")
+            action.add_argument("--destination", type=Path, required=True)
+    apply_review = review_actions.add_parser("apply")
+    apply_review.add_argument("--file", type=Path, required=True, help="frozen prepare payload; reuse on retry")
+    publication = command.add_parser("publish")
+    publications = publication.add_subparsers(dest="action", required=True)
+    attempt = publications.add_parser("attempt")
+    attempt.add_argument("--file", type=Path, required=True)
+    attempt.add_argument("--expected-version", type=int, required=True)
+    attempt.add_argument("--operation-id", required=True)
     args = parser.parse_args()
     try:
-        attempts, runs = _load_records()
+        if args.command in ("ledger", "material", "publish"):
+            from research.records.ledger import command as ledger_command
+            output = ledger_command(args)
+            print(json.dumps(output, ensure_ascii=False, indent=2))
+            return 0
+        from research.records.store import open_store
+        store = open_store(args.backend)
+        fixed = args.at or (store.adapter.status()["commit"] if hasattr(store, "adapter") else None)
+        attempts, runs = _load_records(store, fixed)
         if args.command == "validate":
-            output = _validate(attempts, runs)
+            output = _validate(attempts, runs, check_lineage=not fixed)
+            if fixed:
+                for identity in attempts:
+                    _dolt_lineage(store.adapter, identity, fixed)
         elif args.command == "show":
+            lineage = _dolt_lineage(store.adapter, args.attempt_id, fixed) if fixed else None
             output = (
-                _brief(args.attempt_id, attempts, runs)
+                _brief(args.attempt_id, attempts, runs, lineage)
                 if args.brief
-                else _show(args.attempt_id, attempts, runs)
+                else _show(args.attempt_id, attempts, runs, lineage)
             )
         elif args.command == "find":
             output = _find(args.mechanism, args.failure_layer, attempts)
+            if args.component:
+                if not hasattr(store, "adapter"):
+                    raise RecordError("component index requires Dolt")
+                component = store.adapter.get_object("component:" + args.component, commit=fixed)
+                identities = {edge["to_id"].removeprefix("attempt:") for edge in store.adapter.list_relations(commit=fixed)
+                              if component and edge["kind"] == "component_index" and edge["from_id"] == component["id"]
+                              and edge["from_revision"] == component["revision"]}
+                output = [item for item in output if item["attempt_id"] in identities]
         else:
             output = _compare(args.candidate_run, args.control_run, runs)
+        storage = {"backend": "dolt", "commit": fixed} if fixed else {"backend": "git", "read_only": True}
+        output = {"storage": storage, "matches": output} if isinstance(output, list) else {**output, "storage": storage}
     except RecordError as exc:
         parser.exit(2, f"research record error: {exc}\n")
     print(json.dumps(output, ensure_ascii=False, indent=2))

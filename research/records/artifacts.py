@@ -20,7 +20,6 @@ import uuid
 from pathlib import Path
 
 from research.records.common import ROOT
-from research.records.common import RECORDS
 from research.records.common import RecordError
 from research.records.common import _check_commit
 from research.records.common import _read_json
@@ -246,11 +245,17 @@ def _sync_tree(root: Path) -> None:
         os.close(fd)
 
 
-def _attempt(attempt_id: str) -> dict:
-    path = RECORDS / "attempts" / attempt_id / "attempt.json"
-    if not path.is_file():
+def _attempt_snapshot(attempt_id: str, binding=None):
+    from research.records.store import open_store
+    store = open_store()
+    if not hasattr(store, "adapter"):
+        raise ArtifactError("registered native custody requires the Dolt metadata owner")
+    fixed = binding["commit"] if binding else store.adapter.status()["commit"]
+    obj = store.adapter.get_object("attempt:" + attempt_id,
+                                   revision=binding["revision"] if binding else None, commit=fixed)
+    if obj is None:
         raise ArtifactError(f"unknown registered attempt: {attempt_id}")
-    attempt = _read_json(path)
+    attempt = obj["body"]
     errors = list(_validator("attempt").iter_errors(attempt))
     if errors or attempt["attempt_id"] != attempt_id:
         raise ArtifactError(f"invalid attempt record: {attempt_id}")
@@ -261,7 +266,11 @@ def _attempt(attempt_id: str) -> dict:
         != "present"
     ):
         raise ArtifactError("native custody run requires an existing preregistration")
-    return attempt
+    return attempt, {"commit": fixed, "id": obj["id"], "revision": obj["revision"]}
+
+
+def _attempt(attempt_id: str) -> dict:
+    return _attempt_snapshot(attempt_id)[0]
 
 
 def run(
@@ -275,7 +284,7 @@ def run(
 ) -> dict:
     if not RUN_ID.fullmatch(run_id):
         raise ArtifactError("run ID must use letters, digits and hyphens")
-    _attempt(attempt_id)
+    attempt, record_binding = _attempt_snapshot(attempt_id)
     replay = _runner_inputs(runner_argv)
     identity = _read_json(input_identity)
     identity_digest = _sha(input_identity)
@@ -304,7 +313,7 @@ def run(
     stage.mkdir(mode=0o700)
     try:
         commit = _snapshot_source(source_ref, stage)
-        registration_commit = _attempt(attempt_id)["registration"][
+        registration_commit = attempt["registration"][
             "original_registration_commit"
         ]
         ancestor = subprocess.run(
@@ -393,6 +402,7 @@ def run(
             "schema_version": 1,
             "run_id": run_id,
             "attempt_id": attempt_id,
+            "record_binding": record_binding,
             "status": "passed" if not problems else "failed",
             "problems": problems,
             "source_commit": commit,
@@ -544,7 +554,25 @@ def register(
     archive = root.resolve() / run_id
     manifest = _read_json(archive / "manifest.json")
     attempt_id = manifest["attempt_id"]
-    _attempt(attempt_id)
+    from research.records.store import open_store
+    store = open_store()
+    if not hasattr(store, "adapter"):
+        raise ArtifactError("run registration requires the Dolt write owner")
+    binding = manifest.get("record_binding")
+    if binding is None:
+        # Older seals cannot invent a start-time contract. Re-registration of
+        # imported history may reuse its already recorded fixed run_of edge.
+        existing = store.adapter.get_object("run:" + run_id)
+        edges = [edge for edge in store.adapter.list_relations() if existing and edge["kind"] == "run_of"
+                 and edge["from_id"] == existing["id"] and edge["from_revision"] == existing["revision"]
+                 and edge["to_id"] == "attempt:" + attempt_id]
+        revisions = {edge["to_revision"] for edge in edges}
+        if len(revisions) != 1:
+            raise ArtifactError("legacy seal has no start-time record binding or retained registration")
+        binding = {"commit": store.adapter.status()["commit"], "id": "attempt:" + attempt_id, "revision": revisions.pop()}
+    if binding.get("id") != "attempt:" + attempt_id:
+        raise ArtifactError("seal record binding differs from its attempt")
+    _attempt_snapshot(attempt_id, binding)
     summary_path = archive / "reports" / "summary.json"
     summary = _read_json(summary_path) if summary_path.is_file() else None
     files = {
@@ -612,18 +640,14 @@ def register(
     errors = list(_validator("run").iter_errors(record))
     if errors:
         raise ArtifactError(f"generated run record is invalid: {errors[0].message}")
-    target = RECORDS / "runs" / run_id
-    if target.exists():
-        raise ArtifactError(f"run record already exists: {run_id}")
-    stage = RECORDS / "runs" / f".{run_id}-{uuid.uuid4().hex}.stage"
-    stage.mkdir()
-    try:
-        _write_json(stage / "run.json", record)
-        os.rename(stage, target)
-    finally:
-        if stage.exists():
-            shutil.rmtree(stage)
-    return {"run_id": run_id, "record": str(target / "run.json"), **checked}
+    publication = store.publish_record(
+        "run", record, operation_id=f"register:{run_id}:{checked['manifest_sha256']}",
+        expected_version=store.adapter.status()["version"],
+        provenance={"origin": "sealed_native_artifact", "manifest_sha256": checked["manifest_sha256"],
+                    "record_binding": binding, "binding_origin": "sealed_start" if manifest.get("record_binding") else "retained_legacy_edge"},
+        endpoint_revisions={binding["id"]: binding["revision"]},
+    )
+    return {"run_id": run_id, "record": f"run:{run_id}", **checked, "publication": publication}
 
 
 def main() -> int:
@@ -649,7 +673,7 @@ def main() -> int:
     copy.add_argument("--root", type=Path, required=True)
     copy.add_argument("--run-id", required=True)
     copy.add_argument("--backup-root", type=Path, required=True)
-    record = commands.add_parser("register", help="write a Git run record for a seal")
+    record = commands.add_parser("register", help="publish a Dolt run record for a seal")
     record.add_argument("--root", type=Path, required=True)
     record.add_argument("--run-id", required=True)
     record.add_argument(
