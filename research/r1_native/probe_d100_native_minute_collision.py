@@ -119,7 +119,7 @@ def replay(case: dict, minute_step: int, old_orders: dict) -> dict:
         "entry": instrument.make_price(float(Decimal(entry["price"]))),
         "stop": instrument.make_price(float(Decimal(stop["trigger_price"]))),
         "target": instrument.make_price(float(Decimal(target["price"]))),
-        "expire_time": int(entry["expire_time_ns"]),
+        "expire_time": int(Decimal(entry["expire_time_ns"])),
     }
     if plan["expire_time"] <= end_ns:
         raise RuntimeError(f"{coin}: original H10 parent expires before local event completes")
