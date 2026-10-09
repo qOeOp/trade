@@ -3,8 +3,14 @@
 `python -m backtest.r1.run_portfolio` is the single R1 backtest entry. It loads
 one complete external Strategy file after checking its exact SHA-256. Dolt owns
 published source revisions; working files can live in a temporary directory.
-The first migrated strategy is `r1.broad-two-tier` (H19a), family `r1`, entry
-class `R1Strategy`, runtime contract `r1-native-v1`.
+The current `r1-native-v2` contract uses `PublishedR1Strategy` and ordinary
+Python definitions in that one file. Source owns configuration validation,
+replay diagnostics and integrity hooks; the shared runner transports scalar
+configuration and explicit daily warmup, without a strategy identity allowlist.
+The local Dolt demonstration dataset contains 26 migrated strategy identities
+and 27 source revisions, including the original H19a v1 revision. These are
+disposable framework R&D demos, not qualified product strategies; clearing the
+demo dataset has not been performed.
 
 R1's 37 instruments share one 100,000 USDT Nautilus `BacktestNode` margin
 account. The published `nautilus_trader==2.0.0rc3` package owns data replay,
@@ -24,17 +30,17 @@ Export refuses to overwrite an existing source or binding destination.
 
 ```bash
 uv sync --frozen
-SOURCE_AT=EXACT-DOLT-SOURCE-COMMIT
+SOURCE_AT=2ne4a6oj087g5thp4n3s27j79e1n260k
 STRATEGY_WORKDIR=$(mktemp -d /tmp/trade-h19a.XXXXXX)
 uv run --frozen python -m research.records.cli --at "$SOURCE_AT" \
-  strategy export r1.broad-two-tier --revision 1 \
+  strategy export r1.broad-two-tier --revision 2 \
   --destination "$STRATEGY_WORKDIR/strategy.py" \
   --binding-output "$STRATEGY_WORKDIR/binding.json"
 R1_COINS=(BTC ETH BNB ADA XRP SOL DOGE LTC TRX LINK DOT AVAX BCH ETC XLM ATOM FIL NEAR UNI AAVE ICP APT ARB SUI OP INJ TIA SEI PEPE SHIB HBAR ALGO FET WLD IMX STX LDO)
 uv run --frozen python -m backtest.r1.run_portfolio \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" \
-  --strategy-class R1Strategy \
-  --strategy-sha256 8b708592a27732311071b0b00d237001b6e6bb96725bcc3a842cf35ae2184b4a \
+  --strategy-class PublishedR1Strategy \
+  --strategy-sha256 782c9af84c9d060144a76bf3ff8eb2cae260b7114f1b9cc375518f47bf3de33e \
   --strategy-binding "$STRATEGY_WORKDIR/binding.json" \
   --catalog-root /path/to/r1-minute-catalog \
   --daily-root /path/to/r1-daily-catalog \
@@ -47,14 +53,21 @@ uv run --frozen python -m backtest.r1.run_portfolio \
   --output /tmp/r1-external-h19a-37
 ```
 
-The hash above identifies the byte-preserving initial H19a migration only.
-For a later revision, use that revision's binding and source hash. A current
-runtime accepts H19a broad two-tier / tier-target-b with 25-bp total stop risk
-and a 5% coin notional cap. It rejects other variant names explicitly. H18a,
-H23a–H27a and other multi-module historical variants have not been individually
-consolidated or migrated; replay them only from their exact historical source
-and matching environment. Current runtime code imports no product strategy or
-historical variant module.
+The example binds H19a v2 to its fixed publication commit and exact source hash.
+For another source or revision, export its binding and use its entry class and
+hash. `validate_replay_configuration` checks the source's signal, exit, warmup
+and sizing contract. `replay_diagnostics` supplies source-specific counters,
+while `replay_integrity_findings` supplies source-specific failure findings;
+the runner also rejects native denied/rejected orders. Use `--daily-warmup`
+only for a source requiring historical daily bars. H19a's source requires 25-bp
+total stop risk, a 5% coin notional cap and no daily warmup. Current runtime code
+imports no product strategy or historical variant module.
+
+The initial H19a `r1.broad-two-tier@1` source remains readable, with entry class
+`R1Strategy`, `r1-native-v1` and SHA-256
+`8b708592a27732311071b0b00d237001b6e6bb96725bcc3a842cf35ae2184b4a`.
+Execute that revision with its retained accepted v1 image; the current v2
+runner requires the new source hooks. Its earlier acceptance is preserved.
 
 `--mark-root` optionally selects the derived MARK Catalog cache. The default
 cache is keyed by input Catalog path and interval under the temporary directory.
@@ -81,7 +94,7 @@ docker push REGISTRY/trade-r1-runtime:BUILD-TAG
 
 A runtime identity JSON contains exactly `image_ref` (registry path plus
 `@sha256:` manifest digest), matching `image_digest`, `platform` (`linux/arm64`
-or `linux/amd64`) and `runtime_contract: r1-native-v1`. Pull the digest reference
+or `linux/amd64`) and `runtime_contract: r1-native-v2`. Pull the digest reference
 before custody execution. Custody verifies the locally available manifest and
 platform, observes the image's actual runtime and resolved configuration, and
 runs with no network, a read-only root, read-only source/input mounts and one
@@ -103,6 +116,19 @@ and per-coin diagnostics, then inspect native order integrity and audit findings
 A successful process exit does not establish parity. The pinned rc3 Strategy
 activates its native take-profit child before the stop child to avoid a
 synchronous sibling rejection; recheck this behavior before changing Nautilus.
+
+The native auditor checks report identities, links, final open-position
+protection and reported account economics for every v2 run. Recognized budgeted
+tier shapes receive additional geometry, quantity and risk checks. A generic
+audit does not prove a candidate's particular signal clock, staged-exit races
+or every source-specific risk invariant; add the relevant native probes before
+claiming those properties.
+
+D105 sealed the migration checks for five representative native pairs: H19a,
+H18a, R-1u, H04 staged exits and H29a. The full 37-instrument H19a pair also
+passed. This accepts those sampled implementation paths, not native parity for
+all 26 demo identities. The framework suite passed 199 tests, including real
+isolated Dolt integration. Strategy economics and qualification are unchanged.
 
 Receipts in `receipts/` retain their original bytes and source identities.
 The `parity_receipts` paths in `receipts/evidence.json` are historical locators;

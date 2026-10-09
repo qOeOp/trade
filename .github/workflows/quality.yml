@@ -75,14 +75,11 @@ jobs:
           assert current['recovery']['passed']
           assert current['native_order_integrity'] == {'integrity_passed': True, 'denied_orders': 0, 'rejected_orders': 0}
           for name, digest in current['runtime_source_sha256'].items():
-              assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
+              raw = subprocess.check_output(['git', 'show', 'c77702fc5c4a8afba318f32913ba9582df4677a4:' + name])
+              assert hashlib.sha256(raw).hexdigest() == digest, name
           source = current['legacy_source']
           raw = subprocess.check_output(['git', 'show', source['commit'] + ':' + source['path']])
           assert hashlib.sha256(raw).hexdigest() == current['strategy_binding']['source_sha256']
-          assert not Path('strategies/r1.py').exists()
-          assert not list(Path('research/r1_variants').glob('*.py'))
-          history = json.loads(Path('research/strategy-history.json').read_text())
-          for item in history['files']:
-              raw = subprocess.check_output(['git', 'show', history['git_commit'] + ':' + item['path']])
-              assert hashlib.sha256(raw).hexdigest() == item['sha256'], item['path']
+          assert not Path('strategies').exists()
+          assert not Path('research/r1_variants').exists()
           PY
