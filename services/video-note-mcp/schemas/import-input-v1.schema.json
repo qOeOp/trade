@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "SegmentInput": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "exclusiveMinimum": 0,
+          "title": "End Ms",
+          "type": "integer"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "integer"
+        },
+        "text": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "text"
+      ],
+      "title": "SegmentInput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "filename": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Filename"
+    },
+    "kind": {
+      "enum": [
+        "media",
+        "transcript"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "language": {
+      "default": "und",
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Language",
+      "type": "string"
+    },
+    "media_id": {
+      "anyOf": [
+        {
+          "pattern": "^media-[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Media Id"
+    },
+    "quality": {
+      "default": "fast",
+      "enum": [
+        "fast",
+        "standard",
+        "precise"
+      ],
+      "title": "Quality",
+      "type": "string"
+    },
+    "segments": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/SegmentInput"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Segments"
+    },
+    "title": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Title"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "title": "ImportInput",
+  "type": "object"
+}
