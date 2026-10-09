@@ -69,6 +69,13 @@ def _orders_with_native_deadlines(engine, report):
     return result
 
 
+def _readable_empty_report(report, columns):
+    """Give a zero-row native report the headers its consumers already use."""
+    if not report.empty:
+        return report
+    return report.reindex(columns=list(dict.fromkeys([*report.columns, *columns])))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--catalog-root", type=Path, required=True)
@@ -224,10 +231,12 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     args.output.mkdir(parents=True, exist_ok=True)
     reports = {
         "orders.csv": _orders_with_native_deadlines(
-            engine, engine.generate_orders_report()
+            engine, _readable_empty_report(engine.generate_orders_report(), ("status",))
         ),
-        "fills.csv": engine.generate_fills_report(),
-        "positions.csv": engine.generate_positions_report(),
+        "fills.csv": _readable_empty_report(engine.generate_fills_report(), ("client_order_id",)),
+        "positions.csv": _readable_empty_report(
+            engine.generate_positions_report(), ("ts_closed", "realized_pnl", "instrument_id")
+        ),
         "account.csv": engine.generate_account_report(venue=Venue("BINANCE")),
     }
     for name, report in reports.items():
