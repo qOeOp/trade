@@ -1,0 +1,11 @@
+{
+  "schema": "r1-native-h23a-order-clock/v1",
+  "run": "/tmp/r1-h23a-37",
+  "summary_sha256": "d1a9e64db32c4c3dd1b7352f3ce65903dd757382cdc3ae9ff699179e9db7d6f5",
+  "orders_sha256": "1bf293b8bb5b07a621601e5739cab2be31a5c4ee84409a942f1e371daf397024",
+  "coins_with_parent_orders": 37,
+  "native_parent_orders": 431,
+  "completed_catalog_bars_checked": 431,
+  "findings": [],
+  "passed": true
+}

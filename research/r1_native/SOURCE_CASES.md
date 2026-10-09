@@ -6,9 +6,9 @@ These cases test whether a mechanical rule expresses what the author describes. 
 
 [2024-10-28 original video](https://video-ideas.tradingview.com/1/1416280-Bf_rqWB7C_1tcMiE.mp4), 01:01-02:05. BTC is in a four-hour range; an edge where a rising trend line meets horizontal support is preferred. A proposed range/confluence rule must distinguish edge from middle and state which already-closed bars establish the range before an order exists.
 
-## C02 - wick and support zone
+## C02 - wick and separate resistance zone
 
-The same video, 02:10-03:15. An ETH wick-only penetration is not a confirmed break; support is a zone. A close-based break must not fire on the wick alone, and a structural stop must sit outside the chosen zone.
+The same video, 02:10-03:15. On the ETH four-hour chart the speaker says a wick through a **rising support line** is not a confirmed break and refers to the candle body; at 02:55-03:15 he switches to the **daily descending resistance** and says support/resistance should be understood as an area rather than one exact point. A break rule must not fire on the wick alone; requiring a *completed close* is a researcher translation beyond these words. **This segment specifies no ETH long order or numeric stop boundary**, and the daily resistance area must not be silently reused as a long's support zone. The previous wording appended an outside-zone structural stop as though it were stated in C02; S46 records that retrospective source correction without altering D94/H27a's original preregistration or their native outcomes. Other source cases, such as C18/C20, separately discuss protective stops.
 
 ## C03 - conditional multi-timeframe targets
 

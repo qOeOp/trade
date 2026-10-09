@@ -1,0 +1,21 @@
+{
+  "method": "paired ISO-week bootstrap on already viewed native daily returns; exploratory, unadjusted for prior tests",
+  "seed": 20261008,
+  "draws": 5000,
+  "days": 356,
+  "week_blocks": 52,
+  "candidate_summary_sha256": "38df405e9df35a98e526888428afb65630075da636a23317d710908199e53f6a",
+  "baseline_summary_sha256": "64e47b3653a049ea16fb92002d4e63f47f8b563be67856e4c59ff24fb2bbaf06",
+  "candidate_returns_sha256": "cc0d530cd5ee4c55057de6ddc6335989ddec878d86c0ebebcd41bd07c16e682f",
+  "baseline_returns_sha256": "704cc8c705d53923cd000d53b5b939bd5c026e97199d5142341fba897b37a3ef",
+  "observed_annualized_daily_return_difference_pp": -6.390358068891765,
+  "bootstrap_95pct_annualized_daily_return_difference_pp": [
+    -16.772330371112854,
+    0.7616349213567464
+  ],
+  "observed_native_sharpe_365_difference": -0.35220459837430695,
+  "bootstrap_95pct_native_sharpe_365_difference": [
+    -1.0011158252425545,
+    0.22052797071474295
+  ]
+}

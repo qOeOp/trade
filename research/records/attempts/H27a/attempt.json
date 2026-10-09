@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "attempt_id": "H27a",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "strategy",
+  "question": "共同止损移到宽 A 外，能否在提高胜率时改善账户净收益？",
+  "mechanism": "沿用 H26a 入场及 B 目标，只将保护止损移到 A 减 0.25 倍先前 ATR",
+  "hypothesis": "共同止损移到宽 A 外，能否在提高胜率时改善账户净收益？",
+  "parents": [
+    {
+      "attempt_id": "H26a",
+      "relationship": "hypothesis_extension",
+      "difference": "沿用 H26a 入场及 B 目标，只将保护止损移到 A 减 0.25 倍先前 ATR"
+    }
+  ],
+  "code_parent": null,
+  "registration": {
+    "status": "retrospective",
+    "reference": "research/r1_native/RD_EXPERIMENTS.md"
+  },
+  "decision": {
+    "layer": "economics",
+    "outcome": "failed",
+    "scope": "原生年度 +7.9021%，94/151 胜；胜率近 60%，但收益低于 H26a 且未达 >20%，已暴露开发年。",
+    "next_action": "H27a 子规则关闭；S46 修正 C02 来源归因，D95 记录缩量与路径分解。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-09-h27a-37-summary.json",
+      "sha256": "38df405e9df35a98e526888428afb65630075da636a23317d710908199e53f6a"
+    },
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-09-h27a-37-native-audit.json",
+      "sha256": "5598cdd1c878f0d18cf630746dacd6219e696d6721495c50543a9d8e0875d437"
+    }
+  ]
+}

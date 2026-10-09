@@ -1,0 +1,145 @@
+{
+  "bar_event_times_ns": [
+    1790000099999000000,
+    1790000399999000000,
+    1790000699999000000,
+    1790000999999000000,
+    1790001299999000000
+  ],
+  "last_ohlc": [
+    [
+      100000,
+      100100,
+      99900,
+      100000
+    ],
+    [
+      100000,
+      100100,
+      98500,
+      99000
+    ],
+    [
+      99000,
+      100000,
+      94000,
+      99000
+    ],
+    [
+      99000,
+      100000,
+      98000,
+      99000
+    ],
+    [
+      99000,
+      100000,
+      98000,
+      99000
+    ]
+  ],
+  "mark_close_updates": [
+    100000,
+    99500,
+    99500,
+    94000,
+    94000
+  ],
+  "preregistration_commit": "72f8afbd3",
+  "registered_instrument_catalog": "/tmp/r1-37-1y-5m-2026oct7/BTC/minute",
+  "runs": {
+    "DEFAULT": {
+      "fills": [
+        {
+          "client_order_id": "O-20260921-141459-DEFAULT-DEFAULT-1",
+          "last_px": "99000.00",
+          "order_type": "LIMIT",
+          "ts_event": "2026-09-21 14:19:59.999000+00:00"
+        },
+        {
+          "client_order_id": "O-20260921-141459-DEFAULT-DEFAULT-2",
+          "last_px": "95000.00",
+          "order_type": "STOP_MARKET",
+          "ts_event": "2026-09-21 14:24:59.999000+00:00"
+        }
+      ],
+      "final_account_total": "99959.32700000 USDT",
+      "open_position_count": 0,
+      "orders": [
+        {
+          "client_order_id": "O-20260921-141459-DEFAULT-DEFAULT-1",
+          "status": "FILLED",
+          "trigger_price": "nan",
+          "trigger_type": "nan",
+          "ts_last": "1790000399999000000",
+          "type": "LIMIT"
+        },
+        {
+          "client_order_id": "O-20260921-141459-DEFAULT-DEFAULT-2",
+          "status": "FILLED",
+          "trigger_price": "95000.00",
+          "trigger_type": "DEFAULT",
+          "ts_last": "1790000699999000000",
+          "type": "STOP_MARKET"
+        },
+        {
+          "client_order_id": "O-20260921-141459-DEFAULT-DEFAULT-3",
+          "status": "CANCELED",
+          "trigger_price": "nan",
+          "trigger_type": "nan",
+          "ts_last": "1790000699999000000",
+          "type": "LIMIT"
+        }
+      ],
+      "position_count": 1,
+      "trigger_type": "DEFAULT"
+    },
+    "MARK_PRICE": {
+      "fills": [
+        {
+          "client_order_id": "O-20260921-141459-MARK_PRICE-MARK_PRICE-1",
+          "last_px": "99000.00",
+          "order_type": "LIMIT",
+          "ts_event": "2026-09-21 14:19:59.999000+00:00"
+        },
+        {
+          "client_order_id": "O-20260921-141459-MARK_PRICE-MARK_PRICE-2",
+          "last_px": "95000.00",
+          "order_type": "STOP_MARKET",
+          "ts_event": "2026-09-21 14:24:59.999000+00:00"
+        }
+      ],
+      "final_account_total": "99959.32700000 USDT",
+      "open_position_count": 0,
+      "orders": [
+        {
+          "client_order_id": "O-20260921-141459-MARK_PRICE-MARK_PRICE-1",
+          "status": "FILLED",
+          "trigger_price": "nan",
+          "trigger_type": "nan",
+          "ts_last": "1790000399999000000",
+          "type": "LIMIT"
+        },
+        {
+          "client_order_id": "O-20260921-141459-MARK_PRICE-MARK_PRICE-2",
+          "status": "FILLED",
+          "trigger_price": "95000.00",
+          "trigger_type": "MARK_PRICE",
+          "ts_last": "1790000699999000000",
+          "type": "STOP_MARKET"
+        },
+        {
+          "client_order_id": "O-20260921-141459-MARK_PRICE-MARK_PRICE-3",
+          "status": "CANCELED",
+          "trigger_price": "nan",
+          "trigger_type": "nan",
+          "ts_last": "1790000699999000000",
+          "type": "LIMIT"
+        }
+      ],
+      "position_count": 1,
+      "trigger_type": "MARK_PRICE"
+    }
+  },
+  "schema": "r1-native-d74-mark-trigger-capability/v1"
+}

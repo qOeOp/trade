@@ -1,0 +1,35 @@
+{
+  "schema": "r1-native-h27a-evidence/v1",
+  "pre_registration_commit": "de63d4e58f0d4143b18618fcecf4902ed8bce6c6",
+  "implementation_commit": "2dd821cb206ee79975be5943bb3aa6f9c5bfe617",
+  "pilot": "one BTC/ETH full-window native integrity run; economics excluded from selection",
+  "annual_candidate": "one 37-coin native shared-account H27a run",
+  "controls": "one same-code H26a and one same-code H25a run, each compared to frozen native report",
+  "input_start_utc": "2025-10-07T00:00:00Z",
+  "trade_start_utc": "2025-10-17T00:00:00Z",
+  "end_utc": "2026-10-07T08:30:00Z",
+  "artifact_sha256": {
+    "2026-10-09-h27a-37-native-audit.json": "5598cdd1c878f0d18cf630746dacd6219e696d6721495c50543a9d8e0875d437",
+    "2026-10-09-h27a-37-summary.json": "38df405e9df35a98e526888428afb65630075da636a23317d710908199e53f6a",
+    "2026-10-09-h27a-37-support-clock.json": "d7c4eec324834169a74e6319b26c6ec57e7a1a4fafed07cb0bd42d1b0a5e2580",
+    "2026-10-09-h27a-btc-eth-native-audit.json": "918594235dad1fa9bec5e113d132e48751834a50d11e790e529736f7dd8f1988",
+    "2026-10-09-h27a-btc-eth-summary.json": "77436da7cd1965296fe9b7aa0bde6288131d3fb6776200d0a70de9c469cde79d",
+    "2026-10-09-h27a-btc-eth-support-clock.json": "a4f3400c4fd54b01c9e0e048dabb4d1d2719cc820f053a755183565bc8e7c9d3",
+    "2026-10-09-h27a-control-h25a-native-audit.json": "e194f41197725bca0ba3bd42b8687de38307959ed05496dd80a07e70439dbcfb",
+    "2026-10-09-h27a-control-h25a-parity.json": "6f0e8fdb63695b80202d54766d071ef041823dd1ceda039640fde134cd8e268a",
+    "2026-10-09-h27a-control-h25a-summary.json": "7e7f492498abf6b2f924084a647eeb639868a96eb172a2d254d4d2648f7f3bdd",
+    "2026-10-09-h27a-control-h26a-native-audit.json": "e82f17d4ad3094e12f32586313d0ea38fe5b3cd5ebb5dcf3455d46d3040e467f",
+    "2026-10-09-h27a-control-h26a-parity.json": "f834f7d4f04f0c8e90c513a863a2e56452a60ebb1c41864b2ae3b899b5c89fab",
+    "2026-10-09-h27a-control-h26a-summary.json": "64e47b3653a049ea16fb92002d4e63f47f8b563be67856e4c59ff24fb2bbaf06",
+    "2026-10-09-h27a-vs-h26a-economics.json": "59680eb3a9d032f2ee057ac320f9e1a886da0a2d90882b7ce396557ceee38ca6",
+    "2026-10-09-h27a-vs-h26a-flow.json": "211a95ebebd84e2ab7ee75b1f3fb8ed86f181a074595666bc8e43901603c68f2",
+    "2026-10-09-h27a-vs-h26a-paired.json": "f697447082c48d40abe7993ae6526f1c54e6bdcc70defb23cc27e8b722d0dfd0"
+  },
+  "raw_native_report_paths": {
+    "candidate": "/tmp/r1-h27a-37",
+    "h26a_control": "/tmp/r1-h27a-control-h26a",
+    "h25a_control": "/tmp/r1-h27a-control-h25a",
+    "btc_eth_pilot": "/tmp/r1-h27a-btc-eth"
+  },
+  "raw_report_note": "Temporary raw CSV paths are local replay products; committed summaries/audits contain their SHA-256 identities and can be rerun from frozen code/data."
+}

@@ -1,0 +1,180 @@
+{
+  "baseline_common_native_cohort": {
+    "filled_parents_by_tier": {
+      "deeper": 121,
+      "first": 159
+    },
+    "native_closed_realized_pnl_usdt_by_exit": {
+      "MARKET_TIME": "2010.80713001",
+      "STOP_LOSS": "-16773.99616884",
+      "TAKE_PROFIT": "25854.71805204"
+    },
+    "native_position_final_exits": {
+      "MARKET_TIME": 5,
+      "OPEN_CENSORED": 8,
+      "STOP_LOSS": 79,
+      "TAKE_PROFIT": 71
+    },
+    "native_positions": 163,
+    "sources_without_position": 912,
+    "submitted_sources": 1071
+  },
+  "baseline_only_native_cohort": {
+    "filled_parents_by_tier": {
+      "deeper": 14,
+      "first": 16
+    },
+    "native_closed_realized_pnl_usdt_by_exit": {
+      "STOP_LOSS": "-1306.37614709",
+      "TAKE_PROFIT": "3852.52850191"
+    },
+    "native_position_final_exits": {
+      "OPEN_CENSORED": 1,
+      "STOP_LOSS": 6,
+      "TAKE_PROFIT": 9
+    },
+    "native_positions": 16,
+    "sources_without_position": 50,
+    "submitted_sources": 66
+  },
+  "baseline_only_source_keys": 66,
+  "baseline_summary_sha256": "64e47b3653a049ea16fb92002d4e63f47f8b563be67856e4c59ff24fb2bbaf06",
+  "both_closed_source_native_pnl_usdt_by_exit_pair": {
+    "MARKET_TIME/MARKET_TIME": {
+      "baseline": "2010.80713001",
+      "candidate": "882.40342672",
+      "sources": 5
+    },
+    "MARKET_TIME/STOP_LOSS": {
+      "baseline": "-1702.18733018",
+      "candidate": "-146.72664130",
+      "sources": 7
+    },
+    "STOP_LOSS/STOP_LOSS": {
+      "baseline": "-10946.82735179",
+      "candidate": "-12370.30546881",
+      "sources": 50
+    },
+    "STOP_LOSS/STOP_LOSS+STOP_LOSS": {
+      "baseline": "-256.46995277",
+      "candidate": "-253.60733480",
+      "sources": 1
+    },
+    "TAKE_PROFIT/STOP_LOSS": {
+      "baseline": "-2821.83804066",
+      "candidate": "3798.45206856",
+      "sources": 13
+    },
+    "TAKE_PROFIT/STOP_LOSS+STOP_LOSS": {
+      "baseline": "-778.81477004",
+      "candidate": "910.84090027",
+      "sources": 3
+    },
+    "TAKE_PROFIT/TAKE_PROFIT": {
+      "baseline": "25854.71805204",
+      "candidate": "15050.11729476",
+      "sources": 71
+    }
+  },
+  "both_filled_parent_first_fill_clock": {
+    "deeper/different_first_fill_time": 0,
+    "deeper/same_first_fill_time": 121,
+    "first/different_first_fill_time": 0,
+    "first/same_first_fill_time": 159
+  },
+  "both_filled_parent_quantity_ratio_h27a_over_h26a": {
+    "deeper": {
+      "count": 121,
+      "median": 0.4735405262475878,
+      "p10": 0.4031425287750656,
+      "p90": 0.9808367706260772
+    },
+    "first": {
+      "count": 159,
+      "median": 0.5472938276676594,
+      "p10": 0.5291662416459824,
+      "p90": 0.8159787367104442
+    }
+  },
+  "candidate_common_native_cohort": {
+    "filled_parents_by_tier": {
+      "deeper": 121,
+      "first": 159
+    },
+    "native_closed_realized_pnl_usdt_by_exit": {
+      "MARKET_TIME": "735.67678542",
+      "STOP_LOSS": "-12623.91280361",
+      "TAKE_PROFIT": "19759.41026359"
+    },
+    "native_position_final_exits": {
+      "MARKET_TIME": 12,
+      "OPEN_CENSORED": 9,
+      "STOP_LOSS": 51,
+      "TAKE_PROFIT": 87
+    },
+    "native_positions": 159,
+    "sources_without_position": 912,
+    "submitted_sources": 1071
+  },
+  "candidate_only_native_cohort": {
+    "filled_parents_by_tier": {
+      "deeper": 1,
+      "first": 1
+    },
+    "native_closed_realized_pnl_usdt_by_exit": {
+      "STOP_LOSS": "-257.48393917"
+    },
+    "native_position_final_exits": {
+      "STOP_LOSS": 1
+    },
+    "native_positions": 1,
+    "sources_without_position": 1,
+    "submitted_sources": 2
+  },
+  "candidate_only_source_keys": 2,
+  "candidate_summary_sha256": "38df405e9df35a98e526888428afb65630075da636a23317d710908199e53f6a",
+  "caution": "Source-paired native outcomes remain path-dependent; these subsets do not add to portfolio equity and cannot identify the isolated stop effect.",
+  "common_source_entry_fill_states": {
+    "deeper/both": 121,
+    "deeper/neither": 950,
+    "first/both": 159,
+    "first/neither": 912
+  },
+  "common_source_keys": 1071,
+  "common_source_native_position_exit_pairs": {
+    "MARKET_TIME/MARKET_TIME": 5,
+    "MARKET_TIME/STOP_LOSS": 7,
+    "NO_POSITION/NO_POSITION": 912,
+    "OPEN_CENSORED/OPEN_CENSORED": 8,
+    "OPEN_CENSORED/STOP_LOSS": 1,
+    "STOP_LOSS/STOP_LOSS": 50,
+    "STOP_LOSS/STOP_LOSS+STOP_LOSS": 1,
+    "TAKE_PROFIT/STOP_LOSS": 13,
+    "TAKE_PROFIT/STOP_LOSS+STOP_LOSS": 3,
+    "TAKE_PROFIT/TAKE_PROFIT": 71
+  },
+  "common_source_native_position_multiplicity_candidate_over_baseline": {
+    "0/0": 912,
+    "1/1": 155,
+    "1/2": 4
+  },
+  "common_source_submitted_quantity_ratio_h27a_over_h26a": {
+    "deeper": {
+      "count": 1071,
+      "median": 0.4774717904205792,
+      "p10": 0.3991273395338156,
+      "p90": 0.9741379310344828
+    },
+    "first": {
+      "count": 1071,
+      "median": 0.5441176470588235,
+      "p10": 0.5234129644659303,
+      "p90": 0.7982754432839446
+    }
+  },
+  "method": "frozen native report read only; no counterfactual fills, scaled PnL or account rerun",
+  "preregistration_commit": "8661ef89f",
+  "schema": "r1-native-d95-source-path/v1",
+  "year_end_open_positions_baseline": 9,
+  "year_end_open_positions_candidate": 9
+}

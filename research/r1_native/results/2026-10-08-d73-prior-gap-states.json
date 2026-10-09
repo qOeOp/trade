@@ -1,0 +1,4250 @@
+{
+  "d71_detail_sha256": "624d4dd60a6742e6811c7e66733e971a1faeaeb803814e6af61034e8e9d7b5e9",
+  "d72_detail_sha256": "a27b83df95f9e30034cffc952257f9803b25ecc95f7be8085afa3b56e99f3ae1",
+  "d72_summary_sha256": "d619236776eec866757a63f439bca8ca30f043d5e3a78fb97aa93db8a5390417",
+  "feature_persistence": {
+    "adjacent_month_transitions": 333,
+    "changed_tercile_transitions": 68,
+    "coins_with_both_low_and_high_months": [
+      "BCH",
+      "XLM",
+      "SEI",
+      "PEPE"
+    ],
+    "months_by_coin_and_tercile": {
+      "AAVE": {
+        "low": 3,
+        "middle": 7
+      },
+      "ADA": {
+        "low": 3,
+        "middle": 7
+      },
+      "ALGO": {
+        "high": 2,
+        "middle": 8
+      },
+      "APT": {
+        "high": 7,
+        "middle": 3
+      },
+      "ARB": {
+        "high": 4,
+        "middle": 6
+      },
+      "ATOM": {
+        "low": 1,
+        "middle": 9
+      },
+      "AVAX": {
+        "low": 9,
+        "middle": 1
+      },
+      "BCH": {
+        "high": 7,
+        "low": 1,
+        "middle": 2
+      },
+      "BNB": {
+        "low": 10
+      },
+      "BTC": {
+        "low": 10
+      },
+      "DOGE": {
+        "low": 6,
+        "middle": 4
+      },
+      "DOT": {
+        "middle": 10
+      },
+      "ETC": {
+        "low": 3,
+        "middle": 7
+      },
+      "ETH": {
+        "low": 7,
+        "middle": 3
+      },
+      "FET": {
+        "high": 8,
+        "middle": 2
+      },
+      "FIL": {
+        "high": 10
+      },
+      "HBAR": {
+        "low": 10
+      },
+      "ICP": {
+        "high": 6,
+        "middle": 4
+      },
+      "IMX": {
+        "high": 8,
+        "middle": 2
+      },
+      "INJ": {
+        "high": 7,
+        "middle": 3
+      },
+      "LDO": {
+        "high": 6,
+        "middle": 4
+      },
+      "LINK": {
+        "low": 10
+      },
+      "LTC": {
+        "low": 9,
+        "middle": 1
+      },
+      "NEAR": {
+        "high": 8,
+        "middle": 2
+      },
+      "OP": {
+        "high": 7,
+        "middle": 3
+      },
+      "PEPE": {
+        "high": 3,
+        "low": 1,
+        "middle": 6
+      },
+      "SEI": {
+        "high": 4,
+        "low": 1,
+        "middle": 5
+      },
+      "SHIB": {
+        "low": 7,
+        "middle": 3
+      },
+      "SOL": {
+        "low": 10
+      },
+      "STX": {
+        "high": 9,
+        "middle": 1
+      },
+      "SUI": {
+        "low": 2,
+        "middle": 8
+      },
+      "TIA": {
+        "high": 8,
+        "middle": 2
+      },
+      "TRX": {
+        "low": 10
+      },
+      "UNI": {
+        "high": 5,
+        "middle": 5
+      },
+      "WLD": {
+        "high": 10
+      },
+      "XLM": {
+        "high": 1,
+        "low": 7,
+        "middle": 2
+      },
+      "XRP": {
+        "low": 10
+      }
+    },
+    "never_changed_coins": [
+      "BTC",
+      "BNB",
+      "XRP",
+      "SOL",
+      "TRX",
+      "LINK",
+      "DOT",
+      "FIL",
+      "HBAR",
+      "WLD"
+    ]
+  },
+  "feature_states": [
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.885694983302676
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.183601286292343
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.337367818407586
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.093359424100157
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 6.3219100442797895
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.850551329258198
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.657331257901705
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.727548564102465
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.36648652112092
+    },
+    {
+      "coin": "BTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.808064836719553
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.33659608061378
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.526743996584335
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.443893816121104
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.267918474972538
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.113465473983316
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.538898503147572
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.220421731035398
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.039056145132117
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.39755834206001
+    },
+    {
+      "coin": "ETH",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.956650998468261
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.984385077402204
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 3.872846023963294
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.7135506848234225
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 6.35458183397533
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.188935771347046
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 3.964326888352952
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.60489650182424
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.294857151484456
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 3.654458441361479
+    },
+    {
+      "coin": "BNB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.937197061631464
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.001637465835858
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.669580339112418
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.846483557449282
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.551664864679694
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.78700383436294
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.987913922171012
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.546625956097012
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.112831834410754
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.151730910358705
+    },
+    {
+      "coin": "ADA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.098261209056396
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.523244038826706
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.117924496683571
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.774638520875103
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.647489355267922
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 6.7856718983778785
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 6.780243823304216
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.230871164553652
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 6.621175764207351
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.119849514249188
+    },
+    {
+      "coin": "XRP",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.620815750726685
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.979068441671423
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.361249677025334
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.639442869223505
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.864465080935998
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.53284339243978
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.418923822706955
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.103893615414627
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.677422027946963
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.4376594142018835
+    },
+    {
+      "coin": "SOL",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.308044624223726
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.86810593842516
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.120578842262855
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.681612200434893
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.439662670233146
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.356428952033031
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.90222286935407
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.207053668925026
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.362617395920093
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.293018498447829
+    },
+    {
+      "coin": "DOGE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.502474779201506
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.658665247003022
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.562941537337956
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.253334790428353
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.597038245460133
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.713215954097334
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.752518132408527
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 6.859560488946999
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.056200542305616
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.60179557208956
+    },
+    {
+      "coin": "LTC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.05405833372404
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.712852773352611
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.508048041527125
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.891687420001451
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.0832385519557555
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.831603644658827
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.835557045356968
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 5.6621491409099685
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.421911379074672
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 3.624305681738521
+    },
+    {
+      "coin": "TRX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 4.839924443438034
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.351395275679662
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.241411111327942
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.812835646332458
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.156551728039474
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.979137977568857
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.718994593035928
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.23789350397433
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.847409276080917
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.661941661734904
+    },
+    {
+      "coin": "LINK",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.820052432889446
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.611215996283391
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.34013601434754
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.332695478262405
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.523538345850067
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.56415809436591
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.26095020210895
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.53959994406885
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.486401610106286
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.39701509657289
+    },
+    {
+      "coin": "DOT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.14006033541146
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.476150203607855
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.469355808398607
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.120243048371522
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.96625427036398
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.59903469176375
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.891012876464918
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.434273811890504
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.143251585640423
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.90537916756938
+    },
+    {
+      "coin": "AVAX",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.131082722397956
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.380374477979572
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.809742866165646
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.390839048393836
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.405541561574543
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.469770943504535
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.675120245691332
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 20.779164031974513
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.391066306924518
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.809951992995895
+    },
+    {
+      "coin": "BCH",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.842777835197516
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.871472741311434
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.51615112373153
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.29017540015531
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.230211625502449
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.226077764731022
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.774649654752935
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.039384509680193
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.557394371630656
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.786686644104105
+    },
+    {
+      "coin": "ETC",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.933776519437668
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.329752242665933
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.53959330103125
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.123295614093065
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.125812084785792
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.147532543220121
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.053578417180393
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.3380621969865
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.60386377158008
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.810377106115219
+    },
+    {
+      "coin": "XLM",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.572223491822129
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.956087161176649
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.022150620197264
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.95148197618328
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.050538310793634
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.092623405435395
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.989456453618935
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.919625100611205
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.93222126643489
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.272894056651024
+    },
+    {
+      "coin": "ATOM",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.98399391506489
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 26.465512074597424
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.286010640931845
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.333080724337083
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.28018553315309
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.436204663889804
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.638188724169137
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.076023391812544
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.591155242207634
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.31069124094371
+    },
+    {
+      "coin": "FIL",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 29.48585928997708
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.060780552383296
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.059733267083686
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.555877527129198
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.823831247716868
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.199359715393236
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.421137199197233
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 24.342941554974246
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 22.25448466002426
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.536352810350458
+    },
+    {
+      "coin": "NEAR",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 23.056082262092012
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.741069489812773
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.560080293356316
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.084988636330941
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.519710197690607
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.106397863355117
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.203785604794106
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.39717969889785
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.576509932651707
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.109186049487995
+    },
+    {
+      "coin": "UNI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 25.606647467295332
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.116994568836043
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.025682300046538
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.36208147852286
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.80010042867446
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.394483483543686
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.96655029656344
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.57452909417239
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.754842685434726
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.12053333902159
+    },
+    {
+      "coin": "AAVE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.587610692374975
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 24.1145916154762
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.808115080983793
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.611925816966068
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.19557857377258
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.864130395721158
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.228987494858046
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 25.77040482190453
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.2120224630835
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.325939019080955
+    },
+    {
+      "coin": "ICP",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.753746971105492
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.196208943749747
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.746770088652472
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.216717855310206
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.843623755780254
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.93685886475737
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.444845086459587
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.59477541632993
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.227171567413817
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.720962242207992
+    },
+    {
+      "coin": "APT",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 22.45966431661575
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.424418442596737
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.462980051739073
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.92538424382017
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.166545256968583
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.84478252885618
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.850265583638185
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.576895950156324
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.140634970957773
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.505599115747337
+    },
+    {
+      "coin": "ARB",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 31.594193001877617
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.973402028233028
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.544387446543977
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.987119145062538
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.276770433921737
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.251824760964245
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.318323785753206
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.637178710407726
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.96869621365617
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.536648272274517
+    },
+    {
+      "coin": "SUI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.648340175822316
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.703007426562026
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.10821120996175
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.05591492776901
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.54421515861049
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.985915996952192
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.359565397169858
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.324119724120106
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.571030886302005
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.31326814331117
+    },
+    {
+      "coin": "OP",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 22.460184415777178
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.078936995413335
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.909247177487646
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.438379129757807
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.15400615216134
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.090460958675264
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.597088525878362
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 24.97404032605866
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 22.511106249249735
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.753594823798277
+    },
+    {
+      "coin": "INJ",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 22.510191694853518
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.719409275429605
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.326884775853156
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.42345384801262
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.9036126242417
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.654351909830945
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.066987943991478
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 22.805289036478424
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 23.152019752036818
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 22.991732058953257
+    },
+    {
+      "coin": "TIA",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 26.50451250130022
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.632827118194273
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.435712430523244
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.475415573811793
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.583478821533847
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.655491758818497
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.431211311656558
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.794243788560612
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.991854906201304
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.329469257884968
+    },
+    {
+      "coin": "SEI",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.395791803386885
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.116222849855783
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.75768734153636
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.699716846213153
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.023507285106998
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.441430051894722
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.492712038796984
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.30968064230391
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.708203439288932
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.708034172182517
+    },
+    {
+      "coin": "PEPE",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.66375923864675
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.947382410409578
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.595453241004655
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.769081575167483
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.090837064280398
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.132960863103545
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 8.152350819385825
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.576056681946644
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.19660833754662
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.736912868992171
+    },
+    {
+      "coin": "SHIB",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.290094149702483
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.326932832142793
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.511787506946735
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.68210870912345
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 9.45343840464461
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 7.809057794199731
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.205417173334919
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.470355878188277
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.00033030128736
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.362665280704295
+    },
+    {
+      "coin": "HBAR",
+      "gap_tercile": "low",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.740573608566752
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.16125378262536
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.104101750543222
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.538500685060827
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.867114848379785
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.968984243948636
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.25938476531988
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.91997730968401
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.02805002313927
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.30381589972407
+    },
+    {
+      "coin": "ALGO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.278331541706887
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.21730810401573
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.70283297198202
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.267416569139364
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.835181122902224
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.22939673874269
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.341051678813276
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 20.647678648203893
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.846134716377023
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.051312415774108
+    },
+    {
+      "coin": "FET",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.598608537485806
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.4147577831862
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.411531518878428
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.031479057966962
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 19.53575256800782
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 20.21142688384923
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 26.58568023462839
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 41.15841172399375
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 38.44482409585001
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 27.178040071844162
+    },
+    {
+      "coin": "WLD",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 27.893061284578444
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.88779627578405
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.54124786444431
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.738250819536983
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.755103548043234
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.618073302142204
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.426926497680167
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.385566829491147
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 16.828549170953796
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.504985096104946
+    },
+    {
+      "coin": "IMX",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.562283258595496
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.430708197066146
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 14.267837763860136
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.014007614094428
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 15.84379457457825
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.807827140034114
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.73901399667346
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 20.315102999999635
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 17.638862952588465
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.028236057073226
+    },
+    {
+      "coin": "STX",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 23.955174433177184
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-01-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 11.061882423766498
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-02-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 10.999951106142193
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-03-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 12.744117436585961
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "middle",
+      "month_start_utc": "2026-04-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 13.468246545103426
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-05-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.06470875545673
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-06-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 20.27060857683814
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-07-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.558072863543202
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-08-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.15304578000063
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-09-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 18.81128313551494
+    },
+    {
+      "coin": "LDO",
+      "gap_tercile": "high",
+      "month_start_utc": "2026-10-01T00:00:00+00:00",
+      "paired_completed_five_minute_bars": 17280,
+      "prior_60d_p99_downside_last_mark_low_gap_bps": 21.845482761513647
+    }
+  ],
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "limitations": [
+    "October-December 2025 order-submission months have no prior 60 complete days of paired five-minute MARK/LAST data and remain unavailable.",
+    "Feature groups are cross-sectional monthly descriptions on an exposed development year; stopped-position conditioning, coin and time mix can confound observed associations.",
+    "No MARK-triggered native protective order or counterfactual execution was run, and group PnL is not an independently funded return."
+  ],
+  "months": [
+    "2026-01-01T00:00:00+00:00",
+    "2026-02-01T00:00:00+00:00",
+    "2026-03-01T00:00:00+00:00",
+    "2026-04-01T00:00:00+00:00",
+    "2026-05-01T00:00:00+00:00",
+    "2026-06-01T00:00:00+00:00",
+    "2026-07-01T00:00:00+00:00",
+    "2026-08-01T00:00:00+00:00",
+    "2026-09-01T00:00:00+00:00",
+    "2026-10-01T00:00:00+00:00"
+  ],
+  "position_detail_sha256": "75d5dfd29fc219239fdee27d689f8e1348bb0eea5cdbfd67fe7cc1fa6f43db4c",
+  "preregistration_commit": "a23b6e85d",
+  "runs": {
+    "H15a": {
+      "all": {
+        "closed_mean_net_r": 0.15573719400683927,
+        "closed_net_pnl_usdt": "4205.83489648",
+        "closed_positions": 676,
+        "closed_win_rate": 0.5650887573964497,
+        "open_realized_pnl_usdt_not_closed_outcome": "-6.24444594",
+        "open_right_censored_positions": 10,
+        "positive_closed_positions": 382,
+        "stop_associated_positions": 175,
+        "strict_last_only_per_closed": 0.06804733727810651,
+        "strict_last_only_per_stopped": 0.26285714285714284,
+        "strict_last_only_positions": 46
+      },
+      "by_coin": {
+        "AAVE": {
+          "closed_mean_net_r": 0.134670942997277,
+          "closed_net_pnl_usdt": "-387.00762801",
+          "closed_positions": 20,
+          "closed_win_rate": 0.55,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.23087487",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 11,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "ADA": {
+          "closed_mean_net_r": -0.006142335548864134,
+          "closed_net_pnl_usdt": "-663.76684635",
+          "closed_positions": 17,
+          "closed_win_rate": 0.47058823529411764,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.31054616",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 8,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.17647058823529413,
+          "strict_last_only_per_stopped": 0.6,
+          "strict_last_only_positions": 3
+        },
+        "ALGO": {
+          "closed_mean_net_r": 0.11217135133445752,
+          "closed_net_pnl_usdt": "-319.23402659",
+          "closed_positions": 16,
+          "closed_win_rate": 0.625,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 10,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.125,
+          "strict_last_only_per_stopped": 0.4,
+          "strict_last_only_positions": 2
+        },
+        "APT": {
+          "closed_mean_net_r": 0.3260679477234222,
+          "closed_net_pnl_usdt": "761.22272076",
+          "closed_positions": 17,
+          "closed_win_rate": 0.5882352941176471,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 10,
+          "stop_associated_positions": 3,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "ARB": {
+          "closed_mean_net_r": 0.2046773944406278,
+          "closed_net_pnl_usdt": "453.88545128",
+          "closed_positions": 13,
+          "closed_win_rate": 0.6923076923076923,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 3,
+          "strict_last_only_per_closed": 0.07692307692307693,
+          "strict_last_only_per_stopped": 0.3333333333333333,
+          "strict_last_only_positions": 1
+        },
+        "ATOM": {
+          "closed_mean_net_r": 0.2773300007116513,
+          "closed_net_pnl_usdt": "506.80813737",
+          "closed_positions": 23,
+          "closed_win_rate": 0.6086956521739131,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 14,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.08695652173913043,
+          "strict_last_only_per_stopped": 0.3333333333333333,
+          "strict_last_only_positions": 2
+        },
+        "AVAX": {
+          "closed_mean_net_r": 0.1276629170203856,
+          "closed_net_pnl_usdt": "91.84153848",
+          "closed_positions": 19,
+          "closed_win_rate": 0.5263157894736842,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 10,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "BCH": {
+          "closed_mean_net_r": -0.08792546499239105,
+          "closed_net_pnl_usdt": "-404.91309431",
+          "closed_positions": 12,
+          "closed_win_rate": 0.5,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "BNB": {
+          "closed_mean_net_r": 0.23451268793373803,
+          "closed_net_pnl_usdt": "204.92010635",
+          "closed_positions": 26,
+          "closed_win_rate": 0.5769230769230769,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 15,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.11538461538461539,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 3
+        },
+        "BTC": {
+          "closed_mean_net_r": 0.1967948169447908,
+          "closed_net_pnl_usdt": "575.30924972",
+          "closed_positions": 22,
+          "closed_win_rate": 0.5454545454545454,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.61087825",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 12,
+          "stop_associated_positions": 7,
+          "strict_last_only_per_closed": 0.045454545454545456,
+          "strict_last_only_per_stopped": 0.14285714285714285,
+          "strict_last_only_positions": 1
+        },
+        "DOGE": {
+          "closed_mean_net_r": 0.07168971398624975,
+          "closed_net_pnl_usdt": "-238.46858530",
+          "closed_positions": 14,
+          "closed_win_rate": 0.5,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.07142857142857142,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 1
+        },
+        "DOT": {
+          "closed_mean_net_r": 0.2338968104598483,
+          "closed_net_pnl_usdt": "678.00213806",
+          "closed_positions": 19,
+          "closed_win_rate": 0.631578947368421,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 12,
+          "stop_associated_positions": 2,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "ETC": {
+          "closed_mean_net_r": -0.15222881845734199,
+          "closed_net_pnl_usdt": "-660.67496043",
+          "closed_positions": 15,
+          "closed_win_rate": 0.4666666666666667,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.13333333333333333,
+          "strict_last_only_per_stopped": 0.3333333333333333,
+          "strict_last_only_positions": 2
+        },
+        "ETH": {
+          "closed_mean_net_r": 0.3544312089364908,
+          "closed_net_pnl_usdt": "1083.60876989",
+          "closed_positions": 19,
+          "closed_win_rate": 0.7368421052631579,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 14,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.15789473684210525,
+          "strict_last_only_per_stopped": 0.75,
+          "strict_last_only_positions": 3
+        },
+        "FET": {
+          "closed_mean_net_r": -0.03514801206479771,
+          "closed_net_pnl_usdt": "-698.47275349",
+          "closed_positions": 17,
+          "closed_win_rate": 0.5294117647058824,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.55681022",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.17647058823529413,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 3
+        },
+        "FIL": {
+          "closed_mean_net_r": 0.18764919103210426,
+          "closed_net_pnl_usdt": "49.57897635",
+          "closed_positions": 18,
+          "closed_win_rate": 0.6111111111111112,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.15651655",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 11,
+          "stop_associated_positions": 3,
+          "strict_last_only_per_closed": 0.1111111111111111,
+          "strict_last_only_per_stopped": 0.6666666666666666,
+          "strict_last_only_positions": 2
+        },
+        "HBAR": {
+          "closed_mean_net_r": -0.11645477783009,
+          "closed_net_pnl_usdt": "-860.33985744",
+          "closed_positions": 18,
+          "closed_win_rate": 0.3888888888888889,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.05555555555555555,
+          "strict_last_only_per_stopped": 0.2,
+          "strict_last_only_positions": 1
+        },
+        "ICP": {
+          "closed_mean_net_r": 0.043831688646920365,
+          "closed_net_pnl_usdt": "460.71535868",
+          "closed_positions": 27,
+          "closed_win_rate": 0.48148148148148145,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 13,
+          "stop_associated_positions": 9,
+          "strict_last_only_per_closed": 0.14814814814814814,
+          "strict_last_only_per_stopped": 0.4444444444444444,
+          "strict_last_only_positions": 4
+        },
+        "IMX": {
+          "closed_mean_net_r": 0.244493442435947,
+          "closed_net_pnl_usdt": "76.61398085",
+          "closed_positions": 17,
+          "closed_win_rate": 0.5882352941176471,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.18934444",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 10,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "INJ": {
+          "closed_mean_net_r": 0.4234989381905343,
+          "closed_net_pnl_usdt": "1147.03269363",
+          "closed_positions": 18,
+          "closed_win_rate": 0.6666666666666666,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.40290882",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 12,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.05555555555555555,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 1
+        },
+        "LDO": {
+          "closed_mean_net_r": 0.352479101351786,
+          "closed_net_pnl_usdt": "320.32839591",
+          "closed_positions": 24,
+          "closed_win_rate": 0.7083333333333334,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 17,
+          "stop_associated_positions": 3,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "LINK": {
+          "closed_mean_net_r": 0.2238086859416754,
+          "closed_net_pnl_usdt": "520.47723180",
+          "closed_positions": 20,
+          "closed_win_rate": 0.55,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.04896516",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 11,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "LTC": {
+          "closed_mean_net_r": -0.024083426072760147,
+          "closed_net_pnl_usdt": "-165.22308039",
+          "closed_positions": 20,
+          "closed_win_rate": 0.45,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.05,
+          "strict_last_only_per_stopped": 0.16666666666666666,
+          "strict_last_only_positions": 1
+        },
+        "NEAR": {
+          "closed_mean_net_r": 0.20844812575426958,
+          "closed_net_pnl_usdt": "161.88480139",
+          "closed_positions": 16,
+          "closed_win_rate": 0.5625,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.0625,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 1
+        },
+        "OP": {
+          "closed_mean_net_r": -0.15805982608068372,
+          "closed_net_pnl_usdt": "-732.30259227",
+          "closed_positions": 14,
+          "closed_win_rate": 0.5714285714285714,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 8,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.14285714285714285,
+          "strict_last_only_per_stopped": 0.4,
+          "strict_last_only_positions": 2
+        },
+        "PEPE": {
+          "closed_mean_net_r": 0.5564343183055395,
+          "closed_net_pnl_usdt": "1569.58870546",
+          "closed_positions": 17,
+          "closed_win_rate": 0.6470588235294118,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 11,
+          "stop_associated_positions": 3,
+          "strict_last_only_per_closed": 0.11764705882352941,
+          "strict_last_only_per_stopped": 0.6666666666666666,
+          "strict_last_only_positions": 2
+        },
+        "SEI": {
+          "closed_mean_net_r": 0.0738991250406859,
+          "closed_net_pnl_usdt": "-31.82631613",
+          "closed_positions": 14,
+          "closed_win_rate": 0.5,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "SHIB": {
+          "closed_mean_net_r": 0.0994333682361063,
+          "closed_net_pnl_usdt": "186.47340832",
+          "closed_positions": 15,
+          "closed_win_rate": 0.6,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "SOL": {
+          "closed_mean_net_r": 0.3517257731840801,
+          "closed_net_pnl_usdt": "834.45734187",
+          "closed_positions": 19,
+          "closed_win_rate": 0.6842105263157895,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 13,
+          "stop_associated_positions": 2,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "STX": {
+          "closed_mean_net_r": -0.06913509587292443,
+          "closed_net_pnl_usdt": "-493.04276510",
+          "closed_positions": 15,
+          "closed_win_rate": 0.4,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.45373745",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 7,
+          "strict_last_only_per_closed": 0.06666666666666667,
+          "strict_last_only_per_stopped": 0.14285714285714285,
+          "strict_last_only_positions": 1
+        },
+        "SUI": {
+          "closed_mean_net_r": 0.11053523055805986,
+          "closed_net_pnl_usdt": "199.53852815",
+          "closed_positions": 16,
+          "closed_win_rate": 0.5625,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.125,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 2
+        },
+        "TIA": {
+          "closed_mean_net_r": 0.015872683135738752,
+          "closed_net_pnl_usdt": "-552.22302725",
+          "closed_positions": 17,
+          "closed_win_rate": 0.5294117647058824,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.058823529411764705,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 1
+        },
+        "TRX": {
+          "closed_mean_net_r": 0.23420165785937766,
+          "closed_net_pnl_usdt": "73.12965274",
+          "closed_positions": 30,
+          "closed_win_rate": 0.6,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 18,
+          "stop_associated_positions": 9,
+          "strict_last_only_per_closed": 0.1,
+          "strict_last_only_per_stopped": 0.3333333333333333,
+          "strict_last_only_positions": 3
+        },
+        "UNI": {
+          "closed_mean_net_r": 0.2930265152240929,
+          "closed_net_pnl_usdt": "394.42476055",
+          "closed_positions": 19,
+          "closed_win_rate": 0.631578947368421,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 12,
+          "stop_associated_positions": 2,
+          "strict_last_only_per_closed": 0.05263157894736842,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 1
+        },
+        "WLD": {
+          "closed_mean_net_r": 0.3029212696163231,
+          "closed_net_pnl_usdt": "480.81808795",
+          "closed_positions": 19,
+          "closed_win_rate": 0.6842105263157895,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.28386402",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 13,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.10526315789473684,
+          "strict_last_only_per_stopped": 0.4,
+          "strict_last_only_positions": 2
+        },
+        "XLM": {
+          "closed_mean_net_r": 0.08855809536877164,
+          "closed_net_pnl_usdt": "212.46109447",
+          "closed_positions": 22,
+          "closed_win_rate": 0.5,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 11,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "XRP": {
+          "closed_mean_net_r": -0.21448541426384127,
+          "closed_net_pnl_usdt": "-629.79070049",
+          "closed_positions": 12,
+          "closed_win_rate": 0.25,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 3,
+          "stop_associated_positions": 3,
+          "strict_last_only_per_closed": 0.08333333333333333,
+          "strict_last_only_per_stopped": 0.3333333333333333,
+          "strict_last_only_positions": 1
+        }
+      },
+      "by_gap_tercile": {
+        "high": {
+          "closed_mean_net_r": 0.12291394037212235,
+          "closed_net_pnl_usdt": "-472.79828880",
+          "closed_positions": 181,
+          "closed_win_rate": 0.569060773480663,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.29702684",
+          "open_right_censored_positions": 4,
+          "positive_closed_positions": 103,
+          "stop_associated_positions": 50,
+          "strict_last_only_per_closed": 0.06629834254143646,
+          "strict_last_only_per_stopped": 0.24,
+          "strict_last_only_positions": 12
+        },
+        "low": {
+          "closed_mean_net_r": 0.17288070794022095,
+          "closed_net_pnl_usdt": "2327.29370489",
+          "closed_positions": 221,
+          "closed_win_rate": 0.5565610859728507,
+          "open_realized_pnl_usdt_not_closed_outcome": "-2.89071828",
+          "open_right_censored_positions": 3,
+          "positive_closed_positions": 123,
+          "stop_associated_positions": 53,
+          "strict_last_only_per_closed": 0.04072398190045249,
+          "strict_last_only_per_stopped": 0.16981132075471697,
+          "strict_last_only_positions": 9
+        },
+        "middle": {
+          "closed_mean_net_r": 0.14849975138629198,
+          "closed_net_pnl_usdt": "1070.56830221",
+          "closed_positions": 194,
+          "closed_win_rate": 0.5773195876288659,
+          "open_realized_pnl_usdt_not_closed_outcome": "-2.05670082",
+          "open_right_censored_positions": 3,
+          "positive_closed_positions": 112,
+          "stop_associated_positions": 46,
+          "strict_last_only_per_closed": 0.09278350515463918,
+          "strict_last_only_per_stopped": 0.391304347826087,
+          "strict_last_only_positions": 18
+        },
+        "unavailable": {
+          "closed_mean_net_r": 0.20019164646924653,
+          "closed_net_pnl_usdt": "1280.77117818",
+          "closed_positions": 80,
+          "closed_win_rate": 0.55,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 44,
+          "stop_associated_positions": 26,
+          "strict_last_only_per_closed": 0.0875,
+          "strict_last_only_per_stopped": 0.2692307692307692,
+          "strict_last_only_positions": 7
+        }
+      },
+      "by_submission_month": {
+        "2025-11-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.0442455667901117,
+          "closed_net_pnl_usdt": "-302.34768799",
+          "closed_positions": 25,
+          "closed_win_rate": 0.36,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 8,
+          "strict_last_only_per_closed": 0.08,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 2
+        },
+        "2025-12-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.3112994706780458,
+          "closed_net_pnl_usdt": "1583.11886617",
+          "closed_positions": 55,
+          "closed_win_rate": 0.6363636363636364,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 35,
+          "stop_associated_positions": 18,
+          "strict_last_only_per_closed": 0.09090909090909091,
+          "strict_last_only_per_stopped": 0.2777777777777778,
+          "strict_last_only_positions": 5
+        },
+        "2026-01-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.022582376698532435,
+          "closed_net_pnl_usdt": "-1868.69866266",
+          "closed_positions": 44,
+          "closed_win_rate": 0.5,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 22,
+          "stop_associated_positions": 16,
+          "strict_last_only_per_closed": 0.045454545454545456,
+          "strict_last_only_per_stopped": 0.125,
+          "strict_last_only_positions": 2
+        },
+        "2026-02-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.1716016668615064,
+          "closed_net_pnl_usdt": "1941.72146157",
+          "closed_positions": 51,
+          "closed_win_rate": 0.5686274509803921,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 29,
+          "stop_associated_positions": 10,
+          "strict_last_only_per_closed": 0.0392156862745098,
+          "strict_last_only_per_stopped": 0.2,
+          "strict_last_only_positions": 2
+        },
+        "2026-03-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.22798643908230892,
+          "closed_net_pnl_usdt": "-4818.98074929",
+          "closed_positions": 59,
+          "closed_win_rate": 0.423728813559322,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 25,
+          "stop_associated_positions": 30,
+          "strict_last_only_per_closed": 0.0847457627118644,
+          "strict_last_only_per_stopped": 0.16666666666666666,
+          "strict_last_only_positions": 5
+        },
+        "2026-04-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.5081799073543247,
+          "closed_net_pnl_usdt": "5967.89321035",
+          "closed_positions": 91,
+          "closed_win_rate": 0.7362637362637363,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 67,
+          "stop_associated_positions": 10,
+          "strict_last_only_per_closed": 0.01098901098901099,
+          "strict_last_only_per_stopped": 0.1,
+          "strict_last_only_positions": 1
+        },
+        "2026-05-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.07958140478962308,
+          "closed_net_pnl_usdt": "-2167.19818137",
+          "closed_positions": 80,
+          "closed_win_rate": 0.5,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 40,
+          "stop_associated_positions": 25,
+          "strict_last_only_per_closed": 0.0875,
+          "strict_last_only_per_stopped": 0.28,
+          "strict_last_only_positions": 7
+        },
+        "2026-06-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.11839594064509792,
+          "closed_net_pnl_usdt": "-1967.51394604",
+          "closed_positions": 40,
+          "closed_win_rate": 0.475,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 19,
+          "stop_associated_positions": 11,
+          "strict_last_only_per_closed": 0.05,
+          "strict_last_only_per_stopped": 0.18181818181818182,
+          "strict_last_only_positions": 2
+        },
+        "2026-07-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.14349416286267516,
+          "closed_net_pnl_usdt": "1246.86189935",
+          "closed_positions": 70,
+          "closed_win_rate": 0.5428571428571428,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 38,
+          "stop_associated_positions": 18,
+          "strict_last_only_per_closed": 0.05714285714285714,
+          "strict_last_only_per_stopped": 0.2222222222222222,
+          "strict_last_only_positions": 4
+        },
+        "2026-08-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.13443969380254564,
+          "closed_net_pnl_usdt": "1228.67337348",
+          "closed_positions": 57,
+          "closed_win_rate": 0.5964912280701754,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 34,
+          "stop_associated_positions": 12,
+          "strict_last_only_per_closed": 0.10526315789473684,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 6
+        },
+        "2026-09-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.30210066908189465,
+          "closed_net_pnl_usdt": "3673.03145620",
+          "closed_positions": 101,
+          "closed_win_rate": 0.6237623762376238,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.04896516",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 63,
+          "stop_associated_positions": 15,
+          "strict_last_only_per_closed": 0.07920792079207921,
+          "strict_last_only_per_stopped": 0.5333333333333333,
+          "strict_last_only_positions": 8
+        },
+        "2026-10-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.3795723164249158,
+          "closed_net_pnl_usdt": "-310.72614329",
+          "closed_positions": 3,
+          "closed_win_rate": 0.3333333333333333,
+          "open_realized_pnl_usdt_not_closed_outcome": "-5.19548078",
+          "open_right_censored_positions": 9,
+          "positive_closed_positions": 1,
+          "stop_associated_positions": 2,
+          "strict_last_only_per_closed": 0.6666666666666666,
+          "strict_last_only_per_stopped": 1.0,
+          "strict_last_only_positions": 2
+        }
+      },
+      "within_coin_low_high_stop_comparison": {
+        "coins": [
+          {
+            "coin": "XLM",
+            "direction": "equal",
+            "high_minus_low_rate": 0.0,
+            "high_stopped": 1,
+            "high_strict": 0,
+            "low_stopped": 3,
+            "low_strict": 0
+          }
+        ],
+        "comparable_coin_count": 1,
+        "direction_counts": {
+          "equal": 1
+        }
+      }
+    },
+    "H19a": {
+      "all": {
+        "closed_mean_net_r": 0.2967911859450029,
+        "closed_net_pnl_usdt": "11333.32432354",
+        "closed_positions": 496,
+        "closed_win_rate": 0.4274193548387097,
+        "open_realized_pnl_usdt_not_closed_outcome": "24.94726279",
+        "open_right_censored_positions": 11,
+        "positive_closed_positions": 212,
+        "stop_associated_positions": 266,
+        "strict_last_only_per_closed": 0.15725806451612903,
+        "strict_last_only_per_stopped": 0.2932330827067669,
+        "strict_last_only_positions": 78
+      },
+      "by_coin": {
+        "AAVE": {
+          "closed_mean_net_r": 0.09000173713086987,
+          "closed_net_pnl_usdt": "-130.34664355",
+          "closed_positions": 8,
+          "closed_win_rate": 0.5,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 4,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.125,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 1
+        },
+        "ADA": {
+          "closed_mean_net_r": 0.3262144884680915,
+          "closed_net_pnl_usdt": "787.98772807",
+          "closed_positions": 13,
+          "closed_win_rate": 0.38461538461538464,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 5,
+          "stop_associated_positions": 7,
+          "strict_last_only_per_closed": 0.07692307692307693,
+          "strict_last_only_per_stopped": 0.14285714285714285,
+          "strict_last_only_positions": 1
+        },
+        "ALGO": {
+          "closed_mean_net_r": -0.07682216600910048,
+          "closed_net_pnl_usdt": "-690.86402993",
+          "closed_positions": 16,
+          "closed_win_rate": 0.3125,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 5,
+          "stop_associated_positions": 11,
+          "strict_last_only_per_closed": 0.375,
+          "strict_last_only_per_stopped": 0.5454545454545454,
+          "strict_last_only_positions": 6
+        },
+        "APT": {
+          "closed_mean_net_r": -0.3557702000078557,
+          "closed_net_pnl_usdt": "-1231.78870137",
+          "closed_positions": 14,
+          "closed_win_rate": 0.21428571428571427,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 3,
+          "stop_associated_positions": 11,
+          "strict_last_only_per_closed": 0.07142857142857142,
+          "strict_last_only_per_stopped": 0.09090909090909091,
+          "strict_last_only_positions": 1
+        },
+        "ARB": {
+          "closed_mean_net_r": 0.04316561567055547,
+          "closed_net_pnl_usdt": "-349.85902679",
+          "closed_positions": 12,
+          "closed_win_rate": 0.3333333333333333,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 4,
+          "stop_associated_positions": 7,
+          "strict_last_only_per_closed": 0.25,
+          "strict_last_only_per_stopped": 0.42857142857142855,
+          "strict_last_only_positions": 3
+        },
+        "ATOM": {
+          "closed_mean_net_r": 0.2897416733798819,
+          "closed_net_pnl_usdt": "141.30178556",
+          "closed_positions": 14,
+          "closed_win_rate": 0.42857142857142855,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.43525879",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 8,
+          "strict_last_only_per_closed": 0.2857142857142857,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 4
+        },
+        "AVAX": {
+          "closed_mean_net_r": 0.6268284895609807,
+          "closed_net_pnl_usdt": "1044.36881048",
+          "closed_positions": 14,
+          "closed_win_rate": 0.5714285714285714,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 8,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.21428571428571427,
+          "strict_last_only_per_stopped": 0.6,
+          "strict_last_only_positions": 3
+        },
+        "BCH": {
+          "closed_mean_net_r": 0.4719939975509967,
+          "closed_net_pnl_usdt": "498.46017260",
+          "closed_positions": 13,
+          "closed_win_rate": 0.46153846153846156,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "BNB": {
+          "closed_mean_net_r": 0.5919766623055344,
+          "closed_net_pnl_usdt": "632.28768995",
+          "closed_positions": 12,
+          "closed_win_rate": 0.5,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "BTC": {
+          "closed_mean_net_r": 0.8241533131054547,
+          "closed_net_pnl_usdt": "982.73936603",
+          "closed_positions": 10,
+          "closed_win_rate": 0.6,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.1,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 1
+        },
+        "DOGE": {
+          "closed_mean_net_r": 0.34205869121836735,
+          "closed_net_pnl_usdt": "9.30277501",
+          "closed_positions": 14,
+          "closed_win_rate": 0.42857142857142855,
+          "open_realized_pnl_usdt_not_closed_outcome": "-4.81332894",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 7,
+          "strict_last_only_per_closed": 0.07142857142857142,
+          "strict_last_only_per_stopped": 0.14285714285714285,
+          "strict_last_only_positions": 1
+        },
+        "DOT": {
+          "closed_mean_net_r": 0.3210918225445795,
+          "closed_net_pnl_usdt": "937.05541722",
+          "closed_positions": 15,
+          "closed_win_rate": 0.4,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 8,
+          "strict_last_only_per_closed": 0.13333333333333333,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 2
+        },
+        "ETC": {
+          "closed_mean_net_r": 0.10836580707481465,
+          "closed_net_pnl_usdt": "191.05461458",
+          "closed_positions": 10,
+          "closed_win_rate": 0.4,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.70220679",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 4,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.2,
+          "strict_last_only_per_stopped": 0.4,
+          "strict_last_only_positions": 2
+        },
+        "ETH": {
+          "closed_mean_net_r": 0.481567201236868,
+          "closed_net_pnl_usdt": "928.46918276",
+          "closed_positions": 9,
+          "closed_win_rate": 0.4444444444444444,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 4,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "FET": {
+          "closed_mean_net_r": -0.1081539454502157,
+          "closed_net_pnl_usdt": "-584.26167271",
+          "closed_positions": 11,
+          "closed_win_rate": 0.2727272727272727,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 3,
+          "stop_associated_positions": 7,
+          "strict_last_only_per_closed": 0.18181818181818182,
+          "strict_last_only_per_stopped": 0.2857142857142857,
+          "strict_last_only_positions": 2
+        },
+        "FIL": {
+          "closed_mean_net_r": 0.0070564151216751525,
+          "closed_net_pnl_usdt": "10.78745811",
+          "closed_positions": 16,
+          "closed_win_rate": 0.3125,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 5,
+          "stop_associated_positions": 11,
+          "strict_last_only_per_closed": 0.1875,
+          "strict_last_only_per_stopped": 0.2727272727272727,
+          "strict_last_only_positions": 3
+        },
+        "HBAR": {
+          "closed_mean_net_r": -0.16326424592562946,
+          "closed_net_pnl_usdt": "-466.27644249",
+          "closed_positions": 15,
+          "closed_win_rate": 0.26666666666666666,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.30604346",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 4,
+          "stop_associated_positions": 10,
+          "strict_last_only_per_closed": 0.26666666666666666,
+          "strict_last_only_per_stopped": 0.4,
+          "strict_last_only_positions": 4
+        },
+        "ICP": {
+          "closed_mean_net_r": 0.3900934084914764,
+          "closed_net_pnl_usdt": "1467.67692999",
+          "closed_positions": 21,
+          "closed_win_rate": 0.42857142857142855,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 12,
+          "strict_last_only_per_closed": 0.2857142857142857,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 6
+        },
+        "IMX": {
+          "closed_mean_net_r": 0.2764757465367056,
+          "closed_net_pnl_usdt": "-54.35943463",
+          "closed_positions": 16,
+          "closed_win_rate": 0.4375,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 9,
+          "strict_last_only_per_closed": 0.1875,
+          "strict_last_only_per_stopped": 0.3333333333333333,
+          "strict_last_only_positions": 3
+        },
+        "INJ": {
+          "closed_mean_net_r": 0.6977371738689084,
+          "closed_net_pnl_usdt": "752.12892568",
+          "closed_positions": 14,
+          "closed_win_rate": 0.5714285714285714,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 8,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.07142857142857142,
+          "strict_last_only_per_stopped": 0.2,
+          "strict_last_only_positions": 1
+        },
+        "LDO": {
+          "closed_mean_net_r": 0.3708871048716509,
+          "closed_net_pnl_usdt": "296.55287725",
+          "closed_positions": 13,
+          "closed_win_rate": 0.46153846153846156,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.07692307692307693,
+          "strict_last_only_per_stopped": 0.16666666666666666,
+          "strict_last_only_positions": 1
+        },
+        "LINK": {
+          "closed_mean_net_r": 0.9236579512839879,
+          "closed_net_pnl_usdt": "1220.30646265",
+          "closed_positions": 15,
+          "closed_win_rate": 0.7333333333333333,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.00774479",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 11,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.13333333333333333,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 2
+        },
+        "LTC": {
+          "closed_mean_net_r": 0.7633290028816406,
+          "closed_net_pnl_usdt": "1067.27950791",
+          "closed_positions": 15,
+          "closed_win_rate": 0.6,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 9,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "NEAR": {
+          "closed_mean_net_r": 0.6408881519720245,
+          "closed_net_pnl_usdt": "1197.66383845",
+          "closed_positions": 13,
+          "closed_win_rate": 0.5384615384615384,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.23076923076923078,
+          "strict_last_only_per_stopped": 0.6,
+          "strict_last_only_positions": 3
+        },
+        "OP": {
+          "closed_mean_net_r": -0.2578283327360788,
+          "closed_net_pnl_usdt": "-930.63595234",
+          "closed_positions": 13,
+          "closed_win_rate": 0.23076923076923078,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 3,
+          "stop_associated_positions": 10,
+          "strict_last_only_per_closed": 0.3076923076923077,
+          "strict_last_only_per_stopped": 0.4,
+          "strict_last_only_positions": 4
+        },
+        "PEPE": {
+          "closed_mean_net_r": 0.6788327682022786,
+          "closed_net_pnl_usdt": "1146.77707597",
+          "closed_positions": 13,
+          "closed_win_rate": 0.5384615384615384,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.07273270",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.15384615384615385,
+          "strict_last_only_per_stopped": 0.4,
+          "strict_last_only_positions": 2
+        },
+        "SEI": {
+          "closed_mean_net_r": 0.2779581043519446,
+          "closed_net_pnl_usdt": "117.15772683",
+          "closed_positions": 14,
+          "closed_win_rate": 0.42857142857142855,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 6,
+          "stop_associated_positions": 8,
+          "strict_last_only_per_closed": 0.14285714285714285,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 2
+        },
+        "SHIB": {
+          "closed_mean_net_r": 0.3837923590860819,
+          "closed_net_pnl_usdt": "644.10402917",
+          "closed_positions": 12,
+          "closed_win_rate": 0.4166666666666667,
+          "open_realized_pnl_usdt_not_closed_outcome": "-4.07249921",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 5,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "SOL": {
+          "closed_mean_net_r": 0.8587353922514895,
+          "closed_net_pnl_usdt": "1451.35518295",
+          "closed_positions": 13,
+          "closed_win_rate": 0.6153846153846154,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 8,
+          "stop_associated_positions": 5,
+          "strict_last_only_per_closed": 0.15384615384615385,
+          "strict_last_only_per_stopped": 0.4,
+          "strict_last_only_positions": 2
+        },
+        "STX": {
+          "closed_mean_net_r": -0.2798270022358163,
+          "closed_net_pnl_usdt": "-935.62947737",
+          "closed_positions": 13,
+          "closed_win_rate": 0.23076923076923078,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 3,
+          "stop_associated_positions": 10,
+          "strict_last_only_per_closed": 0.23076923076923078,
+          "strict_last_only_per_stopped": 0.3,
+          "strict_last_only_positions": 3
+        },
+        "SUI": {
+          "closed_mean_net_r": -0.1336068641841107,
+          "closed_net_pnl_usdt": "-955.64477903",
+          "closed_positions": 15,
+          "closed_win_rate": 0.3333333333333333,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 5,
+          "stop_associated_positions": 10,
+          "strict_last_only_per_closed": 0.3333333333333333,
+          "strict_last_only_per_stopped": 0.5,
+          "strict_last_only_positions": 5
+        },
+        "TIA": {
+          "closed_mean_net_r": 0.1384366483714488,
+          "closed_net_pnl_usdt": "375.17958769",
+          "closed_positions": 13,
+          "closed_win_rate": 0.3076923076923077,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.83302004",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 4,
+          "stop_associated_positions": 8,
+          "strict_last_only_per_closed": 0.15384615384615385,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 2
+        },
+        "TRX": {
+          "closed_mean_net_r": 0.4044692973041053,
+          "closed_net_pnl_usdt": "29.29080408",
+          "closed_positions": 15,
+          "closed_win_rate": 0.4666666666666667,
+          "open_realized_pnl_usdt_not_closed_outcome": "41.72745570",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 8,
+          "strict_last_only_per_closed": 0.2,
+          "strict_last_only_per_stopped": 0.375,
+          "strict_last_only_positions": 3
+        },
+        "UNI": {
+          "closed_mean_net_r": 0.2712016050389992,
+          "closed_net_pnl_usdt": "315.08703265",
+          "closed_positions": 11,
+          "closed_win_rate": 0.45454545454545453,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 5,
+          "stop_associated_positions": 6,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "WLD": {
+          "closed_mean_net_r": 0.5285702555080628,
+          "closed_net_pnl_usdt": "1676.13192289",
+          "closed_positions": 17,
+          "closed_win_rate": 0.47058823529411764,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 8,
+          "stop_associated_positions": 8,
+          "strict_last_only_per_closed": 0.11764705882352941,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 2
+        },
+        "XLM": {
+          "closed_mean_net_r": -0.045514739299417545,
+          "closed_net_pnl_usdt": "-595.57481066",
+          "closed_positions": 15,
+          "closed_win_rate": 0.3333333333333333,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.27838151",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 5,
+          "stop_associated_positions": 9,
+          "strict_last_only_per_closed": 0.13333333333333333,
+          "strict_last_only_per_stopped": 0.2222222222222222,
+          "strict_last_only_positions": 2
+        },
+        "XRP": {
+          "closed_mean_net_r": 0.2936491473970121,
+          "closed_net_pnl_usdt": "338.05838988",
+          "closed_positions": 9,
+          "closed_win_rate": 0.4444444444444444,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.25897668",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 4,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.1111111111111111,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 1
+        }
+      },
+      "by_gap_tercile": {
+        "high": {
+          "closed_mean_net_r": 0.17965646275535888,
+          "closed_net_pnl_usdt": "1418.24781689",
+          "closed_positions": 151,
+          "closed_win_rate": 0.3841059602649007,
+          "open_realized_pnl_usdt_not_closed_outcome": "-1.83302004",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 58,
+          "stop_associated_positions": 90,
+          "strict_last_only_per_closed": 0.17880794701986755,
+          "strict_last_only_per_stopped": 0.3,
+          "strict_last_only_positions": 27
+        },
+        "low": {
+          "closed_mean_net_r": 0.49076199889998495,
+          "closed_net_pnl_usdt": "6638.49048349",
+          "closed_positions": 140,
+          "closed_win_rate": 0.5071428571428571,
+          "open_realized_pnl_usdt_not_closed_outcome": "34.06298032",
+          "open_right_censored_positions": 6,
+          "positive_closed_positions": 71,
+          "stop_associated_positions": 69,
+          "strict_last_only_per_closed": 0.12857142857142856,
+          "strict_last_only_per_stopped": 0.2608695652173913,
+          "strict_last_only_positions": 18
+        },
+        "middle": {
+          "closed_mean_net_r": 0.3622259192956776,
+          "closed_net_pnl_usdt": "5984.08995512",
+          "closed_positions": 132,
+          "closed_win_rate": 0.4393939393939394,
+          "open_realized_pnl_usdt_not_closed_outcome": "-7.28269749",
+          "open_right_censored_positions": 4,
+          "positive_closed_positions": 58,
+          "stop_associated_positions": 74,
+          "strict_last_only_per_closed": 0.20454545454545456,
+          "strict_last_only_per_stopped": 0.36486486486486486,
+          "strict_last_only_positions": 27
+        },
+        "unavailable": {
+          "closed_mean_net_r": 0.04876439944705349,
+          "closed_net_pnl_usdt": "-2707.50393196",
+          "closed_positions": 73,
+          "closed_win_rate": 0.3424657534246575,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 25,
+          "stop_associated_positions": 33,
+          "strict_last_only_per_closed": 0.0821917808219178,
+          "strict_last_only_per_stopped": 0.18181818181818182,
+          "strict_last_only_positions": 6
+        }
+      },
+      "by_submission_month": {
+        "2025-11-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.4095413140169041,
+          "closed_net_pnl_usdt": "-4454.13444289",
+          "closed_positions": 41,
+          "closed_win_rate": 0.17073170731707318,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 7,
+          "stop_associated_positions": 19,
+          "strict_last_only_per_closed": 0.07317073170731707,
+          "strict_last_only_per_stopped": 0.15789473684210525,
+          "strict_last_only_positions": 3
+        },
+        "2025-12-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.6359685948227491,
+          "closed_net_pnl_usdt": "1746.63051093",
+          "closed_positions": 32,
+          "closed_win_rate": 0.5625,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 18,
+          "stop_associated_positions": 14,
+          "strict_last_only_per_closed": 0.09375,
+          "strict_last_only_per_stopped": 0.21428571428571427,
+          "strict_last_only_positions": 3
+        },
+        "2026-01-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.8229269286123205,
+          "closed_net_pnl_usdt": "-8250.10474167",
+          "closed_positions": 44,
+          "closed_win_rate": 0.06818181818181818,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 3,
+          "stop_associated_positions": 41,
+          "strict_last_only_per_closed": 0.1590909090909091,
+          "strict_last_only_per_stopped": 0.17073170731707318,
+          "strict_last_only_positions": 7
+        },
+        "2026-02-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.716497409632138,
+          "closed_net_pnl_usdt": "5164.86983410",
+          "closed_positions": 53,
+          "closed_win_rate": 0.5849056603773585,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 31,
+          "stop_associated_positions": 22,
+          "strict_last_only_per_closed": 0.1509433962264151,
+          "strict_last_only_per_stopped": 0.36363636363636365,
+          "strict_last_only_positions": 8
+        },
+        "2026-03-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.06679540462285564,
+          "closed_net_pnl_usdt": "-1266.48016937",
+          "closed_positions": 37,
+          "closed_win_rate": 0.2972972972972973,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 11,
+          "stop_associated_positions": 26,
+          "strict_last_only_per_closed": 0.21621621621621623,
+          "strict_last_only_per_stopped": 0.3076923076923077,
+          "strict_last_only_positions": 8
+        },
+        "2026-04-01T00:00:00+00:00": {
+          "closed_mean_net_r": 1.4873121037643942,
+          "closed_net_pnl_usdt": "13820.80427242",
+          "closed_positions": 69,
+          "closed_win_rate": 0.8260869565217391,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 57,
+          "stop_associated_positions": 12,
+          "strict_last_only_per_closed": 0.057971014492753624,
+          "strict_last_only_per_stopped": 0.3333333333333333,
+          "strict_last_only_positions": 4
+        },
+        "2026-05-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.35364037753549504,
+          "closed_net_pnl_usdt": "-5644.34429114",
+          "closed_positions": 51,
+          "closed_win_rate": 0.21568627450980393,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 11,
+          "stop_associated_positions": 40,
+          "strict_last_only_per_closed": 0.19607843137254902,
+          "strict_last_only_per_stopped": 0.25,
+          "strict_last_only_positions": 10
+        },
+        "2026-06-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.5893120581396685,
+          "closed_net_pnl_usdt": "-5301.84157653",
+          "closed_positions": 40,
+          "closed_win_rate": 0.125,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 5,
+          "stop_associated_positions": 33,
+          "strict_last_only_per_closed": 0.2,
+          "strict_last_only_per_stopped": 0.24242424242424243,
+          "strict_last_only_positions": 8
+        },
+        "2026-07-01T00:00:00+00:00": {
+          "closed_mean_net_r": -0.10250803288395956,
+          "closed_net_pnl_usdt": "-1518.10127365",
+          "closed_positions": 46,
+          "closed_win_rate": 0.30434782608695654,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 14,
+          "stop_associated_positions": 31,
+          "strict_last_only_per_closed": 0.30434782608695654,
+          "strict_last_only_per_stopped": 0.45161290322580644,
+          "strict_last_only_positions": 14
+        },
+        "2026-08-01T00:00:00+00:00": {
+          "closed_mean_net_r": 0.8735128370572623,
+          "closed_net_pnl_usdt": "10516.66987900",
+          "closed_positions": 61,
+          "closed_win_rate": 0.6065573770491803,
+          "open_realized_pnl_usdt_not_closed_outcome": "0",
+          "open_right_censored_positions": 0,
+          "positive_closed_positions": 37,
+          "stop_associated_positions": 24,
+          "strict_last_only_per_closed": 0.21311475409836064,
+          "strict_last_only_per_stopped": 0.5416666666666666,
+          "strict_last_only_positions": 13
+        },
+        "2026-09-01T00:00:00+00:00": {
+          "closed_mean_net_r": 1.5804169118588154,
+          "closed_net_pnl_usdt": "6519.35632234",
+          "closed_positions": 22,
+          "closed_win_rate": 0.8181818181818182,
+          "open_realized_pnl_usdt_not_closed_outcome": "25.20623947",
+          "open_right_censored_positions": 10,
+          "positive_closed_positions": 18,
+          "stop_associated_positions": 4,
+          "strict_last_only_per_closed": 0.0,
+          "strict_last_only_per_stopped": 0.0,
+          "strict_last_only_positions": 0
+        },
+        "2026-10-01T00:00:00+00:00": {
+          "closed_mean_net_r": null,
+          "closed_net_pnl_usdt": "0",
+          "closed_positions": 0,
+          "closed_win_rate": null,
+          "open_realized_pnl_usdt_not_closed_outcome": "-0.25897668",
+          "open_right_censored_positions": 1,
+          "positive_closed_positions": 0,
+          "stop_associated_positions": 0,
+          "strict_last_only_per_closed": null,
+          "strict_last_only_per_stopped": null,
+          "strict_last_only_positions": 0
+        }
+      },
+      "within_coin_low_high_stop_comparison": {
+        "coins": [
+          {
+            "coin": "BCH",
+            "direction": "equal",
+            "high_minus_low_rate": 0.0,
+            "high_stopped": 4,
+            "high_strict": 0,
+            "low_stopped": 1,
+            "low_strict": 0
+          },
+          {
+            "coin": "XLM",
+            "direction": "high_gt_low",
+            "high_minus_low_rate": 0.33333333333333337,
+            "high_stopped": 2,
+            "high_strict": 1,
+            "low_stopped": 6,
+            "low_strict": 1
+          }
+        ],
+        "comparable_coin_count": 2,
+        "direction_counts": {
+          "equal": 1,
+          "high_gt_low": 1
+        }
+      }
+    }
+  },
+  "schema": "r1-native-d73-causal-five-minute-gap-state/v1"
+}

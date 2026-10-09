@@ -1,0 +1,607 @@
+{
+  "schema": "r1-native-d76-opportunity-selection/v1",
+  "preregistration_commit": "99ce63fa9",
+  "account_timing_clarification_commit": "738544e51",
+  "input_sha256": {
+    "summary.json": "cd0212f4c6880469c5d5b9db0b8b931618590fc2914bff42417e95ea9e41b555",
+    "orders.csv": "77cf20e8302d22d305f7fe9e0a4eec4fd9b4c38cda541d360f2c30440ba6fe7d",
+    "fills.csv": "792aa68f2f12063770dbf00173c30c3d707b79d316a43864f05dba67eaed148e",
+    "positions.csv": "d2230be30c5365f92f67f7b829e4f2f66f716f0144f48b6c1dabb6139547a569",
+    "account.csv": "69530413f22af40f57c5290dcc06417580c9f95f395b0c7c465b1d95ac2ab33e",
+    "2026-10-08-d71-asset-regimes.json": "0d1b12ca483aa95f1ec4c0ed944223a5f43362c59dc28db1fc9caa53d4b080be",
+    "2026-10-08-d71-asset-regime-positions.json.gz": "624d4dd60a6742e6811c7e66733e971a1faeaeb803814e6af61034e8e9d7b5e9"
+  },
+  "native_run": "/tmp/r1-h22a-paired-h19a-37",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00Z",
+  "method": "Native two-tier parent BUY LIMIT bundles, fills, Positions and strictly prior native account snapshots grouped by D71 previous-60-day volatility rank at order submission. Eligible denominator retains all 37 coin-month states including zero-submission periods.",
+  "source_plans": 2940,
+  "submitted_bundles": 2939,
+  "unsubmitted_source_plans_without_order_timestamp": 1,
+  "by_volatility_rank": {
+    "low": {
+      "eligible_coin_days": 4619.604166666666,
+      "submitted_bundles": 1049,
+      "submitted_per_100_coin_days": 22.707573249872603,
+      "positive_fill_bundles": 174,
+      "positive_fill_rate": 0.16587225929456625,
+      "first_tier_positive_fill_bundles": 174,
+      "deeper_tier_positive_fill_bundles": 135,
+      "unfilled_terminal_status_pairs": {
+        "ACCEPTED/ACCEPTED": 10,
+        "CANCELED/CANCELED": 864,
+        "EXPIRED/EXPIRED": 1
+      },
+      "first_fill_delay_days_median": 2.295138888888889,
+      "first_fill_delay_days_p90": 7.137847222222224,
+      "native_positions": 175,
+      "native_closed_positions": 171,
+      "native_open_right_censored_positions": 4,
+      "native_closed_wins": 81,
+      "native_closed_win_rate": 0.47368421052631576,
+      "native_closed_mean_net_r": 0.43450275768389973,
+      "native_closed_pnl_usdt": "8142.25424666",
+      "prior_account_free_ratio_median": 0.9120953654273444,
+      "prior_account_free_ratio_p10": 0.8692528320502979,
+      "prior_account_snapshot_lag_seconds_median": 299.999,
+      "prior_account_snapshot_lag_seconds_p90": 10560.001000000015
+    },
+    "middle": {
+      "eligible_coin_days": 4264.249999999999,
+      "submitted_bundles": 1045,
+      "submitted_per_100_coin_days": 24.506067890015835,
+      "positive_fill_bundles": 166,
+      "positive_fill_rate": 0.15885167464114833,
+      "first_tier_positive_fill_bundles": 166,
+      "deeper_tier_positive_fill_bundles": 121,
+      "unfilled_terminal_status_pairs": {
+        "ACCEPTED/ACCEPTED": 8,
+        "CANCELED/CANCELED": 871
+      },
+      "first_fill_delay_days_median": 2.2604166666666665,
+      "first_fill_delay_days_p90": 8.177083333333334,
+      "native_positions": 166,
+      "native_closed_positions": 161,
+      "native_open_right_censored_positions": 5,
+      "native_closed_wins": 71,
+      "native_closed_win_rate": 0.4409937888198758,
+      "native_closed_mean_net_r": 0.28371917546523534,
+      "native_closed_pnl_usdt": "2202.25332041",
+      "prior_account_free_ratio_median": 0.9132880158533312,
+      "prior_account_free_ratio_p10": 0.8719804903248471,
+      "prior_account_snapshot_lag_seconds_median": 299.999,
+      "prior_account_snapshot_lag_seconds_p90": 12600.001
+    },
+    "high": {
+      "eligible_coin_days": 4264.249999999998,
+      "submitted_bundles": 845,
+      "submitted_per_100_coin_days": 19.815911356041518,
+      "positive_fill_bundles": 160,
+      "positive_fill_rate": 0.1893491124260355,
+      "first_tier_positive_fill_bundles": 160,
+      "deeper_tier_positive_fill_bundles": 125,
+      "unfilled_terminal_status_pairs": {
+        "ACCEPTED/ACCEPTED": 8,
+        "CANCELED/CANCELED": 676,
+        "EXPIRED/EXPIRED": 1
+      },
+      "first_fill_delay_days_median": 2.322916655092593,
+      "first_fill_delay_days_p90": 10.156249999999998,
+      "native_positions": 166,
+      "native_closed_positions": 164,
+      "native_open_right_censored_positions": 2,
+      "native_closed_wins": 60,
+      "native_closed_win_rate": 0.36585365853658536,
+      "native_closed_mean_net_r": 0.1660345696028762,
+      "native_closed_pnl_usdt": "988.81675647",
+      "prior_account_free_ratio_median": 0.9122818110600264,
+      "prior_account_free_ratio_p10": 0.8709509926701775,
+      "prior_account_snapshot_lag_seconds_median": 299.999,
+      "prior_account_snapshot_lag_seconds_p90": 10500.001
+    }
+  },
+  "per_coin": {
+    "BTC": {
+      "submitted": 81,
+      "filled_bundles": 10,
+      "source_plans": 81,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 81
+      }
+    },
+    "ETH": {
+      "submitted": 67,
+      "filled_bundles": 9,
+      "source_plans": 67,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 63,
+        "middle": 4
+      }
+    },
+    "BNB": {
+      "submitted": 88,
+      "filled_bundles": 12,
+      "source_plans": 88,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 88
+      }
+    },
+    "ADA": {
+      "submitted": 60,
+      "filled_bundles": 13,
+      "source_plans": 60,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 11,
+        "low": 9,
+        "middle": 40
+      }
+    },
+    "XRP": {
+      "submitted": 46,
+      "filled_bundles": 10,
+      "source_plans": 46,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 38,
+        "middle": 8
+      }
+    },
+    "SOL": {
+      "submitted": 74,
+      "filled_bundles": 13,
+      "source_plans": 74,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 56,
+        "middle": 18
+      }
+    },
+    "DOGE": {
+      "submitted": 53,
+      "filled_bundles": 15,
+      "source_plans": 53,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 36,
+        "middle": 17
+      }
+    },
+    "LTC": {
+      "submitted": 72,
+      "filled_bundles": 15,
+      "source_plans": 72,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 69,
+        "middle": 3
+      }
+    },
+    "TRX": {
+      "submitted": 143,
+      "filled_bundles": 15,
+      "source_plans": 143,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 143
+      }
+    },
+    "LINK": {
+      "submitted": 79,
+      "filled_bundles": 16,
+      "source_plans": 79,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 68,
+        "middle": 11
+      }
+    },
+    "DOT": {
+      "submitted": 62,
+      "filled_bundles": 15,
+      "source_plans": 62,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 9,
+        "low": 23,
+        "middle": 30
+      }
+    },
+    "AVAX": {
+      "submitted": 74,
+      "filled_bundles": 14,
+      "source_plans": 74,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 1,
+        "low": 30,
+        "middle": 43
+      }
+    },
+    "BCH": {
+      "submitted": 74,
+      "filled_bundles": 13,
+      "source_plans": 74,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 20,
+        "low": 30,
+        "middle": 24
+      }
+    },
+    "ETC": {
+      "submitted": 59,
+      "filled_bundles": 11,
+      "source_plans": 59,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 16,
+        "middle": 43
+      }
+    },
+    "XLM": {
+      "submitted": 72,
+      "filled_bundles": 16,
+      "source_plans": 72,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 5,
+        "low": 37,
+        "middle": 30
+      }
+    },
+    "ATOM": {
+      "submitted": 109,
+      "filled_bundles": 15,
+      "source_plans": 109,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 61,
+        "middle": 48
+      }
+    },
+    "FIL": {
+      "submitted": 62,
+      "filled_bundles": 15,
+      "source_plans": 62,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 34,
+        "middle": 28
+      }
+    },
+    "NEAR": {
+      "submitted": 120,
+      "filled_bundles": 12,
+      "source_plans": 120,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 36,
+        "middle": 84
+      }
+    },
+    "UNI": {
+      "submitted": 75,
+      "filled_bundles": 11,
+      "source_plans": 75,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 34,
+        "middle": 41
+      }
+    },
+    "AAVE": {
+      "submitted": 70,
+      "filled_bundles": 8,
+      "source_plans": 70,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 29,
+        "low": 1,
+        "middle": 40
+      }
+    },
+    "ICP": {
+      "submitted": 92,
+      "filled_bundles": 20,
+      "source_plans": 92,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 51,
+        "low": 18,
+        "middle": 23
+      }
+    },
+    "APT": {
+      "submitted": 77,
+      "filled_bundles": 13,
+      "source_plans": 77,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 32,
+        "middle": 45
+      }
+    },
+    "ARB": {
+      "submitted": 98,
+      "filled_bundles": 12,
+      "source_plans": 98,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 30,
+        "low": 17,
+        "middle": 51
+      }
+    },
+    "SUI": {
+      "submitted": 81,
+      "filled_bundles": 15,
+      "source_plans": 81,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 40,
+        "middle": 41
+      }
+    },
+    "OP": {
+      "submitted": 88,
+      "filled_bundles": 13,
+      "source_plans": 88,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 72,
+        "middle": 16
+      }
+    },
+    "INJ": {
+      "submitted": 98,
+      "filled_bundles": 14,
+      "source_plans": 98,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 58,
+        "middle": 40
+      }
+    },
+    "TIA": {
+      "submitted": 89,
+      "filled_bundles": 13,
+      "source_plans": 89,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 67,
+        "middle": 22
+      }
+    },
+    "SEI": {
+      "submitted": 70,
+      "filled_bundles": 14,
+      "source_plans": 70,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 1,
+        "low": 25,
+        "middle": 44
+      }
+    },
+    "PEPE": {
+      "submitted": 71,
+      "filled_bundles": 14,
+      "source_plans": 71,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 42,
+        "low": 10,
+        "middle": 19
+      }
+    },
+    "SHIB": {
+      "submitted": 44,
+      "filled_bundles": 13,
+      "source_plans": 44,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 1,
+        "low": 26,
+        "middle": 17
+      }
+    },
+    "HBAR": {
+      "submitted": 75,
+      "filled_bundles": 16,
+      "source_plans": 75,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "low": 58,
+        "middle": 17
+      }
+    },
+    "ALGO": {
+      "submitted": 92,
+      "filled_bundles": 16,
+      "source_plans": 92,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 13,
+        "low": 44,
+        "middle": 35
+      }
+    },
+    "FET": {
+      "submitted": 91,
+      "filled_bundles": 11,
+      "source_plans": 91,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 91
+      }
+    },
+    "WLD": {
+      "submitted": 82,
+      "filled_bundles": 16,
+      "source_plans": 82,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 68,
+        "middle": 14
+      }
+    },
+    "IMX": {
+      "submitted": 80,
+      "filled_bundles": 16,
+      "source_plans": 80,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 31,
+        "middle": 49
+      }
+    },
+    "STX": {
+      "submitted": 75,
+      "filled_bundles": 13,
+      "source_plans": 76,
+      "not_submitted_source_plans": 1,
+      "rank_counts": {
+        "high": 23,
+        "low": 2,
+        "middle": 50
+      }
+    },
+    "LDO": {
+      "submitted": 96,
+      "filled_bundles": 13,
+      "source_plans": 96,
+      "not_submitted_source_plans": 0,
+      "rank_counts": {
+        "high": 46,
+        "middle": 50
+      }
+    }
+  },
+  "per_submission_month_utc": {
+    "2025-10-01T00:00:00+00:00": {
+      "submitted": 0,
+      "filled_bundles": 0,
+      "rank_counts": {}
+    },
+    "2025-11-01T00:00:00+00:00": {
+      "submitted": 78,
+      "filled_bundles": 41,
+      "rank_counts": {
+        "high": 23,
+        "low": 25,
+        "middle": 30
+      }
+    },
+    "2025-12-01T00:00:00+00:00": {
+      "submitted": 118,
+      "filled_bundles": 32,
+      "rank_counts": {
+        "high": 30,
+        "low": 52,
+        "middle": 36
+      }
+    },
+    "2026-01-01T00:00:00+00:00": {
+      "submitted": 477,
+      "filled_bundles": 41,
+      "rank_counts": {
+        "high": 155,
+        "low": 159,
+        "middle": 163
+      }
+    },
+    "2026-02-01T00:00:00+00:00": {
+      "submitted": 134,
+      "filled_bundles": 53,
+      "rank_counts": {
+        "high": 42,
+        "low": 55,
+        "middle": 37
+      }
+    },
+    "2026-03-01T00:00:00+00:00": {
+      "submitted": 184,
+      "filled_bundles": 37,
+      "rank_counts": {
+        "high": 43,
+        "low": 92,
+        "middle": 49
+      }
+    },
+    "2026-04-01T00:00:00+00:00": {
+      "submitted": 305,
+      "filled_bundles": 69,
+      "rank_counts": {
+        "high": 103,
+        "low": 106,
+        "middle": 96
+      }
+    },
+    "2026-05-01T00:00:00+00:00": {
+      "submitted": 324,
+      "filled_bundles": 51,
+      "rank_counts": {
+        "high": 89,
+        "low": 96,
+        "middle": 139
+      }
+    },
+    "2026-06-01T00:00:00+00:00": {
+      "submitted": 177,
+      "filled_bundles": 40,
+      "rank_counts": {
+        "high": 59,
+        "low": 63,
+        "middle": 55
+      }
+    },
+    "2026-07-01T00:00:00+00:00": {
+      "submitted": 250,
+      "filled_bundles": 46,
+      "rank_counts": {
+        "high": 38,
+        "low": 105,
+        "middle": 107
+      }
+    },
+    "2026-08-01T00:00:00+00:00": {
+      "submitted": 411,
+      "filled_bundles": 57,
+      "rank_counts": {
+        "high": 130,
+        "low": 148,
+        "middle": 133
+      }
+    },
+    "2026-09-01T00:00:00+00:00": {
+      "submitted": 458,
+      "filled_bundles": 32,
+      "rank_counts": {
+        "high": 124,
+        "low": 139,
+        "middle": 195
+      }
+    },
+    "2026-10-01T00:00:00+00:00": {
+      "submitted": 23,
+      "filled_bundles": 1,
+      "rank_counts": {
+        "high": 9,
+        "low": 9,
+        "middle": 5
+      }
+    }
+  },
+  "bundle_detail_file": "2026-10-08-d76-native-bundles.json.gz",
+  "bundle_detail_sha256": "3e363364e2d170b7d0e174c09063d96a3a14773971ab3dbd6a7eecc8824a7d3b",
+  "limitations": [
+    "One Strategy source plan without a native submission timestamp is retained as unclassified; no feature rank or fill is invented for it.",
+    "Pre-submission free/total comes from the latest strictly earlier exported native account snapshot and may be stale; it is not a hypothetical new order's risk admissibility.",
+    "Bundle fill conversion is observed under the actual competing 37-coin account and conditional on the Strategy's signal and order logic. Removing a class would alter future slots, margin, fees, funding and equity.",
+    "Closed Position net R is conditional on native fill and closure; open Positions are right-censored. These viewed-year group differences are not a filtered-portfolio backtest or independent validation."
+  ]
+}

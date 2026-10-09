@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "attempt_id": "H26a",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "strategy",
+  "question": "保留先前 A 支撑时放开 B 阻力 veto，能否扩展高质量机会？",
+  "mechanism": "沿用 H25a 原生双档，仅去掉先前 B 阻力排除",
+  "hypothesis": "保留先前 A 支撑时放开 B 阻力 veto，能否扩展高质量机会？",
+  "parents": [
+    {
+      "attempt_id": "H25a",
+      "relationship": "hypothesis_extension",
+      "difference": "沿用 H25a 原生双档，仅去掉先前 B 阻力排除"
+    }
+  ],
+  "code_parent": null,
+  "registration": {
+    "status": "retrospective",
+    "reference": "research/r1_native/RD_EXPERIMENTS.md"
+  },
+  "decision": {
+    "layer": "economics",
+    "outcome": "failed",
+    "scope": "原生年度 +14.3053%，85/170 胜，未达联合目标；已暴露开发年。",
+    "next_action": "检查新增机会的入场后路径与结构失效，勿按已见 PnL 扫门槛。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-09-h26a-37-summary.json",
+      "sha256": "cc8f4df0199cb6c1b16146af95b880461b11da8e8ca2dd0775ff59ef59b9912a"
+    },
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-09-h26a-37-native-audit.json",
+      "sha256": "164f41a06fbb3f401511142ebf759c84634dde6b4853fd12c36939a4371a98df"
+    }
+  ]
+}

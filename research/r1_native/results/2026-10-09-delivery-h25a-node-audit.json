@@ -1,0 +1,21 @@
+{
+  "run": "/tmp/r1-delivery-final-node-h25-37",
+  "file_sha256": {
+    "summary.json": "c3313464b752bebdc98b2af74e067b65aec73e249682a9bbc9ff1af807f10205",
+    "orders.csv": "9b70db5e38c3feffc935870eee58d59e214fc2ee3696feb3495033713474426f",
+    "fills.csv": "274f5b0d3182eb4a4ae0c77b211636f6f07612e77202527f5eee2e72e8a5bd20",
+    "positions.csv": "333640a003562131d244a0d5cedea0cf6358899b06984419f545c02f4bf2d8f6",
+    "account.csv": "5466b9419852ef15543af48a9b695b34159b4b9d1194a6c1a5cdc293735aea32",
+    "returns_series.csv": "9abf8530d6d72b540ee7fd75b160729bdb4c6ad2d30848e12dbcc3b53a255e36"
+  },
+  "native_bundles": 655,
+  "native_brackets": 1310,
+  "filled_entries": 190,
+  "partially_filled_then_canceled_entries": 0,
+  "closed_positions": 102,
+  "open_positions": 9,
+  "accepted_exit_orders": 26,
+  "native_market_time_exits": 5,
+  "findings": [],
+  "passed": true
+}

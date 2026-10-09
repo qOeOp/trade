@@ -1,0 +1,1786 @@
+{
+  "schema": "r1-native-d83-high2-post-touch/v1",
+  "preregistration_commit": "ee38e7f85",
+  "input_sha256": {
+    "2026-10-07-input-identity.json": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+    "2026-10-08-d82-post-touch-bull-response.json": "209f2532bcdc8348f3e792443683ccc933f59085c4ffca41dec2a7dd6df1c7e6",
+    "2026-10-08-d82-post-touch-bull-response-bundles.json.gz": "3e30f06d99f4173d193a5f9051551c3412194dcb5c022d3a06146b02135788e1"
+  },
+  "catalog_counts": {
+    "BTC": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "ETH": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "BNB": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "ADA": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "XRP": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "SOL": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "DOGE": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "LTC": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "TRX": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "LINK": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "DOT": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "AVAX": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "BCH": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "ETC": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "XLM": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "ATOM": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "FIL": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "NEAR": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "UNI": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "AAVE": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "ICP": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "APT": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "ARB": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "SUI": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "OP": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "INJ": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "TIA": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "SEI": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "PEPE": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "SHIB": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "HBAR": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "ALGO": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "FET": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "WLD": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "IMX": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "STX": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    },
+    "LDO": {
+      "native_last_bars": 105222,
+      "complete_four_hour_bars": 2192
+    }
+  },
+  "all_original_native_filled_bundles": {
+    "submitted_bundles": 500,
+    "filled_bundles": 500,
+    "native_positions": 507,
+    "native_closed": 496,
+    "native_open": 11,
+    "native_winners": 212,
+    "native_winning_target_exits": 199,
+    "native_closed_win_pct": 42.74193548387097,
+    "native_closed_net_pnl_usdt": "11333.32432354",
+    "native_realized_payoff": 1.6077798785919222,
+    "closed_causes": {
+      "stop": 266,
+      "time_market": 31,
+      "target": 199
+    },
+    "coin_bundle_counts": {
+      "AAVE": 8,
+      "ADA": 13,
+      "ALGO": 16,
+      "APT": 13,
+      "ARB": 12,
+      "ATOM": 15,
+      "AVAX": 14,
+      "BCH": 13,
+      "BNB": 12,
+      "BTC": 10,
+      "DOGE": 15,
+      "DOT": 15,
+      "ETC": 11,
+      "ETH": 9,
+      "FET": 11,
+      "FIL": 15,
+      "HBAR": 16,
+      "ICP": 20,
+      "IMX": 16,
+      "INJ": 14,
+      "LDO": 13,
+      "LINK": 16,
+      "LTC": 15,
+      "NEAR": 12,
+      "OP": 13,
+      "PEPE": 14,
+      "SEI": 14,
+      "SHIB": 13,
+      "SOL": 13,
+      "STX": 13,
+      "SUI": 15,
+      "TIA": 13,
+      "TRX": 15,
+      "UNI": 11,
+      "WLD": 16,
+      "XLM": 16,
+      "XRP": 10
+    },
+    "submission_month_bundle_counts": {
+      "2025-11-01T00:00:00+00:00": 41,
+      "2025-12-01T00:00:00+00:00": 32,
+      "2026-01-01T00:00:00+00:00": 41,
+      "2026-02-01T00:00:00+00:00": 53,
+      "2026-03-01T00:00:00+00:00": 37,
+      "2026-04-01T00:00:00+00:00": 69,
+      "2026-05-01T00:00:00+00:00": 51,
+      "2026-06-01T00:00:00+00:00": 40,
+      "2026-07-01T00:00:00+00:00": 46,
+      "2026-08-01T00:00:00+00:00": 57,
+      "2026-09-01T00:00:00+00:00": 32,
+      "2026-10-01T00:00:00+00:00": 1
+    },
+    "coin_closed_winner_counts": {
+      "AAVE": {
+        "closed": 8,
+        "winners": 4
+      },
+      "ADA": {
+        "closed": 13,
+        "winners": 5
+      },
+      "ALGO": {
+        "closed": 16,
+        "winners": 5
+      },
+      "APT": {
+        "closed": 14,
+        "winners": 3
+      },
+      "ARB": {
+        "closed": 12,
+        "winners": 4
+      },
+      "ATOM": {
+        "closed": 14,
+        "winners": 6
+      },
+      "AVAX": {
+        "closed": 14,
+        "winners": 8
+      },
+      "BCH": {
+        "closed": 13,
+        "winners": 6
+      },
+      "BNB": {
+        "closed": 12,
+        "winners": 6
+      },
+      "BTC": {
+        "closed": 10,
+        "winners": 6
+      },
+      "DOGE": {
+        "closed": 14,
+        "winners": 6
+      },
+      "DOT": {
+        "closed": 15,
+        "winners": 6
+      },
+      "ETC": {
+        "closed": 10,
+        "winners": 4
+      },
+      "ETH": {
+        "closed": 9,
+        "winners": 4
+      },
+      "FET": {
+        "closed": 11,
+        "winners": 3
+      },
+      "FIL": {
+        "closed": 16,
+        "winners": 5
+      },
+      "HBAR": {
+        "closed": 15,
+        "winners": 4
+      },
+      "ICP": {
+        "closed": 21,
+        "winners": 9
+      },
+      "IMX": {
+        "closed": 16,
+        "winners": 7
+      },
+      "INJ": {
+        "closed": 14,
+        "winners": 8
+      },
+      "LDO": {
+        "closed": 13,
+        "winners": 6
+      },
+      "LINK": {
+        "closed": 15,
+        "winners": 11
+      },
+      "LTC": {
+        "closed": 15,
+        "winners": 9
+      },
+      "NEAR": {
+        "closed": 13,
+        "winners": 7
+      },
+      "OP": {
+        "closed": 13,
+        "winners": 3
+      },
+      "PEPE": {
+        "closed": 13,
+        "winners": 7
+      },
+      "SEI": {
+        "closed": 14,
+        "winners": 6
+      },
+      "SHIB": {
+        "closed": 12,
+        "winners": 5
+      },
+      "SOL": {
+        "closed": 13,
+        "winners": 8
+      },
+      "STX": {
+        "closed": 13,
+        "winners": 3
+      },
+      "SUI": {
+        "closed": 15,
+        "winners": 5
+      },
+      "TIA": {
+        "closed": 13,
+        "winners": 4
+      },
+      "TRX": {
+        "closed": 15,
+        "winners": 7
+      },
+      "UNI": {
+        "closed": 11,
+        "winners": 5
+      },
+      "WLD": {
+        "closed": 17,
+        "winners": 8
+      },
+      "XLM": {
+        "closed": 15,
+        "winners": 5
+      },
+      "XRP": {
+        "closed": 9,
+        "winners": 4
+      }
+    },
+    "submission_month_closed_winner_counts": {
+      "2025-11-01T00:00:00+00:00": {
+        "closed": 41,
+        "winners": 7
+      },
+      "2025-12-01T00:00:00+00:00": {
+        "closed": 32,
+        "winners": 18
+      },
+      "2026-01-01T00:00:00+00:00": {
+        "closed": 44,
+        "winners": 3
+      },
+      "2026-02-01T00:00:00+00:00": {
+        "closed": 53,
+        "winners": 31
+      },
+      "2026-03-01T00:00:00+00:00": {
+        "closed": 37,
+        "winners": 11
+      },
+      "2026-04-01T00:00:00+00:00": {
+        "closed": 69,
+        "winners": 57
+      },
+      "2026-05-01T00:00:00+00:00": {
+        "closed": 51,
+        "winners": 11
+      },
+      "2026-06-01T00:00:00+00:00": {
+        "closed": 40,
+        "winners": 5
+      },
+      "2026-07-01T00:00:00+00:00": {
+        "closed": 46,
+        "winners": 14
+      },
+      "2026-08-01T00:00:00+00:00": {
+        "closed": 61,
+        "winners": 37
+      },
+      "2026-09-01T00:00:00+00:00": {
+        "closed": 22,
+        "winners": 18
+      }
+    },
+    "original_closed_slow_winners_at_d78_third_landmark": 134,
+    "original_closed_winning_bundles": 212,
+    "d80_context_bundle_counts": {
+      "close_breakout": 146,
+      "no_close_breakout": 354
+    },
+    "prior_volatility_rank_bundle_counts": {
+      "middle": 166,
+      "high": 160,
+      "low": 174
+    }
+  },
+  "by_high2_state": {
+    "end_censored": {
+      "submitted_bundles": 2,
+      "filled_bundles": 2,
+      "native_positions": 2,
+      "native_closed": 0,
+      "native_open": 2,
+      "native_winners": 0,
+      "native_winning_target_exits": 0,
+      "native_closed_win_pct": null,
+      "native_closed_net_pnl_usdt": "0",
+      "native_realized_payoff": null,
+      "closed_causes": {},
+      "coin_bundle_counts": {
+        "XLM": 1,
+        "XRP": 1
+      },
+      "submission_month_bundle_counts": {
+        "2026-09-01T00:00:00+00:00": 1,
+        "2026-10-01T00:00:00+00:00": 1
+      },
+      "coin_closed_winner_counts": {},
+      "submission_month_closed_winner_counts": {},
+      "original_closed_slow_winners_at_d78_third_landmark": 0,
+      "original_closed_winning_bundles": 0,
+      "d80_context_bundle_counts": {
+        "no_close_breakout": 2
+      },
+      "prior_volatility_rank_bundle_counts": {
+        "middle": 2
+      }
+    },
+    "invalidated_before_setup": {
+      "submitted_bundles": 48,
+      "filled_bundles": 48,
+      "native_positions": 55,
+      "native_closed": 55,
+      "native_open": 0,
+      "native_winners": 18,
+      "native_winning_target_exits": 16,
+      "native_closed_win_pct": 32.72727272727273,
+      "native_closed_net_pnl_usdt": "-2139.98454860",
+      "native_realized_payoff": 1.3377427995197684,
+      "closed_causes": {
+        "stop": 37,
+        "target": 16,
+        "time_market": 2
+      },
+      "coin_bundle_counts": {
+        "AAVE": 1,
+        "ALGO": 2,
+        "APT": 4,
+        "ATOM": 1,
+        "AVAX": 3,
+        "BCH": 1,
+        "BNB": 1,
+        "DOGE": 1,
+        "DOT": 2,
+        "ETC": 1,
+        "ETH": 1,
+        "FET": 2,
+        "FIL": 3,
+        "HBAR": 2,
+        "ICP": 1,
+        "IMX": 4,
+        "INJ": 2,
+        "LDO": 2,
+        "LINK": 1,
+        "NEAR": 2,
+        "OP": 1,
+        "SEI": 1,
+        "SOL": 1,
+        "SUI": 1,
+        "TIA": 2,
+        "TRX": 1,
+        "WLD": 2,
+        "XLM": 2
+      },
+      "submission_month_bundle_counts": {
+        "2025-11-01T00:00:00+00:00": 4,
+        "2026-01-01T00:00:00+00:00": 9,
+        "2026-02-01T00:00:00+00:00": 2,
+        "2026-04-01T00:00:00+00:00": 4,
+        "2026-05-01T00:00:00+00:00": 4,
+        "2026-07-01T00:00:00+00:00": 3,
+        "2026-08-01T00:00:00+00:00": 22
+      },
+      "coin_closed_winner_counts": {
+        "AAVE": {
+          "closed": 1,
+          "winners": 0
+        },
+        "ALGO": {
+          "closed": 2,
+          "winners": 1
+        },
+        "APT": {
+          "closed": 5,
+          "winners": 1
+        },
+        "ATOM": {
+          "closed": 1,
+          "winners": 1
+        },
+        "AVAX": {
+          "closed": 3,
+          "winners": 1
+        },
+        "BCH": {
+          "closed": 1,
+          "winners": 0
+        },
+        "BNB": {
+          "closed": 1,
+          "winners": 0
+        },
+        "DOGE": {
+          "closed": 1,
+          "winners": 1
+        },
+        "DOT": {
+          "closed": 2,
+          "winners": 1
+        },
+        "ETC": {
+          "closed": 1,
+          "winners": 0
+        },
+        "ETH": {
+          "closed": 1,
+          "winners": 0
+        },
+        "FET": {
+          "closed": 2,
+          "winners": 1
+        },
+        "FIL": {
+          "closed": 4,
+          "winners": 0
+        },
+        "HBAR": {
+          "closed": 2,
+          "winners": 2
+        },
+        "ICP": {
+          "closed": 2,
+          "winners": 0
+        },
+        "IMX": {
+          "closed": 4,
+          "winners": 2
+        },
+        "INJ": {
+          "closed": 2,
+          "winners": 2
+        },
+        "LDO": {
+          "closed": 2,
+          "winners": 1
+        },
+        "LINK": {
+          "closed": 1,
+          "winners": 1
+        },
+        "NEAR": {
+          "closed": 3,
+          "winners": 0
+        },
+        "OP": {
+          "closed": 1,
+          "winners": 0
+        },
+        "SEI": {
+          "closed": 1,
+          "winners": 1
+        },
+        "SOL": {
+          "closed": 1,
+          "winners": 0
+        },
+        "SUI": {
+          "closed": 1,
+          "winners": 0
+        },
+        "TIA": {
+          "closed": 3,
+          "winners": 0
+        },
+        "TRX": {
+          "closed": 2,
+          "winners": 0
+        },
+        "WLD": {
+          "closed": 3,
+          "winners": 0
+        },
+        "XLM": {
+          "closed": 2,
+          "winners": 2
+        }
+      },
+      "submission_month_closed_winner_counts": {
+        "2025-11-01T00:00:00+00:00": {
+          "closed": 4,
+          "winners": 0
+        },
+        "2026-01-01T00:00:00+00:00": {
+          "closed": 12,
+          "winners": 0
+        },
+        "2026-02-01T00:00:00+00:00": {
+          "closed": 2,
+          "winners": 1
+        },
+        "2026-04-01T00:00:00+00:00": {
+          "closed": 4,
+          "winners": 1
+        },
+        "2026-05-01T00:00:00+00:00": {
+          "closed": 4,
+          "winners": 3
+        },
+        "2026-07-01T00:00:00+00:00": {
+          "closed": 3,
+          "winners": 1
+        },
+        "2026-08-01T00:00:00+00:00": {
+          "closed": 26,
+          "winners": 12
+        }
+      },
+      "original_closed_slow_winners_at_d78_third_landmark": 0,
+      "original_closed_winning_bundles": 18,
+      "d80_context_bundle_counts": {
+        "no_close_breakout": 28,
+        "close_breakout": 20
+      },
+      "prior_volatility_rank_bundle_counts": {
+        "low": 14,
+        "high": 18,
+        "middle": 16
+      }
+    },
+    "no_high1_within_window": {
+      "submitted_bundles": 48,
+      "filled_bundles": 48,
+      "native_positions": 48,
+      "native_closed": 48,
+      "native_open": 0,
+      "native_winners": 15,
+      "native_winning_target_exits": 14,
+      "native_closed_win_pct": 31.25,
+      "native_closed_net_pnl_usdt": "40.78007797",
+      "native_realized_payoff": 2.2134622445170873,
+      "closed_causes": {
+        "stop": 31,
+        "time_market": 3,
+        "target": 14
+      },
+      "coin_bundle_counts": {
+        "AAVE": 1,
+        "ADA": 4,
+        "ALGO": 3,
+        "ARB": 3,
+        "ATOM": 2,
+        "BCH": 1,
+        "BNB": 1,
+        "BTC": 1,
+        "DOGE": 3,
+        "ETC": 1,
+        "ETH": 3,
+        "FET": 2,
+        "HBAR": 1,
+        "ICP": 4,
+        "IMX": 1,
+        "INJ": 1,
+        "LTC": 1,
+        "NEAR": 2,
+        "OP": 2,
+        "SEI": 1,
+        "SHIB": 1,
+        "STX": 1,
+        "SUI": 1,
+        "TIA": 2,
+        "TRX": 2,
+        "UNI": 1,
+        "WLD": 1,
+        "XLM": 1
+      },
+      "submission_month_bundle_counts": {
+        "2025-11-01T00:00:00+00:00": 5,
+        "2025-12-01T00:00:00+00:00": 3,
+        "2026-01-01T00:00:00+00:00": 2,
+        "2026-02-01T00:00:00+00:00": 4,
+        "2026-03-01T00:00:00+00:00": 7,
+        "2026-04-01T00:00:00+00:00": 6,
+        "2026-05-01T00:00:00+00:00": 4,
+        "2026-06-01T00:00:00+00:00": 7,
+        "2026-07-01T00:00:00+00:00": 3,
+        "2026-08-01T00:00:00+00:00": 3,
+        "2026-09-01T00:00:00+00:00": 4
+      },
+      "coin_closed_winner_counts": {
+        "AAVE": {
+          "closed": 1,
+          "winners": 1
+        },
+        "ADA": {
+          "closed": 4,
+          "winners": 2
+        },
+        "ALGO": {
+          "closed": 3,
+          "winners": 2
+        },
+        "ARB": {
+          "closed": 3,
+          "winners": 1
+        },
+        "ATOM": {
+          "closed": 2,
+          "winners": 0
+        },
+        "BCH": {
+          "closed": 1,
+          "winners": 0
+        },
+        "BNB": {
+          "closed": 1,
+          "winners": 0
+        },
+        "BTC": {
+          "closed": 1,
+          "winners": 0
+        },
+        "DOGE": {
+          "closed": 3,
+          "winners": 0
+        },
+        "ETC": {
+          "closed": 1,
+          "winners": 1
+        },
+        "ETH": {
+          "closed": 3,
+          "winners": 1
+        },
+        "FET": {
+          "closed": 2,
+          "winners": 0
+        },
+        "HBAR": {
+          "closed": 1,
+          "winners": 0
+        },
+        "ICP": {
+          "closed": 4,
+          "winners": 2
+        },
+        "IMX": {
+          "closed": 1,
+          "winners": 0
+        },
+        "INJ": {
+          "closed": 1,
+          "winners": 0
+        },
+        "LTC": {
+          "closed": 1,
+          "winners": 1
+        },
+        "NEAR": {
+          "closed": 2,
+          "winners": 0
+        },
+        "OP": {
+          "closed": 2,
+          "winners": 1
+        },
+        "SEI": {
+          "closed": 1,
+          "winners": 0
+        },
+        "SHIB": {
+          "closed": 1,
+          "winners": 1
+        },
+        "STX": {
+          "closed": 1,
+          "winners": 0
+        },
+        "SUI": {
+          "closed": 1,
+          "winners": 0
+        },
+        "TIA": {
+          "closed": 2,
+          "winners": 0
+        },
+        "TRX": {
+          "closed": 2,
+          "winners": 1
+        },
+        "UNI": {
+          "closed": 1,
+          "winners": 0
+        },
+        "WLD": {
+          "closed": 1,
+          "winners": 1
+        },
+        "XLM": {
+          "closed": 1,
+          "winners": 0
+        }
+      },
+      "submission_month_closed_winner_counts": {
+        "2025-11-01T00:00:00+00:00": {
+          "closed": 5,
+          "winners": 0
+        },
+        "2025-12-01T00:00:00+00:00": {
+          "closed": 3,
+          "winners": 2
+        },
+        "2026-01-01T00:00:00+00:00": {
+          "closed": 2,
+          "winners": 0
+        },
+        "2026-02-01T00:00:00+00:00": {
+          "closed": 4,
+          "winners": 0
+        },
+        "2026-03-01T00:00:00+00:00": {
+          "closed": 7,
+          "winners": 1
+        },
+        "2026-04-01T00:00:00+00:00": {
+          "closed": 6,
+          "winners": 4
+        },
+        "2026-05-01T00:00:00+00:00": {
+          "closed": 4,
+          "winners": 0
+        },
+        "2026-06-01T00:00:00+00:00": {
+          "closed": 7,
+          "winners": 1
+        },
+        "2026-07-01T00:00:00+00:00": {
+          "closed": 3,
+          "winners": 1
+        },
+        "2026-08-01T00:00:00+00:00": {
+          "closed": 3,
+          "winners": 3
+        },
+        "2026-09-01T00:00:00+00:00": {
+          "closed": 4,
+          "winners": 3
+        }
+      },
+      "original_closed_slow_winners_at_d78_third_landmark": 14,
+      "original_closed_winning_bundles": 15,
+      "d80_context_bundle_counts": {
+        "no_close_breakout": 38,
+        "close_breakout": 10
+      },
+      "prior_volatility_rank_bundle_counts": {
+        "low": 20,
+        "high": 14,
+        "middle": 14
+      }
+    },
+    "no_lower_high_within_window": {
+      "submitted_bundles": 137,
+      "filled_bundles": 137,
+      "native_positions": 137,
+      "native_closed": 137,
+      "native_open": 0,
+      "native_winners": 68,
+      "native_winning_target_exits": 64,
+      "native_closed_win_pct": 49.63503649635037,
+      "native_closed_net_pnl_usdt": "6401.11125638",
+      "native_realized_payoff": 1.4687817421051614,
+      "closed_causes": {
+        "stop": 61,
+        "time_market": 12,
+        "target": 64
+      },
+      "coin_bundle_counts": {
+        "AAVE": 3,
+        "ADA": 4,
+        "ALGO": 4,
+        "APT": 3,
+        "ARB": 5,
+        "ATOM": 4,
+        "AVAX": 6,
+        "BNB": 4,
+        "BTC": 2,
+        "DOGE": 1,
+        "DOT": 3,
+        "ETC": 3,
+        "FET": 3,
+        "FIL": 6,
+        "HBAR": 3,
+        "ICP": 6,
+        "IMX": 4,
+        "INJ": 3,
+        "LDO": 3,
+        "LINK": 7,
+        "LTC": 6,
+        "NEAR": 3,
+        "OP": 5,
+        "PEPE": 5,
+        "SEI": 4,
+        "SHIB": 2,
+        "SOL": 3,
+        "STX": 4,
+        "SUI": 6,
+        "TIA": 4,
+        "TRX": 5,
+        "UNI": 2,
+        "WLD": 4,
+        "XLM": 5,
+        "XRP": 2
+      },
+      "submission_month_bundle_counts": {
+        "2025-11-01T00:00:00+00:00": 13,
+        "2025-12-01T00:00:00+00:00": 16,
+        "2026-01-01T00:00:00+00:00": 8,
+        "2026-02-01T00:00:00+00:00": 21,
+        "2026-03-01T00:00:00+00:00": 6,
+        "2026-04-01T00:00:00+00:00": 18,
+        "2026-05-01T00:00:00+00:00": 16,
+        "2026-06-01T00:00:00+00:00": 9,
+        "2026-07-01T00:00:00+00:00": 10,
+        "2026-08-01T00:00:00+00:00": 11,
+        "2026-09-01T00:00:00+00:00": 9
+      },
+      "coin_closed_winner_counts": {
+        "AAVE": {
+          "closed": 3,
+          "winners": 2
+        },
+        "ADA": {
+          "closed": 4,
+          "winners": 1
+        },
+        "ALGO": {
+          "closed": 4,
+          "winners": 1
+        },
+        "APT": {
+          "closed": 3,
+          "winners": 2
+        },
+        "ARB": {
+          "closed": 5,
+          "winners": 1
+        },
+        "ATOM": {
+          "closed": 4,
+          "winners": 2
+        },
+        "AVAX": {
+          "closed": 6,
+          "winners": 5
+        },
+        "BNB": {
+          "closed": 4,
+          "winners": 3
+        },
+        "BTC": {
+          "closed": 2,
+          "winners": 0
+        },
+        "DOGE": {
+          "closed": 1,
+          "winners": 1
+        },
+        "DOT": {
+          "closed": 3,
+          "winners": 3
+        },
+        "ETC": {
+          "closed": 3,
+          "winners": 1
+        },
+        "FET": {
+          "closed": 3,
+          "winners": 1
+        },
+        "FIL": {
+          "closed": 6,
+          "winners": 3
+        },
+        "HBAR": {
+          "closed": 3,
+          "winners": 0
+        },
+        "ICP": {
+          "closed": 6,
+          "winners": 2
+        },
+        "IMX": {
+          "closed": 4,
+          "winners": 2
+        },
+        "INJ": {
+          "closed": 3,
+          "winners": 1
+        },
+        "LDO": {
+          "closed": 3,
+          "winners": 1
+        },
+        "LINK": {
+          "closed": 7,
+          "winners": 5
+        },
+        "LTC": {
+          "closed": 6,
+          "winners": 3
+        },
+        "NEAR": {
+          "closed": 3,
+          "winners": 3
+        },
+        "OP": {
+          "closed": 5,
+          "winners": 1
+        },
+        "PEPE": {
+          "closed": 5,
+          "winners": 3
+        },
+        "SEI": {
+          "closed": 4,
+          "winners": 3
+        },
+        "SHIB": {
+          "closed": 2,
+          "winners": 0
+        },
+        "SOL": {
+          "closed": 3,
+          "winners": 3
+        },
+        "STX": {
+          "closed": 4,
+          "winners": 1
+        },
+        "SUI": {
+          "closed": 6,
+          "winners": 1
+        },
+        "TIA": {
+          "closed": 4,
+          "winners": 3
+        },
+        "TRX": {
+          "closed": 5,
+          "winners": 4
+        },
+        "UNI": {
+          "closed": 2,
+          "winners": 1
+        },
+        "WLD": {
+          "closed": 4,
+          "winners": 2
+        },
+        "XLM": {
+          "closed": 5,
+          "winners": 2
+        },
+        "XRP": {
+          "closed": 2,
+          "winners": 1
+        }
+      },
+      "submission_month_closed_winner_counts": {
+        "2025-11-01T00:00:00+00:00": {
+          "closed": 13,
+          "winners": 3
+        },
+        "2025-12-01T00:00:00+00:00": {
+          "closed": 16,
+          "winners": 9
+        },
+        "2026-01-01T00:00:00+00:00": {
+          "closed": 8,
+          "winners": 0
+        },
+        "2026-02-01T00:00:00+00:00": {
+          "closed": 21,
+          "winners": 15
+        },
+        "2026-03-01T00:00:00+00:00": {
+          "closed": 6,
+          "winners": 2
+        },
+        "2026-04-01T00:00:00+00:00": {
+          "closed": 18,
+          "winners": 16
+        },
+        "2026-05-01T00:00:00+00:00": {
+          "closed": 16,
+          "winners": 3
+        },
+        "2026-06-01T00:00:00+00:00": {
+          "closed": 9,
+          "winners": 1
+        },
+        "2026-07-01T00:00:00+00:00": {
+          "closed": 10,
+          "winners": 3
+        },
+        "2026-08-01T00:00:00+00:00": {
+          "closed": 11,
+          "winners": 8
+        },
+        "2026-09-01T00:00:00+00:00": {
+          "closed": 9,
+          "winners": 8
+        }
+      },
+      "original_closed_slow_winners_at_d78_third_landmark": 47,
+      "original_closed_winning_bundles": 68,
+      "d80_context_bundle_counts": {
+        "close_breakout": 35,
+        "no_close_breakout": 102
+      },
+      "prior_volatility_rank_bundle_counts": {
+        "middle": 43,
+        "high": 51,
+        "low": 43
+      }
+    },
+    "setup_unorderable": {
+      "submitted_bundles": 0,
+      "filled_bundles": 0,
+      "native_positions": 0,
+      "native_closed": 0,
+      "native_open": 0,
+      "native_winners": 0,
+      "native_winning_target_exits": 0,
+      "native_closed_win_pct": null,
+      "native_closed_net_pnl_usdt": "0",
+      "native_realized_payoff": null,
+      "closed_causes": {},
+      "coin_bundle_counts": {},
+      "submission_month_bundle_counts": {},
+      "coin_closed_winner_counts": {},
+      "submission_month_closed_winner_counts": {},
+      "original_closed_slow_winners_at_d78_third_landmark": 0,
+      "original_closed_winning_bundles": 0,
+      "d80_context_bundle_counts": {},
+      "prior_volatility_rank_bundle_counts": {}
+    },
+    "setup_no_trigger": {
+      "submitted_bundles": 157,
+      "filled_bundles": 157,
+      "native_positions": 157,
+      "native_closed": 155,
+      "native_open": 2,
+      "native_winners": 55,
+      "native_winning_target_exits": 53,
+      "native_closed_win_pct": 35.483870967741936,
+      "native_closed_net_pnl_usdt": "-2126.63477106",
+      "native_realized_payoff": 1.631367290933668,
+      "closed_causes": {
+        "stop": 98,
+        "time_market": 4,
+        "target": 53
+      },
+      "coin_bundle_counts": {
+        "AAVE": 2,
+        "ADA": 3,
+        "ALGO": 4,
+        "APT": 5,
+        "ARB": 4,
+        "ATOM": 3,
+        "AVAX": 3,
+        "BCH": 6,
+        "BNB": 3,
+        "BTC": 5,
+        "DOGE": 6,
+        "DOT": 6,
+        "ETC": 2,
+        "ETH": 3,
+        "FET": 2,
+        "FIL": 2,
+        "HBAR": 9,
+        "ICP": 6,
+        "IMX": 5,
+        "INJ": 4,
+        "LDO": 6,
+        "LINK": 7,
+        "LTC": 3,
+        "NEAR": 3,
+        "OP": 3,
+        "PEPE": 3,
+        "SEI": 6,
+        "SHIB": 7,
+        "SOL": 4,
+        "STX": 3,
+        "TIA": 2,
+        "TRX": 5,
+        "UNI": 6,
+        "WLD": 7,
+        "XLM": 6,
+        "XRP": 3
+      },
+      "submission_month_bundle_counts": {
+        "2025-11-01T00:00:00+00:00": 8,
+        "2025-12-01T00:00:00+00:00": 7,
+        "2026-01-01T00:00:00+00:00": 15,
+        "2026-02-01T00:00:00+00:00": 22,
+        "2026-03-01T00:00:00+00:00": 13,
+        "2026-04-01T00:00:00+00:00": 19,
+        "2026-05-01T00:00:00+00:00": 16,
+        "2026-06-01T00:00:00+00:00": 17,
+        "2026-07-01T00:00:00+00:00": 19,
+        "2026-08-01T00:00:00+00:00": 12,
+        "2026-09-01T00:00:00+00:00": 9
+      },
+      "coin_closed_winner_counts": {
+        "AAVE": {
+          "closed": 2,
+          "winners": 1
+        },
+        "ADA": {
+          "closed": 3,
+          "winners": 2
+        },
+        "ALGO": {
+          "closed": 4,
+          "winners": 0
+        },
+        "APT": {
+          "closed": 5,
+          "winners": 0
+        },
+        "ARB": {
+          "closed": 4,
+          "winners": 2
+        },
+        "ATOM": {
+          "closed": 3,
+          "winners": 1
+        },
+        "AVAX": {
+          "closed": 3,
+          "winners": 2
+        },
+        "BCH": {
+          "closed": 6,
+          "winners": 2
+        },
+        "BNB": {
+          "closed": 3,
+          "winners": 1
+        },
+        "BTC": {
+          "closed": 5,
+          "winners": 4
+        },
+        "DOGE": {
+          "closed": 6,
+          "winners": 1
+        },
+        "DOT": {
+          "closed": 6,
+          "winners": 0
+        },
+        "ETC": {
+          "closed": 2,
+          "winners": 1
+        },
+        "ETH": {
+          "closed": 3,
+          "winners": 2
+        },
+        "FET": {
+          "closed": 2,
+          "winners": 0
+        },
+        "FIL": {
+          "closed": 2,
+          "winners": 1
+        },
+        "HBAR": {
+          "closed": 9,
+          "winners": 2
+        },
+        "ICP": {
+          "closed": 6,
+          "winners": 2
+        },
+        "IMX": {
+          "closed": 5,
+          "winners": 2
+        },
+        "INJ": {
+          "closed": 4,
+          "winners": 1
+        },
+        "LDO": {
+          "closed": 6,
+          "winners": 3
+        },
+        "LINK": {
+          "closed": 6,
+          "winners": 4
+        },
+        "LTC": {
+          "closed": 3,
+          "winners": 1
+        },
+        "NEAR": {
+          "closed": 3,
+          "winners": 2
+        },
+        "OP": {
+          "closed": 3,
+          "winners": 1
+        },
+        "PEPE": {
+          "closed": 3,
+          "winners": 1
+        },
+        "SEI": {
+          "closed": 6,
+          "winners": 1
+        },
+        "SHIB": {
+          "closed": 6,
+          "winners": 2
+        },
+        "SOL": {
+          "closed": 4,
+          "winners": 2
+        },
+        "STX": {
+          "closed": 3,
+          "winners": 1
+        },
+        "TIA": {
+          "closed": 2,
+          "winners": 1
+        },
+        "TRX": {
+          "closed": 5,
+          "winners": 1
+        },
+        "UNI": {
+          "closed": 6,
+          "winners": 3
+        },
+        "WLD": {
+          "closed": 7,
+          "winners": 4
+        },
+        "XLM": {
+          "closed": 6,
+          "winners": 1
+        },
+        "XRP": {
+          "closed": 3,
+          "winners": 0
+        }
+      },
+      "submission_month_closed_winner_counts": {
+        "2025-11-01T00:00:00+00:00": {
+          "closed": 8,
+          "winners": 1
+        },
+        "2025-12-01T00:00:00+00:00": {
+          "closed": 7,
+          "winners": 2
+        },
+        "2026-01-01T00:00:00+00:00": {
+          "closed": 15,
+          "winners": 2
+        },
+        "2026-02-01T00:00:00+00:00": {
+          "closed": 22,
+          "winners": 14
+        },
+        "2026-03-01T00:00:00+00:00": {
+          "closed": 13,
+          "winners": 2
+        },
+        "2026-04-01T00:00:00+00:00": {
+          "closed": 19,
+          "winners": 14
+        },
+        "2026-05-01T00:00:00+00:00": {
+          "closed": 16,
+          "winners": 0
+        },
+        "2026-06-01T00:00:00+00:00": {
+          "closed": 17,
+          "winners": 1
+        },
+        "2026-07-01T00:00:00+00:00": {
+          "closed": 19,
+          "winners": 7
+        },
+        "2026-08-01T00:00:00+00:00": {
+          "closed": 12,
+          "winners": 7
+        },
+        "2026-09-01T00:00:00+00:00": {
+          "closed": 7,
+          "winners": 5
+        }
+      },
+      "original_closed_slow_winners_at_d78_third_landmark": 38,
+      "original_closed_winning_bundles": 55,
+      "d80_context_bundle_counts": {
+        "no_close_breakout": 109,
+        "close_breakout": 48
+      },
+      "prior_volatility_rank_bundle_counts": {
+        "high": 44,
+        "middle": 50,
+        "low": 63
+      }
+    },
+    "trigger_intrabar_ambiguous": {
+      "submitted_bundles": 0,
+      "filled_bundles": 0,
+      "native_positions": 0,
+      "native_closed": 0,
+      "native_open": 0,
+      "native_winners": 0,
+      "native_winning_target_exits": 0,
+      "native_closed_win_pct": null,
+      "native_closed_net_pnl_usdt": "0",
+      "native_realized_payoff": null,
+      "closed_causes": {},
+      "coin_bundle_counts": {},
+      "submission_month_bundle_counts": {},
+      "coin_closed_winner_counts": {},
+      "submission_month_closed_winner_counts": {},
+      "original_closed_slow_winners_at_d78_third_landmark": 0,
+      "original_closed_winning_bundles": 0,
+      "d80_context_bundle_counts": {},
+      "prior_volatility_rank_bundle_counts": {}
+    },
+    "potential_trigger": {
+      "submitted_bundles": 108,
+      "filled_bundles": 108,
+      "native_positions": 108,
+      "native_closed": 101,
+      "native_open": 7,
+      "native_winners": 56,
+      "native_winning_target_exits": 52,
+      "native_closed_win_pct": 55.445544554455445,
+      "native_closed_net_pnl_usdt": "9158.05230885",
+      "native_realized_payoff": 1.6376463037023896,
+      "closed_causes": {
+        "stop": 39,
+        "target": 52,
+        "time_market": 10
+      },
+      "coin_bundle_counts": {
+        "AAVE": 1,
+        "ADA": 2,
+        "ALGO": 3,
+        "APT": 1,
+        "ATOM": 5,
+        "AVAX": 2,
+        "BCH": 5,
+        "BNB": 3,
+        "BTC": 2,
+        "DOGE": 4,
+        "DOT": 4,
+        "ETC": 4,
+        "ETH": 2,
+        "FET": 2,
+        "FIL": 4,
+        "HBAR": 1,
+        "ICP": 3,
+        "IMX": 2,
+        "INJ": 4,
+        "LDO": 2,
+        "LINK": 1,
+        "LTC": 5,
+        "NEAR": 2,
+        "OP": 2,
+        "PEPE": 6,
+        "SEI": 2,
+        "SHIB": 3,
+        "SOL": 5,
+        "STX": 5,
+        "SUI": 7,
+        "TIA": 3,
+        "TRX": 2,
+        "UNI": 2,
+        "WLD": 2,
+        "XLM": 1,
+        "XRP": 4
+      },
+      "submission_month_bundle_counts": {
+        "2025-11-01T00:00:00+00:00": 11,
+        "2025-12-01T00:00:00+00:00": 6,
+        "2026-01-01T00:00:00+00:00": 7,
+        "2026-02-01T00:00:00+00:00": 4,
+        "2026-03-01T00:00:00+00:00": 11,
+        "2026-04-01T00:00:00+00:00": 22,
+        "2026-05-01T00:00:00+00:00": 11,
+        "2026-06-01T00:00:00+00:00": 7,
+        "2026-07-01T00:00:00+00:00": 11,
+        "2026-08-01T00:00:00+00:00": 9,
+        "2026-09-01T00:00:00+00:00": 9
+      },
+      "coin_closed_winner_counts": {
+        "AAVE": {
+          "closed": 1,
+          "winners": 0
+        },
+        "ADA": {
+          "closed": 2,
+          "winners": 0
+        },
+        "ALGO": {
+          "closed": 3,
+          "winners": 1
+        },
+        "APT": {
+          "closed": 1,
+          "winners": 0
+        },
+        "ATOM": {
+          "closed": 4,
+          "winners": 2
+        },
+        "AVAX": {
+          "closed": 2,
+          "winners": 0
+        },
+        "BCH": {
+          "closed": 5,
+          "winners": 4
+        },
+        "BNB": {
+          "closed": 3,
+          "winners": 2
+        },
+        "BTC": {
+          "closed": 2,
+          "winners": 2
+        },
+        "DOGE": {
+          "closed": 3,
+          "winners": 3
+        },
+        "DOT": {
+          "closed": 4,
+          "winners": 2
+        },
+        "ETC": {
+          "closed": 3,
+          "winners": 1
+        },
+        "ETH": {
+          "closed": 2,
+          "winners": 1
+        },
+        "FET": {
+          "closed": 2,
+          "winners": 1
+        },
+        "FIL": {
+          "closed": 4,
+          "winners": 1
+        },
+        "ICP": {
+          "closed": 3,
+          "winners": 3
+        },
+        "IMX": {
+          "closed": 2,
+          "winners": 1
+        },
+        "INJ": {
+          "closed": 4,
+          "winners": 4
+        },
+        "LDO": {
+          "closed": 2,
+          "winners": 1
+        },
+        "LINK": {
+          "closed": 1,
+          "winners": 1
+        },
+        "LTC": {
+          "closed": 5,
+          "winners": 4
+        },
+        "NEAR": {
+          "closed": 2,
+          "winners": 2
+        },
+        "OP": {
+          "closed": 2,
+          "winners": 0
+        },
+        "PEPE": {
+          "closed": 5,
+          "winners": 3
+        },
+        "SEI": {
+          "closed": 2,
+          "winners": 1
+        },
+        "SHIB": {
+          "closed": 3,
+          "winners": 2
+        },
+        "SOL": {
+          "closed": 5,
+          "winners": 3
+        },
+        "STX": {
+          "closed": 5,
+          "winners": 1
+        },
+        "SUI": {
+          "closed": 7,
+          "winners": 4
+        },
+        "TIA": {
+          "closed": 2,
+          "winners": 0
+        },
+        "TRX": {
+          "closed": 1,
+          "winners": 1
+        },
+        "UNI": {
+          "closed": 2,
+          "winners": 1
+        },
+        "WLD": {
+          "closed": 2,
+          "winners": 1
+        },
+        "XLM": {
+          "closed": 1,
+          "winners": 0
+        },
+        "XRP": {
+          "closed": 4,
+          "winners": 3
+        }
+      },
+      "submission_month_closed_winner_counts": {
+        "2025-11-01T00:00:00+00:00": {
+          "closed": 11,
+          "winners": 3
+        },
+        "2025-12-01T00:00:00+00:00": {
+          "closed": 6,
+          "winners": 5
+        },
+        "2026-01-01T00:00:00+00:00": {
+          "closed": 7,
+          "winners": 1
+        },
+        "2026-02-01T00:00:00+00:00": {
+          "closed": 4,
+          "winners": 1
+        },
+        "2026-03-01T00:00:00+00:00": {
+          "closed": 11,
+          "winners": 6
+        },
+        "2026-04-01T00:00:00+00:00": {
+          "closed": 22,
+          "winners": 22
+        },
+        "2026-05-01T00:00:00+00:00": {
+          "closed": 11,
+          "winners": 5
+        },
+        "2026-06-01T00:00:00+00:00": {
+          "closed": 7,
+          "winners": 2
+        },
+        "2026-07-01T00:00:00+00:00": {
+          "closed": 11,
+          "winners": 2
+        },
+        "2026-08-01T00:00:00+00:00": {
+          "closed": 9,
+          "winners": 7
+        },
+        "2026-09-01T00:00:00+00:00": {
+          "closed": 2,
+          "winners": 2
+        }
+      },
+      "original_closed_slow_winners_at_d78_third_landmark": 35,
+      "original_closed_winning_bundles": 56,
+      "d80_context_bundle_counts": {
+        "close_breakout": 33,
+        "no_close_breakout": 75
+      },
+      "prior_volatility_rank_bundle_counts": {
+        "low": 34,
+        "middle": 41,
+        "high": 33
+      }
+    }
+  },
+  "causal_orderability": {
+    "native_filled_bundle_opportunities": 500,
+    "hypothetical_causally_placeable_stop_orders": 265,
+    "potential_next_bar_triggers_without_same_bar_stop_or_target_ambiguity": 108,
+    "trigger_intrabar_ambiguous": 0,
+    "median_target_to_original_stop_r_among_potential_triggers": 1.2014340129957428,
+    "original_winning_positions_among_potential_triggers": 56,
+    "original_slow_winning_positions_among_potential_triggers": 35
+  },
+  "optimistic_standalone_capacity_illustration": {
+    "hypothetical_risk_fraction_of_initial_account_per_potential_trigger": 0.0025,
+    "assumed_all_potential_triggers_fill_at_trigger": true,
+    "assumed_loser_r": -1,
+    "assumed_win_probability": 0.6,
+    "sum_geometric_target_r": 135.97413183429362,
+    "period_return_fraction_before_fee_funding_caps_compounding": 0.0959611977514404,
+    "strict_20pct_annual_period_return_threshold_fraction": 0.1942320655418588,
+    "required_win_fraction_at_25bp_before_costs": 0.761116864401286,
+    "required_risk_fraction_per_event_at_60pct_before_costs": 0.005060171978182279
+  },
+  "limitations": [
+    "The touch time is an original H19a native BUY fill, so this is selected-opportunity coverage, not a replay of a later entry rule.",
+    "A completed next bar whose high reaches a hypothetical native buy stop is not proof of a native order or fill; no substitute fee, funding or account path was created.",
+    "The five-full-bar horizon is the sole registered interpretation of a few bars, not an optimized parameter.",
+    "Touch-containing bar extrema can predate the fill; using them for structural invalidation is conservative and may censor a valid later setup.",
+    "A potential trigger bar that also touches old stop or target is separated because four-hour OHLC cannot establish intrabar order."
+  ],
+  "detail_file": "2026-10-08-d83-high2-post-touch-bundles.json.gz",
+  "detail_sha256": "57132f9b7b498df70115622219b3a4ba7e087813d0e3b1f178976725fc9d796d"
+}
