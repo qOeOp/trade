@@ -1,0 +1,217 @@
+{
+  "date": "2026-10-08",
+  "type": "retrieval_mechanics_proxy_not_agent_trial",
+  "repetitions_per_route": 10,
+  "cases": [
+    {
+      "case": "h13c_lineage",
+      "route": "index",
+      "runs": 10,
+      "median_ms": 66.99,
+      "min_ms": 66.33,
+      "max_ms": 72.04,
+      "output_bytes": 4669,
+      "output_lines": 112
+    },
+    {
+      "case": "h13c_lineage",
+      "route": "ledger_search",
+      "runs": 10,
+      "median_ms": 3.06,
+      "min_ms": 2.76,
+      "max_ms": 3.49,
+      "output_bytes": 30757,
+      "output_lines": 24
+    },
+    {
+      "case": "h18a_control",
+      "route": "index",
+      "runs": 10,
+      "median_ms": 137.4,
+      "min_ms": 136.66,
+      "max_ms": 147.25,
+      "output_bytes": 1169,
+      "output_lines": 42
+    },
+    {
+      "case": "h18a_control",
+      "route": "ledger_search",
+      "runs": 10,
+      "median_ms": 3.42,
+      "min_ms": 2.85,
+      "max_ms": 3.57,
+      "output_bytes": 41493,
+      "output_lines": 27
+    },
+    {
+      "case": "f01_four_cells",
+      "route": "index",
+      "runs": 10,
+      "median_ms": 67.58,
+      "min_ms": 66.2,
+      "max_ms": 68.57,
+      "output_bytes": 23232,
+      "output_lines": 503
+    },
+    {
+      "case": "f01_four_cells",
+      "route": "ledger_search",
+      "runs": 10,
+      "median_ms": 3.22,
+      "min_ms": 2.84,
+      "max_ms": 3.58,
+      "output_bytes": 1550,
+      "output_lines": 4
+    },
+    {
+      "case": "f01_direct_control",
+      "route": "index",
+      "runs": 10,
+      "median_ms": 151.77,
+      "min_ms": 149.88,
+      "max_ms": 155.14,
+      "output_bytes": 1152,
+      "output_lines": 42
+    },
+    {
+      "case": "f01_direct_control",
+      "route": "ledger_search",
+      "runs": 10,
+      "median_ms": 3.2,
+      "min_ms": 2.71,
+      "max_ms": 3.51,
+      "output_bytes": 912,
+      "output_lines": 2
+    },
+    {
+      "case": "h13c_lineage",
+      "route": "index_brief",
+      "runs": 10,
+      "median_ms": 68.43,
+      "min_ms": 66.78,
+      "max_ms": 76.31,
+      "output_bytes": 1923,
+      "output_lines": 58,
+      "asserted_fields_correct": true
+    },
+    {
+      "case": "f01_four_cells",
+      "route": "index_brief",
+      "runs": 10,
+      "median_ms": 68.07,
+      "min_ms": 66.68,
+      "max_ms": 71.12,
+      "output_bytes": 3299,
+      "output_lines": 96,
+      "asserted_fields_correct": true
+    }
+  ],
+  "invalid_control_refusal": {
+    "exit_code": 2,
+    "stderr": "research record error: F01-11-20261008: F01-00-20261008 is not its registered control"
+  },
+  "repo_head_at_measurement": "4af42e356a0000da08d95afb8f7ee988942f5e61",
+  "working_tree": "includes uncommitted --brief implementation and permission changes; commands run from repository root",
+  "commands": {
+    "h13c_lineage": {
+      "index": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "-m",
+        "research.records.cli",
+        "show",
+        "H13c"
+      ],
+      "index_brief": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "-m",
+        "research.records.cli",
+        "show",
+        "H13c",
+        "--brief"
+      ],
+      "ledger_search": [
+        "rg",
+        "-n",
+        "-F",
+        "H13c",
+        "research/r1_native/RD_EXPERIMENTS.md"
+      ]
+    },
+    "h18a_control": {
+      "index": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "-m",
+        "research.records.cli",
+        "compare",
+        "H18a-2026-10-08",
+        "H15a-paired-2026-10-08"
+      ],
+      "ledger_search": [
+        "rg",
+        "-n",
+        "-F",
+        "H18a",
+        "research/r1_native/RD_EXPERIMENTS.md"
+      ]
+    },
+    "f01_four_cells": {
+      "index": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "-m",
+        "research.records.cli",
+        "show",
+        "F01"
+      ],
+      "index_brief": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "-m",
+        "research.records.cli",
+        "show",
+        "F01",
+        "--brief"
+      ],
+      "ledger_search": [
+        "rg",
+        "-n",
+        "-F",
+        "F01",
+        "docs/plans/r1-factorial-line-cancel-result.zh.md"
+      ]
+    },
+    "f01_direct_control": {
+      "index": [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "-m",
+        "research.records.cli",
+        "compare",
+        "F01-11-20261008",
+        "F01-10-20261008"
+      ],
+      "ledger_search": [
+        "rg",
+        "-n",
+        "-F",
+        "582.64",
+        "docs/plans/r1-factorial-line-cancel-result.zh.md"
+      ]
+    }
+  }
+}

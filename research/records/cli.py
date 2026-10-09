@@ -10,35 +10,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 from decimal import Decimal
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
-
-
-ROOT = Path(__file__).resolve().parents[2]
-RECORDS = Path(__file__).resolve().parent
-
-
-class RecordError(Exception):
-    pass
-
-
-def _read_json(path: Path) -> dict:
-    try:
-        value = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RecordError(f"cannot read {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise RecordError(f"{path}: expected a JSON object")
-    return value
-
-
-def _validator(kind: str) -> Draft202012Validator:
-    schema = _read_json(RECORDS / "schemas" / f"{kind}.schema.json")
-    Draft202012Validator.check_schema(schema)
-    return Draft202012Validator(schema)
+from research.records.common import ROOT
+from research.records.common import RECORDS
+from research.records.common import RecordError
+from research.records.common import _check_commit
+from research.records.common import _read_json
+from research.records.common import _validator
 
 
 def _load_all(kind: str, id_key: str) -> dict[str, dict]:
@@ -62,6 +44,16 @@ def _load_all(kind: str, id_key: str) -> dict[str, dict]:
 
 
 def _repo_file(ref: dict) -> Path:
+    if ref["path"].startswith("artifact://"):
+        root = os.environ.get("TRADE_RESEARCH_ARTIFACT_ROOT")
+        if not root:
+            raise RecordError("TRADE_RESEARCH_ARTIFACT_ROOT is required")
+        relative = Path(ref["path"].removeprefix("artifact://"))
+        base = Path(root).resolve()
+        path = (base / relative).resolve()
+        if not path.is_relative_to(base) or len(relative.parts) < 2:
+            raise RecordError(f"invalid artifact path: {ref['path']}")
+        return path
     path = (ROOT / ref["path"]).resolve()
     if not path.is_relative_to(ROOT):
         raise RecordError(f"path escapes repository: {ref['path']}")
@@ -78,21 +70,6 @@ def _check_ref(ref: dict) -> str:
     if digest != ref["sha256"]:
         raise RecordError(f"hash mismatch: {ref['path']}")
     return "verified"
-
-
-def _check_commit(ref: str) -> str:
-    result = subprocess.run(
-        ["git", "cat-file", "-t", ref],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return (
-        "present"
-        if result.returncode == 0 and result.stdout.strip() == "commit"
-        else "unavailable"
-    )
 
 
 def _check_source_revision(run: dict) -> str:
@@ -296,6 +273,29 @@ def _validate(attempts: dict[str, dict], runs: dict[str, dict]) -> dict:
             if family_evidence[identity] != "verified":
                 raise RecordError(f"{identity}: four-cell analysis is unavailable")
     for run in runs.values():
+        if run["raw_reports"] in ("sealed_local", "durable"):
+            ref = run.get("artifact_manifest_ref")
+            if ref is None or _check_ref(ref) != "verified":
+                raise RecordError(f"{run['run_id']}: sealed manifest unavailable")
+            from research.records.artifacts import verify
+            from research.records.artifacts import ArtifactError
+
+            relative = ref["path"].removeprefix("artifact://")
+            if relative != f"{run['run_id']}/manifest.json":
+                raise RecordError(f"{run['run_id']}: manifest path differs from run ID")
+            try:
+                checked = verify(
+                    Path(os.environ["TRADE_RESEARCH_ARTIFACT_ROOT"]), run["run_id"]
+                )
+            except (ArtifactError, OSError) as exc:
+                raise RecordError(
+                    f"{run['run_id']}: sealed artifact verification failed: {exc}"
+                ) from exc
+            if checked["status"] != run["integrity"]:
+                raise RecordError(f"{run['run_id']}: seal and integrity disagree")
+        if run["integrity"] != "passed":
+            source_revisions[run["run_id"]] = _check_source_revision(run)
+            continue
         _summary(run)
         source_revisions[run["run_id"]] = _check_source_revision(run)
         if _check_ref(run["audit_ref"]) != "verified":
@@ -336,6 +336,61 @@ def _show(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> di
     }
 
 
+def _brief(identity: str, attempts: dict[str, dict], runs: dict[str, dict]) -> dict:
+    if identity not in attempts:
+        raise RecordError(f"unknown attempt: {identity}")
+    attempt = attempts[identity]
+
+    def compact_lineage(node: dict) -> dict:
+        return {
+            "attempt_id": node["attempt_id"],
+            "decision_layer": node["decision"]["layer"],
+            "decision_outcome": node["decision"]["outcome"],
+            "parents": [
+                {
+                    "relationship": parent["relationship"],
+                    "difference": parent["difference"],
+                    "record": compact_lineage(parent["record"]),
+                }
+                for parent in node["parents"]
+            ],
+        }
+
+    return {
+        "attempt_id": identity,
+        "question": attempt["question"],
+        "mechanism": attempt["mechanism"],
+        "registration_status": attempt["registration"]["status"],
+        "code_parent": attempt["code_parent"],
+        "lineage": compact_lineage(_lineage(identity, attempts)),
+        "mechanism_refs": attempt.get("mechanism_refs", []),
+        "decision": attempt["decision"],
+        "comparison_family": (
+            attempt["comparison_family"]["cells"]
+            if attempt.get("comparison_family")
+            else None
+        ),
+        "runs": [
+            {
+                key: run[key]
+                for key in (
+                    "run_id",
+                    "role",
+                    "integrity",
+                    "control_run_id",
+                    "raw_reports",
+                )
+            }
+            for run in runs.values()
+            if run["attempt_id"] == identity
+        ],
+        "evidence_status": [
+            {"path": ref["path"], "status": _check_ref(ref)}
+            for ref in attempt["evidence_refs"]
+        ],
+    }
+
+
 def _find(
     mechanism: str | None, layer: str | None, attempts: dict[str, dict]
 ) -> list[dict]:
@@ -360,6 +415,8 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict]) -> dict:
         raise RecordError(f"{candidate_id}: {control_id} is not its registered control")
     if candidate["role"] != "candidate" or control["role"] != "control":
         raise RecordError("incomparable runs: candidate/control roles disagree")
+    if candidate["integrity"] != "passed" or control["integrity"] != "passed":
+        raise RecordError("incomparable runs: native integrity did not pass")
     fields = (
         "input_identity_sha256",
         "window",
@@ -370,8 +427,6 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict]) -> dict:
     mismatches = [field for field in fields if candidate[field] != control[field]]
     if mismatches:
         raise RecordError(f"incomparable runs: {', '.join(mismatches)}")
-    if candidate["integrity"] != "passed" or control["integrity"] != "passed":
-        raise RecordError("incomparable runs: native integrity did not pass")
     source_revision_status = [
         _check_source_revision(run) for run in (candidate, control)
     ]
@@ -429,6 +484,9 @@ def main() -> int:
     command.add_parser("validate")
     show = command.add_parser("show")
     show.add_argument("attempt_id")
+    show.add_argument(
+        "--brief", action="store_true", help="show a compact research decision view"
+    )
     find = command.add_parser("find")
     find.add_argument("--mechanism")
     find.add_argument(
@@ -443,7 +501,11 @@ def main() -> int:
         if args.command == "validate":
             output = _validate(attempts, runs)
         elif args.command == "show":
-            output = _show(args.attempt_id, attempts, runs)
+            output = (
+                _brief(args.attempt_id, attempts, runs)
+                if args.brief
+                else _show(args.attempt_id, attempts, runs)
+            )
         elif args.command == "find":
             output = _find(args.mechanism, args.failure_layer, attempts)
         else:

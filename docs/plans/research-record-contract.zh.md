@@ -2,7 +2,7 @@
 
 ## 决策与证据边界
 
-本设计的消费者是**后继研究 Agent**。它要从旧研究中找可复用的机制和反例、选有效的经济对照、确定失败发生在哪一层，以及找到可以回退的实际源码。记录准确率和决策效能是近期可测目标；**可用策略的产出率是否提高，目前没有证据**，需要后继的独立验证。现有[只读小试点](../../research/records/README.md)收录七条事后回填的历史尝试与一条事前登记的 F01 尝试，共八条尝试、八条运行；[H18a 案例](research-record-h18a-case.zh.md)检验依赖式组件组合，[F01 四格案例](r1-factorial-line-cancel-result.zh.md)检验可开关组合。持久产物保管、自动捕获和研究效率的量化验证尚未实现。
+本设计的消费者是**后继研究 Agent**。它要从旧研究中找可复用的机制和反例、选有效的经济对照、确定失败发生在哪一层，以及找到可以回退的实际源码。一次[隔离 Agent 对照试验](research-record-efficiency.zh.md)初步测到了正式运行身份识别的准确率差异，但没有测到决策质量或速度收益；**可用策略的产出率是否提高，目前没有证据**，需要后继的独立验证。现有[Git 记录与本机封存命令](../../research/records/README.md)收录七条事后回填的历史尝试与一条事前登记的 F01 尝试；[H18a 案例](research-record-h18a-case.zh.md)检验依赖式组件组合，[F01 四格案例](r1-factorial-line-cancel-result.zh.md)检验可开关组合。单机封存与恢复已用真实回放验收；异机备份与长期保管尚未完成。
 
 外部依据与 Trade 的推断必须分开：
 
@@ -17,31 +17,31 @@ Trade 的工程推断是：先补**可信的关系与证据读回**，再看是�
 
 ## 第一版产品形态与保管
 
-**建议先试 Git 侧录 + 受管产物目录 + 命令行读回。** 新研究在仓库内存放版本化的 `attempt.json`、`run.json` 和简短 Markdown 解释；用 [JSON Schema](https://json-schema.org/understanding-json-schema/reference/schema)固定键、类型与 `schema_version`。JSON 便于校验和 Agent 精确查询，Markdown 写机制、反例与裁决理由，原生 CSV/Parquet 保持行级事实。以下仓库内结构已用于只读试点；持久产物根目录仍是待实施契约：
+**当前形态是 Git 侧录 + 可配置本机产物目录 + 命令行。** 新研究在仓库内存放版本化的 `attempt.json`、`run.json` 和简短 Markdown 解释；用 [JSON Schema](https://json-schema.org/understanding-json-schema/reference/schema)固定键、类型与 `schema_version`。JSON 便于校验和 Agent 精确查询，Markdown 写机制、反例与裁决理由，原生 CSV/Parquet 保持行级事实。产物根目录位于 Git 与 `/tmp` 之外，由调用方配置：
 
 ```text
 research/records/schemas/{attempt,run}.schema.json
 research/records/attempts/<attempt_id>/attempt.json
 research/records/attempts/<attempt_id>/interpretation.md
 research/records/runs/<run_id>/run.json
-<configured durable artifact root>/<run_id>/{inputs,source,reports,manifest}
+<configured local artifact root>/<run_id>/{input-identity.json,source,reports,manifest.json}
 ```
 
 ### MVP 技术决定与试点现状
 
-沿用仓库的 [Python 3.14 与 uv 锁定环境](../../pyproject.toml)。只读试点用 Python 标准库 `argparse`、`json`、`hashlib`、`pathlib` 扫描少量 Git 版本化 JSON 侧录；研究解释继续用 Markdown。格式采用 [JSON Schema 2020-12](https://json-schema.org/draft/2020-12)，已锁定 `jsonschema` 并在项目 Python 环境运行校验。Nautilus 原生 CSV 报告和现有 `ParquetDataCatalog` 保持权威数据格式，不另建交易结果库。
+沿用仓库的 [Python 3.14 与 uv 锁定环境](../../pyproject.toml)。记录读回和本机封存都用 Python 标准库与现有 Git；研究解释继续用 Markdown。格式采用 [JSON Schema 2020-12](https://json-schema.org/draft/2020-12)，已锁定 `jsonschema` 并在项目 Python 环境运行校验。Nautilus 原生 CSV 报告和现有 `ParquetDataCatalog` 保持权威数据格式，不另建交易结果库。
 
-**Git 边界：**直接使用 Trade 项目所在宿主机的现有 Git 仓库及 `git` 命令；`attempt.json`、`run.json`、解释和 schema 与 Strategy 源码一起提交、评审和合并。首版不创建第二个 Git 仓库、Git 服务或代替项目 Git 的封装层。读回工具只调用现有 Git 查询提交与工作树状态，不自动替 Agent 提交或改写历史。若运行时有未提交源码，必须另存实际执行源码包与 SHA-256，并在 `run.json` 标明工作树状态；不能拿当时的 `HEAD` 冒充运行字节。多个 Agent 各自在项目工作树或分支登记，沿用项目现有合并流程。
+**Git 边界：**直接使用 Trade 项目所在宿主机的现有 Git 仓库及 `git` 命令；`attempt.json`、`run.json`、解释和 schema 与 Strategy 源码一起提交、评审和合并。不创建第二个 Git 仓库或代替项目 Git 的封装层。当前封存命令只接受已提交的源码 ref，提取其 Python 字节到运行目录并从该副本执行；不能拿工作树当时的 `HEAD` 冒充实际运行字节。多个 Agent 各自在项目工作树或分支登记，沿用项目现有合并流程。
 
-大型原生报告与输入 manifest 放到可配置的持久文件根目录，位于 Git 和 `/tmp` 之外。写入流程先在同一文件系统 staging，计算 SHA-256、核对完整性，再原子封存并发布可引用状态；须明确备份与恢复测试，只有哈希而没有可恢复副本不算持久证据。**首版不引入 SQLite、服务、MLflow 或 DVC**；只有实测文件查询耗时或并发错误成为问题，才从侧录重建 SQLite 派生索引。
+大型原生报告与输入身份放在可配置的本机文件根目录，位于 Git 和 `/tmp` 之外。已实现同文件系统 staging、逐文件 SHA-256、原子发布、拒绝同 ID 覆盖、校验、第二目录复制与恢复；真实 37 币回放通过本机副本恢复。两目录目前在同一宿主机，磁盘损坏仍可能同时丢失，异机备份与长期恢复是单独的运维验收。**不引入 SQLite、服务、MLflow 或 DVC**；只有实测文件查询耗时或并发错误成为问题，才从侧录重建 SQLite 派生索引。
 
 产物 manifest 保存输入身份、实际执行源码包或可精确恢复的源码引用、锁文件身份、Nautilus 原生报告的相对 URI 与 SHA-256。历史 Catalog 不复制进 Git，侧录只记录其数据身份、覆盖、可交易窗口和读取状态。运行可先分配 ID，封存后才把该 `run_id` 标为可引用的完成产物；缺失文件保留原 URI/哈希与 `unavailable`，不得声称仍可逐事件复核。Git 提交记录登记先后；它不保证远端历史永远不可改写，因此重要登记和产物还须按摘要核对。
 
-已实现只读 `uv run --frozen python -m research.records.cli show H13c`、`find --mechanism ... --failure-layer ...`、`compare <run-id> <control-run-id>` 与 `validate`。这只核对记录的账户、窗口、输入收据、源码摘要、原生摘要和审计；`compare` 的匹配标签不保证历史 `/tmp` CSV 可恢复，也不验证跨运行的费率与资金费实际逐事件相等。SQLite 如被引入，仍只是可从 Git JSON 与 manifest 重建的索引，不是第二份权威。需要共享 UI、跨机器运行跟踪时才评估 MLflow；主要痛点是大数据及流水线版本时才评估 DVC。两者在本仓库的版本兼容、上传成本、并发与集成工作量均未验证；官方存储分层见 [MLflow 架构](https://mlflow.org/docs/latest/self-hosting/architecture/backend-store/)及 [DVC 远端存储](https://doc.dvc.org/user-guide/data-management/remote-storage)。
+已实现只读 `uv run --frozen python -m research.records.cli show H13c`、`find --mechanism ... --failure-layer ...`、`compare <run-id> <control-run-id>` 与 `validate`，以及 `research.records.artifacts run/verify/backup/restore/register`。后者从冻结源码运行既有 R1 runner，核对输入 Catalog 身份、原生报告和审计，再封存；Git `run.json` 以 manifest SHA-256 绑定本机目录。历史 `/tmp` CSV 仍不能因新工具存在而宣称可恢复，记录的同口径比较也不能单凭契约字段证明逐事件成本完全相同。SQLite 如被引入，仍只是可从 Git JSON 与 manifest 重建的索引，不是第二份权威。需要共享 UI、跨机器运行跟踪时才评估 MLflow；主要痛点是大数据及流水线版本时才评估 DVC。两者在本仓库的版本兼容、上传成本、并发与集成工作量均未验证；官方存储分层见 [MLflow 架构](https://mlflow.org/docs/latest/self-hosting/architecture/backend-store/)及 [DVC 远端存储](https://doc.dvc.org/user-guide/data-management/remote-storage)。
 
 ## 最小数据模型
 
-**只设两种侧录：一次研究尝试与一次实际运行。** Strategy 仍由 Git 管源码，不另建策略版本主表；证据先作为带类型的引用嵌入记录，复用需求成立后再考虑独立登记。一次尝试可以没有回放，也可有 pilot、失败、修复与完整配对的多个运行。旧历史只补已证实字段，缺失写 `unknown`；不得把事后补录写成事前预测。下表是目标契约；当前 JSON Schema 已覆盖八条尝试、八次运行及 F01 的四格引用，但不能据此声称自动登记或持久封存已经完成。
+**只设两种侧录：一次研究尝试与一次实际运行。** Strategy 仍由 Git 管源码，不另建策略版本主表；证据先作为带类型的引用嵌入记录，复用需求成立后再考虑独立登记。一次尝试可以没有回放，也可有 pilot、失败、修复与完整配对的多个运行。旧历史只补已证实字段，缺失写 `unknown`；不得把事后补录写成事前预测。当前 JSON Schema 覆盖八条尝试、九条已保留的运行及 F01 的四格引用；新运行可以引用 `artifact://` 封存目录，失败执行允许缺少未产生的原生摘要与审计。Agent 的假设登记仍由 Agent 自己完成，不由封存工具自动生成。
 
 | 侧录 | 建议最小字段及语义 |
 | --- | --- |
@@ -71,7 +71,7 @@ research/records/runs/<run_id>/run.json
 
 组合完成后，无论来源门槛失败、执行失败、经济失败还是不确定，A1+B 节点都保存**最窄失败层**、已完成和未完成的格子、原生证据、下一步是停止、修复、回退还是等待新数据。只要没有真实回放，就不造 `run`；回放发生后，即使失败也保留运行及审计。再改出 A1B1 时创建新节点并指向 A1+B，不能改写 A1+B 的结论。查询至少要回答“为什么组合”“四格是否同口径”“失败发生在哪层”“回退到哪个假设及哪份源码”“这个组合是否已在已暴露年度试过”。
 
-**两种组合形态已有真实读回。** [H18a 案例](research-record-h18a-case.zh.md)证明“借用 H08 的趋势线状态”与“继承 H08 的入场假设”必须区分：H18a 真正延伸 H15a，并以 H15a 为经济对照；没有合法的 H08-only 格子。[F01 四格案例](r1-factorial-line-cancel-result.zh.md)在共同 H15a 基线上分别开关 H19a 整套计划 A 和趋势线取消 B，事前登记后实际运行四格，保存失败的 11 格及两个假设贡献来源。`show F01` 能读回四格运行 ID，`compare F01-11-20261008 F01-10-20261008` 能核对同口径账户差。它只证明这一小段血缘和配对可表达、可检索；知识链接、自动登记、长期产物恢复及 Agent 决策效益尚未由真实案例验收。图形布局是否值得做，仍以既定交叉盲评的检索正确率、决策质量、时间及维护成本决定；策略成功率需另用未来未暴露证据判断。
+**两种组合形态已有真实读回。** [H18a 案例](research-record-h18a-case.zh.md)证明“借用 H08 的趋势线状态”与“继承 H08 的入场假设”必须区分：H18a 真正延伸 H15a，并以 H15a 为经济对照；没有合法的 H08-only 格子。[F01 四格案例](r1-factorial-line-cancel-result.zh.md)在共同 H15a 基线上分别开关 H19a 整套计划 A 和趋势线取消 B，事前登记后实际运行四格，保存失败的 11 格及两个假设贡献来源。`show F01` 能读回四格运行 ID，`compare F01-11-20261008 F01-10-20261008` 能核对同口径账户差。随后 F01 完整 37 币运行也经本机封存、恢复与同口径原生配对验收。它只证明这一小段血缘、配对及单机保管可表达、可检索；知识链接、异机长期恢复及 Agent 决策效益尚未由真实案例验收。图形布局是否值得做，仍以既定交叉盲评的检索正确率、决策质量、时间及维护成本决定；策略成功率需另用未来未暴露证据判断。
 
 ## 下游 Agent 应能做的事
 
@@ -84,9 +84,9 @@ research/records/runs/<run_id>/run.json
 
 ## 如何量化是否值得继续投入
 
-**当前基线尚未量出**检索准确率、决策质量、耗时或录入成本。现有台账可提供真实测试题，但 F25 的“八个完整候选”只是截止 H12 的历史截面，不能用作今天的实验总数；D59 来源门槛失败、H19a 两币 pilot 和 H19a/H18a 年度配对也不能混作同一种试验。F24 的双零集误判和 H19a 审计更正可测试错误识别。先建立逐条可查的答案和证据，记录目前文件搜索条件下的基线；不预填改善百分比。
+已完成[四题命令层机械基准及八题隔离 Agent 试验](research-record-efficiency.zh.md)：`show --brief` 对 H13c/F01 相比完整读回减少 58.8%/85.8% 的输出字节，但文件搜索的机器耗时更短。有效的三名 Agent/组中，事前 32 分规则下索引组平均 32/32、对照组 30/32；其中一分要求对照资料里不存在的新增 run ID，剔除后共有信息得分为 31/31 对 30/31，剩余差异是两个 H19a 运行之间 0.00352690 USDT 的精确识别。两组推论边界点均满分；索引组中位活跃时间反而多 15.350 秒、平均多一次工具调用。该试验没有测令牌、录入维护成本或长期迭代成功率。现有台账可提供真实测试题，但 F25 的“八个完整候选”只是截止 H12 的历史截面，不能用作今天的实验总数；D59 来源门槛失败、H19a 两币 pilot 和 H19a/H18a 年度配对也不能混作同一种试验。F24 的双零集误判和 H19a 审计更正仍可测试错误识别。
 
-**近期交叉试点：**封存两组难度相近的真实任务，覆盖 H13 失败链、H18a/H19a 合法配对、负结果复用和审计更正。固定模型、工具权限、时间与计算预算，让同一批 Agent 在“现有台账 + 文件搜索”与“少量经核实的侧录 + 按 ID 读回”之间交叉切换，平衡顺序；裁判只看匿名答案与原始证据。历史侧录只能补实证可查字段，不能把答案或后见结论倒填成事前登记。交叉设计仍会受学习、任务难度和模型变化影响，因此记录这些混杂并报告样本量与不确定区间。
+**下一轮交叉试点：**封存两组新的、难度相近的真实任务，覆盖 H13 失败链、H18a/H19a 合法配对、负结果复用和审计更正。固定模型、工具权限、时间与计算预算，让 Agent 在“现有台账 + 文件搜索”与“少量经核实的侧录 + 按 ID 读回”之间交叉切换，平衡顺序；保留完整原始作答，裁判只看匿名答案与原始证据。历史侧录只能补实证可查字段，不能把答案或后见结论倒填成事前登记。交叉设计仍会受学习、任务难度和模型变化影响，因此记录这些混杂并报告样本量与不确定区间。
 
 | 指标 | 量法与预先判定方向 |
 | --- | --- |
