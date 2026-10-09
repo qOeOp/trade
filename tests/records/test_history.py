@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from research.records import cli
 from research.records.common import RecordError
-from research.records.fixtures.contract_repository import ContractRepository
+from tests.records.fixtures.contract_repository import ContractRepository
 from research.records.history import INDEX_PATH, load_archive, read_archive_bytes
 
 

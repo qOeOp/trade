@@ -34,7 +34,6 @@ PRIMARY_ID = re.compile(
 ID_TOKEN = re.compile(r"\b([SCDHF]\d+[a-z]?)\b", re.IGNORECASE)
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA1 = re.compile(r"^[0-9a-f]{40}$")
-HISTORICAL_MANIFEST = "research/records/fixtures/historical_sources.json"
 
 
 def _sha(raw: bytes) -> str:
@@ -93,52 +92,18 @@ def _retained_payload(source: dict, commit: str | None = None) -> tuple[bytes, d
     oid = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
     if oid != source["blob_oid"]:
         raise ValueError("retained historical source blob_oid mismatch")
-    fixture_keys = {"fixture_path", "fixture_sha256", "fixture_locator"}
-    if fixture_keys & source.keys():
-        if not fixture_keys <= source.keys():
-            raise ValueError("retained historical source fixture provenance is incomplete")
-        fixture = source["fixture_path"]
-        if not isinstance(fixture, str) or not fixture or not _safe_path(fixture) or PurePosixPath(fixture).as_posix() != fixture:
-            raise ValueError("retained historical source fixture path is unsafe")
-        if not isinstance(source["fixture_sha256"], str) or not SHA256.fullmatch(source["fixture_sha256"]):
-            raise ValueError("retained historical source fixture sha256 is invalid")
-        if not isinstance(source["fixture_locator"], str) or not re.fullmatch(r"/sources/\d+", source["fixture_locator"]):
-            raise ValueError("retained historical source fixture locator is invalid")
+    manifest_keys = {"manifest_path", "manifest_sha256", "manifest_locator"}
+    if manifest_keys & source.keys():
+        if not manifest_keys <= source.keys():
+            raise ValueError("retained historical source manifest provenance is incomplete")
+        manifest = source["manifest_path"]
+        if not isinstance(manifest, str) or not manifest or not _safe_path(manifest) or PurePosixPath(manifest).as_posix() != manifest:
+            raise ValueError("retained historical source manifest path is unsafe")
+        if not isinstance(source["manifest_sha256"], str) or not SHA256.fullmatch(source["manifest_sha256"]):
+            raise ValueError("retained historical source manifest sha256 is invalid")
+        if not isinstance(source["manifest_locator"], str) or not re.fullmatch(r"/sources/\d+", source["manifest_locator"]):
+            raise ValueError("retained historical source manifest locator is invalid")
     return raw, dict(source)
-
-
-def retained_historical_refs(root: Path = ROOT) -> list[dict]:
-    """Read and validate the explicit retained-source manifest for ``scan``.
-
-    The returned payloads retain the original commit and Git blob identity.
-    Their bytes come from this manifest; no missing Git reference is fetched or
-    silently substituted. Callers may also use the validated base64 payloads
-    when an existing fixture needs exactly the same historical source bytes.
-    """
-    root = Path(root).resolve()
-    manifest_path = root / HISTORICAL_MANIFEST
-    if manifest_path.is_symlink() or not manifest_path.resolve().is_relative_to(root):
-        raise ValueError("retained historical manifest path is unsafe")
-    raw = manifest_path.read_bytes()
-    try:
-        manifest = json.loads(raw)
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise ValueError("retained historical manifest is invalid JSON") from exc
-    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1 or not isinstance(manifest.get("sources"), list):
-        raise ValueError("retained historical manifest schema is invalid")
-    selections: dict[str, dict] = {}
-    identities = set()
-    for i, source in enumerate(manifest["sources"]):
-        _, source = _retained_payload(source)
-        identity = (source["original_commit"], source["path"])
-        if identity in identities:
-            raise ValueError("retained historical manifest has duplicate commit/path")
-        identities.add(identity)
-        source.update({"fixture_path": HISTORICAL_MANIFEST, "fixture_sha256": _sha(raw), "fixture_locator": f"/sources/{i}"})
-        selection = selections.setdefault(source["original_commit"], {"commit": source["original_commit"], "paths": [], "retained_payloads": []})
-        selection["paths"].append(source["path"])
-        selection["retained_payloads"].append(source)
-    return list(selections.values())
 
 
 def _untracked_material(path: str) -> bool:
@@ -275,9 +240,9 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
     Untracked Markdown is limited to reports, research_notes, docs/plans, and the
     comparison probe README. Git-ignored files and paths outside root are never
     read. ``historical_refs`` may contain commits or {commit, paths} selections,
-    or an explicit {commit, paths, retained_payloads} selection returned by
-    ``retained_historical_refs``. Retained payloads are byte/hash/OID verified
-    and do not require the original commit to be available in this checkout.
+    or an explicit {commit, paths, retained_payloads} selection. Retained payloads
+    are byte/hash/OID verified and do not require the original commit to be
+    available in this checkout.
     Historical attempt/run JSON is archived as ordinary JSON evidence. Its
     declared relationships remain references, not registration or a research
     lineage projection. Historical snapshots precede the worktree.
@@ -373,8 +338,8 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
                 commit = metadata["original_commit"]
                 state = "historical_retained"
                 retained_provenance = {"origin": "retained_git_blob", "verify_source": "retained_bytes", "git_blob_oid": metadata["blob_oid"]}
-                if "fixture_path" in metadata:
-                    retained_provenance["retained_fixture"] = {"path": metadata["fixture_path"], "sha256": metadata["fixture_sha256"], "locator": metadata["fixture_locator"]}
+                if "manifest_path" in metadata:
+                    retained_provenance["retained_manifest"] = {"path": metadata["manifest_path"], "sha256": metadata["manifest_sha256"], "locator": metadata["manifest_locator"]}
             elif historical_commit:
                 raw = _git(root, "show", f"{historical_commit}:{path}")
                 commit = historical_commit

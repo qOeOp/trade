@@ -13,7 +13,7 @@ from research.records.cli import (
     _load_records,
     _show,
 )
-from research.records.fixtures.contract_repository import ContractRepository
+from tests.records.fixtures.contract_repository import ContractRepository
 
 
 class ResearchRecordBoundaryTests(unittest.TestCase):
