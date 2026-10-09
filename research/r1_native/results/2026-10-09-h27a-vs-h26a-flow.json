@@ -1,0 +1,97 @@
+{
+  "method": "read-only native A/B/source-clock overlap and Position/Account reports; no hypothetical fills or PnL",
+  "candidate_sha256": {
+    "summary.json": "38df405e9df35a98e526888428afb65630075da636a23317d710908199e53f6a",
+    "orders.csv": "e45668b6784ecc68f8ffaa4eaa699041937b37179774ae2f42985ec750145c02",
+    "fills.csv": "79e9ad738c27c66bff912f4df4f97075e8d1472625a223acf55898a1b12fc6c2",
+    "positions.csv": "3393660aa1c5e12ab06a2bbc9db8eb8cec1c0ab3aac9b76c83f85453f20eb775",
+    "account.csv": "3f807d881ef74b91973b9bbd87c631f9018d0b88e88726013580312be82644b1"
+  },
+  "baseline_sha256": {
+    "summary.json": "64e47b3653a049ea16fb92002d4e63f47f8b563be67856e4c59ff24fb2bbaf06",
+    "orders.csv": "11fa73bc4ce1c69fc8991331147d3671a4ec5e0363c6ac381df925bd8d609155",
+    "fills.csv": "a295d28045c1f88cf2900342d34a39b47d120851fd37217759dd23708945be96",
+    "positions.csv": "5c96b175ded936eb4e0869569d61e6a016d18ee0abcba07ed9718646ba3c2d7f",
+    "account.csv": "4ae1422672d89e03084292a110f7dfc648cd236691b5cf880f760b151693c295"
+  },
+  "candidate_submitted_bundles": 1073,
+  "baseline_submitted_bundles": 1137,
+  "common_source_keys": 1071,
+  "candidate_only_source_keys": 2,
+  "baseline_only_source_keys": 66,
+  "candidate_only_positions": {
+    "positions": 1,
+    "closed": 1,
+    "open_censored": 0,
+    "positive_closed": 0,
+    "native_closed_realized_pnl_usdt": "-257.48393917"
+  },
+  "candidate_common_positions": {
+    "positions": 159,
+    "closed": 150,
+    "open_censored": 9,
+    "positive_closed": 94,
+    "native_closed_realized_pnl_usdt": "7871.17424540"
+  },
+  "baseline_common_positions": {
+    "positions": 163,
+    "closed": 155,
+    "open_censored": 8,
+    "positive_closed": 76,
+    "native_closed_realized_pnl_usdt": "11091.52901321"
+  },
+  "baseline_only_positions": {
+    "positions": 16,
+    "closed": 15,
+    "open_censored": 1,
+    "positive_closed": 9,
+    "native_closed_realized_pnl_usdt": "2546.15235482"
+  },
+  "candidate_native_final_exits": {
+    "MARKET": {
+      "closed_positions": 12,
+      "native_closed_realized_pnl_usdt": "735.67678542"
+    },
+    "['STOP_LOSS']": {
+      "closed_positions": 52,
+      "native_closed_realized_pnl_usdt": "-12881.39674278"
+    },
+    "['TAKE_PROFIT']": {
+      "closed_positions": 87,
+      "native_closed_realized_pnl_usdt": "19759.41026359"
+    }
+  },
+  "baseline_native_final_exits": {
+    "['STOP_LOSS']": {
+      "closed_positions": 85,
+      "native_closed_realized_pnl_usdt": "-18080.37231593"
+    },
+    "['TAKE_PROFIT']": {
+      "closed_positions": 80,
+      "native_closed_realized_pnl_usdt": "29707.24655395"
+    },
+    "MARKET": {
+      "closed_positions": 5,
+      "native_closed_realized_pnl_usdt": "2010.80713001"
+    }
+  },
+  "candidate_native_locked_margin": {
+    "native_account_events": 21207,
+    "time_weighted_locked_to_total_mean": 0.018637356257476187,
+    "time_weighted_locked_to_total_p50": 0.01658340701167975,
+    "time_weighted_locked_to_total_p95": 0.04272988004455328,
+    "observed_max_locked_to_total": 0.056635472627105346,
+    "elapsed_fraction_under_1pct_locked": 0.3877000639033828,
+    "interpretation": "Native Account locked margin divided by Account total balance, time-weighted across report events; neither native Portfolio equity nor gross notional/stop-risk utilization."
+  },
+  "baseline_native_locked_margin": {
+    "native_account_events": 18250,
+    "time_weighted_locked_to_total_mean": 0.027458761375076402,
+    "time_weighted_locked_to_total_p50": 0.018896344399138554,
+    "time_weighted_locked_to_total_p95": 0.07437008999772782,
+    "observed_max_locked_to_total": 0.08694626325389937,
+    "elapsed_fraction_under_1pct_locked": 0.3980868066873815,
+    "interpretation": "Native Account locked margin divided by Account total balance, time-weighted across report events; neither native Portfolio equity nor gross notional/stop-risk utilization."
+  },
+  "caution": "Matched sources are descriptive under divergent shared-account paths and differently sized orders; closed cohorts can be censored at year-end."
+}

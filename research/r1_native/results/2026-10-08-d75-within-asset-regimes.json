@@ -1,0 +1,2977 @@
+{
+  "schema": "r1-native-d75-within-asset-regimes-descriptive/v1",
+  "preregistration_commit": "7751afd3d",
+  "frozen_d71_input_sha256": {
+    "2026-10-08-d71-asset-regimes.json": "0d1b12ca483aa95f1ec4c0ed944223a5f43362c59dc28db1fc9caa53d4b080be",
+    "2026-10-08-d71-asset-regime-positions.json.gz": "624d4dd60a6742e6811c7e66733e971a1faeaeb803814e6af61034e8e9d7b5e9"
+  },
+  "native_position_unit": "D71 native shared-account Position; first entry-order submission month; closed net R includes native fees and funding; open positions censored",
+  "method": "For all three preregistered D71 features and all three frozen native strategies, high-minus-low mean net R and win-rate differences within each comparable coin and UTC submission month, then equal-weight across groups. Descriptive exposed-year associations only.",
+  "feature_rank_changes": {
+    "realized_volatility": {
+      "adjacent_rank_changes": 144,
+      "possible_adjacent_transitions": 444,
+      "coins_with_both_low_and_high": 17
+    },
+    "wick_fraction": {
+      "adjacent_rank_changes": 220,
+      "possible_adjacent_transitions": 444,
+      "coins_with_both_low_and_high": 35
+    },
+    "trend_efficiency": {
+      "adjacent_rank_changes": 275,
+      "possible_adjacent_transitions": 444,
+      "coins_with_both_low_and_high": 37
+    }
+  },
+  "contrasts": {
+    "realized_volatility": {
+      "H15a": {
+        "ranks": {
+          "low": {
+            "native_positions": 271,
+            "closed_positions": 269,
+            "open_right_censored_positions": 2,
+            "wins": 151,
+            "win_rate": 0.5613382899628253,
+            "mean_net_r": 0.17007296460840857,
+            "native_closed_pnl_usdt": "3351.53413132"
+          },
+          "middle": {
+            "native_positions": 202,
+            "closed_positions": 199,
+            "open_right_censored_positions": 3,
+            "wins": 112,
+            "win_rate": 0.5628140703517588,
+            "mean_net_r": 0.14835102354987512,
+            "native_closed_pnl_usdt": "253.98843329"
+          },
+          "high": {
+            "native_positions": 213,
+            "closed_positions": 208,
+            "open_right_censored_positions": 5,
+            "wins": 119,
+            "win_rate": 0.5721153846153846,
+            "mean_net_r": 0.14426375953142448,
+            "native_closed_pnl_usdt": "600.31233187"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 13,
+          "high_minus_low_equal_group_mean_net_r": -0.33960721077612854,
+          "high_minus_low_equal_group_mean_win_rate": -0.1721056721056721,
+          "net_r_directions": {
+            "positive": 3,
+            "negative": 10,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 2,
+            "negative": 11,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 1,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": -0.9133196946297248,
+              "high_minus_low_win_rate": -0.4444444444444444
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 3,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 0.9148077667883194,
+              "high_minus_low_win_rate": 0.6666666666666667
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 5,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.3949372839268075,
+              "high_minus_low_win_rate": -0.09999999999999998
+            },
+            {
+              "coin": "ARB",
+              "low_closed": 2,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.7481092670549682,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 8,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.3425187726954388,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 7,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -0.41516121357649516,
+              "high_minus_low_win_rate": -0.0714285714285714
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 7,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.0005422176209093355,
+              "high_minus_low_win_rate": -0.04761904761904767
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 11,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.42781992890292186,
+              "high_minus_low_win_rate": -0.18181818181818177
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 3,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": -0.42421111251111665,
+              "high_minus_low_win_rate": -0.06666666666666665
+            },
+            {
+              "coin": "SEI",
+              "low_closed": 7,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -0.8045970512620921,
+              "high_minus_low_win_rate": -0.7142857142857143
+            },
+            {
+              "coin": "SHIB",
+              "low_closed": 9,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -0.6546671595473096,
+              "high_minus_low_win_rate": -0.6666666666666666
+            },
+            {
+              "coin": "STX",
+              "low_closed": 1,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 1.1297051056193352,
+              "high_minus_low_win_rate": 0.5
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 9,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.33460734601136005,
+              "high_minus_low_win_rate": -0.1111111111111111
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 12,
+          "high_minus_low_equal_group_mean_net_r": 0.0871979684723896,
+          "high_minus_low_equal_group_mean_win_rate": 0.08082877797287358,
+          "net_r_directions": {
+            "positive": 5,
+            "negative": 7,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 6,
+            "negative": 6,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 15,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.13945508364868847,
+              "high_minus_low_win_rate": 0.028571428571428525
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 22,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": -0.28229351219080845,
+              "high_minus_low_win_rate": -0.18181818181818177
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 22,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": -0.21384528924330728,
+              "high_minus_low_win_rate": -0.045454545454545414
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 19,
+              "high_closed": 20,
+              "high_minus_low_mean_net_r": -0.26440519910571014,
+              "high_minus_low_win_rate": 0.07105263157894737
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 27,
+              "high_closed": 14,
+              "high_minus_low_mean_net_r": -0.5528522889181541,
+              "high_minus_low_win_rate": -0.2698412698412699
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 33,
+              "high_closed": 29,
+              "high_minus_low_mean_net_r": 0.22031622615669516,
+              "high_minus_low_win_rate": -0.0031347962382445305
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 27,
+              "high_closed": 29,
+              "high_minus_low_mean_net_r": -0.009575604267894914,
+              "high_minus_low_win_rate": -0.03320561941251593
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 12,
+              "high_closed": 18,
+              "high_minus_low_mean_net_r": 0.24349996982277644,
+              "high_minus_low_win_rate": 0.27777777777777785
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 30,
+              "high_closed": 18,
+              "high_minus_low_mean_net_r": -0.14468543104779719,
+              "high_minus_low_win_rate": -0.06666666666666665
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 23,
+              "high_closed": 19,
+              "high_minus_low_mean_net_r": 0.20745313826467499,
+              "high_minus_low_win_rate": 0.10983981693363842
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 37,
+              "high_closed": 31,
+              "high_minus_low_mean_net_r": 0.05699853623708895,
+              "high_minus_low_win_rate": 0.082824760244115
+            },
+            {
+              "entry_submission_month_utc": "2026-10-01T00:00:00+00:00",
+              "low_closed": 2,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 1.9252201596098002,
+              "high_minus_low_win_rate": 1.0
+            }
+          ]
+        }
+      },
+      "H19a": {
+        "ranks": {
+          "low": {
+            "native_positions": 175,
+            "closed_positions": 171,
+            "open_right_censored_positions": 4,
+            "wins": 81,
+            "win_rate": 0.47368421052631576,
+            "mean_net_r": 0.43450275768389973,
+            "native_closed_pnl_usdt": "8142.25424666"
+          },
+          "middle": {
+            "native_positions": 166,
+            "closed_positions": 161,
+            "open_right_censored_positions": 5,
+            "wins": 71,
+            "win_rate": 0.4409937888198758,
+            "mean_net_r": 0.28371917546523534,
+            "native_closed_pnl_usdt": "2202.25332041"
+          },
+          "high": {
+            "native_positions": 166,
+            "closed_positions": 164,
+            "open_right_censored_positions": 2,
+            "wins": 60,
+            "win_rate": 0.36585365853658536,
+            "mean_net_r": 0.1660345696028762,
+            "native_closed_pnl_usdt": "988.81675647"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 11,
+          "high_minus_low_equal_group_mean_net_r": -0.6717896693614555,
+          "high_minus_low_equal_group_mean_win_rate": -0.24886363636363637,
+          "net_r_directions": {
+            "positive": 2,
+            "negative": 9,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 3,
+            "negative": 8,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 1,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.5400147081641673,
+              "high_minus_low_win_rate": -0.6666666666666667
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 2,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 3.579049149435879,
+              "high_minus_low_win_rate": 1.0
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 6,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.12463586179986963,
+              "high_minus_low_win_rate": 0.06666666666666671
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 5,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -0.7443336526421789,
+              "high_minus_low_win_rate": -0.4
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 9,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.3545442783568822,
+              "high_minus_low_win_rate": -0.4444444444444444
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.6217693201835404,
+              "high_minus_low_win_rate": -0.19999999999999996
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 1,
+              "high_closed": 16,
+              "high_minus_low_mean_net_r": -2.6629061551425686,
+              "high_minus_low_win_rate": -0.6875
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 1,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": -2.39110225049959,
+              "high_minus_low_win_rate": -0.5555555555555556
+            },
+            {
+              "coin": "SEI",
+              "low_closed": 5,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -2.3836511604590522,
+              "high_minus_low_win_rate": -0.8
+            },
+            {
+              "coin": "STX",
+              "low_closed": 1,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.7031923188562035,
+              "high_minus_low_win_rate": 0.2
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 8,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -0.8489704440202437,
+              "high_minus_low_win_rate": -0.25
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 11,
+          "high_minus_low_equal_group_mean_net_r": -0.3520450870768574,
+          "high_minus_low_equal_group_mean_win_rate": -0.1267717051382723,
+          "net_r_directions": {
+            "positive": 3,
+            "negative": 8,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 3,
+            "negative": 8,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 16,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": -0.6696055594544879,
+              "high_minus_low_win_rate": -0.3125
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 13,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": -0.3992694010325649,
+              "high_minus_low_win_rate": -0.09401709401709402
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 16,
+              "high_closed": 15,
+              "high_minus_low_mean_net_r": -0.1596270449108098,
+              "high_minus_low_win_rate": -0.058333333333333334
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 15,
+              "high_closed": 20,
+              "high_minus_low_mean_net_r": -0.43754152650484535,
+              "high_minus_low_win_rate": -0.25
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": -1.3215687662814375,
+              "high_minus_low_win_rate": -0.4117647058823529
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 22,
+              "high_closed": 21,
+              "high_minus_low_mean_net_r": -0.04375767910523409,
+              "high_minus_low_win_rate": -0.05411255411255411
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 19,
+              "high_minus_low_mean_net_r": 0.018872445373265767,
+              "high_minus_low_win_rate": 0.03405572755417954
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 13,
+              "high_closed": 16,
+              "high_minus_low_mean_net_r": 0.1428738629727928,
+              "high_minus_low_win_rate": 0.04807692307692307
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": -1.0655360682781627,
+              "high_minus_low_win_rate": -0.3611111111111111
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 23,
+              "high_minus_low_mean_net_r": -0.19630777254707166,
+              "high_minus_low_win_rate": -0.10144927536231885
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 6,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.25897155192312415,
+              "high_minus_low_win_rate": 0.16666666666666663
+            }
+          ]
+        }
+      },
+      "H22a": {
+        "ranks": {
+          "low": {
+            "native_positions": 273,
+            "closed_positions": 263,
+            "open_right_censored_positions": 10,
+            "wins": 144,
+            "win_rate": 0.5475285171102662,
+            "mean_net_r": 0.13969444113653565,
+            "native_closed_pnl_usdt": "3996.80041593"
+          },
+          "middle": {
+            "native_positions": 204,
+            "closed_positions": 194,
+            "open_right_censored_positions": 10,
+            "wins": 102,
+            "win_rate": 0.5257731958762887,
+            "mean_net_r": 0.09611447244847217,
+            "native_closed_pnl_usdt": "-187.06649630"
+          },
+          "high": {
+            "native_positions": 213,
+            "closed_positions": 205,
+            "open_right_censored_positions": 8,
+            "wins": 110,
+            "win_rate": 0.5365853658536586,
+            "mean_net_r": 0.11802378543969723,
+            "native_closed_pnl_usdt": "655.32947255"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 12,
+          "high_minus_low_equal_group_mean_net_r": -0.340396457672812,
+          "high_minus_low_equal_group_mean_win_rate": -0.1565957190957191,
+          "net_r_directions": {
+            "positive": 3,
+            "negative": 9,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 2,
+            "negative": 9,
+            "tied": 1
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 1,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -0.7117020138911836,
+              "high_minus_low_win_rate": -0.25
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 3,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 1.4307356109062725,
+              "high_minus_low_win_rate": 0.6666666666666667
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 7,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.6903468246398842,
+              "high_minus_low_win_rate": -0.3142857142857143
+            },
+            {
+              "coin": "ARB",
+              "low_closed": 2,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -1.1244580873713068,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 10,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.4671481120915304,
+              "high_minus_low_win_rate": -0.7
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 9,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 1.4959300525837378,
+              "high_minus_low_win_rate": 0.6666666666666667
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.12054340328021496,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 5,
+              "high_closed": 14,
+              "high_minus_low_mean_net_r": -0.5940280408068295,
+              "high_minus_low_win_rate": -0.30000000000000004
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 5,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.5687089907266767,
+              "high_minus_low_win_rate": -0.25454545454545463
+            },
+            {
+              "coin": "SEI",
+              "low_closed": 7,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.2410789487904224,
+              "high_minus_low_win_rate": -0.5714285714285714
+            },
+            {
+              "coin": "STX",
+              "low_closed": 2,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.2736039425069001,
+              "high_minus_low_win_rate": -0.09999999999999998
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 9,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -0.4608915980192356,
+              "high_minus_low_win_rate": -0.2222222222222222
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 12,
+          "high_minus_low_equal_group_mean_net_r": 0.05141203533225036,
+          "high_minus_low_equal_group_mean_win_rate": 0.029655332772151603,
+          "net_r_directions": {
+            "positive": 5,
+            "negative": 7,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 5,
+            "negative": 7,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": -0.47076285648244365,
+              "high_minus_low_win_rate": -0.2529411764705882
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 22,
+              "high_closed": 13,
+              "high_minus_low_mean_net_r": -0.2940252111272791,
+              "high_minus_low_win_rate": -0.12937062937062938
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 22,
+              "high_closed": 14,
+              "high_minus_low_mean_net_r": -0.27987350614433026,
+              "high_minus_low_win_rate": -0.12337662337662342
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 19,
+              "high_closed": 18,
+              "high_minus_low_mean_net_r": -0.04319094035382366,
+              "high_minus_low_win_rate": -0.029239766081871343
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 25,
+              "high_closed": 13,
+              "high_minus_low_mean_net_r": -0.44861309226563556,
+              "high_minus_low_win_rate": -0.2492307692307692
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 37,
+              "high_closed": 31,
+              "high_minus_low_mean_net_r": 0.11291766979934248,
+              "high_minus_low_win_rate": 0.0549258936355711
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 29,
+              "high_closed": 28,
+              "high_minus_low_mean_net_r": 0.06048823807690013,
+              "high_minus_low_win_rate": 0.016009852216748777
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 13,
+              "high_closed": 17,
+              "high_minus_low_mean_net_r": 0.4807789056116757,
+              "high_minus_low_win_rate": 0.25791855203619907
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 31,
+              "high_closed": 13,
+              "high_minus_low_mean_net_r": -0.4200070168879777,
+              "high_minus_low_win_rate": -0.2084367245657568
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 29,
+              "high_closed": 25,
+              "high_minus_low_mean_net_r": 0.2529517075923199,
+              "high_minus_low_win_rate": 0.1158620689655172
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 22,
+              "high_minus_low_mean_net_r": -0.25679962839343595,
+              "high_minus_low_win_rate": -0.09625668449197855
+            },
+            {
+              "entry_submission_month_utc": "2026-10-01T00:00:00+00:00",
+              "low_closed": 2,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 1.923080154561692,
+              "high_minus_low_win_rate": 1.0
+            }
+          ]
+        }
+      }
+    },
+    "wick_fraction": {
+      "H15a": {
+        "ranks": {
+          "low": {
+            "native_positions": 245,
+            "closed_positions": 242,
+            "open_right_censored_positions": 3,
+            "wins": 143,
+            "win_rate": 0.5909090909090909,
+            "mean_net_r": 0.19006045659431678,
+            "native_closed_pnl_usdt": "3583.71409826"
+          },
+          "middle": {
+            "native_positions": 235,
+            "closed_positions": 230,
+            "open_right_censored_positions": 5,
+            "wins": 135,
+            "win_rate": 0.5869565217391305,
+            "mean_net_r": 0.20097153092302622,
+            "native_closed_pnl_usdt": "2806.72078696"
+          },
+          "high": {
+            "native_positions": 206,
+            "closed_positions": 204,
+            "open_right_censored_positions": 2,
+            "wins": 104,
+            "win_rate": 0.5098039215686274,
+            "mean_net_r": 0.06402088500246397,
+            "native_closed_pnl_usdt": "-2184.59998874"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 28,
+          "high_minus_low_equal_group_mean_net_r": -0.34671265616449165,
+          "high_minus_low_equal_group_mean_win_rate": -0.19740021882879025,
+          "net_r_directions": {
+            "positive": 5,
+            "negative": 23,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 8,
+            "negative": 18,
+            "tied": 2
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 9,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.5523227024995667,
+              "high_minus_low_win_rate": -0.09523809523809523
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 12,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -0.73600174303642,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 7,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.3229162560496074,
+              "high_minus_low_win_rate": 0.09523809523809523
+            },
+            {
+              "coin": "APT",
+              "low_closed": 10,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.14456729665171575,
+              "high_minus_low_win_rate": -0.02857142857142858
+            },
+            {
+              "coin": "ATOM",
+              "low_closed": 14,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -0.06427706811404996,
+              "high_minus_low_win_rate": -0.0714285714285714
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 5,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": 0.7301072431729059,
+              "high_minus_low_win_rate": 0.18333333333333335
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 5,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.7355824484797151,
+              "high_minus_low_win_rate": -0.5142857142857143
+            },
+            {
+              "coin": "BNB",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.0868421121686853,
+              "high_minus_low_win_rate": -0.2
+            },
+            {
+              "coin": "BTC",
+              "low_closed": 15,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.8248324056245377,
+              "high_minus_low_win_rate": -0.2
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 6,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.49562898819592227,
+              "high_minus_low_win_rate": -0.09523809523809523
+            },
+            {
+              "coin": "ETC",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.9214490020937953,
+              "high_minus_low_win_rate": -0.6
+            },
+            {
+              "coin": "FET",
+              "low_closed": 12,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.2661746825401543,
+              "high_minus_low_win_rate": -0.75
+            },
+            {
+              "coin": "FIL",
+              "low_closed": 2,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -0.6287370111929801,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 13,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.1263793321587337,
+              "high_minus_low_win_rate": 0.06153846153846154
+            },
+            {
+              "coin": "IMX",
+              "low_closed": 6,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.2858745933311658,
+              "high_minus_low_win_rate": -0.16666666666666663
+            },
+            {
+              "coin": "INJ",
+              "low_closed": 6,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -1.6463008447656788,
+              "high_minus_low_win_rate": -0.6666666666666667
+            },
+            {
+              "coin": "LTC",
+              "low_closed": 4,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.023083026051747252,
+              "high_minus_low_win_rate": -0.13636363636363635
+            },
+            {
+              "coin": "NEAR",
+              "low_closed": 3,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 0.06544289694575431,
+              "high_minus_low_win_rate": 0.16666666666666669
+            },
+            {
+              "coin": "OP",
+              "low_closed": 7,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.8160084621958741,
+              "high_minus_low_win_rate": -0.7142857142857143
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 2,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.2700525020856456,
+              "high_minus_low_win_rate": 0.13636363636363635
+            },
+            {
+              "coin": "SHIB",
+              "low_closed": 6,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.650071533922649,
+              "high_minus_low_win_rate": -0.16666666666666663
+            },
+            {
+              "coin": "SOL",
+              "low_closed": 11,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.01935481329408209,
+              "high_minus_low_win_rate": 0.030303030303030276
+            },
+            {
+              "coin": "STX",
+              "low_closed": 6,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.64959162308619,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "SUI",
+              "low_closed": 6,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.10510885845491086,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "TRX",
+              "low_closed": 21,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.21368976085967528,
+              "high_minus_low_win_rate": 0.1428571428571429
+            },
+            {
+              "coin": "UNI",
+              "low_closed": 8,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.010058325282212843,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 7,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -0.3132668489400254,
+              "high_minus_low_win_rate": -0.5714285714285714
+            },
+            {
+              "coin": "XRP",
+              "low_closed": 5,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.3314556945327497,
+              "high_minus_low_win_rate": 0.1333333333333333
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 11,
+          "high_minus_low_equal_group_mean_net_r": -0.13286786022266145,
+          "high_minus_low_equal_group_mean_win_rate": -0.08415498475857511,
+          "net_r_directions": {
+            "positive": 4,
+            "negative": 7,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 4,
+            "negative": 7,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 7,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": -0.6294227071212589,
+              "high_minus_low_win_rate": -0.2714285714285714
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 16,
+              "high_minus_low_mean_net_r": -0.23193821300595618,
+              "high_minus_low_win_rate": -0.2095588235294118
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 11,
+              "high_closed": 17,
+              "high_minus_low_mean_net_r": 0.25688321376869133,
+              "high_minus_low_win_rate": 0.106951871657754
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 19,
+              "high_closed": 19,
+              "high_minus_low_mean_net_r": 0.36628919131589444,
+              "high_minus_low_win_rate": 0.21052631578947373
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 20,
+              "high_closed": 16,
+              "high_minus_low_mean_net_r": -0.35468789127319605,
+              "high_minus_low_win_rate": -0.23750000000000004
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 31,
+              "high_closed": 26,
+              "high_minus_low_mean_net_r": -0.10364893344036724,
+              "high_minus_low_win_rate": 0.02109181141439198
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 32,
+              "high_closed": 21,
+              "high_minus_low_mean_net_r": -0.16555039646738445,
+              "high_minus_low_win_rate": -0.10267857142857145
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 14,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": -0.6113883974893323,
+              "high_minus_low_win_rate": -0.2714285714285714
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 21,
+              "high_closed": 26,
+              "high_minus_low_mean_net_r": 0.12234344418706773,
+              "high_minus_low_win_rate": 0.06227106227106227
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 22,
+              "high_closed": 19,
+              "high_minus_low_mean_net_r": 0.2661700133157221,
+              "high_minus_low_win_rate": -0.004784688995215336
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 48,
+              "high_closed": 24,
+              "high_minus_low_mean_net_r": -0.37659578623915646,
+              "high_minus_low_win_rate": -0.22916666666666669
+            }
+          ]
+        }
+      },
+      "H19a": {
+        "ranks": {
+          "low": {
+            "native_positions": 172,
+            "closed_positions": 169,
+            "open_right_censored_positions": 3,
+            "wins": 73,
+            "win_rate": 0.4319526627218935,
+            "mean_net_r": 0.28298249789221364,
+            "native_closed_pnl_usdt": "3981.24351979"
+          },
+          "middle": {
+            "native_positions": 164,
+            "closed_positions": 160,
+            "open_right_censored_positions": 4,
+            "wins": 67,
+            "win_rate": 0.41875,
+            "mean_net_r": 0.28969622882202,
+            "native_closed_pnl_usdt": "3722.70298888"
+          },
+          "high": {
+            "native_positions": 171,
+            "closed_positions": 167,
+            "open_right_censored_positions": 4,
+            "wins": 72,
+            "win_rate": 0.4311377245508982,
+            "mean_net_r": 0.31756281121804875,
+            "native_closed_pnl_usdt": "3629.37781487"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 31,
+          "high_minus_low_equal_group_mean_net_r": -0.056219902649509726,
+          "high_minus_low_equal_group_mean_win_rate": -0.037362100265326076,
+          "net_r_directions": {
+            "positive": 15,
+            "negative": 16,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 14,
+            "negative": 17,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 4,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.2764395680154588,
+              "high_minus_low_win_rate": -0.4166666666666667
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 10,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 0.49313208721423313,
+              "high_minus_low_win_rate": 0.09999999999999998
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 11,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.066268780623064,
+              "high_minus_low_win_rate": -0.36363636363636365
+            },
+            {
+              "coin": "APT",
+              "low_closed": 7,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.47461245841979505,
+              "high_minus_low_win_rate": -0.11904761904761904
+            },
+            {
+              "coin": "ARB",
+              "low_closed": 1,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 0.3255260185325215,
+              "high_minus_low_win_rate": 0.375
+            },
+            {
+              "coin": "ATOM",
+              "low_closed": 8,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -1.1336698362508169,
+              "high_minus_low_win_rate": -0.375
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 4,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": -0.12152886452724931,
+              "high_minus_low_win_rate": -0.19444444444444442
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 4,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 1.1675515022604672,
+              "high_minus_low_win_rate": 0.375
+            },
+            {
+              "coin": "BNB",
+              "low_closed": 2,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.5809221913212493,
+              "high_minus_low_win_rate": -0.16666666666666669
+            },
+            {
+              "coin": "BTC",
+              "low_closed": 4,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": 0.5544013356297263,
+              "high_minus_low_win_rate": 0.16666666666666663
+            },
+            {
+              "coin": "DOGE",
+              "low_closed": 1,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 1.4894449035591302,
+              "high_minus_low_win_rate": 0.5
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 4,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.5571965064863832,
+              "high_minus_low_win_rate": -0.2142857142857143
+            },
+            {
+              "coin": "ETC",
+              "low_closed": 3,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.11231018509017177,
+              "high_minus_low_win_rate": -0.1333333333333333
+            },
+            {
+              "coin": "FET",
+              "low_closed": 5,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -1.8181603699214786,
+              "high_minus_low_win_rate": -0.6
+            },
+            {
+              "coin": "FIL",
+              "low_closed": 2,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": 0.4051443712203566,
+              "high_minus_low_win_rate": 0.1111111111111111
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.5715884732946838,
+              "high_minus_low_win_rate": 0.19999999999999996
+            },
+            {
+              "coin": "IMX",
+              "low_closed": 7,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -1.6689053352835004,
+              "high_minus_low_win_rate": -0.5714285714285714
+            },
+            {
+              "coin": "INJ",
+              "low_closed": 4,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -2.592968399931552,
+              "high_minus_low_win_rate": -1.0
+            },
+            {
+              "coin": "LDO",
+              "low_closed": 1,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 1.7838368679921914,
+              "high_minus_low_win_rate": 0.8
+            },
+            {
+              "coin": "LTC",
+              "low_closed": 2,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": 1.8773392452129012,
+              "high_minus_low_win_rate": 0.6363636363636364
+            },
+            {
+              "coin": "NEAR",
+              "low_closed": 3,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.846881249693083,
+              "high_minus_low_win_rate": 0.26666666666666666
+            },
+            {
+              "coin": "OP",
+              "low_closed": 5,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.7233238368649134,
+              "high_minus_low_win_rate": -0.2
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 2,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 2.1406172541236215,
+              "high_minus_low_win_rate": 0.75
+            },
+            {
+              "coin": "SEI",
+              "low_closed": 12,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.2366832072070466,
+              "high_minus_low_win_rate": -0.4166666666666667
+            },
+            {
+              "coin": "SHIB",
+              "low_closed": 5,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 1.2949790249795028,
+              "high_minus_low_win_rate": 0.35
+            },
+            {
+              "coin": "SOL",
+              "low_closed": 7,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": 0.3197704988132296,
+              "high_minus_low_win_rate": 0.09523809523809523
+            },
+            {
+              "coin": "STX",
+              "low_closed": 8,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -1.2086265265032277,
+              "high_minus_low_win_rate": -0.375
+            },
+            {
+              "coin": "SUI",
+              "low_closed": 7,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -1.5072053668335912,
+              "high_minus_low_win_rate": -0.5714285714285714
+            },
+            {
+              "coin": "TRX",
+              "low_closed": 10,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.2662681705334955,
+              "high_minus_low_win_rate": -0.16666666666666669
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 2,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -1.3319469918167495,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "XRP",
+              "low_closed": 1,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 1.4393864107889498,
+              "high_minus_low_win_rate": 0.5
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 11,
+          "high_minus_low_equal_group_mean_net_r": 0.046077288846782,
+          "high_minus_low_equal_group_mean_win_rate": 0.0022001417498180766,
+          "net_r_directions": {
+            "positive": 6,
+            "negative": 5,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 6,
+            "negative": 5,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 13,
+              "high_closed": 14,
+              "high_minus_low_mean_net_r": 0.4316130077877931,
+              "high_minus_low_win_rate": 0.06043956043956042
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 9,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": -0.03649196340978189,
+              "high_minus_low_win_rate": -0.027777777777777735
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 15,
+              "high_minus_low_mean_net_r": 0.21024966272569567,
+              "high_minus_low_win_rate": 0.07450980392156863
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 19,
+              "high_minus_low_mean_net_r": 0.18198010612188886,
+              "high_minus_low_win_rate": 0.07309941520467833
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 12,
+              "high_closed": 13,
+              "high_minus_low_mean_net_r": -0.15819378360214015,
+              "high_minus_low_win_rate": -0.10256410256410253
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 22,
+              "high_closed": 27,
+              "high_minus_low_mean_net_r": 0.4656690502652987,
+              "high_minus_low_win_rate": 0.12457912457912457
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 20,
+              "high_closed": 15,
+              "high_minus_low_mean_net_r": -0.5472202307675873,
+              "high_minus_low_win_rate": -0.18333333333333335
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 13,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": -0.7515637785326258,
+              "high_minus_low_win_rate": -0.2243589743589744
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 12,
+              "high_closed": 17,
+              "high_minus_low_mean_net_r": 0.1292093470306409,
+              "high_minus_low_win_rate": 0.019607843137254943
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 25,
+              "high_closed": 20,
+              "high_minus_low_mean_net_r": -0.08880983101127626,
+              "high_minus_low_win_rate": -0.040000000000000036
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 8,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": 0.6704085907066961,
+              "high_minus_low_win_rate": 0.25
+            }
+          ]
+        }
+      },
+      "H22a": {
+        "ranks": {
+          "low": {
+            "native_positions": 239,
+            "closed_positions": 230,
+            "open_right_censored_positions": 9,
+            "wins": 126,
+            "win_rate": 0.5478260869565217,
+            "mean_net_r": 0.14705684382074408,
+            "native_closed_pnl_usdt": "2576.77415860"
+          },
+          "middle": {
+            "native_positions": 230,
+            "closed_positions": 220,
+            "open_right_censored_positions": 10,
+            "wins": 121,
+            "win_rate": 0.55,
+            "mean_net_r": 0.14324606142654617,
+            "native_closed_pnl_usdt": "2789.95956403"
+          },
+          "high": {
+            "native_positions": 221,
+            "closed_positions": 212,
+            "open_right_censored_positions": 9,
+            "wins": 109,
+            "win_rate": 0.5141509433962265,
+            "mean_net_r": 0.0671863872473543,
+            "native_closed_pnl_usdt": "-901.67033045"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 30,
+          "high_minus_low_equal_group_mean_net_r": -0.1031835239130151,
+          "high_minus_low_equal_group_mean_win_rate": -0.0416390237442869,
+          "net_r_directions": {
+            "positive": 15,
+            "negative": 15,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 12,
+            "negative": 14,
+            "tied": 4
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 9,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 0.14828977679907568,
+              "high_minus_low_win_rate": 0.08333333333333337
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 14,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 1.0432183340392636,
+              "high_minus_low_win_rate": 0.4285714285714286
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 10,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -0.08555833851834463,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "APT",
+              "low_closed": 9,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.11271864661995915,
+              "high_minus_low_win_rate": -0.05555555555555558
+            },
+            {
+              "coin": "ATOM",
+              "low_closed": 10,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.32444154389054014,
+              "high_minus_low_win_rate": -0.16666666666666669
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 6,
+              "high_closed": 13,
+              "high_minus_low_mean_net_r": 0.3030901078505077,
+              "high_minus_low_win_rate": 0.11538461538461542
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 6,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.40406666974491146,
+              "high_minus_low_win_rate": -0.16666666666666669
+            },
+            {
+              "coin": "BNB",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.15586715129627085,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "BTC",
+              "low_closed": 15,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.5217472638234315,
+              "high_minus_low_win_rate": -0.26666666666666666
+            },
+            {
+              "coin": "DOGE",
+              "low_closed": 1,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.7357084435098704,
+              "high_minus_low_win_rate": 0.4
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 5,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -0.499287085660279,
+              "high_minus_low_win_rate": -0.22499999999999998
+            },
+            {
+              "coin": "ETC",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.37651836619501394,
+              "high_minus_low_win_rate": -0.2
+            },
+            {
+              "coin": "FET",
+              "low_closed": 11,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -1.3688880820293372,
+              "high_minus_low_win_rate": -0.6363636363636364
+            },
+            {
+              "coin": "FIL",
+              "low_closed": 3,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.039543621594754164,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 8,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.13678122204194676,
+              "high_minus_low_win_rate": 0.04166666666666663
+            },
+            {
+              "coin": "IMX",
+              "low_closed": 8,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.2618689421729409,
+              "high_minus_low_win_rate": -0.09999999999999998
+            },
+            {
+              "coin": "INJ",
+              "low_closed": 7,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -2.1121100177297567,
+              "high_minus_low_win_rate": -1.0
+            },
+            {
+              "coin": "LDO",
+              "low_closed": 1,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 1.464568291247674,
+              "high_minus_low_win_rate": 0.75
+            },
+            {
+              "coin": "LTC",
+              "low_closed": 4,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": 0.13189482168619449,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "NEAR",
+              "low_closed": 2,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.11688359951242558,
+              "high_minus_low_win_rate": 0.0714285714285714
+            },
+            {
+              "coin": "OP",
+              "low_closed": 3,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.6160004596267089,
+              "high_minus_low_win_rate": 0.4
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 2,
+              "high_closed": 14,
+              "high_minus_low_mean_net_r": 0.3849663833887824,
+              "high_minus_low_win_rate": 0.2142857142857143
+            },
+            {
+              "coin": "SHIB",
+              "low_closed": 7,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.17834019923714312,
+              "high_minus_low_win_rate": 0.17142857142857143
+            },
+            {
+              "coin": "SOL",
+              "low_closed": 11,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.5359274233429305,
+              "high_minus_low_win_rate": -0.2272727272727273
+            },
+            {
+              "coin": "STX",
+              "low_closed": 6,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -1.0929495850754918,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "SUI",
+              "low_closed": 6,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.49059703274535915,
+              "high_minus_low_win_rate": -0.25
+            },
+            {
+              "coin": "TRX",
+              "low_closed": 19,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.2842070580069983,
+              "high_minus_low_win_rate": 0.14035087719298245
+            },
+            {
+              "coin": "UNI",
+              "low_closed": 7,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.16821591729159546,
+              "high_minus_low_win_rate": -0.05714285714285705
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 4,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -1.075608224488859,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "XRP",
+              "low_closed": 1,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.5956379521006816,
+              "high_minus_low_win_rate": 0.2857142857142857
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 11,
+          "high_minus_low_equal_group_mean_net_r": -0.07921714526100368,
+          "high_minus_low_equal_group_mean_win_rate": -0.027970749135808656,
+          "net_r_directions": {
+            "positive": 4,
+            "negative": 7,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 3,
+            "negative": 8,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 11,
+              "high_closed": 15,
+              "high_minus_low_mean_net_r": -0.6301069062868395,
+              "high_minus_low_win_rate": -0.2545454545454545
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 16,
+              "high_minus_low_mean_net_r": -0.0006513263113698958,
+              "high_minus_low_win_rate": -0.00694444444444442
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 18,
+              "high_minus_low_mean_net_r": 0.4687160876655331,
+              "high_minus_low_win_rate": 0.21241830065359477
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 19,
+              "high_closed": 20,
+              "high_minus_low_mean_net_r": -0.04495195243455807,
+              "high_minus_low_win_rate": -0.023684210526315752
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 16,
+              "high_minus_low_mean_net_r": -0.39250519158041225,
+              "high_minus_low_win_rate": -0.15808823529411764
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 32,
+              "high_closed": 35,
+              "high_minus_low_mean_net_r": 0.015747876504947245,
+              "high_minus_low_win_rate": -0.009821428571428537
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 32,
+              "high_closed": 19,
+              "high_minus_low_mean_net_r": -0.4602062999172141,
+              "high_minus_low_win_rate": -0.2154605263157895
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 15,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.28336200248223364,
+              "high_minus_low_win_rate": -0.10303030303030303
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 28,
+              "high_minus_low_mean_net_r": 0.5042525442214467,
+              "high_minus_low_win_rate": 0.24159663865546216
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 28,
+              "high_closed": 23,
+              "high_minus_low_mean_net_r": 0.010375737184997513,
+              "high_minus_low_win_rate": 0.03260869565217395
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 24,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.05869716443533757,
+              "high_minus_low_win_rate": -0.022727272727272707
+            }
+          ]
+        }
+      }
+    },
+    "trend_efficiency": {
+      "H15a": {
+        "ranks": {
+          "low": {
+            "native_positions": 226,
+            "closed_positions": 223,
+            "open_right_censored_positions": 3,
+            "wins": 126,
+            "win_rate": 0.5650224215246636,
+            "mean_net_r": 0.14067624805824966,
+            "native_closed_pnl_usdt": "865.90897282"
+          },
+          "middle": {
+            "native_positions": 226,
+            "closed_positions": 222,
+            "open_right_censored_positions": 4,
+            "wins": 129,
+            "win_rate": 0.581081081081081,
+            "mean_net_r": 0.19355393393220538,
+            "native_closed_pnl_usdt": "2571.18703431"
+          },
+          "high": {
+            "native_positions": 234,
+            "closed_positions": 231,
+            "open_right_censored_positions": 3,
+            "wins": 127,
+            "win_rate": 0.5497835497835498,
+            "mean_net_r": 0.13393318830599166,
+            "native_closed_pnl_usdt": "768.73888935"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 36,
+          "high_minus_low_equal_group_mean_net_r": 0.016636301597772258,
+          "high_minus_low_equal_group_mean_win_rate": 0.0003809099397334688,
+          "net_r_directions": {
+            "positive": 18,
+            "negative": 18,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 16,
+            "negative": 18,
+            "tied": 2
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 5,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": 1.0525419580755333,
+              "high_minus_low_win_rate": 0.4666666666666666
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 4,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.7929887988611481,
+              "high_minus_low_win_rate": -0.55
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 8,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.7003545459865798,
+              "high_minus_low_win_rate": -0.35
+            },
+            {
+              "coin": "APT",
+              "low_closed": 4,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": 0.13903128812567378,
+              "high_minus_low_win_rate": 0.09999999999999998
+            },
+            {
+              "coin": "ARB",
+              "low_closed": 1,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.33327339248065035,
+              "high_minus_low_win_rate": -0.36363636363636365
+            },
+            {
+              "coin": "ATOM",
+              "low_closed": 12,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.27952414483273674,
+              "high_minus_low_win_rate": -0.06666666666666665
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 8,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 1.1628700821240223,
+              "high_minus_low_win_rate": 0.625
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 10,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.0914510838413705,
+              "high_minus_low_win_rate": -0.6
+            },
+            {
+              "coin": "BNB",
+              "low_closed": 4,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.9193925400883337,
+              "high_minus_low_win_rate": -0.5454545454545454
+            },
+            {
+              "coin": "BTC",
+              "low_closed": 4,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 0.48115388716766594,
+              "high_minus_low_win_rate": 0.25
+            },
+            {
+              "coin": "DOGE",
+              "low_closed": 5,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.692807311160022,
+              "high_minus_low_win_rate": -0.30000000000000004
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.3598804084566207,
+              "high_minus_low_win_rate": 0.4
+            },
+            {
+              "coin": "ETC",
+              "low_closed": 4,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 0.4110236415889621,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "ETH",
+              "low_closed": 5,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.06829961170366466,
+              "high_minus_low_win_rate": -0.13333333333333341
+            },
+            {
+              "coin": "FET",
+              "low_closed": 5,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 1.0692057905219348,
+              "high_minus_low_win_rate": 0.6
+            },
+            {
+              "coin": "HBAR",
+              "low_closed": 7,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 0.3283841170219375,
+              "high_minus_low_win_rate": -0.05357142857142855
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 17,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.8814128594481603,
+              "high_minus_low_win_rate": -0.42156862745098045
+            },
+            {
+              "coin": "IMX",
+              "low_closed": 5,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.45457719080501113,
+              "high_minus_low_win_rate": 0.2666666666666666
+            },
+            {
+              "coin": "INJ",
+              "low_closed": 3,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.6675369175892959,
+              "high_minus_low_win_rate": -0.2666666666666666
+            },
+            {
+              "coin": "LDO",
+              "low_closed": 8,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": -0.5250778031394211,
+              "high_minus_low_win_rate": -0.29166666666666663
+            },
+            {
+              "coin": "LINK",
+              "low_closed": 4,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.21994358329367872,
+              "high_minus_low_win_rate": 0.0714285714285714
+            },
+            {
+              "coin": "LTC",
+              "low_closed": 12,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.16283170955206805,
+              "high_minus_low_win_rate": 0.16666666666666669
+            },
+            {
+              "coin": "NEAR",
+              "low_closed": 8,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.5568916521528898,
+              "high_minus_low_win_rate": -0.22499999999999998
+            },
+            {
+              "coin": "OP",
+              "low_closed": 2,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.8047117743576306,
+              "high_minus_low_win_rate": 0.6666666666666666
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 2,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": 1.4409409494889522,
+              "high_minus_low_win_rate": 0.6666666666666666
+            },
+            {
+              "coin": "SEI",
+              "low_closed": 1,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": 0.2805618266641124,
+              "high_minus_low_win_rate": 0.4
+            },
+            {
+              "coin": "SHIB",
+              "low_closed": 6,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.35091733415021004,
+              "high_minus_low_win_rate": -0.08333333333333337
+            },
+            {
+              "coin": "SOL",
+              "low_closed": 6,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": 0.47144699981577015,
+              "high_minus_low_win_rate": 0.4848484848484849
+            },
+            {
+              "coin": "STX",
+              "low_closed": 4,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -0.772403109401464,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "SUI",
+              "low_closed": 6,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.9036070841668433,
+              "high_minus_low_win_rate": 0.30000000000000004
+            },
+            {
+              "coin": "TIA",
+              "low_closed": 3,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.994807280526643,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "TRX",
+              "low_closed": 16,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 0.09915835826420472,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "UNI",
+              "low_closed": 10,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -0.22693154884690048,
+              "high_minus_low_win_rate": -0.19999999999999996
+            },
+            {
+              "coin": "WLD",
+              "low_closed": 6,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": 0.7646772910450864,
+              "high_minus_low_win_rate": 0.2777777777777778
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 9,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": -0.09851279774417376,
+              "high_minus_low_win_rate": -0.4444444444444444
+            },
+            {
+              "coin": "XRP",
+              "low_closed": 3,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.05505835106224265,
+              "high_minus_low_win_rate": 0.16666666666666669
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 11,
+          "high_minus_low_equal_group_mean_net_r": 0.021841766004102516,
+          "high_minus_low_equal_group_mean_win_rate": 0.0030726765032740248,
+          "net_r_directions": {
+            "positive": 5,
+            "negative": 6,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 5,
+            "negative": 6,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 8,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.28018473828866014,
+              "high_minus_low_win_rate": 0.17857142857142855
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 16,
+              "high_closed": 22,
+              "high_minus_low_mean_net_r": -0.2903095318235993,
+              "high_minus_low_win_rate": -0.20454545454545459
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 13,
+              "high_minus_low_mean_net_r": -0.15794155379510216,
+              "high_minus_low_win_rate": -0.22649572649572652
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 18,
+              "high_minus_low_mean_net_r": 0.5596410935345179,
+              "high_minus_low_win_rate": 0.27777777777777773
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 22,
+              "high_minus_low_mean_net_r": -0.16767293514140208,
+              "high_minus_low_win_rate": -0.09090909090909088
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 26,
+              "high_closed": 30,
+              "high_minus_low_mean_net_r": -0.08263702655433552,
+              "high_minus_low_win_rate": 0.002564102564102555
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 26,
+              "high_closed": 27,
+              "high_minus_low_mean_net_r": -0.026821351357120285,
+              "high_minus_low_win_rate": -0.05555555555555558
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 12,
+              "high_closed": 14,
+              "high_minus_low_mean_net_r": 0.08010668345376172,
+              "high_minus_low_win_rate": 0.16666666666666669
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 24,
+              "high_closed": 26,
+              "high_minus_low_mean_net_r": -0.1043740645426336,
+              "high_minus_low_win_rate": -0.04807692307692313
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 23,
+              "high_closed": 20,
+              "high_minus_low_mean_net_r": 0.12014576608499117,
+              "high_minus_low_win_rate": 0.08478260869565224
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 34,
+              "high_closed": 30,
+              "high_minus_low_mean_net_r": 0.02993760789738975,
+              "high_minus_low_win_rate": -0.050980392156862786
+            }
+          ]
+        }
+      },
+      "H19a": {
+        "ranks": {
+          "low": {
+            "native_positions": 163,
+            "closed_positions": 160,
+            "open_right_censored_positions": 3,
+            "wins": 64,
+            "win_rate": 0.4,
+            "mean_net_r": 0.2561322189214496,
+            "native_closed_pnl_usdt": "2462.51453781"
+          },
+          "middle": {
+            "native_positions": 174,
+            "closed_positions": 168,
+            "open_right_censored_positions": 6,
+            "wins": 74,
+            "win_rate": 0.44047619047619047,
+            "mean_net_r": 0.28194364916813486,
+            "native_closed_pnl_usdt": "4009.70283640"
+          },
+          "high": {
+            "native_positions": 170,
+            "closed_positions": 168,
+            "open_right_censored_positions": 2,
+            "wins": 74,
+            "win_rate": 0.44047619047619047,
+            "mean_net_r": 0.35036154845858836,
+            "native_closed_pnl_usdt": "4861.10694933"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 37,
+          "high_minus_low_equal_group_mean_net_r": 0.23227033639080438,
+          "high_minus_low_equal_group_mean_win_rate": 0.08614328614328615,
+          "net_r_directions": {
+            "positive": 20,
+            "negative": 17,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 18,
+            "negative": 18,
+            "tied": 1
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 3,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": 0.20051190571003635,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 1,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": 1.2072655803692247,
+              "high_minus_low_win_rate": 0.3333333333333333
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 4,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": -0.5459101715285565,
+              "high_minus_low_win_rate": -0.16666666666666669
+            },
+            {
+              "coin": "APT",
+              "low_closed": 2,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 0.6659159664932313,
+              "high_minus_low_win_rate": 0.25
+            },
+            {
+              "coin": "ARB",
+              "low_closed": 2,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -0.7326778879111143,
+              "high_minus_low_win_rate": -0.125
+            },
+            {
+              "coin": "ATOM",
+              "low_closed": 6,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.3816433374531443,
+              "high_minus_low_win_rate": -0.09999999999999998
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 6,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 1.6491140280613537,
+              "high_minus_low_win_rate": 0.6666666666666667
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 9,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.2216265812921479,
+              "high_minus_low_win_rate": -0.5555555555555556
+            },
+            {
+              "coin": "BNB",
+              "low_closed": 3,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.28489783240965527,
+              "high_minus_low_win_rate": -0.06666666666666665
+            },
+            {
+              "coin": "BTC",
+              "low_closed": 1,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -2.12241247148383,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "DOGE",
+              "low_closed": 4,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -1.0168041441351297,
+              "high_minus_low_win_rate": -0.25
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 2,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.600661107274961,
+              "high_minus_low_win_rate": -0.09999999999999998
+            },
+            {
+              "coin": "ETC",
+              "low_closed": 3,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 0.8585658720815353,
+              "high_minus_low_win_rate": 0.6666666666666667
+            },
+            {
+              "coin": "ETH",
+              "low_closed": 3,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 3.6228797613651924,
+              "high_minus_low_win_rate": 1.0
+            },
+            {
+              "coin": "FET",
+              "low_closed": 3,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 2.1675650079563447,
+              "high_minus_low_win_rate": 0.5
+            },
+            {
+              "coin": "FIL",
+              "low_closed": 3,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -0.8745272725244186,
+              "high_minus_low_win_rate": -0.3333333333333333
+            },
+            {
+              "coin": "HBAR",
+              "low_closed": 5,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.6704267954462657,
+              "high_minus_low_win_rate": 0.22857142857142854
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 12,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 0.06404061129101546,
+              "high_minus_low_win_rate": -0.016666666666666663
+            },
+            {
+              "coin": "IMX",
+              "low_closed": 4,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 0.9429693102155821,
+              "high_minus_low_win_rate": 0.25
+            },
+            {
+              "coin": "INJ",
+              "low_closed": 2,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.5963030893889164,
+              "high_minus_low_win_rate": -0.25
+            },
+            {
+              "coin": "LDO",
+              "low_closed": 4,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.3479204243743906,
+              "high_minus_low_win_rate": 0.0714285714285714
+            },
+            {
+              "coin": "LINK",
+              "low_closed": 5,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 0.4452298487536951,
+              "high_minus_low_win_rate": 0.15000000000000002
+            },
+            {
+              "coin": "LTC",
+              "low_closed": 10,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 0.7428365047788763,
+              "high_minus_low_win_rate": 0.25
+            },
+            {
+              "coin": "NEAR",
+              "low_closed": 4,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.45256790380433787,
+              "high_minus_low_win_rate": -0.07142857142857145
+            },
+            {
+              "coin": "OP",
+              "low_closed": 3,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 1.2441031871893777,
+              "high_minus_low_win_rate": 0.4
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 4,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": 1.338614754020121,
+              "high_minus_low_win_rate": 0.41666666666666663
+            },
+            {
+              "coin": "SEI",
+              "low_closed": 1,
+              "high_closed": 12,
+              "high_minus_low_mean_net_r": 1.20078050650224,
+              "high_minus_low_win_rate": 0.4166666666666667
+            },
+            {
+              "coin": "SHIB",
+              "low_closed": 6,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -2.770302145981888,
+              "high_minus_low_win_rate": -0.8333333333333334
+            },
+            {
+              "coin": "SOL",
+              "low_closed": 4,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.5882199267702787,
+              "high_minus_low_win_rate": 0.2142857142857143
+            },
+            {
+              "coin": "STX",
+              "low_closed": 6,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -1.5798055302094096,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "SUI",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": 2.4411813296298037,
+              "high_minus_low_win_rate": 0.8
+            },
+            {
+              "coin": "TIA",
+              "low_closed": 1,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 1.3604551780171303,
+              "high_minus_low_win_rate": 0.3333333333333333
+            },
+            {
+              "coin": "TRX",
+              "low_closed": 7,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -0.20958730789599667,
+              "high_minus_low_win_rate": -0.09523809523809523
+            },
+            {
+              "coin": "UNI",
+              "low_closed": 5,
+              "high_closed": 3,
+              "high_minus_low_mean_net_r": -2.0369639515170377,
+              "high_minus_low_win_rate": -0.6
+            },
+            {
+              "coin": "WLD",
+              "low_closed": 7,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -0.35288336482121707,
+              "high_minus_low_win_rate": -0.05357142857142855
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 7,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -0.40854987284560573,
+              "high_minus_low_win_rate": -0.14285714285714285
+            },
+            {
+              "coin": "XRP",
+              "low_closed": 3,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 3.023529919911433,
+              "high_minus_low_win_rate": 1.0
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 11,
+          "high_minus_low_equal_group_mean_net_r": 0.1254977578628648,
+          "high_minus_low_equal_group_mean_win_rate": 0.053817805392530976,
+          "net_r_directions": {
+            "positive": 6,
+            "negative": 5,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 8,
+            "negative": 3,
+            "tied": 0
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 15,
+              "high_closed": 13,
+              "high_minus_low_mean_net_r": -0.6660823089671415,
+              "high_minus_low_win_rate": -0.2
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 11,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": -0.0061902748957334275,
+              "high_minus_low_win_rate": 0.010101010101010166
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 14,
+              "high_closed": 16,
+              "high_minus_low_mean_net_r": -0.19842696195131015,
+              "high_minus_low_win_rate": -0.07142857142857142
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 18,
+              "high_minus_low_mean_net_r": 1.384210237816901,
+              "high_minus_low_win_rate": 0.48366013071895425
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 10,
+              "high_closed": 15,
+              "high_minus_low_mean_net_r": 0.4367900231642691,
+              "high_minus_low_win_rate": 0.1333333333333333
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 25,
+              "high_closed": 22,
+              "high_minus_low_mean_net_r": 0.05497352737127592,
+              "high_minus_low_win_rate": 0.023636363636363678
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 19,
+              "high_minus_low_mean_net_r": 0.10123987513413174,
+              "high_minus_low_win_rate": 0.043859649122807015
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 14,
+              "high_closed": 13,
+              "high_minus_low_mean_net_r": -0.18884128576350412,
+              "high_minus_low_win_rate": -0.06043956043956042
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 13,
+              "high_closed": 15,
+              "high_minus_low_mean_net_r": 0.05792863288755806,
+              "high_minus_low_win_rate": 0.015384615384615385
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 18,
+              "high_closed": 24,
+              "high_minus_low_mean_net_r": -0.016240533333729656,
+              "high_minus_low_win_rate": 0.01388888888888884
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 5,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 0.4211144050287958,
+              "high_minus_low_win_rate": 0.19999999999999996
+            }
+          ]
+        }
+      },
+      "H22a": {
+        "ranks": {
+          "low": {
+            "native_positions": 220,
+            "closed_positions": 211,
+            "open_right_censored_positions": 9,
+            "wins": 115,
+            "win_rate": 0.5450236966824644,
+            "mean_net_r": 0.14558530762587008,
+            "native_closed_pnl_usdt": "2653.67682814"
+          },
+          "middle": {
+            "native_positions": 232,
+            "closed_positions": 220,
+            "open_right_censored_positions": 12,
+            "wins": 122,
+            "win_rate": 0.5545454545454546,
+            "mean_net_r": 0.14639008355247995,
+            "native_closed_pnl_usdt": "2243.56339162"
+          },
+          "high": {
+            "native_positions": 238,
+            "closed_positions": 231,
+            "open_right_censored_positions": 7,
+            "wins": 119,
+            "win_rate": 0.5151515151515151,
+            "mean_net_r": 0.07210564241751613,
+            "native_closed_pnl_usdt": "-432.17682758"
+          }
+        },
+        "within_coin": {
+          "comparable_groups": 37,
+          "high_minus_low_equal_group_mean_net_r": -0.043709256100454036,
+          "high_minus_low_equal_group_mean_win_rate": -0.01883371883371884,
+          "net_r_directions": {
+            "positive": 15,
+            "negative": 22,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 14,
+            "negative": 20,
+            "tied": 3
+          },
+          "groups": [
+            {
+              "coin": "AAVE",
+              "low_closed": 6,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": 0.42143793675206737,
+              "high_minus_low_win_rate": 0.2142857142857143
+            },
+            {
+              "coin": "ADA",
+              "low_closed": 3,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.607098447915993,
+              "high_minus_low_win_rate": -0.2666666666666666
+            },
+            {
+              "coin": "ALGO",
+              "low_closed": 4,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -0.4525702152586551,
+              "high_minus_low_win_rate": -0.25
+            },
+            {
+              "coin": "APT",
+              "low_closed": 4,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": 0.052443522876067905,
+              "high_minus_low_win_rate": 0.05555555555555558
+            },
+            {
+              "coin": "ARB",
+              "low_closed": 1,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -1.0834140384595534,
+              "high_minus_low_win_rate": -0.4545454545454546
+            },
+            {
+              "coin": "ATOM",
+              "low_closed": 11,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.5548128333714407,
+              "high_minus_low_win_rate": -0.29870129870129875
+            },
+            {
+              "coin": "AVAX",
+              "low_closed": 9,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 1.0127006567361985,
+              "high_minus_low_win_rate": 0.4444444444444444
+            },
+            {
+              "coin": "BCH",
+              "low_closed": 9,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -1.2041707692319772,
+              "high_minus_low_win_rate": -0.5555555555555556
+            },
+            {
+              "coin": "BNB",
+              "low_closed": 4,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.7387855302395833,
+              "high_minus_low_win_rate": -0.36363636363636365
+            },
+            {
+              "coin": "BTC",
+              "low_closed": 4,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.17850751034779647,
+              "high_minus_low_win_rate": -0.07142857142857145
+            },
+            {
+              "coin": "DOGE",
+              "low_closed": 5,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -1.2088837435034667,
+              "high_minus_low_win_rate": -0.5142857142857143
+            },
+            {
+              "coin": "DOT",
+              "low_closed": 2,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.10013137789758601,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "ETC",
+              "low_closed": 3,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 1.11704657670228,
+              "high_minus_low_win_rate": 0.5
+            },
+            {
+              "coin": "ETH",
+              "low_closed": 6,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.36557129773647146,
+              "high_minus_low_win_rate": 0.16666666666666663
+            },
+            {
+              "coin": "FET",
+              "low_closed": 6,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 0.815651001884706,
+              "high_minus_low_win_rate": 0.33333333333333337
+            },
+            {
+              "coin": "FIL",
+              "low_closed": 1,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": 0.21382552549938183,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "HBAR",
+              "low_closed": 4,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": 0.5847824835991332,
+              "high_minus_low_win_rate": 0.25
+            },
+            {
+              "coin": "ICP",
+              "low_closed": 13,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.38689989731194835,
+              "high_minus_low_win_rate": -0.18681318681318687
+            },
+            {
+              "coin": "IMX",
+              "low_closed": 5,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 0.28859489186109716,
+              "high_minus_low_win_rate": 0.09999999999999998
+            },
+            {
+              "coin": "INJ",
+              "low_closed": 5,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -1.306566615786934,
+              "high_minus_low_win_rate": -0.6
+            },
+            {
+              "coin": "LDO",
+              "low_closed": 8,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": -0.2686867990149023,
+              "high_minus_low_win_rate": -0.15000000000000002
+            },
+            {
+              "coin": "LINK",
+              "low_closed": 6,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.6844367500171127,
+              "high_minus_low_win_rate": -0.3333333333333333
+            },
+            {
+              "coin": "LTC",
+              "low_closed": 13,
+              "high_closed": 5,
+              "high_minus_low_mean_net_r": -0.24616380074784347,
+              "high_minus_low_win_rate": -0.1384615384615384
+            },
+            {
+              "coin": "NEAR",
+              "low_closed": 10,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": -0.10798175118061541,
+              "high_minus_low_win_rate": -0.09999999999999998
+            },
+            {
+              "coin": "OP",
+              "low_closed": 2,
+              "high_closed": 6,
+              "high_minus_low_mean_net_r": 1.0947640128582687,
+              "high_minus_low_win_rate": 0.5
+            },
+            {
+              "coin": "PEPE",
+              "low_closed": 3,
+              "high_closed": 10,
+              "high_minus_low_mean_net_r": 0.9788584778836804,
+              "high_minus_low_win_rate": 0.46666666666666673
+            },
+            {
+              "coin": "SEI",
+              "low_closed": 1,
+              "high_closed": 9,
+              "high_minus_low_mean_net_r": 0.9501016782063548,
+              "high_minus_low_win_rate": 0.4444444444444444
+            },
+            {
+              "coin": "SHIB",
+              "low_closed": 7,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": -0.09093905174497599,
+              "high_minus_low_win_rate": -0.0714285714285714
+            },
+            {
+              "coin": "SOL",
+              "low_closed": 7,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.3091532002811318,
+              "high_minus_low_win_rate": -0.07792207792207795
+            },
+            {
+              "coin": "STX",
+              "low_closed": 4,
+              "high_closed": 8,
+              "high_minus_low_mean_net_r": -1.0679220685900384,
+              "high_minus_low_win_rate": -0.5
+            },
+            {
+              "coin": "SUI",
+              "low_closed": 4,
+              "high_closed": 4,
+              "high_minus_low_mean_net_r": 0.9179630397411265,
+              "high_minus_low_win_rate": 0.5
+            },
+            {
+              "coin": "TIA",
+              "low_closed": 1,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -1.199124697714773,
+              "high_minus_low_win_rate": -0.4285714285714286
+            },
+            {
+              "coin": "TRX",
+              "low_closed": 14,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.07804776306883487,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "coin": "UNI",
+              "low_closed": 9,
+              "high_closed": 7,
+              "high_minus_low_mean_net_r": -0.42559199893194477,
+              "high_minus_low_win_rate": -0.2063492063492064
+            },
+            {
+              "coin": "WLD",
+              "low_closed": 5,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": 0.24996809664454286,
+              "high_minus_low_win_rate": 0.1454545454545454
+            },
+            {
+              "coin": "XLM",
+              "low_closed": 8,
+              "high_closed": 1,
+              "high_minus_low_mean_net_r": -0.5652912187548792,
+              "high_minus_low_win_rate": -0.25
+            },
+            {
+              "coin": "XRP",
+              "low_closed": 4,
+              "high_closed": 2,
+              "high_minus_low_mean_net_r": 2.18422840467381,
+              "high_minus_low_win_rate": 1.0
+            }
+          ]
+        },
+        "within_submission_month": {
+          "comparable_groups": 11,
+          "high_minus_low_equal_group_mean_net_r": -0.0701244077249997,
+          "high_minus_low_equal_group_mean_win_rate": -0.02861458925836598,
+          "net_r_directions": {
+            "positive": 4,
+            "negative": 7,
+            "tied": 0
+          },
+          "win_rate_directions": {
+            "positive": 4,
+            "negative": 6,
+            "tied": 1
+          },
+          "groups": [
+            {
+              "entry_submission_month_utc": "2025-11-01T00:00:00+00:00",
+              "low_closed": 13,
+              "high_closed": 11,
+              "high_minus_low_mean_net_r": -0.04255822118910324,
+              "high_minus_low_win_rate": -0.06293706293706294
+            },
+            {
+              "entry_submission_month_utc": "2025-12-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 21,
+              "high_minus_low_mean_net_r": -0.11526901297762164,
+              "high_minus_low_win_rate": -0.06442577030812324
+            },
+            {
+              "entry_submission_month_utc": "2026-01-01T00:00:00+00:00",
+              "low_closed": 19,
+              "high_closed": 16,
+              "high_minus_low_mean_net_r": -0.11171423041769774,
+              "high_minus_low_win_rate": -0.05592105263157893
+            },
+            {
+              "entry_submission_month_utc": "2026-02-01T00:00:00+00:00",
+              "low_closed": 17,
+              "high_closed": 18,
+              "high_minus_low_mean_net_r": 0.24925417711037037,
+              "high_minus_low_win_rate": 0.09150326797385616
+            },
+            {
+              "entry_submission_month_utc": "2026-03-01T00:00:00+00:00",
+              "low_closed": 15,
+              "high_closed": 20,
+              "high_minus_low_mean_net_r": -0.21648746832865776,
+              "high_minus_low_win_rate": -0.06666666666666665
+            },
+            {
+              "entry_submission_month_utc": "2026-04-01T00:00:00+00:00",
+              "low_closed": 33,
+              "high_closed": 31,
+              "high_minus_low_mean_net_r": -0.24817556947192632,
+              "high_minus_low_win_rate": -0.10654936461388076
+            },
+            {
+              "entry_submission_month_utc": "2026-05-01T00:00:00+00:00",
+              "low_closed": 24,
+              "high_closed": 28,
+              "high_minus_low_mean_net_r": 0.16753075683152988,
+              "high_minus_low_win_rate": 0.0892857142857143
+            },
+            {
+              "entry_submission_month_utc": "2026-06-01T00:00:00+00:00",
+              "low_closed": 12,
+              "high_closed": 15,
+              "high_minus_low_mean_net_r": -0.11207872023756998,
+              "high_minus_low_win_rate": 0.0
+            },
+            {
+              "entry_submission_month_utc": "2026-07-01T00:00:00+00:00",
+              "low_closed": 21,
+              "high_closed": 26,
+              "high_minus_low_mean_net_r": 0.020011882198574568,
+              "high_minus_low_win_rate": 0.0146520146520146
+            },
+            {
+              "entry_submission_month_utc": "2026-08-01T00:00:00+00:00",
+              "low_closed": 26,
+              "high_closed": 24,
+              "high_minus_low_mean_net_r": 0.059703880070534066,
+              "high_minus_low_win_rate": 0.019230769230769273
+            },
+            {
+              "entry_submission_month_utc": "2026-09-01T00:00:00+00:00",
+              "low_closed": 14,
+              "high_closed": 19,
+              "high_minus_low_mean_net_r": -0.42158595856342884,
+              "high_minus_low_win_rate": -0.1729323308270676
+            }
+          ]
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Within-coin comparisons can still be confounded by calendar month, and within-month comparisons can still be confounded by coin composition; neither is a causal portfolio-filter replay.",
+    "Native Position outcome is observed conditional on the strategy's candidate generation, order submission, fill and closure; unavailable and open observations are not fabricated as wins or losses.",
+    "The annual development data and these feature/outcome relationships have been viewed repeatedly; no p-value, asset list, economic uplift or independent validation is claimed."
+  ]
+}

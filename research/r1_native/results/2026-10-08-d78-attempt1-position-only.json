@@ -1,0 +1,566 @@
+{
+  "schema": "r1-native-d78-post-fill-asset-path/v1",
+  "preregistration_commit": "bc966221d",
+  "input_sha256": {
+    "2026-10-07-input-identity.json": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+    "2026-10-08-d71-asset-regime-positions.json.gz": "624d4dd60a6742e6811c7e66733e971a1faeaeb803814e6af61034e8e9d7b5e9",
+    "2026-10-08-d77-native-entry-geometry.json": "0c358599d9956634c292f0a7efda2a4049088f25b2ad690fce283e22537c44e6",
+    "2026-10-08-d77-native-entry-geometry-bundles.json.gz": "ed66b59b9f8db091572aaec1fb65146c629686cc94954fa3cb6fc991034c56b0",
+    "summary.json": "cd0212f4c6880469c5d5b9db0b8b931618590fc2914bff42417e95ea9e41b555",
+    "orders.csv": "77cf20e8302d22d305f7fe9e0a4eec4fd9b4c38cda541d360f2c30440ba6fe7d",
+    "fills.csv": "792aa68f2f12063770dbf00173c30c3d707b79d316a43864f05dba67eaed148e",
+    "positions.csv": "d2230be30c5365f92f67f7b829e4f2f66f716f0144f48b6c1dabb6139547a569"
+  },
+  "market_catalog_tree_sha256": {
+    "BTC": "bd804c5865aba72d8be06c56b48482c360ffee15706b314fa7e956f48c12bad7",
+    "ETH": "d7ccf00d123f58b35af8a2f3d195b9eafe203c9f4f733e692792efdc0d5d3ab1",
+    "BNB": "45ef77ca40428e81d7327092dfcd99bc048b23310e2f7f141294d861ac60cfa2",
+    "ADA": "17b4c07ce44f6e98021197aebfdc068bfd8fd60e4c98cdc6a2bcaf379400dc86",
+    "XRP": "993a3cd3977658abe5e39ec46cd9a3c05d1b16ef026ddbf77290c69c3ad7c722",
+    "SOL": "04d1bf85ebd24503dca8f4da077adebf61048245ee8788625a49844466e4767e",
+    "DOGE": "26cad621e7319c5198325314230d49b86b3a089908aaf4cce2d914832724b0f5",
+    "LTC": "6cb772a9ba490595bc720868c0d58161ba60fcd7419d3f80e340f003083387b2",
+    "TRX": "d53d902387bb2c1a98dbcdc44e4812f342ed7c993d2404a3a89b91e90f94591c",
+    "LINK": "54bd48d29609e64cabb6e022a40eeca2870bda052895a4b93bfb5d5976ec4fca",
+    "DOT": "6036fe324c552cc2a40b00b069f7d59899aba7320941c252b0480c69d8a272ad",
+    "AVAX": "5651af85eb84ac0e5f310d2cc1fb5bf135960ab69097a2a41d52b281bd3e4f07",
+    "BCH": "053b4b53dff900d3e28ac73c138b577a2dc59c18aa771dcc759beace7931bca8",
+    "ETC": "c09cc0bdb3abf5bb01559defac44785f47e567583665384409daedbfe74a9ecf",
+    "XLM": "f5ca5bebd5fde9aac5526f3ad44856b4a76ac4af0ed567d5f0ac9d8a72d65938",
+    "ATOM": "c86452941a2733d198d89500b938570de7ae205c0f2bdc941e14e912b66c47e6",
+    "FIL": "3260659962cb67e9e98d7354a4fb7fdc6c04aebdbda890de51f745d57a30a9e6",
+    "NEAR": "4e474364144e51e8c43ac8238d5258550c66dafcc5b118fd0309809911ada5b8",
+    "UNI": "bf074067dc3d9ab1fe4a1a35d46a5f3b5ce1d75a082b1d7536bb371c0fba6777",
+    "AAVE": "43438ed55060a642a713aa68da51001d73bc4f997abca693f22f851c519da743",
+    "ICP": "af062cd980ac5b3c2a6067788f68659528d216f29304832c620918295c13f7e9",
+    "APT": "d890ca202bc08327d1973a2449da15728d2b89e48dfa9bf6999ff3ba93a5331b",
+    "ARB": "8cf754d3f70720e2183c0378a4ae0f51b01eb2409c3d36302dabc7a76187e1c2",
+    "SUI": "e4e87d0254d621fdafc20651b0b49fa17975b433d6ef77aa1b73ebc20877280f",
+    "OP": "cbd864b07a08459b4958256161fe111d3bacce2242bf1f72fe2bda2cf56c942e",
+    "INJ": "8e377a50707d20c23bab65b7cf846cdb2cf19dc250ea02e7cc4d4b8117be07af",
+    "TIA": "d0a7eef45bb32bfd89ead48e1610cf139899bd3f5aaddc35825913f5124c084a",
+    "SEI": "3f6d282e2d7788f16f32818c46e46625d4ac4cdf9f2c4d6d6ef1bc5088df14e5",
+    "PEPE": "28ad029ab6d6b4c618b6b28dd85f43a8020251dccf5d25afe52c23424eda04fa",
+    "SHIB": "e4ec3d26e5a43b7d830d8203030d208202d3dd1be97dbd0c8234a25e70c49fdb",
+    "HBAR": "c24e09d8eabf46f5b021c5544a6b185be9f87211ac8bab2b4f445506d45e2b32",
+    "ALGO": "aad015188469607a49ce436694392c37bbb83cadd7f99c9ec06992ea6efa61ac",
+    "FET": "87a53c3da7843e39645225b745a7924de88370cc6fdbc4df78a96340d544a945",
+    "WLD": "359746f2cb641667fd36fdeb40334324fba4671e11c855e4b55db8e4b0f02de0",
+    "IMX": "bf109dbab16b2a01140ffe484d9a5d464f4bb3695c14d86f6a22456cd676c5b7",
+    "STX": "5c66d8d3411e6999589e238d8e66f70b703b08c4b90ba709603a5a79c2b51d7e",
+    "LDO": "7a3f8a574ca5517df7ce9f0871469ba547af801cc58038dcbd90f5018f9470e4"
+  },
+  "complete_four_hour_bars_per_coin": {
+    "BTC": 2192,
+    "ETH": 2192,
+    "BNB": 2192,
+    "ADA": 2192,
+    "XRP": 2192,
+    "SOL": 2192,
+    "DOGE": 2192,
+    "LTC": 2192,
+    "TRX": 2192,
+    "LINK": 2192,
+    "DOT": 2192,
+    "AVAX": 2192,
+    "BCH": 2192,
+    "ETC": 2192,
+    "XLM": 2192,
+    "ATOM": 2192,
+    "FIL": 2192,
+    "NEAR": 2192,
+    "UNI": 2192,
+    "AAVE": 2192,
+    "ICP": 2192,
+    "APT": 2192,
+    "ARB": 2192,
+    "SUI": 2192,
+    "OP": 2192,
+    "INJ": 2192,
+    "TIA": 2192,
+    "SEI": 2192,
+    "PEPE": 2192,
+    "SHIB": 2192,
+    "HBAR": 2192,
+    "ALGO": 2192,
+    "FET": 2192,
+    "WLD": 2192,
+    "IMX": 2192,
+    "STX": 2192,
+    "LDO": 2192
+  },
+  "native_run": "/tmp/r1-h22a-paired-h19a-37",
+  "method": "Read-only pinned Nautilus Position event/funding replay at complete UTC four-hour LAST landmarks after the first native BUY fill; D71 causal volatility state at first order submission; indicative taker exit is not an order/account counterfactual.",
+  "by_prior_volatility_rank": {
+    "low": {
+      "native_positions": 175,
+      "closed_positions": 171,
+      "landmarks": {
+        "1": {
+          "state_counts": {
+            "closed_censored": 5,
+            "observed": 170
+          },
+          "closed_before_landmark_causes": {
+            "stop": 5
+          },
+          "all_observed": {
+            "observed_positions": 170,
+            "closed_by_report_end": 166,
+            "open_at_report_end": 4,
+            "eventual_closed_winners": 81,
+            "eventual_closed_win_rate": 0.4879518072289157,
+            "eventual_target_exits": 75,
+            "eventual_target_net_pnl_usdt": "23306.70525629",
+            "eventual_closed_native_net_pnl_usdt": "8755.85444876",
+            "eventual_closed_mean_net_r": 0.47856022151699545,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "6959.09567586970",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "41.92226310764879518072289157",
+            "mfe_first_r_median": 0.21232129724504467,
+            "mae_first_r_median": -0.08824555284269271,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 114
+          }
+        },
+        "3": {
+          "state_counts": {
+            "closed_censored": 11,
+            "observed": 164
+          },
+          "closed_before_landmark_causes": {
+            "stop": 8,
+            "target": 3
+          },
+          "all_observed": {
+            "observed_positions": 164,
+            "closed_by_report_end": 160,
+            "open_at_report_end": 4,
+            "eventual_closed_winners": 78,
+            "eventual_closed_win_rate": 0.4875,
+            "eventual_target_exits": 72,
+            "eventual_target_net_pnl_usdt": "22735.99371438",
+            "eventual_closed_native_net_pnl_usdt": "8742.35963068",
+            "eventual_closed_mean_net_r": 0.48190665874258476,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "6969.31202773920",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "43.55820017337",
+            "mfe_first_r_median": 0.34125267590184527,
+            "mae_first_r_median": -0.18329599419077208,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 94
+          },
+          "primary_slow_below_half_r": {
+            "observed_positions": 116,
+            "closed_by_report_end": 114,
+            "open_at_report_end": 2,
+            "eventual_closed_winners": 53,
+            "eventual_closed_win_rate": 0.4649122807017544,
+            "eventual_target_exits": 49,
+            "eventual_target_net_pnl_usdt": "16987.40975258",
+            "eventual_closed_native_net_pnl_usdt": "6081.21002191",
+            "eventual_closed_mean_net_r": 0.446373221899617,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "6359.39261187120",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "55.78414571816842105263157895",
+            "mfe_first_r_median": 0.2296925005893148,
+            "mae_first_r_median": -0.23785822021116138,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 69
+          },
+          "primary_advancing_at_least_half_r": {
+            "observed_positions": 48,
+            "closed_by_report_end": 46,
+            "open_at_report_end": 2,
+            "eventual_closed_winners": 25,
+            "eventual_closed_win_rate": 0.5434782608695652,
+            "eventual_target_exits": 23,
+            "eventual_target_net_pnl_usdt": "5748.58396180",
+            "eventual_closed_native_net_pnl_usdt": "2661.14960877",
+            "eventual_closed_mean_net_r": 0.5699677848316789,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "609.91941586800",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "13.25911773626086956521739130",
+            "mfe_first_r_median": 0.6582391168877415,
+            "mae_first_r_median": -0.039412342043920995,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 25
+          }
+        },
+        "5": {
+          "state_counts": {
+            "closed_censored": 14,
+            "observed": 161
+          },
+          "closed_before_landmark_causes": {
+            "stop": 11,
+            "target": 3
+          },
+          "all_observed": {
+            "observed_positions": 161,
+            "closed_by_report_end": 157,
+            "open_at_report_end": 4,
+            "eventual_closed_winners": 78,
+            "eventual_closed_win_rate": 0.4968152866242038,
+            "eventual_target_exits": 72,
+            "eventual_target_net_pnl_usdt": "22735.99371438",
+            "eventual_closed_native_net_pnl_usdt": "9161.84557716",
+            "eventual_closed_mean_net_r": 0.5106590181916325,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "7357.33399121470",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "46.86199994404267515923566879",
+            "mfe_first_r_median": 0.4166666666666667,
+            "mae_first_r_median": -0.25326618841750204,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 71
+          }
+        },
+        "10": {
+          "state_counts": {
+            "closed_censored": 24,
+            "observed": 151
+          },
+          "closed_before_landmark_causes": {
+            "stop": 20,
+            "target": 4
+          },
+          "all_observed": {
+            "observed_positions": 151,
+            "closed_by_report_end": 147,
+            "open_at_report_end": 4,
+            "eventual_closed_winners": 77,
+            "eventual_closed_win_rate": 0.5238095238095238,
+            "eventual_target_exits": 71,
+            "eventual_target_net_pnl_usdt": "22544.25497038",
+            "eventual_closed_native_net_pnl_usdt": "10551.25480391",
+            "eventual_closed_mean_net_r": 0.5970506521485945,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "5909.50113964900",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "40.20068802482312925170068027",
+            "mfe_first_r_median": 0.5694050991501416,
+            "mae_first_r_median": -0.3025682182985554,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 57
+          }
+        }
+      }
+    },
+    "middle": {
+      "native_positions": 166,
+      "closed_positions": 161,
+      "landmarks": {
+        "1": {
+          "state_counts": {
+            "closed_censored": 3,
+            "observed": 163
+          },
+          "closed_before_landmark_causes": {
+            "stop": 3
+          },
+          "all_observed": {
+            "observed_positions": 163,
+            "closed_by_report_end": 158,
+            "open_at_report_end": 5,
+            "eventual_closed_winners": 71,
+            "eventual_closed_win_rate": 0.44936708860759494,
+            "eventual_target_exits": 64,
+            "eventual_target_net_pnl_usdt": "19909.78320373",
+            "eventual_closed_native_net_pnl_usdt": "2740.56946928",
+            "eventual_closed_mean_net_r": 0.3084679269008672,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "63.139260626350",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "0.3996155735844936708860759494",
+            "mfe_first_r_median": 0.19322344322344323,
+            "mae_first_r_median": -0.07552140504939626,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 97
+          }
+        },
+        "3": {
+          "state_counts": {
+            "closed_censored": 8,
+            "end_censored": 2,
+            "observed": 156
+          },
+          "closed_before_landmark_causes": {
+            "stop": 5,
+            "target": 3
+          },
+          "all_observed": {
+            "observed_positions": 156,
+            "closed_by_report_end": 153,
+            "open_at_report_end": 3,
+            "eventual_closed_winners": 68,
+            "eventual_closed_win_rate": 0.4444444444444444,
+            "eventual_target_exits": 61,
+            "eventual_target_net_pnl_usdt": "19600.08058406",
+            "eventual_closed_native_net_pnl_usdt": "2907.98678433",
+            "eventual_closed_mean_net_r": 0.3002364110604399,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "-1177.929031921500",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "-7.698882561578431372549019608",
+            "mfe_first_r_median": 0.3199849037799176,
+            "mae_first_r_median": -0.12429114561861573,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 88
+          },
+          "primary_slow_below_half_r": {
+            "observed_positions": 106,
+            "closed_by_report_end": 105,
+            "open_at_report_end": 1,
+            "eventual_closed_winners": 40,
+            "eventual_closed_win_rate": 0.38095238095238093,
+            "eventual_target_exits": 36,
+            "eventual_target_net_pnl_usdt": "13140.23801230",
+            "eventual_closed_native_net_pnl_usdt": "240.85749182",
+            "eventual_closed_mean_net_r": 0.15717130660126993,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "-560.262234026550",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "-5.335830800252857142857142857",
+            "mfe_first_r_median": 0.21325210862495628,
+            "mae_first_r_median": -0.19474619790637962,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 64
+          },
+          "primary_advancing_at_least_half_r": {
+            "observed_positions": 50,
+            "closed_by_report_end": 48,
+            "open_at_report_end": 2,
+            "eventual_closed_winners": 28,
+            "eventual_closed_win_rate": 0.5833333333333334,
+            "eventual_target_exits": 25,
+            "eventual_target_net_pnl_usdt": "6459.84257176",
+            "eventual_closed_native_net_pnl_usdt": "2667.12929251",
+            "eventual_closed_mean_net_r": 0.6131913270648742,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "-617.66679789495",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "-12.868058289478125",
+            "mfe_first_r_median": 0.7317160583663448,
+            "mae_first_r_median": -0.019772048986312647,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 24
+          }
+        },
+        "5": {
+          "state_counts": {
+            "closed_censored": 10,
+            "end_censored": 2,
+            "observed": 154
+          },
+          "closed_before_landmark_causes": {
+            "stop": 7,
+            "target": 3
+          },
+          "all_observed": {
+            "observed_positions": 154,
+            "closed_by_report_end": 151,
+            "open_at_report_end": 3,
+            "eventual_closed_winners": 68,
+            "eventual_closed_win_rate": 0.4503311258278146,
+            "eventual_target_exits": 61,
+            "eventual_target_net_pnl_usdt": "19600.08058406",
+            "eventual_closed_native_net_pnl_usdt": "3267.48000441",
+            "eventual_closed_mean_net_r": 0.3176886731262939,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "-809.666973519250",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "-5.362032937213576158940397351",
+            "mfe_first_r_median": 0.4246996706064716,
+            "mae_first_r_median": -0.1743269037572835,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 77
+          }
+        },
+        "10": {
+          "state_counts": {
+            "closed_censored": 30,
+            "end_censored": 2,
+            "observed": 134
+          },
+          "closed_before_landmark_causes": {
+            "stop": 14,
+            "target": 16
+          },
+          "all_observed": {
+            "observed_positions": 134,
+            "closed_by_report_end": 131,
+            "open_at_report_end": 3,
+            "eventual_closed_winners": 55,
+            "eventual_closed_win_rate": 0.4198473282442748,
+            "eventual_target_exits": 48,
+            "eventual_target_net_pnl_usdt": "16420.24756374",
+            "eventual_closed_native_net_pnl_usdt": "1369.76366293",
+            "eventual_closed_mean_net_r": 0.23384666650014754,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "-2808.112149199700",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "-21.43597060457786259541984733",
+            "mfe_first_r_median": 0.5428726920906233,
+            "mae_first_r_median": -0.2386237382691535,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 61
+          }
+        }
+      }
+    },
+    "high": {
+      "native_positions": 166,
+      "closed_positions": 164,
+      "landmarks": {
+        "1": {
+          "state_counts": {
+            "closed_censored": 16,
+            "observed": 150
+          },
+          "closed_before_landmark_causes": {
+            "stop": 16
+          },
+          "all_observed": {
+            "observed_positions": 150,
+            "closed_by_report_end": 148,
+            "open_at_report_end": 2,
+            "eventual_closed_winners": 60,
+            "eventual_closed_win_rate": 0.40540540540540543,
+            "eventual_target_exits": 60,
+            "eventual_target_net_pnl_usdt": "22189.79302654",
+            "eventual_closed_native_net_pnl_usdt": "3409.65605852",
+            "eventual_closed_mean_net_r": 0.2930405067284296,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "1973.248586730000",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "13.33276072114864864864864865",
+            "mfe_first_r_median": 0.152941691527353,
+            "mae_first_r_median": -0.11189516777918676,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 88
+          }
+        },
+        "3": {
+          "state_counts": {
+            "closed_censored": 18,
+            "observed": 148
+          },
+          "closed_before_landmark_causes": {
+            "stop": 16,
+            "target": 2
+          },
+          "all_observed": {
+            "observed_positions": 148,
+            "closed_by_report_end": 146,
+            "open_at_report_end": 2,
+            "eventual_closed_winners": 58,
+            "eventual_closed_win_rate": 0.3972602739726027,
+            "eventual_target_exits": 58,
+            "eventual_target_net_pnl_usdt": "21825.98303447",
+            "eventual_closed_native_net_pnl_usdt": "3045.84606645",
+            "eventual_closed_mean_net_r": 0.27475521753614585,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "710.129560402500",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "4.863901098647260273972602740",
+            "mfe_first_r_median": 0.27972464807896885,
+            "mae_first_r_median": -0.217016703291425,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 69
+          },
+          "primary_slow_below_half_r": {
+            "observed_positions": 110,
+            "closed_by_report_end": 109,
+            "open_at_report_end": 1,
+            "eventual_closed_winners": 41,
+            "eventual_closed_win_rate": 0.3761467889908257,
+            "eventual_target_exits": 41,
+            "eventual_target_net_pnl_usdt": "16898.83645765",
+            "eventual_closed_native_net_pnl_usdt": "2274.41488277",
+            "eventual_closed_mean_net_r": 0.2409481915805599,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "2746.688651900700",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "25.19897845780458715596330275",
+            "mfe_first_r_median": 0.1675461074210189,
+            "mae_first_r_median": -0.2509162411069588,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 53
+          },
+          "primary_advancing_at_least_half_r": {
+            "observed_positions": 38,
+            "closed_by_report_end": 37,
+            "open_at_report_end": 1,
+            "eventual_closed_winners": 17,
+            "eventual_closed_win_rate": 0.4594594594594595,
+            "eventual_target_exits": 17,
+            "eventual_target_net_pnl_usdt": "4927.14657682",
+            "eventual_closed_native_net_pnl_usdt": "771.43118368",
+            "eventual_closed_mean_net_r": 0.3743488885944937,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "-2036.559091498200",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "-55.04213760805945945945945946",
+            "mfe_first_r_median": 0.7093070721502194,
+            "mae_first_r_median": -0.00020348377679343206,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 16
+          }
+        },
+        "5": {
+          "state_counts": {
+            "closed_censored": 24,
+            "observed": 142
+          },
+          "closed_before_landmark_causes": {
+            "stop": 20,
+            "target": 4
+          },
+          "all_observed": {
+            "observed_positions": 142,
+            "closed_by_report_end": 140,
+            "open_at_report_end": 2,
+            "eventual_closed_winners": 56,
+            "eventual_closed_win_rate": 0.4,
+            "eventual_target_exits": 56,
+            "eventual_target_net_pnl_usdt": "21415.69908631",
+            "eventual_closed_native_net_pnl_usdt": "3396.86617432",
+            "eventual_closed_mean_net_r": 0.2918551543469843,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "1136.233182357600",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "8.115951302554285714285714286",
+            "mfe_first_r_median": 0.32525911344069447,
+            "mae_first_r_median": -0.2437747527090246,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 60
+          }
+        },
+        "10": {
+          "state_counts": {
+            "closed_censored": 41,
+            "observed": 125
+          },
+          "closed_before_landmark_causes": {
+            "stop": 27,
+            "target": 14
+          },
+          "all_observed": {
+            "observed_positions": 125,
+            "closed_by_report_end": 123,
+            "open_at_report_end": 2,
+            "eventual_closed_winners": 46,
+            "eventual_closed_win_rate": 0.37398373983739835,
+            "eventual_target_exits": 46,
+            "eventual_target_net_pnl_usdt": "18829.07620217",
+            "eventual_closed_native_net_pnl_usdt": "2452.02259455",
+            "eventual_closed_mean_net_r": 0.23331464496002702,
+            "native_continuation_minus_indicative_full_exit_sum_usdt": "-32.308933468800",
+            "native_continuation_minus_indicative_full_exit_mean_usdt": "-0.2626742558439024390243902439",
+            "mfe_first_r_median": 0.45957095709570955,
+            "mae_first_r_median": -0.3486238532110092,
+            "approx_a_low_breached": 0,
+            "approx_a_close_breached": 0,
+            "later_entry_after_landmark": 45
+          }
+        }
+      }
+    }
+  },
+  "position_detail_file": "2026-10-08-d78-post-fill-asset-path-positions.json.gz",
+  "position_detail_sha256": "4ac70e0ec3cfeb3faf0851e312b973f1c69f401124b3e9e6576ae8b84ac86c0a",
+  "limitations": [
+    "Completed-bar highs/lows cannot resolve intrabar sequence; the entry-containing partial four-hour bar and already closed Positions are excluded from later observed states.",
+    "Approximate A is inferred from native rounded H19a 50% entry/B target; it is not a source-exact line or the author's confirmed structural invalidation.",
+    "Indicative full exit at the observed LAST close includes native prior fills/funding and an extra taker fee but is not a native submitted order, cannot release/reallocate future account capital, and omits subsequent alternative funding/path changes.",
+    "Viewed-year subgroup outcomes and four landmarks do not qualify an asset filter, exit rule or the Goal; eventual winners after slow starts are explicit counterexamples."
+  ]
+}

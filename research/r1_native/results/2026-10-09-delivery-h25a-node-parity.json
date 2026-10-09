@@ -1,0 +1,92 @@
+{
+  "reference": "/tmp/r1-h25a-37",
+  "candidate": "/tmp/r1-delivery-final-node-h25-37",
+  "nautilus_version": "2.0.0rc3",
+  "reference_summary_sha256": "b5e052a37c7b4448e26cd0a3d07a714429eed9844cf461ccc686bdacfd8dd89a",
+  "candidate_summary_sha256": "c3313464b752bebdc98b2af74e067b65aec73e249682a9bbc9ff1af807f10205",
+  "orders": {
+    "counts": [
+      3935,
+      3935
+    ],
+    "column_match": true,
+    "compared_columns": 36,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "fills": {
+    "counts": [
+      362,
+      362
+    ],
+    "column_match": true,
+    "compared_columns": 18,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "positions": {
+    "counts": [
+      111,
+      111
+    ],
+    "column_match": true,
+    "compared_columns": 28,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "funding_adjustments": {
+    "counts": [
+      3218,
+      3218
+    ],
+    "exact_match": true,
+    "total_usdt": "-251.16031528"
+  },
+  "account": {
+    "counts": [
+      11959,
+      11959
+    ],
+    "column_match": true,
+    "compared_columns": 11,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "returns_series": {
+    "counts": [
+      366,
+      366
+    ],
+    "column_match": true,
+    "compared_columns": 2,
+    "mismatch_count": 0,
+    "first_mismatches": []
+  },
+  "metrics": {
+    "final_equity_usdt": [
+      "112759.99166706",
+      "112759.99166706"
+    ],
+    "annualized_return_pct": [
+      13.12816586990589,
+      13.12816586990589
+    ],
+    "closed_trades": [
+      102,
+      102
+    ],
+    "winning_trades": [
+      55,
+      55
+    ],
+    "native_sharpe_365": [
+      1.9048744860392623,
+      1.9048744860392623
+    ],
+    "native_max_drawdown_daily_close": [
+      -0.03068439087681212,
+      -0.03068439087681212
+    ]
+  },
+  "passed": true
+}

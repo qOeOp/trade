@@ -1,0 +1,19 @@
+{
+  "schema": "r1-native-h24a-gap-clock/v1",
+  "run": "/tmp/r1-h24a-37",
+  "source_sha256": {
+    "summary.json": "3090bd5c8ed9b39b56912a9ee842bac42252f54b30e2c4fb09c1c3c9beb97b95",
+    "orders.csv": "2488495e73d0e576d26a42b9fb7c5a71d19c9735978a5fb7ef65a978d7b9f5dc",
+    "fills.csv": "eb8a004da8966c67062cebfbbd9f66c8c48e95742dd6c109c2673e0a01c27d7b",
+    "positions.csv": "89c9d9bef5ac7d33d61138f9528183f57e2ae185a89a8455b477395b75b1cb6f"
+  },
+  "first_native_b_target_fills": 182,
+  "native_positions_reaching_gap_decision": 158,
+  "catalog_micro_gap_decisions": 82,
+  "catalog_no_gap_decisions": 76,
+  "strategy_micro_gap_decisions": 82,
+  "strategy_no_gap_decisions": 76,
+  "no_gap_without_native_market_close": 0,
+  "findings": [],
+  "passed": true
+}

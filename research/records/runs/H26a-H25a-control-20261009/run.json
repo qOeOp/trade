@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "run_id": "H26a-H25a-control-20261009",
+  "attempt_id": "H25a",
+  "role": "control",
+  "nautilus_version": "2.0.0rc3",
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "source_files_sha256": {
+    "strategy_source_sha256": "9dc385555e21a7199ed4eb9c0992581330caeb55862aa73fe85f0daaff1f1aa8",
+    "retracement_strategy_source_sha256": "19217066925b704c430b67b0495c677692dc62c7515c42fa6dd17e0295f18f03",
+    "tiered_strategy_source_sha256": "664a07cf8581d95dbe2c732e1fbd2bcd6c9df2268891c61efed00aa82ab7ccb5",
+    "structural_support_strategy_source_sha256": "3f7cc9a6baa864ad24b039d838743feb366e58cd1650723f11d2d262f6c10051",
+    "broad_swing_signal_source_sha256": "c8dcb097b924dc90339207bf3f751fc88b3b95acf9512ba3689ab62e4e7b57cd",
+    "runner_source_sha256": "eee25321006ee2ae19f0e98c28b4b6ccbbeef16764ffcfaa32229049a7bbe6a5"
+  },
+  "window": {
+    "input_start_utc": "2025-10-07T00:00:00Z",
+    "trade_start_utc": "2025-10-17T00:00:00+00:00",
+    "end_utc": "2026-10-07T08:30:00Z",
+    "bar_minutes": 5
+  },
+  "account": {
+    "model": "one native BacktestEngine margin account, 100000 USDT, 37 strategies sharing portfolio capital",
+    "starting_balance_usdt": "100000",
+    "sizing": {
+      "mode": "native_equity_stop_risk_with_notional_cap",
+      "risk_budget_bps": 25.0,
+      "coin_notional_cap_pct": 5.0
+    }
+  },
+  "cost_model": "Binance USD-M current Instrument terms, native fill fees and historical Catalog funding; BacktestEngine rc3",
+  "summary_ref": {
+    "path": "research/r1_native/results/2026-10-09-h26a-control-h25a-summary.json",
+    "sha256": "95250f1359bd82e4bec80e96bcce664ef89e588625ee251e179561d4facf07ad"
+  },
+  "audit_ref": {
+    "path": "research/r1_native/results/2026-10-09-h26a-control-h25a-native-audit.json",
+    "sha256": "c52255e865c58aaed328f35438d916c74d78ab4cf2846d1f466d69de56bbed21"
+  },
+  "integrity": "passed",
+  "evidence_grade": "development_exposed",
+  "raw_reports": "temporary",
+  "control_run_id": null
+}

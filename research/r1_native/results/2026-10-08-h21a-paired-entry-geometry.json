@@ -1,0 +1,27 @@
+{
+  "method": "read-only native OTO order report; no simulated fills or account ledger",
+  "candidate": {
+    "run": "/tmp/r1-h21a-37",
+    "orders_sha256": "6ce66d89e2fa817271cf5635048b3be7510bc9b1a6d20fcfbc6a974e1a591e36",
+    "native_parent_orders": 6646,
+    "parents_with_positive_fill": 1342,
+    "parent_fill_fraction": 0.20192597050857658,
+    "planned_reward_to_original_stop_risk_median_all": 2.1824152858635566,
+    "planned_reward_to_original_stop_risk_median_filled": 1.7304263229405241,
+    "planned_reward_to_original_stop_risk_mean_filled": 2.395675830105425,
+    "original_stop_risk_usdt_median_filled": 80.76358435000006,
+    "native_entry_order_submit_to_last_event_hours_median_filled": 27.458333333333336
+  },
+  "baseline": {
+    "run": "/tmp/r1-h21a-paired-h19a-37",
+    "orders_sha256": "1398b405fe905f40d428d6a811d22c9cb0ec7ca5295053add86b8e42979820f0",
+    "native_parent_orders": 5878,
+    "parents_with_positive_fill": 881,
+    "parent_fill_fraction": 0.14988091187478733,
+    "planned_reward_to_original_stop_risk_median_all": 2.3161694949875735,
+    "planned_reward_to_original_stop_risk_median_filled": 1.771144278606968,
+    "planned_reward_to_original_stop_risk_mean_filled": 2.52076426122893,
+    "original_stop_risk_usdt_median_filled": 117.18790199999995,
+    "native_entry_order_submit_to_last_event_hours_median_filled": 67.91666666666667
+  }
+}

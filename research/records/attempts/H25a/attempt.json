@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "attempt_id": "H25a",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "strategy",
+  "question": "先前 A 支撑且 B 无先前阻力的宽摆动回撤，能否改善共享账户联合目标？",
+  "mechanism": "H19a 双档入场增加已确认 A 支撑且排除已确认 B 阻力",
+  "hypothesis": "先前 A 支撑且 B 无先前阻力的宽摆动回撤，能否改善共享账户联合目标？",
+  "parents": [
+    {
+      "attempt_id": "H19a",
+      "relationship": "hypothesis_extension",
+      "difference": "H19a 双档入场增加已确认 A 支撑且排除已确认 B 阻力"
+    }
+  ],
+  "code_parent": null,
+  "registration": {
+    "status": "retrospective",
+    "reference": "research/r1_native/RD_EXPERIMENTS.md"
+  },
+  "decision": {
+    "layer": "economics",
+    "outcome": "failed",
+    "scope": "原生年度 +13.1282%，55/102 胜，未达 >20% 与近 60% 联合目标；已暴露开发年。",
+    "next_action": "保留源证据；调查机会广度与 B 阻力的实际作用。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-08-h25a-37-summary.json",
+      "sha256": "b5e052a37c7b4448e26cd0a3d07a714429eed9844cf461ccc686bdacfd8dd89a"
+    },
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-08-h25a-37-native-audit.json",
+      "sha256": "4ec28272e7445c0bef5e3279a3fb82cc6a3e1b562a470918ff7bd4081daa910d"
+    }
+  ]
+}

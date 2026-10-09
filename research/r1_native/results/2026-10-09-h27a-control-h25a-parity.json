@@ -1,0 +1,29 @@
+{
+  "reference": "/tmp/r1-h26a-control-h25a",
+  "candidate": "/tmp/r1-h27a-control-h25a",
+  "reference_equity_usdt": "112759.99166706",
+  "candidate_equity_usdt": "112759.99166706",
+  "equity_gap_usdt": "0E-8",
+  "commission_gap_usdt": "0E-8",
+  "sharpe_gap": "0E-16",
+  "drawdown_gap": "0E-17",
+  "order_count": [
+    3935,
+    3935
+  ],
+  "fill_count": [
+    362,
+    362
+  ],
+  "position_count": [
+    111,
+    111
+  ],
+  "missing_order_ids": [],
+  "extra_order_ids": [],
+  "mismatched_orders": [],
+  "mismatched_fills": [],
+  "within_instrument_increment_fills": [],
+  "metric_differences": [],
+  "parity_passed": true
+}

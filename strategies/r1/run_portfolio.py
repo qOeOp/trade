@@ -16,6 +16,8 @@ from nautilus_trader.analysis import MaxDrawdown
 from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
+from brooks_confirmed_strategy import BrooksConfirmedStrategy
+from gap_runner_strategy import GapRunnerStrategy
 from native_node import run_native_node
 from r1s_strategy import R1StagedStrategy
 from replay_util import SOURCE_COMMIT
@@ -25,6 +27,7 @@ from replay_util import _snapshot_equity_usdt
 from replay_inputs import read_instruments as _read_instruments
 from retracement_strategy import RetracementStrategy
 from strategy import R1Strategy
+from structural_support_strategy import StructuralSupportStrategy
 from tiered_retracement_strategy import TieredRetracementStrategy
 from trendline_strategy import TrendlineBreakStrategy
 
@@ -40,12 +43,25 @@ LINE_CANCEL_TIER_VARIANT = "support-three-tier-line-cancel-4h"
 DEEP_TIER_VARIANT = "support-deep-two-tier-4h"
 BROAD_TIER_VARIANT = "support-broad-two-tier-4h"
 BROAD_LINE_CANCEL_VARIANT = "support-broad-two-tier-line-cancel-4h"
+BROOKS_CONFIRMED_VARIANT = "support-brooks-confirmed-4h"
+GAP_RUNNER_VARIANT = "support-broad-gap-runner-4h"
+STRUCTURAL_SUPPORT_VARIANT = "support-broad-prior-a-support-4h"
+ANY_PRIOR_A_SUPPORT_VARIANT = "support-broad-any-prior-a-support-4h"
+OUTSIDE_A_STOP_VARIANT = "support-broad-any-prior-a-outside-stop-4h"
+STRUCTURAL_SUPPORT_VARIANTS = (
+    STRUCTURAL_SUPPORT_VARIANT,
+    ANY_PRIOR_A_SUPPORT_VARIANT,
+    OUTSIDE_A_STOP_VARIANT,
+)
 TIERED_VARIANTS = (
     TIERED_VARIANT,
     LINE_CANCEL_TIER_VARIANT,
     DEEP_TIER_VARIANT,
     BROAD_TIER_VARIANT,
     BROAD_LINE_CANCEL_VARIANT,
+    BROOKS_CONFIRMED_VARIANT,
+    GAP_RUNNER_VARIANT,
+    *STRUCTURAL_SUPPORT_VARIANTS,
 )
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
 REPLAY_SUBMIT_RATE = "200/00:00:01"
@@ -154,6 +170,12 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     strategy_class = (
         R1StagedStrategy
         if args.exit_variant in STAGED_EXITS
+        else StructuralSupportStrategy
+        if args.signal_variant in STRUCTURAL_SUPPORT_VARIANTS
+        else GapRunnerStrategy
+        if args.signal_variant == GAP_RUNNER_VARIANT
+        else BrooksConfirmedStrategy
+        if args.signal_variant == BROOKS_CONFIRMED_VARIANT
         else TieredRetracementStrategy
         if args.signal_variant in TIERED_VARIANTS
         else RetracementStrategy
@@ -285,11 +307,27 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             if args.signal_variant in TIERED_VARIANTS
             else None
         ),
+        "brooks_confirmed_strategy_source_sha256": (
+            hashlib.sha256(Path(__file__).with_name("brooks_confirmed_strategy.py").read_bytes()).hexdigest()
+            if args.signal_variant == BROOKS_CONFIRMED_VARIANT else None
+        ),
+        "gap_runner_strategy_source_sha256": (
+            hashlib.sha256(Path(__file__).with_name("gap_runner_strategy.py").read_bytes()).hexdigest()
+            if args.signal_variant == GAP_RUNNER_VARIANT else None
+        ),
+        "structural_support_strategy_source_sha256": (
+            hashlib.sha256(Path(__file__).with_name("structural_support_strategy.py").read_bytes()).hexdigest()
+            if args.signal_variant in STRUCTURAL_SUPPORT_VARIANTS else None
+        ),
         "broad_swing_signal_source_sha256": (
             hashlib.sha256(
                 Path(__file__).with_name("broad_swing_signal.py").read_bytes(),
             ).hexdigest()
-            if args.signal_variant in (BROAD_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT)
+            if args.signal_variant in (
+                BROAD_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT,
+                BROOKS_CONFIRMED_VARIANT, GAP_RUNNER_VARIANT,
+                *STRUCTURAL_SUPPORT_VARIANTS,
+            )
             else None
         ),
         "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -322,6 +360,16 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             if args.signal_variant == BROAD_TIER_VARIANT
             else "F01-11-support-broad-two-tier-line-cancel-4h"
             if args.signal_variant == BROAD_LINE_CANCEL_VARIANT
+            else "H23a-support-brooks-confirmed-4h"
+            if args.signal_variant == BROOKS_CONFIRMED_VARIANT
+            else "H24a-support-broad-gap-runner-4h"
+            if args.signal_variant == GAP_RUNNER_VARIANT
+            else "H25a-support-broad-prior-a-support-4h"
+            if args.signal_variant == STRUCTURAL_SUPPORT_VARIANT
+            else "H26a-support-broad-any-prior-a-support-4h"
+            if args.signal_variant == ANY_PRIOR_A_SUPPORT_VARIANT
+            else "H27a-support-broad-any-prior-a-outside-stop-4h"
+            if args.signal_variant == OUTSIDE_A_STOP_VARIANT
             else "H06-trendline-4h"
             if args.signal_variant == "trendline-4h"
             else "H08b-line-resting-4h"
@@ -430,7 +478,11 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                         "source_plans": (
                             len(strategies[row["coin"]].broad_planned_pairs)
                             if args.signal_variant
-                            in (BROAD_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT)
+                            in (
+                                BROAD_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT,
+                                BROOKS_CONFIRMED_VARIANT, GAP_RUNNER_VARIANT,
+                                *STRUCTURAL_SUPPORT_VARIANTS,
+                            )
                             else strategies[row["coin"]].support_state.plans
                         ),
                         "submitted_bundles": strategies[row["coin"]].bundle_submissions,
@@ -463,6 +515,39 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     if args.signal_variant
                     in (LINE_CANCEL_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT)
                     else None
+                ),
+                "brooks_confirmation": (
+                    {
+                        "touched_watches": strategies[row["coin"]].watch_touches,
+                        "invalidated_watches": strategies[row["coin"]].watch_invalidations,
+                        "expired_watches": strategies[row["coin"]].watch_expiries,
+                        "high2_signals": strategies[row["coin"]].high2_signals,
+                        "strong_signals": strategies[row["coin"]].strong_signals,
+                        "high2_brackets": strategies[row["coin"]].high2_submissions,
+                        "strong_brackets": strategies[row["coin"]].strong_submissions,
+                    }
+                    if args.signal_variant == BROOKS_CONFIRMED_VARIANT else None
+                ),
+                "gap_runner": (
+                    {
+                        "b_target_fills": strategies[row["coin"]].b_target_fills,
+                        "persistent_gap_decisions": strategies[row["coin"]].gap_persistent_decisions,
+                        "no_gap_decisions": strategies[row["coin"]].no_gap_decisions,
+                        "no_gap_market_exits": strategies[row["coin"]].no_gap_market_exits,
+                        "early_runner_targets": strategies[row["coin"]].runner_targets_before_decision,
+                        "minimum_share_skips": strategies[row["coin"]].runner_minimum_skips,
+                        "max_submitted_stop_risk_fraction": strategies[row["coin"]].max_submitted_stop_risk_fraction,
+                        "max_submitted_notional_fraction": strategies[row["coin"]].max_submitted_notional_fraction,
+                    }
+                    if args.signal_variant == GAP_RUNNER_VARIANT else None
+                ),
+                "structural_support": (
+                    {
+                        "accepted": strategies[row["coin"]].structural_accepted,
+                        "rejected": strategies[row["coin"]].structural_rejected,
+                        "decisions": strategies[row["coin"]].structural_state_decisions,
+                    }
+                    if args.signal_variant in STRUCTURAL_SUPPORT_VARIANTS else None
                 ),
                 "line_breaks": (
                     {

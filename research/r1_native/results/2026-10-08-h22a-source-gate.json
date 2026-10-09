@@ -1,0 +1,162 @@
+{
+  "schema": "r1-native-h22a-source-gate/v1",
+  "preregistration_commit": "e0384d26f",
+  "h21_source_sha256": "833ea0c5074325b9576c85353d288f6445fa1fb8c8101d990cdbefab217c55ce",
+  "native_btc_catalog_tree_sha256": "bd804c5865aba72d8be06c56b48482c360ffee15706b314fa7e956f48c12bad7",
+  "instrument": "BTCUSDT-PERP.BINANCE",
+  "complete_native_four_hour_bars": 1428,
+  "cutoffs": {
+    "2026-04-07T00:00:00Z": {
+      "cutoff_utc": "2026-04-07T00:00:00Z",
+      "selected": {
+        "a_index": 1081,
+        "b_index": 1090,
+        "a_low": 66575.5,
+        "b_high": 70332.5,
+        "level_50": 68454.0,
+        "level_618": 68010.674,
+        "level_764": 67462.152,
+        "stop": 66378.99476777516,
+        "target": 70332.5,
+        "a_close_utc": "2026-04-05T08:00:00+00:00",
+        "a_confirmed_utc": "2026-04-06T16:00:00+00:00",
+        "b_close_utc": "2026-04-06T20:00:00+00:00"
+      },
+      "untouched_eligible_plan": null,
+      "decision_close": 68817.90000000001,
+      "planned_target_to_original_stop_r": {
+        "50": 0.9052989220590335,
+        "618": 1.4229671826086379
+      }
+    },
+    "2026-04-07T04:00:00Z": {
+      "cutoff_utc": "2026-04-07T04:00:00Z",
+      "selected": {
+        "a_index": 1081,
+        "b_index": 1090,
+        "a_low": 66575.5,
+        "b_high": 70332.5,
+        "level_50": 68454.0,
+        "level_618": 68010.674,
+        "level_764": 67462.152,
+        "stop": 66362.45049864837,
+        "target": 70332.5,
+        "a_close_utc": "2026-04-05T08:00:00+00:00",
+        "a_confirmed_utc": "2026-04-06T16:00:00+00:00",
+        "b_close_utc": "2026-04-06T20:00:00+00:00"
+      },
+      "untouched_eligible_plan": null,
+      "decision_close": 68746.3,
+      "planned_target_to_original_stop_r": {
+        "50": 0.8981379588606659,
+        "618": 1.4086839546311392
+      }
+    },
+    "2026-04-09T00:00:00Z": {
+      "cutoff_utc": "2026-04-09T00:00:00Z",
+      "selected": {
+        "a_index": 1095,
+        "b_index": 1101,
+        "a_low": 67711.0,
+        "b_high": 72858.5,
+        "level_50": 70284.75,
+        "level_618": 69677.345,
+        "level_764": 68925.81,
+        "stop": 67441.08847588248,
+        "target": 72858.5,
+        "a_close_utc": "2026-04-07T16:00:00+00:00",
+        "a_confirmed_utc": "2026-04-09T00:00:00+00:00",
+        "b_close_utc": "2026-04-08T16:00:00+00:00"
+      },
+      "untouched_eligible_plan": {
+        "ts_event": 1775692800000000000,
+        "a_index": 1095,
+        "b_index": 1101,
+        "a_low": 67711.0,
+        "b_high": 72858.5,
+        "level_50": 70284.75,
+        "entry": 70284.75,
+        "level_764": 68925.81,
+        "stop": 67441.08847588248,
+        "target": 72858.5,
+        "support_low_indices": [],
+        "support_high_indices": [],
+        "support_kind": "broad-confirmed-swing"
+      },
+      "decision_close": 71038.09999999999,
+      "planned_target_to_original_stop_r": {
+        "50": 0.9050831043609244,
+        "618": 1.4225358163037047
+      },
+      "c20_gate_pass": true
+    },
+    "2026-04-09T04:00:00Z": {
+      "cutoff_utc": "2026-04-09T04:00:00Z",
+      "selected": {
+        "a_index": 1095,
+        "b_index": 1101,
+        "a_low": 67711.0,
+        "b_high": 72858.5,
+        "level_50": 70284.75,
+        "level_618": 69677.345,
+        "level_764": 68925.81,
+        "stop": 67444.72858474802,
+        "target": 72858.5,
+        "a_close_utc": "2026-04-07T16:00:00+00:00",
+        "a_confirmed_utc": "2026-04-09T00:00:00+00:00",
+        "b_close_utc": "2026-04-08T16:00:00+00:00"
+      },
+      "untouched_eligible_plan": {
+        "ts_event": 1775707200000000000,
+        "a_index": 1095,
+        "b_index": 1101,
+        "a_low": 67711.0,
+        "b_high": 72858.5,
+        "level_50": 70284.75,
+        "entry": 70284.75,
+        "level_764": 68925.81,
+        "stop": 67444.72858474802,
+        "target": 72858.5,
+        "support_low_indices": [],
+        "support_high_indices": [],
+        "support_kind": "broad-confirmed-swing"
+      },
+      "decision_close": 70961.2,
+      "planned_target_to_original_stop_r": {
+        "50": 0.9062431663993801,
+        "618": 1.424855151233387
+      },
+      "c20_gate_pass": true
+    },
+    "2026-06-02T00:00:00Z": {
+      "cutoff_utc": "2026-06-02T00:00:00Z",
+      "selected": {
+        "a_index": 1369,
+        "b_index": 1389,
+        "a_low": 74203.6,
+        "b_high": 78077.1,
+        "level_50": 76140.35,
+        "level_618": 75683.277,
+        "level_764": 75117.746,
+        "stop": 74008.85015613763,
+        "target": 78077.1,
+        "a_close_utc": "2026-05-23T08:00:00+00:00",
+        "a_confirmed_utc": "2026-05-24T16:00:00+00:00",
+        "b_close_utc": "2026-05-26T16:00:00+00:00"
+      },
+      "untouched_eligible_plan": null,
+      "decision_close": 71391.5,
+      "planned_target_to_original_stop_r": {
+        "50": 0.9086324850442035,
+        "618": 1.4296372569363596
+      }
+    }
+  },
+  "c20_source_gate_pass": true,
+  "limitations": [
+    "The author did not specify this four-hour pivot/ATR formula or actual exchange orders.",
+    "C20 shows three conditional tiers, while H22a retains H21a's two-tier research budget.",
+    "S44 is a different broad-wave scale and is retained as a mismatch countercase.",
+    "This source read has no native fills or economics."
+  ]
+}
