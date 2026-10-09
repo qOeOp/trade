@@ -1,16 +1,169 @@
-# Research records and local artifact custody
+# Research records, materials and native artifact custody
 
-Git records are the research lineage; the native runner and Nautilus reports
-remain the trading facts. The index currently contains 14 attempts and 15 runs.
-H25a/H26a/H27a and older runs are **retrospective transcriptions** of
-[`RD_EXPERIMENTS.md`](../r1_native/RD_EXPERIMENTS.md) and the hashed reports under
-`research/r1_native/results/`. F01 was registered before its combined strategy
-and economic result; four same-runner native replays fill its 00/10/01/11 family,
-and one later 37-coin repeat was sealed. D97/D98 are preregistered read-only
-diagnostics with no new native run. The H25a/H26a/H27a raw reports remain
-`temporary`; their structured entries do not backdate registration or seal
-their old `/tmp` CSVs. These are development evidence, not independent strategy
-qualification.
+Dolt is the single writer for research metadata and material revisions.
+The existing `research.records` domain interface owns the record contract;
+its Dolt adapter owns storage and atomic publication. Git owns strategy source,
+frozen preregistration receipts and retained source evidence. Existing Git
+attempt/run JSON files are a read-only historical import, available through
+explicit `--backend git`. The native runner and Nautilus reports remain the
+trading facts. There is no parallel research scheduler or account ledger.
+
+Import preserves **retrospective** registration, temporary report status and
+unknown history. It does not seal old `/tmp` CSVs or backdate preregistration.
+H25a/H26a/H27a remain development evidence; F01 retains its original registered
+four-cell design and results. D97/D98 are preregistered read-only diagnostics
+with no new native run. Record counts come from `validate`,
+not a manually maintained total in this guide. None of these records establishes
+independent strategy qualification.
+
+## Configure and migrate the local store
+
+Use Dolt **2.4.2** with the dependencies pinned in `uv.lock`. Install the official
+binary for the host platform outside the repository and verify its release
+checksum. `ledger init` takes an absolute binary path and checks the version;
+it does not replace a global Dolt installation. The database, configuration,
+logs and backups belong outside Git and `/tmp` in a private directory.
+
+```bash
+uv sync --frozen
+uv run --frozen python -m research.records.cli ledger init \
+  --binary /absolute/path/to/dolt-2.4.2 \
+  --root /Users/vx/.local/share/trade/records --port 13326
+uv run --frozen python -m research.records.cli ledger start
+uv run --frozen python -m research.records.cli ledger status
+uv run --frozen python -m research.records.cli ledger import --historical-c02 --dry-run
+uv run --frozen python -m research.records.cli ledger import --historical-c02
+```
+
+`--historical-c02` explicitly reads the retained original SOURCE_CASES bytes in
+`fixtures/historical_sources.json`. The payload preserves the original commit,
+path, Git blob OID and SHA-256; decoding verifies the exact bytes. The original
+commit was local research history, so a fresh clone cannot assume it is present.
+The fixture's own Git commit does not replace the original source identity.
+Other historical selections still require their specified Git commits.
+
+`TRADE_RECORDS_CONFIG` selects the configuration file; its default is
+`~/.local/share/trade/records/backend.json`. `TRADE_RECORDS_BACKEND` defaults to
+`dolt`. The service binds to the loopback interface. Keep the configuration
+and database root private and use a separately configured external backup
+directory. `ledger start/stop` operate this local service; they do not install
+an operating-system startup service. Missing configuration, an unavailable
+server or an unsupported schema fails visibly. Readers do not silently fall
+back to Git.
+
+The importer keeps original bytes, SHA-256, source Git commit/path, worktree
+state and section locations. Objects have typed identities, such as
+`attempt:H18a`, `material:research/r1_native/SOURCE_CASES.md` and
+`component:ConfirmedLineSupportTouches`. Explicit JSON parents, component
+boundaries and source links become relations with fixed endpoint revisions.
+`--historical-c02` also imports the known earlier C02 source version for a
+historical readback check. A changed source produces a new revision; unchanged
+material does not create a revision merely because Git HEAD changed.
+
+Similar headings or an ID in prose are not sufficient to infer support,
+correction, refutation or inheritance. Such semantics remain in the review
+queue for an Agent to assess. Automatic extraction does not claim general
+semantic recall, source fidelity beyond preserved bytes, or improved research
+decisions. Archived reports and notes can be read and restored through the
+same interface; the existing Catalog and native evidence paths stay in place.
+
+```bash
+uv run --frozen python -m research.records.cli material search ConfirmedLineSupportTouches
+uv run --frozen python -m research.records.cli material show material:research/r1_native/SOURCE_CASES.md
+uv run --frozen python -m research.records.cli material show material:research/r1_native/SOURCE_CASES.md --revision 1
+uv run --frozen python -m research.records.cli material restore material:research/r1_native/SOURCE_CASES.md \
+  --destination /path/to/new/source-copy.md
+uv run --frozen python -m research.records.cli --at EXACT-DOLT-COMMIT show H18a --brief
+uv run --frozen python -m research.records.cli --backend git show H18a --brief
+```
+
+Each domain read uses one fixed Dolt commit for its snapshot. Record the exact
+commit and object revision when citing evidence; Git source commits and Dolt
+record commits are different identities. A publication binds objects,
+relations, a version guard and a durable operation receipt to one native Dolt
+commit. The same operation ID and content can recover the original result;
+different content under that ID is rejected. An expected-version conflict
+requires rereading and resolving the conflicting research state, not blindly
+retrying at the next version. Append-only object revisions are an API protocol;
+a SQL administrator can still alter data outside it.
+
+Lineage reads follow each relation's fixed endpoint revision. Updating a parent
+or a reused component's source decision does not rewrite an older child's
+evidence. A native custody run captures its Dolt commit and attempt revision at
+start in the sealed manifest; registration uses that binding. Older seals with
+no binding may only be re-registered using an existing retained `run_of` edge.
+Unregistered legacy seals require an explicit recovery review.
+
+`find` returns an object with `storage` and `matches`; `show`, `compare` and
+`validate` add `storage` to their result. For Dolt, `storage.commit` is the
+fixed snapshot read by the command. The Git reader reports `read_only: true`.
+
+## Review imported materials
+
+An import inventory's `review_queue` is immutable. Review adds decisions for
+each original occurrence, identified by inventory ID/revision, item index and
+item hash; it does not remove items or rewrite the source inventory. The first
+import has 572 occurrences: 452 unresolved local links, 108 unsafe local links,
+11 headings with multiple IDs and one S46 source interpretation. The published
+review commit `4ncs20jpinhtgbbtdq8t0es5pemf83ki` has 572 resolved, zero pending
+and zero unavailable occurrences. The three installed-package links resolve to
+pinned dependency descriptors; their excluded file contents and line bounds
+were not inspected. This closes this inventory, not general research validation.
+
+Use this original inventory and source snapshot when reviewing that queue:
+
+```bash
+REVIEW_INVENTORY='inventory:ea8dba226a5caaec278dd24237cc3de3f8a7faffa53ff882e91708fc75f607d1'
+REVIEW_SOURCE_AT='rm3auu5u52edvuainhq5ofqt8b3n1r4l'
+REVIEW_PLAN='/Users/vx/.local/share/trade/records/review-plans/import-review.json'
+uv run --frozen python -m research.records.cli material review status "$REVIEW_INVENTORY" \
+  --revision 1 --source-at "$REVIEW_SOURCE_AT" --items
+uv run --frozen python -m research.records.cli material review prepare "$REVIEW_INVENTORY" \
+  --revision 1 --source-at "$REVIEW_SOURCE_AT" \
+  --decisions /path/to/agent-decisions.json \
+  --supplemental /path/to/supplemental-objects.json --destination "$REVIEW_PLAN"
+uv run --frozen python -m research.records.cli material review apply --file "$REVIEW_PLAN"
+uv run --frozen python -m research.records.cli --at PUBLISHED_REVIEW_COMMIT \
+  material review status "$REVIEW_INVENTORY" --revision 1 --source-at "$REVIEW_SOURCE_AT"
+```
+
+`status` projects the latest decision for every original occurrence as
+`resolved`, `pending` or `unavailable`. Its `commit` is the decision read
+snapshot; `source_snapshot_commit` is the separately fixed original inventory
+snapshot. Use global `--at` for historical status reads. `prepare` and `apply`
+use the current published store as their base and reject a historical write target.
+
+`prepare` verifies references against the original source snapshot, incorporates
+explicit Agent decisions and retained evidence, and creates a new JSON plan
+outside Git and `/tmp`. It does not publish. The saved plan freezes the base
+commit, expected version, operation ID, payload digest, proof objects, fixed
+relations and per-occurrence `review_decision` objects. Inspect its projected
+counts and evidence before applying it. Omit `--decisions` or `--supplemental`
+when no such input is needed; unreviewed semantics remain pending.
+
+The decisions manifest has a `decisions` list. Each entry binds `item_index`
+and `item_sha256`, with a reviewer, rationale, explicit scope, status and fixed
+evidence references. Closing an Agent review also requires its retained
+decision file and SHA-256. Semantic relations use reviewed endpoint revisions
+and a narrow scope. The supplemental manifest has an `objects` list containing
+explicitly retained object DTOs with original bytes and provenance. A new copy
+or acquisition records its later custody; it cannot establish that those bytes
+were retained or available at the original snapshot.
+
+`apply` verifies the frozen digest and publishes proofs, fixed edges and all
+occurrence decisions in one local Dolt transaction. Reuse the same saved plan
+after an uncertain response to recover its durable operation result. A version
+conflict requires rereading the competing state and preparing a new plan;
+editing the saved version or automatically overwriting is not a recovery rule.
+`material show` exposes active resolved references from the latest review
+decision revision. Superseded resolutions remain historical and do not enter
+that projection.
+
+Agents own source interpretation. A heading's primary ID can be disambiguated
+without merging its other mentioned IDs. S46 can correct the source attribution
+of C02 while retaining the existing D94/H27a/D95 evidence and H27a's economic
+failure. Such review does not change a Strategy, backdate registration or
+replace a new paired native replay when strategy or data behavior changes.
 
 ## One research round (Agent-owned)
 
@@ -45,11 +198,22 @@ The Markdown must answer these questions in concrete terms:
    defect, retain for independent confirmation, or ask a narrower question?
    Predefine the action threshold without reading the new economic result.
 
-Initially commit the pending `attempt.json` and Markdown together, with
+Initially commit the pending `attempt.json` receipt and Markdown together, with
 `registration.reference` pointing to the Markdown,
 `decision.layer=decision.outcome=pending`, and
 without a self-referential `original_registration_commit`. Then record that
-first commit in `original_registration_commit` in a second commit. Use a source
+first commit in `original_registration_commit` in a second commit. Publish that
+committed pending JSON to Dolt before running or inspecting the new result:
+
+```bash
+uv run --frozen python -m research.records.cli ledger status
+uv run --frozen python -m research.records.cli publish attempt \
+  --file research/records/attempts/MY-ATTEMPT-ID/attempt.json \
+  --expected-version CURRENT-VERSION --operation-id MY-PREREGISTRATION-OPERATION-ID
+```
+
+The initial preregistered publication must be `pending/pending`, match its
+committed Git JSON and cite an available original registration commit. Use a source
 revision descended from the registration commit for the native custody run.
 This two-commit sequence lets the runner check that a registration commit
 exists before it runs; the Agent must still inspect the content and timing of
@@ -58,7 +222,10 @@ actual IDs after the runs. Keep result-derived fields and interpretation out
 of the preregistration revision. The current schema does not have dedicated
 `falsifier`, `selection_rule`, or `exposure` fields, and `validate` does not
 check the four Markdown answers; these are Agent review obligations, not
-machine-enforced gates.
+machine-enforced gates. The Git receipt is frozen registration evidence, not a
+second editable ledger. Later decision, evidence and comparison-family changes
+are new Dolt revisions published with the same command from a JSON payload;
+preserve the original registration identity and do not rewrite its receipt.
 
 After a run, verify/register its native artifact and read the legal pair.
 Give feedback in this order: question and control; verified native facts with
@@ -83,6 +250,7 @@ uv run --frozen python -m research.records.cli show H18a
 uv run --frozen python -m research.records.cli show F01
 uv run --frozen python -m research.records.cli show F01 --brief
 uv run --frozen python -m research.records.cli find --mechanism 61.8% --failure-layer source
+uv run --frozen python -m research.records.cli find --component ConfirmedLineSupportTouches
 uv run --frozen python -m research.records.cli compare H19a-2026-10-08 H18a-paired-2026-10-08
 uv run --frozen python -m research.records.cli compare H18a-2026-10-08 H15a-paired-2026-10-08
 uv run --frozen python -m research.records.cli compare F01-11-20261008 F01-10-20261008
@@ -166,9 +334,9 @@ uv run --frozen python -m research.records.artifacts register --root "$ARTIFACT_
 TRADE_RESEARCH_ARTIFACT_ROOT="$ARTIFACT_ROOT" uv run --frozen python -m research.records.cli validate
 ```
 
-`register` writes a schema-checked `run.json` into the Git worktree. Review and
-commit it with the strategy/research history; it binds the external manifest by
-SHA-256. The read-only record CLI resolves `artifact://` refs through
+`register` publishes a schema-checked run revision to Dolt; it does not create
+another Git `run.json`. The record binds the external manifest by SHA-256 and
+preserves the existing native evidence checks. The record CLI resolves `artifact://` refs through
 `TRADE_RESEARCH_ARTIFACT_ROOT`. A failed run can be registered as a diagnostic
 without inventing a native summary. Full raw inputs are referenced by their
 verified identity and remain in the source Catalog.
@@ -182,8 +350,8 @@ silently changing a shared directory when creating a run or backup. On an existi
 all run directories, and files before the next write, then run `verify` again.
 Do not put exchange credentials in the artifact root.
 
-Git records and sealed runs, including failed runs, have **no automatic expiry**:
-retain them while a Git run record cites their hashes. A deletion requires an
+Dolt records, retained Git receipts and sealed runs, including failed runs, have
+**no automatic expiry**: retain evidence while a run record cites its hashes. A deletion requires an
 explicit research decision, a record update marking unavailable evidence, and
 a verified replacement or an accepted loss of replay detail. This version has
 no deletion command. Review abandoned `.staging` and `.quarantine` directories
@@ -198,7 +366,62 @@ copy recovery. To accept disaster recovery, place the backup on a separately
 administered host or object store, record its owner and physical storage
 boundary, verify the manifest there, make the primary unavailable, and restore
 the reports on that independent host. Recheck the restored hashes against the
-Git run record. Repeat a restore drill at least quarterly. An SSH or object
+Dolt run record at its cited commit. Repeat a restore drill at least quarterly. An SSH or object
 storage destination needs a separately authorized transport or mounted remote
 filesystem; this CLI accepts filesystem paths only. Catalog inputs are not
 copied by this command and need their own recovery plan.
+
+## Back up and restore the record database
+
+Database history needs its own backup in addition to sealed native reports.
+`ledger backup` uses native `DOLT_BACKUP` to a filesystem URL, preserving Dolt
+commits and branches; a logical SQL dump is not a replacement for that history.
+Keep backups outside the repository and `/tmp`:
+
+```bash
+uv run --frozen python -m research.records.cli ledger status
+uv run --frozen python -m research.records.cli ledger backup \
+  --destination /path/to/record-backup
+```
+
+To rehearse recovery, retain the reported publication version and exact Dolt
+commit, create a new empty private data directory, and use the same pinned
+binary there. The backup URL must name the native backup directory; the
+destination passed to `ledger backup` must be new and the working set must be
+clean. Restore into the `data` subdirectory used by the service:
+
+```bash
+mkdir -m 700 /path/to/empty-record-recovery
+mkdir -m 700 /path/to/empty-record-recovery/data
+cd /path/to/empty-record-recovery/data
+/absolute/path/to/dolt-2.4.2 backup restore \
+  file:///path/to/record-backup research_records
+```
+
+Copy the primary backend configuration to a separate private file, change
+`root` to `/path/to/empty-record-recovery` and `port` to `13327`, and keep its
+database name and pinned binary. Keep the primary configuration intact. From
+the repository root, start and query that recovered service:
+
+```bash
+TRADE_RECORDS_CONFIG=/path/to/recovery-backend.json \
+  uv run --frozen python -m research.records.cli ledger start
+TRADE_RECORDS_CONFIG=/path/to/recovery-backend.json \
+  uv run --frozen python -m research.records.cli ledger status
+```
+
+Before accepting recovery, read `ledger status`, compare all object and relation
+revisions at the saved commit, restore representative material bytes and compare
+their SHA-256, then read the historical C02 revision and the original operation
+receipt. Also verify the run's separately restored native manifest and reports.
+Do not publish new records before this comparison: recovery should preserve the
+original commit rather than create a logically similar replacement.
+
+After the drill, stop the recovered service using `ledger stop` with the same
+separate `TRADE_RECORDS_CONFIG`.
+
+An independent disaster-recovery acceptance additionally makes the primary
+unavailable and performs this drill on another administered host or storage
+boundary. A backup and server restored in two directories on this machine prove
+local recovery only. Restoring Dolt does not restore Catalog inputs or native
+report directories; preserve and test those recovery chains separately.
