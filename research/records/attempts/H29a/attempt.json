@@ -21,7 +21,8 @@
   "code_parent": "46bab5885",
   "registration": {
     "status": "preregistered",
-    "reference": "docs/plans/r1-h29a-failed-range-break-native-prereg.zh.md"
+    "reference": "docs/plans/r1-h29a-failed-range-break-native-prereg.zh.md",
+    "original_registration_commit": "b0fc83bd9"
   },
   "decision": {
     "layer": "pending",
