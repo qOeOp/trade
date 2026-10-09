@@ -1,0 +1,48 @@
+{
+  "method": "one preregistered read-only D96 native Position/Catalog path; indicative exit is not a fill or account result",
+  "registration_commit": "81d7b524c",
+  "source_case": "C18/S24; exact lower-tier close is a researcher proxy, not an author exit rule",
+  "exposed_input_window_utc": [
+    "2025-10-07T00:00:00Z",
+    "2026-10-07T08:30:00Z"
+  ],
+  "input_sha256": {
+    "manifest": "3932f2349901ea0a198bd70d828d471dbaac4e019bbcc56315a75ec86c935cb6",
+    "identity": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+    "native_reports": {
+      "summary.json": "64e47b3653a049ea16fb92002d4e63f47f8b563be67856e4c59ff24fb2bbaf06",
+      "orders.csv": "11fa73bc4ce1c69fc8991331147d3671a4ec5e0363c6ac381df925bd8d609155",
+      "fills.csv": "a295d28045c1f88cf2900342d34a39b47d120851fd37217759dd23708945be96",
+      "positions.csv": "5c96b175ded936eb4e0869569d61e6a016d18ee0abcba07ed9718646ba3c2d7f",
+      "account.csv": "4ae1422672d89e03084292a110f7dfc648cd236691b5cf880f760b151693c295"
+    },
+    "native_audit": "e82f17d4ad3094e12f32586313d0ea38fe5b3cd5ebb5dcf3455d46d3040e467f",
+    "decision_clock": "91edf5383a81758a17010b9e24efcdfd78b547ea94ab9f56230331c108121d5e"
+  },
+  "catalogs_verified": 37,
+  "native_positions": 179,
+  "native_closed": 170,
+  "native_positive_closed": 85,
+  "native_open_censored": 9,
+  "event_positions": 105,
+  "event_closed": 105,
+  "event_open_censored": 0,
+  "event_final_exits": {
+    "stop": 72,
+    "target": 30,
+    "time_market": 3
+  },
+  "event_eventual_positive_closed": 33,
+  "event_target_winners": 30,
+  "event_later_native_buy_fill": 0,
+  "event_one_tier_at_decision": 1,
+  "non_event_final_exits": {
+    "target": 50,
+    "open": 9,
+    "stop": 13,
+    "time_market": 2
+  },
+  "indicative_exit_minus_native_continuation_closed_sum_usdt": "-9560.35507088965",
+  "registered_capacity_gate": false,
+  "caution": "Selected observed survivors and indicative LAST-close/taker exit cannot identify causal shared-account improvement; this exposed year is not independent validation."
+}

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "attempt_id": "D96",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "diagnostic",
+  "question": "H26a 入场后首次完成的四小时 K 线收于预设 61.8% 档下，能否识别可提前退出的支撑失效？",
+  "mechanism": "只读已成交 Nautilus Position 的原生路径，按事前 61.8% 档和已完成 K 线时钟观察；描述性即时平仓不替代原生账户回放。",
+  "hypothesis": "若该已知价位失效可用于退出，至少 30 笔已平仓触发，且固定路径的指示性退出减实际继续持有净额应大于 6000 USDT。",
+  "parents": [
+    {
+      "attempt_id": "H26a",
+      "relationship": "hypothesis_extension",
+      "difference": "入场与原生持仓完全沿用 H26a，只读取入场后支撑证据，不改订单。"
+    }
+  ],
+  "code_parent": null,
+  "registration": {
+    "status": "retrospective",
+    "reference": "research/r1_native/RD_EXPERIMENTS.md"
+  },
+  "decision": {
+    "layer": "economics",
+    "outcome": "failed",
+    "scope": "105/170 已平仓 Position 触发；30 笔后来仍到 B。指示性即时退出减实际原生继续持有为 -9560.36 USDT，未过事前 >+6000 门槛；无 H28a 回放。",
+    "next_action": "只在不同的来源定义结构事件及其可用时钟确定后再登记二级延伸；禁止在已暴露年度扫 61.8% 容差或 bar 数。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-09-d96-h26a-tier-support-close.json",
+      "sha256": "27c5f7d1b2a5d8aff142fd41e3e2fd77bbc8d5458c6fa853684e2bc8db3998d6"
+    },
+    {
+      "kind": "comparison",
+      "path": "research/r1_native/results/2026-10-09-d96-h26a-tier-support-close-positions.json",
+      "sha256": "f091a4e4b64ef067ce5db34be794dd69316eb9d8d9dd2419b0413d17519c8747"
+    },
+    {
+      "kind": "input_identity",
+      "path": "research/r1_native/results/2026-10-07-input-identity.json",
+      "sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc"
+    }
+  ]
+}
