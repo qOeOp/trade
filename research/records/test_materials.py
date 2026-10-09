@@ -242,17 +242,54 @@ class CurrentMaterialGoldenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.golden = json.loads((Path(__file__).parent / "fixtures" / "materials_golden.json").read_text())
-        cls.result = scan(ROOT, include_untracked=False, historical_refs=retained_historical_refs(ROOT))
+        cls.retained_refs = retained_historical_refs(ROOT)
+        cls.result = scan(ROOT, include_untracked=False, historical_refs=cls.retained_refs)
         cls.current = {o["id"]: o for o in cls.result["objects"]}
+        paths = {expected["id"].removeprefix("section:").rsplit("#", 1)[0] for expected in cls.golden["sections"]}
+        cls.source_blobs = {path: subprocess.check_output(["git", "show", f"{cls.golden['section_source_commit']}:{path}"], cwd=ROOT) for path in paths}
+        cls.current_blobs = {path: (ROOT / path).read_bytes() for path in paths}
 
-    def test_source_byte_golden_spans_and_historical_revision(self):
+    def test_golden_byte_spans_are_bound_to_original_git_source(self):
+        for expected in self.golden["sections"]:
+            path = expected["id"].removeprefix("section:").rsplit("#", 1)[0]
+            raw = self.source_blobs[path]
+            self.assertGreaterEqual(expected["start_byte"], 0)
+            self.assertGreater(expected["end_byte"], expected["start_byte"])
+            self.assertLessEqual(expected["end_byte"], len(raw))
+            fragment = raw[expected["start_byte"]:expected["end_byte"]]
+            self.assertEqual(hashlib.sha256(fragment).hexdigest(), expected["sha256"])
+
+    def test_current_section_locators_preserve_golden_source_bytes(self):
         for expected in self.golden["sections"]:
             obj = self.current[expected["id"]]
+            path = obj["provenance"]["path"]
+            raw = self.current_blobs[path]
+            parent = self.current[f"material:{path}"]
+            self.assertEqual(base64.b64decode(parent["body"]["content_base64"]), raw)
+            self.assertEqual(obj["provenance"]["blob_sha256"], hashlib.sha256(raw).hexdigest())
+            locator = obj["provenance"]["locator"]
+            self.assertGreaterEqual(locator["start_byte"], 0)
+            self.assertGreater(locator["end_byte"], locator["start_byte"])
+            self.assertLessEqual(locator["end_byte"], len(raw))
+            fragment = raw[locator["start_byte"]:locator["end_byte"]]
+            self.assertEqual(base64.b64decode(obj["body"]["content_base64"]), fragment)
+            self.assertEqual(hashlib.sha256(fragment).hexdigest(), expected["sha256"])
             self.assertEqual(obj["body"]["sha256"], expected["sha256"])
-            for field in ("start_byte", "end_byte"):
-                self.assertEqual(obj["provenance"]["locator"][field], expected[field])
+            self.assertEqual(fragment, self.source_blobs[path][expected["start_byte"]:expected["end_byte"]])
+
+    def test_historical_c02_retained_source_bytes_and_locator(self):
         expected = self.golden["historical_c02"]
         obj = next(o for o in self.result["objects"] if o["id"] == expected["id"] and o["provenance"]["git_commit"] == self.golden["historical_commit"])
+        payload = next(payload for selection in self.retained_refs for payload in selection["retained_payloads"] if payload["original_commit"] == self.golden["historical_commit"] and payload["path"] == obj["provenance"]["path"])
+        raw = base64.b64decode(payload["content_base64"])
+        self.assertEqual(obj["provenance"]["origin"], "retained_git_blob")
+        self.assertEqual(obj["provenance"]["verify_source"], "retained_bytes")
+        self.assertEqual(obj["provenance"]["blob_sha256"], payload["sha256"])
+        for field in ("start_byte", "end_byte"):
+            self.assertEqual(obj["provenance"]["locator"][field], expected[field])
+        fragment = raw[expected["start_byte"]:expected["end_byte"]]
+        self.assertEqual(base64.b64decode(obj["body"]["content_base64"]), fragment)
+        self.assertEqual(hashlib.sha256(fragment).hexdigest(), expected["sha256"])
         self.assertEqual(obj["body"]["sha256"], expected["sha256"])
 
     def test_reliable_source_facts_and_required_human_review(self):

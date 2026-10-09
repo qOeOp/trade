@@ -5,6 +5,7 @@ artifact validation additionally uses TRADE_RESEARCH_ARTIFACT_ROOT. The suite
 scans once and publishes only into one randomly named disposable database.
 """
 
+import base64
 import copy
 import hashlib
 import json
@@ -269,8 +270,14 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
 
     def test_both_c02_source_revisions_restore_exact_original_bytes(self):
         source_path = "research/r1_native/SOURCE_CASES.md"
-        old_file = subprocess.check_output(
-            ["git", "show", f"{self.historical_commit}:{source_path}"], cwd=ROOT)
+        retained_source = next(
+            source
+            for selection in retained_historical_refs(ROOT)
+            if selection["commit"] == self.historical_commit
+            for source in selection["retained_payloads"]
+            if source["path"] == source_path
+        )
+        old_file = base64.b64decode(retained_source["content_base64"], validate=True)
         current_file = (ROOT / source_path).read_bytes()
         expected_sources = [old_file, current_file]
         values = []

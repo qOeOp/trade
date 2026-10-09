@@ -1,5 +1,6 @@
 {
-  "nature": "Observed source-byte golden facts; expected labels are assertions, never runtime extraction rules.",
+  "nature": "Observed source-byte golden facts; section byte offsets refer only to section_source_commit. Expected labels are assertions, never runtime extraction rules.",
+  "section_source_commit": "1b32849ca7ec6efd609b0a3bbbbd26bcd854103d",
   "historical_commit": "2dd821cb206ee79975be5943bb3aa6f9c5bfe617",
   "sections": [
     {"id": "section:research/r1_native/RD_EXPERIMENTS.md#S01", "start_byte": 19483, "end_byte": 21433, "sha256": "fec744884de58ac0668a8cf34af65b43d1dc40f22955904e4afbe8f71d494de3"},
