@@ -18,7 +18,8 @@ from research.records.cli import (
 class ResearchRecordBoundaryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.attempts, cls.runs = _load_records()
+        from research.records.store import GitHistoryStore
+        cls.attempts, cls.runs = _load_records(GitHistoryStore())
 
     def test_h13c_lineage_keeps_both_failed_source_gates(self):
         chain = _lineage("H13c", self.attempts)

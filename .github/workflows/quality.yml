@@ -20,9 +20,29 @@ jobs:
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - run: uv python install 3.14
       - run: uv sync --frozen
+      - name: Start pinned local Dolt for metadata integration
+        run: |
+          curl --fail --location --silent --show-error https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-amd64.tar.gz -o "$RUNNER_TEMP/dolt.tar.gz"
+          echo "5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e  $RUNNER_TEMP/dolt.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/dolt.tar.gz" -C "$RUNNER_TEMP"
+          mkdir -p "$RUNNER_TEMP/records-data"
+          "$RUNNER_TEMP/dolt-linux-amd64/bin/dolt" sql-server --host 127.0.0.1 --port 13326 --data-dir "$RUNNER_TEMP/records-data" --socket "$RUNNER_TEMP/records.sock" > "$RUNNER_TEMP/dolt-server.log" 2>&1 &
+          echo 'RESEARCH_DOLT_TEST_CONFIG={"host":"127.0.0.1","port":13326,"user":"root","password":"","database":"unused"}' >> "$GITHUB_ENV"
+          uv run --frozen python - <<'PY'
+          import time
+          import pymysql
+          for attempt in range(50):
+              try:
+                  with pymysql.connect(host='127.0.0.1', port=13326, user='root', connect_timeout=1):
+                      break
+              except pymysql.MySQLError:
+                  time.sleep(0.1)
+          else:
+              raise RuntimeError('pinned Dolt server did not become ready')
+          PY
       - run: uv run --frozen python -m compileall -q strategies/r1
       - run: uv run --frozen python strategies/r1/run_portfolio.py --help > /dev/null
-      - run: uv run --frozen python -m unittest research.records.test_cli research.records.test_artifacts
+      - run: uv run --frozen python -m unittest research.records.test_cli research.records.test_artifacts research.records.test_materials research.records.test_references research.records.test_reviews research.records.test_dolt_store research.records.test_migration research.records.test_bindings
       - name: Check frozen native parity receipts
         run: |
           uv run --frozen python - <<'PY'
