@@ -1,6 +1,6 @@
 # D98 单轮预注册：原生成交前已确认的局部低点失守
 
-登记时尚未运行 D98 reader，也未读取该事件的年度发生率和盈亏。详情及因果时钟见 [RD_EXPERIMENTS D98](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d98-pre-fill-confirmed-local-low-support-break-while-h26a-remains-open)。本轮只选一个局部支撑定义；未选择的上升线全仓退出已由 D55 测试失败，61.8% 固定档位由 D96 测试失败，双强空头由 D97 测试失败。
+登记时尚未运行 D98 reader，也未读取该事件的年度发生率和盈亏。详情及因果时钟见 [RD_EXPERIMENTS D98](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#diagnostic-d98-pre-fill-confirmed-local-low-support-break-while-h26a-remains-open)。本轮只选一个局部支撑定义；未选择的上升线全仓退出已由 D55 测试失败，61.8% 固定档位由 D96 测试失败，双强空头由 D97 测试失败。
 
 ## 机制与反证
 

@@ -1,5 +1,7 @@
 # 投研记录如何服务策略迭代（待验证设计）
 
+> 历史快照：本文保留 Git 侧录阶段的设计与验收背景，登记及元数据操作已由 Dolt v2 契约替代。现行操作以[研究记录指南](../../research/records/README.md)和[当前架构](../architecture.zh.md)为准。
+
 ## 决策与证据边界
 
 本设计的消费者是**后继研究 Agent**。它要从旧研究中找可复用的机制和反例、选有效的经济对照、确定失败发生在哪一层，以及找到可以回退的实际源码。一次[隔离 Agent 对照试验](research-record-efficiency.zh.md)初步测到了正式运行身份识别的准确率差异，但没有测到决策质量或速度收益；**可用策略的产出率是否提高，目前没有证据**，需要后继的独立验证。现有[Git 记录与本机封存命令](../../research/records/README.md)收录七条事后回填的历史尝试与一条事前登记的 F01 尝试；[H18a 案例](research-record-h18a-case.zh.md)检验依赖式组件组合，[F01 四格案例](r1-factorial-line-cancel-result.zh.md)检验可开关组合。单机封存与恢复已用真实回放验收；异机备份与长期保管尚未完成。
@@ -13,7 +15,7 @@
 | [Bailey 等的 PBO](https://www.davidhbailey.com/dhbpapers/backtest-prob.pdf)与[败者调整 Sharpe 的 DSR](https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf)讨论多候选选择导致的回测偏差。 | 保留失败与未选候选、选择过程、同口径逐期收益及数据暴露；重复看过的年度不能充当新的独立样本。 | 将 S/D/H 编号数直接当成有效独立试验数，或从现有台账算出可靠的 PBO/DSR。 |
 | [Qlib Recorder 官方文档](https://github.com/microsoft/qlib/blob/main/docs/component/recorder.rst)把 experiment、recorder、参数、指标和产物分层；[MLflow Tracking](https://mlflow.org/docs/latest/ml/tracking/)提供 run ID 与可查的元数据和产物；[DVC Experiments](https://doc.dvc.org/user-guide/experiment-management)围绕 Git 基线管理文件化实验。 | 借用“研究集合—运行—产物”的读回方式，并在出现明确瓶颈时评估现成工具。 | 这些工具知道假设为何改变、哪个运行是合法对照，或能替代 Nautilus 的账户事实。 |
 
-Trade 的工程推断是：先补**可信的关系与证据读回**，再看是否有必要做独立模块。当前 [R1 runner](../../strategies/r1/run_portfolio.py)已产生摘要和原生报告，[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)持续记录研究；但 [R1 README](../../strategies/r1/README.md)将 `/tmp` 回放目录视为本地证据。[F12](r1-native-rd-findings.zh.md)、F09、F05 的运行源码身份、长报告接管、已暴露数据记录是具体动机。H19a 的配对及审计更正还说明，“通过/失败”一个标签会丢失重要的原生事件与修正链。
+Trade 的工程推断是：先补**可信的关系与证据读回**，再看是否有必要做独立模块。当前 [R1 runner](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/strategies/r1/run_portfolio.py)已产生摘要和原生报告，[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)持续记录研究；但 [R1 README](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/strategies/r1/README.md)将 `/tmp` 回放目录视为本地证据。[F12](r1-native-rd-findings.zh.md)、F09、F05 的运行源码身份、长报告接管、已暴露数据记录是具体动机。H19a 的配对及审计更正还说明，“通过/失败”一个标签会丢失重要的原生事件与修正链。
 
 ## 第一版产品形态与保管
 

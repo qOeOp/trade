@@ -4,7 +4,7 @@
 
 ## 来源、单一机制与反例
 
-罗尼 [C17 原始 LTC 案例](../../research/r1_native/SOURCE_CASES.md#c17---ltc-confluence-and-mutually-exclusive-entry-timing)在已经发生的四小时水平阻力突破后，区分立即做多和等待旧水平、上升线或回撤区的**未来**测试；[C13](../../research/r1_native/SOURCE_CASES.md#c13---matic-line-break-versus-ftm-wait)对弱突破保留等待旧线测试的路径。D102 只研究“已确认的水平摆动高点被强势收盘突破，随后第一次回踩该旧阻力并出现完整阳线响应”这一支。原片没有唯一摆动算法、0.25 ATR 区域、10 根有效期或精确订单/目标；以下均为研究者代理，不宣称罗尼曾下单或成交。反例包括突破后不回踩、回踩完成线跌回旧阻力下方、响应太弱、确认过迟导致到旧突破高点的空间不足，以及下一根根本未触及拟议触发价。
+罗尼 [C17 原始 LTC 案例](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md#c17---ltc-confluence-and-mutually-exclusive-entry-timing)在已经发生的四小时水平阻力突破后，区分立即做多和等待旧水平、上升线或回撤区的**未来**测试；[C13](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/SOURCE_CASES.md#c13---matic-line-break-versus-ftm-wait)对弱突破保留等待旧线测试的路径。D102 只研究“已确认的水平摆动高点被强势收盘突破，随后第一次回踩该旧阻力并出现完整阳线响应”这一支。原片没有唯一摆动算法、0.25 ATR 区域、10 根有效期或精确订单/目标；以下均为研究者代理，不宣称罗尼曾下单或成交。反例包括突破后不回踩、回踩完成线跌回旧阻力下方、响应太弱、确认过迟导致到旧突破高点的空间不足，以及下一根根本未触及拟议触发价。
 
 ## 冻结的因果事件
 

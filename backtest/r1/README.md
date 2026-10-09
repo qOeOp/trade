@@ -77,7 +77,7 @@ records are explicitly retrospective transcriptions.
 
 The Strategy directory contains trading rules. This directory contains the one native replay, R1-specific input/report adaptation and maintained acceptance tools; it does not own signal selection. Research variants are selected explicitly through the same runner, without importing the removed local Nautilus fork.
 
-Small receipts in `receipts/` retain their original bytes and source identities. Their old implementation paths describe historical runs. Fresh runs report each executing source file and hash; frozen custody supports both the historical and current layout. A code move does not upgrade a historical strategy result to qualification.
+Small receipts in `receipts/` retain their original bytes and source identities. The `parity_receipts` paths in `receipts/evidence.json` are historical locators; their [fixed Git archive](https://github.com/qOeOp/trade/tree/44e229331fdc7d9b78e234079673b8df71faefc4/strategies/r1) contains the original three receipts. Their same-named current copies under `receipts/` are byte-identical. Their old implementation paths describe historical runs. Fresh runs report each executing source file and hash; frozen custody supports both the historical and current layout. A code move does not upgrade a historical strategy result to qualification.
 
 `receipts/parity-single-file-h19a.json` binds the standalone H19a source and
 runtime hashes to a fresh control at `44e229331`: all annual 37-instrument orders,
