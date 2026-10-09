@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "attempt_id": "D97",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "diagnostic",
+  "question": "入场后两根连续强空头突破 K 线能否识别 H26a 原生多头的证据失效？",
+  "mechanism": "已完成四小时 LAST K 线的连续空头实体、下四分位收盘与逐根跌破前低；先只读原生 Position，不模拟账户。",
+  "hypothesis": "该持续卖压事件在仍持仓时出现，应有至少 30 笔已平仓样本，且费用计入后的指示性即时退出较原生继续持有合计改善严格超过 6000 USDT。",
+  "parents": [
+    {
+      "attempt_id": "D96",
+      "relationship": "hypothesis_extension",
+      "difference": "放弃单根 61.8% 价位收盘，换成独立来源定义的连续空头突破与跟随。"
+    },
+    {
+      "attempt_id": "H26a",
+      "relationship": "hypothesis_extension",
+      "difference": "保持 H26a 原生入场、止损止盈与账户路径，仅观察入场后事件。"
+    }
+  ],
+  "code_parent": null,
+  "registration": {
+    "status": "preregistered",
+    "reference": "research/r1_native/RD_EXPERIMENTS.md"
+  },
+  "decision": {
+    "layer": "pending",
+    "outcome": "pending",
+    "scope": "只读诊断尚未运行；事前合同固定一个事件、一个 37 币年度对照和容量门槛。",
+    "next_action": "先冻结只读源码，再按同一原生 H26a 参照读取一次；只在双门槛均通过时另行登记 H28a。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-09-d96-h26a-tier-support-close.json",
+      "sha256": "27c5f7d1b2a5d8aff142fd41e3e2fd77bbc8d5458c6fa853684e2bc8db3998d6"
+    },
+    {
+      "kind": "input_identity",
+      "path": "research/r1_native/results/2026-10-07-input-identity.json",
+      "sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc"
+    }
+  ]
+}
