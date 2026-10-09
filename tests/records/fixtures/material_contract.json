@@ -7,8 +7,6 @@
     {"id": "section:research/r1_native/RD_EXPERIMENTS.md#S46", "start_byte": 131, "end_byte": 215, "sha256": "8e98b74d573b14cba5286f87bec8ba3047d629b1c7ae8b91c82a4a7734addded"}
   ],
   "reliable_relations": [
-    {"kind": "component_reuse", "from_id": "attempt:H18a", "to_id": "attempt:H08"},
-    {"kind": "hypothesis_extension", "from_id": "attempt:H18a", "to_id": "attempt:H15a"},
     {"kind": "duplicate_of", "from_id": "section:research/r1_native/RD_EXPERIMENTS.md#S15", "to_id": "section:research/r1_native/RD_EXPERIMENTS.md#S01"}
   ],
   "review_required": ["source_recheck_semantics_require_review"],

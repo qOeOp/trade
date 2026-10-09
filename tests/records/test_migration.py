@@ -22,7 +22,7 @@ from research.records import cli, migration
 from research.records.common import RecordError
 from research.records.dolt_store import ConflictError
 from research.records.materials import scan
-from research.records.fixtures.contract_repository import ContractRepository, SOURCE_CASES, OLD_CASES, CURRENT_CASES
+from tests.records.fixtures.contract_repository import ContractRepository, SOURCE_CASES, OLD_CASES, CURRENT_CASES
 from research.records.store import DoltRecords, validate_record
 
 

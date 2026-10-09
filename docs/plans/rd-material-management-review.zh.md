@@ -90,7 +90,7 @@
 - `uv sync --frozen`、记录 CLI help、R1 runner help 均通过。
 - 以 `/Users/vx/.local/share/trade/research-artifacts-acceptance` 配置当前记录 `validate` 通过：13 attempts / 15 runs。输出仍包含历史来源/登记的 `unknown`，通过不代表补齐了历史未知。
 - `compare H18a-2026-10-08 H15a-paired-2026-10-08` 正常返回具名开发证据及 `temporary` 状态；这是既有证据读回，没有新增经济回放。
-- `python -m unittest research.records.test_cli`：10 项通过。现有测试不证明召回、知识更正或长期复用有效。
+- 当时 `python -m unittest research.records.test_cli`：10 项通过；当前维护入口为 `python -m unittest tests.records.test_cli`。现有测试不证明召回、知识更正或长期复用有效。
 - [既有隔离 Agent 试验](research-record-efficiency.zh.md)未测出决策质量、速度或调用次数收益；样本小且有明确局限，不能外推长期策略成功率。此次评审也不宣称改进建议已产生研究收益。
 
 ## M05：策略组织依赖固定目录，清理尚缺版本化源码闭包

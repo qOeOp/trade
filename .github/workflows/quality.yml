@@ -42,8 +42,7 @@ jobs:
           PY
       - run: uv run --frozen python -m compileall -q backtest research/records
       - run: uv run --frozen python -m backtest.r1.run_portfolio --help > /dev/null
-      - run: uv run --frozen python -m unittest backtest.r1.test_strategy_loader
-      - run: uv run --frozen python -m unittest discover -s research/records -p 'test_*.py'
+      - run: uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'
       - name: Check frozen native parity receipts
         run: |
           uv run --frozen python - <<'PY'

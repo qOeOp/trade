@@ -12,7 +12,7 @@ from research.records.cli import (
     _show,
 )
 from research.records.contracts import _check_family
-from research.records.fixtures.contract_repository import ContractRepository
+from tests.records.fixtures.contract_repository import ContractRepository
 
 
 class ResearchRecordBoundaryTests(unittest.TestCase):
