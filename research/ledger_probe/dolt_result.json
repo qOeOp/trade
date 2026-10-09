@@ -1,0 +1,1416 @@
+{
+  "candidate": "Dolt",
+  "requested_version": "2.4.2",
+  "fixture_sha256": "01e847f3d3c460cbbe29ef22f1ae2a85da75536ab6c83cd165b2c64036545f78",
+  "fixture_file_sha256": "686132d70a020ae0c8f7ac28f27bb6baff8a622cbb230a88df9916dc047c7fe5",
+  "contract_sha256": "c579df318416a3bdff3707e1b7b69bb06ab6fac0118528de1599548c1d3a97c6",
+  "source_head": "1b32849ca7ec6efd609b0a3bbbbd26bcd854103d",
+  "fixture_source_head": "1b32849ca7ec6efd609b0a3bbbbd26bcd854103d",
+  "transcription": {
+    "kind": "current_validation_transcription",
+    "preregistered": false,
+    "scope": "真实历史资料的当前验证转录；下游数据库导入/模拟提交不是历史实验事前登记。"
+  },
+  "source_urls": [
+    "https://github.com/dolthub/dolt/releases/tag/v2.4.2",
+    "https://api.github.com/repos/dolthub/dolt/releases/tags/v2.4.2",
+    "https://raw.githubusercontent.com/dolthub/dolt/v2.4.2/go/libraries/doltcore/sqle/enginetest/dolt_transaction_queries.go",
+    "https://raw.githubusercontent.com/dolthub/dolt/v2.4.2/integration-tests/bats/backup.bats",
+    "https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures/",
+    "https://www.dolthub.com/docs/sql-reference/version-control/querying-history/"
+  ],
+  "run_artifact_path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482",
+  "sdk": {
+    "name": "PyMySQL",
+    "distribution_version": "1.1.2",
+    "module_version": "1.4.6"
+  },
+  "contract_schema_version": 3,
+  "rerun_argv": [
+    "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/venv/bin/python",
+    "/Users/vx/.codex/worktrees/f9ec/trade/research/ledger_probe/dolt_probe.py",
+    "--cas-trials",
+    "3"
+  ],
+  "setup_commands": [
+    [
+      "curl",
+      "-fLsS",
+      "https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-darwin-arm64.tar.gz",
+      "-o",
+      "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/downloads/dolt-darwin-arm64.tar.gz"
+    ],
+    [
+      "shasum",
+      "-a",
+      "256",
+      "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/downloads/dolt-darwin-arm64.tar.gz"
+    ],
+    [
+      "tar",
+      "-xzf",
+      "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/downloads/dolt-darwin-arm64.tar.gz",
+      "-C",
+      "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/bin"
+    ],
+    [
+      "uv",
+      "venv",
+      "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/venv"
+    ],
+    [
+      "uv",
+      "pip",
+      "install",
+      "--python",
+      "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/venv/bin/python",
+      "PyMySQL==1.1.2"
+    ]
+  ],
+  "prior_diagnostic_evidence": {
+    "path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/logs/dolt_diagnostic_result.json",
+    "classification": "Development smoke run, not acceptance: an SQL alias named next caused a syntax error, fixed to downstream. Its same-object CAS was replaced by frozen disjoint-writer v3 tests.",
+    "bootstrap_notes": "A pre-harness version probe tried unsupported @@dolt_version; fixed to DOLT_VERSION(). SQL COMMIT vs DOLT_COMMIT behavior was separately observed then repeated in this harness."
+  },
+  "adapter_requirements": [
+    "Explicit schema and typed composite foreign keys for revision-specific relations",
+    "Append-only object revision convention enforced by this adapter, not immutable row storage",
+    "Explicit application operation-id/payload-digest table and lookup before retry",
+    "Conditional version update AND unique per-operation token on the same singleton publication row inside one SQL transaction; a version counter alone is unsafe (verified negative control)",
+    "Explicit ROLLBACK on a statement constraint error",
+    "Explicit DOLT_COMMIT at audit checkpoints; ordinary SQL COMMIT only updates working set",
+    "No recursive graph engine: these fixed-depth recall/impact queries are SQL joins"
+  ],
+  "not_tested": [
+    "Production migration, production permissions or trading account integration",
+    "Real lost TCP response, network partition or crash after server commit",
+    "Remote/cloud backup durability, disaster recovery on another host",
+    "Large corpus query performance, vector/semantic similarity or free-form natural-language planning",
+    "Concurrent merges on separate branches or multi-primary writes",
+    "Retention and garbage-collection policy for long-lived production history",
+    "Native denial of UPDATE to an existing (id,revision) row; current revision immutability needs publication protocol/permissions. Fixed historical references include commit hash plus object id/revision."
+  ],
+  "checks": {
+    "A2-correction-and-impact": {
+      "status": "passed",
+      "duration_seconds": 0.024218332953751087,
+      "observations": {
+        "old_snapshot_commit": "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+        "successor_snapshot_commit": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+        "head_before_native_correction_commit": "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+        "old_snapshot_content": {
+          "aliases": [
+            "C02",
+            "区外止损",
+            "outside-zone structural stop"
+          ],
+          "scope": "旧历史解释：当时将区外结构止损归到 C02；已被 S46 收窄，不能用于今日来源证明。",
+          "state": "historical_narrowed",
+          "text": "## C02 - wick and support zone\n\nThe same video, 02:10-03:15. An ETH wick-only penetration is not a confirmed break; support is a zone. A close-based break must not fire on the wick alone, and a structural stop must sit outside the chosen zone.",
+          "title": "C02 - wick and support zone"
+        },
+        "successor_content": {
+          "aliases": [
+            "C02",
+            "S46",
+            "止损来源更正"
+          ],
+          "scope": "当前更正：ETH 四小时上升线影线与稍后日线下降阻力区域是两段；C02 未指定 ETH 多单或数值止损。S46 为 H27a/D95 结果之后的回顾性来源更正，不改其原登记或原生结果。",
+          "state": "current_corrected",
+          "text": "## C02 - wick and separate resistance zone\n\nThe same video, 02:10-03:15. On the ETH four-hour chart the speaker says a wick through a **rising support line** is not a confirmed break and refers to the candle body; at 02:55-03:15 he switches to the **daily descending resistance** and says support/resistance should be understood as an area rather than one exact point. A break rule must not fire on the wick alone; requiring a *completed close* is a researcher translation beyond these words. **This segment specifies no ETH long order or numeric stop boundary**, and the daily resistance area must not be silently reused as a long's support zone. The previous wording appended an outside-zone structural stop as though it were stated in C02; S46 records that retrospective source correction without altering D94/H27a's original preregistration or their native outcomes. Other source cases, such as C18/C20, separately discuss protective stops.",
+          "title": "C02 - wick and separate resistance zone"
+        },
+        "old_revision_persists": true,
+        "historical_successor_count": 0,
+        "version_fixed_relations": [
+          [
+            "rel:C02-v1-from-S01",
+            "derived_from",
+            "claim:C02-stop-attribution",
+            1,
+            "source:S01",
+            1
+          ],
+          [
+            "rel:C02-v2-from-S01",
+            "derived_from",
+            "claim:C02-stop-attribution",
+            2,
+            "source:S01",
+            1
+          ],
+          [
+            "rel:C02-v2-narrows-v1",
+            "narrows",
+            "claim:C02-stop-attribution",
+            2,
+            "claim:C02-stop-attribution",
+            1
+          ],
+          [
+            "rel:C02-v2-supported-S46",
+            "supported_by",
+            "claim:C02-stop-attribution",
+            2,
+            "source:S46",
+            1
+          ],
+          [
+            "rel:D94-uses-C02-v1",
+            "uses_claim",
+            "diagnostic:D94",
+            1,
+            "claim:C02-stop-attribution",
+            1
+          ],
+          [
+            "rel:H27a-uses-C02-v1",
+            "uses_claim",
+            "attempt:H27a",
+            1,
+            "claim:C02-stop-attribution",
+            1
+          ],
+          [
+            "rel:S46-corrects-C02-v1",
+            "corrects",
+            "source:S46",
+            1,
+            "claim:C02-stop-attribution",
+            1
+          ]
+        ],
+        "affected_old_claim_consumers": [
+          [
+            "attempt:H27a",
+            1,
+            "原生年度 +7.9021%，94/151 胜；胜率近 60%，但收益低于 H26a 且未达 >20%，已暴露开发年。"
+          ],
+          [
+            "diagnostic:D94",
+            1,
+            "使用 C02 旧来源解释提出原生止损对 A 的几何诊断；读回时必须提示 S46 纠错。几何事实不产生替代成交或账户收益。"
+          ]
+        ],
+        "downstream_affected_ids": [
+          [
+            "diagnostic:D95"
+          ]
+        ],
+        "historical_object_sha256": "e8d6a2a112d375ec32eac5f03c2799612926402dbb4749cdc8639ae10679ea1c",
+        "current_object_sha256": "9e733dd481de21586c180d36ce1f61cec2669bf2a8b00ad366993131c19f193c",
+        "immutability_boundary": "Append-only revision rows are an adapter convention. AS OF immutable content-addressed Dolt commits is native history."
+      },
+      "sql_event_start": 34,
+      "sql_event_end": 55
+    },
+    "A1-component-recall": {
+      "status": "passed",
+      "duration_seconds": 0.003683790913783014,
+      "observations": {
+        "queries": {
+          "ConfirmedLineSupportTouches": [
+            [
+              "attempt:H08",
+              1,
+              "attempt",
+              "S16 的 BTC/LINK 正例没有通过 H08 已冻结的来源门槛；没有 H08 37 币年度经济结果。 仅允许独立审查或复用 ConfirmedLineSupportTouches 的已确认上升线状态计算；不能继承完整入场规则或整体收益。",
+              "source_failed"
+            ],
+            [
+              "attempt:H18a",
+              1,
+              "attempt",
+              "同账户配对对 H15a 略有改善，但 +5.04% 年化与 56.21% 正收益平仓率未达联合 Goal；区间跨零。 仅复用 H08 的状态计算；假设父为 H15a，composition_mode=dependent；不能声称 H08 入场有效或估计独立二因子因果交互。code_parent=null，完整依赖/输入重建仍未知。",
+              "economics_failed"
+            ]
+          ],
+          "已确认上升线状态": [
+            [
+              "attempt:H08",
+              1,
+              "attempt",
+              "S16 的 BTC/LINK 正例没有通过 H08 已冻结的来源门槛；没有 H08 37 币年度经济结果。 仅允许独立审查或复用 ConfirmedLineSupportTouches 的已确认上升线状态计算；不能继承完整入场规则或整体收益。",
+              "source_failed"
+            ],
+            [
+              "attempt:H18a",
+              1,
+              "attempt",
+              "同账户配对对 H15a 略有改善，但 +5.04% 年化与 56.21% 正收益平仓率未达联合 Goal；区间跨零。 仅复用 H08 的状态计算；假设父为 H15a，composition_mode=dependent；不能声称 H08 入场有效或估计独立二因子因果交互。code_parent=null，完整依赖/输入重建仍未知。",
+              "economics_failed"
+            ]
+          ],
+          "确认趋势线状态": [
+            [
+              "attempt:H08",
+              1,
+              "attempt",
+              "S16 的 BTC/LINK 正例没有通过 H08 已冻结的来源门槛；没有 H08 37 币年度经济结果。 仅允许独立审查或复用 ConfirmedLineSupportTouches 的已确认上升线状态计算；不能继承完整入场规则或整体收益。",
+              "source_failed"
+            ],
+            [
+              "attempt:H18a",
+              1,
+              "attempt",
+              "同账户配对对 H15a 略有改善，但 +5.04% 年化与 56.21% 正收益平仓率未达联合 Goal；区间跨零。 仅复用 H08 的状态计算；假设父为 H15a，composition_mode=dependent；不能声称 H08 入场有效或估计独立二因子因果交互。code_parent=null，完整依赖/输入重建仍未知。",
+              "economics_failed"
+            ]
+          ]
+        },
+        "component_relations": [
+          [
+            "rel:H18a-component-H08",
+            "component_reuse",
+            "attempt:H18a",
+            1,
+            "attempt:H08",
+            1,
+            "只复用已确认上升线状态计算；不继承 H08 完整入场假设或整体收益。"
+          ],
+          [
+            "rel:H18a-hypothesis-H15a",
+            "hypothesis_extension",
+            "attempt:H18a",
+            1,
+            "attempt:H15a",
+            1,
+            "dependent composition；合法经济比较是 H18a 对冻结 H15a，不是 H08-only 的独立四格。"
+          ]
+        ],
+        "failed_source_only_record": [
+          [
+            "attempt:H13b",
+            "\"S27 的 A 在 B 后两个完成 bar 才确认；旧 A/B 的未成交计划未替换。没有原生年化经济结果。\"",
+            "\"source_failed\"",
+            "{\"aliases\":[\"H13b\"],\"scope\":\"S27 的 A 在 B 后两个完成 bar 才确认；旧 A/B 的未成交计划未替换。没有原生年化经济结果。\",\"state\":\"source_failed\",\"text\":\"{\\n  \\\"schema_version\\\": 1,\\n  \\\"attempt_id\\\": \\\"H13b\\\",\\n  \\\"goal_id\\\": \\\"R1-37-shared-account-joint-goal\\\",\\n  \\\"kind\\\": \\\"strategy\\\",\\n  \\\"question\\\": \\\"首次新高形成 B 时立即挂 61.8% 限价单能否通过 S27？\\\",\\n  \\\"mechanism\\\": \\\"61.8% 支撑共振的首次新高挂单时机\\\",\\n  \\\"hypothesis\\\": \\\"首次新高形成 B 后立即挂单可在 S27 保留已确认 A/B 的有效计划。\\\",\\n  \\\"parents\\\": [\\n    {\\n      \\\"attempt_id\\\": \\\"H13\\\",\\n      \\\"relationship\\\": \\\"repair\\\",\\n      \\\"difference\\\": \\\"由靠近 50% 后才挂单，改为 B 首次新高后立即挂单。\\\"\\n    }\\n  ],\\n  \\\"code_parent\\\": \\\"e4068b751\\\",\\n  \\\"registration\\\": {\\n    \\\"status\\\": \\\"retrospective\\\",\\n    \\\"reference\\\": \\\"research/r1_native/RD_EXPERIMENTS.md\\\",\\n    \\\"original_registration_commit\\\": \\\"1683fdbec\\\"\\n  },\\n  \\\"decision\\\": {\\n    \\\"layer\\\": \\\"source\\\",\\n    \\\"outcome\\\": \\\"failed\\\",\\n    \\\"scope\\\": \\\"S27 的 A 在 B 后两个完成 bar 才确认；旧 A/B 的未成交计划未替换。没有原生年化经济结果。\\\",\\n    \\\"next_action\\\": \\\"停止首次新高限定；检查新确认 A/B 与旧计划替换。\\\"\\n  },\\n  \\\"evidence_refs\\\": [\\n    {\\n      \\\"kind\\\": \\\"source_gate\\\",\\n      \\\"path\\\": \\\"research/r1_native/results/2026-10-08-h13b-source-gate.json\\\",\\n      \\\"sha256\\\": \\\"fcb0dd131ccb5ef591a160b6a844b1f81ddf6005495ff024b16b13c91165964a\\\"\\n    }\\n  ]\\n}\",\"title\":\"H13b：首次新高形成 B 时立即挂 61.8% 限价单能否通过 S27？\"}"
+          ]
+        ],
+        "recall_semantics": "Exact hand-transcribed metadata alias recall; stored scopes are returned verbatim. No Markdown extraction or general natural-language recall claim."
+      },
+      "sql_event_start": 55,
+      "sql_event_end": 60
+    },
+    "A3-duplicate-source": {
+      "status": "passed",
+      "duration_seconds": 0.001093708910048008,
+      "observations": {
+        "sources": [
+          [
+            "source:S01",
+            1,
+            "05c7fc1fa46ca6586ed284e810d76bec38429c4129b923086547046f5113ccee",
+            "{\"aliases\":[\"S01\",\"4Kpsuq0K\",\"4a9ca56dc11f0dc7168a5d16a19df641913f05b8c7cfc31f6805c352f23ad830\"],\"scope\":\"2024-10-28 同一原始视频的第一次处理；DOGE 06:05-06:50 是条件路径，不是新订单事实。与 S15 合计只算一个独立原始媒体。\",\"state\":\"development_source\",\"text\":\"## Source observation S01: R-1u covers one part of Ronnie's method\\n\\nThe author's 2024-10-28 original video was parsed through this repository's `video-note-mcp` from [the primary video file](https://video-ideas.tradingview.com/1/1416280-Bf_rqWB7C_1tcMiE.mp4). The complete timestamped transcript, generated note and screenshots are retained at `/Users/vx/.local/share/bilibili-note-mcp/notes/note-00e13dbc423b4fdea073b515bff98c6e/` (fast profile; no audio review). Relevant evidence:\\n\\n- 01:01-02:05: BTC is treated as a 4-hour range, trading the range edges, with a more attractive long when a rising trend line meets a horizontal role-reversal support. A daily pivot-cross-only R-1u does not represent the range or confluence choice.\\n- 02:10-03:15: ETH wick-only penetration does not constitute a break; support/resistance is an area rather than an exact price. The current stop zone has an ATR cap, but the limit is placed at one pivot price and has no 4-hour confirmation.\\n- 04:10-05:28: on APE/DYDX, stop location is below the large breakout candle or prior structural low, and position size is set from the money risk implied by that stop. The current replay fixes quantity per coin from a prior close, without risk-based sizing.\\n- 06:05-06:50: DOGE's 4-hour pullback combines Fibonacci 38.2% with a previous high. He names several **alternative** trades depending on the future path, including a breakout retest. These are not one unconditional daily order rule.\\n\\nThese observations are human/source claims, not evidence of profitable execution. The note's generic-source metadata lacks author/date; identity and date above come from the frozen TradingView video-idea record at the source commit. Bilibili and YouTube dedicated acquisition attempts for this research failed (`BV1baduBmEL1`: metadata code -404; `doz72-I2LKM`: same-host Googlevideo HTTP 302 refused by the adapter). Do not infer their spoken rules from titles or AI summaries.\",\"title\":\"Source observation S01: R-1u covers one part of Ronnie's method\"}",
+            "{\"git_commit\":\"1b32849ca7ec6efd609b0a3bbbbd26bcd854103d\",\"locator\":\"L79-L89; heading=## Source observation S01: R-1u covers one part of Ronnie's method\",\"path\":\"research/r1_native/RD_EXPERIMENTS.md\",\"sha256\":\"05c7fc1fa46ca6586ed284e810d76bec38429c4129b923086547046f5113ccee\"}"
+          ],
+          [
+            "source:S15",
+            1,
+            "05c7fc1fa46ca6586ed284e810d76bec38429c4129b923086547046f5113ccee",
+            "{\"aliases\":[\"S15\",\"4Kpsuq0K\",\"4a9ca56dc11f0dc7168a5d16a19df641913f05b8c7cfc31f6805c352f23ad830\"],\"scope\":\"重复处理 S01 的同一 URL 与同一 MP4 SHA-256；登记在再采集前但首次内容暴露之后，不能当独立事前来源测试或新增支持样本。\",\"state\":\"duplicate_not_independent\",\"text\":\"## Source check S15: DOGE claimed breakout-retest and new-entry timing\\n\\n**Registered before this acquisition but not before first content exposure:** The frozen Ronnie_Dong TradingView archive at Git `0725a7b3f89902e27cd421a18b4b879a13268534` identifies `4Kpsuq0K`, created 2024-10-28 09:23:27.545737 UTC, 550 seconds, original media `https://video-ideas.tradingview.com/1/1416280-Bf_rqWB7C_1tcMiE.mp4`. The registration at `c2123e65204ed5122a0ba5728ed7a4fadb7649f8` asked whether DOGE shows a completed outer break/retest and contemporaneous new entry with invalidation (H07), or a retest of the same trend line and new order (H06a). It incorrectly described this as a *distinct* original: S01 had already parsed and discussed this exact URL and the DOGE 06:05-06:50 segment. The two acquired MP4 files have identical SHA-256 `4a9ca56dc11f0dc7168a5d16a19df641913f05b8c7cfc31f6805c352f23ad830`. This is a duplicate source-processing attempt, not an independent prospective source test; the original registration and the correction both remain visible.\\n\\n**Read and decision:** The new fast note is `/Users/vx/.local/share/bilibili-note-mcp/notes/note-eb1692755e4e4bcb9f573d4f4eeaba38/note.md` (SHA-256 `7b1ff268c0d325e0018838dfbfb9700ec5fa56b86bcc164ad1939ac0c9ffabbe`); the prior S01 note is `/Users/vx/.local/share/bilibili-note-mcp/notes/note-00e13dbc423b4fdea073b515bff98c6e/note.md` (SHA-256 `bba9495107393bee833e9004c643a85c3136888cf93249a57987a0ffcaeb9c2b`). The new DOGE speech at 06:05-06:13 calls the **past** pullback to Fibonacci 38.2% and a previous high standard. At 06:22-06:43 he lists **alternative future** paths: short at the high, chase a future break, enter long after a future break/retest, or wait for lower horizontal support. Original frames around 06:11 and 06:49 show the chart and prospective arrows, not a new order on the already observed pullback. No unique new-entry/stop/target triplet is given. H07's and H06a's strict positive-entry gates remain unmet; S15 adds no independent confirmation to S01. The exact acquisition, media identity, segment and frame references are in `results/2026-10-08-s15-duplicate-source.json`. Do not run a new annual candidate on this duplicate or count it as a second video in source support.\",\"title\":\"Source check S15: DOGE claimed breakout-retest and new-entry timing\"}",
+            "{\"git_commit\":\"1b32849ca7ec6efd609b0a3bbbbd26bcd854103d\",\"locator\":\"L485-L490; heading=## Source check S15: DOGE claimed breakout-retest and new-entry timing\",\"path\":\"research/r1_native/RD_EXPERIMENTS.md\",\"sha256\":\"05c7fc1fa46ca6586ed284e810d76bec38429c4129b923086547046f5113ccee\"}"
+          ]
+        ],
+        "duplicate_relations": [
+          [
+            "rel:S15-duplicate-S01",
+            "duplicate_of",
+            "source:S15",
+            1,
+            "source:S01",
+            1,
+            "{\"scope\":\"两个处理尝试只算一个独立媒体来源；S15 不增加独立来源支持。\",\"text\":\"相同原始 URL；MP4 SHA-256 4a9ca56dc11f0dc7168a5d16a19df641913f05b8c7cfc31f6805c352f23ad830。\"}"
+          ]
+        ],
+        "source_file_digest_count": 1,
+        "media_hashes": [
+          "4a9ca56dc11f0dc7168a5d16a19df641913f05b8c7cfc31f6805c352f23ad830",
+          "4a9ca56dc11f0dc7168a5d16a19df641913f05b8c7cfc31f6805c352f23ad830"
+        ],
+        "independent_evidence_groups": 1,
+        "deduplication_boundary": "Application explicitly groups fixture duplicate relations; distinct transcription file digests alone do not establish independent media evidence."
+      },
+      "sql_event_start": 60,
+      "sql_event_end": 62
+    },
+    "A4-atomic-rollback": {
+      "status": "passed",
+      "duration_seconds": 0.041527042048983276,
+      "observations": {
+        "operation_id": "validation:atomic-invalid-fk",
+        "attempted_real_object_keys": [
+          [
+            "attempt:H08",
+            2
+          ],
+          [
+            "attempt:H18a",
+            2
+          ],
+          [
+            "attempt:H13b",
+            2
+          ]
+        ],
+        "invalid_fk_error": "IntegrityError(1452, 'cannot add or update a child row - Foreign key violation on fk: `relations_ibfk_2`, table: `relations`, referenced table: `objects`, key: `[attempt:ABSENT,999,attempt]`')",
+        "before": {
+          "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+          "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+          "object_count": 13,
+          "relation_count": 13,
+          "operation_count": 0,
+          "version": 1,
+          "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+          "native_commit_count": 4
+        },
+        "after_independent_connection": {
+          "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+          "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+          "object_count": 13,
+          "relation_count": 13,
+          "operation_count": 0,
+          "version": 1,
+          "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+          "native_commit_count": 4
+        },
+        "check_error": "OperationalError(1105, 'Check constraint \"objects_chk_5sbti94n\" violated')",
+        "typed_fk_error": "IntegrityError(1452, 'cannot add or update a child row - Foreign key violation on fk: `relations_ibfk_2`, table: `relations`, referenced table: `objects`, key: `[attempt:H08,1,claim]`')",
+        "rollback_boundary": "Native FK rejects the invalid statement; adapter explicitly aborts the entire multiobject transaction. Object, relation, operation, version and Dolt HEAD are independently read back unchanged."
+      },
+      "sql_event_start": 62,
+      "sql_event_end": 136
+    },
+    "A5-same-version-race": {
+      "status": "passed",
+      "duration_seconds": 1.2443787079537287,
+      "observations": {
+        "serial_stale_control": {
+          "first": {
+            "status": "committed",
+            "observed_version": 1,
+            "result": {
+              "operation_id": "validation:stale-first",
+              "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+              "object_key": [
+                "attempt:H13b",
+                2
+              ],
+              "version": 2,
+              "native_commit": "nm4cgnhv46rrkta67m43e77plenqh49i"
+            }
+          },
+          "stale": {
+            "status": "explicit_conflict",
+            "observed_version": 2,
+            "error": "ValueError('expected-version conflict: expected 1, observed 2')"
+          },
+          "before": {
+            "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+            "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+            "object_count": 13,
+            "relation_count": 13,
+            "operation_count": 0,
+            "version": 1,
+            "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+            "native_commit_count": 4
+          },
+          "after": {
+            "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+            "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+            "object_count": 14,
+            "relation_count": 14,
+            "operation_count": 1,
+            "version": 2,
+            "head": "nm4cgnhv46rrkta67m43e77plenqh49i",
+            "native_commit_count": 5
+          },
+          "passed": true
+        },
+        "trials": [
+          {
+            "mode": "ordinary",
+            "delay_seconds": 0,
+            "trial": 0,
+            "writers": [
+              {
+                "status": "committed",
+                "observed_version": 1,
+                "result": {
+                  "operation_id": "validation:race-a",
+                  "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+                  "object_key": [
+                    "attempt:H13b",
+                    2
+                  ],
+                  "version": 2,
+                  "native_commit": "q3afb8ejc6cthm08itd6throt1k3akck"
+                }
+              },
+              {
+                "status": "explicit_conflict",
+                "observed_version": 1,
+                "error": "OperationalError(1213, 'serialization failure: this transaction conflicts with a committed transaction from another client, try restarting transaction.')"
+              }
+            ],
+            "disjoint_object_keys": [
+              [
+                "attempt:H13b",
+                2
+              ],
+              [
+                "attempt:H13",
+                2
+              ]
+            ],
+            "conflict_reason_is_native_version_conflict": true,
+            "before": {
+              "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+              "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+              "object_count": 13,
+              "relation_count": 13,
+              "operation_count": 0,
+              "version": 1,
+              "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+              "native_commit_count": 4
+            },
+            "after_independent_connection": {
+              "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+              "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+              "object_count": 14,
+              "relation_count": 14,
+              "operation_count": 1,
+              "version": 2,
+              "head": "q3afb8ejc6cthm08itd6throt1k3akck",
+              "native_commit_count": 5
+            },
+            "passed": true
+          },
+          {
+            "mode": "ordinary",
+            "delay_seconds": 0,
+            "trial": 1,
+            "writers": [
+              {
+                "status": "committed",
+                "observed_version": 1,
+                "result": {
+                  "operation_id": "validation:race-b",
+                  "payload_sha256": "6c586b43b779d6ade433e90ebcae23f57aa32ef10da5506000658f20a4372155",
+                  "object_key": [
+                    "attempt:H13",
+                    2
+                  ],
+                  "version": 2,
+                  "native_commit": "i2ids8rhp87cbdfeii3bcst7vjb0scli"
+                }
+              },
+              {
+                "status": "explicit_conflict",
+                "observed_version": 1,
+                "error": "OperationalError(1213, 'serialization failure: this transaction conflicts with a committed transaction from another client, try restarting transaction.')"
+              }
+            ],
+            "disjoint_object_keys": [
+              [
+                "attempt:H13b",
+                2
+              ],
+              [
+                "attempt:H13",
+                2
+              ]
+            ],
+            "conflict_reason_is_native_version_conflict": true,
+            "before": {
+              "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+              "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+              "object_count": 13,
+              "relation_count": 13,
+              "operation_count": 0,
+              "version": 1,
+              "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+              "native_commit_count": 4
+            },
+            "after_independent_connection": {
+              "objects_hash": "4555763c71cecc6472e25fe911c48a8137437b9913a6c9b10438530fed2db132",
+              "relations_hash": "318fa340eaf5f1a21556f4f4fde7f41b54d6732d5bd9766dd057403712f86f34",
+              "object_count": 14,
+              "relation_count": 14,
+              "operation_count": 1,
+              "version": 2,
+              "head": "i2ids8rhp87cbdfeii3bcst7vjb0scli",
+              "native_commit_count": 5
+            },
+            "passed": true
+          },
+          {
+            "mode": "ordinary",
+            "delay_seconds": 0,
+            "trial": 2,
+            "writers": [
+              {
+                "status": "committed",
+                "observed_version": 1,
+                "result": {
+                  "operation_id": "validation:race-a",
+                  "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+                  "object_key": [
+                    "attempt:H13b",
+                    2
+                  ],
+                  "version": 2,
+                  "native_commit": "b3gadgio6rmnqibves3vg6j0tlphhcfc"
+                }
+              },
+              {
+                "status": "explicit_conflict",
+                "observed_version": 1,
+                "error": "OperationalError(1213, 'serialization failure: this transaction conflicts with a committed transaction from another client, try restarting transaction.')"
+              }
+            ],
+            "disjoint_object_keys": [
+              [
+                "attempt:H13b",
+                2
+              ],
+              [
+                "attempt:H13",
+                2
+              ]
+            ],
+            "conflict_reason_is_native_version_conflict": true,
+            "before": {
+              "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+              "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+              "object_count": 13,
+              "relation_count": 13,
+              "operation_count": 0,
+              "version": 1,
+              "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+              "native_commit_count": 4
+            },
+            "after_independent_connection": {
+              "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+              "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+              "object_count": 14,
+              "relation_count": 14,
+              "operation_count": 1,
+              "version": 2,
+              "head": "b3gadgio6rmnqibves3vg6j0tlphhcfc",
+              "native_commit_count": 5
+            },
+            "passed": true
+          },
+          {
+            "mode": "delayed-after-read",
+            "delay_seconds": 0.3,
+            "trial": 0,
+            "writers": [
+              {
+                "status": "committed",
+                "observed_version": 1,
+                "result": {
+                  "operation_id": "validation:race-a",
+                  "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+                  "object_key": [
+                    "attempt:H13b",
+                    2
+                  ],
+                  "version": 2,
+                  "native_commit": "nigp56smmk8irchnatha3o67ukjc6qfh"
+                }
+              },
+              {
+                "status": "explicit_conflict",
+                "observed_version": 1,
+                "error": "OperationalError(1213, 'serialization failure: this transaction conflicts with a committed transaction from another client, try restarting transaction.')"
+              }
+            ],
+            "disjoint_object_keys": [
+              [
+                "attempt:H13b",
+                2
+              ],
+              [
+                "attempt:H13",
+                2
+              ]
+            ],
+            "conflict_reason_is_native_version_conflict": true,
+            "before": {
+              "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+              "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+              "object_count": 13,
+              "relation_count": 13,
+              "operation_count": 0,
+              "version": 1,
+              "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+              "native_commit_count": 4
+            },
+            "after_independent_connection": {
+              "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+              "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+              "object_count": 14,
+              "relation_count": 14,
+              "operation_count": 1,
+              "version": 2,
+              "head": "nigp56smmk8irchnatha3o67ukjc6qfh",
+              "native_commit_count": 5
+            },
+            "passed": true
+          },
+          {
+            "mode": "delayed-after-read",
+            "delay_seconds": 0.3,
+            "trial": 1,
+            "writers": [
+              {
+                "status": "committed",
+                "observed_version": 1,
+                "result": {
+                  "operation_id": "validation:race-a",
+                  "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+                  "object_key": [
+                    "attempt:H13b",
+                    2
+                  ],
+                  "version": 2,
+                  "native_commit": "0q9euspbs82b8i7vulru776p8qkr38bf"
+                }
+              },
+              {
+                "status": "explicit_conflict",
+                "observed_version": 1,
+                "error": "OperationalError(1213, 'serialization failure: this transaction conflicts with a committed transaction from another client, try restarting transaction.')"
+              }
+            ],
+            "disjoint_object_keys": [
+              [
+                "attempt:H13b",
+                2
+              ],
+              [
+                "attempt:H13",
+                2
+              ]
+            ],
+            "conflict_reason_is_native_version_conflict": true,
+            "before": {
+              "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+              "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+              "object_count": 13,
+              "relation_count": 13,
+              "operation_count": 0,
+              "version": 1,
+              "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+              "native_commit_count": 4
+            },
+            "after_independent_connection": {
+              "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+              "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+              "object_count": 14,
+              "relation_count": 14,
+              "operation_count": 1,
+              "version": 2,
+              "head": "0q9euspbs82b8i7vulru776p8qkr38bf",
+              "native_commit_count": 5
+            },
+            "passed": true
+          },
+          {
+            "mode": "delayed-after-read",
+            "delay_seconds": 0.3,
+            "trial": 2,
+            "writers": [
+              {
+                "status": "committed",
+                "observed_version": 1,
+                "result": {
+                  "operation_id": "validation:race-a",
+                  "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+                  "object_key": [
+                    "attempt:H13b",
+                    2
+                  ],
+                  "version": 2,
+                  "native_commit": "08dijd0j7s11gnkjlcmvqh4mftpfvj8n"
+                }
+              },
+              {
+                "status": "explicit_conflict",
+                "observed_version": 1,
+                "error": "OperationalError(1213, 'serialization failure: this transaction conflicts with a committed transaction from another client, try restarting transaction.')"
+              }
+            ],
+            "disjoint_object_keys": [
+              [
+                "attempt:H13b",
+                2
+              ],
+              [
+                "attempt:H13",
+                2
+              ]
+            ],
+            "conflict_reason_is_native_version_conflict": true,
+            "before": {
+              "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+              "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+              "object_count": 13,
+              "relation_count": 13,
+              "operation_count": 0,
+              "version": 1,
+              "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+              "native_commit_count": 4
+            },
+            "after_independent_connection": {
+              "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+              "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+              "object_count": 14,
+              "relation_count": 14,
+              "operation_count": 1,
+              "version": 2,
+              "head": "08dijd0j7s11gnkjlcmvqh4mftpfvj8n",
+              "native_commit_count": 5
+            },
+            "passed": true
+          }
+        ],
+        "barrier": "Two independent MySQL connections read the same global publication version before either mutation; delayed mode pauses writer B 300ms after that read.",
+        "atomic_publication": "Conditional UPDATE, real H13b revision copy, fixed repair relation, operation registration and DOLT_COMMIT in one native SQL transaction.",
+        "retry_policy": "No conflict retries or process-wide publication lock; divergent last-operation marker prevents two same-value version increments from being silently converged."
+      },
+      "sql_event_start": 136,
+      "sql_event_end": 699
+    },
+    "A6-idempotent-operation": {
+      "status": "passed",
+      "duration_seconds": 0.060702583054080606,
+      "observations": {
+        "operation_id": "validation:lost-response",
+        "discarded_response": {
+          "status": "committed",
+          "observed_version": 1,
+          "result": {
+            "operation_id": "validation:lost-response",
+            "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+            "object_key": [
+              "attempt:H13b",
+              2
+            ],
+            "version": 2,
+            "native_commit": "jkd5eisukkt0ghihod5f7uoemnbp2rbt"
+          }
+        },
+        "recovery": {
+          "status": "recovered",
+          "result": {
+            "operation_id": "validation:lost-response",
+            "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+            "object_key": [
+              "attempt:H13b",
+              2
+            ],
+            "version": 2,
+            "native_commit": "jkd5eisukkt0ghihod5f7uoemnbp2rbt"
+          },
+          "observed_version": null
+        },
+        "different_payload_retry": {
+          "status": "explicit_conflict",
+          "observed_version": null,
+          "error": "ValueError('operation-content conflict: validation:lost-response')"
+        },
+        "before": {
+          "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+          "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+          "object_count": 13,
+          "relation_count": 13,
+          "operation_count": 0,
+          "version": 1,
+          "head": "tpkq3tln0nf2914druisbne0dl1pj7q2",
+          "native_commit_count": 4
+        },
+        "after_initial_commit": {
+          "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+          "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+          "object_count": 14,
+          "relation_count": 14,
+          "operation_count": 1,
+          "version": 2,
+          "head": "jkd5eisukkt0ghihod5f7uoemnbp2rbt",
+          "native_commit_count": 5
+        },
+        "after_identical_replay": {
+          "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+          "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+          "object_count": 14,
+          "relation_count": 14,
+          "operation_count": 1,
+          "version": 2,
+          "head": "jkd5eisukkt0ghihod5f7uoemnbp2rbt",
+          "native_commit_count": 5
+        },
+        "after_content_conflict": {
+          "objects_hash": "4a008edbf4b4a2ab4fd54746129fd25ec3c2f1ef13fbff6cabd0feb4a810d87e",
+          "relations_hash": "842e8297c40d977973b99b4d31c1926b6de7a9fb4da3de40829de726164092fc",
+          "object_count": 14,
+          "relation_count": 14,
+          "operation_count": 1,
+          "version": 2,
+          "head": "jkd5eisukkt0ghihod5f7uoemnbp2rbt",
+          "native_commit_count": 5
+        },
+        "native_commit_binding": "Persisted unique operation message + payload digest resolved to exactly one DOLT_LOG commit hash; recovery returns the original operation version and commit, not current HEAD.",
+        "simulation": "Application deliberately discards completed success, closes the connection, reconnects and looks up operation_id before new mutation. No real TCP-response loss fault injected."
+      },
+      "sql_event_start": 699,
+      "sql_event_end": 847
+    },
+    "A7-native-history-recovery": {
+      "status": "passed",
+      "duration_seconds": 0.4430944169871509,
+      "observations": {
+        "backup_path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/native-backup",
+        "restore_path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/restored-data/ledger_probe",
+        "restore_uses_new_empty_path": true,
+        "backup_files": [
+          {
+            "path": "4llfcltebate5di7l23vb4vouj43iave.darc",
+            "bytes": 77398,
+            "sha256": "67c62c2a66d66562f37e0e6202cf1f8795ed9d6a08beac11044d0c4738e6f019"
+          },
+          {
+            "path": "LOCK",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "manifest",
+            "bytes": 146,
+            "sha256": "5b8b8d1967841c3a45897126dc4dc92fc8100812792208d193da8de6f4f7da00"
+          },
+          {
+            "path": "oldgen/LOCK",
+            "bytes": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "primary_branches": [
+          [
+            "main",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          [
+            "validation-A4",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          [
+            "validation-A5-delayed-after-read-0",
+            "nigp56smmk8irchnatha3o67ukjc6qfh"
+          ],
+          [
+            "validation-A5-delayed-after-read-1",
+            "0q9euspbs82b8i7vulru776p8qkr38bf"
+          ],
+          [
+            "validation-A5-delayed-after-read-2",
+            "08dijd0j7s11gnkjlcmvqh4mftpfvj8n"
+          ],
+          [
+            "validation-A5-ordinary-0",
+            "q3afb8ejc6cthm08itd6throt1k3akck"
+          ],
+          [
+            "validation-A5-ordinary-1",
+            "i2ids8rhp87cbdfeii3bcst7vjb0scli"
+          ],
+          [
+            "validation-A5-ordinary-2",
+            "b3gadgio6rmnqibves3vg6j0tlphhcfc"
+          ],
+          [
+            "validation-A5-stale-control",
+            "nm4cgnhv46rrkta67m43e77plenqh49i"
+          ],
+          [
+            "validation-A6",
+            "jkd5eisukkt0ghihod5f7uoemnbp2rbt"
+          ],
+          [
+            "validation-baseline",
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19"
+          ],
+          [
+            "validation-review",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ]
+        ],
+        "restored_branches": [
+          [
+            "main",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          [
+            "validation-A4",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          [
+            "validation-A5-delayed-after-read-0",
+            "nigp56smmk8irchnatha3o67ukjc6qfh"
+          ],
+          [
+            "validation-A5-delayed-after-read-1",
+            "0q9euspbs82b8i7vulru776p8qkr38bf"
+          ],
+          [
+            "validation-A5-delayed-after-read-2",
+            "08dijd0j7s11gnkjlcmvqh4mftpfvj8n"
+          ],
+          [
+            "validation-A5-ordinary-0",
+            "q3afb8ejc6cthm08itd6throt1k3akck"
+          ],
+          [
+            "validation-A5-ordinary-1",
+            "i2ids8rhp87cbdfeii3bcst7vjb0scli"
+          ],
+          [
+            "validation-A5-ordinary-2",
+            "b3gadgio6rmnqibves3vg6j0tlphhcfc"
+          ],
+          [
+            "validation-A5-stale-control",
+            "nm4cgnhv46rrkta67m43e77plenqh49i"
+          ],
+          [
+            "validation-A6",
+            "jkd5eisukkt0ghihod5f7uoemnbp2rbt"
+          ],
+          [
+            "validation-baseline",
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19"
+          ],
+          [
+            "validation-review",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ]
+        ],
+        "primary_commits_by_branch": {
+          "main": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A4": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-delayed-after-read-0": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "nigp56smmk8irchnatha3o67ukjc6qfh",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-delayed-after-read-1": [
+            "0q9euspbs82b8i7vulru776p8qkr38bf",
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-delayed-after-read-2": [
+            "08dijd0j7s11gnkjlcmvqh4mftpfvj8n",
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-ordinary-0": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "q3afb8ejc6cthm08itd6throt1k3akck",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-ordinary-1": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "i2ids8rhp87cbdfeii3bcst7vjb0scli",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-ordinary-2": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "b3gadgio6rmnqibves3vg6j0tlphhcfc",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-stale-control": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "nm4cgnhv46rrkta67m43e77plenqh49i",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A6": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "jkd5eisukkt0ghihod5f7uoemnbp2rbt",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-baseline": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34"
+          ],
+          "validation-review": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ]
+        },
+        "restored_commits_by_branch": {
+          "main": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A4": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-delayed-after-read-0": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "nigp56smmk8irchnatha3o67ukjc6qfh",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-delayed-after-read-1": [
+            "0q9euspbs82b8i7vulru776p8qkr38bf",
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-delayed-after-read-2": [
+            "08dijd0j7s11gnkjlcmvqh4mftpfvj8n",
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-ordinary-0": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "q3afb8ejc6cthm08itd6throt1k3akck",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-ordinary-1": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "i2ids8rhp87cbdfeii3bcst7vjb0scli",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-ordinary-2": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "b3gadgio6rmnqibves3vg6j0tlphhcfc",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A5-stale-control": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "nm4cgnhv46rrkta67m43e77plenqh49i",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-A6": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "jkd5eisukkt0ghihod5f7uoemnbp2rbt",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ],
+          "validation-baseline": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34"
+          ],
+          "validation-review": [
+            "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+            "ep7etq728rmgvlbt7fcc9a26s4lk8ius",
+            "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+            "tpkq3tln0nf2914druisbne0dl1pj7q2"
+          ]
+        },
+        "expected_content_hashes": {
+          "baseline_objects": "d26d9b972d4f7612f66acc51b295f744f9cdd9f5b1516cb8b12ac891fa5febcc",
+          "baseline_relations": "9c9757c34a23aae00317dac84250129ebdb28f12471c8cb585fe79d78a1a5c09",
+          "current_objects": "0f74437c7b133a91aa7d9a6cb4acb3c9f1cd66d938537b56242decb53fbf74f9",
+          "current_relations": "90009b0bbc6336acc9baac5bd758364bce9b00b774803f37b2d00393dbcb78bc",
+          "working_object": "94254f1bbe206ae41edc362a665a5f6a81dc1f4abbb39b72c1089b3883b389c3"
+        },
+        "primary_content_hashes": {
+          "baseline_objects": "d26d9b972d4f7612f66acc51b295f744f9cdd9f5b1516cb8b12ac891fa5febcc",
+          "baseline_relations": "9c9757c34a23aae00317dac84250129ebdb28f12471c8cb585fe79d78a1a5c09",
+          "current_objects": "0f74437c7b133a91aa7d9a6cb4acb3c9f1cd66d938537b56242decb53fbf74f9",
+          "current_relations": "90009b0bbc6336acc9baac5bd758364bce9b00b774803f37b2d00393dbcb78bc",
+          "working_object": "94254f1bbe206ae41edc362a665a5f6a81dc1f4abbb39b72c1089b3883b389c3"
+        },
+        "restored_content_hashes": {
+          "baseline_objects": "d26d9b972d4f7612f66acc51b295f744f9cdd9f5b1516cb8b12ac891fa5febcc",
+          "baseline_relations": "9c9757c34a23aae00317dac84250129ebdb28f12471c8cb585fe79d78a1a5c09",
+          "current_objects": "0f74437c7b133a91aa7d9a6cb4acb3c9f1cd66d938537b56242decb53fbf74f9",
+          "current_relations": "90009b0bbc6336acc9baac5bd758364bce9b00b774803f37b2d00393dbcb78bc",
+          "working_object": "94254f1bbe206ae41edc362a665a5f6a81dc1f4abbb39b72c1089b3883b389c3"
+        },
+        "old_claim_hash": "e8d6a2a112d375ec32eac5f03c2799612926402dbb4749cdc8639ae10679ea1c",
+        "current_claim_hash": "9e733dd481de21586c180d36ce1f61cec2669bf2a8b00ad366993131c19f193c",
+        "native_working_set_recovery": "passed",
+        "pending_object_key": [
+          "attempt:H13b",
+          2
+        ],
+        "pending_object_count_at_committed_head": 0,
+        "primary_status": [
+          [
+            "objects",
+            0,
+            "modified"
+          ]
+        ],
+        "restored_status": [
+          [
+            "objects",
+            0,
+            "modified"
+          ]
+        ],
+        "backup_method": "Native DOLT_BACKUP sync-url + pinned CLI backup restore. Independent local MySQL server verifies every branch/history and fixed content hash. No logical dump/filesystem-copy fallback.",
+        "scope": "Same-host empty-directory recovery; no independent-host disaster-recovery claim."
+      },
+      "sql_event_start": 847,
+      "sql_event_end": 978
+    }
+  },
+  "commit_ids": {
+    "schema": "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+    "fixture_revision_1": "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+    "fixture_correction": "tpkq3tln0nf2914druisbne0dl1pj7q2"
+  },
+  "commands": [
+    {
+      "argv": [
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/bin/dolt-darwin-arm64/bin/dolt",
+        "version"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "output": "dolt version 2.4.2\n",
+      "duration_seconds": 0.023863582988269627
+    },
+    {
+      "argv": [
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/bin/dolt-darwin-arm64/bin/dolt",
+        "backup",
+        "--help"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "output": "NAME\n\tdolt backup - Manage database backups, including creation, sync, and restore.\n\nSYNOPSIS\n\tdolt backup [-v | --verbose]\n\tdolt backup add [--aws-region <region>] [--aws-creds-type <creds-type>] [--aws-creds-file <file>] [--aws-creds-profile <profile>] <name> <url>\n\tdolt backup remove <name>\n\tdolt backup restore [--aws-region <region>] [--aws-creds-type <creds-type>] [--aws-creds-file <file>] [--aws-creds-profile <profile>] [--force] <url> <name>\n\tdolt backup sync [--prune-with-grace-period <duration>] <name>\n\tdolt backup sync-url [--aws-region <region>] [--aws-creds-type <creds-type>] [--aws-creds-file <file>] [--aws-creds-profile <profile>] [--prune-with-grace-period <duration>] <url>\n\nDESCRIPTION\n\t\n\tWith no arguments, shows a list of existing backups. Several subcommands are available to perform operations on\n\tbackups; point in time snapshots of a database's contents.\n\t\n\tadd\n\tAdds a backup named <name> for the database at <url>.\n\tThe <url> parameter supports http, https, aws, gs, and file schemes (https as default). If the <url> parameter is in\n\tthe format <organization>/<repository> then dolt will use the backups.default_host from your configuration file\n\t(dolthub.com by default).\n\tThe URL address must be unique to existing remotes and backups.\n\t\n\tAWS cloud backup URLs should be of the form aws://[dynamo-table:s3-bucket]/database. You may configure your AWS cloud\n\tbackup using the optional parameters aws-region, aws-creds-type, aws-creds-file, aws-creds-profile.\n\t\n\taws-creds-type specifies the means by which credentials should be retrieved in order to access the specified cloud\n\tresources (required for DynamoDB tables, and S3 buckets). Valid values are 'role', 'env', or 'file'.\n\t\n\t\trole: Use the credentials installed for the current user.\n\t\tenv:  Looks for environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.\n\t\tfile: Uses the credentials file specified by the parameter aws-creds-file.\n\t\n\tGCP backup URLs should follow the format gs://gcs-bucket/database. Backups will use the credentials that you configure\n\tusing the gcloud CLI.\n\t\n\tThe local filesystem can be used as a backup by providing a repository URL in the format file://absolute-path. See\n\thttps://en.wikipedia.org/wiki/File_URI_scheme.\n\t\n\tremove, rm\n\tRemove the backup named <name>. All configuration settings for the backup are removed. The contents of the backup are\n\tnot affected.\n\t\n\trestore\n\tRestore a Dolt database from a given <url> into a specified directory <name>. This will fail if <name> is already a\n\tDolt database unless '--force' is provided, in which case the existing database will be overwritten with the contents\n\tof the restored backup.\n\t\n\tsync\n\tSnapshot the database and upload to the backup <name>. This includes branches, tags, working sets, and remote tracking\n\trefs.\n\t\n\tsync-url\n\tSnapshot the database and upload the backup to <url>. Like sync, this includes branches, tags, working sets, and remote\n\ttracking refs, but it does not require you to create a named backup.\n\t\n\tA sync that is interrupted after uploading a storage file but before committing the backup's manifest leaves that file\n\tbehind, unreferenced and never reused. For file:// backups, sync and sync-url accept --prune-with-grace-period\n\t<duration> to reclaim them before uploading.\n\t\n\tA prune infers that there are no concurrent in flight writers by checking if the destination is idle. If any file there\n\thas been modified within <duration>, nothing at all is deleted. The supplied duration must be shorter than the interval\n\tbetween your syncs or the previous sync's own files will always veto the prune. It should be long enough to cover the\n\tfinal steps of a sync, during which a writer is reading and processing newly landed files without touching any of them.\n\tThe minimum accepted duration is 10m. 1h is a reasonable choice for most sync sizes on most hardware.\n\t\n\nOPTIONS\n\t<region>\n\t  cloud provider region associated with this backup.\n\t\n\t<creds-type>\n\t  credential type.  Valid options are role, env, and file.  See the help section for additional details.\n\t\n\t<profile>\n\t  AWS profile to use.\n\t\n\t-v, --verbose\n\t  When printing the list of backups adds additional details.\n\t\n\t-f, --force\n\t  When restoring a backup, overwrite the contents of the existing database with the same name.\n\t\n\t--ref=<ref>\n\t  Git ref to use as the Dolt data ref for git remotes (default: refs/dolt/data).\n\t\n\t--aws-region=<region>\n\t  \n\t\n\t--aws-creds-type=<creds-type>\n\t  \n\t\n\t--aws-creds-file=<file>\n\t  AWS credentials file\n\t\n\t--aws-creds-profile=<profile>\n\t  AWS profile to use\n\t\n\t--prune-with-grace-period=<duration>\n\t  Only valid with sync and sync-url against a file:// backup. Before syncing, delete table files in the destination that\n\t  no manifest references and that are older than <duration> (e.g. 1h, 30m). Nothing is deleted if any file in the\n\t  destination has been modified more recently than <duration>, so the duration must be shorter than the interval between\n\t  syncs for a prune to ever run.\n\t\n",
+      "duration_seconds": 0.025168125052005053
+    },
+    {
+      "argv": [
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/bin/dolt-darwin-arm64/bin/dolt",
+        "sql-server",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "13316",
+        "--data-dir",
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/data",
+        "--socket",
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/primary-server.sock",
+        "--loglevel",
+        "info"
+      ],
+      "log_path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/primary-server.log",
+      "local_only": true
+    },
+    {
+      "argv": [
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/bin/dolt-darwin-arm64/bin/dolt",
+        "backup",
+        "restore",
+        "file:///Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/native-backup",
+        "ledger_probe"
+      ],
+      "cwd": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/restored-data",
+      "exit_code": 0,
+      "output": "\n",
+      "duration_seconds": 0.22111395793035626
+    },
+    {
+      "argv": [
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/bin/dolt-darwin-arm64/bin/dolt",
+        "sql-server",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "13317",
+        "--data-dir",
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/restored-data",
+        "--socket",
+        "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/restored-server.sock",
+        "--loglevel",
+        "info"
+      ],
+      "log_path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/restored-server.log",
+      "local_only": true
+    }
+  ],
+  "binary_asset": {
+    "url": "https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-darwin-arm64.tar.gz",
+    "expected_sha256": "edd31e01c59b0cbd5178fa4d6dbf5526d48e5654e41049ff6f4281e3ad366a7b",
+    "actual_sha256": "edd31e01c59b0cbd5178fa4d6dbf5526d48e5654e41049ff6f4281e3ad366a7b"
+  },
+  "actual_version": "dolt version 2.4.2",
+  "binary_sha256": "02c603512e617ee165e485036ae63958fe1561d3b94251a9cdf6aa3418369310",
+  "mysql_server_version": [
+    "8.0.31",
+    "2.4.2"
+  ],
+  "schema_sql": [
+    "CREATE TABLE objects(id VARCHAR(160) NOT NULL,kind VARCHAR(40) NOT NULL,revision INT NOT NULL,body JSON NOT NULL,provenance JSON NOT NULL,PRIMARY KEY(id,revision),UNIQUE KEY typed_revision(id,revision,kind),CHECK(revision>0),CHECK(kind IN ('attempt','claim','diagnostic','source_check')))",
+    "CREATE TABLE relations(id VARCHAR(160) PRIMARY KEY,kind VARCHAR(40) NOT NULL,from_id VARCHAR(160) NOT NULL,from_revision INT NOT NULL,from_kind VARCHAR(40) NOT NULL,to_id VARCHAR(160) NOT NULL,to_revision INT NOT NULL,to_kind VARCHAR(40) NOT NULL,body JSON NOT NULL,FOREIGN KEY(from_id,from_revision,from_kind) REFERENCES objects(id,revision,kind),FOREIGN KEY(to_id,to_revision,to_kind) REFERENCES objects(id,revision,kind),CHECK(from_revision>0 AND to_revision>0),CHECK(kind IN ('component_reuse','corrects','depends_on','derived_from','duplicate_of','hypothesis_extension','interprets','narrows','repair','supported_by','uses_claim')),CHECK(kind<>'uses_claim' OR to_kind='claim'))",
+    "CREATE TABLE write_heads(id VARCHAR(160) PRIMARY KEY,version BIGINT NOT NULL,writer VARCHAR(40) NOT NULL,CHECK(version>0))",
+    "CREATE TABLE operations(operation_id VARCHAR(160) PRIMARY KEY,payload_sha256 CHAR(64) NOT NULL,object_id VARCHAR(160) NOT NULL,object_revision INT NOT NULL,result_version BIGINT NOT NULL,native_message VARCHAR(400) NOT NULL,FOREIGN KEY(object_id,object_revision) REFERENCES objects(id,revision))",
+    "CREATE TABLE working_markers(id VARCHAR(80) PRIMARY KEY,body JSON NOT NULL)"
+  ],
+  "sql_vs_native_commit": {
+    "ordinary_sql_commit_head_before": "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+    "ordinary_sql_commit_head_after": "n1255gqdlr4rrhmpbm7u0honncbqsn34",
+    "dolt_commit_head": "42rrbnuu2uapfbrbi82jc2utgo4llk19",
+    "ordinary_commit_did_not_create_history": true,
+    "native_commit_created_history": true
+  },
+  "server_logs": [
+    {
+      "path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/restored-server.log",
+      "exit_code": 0
+    },
+    {
+      "path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/primary-server.log",
+      "exit_code": 0
+    }
+  ],
+  "servers_stopped": true,
+  "sql_event_log": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134636-717482/sql-events.json",
+  "elapsed_seconds": 2.4345482910284773,
+  "maintenance_code": {
+    "probe_file": "/Users/vx/.codex/worktrees/f9ec/trade/research/ledger_probe/dolt_probe.py",
+    "source_lines": 649,
+    "project_dependencies_changed": false,
+    "adapter_estimate": "This reproducible harness includes install/server lifecycle and evidence reporting; no production adapter was implemented.",
+    "accepted_run_probe_sha256": "84bc94e60a6c6b2d9b039a305ff3ffd226cd5c0bb855626c332b3e94b8e9489c",
+    "current_frozen_probe_sha256": "4c3e61d68ae5a2900ed93e68c7361055ae4c44397a01f89f9c9d6c684bdc0b73",
+    "current_frozen_source_lines": 681,
+    "reporting_note": "Seven-class acceptance was completed before adding the optional standalone no-token negative-control route. The normal publication path still uses the unique operation token; diagnostic route was then executed independently once."
+  },
+  "runtime_platform": {
+    "system": "Darwin",
+    "machine": "arm64",
+    "python": "3.14.6 (main, Aug  4 2026, 19:23:56) [Clang 22.1.3 ]"
+  },
+  "run_only_duration_note": "elapsed_seconds measures this fresh run, excluding binary download, SDK installation and harness development.",
+  "status": "passed",
+  "cas_guard_negative_control": {
+    "status": "unsafe_without_unique_operation_token",
+    "evidence_path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/logs/dolt_no_token_control.json",
+    "evidence_sha256": "071542a88db6280529c829ff2f636b3c0e0409eedb918aba6f0e6e72e58eeed7",
+    "run_artifact_path": "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/run-20261009T134728-717899",
+    "rerun_argv": [
+      "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/venv/bin/python",
+      "/Users/vx/.codex/worktrees/f9ec/trade/research/ledger_probe/dolt_probe.py",
+      "--no-token-control",
+      "--result",
+      "/Users/vx/.local/share/trade/ledger-probe/dolt-20261009/logs/dolt_no_token_control.json"
+    ],
+    "observations": {
+      "diagnostic_only": true,
+      "before": {
+        "objects_hash": "26a31560540625a9d53a755bee034d224187734e79ff488eb2b98b3e7ef7fd51",
+        "relations_hash": "0c299aa82f6aff643b35df783097c9c700d561bafb552d60b62026a9f90b22d0",
+        "object_count": 13,
+        "relation_count": 13,
+        "operation_count": 0,
+        "version": 1,
+        "head": "4di8ub6sukh6dggrvq3krrqlejriq6or",
+        "native_commit_count": 4
+      },
+      "writers": [
+        {
+          "status": "committed",
+          "observed_version": 1,
+          "result": {
+            "operation_id": "diagnostic:no-token-a",
+            "payload_sha256": "28654bced8b0887b0ea1e11a763478d9032a6af36f4ab9a242bdfc496b05443b",
+            "object_key": [
+              "attempt:H13b",
+              2
+            ],
+            "version": 2,
+            "native_commit": "gj5cvhkbeadn4o5da19f2qr20erfnhdj"
+          }
+        },
+        {
+          "status": "committed",
+          "observed_version": 1,
+          "result": {
+            "operation_id": "diagnostic:no-token-b",
+            "payload_sha256": "6c586b43b779d6ade433e90ebcae23f57aa32ef10da5506000658f20a4372155",
+            "object_key": [
+              "attempt:H13",
+              2
+            ],
+            "version": 2,
+            "native_commit": "rlqukfe17bh82tid5djah0k632fllh28"
+          }
+        }
+      ],
+      "after_independent_connection": {
+        "objects_hash": "76ec888320dfb86a6a8d7df2c23423cc0775968815ea3951df1c08388843114f",
+        "relations_hash": "8e97922c4564fae025aba9b232e67441779a72ecf4f1ad569799af0a24ae6d1b",
+        "object_count": 15,
+        "relation_count": 15,
+        "operation_count": 2,
+        "version": 2,
+        "head": "rlqukfe17bh82tid5djah0k632fllh28",
+        "native_commit_count": 6
+      },
+      "success_count": 2,
+      "sql_guard_without_token": "UPDATE write_heads SET version=version+1 WHERE id='publication' AND version=?",
+      "sql_guard_with_unique_operation_token": "UPDATE write_heads SET version=version+1,writer=? WHERE id='publication' AND version=?",
+      "counterexample_to_version_counter_only": true,
+      "interpretation": "If both operations succeed, same-value global version increments were converged; a unique per-operation token on the guarded row is required by this publication protocol."
+    },
+    "conclusion": "Dolt converges concurrent same-value version increments. Required publication guard: atomically set version=version+1 AND a unique per-operation token on the same singleton row, then object/relationship/operation/native Dolt commit inside that transaction."
+  },
+  "status_scope": "All seven frozen contract classes passed with the required unique-token publication protocol; the separate negative control demonstrates plain counter-only CAS is unsafe."
+}
