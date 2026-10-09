@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Trade research attempt pilot v1",
+  "title": "Trade research attempt v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "attempt_id", "goal_id", "kind", "question", "mechanism", "hypothesis", "parents", "code_parent", "registration", "decision", "evidence_refs"],
+  "required": ["schema_version", "attempt_id", "goal_id", "kind", "question", "mechanism", "hypothesis", "parents", "code_parent", "contract", "registration", "decision", "evidence_refs"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "attempt_id": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9-]+$"},
     "goal_id": {"type": "string", "minLength": 1},
     "kind": {"enum": ["source", "diagnostic", "strategy"]},
@@ -74,15 +74,21 @@
         }
       }
     },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "plan"],
+      "properties": {
+        "scope": {"type": "string", "minLength": 1},
+        "plan": {"type": "string", "minLength": 1}
+      }
+    },
     "registration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "reference"],
+      "required": ["status"],
       "properties": {
-        "status": {"enum": ["preregistered", "retrospective"]},
-        "backend": {"enum": ["git", "dolt"]},
-        "reference": {"type": "string", "minLength": 1},
-        "original_registration_commit": {"type": "string", "pattern": "^[0-9a-f]{9,40}$"}
+        "status": {"enum": ["preregistered", "retrospective"]}
       }
     },
     "decision": {

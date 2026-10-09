@@ -208,6 +208,111 @@ class ReviewIntegrationTests(unittest.TestCase):
             reviews.apply(self.adapter, self._reseal(payload))
         self.assertEqual(self.adapter.status(), before)
 
+    def test_review_cannot_shadow_registered_record_with_an_archival_kind(self):
+        from research.records.store import DoltRecords
+        store = DoltRecords(self.config)
+        attempt = {
+            "schema_version": 2, "attempt_id": "REVIEW-FROZEN", "goal_id": "TEST",
+            "kind": "diagnostic", "question": "Does review respect the record writer?",
+            "mechanism": "A disposable API registration.", "hypothesis": "Review cannot hide it.",
+            "parents": [], "code_parent": None,
+            "contract": {"scope": "Synthetic review boundary only.", "plan": "Reject archival namespace writes."},
+            "registration": {"status": "preregistered"},
+            "decision": {"layer": "pending", "outcome": "pending", "scope": "Synthetic only.",
+                         "next_action": "Check the namespace boundary."}, "evidence_refs": [],
+        }
+        store.publish_record("attempt", attempt, operation_id="review-registered-" + uuid.uuid4().hex,
+                             expected_version=self.adapter.status()["version"])
+        payload = self._prepare()
+        raw = b"An archival note must not replace the registered attempt.\n"
+        before = self.adapter.status()
+        for kind in ("material", "evidence_json", "reference"):
+            with self.subTest(kind=kind):
+                forged = copy.deepcopy(payload)
+                forged["objects"].append({"id": "attempt:" + attempt["attempt_id"], "revision": 2,
+                    "kind": kind, "body": {"content_base64": base64.b64encode(raw).decode(),
+                    "sha256": hashlib.sha256(raw).hexdigest()}, "provenance": {"origin": "archival_shadow"}})
+                with self.assertRaisesRegex(RecordError, "reserved record identities"):
+                    reviews.apply(self.adapter, self._reseal(forged))
+                self.assertEqual(self.adapter.status(), before)
+                self.assertEqual(store.snapshot(before["commit"])[0][attempt["attempt_id"]], attempt)
+
+    def test_prepare_and_apply_reject_new_archival_record_namespace_objects(self):
+        raw = b"ordinary archival bytes\n"
+        body = {"content_base64": base64.b64encode(raw).decode(), "sha256": hashlib.sha256(raw).hexdigest()}
+        before = self.adapter.status()
+        for prefix in ("attempt:", "run:"):
+            value = {"id": prefix + "UNREGISTERED", "revision": 1, "kind": "material",
+                     "body": body, "provenance": {"origin": "archival_shadow"}}
+            with self.subTest(prefix=prefix):
+                with self.assertRaisesRegex(RecordError, "reserved record identities"):
+                    reviews.prepare(self.adapter, self.inventory["id"], source_at=self.source_at,
+                                    root=self.root, supplemental=[value])
+                payload = self._prepare()
+                payload["objects"].append(value)
+                with self.assertRaisesRegex(RecordError, "reserved record identities"):
+                    reviews.apply(self.adapter, self._reseal(payload))
+                self.assertEqual(self.adapter.status(), before)
+
+    def test_existing_fixed_record_evidence_is_read_only_during_prepare(self):
+        raw = b'{"attempt_id":"LEGACY-EVIDENCE"}\n'
+        retained = {"id": "attempt:LEGACY-EVIDENCE", "kind": "attempt", "revision": 1,
+                    "body": json.loads(raw), "provenance": {
+                    "raw_content_base64": base64.b64encode(raw).decode(),
+                    "blob_sha256": hashlib.sha256(raw).hexdigest()}}
+        self.adapter.publish([retained], [], "legacy-evidence-" + uuid.uuid4().hex,
+                             self.adapter.status()["version"])
+        before = self.adapter.status()
+        payload = reviews.prepare(self.adapter, self.inventory["id"], source_at=self.source_at,
+                                  root=self.root, supplemental=[retained])
+        self.assertNotIn(retained["id"], {obj["id"] for obj in payload["objects"]})
+        self.assertEqual(self.adapter.status(), before)
+        changed = copy.deepcopy(retained)
+        changed["revision"] = 2
+        with self.assertRaisesRegex(RecordError, "reserved record identities"):
+            reviews.prepare(self.adapter, self.inventory["id"], source_at=self.source_at,
+                            root=self.root, supplemental=[changed])
+        self.assertEqual(self.adapter.status(), before)
+
+    def test_empty_review_queue_cannot_inject_research_record_relations(self):
+        empty = {"id": "inventory:empty-" + uuid.uuid4().hex, "kind": "inventory", "revision": 1,
+                 "body": {"source_head": self.git_commit, "review_queue": [], "warnings": []},
+                 "provenance": {"origin": "disposable_empty_review_fixture"}}
+        attempt = {"id": "attempt:REVIEW-RELATION", "kind": "attempt", "revision": 2,
+                   "body": {"purpose": "Existing later attempt revision"}, "provenance": {}}
+        run = {"id": "run:REVIEW-SEALED", "kind": "run", "revision": 1,
+               "body": {"purpose": "Existing sealed run revision"}, "provenance": {}}
+        seeded = self.adapter.publish([empty, attempt, run], [], "empty-review-" + uuid.uuid4().hex,
+                                      self.adapter.status()["version"])
+        payload = reviews.prepare(self.adapter, empty["id"], source_at=seeded["commit"], root=self.root)
+        before = self.adapter.status()
+        for kind in ("run_of", "hypothesis_extension", "composition", "component_index", "compared_with"):
+            with self.subTest(kind=kind):
+                forged = copy.deepcopy(payload)
+                forged["relations"].append(reviews._edge(kind, run, attempt, {}))
+                with self.assertRaisesRegex(RecordError, "cannot create research record relations"):
+                    reviews.apply(self.adapter, self._reseal(forged))
+                self.assertEqual(self.adapter.status(), before)
+
+    def test_extra_semantic_relation_must_be_declared_by_its_queue_decision(self):
+        payload = self._prepare()
+        before = self.adapter.status()
+        for declared_id in (False, True):
+            with self.subTest(bound_to_decision=declared_id):
+                forged = copy.deepcopy(payload)
+                decision = next(obj for obj in forged["objects"] if obj["kind"] == "review_decision")
+                binding = {"review_id": decision["id"], "review_revision": decision["revision"],
+                           "item_key": decision["body"]["item_key"], "scope": "An undeclared correction",
+                           "retrospective": True}
+                extra = reviews._edge("corrects", self.source, self.source, binding)
+                forged["relations"].append(extra)
+                if declared_id:
+                    decision["body"]["edge_ids"].append(extra["id"])
+                    decision["body"]["decision_sha256"] = reviews.digest(
+                        {key: value for key, value in decision["body"].items() if key != "decision_sha256"})
+                with self.assertRaisesRegex(RecordError, "corresponding queue decision|declared decision and fixed evidence"):
+                    reviews.apply(self.adapter, self._reseal(forged))
+                self.assertEqual(self.adapter.status(), before)
     def test_frozen_file_replay_recovers_original_commit_after_later_publication(self):
         frozen = self.fixture / "frozen-review.json"
         frozen.write_text(json.dumps(self._prepare(), ensure_ascii=False) + "\n")

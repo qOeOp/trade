@@ -22,7 +22,6 @@ from pathlib import Path, PurePosixPath
 
 from research.records.common import ROOT
 from research.records.common import RecordError
-from research.records.common import _check_commit
 from research.records.common import _read_json
 from research.records.common import _validator
 
@@ -452,24 +451,12 @@ def _sync_tree(root: Path) -> None:
 def _attempt_snapshot(attempt_id: str, binding=None):
     from research.records.store import open_store
     store = open_store()
-    if not hasattr(store, "adapter"):
+    if not hasattr(store, "registration_snapshot"):
         raise ArtifactError("registered native custody requires the Dolt metadata owner")
-    fixed = binding["commit"] if binding else store.adapter.status()["commit"]
-    obj = store.adapter.get_object("attempt:" + attempt_id,
-                                   revision=binding["revision"] if binding else None, commit=fixed)
-    if obj is None:
-        raise ArtifactError(f"unknown registered attempt: {attempt_id}")
-    attempt = obj["body"]
-    errors = list(_validator("attempt").iter_errors(attempt))
-    if errors or attempt["attempt_id"] != attempt_id:
-        raise ArtifactError(f"invalid attempt record: {attempt_id}")
-    registration = attempt["registration"]
-    dolt_registration = registration.get("backend") == "dolt"
-    if registration["status"] != "preregistered" or (
-        not dolt_registration and _check_commit(registration.get("original_registration_commit", "")) != "present"
-    ):
-        raise ArtifactError("native custody run requires an existing preregistration")
-    return attempt, {"commit": fixed, "id": obj["id"], "revision": obj["revision"]}
+    try:
+        return store.registration_snapshot(attempt_id, binding)
+    except RecordError as exc:
+        raise ArtifactError(str(exc)) from exc
 
 
 def _attempt(attempt_id: str) -> dict:
@@ -545,11 +532,6 @@ def run(
             _write_json(stage / "runtime-inspection.json", runtime_inspection)
         else:
             commit = _snapshot_source(source_ref, stage)
-            registration_commit = attempt["registration"]["original_registration_commit"]
-            ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", registration_commit, commit],
-                                      cwd=ROOT, check=False)
-            if ancestor.returncode:
-                raise ArtifactError("registration commit is not an ancestor of source")
         shutil.copyfile(input_identity, stage / "input-identity.json")
         if _sha(stage / "input-identity.json") != identity_digest:
             raise ArtifactError("input identity changed during source capture")
@@ -828,17 +810,8 @@ def register(
         raise ArtifactError("run registration requires the Dolt write owner")
     binding = manifest.get("record_binding")
     if binding is None:
-        # Older seals cannot invent a start-time contract. Re-registration of
-        # imported history may reuse its already recorded fixed run_of edge.
-        existing = store.adapter.get_object("run:" + run_id)
-        edges = [edge for edge in store.adapter.list_relations() if existing and edge["kind"] == "run_of"
-                 and edge["from_id"] == existing["id"] and edge["from_revision"] == existing["revision"]
-                 and edge["to_id"] == "attempt:" + attempt_id]
-        revisions = {edge["to_revision"] for edge in edges}
-        if len(revisions) != 1:
-            raise ArtifactError("legacy seal has no start-time record binding or retained registration")
-        binding = {"commit": store.adapter.status()["commit"], "id": "attempt:" + attempt_id, "revision": revisions.pop()}
-    if binding.get("id") != "attempt:" + attempt_id:
+        raise ArtifactError("seal has no start-time Dolt registration binding")
+    if not isinstance(binding, dict) or binding.get("id") != "attempt:" + attempt_id:
         raise ArtifactError("seal record binding differs from its attempt")
     _attempt_snapshot(attempt_id, binding)
     summary_path = archive / "reports" / "summary.json"
@@ -911,7 +884,7 @@ def register(
         "run", record, operation_id=f"register:{run_id}:{checked['manifest_sha256']}",
         expected_version=store.adapter.status()["version"],
         provenance={"origin": "sealed_native_artifact", "manifest_sha256": checked["manifest_sha256"],
-                    "record_binding": binding, "binding_origin": "sealed_start" if manifest.get("record_binding") else "retained_legacy_edge"},
+                    "record_binding": binding, "binding_origin": "sealed_start"},
         endpoint_revisions={binding["id"]: binding["revision"]},
     )
     return {"run_id": run_id, "record": f"run:{run_id}", **checked, "publication": publication}

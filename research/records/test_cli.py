@@ -19,12 +19,11 @@ from research.records.fixtures.contract_repository import ContractRepository
 class ResearchRecordBoundaryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from research.records.store import GitHistoryStore
         cls.fixture = ContractRepository()
         cls.addClassCleanup(cls.fixture.close)
         cls.context = cls.fixture.patches()
         cls.addClassCleanup(cls.context.close)
-        cls.attempts, cls.runs = _load_records(GitHistoryStore())
+        cls.attempts, cls.runs = cls.fixture.snapshot()
 
     def test_h13c_lineage_keeps_both_failed_source_gates(self):
         chain = _lineage("H13c", self.attempts)

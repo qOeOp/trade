@@ -1,8 +1,8 @@
 """Agent API for versioned research records, materials and native-run comparison.
 
-The records include retrospective examples and a prospectively registered
-four-cell experiment. This tool never runs a backtest or promotes development
-evidence into strategy qualification.
+The records expose fixed research contracts, decisions and native evidence.
+This tool never runs a backtest or promotes development evidence into strategy
+qualification.
 """
 
 from __future__ import annotations
@@ -260,11 +260,6 @@ def _validate(attempts: dict[str, dict], runs: dict[str, dict], *, check_lineage
     for identity, attempt in attempts.items():
         statuses[identity] = [_check_ref(ref) for ref in attempt["evidence_refs"]]
         commits[identity] = {
-            "original_registration": _check_commit(
-                attempt["registration"]["original_registration_commit"]
-            )
-            if attempt["registration"].get("original_registration_commit")
-            else "unknown",
             "code_parent": _check_commit(attempt["code_parent"])
             if attempt["code_parent"]
             else "unknown",
@@ -498,7 +493,6 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engin
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("dolt", "git"))
     parser.add_argument("--at", help="read one exact Dolt commit")
     command = parser.add_subparsers(dest="command", required=True)
     command.add_parser("validate")
@@ -528,11 +522,8 @@ def main() -> int:
     for name in ("start", "stop", "status"):
         lifecycle.add_parser(name)
     import_ = lifecycle.add_parser("import")
-    import_.add_argument("--historical-c02", action="store_true")
     import_.add_argument("--dry-run", action="store_true")
-    selection = import_.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--paths", nargs="+", help="explicit repository materials to archive")
-    selection.add_argument("--legacy-all", action="store_true", help="explicit lossless legacy bootstrap; not knowledge admission")
+    import_.add_argument("--paths", nargs="+", required=True, help="explicit source materials to archive")
     backup = lifecycle.add_parser("backup")
     backup.add_argument("--destination", type=Path, required=True)
     materials = command.add_parser("material")
@@ -607,12 +598,17 @@ def main() -> int:
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
         from research.records.store import open_store
-        store = open_store(args.backend)
-        fixed = args.at or (store.adapter.status()["commit"] if hasattr(store, "adapter") else None)
+        store = open_store()
+        fixed = args.at or store.adapter.status()["commit"]
         attempts, runs, snapshot_storage = store.snapshot(fixed)
         _validate_records(attempts, runs)
         if args.command == "validate":
             output = _validate(attempts, runs, check_lineage=not fixed)
+            output["registration_receipts"] = {
+                identity: store.registration_snapshot(identity, at=fixed)[1]
+                for identity, body in attempts.items()
+                if body["registration"]["status"] == "preregistered"
+            }
             if fixed:
                 for identity in attempts:
                     _dolt_lineage(store.adapter, identity, fixed)
@@ -623,11 +619,14 @@ def main() -> int:
                 if args.brief
                 else _show(args.attempt_id, attempts, runs, lineage)
             )
+            if attempts[args.attempt_id]["registration"]["status"] == "preregistered":
+                initial, binding = store.registration_snapshot(args.attempt_id, at=fixed)
+                output["registration_receipt"] = binding
+                if not args.brief:
+                    output["registered_contract"] = initial
         elif args.command == "find":
             output = _find(args.mechanism, args.failure_layer, attempts)
             if args.component:
-                if not hasattr(store, "adapter"):
-                    raise RecordError("component index requires Dolt")
                 component = store.adapter.get_object("component:" + args.component, commit=fixed)
                 identities = {edge["to_id"].removeprefix("attempt:") for edge in store.adapter.list_relations(commit=fixed)
                               if component and edge["kind"] == "component_index" and edge["from_id"] == component["id"]
