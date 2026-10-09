@@ -1,11 +1,5 @@
 # Research records and local artifact custody
 
-> Publication note (2026-10-09): this guide records the research-branch
-> operating contract before the `research.records` implementation reaches
-> `main`. The CLI examples require a commit containing that implementation;
-> publishing this guide alone does not make them available on `main`.
-> Linked F01 evidence is pinned to research commit `32c3ebf91`.
-
 Git records are the research lineage; the native runner and Nautilus reports
 remain the trading facts. Seven attempt records and
 four historical run records are **retrospective transcriptions** of
@@ -72,7 +66,7 @@ an economically good strategy. An exposed development window can reject the
 current candidate under its preregistered rule, but cannot by itself confirm
 a selected strategy independently. If the evidence cannot distinguish two
 explanations, report that limit rather than selecting the larger backtest
-number. See [F01 preregistration](https://github.com/qOeOp/trade/blob/32c3ebf91ecc041635e0e1a4f3396dc7b612994c/docs/plans/r1-factorial-line-cancel-prereg.zh.md)
+number. See [F01 preregistration](../../docs/plans/r1-factorial-line-cancel-prereg.zh.md)
 for a four-cell design example; it predates this checklist and is not a
 complete template for search budget and exposure. The [stepwise plan](../../docs/plans/rd-experiment-native-evidence-plan.zh.md)
 describes how this contract will be evaluated.
@@ -117,16 +111,16 @@ its line-state component comes from H08. H08's complete entry rule failed a
 source gate; H18a does not inherit that rule. H18a's cancellation action only
 exists for H15a's pending tiers, so a standalone H08 cell and a four-cell
 factorial interaction are undefined. See the
-[`case study`](https://github.com/qOeOp/trade/blob/32c3ebf91ecc041635e0e1a4f3396dc7b612994c/docs/plans/research-record-h18a-case.zh.md).
+[`case study`](../../docs/plans/research-record-h18a-case.zh.md).
 
-F01's [four-cell result](https://github.com/qOeOp/trade/blob/32c3ebf91ecc041635e0e1a4f3396dc7b612994c/docs/plans/r1-factorial-line-cancel-result.zh.md)
-and [comparison report](https://github.com/qOeOp/trade/blob/32c3ebf91ecc041635e0e1a4f3396dc7b612994c/reports/r1_factorial_f01/comparison.json) show
+F01's [four-cell result](../../docs/plans/r1-factorial-line-cancel-result.zh.md)
+and [comparison report](../../reports/r1_factorial_f01/comparison.json) show
 that the family can be indexed and read back even when the 11 cell fails its
 economic goal. The historical and F01 full CSV reports currently live in
 `/tmp` and are marked `temporary`; the small JSON reports and their hashes are
 retained in Git. The new custody command below does not retroactively make these
 old `/tmp` runs sealed. The contract and limits are in
-[`docs/plans/research-record-contract.zh.md`](https://github.com/qOeOp/trade/blob/32c3ebf91ecc041635e0e1a4f3396dc7b612994c/docs/plans/research-record-contract.zh.md).
+[`docs/plans/research-record-contract.zh.md`](../../docs/plans/research-record-contract.zh.md).
 
 ## Seal a new native R1 run
 

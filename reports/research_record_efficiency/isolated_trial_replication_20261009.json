@@ -1,0 +1,10 @@
+{
+  "purpose": "Concurrent replication after the clean-control correction; use the same frozen questions and answer key.",
+  "runs": [
+    {"run": "C3", "arm": "control", "order": "Q1-Q8", "paired_with": "I3"},
+    {"run": "I3", "arm": "index", "order": "Q1-Q8", "paired_with": "C3"},
+    {"run": "C4", "arm": "control", "order": "Q8-Q1", "paired_with": "I4"},
+    {"run": "I4", "arm": "index", "order": "Q8-Q1", "paired_with": "C4"}
+  ],
+  "analysis": "Keep all valid clean-control runs C1R,C2R,C3,C4 and index runs I1,I2,I3,I4. Report run-level accuracy and active time, order-paired comparisons, and tool-call counts. Exclude leaked C1,C2 only. No retroactive changes to the 32-point key. Time remains exploratory because pairing, cache and session variation are imperfect."
+}

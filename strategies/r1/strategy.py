@@ -42,7 +42,11 @@ def daily_available_ns(ts_event: int) -> int:
     """
     Normalize external 23:59:59.999 and internal 00:00 daily closes.
     """
-    return ts_event + MILLISECOND_NS if ts_event % DAY_NS == DAY_NS - MILLISECOND_NS else ts_event
+    return (
+        ts_event + MILLISECOND_NS
+        if ts_event % DAY_NS == DAY_NS - MILLISECOND_NS
+        else ts_event
+    )
 
 
 @dataclass(frozen=True)
@@ -201,6 +205,7 @@ class R1Strategy(Strategy):
             "support-three-tier-line-cancel-4h",
             "support-deep-two-tier-4h",
             "support-broad-two-tier-4h",
+            "support-broad-two-tier-line-cancel-4h",
         ):
             raise ValueError("unsupported R-1 signal variant")
         self.signal_variant = signal_variant
@@ -312,7 +317,8 @@ class R1Strategy(Strategy):
         )
         hold_ns = (
             180 * FOUR_HOUR_NS
-            if self.signal_variant == "support-broad-two-tier-4h"
+            if self.signal_variant
+            in ("support-broad-two-tier-4h", "support-broad-two-tier-line-cancel-4h")
             else 30 * FOUR_HOUR_NS
             if self.signal_variant
             in (
@@ -341,7 +347,9 @@ class R1Strategy(Strategy):
         if not self.atr.initialized:
             return
         if self.signal_variant == "box-4h":
-            candidate = confirmed_box_break(self.four_hour_history, candle, self.atr.value)
+            candidate = confirmed_box_break(
+                self.four_hour_history, candle, self.atr.value
+            )
             if candidate is None:
                 return
             side, level, stop = candidate
@@ -349,7 +357,9 @@ class R1Strategy(Strategy):
             expiry = candle.ts_event + BOX_RETEST_BARS * FOUR_HOUR_NS
             self.box_breaks += 1
         else:
-            candidate = prospective_box_edge(self.four_hour_history, candle, self.atr.value)
+            candidate = prospective_box_edge(
+                self.four_hour_history, candle, self.atr.value
+            )
             if candidate is None:
                 return
             side, level, stop, target = candidate
@@ -377,7 +387,10 @@ class R1Strategy(Strategy):
         self.days.append(day)
         self.atr.update_raw(true_range)
         i = len(self.days) - 1
-        if self.opened_ns is not None and bar.ts_event >= self.opened_ns + HOLD_DAYS * DAY_NS:
+        if (
+            self.opened_ns is not None
+            and bar.ts_event >= self.opened_ns + HOLD_DAYS * DAY_NS
+        ):
             self.cancel_all_orders(self.instrument_id)
             self.close_all_positions(self.instrument_id)
         if i < 2 * K + 21 or not self.atr.initialized:
@@ -394,10 +407,14 @@ class R1Strategy(Strategy):
         strong_down = (day.close < day.open and big) or (day.close < prev.open and big2)
 
         crossed_highs = (
-            [p for p in self.pivot_highs if prev.close <= p[1] < day.close] if strong_up else []
+            [p for p in self.pivot_highs if prev.close <= p[1] < day.close]
+            if strong_up
+            else []
         )
         crossed_lows = (
-            [p for p in self.pivot_lows if day.close < p[1] <= prev.close] if strong_down else []
+            [p for p in self.pivot_lows if day.close < p[1] <= prev.close]
+            if strong_down
+            else []
         )
         if (
             self.pivot_highs
@@ -532,7 +549,11 @@ class R1Strategy(Strategy):
     def _submit_signal(self, signal: WaitingSignal) -> None:
         if self.signal_variant == "box-edge-4h":
             entry, stop, target = signal.level, signal.stop, signal.target
-            valid = 0 < stop < entry < target if signal.side == 1 else 0 < target < entry < stop
+            valid = (
+                0 < stop < entry < target
+                if signal.side == 1
+                else 0 < target < entry < stop
+            )
             if not valid:
                 self.box_edge_invalid_price_skips += 1
                 return
@@ -546,7 +567,11 @@ class R1Strategy(Strategy):
             entry, stop, target = (
                 price.as_double() for price in (entry_price, stop_price, target_price)
             )
-            valid = 0 < stop < entry < target if signal.side == 1 else 0 < target < entry < stop
+            valid = (
+                0 < stop < entry < target
+                if signal.side == 1
+                else 0 < target < entry < stop
+            )
             if not valid:
                 self.box_edge_invalid_price_skips += 1
                 return
@@ -595,7 +620,8 @@ class R1Strategy(Strategy):
             )
             or (
                 minimum_notional is not None
-                and quantity.as_double() * notional_per_unit < minimum_notional.as_double()
+                and quantity.as_double() * notional_per_unit
+                < minimum_notional.as_double()
             )
         ):
             self.risk_size_skips += 1
@@ -605,7 +631,10 @@ class R1Strategy(Strategy):
     def on_order_filled(self, event) -> None:
         if event.client_order_id not in self.entries:
             return
-        if self.active_entry_id is not None and event.client_order_id != self.active_entry_id:
+        if (
+            self.active_entry_id is not None
+            and event.client_order_id != self.active_entry_id
+        ):
             self.slot_violations += 1
             self.log.error("R-1 slot violation: more than one entry filled")
         if self.opened_ns is None:

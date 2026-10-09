@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trade research attempt pilot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attempt_id", "goal_id", "kind", "question", "mechanism", "hypothesis", "parents", "code_parent", "registration", "decision", "evidence_refs"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "attempt_id": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9-]+$"},
+    "goal_id": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["source", "diagnostic", "strategy"]},
+    "question": {"type": "string", "minLength": 1},
+    "mechanism": {"type": "string", "minLength": 1},
+    "hypothesis": {"type": "string", "minLength": 1},
+    "parents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt_id", "relationship", "difference"],
+        "properties": {
+          "attempt_id": {"type": "string"},
+          "relationship": {"enum": ["hypothesis_extension", "repair", "composition"]},
+          "difference": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "code_parent": {"type": ["string", "null"]},
+    "composition_mode": {"enum": ["dependent", "factorial"]},
+    "comparison_family": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family_id", "origin_attempt_id", "factor_a_attempt_id", "factor_b_attempt_id", "cells", "primary_response", "analysis_ref"],
+      "properties": {
+        "family_id": {"type": "string", "minLength": 1},
+        "origin_attempt_id": {"type": "string", "minLength": 1},
+        "factor_a_attempt_id": {"type": "string", "minLength": 1},
+        "factor_b_attempt_id": {"type": "string", "minLength": 1},
+        "cells": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["00", "10", "01", "11"],
+          "properties": {
+            "00": {"type": "string", "minLength": 1},
+            "10": {"type": "string", "minLength": 1},
+            "01": {"type": "string", "minLength": 1},
+            "11": {"type": "string", "minLength": 1}
+          }
+        },
+        "primary_response": {"const": "final_equity_usdt"},
+        "analysis_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        }
+      }
+    },
+    "mechanism_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt_id", "relationship", "component", "boundary"],
+        "properties": {
+          "attempt_id": {"type": "string"},
+          "relationship": {"const": "component_reuse"},
+          "component": {"type": "string", "minLength": 1},
+          "boundary": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reference"],
+      "properties": {
+        "status": {"enum": ["preregistered", "retrospective"]},
+        "reference": {"type": "string", "minLength": 1},
+        "original_registration_commit": {"type": "string", "pattern": "^[0-9a-f]{9,40}$"}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layer", "outcome", "scope", "next_action"],
+      "properties": {
+        "layer": {"enum": ["source", "data", "execution", "economics", "pending"]},
+        "outcome": {"enum": ["passed", "failed", "inconclusive", "pending"]},
+        "scope": {"type": "string", "minLength": 1},
+        "next_action": {"type": "string", "minLength": 1}
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path", "sha256"],
+        "properties": {
+          "kind": {"enum": ["ledger", "source_gate", "summary", "audit", "input_identity", "comparison"]},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,1484 @@
+{
+  "source_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "strategy_source_sha256": "5e0304ebb41e9f8f865d18220c31050fb93a8384aedbe13eea847c4940fe0556",
+  "staged_strategy_source_sha256": null,
+  "trendline_strategy_source_sha256": null,
+  "retracement_strategy_source_sha256": "19217066925b704c430b67b0495c677692dc62c7515c42fa6dd17e0295f18f03",
+  "tiered_strategy_source_sha256": "5eb40665d1c9342ceef5c1c04c448bf211d60635c5142e0411e7d2691c506f28",
+  "broad_swing_signal_source_sha256": null,
+  "runner_source_sha256": "6e9b2d69d5685a4ec0b0ee7b763c4328462e95707c92230dcecb37eae78c9d68",
+  "strategy": "H18a-support-three-tier-line-cancel-4h",
+  "signal_variant": "support-three-tier-line-cancel-4h",
+  "exit_variant": "tier-target-b",
+  "integrity_findings": [],
+  "integrity_passed": true,
+  "account_model": "one native BacktestNode margin account, 100000 USDT, 37 strategies sharing portfolio capital",
+  "starting_balance_usdt": "100000",
+  "native_risk_submit_rate": "200/00:00:01",
+  "sizing": {
+    "mode": "native_equity_stop_risk_with_notional_cap",
+    "risk_budget_bps": 25.0,
+    "coin_notional_cap_pct": 5.0
+  },
+  "final_equity_usdt": "104901.95547793",
+  "net_change_usdt": "4901.95547793",
+  "period_return_pct": 4.90195547793,
+  "annualized_return_pct": 5.038313333471677,
+  "closed_trades": 676,
+  "winning_trades": 380,
+  "closed_trade_win_rate": 0.5621301775147929,
+  "win_rate_definition": "positive native closed-position realized_pnl including fill commissions and position funding adjustments",
+  "denied_orders": 0,
+  "rejected_orders": 0,
+  "native_sharpe_252": 0.421181354177604,
+  "native_sharpe_365": 0.5068918382168315,
+  "native_max_drawdown_daily_close": -0.07053910249770194,
+  "stats_returns": {
+    "Average Loss (Return)": -0.003804726209238603,
+    "Average Win (Return)": 0.0034606164809698374,
+    "Profit Factor": 1.1035070129153983,
+    "Risk Return Ratio": 0.0261677177207341,
+    "Returns Volatility (252 days)": 0.08877392720727435,
+    "Average (Return)": 0.00014633594235948964,
+    "Returns Skewness": 0.3575673934290038,
+    "Sortino Ratio (252 days)": 0.6139145803923413,
+    "Tail Ratio": 1.1444708041818032,
+    "Returns Kurtosis": 8.042111442556289,
+    "Sharpe Ratio (252 days)": 0.41539964080320224
+  },
+  "stats_pnls": {
+    "USDT": {
+      "Max Loser": -264.9483825,
+      "Max Winner": 462.86587112999996,
+      "Avg Loser": -130.29019899803336,
+      "Min Loser": -0.15762163,
+      "PnL% (total)": 4.941204322940001,
+      "Avg Winner": 116.73927174250004,
+      "PnL (total)": 4941.204322940001,
+      "Win Rate": 0.5588235294117647,
+      "Min Winner": 0.22897153,
+      "Expectancy": 7.755681709911774
+    }
+  },
+  "stats_general": {
+    "Long Ratio": 1.0
+  },
+  "data_interval_minutes": 5,
+  "input_start_utc": "2025-10-07T00:00:00Z",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00Z",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "quantity": "0.008",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 93,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 93,
+        "submitted_bundles": 93,
+        "retired_bundles": 92,
+        "supersessions": 68,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 12,
+        "line_break_events": 4,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 23
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "quantity": "0.214",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 65,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 65,
+        "submitted_bundles": 65,
+        "retired_bundles": 65,
+        "supersessions": 44,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 11,
+        "line_break_events": 4,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 19
+    },
+    {
+      "coin": "BNB",
+      "instrument": "BNBUSDT-PERP.BINANCE",
+      "quantity": "0.82",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 98,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 98,
+        "submitted_bundles": 98,
+        "retired_bundles": 98,
+        "supersessions": 70,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 16,
+        "line_break_events": 8,
+        "entry_cancel_requests": 8,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 26
+    },
+    {
+      "coin": "ADA",
+      "instrument": "ADAUSDT-PERP.BINANCE",
+      "quantity": "1147",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 93,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 93,
+        "submitted_bundles": 93,
+        "retired_bundles": 92,
+        "supersessions": 73,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 11,
+        "line_break_events": 7,
+        "entry_cancel_requests": 4,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 18
+    },
+    {
+      "coin": "XRP",
+      "instrument": "XRPUSDT-PERP.BINANCE",
+      "quantity": "334.7",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 66,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 66,
+        "submitted_bundles": 66,
+        "retired_bundles": 66,
+        "supersessions": 53,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 6,
+        "line_break_events": 5,
+        "entry_cancel_requests": 4,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 12
+    },
+    {
+      "coin": "SOL",
+      "instrument": "SOLUSDT-PERP.BINANCE",
+      "quantity": "4.31",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 80,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 80,
+        "submitted_bundles": 80,
+        "retired_bundles": 80,
+        "supersessions": 61,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 14,
+        "line_break_events": 7,
+        "entry_cancel_requests": 8,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 19
+    },
+    {
+      "coin": "DOGE",
+      "instrument": "DOGEUSDT-PERP.BINANCE",
+      "quantity": "3759",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 52,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 52,
+        "submitted_bundles": 51,
+        "retired_bundles": 51,
+        "supersessions": 36,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 4,
+        "line_break_events": 3,
+        "entry_cancel_requests": 1,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 14
+    },
+    {
+      "coin": "LTC",
+      "instrument": "LTCUSDT-PERP.BINANCE",
+      "quantity": "8.457",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 101,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 101,
+        "submitted_bundles": 101,
+        "retired_bundles": 101,
+        "supersessions": 81,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 11,
+        "line_break_events": 6,
+        "entry_cancel_requests": 6,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 20
+    },
+    {
+      "coin": "TRX",
+      "instrument": "TRXUSDT-PERP.BINANCE",
+      "quantity": "2889",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 160,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 160,
+        "submitted_bundles": 160,
+        "retired_bundles": 160,
+        "supersessions": 132,
+        "cancel_race_fills": 2,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 16,
+        "line_break_events": 9,
+        "entry_cancel_requests": 3,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 30
+    },
+    {
+      "coin": "LINK",
+      "instrument": "LINKUSDT-PERP.BINANCE",
+      "quantity": "42.79",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 104,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 104,
+        "submitted_bundles": 104,
+        "retired_bundles": 103,
+        "supersessions": 83,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 8,
+        "line_break_events": 6,
+        "entry_cancel_requests": 4,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 21
+    },
+    {
+      "coin": "DOT",
+      "instrument": "DOTUSDT-PERP.BINANCE",
+      "quantity": "227.4",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 77,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 77,
+        "submitted_bundles": 77,
+        "retired_bundles": 77,
+        "supersessions": 58,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 6,
+        "line_break_events": 3,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 19
+    },
+    {
+      "coin": "AVAX",
+      "instrument": "AVAXUSDT-PERP.BINANCE",
+      "quantity": "33",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 86,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 86,
+        "submitted_bundles": 86,
+        "retired_bundles": 86,
+        "supersessions": 65,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 12,
+        "line_break_events": 6,
+        "entry_cancel_requests": 7,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 19
+    },
+    {
+      "coin": "BCH",
+      "instrument": "BCHUSDT-PERP.BINANCE",
+      "quantity": "1.671",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 69,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 69,
+        "submitted_bundles": 69,
+        "retired_bundles": 69,
+        "supersessions": 55,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 6,
+        "line_break_events": 4,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 12
+    },
+    {
+      "coin": "ETC",
+      "instrument": "ETCUSDT-PERP.BINANCE",
+      "quantity": "50.05",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 74,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 74,
+        "submitted_bundles": 74,
+        "retired_bundles": 74,
+        "supersessions": 58,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 6,
+        "line_break_events": 4,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 15
+    },
+    {
+      "coin": "XLM",
+      "instrument": "XLMUSDT-PERP.BINANCE",
+      "quantity": "2448",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 85,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 85,
+        "submitted_bundles": 85,
+        "retired_bundles": 85,
+        "supersessions": 63,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 12,
+        "line_break_events": 7,
+        "entry_cancel_requests": 5,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 22
+    },
+    {
+      "coin": "ATOM",
+      "instrument": "ATOMUSDT-PERP.BINANCE",
+      "quantity": "234.03",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 109,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 109,
+        "submitted_bundles": 109,
+        "retired_bundles": 109,
+        "supersessions": 85,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 17,
+        "line_break_events": 9,
+        "entry_cancel_requests": 3,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 23
+    },
+    {
+      "coin": "FIL",
+      "instrument": "FILUSDT-PERP.BINANCE",
+      "quantity": "415.5",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 52,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 52,
+        "submitted_bundles": 52,
+        "retired_bundles": 51,
+        "supersessions": 33,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 6,
+        "line_break_events": 2,
+        "entry_cancel_requests": 0,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 19
+    },
+    {
+      "coin": "NEAR",
+      "instrument": "NEARUSDT-PERP.BINANCE",
+      "quantity": "328",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 128,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 128,
+        "submitted_bundles": 128,
+        "retired_bundles": 128,
+        "supersessions": 109,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 4,
+        "line_break_events": 3,
+        "entry_cancel_requests": 3,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "UNI",
+      "instrument": "UNIUSDT-PERP.BINANCE",
+      "quantity": "120",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 88,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 88,
+        "submitted_bundles": 88,
+        "retired_bundles": 88,
+        "supersessions": 69,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 9,
+        "line_break_events": 4,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 19
+    },
+    {
+      "coin": "AAVE",
+      "instrument": "AAVEUSDT-PERP.BINANCE",
+      "quantity": "3.4",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 90,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 90,
+        "submitted_bundles": 90,
+        "retired_bundles": 89,
+        "supersessions": 66,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 12,
+        "line_break_events": 6,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 21
+    },
+    {
+      "coin": "ICP",
+      "instrument": "ICPUSDT-PERP.BINANCE",
+      "quantity": "217",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 87,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 87,
+        "submitted_bundles": 87,
+        "retired_bundles": 87,
+        "supersessions": 64,
+        "cancel_race_fills": 4,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 17,
+        "line_break_events": 1,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 27
+    },
+    {
+      "coin": "APT",
+      "instrument": "APTUSDT-PERP.BINANCE",
+      "quantity": "189.6",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 82,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 82,
+        "submitted_bundles": 82,
+        "retired_bundles": 82,
+        "supersessions": 65,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 9,
+        "line_break_events": 2,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 17
+    },
+    {
+      "coin": "ARB",
+      "instrument": "ARBUSDT-PERP.BINANCE",
+      "quantity": "2189.6",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 95,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 95,
+        "submitted_bundles": 95,
+        "retired_bundles": 95,
+        "supersessions": 81,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 3,
+        "line_break_events": 3,
+        "entry_cancel_requests": 1,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 13
+    },
+    {
+      "coin": "SUI",
+      "instrument": "SUIUSDT-PERP.BINANCE",
+      "quantity": "276.1",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 90,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 90,
+        "submitted_bundles": 90,
+        "retired_bundles": 90,
+        "supersessions": 74,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 8,
+        "line_break_events": 6,
+        "entry_cancel_requests": 6,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "OP",
+      "instrument": "OPUSDT-PERP.BINANCE",
+      "quantity": "1319.1",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 87,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 87,
+        "submitted_bundles": 87,
+        "retired_bundles": 87,
+        "supersessions": 72,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 9,
+        "line_break_events": 6,
+        "entry_cancel_requests": 5,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 14
+    },
+    {
+      "coin": "INJ",
+      "instrument": "INJUSDT-PERP.BINANCE",
+      "quantity": "76.6",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 102,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 102,
+        "submitted_bundles": 102,
+        "retired_bundles": 101,
+        "supersessions": 82,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 12,
+        "line_break_events": 7,
+        "entry_cancel_requests": 5,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 19
+    },
+    {
+      "coin": "TIA",
+      "instrument": "TIAUSDT-PERP.BINANCE",
+      "quantity": "648",
+      "counts": {
+        "funding": 2192,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 103,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 103,
+        "submitted_bundles": 103,
+        "retired_bundles": 103,
+        "supersessions": 84,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 7,
+        "line_break_events": 3,
+        "entry_cancel_requests": 1,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 17
+    },
+    {
+      "coin": "SEI",
+      "instrument": "SEIUSDT-PERP.BINANCE",
+      "quantity": "3321",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 75,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 75,
+        "submitted_bundles": 75,
+        "retired_bundles": 75,
+        "supersessions": 61,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 7,
+        "line_break_events": 5,
+        "entry_cancel_requests": 4,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 14
+    },
+    {
+      "coin": "PEPE",
+      "instrument": "1000PEPEUSDT-PERP.BINANCE",
+      "quantity": "97986",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 76,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 76,
+        "submitted_bundles": 76,
+        "retired_bundles": 76,
+        "supersessions": 56,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 9,
+        "line_break_events": 4,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 17
+    },
+    {
+      "coin": "SHIB",
+      "instrument": "1000SHIBUSDT-PERP.BINANCE",
+      "quantity": "77797",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 54,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 54,
+        "submitted_bundles": 54,
+        "retired_bundles": 54,
+        "supersessions": 38,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 7,
+        "line_break_events": 4,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 15
+    },
+    {
+      "coin": "HBAR",
+      "instrument": "HBARUSDT-PERP.BINANCE",
+      "quantity": "4343",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 84,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 84,
+        "submitted_bundles": 84,
+        "retired_bundles": 84,
+        "supersessions": 64,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 10,
+        "line_break_events": 4,
+        "entry_cancel_requests": 2,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 18
+    },
+    {
+      "coin": "ALGO",
+      "instrument": "ALGOUSDT-PERP.BINANCE",
+      "quantity": "4363.0",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 98,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 98,
+        "submitted_bundles": 98,
+        "retired_bundles": 98,
+        "supersessions": 79,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 7,
+        "line_break_events": 4,
+        "entry_cancel_requests": 6,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "FET",
+      "instrument": "FETUSDT-PERP.BINANCE",
+      "quantity": "1711",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 99,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 99,
+        "submitted_bundles": 99,
+        "retired_bundles": 98,
+        "supersessions": 80,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 11,
+        "line_break_events": 5,
+        "entry_cancel_requests": 4,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 18
+    },
+    {
+      "coin": "WLD",
+      "instrument": "WLDUSDT-PERP.BINANCE",
+      "quantity": "765",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 91,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 91,
+        "submitted_bundles": 91,
+        "retired_bundles": 90,
+        "supersessions": 69,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 13,
+        "line_break_events": 3,
+        "entry_cancel_requests": 1,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 20
+    },
+    {
+      "coin": "IMX",
+      "instrument": "IMXUSDT-PERP.BINANCE",
+      "quantity": "1312",
+      "counts": {
+        "funding": 2192,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 95,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 95,
+        "submitted_bundles": 95,
+        "retired_bundles": 94,
+        "supersessions": 76,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 11,
+        "line_break_events": 8,
+        "entry_cancel_requests": 7,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 18
+    },
+    {
+      "coin": "STX",
+      "instrument": "STXUSDT-PERP.BINANCE",
+      "quantity": "1588",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 76,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 76,
+        "submitted_bundles": 76,
+        "retired_bundles": 75,
+        "supersessions": 59,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 6,
+        "line_break_events": 4,
+        "entry_cancel_requests": 5,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 16
+    },
+    {
+      "coin": "LDO",
+      "instrument": "LDOUSDT-PERP.BINANCE",
+      "quantity": "798",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 109,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "support_pullback": null,
+      "tiered_pullback": {
+        "source_plans": 109,
+        "submitted_bundles": 108,
+        "retired_bundles": 108,
+        "supersessions": 84,
+        "cancel_race_fills": 0,
+        "invalid_price_skips": 0,
+        "minimum_skips": 0,
+        "order_failures": 0,
+        "untouched_plan_voids": 0
+      },
+      "entry_line_cancel": {
+        "frozen_valid_lines": 15,
+        "line_break_events": 8,
+        "entry_cancel_requests": 6,
+        "fills_during_cancel": 0
+      },
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 24
+    }
+  ],
+  "limitations": [
+    "Five-minute execution bars cannot resolve every intrabar order sequence",
+    "Current contract terms approximate historical metadata",
+    "Fixed 2026 coin universe is backcast into 2025",
+    "Minute-sampled portfolio drawdown is not yet reported"
+  ]
+}

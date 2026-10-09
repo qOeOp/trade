@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "attempt_id": "F01",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "strategy",
+  "question": "H18a 的持仓后趋势线取消动作应用在 H19a 宽摆动双层计划上，是否产生与 H15a 底座不同的账户影响？",
+  "mechanism": "宽摆动双层计划与持仓后未成交入场取消的四格组合",
+  "hypothesis": "同一取消动作在两种可独立运行的入场计划上可能改变账户路径；事前登记四格，以识别已暴露年度中的差中差，不预设正向收益。",
+  "parents": [
+    {
+      "attempt_id": "H19a",
+      "relationship": "composition",
+      "difference": "保留宽摆动选择器、两层 50%/61.8% 入场、共同止损、180 根四小时寿命和风险预算；只加入 B 的持仓后未成交单取消。"
+    },
+    {
+      "attempt_id": "H18a",
+      "relationship": "composition",
+      "difference": "保留 H18a 的已确认上升线、首成交冻结线和完成 bar 跌破后的原始未成交单取消动作；将其应用于 H19a 的两层计划，不继承 H15a 的三层入场。"
+    }
+  ],
+  "code_parent": "9fa8a8b0b1fc881c35cf0b3ac86eaf2ab4a68701",
+  "composition_mode": "factorial",
+  "comparison_family": {
+    "family_id": "F01",
+    "origin_attempt_id": "H15a",
+    "factor_a_attempt_id": "H19a",
+    "factor_b_attempt_id": "H18a",
+    "cells": {
+      "00": "F01-00-20261008",
+      "10": "F01-10-20261008",
+      "01": "F01-01-20261008",
+      "11": "F01-11-20261008"
+    },
+    "primary_response": "final_equity_usdt",
+    "analysis_ref": {
+      "path": "reports/r1_factorial_f01/comparison.json",
+      "sha256": "8a52835f02f2c1db9d9c58e3034a339a58fbae438ccd610dbc5da6092bd8b8bd"
+    }
+  },
+  "registration": {
+    "status": "preregistered",
+    "reference": "docs/plans/r1-factorial-line-cancel-prereg.zh.md",
+    "original_registration_commit": "baeab075e"
+  },
+  "decision": {
+    "layer": "economics",
+    "outcome": "failed",
+    "scope": "F01-11 的 37 币账户年化 +11.40%、212/496 正收益平仓，联合 Goal 失败；相对 H19a 的账户终值少 582.64 USDT，四格差中差 -1324.00 USDT，探索性周区间跨零。",
+    "next_action": "保留四格及失败节点；不据已暴露年度调整趋势线、层数、持有期或风险预算。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "ledger",
+      "path": "docs/plans/r1-factorial-line-cancel-prereg.zh.md",
+      "sha256": "c63dfaf060c2a851049c90b1a84b50c33b854e9a3bf88f811789b222894d1e29"
+    },
+    {
+      "kind": "input_identity",
+      "path": "reports/r1_factorial_f01/input-recheck.json",
+      "sha256": "53d82ad368cb64a5d2c88fdaa45ee6eb8e8626bcd67bdafd499a12bce9ee5c84"
+    },
+    {
+      "kind": "summary",
+      "path": "reports/r1_factorial_f01/11-summary.json",
+      "sha256": "28112c0dfec2d35ff4d1c1e9d99e573a888e29e63a63745d7826214833dcdb01"
+    },
+    {
+      "kind": "audit",
+      "path": "reports/r1_factorial_f01/11-audit.json",
+      "sha256": "ab371ebac2004f4bb2ebcd959c420ecb75d4232343da28f8ad61d86b1a32f1cb"
+    },
+    {
+      "kind": "comparison",
+      "path": "reports/r1_factorial_f01/comparison.json",
+      "sha256": "8a52835f02f2c1db9d9c58e3034a339a58fbae438ccd610dbc5da6092bd8b8bd"
+    }
+  ]
+}

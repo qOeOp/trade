@@ -21,7 +21,7 @@ uv run --frozen python strategies/r1/run_portfolio.py \
   --output /tmp/r1-h19a-replay
 ```
 
-The historical Catalog is external to Git and must be supplied at the paths shown or replaced with equivalent explicit paths. No exchange trading credential is needed. The command is a backtest; it does not place live orders. See [R1 usage](strategies/r1/README.md) for H18a and comparison commands.
+The historical Catalog is external to Git and must be supplied at the paths shown or replaced with equivalent explicit paths. No exchange trading credential is needed. The command is a backtest; it does not place live orders. Its `/tmp` output is temporary. For a new registered R1 tiered experiment whose result will guide strategy iteration, use the [research record and artifact guide](research/records/README.md) to preregister the hypothesis, run this same native replay with a frozen source, and retain its result. See [R1 usage](strategies/r1/README.md) for H18a and comparison commands.
 
 The current documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/). Build the original Next.js/Fumadocs site locally with `npm ci --prefix docs-site && npm run build --prefix docs-site`; the static export is `docs-site/out`.
 
@@ -29,6 +29,7 @@ The current documentation is published at [Trade 研究文档](https://qoeop.git
 
 - [`strategies/r1/`](strategies/r1/): native Strategy source, one `BacktestNode` replay entry, input validation and paired-result checkers.
 - [`research/r1_native/`](research/r1_native/): frozen R&D experiment ledger, source checks, results and historical analysis scripts. Scripts importing the removed fork are retained as provenance, not supported entry points; develop new diagnostics against the published package and current strategy source.
+- [`research/records/`](research/records/): searchable Git hypothesis/run records and local artifact custody for registered native research.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md): current product blueprint.
 - [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): 37-instrument paired replay evidence and migration findings.
 - [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): durable product and process findings from the R&D work.
