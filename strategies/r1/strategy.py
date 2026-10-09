@@ -198,6 +198,7 @@ class R1Strategy(Strategy):
             "daily-pivot-outer-4h",
             "box-4h",
             "box-edge-4h",
+            "box-failed-breakout-4h",
             "support-confirmed-4h",
             "support-rejection-4h",
             "support-near50-4h",
@@ -336,6 +337,7 @@ class R1Strategy(Strategy):
             if self.signal_variant
             in (
                 "box-edge-4h",
+                "box-failed-breakout-4h",
                 "support-confirmed-4h",
                 "support-rejection-4h",
                 "support-near50-4h",

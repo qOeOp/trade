@@ -18,6 +18,7 @@ from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
 from brooks_confirmed_strategy import BrooksConfirmedStrategy
 from gap_runner_strategy import GapRunnerStrategy
+from failed_range_breakout_strategy import FailedRangeBreakoutStrategy
 from native_node import run_native_node
 from r1s_strategy import R1StagedStrategy
 from replay_util import SOURCE_COMMIT
@@ -45,6 +46,7 @@ BROAD_TIER_VARIANT = "support-broad-two-tier-4h"
 BROAD_LINE_CANCEL_VARIANT = "support-broad-two-tier-line-cancel-4h"
 BROOKS_CONFIRMED_VARIANT = "support-brooks-confirmed-4h"
 GAP_RUNNER_VARIANT = "support-broad-gap-runner-4h"
+FAILED_RANGE_VARIANT = "box-failed-breakout-4h"
 STRUCTURAL_SUPPORT_VARIANT = "support-broad-prior-a-support-4h"
 ANY_PRIOR_A_SUPPORT_VARIANT = "support-broad-any-prior-a-support-4h"
 OUTSIDE_A_STOP_VARIANT = "support-broad-any-prior-a-outside-stop-4h"
@@ -103,6 +105,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "daily-pivot-outer-4h",
             "box-4h",
             "box-edge-4h",
+            FAILED_RANGE_VARIANT,
             "support-confirmed-4h",
             "support-rejection-4h",
             "support-near50-4h",
@@ -136,6 +139,12 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         raise ValueError(
             "budgeted tiers require 25-bp total stop risk and 5% coin notional cap"
         )
+    if args.signal_variant == FAILED_RANGE_VARIANT and (
+        args.exit_variant != "fixed-2r"
+        or args.risk_budget_bps != 25.0
+        or args.coin_notional_cap_pct != 5.0
+    ):
+        raise ValueError("H29a requires the registered 25-bp / 5% native bracket")
     if args.risk_budget_bps is not None and not 0 < args.risk_budget_bps < 10_000:
         raise ValueError("risk budget bps must be between zero and 10000")
     if not 0 < args.coin_notional_cap_pct <= 100:
@@ -174,6 +183,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         if args.signal_variant in STRUCTURAL_SUPPORT_VARIANTS
         else GapRunnerStrategy
         if args.signal_variant == GAP_RUNNER_VARIANT
+        else FailedRangeBreakoutStrategy
+        if args.signal_variant == FAILED_RANGE_VARIANT
         else BrooksConfirmedStrategy
         if args.signal_variant == BROOKS_CONFIRMED_VARIANT
         else TieredRetracementStrategy
@@ -247,6 +258,12 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
     ):
         integrity_findings.append("native range-edge orders were denied or rejected")
+    if args.signal_variant == FAILED_RANGE_VARIANT and (
+        (orders["status"] == "DENIED").any()
+        or (orders["status"] == "REJECTED").any()
+        or any(strategy.slot_violations for strategy in strategies.values())
+    ):
+        integrity_findings.append("native failed-range orders failed or coin slot violated")
     if args.signal_variant in RETRACEMENT_VARIANTS and (
         (orders["status"] == "DENIED").any() or (orders["status"] == "REJECTED").any()
     ):
@@ -311,6 +328,14 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             hashlib.sha256(Path(__file__).with_name("brooks_confirmed_strategy.py").read_bytes()).hexdigest()
             if args.signal_variant == BROOKS_CONFIRMED_VARIANT else None
         ),
+        "failed_range_breakout_strategy_source_sha256": (
+            hashlib.sha256(Path(__file__).with_name("failed_range_breakout_strategy.py").read_bytes()).hexdigest()
+            if args.signal_variant == FAILED_RANGE_VARIANT else None
+        ),
+        "stop_entry_source_sha256": (
+            hashlib.sha256(Path(__file__).with_name("stop_entry.py").read_bytes()).hexdigest()
+            if args.signal_variant in (FAILED_RANGE_VARIANT, BROOKS_CONFIRMED_VARIANT) else None
+        ),
         "gap_runner_strategy_source_sha256": (
             hashlib.sha256(Path(__file__).with_name("gap_runner_strategy.py").read_bytes()).hexdigest()
             if args.signal_variant == GAP_RUNNER_VARIANT else None
@@ -344,6 +369,8 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             if args.signal_variant == "box-4h"
             else "H10-box-edge-4h"
             if args.signal_variant == "box-edge-4h"
+            else "H29a-box-failed-breakout-4h"
+            if args.signal_variant == FAILED_RANGE_VARIANT
             else "H13c-support-confirmed-4h"
             if args.signal_variant == "support-confirmed-4h"
             else "H13f-support-rejection-4h"
@@ -449,6 +476,15 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                     }
                     if args.signal_variant == "box-edge-4h"
                     else None
+                ),
+                "failed_range_breakout": (
+                    {
+                        "valid_signals": strategies[row["coin"]].failed_range_valid_signals,
+                        "occupied_skips": strategies[row["coin"]].failed_range_occupied_skips,
+                        "submitted_brackets": strategies[row["coin"]].failed_range_submitted_brackets,
+                        "invalid_price_skips": strategies[row["coin"]].failed_range_invalid_price_skips,
+                    }
+                    if args.signal_variant == FAILED_RANGE_VARIANT else None
                 ),
                 "support_pullback": (
                     {

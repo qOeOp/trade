@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nautilus_trader.core import UUID4
 from nautilus_trader.model import Bar
-from nautilus_trader.model import ContingencyType
 from nautilus_trader.model import OrderSide
 from nautilus_trader.model import OrderType
-from nautilus_trader.model import StopMarketOrder
 from nautilus_trader.model import TimeInForce
-from nautilus_trader.model import TriggerType
 from retracement_strategy import RetracementPlan
+from stop_entry import with_buy_stop_parent
 from strategy import FOUR_HOUR_NS
 from strategy import FourHour
 from tiered_retracement_strategy import TierBundle
@@ -254,37 +251,13 @@ class BrooksConfirmedStrategy(TieredRetracementStrategy):
             tp_post_only=False,
             sl_trigger_price=stop,
         )
-        if (
-            len(orders) != 3
-            or orders[0].order_type != OrderType.LIMIT
-            or orders[1].order_type != OrderType.STOP_MARKET
-            or orders[2].order_type != OrderType.LIMIT
-        ):
-            raise RuntimeError("native H23a bracket child layout changed")
         # This Nautilus version's bracket factory does not accept a STOP_MARKET
         # parent. Retain its native OTO/OCO children and their generated IDs,
         # replacing only the parent with a native StopMarketOrder. As in H19a,
         # the target must activate before the stop on an immediate stop fill.
-        old_parent = orders[0]
-        orders[0] = StopMarketOrder(
-            old_parent.trader_id,
-            old_parent.strategy_id,
-            self.instrument_id,
-            old_parent.client_order_id,
-            OrderSide.BUY,
-            quantities[0],
-            trigger,
-            TriggerType.DEFAULT,
-            TimeInForce.GTD,
-            False,
-            False,
-            UUID4(),
-            self.clock.timestamp_ns(),
-            expire_time=expire_time,
-            contingency_type=ContingencyType.OTO,
-            order_list_id=old_parent.order_list_id,
-            linked_order_ids=[orders[2].client_order_id, orders[1].client_order_id],
-            tags=["ENTRY"],
+        orders = with_buy_stop_parent(
+            orders, self.instrument_id, quantities[0], trigger,
+            expire_time, self.clock.timestamp_ns(),
         )
         self.bundle = TierBundle(
             pair=(plan.a_index, plan.b_index),
