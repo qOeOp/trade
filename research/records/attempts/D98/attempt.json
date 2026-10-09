@@ -21,7 +21,8 @@
   "code_parent": "1b32849ca",
   "registration": {
     "status": "preregistered",
-    "reference": "docs/plans/r1-d98-local-low-support-prereg.zh.md"
+    "reference": "docs/plans/r1-d98-local-low-support-prereg.zh.md",
+    "original_registration_commit": "a3566ea70"
   },
   "decision": {
     "layer": "pending",
