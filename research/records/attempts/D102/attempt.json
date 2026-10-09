@@ -25,9 +25,25 @@
   },
   "decision": {
     "layer": "source",
-    "outcome": "pending",
-    "scope": "事前登记；尚未读取 D102 年度事件或经济结果。",
-    "next_action": "冻结只读读取器并对既有 37 棵 Nautilus LAST Catalog 进行一次容量核查。"
+    "outcome": "failed",
+    "scope": "37 棵已登记 Nautilus LAST Catalog 与时钟通过；669 强突破中首次回踩 484 弱/破位、95 超时；90 次阳线响应里 80 原生止损/触发/旧高目标几何无效、8 不足 1R，仅 2 个有效 UNI 事件/2 下一根触发可达/1 币/2 月，未过 150/50/20/8 容量门槛。未发原生订单或估收益。",
+    "next_action": "停止该精确 H30a 路径；先对 C17/C13 原片只读复核事前下一阻力/目标与失效区域，若无独立可见目标则关闭此分支，不扫同年确认与目标阈值。"
   },
-  "evidence_refs": []
+  "evidence_refs": [
+    {
+      "kind": "input_identity",
+      "path": "research/r1_native/results/2026-10-07-input-identity.json",
+      "sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc"
+    },
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-09-d102-role-reversal-capacity.json",
+      "sha256": "59e2bebdd22d236a99c4a6b6b64b91519d1685de58e6635d8583e57130cc5fe8"
+    },
+    {
+      "kind": "source_gate",
+      "path": "research/r1_native/results/2026-10-09-d102-role-reversal-events.json",
+      "sha256": "2103181547e120ea265f532dd1d73ad804736632e19bb4d6d11fdd4941556f1e"
+    }
+  ]
 }

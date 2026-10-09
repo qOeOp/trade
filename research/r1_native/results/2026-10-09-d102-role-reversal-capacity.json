@@ -1,0 +1,631 @@
+{
+  "method": "D102 preregistered read-only native LAST Catalog role-reversal retest capacity; no orders, fills or PnL",
+  "registration_commit": "086bb37e3",
+  "identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "exposed_input_window_utc": [
+    "2025-10-07T00:00:00Z",
+    "2026-10-07T08:30:00Z"
+  ],
+  "trade_start_utc": "2025-10-17T00:00:00Z",
+  "catalogs_verified": 37,
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1582,
+        "breakout": 16,
+        "first_retest_weak_or_broken": 11,
+        "old_level_already_closed_above": 345,
+        "invalid_native_price_geometry": 1,
+        "no_first_retest_yet": 57,
+        "breakout_expired_without_retest": 4,
+        "breakout_response_not_strong": 11
+      }
+    },
+    {
+      "coin": "ETH",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1597,
+        "breakout": 24,
+        "no_first_retest_yet": 64,
+        "first_retest_weak_or_broken": 19,
+        "old_level_already_closed_above": 320,
+        "breakout_response_not_strong": 6,
+        "invalid_native_price_geometry": 1,
+        "breakout_expired_without_retest": 4
+      }
+    },
+    {
+      "coin": "BNB",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1580,
+        "breakout": 18,
+        "first_retest_weak_or_broken": 10,
+        "old_level_already_closed_above": 332,
+        "no_first_retest_yet": 68,
+        "breakout_expired_without_retest": 6,
+        "breakout_response_not_strong": 13,
+        "invalid_native_price_geometry": 2
+      }
+    },
+    {
+      "coin": "ADA",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1626,
+        "breakout_response_not_strong": 11,
+        "old_level_already_closed_above": 330,
+        "breakout": 16,
+        "first_retest_weak_or_broken": 11,
+        "no_first_retest_yet": 28,
+        "invalid_native_price_geometry": 3,
+        "breakout_expired_without_retest": 2
+      }
+    },
+    {
+      "coin": "XRP",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1688,
+        "breakout": 19,
+        "no_first_retest_yet": 37,
+        "breakout_expired_without_retest": 3,
+        "old_level_already_closed_above": 262,
+        "first_retest_weak_or_broken": 12,
+        "invalid_native_price_geometry": 3,
+        "breakout_response_not_strong": 5,
+        "below_one_r_to_breakout_high": 1
+      }
+    },
+    {
+      "coin": "SOL",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1576,
+        "breakout": 21,
+        "first_retest_weak_or_broken": 16,
+        "old_level_already_closed_above": 363,
+        "breakout_response_not_strong": 9,
+        "no_first_retest_yet": 42,
+        "breakout_expired_without_retest": 4,
+        "invalid_native_price_geometry": 1
+      }
+    },
+    {
+      "coin": "DOGE",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1670,
+        "breakout": 11,
+        "invalid_native_price_geometry": 2,
+        "old_level_already_closed_above": 302,
+        "breakout_response_not_strong": 15,
+        "first_retest_weak_or_broken": 9,
+        "no_first_retest_yet": 13
+      }
+    },
+    {
+      "coin": "LTC",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1579,
+        "breakout": 15,
+        "first_retest_weak_or_broken": 8,
+        "old_level_already_closed_above": 370,
+        "breakout_response_not_strong": 13,
+        "invalid_native_price_geometry": 4,
+        "no_first_retest_yet": 34,
+        "breakout_expired_without_retest": 3
+      }
+    },
+    {
+      "coin": "TRX",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1303,
+        "breakout": 29,
+        "no_first_retest_yet": 37,
+        "first_retest_weak_or_broken": 18,
+        "old_level_already_closed_above": 627,
+        "breakout_response_not_strong": 15,
+        "invalid_native_price_geometry": 9,
+        "breakout_expired_without_retest": 2
+      }
+    },
+    {
+      "coin": "LINK",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1499,
+        "breakout": 20,
+        "first_retest_weak_or_broken": 14,
+        "old_level_already_closed_above": 441,
+        "breakout_response_not_strong": 11,
+        "no_first_retest_yet": 40,
+        "invalid_native_price_geometry": 4,
+        "breakout_expired_without_retest": 2
+      }
+    },
+    {
+      "coin": "DOT",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1676,
+        "breakout": 13,
+        "no_first_retest_yet": 61,
+        "first_retest_weak_or_broken": 8,
+        "old_level_already_closed_above": 255,
+        "breakout_response_not_strong": 6,
+        "breakout_expired_without_retest": 4,
+        "invalid_native_price_geometry": 1
+      }
+    },
+    {
+      "coin": "AVAX",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1599,
+        "breakout": 17,
+        "no_first_retest_yet": 38,
+        "first_retest_weak_or_broken": 12,
+        "old_level_already_closed_above": 345,
+        "breakout_response_not_strong": 12,
+        "breakout_expired_without_retest": 2,
+        "invalid_native_price_geometry": 3
+      }
+    },
+    {
+      "coin": "BCH",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1617,
+        "breakout_response_not_strong": 14,
+        "old_level_already_closed_above": 362,
+        "breakout": 17,
+        "first_retest_weak_or_broken": 14,
+        "invalid_native_price_geometry": 3,
+        "no_first_retest_yet": 1
+      }
+    },
+    {
+      "coin": "ETC",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1690,
+        "breakout": 15,
+        "no_first_retest_yet": 29,
+        "first_retest_weak_or_broken": 12,
+        "old_level_already_closed_above": 271,
+        "breakout_response_not_strong": 6,
+        "breakout_expired_without_retest": 2,
+        "invalid_native_price_geometry": 1
+      }
+    },
+    {
+      "coin": "XLM",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1634,
+        "breakout": 20,
+        "no_first_retest_yet": 38,
+        "first_retest_weak_or_broken": 12,
+        "old_level_already_closed_above": 309,
+        "invalid_native_price_geometry": 4,
+        "breakout_response_not_strong": 10,
+        "below_one_r_to_breakout_high": 1,
+        "breakout_expired_without_retest": 3
+      }
+    },
+    {
+      "coin": "ATOM",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1521,
+        "breakout": 21,
+        "first_retest_weak_or_broken": 17,
+        "old_level_already_closed_above": 437,
+        "no_first_retest_yet": 22,
+        "breakout_response_not_strong": 10,
+        "invalid_native_price_geometry": 2,
+        "below_one_r_to_breakout_high": 1,
+        "breakout_expired_without_retest": 1
+      }
+    },
+    {
+      "coin": "FIL",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1651,
+        "breakout": 21,
+        "no_first_retest_yet": 73,
+        "breakout_expired_without_retest": 5,
+        "old_level_already_closed_above": 258,
+        "first_retest_weak_or_broken": 14,
+        "invalid_native_price_geometry": 2,
+        "breakout_response_not_strong": 8
+      }
+    },
+    {
+      "coin": "NEAR",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1521,
+        "breakout": 21,
+        "first_retest_weak_or_broken": 15,
+        "old_level_already_closed_above": 409,
+        "no_first_retest_yet": 52,
+        "breakout_response_not_strong": 8,
+        "breakout_expired_without_retest": 3,
+        "invalid_native_price_geometry": 3
+      }
+    },
+    {
+      "coin": "UNI",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1522,
+        "breakout": 23,
+        "no_first_retest_yet": 72,
+        "breakout_expired_without_retest": 6,
+        "old_level_already_closed_above": 384,
+        "valid": 2,
+        "breakout_response_not_strong": 10,
+        "first_retest_weak_or_broken": 14,
+        "invalid_native_price_geometry": 1
+      }
+    },
+    {
+      "coin": "AAVE",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1498,
+        "breakout": 24,
+        "first_retest_weak_or_broken": 19,
+        "old_level_already_closed_above": 445,
+        "no_first_retest_yet": 30,
+        "breakout_expired_without_retest": 1,
+        "breakout_response_not_strong": 14,
+        "invalid_native_price_geometry": 4
+      }
+    },
+    {
+      "coin": "ICP",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "old_level_already_closed_above": 344,
+        "no_completed_breakout": 1583,
+        "breakout_response_not_strong": 13,
+        "breakout": 14,
+        "no_first_retest_yet": 57,
+        "breakout_expired_without_retest": 5,
+        "first_retest_weak_or_broken": 8,
+        "invalid_native_price_geometry": 1
+      }
+    },
+    {
+      "coin": "APT",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1588,
+        "breakout_response_not_strong": 11,
+        "old_level_already_closed_above": 385,
+        "breakout": 17,
+        "first_retest_weak_or_broken": 13,
+        "no_first_retest_yet": 10,
+        "invalid_native_price_geometry": 4
+      }
+    },
+    {
+      "coin": "ARB",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1611,
+        "breakout_response_not_strong": 10,
+        "old_level_already_closed_above": 333,
+        "breakout": 16,
+        "no_first_retest_yet": 41,
+        "first_retest_weak_or_broken": 11,
+        "invalid_native_price_geometry": 2,
+        "breakout_expired_without_retest": 3
+      }
+    },
+    {
+      "coin": "SUI",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1570,
+        "breakout": 18,
+        "first_retest_weak_or_broken": 15,
+        "old_level_already_closed_above": 381,
+        "breakout_response_not_strong": 11,
+        "no_first_retest_yet": 31,
+        "breakout_expired_without_retest": 2,
+        "below_one_r_to_breakout_high": 1
+      }
+    },
+    {
+      "coin": "OP",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1647,
+        "breakout_response_not_strong": 8,
+        "old_level_already_closed_above": 289,
+        "breakout": 16,
+        "first_retest_weak_or_broken": 11,
+        "no_first_retest_yet": 51,
+        "breakout_expired_without_retest": 5
+      }
+    },
+    {
+      "coin": "INJ",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1568,
+        "breakout": 19,
+        "no_first_retest_yet": 12,
+        "first_retest_weak_or_broken": 16,
+        "old_level_already_closed_above": 402,
+        "breakout_response_not_strong": 10,
+        "invalid_native_price_geometry": 2,
+        "below_one_r_to_breakout_high": 1
+      }
+    },
+    {
+      "coin": "TIA",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1568,
+        "breakout_response_not_strong": 8,
+        "old_level_already_closed_above": 381,
+        "breakout": 19,
+        "first_retest_weak_or_broken": 15,
+        "invalid_native_price_geometry": 2,
+        "no_first_retest_yet": 35,
+        "breakout_expired_without_retest": 2
+      }
+    },
+    {
+      "coin": "SEI",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1677,
+        "breakout": 15,
+        "first_retest_weak_or_broken": 8,
+        "old_level_already_closed_above": 265,
+        "breakout_response_not_strong": 6,
+        "no_first_retest_yet": 48,
+        "breakout_expired_without_retest": 4,
+        "invalid_native_price_geometry": 3
+      }
+    },
+    {
+      "coin": "PEPE",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1596,
+        "breakout": 21,
+        "first_retest_weak_or_broken": 17,
+        "old_level_already_closed_above": 351,
+        "breakout_response_not_strong": 10,
+        "no_first_retest_yet": 33,
+        "breakout_expired_without_retest": 2,
+        "invalid_native_price_geometry": 2
+      }
+    },
+    {
+      "coin": "SHIB",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1641,
+        "breakout": 20,
+        "no_first_retest_yet": 37,
+        "first_retest_weak_or_broken": 14,
+        "old_level_already_closed_above": 304,
+        "breakout_expired_without_retest": 2,
+        "invalid_native_price_geometry": 2,
+        "breakout_response_not_strong": 9,
+        "below_one_r_to_breakout_high": 2
+      }
+    },
+    {
+      "coin": "HBAR",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1620,
+        "breakout": 16,
+        "invalid_native_price_geometry": 2,
+        "old_level_already_closed_above": 358,
+        "first_retest_weak_or_broken": 14,
+        "breakout_response_not_strong": 12,
+        "no_first_retest_yet": 5
+      }
+    },
+    {
+      "coin": "ALGO",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1571,
+        "breakout": 12,
+        "first_retest_weak_or_broken": 8,
+        "old_level_already_closed_above": 361,
+        "breakout_response_not_strong": 17,
+        "no_first_retest_yet": 50,
+        "breakout_expired_without_retest": 4
+      }
+    },
+    {
+      "coin": "FET",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1590,
+        "breakout_response_not_strong": 9,
+        "old_level_already_closed_above": 351,
+        "breakout": 17,
+        "no_first_retest_yet": 44,
+        "breakout_expired_without_retest": 4,
+        "first_retest_weak_or_broken": 12,
+        "invalid_native_price_geometry": 1
+      }
+    },
+    {
+      "coin": "WLD",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1557,
+        "breakout": 18,
+        "first_retest_weak_or_broken": 16,
+        "old_level_already_closed_above": 392,
+        "no_first_retest_yet": 33,
+        "breakout_response_not_strong": 11,
+        "breakout_expired_without_retest": 2
+      }
+    },
+    {
+      "coin": "IMX",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1605,
+        "breakout_response_not_strong": 13,
+        "old_level_already_closed_above": 371,
+        "breakout": 15,
+        "first_retest_weak_or_broken": 15,
+        "no_first_retest_yet": 7
+      }
+    },
+    {
+      "coin": "STX",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1694,
+        "breakout_response_not_strong": 9,
+        "old_level_already_closed_above": 262,
+        "breakout": 14,
+        "first_retest_weak_or_broken": 10,
+        "no_first_retest_yet": 32,
+        "breakout_expired_without_retest": 2,
+        "invalid_native_price_geometry": 1,
+        "below_one_r_to_breakout_high": 1
+      }
+    },
+    {
+      "coin": "LDO",
+      "verified_five_minute_bars": 105222,
+      "complete_four_hour_bars": 2192,
+      "stage_counts": {
+        "breakout_history_unavailable": 121,
+        "no_completed_breakout": 1477,
+        "breakout": 21,
+        "invalid_native_price_geometry": 4,
+        "old_level_already_closed_above": 476,
+        "breakout_response_not_strong": 10,
+        "first_retest_weak_or_broken": 16,
+        "no_first_retest_yet": 27,
+        "breakout_expired_without_retest": 1
+      }
+    }
+  ],
+  "stage_counts": {
+    "breakout_history_unavailable": 4477,
+    "no_completed_breakout": 58792,
+    "breakout": 669,
+    "first_retest_weak_or_broken": 484,
+    "old_level_already_closed_above": 13173,
+    "invalid_native_price_geometry": 80,
+    "no_first_retest_yet": 1389,
+    "breakout_expired_without_retest": 95,
+    "breakout_response_not_strong": 384,
+    "below_one_r_to_breakout_high": 8,
+    "valid": 2
+  },
+  "valid_native_price_geometry_signals": 2,
+  "next_complete_bar_reaches_buy_stop_price": 2,
+  "valid_signal_coins": 1,
+  "valid_signal_utc_months": 2,
+  "by_coin": {
+    "UNI": 2
+  },
+  "by_utc_month": {
+    "2025-12": 1,
+    "2026-02": 1
+  },
+  "next_bar_trigger_and_stop_ohlc_ambiguous": 0,
+  "next_bar_trigger_and_target_ohlc_ambiguous": 1,
+  "h25a_submission_clock_overlap": "unknown: H25a source-decision clock was not proven comparable to the new retest decision clock in this read",
+  "registered_capacity_gate": false,
+  "limits": "Valid signals and next-bar OHLC reach are not native orders/fills, fee/funding-inclusive Positions or shared-account equity. The year is exposed development data."
+}

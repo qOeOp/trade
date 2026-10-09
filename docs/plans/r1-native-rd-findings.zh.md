@@ -1030,9 +1030,11 @@
 
 **遗漏和边界。** 旧组合中 **145** 个找不到新策略相同止损/B 的母单，含 **52 笔**实际旧赢家；另有 24 个几何重复、含 11 个赢家，不能强制配对。新策略亦有 52 个母单在旧已成交组合中无相同几何，这反映持仓占用和选点路径已改变。D85 不声称每个缺配都是“触及后信号没出现”，也不能给未下单机会赋新盈亏。结合 H23a 原生回放的较少交易数及从 1.608 降到 1.058 的盈亏比，足以结束这一条固定风险预算下的确认追入实现，不再在看过的一年里扫描 High 2 等待根数或强阳阈值。
 
+**横向机制复核。** D102 另按 C17/C13 来源检验“突破旧阻力后首次回踩确认”，事前冻结了已确认高点、强突破、响应 K 线、旧突破高点目标和至少 1R 几何。既有 37 币年度虽有 669 个强突破，只有两个事件同时满足完成响应与目标/止损空间，且全在 UNI。它没有新原生成交或收益；但再次表明产品记录的“确认入场”必须同时携带**决策时钟、事前目标与失效区域、目标到止损空间和机会漏斗**，不能把确认标签单独当作可交易计划。C17 并未给出唯一目标，这一代理失败不否定所有旧阻力转支撑技术；下一步先复核来源能否给出可见的下一障碍，而非用已见年度选更远目标。
+
 **下一层研究。** 按 Brooks 官方《Advanced Gap Techniques》对突破前后两根 K 线非重叠、缺口持续以及测量移动的定义，D86 先只读检查 H19a 已按 B 止盈后的四小时结构和旧止损生存情况。由于“缺口是否持续”要在 B 止盈之后才知道，任何未来保留仓位的方案都必须先处理如何事前留有受保护的 runner，再由 Nautilus 原生订单与共享账户检验；不能把事后持续状态当作原始买入筛选。现阶段只是机制研究，不是 Brooks 或罗尼原策略的获利证明。
 
-**核查证据。** [D85 全量匹配及 D86 事前定义](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d85-does-the-h23a-shortfall-come-from-lost-breadth-or-worse-entry-geometry)、[D85 汇总](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall.json)、[全部唯一匹配路径](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall-matches.json.gz)、[Brooks《Advanced Gap Techniques》](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
+**核查证据。** [D85 全量匹配及 D86 事前定义](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d85-does-the-h23a-shortfall-come-from-lost-breadth-or-worse-entry-geometry)、[D85 汇总](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall.json)、[全部唯一匹配路径](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall-matches.json.gz)、[D102 预登记与容量结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d102-first-role-reversal-retest-capacity-after-a-strong-horizontal-breakout)、[Brooks《Advanced Gap Techniques》](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
 
 <a id="f88"></a>
 
