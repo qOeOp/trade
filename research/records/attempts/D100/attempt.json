@@ -21,7 +21,8 @@
   "code_parent": "4bc3817e2",
   "registration": {
     "status": "preregistered",
-    "reference": "docs/plans/r1-d100-one-minute-h10-collision-prereg.zh.md"
+    "reference": "docs/plans/r1-d100-one-minute-h10-collision-prereg.zh.md",
+    "original_registration_commit": "288b07379"
   },
   "decision": {
     "layer": "pending",
