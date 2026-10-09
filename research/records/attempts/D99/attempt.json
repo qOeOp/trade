@@ -16,7 +16,8 @@
   "code_parent": "63044a066",
   "registration": {
     "status": "preregistered",
-    "reference": "docs/plans/r1-d99-failed-range-break-capacity-prereg.zh.md"
+    "reference": "docs/plans/r1-d99-failed-range-break-capacity-prereg.zh.md",
+    "original_registration_commit": "1cde9ac59"
   },
   "decision": {
     "layer": "pending",
