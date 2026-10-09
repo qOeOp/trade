@@ -1,12 +1,16 @@
-# Supported R1 research variants
+# Historical R1 research variants
 
-These are the existing published-Nautilus variants moved out of the product
-strategy directory. They use qualified imports and the same
-`python -m backtest.r1.run_portfolio` entry as the standalone H19a source in
-`strategies/r1.py`. Their rules have not yet been consolidated into individual
-files; this directory is not a second replay engine or research workflow.
+These multi-module published-Nautilus variants retain their historical source
+identities. They have not been individually consolidated into complete Dolt
+strategy files. The current `r1-native-v1` external-source runtime accepts H19a
+only and imports none of these modules. Historical compatibility does not make
+them current supported strategies.
 
-The separate historical fork-based archive is retrieved through the fixed Git
-source in `research/records/history.json`. Do not import its bare module names
-into the supported replay. Prior records and receipts keep their original
-source commits and paths.
+The source modules have been removed from this product directory. Their exact
+paths and hashes at Git `24a8461586abac914a496fd68c1fb6d1c0e95137` are listed in
+[`../strategy-history.json`](../strategy-history.json). Reconstruct the complete
+historical closure and matching environment explicitly. The older fork archive is located by
+`research/records/history.json`. Prior records and receipts retain their original
+source commits, paths and hashes. Do not infer derivation or qualification from
+module names or shared code; publish reviewed fixed parent relations when a
+complete strategy is migrated.

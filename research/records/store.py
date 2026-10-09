@@ -224,6 +224,11 @@ class DoltRecords:
         _validate_records(attempts, runs)
         objects, related = {identity: obj, context_id: context}, []
 
+        strategy_binding = body.get("strategy_binding")
+        if strategy_binding:
+            from research.records.strategies import validate_binding
+            validate_binding(self.adapter, strategy_binding)
+
         def endpoint(target):
             if target in objects:
                 return objects[target]
@@ -259,6 +264,13 @@ class DoltRecords:
             target = derived("reference:" + hashlib.sha256(canonical(value).encode()).hexdigest(),
                              "reference", value, field)
             edge("evidence_ref", obj, target, {"field": field, "reference": reference, "source": obj["provenance"]})
+
+        if strategy_binding:
+            target = self.adapter.get_object(
+                "strategy:" + strategy_binding["strategy_id"],
+                revision=strategy_binding["revision"], commit=strategy_binding["commit"],
+            )
+            edge("uses_strategy", obj, target, {"binding": strategy_binding})
 
         if kind == "attempt":
             for index, parent in enumerate(body["parents"]):

@@ -40,14 +40,15 @@ jobs:
           else:
               raise RuntimeError('pinned Dolt server did not become ready')
           PY
-      - run: uv run --frozen python -m compileall -q strategies backtest research/r1_variants
+      - run: uv run --frozen python -m compileall -q backtest research/records
       - run: uv run --frozen python -m backtest.r1.run_portfolio --help > /dev/null
-      - run: uv run --frozen python -m unittest discover -s tests/records -t . -p 'test_*.py'
+      - run: uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'
       - name: Check frozen native parity receipts
         run: |
           uv run --frozen python - <<'PY'
           import json
           import hashlib
+          import subprocess
           from pathlib import Path
 
           for name in (
@@ -67,6 +68,21 @@ jobs:
           assert current['passed'] and current['per_coin_diagnostics_exact']
           assert current['independent_native_audit']['passed']
           assert current['native_order_integrity'] == {'integrity_passed': True, 'denied_orders': 0, 'rejected_orders': 0}
-          for name, digest in current['candidate_source_sha256'].items():
+          # These receipts describe earlier implementations; keep their bytes.
+          current = json.loads(Path('backtest/r1/receipts/parity-dolt-oci-h19a.json').read_text())
+          assert current['passed'] and current['per_coin_diagnostics_exact']
+          assert current['independent_native_audit']['passed']
+          assert current['recovery']['passed']
+          assert current['native_order_integrity'] == {'integrity_passed': True, 'denied_orders': 0, 'rejected_orders': 0}
+          for name, digest in current['runtime_source_sha256'].items():
               assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
+          source = current['legacy_source']
+          raw = subprocess.check_output(['git', 'show', source['commit'] + ':' + source['path']])
+          assert hashlib.sha256(raw).hexdigest() == current['strategy_binding']['source_sha256']
+          assert not Path('strategies/r1.py').exists()
+          assert not list(Path('research/r1_variants').glob('*.py'))
+          history = json.loads(Path('research/strategy-history.json').read_text())
+          for item in history['files']:
+              raw = subprocess.check_output(['git', 'show', history['git_commit'] + ':' + item['path']])
+              assert hashlib.sha256(raw).hexdigest() == item['sha256'], item['path']
           PY

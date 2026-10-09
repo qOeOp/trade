@@ -1,22 +1,11 @@
-"""Importable rc3 BacktestNode wrappers for the existing native R1 strategies."""
+"""rc3 BacktestNode bridge for one verified external native strategy class."""
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from nautilus_trader.model import BarType, InstrumentId, Quantity, StrategyId
 from nautilus_trader.trading import Strategy
 
-from research.r1_variants.r1s_strategy import R1StagedStrategy
-from research.r1_variants.brooks_confirmed_strategy import BrooksConfirmedStrategy
-from research.r1_variants.gap_runner_strategy import GapRunnerStrategy
-from research.r1_variants.failed_range_breakout_strategy import FailedRangeBreakoutStrategy
-from research.r1_variants.structural_support_strategy import StructuralSupportStrategy
-from backtest.r1.replay_inputs import warmup_daily_bars
-from research.r1_variants.retracement_strategy import RetracementStrategy
-from research.r1_variants.strategy import R1Strategy as LegacyR1Strategy
-from research.r1_variants.tiered_retracement_strategy import TieredRetracementStrategy
-from research.r1_variants.trendline_strategy import TrendlineBreakStrategy
-from strategies.r1 import R1Strategy
+from backtest.r1.strategy_loader import LoadedStrategy
 
 
 STRATEGIES: dict[str, Strategy] = {}
@@ -37,29 +26,19 @@ class NodeStrategyConfig:
 
 
 class _NodeConfigured:
-    """Bridge the importable Node config to each existing Strategy constructor."""
+    """Preserve the H19a constructor/account contract at the native boundary."""
 
     def __new__(cls, config: NodeStrategyConfig):
         return Strategy.__new__(cls)
 
     def __init__(self, config: NodeStrategyConfig):
         instrument_id = InstrumentId.from_str(config.instrument_id)
-        historical_daily_bars = (
-            warmup_daily_bars(
-                Path(config.daily_root),
-                config.coin,
-                instrument_id,
-                config.input_start_ns,
-            )
-            if config.signal_variant in ("daily-pivot", "daily-pivot-outer-4h")
-            else []
-        )
         super().__init__(
             instrument_id,
             BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
             Quantity.from_str(config.trade_size),
             trade_start_ns=config.trade_start_ns,
-            historical_daily_bars=historical_daily_bars,
+            historical_daily_bars=[],
             execution_bar_minutes=5,
             strategy_id=StrategyId(config.strategy_id),
             signal_variant=config.signal_variant,
@@ -69,41 +48,15 @@ class _NodeConfigured:
         STRATEGIES[config.instrument_id] = self
 
 
-class NodeR1Strategy(_NodeConfigured, LegacyR1Strategy):
-    pass
-
-
-class NodeH19aStrategy(_NodeConfigured, R1Strategy):
-    pass
-
-
-class NodeR1StagedStrategy(_NodeConfigured, R1StagedStrategy):
-    pass
-
-
-class NodeTieredRetracementStrategy(_NodeConfigured, TieredRetracementStrategy):
-    pass
-
-
-class NodeBrooksConfirmedStrategy(_NodeConfigured, BrooksConfirmedStrategy):
-    pass
-
-
-class NodeGapRunnerStrategy(_NodeConfigured, GapRunnerStrategy):
-    pass
-
-
-class NodeFailedRangeBreakoutStrategy(_NodeConfigured, FailedRangeBreakoutStrategy):
-    pass
-
-
-class NodeStructuralSupportStrategy(_NodeConfigured, StructuralSupportStrategy):
-    pass
-
-
-class NodeRetracementStrategy(_NodeConfigured, RetracementStrategy):
-    pass
-
-
-class NodeTrendlineBreakStrategy(_NodeConfigured, TrendlineBreakStrategy):
-    pass
+def register_strategy(loaded: LoadedStrategy) -> str:
+    """Give ImportableStrategyConfig a path resolving inside this exact process."""
+    name = f"NodeExternal_{loaded.source_sha256}_{loaded.entry_class}"
+    wrapper = globals().get(name)
+    if wrapper is None:
+        wrapper = type(
+            name,
+            (_NodeConfigured, loaded.strategy_class),
+            {"__module__": __name__},
+        )
+        globals()[name] = wrapper
+    return f"{__name__}:{name}"

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "strategy_binding.schema.json",
+  "title": "Fixed Dolt strategy source binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["database", "commit", "strategy_id", "revision", "source_sha256", "entry_class", "runtime_contract"],
+  "properties": {
+    "database": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-v]{32}$"},
+    "strategy_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"},
+    "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "entry_class": {"type": "string", "minLength": 1, "maxLength": 100},
+    "runtime_contract": {"const": "r1-native-v1"}
+  }
+}
