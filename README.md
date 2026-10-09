@@ -1,6 +1,6 @@
 # Trade research
 
-This repository keeps trading strategies as source code and replays them with the published [NautilusTrader](https://nautilustrader.io/) package. The current runnable slice is R1: one strategy family, 37 Binance USDⓈ-M perpetual instruments, and one fixed-capital native margin account. It uses native data, orders, fills, risk, execution, portfolio accounting, and reports.
+This repository keeps trading strategies as source code and replays them with the published [NautilusTrader](https://nautilustrader.io/) package. The current runnable slice is R1: the standalone H19a strategy, 37 Binance USDⓈ-M perpetual instruments, and one fixed-capital native margin account. It uses native data, orders, fills, risk, execution, portfolio accounting, and reports.
 
 ## Run the verified R1 replay
 
@@ -9,7 +9,7 @@ Install Python 3.14 and [uv](https://docs.astral.sh/uv/), then:
 ```bash
 uv sync --frozen
 R1_COINS=(BTC ETH BNB ADA XRP SOL DOGE LTC TRX LINK DOT AVAX BCH ETC XLM ATOM FIL NEAR UNI AAVE ICP APT ARB SUI OP INJ TIA SEI PEPE SHIB HBAR ALGO FET WLD IMX STX LDO)
-uv run --frozen python strategies/r1/run_portfolio.py \
+uv run --frozen python -m backtest.r1.run_portfolio \
   --catalog-root /tmp/r1-37-1y-5m-2026oct7 \
   --daily-root /tmp/r1-37-2026oct7 \
   --quantity-csv /tmp/r1-37-1y-5m-2026oct7/per_coin_stop_fix.csv \
@@ -21,13 +21,15 @@ uv run --frozen python strategies/r1/run_portfolio.py \
   --output /tmp/r1-h19a-replay
 ```
 
-The historical Catalog is external to Git and must be supplied at the paths shown or replaced with equivalent explicit paths. No exchange trading credential is needed. The command is a backtest; it does not place live orders. Its `/tmp` output is temporary. For a new registered R1 tiered experiment whose result will guide strategy iteration, use the [research record and artifact guide](research/records/README.md) to preregister the hypothesis, run this same native replay with a frozen source, and retain its result. See [R1 usage](strategies/r1/README.md) for H18a and comparison commands.
+The historical Catalog is external to Git and must be supplied at the paths shown or replaced with equivalent explicit paths. No exchange trading credential is needed. The command is a backtest; it does not place live orders. Its `/tmp` output is temporary. For a new registered R1 tiered experiment whose result will guide strategy iteration, use the [research record and artifact guide](research/records/README.md) to preregister the hypothesis, run this same native replay with a frozen source, and retain its result. See [R1 usage](backtest/r1/README.md) for H18a and comparison commands.
 
 The current documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/). Build the original Next.js/Fumadocs site locally with `npm ci --prefix docs-site && npm run build --prefix docs-site`; the static export is `docs-site/out`.
 
 ## Repository map
 
-- [`strategies/r1/`](strategies/r1/): native Strategy source, one `BacktestNode` replay entry, input validation and paired-result checkers.
+- [`strategies/r1.py`](strategies/r1.py): complete H19a signal, sizing and native order lifecycle in one file.
+- [`backtest/r1/`](backtest/r1/): the shared `BacktestNode` replay, input validation, report checks and small historical receipts.
+- [`research/r1_variants/`](research/r1_variants/): other supported research variants, awaiting the same source consolidation.
 - [`research/records/`](research/records/): Dolt research decisions, explicit knowledge admission, source retrieval and native artifact custody. Historical scripts, ledger copies and derived reports are outside the current worktree; [`history.json`](research/records/history.json) fixes their read-only Git source archive.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md): current product blueprint.
 - [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): 37-instrument paired replay evidence and migration findings.

@@ -16,21 +16,22 @@ from nautilus_trader.analysis import MaxDrawdown
 from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
-from brooks_confirmed_strategy import BrooksConfirmedStrategy
-from gap_runner_strategy import GapRunnerStrategy
-from failed_range_breakout_strategy import FailedRangeBreakoutStrategy
-from native_node import run_native_node
-from r1s_strategy import R1StagedStrategy
-from replay_util import SOURCE_COMMIT
-from replay_util import _json_safe
-from replay_util import _ns
-from replay_util import _snapshot_equity_usdt
-from replay_inputs import read_instruments as _read_instruments
-from retracement_strategy import RetracementStrategy
-from strategy import R1Strategy
-from structural_support_strategy import StructuralSupportStrategy
-from tiered_retracement_strategy import TieredRetracementStrategy
-from trendline_strategy import TrendlineBreakStrategy
+from research.r1_variants.brooks_confirmed_strategy import BrooksConfirmedStrategy
+from research.r1_variants.gap_runner_strategy import GapRunnerStrategy
+from research.r1_variants.failed_range_breakout_strategy import FailedRangeBreakoutStrategy
+from backtest.r1.native_node import run_native_node
+from research.r1_variants.r1s_strategy import R1StagedStrategy
+from backtest.r1.replay_util import SOURCE_COMMIT
+from backtest.r1.replay_util import _json_safe
+from backtest.r1.replay_util import _ns
+from backtest.r1.replay_util import _snapshot_equity_usdt
+from backtest.r1.replay_inputs import read_instruments as _read_instruments
+from research.r1_variants.retracement_strategy import RetracementStrategy
+from research.r1_variants.strategy import R1Strategy as LegacyR1Strategy
+from research.r1_variants.structural_support_strategy import StructuralSupportStrategy
+from research.r1_variants.tiered_retracement_strategy import TieredRetracementStrategy
+from research.r1_variants.trendline_strategy import TrendlineBreakStrategy
+from strategies.r1 import R1Strategy
 
 
 LINE_VARIANTS = ("trendline-4h", "line-support-4h", "line-resting-4h")
@@ -67,6 +68,77 @@ TIERED_VARIANTS = (
 )
 STAGED_EXITS = ("staged-r1s", "staged-edge-1r")
 REPLAY_SUBMIT_RATE = "200/00:00:01"
+
+
+def _source_metadata(signal_variant: str, exit_variant: str) -> dict:
+    """Bind source hashes to the files used by this replay configuration."""
+    is_h19a = signal_variant == BROAD_TIER_VARIANT
+    variants = "research/r1_variants/"
+    paths = {
+        "strategy_source_sha256": (
+            "strategies/r1.py" if is_h19a else variants + "strategy.py"
+        ),
+        "staged_strategy_source_sha256": (
+            variants + "r1s_strategy.py" if exit_variant in STAGED_EXITS else None
+        ),
+        "trendline_strategy_source_sha256": (
+            variants + "trendline_strategy.py" if signal_variant in LINE_VARIANTS else None
+        ),
+        "retracement_strategy_source_sha256": (
+            variants + "retracement_strategy.py"
+            if not is_h19a and signal_variant in (*RETRACEMENT_VARIANTS, *TIERED_VARIANTS)
+            else None
+        ),
+        "tiered_strategy_source_sha256": (
+            variants + "tiered_retracement_strategy.py"
+            if not is_h19a and signal_variant in TIERED_VARIANTS
+            else None
+        ),
+        "brooks_confirmed_strategy_source_sha256": (
+            variants + "brooks_confirmed_strategy.py"
+            if signal_variant == BROOKS_CONFIRMED_VARIANT else None
+        ),
+        "failed_range_breakout_strategy_source_sha256": (
+            variants + "failed_range_breakout_strategy.py"
+            if signal_variant == FAILED_RANGE_VARIANT else None
+        ),
+        "stop_entry_source_sha256": (
+            "backtest/r1/stop_entry.py"
+            if signal_variant in (FAILED_RANGE_VARIANT, BROOKS_CONFIRMED_VARIANT) else None
+        ),
+        "gap_runner_strategy_source_sha256": (
+            variants + "gap_runner_strategy.py"
+            if signal_variant == GAP_RUNNER_VARIANT else None
+        ),
+        "structural_support_strategy_source_sha256": (
+            variants + "structural_support_strategy.py"
+            if signal_variant in STRUCTURAL_SUPPORT_VARIANTS else None
+        ),
+        "broad_swing_signal_source_sha256": (
+            variants + "broad_swing_signal.py"
+            if not is_h19a and signal_variant in (
+                BROAD_LINE_CANCEL_VARIANT, BROOKS_CONFIRMED_VARIANT,
+                GAP_RUNNER_VARIANT, *STRUCTURAL_SUPPORT_VARIANTS,
+            )
+            else None
+        ),
+        "runner_source_sha256": "backtest/r1/run_portfolio.py",
+        "native_node_source_sha256": "backtest/r1/native_node.py",
+        "node_strategy_source_sha256": "backtest/r1/node_strategy.py",
+        "replay_inputs_source_sha256": "backtest/r1/replay_inputs.py",
+        "replay_util_source_sha256": "backtest/r1/replay_util.py",
+    }
+    root = Path(__file__).resolve().parents[2]
+    return {
+        **{
+            field: hashlib.sha256((root / path).read_bytes()).hexdigest()
+            if path is not None else None
+            for field, path in paths.items()
+        },
+        "source_file_paths": {
+            field: path for field, path in paths.items() if path is not None
+        },
+    }
 
 
 def _orders_with_native_deadlines(engine, report):
@@ -187,13 +259,15 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         if args.signal_variant == FAILED_RANGE_VARIANT
         else BrooksConfirmedStrategy
         if args.signal_variant == BROOKS_CONFIRMED_VARIANT
+        else R1Strategy
+        if args.signal_variant == BROAD_TIER_VARIANT
         else TieredRetracementStrategy
         if args.signal_variant in TIERED_VARIANTS
         else RetracementStrategy
         if args.signal_variant in RETRACEMENT_VARIANTS
         else TrendlineBreakStrategy
         if args.signal_variant in LINE_VARIANTS
-        else R1Strategy
+        else LegacyR1Strategy
     )
     engine, strategies = run_native_node(
         rows,
@@ -293,69 +367,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     }
     summary = {
         "source_commit": SOURCE_COMMIT,
-        "strategy_source_sha256": hashlib.sha256(
-            Path(__file__).with_name("strategy.py").read_bytes(),
-        ).hexdigest(),
-        "staged_strategy_source_sha256": (
-            hashlib.sha256(
-                Path(__file__).with_name("r1s_strategy.py").read_bytes()
-            ).hexdigest()
-            if args.exit_variant in STAGED_EXITS
-            else None
-        ),
-        "trendline_strategy_source_sha256": (
-            hashlib.sha256(
-                Path(__file__).with_name("trendline_strategy.py").read_bytes(),
-            ).hexdigest()
-            if args.signal_variant in LINE_VARIANTS
-            else None
-        ),
-        "retracement_strategy_source_sha256": (
-            hashlib.sha256(
-                Path(__file__).with_name("retracement_strategy.py").read_bytes(),
-            ).hexdigest()
-            if args.signal_variant in (*RETRACEMENT_VARIANTS, *TIERED_VARIANTS)
-            else None
-        ),
-        "tiered_strategy_source_sha256": (
-            hashlib.sha256(
-                Path(__file__).with_name("tiered_retracement_strategy.py").read_bytes(),
-            ).hexdigest()
-            if args.signal_variant in TIERED_VARIANTS
-            else None
-        ),
-        "brooks_confirmed_strategy_source_sha256": (
-            hashlib.sha256(Path(__file__).with_name("brooks_confirmed_strategy.py").read_bytes()).hexdigest()
-            if args.signal_variant == BROOKS_CONFIRMED_VARIANT else None
-        ),
-        "failed_range_breakout_strategy_source_sha256": (
-            hashlib.sha256(Path(__file__).with_name("failed_range_breakout_strategy.py").read_bytes()).hexdigest()
-            if args.signal_variant == FAILED_RANGE_VARIANT else None
-        ),
-        "stop_entry_source_sha256": (
-            hashlib.sha256(Path(__file__).with_name("stop_entry.py").read_bytes()).hexdigest()
-            if args.signal_variant in (FAILED_RANGE_VARIANT, BROOKS_CONFIRMED_VARIANT) else None
-        ),
-        "gap_runner_strategy_source_sha256": (
-            hashlib.sha256(Path(__file__).with_name("gap_runner_strategy.py").read_bytes()).hexdigest()
-            if args.signal_variant == GAP_RUNNER_VARIANT else None
-        ),
-        "structural_support_strategy_source_sha256": (
-            hashlib.sha256(Path(__file__).with_name("structural_support_strategy.py").read_bytes()).hexdigest()
-            if args.signal_variant in STRUCTURAL_SUPPORT_VARIANTS else None
-        ),
-        "broad_swing_signal_source_sha256": (
-            hashlib.sha256(
-                Path(__file__).with_name("broad_swing_signal.py").read_bytes(),
-            ).hexdigest()
-            if args.signal_variant in (
-                BROAD_TIER_VARIANT, BROAD_LINE_CANCEL_VARIANT,
-                BROOKS_CONFIRMED_VARIANT, GAP_RUNNER_VARIANT,
-                *STRUCTURAL_SUPPORT_VARIANTS,
-            )
-            else None
-        ),
-        "runner_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        **_source_metadata(args.signal_variant, args.exit_variant),
         "strategy": (
             "H11-box-edge-staged-1r"
             if args.exit_variant == "staged-edge-1r"

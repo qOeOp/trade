@@ -26,11 +26,11 @@ from nautilus_trader.model import TraderId
 from nautilus_trader.model import Venue
 from nautilus_trader.persistence import ParquetDataCatalog
 
-from retracement_strategy import RetracementPlan
-from strategy import FOUR_HOUR_NS
-from tiered_retracement_strategy import BROAD_LIFETIME_NS
-from tiered_retracement_strategy import BROAD_LINE_CANCEL_VARIANT
-from tiered_retracement_strategy import TieredRetracementStrategy
+from research.r1_variants.retracement_strategy import RetracementPlan
+from research.r1_variants.strategy import FOUR_HOUR_NS
+from research.r1_variants.tiered_retracement_strategy import BROAD_LIFETIME_NS
+from research.r1_variants.tiered_retracement_strategy import BROAD_LINE_CANCEL_VARIANT
+from research.r1_variants.tiered_retracement_strategy import TieredRetracementStrategy
 
 
 STEP_NS = 300_000_000_000

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from broad_swing_signal import ANCHOR_LOOKBACK
-from broad_swing_signal import PIVOT_ORDER
-from strategy import STOP_BUFFER_ATR
-from strategy import FourHour
-from tiered_retracement_strategy import TieredRetracementStrategy
+from research.r1_variants.broad_swing_signal import ANCHOR_LOOKBACK
+from research.r1_variants.broad_swing_signal import PIVOT_ORDER
+from research.r1_variants.strategy import STOP_BUFFER_ATR
+from research.r1_variants.strategy import FourHour
+from research.r1_variants.tiered_retracement_strategy import TieredRetracementStrategy
 
 
 class StructuralSupportStrategy(TieredRetracementStrategy):

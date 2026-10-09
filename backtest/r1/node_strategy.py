@@ -6,19 +6,20 @@ from pathlib import Path
 from nautilus_trader.model import BarType, InstrumentId, Quantity, StrategyId
 from nautilus_trader.trading import Strategy
 
-from r1s_strategy import R1StagedStrategy
-from brooks_confirmed_strategy import BrooksConfirmedStrategy
-from gap_runner_strategy import GapRunnerStrategy
-from failed_range_breakout_strategy import FailedRangeBreakoutStrategy
-from structural_support_strategy import StructuralSupportStrategy
-from replay_inputs import warmup_daily_bars
-from retracement_strategy import RetracementStrategy
-from strategy import R1Strategy
-from tiered_retracement_strategy import TieredRetracementStrategy
-from trendline_strategy import TrendlineBreakStrategy
+from research.r1_variants.r1s_strategy import R1StagedStrategy
+from research.r1_variants.brooks_confirmed_strategy import BrooksConfirmedStrategy
+from research.r1_variants.gap_runner_strategy import GapRunnerStrategy
+from research.r1_variants.failed_range_breakout_strategy import FailedRangeBreakoutStrategy
+from research.r1_variants.structural_support_strategy import StructuralSupportStrategy
+from backtest.r1.replay_inputs import warmup_daily_bars
+from research.r1_variants.retracement_strategy import RetracementStrategy
+from research.r1_variants.strategy import R1Strategy as LegacyR1Strategy
+from research.r1_variants.tiered_retracement_strategy import TieredRetracementStrategy
+from research.r1_variants.trendline_strategy import TrendlineBreakStrategy
+from strategies.r1 import R1Strategy
 
 
-STRATEGIES: dict[str, R1Strategy] = {}
+STRATEGIES: dict[str, Strategy] = {}
 
 
 @dataclass
@@ -68,7 +69,11 @@ class _NodeConfigured:
         STRATEGIES[config.instrument_id] = self
 
 
-class NodeR1Strategy(_NodeConfigured, R1Strategy):
+class NodeR1Strategy(_NodeConfigured, LegacyR1Strategy):
+    pass
+
+
+class NodeH19aStrategy(_NodeConfigured, R1Strategy):
     pass
 
 
