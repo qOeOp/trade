@@ -206,6 +206,11 @@ class R1Strategy(Strategy):
             "support-deep-two-tier-4h",
             "support-broad-two-tier-4h",
             "support-broad-two-tier-line-cancel-4h",
+            "support-brooks-confirmed-4h",
+            "support-broad-gap-runner-4h",
+            "support-broad-prior-a-support-4h",
+            "support-broad-any-prior-a-support-4h",
+            "support-broad-any-prior-a-outside-stop-4h",
         ):
             raise ValueError("unsupported R-1 signal variant")
         self.signal_variant = signal_variant
@@ -318,7 +323,15 @@ class R1Strategy(Strategy):
         hold_ns = (
             180 * FOUR_HOUR_NS
             if self.signal_variant
-            in ("support-broad-two-tier-4h", "support-broad-two-tier-line-cancel-4h")
+            in (
+                "support-broad-two-tier-4h",
+                "support-broad-two-tier-line-cancel-4h",
+                "support-brooks-confirmed-4h",
+                "support-broad-gap-runner-4h",
+                "support-broad-prior-a-support-4h",
+                "support-broad-any-prior-a-support-4h",
+                "support-broad-any-prior-a-outside-stop-4h",
+            )
             else 30 * FOUR_HOUR_NS
             if self.signal_variant
             in (

@@ -60,6 +60,11 @@ class TieredRetracementStrategy(R1Strategy):
         elif self.signal_variant in (
             "support-broad-two-tier-4h",
             BROAD_LINE_CANCEL_VARIANT,
+            "support-brooks-confirmed-4h",
+            "support-broad-gap-runner-4h",
+            "support-broad-prior-a-support-4h",
+            "support-broad-any-prior-a-support-4h",
+            "support-broad-any-prior-a-outside-stop-4h",
         ):
             self.tier_ratios = BROAD_TIER_RATIOS
         else:
@@ -74,6 +79,11 @@ class TieredRetracementStrategy(R1Strategy):
         self.broad_enabled = self.signal_variant in (
             "support-broad-two-tier-4h",
             BROAD_LINE_CANCEL_VARIANT,
+            "support-brooks-confirmed-4h",
+            "support-broad-gap-runner-4h",
+            "support-broad-prior-a-support-4h",
+            "support-broad-any-prior-a-support-4h",
+            "support-broad-any-prior-a-outside-stop-4h",
         )
         self.bundle_lifetime_ns = (
             BROAD_LIFETIME_NS if self.broad_enabled else LIFETIME_NS
@@ -337,24 +347,8 @@ class TieredRetracementStrategy(R1Strategy):
             )
             for price, quantity in zip(prices, quantities, strict=True)
         ]
-        # The published rc3 matcher activates OTO children in the parent's
-        # linked-ID order. A stop can fill synchronously on the entry bar; if
-        # the target has not been activated yet, it is rejected rather than
-        # canceled. Activate the nonmarketable target first so both exits are
-        # accepted before an immediate stop fill cancels its sibling.
         for orders in order_lists:
-            if (
-                len(orders) != 3
-                or orders[1].order_type != OrderType.STOP_MARKET
-                or orders[2].order_type != OrderType.LIMIT
-            ):
-                raise RuntimeError("native bracket child layout changed")
-            entry = orders[0].to_dict()
-            entry["linked_order_ids"] = [
-                str(orders[2].client_order_id),
-                str(orders[1].client_order_id),
-            ]
-            orders[0] = LimitOrder.from_dict(entry)
+            self._activate_target_first(orders)
         self.bundle = TierBundle(
             pair=(plan.a_index, plan.b_index),
             entry_ids=tuple(orders[0].client_order_id for orders in order_lists),
@@ -365,6 +359,24 @@ class TieredRetracementStrategy(R1Strategy):
             self.submit_order_list(orders)
         self.bundle_submissions += 1
         self.waiting_released += 1
+
+    @staticmethod
+    def _activate_target_first(orders) -> None:
+        # The pinned rc3 matcher activates OTO children in linked-ID order.
+        # Target first prevents a synchronous entry-bar stop from rejecting it.
+        if (
+            len(orders) != 3
+            or orders[0].order_type != OrderType.LIMIT
+            or orders[1].order_type != OrderType.STOP_MARKET
+            or orders[2].order_type != OrderType.LIMIT
+        ):
+            raise RuntimeError("native bracket child layout changed")
+        entry = orders[0].to_dict()
+        entry["linked_order_ids"] = [
+            str(orders[2].client_order_id),
+            str(orders[1].client_order_id),
+        ]
+        orders[0] = LimitOrder.from_dict(entry)
 
     def _retire_bundle(self) -> None:
         bundle = self.bundle

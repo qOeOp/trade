@@ -7,6 +7,9 @@ from nautilus_trader.model import BarType, InstrumentId, Quantity, StrategyId
 from nautilus_trader.trading import Strategy
 
 from r1s_strategy import R1StagedStrategy
+from brooks_confirmed_strategy import BrooksConfirmedStrategy
+from gap_runner_strategy import GapRunnerStrategy
+from structural_support_strategy import StructuralSupportStrategy
 from replay_inputs import warmup_daily_bars
 from retracement_strategy import RetracementStrategy
 from strategy import R1Strategy
@@ -73,6 +76,18 @@ class NodeR1StagedStrategy(_NodeConfigured, R1StagedStrategy):
 
 
 class NodeTieredRetracementStrategy(_NodeConfigured, TieredRetracementStrategy):
+    pass
+
+
+class NodeBrooksConfirmedStrategy(_NodeConfigured, BrooksConfirmedStrategy):
+    pass
+
+
+class NodeGapRunnerStrategy(_NodeConfigured, GapRunnerStrategy):
+    pass
+
+
+class NodeStructuralSupportStrategy(_NodeConfigured, StructuralSupportStrategy):
     pass
 
 

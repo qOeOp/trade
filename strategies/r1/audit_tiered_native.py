@@ -29,10 +29,20 @@ TIER_RATIOS = {
     "support-deep-two-tier-4h": (Decimal("0.618"), Decimal("0.764")),
     "support-broad-two-tier-4h": (Decimal("0.5"), Decimal("0.618")),
     "support-broad-two-tier-line-cancel-4h": (Decimal("0.5"), Decimal("0.618")),
+    "support-brooks-confirmed-4h": (Decimal("0.5"), Decimal("0.618")),
+    "support-broad-gap-runner-4h": (Decimal("0.5"), Decimal("0.618")),
+    "support-broad-prior-a-support-4h": (Decimal("0.5"), Decimal("0.618")),
+    "support-broad-any-prior-a-support-4h": (Decimal("0.5"), Decimal("0.618")),
+    "support-broad-any-prior-a-outside-stop-4h": (Decimal("0.5"), Decimal("0.618")),
 }
 BROAD_VARIANTS = {
     "support-broad-two-tier-4h",
     "support-broad-two-tier-line-cancel-4h",
+    "support-brooks-confirmed-4h",
+    "support-broad-gap-runner-4h",
+    "support-broad-prior-a-support-4h",
+    "support-broad-any-prior-a-support-4h",
+    "support-broad-any-prior-a-outside-stop-4h",
 }
 
 
@@ -57,8 +67,10 @@ def _native_instruments(root: Path, summary: dict) -> dict:
 
 def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native report audit.
     summary = json.loads((run / "summary.json").read_text())
+    confirmed = summary["signal_variant"] == "support-brooks-confirmed-4h"
+    gap_runner = summary["signal_variant"] == "support-broad-gap-runner-4h"
     ratios = TIER_RATIOS.get(summary["signal_variant"])
-    if ratios is None:
+    if ratios is None and not confirmed:
         raise ValueError("budgeted native tier replay required")
     if (
         summary["sizing"]["risk_budget_bps"] != 25
@@ -73,24 +85,24 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
     fills = pd.read_csv(run / "fills.csv", dtype={"client_order_id": str})
     positions = pd.read_csv(run / "positions.csv", dtype={"opening_order_id": str})
     findings = []
-    if (
-        not summary["integrity_passed"]
-        or summary["denied_orders"]
-        or summary["rejected_orders"]
-    ):
+    if gap_runner:
+        for coin in summary["per_coin"]:
+            readout = coin["gap_runner"]
+            if (
+                readout["max_submitted_stop_risk_fraction"] > 0.0025 + 1e-10
+                or readout["max_submitted_notional_fraction"] > 0.05 + 1e-10
+            ):
+                findings.append(f"native gap runner exceeded budget: {coin['coin']}")
+    if not summary["integrity_passed"] or summary["denied_orders"] or summary["rejected_orders"]:
         findings.append("runner reported native order integrity failure")
     if not orders.client_order_id.is_unique or orders.client_order_id.isna().any():
         findings.append("native order identity missing or duplicated")
     if not orders.status.isin(TERMINAL | OPEN).all():
         findings.append("unknown native order status")
-    brackets = orders[
-        orders.tags.isin(("['ENTRY']", "['STOP_LOSS']", "['TAKE_PROFIT']"))
-    ]
+    brackets = orders[orders.tags.isin(("['ENTRY']", "['STOP_LOSS']", "['TAKE_PROFIT']"))]
     time_exits = orders[~orders.index.isin(brackets.index)]
     if not (
-        time_exits.type.eq("MARKET")
-        & time_exits.side.eq("SELL")
-        & time_exits.status.eq("FILLED")
+        time_exits.type.eq("MARKET") & time_exits.side.eq("SELL") & time_exits.status.eq("FILLED")
     ).all():
         findings.append("unexpected non-bracket native order")
     entries = brackets[brackets.tags == "['ENTRY']"]
@@ -106,7 +118,7 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         stop = group[group.tags == "['STOP_LOSS']"].iloc[0]
         target = group[group.tags == "['TAKE_PROFIT']"].iloc[0]
         if (
-            entry.type != "LIMIT"
+            entry.type != ("STOP_MARKET" if confirmed else "LIMIT")
             or entry.side != "BUY"
             or entry.time_in_force != "GTD"
             or entry.contingency_type != "OTO"
@@ -130,12 +142,12 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
             or not child_qty_valid
             or not 0
             < _decimal(stop.trigger_price)
-            < _decimal(entry.price)
+            < _decimal(entry.trigger_price if confirmed else entry.price)
             < _decimal(target.price)
         ):
             findings.append(f"invalid native bracket prices or quantities {list_id}")
         decision_ns = int(entry.ts_init) // FOUR_HOUR_NS * FOUR_HOUR_NS
-        life_bars = 180 if summary["signal_variant"] in BROAD_VARIANTS else 30
+        life_bars = 1 if confirmed else 180 if summary["signal_variant"] in BROAD_VARIANTS else 30
         if int(entry.expire_time_ns) != decision_ns + life_bars * FOUR_HOUR_NS:
             findings.append(f"entry GTD deadline differs {list_id}")
         if (
@@ -147,11 +159,67 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         if filled_qty > 0 and int(entry.ts_last) <= int(entry.ts_init):
             findings.append(f"entry filled at or before submission {list_id}")
     for (strategy_id, ts_init), group in entries.groupby(["strategy_id", "ts_init"]):
-        sorted_group = group.sort_values("price", ascending=False)
-        if len(sorted_group) != len(ratios):
-            findings.append(
-                f"bundle has {len(sorted_group)} tiers: {strategy_id} {ts_init}"
+        sorted_group = group.sort_values("trigger_price" if confirmed else "price", ascending=False)
+        expected_entries = 1 if confirmed else 4 if gap_runner else len(ratios)
+        if len(sorted_group) != expected_entries:
+            findings.append(f"bundle has {len(sorted_group)} tiers: {strategy_id} {ts_init}")
+            continue
+        if confirmed:
+            continue  # The new stop price is a post-touch bar high, not a retracement ratio.
+        if gap_runner:
+            levels = sorted(
+                {_decimal(value) for value in sorted_group.price}, reverse=True
             )
+            targets = sorted(
+                {
+                    _decimal(value)
+                    for value in brackets[
+                        brackets.order_list_id.isin(sorted_group.order_list_id)
+                        & brackets.tags.eq("['TAKE_PROFIT']")
+                    ].price
+                }
+            )
+            stops = brackets[
+                brackets.order_list_id.isin(sorted_group.order_list_id)
+                & brackets.tags.eq("['STOP_LOSS']")
+            ]
+            if (
+                len(sorted_group) != 4
+                or len(levels) != 2
+                or len(targets) != 2
+                or len(stops) != 4
+                or not stops.trigger_price.eq(stops.trigger_price.iloc[0]).all()
+            ):
+                findings.append(f"gap runner four-bracket geometry differs: {strategy_id} {ts_init}")
+                continue
+            stop = _decimal(stops.trigger_price.iloc[0])
+            b_target, runner_target = targets
+            instrument = instruments[sorted_group.instrument_id.iloc[0]]
+            tick = instrument.price_increment.as_decimal()
+            estimated_a = b_target - (b_target - levels[0]) / ratios[0]
+            if not (
+                0 < estimated_a < stop < levels[1] < levels[0] < b_target
+                and abs(runner_target - (b_target + levels[0] - stop)) <= 2 * tick
+                and all(
+                    abs(level - (b_target - ratio * (b_target - estimated_a))) <= 2 * tick
+                    for level, ratio in zip(levels, ratios, strict=True)
+                )
+            ):
+                findings.append(f"gap runner source levels or target differ: {strategy_id} {ts_init}")
+            for level in levels:
+                pair = sorted_group[sorted_group.price.map(_decimal) == level]
+                if len(pair) != 2:
+                    findings.append(f"gap runner tier split differs: {strategy_id} {ts_init}")
+                    continue
+                pair_targets = brackets[
+                    brackets.order_list_id.isin(pair.order_list_id)
+                    & brackets.tags.eq("['TAKE_PROFIT']")
+                ]
+                if {_decimal(value) for value in pair_targets.price} != set(targets):
+                    findings.append(f"gap runner tier targets differ: {strategy_id} {ts_init}")
+                q = sorted((_decimal(value) for value in pair.quantity), reverse=True)
+                if q[1] <= 0 or q[0] - q[1] > instrument.size_increment.as_decimal():
+                    findings.append(f"gap runner tier quantity split differs: {strategy_id} {ts_init}")
             continue
         child = brackets[brackets.order_list_id.isin(sorted_group.order_list_id)]
         stops = child[child.tags == "['STOP_LOSS']"]
@@ -172,13 +240,13 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         tick = instrument.price_increment.as_decimal()
         span = target - estimated_a
         proper_stop = (
-            0 < estimated_a < stop < levels[-1] < target
+            0 < stop < estimated_a < levels[-1] < target
+            if summary["signal_variant"] == "support-broad-any-prior-a-outside-stop-4h"
+            else 0 < estimated_a < stop < levels[-1] < target
             if summary["signal_variant"] in BROAD_VARIANTS
             else 0 < stop < estimated_a < levels[-1] < target
         )
-        if not proper_stop or any(
-            higher <= lower for higher, lower in pairwise(levels)
-        ):
+        if not proper_stop or any(higher <= lower for higher, lower in pairwise(levels)):
             findings.append(f"bundle tier geometry differs: {strategy_id} {ts_init}")
         if any(
             abs(level - (target - ratio * span)) > 2 * tick
@@ -200,37 +268,25 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         targets = linked[linked.tags == "['TAKE_PROFIT']"]
         stop_qty = sum((_decimal(value) for value in stops.quantity), Decimal(0))
         target_qty = sum((_decimal(value) for value in targets.quantity), Decimal(0))
-        if stop_qty != _decimal(position.quantity) or target_qty != _decimal(
-            position.quantity
-        ):
-            findings.append(
-                f"open position native protection size differs {position.position_id}"
-            )
+        if stop_qty != _decimal(position.quantity) or target_qty != _decimal(position.quantity):
+            findings.append(f"open position native protection size differs {position.position_id}")
     for strategy_id, group in fills.groupby("strategy_id"):
         net = Decimal(0)
         for fill in group.sort_values("ts_event", kind="stable").itertuples():
             qty = _decimal(fill.last_qty)
             net += qty if fill.order_side == "BUY" else -qty
             if net < 0:
-                findings.append(
-                    f"native fills net short: {strategy_id} {fill.ts_event}"
-                )
+                findings.append(f"native fills net short: {strategy_id} {fill.ts_event}")
                 break
         position_qty = sum(
-            (
-                _decimal(value)
-                for value in live[live.strategy_id == strategy_id].quantity
-            ),
+            (_decimal(value) for value in live[live.strategy_id == strategy_id].quantity),
             Decimal(0),
         )
         if net != position_qty:
-            findings.append(
-                f"native fill net differs from open position: {strategy_id}"
-            )
+            findings.append(f"native fill net differs from open position: {strategy_id}")
     entry_by_id = entries.set_index("client_order_id")
     for row in orders[
-        orders.status.isin(OPEN)
-        & orders.tags.isin(("['STOP_LOSS']", "['TAKE_PROFIT']"))
+        orders.status.isin(OPEN) & orders.tags.isin(("['STOP_LOSS']", "['TAKE_PROFIT']"))
     ].itertuples():
         parent = (
             entry_by_id.loc[row.parent_order_id]
@@ -240,12 +296,7 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         parent_status = parent.status if parent is not None else None
         if row.status == "SUBMITTED":
             # Native OTO children wait at SUBMITTED until their entry fills.
-            if parent_status not in {
-                "ACCEPTED",
-                "SUBMITTED",
-                "PARTIALLY_FILLED",
-                "PENDING_UPDATE",
-            }:
+            if parent_status not in {"ACCEPTED", "SUBMITTED", "PARTIALLY_FILLED", "PENDING_UPDATE"}:
                 findings.append(f"dormant exit has no live entry {row.client_order_id}")
         elif parent is None or _decimal(parent.filled_qty) <= 0:
             findings.append(f"active exit has no filled parent {row.client_order_id}")
@@ -264,9 +315,7 @@ def audit(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native rep
         "native_brackets": int(entries.order_list_id.nunique()),
         "filled_entries": int((entries.filled_qty.map(_decimal) > 0).sum()),
         "partially_filled_then_canceled_entries": int(
-            (
-                (entries.status == "CANCELED") & (entries.filled_qty.map(_decimal) > 0)
-            ).sum(),
+            ((entries.status == "CANCELED") & (entries.filled_qty.map(_decimal) > 0)).sum(),
         ),
         "closed_positions": int(positions.ts_closed.notna().sum()),
         "open_positions": len(live),

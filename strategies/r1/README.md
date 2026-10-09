@@ -59,3 +59,16 @@ transition. All result paths under `/tmp` are local evidence, not repository dat
 The pinned rc3 Strategy activates its native take-profit child before the
 stop child to avoid a synchronous sibling rejection. Recheck that behavior,
 fees, funding and full paired results before changing Nautilus versions.
+
+## Historical R&D variant port
+
+The H23a–H27a Strategy variants were ported onto the same `BacktestNode`
+entrypoint. Their historical annual 37-instrument `BacktestEngine` reports
+remain the controls. The paired receipts in
+[`research/r1_native/results/`](../../research/r1_native/results/) compare
+orders, fills, positions, funding adjustments, account snapshots, daily returns
+and account metrics; companion tier audits check native order lifecycle. These
+are implementation parity checks on the already exposed year, not new strategy
+qualification or independent validation. The raw CSVs still live in temporary
+local paths and are not sealed by `research.records`. H25a–H27a's structured
+records are explicitly retrospective transcriptions.
