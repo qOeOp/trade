@@ -1,0 +1,13 @@
+{
+  "schema": "bilibili-note-model-profile/v1",
+  "provider": "siliconflow",
+  "base_url": "https://api.siliconflow.cn/v1",
+  "vision_model": "Pro/moonshotai/Kimi-K2.6",
+  "asr_model": "Qwen/Qwen3-ASR-1.7B",
+  "api_key_env": "SILICONFLOW_API_KEY",
+  "timeout_seconds": 300,
+  "max_output_tokens": 8192,
+  "enable_thinking": false,
+  "response_format": "json_object",
+  "thinking_budget": 4096
+}

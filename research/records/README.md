@@ -10,6 +10,67 @@ replays fill its 00/10/01/11 family. One later sealed 37-coin repeat brings the
 index to eight attempts and nine runs. These are development evidence, not
 independent strategy qualification.
 
+## One research round (Agent-owned)
+
+The research Agent chooses the next question and the smallest experiment that
+can falsify it. The user supplies the research goal and risk boundaries, not
+instructions for every candidate. Before extending or combining hypotheses,
+use `find`, then `show <id> --brief`; open full `show`, `compare`, and cited
+native reports where the decision depends on them. Name the precise prior
+claim supported or rejected, the hypothesis parent(s), any reused component,
+the source parent, and the economic control. A reused component does not
+inherit its source attempt's whole hypothesis or result.
+
+Before inspecting a **new** result, write a short preregistration Markdown
+file under `docs/plans/` and a pending `attempt.json` under
+`research/records/attempts/<id>/`.
+The Markdown must answer these questions in concrete terms:
+
+1. What single mechanism changes, which native event should reveal its
+   activation, and what observation would refute the mechanism? State source,
+   data, execution, and economic stop conditions separately.
+2. Which comparison is legal? Name the frozen control, strategy/account,
+   input identity, instrument set, window, capital, risk and cost assumptions,
+   source and dependency revision, primary **net account** response, and hard
+   risk limits. Use a parent/child pair if B only exists with A; use `00/10/01/11`
+   only when both changes can be independently switched on the same origin.
+3. Which candidates were considered, what selection rule and maximum number
+   of new runs are allowed, and which prior data windows, metrics, and results
+   have already been seen? Name the data that can still provide independent
+   confirmation, or state that none is available. Failed source or pilot gates
+   remain in the candidate history; do not relabel a viewed window as holdout.
+4. What observation selects the next action: stop, repair a data/execution
+   defect, retain for independent confirmation, or ask a narrower question?
+   Predefine the action threshold without reading the new economic result.
+
+Initially commit the pending `attempt.json` and Markdown together, with
+`registration.reference` pointing to the Markdown,
+`decision.layer=decision.outcome=pending`, and
+without a self-referential `original_registration_commit`. Then record that
+first commit in `original_registration_commit` in a second commit. Use a source
+revision descended from the registration commit for the native custody run.
+This two-commit sequence lets the runner check that a registration commit
+exists before it runs; the Agent must still inspect the content and timing of
+that commit. Do not fill `comparison_family` with nonexistent run IDs; add the
+actual IDs after the runs. Keep result-derived fields and interpretation out
+of the preregistration revision. The current schema does not have dedicated
+`falsifier`, `selection_rule`, or `exposure` fields, and `validate` does not
+check the four Markdown answers; these are Agent review obligations, not
+machine-enforced gates.
+
+After a run, verify/register its native artifact and read the legal pair.
+Give feedback in this order: question and control; verified native facts with
+report references; unknown or unproven links; a falsifiable explanation; one
+smallest next experiment and its stop condition. Distinguish a valid run from
+an economically good strategy. An exposed development window can reject the
+current candidate under its preregistered rule, but cannot by itself confirm
+a selected strategy independently. If the evidence cannot distinguish two
+explanations, report that limit rather than selecting the larger backtest
+number. See [F01 preregistration](../../docs/plans/r1-factorial-line-cancel-prereg.zh.md)
+for a four-cell design example; it predates this checklist and is not a
+complete template for search budget and exposure. The [stepwise plan](../../docs/plans/rd-experiment-native-evidence-plan.zh.md)
+describes how this contract will be evaluated.
+
 Run from the repository root:
 
 ```bash
