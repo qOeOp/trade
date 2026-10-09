@@ -13,10 +13,13 @@ from dataclasses import dataclass
 from itertools import pairwise
 from statistics import median
 
+from nautilus_trader.core import UUID4
 from nautilus_trader.indicators import WilderMovingAverage
 from nautilus_trader.model import Bar
 from nautilus_trader.model import BarType
+from nautilus_trader.model import ContingencyType
 from nautilus_trader.model import InstrumentId
+from nautilus_trader.model import LimitOrder
 from nautilus_trader.model import OrderSide
 from nautilus_trader.model import OrderType
 from nautilus_trader.model import Quantity
@@ -602,6 +605,33 @@ class R1Strategy(Strategy):
             tp_post_only=False,
             sl_trigger_price=stop_price,
         )
+        if self.signal_variant == "box-edge-4h":
+            # Official Node activates OTO children in the parent's link order.
+            # A same-bar stop can close the Position before a later target is
+            # activated, leaving that impossible reduce-only target REJECTED.
+            # Activate the target first; the stop remains an OCO peer and the
+            # existing H10 entry, risk, stop and target prices are unchanged.
+            old_parent = orders[0]
+            orders[0] = LimitOrder(
+                old_parent.trader_id,
+                old_parent.strategy_id,
+                self.instrument_id,
+                old_parent.client_order_id,
+                old_parent.side,
+                old_parent.quantity,
+                old_parent.price,
+                old_parent.time_in_force,
+                old_parent.is_post_only,
+                old_parent.is_reduce_only,
+                old_parent.is_quote_quantity,
+                UUID4(),
+                self.clock.timestamp_ns(),
+                expire_time=signal.expires_ns,
+                contingency_type=ContingencyType.OTO,
+                order_list_id=old_parent.order_list_id,
+                linked_order_ids=[orders[2].client_order_id, orders[1].client_order_id],
+                tags=old_parent.tags,
+            )
         self.resting_entry_id = orders[0].client_order_id
         self.resting_signal = signal
         self.entries.add(self.resting_entry_id)
