@@ -28,8 +28,7 @@ The current documentation is published at [Trade 研究文档](https://qoeop.git
 ## Repository map
 
 - [`strategies/r1/`](strategies/r1/): native Strategy source, one `BacktestNode` replay entry, input validation and paired-result checkers.
-- [`research/r1_native/`](research/r1_native/): frozen R&D experiment ledger, source checks, results and historical analysis scripts. Scripts importing the removed fork are retained as provenance, not supported entry points; develop new diagnostics against the published package and current strategy source.
-- [`research/records/`](research/records/): searchable Git hypothesis/run records and local artifact custody for registered native research.
+- [`research/records/`](research/records/): Dolt research decisions, explicit knowledge admission, source retrieval and native artifact custody. Historical scripts, ledger copies and derived reports are outside the current worktree; [`history.json`](research/records/history.json) fixes their read-only Git source archive.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md): current product blueprint.
 - [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): 37-instrument paired replay evidence and migration findings.
 - [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): durable product and process findings from the R&D work.

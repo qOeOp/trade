@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "git_commit": "44e229331fdc7d9b78e234079673b8df71faefc4",
+  "prefixes": [
+    "research/records/attempts/",
+    "research/records/runs/",
+    "research/r1_native/",
+    "research/ledger_probe/",
+    "reports/"
+  ],
+  "purpose": "Explicit read-only source archive after Dolt cutover. Historical scripts, reports and ledger copies are outside the current product worktree; this anchor preserves their original bytes without admitting them as current knowledge."
+}

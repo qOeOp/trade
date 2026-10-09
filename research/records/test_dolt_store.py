@@ -94,6 +94,16 @@ class DoltStoreIntegrationTests(unittest.TestCase):
             self.assertIsNone(self.store.get_object(new["id"]))
             self.assertEqual(self.store.list_relations(), [])
 
+    def test_kind_filter_does_not_resurrect_a_superseded_kind(self):
+        old = _object()
+        first = self._publish([old])
+        new = dict(old, kind="claim", revision=2)
+        self._publish([new], operation="new-kind", expected=1)
+        self.assertEqual(self.store.list_objects(kind="attempt"), [])
+        self.assertEqual(self.store.list_objects(kind="claim"), [new])
+        self.assertEqual(self.store.list_objects(kind="attempt", latest=False), [old])
+        self.assertEqual(self.store.list_objects(kind="attempt", commit=first["commit"]), [old])
+
     def test_relations_are_fixed_to_revision_and_historical_commit(self):
         attempt, claim = _object(), _object("claim:evidence")
         relation = {"id": "relation:uses", "kind": "uses_claim",

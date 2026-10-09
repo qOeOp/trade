@@ -1,0 +1,16 @@
+{
+  "nature": "Observed byte spans of the small synthetic contract source. These are independent assertions, not extraction rules or research evidence.",
+  "sections": [
+    {"id": "section:research/r1_native/SOURCE_CASES.md#C02", "start_byte": 9, "end_byte": 69, "sha256": "4b33b4e0e36d7b9b6ff47fad06760424f7a9a062a3b1342610099cb90baedb79"},
+    {"id": "section:research/r1_native/RD_EXPERIMENTS.md#S01", "start_byte": 16, "end_byte": 65, "sha256": "cca1396dd879b278d3669b6b3c5fe6a869d46d0ece07de1aefe05fc7a8491009"},
+    {"id": "section:research/r1_native/RD_EXPERIMENTS.md#S15", "start_byte": 65, "end_byte": 131, "sha256": "63c754116f178ab02ef0502297c2cc3b91fbdb1a7886bedc1aa8db34fcc48f3c"},
+    {"id": "section:research/r1_native/RD_EXPERIMENTS.md#S46", "start_byte": 131, "end_byte": 215, "sha256": "8e98b74d573b14cba5286f87bec8ba3047d629b1c7ae8b91c82a4a7734addded"}
+  ],
+  "reliable_relations": [
+    {"kind": "component_reuse", "from_id": "attempt:H18a", "to_id": "attempt:H08"},
+    {"kind": "hypothesis_extension", "from_id": "attempt:H18a", "to_id": "attempt:H15a"},
+    {"kind": "duplicate_of", "from_id": "section:research/r1_native/RD_EXPERIMENTS.md#S15", "to_id": "section:research/r1_native/RD_EXPERIMENTS.md#S01"}
+  ],
+  "review_required": ["source_recheck_semantics_require_review"],
+  "forbidden_inferred_relations": ["corrects", "narrows", "uses_claim", "supported_by", "interprets"]
+}

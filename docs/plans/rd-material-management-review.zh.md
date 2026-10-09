@@ -15,7 +15,7 @@
 | Git attempt | 13 条：11 策略、2 诊断；11 事后转录、2 事前登记 | 不代表全部历史尝试，也不由记录总数推断独立试验数。 |
 | Git run | 15 条：14 条 `temporary`、1 条 `sealed_local` | `temporary` 不等于已经遗失；其长期恢复不受封存流程保障。 |
 | `research/r1_native/results/` | 427 个 Git 文件：400 JSON、25 gzip、1 CSV、1 PNG | 直接结构化引用共同覆盖其中 34 个 JSON；其他材料也可能由长台账或脚本引用，不能称为孤儿或据此计算覆盖率。 |
-| 历史资料导航 | `RD_EXPERIMENTS.md` 1,649 行；F01–F97 findings 1,151 行；另有 SOURCE_CASES 与 RECORD_INDEX | [索引](../../research/r1_native/RECORD_INDEX.md)明确保留未迁移 H/D/S 的原处检索，并限制人工交叉表的范围。 |
+| 历史资料导航 | `RD_EXPERIMENTS.md` 1,649 行；F01–F97 findings 1,151 行；另有 SOURCE_CASES 与 RECORD_INDEX | [索引](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RECORD_INDEX.md)明确保留未迁移 H/D/S 的原处检索，并限制人工交叉表的范围。 |
 | 来源材料 | results JSON 中指向 `.local/share` 的 187 个不同文件路径，本次均存在 | 只验证存在，未重验全部来源字节；不能据此推断异机可恢复。 |
 | 封存 | 配置既有 acceptance 根目录后，当前 `validate` 通过，封存 manifest 及原生报告检查通过 | [既有验收](research-artifact-custody-acceptance.zh.md)是本机恢复；异机备份与 Catalog 恢复不在已验收范围。 |
 
@@ -36,7 +36,7 @@
 
 - **受影响尝试与来源：** H08→H18a 的局部复用；C02、D94、H27a、S46 的来源解释修正；S01/S15 的重复原片。
 - **受阻任务：** 识别失败实验里仍有价值的部分，判断旧解释是否已被收窄，并找到使用它的后继研究。
-- **直接证据：** [F97 段末](r1-native-rd-findings.zh.md#f97)及 [S46](../../research/r1_native/RD_EXPERIMENTS.md#source-recheck-s46-c02-is-not-an-outside-a-stop-rule)保留 C02 纠错；[产品发现页首](r1-native-rd-findings.zh.md)说明该解释曾进入 D94/H27a 的研究语境。[S15 回执](../../research/r1_native/results/2026-10-08-s15-duplicate-source.json)保留误将 S01 原片当独立来源及后续身份修正。现有 attempt schema 没有可定位的具体命题、更正/反证关系或受影响下游查询；设计中的 `knowledge_links` 尚未进入当前 schema。
+- **直接证据：** [F97 段末](r1-native-rd-findings.zh.md#f97)及 [S46](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md#source-recheck-s46-c02-is-not-an-outside-a-stop-rule)保留 C02 纠错；[产品发现页首](r1-native-rd-findings.zh.md)说明该解释曾进入 D94/H27a 的研究语境。[S15 回执](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/results/2026-10-08-s15-duplicate-source.json)保留误将 S01 原片当独立来源及后续身份修正。现有 attempt schema 没有可定位的具体命题、更正/反证关系或受影响下游查询；设计中的 `knowledge_links` 尚未进入当前 schema。
 - **迭代成本：** 来源归因错误可能推进一次完整 37 币候选；重复获取已读来源；旧文与修正文同时被读取时，需人工确定当前适用解释。不能把 H27a 的经济失败全部归因于资料管理。
 - **现有绕行：** 保留原文，追加更正，更新 SOURCE_CASES，以媒体哈希人工去重；依赖 Agent 主动读到修正段。
 - **最小共享能力：** 给实际被复用或纠正的命题稳定的片段身份，保存精确陈述、适用条件、原证据、反例、未知项及版本；记录支持、反驳、收窄和替代关系，派生出被哪些 attempt 使用。读取旧命题时带回修正和边界；下游显示需要复核，由 Agent 判断影响，不自动改写策略结论。一次策略整体失败不应自动否定其全部子命题。
@@ -45,7 +45,7 @@
 
 - **受影响资料：** F01–F97、全部已转录尝试及其原 H/D/S 段落。
 - **受阻任务：** 区分策略结论、来源观察和共用产品问题；确认本次检索究竟覆盖哪些历史。
-- **直接证据：** [findings](r1-native-rd-findings.zh.md)承认其历史混合内容，并通过 [RECORD_INDEX](../../research/r1_native/RECORD_INDEX.md)重新归位。`F01` 同时是该页的第一个产品 finding 和四格策略 attempt，裸编号需要上下文消歧。README 仍写 11 attempts，当前加载为 13；设计文档仍有 8 attempts / 9 runs 的旧截面。
+- **直接证据：** [findings](r1-native-rd-findings.zh.md)承认其历史混合内容，并通过 [RECORD_INDEX](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RECORD_INDEX.md)重新归位。`F01` 同时是该页的第一个产品 finding 和四格策略 attempt，裸编号需要上下文消歧。README 仍写 11 attempts，当前加载为 13；设计文档仍有 8 attempts / 9 runs 的旧截面。
 - **迭代成本：** 多处维护同一汇总，增加归属纠错和跨文件核对；概览落后于新增记录。本次不将这些小漂移视为经济结果错误。
 - **现有绕行：** 页首规则、稳定 Markdown 锚点、人工交叉表。
 - **最小共享能力：** 引用中包含对象类型与稳定 ID，例如 attempt:F01、product-finding:F01；保留现有编号和路径。清单、覆盖和反向引用从权威记录派生；未迁移历史保留明确入口和未结构化标记，不倒填事前身份。
@@ -108,11 +108,11 @@
 
 - **受影响尝试与来源：** H08/H18a 的局部组件复用；C02/S46 纠错及 D94/H27a/D95 的影响链；S01/S15 来源身份。它们是本轮真实夹具的资料样本，不表示已发生数据库丢失或并发覆盖。
 - **受阻 Agent 任务：** 多个 Agent 将对象、固定 revision 关系与操作回执作为一次发表写入；连接中断后判断是否已经发表；从旧 commit 读取原依据，并同时发现后继修正。
-- **直接证据：** [合同 v3](/Users/vx/.codex/worktrees/f9ec/trade/research/ledger_probe/contract.json)与两份本机隔离 [Dolt 结果](/Users/vx/.codex/worktrees/f9ec/trade/research/ledger_probe/dolt_result.json)、[TerminusDB 结果](/Users/vx/.codex/worktrees/f9ec/trade/research/ledger_probe/terminus_result.json)使用相同 13 对象／13 关系。Dolt 七项通过，但 counter-only 负对照的两次不同对象发表均成功，证明唯一操作 token 不可省略；TerminusDB 其余六项通过，原生版本 header 的普通／延迟并发双成功，同事务 WOQL 条件 guard 补救均一成功、一空 binding→领域冲突。两个后端均读回旧 C02、影响关系、持久操作／原生 commit，并在本机新空环境恢复历史；模拟丢响应没有注入真实网络中断。
+- **直接证据：** [合同 v3](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/ledger_probe/contract.json)与两份本机隔离 [Dolt 结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/ledger_probe/dolt_result.json)、[TerminusDB 结果](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/ledger_probe/terminus_result.json)使用相同 13 对象／13 关系。Dolt 七项通过，但 counter-only 负对照的两次不同对象发表均成功，证明唯一操作 token 不可省略；TerminusDB 其余六项通过，原生版本 header 的普通／延迟并发双成功，同事务 WOQL 条件 guard 补救均一成功、一空 binding→领域冲突。两个后端均读回旧 C02、影响关系、持久操作／原生 commit，并在本机新空环境恢复历史；模拟丢响应没有注入真实网络中断。
 - **迭代成本：** 手工抽取范围、对齐固定证据、构造延迟并发、区分原生拒绝与领域映射，并保留恢复证据；累计工时和生产维护成本未量化。探针代码含 bootstrap、断言和证据输出，不能按行数排名；单次执行耗时也不包含资料整理与安装。
 - **现有绕行：** 当前 records／Git 继续拥有正式权威；Agent 用旧 ID、`show`／`compare`、全文检索和人工修正链读回。本轮只用隔离测试 harness，不迁移正式记录、不新增双写 owner。
 - **最小共享能力：** 在现有研究领域协议内增加稳定对象 ID／revision、固定原生 commit 引用、typed Relation、canonical operation fingerprint 与结果回执；版本守卫、对象／关系、operation 与原生 commit 同事务。首选映射是 MySQL SDK→Dolt 的薄 SQL guard＋每操作唯一 token＋`DOLT_COMMIT`；TerminusDB 对照需要 WOQL guard 及空 binding 的冲突映射。不新增 StrategyManager、通用 HTTP 平台、DSL、账户账本或研究调度器。append-only 由领域发表协议和权限承担，不能当数据库默认禁止后续更新。
-- **验收与效益边界：** 此阶段的原生历史备份恢复已验证于本机隔离环境；尚无自动资料整理、一般语义召回、10k 检索、生产权限或独立主机灾备证据，也不产生策略收益或资格。完整选择与重跑范围收敛于归档 ID `material:reports/RD API 开源组件 选型.md` 与 [probe README](../../research/ledger_probe/README.md)。正式接入及自动整理验收另见 M07，不能用原 PoC 七项通过代替迁移验收。
+- **验收与效益边界：** 此阶段的原生历史备份恢复已验证于本机隔离环境；尚无自动资料整理、一般语义召回、10k 检索、生产权限或独立主机灾备证据，也不产生策略收益或资格。完整选择与重跑范围收敛于归档 ID `material:reports/RD API 开源组件 选型.md` 与 [probe README](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/ledger_probe/README.md)。正式接入及自动整理验收另见 M07，不能用原 PoC 七项通过代替迁移验收。
 
 ## M07：正式资料迁移需要单写主与可复核的自动整理
 

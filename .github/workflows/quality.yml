@@ -42,7 +42,7 @@ jobs:
           PY
       - run: uv run --frozen python -m compileall -q strategies/r1
       - run: uv run --frozen python strategies/r1/run_portfolio.py --help > /dev/null
-      - run: uv run --frozen python -m unittest research.records.test_cli research.records.test_artifacts research.records.test_materials research.records.test_references research.records.test_reviews research.records.test_dolt_store research.records.test_migration research.records.test_bindings
+      - run: uv run --frozen python -m unittest discover -s research/records -p 'test_*.py'
       - name: Check frozen native parity receipts
         run: |
           uv run --frozen python - <<'PY'

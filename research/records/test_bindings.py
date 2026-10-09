@@ -19,7 +19,8 @@ from unittest.mock import patch
 import uuid
 
 from research.records import artifacts, cli
-from research.records.common import RECORDS, ROOT, RecordError
+from research.records.common import RecordError
+from research.records.fixtures.contract_repository import ContractRepository
 from research.records.store import DoltRecords, GitHistoryStore, canonical
 
 
@@ -32,15 +33,19 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         cls.connection_config = json.loads(raw)
         if not isinstance(cls.connection_config, dict):
             raise ValueError("RESEARCH_DOLT_TEST_CONFIG must be a JSON object")
-        cls.git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT).decode().strip()
+        cls.fixture = ContractRepository()
+        cls.addClassCleanup(cls.fixture.close)
+        cls.context = cls.fixture.patches()
+        cls.addClassCleanup(cls.context.close)
+        cls.git_commit = cls.fixture.head
         cls.seed_objects = []
         cls.seed_relations = []
         cls.seed_attempts = {}
         cls.seed_runs = {}
         for kind in ("attempt", "run"):
-            for path in sorted((RECORDS / f"{kind}s").glob(f"*/{kind}.json")):
-                relative = path.relative_to(ROOT).as_posix()
-                raw = subprocess.check_output(["git", "show", f"{cls.git_commit}:{relative}"], cwd=ROOT)
+            for path in sorted((cls.fixture.records / f"{kind}s").glob(f"*/{kind}.json")):
+                relative = path.relative_to(cls.fixture.root).as_posix()
+                raw = subprocess.check_output(["git", "show", f"{cls.git_commit}:{relative}"], cwd=cls.fixture.root)
                 body = json.loads(raw)
                 identity = f"{kind}:{body[f'{kind}_id']}"
                 cls.seed_objects.append({
@@ -68,7 +73,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
                     cls.seed_relations.append(relation)
         expected_attempts, expected_runs, _ = GitHistoryStore().snapshot()
         if cls.seed_attempts != expected_attempts or cls.seed_runs != expected_runs:
-            raise AssertionError("binding fixture must retain every current Git attempt and run")
+            raise AssertionError("binding seed must retain every synthetic fixture attempt and run")
 
     def setUp(self):
         self.config = dict(self.connection_config, database="records_test_bindings_" + uuid.uuid4().hex)
@@ -107,10 +112,9 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         self.assertEqual(self.store.adapter.get_object("attempt:" + identity)["revision"], 2)
         return result
 
-    @staticmethod
-    def _git_run_bytes():
-        return {str(path.relative_to(RECORDS)): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in (RECORDS / "runs").glob("*/run.json")}
+    def _git_run_bytes(self):
+        return {str(path.relative_to(self.fixture.records)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in (self.fixture.records / "runs").glob("*/run.json")}
 
     def _failed_seal(self, binding=None):
         run_id = "BINDING-TEST-" + uuid.uuid4().hex
@@ -119,7 +123,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         source = archive / "source" / "strategies" / "r1" / "strategy.py"
         source.parent.mkdir(parents=True)
         source.write_bytes(subprocess.check_output(
-            ["git", "show", f"{self.git_commit}:strategies/r1/strategy.py"], cwd=ROOT))
+            ["git", "show", f"{self.git_commit}:strategies/r1/strategy.py"], cwd=self.fixture.root))
         identity = archive / "input_identity.json"
         identity.write_text(json.dumps({
             "nature": "Synthetic record-binding fixture; no catalog was loaded and no native run was performed."
@@ -194,7 +198,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         self.assertEqual(self.store.adapter.get_object("attempt:F01")["revision"], 2)
         self.assertEqual(cli._check_source_revision(record["body"]), "verified")
         self.assertEqual(self._git_run_bytes(), before_git)
-        self.assertFalse((RECORDS / "runs" / run_id / "run.json").exists())
+        self.assertFalse((self.fixture.records / "runs" / run_id / "run.json").exists())
         before = self.store.adapter.status()
         # register opens a fresh DoltRecords adapter for every call; recovery is persistent.
         recovered = self._register(root, run_id)

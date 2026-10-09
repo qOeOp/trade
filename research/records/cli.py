@@ -40,15 +40,45 @@ def _repo_file(ref: dict) -> Path:
 
 
 def _check_ref(ref: dict) -> str:
-    path = _repo_file(ref)
-    if not path.is_file():
+    raw = _evidence_bytes(ref)
+    if raw is None:
         return "unavailable"
     if ref.get("sha256") is None:
         return "unverified"
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256(raw).hexdigest()
     if digest != ref["sha256"]:
         raise RecordError(f"hash mismatch: {ref['path']}")
     return "verified"
+
+
+def _evidence_bytes(ref: dict) -> bytes | None:
+    from research.records.history import read_archive_bytes, relative_path
+    if not ref["path"].startswith("artifact://"):
+        relative_path(ref["path"])
+    path = _repo_file(ref)
+    if path.is_file():
+        return path.read_bytes()
+    if ref["path"].startswith("artifact://"):
+        return None
+    return read_archive_bytes(ref["path"], ROOT)
+
+
+def _read_evidence_json(ref: dict) -> dict:
+    """Read hash-verified current, artifact or explicitly archived source bytes."""
+    raw = _evidence_bytes(ref)
+    if raw is None:
+        raise RecordError(f"evidence is unavailable: {ref['path']}")
+    if ref.get("sha256") is None:
+        raise RecordError(f"evidence is unverified: {ref['path']}")
+    if hashlib.sha256(raw).hexdigest() != ref["sha256"]:
+        raise RecordError(f"hash mismatch: {ref['path']}")
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RecordError(f"invalid evidence JSON: {ref['path']}") from exc
+    if not isinstance(value, dict):
+        raise RecordError(f"evidence must be a JSON object: {ref['path']}")
+    return value
 
 
 def _check_source_revision(run: dict) -> str:
@@ -152,10 +182,7 @@ def _dolt_lineage(adapter, identity, commit, revision=None, seen=frozenset()):
 
 
 def _summary(run: dict) -> dict:
-    status = _check_ref(run["summary_ref"])
-    if status != "verified":
-        raise RecordError(f"{run['run_id']}: summary is {status}")
-    summary = _read_json(_repo_file(run["summary_ref"]))
+    summary = _read_evidence_json(run["summary_ref"])
     expected = run["window"]
     actual = (
         summary.get("input_start_utc"),
@@ -244,7 +271,7 @@ def _validate(attempts: dict[str, dict], runs: dict[str, dict], *, check_lineage
         source_revisions[run["run_id"]] = _check_source_revision(run)
         if _check_ref(run["audit_ref"]) != "verified":
             raise RecordError(f"{run['run_id']}: native audit is unavailable")
-        audit = _read_json(_repo_file(run["audit_ref"]))
+        audit = _read_evidence_json(run["audit_ref"])
         if bool(audit.get("passed")) != (run["integrity"] == "passed"):
             raise RecordError(f"{run['run_id']}: audit status disagrees with record")
     return {
@@ -381,7 +408,7 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict]) -> dict:
             raise RecordError(
                 f"incomparable runs: {run['run_id']} audit is unavailable"
             )
-        audit = _read_json(_repo_file(run["audit_ref"]))
+        audit = _read_evidence_json(run["audit_ref"])
         if not audit.get("passed") or audit.get("findings"):
             raise RecordError(f"incomparable runs: {run['run_id']} audit did not pass")
     left, right = _summary(candidate), _summary(control)
@@ -456,12 +483,21 @@ def main() -> int:
     import_ = lifecycle.add_parser("import")
     import_.add_argument("--historical-c02", action="store_true")
     import_.add_argument("--dry-run", action="store_true")
+    selection = import_.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--paths", nargs="+", help="explicit repository materials to archive")
+    selection.add_argument("--legacy-all", action="store_true", help="explicit lossless legacy bootstrap; not knowledge admission")
     backup = lifecycle.add_parser("backup")
     backup.add_argument("--destination", type=Path, required=True)
     materials = command.add_parser("material")
     actions = materials.add_subparsers(dest="action", required=True)
     search = actions.add_parser("search")
     search.add_argument("query")
+    admission = actions.add_parser("admit", help="publish an explicit Agent knowledge/retention decision")
+    admission.add_argument("--file", type=Path, required=True)
+    admission.add_argument("--expected-version", type=int, required=True)
+    admission.add_argument("--operation-id", required=True)
+    search.add_argument("--include-archive", action="store_true",
+                        help="also search unadmitted source material and retained audit metadata")
     for name in ("show", "restore"):
         action = actions.add_parser(name)
         action.add_argument("identity")
@@ -501,7 +537,8 @@ def main() -> int:
         from research.records.store import open_store
         store = open_store(args.backend)
         fixed = args.at or (store.adapter.status()["commit"] if hasattr(store, "adapter") else None)
-        attempts, runs = _load_records(store, fixed)
+        attempts, runs, snapshot_storage = store.snapshot(fixed)
+        _validate_records(attempts, runs)
         if args.command == "validate":
             output = _validate(attempts, runs, check_lineage=not fixed)
             if fixed:
@@ -526,7 +563,7 @@ def main() -> int:
                 output = [item for item in output if item["attempt_id"] in identities]
         else:
             output = _compare(args.candidate_run, args.control_run, runs)
-        storage = {"backend": "dolt", "commit": fixed} if fixed else {"backend": "git", "read_only": True}
+        storage = snapshot_storage
         output = {"storage": storage, "matches": output} if isinstance(output, list) else {**output, "storage": storage}
     except RecordError as exc:
         parser.exit(2, f"research record error: {exc}\n")

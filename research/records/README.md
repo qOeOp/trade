@@ -3,9 +3,9 @@
 Dolt is the single writer for research metadata and material revisions.
 The existing `research.records` domain interface owns the record contract;
 its Dolt adapter owns storage and atomic publication. Git owns strategy source,
-frozen preregistration receipts and retained source evidence. Existing Git
-attempt/run JSON files are a read-only historical import, available through
-explicit `--backend git`. The native runner and Nautilus reports remain the
+frozen preregistration receipts and retained source evidence. Historical Git attempt/run JSON is read-only at the fixed archive commit in
+`history.json`, available through explicit `--backend git`. These files and old
+research scripts/reports no longer occupy the current product worktree. The native runner and Nautilus reports remain the
 trading facts. There is no parallel research scheduler or account ledger.
 
 Import preserves **retrospective** registration, temporary report status and
@@ -38,8 +38,8 @@ uv run --frozen python -m research.records.cli ledger init \
   --root /Users/vx/.local/share/trade/records --port 13326
 uv run --frozen python -m research.records.cli ledger start
 uv run --frozen python -m research.records.cli ledger status
-uv run --frozen python -m research.records.cli ledger import --historical-c02 --dry-run
-uv run --frozen python -m research.records.cli ledger import --historical-c02
+uv run --frozen python -m research.records.cli ledger import --legacy-all --historical-c02 --dry-run
+uv run --frozen python -m research.records.cli ledger import --legacy-all --historical-c02
 ```
 
 `--historical-c02` explicitly reads the retained original SOURCE_CASES bytes in
@@ -104,6 +104,46 @@ Unregistered legacy seals require an explicit recovery review.
 `find` returns an object with `storage` and `matches`; `show`, `compare` and
 `validate` add `storage` to their result. For Dolt, `storage.commit` is the
 fixed snapshot read by the command. The Git reader reports `read_only: true`.
+
+## Knowledge admission and default retrieval
+
+`material search QUERY` reads compact research decisions and explicitly admitted
+knowledge at one Dolt commit. It matches independent research IDs and readable
+fields; hashes/base64 and publication/reference receipts are not search text.
+Use `--include-archive` to inspect unadmitted historical source and operational
+metadata. Import completion and the 572 reference resolutions do not admit
+knowledge. Corrected source revisions and explicitly affected historical source
+rationales carry their fixed correction endpoints and narrow scope; a correction
+does not invalidate an unrelated economic failure.
+
+New archive imports require `ledger import --paths path/to/source.md --dry-run`
+and then the same explicit selection without `--dry-run`. `--legacy-all` is an
+explicit legacy-bootstrap action, not the normal research publication path.
+
+The Agent can publish a retention decision from a reviewed external JSON file:
+
+```bash
+uv run --frozen python -m research.records.cli material admit \
+  --file /path/to/admission.json --expected-version CURRENT-VERSION \
+  --operation-id UNIQUE-ADMISSION-ID
+```
+
+The v1 body contains `schema_version: 1`, a fixed `target: {id, revision}`,
+`disposition: knowledge|archive`, `reviewer`, `purpose`, `value_basis`, a compact
+`claim: {statement, scope, decision_impact, limitations}`, fixed `evidence`
+object references, and `retention: {mode, reason}`. Mode is `minimal_record`,
+`irreplaceable` or `rebuildable`. The last mode also requires hash-verified
+external `recipe_ref` and `verification_ref` files (`{path, sha256}`), outside
+Git and `/tmp`. Knowledge admission reviews the current target revision; raw
+payloads and operational receipts cannot themselves be admitted as knowledge.
+Changing the target requires a new review. An archive decision removes the
+claim from the default knowledge view without deleting historical evidence.
+
+The API checks identities, compactness, accessible proofs and transaction
+retries. It does not prove the Agent's substantive value judgement, the recipe's
+scientific validity or strategy qualification. Measure usefulness with real
+research tasks: correct prior conclusions, recognised withdrawals, repeated
+experiments avoided and reading cost. Object counts are not learning quality.
 
 ## Review imported materials
 
@@ -183,10 +223,11 @@ claim supported or rejected, the hypothesis parent(s), any reused component,
 the source parent, and the economic control. A reused component does not
 inherit its source attempt's whole hypothesis or result.
 
-Before inspecting a **new** result, write a short preregistration Markdown
-file under `docs/plans/` and a pending `attempt.json` under
-`research/records/attempts/<id>/`.
-The Markdown must answer these questions in concrete terms:
+Before inspecting a **new** result, write one pending JSON receipt under
+`research/records/preregistrations/<id>.json`. Keep the preregistration rationale
+in its question, mechanism, hypothesis and pending decision scope; do not create
+another editable Markdown/attempt directory. Its `registration.reference` points
+to this receipt. The Agent must answer these questions in concrete terms:
 
 1. What single mechanism changes, which native event should reveal its
    activation, and what observation would refute the mechanism? State source,
@@ -205,8 +246,8 @@ The Markdown must answer these questions in concrete terms:
    defect, retain for independent confirmation, or ask a narrower question?
    Predefine the action threshold without reading the new economic result.
 
-Initially commit the pending `attempt.json` receipt and Markdown together, with
-`registration.reference` pointing to the Markdown,
+Initially commit the pending receipt, with
+`registration.reference` pointing to that JSON,
 `decision.layer=decision.outcome=pending`, and
 without a self-referential `original_registration_commit`. Then record that
 first commit in `original_registration_commit` in a second commit. Publish that
@@ -215,7 +256,7 @@ committed pending JSON to Dolt before running or inspecting the new result:
 ```bash
 uv run --frozen python -m research.records.cli ledger status
 uv run --frozen python -m research.records.cli publish attempt \
-  --file research/records/attempts/MY-ATTEMPT-ID/attempt.json \
+  --file research/records/preregistrations/MY-ATTEMPT-ID.json \
   --expected-version CURRENT-VERSION --operation-id MY-PREREGISTRATION-OPERATION-ID
 ```
 
@@ -228,10 +269,11 @@ that commit. Do not fill `comparison_family` with nonexistent run IDs; add the
 actual IDs after the runs. Keep result-derived fields and interpretation out
 of the preregistration revision. The current schema does not have dedicated
 `falsifier`, `selection_rule`, or `exposure` fields, and `validate` does not
-check the four Markdown answers; these are Agent review obligations, not
+check the four research-contract answers; these are Agent review obligations, not
 machine-enforced gates. The Git receipt is frozen registration evidence, not a
 second editable ledger. Later decision, evidence and comparison-family changes
-are new Dolt revisions published with the same command from a JSON payload;
+are new Dolt revisions published from a temporary JSON payload outside the
+product tree;
 preserve the original registration identity and do not rewrite its receipt.
 
 For the pre-cutover D98–D102/H29a records, immutable pending receipts live in
@@ -327,7 +369,7 @@ ARTIFACT_ROOT=/Users/vx/.local/share/trade/research-artifacts
 uv run --frozen python -m research.records.artifacts run \
   --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID --attempt-id MY-ATTEMPT-ID \
   --source-ref MY-FROZEN-COMMIT \
-  --input-identity research/r1_native/results/2026-10-07-input-identity.json -- \
+  --input-identity /path/to/retained/input-identity.json -- \
   --catalog-root /path/to/minute-catalog --daily-root /path/to/daily-catalog \
   --quantity-csv /path/to/quantities.csv --coins BTC ETH \
   --start 2025-10-07T00:00:00Z --trade-start 2025-10-17T00:00:00Z \
@@ -370,15 +412,33 @@ silently changing a shared directory when creating a run or backup. On an existi
 all run directories, and files before the next write, then run `verify` again.
 Do not put exchange credentials in the artifact root.
 
-Dolt records, retained Git receipts and sealed runs, including failed runs, have
-**no automatic expiry**: retain evidence while a run record cites its hashes. A deletion requires an
-explicit research decision, a record update marking unavailable evidence, and
-a verified replacement or an accepted loss of replay detail. This version has
-no deletion command. Review abandoned `.staging` and `.quarantine` directories
-after seven days; after checking no live lock or registered run depends on
-them, remove unneeded diagnostic copies within 30 days. They are not sealed
-evidence. Monitor disk capacity before starting large native replays; move the
-root to larger storage rather than pruning referenced runs to free space.
+New exploration defaults to temporary scripts and outputs under `/tmp`. A
+formal experiment retains a compact preregistration/exposure/decision record,
+including useful negative results; execution logs are not automatically useful
+knowledge. Git keeps maintained Strategy/tooling/tests and one frozen receipt.
+Dolt keeps research metadata, explicit knowledge claims and source identities;
+Catalog holds exact reusable inputs once. One-off code necessary to reconstruct
+an admitted claim belongs in a frozen external recipe, not the product tree.
+
+Before retaining full results, decide whether exact source, locked environment,
+accessible input bytes, parameters and a command can reconstruct them. A hash
+without accessible bytes is insufficient. Verified rebuildable output is a
+cache, not a mandatory permanent record. Retain irrecoverable source/evidence
+or costly results only with an explicit value and recovery reason. A compact
+observation/stop decision is kept even when its detailed report can be generated.
+
+Existing sealed runs and immutable historical evidence are not rewritten by
+this policy. A cited seal cannot be pruned merely because it looks reproducible:
+first verify a replacement/reconstruction contract, publish the reviewed
+retention decision, and preserve the run's historical availability status.
+Abandoned `.staging`/`.quarantine` copies can be removed after checking no live
+lock or registered run depends on them. There is no automatic destructive purge.
+
+The pre-cutover files under `research/r1_native/`, `attempts/`, `runs/`,
+`research/ledger_probe/` and `reports/` are read at the exact Git commit in
+`history.json`. The explicit history reader and old hashed evidence references
+read those blobs without restoring them into the working tree. Missing history
+fails visibly; no automatic fetch or metadata backend fallback occurs.
 
 `backup` proves a second copy has the same bytes; its result reports
 `same_device_as_primary`. A second directory on the same machine is only local
