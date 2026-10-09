@@ -12,7 +12,7 @@ import uuid
 from research.records.common import RecordError
 from research.records.dolt_store import DoltStore, ConflictError
 from research.records.retention import publish
-from research.records.fixtures.contract_repository import ContractRepository
+from tests.records.fixtures.contract_repository import ContractRepository
 from research.records.store import DoltRecords, validate_record
 
 

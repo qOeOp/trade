@@ -8,8 +8,9 @@ import subprocess
 import tempfile
 import unittest
 
-from research.records.materials import HISTORICAL_MANIFEST, retained_historical_refs, scan
-from research.records.fixtures.contract_repository import ContractRepository, EXPERIMENTS, OBSERVATIONS
+from research.records.materials import scan
+from tests.records.support import HISTORICAL_MANIFEST, historical_fixture_refs
+from tests.records.fixtures.contract_repository import ContractRepository, EXPERIMENTS, OBSERVATIONS
 
 RESEARCH_PROJECTIONS = {
     "hypothesis_extension", "repair", "composition", "component_reuse", "component_index",
@@ -223,7 +224,7 @@ class MaterialFixtureTests(unittest.TestCase):
         self.write(path, raw)
         original = self.commit()
         self.retained_manifest(raw, original, path)
-        available = scan(self.root, historical_refs=retained_historical_refs(self.root))
+        available = scan(self.root, historical_refs=historical_fixture_refs(self.root))
         with tempfile.TemporaryDirectory() as consumer_directory:
             consumer = Path(consumer_directory)
             for args in (("init", "-q"), ("config", "user.name", "Consumer fixture"), ("config", "user.email", "consumer@example.invalid")):
@@ -233,7 +234,7 @@ class MaterialFixtureTests(unittest.TestCase):
             subprocess.check_call(["git", "commit", "-qm", "Unrelated consumer"], cwd=consumer)
             self.assertNotEqual(subprocess.run(["git", "cat-file", "-e", original], cwd=consumer, capture_output=True).returncode, 0)
             manifest, source = self.retained_manifest(raw, original, path, consumer)
-            refs = retained_historical_refs(consumer)
+            refs = historical_fixture_refs(consumer)
             self.assertEqual(base64.b64decode(refs[0]["retained_payloads"][0]["content_base64"]), raw)
             result = scan(consumer, historical_refs=refs)
             obj = next(o for o in result["objects"] if o["id"] == f"material:{path}")
@@ -244,7 +245,7 @@ class MaterialFixtureTests(unittest.TestCase):
             self.assertEqual(prov["verify_source"], "retained_bytes")
             self.assertEqual(prov["git_blob_oid"], source["blob_oid"])
             self.assertEqual(prov["worktree_state"], "historical_retained")
-            self.assertEqual(prov["retained_fixture"], {"path": HISTORICAL_MANIFEST, "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(), "locator": "/sources/0"})
+            self.assertEqual(prov["retained_manifest"], {"path": HISTORICAL_MANIFEST, "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(), "locator": "/sources/0"})
             original_obj = next(o for o in available["objects"] if o["id"] == obj["id"] and o["provenance"].get("origin") == "retained_git_blob")
             self.assertEqual({k: v for k, v in original_obj["provenance"].items() if k != "source_head"}, {k: v for k, v in prov.items() if k != "source_head"})
             section = next(o for o in result["objects"] if o["id"] == f"section:{path}#C02")
@@ -273,12 +274,27 @@ class MaterialFixtureTests(unittest.TestCase):
             with self.subTest(field=field):
                 target.write_text(json.dumps({"schema_version": 1, "sources": [dict(source, **{field: value})]}))
                 with self.assertRaisesRegex(ValueError, reason):
-                    retained_historical_refs(self.root)
+                    historical_fixture_refs(self.root)
         self.retained_manifest(raw, commit, path)
-        refs = retained_historical_refs(self.root)
+        refs = historical_fixture_refs(self.root)
         refs[0]["retained_payloads"][0]["sha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "sha256 mismatch"):
             scan(self.root, historical_refs=refs)
+        for field, value, reason in (
+            ("manifest_path", "../outside.json", "manifest path is unsafe"),
+            ("manifest_sha256", "invalid", "manifest sha256 is invalid"),
+            ("manifest_locator", "/other/0", "manifest locator is invalid"),
+            ("manifest_locator", None, "manifest provenance is incomplete"),
+        ):
+            with self.subTest(field=field, value=value):
+                refs = historical_fixture_refs(self.root)
+                payload = refs[0]["retained_payloads"][0]
+                if value is None:
+                    payload.pop(field)
+                else:
+                    payload[field] = value
+                with self.assertRaisesRegex(ValueError, reason):
+                    scan(self.root, historical_refs=refs)
 
     def test_retained_source_disagreement_with_available_git_is_rejected(self):
         path = "research/r1_native/SOURCE_CASES.md"
@@ -286,7 +302,7 @@ class MaterialFixtureTests(unittest.TestCase):
         commit = self.commit()
         self.retained_manifest(b"# Different but internally valid bytes\n", commit, path)
         with self.assertRaisesRegex(ValueError, "differs from the available original Git blob"):
-            scan(self.root, historical_refs=retained_historical_refs(self.root))
+            scan(self.root, historical_refs=historical_fixture_refs(self.root))
 
     def test_multiple_ids_in_heading_remain_one_section_without_semantic_edges(self):
         self.write("research/r1_native/RD_EXPERIMENTS.md", "## Source S45 and Diagnostic D80: title\nText\n## Candidate H19a / source-capacity diagnostic D60: title\nText\n")
@@ -361,7 +377,7 @@ class FrozenMaterialContractTests(unittest.TestCase):
             target.write_bytes((fixtures / "historical_sources.json").read_bytes())
             subprocess.check_call(["git", "add", "."], cwd=root)
             subprocess.check_call(["git", "commit", "-qm", "Independent historical source reader"], cwd=root)
-            refs = retained_historical_refs(root)
+            refs = historical_fixture_refs(root)
             result = scan(root, include_untracked=False, historical_refs=refs)
         obj = next(o for o in result["objects"] if o["id"] == expected["id"] and o["provenance"]["git_commit"] == historical["historical_commit"])
         payload = next(payload for selection in refs for payload in selection["retained_payloads"] if payload["original_commit"] == historical["historical_commit"] and payload["path"] == obj["provenance"]["path"])
@@ -379,8 +395,7 @@ class FrozenMaterialContractTests(unittest.TestCase):
     def test_reliable_source_facts_and_required_human_review(self):
         actual = {(r["kind"], r["from_id"], r["to_id"]) for r in self.result["relations"]}
         for expected in self.golden["reliable_relations"]:
-            if expected["kind"] not in RESEARCH_PROJECTIONS:
-                self.assertIn((expected["kind"], expected["from_id"], expected["to_id"]), actual)
+            self.assertIn((expected["kind"], expected["from_id"], expected["to_id"]), actual)
         self.assertFalse(set(self.golden["forbidden_inferred_relations"]) & {r["kind"] for r in self.result["relations"]})
         self.assertFalse(RESEARCH_PROJECTIONS & {r["kind"] for r in self.result["relations"]})
         for reason in self.golden["review_required"]:

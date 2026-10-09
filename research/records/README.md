@@ -15,6 +15,19 @@ create a pre-result registration or strategy qualification. Unsupported old
 attempt snapshots fail validation rather than entering a compatibility path.
 `history.json` still locates historical source bytes for evidence retrieval.
 
+Maintained contract tests and regression fixtures live in `tests/records/`.
+Their synthetic repositories and reports use temporary directories and are
+cleaned up after each test; they are not research records. Run the suite with:
+
+```bash
+uv run --frozen python -m unittest discover -s tests/records -t . -p 'test_*.py'
+```
+
+`RESEARCH_DOLT_TEST_CONFIG` enables the real Dolt integration tests. They create
+and drop separate `records_test_*` databases; CI supplies the pinned local Dolt
+service. Production indexing accepts explicitly retained source payloads and
+does not load test manifests or import fixtures by default.
+
 ## Configure the local store
 
 Use Dolt **2.4.2** with the dependencies pinned in `uv.lock`. Install the official
