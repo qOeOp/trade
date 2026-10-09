@@ -91,7 +91,9 @@ def main() -> None:
     data = {label: {name: read_csv(path) for name, path in files.items() if name.endswith(".csv")} for label, files in paths.items()}
     summaries = {label: json.loads(paths[label]["summary.json"].read_text()) for label in paths}
     order_pairs, order_keys = paired_rows(data["old"]["orders.csv"], data["new"]["orders.csv"], "client_order_id")
-    fill_pairs, fill_keys = paired_rows(data["old"]["fills.csv"], data["new"]["fills.csv"], "trade_id")
+    fill_pairs = list(zip(data["old"]["fills.csv"], data["new"]["fills.csv"], strict=True))
+    if any(a["client_order_id"] != b["client_order_id"] or a["ts_event"] != b["ts_event"] for a, b in fill_pairs):
+        raise RuntimeError("fill order/clock alignment differs")
     position_pairs = list(zip(data["old"]["positions.csv"], data["new"]["positions.csv"], strict=True))
     return_pairs = list(zip(data["old"]["returns_series.csv"], data["new"]["returns_series.csv"], strict=True))
     if any(a["ts_event_ns"] != b["ts_event_ns"] for a, b in return_pairs):
@@ -111,7 +113,7 @@ def main() -> None:
         "input_sha256": hashes,
         "summary_metrics": {name: [summaries["old"].get(name), summaries["new"].get(name)] for name in ("starting_balance_usdt", "final_equity_usdt", "annualized_return_pct", "closed_trades", "winning_trades", "denied_orders", "rejected_orders", "native_sharpe_365", "native_max_drawdown_daily_close")},
         "orders": {**order_keys, **diffs(order_pairs, "client_order_id"), "status_cross": {f"{a} -> {b}": count for (a, b), count in Counter((a["status"], b["status"]) for a, b in order_pairs).items()}},
-        "fills": {**fill_keys, **diffs(fill_pairs, "trade_id", ignore=("event_id",))},
+        "fills": {"counts": [len(data["old"]["fills.csv"]), len(data["new"]["fills.csv"])], "alignment": "rowwise with identical client_order_id and ts_event; volatile native trade/event/venue IDs excluded", **diffs(fill_pairs, "client_order_id", ignore=("trade_id", "event_id", "venue_order_id", "position_id", "causation_id"))},
         "positions": {"counts": [len(data["old"]["positions.csv"]), len(data["new"]["positions.csv"])], **diffs(position_pairs, "opening_order_id", ignore=("position_id", "events", "venue_order_ids", "trade_ids")), "realized_pnl_differences": [{"row": i, "old": a["realized_pnl"], "new": b["realized_pnl"]} for i, (a, b) in enumerate(position_pairs) if a["realized_pnl"] != b["realized_pnl"]][:10]},
         "returns_series": {"counts": [len(data["old"]["returns_series.csv"]), len(data["new"]["returns_series.csv"])], **diffs(return_pairs, "ts_event_ns")},
         "account_report": {"event_counts": [len(data["old"]["account.csv"]), len(data["new"]["account.csv"])], "observed_event_day_counts": [len(old_days), len(new_days)], "last_event_per_observed_day_total_mismatch_count": len(account_day_deltas), "first_day_total_differences": account_day_deltas[:10], "last_total": [data["old"]["account.csv"][-1]["total"], data["new"]["account.csv"][-1]["total"]], "limitation": "Account report is emitted on account events, not at every daily MARK close; last event per observed UTC day is settled account total only and cannot establish full daily Portfolio equity parity."},
