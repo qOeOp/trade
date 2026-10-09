@@ -19,7 +19,7 @@ from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 
-from vibe_trading.analysis import SharpeRatio
+from nautilus_trader.analysis import SharpeRatio
 
 
 DAY_NS = 86_400_000_000_000

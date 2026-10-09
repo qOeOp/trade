@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "attempt_id": "D101",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "diagnostic",
+  "question": "H10 旧 Engine 与现行 Node 的严格历史报告差异是否仅在事件表达/浮点层，还是影响每日共享账户净值？",
+  "mechanism": "冻结两份已有原生 H10 报告，只读对齐成交、Position、订单终态与同钟账户净值，并归因差异。",
+  "hypothesis": "若实际成交、费用、资金费和每日收盘账户权益一致，剩余差异可能由 OTO 子单激活顺序及原生报告精度产生；任何实质账户路径差异即反证。",
+  "parents": [
+    {
+      "attempt_id": "H29a",
+      "relationship": "hypothesis_extension",
+      "difference": "仅诊断已失败的 H10 历史对照语义，不修改 H29a 或重算其收益。"
+    },
+    {
+      "attempt_id": "D100",
+      "relationship": "hypothesis_extension",
+      "difference": "D100 检验 1m 事件分辨率；本轮核查同一 5m 原生报告差异，不再更换 K 线。"
+    }
+  ],
+  "code_parent": "e6fa8af1da2a2fd0eeba2bcc481adf13ba7c94ea",
+  "registration": {
+    "status": "preregistered",
+    "reference": "docs/plans/r1-d101-h10-native-parity-adjudication-prereg.zh.md"
+  },
+  "decision": {
+    "layer": "execution",
+    "outcome": "failed",
+    "scope": "旧/新 H10 原生成交 1887 笔非 ID 字段及 934 Position 实现 PnL 一致，但八个已撤未成交 BTC 限价字段差 0.10 USDT、订单事件语义不同；333 个有账户事件的 UTC 日最后已结算余额一致，未覆盖全部 366 日盯市净值。纯表达解释和原 H29a 严格历史对照均不能通过。",
+    "next_action": "未来候选事前登记同代码现行 Node 对照与完整原生盯市日净值比较；若需旧 Engine 历史对照，先局部复现一个 BTC 限价差异，不事后放宽 H29a 门槛。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-09-d101-h10-native-parity-adjudication.json",
+      "sha256": "ca36c15b6538c7442e2387595bf074b9107bce6bc73872ae0f0665e190fbde59"
+    }
+  ]
+}

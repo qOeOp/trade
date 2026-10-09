@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "attempt_id": "D99",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "diagnostic",
+  "question": "H10 的事前边缘限价失败后，完成线下沿假突破反转再于下一根买入的事件是否有足够跨币、跨月原生实施容量？",
+  "mechanism": "重用 H10 事前 60 根箱体；跌出下沿后阳线在上四分位收回，下一根仅观察一 tick 高点 BUY STOP 的价格可达性。",
+  "hypothesis": "同一 37 币年度至少 100 个有效几何信号、下一根至少 40 个触发价可达，并覆盖至少 15 币、6 个 UTC 月份，才值得另行预注册原生 H29a。",
+  "parents": [
+    {
+      "attempt_id": "H10",
+      "relationship": "hypothesis_extension",
+      "difference": "从边缘触及前 LIMIT 与窄区外止损，换成完成线假突破反转后下一根 STOP 入场；本轮只核算事前信号和可达性，不读经济结果。"
+    }
+  ],
+  "code_parent": "63044a066",
+  "registration": {
+    "status": "preregistered",
+    "reference": "docs/plans/r1-d99-failed-range-break-capacity-prereg.zh.md",
+    "original_registration_commit": "1cde9ac59"
+  },
+  "decision": {
+    "layer": "source",
+    "outcome": "passed",
+    "scope": "37 Catalog、158 有效几何信号、下一根 120 次触发价可达、37 币及 13 月，事前 100/40/15/6 容量门槛全部通过；未生成原生成交或收益。",
+    "next_action": "另行预注册一条 H29a Nautilus 原生 STOP_MARKET/OTO 策略、BTC/ETH 完整性 pilot 和同代码 H10 37 币共享账户配对回放。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "input_identity",
+      "path": "research/r1_native/results/2026-10-07-input-identity.json",
+      "sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc"
+    },
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-09-d99-failed-range-break-capacity.json",
+      "sha256": "0ccd6de847327963d070e97509f8e2162cbea443dcd7eb799d4536ecaddb6d24"
+    },
+    {
+      "kind": "source_gate",
+      "path": "research/r1_native/results/2026-10-09-d99-failed-range-break-events.json",
+      "sha256": "fe291be8173049f167d3012231459cc3e311de453039c7959adeb9480ab9c408"
+    }
+  ]
+}

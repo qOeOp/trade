@@ -9,6 +9,7 @@ from nautilus_trader.trading import Strategy
 from r1s_strategy import R1StagedStrategy
 from brooks_confirmed_strategy import BrooksConfirmedStrategy
 from gap_runner_strategy import GapRunnerStrategy
+from failed_range_breakout_strategy import FailedRangeBreakoutStrategy
 from structural_support_strategy import StructuralSupportStrategy
 from replay_inputs import warmup_daily_bars
 from retracement_strategy import RetracementStrategy
@@ -84,6 +85,10 @@ class NodeBrooksConfirmedStrategy(_NodeConfigured, BrooksConfirmedStrategy):
 
 
 class NodeGapRunnerStrategy(_NodeConfigured, GapRunnerStrategy):
+    pass
+
+
+class NodeFailedRangeBreakoutStrategy(_NodeConfigured, FailedRangeBreakoutStrategy):
     pass
 
 

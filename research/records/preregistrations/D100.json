@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "attempt_id": "D100",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "diagnostic",
+  "question": "真实 1m LAST 是否拆开 H10 的 5m 同根入场／止损，并在局部原生重放中减少 OTO 目标拒单？",
+  "mechanism": "仅对旧 H10 同根事件与现有最近 1m Catalog 的交集做跨分辨率价格时序及最多两例 Nautilus 原生事件检验。",
+  "hypothesis": "更细真实事件边界可能让部分入场与保护止损落在不同 1m K 线，但同一分钟或 OTO 激活顺序仍可能拒单。",
+  "parents": [
+    {
+      "attempt_id": "H10",
+      "relationship": "hypothesis_extension",
+      "difference": "仅研究旧 5m 同根原生入场／止损的时间分辨率，不修改 H10 策略或重新评分账户。"
+    },
+    {
+      "attempt_id": "H29a",
+      "relationship": "hypothesis_extension",
+      "difference": "由 H29a 同代码 H10 对照出现的 199 个当前 Node OTO 拒单触发执行机制诊断；不把 H29a 收益混入判断。"
+    }
+  ],
+  "code_parent": "4bc3817e2",
+  "registration": {
+    "status": "preregistered",
+    "reference": "docs/plans/r1-d100-one-minute-h10-collision-prereg.zh.md",
+    "original_registration_commit": "288b07379"
+  },
+  "decision": {
+    "layer": "pending",
+    "outcome": "pending",
+    "scope": "199 个已知 5m 同根 H10 仓与现有 2026-09-01 至 10-07 的 1m Catalog 交集；最多两例局部 Nautilus 原生重放。",
+    "next_action": "先冻结读取器并核对每个交集事件的五根真实 1m 与旧 5m OHLC；有合格事件时按固定顺序做局部原生执行检验。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-08-h10-37-summary.json",
+      "sha256": "ea8a4b3777a2e107385057e5e6b3eef480e948a3a67984063fd4bd98485d3aab"
+    },
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-08-h10-native-readback.json",
+      "sha256": "ea02034a29c97a1ba1ca4f091f1a440196c54fe46cbe7d12b25eee5f9d4392d6"
+    }
+  ]
+}

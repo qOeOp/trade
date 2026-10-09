@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "attempt_id": "H29a",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "strategy",
+  "question": "四小时成熟区间下沿假突破形成完成的强反转线后，下一根原生 STOP 入场是否比 H10 的提前边缘 LIMIT 更接近联合账户目标？",
+  "mechanism": "沿用 H10 事前区间，D99 强反转完成线；一 tick 高点 BUY STOP_MARKET、下一根 GTD、信号低点下方 0.25 ATR 原生保护、旧区间中点止盈。",
+  "hypothesis": "完成线反转后的不同入场时钟可避免 H10 一触边缘即止损的部分路径，并在完整 37 币共享账户改善年化净收益与已平胜率。",
+  "parents": [
+    {
+      "attempt_id": "D99",
+      "relationship": "hypothesis_extension",
+      "difference": "将通过容量门槛的只读信号转为单一原生 STOP_MARKET/OTO 策略并测完整账户。"
+    },
+    {
+      "attempt_id": "H10",
+      "relationship": "hypothesis_extension",
+      "difference": "保留旧箱体、风险、目标与 30 根持仓期，改成完成线假突破后下一根触发入场及信号低点外保护。"
+    }
+  ],
+  "code_parent": "46bab5885",
+  "registration": {
+    "status": "preregistered",
+    "reference": "docs/plans/r1-h29a-failed-range-break-native-prereg.zh.md",
+    "original_registration_commit": "b0fc83bd9"
+  },
+  "decision": {
+    "layer": "pending",
+    "outcome": "pending",
+    "scope": "一条原生 Strategy、BTC/ETH 完整性 pilot、同代码 37 币 H29a/H10 配对；旧年度及 D99 容量已暴露。",
+    "next_action": "事前提交后实施、冻结并依次运行完整性与原生账户门槛；报告双目标、Sharpe、回撤、成本和未证实解释。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "source_gate",
+      "path": "research/r1_native/results/2026-10-09-d99-failed-range-break-capacity.json",
+      "sha256": "0ccd6de847327963d070e97509f8e2162cbea443dcd7eb799d4536ecaddb6d24"
+    },
+    {
+      "kind": "input_identity",
+      "path": "research/r1_native/results/2026-10-07-input-identity.json",
+      "sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc"
+    }
+  ]
+}

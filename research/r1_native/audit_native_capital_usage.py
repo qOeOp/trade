@@ -16,8 +16,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from vibe_trading.model import BarType
-from vibe_trading.persistence import ParquetDataCatalog
+from nautilus_trader.model import BarType
+from nautilus_trader.persistence import ParquetDataCatalog
 
 
 def _sha(path: Path) -> str:
@@ -161,7 +161,11 @@ def main() -> None:
     summary = json.loads(summary_path.read_text())
     if (
         not summary["integrity_passed"]
-        or summary["account_model"].split(",")[0] != "one native BacktestEngine margin account"
+        or summary["account_model"].split(",")[0]
+        not in (
+            "one native BacktestEngine margin account",
+            "one native BacktestNode margin account",
+        )
     ):
         raise RuntimeError("one complete native shared-account run is required")
     start_ns = pd.Timestamp(summary["period_start_utc"]).value

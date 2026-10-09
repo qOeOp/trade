@@ -1,0 +1,34 @@
+{
+  "attempt_id": "D101",
+  "code_parent": "e6fa8af1da2a2fd0eeba2bcc481adf13ba7c94ea",
+  "decision": {
+    "layer": "pending",
+    "next_action": "一次只读分析已冻结旧 Engine／现行 Node 两份 H10 原生报告。",
+    "outcome": "pending",
+    "scope": "预登记，未运行新增逐项差异归因。"
+  },
+  "evidence_refs": [],
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "hypothesis": "若实际成交、费用、资金费和每日收盘账户权益一致，剩余差异可能由 OTO 子单激活顺序及原生报告精度产生；任何实质账户路径差异即反证。",
+  "kind": "diagnostic",
+  "mechanism": "冻结两份已有原生 H10 报告，只读对齐成交、Position、订单终态与同钟账户净值，并归因差异。",
+  "parents": [
+    {
+      "attempt_id": "H29a",
+      "difference": "仅诊断已失败的 H10 历史对照语义，不修改 H29a 或重算其收益。",
+      "relationship": "hypothesis_extension"
+    },
+    {
+      "attempt_id": "D100",
+      "difference": "D100 检验 1m 事件分辨率；本轮核查同一 5m 原生报告差异，不再更换 K 线。",
+      "relationship": "hypothesis_extension"
+    }
+  ],
+  "question": "H10 旧 Engine 与现行 Node 的严格历史报告差异是否仅在事件表达/浮点层，还是影响每日共享账户净值？",
+  "registration": {
+    "original_registration_commit": "9e41cf8072d8271ef26a3f2e1c341f422ec61ada",
+    "reference": "docs/plans/r1-d101-h10-native-parity-adjudication-prereg.zh.md",
+    "status": "preregistered"
+  },
+  "schema_version": 1
+}

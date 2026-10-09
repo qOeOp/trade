@@ -1030,9 +1030,11 @@
 
 **遗漏和边界。** 旧组合中 **145** 个找不到新策略相同止损/B 的母单，含 **52 笔**实际旧赢家；另有 24 个几何重复、含 11 个赢家，不能强制配对。新策略亦有 52 个母单在旧已成交组合中无相同几何，这反映持仓占用和选点路径已改变。D85 不声称每个缺配都是“触及后信号没出现”，也不能给未下单机会赋新盈亏。结合 H23a 原生回放的较少交易数及从 1.608 降到 1.058 的盈亏比，足以结束这一条固定风险预算下的确认追入实现，不再在看过的一年里扫描 High 2 等待根数或强阳阈值。
 
+**横向机制复核。** D102 另按 C17/C13 来源检验“突破旧阻力后首次回踩确认”，事前冻结了已确认高点、强突破、响应 K 线、旧突破高点目标和至少 1R 几何。既有 37 币年度虽有 669 个强突破，只有两个事件同时满足完成响应与目标/止损空间，且全在 UNI。它没有新原生成交或收益；但再次表明产品记录的“确认入场”必须同时携带**决策时钟、事前目标与失效区域、目标到止损空间和机会漏斗**，不能把确认标签单独当作可交易计划。C17 并未给出唯一目标，这一代理失败不否定所有旧阻力转支撑技术；下一步先复核来源能否给出可见的下一障碍，而非用已见年度选更远目标。
+
 **下一层研究。** 按 Brooks 官方《Advanced Gap Techniques》对突破前后两根 K 线非重叠、缺口持续以及测量移动的定义，D86 先只读检查 H19a 已按 B 止盈后的四小时结构和旧止损生存情况。由于“缺口是否持续”要在 B 止盈之后才知道，任何未来保留仓位的方案都必须先处理如何事前留有受保护的 runner，再由 Nautilus 原生订单与共享账户检验；不能把事后持续状态当作原始买入筛选。现阶段只是机制研究，不是 Brooks 或罗尼原策略的获利证明。
 
-**核查证据。** [D85 全量匹配及 D86 事前定义](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d85-does-the-h23a-shortfall-come-from-lost-breadth-or-worse-entry-geometry)、[D85 汇总](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall.json)、[全部唯一匹配路径](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall-matches.json.gz)、[Brooks《Advanced Gap Techniques》](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
+**核查证据。** [D85 全量匹配及 D86 事前定义](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d85-does-the-h23a-shortfall-come-from-lost-breadth-or-worse-entry-geometry)、[D85 汇总](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall.json)、[全部唯一匹配路径](../../research/r1_native/results/2026-10-08-d85-h23a-shortfall-matches.json.gz)、[D102 预登记与容量结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d102-first-role-reversal-retest-capacity-after-a-strong-horizontal-breakout)、[Brooks《Advanced Gap Techniques》](https://www.brookstradingcourse.com/wp-content/uploads/2018/08/2018-July-20-CME-Advanced-Gap-Techniques.pdf)。
 
 <a id="f88"></a>
 
@@ -1150,14 +1152,14 @@
 
 **事后归位与纠错。** 上述 C02“区外止损”归因已由 [S46 来源复核](../../research/r1_native/RD_EXPERIMENTS.md#source-recheck-s46-c02-is-not-an-outside-a-stop-rule)收窄：C02 本段没有给 ETH 多单止损；C18 明说一／四小时至少低于 76.4%，C20 的线／先前低点没有唯一机械选择器。H27a 随后按原登记仅测试研究者的 A 外止损代理，原生年度收益未改善；[H27a 结果与 D95 失败归因](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h27a-h26a-prior-a-support-plans-with-the-common-stop-outside-a)是策略结论的权威位置。F97 保留其历史文字与原始 D94 几何证据，不再作为产品能力候选或“作者统一 A 外止损”证据。
 
-<a id="f98"></a>
+<a id="f99"></a>
 
-## F98：已确认的单点局部低点不是可靠的提前全退条件，结构失效仍需区域与订单生命周期语义
+## F99：原生 OTO 子单顺序与数据粒度需要明确的执行语义核查
 
-**事前机制。** D98 在看结果前用现有记录工具登记：H26a 原生首笔成交前，选择最近的、order-8 双侧已确认且此后未被完整收盘破坏、严格位于首笔成交价与原生止损之间的局部低点。首笔成交后只在整根四小时 LAST K 线收盘严格跌破该冻结低点、原仓仍存续时标记事件。C20 提到先前有效低点，但没有给出这一机械选点或提前退出指令；D98 是研究者代理。事前要求至少 30 个已平仓触发，并且含原生佣金／资金费及指示性 taker 出场费的即时退出比真实继续持有合计严格多 6,000 USDT，才考虑另行登记 Nautilus 原生退出回放。
+**受影响的共同研究能力。** D27/D28 早已发现：在原生五分钟 K 线同根触发母单入场和保护止损时，Nautilus 的 stop-first OTO 子单激活顺序可能让稍后激活的 reduce-only 目标单变为 `REJECTED`。H29a 的同代码 H10 对照再次暴露同一问题：199 个目标拒单，虽然原生成交、934 笔平仓、61 笔盈利与旧 H10 相同。把原生 OTO 母单的目标关联放在保护止损之前后，现行 BacktestNode 五分钟运行拒单归零，期末权益精确复现旧 H10；但旧 Engine 与新 Node 的订单关联、部分 Position 字段和账户事件序列仍不能通过严格逐事件比对。它阻止研究 Agent 按 H29a 已预登记的**精确历史对照门槛**发布正式配对经济结论，额外耗费了一次失败全年对照、一次局部 BTC/ETH 修复 pilot、一次修复后 37 币对照和一次未改变 H29a 行为的同源复跑。不能因期末余额一致就默许执行语义一致。
 
-**原生路径及反例。** 冻结的 H26a 37 币共享账户有 179 个原生 Position、170 已平／85 赢、九个年末未平。71 个仓在首笔成交前找到合格局部低点，108 个没有；28 个仓在原止损前观察到收盘失守，其中 27 已平、一个未平。27 个已平事件仓后来 **18 止损、八到 B、一个时间退出**，九个最终盈利。事件收盘中位约为首笔风险的 **−0.420R**，中位持仓年龄 **9.5 根完整四小时线**；八仓后来还有第二档真实 BUY。指示性提前全退减原生实际继续持有合计 **−3,325.43 USDT**，两道事前门槛均失败。此数不是新账户净值，原账户的订单容量、后续机会和风险路径不会由只读计算重放。
+**真实 1m 反例与最小共同能力。** D100 复用现有 37 币最近 1m Catalog，在旧 H10 的 199 个同根仓中找到 14 个有真实 1m 覆盖：八个价格触及跨分钟、六个仍同一分钟。固定 ARB/UNI 两例的原生局部重放确认 1m 能将前者目标拒单改为撤单，后者仍拒单。故更细 K 线是执行事件分辨率选择，不是 OTO 生命周期一致性的通用修复，也不能从两个局部重放推断全年收益。产品的最小共享底座需要把**原生母子单激活顺序、同事件保护与终结状态、精确回放时钟及跨 BacktestEngine/BacktestNode 的可接受差异**作为同一执行契约审计；用已有 Nautilus 订单／成交／Position 报告表达，不另设撮合引擎或账本。当前研究可沿用已通过零拒单审计的母子单顺序，5m 年度净值如实保留；任何 1m 年度资格试验要另行登记真实数据身份、同账户成本和可比较窗口。
 
-**产品结论。** 一个可因果冻结的单点低价，不等于罗尼图上的支撑*区域*，也不足以把失守解释为整仓信号死亡。此结果和 D55 上升线、D96 61.8% 及 D97 双强空头的失败共同限制简化全退规则；不能把四种不同机制混成一条失败证明，也不能在已暴露年度改摆动阶数、价差容差、观察年龄或币种来挑成功样本。下一次最小研究应单独定义事前支撑区域或只取消未成交母单的因果动作，并保留慢启动赢家与原止损截尾。没有新 H28a Nautilus 年度回放，年化 >20%／胜率约 60% 目标未完成。
+**D101 进一步界定对照门槛。** 对旧 Engine 与现行 Node 已有 H10 报告逐项只读比较后，1,887 笔原生成交的非 ID 字段、934 笔 Position 实现盈亏和 930 条资金费一致；91 个每日原生收益差异最大仅约 `3.331e-16`。但八个未成交、已撤销 BTC 目标单的原生限价字段相差 0.10 USDT，原生账户事件数量和 OTO 关联顺序也不同。事件日的已结算账户余额逐日一致，不能代替 366 天完整盯市净值一致。产品级执行验收应事前区分“订单执行经济一致”与“逐事件严格一致”，核对已完成日的原生 Portfolio 盯市净值；不能在看结果后放宽 H29a 的旧门槛。后续候选应预登记同代码现行 Node 对照。此 finding 描述可复用的审计契约，不把 H29a 的收益差额当作已验证优势。
 
-**核查证据。** [D98 单轮契约及结果](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d98-pre-fill-confirmed-local-low-support-break-while-h26a-remains-open)、[事前登记](r1-d98-local-low-support-prereg.zh.md)、[37 币原生 Position 只读汇总](../../research/r1_native/results/2026-10-09-d98-h26a-local-support.json)、[逐仓冻结低点与后续路径](../../research/r1_native/results/2026-10-09-d98-h26a-local-support-positions.json)、[结构来源 C20](../../research/r1_native/SOURCE_CASES.md#c20---btc-prospective-tiers-with-a-common-outside-stop)。
+**证据。** [H29a 对照失败与修复](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h29a-native-next-bar-failed-range-breakout-buy-stop)、[严格旧 Engine／新 Node 报告](../../research/r1_native/results/2026-10-09-h29a-h10-historical-parity.json)、[D100 真实 1m 时序](../../research/r1_native/results/2026-10-09-d100-h10-one-minute-collision.json)、[两例原生局部重放](../../research/r1_native/results/2026-10-09-d100-h10-native-one-vs-five-minute.json)、[D101 差异归因](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d101-h10-old-enginecurrent-node-native-parity-adjudication)及[逐项报告](../../research/r1_native/results/2026-10-09-d101-h10-native-parity-adjudication.json)。
