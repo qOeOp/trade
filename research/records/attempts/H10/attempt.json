@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "attempt_id": "H10",
+  "goal_id": "R1-37-shared-account-joint-goal",
+  "kind": "strategy",
+  "question": "四小时区间边缘提前挂单并以窄区外止损、区间中点目标，能否改善 37 币共享账户？",
+  "mechanism": "事前 60 根四小时箱体、靠近边缘时原生 GTD LIMIT、边缘外 0.25 ATR 止损和中点止盈。",
+  "hypothesis": "在 H03 突破回踩之外，区间边缘均值回归能提高原生账户年化净收益与胜率。",
+  "parents": [],
+  "code_parent": null,
+  "registration": {
+    "status": "retrospective",
+    "reference": "research/r1_native/RD_EXPERIMENTS.md",
+    "original_registration_commit": "de50e0c69"
+  },
+  "decision": {
+    "layer": "economics",
+    "outcome": "failed",
+    "scope": "历史 H10 原生 37 币单账户期末 95055.28 USDT、年化 -5.0755%、61/934 赢；大量区间边缘提前挂单很快止损。此结构记录晚于旧结果。",
+    "next_action": "不调整 H10 窄止损或区间阈值；另行登记来源支持的完成线假突破后入场时钟与事前容量门槛。"
+  },
+  "evidence_refs": [
+    {
+      "kind": "summary",
+      "path": "research/r1_native/results/2026-10-08-h10-37-summary.json",
+      "sha256": "ea8a4b3777a2e107385057e5e6b3eef480e948a3a67984063fd4bd98485d3aab"
+    },
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-08-h10-native-readback.json",
+      "sha256": "ea02034a29c97a1ba1ca4f091f1a440196c54fe46cbe7d12b25eee5f9d4392d6"
+    },
+    {
+      "kind": "comparison",
+      "path": "research/r1_native/results/2026-10-08-h10-paired-comparison.json",
+      "sha256": "d257253ee3474365222a5bba41769b3f1223a7f4b2ea63ccccb5fcfb6c8487ed"
+    }
+  ]
+}
