@@ -1,0 +1,21 @@
+{
+  "run": "/tmp/r1-h26a-btc-eth-retry",
+  "file_sha256": {
+    "summary.json": "8806dec6929d019b766f78e5d6d9e1ab913cdfff744da4cc7faf898e39a38a01",
+    "orders.csv": "e93be6528333baf6b4c428d1d88d6b59d421d86ff8308b427f5fb0a008804214",
+    "fills.csv": "36ce15601a98abfb7c1378fc69dd1174c057106beb5aa28fa754add7ae9bc090",
+    "positions.csv": "6d04be791e2af631aed90bbb8813f48bc2c947eafe63b053ce1c2a6dbe4eb38f",
+    "account.csv": "9a246e0c755222ec77f54c232f5c63ef14f2b32c8d20dcf6af665140a306ba55",
+    "returns_series.csv": "df86cbaa2266d411e41b9fc659984cae3095effd81f2e5704b47018081b0da10"
+  },
+  "native_bundles": 76,
+  "native_brackets": 152,
+  "filled_entries": 3,
+  "partially_filled_then_canceled_entries": 0,
+  "closed_positions": 3,
+  "open_positions": 0,
+  "accepted_exit_orders": 0,
+  "native_market_time_exits": 0,
+  "findings": [],
+  "passed": true
+}

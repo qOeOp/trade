@@ -1,0 +1,21 @@
+{
+  "run": "/tmp/r1-d71-paired-h15a-37",
+  "file_sha256": {
+    "summary.json": "20bf863c205138d614432cccff2a6f1203cf662d27fa154a126156a3d05c7b67",
+    "orders.csv": "ea7922134a00d3000e16ff2f30bd103beb56e86f6ef72b28a49d7597b3d1f2c7",
+    "fills.csv": "d2740ba3cd4d6f2738d6b0ff7d49439fc63204539e897de335f84fcd3a37c978",
+    "positions.csv": "ac1ba4dd6fbc26fd573539864ee4b0eec9ae6c532ebb215db1b773507d300cd4",
+    "account.csv": "23b42eff329fb367176e87840b53d3d0a1acc89278dcdb08c3968b4d3705b0b6",
+    "returns_series.csv": "a8b9e62af521a9433bdc2c57e46bcc664a05ef3d02b1cf74df68e5f533202c90"
+  },
+  "native_bundles": 3271,
+  "native_brackets": 9813,
+  "filled_entries": 1551,
+  "partially_filled_then_canceled_entries": 0,
+  "closed_positions": 676,
+  "open_positions": 10,
+  "accepted_exit_orders": 44,
+  "native_market_time_exits": 273,
+  "findings": [],
+  "passed": true
+}

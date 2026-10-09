@@ -1,0 +1,21 @@
+{
+  "run": "/tmp/r1-h21a-pilot-btc-eth-v2",
+  "file_sha256": {
+    "summary.json": "5ea3e9ad7383b1970d4a79e778d283f41fae9e459ef813d2fe91618e67d6ff84",
+    "orders.csv": "fd5f39f302bd2f2dda34fc5b931e145daa65185ad3e7117bb1ef4b52932e6130",
+    "fills.csv": "491d1bfae21f87836cc540018a8d76bea082b05930ca089d7bee6ff2eae6d25e",
+    "positions.csv": "77b9349d687c840e5f69beebfcd366dc5541428d0ef8ea7ebca0b616279c1147",
+    "account.csv": "fdb5f8b2b1e7bfc5101abafaff39176f12a5430e00a633bb54e45562a41150c0",
+    "returns_series.csv": "b23f1581696e7564306a2a732704d89afdbe0da2f71905b461130d62d287ec62"
+  },
+  "native_bundles": 172,
+  "native_brackets": 344,
+  "filled_entries": 84,
+  "partially_filled_then_canceled_entries": 0,
+  "closed_positions": 43,
+  "open_positions": 1,
+  "accepted_exit_orders": 4,
+  "native_market_time_exits": 0,
+  "findings": [],
+  "passed": true
+}

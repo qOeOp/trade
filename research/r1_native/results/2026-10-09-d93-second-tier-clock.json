@@ -1,0 +1,145 @@
+{
+  "schema": "r1-native-d93-second-tier-clock/v1",
+  "registration_commit": "79443ae8085cc30bf1f2d327955c2042bfb88d86",
+  "frozen_sha256": {
+    "results/2026-10-07-input-identity.json": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+    "results/2026-10-09-h26a-37-summary.json": "cc8f4df0199cb6c1b16146af95b880461b11da8e8ca2dd0775ff59ef59b9912a",
+    "results/2026-10-09-h26a-control-h25a-summary.json": "95250f1359bd82e4bec80e96bcce664ef89e588625ee251e179561d4facf07ad",
+    "results/2026-10-09-h26a-37-native-audit.json": "164f41a06fbb3f401511142ebf759c84634dde6b4853fd12c36939a4371a98df",
+    "results/2026-10-09-h26a-37-support-clock.json": "91edf5383a81758a17010b9e24efcdfd78b547ea94ab9f56230331c108121d5e",
+    "results/2026-10-09-h26a-vs-h25a-flow.json": "068073fd694adbfa520d109afca61d2ba348a0888e00f58a8cddaa373c8077cc",
+    "results/2026-10-09-d92-h26a-b-obstacle.json": "c49f090ec671f0799b4ef74d8fc34c520b82903238cfda470514b73770826937",
+    "results/2026-10-09-d92-h26a-b-obstacle-bundles.json.gz": "46b929aefe317d1e16ab73eb7ea389c96684ba40f6fd880969c4e677d78c20ab"
+  },
+  "candidate_run_sha256": {
+    "summary.json": "cc8f4df0199cb6c1b16146af95b880461b11da8e8ca2dd0775ff59ef59b9912a",
+    "orders.csv": "73a97643523d101e72776b6753da96227cf0860019a88f2ac38a171aef49e861",
+    "fills.csv": "ef01073847239ba3e1d9f2196f61d16a9b88e9829b8c8b88a6a70206b38b27b4",
+    "positions.csv": "f4cfad242fd51ca859865af5188b4887b790d210470abab8b8938cb25a4dc103",
+    "account.csv": "4ae1422672d89e03084292a110f7dfc648cd236691b5cf880f760b151693c295"
+  },
+  "baseline_run_sha256": {
+    "summary.json": "95250f1359bd82e4bec80e96bcce664ef89e588625ee251e179561d4facf07ad",
+    "orders.csv": "00b0c85f4fe37dba9686b8851f0e067b0eeb66478aeedf7c52685b6f7f2dd5dd",
+    "fills.csv": "9517e3abce1a353514f239a8fce5685ba9b38147921178afd23607d4b764aab2",
+    "positions.csv": "cb6e628b3021e5a12c73d9bc9978c65c55470679cc1781f6489d4a99f0bb8769",
+    "account.csv": "5466b9419852ef15543af48a9b695b34159b4b9d1194a6c1a5cdc293735aea32"
+  },
+  "added_h26a_only": {
+    "native_positions": 68,
+    "native_closed": 68,
+    "native_positive_closed": 30,
+    "distinct_filled_entry_tiers": {
+      "2": 52,
+      "1": 16
+    },
+    "second_tier_states": {
+      "after_completed_post_fill_bar": {
+        "positions": 36,
+        "native_positive_closed": 9,
+        "final_exit_tags": {
+          "['STOP_LOSS']": 27,
+          "['TAKE_PROFIT']": 9
+        },
+        "median_first_to_second_hours": 25.041666666666664,
+        "median_completed_post_first_fill_bars_before_second": 5.0,
+        "second_parent_with_multiple_native_fill_events": 0,
+        "last_completed_close_below_first_fill": 24,
+        "eventual_positive_close_after_weak_completed_close": 5,
+        "last_completed_close_below_rounded_a": 0
+      },
+      "before_first_full_post_fill_bar_close": {
+        "positions": 8,
+        "native_positive_closed": 5,
+        "final_exit_tags": {
+          "['STOP_LOSS']": 3,
+          "['TAKE_PROFIT']": 5
+        },
+        "median_first_to_second_hours": 3.25,
+        "median_completed_post_first_fill_bars_before_second": null,
+        "second_parent_with_multiple_native_fill_events": 0,
+        "last_completed_close_below_first_fill": 0,
+        "eventual_positive_close_after_weak_completed_close": 0,
+        "last_completed_close_below_rounded_a": 0
+      },
+      "same_incomplete_first_fill_bar": {
+        "positions": 8,
+        "native_positive_closed": 2,
+        "final_exit_tags": {
+          "['TAKE_PROFIT']": 2,
+          "['STOP_LOSS']": 6
+        },
+        "median_first_to_second_hours": 0.7083333333333334,
+        "median_completed_post_first_fill_bars_before_second": null,
+        "second_parent_with_multiple_native_fill_events": 0,
+        "last_completed_close_below_first_fill": 0,
+        "eventual_positive_close_after_weak_completed_close": 0,
+        "last_completed_close_below_rounded_a": 0
+      }
+    },
+    "second_tier_without_completed_post_fill_decision": 16
+  },
+  "h25a_common_source_reference": {
+    "native_positions": 111,
+    "native_closed": 102,
+    "native_positive_closed": 55,
+    "distinct_filled_entry_tiers": {
+      "1": 32,
+      "2": 79
+    },
+    "second_tier_states": {
+      "after_completed_post_fill_bar": {
+        "positions": 65,
+        "native_positive_closed": 28,
+        "final_exit_tags": {
+          "['TAKE_PROFIT']": 24,
+          "['STOP_LOSS']": 33,
+          "null": 4,
+          "MARKET_TIME": 4
+        },
+        "median_first_to_second_hours": 59.083333333333336,
+        "median_completed_post_first_fill_bars_before_second": 14,
+        "second_parent_with_multiple_native_fill_events": 0,
+        "last_completed_close_below_first_fill": 52,
+        "eventual_positive_close_after_weak_completed_close": 23,
+        "last_completed_close_below_rounded_a": 0
+      },
+      "before_first_full_post_fill_bar_close": {
+        "positions": 7,
+        "native_positive_closed": 5,
+        "final_exit_tags": {
+          "['STOP_LOSS']": 2,
+          "['TAKE_PROFIT']": 5
+        },
+        "median_first_to_second_hours": 3.0,
+        "median_completed_post_first_fill_bars_before_second": null,
+        "second_parent_with_multiple_native_fill_events": 0,
+        "last_completed_close_below_first_fill": 0,
+        "eventual_positive_close_after_weak_completed_close": 0,
+        "last_completed_close_below_rounded_a": 0
+      },
+      "same_incomplete_first_fill_bar": {
+        "positions": 7,
+        "native_positive_closed": 2,
+        "final_exit_tags": {
+          "MARKET_TIME": 1,
+          "['STOP_LOSS']": 5,
+          "['TAKE_PROFIT']": 1
+        },
+        "median_first_to_second_hours": 0.0,
+        "median_completed_post_first_fill_bars_before_second": null,
+        "second_parent_with_multiple_native_fill_events": 0,
+        "last_completed_close_below_first_fill": 0,
+        "eventual_positive_close_after_weak_completed_close": 0,
+        "last_completed_close_below_rounded_a": 0
+      }
+    },
+    "second_tier_without_completed_post_fill_decision": 14
+  },
+  "limitations": [
+    "The second-tier fill is selected by a deeper adverse price path; conditional final outcomes do not prove that filling it caused a loss.",
+    "A complete four-hour close at the exact same timestamp as a fill is excluded because event order cannot be inferred from OHLC.",
+    "The H25a common-source reference runs under a different shared-account path and cannot identify counterfactual outcomes for H26a-only bundles.",
+    "This already-viewed year is diagnostic; no alternative orders, fills, cashflows or account equity were simulated."
+  ]
+}

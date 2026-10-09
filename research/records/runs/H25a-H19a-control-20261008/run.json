@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "run_id": "H25a-H19a-control-20261008",
+  "attempt_id": "H19a",
+  "role": "control",
+  "nautilus_version": "2.0.0rc3",
+  "input_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "source_files_sha256": {
+    "strategy_source_sha256": "51a964d8f027c5765d87349679c1a18d7f4e9198c54f0c3ba85f69be1536c7ed",
+    "retracement_strategy_source_sha256": "19217066925b704c430b67b0495c677692dc62c7515c42fa6dd17e0295f18f03",
+    "tiered_strategy_source_sha256": "08984928c77c141ffbbaa49bc43ffe13a3cbe9468c0278e9b3b0352d86eec91c",
+    "broad_swing_signal_source_sha256": "c8dcb097b924dc90339207bf3f751fc88b3b95acf9512ba3689ab62e4e7b57cd",
+    "runner_source_sha256": "4c494dc0d06918f84f25c8935d72f01efcaaef9f1dfe2775872bfb0c64502eba"
+  },
+  "window": {
+    "input_start_utc": "2025-10-07T00:00:00Z",
+    "trade_start_utc": "2025-10-17T00:00:00+00:00",
+    "end_utc": "2026-10-07T08:30:00Z",
+    "bar_minutes": 5
+  },
+  "account": {
+    "model": "one native BacktestEngine margin account, 100000 USDT, 37 strategies sharing portfolio capital",
+    "starting_balance_usdt": "100000",
+    "sizing": {
+      "mode": "native_equity_stop_risk_with_notional_cap",
+      "risk_budget_bps": 25.0,
+      "coin_notional_cap_pct": 5.0
+    }
+  },
+  "cost_model": "Binance USD-M current Instrument terms, native fill fees and historical Catalog funding; BacktestEngine rc3",
+  "summary_ref": {
+    "path": "research/r1_native/results/2026-10-08-h25a-paired-h19a-summary.json",
+    "sha256": "658145b32c86bfb947e4b1a909cc05e84a2f9284a6969ac7237ee538407b06fc"
+  },
+  "audit_ref": {
+    "path": "research/r1_native/results/2026-10-08-h25a-paired-h19a-native-audit.json",
+    "sha256": "e24638b713ab1bff9119e955fd69eb2d1427bc3004e4cff8bf5e9853b20081d2"
+  },
+  "integrity": "passed",
+  "evidence_grade": "development_exposed",
+  "raw_reports": "temporary",
+  "control_run_id": null
+}

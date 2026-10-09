@@ -15,28 +15,28 @@ from strategy import R1Strategy
 from tiered_retracement_strategy import BROAD_LIFETIME_NS
 from tiered_retracement_strategy import TieredRetracementStrategy
 
-from vibe_trading.backtest import BacktestEngine
-from vibe_trading.backtest import BacktestEngineConfig
-from vibe_trading.common import LoggerConfig
-from vibe_trading.common import LogLevel
-from vibe_trading.data import DataEngineConfig
-from vibe_trading.execution import StaticLatencyModel
-from vibe_trading.model import AccountType
-from vibe_trading.model import Bar
-from vibe_trading.model import BarType
-from vibe_trading.model import ClientOrderId
-from vibe_trading.model import InstrumentId
-from vibe_trading.model import MarkPriceUpdate
-from vibe_trading.model import Money
-from vibe_trading.model import OmsType
-from vibe_trading.model import OrderSide
-from vibe_trading.model import OrderType
-from vibe_trading.model import Quantity
-from vibe_trading.model import StrategyId
-from vibe_trading.model import TimeInForce
-from vibe_trading.model import TraderId
-from vibe_trading.model import Venue
-from vibe_trading.persistence import ParquetDataCatalog
+from nautilus_trader.backtest import BacktestEngine
+from nautilus_trader.backtest import BacktestEngineConfig
+from nautilus_trader.common import LoggerConfig
+from nautilus_trader.common import LogLevel
+from nautilus_trader.data import DataEngineConfig
+from nautilus_trader.execution import StaticLatencyModel
+from nautilus_trader.model import AccountType
+from nautilus_trader.model import Bar
+from nautilus_trader.model import BarType
+from nautilus_trader.model import ClientOrderId
+from nautilus_trader.model import InstrumentId
+from nautilus_trader.model import MarkPriceUpdate
+from nautilus_trader.model import Money
+from nautilus_trader.model import OmsType
+from nautilus_trader.model import OrderSide
+from nautilus_trader.model import OrderType
+from nautilus_trader.model import Quantity
+from nautilus_trader.model import StrategyId
+from nautilus_trader.model import TimeInForce
+from nautilus_trader.model import TraderId
+from nautilus_trader.model import Venue
+from nautilus_trader.persistence import ParquetDataCatalog
 
 
 ENTRY_PRICES = (70_284.8, 69_677.3, 68_925.8)
@@ -268,7 +268,9 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: 
                 if strategy_kind == "h19"
                 else "support-near50-4h"
             ),
-            risk_budget_fraction=0.0025 if strategy_kind in ("h15", "h16", "h18", "h19") else None,
+            risk_budget_fraction=(
+                0.0025 if strategy_kind in ("h15", "h16", "h18", "h19") else None
+            ),
         )
         strategy.fixture_exit_kind = exit_kind
         engine.add_strategy(strategy)
@@ -300,7 +302,9 @@ def _scenario(instrument, exit_kind: str, strategy_kind: str) -> dict:  # noqa: 
             prices = [
                 (71_000, 71_100, 70_900, 71_000),
                 (71_000, 71_100, 68_800, 69_000),
-            ] + [(69_000, 69_050, 68_950, 69_000)] * (8_641 if strategy_kind == "h19" else 1_441)
+            ] + [(69_000, 69_050, 68_950, 69_000)] * (
+                8_641 if strategy_kind == "h19" else 1_441
+            )
         elif exit_kind == "unfilled_expiry":
             prices = [(71_000, 71_100, 70_900, 71_000)] + [
                 (71_000, 71_050, 70_950, 71_000),

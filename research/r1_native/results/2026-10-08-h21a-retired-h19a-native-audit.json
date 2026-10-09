@@ -1,0 +1,21 @@
+{
+  "run": "/tmp/r1-h19-post-h21-retirement-37",
+  "file_sha256": {
+    "summary.json": "4c5ea5c898d4a653bc061287b11c348c98a293177be30b061ca64c060714377c",
+    "orders.csv": "79aecf1d86ce2310d1553ede4b880b64910027455fd2520cb0afc429cf134c20",
+    "fills.csv": "42064bea092c752ab1c2999b20609611b5dae3f61fc3a0ecd74ead70c197aea4",
+    "positions.csv": "59bc7293e6671232fe5f84f8996f82b9991497096ec4b1223cddb6b5b439ca2d",
+    "account.csv": "69530413f22af40f57c5290dcc06417580c9f95f395b0c7c465b1d95ac2ab33e",
+    "returns_series.csv": "c34ff1ce36167b8165f1ba49b419ad84209854578b377e0d0b143e6d6d31370e"
+  },
+  "native_bundles": 2939,
+  "native_brackets": 5878,
+  "filled_entries": 881,
+  "partially_filled_then_canceled_entries": 1,
+  "closed_positions": 496,
+  "open_positions": 11,
+  "accepted_exit_orders": 32,
+  "native_market_time_exits": 31,
+  "findings": [],
+  "passed": true
+}

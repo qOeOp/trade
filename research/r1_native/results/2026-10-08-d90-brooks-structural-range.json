@@ -1,0 +1,710 @@
+{
+  "schema": "r1-native-d90-brooks-structural-range/v1",
+  "source_sha256": {
+    "/Users/vx/.codex/worktrees/r1-new-nautilus-rd/trade/research/r1_native/results/2026-10-07-input-identity.json": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+    "/Users/vx/.codex/worktrees/r1-new-nautilus-rd/trade/research/r1_native/results/2026-10-08-d80-brooks-breakout-context-bundles.json.gz": "ac941cfa197cee805c38d7447c296e05aa5819344312cd755e5d574dcac192c4",
+    "/Users/vx/.codex/worktrees/r1-new-nautilus-rd/trade/research/r1_native/results/2026-10-08-d88-brooks-leg-context-bundles.json.gz": "fb6d92e1330e9ebd92ba1da725849ee78e9f77d9d47a6bc245feb73d407299fa"
+  },
+  "all": {
+    "submitted_bundles": 2939,
+    "filled_bundles": 500,
+    "native_positions": 507,
+    "native_closed": 496,
+    "native_open_censored": 11,
+    "native_wins": 212,
+    "native_closed_win_pct": 42.74193548387097,
+    "native_b_target_closes": 199,
+    "native_pre_b_stop_closes": 266,
+    "native_other_close_causes": {
+      "time_market": 31
+    },
+    "native_closed_realized_pnl_usdt": "11333.32432354",
+    "native_realized_payoff": 1.6077798785919222
+  },
+  "by_prior_test_state": {
+    "neither": {
+      "submitted_bundles": 965,
+      "filled_bundles": 161,
+      "native_positions": 164,
+      "native_closed": 163,
+      "native_open_censored": 1,
+      "native_wins": 56,
+      "native_closed_win_pct": 34.355828220858896,
+      "native_b_target_closes": 53,
+      "native_pre_b_stop_closes": 104,
+      "native_other_close_causes": {
+        "time_market": 6
+      },
+      "native_closed_realized_pnl_usdt": "-2433.57927226",
+      "native_realized_payoff": 1.699938490684857
+    },
+    "a_support_only": {
+      "submitted_bundles": 626,
+      "filled_bundles": 104,
+      "native_positions": 107,
+      "native_closed": 98,
+      "native_open_censored": 9,
+      "native_wins": 55,
+      "native_closed_win_pct": 56.12244897959184,
+      "native_b_target_closes": 50,
+      "native_pre_b_stop_closes": 43,
+      "native_other_close_causes": {
+        "time_market": 5
+      },
+      "native_closed_realized_pnl_usdt": "12598.65591174",
+      "native_realized_payoff": 1.8603992330790309
+    },
+    "b_resistance_only": {
+      "submitted_bundles": 933,
+      "filled_bundles": 177,
+      "native_positions": 177,
+      "native_closed": 176,
+      "native_open_censored": 1,
+      "native_wins": 75,
+      "native_closed_win_pct": 42.61363636363637,
+      "native_b_target_closes": 70,
+      "native_pre_b_stop_closes": 86,
+      "native_other_close_causes": {
+        "time_market": 20
+      },
+      "native_closed_realized_pnl_usdt": "589.64351918",
+      "native_realized_payoff": 1.388444049471273
+    },
+    "both": {
+      "submitted_bundles": 415,
+      "filled_bundles": 58,
+      "native_positions": 59,
+      "native_closed": 59,
+      "native_open_censored": 0,
+      "native_wins": 26,
+      "native_closed_win_pct": 44.067796610169495,
+      "native_b_target_closes": 26,
+      "native_pre_b_stop_closes": 33,
+      "native_other_close_causes": {},
+      "native_closed_realized_pnl_usdt": "578.60416488",
+      "native_realized_payoff": 1.383662009990961
+    }
+  },
+  "state_vs_neither_stability": {
+    "a_support_only": {
+      "coins": {
+        "groups_with_at_least_3_closed_each": 9,
+        "selected_win_rate_higher": 8,
+        "all_comparable": [
+          {
+            "group": "ALGO",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 3,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "APT",
+            "neither_closed": 5,
+            "neither_wins": 1,
+            "selected_closed": 4,
+            "selected_wins": 1,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "ARB",
+            "neither_closed": 5,
+            "neither_wins": 2,
+            "selected_closed": 3,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "DOT",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 4,
+            "selected_wins": 4,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "HBAR",
+            "neither_closed": 6,
+            "neither_wins": 0,
+            "selected_closed": 3,
+            "selected_wins": 3,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "ICP",
+            "neither_closed": 6,
+            "neither_wins": 0,
+            "selected_closed": 10,
+            "selected_wins": 6,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "OP",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 3,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "PEPE",
+            "neither_closed": 3,
+            "neither_wins": 1,
+            "selected_closed": 4,
+            "selected_wins": 3,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "XRP",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 3,
+            "selected_wins": 3,
+            "selected_win_rate_higher": true
+          }
+        ]
+      },
+      "months": {
+        "groups_with_at_least_3_closed_each": 8,
+        "selected_win_rate_higher": 6,
+        "all_comparable": [
+          {
+            "group": "2026-01-01T00:00:00+00:00",
+            "neither_closed": 18,
+            "neither_wins": 0,
+            "selected_closed": 6,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "2026-03-01T00:00:00+00:00",
+            "neither_closed": 10,
+            "neither_wins": 3,
+            "selected_closed": 4,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-04-01T00:00:00+00:00",
+            "neither_closed": 12,
+            "neither_wins": 10,
+            "selected_closed": 16,
+            "selected_wins": 14,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-05-01T00:00:00+00:00",
+            "neither_closed": 24,
+            "neither_wins": 4,
+            "selected_closed": 16,
+            "selected_wins": 5,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-06-01T00:00:00+00:00",
+            "neither_closed": 23,
+            "neither_wins": 2,
+            "selected_closed": 5,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-07-01T00:00:00+00:00",
+            "neither_closed": 15,
+            "neither_wins": 5,
+            "selected_closed": 6,
+            "selected_wins": 4,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-08-01T00:00:00+00:00",
+            "neither_closed": 13,
+            "neither_wins": 6,
+            "selected_closed": 32,
+            "selected_wins": 21,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-09-01T00:00:00+00:00",
+            "neither_closed": 6,
+            "neither_wins": 6,
+            "selected_closed": 9,
+            "selected_wins": 6,
+            "selected_win_rate_higher": false
+          }
+        ]
+      }
+    },
+    "b_resistance_only": {
+      "coins": {
+        "groups_with_at_least_3_closed_each": 23,
+        "selected_win_rate_higher": 14,
+        "all_comparable": [
+          {
+            "group": "ADA",
+            "neither_closed": 7,
+            "neither_wins": 2,
+            "selected_closed": 3,
+            "selected_wins": 1,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "ALGO",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 6,
+            "selected_wins": 1,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "APT",
+            "neither_closed": 5,
+            "neither_wins": 1,
+            "selected_closed": 3,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "ARB",
+            "neither_closed": 5,
+            "neither_wins": 2,
+            "selected_closed": 3,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "AVAX",
+            "neither_closed": 3,
+            "neither_wins": 2,
+            "selected_closed": 8,
+            "selected_wins": 4,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "DOGE",
+            "neither_closed": 3,
+            "neither_wins": 0,
+            "selected_closed": 4,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "DOT",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 3,
+            "selected_wins": 1,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "ETH",
+            "neither_closed": 5,
+            "neither_wins": 1,
+            "selected_closed": 3,
+            "selected_wins": 3,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "FET",
+            "neither_closed": 6,
+            "neither_wins": 1,
+            "selected_closed": 3,
+            "selected_wins": 1,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "FIL",
+            "neither_closed": 7,
+            "neither_wins": 3,
+            "selected_closed": 6,
+            "selected_wins": 2,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "HBAR",
+            "neither_closed": 6,
+            "neither_wins": 0,
+            "selected_closed": 3,
+            "selected_wins": 1,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "ICP",
+            "neither_closed": 6,
+            "neither_wins": 0,
+            "selected_closed": 3,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "IMX",
+            "neither_closed": 7,
+            "neither_wins": 3,
+            "selected_closed": 6,
+            "selected_wins": 3,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "INJ",
+            "neither_closed": 7,
+            "neither_wins": 4,
+            "selected_closed": 6,
+            "selected_wins": 3,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "LDO",
+            "neither_closed": 5,
+            "neither_wins": 2,
+            "selected_closed": 6,
+            "selected_wins": 2,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "LINK",
+            "neither_closed": 7,
+            "neither_wins": 4,
+            "selected_closed": 5,
+            "selected_wins": 4,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "LTC",
+            "neither_closed": 5,
+            "neither_wins": 3,
+            "selected_closed": 8,
+            "selected_wins": 5,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "OP",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 4,
+            "selected_wins": 1,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "PEPE",
+            "neither_closed": 3,
+            "neither_wins": 1,
+            "selected_closed": 5,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "SEI",
+            "neither_closed": 6,
+            "neither_wins": 2,
+            "selected_closed": 5,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "SOL",
+            "neither_closed": 6,
+            "neither_wins": 3,
+            "selected_closed": 7,
+            "selected_wins": 5,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "SUI",
+            "neither_closed": 5,
+            "neither_wins": 1,
+            "selected_closed": 7,
+            "selected_wins": 4,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "TRX",
+            "neither_closed": 8,
+            "neither_wins": 2,
+            "selected_closed": 5,
+            "selected_wins": 4,
+            "selected_win_rate_higher": true
+          }
+        ]
+      },
+      "months": {
+        "groups_with_at_least_3_closed_each": 11,
+        "selected_win_rate_higher": 6,
+        "all_comparable": [
+          {
+            "group": "2025-11-01T00:00:00+00:00",
+            "neither_closed": 9,
+            "neither_wins": 2,
+            "selected_closed": 29,
+            "selected_wins": 5,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "2025-12-01T00:00:00+00:00",
+            "neither_closed": 5,
+            "neither_wins": 2,
+            "selected_closed": 19,
+            "selected_wins": 11,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-01-01T00:00:00+00:00",
+            "neither_closed": 18,
+            "neither_wins": 0,
+            "selected_closed": 14,
+            "selected_wins": 1,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-02-01T00:00:00+00:00",
+            "neither_closed": 28,
+            "neither_wins": 16,
+            "selected_closed": 25,
+            "selected_wins": 15,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-03-01T00:00:00+00:00",
+            "neither_closed": 10,
+            "neither_wins": 3,
+            "selected_closed": 14,
+            "selected_wins": 3,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "2026-04-01T00:00:00+00:00",
+            "neither_closed": 12,
+            "neither_wins": 10,
+            "selected_closed": 28,
+            "selected_wins": 24,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-05-01T00:00:00+00:00",
+            "neither_closed": 24,
+            "neither_wins": 4,
+            "selected_closed": 7,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "2026-06-01T00:00:00+00:00",
+            "neither_closed": 23,
+            "neither_wins": 2,
+            "selected_closed": 9,
+            "selected_wins": 1,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-07-01T00:00:00+00:00",
+            "neither_closed": 15,
+            "neither_wins": 5,
+            "selected_closed": 17,
+            "selected_wins": 5,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "2026-08-01T00:00:00+00:00",
+            "neither_closed": 13,
+            "neither_wins": 6,
+            "selected_closed": 9,
+            "selected_wins": 6,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-09-01T00:00:00+00:00",
+            "neither_closed": 6,
+            "neither_wins": 6,
+            "selected_closed": 5,
+            "selected_wins": 4,
+            "selected_win_rate_higher": false
+          }
+        ]
+      }
+    },
+    "both": {
+      "coins": {
+        "groups_with_at_least_3_closed_each": 5,
+        "selected_win_rate_higher": 3,
+        "all_comparable": [
+          {
+            "group": "ALGO",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 3,
+            "selected_wins": 1,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "DOGE",
+            "neither_closed": 3,
+            "neither_wins": 0,
+            "selected_closed": 5,
+            "selected_wins": 4,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "DOT",
+            "neither_closed": 4,
+            "neither_wins": 1,
+            "selected_closed": 4,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "HBAR",
+            "neither_closed": 6,
+            "neither_wins": 0,
+            "selected_closed": 3,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "SHIB",
+            "neither_closed": 6,
+            "neither_wins": 2,
+            "selected_closed": 3,
+            "selected_wins": 3,
+            "selected_win_rate_higher": true
+          }
+        ]
+      },
+      "months": {
+        "groups_with_at_least_3_closed_each": 8,
+        "selected_win_rate_higher": 5,
+        "all_comparable": [
+          {
+            "group": "2025-12-01T00:00:00+00:00",
+            "neither_closed": 5,
+            "neither_wins": 2,
+            "selected_closed": 6,
+            "selected_wins": 4,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-01-01T00:00:00+00:00",
+            "neither_closed": 18,
+            "neither_wins": 0,
+            "selected_closed": 6,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-03-01T00:00:00+00:00",
+            "neither_closed": 10,
+            "neither_wins": 3,
+            "selected_closed": 9,
+            "selected_wins": 3,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-04-01T00:00:00+00:00",
+            "neither_closed": 12,
+            "neither_wins": 10,
+            "selected_closed": 13,
+            "selected_wins": 9,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "2026-05-01T00:00:00+00:00",
+            "neither_closed": 24,
+            "neither_wins": 4,
+            "selected_closed": 4,
+            "selected_wins": 2,
+            "selected_win_rate_higher": true
+          },
+          {
+            "group": "2026-06-01T00:00:00+00:00",
+            "neither_closed": 23,
+            "neither_wins": 2,
+            "selected_closed": 3,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "2026-07-01T00:00:00+00:00",
+            "neither_closed": 15,
+            "neither_wins": 5,
+            "selected_closed": 8,
+            "selected_wins": 0,
+            "selected_win_rate_higher": false
+          },
+          {
+            "group": "2026-08-01T00:00:00+00:00",
+            "neither_closed": 13,
+            "neither_wins": 6,
+            "selected_closed": 7,
+            "selected_wins": 4,
+            "selected_win_rate_higher": true
+          }
+        ]
+      }
+    }
+  },
+  "both_test_winning_bundle_ids": [
+    "O-20251221-080459-001-UNI",
+    "O-20251222-040459-001-TRX",
+    "O-20251229-080459-001-LINK",
+    "O-20251229-080459-001-SEI",
+    "O-20260106-000000-001-BTC",
+    "O-20260106-160459-001-ICP",
+    "O-20260310-160000-001-SHIB",
+    "O-20260310-160000-001-XLM",
+    "O-20260316-120459-001-SHIB",
+    "O-20260406-160000-001-INJ",
+    "O-20260408-000000-001-DOGE",
+    "O-20260412-000000-001-PEPE",
+    "O-20260414-040000-001-STX",
+    "O-20260414-160000-001-DOGE",
+    "O-20260417-160459-001-STX",
+    "O-20260418-000459-001-APT",
+    "O-20260422-120459-001-BCH",
+    "O-20260429-120000-001-SHIB",
+    "O-20260522-160459-001-WLD",
+    "O-20260529-120000-001-ALGO",
+    "O-20260808-160000-001-DOGE",
+    "O-20260810-120000-001-IMX",
+    "O-20260812-000000-001-DOGE",
+    "O-20260815-040000-001-AVAX",
+    "O-20260906-040459-001-OP",
+    "O-20260908-160459-001-SEI"
+  ],
+  "both_test_nonwinning_bundle_ids": [
+    "O-20251119-000000-001-BCH",
+    "O-20251228-160000-001-UNI",
+    "O-20251229-080459-001-ADA",
+    "O-20260105-200459-001-WLD",
+    "O-20260106-040459-001-XLM",
+    "O-20260114-000459-001-TIA",
+    "O-20260316-080459-001-BNB",
+    "O-20260317-000459-001-ALGO",
+    "O-20260317-000459-001-FIL",
+    "O-20260317-040459-001-DOGE",
+    "O-20260317-040459-001-HBAR",
+    "O-20260325-120000-001-XLM",
+    "O-20260406-160459-001-DOT",
+    "O-20260410-000000-001-DOT",
+    "O-20260417-000459-001-WLD",
+    "O-20260421-120459-001-XLM",
+    "O-20260513-120000-001-STX",
+    "O-20260530-040459-001-ALGO",
+    "O-20260603-080459-001-ICP",
+    "O-20260603-160459-001-NEAR",
+    "O-20260615-160459-001-FET",
+    "O-20260704-200459-001-OP",
+    "O-20260704-200459-001-SUI",
+    "O-20260704-200459-001-XLM",
+    "O-20260707-000000-001-DOT",
+    "O-20260707-200459-001-APT",
+    "O-20260712-080459-001-STX",
+    "O-20260721-160000-001-XLM",
+    "O-20260723-120459-001-HBAR",
+    "O-20260804-040000-001-ARB",
+    "O-20260804-080000-001-HBAR",
+    "O-20260805-000459-001-DOT"
+  ],
+  "limitations": [
+    "One fixed native-bar structural proxy with eight-bar pivot confirmation and one prior ATR tolerance; Brooks gives no numerical ATR rule.",
+    "Native Position groups include fees/funding but are selected descriptive old outcomes, not a filtered shared-account replay."
+  ]
+}

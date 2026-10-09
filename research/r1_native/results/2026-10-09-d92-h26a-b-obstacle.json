@@ -1,0 +1,507 @@
+{
+  "schema": "r1-native-d92-h26a-b-obstacle/v1",
+  "registration_commit": "cd77b7c8bbb4d9790f5776fbec16bf3f2c2ba708",
+  "bound_sha256": {
+    "results/2026-10-07-input-identity.json": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+    "results/2026-10-09-h26a-37-summary.json": "cc8f4df0199cb6c1b16146af95b880461b11da8e8ca2dd0775ff59ef59b9912a",
+    "results/2026-10-09-h26a-37-native-audit.json": "164f41a06fbb3f401511142ebf759c84634dde6b4853fd12c36939a4371a98df",
+    "results/2026-10-09-h26a-37-support-clock.json": "91edf5383a81758a17010b9e24efcdfd78b547ea94ab9f56230331c108121d5e",
+    "results/2026-10-09-h26a-vs-h25a-flow.json": "068073fd694adbfa520d109afca61d2ba348a0888e00f58a8cddaa373c8077cc"
+  },
+  "candidate_run_sha256": {
+    "summary.json": "cc8f4df0199cb6c1b16146af95b880461b11da8e8ca2dd0775ff59ef59b9912a",
+    "orders.csv": "73a97643523d101e72776b6753da96227cf0860019a88f2ac38a171aef49e861",
+    "fills.csv": "ef01073847239ba3e1d9f2196f61d16a9b88e9829b8c8b88a6a70206b38b27b4",
+    "positions.csv": "f4cfad242fd51ca859865af5188b4887b790d210470abab8b8938cb25a4dc103",
+    "account.csv": "4ae1422672d89e03084292a110f7dfc648cd236691b5cf880f760b151693c295"
+  },
+  "baseline_run_sha256": {
+    "summary.json": "95250f1359bd82e4bec80e96bcce664ef89e588625ee251e179561d4facf07ad",
+    "orders.csv": "00b0c85f4fe37dba9686b8851f0e067b0eeb66478aeedf7c52685b6f7f2dd5dd",
+    "fills.csv": "9517e3abce1a353514f239a8fce5685ba9b38147921178afd23607d4b764aab2",
+    "positions.csv": "cb6e628b3021e5a12c73d9bc9978c65c55470679cc1781f6489d4a99f0bb8769",
+    "account.csv": "5466b9419852ef15543af48a9b695b34159b4b9d1194a6c1a5cdc293735aea32"
+  },
+  "added_native_bundles": 482,
+  "added_bundles_without_position": 415,
+  "native_positions": 68,
+  "native_closed": 68,
+  "native_positive_closed": 30,
+  "native_open_censored": 0,
+  "native_final_exit_tags": {
+    "['STOP_LOSS']": 38,
+    "['TAKE_PROFIT']": 30
+  },
+  "native_all_sell_tags": {
+    "['STOP_LOSS']": 74,
+    "['TAKE_PROFIT']": 46
+  },
+  "two_or_more_native_buy_fills": 52,
+  "distinct_native_filled_entry_tiers": {
+    "2": 52,
+    "1": 16
+  },
+  "native_exit_tags_by_filled_entry_tiers": {
+    "1": {
+      "['TAKE_PROFIT']": 14,
+      "['STOP_LOSS']": 2
+    },
+    "2": {
+      "['STOP_LOSS']": 36,
+      "['TAKE_PROFIT']": 16
+    }
+  },
+  "nearest_prior_b_distance_atr": {
+    "count": 482,
+    "median": 0.39417065771575654
+  },
+  "first_fill_b_room_r": {
+    "count": 68,
+    "median": 1.6842604316122158
+  },
+  "strict_interior_mfe_r": {
+    "winners": {
+      "count": 30,
+      "median": 1.4719990015073412
+    },
+    "nonpositive": {
+      "count": 36,
+      "median": 0.5054691493245714
+    }
+  },
+  "strict_interior_fraction_to_b": {
+    "winners": {
+      "count": 30,
+      "median": 0.877974066962887
+    },
+    "nonpositive": {
+      "count": 36,
+      "median": 0.29777449441314996
+    }
+  },
+  "nonpositive_strict_interior_half_b_room": {
+    "at_or_above_half": 9,
+    "below_half": 27,
+    "no_whole_interior_bar": 2
+  },
+  "landmarks": {
+    "1": {
+      "states": {
+        "open_after_completed_bar": 66,
+        "native_closed_before_observation": 2
+      },
+      "eventual_positive_native_closes_with_close_at_or_below_first_fill": 15
+    },
+    "3": {
+      "states": {
+        "open_after_completed_bar": 63,
+        "native_closed_before_observation": 5
+      },
+      "eventual_positive_native_closes_with_close_at_or_below_first_fill": 11
+    },
+    "5": {
+      "states": {
+        "open_after_completed_bar": 57,
+        "native_closed_before_observation": 11
+      },
+      "eventual_positive_native_closes_with_close_at_or_below_first_fill": 9
+    },
+    "10": {
+      "states": {
+        "open_after_completed_bar": 48,
+        "native_closed_before_observation": 20
+      },
+      "eventual_positive_native_closes_with_close_at_or_below_first_fill": 6
+    }
+  },
+  "source_coin_bundle_counts": {
+    "AAVE": 10,
+    "ADA": 4,
+    "ALGO": 20,
+    "APT": 27,
+    "ARB": 14,
+    "ATOM": 8,
+    "AVAX": 9,
+    "BCH": 5,
+    "BNB": 13,
+    "BTC": 26,
+    "DOGE": 12,
+    "DOT": 15,
+    "ETC": 11,
+    "ETH": 4,
+    "FET": 10,
+    "FIL": 6,
+    "HBAR": 18,
+    "ICP": 15,
+    "IMX": 10,
+    "INJ": 5,
+    "LDO": 9,
+    "LINK": 6,
+    "LTC": 12,
+    "NEAR": 11,
+    "OP": 30,
+    "PEPE": 13,
+    "SEI": 7,
+    "SHIB": 6,
+    "SOL": 2,
+    "STX": 17,
+    "SUI": 16,
+    "TIA": 27,
+    "TRX": 10,
+    "UNI": 12,
+    "WLD": 35,
+    "XLM": 22,
+    "XRP": 5
+  },
+  "source_month_bundle_counts": {
+    "2025-11": 3,
+    "2025-12": 21,
+    "2026-01": 52,
+    "2026-03": 54,
+    "2026-04": 62,
+    "2026-05": 59,
+    "2026-06": 8,
+    "2026-07": 44,
+    "2026-08": 83,
+    "2026-09": 96
+  },
+  "descriptive_cohorts_by_coin": {
+    "AAVE": {
+      "submitted_bundles": 10,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-208.66844032"
+    },
+    "ADA": {
+      "submitted_bundles": 4,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-161.48146771"
+    },
+    "ALGO": {
+      "submitted_bundles": 20,
+      "native_positions": 4,
+      "native_closed": 4,
+      "native_positive_closed": 2,
+      "native_closed_realized_pnl_usdt": "420.22504369"
+    },
+    "APT": {
+      "submitted_bundles": 27,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "-5.69747749"
+    },
+    "ARB": {
+      "submitted_bundles": 14,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-142.08868550"
+    },
+    "ATOM": {
+      "submitted_bundles": 8,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "208.90900067"
+    },
+    "AVAX": {
+      "submitted_bundles": 9,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "187.32693490"
+    },
+    "BCH": {
+      "submitted_bundles": 5,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "143.92287992"
+    },
+    "BNB": {
+      "submitted_bundles": 13,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-198.31233296"
+    },
+    "BTC": {
+      "submitted_bundles": 26,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "142.08980460"
+    },
+    "DOGE": {
+      "submitted_bundles": 12,
+      "native_positions": 5,
+      "native_closed": 5,
+      "native_positive_closed": 4,
+      "native_closed_realized_pnl_usdt": "542.07974798"
+    },
+    "DOT": {
+      "submitted_bundles": 15,
+      "native_positions": 5,
+      "native_closed": 5,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-866.26401979"
+    },
+    "ETC": {
+      "submitted_bundles": 11,
+      "native_positions": 0,
+      "native_closed": 0,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "0"
+    },
+    "ETH": {
+      "submitted_bundles": 4,
+      "native_positions": 0,
+      "native_closed": 0,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "0"
+    },
+    "FET": {
+      "submitted_bundles": 10,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-237.56574249"
+    },
+    "FIL": {
+      "submitted_bundles": 6,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-213.74998957"
+    },
+    "HBAR": {
+      "submitted_bundles": 18,
+      "native_positions": 3,
+      "native_closed": 3,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-420.92488173"
+    },
+    "ICP": {
+      "submitted_bundles": 15,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "-43.96991784"
+    },
+    "IMX": {
+      "submitted_bundles": 10,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "58.61987319"
+    },
+    "INJ": {
+      "submitted_bundles": 5,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "68.36561513"
+    },
+    "LDO": {
+      "submitted_bundles": 9,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "214.63086144"
+    },
+    "LINK": {
+      "submitted_bundles": 6,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "293.15130584"
+    },
+    "LTC": {
+      "submitted_bundles": 12,
+      "native_positions": 0,
+      "native_closed": 0,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "0"
+    },
+    "NEAR": {
+      "submitted_bundles": 11,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-261.10798221"
+    },
+    "OP": {
+      "submitted_bundles": 30,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "451.23109765"
+    },
+    "PEPE": {
+      "submitted_bundles": 13,
+      "native_positions": 3,
+      "native_closed": 3,
+      "native_positive_closed": 2,
+      "native_closed_realized_pnl_usdt": "522.10975810"
+    },
+    "SEI": {
+      "submitted_bundles": 7,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 2,
+      "native_closed_realized_pnl_usdt": "1031.30607955"
+    },
+    "SHIB": {
+      "submitted_bundles": 6,
+      "native_positions": 3,
+      "native_closed": 3,
+      "native_positive_closed": 3,
+      "native_closed_realized_pnl_usdt": "1108.54296054"
+    },
+    "SOL": {
+      "submitted_bundles": 2,
+      "native_positions": 0,
+      "native_closed": 0,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "0"
+    },
+    "STX": {
+      "submitted_bundles": 17,
+      "native_positions": 4,
+      "native_closed": 4,
+      "native_positive_closed": 2,
+      "native_closed_realized_pnl_usdt": "198.74343819"
+    },
+    "SUI": {
+      "submitted_bundles": 16,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-224.29424050"
+    },
+    "TIA": {
+      "submitted_bundles": 27,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-256.46995277"
+    },
+    "TRX": {
+      "submitted_bundles": 10,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "182.87684975"
+    },
+    "UNI": {
+      "submitted_bundles": 12,
+      "native_positions": 2,
+      "native_closed": 2,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "-46.51576949"
+    },
+    "WLD": {
+      "submitted_bundles": 35,
+      "native_positions": 3,
+      "native_closed": 3,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "-277.39383744"
+    },
+    "XLM": {
+      "submitted_bundles": 22,
+      "native_positions": 6,
+      "native_closed": 6,
+      "native_positive_closed": 1,
+      "native_closed_realized_pnl_usdt": "-956.75311920"
+    },
+    "XRP": {
+      "submitted_bundles": 5,
+      "native_positions": 0,
+      "native_closed": 0,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "0"
+    }
+  },
+  "descriptive_cohorts_by_source_month": {
+    "2025-11": {
+      "submitted_bundles": 3,
+      "native_positions": 1,
+      "native_closed": 1,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-200.79646058"
+    },
+    "2025-12": {
+      "submitted_bundles": 21,
+      "native_positions": 8,
+      "native_closed": 8,
+      "native_positive_closed": 5,
+      "native_closed_realized_pnl_usdt": "894.92103663"
+    },
+    "2026-01": {
+      "submitted_bundles": 52,
+      "native_positions": 6,
+      "native_closed": 6,
+      "native_positive_closed": 2,
+      "native_closed_realized_pnl_usdt": "-397.73701344"
+    },
+    "2026-03": {
+      "submitted_bundles": 54,
+      "native_positions": 11,
+      "native_closed": 11,
+      "native_positive_closed": 3,
+      "native_closed_realized_pnl_usdt": "-731.24027150"
+    },
+    "2026-04": {
+      "submitted_bundles": 62,
+      "native_positions": 14,
+      "native_closed": 14,
+      "native_positive_closed": 10,
+      "native_closed_realized_pnl_usdt": "1886.86979646"
+    },
+    "2026-05": {
+      "submitted_bundles": 59,
+      "native_positions": 5,
+      "native_closed": 5,
+      "native_positive_closed": 3,
+      "native_closed_realized_pnl_usdt": "77.77880000"
+    },
+    "2026-06": {
+      "submitted_bundles": 8,
+      "native_positions": 3,
+      "native_closed": 3,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-759.94569766"
+    },
+    "2026-07": {
+      "submitted_bundles": 44,
+      "native_positions": 8,
+      "native_closed": 8,
+      "native_positive_closed": 0,
+      "native_closed_realized_pnl_usdt": "-1629.31287570"
+    },
+    "2026-08": {
+      "submitted_bundles": 83,
+      "native_positions": 9,
+      "native_closed": 9,
+      "native_positive_closed": 4,
+      "native_closed_realized_pnl_usdt": "-11.47885304"
+    },
+    "2026-09": {
+      "submitted_bundles": 96,
+      "native_positions": 3,
+      "native_closed": 3,
+      "native_positive_closed": 3,
+      "native_closed_realized_pnl_usdt": "2123.81493296"
+    }
+  },
+  "limitations": [
+    "Strict interior completed four-hour bars omit entry and exit bars; MFE/MAE are observed lower bounds, not full intrabar extremes.",
+    "Native realized outcomes include historical native fees/funding, while R-normalized price paths do not subtract those cashflows.",
+    "Only H26a actual fills are observed; comparing selected cohorts does not prove prior B resistance caused a reversal.",
+    "The year and source-key cohort were already exposed; this is read-only mechanism research, not independent validation."
+  ]
+}

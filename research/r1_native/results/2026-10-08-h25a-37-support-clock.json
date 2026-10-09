@@ -1,0 +1,16 @@
+{
+  "schema": "r1-native-h25a-support-clock/v1",
+  "run": "/tmp/r1-h25a-37",
+  "source_sha256": {
+    "summary.json": "b5e052a37c7b4448e26cd0a3d07a714429eed9844cf461ccc686bdacfd8dd89a",
+    "orders.csv": "d42381fe8b89d8d38ede2b9254fe212e8159e6c71022ea635c5312e55433a13c",
+    "fills.csv": "deea705571d5574a6eb72402e82a7571450b2f6f8f17ebfdffe2b67159f35cc0",
+    "positions.csv": "e1a6d42e3aeed012c88ff8b3000fe035ccd814c5c98ca43b2a6d45ca8fe766a6"
+  },
+  "catalog_identity_sha256": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc",
+  "decisions_checked": 3802,
+  "exact_frozen_d90_source_plan_matches": 528,
+  "submitted_native_bundle_checks": 655,
+  "findings": [],
+  "passed": true
+}

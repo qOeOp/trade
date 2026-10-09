@@ -1,0 +1,29 @@
+{
+  "reference": "/tmp/nautilus-minimal-cleanup-h19a-37",
+  "candidate": "/tmp/r1-h20a-paired-h19a-37",
+  "reference_equity_usdt": "111664.46988783",
+  "candidate_equity_usdt": "111664.46988783",
+  "equity_gap_usdt": "0E-8",
+  "commission_gap_usdt": "0E-8",
+  "sharpe_gap": "0E-16",
+  "drawdown_gap": "0E-17",
+  "order_count": [
+    17665,
+    17665
+  ],
+  "fill_count": [
+    1722,
+    1722
+  ],
+  "position_count": [
+    507,
+    507
+  ],
+  "missing_order_ids": [],
+  "extra_order_ids": [],
+  "mismatched_orders": [],
+  "mismatched_fills": [],
+  "within_instrument_increment_fills": [],
+  "metric_differences": [],
+  "parity_passed": true
+}

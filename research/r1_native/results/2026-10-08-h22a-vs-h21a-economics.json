@@ -1,0 +1,49 @@
+{
+  "method": "read-only native summary, fill and position report reconciliation; no alternate fills or PnL engine",
+  "candidate": {
+    "run": "/tmp/r1-h22a-37",
+    "files_sha256": {
+      "summary.json": "69a7e9c2de386df53d37394d33c11434e90de6c4d0b7350d0b3762eae275e25c",
+      "orders.csv": "a3d3a195f1333e2356c99e6a8572052f755ee00abca227f6b2f06229f4abfe3f",
+      "fills.csv": "8ccb49a950b78749c56893acd7a32ecd438ab52c5b15a1856d5e0b1dad2da48b",
+      "positions.csv": "f86094e5ba46e9f61ac4672b6cc53149a44fda65732dcf9a66f4a7ef80cdf7b1",
+      "returns_series.csv": "b0b33b71429a99b1fd1b2b331bf8c2a7422a2f9086aa63fb6cd876174afcf99e",
+      "account.csv": "9f6fc4408bdc25d8227f806efcadc7e034e6cd4d159371aa3ec4d2ba33b6ea84"
+    },
+    "strategy_source_sha256": "e043fa6f462f04fab3311bace1b305e7ff3fe7c68d1f36da91aa4b192354111f",
+    "retracement_strategy_source_sha256": "19217066925b704c430b67b0495c677692dc62c7515c42fa6dd17e0295f18f03",
+    "runner_source_sha256": "4434ad96476f88ee4d1cb84dbd2496b6dd03db4498d5cc318c7ef2760b4184a8",
+    "closed_positions": 662,
+    "open_positions": 28,
+    "positive_closed_positions": 356,
+    "average_positive_closed_pnl_usdt": "201.7571162985955056179775281",
+    "average_nonpositive_closed_pnl_usdt": "-220.1322549350326797385620915",
+    "average_win_loss_ratio": 0.9165268231960818,
+    "position_fill_commissions_usdt": "1102.50062450",
+    "position_funding_adjustment_events": 14794,
+    "position_funding_adjustment_net_usdt": "-84.84854340"
+  },
+  "baseline": {
+    "run": "/tmp/r1-h22a-paired-h21a-37",
+    "files_sha256": {
+      "summary.json": "2b6a6341bb5e314a20d56132c65c873bcef6341ccbb9104da6a6ea79fa6dc897",
+      "orders.csv": "ee0c47901fa9b1f2d7eac5d30f38641916f047c70a906c532e4b474d220148f4",
+      "fills.csv": "941c16f4f3ea63861d4cd038782629063edf90e1234253ef15ce08a3c0d4df62",
+      "positions.csv": "c6e32ff10ffcceb446336acc41114e3c633e2491d757e0a0ff0bdcf168abcf15",
+      "returns_series.csv": "a4f0cc7a0e8d576642822e28771f38766d3897afd27e374510305332a3ddc1fc",
+      "account.csv": "a3c63663fb2f5ce58e7737db88c76e5bee0e6481a391699a9a81839a42ee536e"
+    },
+    "strategy_source_sha256": "e043fa6f462f04fab3311bace1b305e7ff3fe7c68d1f36da91aa4b192354111f",
+    "retracement_strategy_source_sha256": "19217066925b704c430b67b0495c677692dc62c7515c42fa6dd17e0295f18f03",
+    "runner_source_sha256": "4434ad96476f88ee4d1cb84dbd2496b6dd03db4498d5cc318c7ef2760b4184a8",
+    "closed_positions": 726,
+    "open_positions": 17,
+    "positive_closed_positions": 267,
+    "average_positive_closed_pnl_usdt": "249.6754484998876404494382022",
+    "average_nonpositive_closed_pnl_usdt": "-159.0979976054684095860566449",
+    "average_win_loss_ratio": 1.5693186102758716,
+    "position_fill_commissions_usdt": "1648.79631764",
+    "position_funding_adjustment_events": 9046,
+    "position_funding_adjustment_net_usdt": "-57.24256614"
+  }
+}

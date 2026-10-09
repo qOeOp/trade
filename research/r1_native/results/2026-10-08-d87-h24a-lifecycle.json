@@ -1,0 +1,151 @@
+{
+  "schema": "r1-native-d87-h24a-lifecycle/v1",
+  "source_sha256": {
+    "h24": {
+      "summary.json": "3090bd5c8ed9b39b56912a9ee842bac42252f54b30e2c4fb09c1c3c9beb97b95",
+      "orders.csv": "2488495e73d0e576d26a42b9fb7c5a71d19c9735978a5fb7ef65a978d7b9f5dc",
+      "fills.csv": "eb8a004da8966c67062cebfbbd9f66c8c48e95742dd6c109c2673e0a01c27d7b",
+      "positions.csv": "89c9d9bef5ac7d33d61138f9528183f57e2ae185a89a8455b477395b75b1cb6f"
+    },
+    "h19": {
+      "summary.json": "5459cc311e8f59dd1fa2a63ba4cee4b6c65a430f49c8f95aa0e56e565bfd234a",
+      "orders.csv": "ea5ef92e52e10df0182321d21cf72c49bcfc8e8c355114d8ddbd6a03c633b479",
+      "fills.csv": "d644340a1ea744e787fc9c1df702d2cfa01a48164cf6a6ba93b7fa155bc2c894",
+      "positions.csv": "be362ce190ca02fca57a144c534334b30a34a8996c1628e6a8c97b351c55d245"
+    },
+    "audits": {
+      "2026-10-08-h24a-37-native-audit.json": "014c773acfd475b57f7bfacf413dab806aa442bac5fb81491e379c8333f07a99",
+      "2026-10-08-h24a-37-gap-clock.json": "ae6ebd42eba5e42fc0f766f61b6b7f621d665fe86833cb0aebf6c9fcb35e195f",
+      "2026-10-08-h24a-paired-h19a-parity.json": "7a40f33c982314883c2f760bd10f8061f9a7604c6f426708aaa721f6331b0459"
+    },
+    "catalog_identity": "ce9963ca68c66d34af74dbdbfff484f320a622fa73afe64844518aed354ec9fc"
+  },
+  "h24_account_final_equity_usdt": "111792.04141470",
+  "h19_account_final_equity_usdt": "111664.46988783",
+  "h24_native_positions": {
+    "positions": 488,
+    "closed": 477,
+    "open_censored": 11,
+    "wins": 195,
+    "native_closed_realized_pnl_usdt": "11460.05052939",
+    "mean_win_usdt": "333.8454139889743589743589744",
+    "mean_nonpositive_usdt": "-190.2120751718439716312056738"
+  },
+  "exclusive_b_lifecycle": {
+    "no_b_fill": {
+      "positions": 306,
+      "closed": 295,
+      "open_censored": 11,
+      "wins": 13,
+      "native_closed_realized_pnl_usdt": "-51078.78444130",
+      "mean_win_usdt": "197.0015967046153846153846154",
+      "mean_nonpositive_usdt": "-190.2120751718439716312056738"
+    },
+    "b_fill_before_decision_exit": {
+      "positions": 24,
+      "closed": 24,
+      "open_censored": 0,
+      "wins": 24,
+      "native_closed_realized_pnl_usdt": "8709.19055925",
+      "mean_win_usdt": "362.88293996875",
+      "mean_nonpositive_usdt": null
+    },
+    "gap_persistent": {
+      "positions": 82,
+      "closed": 82,
+      "open_censored": 0,
+      "wins": 82,
+      "native_closed_realized_pnl_usdt": "30260.34247335",
+      "mean_win_usdt": "369.0285667481707317073170732",
+      "mean_nonpositive_usdt": null
+    },
+    "no_gap": {
+      "positions": 76,
+      "closed": 76,
+      "open_censored": 0,
+      "wins": 76,
+      "native_closed_realized_pnl_usdt": "23569.30193809",
+      "mean_win_usdt": "310.1223939222368421052631579",
+      "mean_nonpositive_usdt": null
+    }
+  },
+  "exit_kind_counts": {
+    "native_market": 121,
+    "open": 11,
+    "runner_target": 85,
+    "stop": 271
+  },
+  "early_runner_target_positions": {
+    "positions": 23,
+    "closed": 23,
+    "open_censored": 0,
+    "wins": 23,
+    "native_closed_realized_pnl_usdt": "8196.68565146",
+    "mean_win_usdt": "356.37763702",
+    "mean_nonpositive_usdt": null
+  },
+  "h24_submission_guards": {
+    "max_stop_risk_fraction": 0.002499999736079468,
+    "max_notional_fraction": 0.049999996290813836,
+    "min_share_skips": 0
+  },
+  "paired_exact_native_closed_position_pnl": {
+    "no_b_fill": {
+      "matched_closed_bundles": 261,
+      "h24_native_positions": 282,
+      "h19_native_positions": 268,
+      "h24_native_pnl_usdt": "-48146.40820980",
+      "h19_native_pnl_usdt": "-48031.76759201",
+      "native_position_pnl_difference_usdt": "-114.64061779"
+    },
+    "b_fill_before_decision_exit": {
+      "matched_closed_bundles": 24,
+      "h24_native_positions": 24,
+      "h19_native_positions": 24,
+      "h24_native_pnl_usdt": "8709.19055925",
+      "h19_native_pnl_usdt": "6927.54815133",
+      "native_position_pnl_difference_usdt": "1781.64240792"
+    },
+    "gap_persistent": {
+      "matched_closed_bundles": 76,
+      "h24_native_positions": 76,
+      "h19_native_positions": 76,
+      "h24_native_pnl_usdt": "28425.19711484",
+      "h19_native_pnl_usdt": "25396.35255277",
+      "native_position_pnl_difference_usdt": "3028.84456207"
+    },
+    "no_gap": {
+      "matched_closed_bundles": 69,
+      "h24_native_positions": 69,
+      "h19_native_positions": 69,
+      "h24_native_pnl_usdt": "21278.24130972",
+      "h19_native_pnl_usdt": "23551.13432353",
+      "native_position_pnl_difference_usdt": "-2272.89301381"
+    }
+  },
+  "unmatched_native_closed_positions": {
+    "h24_count": 26,
+    "h24_pnl_usdt": "1193.82975538",
+    "h19_count": 59,
+    "h19_pnl_usdt": "3490.05688792"
+  },
+  "native_market_exits": {
+    "total": 121,
+    "no_gap_at_decision": 76,
+    "other": 45,
+    "other_at_180bar_hold_limit": 45
+  },
+  "exact_geometry_and_submit_time": {
+    "h24_bundles": 2661,
+    "h19_bundles": 2939,
+    "unique_exact_keys": 2513,
+    "new_only_keys": 148,
+    "old_only_keys": 426,
+    "ambiguous_keys": 0,
+    "new_position_keys_exactly_present_in_old": 440,
+    "old_position_keys_exactly_present_in_new": 440,
+    "new_bundles_with_multiple_native_positions": 7,
+    "old_bundles_with_multiple_native_positions": 7
+  },
+  "interpretation": "Position PnL is native reported realized PnL, not a reconstructed runner cash-flow ledger; exact matched positions are descriptive, not account-level causal effects, and unmatched orders have no counterfactual PnL."
+}

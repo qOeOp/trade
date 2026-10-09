@@ -1,4 +1,4 @@
-> **历史研究资产。** 这里的旧脚本与实验记录保留用于溯源；部分脚本依赖已移除的 `vibe_trading` 本地分叉，不能作为当前运行入口。当前官方 Nautilus 策略与回放见 [`strategies/r1/`](../../strategies/r1/)。以下内容记录清理前的研究状态。
+> **历史研究资产。** 这里的旧脚本与实验记录保留用于溯源；部分脚本依赖已移除的 `vibe_trading` 本地分叉，不能作为当前运行入口。当前官方 Nautilus 策略与回放见 [`strategies/r1/`](../../strategies/r1/)。新轮次采用 [`research.records`](../records/README.md)；[研究记录索引](RECORD_INDEX.md)说明已转录与未迁移 H/D/S/F 的归属、当前证据链和旧 finding 的检索入口；下面的旧说明记录清理前的研究状态。
 
 # R-1 native replay
 
