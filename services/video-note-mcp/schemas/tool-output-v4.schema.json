@@ -1,0 +1,113 @@
+{
+  "$defs": {},
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "html_path": {
+          "title": "Html Path",
+          "type": "string"
+        },
+        "images": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Images",
+          "type": "array"
+        },
+        "note_path": {
+          "title": "Note Path",
+          "type": "string"
+        },
+        "rendered_markdown": {
+          "maxLength": 262144,
+          "minLength": 1,
+          "title": "Rendered Markdown",
+          "type": "string"
+        },
+        "schema": {
+          "const": "bilibili-note.result/v4",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "rendered_markdown",
+        "note_path",
+        "html_path",
+        "images"
+      ],
+      "title": "PublicBilibiliNoteResultV4",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_URL",
+            "UNSUPPORTED_URL",
+            "PART_REQUIRED",
+            "SOURCE_UNAVAILABLE",
+            "ACCESS_DENIED",
+            "RATE_LIMITED",
+            "SOURCE_CHANGED",
+            "TRANSCRIPT_UNAVAILABLE",
+            "TRANSCRIPT_INCOMPLETE",
+            "HD_SOURCE_UNAVAILABLE",
+            "DISTILLATION_FAILED",
+            "VISUAL_EVIDENCE_INCOMPLETE",
+            "OUTPUT_INVALID",
+            "CANCELLED",
+            "DEADLINE_EXCEEDED",
+            "ARTIFACT_UNAVAILABLE",
+            "INTERNAL"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "maturity": {
+          "const": "current_poc",
+          "title": "Maturity",
+          "type": "string"
+        },
+        "reason": {
+          "pattern": "^[a-z0-9_]{1,80}$",
+          "title": "Reason",
+          "type": "string"
+        },
+        "recovery": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "enum": [
+              "media_id",
+              "transcript_id",
+              "evidence_id"
+            ]
+          },
+          "title": "Recovery",
+          "type": "object"
+        },
+        "schema": {
+          "const": "bilibili-note.error/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "maturity",
+        "code",
+        "reason"
+      ],
+      "title": "ErrorV1",
+      "type": "object"
+    }
+  ],
+  "title": "BilibiliNoteToolOutputV4",
+  "type": "object"
+}
