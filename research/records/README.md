@@ -234,6 +234,19 @@ second editable ledger. Later decision, evidence and comparison-family changes
 are new Dolt revisions published with the same command from a JSON payload;
 preserve the original registration identity and do not rewrite its receipt.
 
+For the pre-cutover D98–D102/H29a records, immutable pending receipts live in
+`preregistrations/`. D98/D99/H29a/D100 copy their original bound Git bytes.
+D101/D102 are explicitly derived historical-adoption receipts: the original
+pre-result JSON used an execution/source layer for its pending decision and
+omitted the registration commit. The retained API receipt only normalizes that
+layer to `pending` and adds the verified original registration commit. Their
+original Git JSON is unchanged. The later Dolt publication preserves the raw
+original JSON, source commit/path/hash, normalization and actual adoption time
+in provenance, then appends the historical result as a separate revision.
+It records an already completed, exposed experiment; it does not create a new
+pre-result registration. H10 stays retrospective and H29a's old run stays
+temporary. Do not use material import to override Git metadata's frozen boundary.
+
 After a run, verify/register its native artifact and read the legal pair.
 Give feedback in this order: question and control; verified native facts with
 report references; unknown or unproven links; a falsifiable explanation; one
