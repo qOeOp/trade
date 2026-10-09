@@ -9,5 +9,5 @@ COPY backtest/__init__.py ./backtest/__init__.py
 COPY backtest/r1/*.py ./backtest/r1/
 COPY backtest/r1/checks/__init__.py backtest/r1/checks/audit_tiered_native.py backtest/r1/checks/compare_node.py ./backtest/r1/checks/
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-LABEL org.opencontainers.image.title="Trade R1 native research runtime" trade.runtime.contract="r1-native-v1"
+LABEL org.opencontainers.image.title="Trade R1 native research runtime" trade.runtime.contract="r1-native-v2"
 CMD ["python", "-m", "backtest.r1.runtime_identity"]

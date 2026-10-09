@@ -128,7 +128,7 @@
         "revision": {"type": "integer", "minimum": 1},
         "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "entry_class": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
-        "runtime_contract": {"const": "r1-native-v1"}
+        "runtime_contract": {"enum": ["r1-native-v1", "r1-native-v2"]}
       }
     }
   }
