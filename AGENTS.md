@@ -24,4 +24,6 @@
 
 ## Checks
 
+- PR titles must use `type(scope): description` (or `type(scope)!: description` for a breaking change), with lowercase type and scope; for example, `research(r1): record D98 support failure`. Validate the actual title with `bash .github/scripts/validate-pr-title.sh "<title>"` before creating or editing a PR. Follow `.github/pull_request_template.md` for the body and report checks actually run.
+
 Run `uv sync --frozen`, `uv run --frozen python strategies/r1/run_portfolio.py --help`, and the paired replay described in `strategies/r1/README.md` when its inputs are available. Inspect native order integrity and account economics; a successful process exit alone is insufficient.
