@@ -6,7 +6,7 @@
 
 让 RD Agent 自己提出可否证的问题、选择合法对照、登记搜索与数据暴露，并依据 Nautilus 原生报告解释结果和选择下一实验。研究者只设长期目标与风险边界；每轮具体研究方向由 Agent 决定。
 
-复用 [Git 研究记录与封存命令](../../research/records/README.md)、[研究分支的 compare](https://github.com/qOeOp/trade/blob/32c3ebf91ecc041635e0e1a4f3396dc7b612994c/research/records/cli.py) 和 [F01 四格分析](https://github.com/qOeOp/trade/blob/32c3ebf91ecc041635e0e1a4f3396dc7b612994c/strategies/r1/compare_factorial.py)。详细方法与依据见[调研报告](../../reports/策略研发%20实验组织%20证据反馈.md)。研究记录实现尚未合入 main；本计划先归档设计，不表示主线已有可运行命令。不新增研究服务、交易账本、撮合器或 Agent 角色。以下步骤按顺序推进，每步验收后才决定下一步的实际改动。
+复用 [Git 研究记录与封存命令](../../research/records/README.md)、[现有 compare](../../research/records/cli.py) 和 [F01 四格分析](../../strategies/r1/compare_factorial.py)。详细方法与依据见[调研报告](../../reports/策略研发%20实验组织%20证据反馈.md)。不新增研究服务、交易账本、撮合器或 Agent 角色。以下步骤按顺序推进，每步验收后才决定下一步的实际改动。
 
 ## 1. 固定 Agent 的单轮实验契约
 
