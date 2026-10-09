@@ -25,10 +25,10 @@
     "original_registration_commit": "288b07379"
   },
   "decision": {
-    "layer": "pending",
-    "outcome": "pending",
-    "scope": "199 个已知 5m 同根 H10 仓与现有 2026-09-01 至 10-07 的 1m Catalog 交集；最多两例局部 Nautilus 原生重放。",
-    "next_action": "先冻结读取器并核对每个交集事件的五根真实 1m 与旧 5m OHLC；有合格事件时按固定顺序做局部原生执行检验。"
+    "layer": "execution",
+    "outcome": "failed",
+    "scope": "199 个已知 H10 5m 同根仓中 14 个落在现存最近 1m 窗口；8 个入场/止损跨分钟，6 个仍同一分钟。首个跨分钟 ARB 原生 1m 将目标 REJECTED 变为 CANCELED，首个同分钟 UNI 仍 REJECTED。因此否定仅换 1m 可消除拒单；局部试验不估全年收益。",
+    "next_action": "保留 5m 原生 OTO 子单顺序修复；若以后研究 1m 执行精度，另行登记同一资产窗口的完整 Nautilus 账户对照，不用此局部结果声称策略改善。"
   },
   "evidence_refs": [
     {
@@ -40,6 +40,16 @@
       "kind": "audit",
       "path": "research/r1_native/results/2026-10-08-h10-native-readback.json",
       "sha256": "ea02034a29c97a1ba1ca4f091f1a440196c54fe46cbe7d12b25eee5f9d4392d6"
+    },
+    {
+      "kind": "source_gate",
+      "path": "research/r1_native/results/2026-10-09-d100-h10-one-minute-collision.json",
+      "sha256": "85fa15c4655fecbe0f22dfaeac0ede2e314484773d294421f39e4b8d2686c720"
+    },
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-09-d100-h10-native-one-vs-five-minute.json",
+      "sha256": "3e0e4b40a0c1c6c8be0479edb25ac924bb0586c4fb08bb907b74fa7c9394b41c"
     }
   ]
 }

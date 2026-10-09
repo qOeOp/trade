@@ -18,6 +18,7 @@
 | 先前 A 支撑与保护止损 | C02/C18/C20 → D18/D45 → D90 → D94 → H27a → D95 → S46 | H27a 的 A 外止损是研究者代理，年度净收益失败；S46 事后收窄 C02 来源归因。 |
 | 先前 A / 先前 B 准入 | D90 → H25a → D91 → H26a → D92/D93 | H25a/H26a 原生结果均未满足联合 Goal；新增机会的机制问题仍可深挖。 |
 | 入场后支撑证据 | D53/D55/D93 → [D96](../records/attempts/D96/attempt.json) → [D97](../records/attempts/D97/attempt.json) | 预设 61.8% 档下首根完成收盘与两根连续强空头突破的描述性全退出容量门槛都失败，且都有后续 B 赢家；保留结构事件方向，停止这两个具体退出规则。 |
+| 区间假突破与执行粒度 | [H10](../records/attempts/H10/attempt.json) → [D99](../records/attempts/D99/attempt.json) → [H29a](../records/attempts/H29a/attempt.json) → [D100](../records/attempts/D100/attempt.json) | H29a 原生订单有效但双目标失败；H10 旧 Engine／新 Node 精确事件对照未过。真实 1m 使部分同根 OTO 目标拒单变撤单，不能消除全部。 |
 | 已见年度与独立验证 | 多轮 H01 至 H27a 的各自状态见原记录；D95/S46/D96/D97 为只读复核 | 同一 2025-10 至 2026-10 年度已多次暴露；目前没有经独立验证的 >20%/近 60% 版本。 |
 
 ## F 编号到权威研究记录
@@ -123,3 +124,4 @@
 | [F95](../../docs/plans/r1-native-rd-findings.zh.md#f95) | 历史研究/过程结论 | [H26a](../records/attempts/H26a/attempt.json) | H26a, D92 |
 | [F96](../../docs/plans/r1-native-rd-findings.zh.md#f96) | 历史研究/过程结论 | [H26a](../records/attempts/H26a/attempt.json), [H25a](../records/attempts/H25a/attempt.json) | D93, H26a, H25a, D92 |
 | [F97](../../docs/plans/r1-native-rd-findings.zh.md#f97) | 历史研究/过程结论 | [H27a](../records/attempts/H27a/attempt.json), [H25a](../records/attempts/H25a/attempt.json) | D94, H27a, D95, S46, H25a |
+| [F99](../../docs/plans/r1-native-rd-findings.zh.md#f99) | 共同原生执行语义缺口 | [H29a](../records/attempts/H29a/attempt.json), [H10](../records/attempts/H10/attempt.json), [D100](../records/attempts/D100/attempt.json) | D27, D28, H10, H29a, D100 |

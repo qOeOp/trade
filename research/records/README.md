@@ -1,13 +1,15 @@
 # Research records and local artifact custody
 
 Git records are the research lineage; the native runner and Nautilus reports
-remain the trading facts. The index currently contains 16 attempts and 15 runs.
+remain the trading facts. The index currently contains 18 attempts and 16 runs.
 H25a/H26a/H27a and older runs are **retrospective transcriptions** of
 [`RD_EXPERIMENTS.md`](../r1_native/RD_EXPERIMENTS.md) and the hashed reports under
 `research/r1_native/results/`. F01 was registered before its combined strategy
 and economic result; four same-runner native replays fill its 00/10/01/11 family,
 and one later 37-coin repeat was sealed. D97–D99 are preregistered read-only
 diagnostics with no new native run; H10 is a retrospective transcription.
+H29a is a preregistered native candidate with temporary full CSVs and retained
+small-report audit; D100 is its preregistered real-1m execution diagnostic.
 The H25a/H26a/H27a raw reports remain
 `temporary`; their structured entries do not backdate registration or seal
 their old `/tmp` CSVs. These are development evidence, not independent strategy

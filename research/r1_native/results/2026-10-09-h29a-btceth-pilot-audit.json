@@ -1,0 +1,14 @@
+{
+  "schema": "r1-native-h29a-source-order-audit/v1",
+  "summary_sha256": "b8a3b151be3af3e257e1127389b2ea9bd2a7fc9a39d5d4864e8e614473f13553",
+  "orders_sha256": "3db87ac077feb5a7d7402f79c581e35382c0d7589b4e4cf1930d6e404eb3f2ec",
+  "positions_sha256": "9704e60635b403822bcf0971f6d352195f11e51a84e9199aeb88caaa89f3c1b2",
+  "d99_events_sha256": "fe291be8173049f167d3012231459cc3e311de453039c7959adeb9480ab9c408",
+  "coins": 2,
+  "valid_signals": 9,
+  "native_parent_orders": 8,
+  "native_filled_parents": 6,
+  "native_positions": 6,
+  "findings": [],
+  "passed": true
+}

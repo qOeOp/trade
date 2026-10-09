@@ -1149,3 +1149,13 @@
 **核查证据。** [D94 登记、结果与 H27a 契约](../../research/r1_native/RD_EXPERIMENTS.md#diagnostic-d94-does-the-native-764-buffer-stop-invalidate-prior-a-support-before-a-fails)、[全部订单和止损路径摘要](../../research/r1_native/results/2026-10-09-d94-stop-vs-a.json)、[逐组来源与真实退出](../../research/r1_native/results/2026-10-09-d94-stop-vs-a-bundles.json.gz)、[罗尼来源案例](../../research/r1_native/SOURCE_CASES.md)。
 
 **事后归位与纠错。** 上述 C02“区外止损”归因已由 [S46 来源复核](../../research/r1_native/RD_EXPERIMENTS.md#source-recheck-s46-c02-is-not-an-outside-a-stop-rule)收窄：C02 本段没有给 ETH 多单止损；C18 明说一／四小时至少低于 76.4%，C20 的线／先前低点没有唯一机械选择器。H27a 随后按原登记仅测试研究者的 A 外止损代理，原生年度收益未改善；[H27a 结果与 D95 失败归因](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h27a-h26a-prior-a-support-plans-with-the-common-stop-outside-a)是策略结论的权威位置。F97 保留其历史文字与原始 D94 几何证据，不再作为产品能力候选或“作者统一 A 外止损”证据。
+
+<a id="f99"></a>
+
+## F99：原生 OTO 子单顺序与数据粒度需要明确的执行语义核查
+
+**受影响的共同研究能力。** D27/D28 早已发现：在原生五分钟 K 线同根触发母单入场和保护止损时，Nautilus 的 stop-first OTO 子单激活顺序可能让稍后激活的 reduce-only 目标单变为 `REJECTED`。H29a 的同代码 H10 对照再次暴露同一问题：199 个目标拒单，虽然原生成交、934 笔平仓、61 笔盈利与旧 H10 相同。把原生 OTO 母单的目标关联放在保护止损之前后，现行 BacktestNode 五分钟运行拒单归零，期末权益精确复现旧 H10；但旧 Engine 与新 Node 的订单关联、部分 Position 字段和账户事件序列仍不能通过严格逐事件比对。它阻止研究 Agent 按 H29a 已预登记的**精确历史对照门槛**发布正式配对经济结论，额外耗费了一次失败全年对照、一次局部 BTC/ETH 修复 pilot、一次修复后 37 币对照和一次未改变 H29a 行为的同源复跑。不能因期末余额一致就默许执行语义一致。
+
+**真实 1m 反例与最小共同能力。** D100 复用现有 37 币最近 1m Catalog，在旧 H10 的 199 个同根仓中找到 14 个有真实 1m 覆盖：八个价格触及跨分钟、六个仍同一分钟。固定 ARB/UNI 两例的原生局部重放确认 1m 能将前者目标拒单改为撤单，后者仍拒单。故更细 K 线是执行事件分辨率选择，不是 OTO 生命周期一致性的通用修复，也不能从两个局部重放推断全年收益。产品的最小共享底座需要把**原生母子单激活顺序、同事件保护与终结状态、精确回放时钟及跨 BacktestEngine/BacktestNode 的可接受差异**作为同一执行契约审计；用已有 Nautilus 订单／成交／Position 报告表达，不另设撮合引擎或账本。当前研究可沿用已通过零拒单审计的母子单顺序，5m 年度净值如实保留；任何 1m 年度资格试验要另行登记真实数据身份、同账户成本和可比较窗口。
+
+**证据。** [H29a 对照失败与修复](../../research/r1_native/RD_EXPERIMENTS.md#candidate-h29a-native-next-bar-failed-range-breakout-buy-stop)、[严格旧 Engine／新 Node 报告](../../research/r1_native/results/2026-10-09-h29a-h10-historical-parity.json)、[D100 真实 1m 时序](../../research/r1_native/results/2026-10-09-d100-h10-one-minute-collision.json)、[两例原生局部重放](../../research/r1_native/results/2026-10-09-d100-h10-native-one-vs-five-minute.json)。

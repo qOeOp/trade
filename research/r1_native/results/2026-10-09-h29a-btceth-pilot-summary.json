@@ -1,0 +1,147 @@
+{
+  "source_commit": "0725a7b3f89902e27cd421a18b4b879a13268534",
+  "strategy_source_sha256": "4dc8552e6cca60c0148f78814023b38edf59f2da0429229ba12c60351c339f18",
+  "staged_strategy_source_sha256": null,
+  "trendline_strategy_source_sha256": null,
+  "retracement_strategy_source_sha256": null,
+  "tiered_strategy_source_sha256": null,
+  "brooks_confirmed_strategy_source_sha256": null,
+  "failed_range_breakout_strategy_source_sha256": "5116706f4af2b8b8b47100effd38a05b02bdc0866a369743af3c3380b0d419d1",
+  "stop_entry_source_sha256": "49ac0becef9f4e9dcb6b5ef825122d4e121d95197cde128d2bcbb2cef1dfc869",
+  "gap_runner_strategy_source_sha256": null,
+  "structural_support_strategy_source_sha256": null,
+  "broad_swing_signal_source_sha256": null,
+  "runner_source_sha256": "f561fe8a04c426761d1bee601c0fa59a790d3db946f46298d335fbbfd909836e",
+  "strategy": "H29a-box-failed-breakout-4h",
+  "signal_variant": "box-failed-breakout-4h",
+  "exit_variant": "fixed-2r",
+  "integrity_findings": [],
+  "integrity_passed": true,
+  "account_model": "one native BacktestNode margin account, 100000 USDT, 2 strategies sharing portfolio capital",
+  "starting_balance_usdt": "100000",
+  "native_risk_submit_rate": "200/00:00:01",
+  "sizing": {
+    "mode": "native_equity_stop_risk_with_notional_cap",
+    "risk_budget_bps": 25.0,
+    "coin_notional_cap_pct": 5.0
+  },
+  "final_equity_usdt": "99999.73306679",
+  "net_change_usdt": "-0.26693321",
+  "period_return_pct": -0.00026693321,
+  "annualized_return_pct": -0.0002741789101114431,
+  "closed_trades": 6,
+  "winning_trades": 2,
+  "closed_trade_win_rate": 0.3333333333333333,
+  "win_rate_definition": "positive native closed-position realized_pnl including fill commissions and position funding adjustments",
+  "denied_orders": 0,
+  "rejected_orders": 0,
+  "native_sharpe_252": 0.0018276342253795929,
+  "native_sharpe_365": 0.0021995581307239125,
+  "native_max_drawdown_daily_close": -0.002607673252121367,
+  "stats_returns": {
+    "Tail Ratio": null,
+    "Sharpe Ratio (252 days)": 0.0018025629924020596,
+    "Sortino Ratio (252 days)": 0.004847422188166691,
+    "Average (Return)": 3.186450729080241e-08,
+    "Profit Factor": 1.002197322786298,
+    "Returns Kurtosis": 271.8633959570004,
+    "Returns Skewness": 14.860421060353826,
+    "Returns Volatility (252 days)": 0.004454688058685695,
+    "Risk Return Ratio": 0.00011355079524819668,
+    "Average Loss (Return)": -0.0005307554147782944,
+    "Average Win (Return)": 0.0013298041393628446
+  },
+  "stats_pnls": {
+    "USDT": {
+      "Avg Winner": 248.53987044499996,
+      "Max Winner": 284.81369128999995,
+      "Min Winner": 212.2660496,
+      "PnL (total)": -0.266933210004936,
+      "Min Loser": -51.58408125,
+      "Expectancy": -0.04448886833335058,
+      "Avg Loser": -124.33666852500001,
+      "PnL% (total)": -0.000266933210004936,
+      "Max Loser": -235.89827296,
+      "Win Rate": 0.3333333333333333
+    }
+  },
+  "stats_general": {
+    "Long Ratio": 1.0
+  },
+  "data_interval_minutes": 5,
+  "input_start_utc": "2025-10-07T00:00:00Z",
+  "period_start_utc": "2025-10-17T00:00:00+00:00",
+  "period_end_utc": "2026-10-07T08:30:00Z",
+  "per_coin": [
+    {
+      "coin": "BTC",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "quantity": "0.008",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 4,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "failed_range_breakout": {
+        "valid_signals": 4,
+        "occupied_skips": 0,
+        "submitted_brackets": 4,
+        "invalid_price_skips": 0
+      },
+      "support_pullback": null,
+      "tiered_pullback": null,
+      "entry_line_cancel": null,
+      "brooks_confirmation": null,
+      "gap_runner": null,
+      "structural_support": null,
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 4
+    },
+    {
+      "coin": "ETH",
+      "instrument": "ETHUSDT-PERP.BINANCE",
+      "quantity": "0.214",
+      "counts": {
+        "funding": 1097,
+        "last": 105222,
+        "mark": 105222
+      },
+      "signals": 5,
+      "box_breaks": 0,
+      "outer_context": null,
+      "box_edge": null,
+      "failed_range_breakout": {
+        "valid_signals": 5,
+        "occupied_skips": 1,
+        "submitted_brackets": 4,
+        "invalid_price_skips": 0
+      },
+      "support_pullback": null,
+      "tiered_pullback": null,
+      "entry_line_cancel": null,
+      "brooks_confirmation": null,
+      "gap_runner": null,
+      "structural_support": null,
+      "line_breaks": null,
+      "line_support": null,
+      "line_resting": null,
+      "risk_size_skips": 0,
+      "staged_execution": null,
+      "positions": 2
+    }
+  ],
+  "limitations": [
+    "Five-minute execution bars cannot resolve every intrabar order sequence",
+    "Current contract terms approximate historical metadata",
+    "Fixed 2026 coin universe is backcast into 2025",
+    "Minute-sampled portfolio drawdown is not yet reported"
+  ]
+}
