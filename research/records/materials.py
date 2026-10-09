@@ -270,7 +270,7 @@ def _json_path_kind(path: str) -> str | None:
 
 
 def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Iterable[str | dict] | None = None, *, supplemental_objects: Iterable[dict] = (), selected_paths: Iterable[str] | None = None) -> dict:
-    """Collect tracked Markdown, record JSON, and explicitly cited JSON evidence.
+    """Collect source bytes and explicit navigation, never research records.
 
     Untracked Markdown is limited to reports, research_notes, docs/plans, and the
     comparison probe README. Git-ignored files and paths outside root are never
@@ -278,12 +278,23 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
     or an explicit {commit, paths, retained_payloads} selection returned by
     ``retained_historical_refs``. Retained payloads are byte/hash/OID verified
     and do not require the original commit to be available in this checkout.
-    Historical snapshots precede the worktree and do not imply registration.
+    Historical attempt/run JSON is archived as ordinary JSON evidence. Its
+    declared relationships remain references, not registration or a research
+    lineage projection. Historical snapshots precede the worktree.
     Supplemental payloads must be explicitly retained and byte-hash verified;
     they never authorize scanning arbitrary untracked JSON.
     """
     root = Path(root).resolve()
-    supplemental_objects = tuple(supplemental_objects)
+    # Old imports may have stored original JSON bytes on an attempt/run object.
+    # Reference resolution can reuse those bytes, but material custody cannot
+    # republish the object into the record namespace.
+    supplemental_objects = tuple(
+        {**obj, "id": "evidence_json:" + obj["provenance"]["path"], "kind": "evidence_json"}
+        if obj.get("kind") in {"attempt", "run"} else obj
+        for obj in supplemental_objects
+        if obj.get("kind") not in {"attempt", "run"}
+        or isinstance(obj.get("provenance", {}).get("path"), str)
+    )
     head = _git(root, "rev-parse", "HEAD").decode().strip()
     tracked = set(_paths(_git(root, "ls-files", "-z")))
     untracked = set(_paths(_git(root, "ls-files", "--others", "--exclude-standard", "-z"))) if include_untracked else set()
@@ -470,14 +481,12 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
                     path_to_object[path] = f"material:{path}"
                 continue
             raw, prov = value
-            kind = _json_path_kind(path) or "evidence_json"
-            identifier = data.get(f"{kind}_id") if kind in {"attempt", "run"} else path
-            if not isinstance(identifier, str):
-                review.append({"reason": "missing_record_id", "path": path, "kind": kind})
-                continue
-            obj_id = f"{kind}:{identifier}"
-            add({"id": obj_id, "kind": kind, "body": data, "provenance": dict(prov, raw_content_base64=base64.b64encode(raw).decode("ascii"))})
+            obj_id = f"evidence_json:{path}"
+            add({"id": obj_id, "kind": "evidence_json", "body": data, "provenance": dict(prov, raw_content_base64=base64.b64encode(raw).decode("ascii"))})
             path_to_object[path] = obj_id
+            if _json_path_kind(path):
+                review.append({"reason": "archived_record_requires_registration", "object_id": obj_id,
+                               "boundary": "Original record JSON is source custody, not a registered attempt/run; use the Dolt record API."})
 
         if historical_commit is None and selected_paths is not None:
             # Explicit selection promises custody of each selected file, even
@@ -523,6 +532,10 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
                 target = ref_object(path, category="file_evidence", declared_sha256=ref.get("sha256"))
             edge("evidence_ref", from_id, target, {"field": field, "reference": ref, "source": prov})
 
+        def record_ref(from_id: str, kind: str, identifier: str, field: str, prov: dict, **metadata: object) -> None:
+            target = ref_object(f"{kind}:{identifier}", category="declared_record", record_kind=kind)
+            edge("references", from_id, target, {"field": field, "source": prov, **metadata})
+
         for path in sorted(selected_json):
             data = json_data.get(path)
             from_id = path_to_object.get(path)
@@ -532,25 +545,21 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
             kind = _json_path_kind(path)
             if kind == "attempt":
                 for i, parent in enumerate(data.get("parents", [])):
-                    if isinstance(parent, dict) and parent.get("relationship") in {"hypothesis_extension", "repair", "composition"} and isinstance(parent.get("attempt_id"), str):
-                        edge(parent["relationship"], from_id, f"attempt:{parent['attempt_id']}", {"field": f"/parents/{i}", "reference": parent, "source": prov})
+                    if isinstance(parent, dict) and isinstance(parent.get("attempt_id"), str):
+                        record_ref(from_id, "attempt", parent["attempt_id"], f"/parents/{i}", prov, reference=parent)
                 for i, item in enumerate(data.get("mechanism_refs", [])):
-                    if not isinstance(item, dict) or item.get("relationship") != "component_reuse" or not isinstance(item.get("attempt_id"), str) or not isinstance(item.get("component"), str):
+                    if not isinstance(item, dict) or not isinstance(item.get("attempt_id"), str):
                         continue
-                    target = f"attempt:{item['attempt_id']}"
-                    edge("component_reuse", from_id, target, {"field": f"/mechanism_refs/{i}", "reference": item, "source": prov})
-                    component = f"component:{item['component']}"
-                    add({"id": component, "kind": "component", "body": {"name": item["component"]}, "provenance": dict(prov, locator=f"/mechanism_refs/{i}/component")})
-                    for attempt in (from_id, target):
-                        edge("component_index", component, attempt, {"field": f"/mechanism_refs/{i}/component", "boundary": item.get("boundary"), "source": prov})
+                    record_ref(from_id, "attempt", item["attempt_id"], f"/mechanism_refs/{i}", prov, reference=item)
                 family = data.get("comparison_family")
                 if isinstance(family, dict):
                     for role in ("origin", "factor_a", "factor_b"):
                         target = family.get(f"{role}_attempt_id")
                         if isinstance(target, str):
-                            edge("comparison_family", from_id, f"attempt:{target}", {"role": role, "family_id": family.get("family_id"), "source": prov})
+                            record_ref(from_id, "attempt", target, f"/comparison_family/{role}_attempt_id", prov, family_id=family.get("family_id"))
                     for cell, run in family.get("cells", {}).items():
-                        edge("comparison_cell", from_id, f"run:{run}", {"cell": cell, "family_id": family.get("family_id"), "source": prov})
+                        if isinstance(run, str):
+                            record_ref(from_id, "run", run, f"/comparison_family/cells/{cell}", prov, family_id=family.get("family_id"))
                     if isinstance(family.get("analysis_ref"), dict):
                         file_ref(from_id, family["analysis_ref"], "/comparison_family/analysis_ref", prov)
                 for i, ref in enumerate(data.get("evidence_refs", [])):
@@ -558,9 +567,9 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
                         file_ref(from_id, ref, f"/evidence_refs/{i}", prov)
             elif kind == "run":
                 if isinstance(data.get("attempt_id"), str):
-                    edge("run_of", from_id, f"attempt:{data['attempt_id']}", {"field": "/attempt_id", "source": prov})
+                    record_ref(from_id, "attempt", data["attempt_id"], "/attempt_id", prov)
                 if isinstance(data.get("control_run_id"), str):
-                    edge("compared_with", from_id, f"run:{data['control_run_id']}", {"field": "/control_run_id", "source": prov})
+                    record_ref(from_id, "run", data["control_run_id"], "/control_run_id", prov)
                 for field in ("summary_ref", "audit_ref", "artifact_manifest_ref"):
                     if isinstance(data.get(field), dict):
                         file_ref(from_id, data[field], f"/{field}", prov)
@@ -574,7 +583,7 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
                     if target:
                         edge("references", from_id, target, {"field": f"/source_reads/{token}", "reading": reading, "source": prov})
                 for i, token in enumerate(data.get("prior_experiments", [])):
-                    target = f"attempt:{token}" if f"attempt:{token}" in local_objects else section_target(token)
+                    target = section_target(token)
                     if target:
                         edge("references", from_id, target, {"field": f"/prior_experiments/{i}", "source": prov})
                     else:
@@ -636,7 +645,7 @@ def scan(root: Path = ROOT, include_untracked: bool = True, historical_refs: Ite
             relation["to_source_sha256"] = local_objects[relation["to_id"]]["provenance"].get("blob_sha256")
             relation["id"] = f"relation:{_sha(_canonical(relation))}"
         objects.extend(local_objects.values())
-        snapshot_statistics.append({"git_commit": historical_commit, "objects": len(objects) - object_start, "relations": len(relations) - relation_start, "markdown_files": sum(obj["kind"] == "material" and obj["body"].get("format") == "markdown" for obj in local_objects.values()), "structured_json_files": sum(obj["kind"] in {"attempt", "run", "evidence_json"} for obj in local_objects.values())})
+        snapshot_statistics.append({"git_commit": historical_commit, "objects": len(objects) - object_start, "relations": len(relations) - relation_start, "markdown_files": sum(obj["kind"] == "material" and obj["body"].get("format") == "markdown" for obj in local_objects.values()), "structured_json_files": sum(obj["kind"] == "evidence_json" for obj in local_objects.values())})
     # Multiple source paths can repeat a fact. Preserve distinct evidence bodies but
     # remove byte-identical edges within a snapshot.
     unique_relations = {r["id"]: r for r in relations}

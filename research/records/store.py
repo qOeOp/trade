@@ -1,4 +1,4 @@
-"""Research metadata port; Dolt owns current records, Git is explicit history.
+"""Research metadata port; Dolt owns registrations and decision revisions.
 
 Native account economics and sealed artifacts remain with their existing owners.
 Each reader binds all metadata to one native commit before following relations.
@@ -10,9 +10,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
 
-from research.records.common import ROOT, RECORDS, RecordError, _read_json, _validator
+from research.records.common import RecordError, _read_json, _validator
 from research.records.dolt_store import DoltStore, ConflictError
 
 
@@ -40,7 +39,7 @@ def config_path():
 def configuration():
     path = config_path()
     if not path.is_file():
-        raise RecordError(f"Dolt is not configured: {path}; initialize ledger or explicitly select --backend git for read-only history")
+        raise RecordError(f"Dolt is not configured: {path}; initialize the Dolt ledger")
     return _read_json(path)
 
 
@@ -50,94 +49,10 @@ def validate_record(kind, body):
         raise RecordError(f"invalid {kind}: {list(errors[0].path)}: {errors[0].message}")
 
 
-def _preregistration_receipt(body, receipt_path):
-    """Require the first prospective record to match a retained Git receipt."""
-    registration = body["registration"]
-    if body["decision"]["layer"] != "pending" or body["decision"]["outcome"] != "pending":
-        raise RecordError("first preregistered attempt must have a pending/pending decision")
-    if receipt_path is None:
-        raise RecordError("first preregistered attempt requires a committed receipt_path")
-    root = ROOT.resolve()
-    receipt = Path(receipt_path).resolve()
-    if not receipt.is_relative_to(root) or not receipt.is_file():
-        raise RecordError("preregistration receipt must be a file inside the repository")
-    relative = receipt.relative_to(root).as_posix()
-    commit = registration.get("original_registration_commit")
-    if not isinstance(commit, str) or not commit:
-        raise RecordError("preregistration requires an original_registration_commit")
-
-    def git(*args):
-        result = subprocess.run(["git", *args], cwd=root, capture_output=True, check=False)
-        if result.returncode:
-            raise RecordError("preregistration receipt or original reference is not committed")
-        return result.stdout
-
-    if git("cat-file", "-t", commit).strip() != b"commit":
-        raise RecordError("original preregistration reference is not a Git commit")
-    reference = Path(registration["reference"])
-    if reference.is_absolute() or ".." in reference.parts:
-        raise RecordError("preregistration reference must be a repository path")
-    if reference.as_posix() != relative:
-        raise RecordError("new preregistration reference must point to its single JSON receipt")
-    if git("cat-file", "-t", f"{commit}:{reference.as_posix()}").strip() != b"blob":
-        raise RecordError("preregistration reference must exist at its original Git commit")
-    if reference.as_posix() == relative:
-        # A one-file receipt may add its first commit's identity in a second
-        # commit; it may not change the registered intent in that step.
-        try:
-            original = json.loads(git("show", f"{commit}:{relative}"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RecordError("original preregistration receipt must contain JSON") from exc
-        without_anchor = json.loads(json.dumps(body))
-        without_anchor["registration"].pop("original_registration_commit", None)
-        if canonical(original) != canonical(without_anchor):
-            raise RecordError("original preregistration intent changed; only its commit anchor may be added")
-    committed = git("show", f"HEAD:{relative}")
-    if committed != receipt.read_bytes():
-        raise RecordError("preregistration receipt must be committed unchanged at HEAD")
-    try:
-        retained = json.loads(committed)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RecordError("preregistration receipt must contain the published JSON body") from exc
-    if canonical(retained) != canonical(body):
-        raise RecordError("preregistration receipt JSON differs from the published body")
-
-
-class GitHistoryStore:
-    """Read retained JSON receipts; never accept a metadata write."""
-
-    def snapshot(self, commit=None):
-        if commit is not None:
-            raise RecordError("--at is a Dolt commit; Git history uses its fixed archive index or explicit checkout")
-        from research.records.history import load_archive
-        archive = load_archive(ROOT)
-        collections = []
-        for kind in ("attempt", "run"):
-            found = {}
-            if archive:
-                paths = [Path(path) for path in archive.paths(f"research/records/{kind}s/")
-                         if len(Path(path).parts) == 5 and path.endswith(f"/{kind}.json")]
-            else:
-                paths = sorted((RECORDS / f"{kind}s").glob(f"*/{kind}.json"))
-            for path in paths:
-                if archive:
-                    try:
-                        body = json.loads(archive.read_bytes(path.as_posix()))
-                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                        raise RecordError(f"invalid archived {kind} JSON: {path}") from exc
-                else:
-                    body = _read_json(path)
-                validate_record(kind, body)
-                identity = body[f"{kind}_id"]
-                if identity != path.parent.name or identity in found:
-                    raise RecordError(f"invalid or duplicated identity: {path}")
-                found[identity] = body
-            collections.append(found)
-        return (*collections, {"backend": "git", "read_only": True,
-                              **({"git_commit": archive.commit} if archive else {})})
-
-    def publish_record(self, *args, **kwargs):
-        raise RecordError("Git metadata is read-only; publications require Dolt")
+def _attempt_contract(body):
+    """Only conclusions and attached evidence can change within one attempt."""
+    return {key: value for key, value in body.items()
+            if key not in ("decision", "evidence_refs", "comparison_family")}
 
 
 class DoltRecords:
@@ -148,19 +63,83 @@ class DoltRecords:
         status = self.adapter.status()
         fixed = commit or status["commit"]
         attempts, runs = {}, {}
-        for obj in self.adapter.list_objects(commit=fixed):
-            if obj["kind"] not in ("attempt", "run"):
-                continue
-            kind, body = obj["kind"], obj["body"]
-            validate_record(kind, body)
-            identity = body[f"{kind}_id"]
-            if obj["id"] != f"{kind}:{identity}":
-                raise RecordError(f"object identity differs from body: {obj['id']}")
-            (attempts if kind == "attempt" else runs)[identity] = body
+        for kind in ("attempt", "run"):
+            for obj in self.adapter.list_objects(kind=kind, commit=fixed):
+                body = obj["body"]
+                validate_record(kind, body)
+                identity = body[f"{kind}_id"]
+                if obj["id"] != f"{kind}:{identity}":
+                    raise RecordError(f"object identity differs from body: {obj['id']}")
+                (attempts if kind == "attempt" else runs)[identity] = body
         return attempts, runs, {"backend": "dolt", "commit": fixed}
 
+    def registration_snapshot(self, attempt_id, binding=None, *, at=None):
+        """Read the first API registration, independently of later conclusions."""
+        identity = "attempt:" + attempt_id
+        if binding is not None:
+            if (not isinstance(binding, dict) or set(binding) != {"id", "revision", "commit"}
+                    or binding["id"] != identity or type(binding["revision"]) is not int
+                    or binding["revision"] != 1):
+                raise RecordError("registration binding must identify the first attempt revision")
+            if at is not None and at != binding["commit"]:
+                raise RecordError("registration binding conflicts with the requested snapshot")
+            fixed = binding["commit"]
+        else:
+            fixed = at or self.adapter.status()["commit"]
+        obj = self.adapter.get_object(identity, revision=1, commit=fixed)
+        if obj is None:
+            raise RecordError(f"missing initial Dolt registration: {identity}")
+        validate_record("attempt", obj["body"])
+        body = obj["body"]
+        if (obj["kind"] != "attempt" or obj["id"] != identity or body["attempt_id"] != attempt_id
+                or body["registration"]["status"] != "preregistered"
+                or body["decision"]["layer"] != "pending" or body["decision"]["outcome"] != "pending"):
+            raise RecordError(f"initial attempt is not a pending Dolt preregistration: {identity}")
+        operation = obj["provenance"].get("operation_id")
+        if not isinstance(operation, str) or not operation:
+            raise RecordError(f"initial registration lacks an API publication operation: {identity}")
+        context_id = "publication:" + hashlib.sha256(operation.encode()).hexdigest()
+        context = self.adapter.get_object(context_id, revision=1, commit=fixed)
+        if (context is None or context["kind"] != "publication"
+                or context["body"].get("record_id") != identity
+                or context["body"].get("record_revision") != 1
+                or context["provenance"].get("operation_id") != operation):
+            raise RecordError(f"initial registration lacks its fixed publication receipt: {identity}")
+        publication = self.adapter.operation_receipt(operation, commit=fixed)
+        if publication is None:
+            raise RecordError(f"initial registration operation is unavailable: {identity}")
+        receipt = {"id": identity, "revision": 1, "commit": publication["commit"]}
+        if binding is not None and binding != receipt:
+            raise RecordError("registration binding differs from the first committed publication")
+        original = self.adapter.get_object(identity, revision=1, commit=receipt["commit"])
+        if original is None or canonical(original) != canonical(obj):
+            raise RecordError("registration receipt does not contain the initial attempt")
+        return body, receipt
+
+    def _fixed_attempt_dependencies(self, previous, commit):
+        """Carry the registered source revisions through later decisions."""
+        references = previous["body"]["parents"] + previous["body"].get("mechanism_refs", [])
+        expected = {(ref["relationship"], "attempt:" + ref["attempt_id"]) for ref in references}
+        if not expected:
+            return {}
+        revisions = {key: set() for key in expected}
+        for edge in self.adapter.list_relations(commit=commit):
+            key = (edge["kind"], edge["to_id"])
+            if (edge["from_id"] == previous["id"] and edge["from_revision"] == previous["revision"]
+                    and key in revisions):
+                revisions[key].add(edge["to_revision"])
+        bindings = {}
+        for (_, target), selected in revisions.items():
+            if len(selected) != 1:
+                raise RecordError(f"missing or ambiguous fixed attempt dependency: {target}")
+            revision = next(iter(selected))
+            if target in bindings and bindings[target] != revision:
+                raise RecordError(f"inconsistent fixed attempt dependency: {target}")
+            bindings[target] = revision
+        return bindings
+
     def publish_record(self, kind, body, *, operation_id, expected_version, provenance=None,
-                       receipt_path=None, endpoint_revisions=None):
+                       endpoint_revisions=None):
         if kind not in ("attempt", "run"):
             raise RecordError("record publications accept only attempt or run")
         if not isinstance(operation_id, str) or not operation_id or len(operation_id) > 160:
@@ -185,6 +164,16 @@ class DoltRecords:
                 raise ConflictError("operation-content conflict: publication identity differs")
             base = details["base_commit"]
             bindings = details["endpoint_revisions"]
+            if kind == "attempt":
+                for reference in body["parents"] + body.get("mechanism_refs", []):
+                    target = "attempt:" + reference["attempt_id"]
+                    if target in bindings:
+                        requested_endpoints.setdefault(target, bindings[target])
+            if kind == "run":
+                target = "attempt:" + body["attempt_id"]
+                registered = self.adapter.get_object(target, commit=base)
+                if registered and registered["body"]["registration"]["status"] == "preregistered":
+                    requested_endpoints.setdefault(target, 1)
             if endpoint_revisions is not None and requested_endpoints != bindings:
                 raise ConflictError("operation-content conflict: endpoint revisions differ")
             obj = self.adapter.get_object(identity, revision=details["record_revision"], commit=status["commit"])
@@ -196,11 +185,28 @@ class DoltRecords:
         else:
             base = status["commit"]
             bindings = requested_endpoints
+            if kind == "run":
+                target = "attempt:" + body["attempt_id"]
+                registered = self.adapter.get_object(target, commit=base)
+                if registered and registered["body"]["registration"]["status"] == "preregistered":
+                    self.registration_snapshot(body["attempt_id"], at=base)
+                    if bindings.get(target, 1) != 1:
+                        raise RecordError("run_of must bind the initial preregistration revision 1")
+                    bindings[target] = 1
             previous = self.adapter.get_object(identity, commit=base)
-            if kind == "attempt" and previous and previous["body"]["registration"] != body["registration"]:
-                raise ConflictError("an attempt revision cannot rewrite its original registration")
-            if kind == "attempt" and previous is None and body["registration"]["status"] == "preregistered":
-                _preregistration_receipt(body, receipt_path)
+            if kind == "attempt":
+                if previous:
+                    if canonical(_attempt_contract(previous["body"])) != canonical(_attempt_contract(body)):
+                        raise ConflictError("an attempt revision cannot rewrite its original registration contract; use a new attempt ID")
+                    for target, revision in self._fixed_attempt_dependencies(previous, base).items():
+                        if bindings.get(target, revision) != revision:
+                            raise ConflictError(f"an attempt revision cannot rebind its fixed dependency: {target}@{revision}; use a new attempt ID for new dependencies")
+                        bindings[target] = revision
+                    if body["registration"]["status"] == "preregistered":
+                        self.registration_snapshot(body["attempt_id"], at=base)
+                elif body["registration"]["status"] == "preregistered":
+                    if body["decision"]["layer"] != "pending" or body["decision"]["outcome"] != "pending":
+                        raise RecordError("first preregistered attempt must have a pending/pending decision")
             if kind == "run" and previous is not None:
                 if canonical(previous["body"]) != canonical(body):
                     raise ConflictError(f"a sealed run ID is immutable: {identity}; use a new run ID")
@@ -288,13 +294,15 @@ class DoltRecords:
             for field in ("summary_ref", "audit_ref", "artifact_manifest_ref"):
                 if field in body:
                     file_ref(body[field], "/" + field)
-        return self.adapter.publish(list(objects.values()), related, operation_id, expected_version, f"publish {identity}")
+        result = self.adapter.publish(list(objects.values()), related, operation_id, expected_version, f"publish {identity}")
+        if kind == "attempt" and body["registration"]["status"] == "preregistered":
+            if obj["revision"] == 1:
+                receipt = {"id": identity, "revision": 1, "commit": result["commit"]}
+            else:
+                _, receipt = self.registration_snapshot(body["attempt_id"], at=result["commit"])
+            result["registration_receipt"] = receipt
+        return result
 
 
-def open_store(backend=None):
-    choice = backend or os.environ.get("TRADE_RECORDS_BACKEND", "dolt")
-    if choice == "git":
-        return GitHistoryStore()
-    if choice == "dolt":
-        return DoltRecords()
-    raise RecordError(f"unknown research record backend: {choice}")
+def open_store():
+    return DoltRecords()

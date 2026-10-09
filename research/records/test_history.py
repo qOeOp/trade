@@ -13,7 +13,6 @@ from research.records import cli
 from research.records.common import RecordError
 from research.records.fixtures.contract_repository import ContractRepository
 from research.records.history import INDEX_PATH, load_archive, read_archive_bytes
-from research.records.store import GitHistoryStore
 
 
 class FixedGitArchiveTests(unittest.TestCase):
@@ -22,7 +21,7 @@ class FixedGitArchiveTests(unittest.TestCase):
         self.addCleanup(self.fixture.close)
         self.context = self.fixture.patches()
         self.addCleanup(self.context.close)
-        self.attempts, self.runs, _ = GitHistoryStore().snapshot()
+        self.attempts, self.runs = self.fixture.snapshot()
         self.index = {
             "schema_version": 1, "git_commit": self.fixture.head,
             "prefixes": ["research/records/attempts/", "research/records/runs/",
@@ -39,13 +38,11 @@ class FixedGitArchiveTests(unittest.TestCase):
         self.assertIsNone(load_archive(self.fixture.root))
         self.assertIsNone(read_archive_bytes("evidence/audit.json", self.fixture.root))
         self.assertEqual(cli._check_ref(self.runs["F01-11-20261008"]["audit_ref"]), "verified")
-        self.assertEqual(GitHistoryStore().snapshot()[2], {"backend": "git", "read_only": True})
 
-    def test_history_backend_and_summary_read_frozen_bytes_without_worktree_files(self):
+    def test_source_archive_and_summary_read_frozen_bytes_without_worktree_files(self):
         self.archive()
-        attempts, runs, storage = GitHistoryStore().snapshot()
-        self.assertEqual((attempts, runs), (self.attempts, self.runs))
-        self.assertEqual(storage["git_commit"], self.fixture.head)
+        attempts, runs = self.attempts, self.runs
+        self.assertEqual(load_archive(self.fixture.root).commit, self.fixture.head)
         shown = cli._show("F01", attempts, runs)
         self.assertEqual(set(shown["comparison_runs"]), {"00", "10", "01", "11"})
         self.assertTrue(all(item["status"] == "verified" for item in shown["evidence_status"]))
@@ -58,12 +55,13 @@ class FixedGitArchiveTests(unittest.TestCase):
         self.assertFalse((self.fixture.records / "attempts").exists())
         self.assertFalse((self.fixture.root / "evidence").exists())
 
-    def test_archive_metadata_stays_fixed_and_current_evidence_must_match_its_hash(self):
+    def test_archive_bytes_stay_fixed_and_current_evidence_must_match_its_hash(self):
         self.archive()
         changed = copy.deepcopy(self.attempts["H08"])
         changed["decision"]["next_action"] = "Unauthorized current receipt rewrite"
         self.fixture.json("research/records/attempts/H08/attempt.json", changed)
-        self.assertEqual(GitHistoryStore().snapshot()[0]["H08"], self.attempts["H08"])
+        raw = read_archive_bytes("research/records/attempts/H08/attempt.json", self.fixture.root)
+        self.assertEqual(json.loads(raw), self.attempts["H08"])
         ref = self.runs["F01-11-20261008"]["summary_ref"]
         self.fixture.json(ref["path"], {"wrong": "current file cannot bypass its frozen reference hash"})
         with self.assertRaisesRegex(RecordError, "hash mismatch"):
@@ -83,11 +81,11 @@ class FixedGitArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(RecordError, "archived source is unavailable"):
             cli._check_ref({"path": "evidence/missing.json", "sha256": "0" * 64})
 
-    def test_missing_anchor_fails_visibly_in_metadata_and_evidence_readers(self):
+    def test_missing_anchor_fails_visibly_in_source_and_evidence_readers(self):
         self.archive()
         self.fixture.json(INDEX_PATH, dict(self.index, git_commit="0" * 40))
         with self.assertRaisesRegex(RecordError, "fixed Git archive is unavailable"):
-            GitHistoryStore().snapshot()
+            load_archive(self.fixture.root)
         with self.assertRaisesRegex(RecordError, "fixed Git archive is unavailable"):
             cli._check_ref(self.runs["F01-11-20261008"]["summary_ref"])
 

@@ -13,7 +13,7 @@ from research.records.common import RecordError
 from research.records.dolt_store import DoltStore, ConflictError
 from research.records.retention import publish
 from research.records.fixtures.contract_repository import ContractRepository
-from research.records.store import _preregistration_receipt
+from research.records.store import DoltRecords, validate_record
 
 
 class RetentionTests(unittest.TestCase):
@@ -100,33 +100,55 @@ class RetentionTests(unittest.TestCase):
                 publish(self.store, invalid, operation_id="bad", expected_version=2)
 
 
-class PreregistrationIdentityTests(unittest.TestCase):
-    def test_single_receipt_can_only_add_the_original_commit_anchor(self):
+class SnapshotReadBoundaryTests(unittest.TestCase):
+    def test_record_snapshot_reads_only_attempts_and_runs_at_one_fixed_commit(self):
         fixture = ContractRepository()
         self.addCleanup(fixture.close)
-        with fixture.patches():
-            body = json.loads((fixture.records / "attempts/H08/attempt.json").read_text())
-            relative = "research/records/preregistrations/H08.json"
-            body["registration"] = {"status": "preregistered", "reference": relative}
-            body["decision"]["layer"] = body["decision"]["outcome"] = "pending"
-            fixture.json(relative, body)
-            original = fixture.commit("Register original intent")
-            body["registration"]["original_registration_commit"] = original
-            mismatched = copy.deepcopy(body)
-            mismatched["registration"]["reference"] = "README.md"
-            fixture.json(relative, mismatched)
-            fixture.commit("Invalid unrelated registration reference")
-            with self.assertRaisesRegex(RecordError, "single JSON receipt"):
-                _preregistration_receipt(mismatched, fixture.root / relative)
-            changed = copy.deepcopy(body)
-            changed["hypothesis"] = "A different hypothesis after seeing the result"
-            fixture.json(relative, changed)
-            fixture.commit("Invalid rewrite")
-            with self.assertRaisesRegex(RecordError, "intent changed"):
-                _preregistration_receipt(changed, fixture.root / relative)
-            fixture.json(relative, body)
-            fixture.commit("Add only the original anchor")
-            _preregistration_receipt(body, fixture.root / relative)
+        attempts, _ = fixture.snapshot()
+        fixed = "d" * 32
+        calls = []
+
+        class Adapter:
+            def status(self):
+                return {"commit": fixed}
+
+            def list_objects(self, kind=None, commit=None):
+                calls.append((kind, commit))
+                if kind == "attempt":
+                    return [{"id": "attempt:H08", "kind": "attempt", "body": attempts["H08"]}]
+                if kind == "run":
+                    return []
+                raise AssertionError("record retrieval must not load archived material payloads")
+
+        store = DoltRecords.__new__(DoltRecords)
+        store.adapter = Adapter()
+        self.assertEqual(store.snapshot(), ({"H08": attempts["H08"]}, {}, {"backend": "dolt", "commit": fixed}))
+        self.assertEqual(calls, [("attempt", fixed), ("run", fixed)])
+
+
+class PreregistrationIdentityTests(unittest.TestCase):
+    def test_dolt_contract_requires_scope_plan_and_rejects_git_registration_fields(self):
+        fixture = ContractRepository()
+        self.addCleanup(fixture.close)
+        attempts, _ = fixture.snapshot()
+        body = copy.deepcopy(attempts["H08"])
+        body["registration"] = {"status": "preregistered"}
+        body["decision"].update(layer="pending", outcome="pending")
+        validate_record("attempt", body)
+        for obsolete in ("reference", "original_registration_commit"):
+            invalid = copy.deepcopy(body)
+            invalid["registration"][obsolete] = "obsolete Git identity"
+            with self.assertRaisesRegex(RecordError, "Additional properties"):
+                validate_record("attempt", invalid)
+        invalid = copy.deepcopy(body)
+        invalid.pop("contract")
+        with self.assertRaisesRegex(RecordError, "contract"):
+            validate_record("attempt", invalid)
+        for field in ("scope", "plan"):
+            invalid = copy.deepcopy(body)
+            invalid["contract"][field] = ""
+            with self.assertRaises(RecordError):
+                validate_record("attempt", invalid)
 
 
 if __name__ == "__main__":

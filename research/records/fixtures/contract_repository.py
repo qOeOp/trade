@@ -68,10 +68,55 @@ class ContractRepository:
     def patches(self):
         """Redirect Git/evidence readers, while retaining the real schema files."""
         stack = ExitStack()
-        for module in ("common", "cli", "store", "artifacts"):
+        for module in ("common", "cli", "artifacts"):
             stack.enter_context(patch(f"research.records.{module}.ROOT", self.root))
-        stack.enter_context(patch("research.records.store.RECORDS", self.records))
         return stack
+
+    def snapshot(self):
+        """Small test payloads; no product Git metadata reader."""
+        return tuple({body[f"{kind}_id"]: body
+                      for body in (json.loads(path.read_text())
+                                   for path in sorted((self.records / f"{kind}s").glob(f"*/{kind}.json")))}
+                     for kind in ("attempt", "run"))
+
+    def seed_records(self, store):
+        """Publish invented retrospective test records through the real API."""
+        attempts, runs = self.snapshot()
+        pending = dict(attempts)
+        published = set()
+        sequence = 0
+
+        def publish(kind, body):
+            nonlocal sequence
+            sequence += 1
+            return store.publish_record(kind, body, operation_id=f"synthetic-contract-{sequence}",
+                                        expected_version=store.adapter.status()["version"])
+
+        while pending:
+            ready = [identity for identity, body in pending.items()
+                     if all(item["attempt_id"] in published
+                            for item in body["parents"] + body.get("mechanism_refs", []))]
+            if not ready:
+                raise AssertionError("synthetic attempt graph cannot be seeded")
+            for identity in ready:
+                body = dict(pending.pop(identity))
+                body.pop("comparison_family", None)
+                publish("attempt", body)
+                published.add(identity)
+        pending = dict(runs)
+        published = set()
+        while pending:
+            ready = [identity for identity, body in pending.items()
+                     if body["control_run_id"] is None or body["control_run_id"] in published]
+            if not ready:
+                raise AssertionError("synthetic run controls cannot be seeded")
+            for identity in ready:
+                publish("run", pending.pop(identity))
+                published.add(identity)
+        for body in attempts.values():
+            if "comparison_family" in body:
+                publish("attempt", body)
+        return store.adapter.status()
 
     def historical_refs(self):
         return [{"commit": self.historical_commit, "paths": [SOURCE_CASES]}]
@@ -84,11 +129,12 @@ class ContractRepository:
         attempts = {}
         for identity in ("H08", "H13", "H13b", "H13c", "H15a", "H18a", "H19a", "F01", "H27a"):
             attempts[identity] = {
-                "schema_version": 1, "attempt_id": identity, "goal_id": "SYNTHETIC-CONTRACT",
+                "schema_version": 2, "attempt_id": identity, "goal_id": "SYNTHETIC-CONTRACT",
                 "kind": "strategy", "question": "Synthetic records API boundary?",
                 "mechanism": "Synthetic mechanism", "hypothesis": "A bounded contract can be tested.",
                 "parents": [], "code_parent": self.current_source_commit,
-                "registration": {"status": "retrospective", "reference": EXPERIMENTS},
+                "registration": {"status": "retrospective"},
+                "contract": {"scope": "Synthetic fixture only.", "plan": "Test the records API contract; no research claim."},
                 "decision": {"layer": "source", "outcome": "failed", "scope": "Synthetic fixture only.",
                              "next_action": "No research decision or trading claim."},
                 "evidence_refs": [],
@@ -101,8 +147,6 @@ class ContractRepository:
         }])
         attempts["F01"].update(parents=[parent("H19a", "composition"), parent("H18a", "composition")],
                                composition_mode="factorial")
-        attempts["F01"]["registration"].update(status="preregistered",
-                                               original_registration_commit=self.current_source_commit)
         attempts["F01"]["decision"].update(layer="economics", outcome="failed")
 
         audit_ref = self.json("evidence/audit.json", {"passed": True, "findings": [], "nature": "synthetic"})

@@ -215,6 +215,7 @@ def prepare(adapter, identity, revision=1, *, source_at, decisions=None, supplem
         if obj["id"] not in source_latest or obj["revision"] > source_latest[obj["id"]]["revision"]:
             source_latest[obj["id"]] = obj
     existing = adapter.list_objects(commit=current["commit"], latest=False)
+    existing_by_revision = {(obj["id"], obj["revision"]): obj for obj in existing}
     existing_edges = adapter.list_relations(commit=current["commit"])
     existing_edge_map = {edge["id"]: edge for edge in existing_edges}
     latest = {}
@@ -227,6 +228,13 @@ def prepare(adapter, identity, revision=1, *, source_at, decisions=None, supplem
     def add(value):
         value = json.loads(canonical(value))
         previous = latest.get(value["id"])
+        if value["kind"] in ("attempt", "run") or value["id"].startswith(("attempt:", "run:")):
+            retained = existing_by_revision.get((value["id"], value["revision"])) if "revision" in value else previous
+            if retained is None or canonical(retained) != canonical(dict(value, revision=retained["revision"])):
+                raise RecordError("review evidence cannot create research metadata or write reserved record identities")
+            # A fixed existing record can be read as proof. It is already in
+            # the snapshot and never becomes part of the review write batch.
+            return retained
         if previous and previous["kind"] == value["kind"] and previous["body"] == value["body"] and previous["provenance"] == value["provenance"]:
             value = previous
         elif "revision" not in value:
@@ -364,6 +372,10 @@ def apply(adapter, payload):
         raise RecordError("review payload must bind exactly the original queue occurrences")
     for obj in payload["objects"]:
         key = (obj["id"], obj["revision"])
+        if obj["kind"] in ("attempt", "run") or obj["id"].startswith(("attempt:", "run:")):
+            retained = combined.get(key)
+            if retained is None or canonical(retained) != canonical(obj):
+                raise RecordError("review publication cannot create research metadata or write reserved record identities")
         if key in combined and combined[key] != obj:
             raise RecordError("review payload tries to change an immutable revision")
         if key not in combined and obj["kind"] not in ("review_decision", "reference", "material", "evidence_json"):
@@ -371,10 +383,51 @@ def apply(adapter, payload):
         combined[key] = obj
         if obj["kind"] == "material":
             original_bytes(obj)
-    relations = payload["relations"] + adapter.list_relations(commit=payload["base_commit"])
+    existing_relations = adapter.list_relations(commit=payload["base_commit"])
+    existing_by_id = {edge["id"]: edge for edge in existing_relations}
+    decisions = {obj["id"]: obj for obj in payload["objects"] if obj["kind"] == "review_decision"}
+    allowed = {"review_evidence", "references_resolved", "corrects", "narrows", "refutes"}
+    for edge in payload["relations"]:
+        retained = existing_by_id.get(edge["id"])
+        if retained is not None:
+            if canonical(retained) != canonical(edge):
+                raise RecordError("review payload tries to change an immutable relation")
+            continue
+        if edge["kind"] not in allowed:
+            raise RecordError("review publication cannot create research record relations")
+        decision = decisions.get(edge["body"].get("review_id"))
+        if (decision is None or edge["body"].get("review_revision") != decision["revision"]
+                or edge["body"].get("item_key") != decision["body"]["item_key"]
+                or edge["id"] not in decision["body"]["edge_ids"]):
+            raise RecordError("new review relation must bind its corresponding queue decision")
+    relations = payload["relations"] + existing_relations
     original = {(obj["id"], obj["revision"]): obj for obj in adapter.list_objects(commit=payload["source_snapshot_commit"], latest=False)}
     _projection(inventory, list(combined.values()), relations, source_objects=original,
                 source_at=payload["source_snapshot_commit"])
+    declared_edges = {}
+    for decision in decisions.values():
+        body = decision["body"]
+        binding = {"review_id": decision["id"], "review_revision": decision["revision"],
+                   "item_key": body["item_key"]}
+        evidence = [_check_ref(ref, combined) for ref in body["evidence_refs"]]
+        edges = [_edge("review_evidence", decision, obj, binding) for obj in evidence]
+        if body.get("target_ref"):
+            edges.append(_edge("references_resolved", _check_ref(body["source_ref"], combined),
+                               _check_ref(body["target_ref"], combined),
+                               {**binding, "original_href": body["item"]["target"], "proof": body["proof"]}))
+        for semantic in body.get("proof", {}).get("semantic_relations", []):
+            if semantic["kind"] not in ("corrects", "narrows", "refutes") or not semantic.get("scope"):
+                raise RecordError("unsupported or unscoped Agent semantic relation")
+            source = combined.get((semantic["from_id"], semantic["from_revision"]))
+            target = combined.get((semantic["to_id"], semantic["to_revision"]))
+            if not source or not target or _ref(source) not in body["evidence_refs"] or _ref(target) not in body["evidence_refs"]:
+                raise RecordError("semantic endpoints must be fixed reviewed evidence")
+            edges.append(_edge(semantic["kind"], source, target,
+                               {**binding, "scope": semantic["scope"], "retrospective": True}))
+        declared_edges.update({edge["id"]: edge for edge in edges})
+    for edge in payload["relations"]:
+        if edge["id"] not in existing_by_id and canonical(edge) != canonical(declared_edges.get(edge["id"])):
+            raise RecordError("new review relation differs from the declared decision and fixed evidence")
     result = adapter.publish(payload["objects"], payload["relations"], payload["operation_id"], payload["expected_version"],
                              message=f"Review immutable inventory {payload['inventory_id']}@{payload['inventory_revision']}")
     return {**result, "review": status(adapter, payload["inventory_id"], payload["inventory_revision"],

@@ -320,6 +320,24 @@ class DoltStore:
                 "schema_version": SCHEMA_VERSION, "version": version, "writer": writer,
                 "commit": head, "dirty": dirty, **counts}
 
+    def operation_receipt(self, operation_id, commit=None):
+        """Read the actual publication commit visible at one fixed snapshot."""
+        _text(operation_id, "operation_id", 160)
+        with self._connection() as conn:
+            self._check_schema(conn)
+            fixed = commit or self._sql(conn, "SELECT DOLT_HASHOF('HEAD')")[0][0][0]
+            rows = self._sql(conn,
+                "SELECT result_version,native_message FROM operations AS OF %s WHERE operation_id=%s",
+                (fixed, operation_id))[0]
+            if not rows:
+                raise RecordError(f"unknown publication operation at {fixed}: {operation_id}")
+            version, message = rows[0]
+            commits = self._sql(conn,
+                "SELECT commit_hash FROM dolt_log AS OF %s WHERE message=%s", (fixed, message))[0]
+            if len(commits) != 1:
+                raise RecordError(f"operation {operation_id} must bind to exactly one native commit")
+            return {"operation_id": operation_id, "version": version, "commit": commits[0][0]}
+
     def _operation_result(self, conn, operation_id, payload_sha256):
         rows = self._sql(conn,
             "SELECT payload_sha256,result_version,native_message FROM operations WHERE operation_id=%s",
