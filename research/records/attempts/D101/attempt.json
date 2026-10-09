@@ -25,9 +25,15 @@
   },
   "decision": {
     "layer": "execution",
-    "outcome": "pending",
-    "scope": "预登记，未运行新增逐项差异归因。",
-    "next_action": "一次只读分析已冻结旧 Engine／现行 Node 两份 H10 原生报告。"
+    "outcome": "failed",
+    "scope": "旧/新 H10 原生成交 1887 笔非 ID 字段及 934 Position 实现 PnL 一致，但八个已撤未成交 BTC 限价字段差 0.10 USDT、订单事件语义不同；333 个有账户事件的 UTC 日最后已结算余额一致，未覆盖全部 366 日盯市净值。纯表达解释和原 H29a 严格历史对照均不能通过。",
+    "next_action": "未来候选事前登记同代码现行 Node 对照与完整原生盯市日净值比较；若需旧 Engine 历史对照，先局部复现一个 BTC 限价差异，不事后放宽 H29a 门槛。"
   },
-  "evidence_refs": []
+  "evidence_refs": [
+    {
+      "kind": "audit",
+      "path": "research/r1_native/results/2026-10-09-d101-h10-native-parity-adjudication.json",
+      "sha256": "ca36c15b6538c7442e2387595bf074b9107bce6bc73872ae0f0665e190fbde59"
+    }
+  ]
 }
