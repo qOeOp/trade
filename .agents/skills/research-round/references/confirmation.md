@@ -8,7 +8,8 @@ attempt was published before the window began.
    the frozen strategy and states in its plan the freeze review's material ID, the configuration,
    image, cost model, window length and preregistered decision ranges. Exposure honestly lists the development runs.
 2. **Wait** until the window has passed.
-3. **Build inputs** for that window with a data recipe and record their input identity.
+3. **Build inputs** for that window with a data recipe and record their input identity
+   (`artifacts input-identity`, [seal.md](seal.md)).
 4. **Run once**, then `artifacts register --evidence-grade independent --dry-run`, then register for
    real. Register every sealed run of the attempt.
 5. **Decide** against the preregistered ranges. A short window can refute an obvious failure but

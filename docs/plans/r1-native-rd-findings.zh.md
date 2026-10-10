@@ -2,7 +2,7 @@
 
 本页原先混存 R&D 的流程、产品能力与策略观察。现将**共用工作台能力候选**集中在页首，下方 F01–F97 保留原始历史正文；策略绩效结论以[实验台账](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RD_EXPERIMENTS.md)为准。旧架构章节已清理，原蓝图核对点只保留历史需求语境；当前设计见[架构蓝图](../architecture.zh.md)。来源是 Goal `01a11518-fb33-7853-a31c-b8c43df5be60`；这些记录不授予交易、资格或发布权限。
 
-**现行归属。** F01–F97 是按产生顺序保留的**历史混合记录**，其中不少条目的“观察”“下一步”实际是策略试验结论。编号、正文和证据链接保留以免断开引用；策略假设、原生结果、失败范围与下一轮判断的权威记录在对应 H/D/S 段落。逐项归属与交叉引用见[研究记录索引](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RECORD_INDEX.md)。F 编号不是模块或开发排期。后续新增产品 finding，须证明是多次 attempt 共用的 Agent 能力缺口，并同时列出受影响 attempt、受阻任务、直接证据、迭代成本、现有绕行和最小共用能力；单次策略有效/无效只进入研究台账。已转录的试验先用 [`research.records`](../../research/records/README.md) 读回 attempt/run，再核对原 H/D/S 登记及原生结果。H25a/H26a/H27a 的结构化条目是事后转录，旧 `/tmp` CSV 未封存；未迁移的历史记录仍查原台账，不倒填事前身份。
+**现行归属。** F01–F97 是按产生顺序保留的**历史混合记录**，其中不少条目的“观察”“下一步”实际是策略试验结论。编号、正文和证据链接保留以免断开引用；策略假设、原生结果、失败范围与下一轮判断的权威记录在对应 H/D/S 段落。逐项归属与交叉引用见[研究记录索引](https://github.com/qOeOp/trade/blob/44e229331fdc7d9b78e234079673b8df71faefc4/research/r1_native/RECORD_INDEX.md)。F 编号不是模块或开发排期。后续新增产品 finding，须证明是多次 attempt 共用的 Agent 能力缺口，并同时列出受影响 attempt、受阻任务、直接证据、迭代成本、现有绕行和最小共用能力；单次策略有效/无效只进入研究台账。已转录的试验先用 [`research.records`](../../.agents/skills/research-round/references/publish.md) 读回 attempt/run，再核对原 H/D/S 登记及原生结果。H25a/H26a/H27a 的结构化条目是事后转录，旧 `/tmp` CSV 未封存；未迁移的历史记录仍查原台账，不倒填事前身份。
 
 ### 共用工作台能力候选的优先核对
 

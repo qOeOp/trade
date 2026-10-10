@@ -1,6 +1,6 @@
 # 投研产物保管：最小交付与验收
 
-> 历史快照：本文保留 Git 侧录阶段的设计与验收背景，登记及元数据操作已由 Dolt v2 契约替代。现行操作以[研究记录指南](../../research/records/README.md)和[当前架构](../architecture.zh.md)为准。
+> 历史快照：本文保留 Git 侧录阶段的设计与验收背景，登记及元数据操作已由 Dolt v2 契约替代。现行操作以 [research-round skill](../../.agents/skills/research-round/SKILL.md) 和[当前架构](../architecture.zh.md)为准。
 
 当前单机实现及真实运行结果见[验收记录](research-artifact-custody-acceptance.zh.md)。以下保留交付范围与验收边界；异机备份和正式目录的运维验收仍待完成。
 

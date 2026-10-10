@@ -5,7 +5,6 @@ description = "Native Nautilus strategy research and reproducible backtests"
 requires-python = ">=3.14,<3.15"
 dependencies = [
   "jsonschema>=4,<5",
-  "markdown-it-py==4.0.0",
   "nautilus_trader[visualization]==2.0.0rc3",
   "pyarrow==23.0.1",
   "pymysql==1.1.2",

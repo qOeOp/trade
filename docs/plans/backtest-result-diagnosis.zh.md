@@ -1,6 +1,6 @@
 # 回测结果的拆解与诊断：调研、设计与改进计划
 
-状态：调研、计划与第一批实施（同一 PR：skill 事实更正与评测、删四个检查脚本、新增 `analysis.tables()`）。未写 Dolt、未跑新回测、未改镜像输入。日期 2026-10-10，代码基于 main `3b3b4876b`。
+状态：调研、计划与第一批实施（同一 PR：skill 事实更正与评测、删 `compare_paired_returns.py`、新增 `analysis.tables()`；另三个死脚本已由 #1500 先行删除）。未写 Dolt、未跑新回测、未改镜像输入。日期 2026-10-10，代码基于 main `3b3b4876b`。
 
 范围：拿到一次封存回测（或一对合法配对）之后，Agent 怎样拆解和诊断结果；据此如何改进 `nautilus-report-analysis` skill、如何使用和封装 Nautilus 报告 API；报告相关代码哪些可删、是否应搬进 skill。遵循"能用 Agent 就不硬编码"：代码只用于信任边界、修现有缺陷、Agent 做不到的事。
 
@@ -303,14 +303,14 @@ skill 写"从 `research.records.analysis.tables` 读表"。这对应三条准则
 ## 用户决定（2026-10-10）
 
 - 按本计划执行第 1–5 项，含 `analysis.tables()`，一个 PR 做完。
-- tier 几何移入遗留策略（第 6 项）已授权，与去掉不再使用的 `markdown-it-py` 依赖一起，放到下一次有意重建镜像时做（见下节）。
+- tier 几何移入遗留策略（第 6 项）已授权，放到下一次有意重建镜像时做；那次重建也会让已从依赖中删除的 `markdown-it-py` 离开镜像（见下节）。
 
 ## 实施顺序与状态
 
 | 顺序 | 内容 | 性质 | 状态 |
 |---|---|---|---|
 | 1 | skill 事实更正与 description（A 节） | 修现有缺陷 | 已做 |
-| 2 | 删三个零消费者脚本，并改文档链接 | 删死代码 | 已做 |
+| 2 | 删三个零消费者脚本，并改文档链接 | 删死代码 | 已由 #1500 完成 |
 | 3 | 7 个评测用例，三组对照（不加 skill / 当前 skill / 加候选规则）；K1–K9 按增量决定写入 | 评测驱动 | 已做：写入 K3、K5，保留 2 个回归用例 |
 | 4 | `compare_paired_returns.py`：`_interval` 移入 `analysis.py`，配方的运行 commit 写进 records README，8 个配方在该 commit 上全部原样重建，然后删 | 删代码 | 已做 |
 | 5 | `analysis.tables()` | 新公开接口 | 已做；28 个 seal 全部可读，闭仓计数与已实现 PnL 与对账一致 |
@@ -323,7 +323,7 @@ skill 写"从 `research.records.analysis.tables` 读表"。这对应三条准则
 
 下一次有意重建运行镜像（会改镜像输入、要新 digest 和工程配对重放）时，一并做：
 
-1. **去掉 `markdown-it-py`。** `pyproject.toml` 直接依赖它，但 #1497 退役物料模块后已没有代码导入它。删掉后重新锁定依赖。
+1. **`markdown-it-py` 随镜像消失。** #1500 已把它从 `pyproject.toml` 与 `uv.lock` 删除；现用镜像 `b6b94ccc…` 仍含它，下一次从 main 构建时自动去掉。重建后确认镜像里没有它。
 2. **tier 几何移入遗留策略。** `audit_tiered_native.py` 中按 `signal_variant` 硬编码的 tier 几何检查（约 270 行），移到使用这些变体的遗留策略自己的 `replay_integrity_findings`；通用对账保持不变。这属于改审计边界，用户已于 2026-10-10 授权，前提是与镜像重建一起做。
 3. 新镜像对受影响的对照做工程配对重放（`compare_node`），确认订单、成交、费用、资金费与账户一致后再用于新候选。
 
