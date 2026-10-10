@@ -47,16 +47,15 @@ export is `docs-site/out`.
 - [`backtest/r1/runtime/`](backtest/r1/runtime/): image build inputs for Python, Nautilus, shared runner and auditor; strategy bodies are excluded.
 - [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, decision evidence and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
 - [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
-- [`services/video-note-mcp/`](services/video-note-mcp/): the earlier standalone video-note MCP, frozen in favour of the `video-evidence` skill until a user-approved comparison retires it. It has its own `pyproject.toml` and `uv.lock` and is not run by the root CI.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md) (English twin [`docs/architecture.md`](docs/architecture.md)): current product blueprint.
 - [`docs/plans/dolt-strategy-oci-migration.zh.md`](docs/plans/dolt-strategy-oci-migration.zh.md): source/runtime migration contract and its history.
 - [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): historical 37-instrument paired replay evidence.
 - [`docs/plans/r1-native-rd-findings.zh.md`](docs/plans/r1-native-rd-findings.zh.md): retained product and process findings.
 
 The vendored Nautilus source and the former backtest, market-data and
-strategy-authoring services were removed (#1458); `services/video-note-mcp/` was
-restored as an independent tool (#1468) and is now frozen behind the
-`video-evidence` skill. CI runs the quality, documentation and PR-title
+strategy-authoring services were removed (#1458); `services/video-note-mcp/`,
+restored as an independent tool (#1468), was retired in favour of the
+`video-evidence` skill (#1507). CI runs the quality, documentation and PR-title
 workflows. Image builds use `pyproject.toml` and `uv.lock`; a change that should
 preserve strategy, dependency or data behavior needs a fresh paired native
 replay before claiming parity.

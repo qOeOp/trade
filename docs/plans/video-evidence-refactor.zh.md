@@ -1,4 +1,4 @@
-# 视频取证：一个 skill 加一个只读检查器，video-note-mcp 冻结
+# 视频取证：一个 skill 加一个只读检查器，video-note-mcp 退役
 
 状态：PR1 已实现（`video-evidence` skill、`services/video-evidence` 检查器、`research-round` 的来源证据参考），并按 2026-10-10 的四份复核（实测验收、新旧对比、对抗安全、合规）修订，见文末「复核」。
 日期 2026-10-10。授权：用户 2026-10-10 在对话中明确授权 PR1；研究取材改走 skill，放宽旧服务的 DNS 固定、
@@ -223,11 +223,13 @@ SHA-256 相同；独立转写逐字节相同；修订后的转写配方在 (1) �
 5. 已结：有/无 skill 的评测对照（Claude 与 Codex 各 3 次）见「最终验证」；恶意本地服务器类用例仍未跑。
 6. 起始时间不为 0 的媒体（例如个别 TS 或 MKV）上，括号取帧与检查器的 `-ss` 定位会偏，检查器以 `recomputed`
    失败（失败即拒，不会误通过）；本次实测的 14 个真实媒体起始时间都是 0。
-7. PR2 在 PR1 合并后开。
+7. 已结：PR1（#1507）合并后，PR2 删除了 `services/video-note-mcp`。
 
 ## 后续
 
-1. PR2：PR1 合并后删除 `services/video-note-mcp`（用户 2026-10-10 已同意），PR 正文对照被删测试。
+1. 已做：PR2 删除 `services/video-note-mcp`（用户 2026-10-10 同意），PR 正文对照了被删测试。本机把默认的
+   `~/.local/share/video-evidence/mlx-venv` 软链到原有的 `~/.local/share/bilibili-note-mcp/mlx-venv`（未移动、未删除），
+   版本核对为 mlx-whisper 0.4.3、mlx 0.32.3、mlx-metal 0.32.3。
 2. Qwen3-ASR 等上游提供关闭重复截断的选项后再测。
 3. 已做（见「最终验证」）；以后重测时去掉本 PR 的计划文档与 README 指针，不让无 skill 一侧读到答案。
 4. 可选：把 `~/.claude/skills/video-evidence`、`~/.codex/skills/video-evidence` 软链到仓库副本，设
