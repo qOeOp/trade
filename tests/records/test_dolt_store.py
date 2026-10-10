@@ -25,6 +25,23 @@ def _object(id="attempt:one", revision=1, body=None):
             "provenance": {"path": "research/records/example.json", "sha256": "a" * 64}}
 
 
+class RawPublicationGuardTests(unittest.TestCase):
+    """The refusal precedes any connection, so no database is needed."""
+
+    def test_raw_publication_is_refused_before_connecting(self):
+        store = DoltStore({"database": "unused_guard_test"})
+        relation = {"id": "relation:x", "kind": "run_of", "from_id": "run:x", "from_revision": 1,
+                    "to_id": "attempt:x", "to_revision": 1, "body": {}}
+        relabeled = dict(_object("attempt:x", revision=2), kind="material")
+        with patch.object(store, "_connection", side_effect=AssertionError("reached the database")):
+            for objects, relations in (([_object("review_evidence:" + "a" * 64)], []), ([relabeled], []),
+                                       ([_object("run:x")], []), ([], [relation])):
+                with self.subTest(objects=objects, relations=relations), self.assertRaises(RecordError) as caught:
+                    store.publish(objects, relations, "raw", 0)
+                self.assertEqual((caught.exception.code, caught.exception.write_status),
+                                 ("RAW_RECORD_PUBLICATION", "not_written"))
+
+
 class DoltStoreIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -49,7 +66,8 @@ class DoltStoreIntegrationTests(unittest.TestCase):
             self.store._sql(conn, f"DROP DATABASE `{self.config['database']}`")
 
     def _publish(self, objects, relations=(), operation="first", expected=0, **kwargs):
-        return self.store.publish(objects, relations, operation, expected, **kwargs)
+        # Adapter tests exercise storage with synthetic records, below the publication contracts.
+        return self.store.publish(objects, relations, operation, expected, validated_by="adapter test", **kwargs)
 
     def test_history_latest_and_immutable_rows(self):
         first = _object(body={"text": "original", "value": True})
@@ -182,16 +200,14 @@ class DoltStoreIntegrationTests(unittest.TestCase):
             self._publish([], [changed], operation="rewrite-relation", expected=2)
         self.assertEqual(before, self.store.status())
 
-    def test_relation_filters_preserve_snapshot_revision_scope_and_index_reads(self):
+    def test_relation_filters_preserve_snapshot_revision_and_index_reads(self):
         first, second = _object("attempt:source"), _object("claim:target")
         newer = _object(first["id"], revision=2)
         edges = [
-            {"id": "edge:old", "kind": "corrects", "from_id": first["id"], "from_revision": 1,
-             "to_id": second["id"], "to_revision": 1, "body": {"scope": {
-                 "retained_research_decisions": [{"object_ref": "d94_section"}]}}},
-            {"id": "edge:new", "kind": "narrows", "from_id": first["id"], "from_revision": 2,
-             "to_id": second["id"], "to_revision": 1, "body": {"scope": {
-                 "retained_research_decisions": [{"object_ref": {"id": "attempt:D94", "revision": 1}}]}}},
+            {"id": "edge:old", "kind": "repair", "from_id": first["id"], "from_revision": 1,
+             "to_id": second["id"], "to_revision": 1, "body": {"scope": "old"}},
+            {"id": "edge:new", "kind": "run_of", "from_id": first["id"], "from_revision": 2,
+             "to_id": second["id"], "to_revision": 1, "body": {"scope": "new"}},
         ]
         frozen = self._publish([first, second], [edges[0]])["commit"]
         self._publish([newer], [edges[1]], operation="next-relation", expected=1)
@@ -202,43 +218,40 @@ class DoltStoreIntegrationTests(unittest.TestCase):
         self.assertEqual([edge["id"] for edge in self.store.list_relations(
             commit=frozen, to_refs=((second["id"], 1),))], ["edge:old"])
         self.assertEqual([edge["id"] for edge in self.store.list_relations(
-            kinds=("corrects",), from_refs=((first["id"], 2),), to_refs=((second["id"], 1),))], ["edge:old"])
-        self.assertEqual([edge["id"] for edge in self.store.list_relations(
-            scope_refs=("d94_section",))], ["edge:old"])
-        self.assertEqual([edge["id"] for edge in self.store.list_relations(
-            scope_refs=({"id": "attempt:D94"},))], ["edge:new"])
-        self.assertEqual(self.store.list_relations(scope_refs=({"id": "attempt:D94", "revision": 2},)), [])
-        self.assertEqual(self.store.list_relations(commit=frozen, ids=("edge:new",)), [])
-        indexed = self.store.list_relations(ids=("edge:new",), include_body=False)
+            kinds=("repair",), from_refs=((first["id"], 2),), to_refs=((second["id"], 1),))], ["edge:old"])
+        self.assertEqual(self.store.list_relations(commit=frozen, kinds=("run_of",)), [])
+        indexed = self.store.list_relations(kinds=("run_of",), include_body=False)
         self.assertEqual(len(indexed), 1)
         self.assertNotIn("body", indexed[0])
-        for filters in ({"kinds": ()}, {"ids": ()}, {"from_refs": ()}, {"scope_refs": ()}):
+        for filters in ({"kinds": ()}, {"from_refs": ()}):
             self.assertEqual(self.store.list_relations(**filters), [])
-        for filters in ({"from_refs": ((first["id"], 0),)}, {"kinds": "corrects"},
-                        {"scope_refs": ({"unknown": "value"},)}, {"include_body": 1}):
+        for filters in ({"from_refs": ((first["id"], 0),)}, {"kinds": "repair"}, {"include_body": 1}):
             with self.assertRaises(RecordError):
                 self.store.list_relations(**filters)
 
-    def test_object_path_filters_keep_all_fixed_sections_and_historical_revisions(self):
-        material = _object("material:source")
-        section = _object("section:source#one")
-        section["kind"] = "material_section"
-        noise = _object("material:unrelated")
-        noise["provenance"]["path"] = "other/path.md"
-        frozen = self._publish([material, section, noise])["commit"]
-        moved = copy.deepcopy(material)
-        moved["revision"] = 2
-        moved["provenance"]["path"] = "moved/source.md"
-        self._publish([moved], operation="move-path", expected=1)
-        path = material["provenance"]["path"]
-        self.assertEqual({value["id"] for value in self.store.list_objects(commit=frozen, paths=(path,))},
-                         {material["id"], section["id"]})
-        self.assertEqual([value["id"] for value in self.store.list_objects(paths=(path,))], [section["id"]])
-        self.assertEqual({(value["id"], value["revision"]) for value in self.store.list_objects(
-            latest=False, paths=(path,))}, {(material["id"], 1), (section["id"], 1)})
-        self.assertEqual(self.store.list_objects(paths=()), [])
-        with self.assertRaises(RecordError):
-            self.store.list_objects(paths=path)
+    def test_publication_refuses_uncommitted_sql_changes(self):
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from research.records import evidence
+
+        self._publish([_object()])
+        with self.store._connection() as conn:
+            self.store._sql(conn, "INSERT INTO objects(id,kind,revision,body,provenance) VALUES(%s,%s,1,%s,%s)",
+                            ("attempt:stray", "attempt", "{}", "{}"))
+        before = self.store.status()
+        self.assertTrue(before["dirty"])
+        with self.assertRaises(RecordError) as caught:
+            self._publish([_object("claim:new")], operation="after-stray", expected=before["version"])
+        self.assertEqual((caught.exception.code, caught.exception.write_status), ("DIRTY_WORKING_SET", "not_written"))
+        with tempfile.TemporaryDirectory(prefix="trade-dirty-test-", dir=Path.home()) as directory:
+            path = Path(directory) / "evidence.txt"
+            path.write_bytes(b"evidence")
+            with self.assertRaises(RecordError) as caught:
+                evidence.retain(self.store, [(path, hashlib.sha256(b"evidence").hexdigest())],
+                                operation_id="retain-dirty", expected_version=before["version"])
+        self.assertEqual(caught.exception.code, "DIRTY_WORKING_SET")
+        self.assertEqual(before, self.store.status())
 
     def test_material_show_accepts_maximum_length_identity_without_impossible_legacy_lookup(self):
         from research.records.ledger import material
@@ -247,7 +260,7 @@ class DoltStoreIntegrationTests(unittest.TestCase):
         published = self._publish([selected])
         result = material(self.store, "show", identity=selected["id"], at=published["commit"])
         self.assertEqual(result["object"]["id"], selected["id"])
-        self.assertIsNone(result["retention_decision"])
+        self.assertEqual(result["incoming_repairs"], [])
 
     def test_identical_operation_recovers_original_persistent_commit(self):
         first = self._publish([_object()], operation="retriable", message="snapshot migration")
@@ -255,7 +268,7 @@ class DoltStoreIntegrationTests(unittest.TestCase):
         before = self.store.status()
         # A new adapter/connection proves recovery needs no in-memory commit map.
         recovered = DoltStore(self.config).publish(
-            [_object()], [], "retriable", 0, message="snapshot migration")
+            [_object()], [], "retriable", 0, message="snapshot migration", validated_by="adapter test")
         self.assertEqual(recovered, dict(first, replayed=True))
         self.assertNotEqual(recovered["commit"], before["commit"])
         self.assertEqual(before, self.store.status())
@@ -322,7 +335,7 @@ class DoltStoreIntegrationTests(unittest.TestCase):
                 try:
                     value = SynchronizedStore(self.config).publish(
                         [_object(f"attempt:race-{trial}-{suffix}")], [],
-                        f"race-{trial}-{suffix}", before["version"])
+                        f"race-{trial}-{suffix}", before["version"], validated_by="adapter test")
                     outcomes.append(value)
                 except Exception as exc:
                     outcomes.append(exc)
@@ -358,7 +371,8 @@ class DoltStoreIntegrationTests(unittest.TestCase):
 
         def writer():
             try:
-                outcomes.append(SynchronizedStore(self.config).publish([_object()], [], "same-operation", 0))
+                outcomes.append(SynchronizedStore(self.config).publish([_object()], [], "same-operation", 0,
+                                                                       validated_by="adapter test"))
             except Exception as exc:
                 outcomes.append(exc)
 

@@ -1,7 +1,7 @@
-# Research records, materials and native artifact custody
+# Research records, evidence and native artifact custody
 
 Dolt is the only persistent owner of complete strategy source revisions,
-research registrations, decisions, material revisions and relationships. The existing `research.records` domain
+research registrations, decisions, evidence originals and relationships. The existing `research.records` domain
 interface owns the contract; its adapter owns storage and atomic publication.
 Git keeps maintained shared tools, runtime image build inputs, tests and
 retained historical source evidence. Strategy drafts stay outside product Git. There
@@ -26,8 +26,7 @@ uv run --frozen python -m unittest discover -s tests/records -t . -p 'test_*.py'
 
 `RESEARCH_DOLT_TEST_CONFIG` enables the real Dolt integration tests. They create
 and drop separate `records_test_*` databases; CI supplies the pinned local Dolt
-service. Production indexing accepts explicitly retained source payloads and
-does not load test manifests or import fixtures by default.
+service.
 
 ## Configure the local store
 
@@ -44,8 +43,6 @@ uv run --frozen python -m research.records.cli ledger init \
   --root "$HOME/.local/share/trade/records" --port 13326
 uv run --frozen python -m research.records.cli ledger start
 uv run --frozen python -m research.records.cli ledger status
-uv run --frozen python -m research.records.cli ledger import --paths docs/plans/SELECTED-SOURCE.md --dry-run
-uv run --frozen python -m research.records.cli ledger import --paths docs/plans/SELECTED-SOURCE.md
 ```
 
 `TRADE_RECORDS_CONFIG` selects the configuration file; its default is
@@ -64,28 +61,39 @@ that this custody path works there. The execution image separately supports
 storage directories and `TRADE_RECORDS_CONFIG` for each host; an old machine's
 absolute configuration paths are not portable defaults.
 
-The importer keeps original bytes, SHA-256, source Git commit/path, worktree
-state and section locations. It archives material; even an `attempt.json` or
-`run.json` is source material, never a registration. Only the record API writes
-attempt/run identities and their research relations. Explicit source links can
-produce references for Agent review. A changed source produces a new revision;
-unchanged material does not create a revision merely because Git HEAD changed.
-
-Similar headings or an ID in prose are not sufficient to infer support,
-correction, refutation or inheritance. Such semantics remain in the review
-queue for an Agent to assess. Automatic extraction does not claim general
-semantic recall, source fidelity beyond preserved bytes, or improved research
-decisions. Archived reports and notes can be read and restored through the
-same interface; the existing Catalog and native evidence paths stay in place.
+Attempts, runs and strategies are written only through their publication
+commands (`publish attempt`, `artifacts register`, `strategy publish`), and
+evidence originals through `material retain`. The store adapter refuses any
+write from a caller that does not name its publication API, so a script cannot
+publish around a contract by mistake:
 
 ```bash
-uv run --frozen python -m research.records.cli material search ConfirmedLineSupportTouches
-uv run --frozen python -m research.records.cli material show material:research/r1_native/SOURCE_CASES.md
-uv run --frozen python -m research.records.cli material show material:research/r1_native/SOURCE_CASES.md --revision 1
-uv run --frozen python -m research.records.cli material restore material:research/r1_native/SOURCE_CASES.md \
-  --destination /path/to/new/source-copy.md
+uv run --frozen python -m research.records.cli material retain \
+  --file /retained/reader.py READER-SHA256 --file /retained/result.json RESULT-SHA256 \
+  --expected-version CURRENT-VERSION --operation-id UNIQUE-EVIDENCE-ID --dry-run
+uv run --frozen python -m research.records.cli material retain \
+  --file /retained/reader.py READER-SHA256 --file /retained/result.json RESULT-SHA256 \
+  --expected-version CURRENT-VERSION --operation-id UNIQUE-EVIDENCE-ID
+uv run --frozen python -m research.records.cli material show review_evidence:SHA256 --brief
+uv run --frozen python -m research.records.cli material restore review_evidence:SHA256 \
+  --destination /path/to/new/copy.json
+uv run --frozen python -m research.records.cli find --text "broken level"
 uv run --frozen python -m research.records.cli --at EXACT-DOLT-COMMIT show H18a --brief
 ```
+
+`material retain` reads each file from outside Git and temporary directories,
+checks its SHA-256 and publishes it as a content-addressed `review_evidence:SHA256`
+material in one operation. Bytes already in the ledger are cited through their
+stored object (`already_published: true`), whatever path or origin first
+retained them. `--dry-run` reports the IDs without writing, refuses a stale
+`--expected-version` and reports `already_committed` for a completed operation.
+Cite the returned IDs in `decision.basis.evidence_refs`. `material show` reads
+an object at a fixed revision; `material restore` checks the stored hash and
+refuses to overwrite a file. `find --text WORDS` keeps attempts whose attempt
+ID, goal ID, question, mechanism, hypothesis, contract scope, plan or selection,
+or decision scope or next action contains every word; hashes inside evidence
+are not search text. Each `find` match reports its `revision` and `goal_id`.
+Any publication refuses a Dolt working set with uncommitted SQL changes.
 
 Each domain read uses one fixed Dolt commit for its snapshot. Record the exact
 commit and object revision when citing evidence; Git source commits and Dolt
@@ -133,9 +141,9 @@ without writing; it cannot reserve a version or replace the real transaction's
 concurrency check. New runtime contracts must reach supported consumers before
 shared publication; use isolated databases for demonstrations.
 
-Admission and material review refusals identify the missing declaration, fixed
-evidence, retained original or payload field, and explain how to repair the
-fact. Stale publication versions require rereading the ledger and original
+Refusals identify the missing declaration, fixed evidence, retained original
+or payload field, and explain how to repair the fact. Stale publication
+versions require rereading the ledger and original
 operation receipt before retrying. A rejected retry's `not_written` describes
 that invocation; an earlier operation with the same ID may already be committed.
 Confirmed publication followed by a read failure reports `already_committed`
@@ -146,149 +154,17 @@ identity or judge the scientific value of its explanation.
 
 The trial ledger was locally backed up and reset on 2026-10-09. Historical IDs
 and commits in migration examples refer to the archived database; use a separate
-recovery environment to read them. A fresh ledger first receives complete
-strategy source and a pending v3 attempt through their publication entries.
-Bind the actual returned IDs, revisions and commits. Material imports preserve
-archive bytes and cannot create registrations or restore preregistration facts.
+recovery environment to read them. The archived ledger also holds material
+imports, import reviews and knowledge admissions; the current code no longer
+reads or writes those kinds. To read their projections, recover the archive into
+a separate ledger and run the records CLI from Git commit `9794ed307`, which
+still contains that code. A fresh ledger first receives complete strategy source
+and a pending v3 attempt through their publication entries. Bind the actual
+returned IDs, revisions and commits.
 
 `show --brief` and `material show --brief` have a 32 KiB rendered UTF-8 budget.
 They project stored facts, omit raw bytes and event arrays, report omissions,
 and provide a fixed full-read reference. Full reads preserve original custody.
-
-## Knowledge admission and default retrieval
-
-`material search QUERY` reads compact research decisions and explicitly admitted
-knowledge at one Dolt commit. It matches independent research IDs and readable
-fields; hashes/base64 and publication/reference receipts are not search text.
-Use `--include-archive` to inspect unadmitted historical source and operational
-metadata. Import completion and the 572 reference resolutions do not admit
-knowledge. Corrected source revisions and explicitly affected historical source
-rationales carry their fixed correction endpoints and narrow scope; a correction
-does not invalidate an unrelated economic failure.
-
-Use `material search QUERY --purpose research --outcome failed` to narrow
-decisions, or `--view knowledge` for admitted claims. Historical purpose is
-`unknown` unless explicitly declared; an execution pass does not imply research
-success. `find --family-id FAMILY` retrieves the declared selection family and
-its preregistered primary response. Search results explain their matching fields.
-Retention v2 can declare up to eight distinct short `claim.aliases` for a fixed
-component target; other targets cannot declare these names. Names expand only
-along explicit fixed component reuse relations, never through prose synonyms.
-An alias list is an Agent-reviewed declaration, not authenticated independent
-review. Historical v1 admissions gain no aliases automatically.
-
-New archive imports require `ledger import --paths path/to/source.md --dry-run`
-and then the same explicit selection without `--dry-run`. Import cannot create
-attempt/run records or bypass the registration API.
-
-The Agent can publish a retention decision from a reviewed external JSON file:
-
-```bash
-uv run --frozen python -m research.records.cli material admit \
-  --file /path/to/admission.json --expected-version CURRENT-VERSION \
-  --operation-id UNIQUE-ADMISSION-ID
-```
-
-The body contains a fixed `target: {id, revision}`,
-`disposition: knowledge|archive`, `reviewer`, `purpose`, `value_basis`, a compact
-`claim: {statement, scope, decision_impact, limitations}`, fixed `evidence`
-object references, and `retention: {mode, reason}`. Mode is `minimal_record`,
-`irreplaceable` or `rebuildable`. New rebuildable admissions require
-`schema_version: 3`. Their `recipe_ref` and `verification_ref` accept existing
-fixed material references (`{id, revision}`), or hash-verified external files
-(`{path, sha256}`) outside Git and temporary directories. File inputs are
-retained as original material bytes in the same publication transaction;
-the stored references use fixed material IDs and revisions. Existing v1/v2
-decisions remain readable and their original operations remain retryable;
-they do not acquire recoverable proof bytes automatically. New v1/v2
-minimal-record and irreplaceable admissions remain supported.
-
-Read a proof with `--at COMMIT material show ID --revision REV`, or recover its
-original bytes with `--at COMMIT material restore ID --revision REV
---destination /chosen/location`. Restore checks the stored hash and refuses
-to overwrite a file. No original filesystem location is required. Retrying an operation uses the exact
-original request, even after the original files disappear; changing its path,
-hash, purpose or other input requires a new operation ID. Retaining a recipe
-does not execute it or retain the image, Catalog or dependencies it references.
-
-Knowledge admission reviews the current target revision; raw
-payloads and operational receipts cannot themselves be admitted as knowledge.
-Changing the target requires a new review. An archive decision removes the
-claim from the default knowledge view without deleting historical evidence.
-
-The API checks identities, compactness, accessible proofs and transaction
-retries. It does not prove the Agent's substantive value judgement, the recipe's
-scientific validity or strategy qualification. Measure usefulness with real
-research tasks: correct prior conclusions, recognised withdrawals, repeated
-experiments avoided and reading cost. Object counts are not learning quality.
-
-## Review imported materials
-
-An import inventory's `review_queue` is immutable. Review adds decisions for
-each original occurrence, identified by inventory ID/revision, item index and
-item hash; it does not remove items or rewrite the source inventory. The archived
-trial ledger's first import had 572 occurrences: 452 unresolved local links, 108 unsafe local links,
-11 headings with multiple IDs and one S46 source interpretation. The published
-review commit `4ncs20jpinhtgbbtdq8t0es5pemf83ki` has 572 resolved, zero pending
-and zero unavailable occurrences. The three installed-package links resolve to
-pinned dependency descriptors; their excluded file contents and line bounds
-were not inspected. This closes this inventory, not general research validation.
-
-The following historical example requires a separate recovery of the archived
-ledger. For a new import, use its actual returned inventory and source snapshot:
-
-```bash
-REVIEW_INVENTORY='inventory:ea8dba226a5caaec278dd24237cc3de3f8a7faffa53ff882e91708fc75f607d1'
-REVIEW_SOURCE_AT='rm3auu5u52edvuainhq5ofqt8b3n1r4l'
-REVIEW_PLAN="$HOME/.local/share/trade/records/review-plans/import-review.json"
-uv run --frozen python -m research.records.cli material review status "$REVIEW_INVENTORY" \
-  --revision 1 --source-at "$REVIEW_SOURCE_AT" --items
-uv run --frozen python -m research.records.cli material review prepare "$REVIEW_INVENTORY" \
-  --revision 1 --source-at "$REVIEW_SOURCE_AT" \
-  --decisions /path/to/agent-decisions.json \
-  --supplemental /path/to/supplemental-objects.json --destination "$REVIEW_PLAN"
-uv run --frozen python -m research.records.cli material review apply --file "$REVIEW_PLAN"
-uv run --frozen python -m research.records.cli --at PUBLISHED_REVIEW_COMMIT \
-  material review status "$REVIEW_INVENTORY" --revision 1 --source-at "$REVIEW_SOURCE_AT"
-```
-
-`status` projects the latest decision for every original occurrence as
-`resolved`, `pending` or `unavailable`. Its `commit` is the decision read
-snapshot; `source_snapshot_commit` is the separately fixed original inventory
-snapshot. Use global `--at` for historical status reads. `prepare` and `apply`
-use the current published store as their base and reject a historical write target.
-
-`prepare` verifies references against the original source snapshot, incorporates
-explicit Agent decisions and retained evidence, and creates a new JSON plan
-outside Git and `/tmp`. It does not publish. The saved plan freezes the base
-commit, expected version, operation ID, payload digest, proof objects, fixed
-relations and per-occurrence `review_decision` objects. Inspect its projected
-counts and evidence before applying it. Omit `--decisions` or `--supplemental`
-when no such input is needed; unreviewed semantics remain pending.
-
-The decisions manifest has a `decisions` list. Each entry binds `item_index`
-and `item_sha256`, with a reviewer, rationale, explicit scope, status and fixed
-evidence references. Closing an Agent review also requires its retained
-decision file and SHA-256. Semantic relations use reviewed endpoint revisions
-and a narrow scope. The supplemental manifest has an `objects` list containing
-explicitly retained object DTOs with original bytes and provenance. A new copy
-or acquisition records its later custody; it cannot establish that those bytes
-were retained or available at the original snapshot.
-
-`apply` verifies the frozen digest and publishes proofs, fixed edges and all
-occurrence decisions in one local Dolt transaction. Reuse the same saved plan
-after an uncertain response to recover its durable operation result. A version
-conflict requires rereading the competing state and preparing a new plan;
-editing the saved version or automatically overwriting is not a recovery rule.
-`material show` exposes active resolved references from the latest review
-decision revision. Superseded resolutions remain historical and do not enter
-that projection.
-
-Agents own source interpretation. A heading's primary ID can be disambiguated
-without merging its other mentioned IDs. S46 can correct the source attribution
-of C02 while retaining the existing D94/H27a/D95 evidence and H27a's economic
-failure. Such review does not change a Strategy, backdate registration or
-replace a new paired native replay when strategy or data behavior changes.
 
 ## Complete strategy source and fixed lineage
 
@@ -357,7 +233,7 @@ pair. These checks do not establish native parity for every stored variant.
 The framework suite passed 199 tests, including real isolated Dolt integration.
 
 These strategy and experiment objects are disposable R&D demos for exploring
-the framework. They are not a permanent product strategy inventory or admitted
+the framework. They are not a permanent product strategy inventory or research
 knowledge. They were locally backed up and removed from the active ledger on
 2026-10-09. Missing historical demo source does not require a recovery project.
 Future research still publishes its exact source and initial contract before
@@ -608,7 +484,7 @@ running custody and have mode `0700`. New sealed and restored directories use
 silently changing a shared directory when creating a run or backup. On an existing root, restrict the root,
 all run directories, and files before the next write, then run `verify` again.
 Do not put exchange credentials in the artifact root.
-Persistent database, configuration, review plan, artifact and backup paths
+Persistent database, configuration, artifact and backup paths
 must be outside both `/tmp` and the platform's current temporary directory
 (including a custom `TMPDIR`), after resolving symlinks. Temporary research
 drafts and diagnostic outputs may still use those directories.
@@ -617,10 +493,11 @@ New exploration defaults to temporary scripts and outputs under `/tmp`. A
 formal experiment retains a compact preregistration/exposure/decision record,
 including useful negative results; execution logs are not automatically useful
 knowledge. Git keeps shared tooling, image build inputs, tests and retained
-historical evidence. Dolt keeps complete strategy bytes, research metadata,
-explicit knowledge claims and source identities;
-Catalog holds exact reusable inputs once. One-off code necessary to reconstruct
-an admitted claim belongs in a frozen external recipe, not the product tree.
+historical evidence. Dolt keeps complete strategy bytes, research metadata and
+decision evidence originals; Catalog holds exact reusable inputs once. One-off
+code necessary to reconstruct a retained conclusion belongs in a frozen external
+recipe, not the product tree; retain the recipe and its verification output with
+`material retain` and cite them from the decision.
 
 Before retaining full results, decide whether exact source, locked environment,
 accessible input bytes, parameters and a command can reconstruct them. A hash
@@ -631,8 +508,9 @@ observation/stop decision is kept even when its detailed report can be generated
 
 Existing sealed runs and immutable historical evidence are not rewritten by
 this policy. A cited seal cannot be pruned merely because it looks reproducible:
-first verify a replacement/reconstruction contract, publish the reviewed
-retention decision, and preserve the run's historical availability status.
+first verify a replacement/reconstruction contract, record that decision and its
+evidence in the attempt's decision, and preserve the run's historical
+availability status.
 Abandoned `.staging`/`.quarantine` copies can be removed after checking no live
 lock or registered run depends on them. There is no automatic destructive purge.
 

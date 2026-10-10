@@ -1,9 +1,8 @@
-"""Small synthetic material imports and Dolt record consumer checks.
+"""Dolt record publication, evidence custody and consumer checks.
 
-Opt in with RESEARCH_DOLT_TEST_CONFIG (JSON connection configuration). Native
-The suite scans an isolated Git fixture, including two source revisions, and
-publishes only into one randomly named disposable database. No native replay
-or formal research database is used.
+Opt in with RESEARCH_DOLT_TEST_CONFIG (JSON connection configuration). The
+suite seeds synthetic records from an isolated Git fixture into one randomly
+named disposable database. No native replay or formal research database is used.
 """
 
 import copy
@@ -12,17 +11,15 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 import uuid
 
-from research.records import cli, migration
+from research.records import cli, evidence, ledger
 from research.records.common import RecordError
 from research.records.dolt_store import ConflictError
-from research.records.materials import scan
-from tests.records.fixtures.contract_repository import ContractRepository, SOURCE_CASES, OLD_CASES, CURRENT_CASES, v3_pending
+from tests.records.fixtures.contract_repository import ContractRepository, v3_pending
 from research.records.store import DoltRecords, validate_record
 
 
@@ -44,11 +41,6 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         cls.context = cls.fixture.patches()
         cls.addClassCleanup(cls.context.close)
         cls.fixture_attempts, cls.fixture_runs = cls.fixture.snapshot()
-        cls.historical_commit = cls.fixture.historical_commit
-        cls.c02_id = f"section:{SOURCE_CASES}#C02"
-        cls.inventory = scan(cls.fixture.root, include_untracked=False,
-                             historical_refs=cls.fixture.historical_refs())
-        cls.imported = migration.publish(cls.store.adapter, cls.inventory)
         cls.fixture.seed_records(cls.store)
         cls.baseline_commit = cls.store.adapter.status()["commit"]
 
@@ -250,15 +242,71 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(recovered, dict(first, replayed=True))
         self.assertEqual(after, self.store.adapter.status())
 
-    def test_material_import_cannot_become_a_second_record_writer(self):
+    def test_raw_store_publication_cannot_become_a_second_record_writer(self):
         before = self.store.adapter.status()
-        inventory = copy.deepcopy(self.inventory)
-        body = self._attempt_copy("UNIMPORTED")
-        inventory["objects"].append({"id": "attempt:" + body["attempt_id"], "kind": "attempt",
-                                     "revision": 1, "body": body, "provenance": {}})
-        with self.assertRaisesRegex(RecordError, "record|metadata"):
-            migration.publish(self.store.adapter, inventory)
+        body = self._attempt_copy("RAW")
+        raw = {"id": "attempt:" + body["attempt_id"], "kind": "attempt", "revision": 1, "body": body, "provenance": {}}
+        edge = {"id": "relation:raw", "kind": "run_of", "from_id": "run:x", "from_revision": 1,
+                "to_id": raw["id"], "to_revision": 1, "body": {}}
+        for objects, relations in (([raw], []), ([], [edge])):
+            with self.subTest(objects=len(objects), relations=len(relations)):
+                with self.assertRaises(RecordError) as caught:
+                    self.store.adapter.publish(objects, relations, "raw-" + uuid.uuid4().hex, before["version"])
+                self.assertEqual((caught.exception.code, caught.exception.write_status),
+                                 ("RAW_RECORD_PUBLICATION", "not_written"))
         self.assertEqual(before, self.store.adapter.status())
+
+    def test_retained_evidence_is_published_once_and_restores_original_bytes(self):
+        with tempfile.TemporaryDirectory(prefix="trade-evidence-test-", dir=Path.home()) as directory:
+            raw = "支撑触碰：保留失败结论\n".encode("utf-8")
+            path = Path(directory) / "reader-result.json"
+            path.write_bytes(raw)
+            digest = hashlib.sha256(raw).hexdigest()
+            identity = "review_evidence:" + digest
+            before = self.store.adapter.status()
+            operation = "evidence-" + uuid.uuid4().hex
+            with self.assertRaises(RecordError) as caught:
+                evidence.retain(self.store.adapter, [(path, "0" * 64)], operation_id=operation,
+                                expected_version=before["version"])
+            self.assertEqual(caught.exception.code, "REVIEW_EVIDENCE_HASH_MISMATCH")
+            checked = evidence.retain(self.store.adapter, [(path, digest), (path, digest)], operation_id=operation,
+                                      expected_version=before["version"], dry_run=True)
+            self.assertEqual((checked["write_status"], [item["id"] for item in checked["evidence"]]),
+                             ("not_written", [identity]))
+            self.assertFalse(checked["evidence"][0]["already_published"])
+            self.assertEqual(before, self.store.adapter.status())
+            first = evidence.retain(self.store.adapter, [(path, digest)], operation_id=operation,
+                                    expected_version=before["version"])
+            self.assertEqual((first["version"], first["evidence"][0]["id"]), (before["version"] + 1, identity))
+            retried = evidence.retain(self.store.adapter, [(path, digest)], operation_id=operation,
+                                      expected_version=before["version"])
+            receipt = ("operation_id", "version", "commit")
+            self.assertEqual({key: retried[key] for key in receipt}, {key: first[key] for key in receipt})
+            self.assertTrue(retried["replayed"])
+            elsewhere = Path(directory) / "copied-reader.json"
+            elsewhere.write_bytes(raw)
+            fresh = Path(directory) / "new-result.json"
+            fresh.write_bytes(b"new result\n")
+            batch = [(elsewhere, digest), (fresh, hashlib.sha256(b"new result\n").hexdigest())]
+            version = self.store.adapter.status()["version"]
+            with self.assertRaises(ConflictError) as caught:
+                evidence.retain(self.store.adapter, batch, operation_id="evidence-second", expected_version=version - 1,
+                                origin="another_label", dry_run=True)
+            self.assertEqual((caught.exception.code, caught.exception.write_status),
+                             ("EXPECTED_VERSION_CONFLICT", "not_written"))
+            second = evidence.retain(self.store.adapter, batch, operation_id="evidence-second",
+                                     expected_version=version, origin="another_label")
+            self.assertEqual([item["already_published"] for item in second["evidence"]], [True, False])
+            self.assertEqual(self.store.adapter.get_object(identity, commit=second["commit"])["provenance"],
+                             self.store.adapter.get_object(identity, commit=first["commit"])["provenance"])
+            replayed = evidence.retain(self.store.adapter, [(path, digest)], operation_id=operation,
+                                       expected_version=0, dry_run=True)
+            self.assertEqual((replayed["write_status"], replayed["commit"]), ("already_committed", first["commit"]))
+            restored = Path(directory) / "restored.json"
+            result = ledger.material(self.store.adapter, "restore", identity=identity, destination=restored)
+            self.assertEqual((restored.read_bytes(), result["sha256"]), (raw, digest))
+            shown = ledger.material(self.store.adapter, "show", identity=identity)
+            self.assertEqual((shown["object"]["kind"], shown["incoming_repairs"]), ("material", []))
 
     def test_record_schemas_lineage_briefs_and_comparisons_are_preserved(self):
         attempts, runs = self._baseline_records()
@@ -322,36 +370,6 @@ class DoltMigrationIntegrationTests(unittest.TestCase):
                 (reports / "orders.csv").write_text("modified after sealing\n")
                 with self.assertRaisesRegex(RecordError, "sealed artifact verification failed"):
                     cli._validate(attempts, actual_runs)
-
-    def test_reimport_of_identical_inventory_creates_no_revision_or_commit(self):
-        before = self.store.adapter.status()
-        result = migration.publish(self.store.adapter, self.inventory)
-        self.assertTrue(result.get("unchanged"), result)
-        self.assertEqual(result["new_objects"], 0)
-        self.assertEqual(result["new_relations"], 0)
-        self.assertEqual((result["version"], result["commit"]),
-                         (before["version"], before["commit"]))
-        self.assertEqual(before, self.store.adapter.status())
-        revisions = [obj for obj in self.store.adapter.list_objects(latest=False)
-                     if obj["id"] == self.c02_id]
-        self.assertEqual(sorted(obj["revision"] for obj in revisions), [1, 2])
-
-    def test_both_c02_source_revisions_restore_exact_original_bytes(self):
-        expected_sources = [OLD_CASES, CURRENT_CASES]
-        values = []
-        for revision, source_bytes in enumerate(expected_sources, start=1):
-            obj = self.store.adapter.get_object(
-                self.c02_id, revision=revision, commit=self.baseline_commit)
-            self.assertIsNotNone(obj)
-            locator = obj["provenance"]["locator"]
-            expected = source_bytes[locator["start_byte"]:locator["end_byte"]]
-            actual = migration.original_bytes(obj)
-            self.assertEqual(actual, expected)
-            self.assertEqual(hashlib.sha256(actual).hexdigest(), obj["body"]["sha256"])
-            values.append(actual)
-        self.assertNotEqual(values[0], values[1])
-        latest = self.store.adapter.get_object(self.c02_id, commit=self.baseline_commit)
-        self.assertEqual(migration.original_bytes(latest), values[1])
 
     def test_published_decision_revision_keeps_old_commit_readable(self):
         original = self.store.adapter.get_object("attempt:H08", commit=self.baseline_commit)

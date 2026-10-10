@@ -132,9 +132,6 @@ class ContractRepository:
                 publish("attempt", body)
         return store.adapter.status()
 
-    def historical_refs(self):
-        return [{"commit": self.historical_commit, "paths": [SOURCE_CASES]}]
-
     def _records(self):
         def parent(identity, relationship="hypothesis_extension"):
             return {"attempt_id": identity, "relationship": relationship,

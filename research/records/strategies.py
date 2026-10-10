@@ -335,7 +335,8 @@ def publish(adapter, metadata, source_path, operation_id, expected_version):
                 "to_kind": expected_kind, "body": reference}
         edge["id"] = "edge:" + _sha(canonical(edge).encode("utf-8"))
         relations.append(edge)
-    result = adapter.publish([obj, context], relations, operation_id, expected_version, f"publish {identity}")
+    result = adapter.publish([obj, context], relations, operation_id, expected_version, f"publish {identity}",
+                            validated_by="strategy_publish")
     checked = resolve(adapter, metadata["strategy_id"], obj["revision"], result["commit"])
     return {**result, "binding": checked["binding"]}
 

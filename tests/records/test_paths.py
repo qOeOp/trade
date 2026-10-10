@@ -8,11 +8,10 @@ import stat
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from research.records import artifacts, ledger, retention, reviews
+from research.records import artifacts, evidence, ledger
 from research.records.common import ROOT, RecordError, _is_temporary_path
 
 
@@ -54,25 +53,16 @@ class RetainedPathTests(unittest.TestCase):
                         ledger.backup({}, target)
                     store.assert_not_called()
                 with self.assertRaisesRegex(RecordError, "outside Git and /tmp"):
-                    reviews.retain_file(target / "evidence.json", "a" * 64)
-                with self.assertRaisesRegex(RecordError, "outside Git and /tmp"):
-                    retention._external_ref({"path": str(target / "recipe.json"), "sha256": "a" * 64}, "recipe_ref")
+                    evidence.retain_file(target / "evidence.json", "a" * 64)
                 with self.assertRaisesRegex(artifacts.ArtifactError, "outside Git and /tmp"):
                     artifacts._private_root(target)
                 self.assertFalse(target.exists())
 
-    def test_review_plan_and_backend_config_are_checked_before_writing(self):
+    def test_backend_config_is_checked_before_writing(self):
         for parent in (Path("/tmp") / "trade-disallowed-path-fixture", self.system_temp, ROOT):
-            destination = parent / "new-plan.json"
-            args = SimpleNamespace(command="material", action="review", review_action="prepare", at=None,
-                                   inventory_id="inventory:fixture", revision=1, source_at="a" * 32,
-                                   decisions=None, supplemental=None, destination=destination)
-            with self.subTest(parent=parent), patch.object(ledger, "open_store", return_value=SimpleNamespace(adapter=object())), \
-                 patch.object(reviews, "prepare", return_value={}):
-                with self.assertRaisesRegex(RecordError, "outside Git and /tmp"):
-                    ledger.command(args)
-                self.assertFalse(destination.exists())
-            with patch.object(ledger, "config_path", return_value=destination), patch.object(ledger, "_binary") as binary:
+            destination = parent / "new-config.json"
+            with self.subTest(parent=parent), patch.object(ledger, "config_path", return_value=destination), \
+                 patch.object(ledger, "_binary") as binary:
                 with self.assertRaisesRegex(RecordError, "backend config"):
                     ledger.initialize("/unused-dolt", root=self.home / "database")
                 binary.assert_not_called()
@@ -80,11 +70,10 @@ class RetainedPathTests(unittest.TestCase):
 
     def test_normal_retained_home_evidence_passes_and_artifact_permissions_still_apply(self):
         raw = b"retained source bytes\n"
-        evidence = self.home / "evidence.json"
-        evidence.write_bytes(raw)
+        retained = self.home / "evidence.json"
+        retained.write_bytes(raw)
         digest = hashlib.sha256(raw).hexdigest()
-        self.assertEqual(reviews.retain_file(evidence, digest)["body"]["sha256"], digest)
-        retention._external_ref({"path": str(evidence), "sha256": digest}, "recipe_ref")
+        self.assertEqual(evidence.retain_file(retained, digest)["body"]["sha256"], digest)
         root = self.home / "archive"
         self.assertEqual(artifacts._private_root(root), root.resolve())
         self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)

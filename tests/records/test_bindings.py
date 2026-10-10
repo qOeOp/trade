@@ -82,7 +82,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         self.store.adapter.initialize()
         self.imported = self.store.adapter.publish(
             self.seed_objects, self.seed_relations, "binding-fixture-import", 0,
-            "explicit Git fixture for record binding integration",
+            "explicit Git fixture for record binding integration", validated_by="binding fixture",
         )
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

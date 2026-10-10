@@ -55,13 +55,14 @@
 
 ## 修复状态（2026-10-10）
 
-按用户"能用 Agent 就不硬编码"的原则，以下只修现有读写路径的缺陷，不新增规则或字段：
+按用户"能用 Agent 就不硬编码"的原则，以下除 RDP07（用户决定新增 `material retain` 与存储写入拒绝）外，只修现有读写路径的缺陷，不新增规则或字段：
 
 - RDP01：`publish attempt`（含 `--dry-run`）对 `show`/`compare` 读不了的 `evidence_refs` 路径返回 `read_preflight`。第一版只报告；用户已同意确认不误拒后再改为写入时拒绝。
 - RDP02：简要视图保留 `evidence_status` 与 `selection.known_exposure.run_refs`。B00 的简要视图同时显示资料归档状态 `declared/no_fixed_archive_for_path` 和封存核验结果 `verified`。
 - RDP03：已由 #1490 的 `compare --analysis` 解决。
 - RDP05：`artifacts register` 新增 `--dry-run`；候选带对照时返回 `pair_preflight`，复用 `compare` 的同一组记录检查（抽成 `_check_pair_records`）。用 C09 当时的成本说明做 dry-run，写入前即报出 `/cost_model` 冲突与双方原文。第一版只报告。
 - RDP06：`_dolt_lineage` 在一次读取内只读每个固定祖先一次，`validate` 跨根共享。固定 v132 上 `show RD20261010-D09 --brief` 的连接数从 5,164 降到 402、耗时从 5.8 秒降到 1.3 秒，输出逐字节不变；`--at f8va2hf2e7bae13p08kfs5s8ne1sk3ud validate` 通过（27 attempts、27 runs，214 条连接，2.6 秒），此前两次因 `Errno 49` 失败。
+- RDP07：用户 2026-10-10 改变决定，新增 `material retain`（带 `--dry-run`、expected-version、operation-id），证据原文不再需要脚本调用内部函数。存储适配器同时拒绝任何未声明发表接口的写入，未提交的 SQL 改动也会让发表被拒；此前 37 次直接调用 `DoltStore.publish` 只写过证据材料，没有发现写过记录。
 
 ## RDP07：决定证据原文没有 CLI 发表入口
 
