@@ -97,7 +97,7 @@
 
 ## 收缩决定（2026-10-10 下午）
 
-用户按“能用 Agent 就不硬编码”原则决定：代码只保留 Agent 不应自评的部分，即信任边界、现有缺陷修复和 Agent 做不到的事。上表其余已审阅的描述性读数从代码移出，其定义与数据坑写入按需加载的 `.claude/skills/native-report-analysis/SKILL.md`，由 Agent 从核验后的封存计算，并用对账不变量或独立复算自检。
+用户按“能用 Agent 就不硬编码”原则决定：代码只保留 Agent 不应自评的部分，即信任边界、现有缺陷修复和 Agent 做不到的事。上表其余已审阅的描述性读数从代码移出，其定义与数据坑写入按需加载的 `.agents/skills/native-report-analysis/SKILL.md`，由 Agent 从核验后的封存计算，并用对账不变量或独立复算自检。
 
 - `artifacts report` 保留：`run_id`、`status`、`problems`、`manifest_sha256`、`record_binding`、`summary_ref`、`audit_ref`、`analysis`、`native_economics`、`closed.{reported_realized_pnl_usdt, fill_commissions_usdt, reported_funding_usdt, price_pnl_usdt}`、`closed_trades`、`open_positions`、`unrealized_residual_usdt`、`limitations`。只有在逐行恒等式、事件覆盖成交、佣金合计与 native_economics 合计都在 1e-6 内成立时才输出分解，否则为 null 并写原因；日收益不能复利到 final_equity 时写入限制。
 - `artifacts report` 移出：summary 透传字段、`closed.entry_notional_usdt`、`open_entry_notional_usdt`、`closed_bps_of_entry_notional`、`closed_realized_pnl_quantiles_usdt`、`taker_fill_notional_share`、`orders_by_tag_status`、`partially_filled_orders`、`closed_duration_hours_quantiles`、`zero_duration_closed`、`max_drawdown_daily_close_dates`、`worst_day`、`max_consecutive_losing_closed`、`monthly_account_return_pct`、`by_instrument`、`by_entry_side`。

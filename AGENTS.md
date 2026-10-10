@@ -6,6 +6,7 @@
 - Use `BacktestNode` to load funding from the existing Catalog. `backtest/r1/native_node.py` validates inputs and derives native MARK updates from the prepared MARK bars; Nautilus owns settlement, orders, fills, risk and account state.
 - Preserve causal clocks, native order protection, reproducible research evidence and data lineage. A strategy, dependency or data change requires a new paired replay before claiming parity.
 - Keep one current product blueprint in `docs/architecture.zh.md`. Record research/product findings under `docs/plans/`.
+- Repository Agent skills follow the Agent Skills standard and live once in `.agents/skills/` (read by Codex); `.claude/skills` is a relative symlink to it for Claude Code. Add or edit skills only under `.agents/skills/`; never keep a second copy.
 - During strategy R&D, keep hypotheses, results and next decisions in their attempt/run records; separately record material or recurring research-workbench gaps as product findings under `docs/plans/` with affected attempt IDs, blocked Agent task, evidence, iteration cost, workaround and smallest shared capability needed.
 - Research backtests are read-only. Real trading, production writes, or changing a refusal or risk boundary require explicit user authority. Do not use exchange trading credentials for research.
 
