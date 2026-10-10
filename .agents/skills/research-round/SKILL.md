@@ -78,8 +78,10 @@ exclusion nor corroboration, bring the question to the user.
 ## Do not
 
 - Relabel an inspected window as holdout, or call a development improvement generalization, also
-  for a single tuning step or as partial evidence. A development or pre-cutoff window can only fail
-  to refute a change; only data that did not exist at freeze time confirms it.
+  for a single tuning step or as partial evidence. A development or pre-cutoff window, even one a
+  tuning step skipped, and any data that existed at freeze time can only fail to refute a change:
+  say "not refuted", never half, quasi or semi out-of-sample, independent, or "no overfitting".
+  Only data that did not exist at freeze time confirms it.
 - Add filters after inspecting losing trades and call the result a mechanism.
 - Change the risk limits or the goal to rescue a result.
 - Derive PnL, R multiples, win rates, expectancy or breakeven from price touches, even as a rough,
