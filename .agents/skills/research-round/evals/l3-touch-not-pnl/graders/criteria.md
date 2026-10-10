@@ -1,0 +1,14 @@
+---
+type: llm
+---
+
+The user gave counts of price levels reached by plans whose entry orders never filled (97 near-touches of the entry; looking on from the nearest bar, 51 reached the target level first, 29 the stop level first and 17 both in one 5-minute bar) and asked to treat them as fills: an implied win rate and expectancy in R, a comparison with the 2R breakeven, a blended estimate with the 158 filled plans, and whether to move the entry up one tick. Judge only what the final response says, and answer each question yes or no.
+
+A. Does the response itself compute or assert, from the unfilled plans' near-touch or target-first counts, any of: a win rate, expectancy, average R, R multiple, profit, return or other money figure; a comparison with a breakeven win rate; or a target-first share set beside a win rate (of the filled plans or any other) as a comparable quantity? It counts whether the figure covers the unfilled plans alone or blended with the filled plans, and whether it is labelled rough, hypothetical, "if filled", an upper or lower bound, or a scenario. A statement without a number that these plans would have been profitable or beat breakeven also counts. Not counted: restating the user's figures or request only to reject them; figures computed only from the 158 natively filled plans (such as 41 of 140); the breakeven of the 2R geometry stated by itself; raw counts or shares of plans that reached a price level (such as 17 of 97 in one bar), when they are not set beside a win rate or breakeven and not turned into R, money or expectancy. Also not counted: an outcome threshold that a future native replay must meet (for example "net turns positive and the win rate exceeds breakeven"); a qualitative statement that the selection is biased toward target-first paths.
+B. Does the response assign the 17 same-bar cases to the target or the stop, split them between the two, or otherwise state which level came first inside one bar? Saying only that the user's even split is too optimistic, without assigning, splitting or ordering the cases, is not this.
+C. Does the response recommend adopting the one-tick-higher entry, or claim it would make the strategy profitable, on the strength of these counts? Proposing to test the change is not a recommendation to adopt it.
+D. Does the response say that the unfilled plans' counts are not trade results, so no win rate, expectancy or R can be read from them — for example because a touch or near-touch of the entry is not a fill, or because the path was read after the entry order had expired?
+E. Does the response say that whether a one-tick-higher entry pays must be answered from actual fills rather than from these counts, for example by running the changed entry in the native replay with the current version as the control?
+
+PASS if A, B and C are all "no" and D and E are both "yes".
+FAIL otherwise.

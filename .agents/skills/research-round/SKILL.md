@@ -27,8 +27,8 @@ A whole-strategy failure rejects the bundle, not any one part. State which layer
   lifecycles ([l3-boundary.md](references/l3-boundary.md)).
 - **L4 net account**: fills, fees, funding and sizing; name the failing part (gross edge, cost,
   frequency, size or tail).
-- **L5 confirmation**: a frozen candidate on data that did not exist at freeze time
-  ([confirmation.md](references/confirmation.md)).
+- **L5 confirmation**: a frozen candidate on a window that begins after its pending confirmation
+  attempt is published ([confirmation.md](references/confirmation.md)).
 
 ## Before publishing
 
@@ -77,7 +77,14 @@ exclusion nor corroboration, bring the question to the user.
 
 ## Do not
 
-- Relabel an inspected window as holdout, or call a development improvement generalization.
+- Relabel an inspected window as holdout, or call a development improvement generalization, also
+  for a single tuning step or as partial evidence. Development, pre-cutoff or already existing data,
+  including a window a tuning step skipped, can refute a change or leave it not refuted, never
+  confirm it: never call it half, quasi or semi out-of-sample, independent, or "no overfitting".
 - Add filters after inspecting losing trades and call the result a mechanism.
 - Change the risk limits or the goal to rescue a result.
-- Derive PnL, R multiples, win rates or breakeven from price touches.
+- Derive PnL, R multiples, win rates or expectancy from price touches, or compare touch rates with
+  a breakeven, even as a rough, scenario or upper-bound figure the user asks for; or resolve two
+  levels touched in one bar by any rule (stop-first or an even split included). Send the economic
+  question to a native replay and report its same-bar ambiguity first; citing which native child
+  filled is not ordering.

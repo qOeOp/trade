@@ -6,7 +6,10 @@ attempt was published before the window began.
 
 1. **Freeze.** Pass review ([review.md](review.md)). Publish a pending confirmation attempt that binds
    the frozen strategy and states in its plan the freeze review's material ID, the configuration,
-   image, cost model, window length and preregistered decision ranges. Exposure honestly lists the development runs.
+   image, cost model, window length and preregistered decision ranges. Exposure honestly lists the
+   development runs. Then run the provenance audit
+   (`$HOME/.local/share/trade/research-audits/provenance/run.sh`) so the registration time is
+   witnessed before a garbage collection clears the reflog.
 2. **Wait** until the window has passed.
 3. **Build inputs** for that window with a data recipe and record their input identity
    (`artifacts input-identity`, [seal.md](seal.md)).

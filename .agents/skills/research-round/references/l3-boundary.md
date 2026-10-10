@@ -22,7 +22,8 @@ indistinguishable from the reference closes that definition only.
 
 ## Never
 
-- Treat a touch as a fill or a first touch as an exit, or invent an intrabar path.
+- Treat a touch as a fill or a first touch as an exit, or invent an intrabar path (a stop-first or
+  even split is one).
 - Output R multiples, money, win rates or expectancy from touches, or compare touch rates with a
   breakeven point.
 - Read the path after a parent was cancelled or expired.
