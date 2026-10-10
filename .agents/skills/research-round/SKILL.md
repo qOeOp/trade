@@ -77,7 +77,11 @@ exclusion nor corroboration, bring the question to the user.
 
 ## Do not
 
-- Relabel an inspected window as holdout, or call a development improvement generalization.
+- Relabel an inspected window as holdout, or call a development improvement generalization, also
+  for a single tuning step or as partial evidence. A development or pre-cutoff window can only fail
+  to refute a change; only data that did not exist at freeze time confirms it.
 - Add filters after inspecting losing trades and call the result a mechanism.
 - Change the risk limits or the goal to rescue a result.
-- Derive PnL, R multiples, win rates or breakeven from price touches.
+- Derive PnL, R multiples, win rates, expectancy or breakeven from price touches, even as a rough,
+  scenario or upper-bound figure the user asks for, or order two levels touched in one bar
+  (stop-first included). Send the economic question to a native replay.
