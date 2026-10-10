@@ -2,12 +2,14 @@
 
 import copy
 import csv
+import gzip
 import io
 import json
 import math
 import os
 import tempfile
 import unittest
+from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
 from decimal import Decimal
 from pathlib import Path
@@ -62,7 +64,8 @@ def _csv(columns, rows):
 
 
 def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, economics=True,
-          economics_override=None, final_equity=None, status="passed", orders=",status,expire_time_ns\n") -> Path:
+          economics_override=None, final_equity=None, status="passed", orders=",status,expire_time_ns\n",
+          exposures=None) -> Path:
     seal = root / run_id
     reports = seal / "reports"
     reports.mkdir(parents=True)
@@ -71,7 +74,7 @@ def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, econ
                   "2026-01-05 00:00:00+00:00" if cycle["closed"] else "", f"{cycle['realized']} USDT",
                   repr([event["commission"] for event in cycle["events"]]),
                   repr([_funding(amount) for amount in cycle["funding"]]), repr(cycle["events"]),
-                  str(CLOSE_NS), f"{cycle['position_id']}-exit" if cycle["closed"] else ""]
+                  str(cycle.get("ts_last", CLOSE_NS)), f"{cycle['position_id']}-exit" if cycle["closed"] else ""]
                  for cycle in cycles]
     (reports / "positions.csv").write_text(_csv(POSITION_COLUMNS, positions) if cycles
                                            else ",ts_closed,realized_pnl,instrument_id\n")
@@ -79,6 +82,9 @@ def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, econ
         _csv(["event_id", "commission"], [[event["event_id"], event["commission"]] for event in events])
         if events else ",client_order_id\n")
     (reports / "orders.csv").write_text(orders)
+    if exposures is not None:
+        (reports / "exposures.csv.gz").write_bytes(gzip.compress(
+            _csv(["ts_event_ns", "position_id", "notional_value", "unrealized_pnl"], exposures).encode(), mtime=0))
     (reports / "account.csv").write_text("ts_event,total,currency\n2026-01-01,1000,USDT\n")
     returns = [(START_NS + day * DAY, 0.0) for day in range(2)]
     returns += [(START_NS + (day + 2) * DAY, value) for day, value in enumerate(window)]
@@ -89,7 +95,9 @@ def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, econ
     funding = sum((Decimal(amount) for cycle in cycles for amount in cycle["funding"]), Decimal(0))
     growth = math.prod(1 + value for value in window)
     final_equity = final_equity or format((1000 * Decimal(repr(growth))).quantize(Decimal("0.00000001")), "f")
-    summary = {"period_start_utc": "2026-01-03T00:00:00+00:00", "starting_balance_usdt": "1000",
+    summary = {"input_start_utc": "2026-01-01T00:00:00+00:00", "period_start_utc": "2026-01-03T00:00:00+00:00",
+               "period_end_utc": "2026-01-09T00:00:00+00:00", "data_interval_minutes": 1440,
+               "starting_balance_usdt": "1000",
                "final_equity_usdt": final_equity, "closed_trades": sum(cycle["closed"] for cycle in cycles),
                "integrity_passed": True, "limitations": ["fixture limitation"]}
     native = {"starting_balance_usdt": "1000.00000000", "final_balance_usdt": str(1000 + realized),
@@ -259,6 +267,72 @@ class TablesTests(unittest.TestCase):
         with self.assertRaises(RecordError) as caught:
             analysis.tables(self.root, "R1")
         self.assertEqual(caught.exception.path, "/tags")
+
+
+# Daily bar closes of the fixture grid, stamped 1 ms before each boundary.
+GRID = [START_NS + day * DAY - 1_000_000 for day in range(1, 9)]
+
+
+def _timed_cycles():
+    cycles = copy.deepcopy(CYCLES)
+    times = {"e1": GRID[0], "e2": GRID[1], "e3": GRID[3], "e4": GRID[1], "e5": GRID[2], "e6": GRID[4]}
+    for cycle in cycles:
+        for event in cycle["events"]:
+            event["ts_event"] = times[event["event_id"]]
+        cycle["ts_last"] = cycle["events"][-1]["ts_event"]
+    return cycles
+
+
+class ExposureTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        _seal(self.root, "PLAIN", cycles=_timed_cycles())
+        self.residual = analysis.report(self.root, "PLAIN")["unrealized_residual_usdt"]
+
+    def rows(self, residual=None):
+        rows = [[ts, "AAA-1", "200.00000000 USDT", "1.00000000 USDT"] for ts in GRID[0:3]]
+        rows += [[GRID[1], "BBB-1", "50.00000000 USDT", "-1.00000000 USDT"]]
+        rows += [[ts, "BBB-2", "46.00000000 USDT", "0.00000000 USDT"] for ts in GRID[4:7]]
+        return rows + [[GRID[7], "BBB-2", "47.00000000 USDT", f"{residual or self.residual} USDT"]]
+
+    def test_rows_belong_to_the_cycle_open_at_each_bar_and_reconcile_the_residual(self):
+        _seal(self.root, "R1", cycles=_timed_cycles(), exposures=self.rows())
+        rows = analysis.tables(self.root, "R1", exposures=True)["exposures"]
+        self.assertEqual(Counter(row["cycle_position_id"] for row in rows), {"AAA-1": 3, "BBB-1": 1, "BBB-2": 4})
+        self.assertEqual((rows[0]["ts_event_ns"], rows[0]["notional_value"]), (GRID[0], Decimal("200")))
+
+    def test_gaps_extra_rows_and_off_grid_rows_are_refused(self):
+        rows = self.rows()
+        for name, edited in (("gap", rows[:1] + rows[2:]), ("closed", rows + [[GRID[3], "AAA-1", "1 USDT", "0 USDT"]]),
+                             ("grid", [[rows[0][0] + 1, *rows[0][1:]]] + rows[1:])):
+            with self.subTest(name):
+                _seal(self.root, name, cycles=_timed_cycles(), exposures=edited)
+                with self.assertRaises(RecordError) as caught:
+                    analysis.tables(self.root, name, exposures=True)
+                self.assertEqual(caught.exception.path, "/exposures.csv.gz")
+
+    def test_a_cycle_closed_between_bars_is_held_only_until_the_bar_before(self):
+        cycles = _timed_cycles()
+        cycles[0]["events"][2]["ts_event"] = cycles[0]["ts_last"] = GRID[2] + 1_000_000  # a boundary between bars
+        rows = [row for row in self.rows() if not (row[1] == "AAA-1" and row[0] == GRID[2])]
+        _seal(self.root, "R1", cycles=cycles, exposures=rows)
+        self.assertEqual(sum(row["cycle_position_id"] == "AAA-1" for row in analysis.tables(self.root, "R1", exposures=True)["exposures"]), 2)
+        _seal(self.root, "R2", cycles=cycles, exposures=self.rows())
+        with self.assertRaisesRegex(RecordError, "matches 0 position cycles"):
+            analysis.tables(self.root, "R2", exposures=True)
+
+    def test_final_unrealized_pnl_must_equal_the_audited_residual(self):
+        _seal(self.root, "R1", cycles=_timed_cycles(), exposures=self.rows(residual="999"))
+        with self.assertRaisesRegex(RecordError, "audited residual"):
+            analysis.tables(self.root, "R1", exposures=True)
+
+    def test_seals_before_the_exposure_report_have_none(self):
+        result = analysis.tables(self.root, "PLAIN", exposures=True)
+        self.assertIsNone(result["exposures"])
+        self.assertIn("No exposure report: open-position valuation over time was not recorded for this seal.",
+                      result["limitations"])
 
 
 class PairedAnalysisTests(unittest.TestCase):

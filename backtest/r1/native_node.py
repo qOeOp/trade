@@ -2,6 +2,7 @@
 
 import hashlib
 import tempfile
+from dataclasses import dataclass
 from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
@@ -13,7 +14,7 @@ from nautilus_trader.backtest import (
     BacktestRunConfig,
     BacktestVenueConfig,
 )
-from nautilus_trader.common import LoggerConfig, LogLevel
+from nautilus_trader.common import DataActor, ImportableActorConfig, LoggerConfig, LogLevel
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.data import DataEngineConfig
 from nautilus_trader.model import (
@@ -21,6 +22,7 @@ from nautilus_trader.model import (
     BarType,
     BookType,
     Currency,
+    InstrumentId,
     MarkPriceUpdate,
     OmsType,
     TraderId,
@@ -57,13 +59,75 @@ ACCOUNT_CONTRACT = {
 }
 
 
+OBSERVERS: list = []
+
+
+@dataclass
+class CapitalObserverConfig:
+    instrument_ids: tuple[str, ...]
+
+
+class CapitalObserver(DataActor):
+    """Value the positions held between input bar timestamps.
+
+    The sample labelled with bar timestamp T holds the positions open after every
+    event before the next bar timestamp: T's bars and fills, and any fill, expiry
+    or funding stamped between the bars. The first MARK of the next timestamp
+    shows that point reached; each open position is then valued with the native
+    ``Position.notional_value`` and ``Position.unrealized_pnl`` at T's MARK, the
+    latest MARK. A position already changed at the next timestamp is reported. The
+    runner values the last timestamp with ``finish`` once every component stopped.
+    """
+
+    def __new__(cls, config=None):
+        return DataActor.__new__(cls)
+
+    def __init__(self, config: CapitalObserverConfig):
+        super().__init__(None)
+        self.instrument_ids = [InstrumentId.from_str(value) for value in config.instrument_ids]
+        self.rows, self.timestamps, self.findings = [], 0, []
+        self._ts, self._marks = None, {}
+        OBSERVERS.append(self)
+
+    def on_start(self):
+        for instrument_id in self.instrument_ids:
+            self.subscribe_mark_prices(instrument_id)
+
+    def on_mark_price(self, mark):
+        if self._ts is not None and mark.ts_event < self._ts:
+            self.findings.append(f"capital observation received MARK {mark.ts_event} after {self._ts}")
+            return
+        if self._ts is not None and mark.ts_event > self._ts:
+            self._value(self._ts, self.cache)
+        if self._ts is None or mark.ts_event > self._ts:
+            self._ts, self._marks = mark.ts_event, {}
+        self._marks[mark.instrument_id] = mark.value
+
+    def finish(self, cache) -> None:
+        """Value the last timestamp after strategies stopped, including any closing fills."""
+        if self._ts is not None:
+            self._value(self._ts, cache)
+            self._ts = None
+
+    def _value(self, ts: int, cache) -> None:
+        self.timestamps += 1
+        for position in cache.positions_open():
+            price = self._marks.get(position.instrument_id)
+            if price is None or position.ts_last >= ts + BAR_INTERVAL_NS:
+                self.findings.append(f"capital observation cannot value {position.instrument_id} at {ts}")
+                continue
+            self.rows.append((ts, str(position.id), str(position.notional_value(price)),
+                              str(position.unrealized_pnl(price))))
+
+
 class NodeReports:
     """Expose native Node reports to the existing R1 report writer."""
 
-    def __init__(self, node: BacktestNode, run_id: str, result):
+    def __init__(self, node: BacktestNode, run_id: str, result, observer: CapitalObserver):
         self.node = node
         self.run_id = run_id
         self.result = result
+        self.observer = observer
         self.cache = node.get_engine_cache(run_id)
         self.portfolio = node.get_engine_portfolio(run_id)
 
@@ -237,6 +301,7 @@ def run_native_node(
     node = BacktestNode([config])
     node.build()
     STRATEGIES.clear()
+    OBSERVERS.clear()
     strategy_path = register_strategy(strategy)
     for row in rows:
         node.add_strategy_from_config(
@@ -263,6 +328,14 @@ def run_native_node(
                 },
             ),
         )
+    node.add_actor_from_config(
+        config.id,
+        ImportableActorConfig(
+            actor_path="backtest.r1.native_node:CapitalObserver",
+            config_path="backtest.r1.native_node:CapitalObserverConfig",
+            config={"instrument_ids": tuple(str(row["instrument_id"]) for row in rows)},
+        ),
+    )
     result = node.run()[0]
     expected_iterations = sum(sum(row["completion"]["counts"].values()) for row in rows)
     if result.iterations != expected_iterations:
@@ -272,4 +345,8 @@ def run_native_node(
     for row in rows:
         row["counts"] = row["completion"]["counts"].copy()
     strategies = {row["coin"]: STRATEGIES[str(row["instrument_id"])] for row in rows}
-    return NodeReports(node, config.id, result), strategies
+    if len(OBSERVERS) != 1:
+        raise RuntimeError("native capital observer did not start exactly once")
+    reports = NodeReports(node, config.id, result, OBSERVERS[0])
+    reports.observer.finish(reports.cache)
+    return reports, strategies

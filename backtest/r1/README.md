@@ -149,6 +149,18 @@ ran budgeted-tier geometry gates for a fixed list of legacy signal variants; the
 sealed `audit.json` keeps those results. The `--catalog-root` argument is still
 accepted for older custody commands and is not read.
 
+Besides the native reports, the runner seals `exposures.csv.gz`. A row labelled
+with bar timestamp T holds a position open after every event before the next bar
+timestamp, including fills stamped between bars, valued with the native
+`Position.notional_value` and `Position.unrealized_pnl` at T's MARK. A
+runner-side observer values the positions once the first MARK of the next
+timestamp shows that point reached, and the runner values the last timestamp
+after every component stopped.
+It adds no timer: in rc3 probes a five-minute timer made a run with many resting
+orders more than ten times slower. Balances and margins are not repeated: use
+the latest account state before the next bar timestamp. A run fails integrity if a timestamp or an open
+position goes unvalued. Seals from images before this report have none.
+
 D105 sealed the migration checks for five representative native pairs: H19a,
 H18a, R-1u, H04 staged exits and H29a. The full 37-instrument H19a pair also
 passed. This accepts those sampled implementation paths, not native parity for

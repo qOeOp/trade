@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
+import io
 import json
 import math
 from datetime import timedelta
@@ -15,7 +17,7 @@ from nautilus_trader.analysis import MaxDrawdown
 from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
-from backtest.r1.native_node import ACCOUNT_CONTRACT, run_native_node
+from backtest.r1.native_node import ACCOUNT_CONTRACT, BAR_INTERVAL_NS, run_native_node
 from backtest.r1.replay_util import _json_safe, _ns, _snapshot_equity_usdt, _utc_datetime
 from backtest.r1.replay_inputs import read_instruments as _read_instruments
 from backtest.r1.strategy_loader import RUNTIME_CONTRACT, LoadedStrategy, load_strategy, _read_regular_file
@@ -67,6 +69,27 @@ def _orders_with_native_deadlines(engine, report):
         deadlines.append(str(deadline) if deadline is not None else "")
     result["expire_time_ns"] = deadlines
     return result
+
+
+EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl")
+
+
+def _write_exposures(rows, path: Path) -> None:
+    """Write the observed open-position valuations as gzip CSV with a fixed header time."""
+    with path.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as packed, \
+            io.TextIOWrapper(packed, encoding="utf-8", newline="") as text:
+        writer = csv.writer(text)
+        writer.writerow(EXPOSURE_COLUMNS)
+        writer.writerows(rows)
+
+
+def _capital_findings(observer, start_ns: int, end_ns: int) -> list[str]:
+    """The observation valued every input timestamp and every open position in it."""
+    findings = list(dict.fromkeys(observer.findings))
+    expected = (end_ns - start_ns) // BAR_INTERVAL_NS
+    if observer.timestamps != expected:
+        findings.append(f"capital observation valued {observer.timestamps} of {expected} input timestamps")
+    return findings
 
 
 def _readable_empty_report(report, columns):
@@ -261,6 +284,10 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
                 integrity_findings.append(finding)
     if denied_or_rejected and not integrity_findings:
         integrity_findings.append("native orders were denied or rejected")
+    _write_exposures(engine.observer.rows, args.output / "exposures.csv.gz")
+    for finding in _capital_findings(engine.observer, start, end):
+        if finding not in integrity_findings:
+            integrity_findings.append(finding)
     closed = positions[positions["ts_closed"].notna()]
     pnl = (
         closed["realized_pnl"].astype(str).str.extract(r"(-?[0-9.]+)")[0].astype(float)
@@ -331,7 +358,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
             "Five-minute execution bars cannot resolve every intrabar order sequence",
             "Current contract terms approximate historical metadata",
             "Fixed 2026 coin universe is backcast into 2025",
-            "Minute-sampled portfolio drawdown is not yet reported",
+            "Open-position valuation is sampled after each five-minute bar close; intrabar exposure and drawdown are not observed",
         ],
     }
     payload = json.dumps(_json_safe(summary), indent=2, allow_nan=False)

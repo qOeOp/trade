@@ -55,6 +55,13 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 - Build an HTML report with `nautilus_trader.analysis.create_tearsheet_from_stats(stats_pnls,
   stats_returns, stats_general, returns, output_path=...)` fed with trade-window statistics, and write
   it outside the seal.
+- Capital use comes from `tables(..., exposures=True)`: a row labelled with bar timestamp T holds
+  a position open after every event before the next bar timestamp, valued at T's MARK (native
+  `notional_value`, `unrealized_pnl`, `cycle_position_id`). A bar without rows held no position.
+  Equity at T is the account `total` of the latest account state before the next bar timestamp plus
+  T's unrealized PnL; margins also count resting orders. Average over the trade window's bars from
+  `period_start_utc`; a peak is a sampled peak. When `exposures` is `None`, the seal cannot answer
+  capital-use questions.
 
 ## Self-checks before citing a derived number
 
@@ -68,5 +75,4 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 - Do not weight edge readings without naming the weighting (count vs. entry notional); never average
   `realized_return`.
 - Do not call a drawdown reduction better risk efficiency when exposure also fell.
-- Do not derive capital use from the account report or re-value positions; seals without a native
-  capital time series cannot answer capital-use questions.
+- Do not re-value positions, or derive capital use from the account report alone.
