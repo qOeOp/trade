@@ -26,7 +26,7 @@
 | `analysis.method`、`custody` | drop | 源码哈希已确定方法；custody 是保管位置属性，归档后自述会失真 | — |
 | `input_start_utc`、`period_start_utc`、`period_end_utc`、`data_interval_minutes` | retain，沿用 summary | 交易窗口与预热 | summary 原值；summary.json 本身 40.9 KB，超出上限，故做有界投影 |
 | `starting_balance_usdt`、`final_equity_usdt`、`net_change_usdt`、`annualized_return_pct`、`native_sharpe_365`、`native_max_drawdown_daily_close`、`closed_trades`、`winning_trades`、`closed_trade_win_rate` | retain，沿用 summary | 账户目标读数 | 失败 seal 为 null |
-| `native_economics` | retain，沿用 audit | 分解与边界核对的基准 | 缺失（B00-37 分档审计、失败 seal）为 null 并写 limitation |
+| `native_economics` | retain，沿用 audit | 分解与边界核对的基准 | 缺失（B00-37 等 RDP08 修复前的分档审计、失败 seal）为 null 并写 limitation |
 | `closed.reported_realized_pnl_usdt`、`closed.fill_commissions_usdt`、`closed.reported_funding_usdt` | retain，沿用 native_economics 叶名 | native_economics 只有全行合计；开放仓部分由同名逐叶相减得到 | 闭仓行 realized、commissions（拒绝非 USDT）、adjustments 中 FUNDING 的 pnl_change（原生符号，正为收入）；0 闭仓时各值为 null |
 | `closed.price_pnl_usdt` | retain | 毛优势是“毛亏 vs 薄毛利被成本覆盖”问题的主读数；独立由成交现金流计算，同时作为核对 | events 中 SELL 为正、BUY 为负的 qty×px×multiplier；逐行核对 price − 佣金 + 资金费 = realized（1e-6） |
 | `closed.entry_notional_usdt` | retain | 归一化分母；现有字段无成交名义 | events 中 `order_side == entry` 的 last_qty×last_px×multiplier |
