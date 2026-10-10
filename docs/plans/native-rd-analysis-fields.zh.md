@@ -60,7 +60,7 @@
 
 1. 自洽核对总会执行，不需要 account.csv 或 native_economics：events 恰好覆盖每个 fills.event_id 一次；positions 佣金合计等于 fills 佣金合计；每个闭仓行恒等式成立；交易窗口收益复利等于 final_equity（1e-6）。失败时经济读数为 null 并写 limitation。
 2. native_economics 存在时，全行 realized、佣金、资金费合计在 1e-6 内与之相等；不等时经济读数为 null 并写 limitation。缺失时（B00-37）只把 `unrealized_residual_usdt` 置 null。
-3. `is_inverse`、非 USDT 金额或缺少 multiplier 超出 R1 线性 USDT 范围，经济读数为 null 并写 limitation。
+3. `is_inverse`、非 USDT 金额或缺少 multiplier 超出当前支持的线性 USDT 范围，经济读数为 null 并写 limitation。
 4. 分析器解析的字节即按 manifest.files 复核哈希的同一缓冲；verify 会对 account.csv 计算哈希，但分析器从不解析它。B03 原型进程内 0.69 s。
 
 ## P0-B1 `compare --analysis`
@@ -94,3 +94,11 @@
 - 按已成交档数分层、名义加权胜率、收益/亏损集中度、最差月由 Agent 从保留键派生，不单列。
 - 初稿以 position_id 打破连亏平局不可复现（snapshot ID 含随机 UUID，C02-37 结果在 11 与 15 之间变动）。
 - 初稿规定 native_economics 缺失即全部经济读数为 null；B00-37 的自洽核对全部通过，只置 null 未实现残差。
+
+## 收缩决定（2026-10-10 下午）
+
+用户按“能用 Agent 就不硬编码”原则决定：代码只保留 Agent 不应自评的部分，即信任边界、现有缺陷修复和 Agent 做不到的事。上表其余已审阅的描述性读数从代码移出，其定义与数据坑写入按需加载的 `.claude/skills/native-report-analysis/SKILL.md`，由 Agent 从核验后的封存计算，并用对账不变量或独立复算自检。
+
+- `artifacts report` 保留：`run_id`、`status`、`problems`、`manifest_sha256`、`record_binding`、`summary_ref`、`audit_ref`、`analysis`、`native_economics`、`closed.{reported_realized_pnl_usdt, fill_commissions_usdt, reported_funding_usdt, price_pnl_usdt}`、`closed_trades`、`open_positions`、`unrealized_residual_usdt`、`limitations`。只有在逐行恒等式、事件覆盖成交、佣金合计与 native_economics 合计都在 1e-6 内成立时才输出分解，否则为 null 并写原因；日收益不能复利到 final_equity 时写入限制。
+- `artifacts report` 移出：summary 透传字段、`closed.entry_notional_usdt`、`open_entry_notional_usdt`、`closed_bps_of_entry_notional`、`closed_realized_pnl_quantiles_usdt`、`taker_fill_notional_share`、`orders_by_tag_status`、`partially_filled_orders`、`closed_duration_hours_quantiles`、`zero_duration_closed`、`max_drawdown_daily_close_dates`、`worst_day`、`max_consecutive_losing_closed`、`monthly_account_return_pct`、`by_instrument`、`by_entry_side`。
+- `compare --analysis` 保留：`strategy_binding`、`artifact_manifest_ref`、`selection`、`metrics` 追加 `closed_trades`、四个 `closed.*`、`open_positions`、`unrealized_residual_usdt`，以及 `paired_daily_returns`、`analysis`、`limitations`；移出成对的 `by_instrument` 与 `monthly_account_return_pct` 表和 bps、τ 读数。拒绝结构化、null 差值与锚点要求不变。

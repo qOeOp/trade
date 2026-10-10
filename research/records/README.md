@@ -557,16 +557,16 @@ uv run --frozen python -m research.records.artifacts report --root "$ARTIFACT_RO
 TRADE_RESEARCH_ARTIFACT_ROOT="$ARTIFACT_ROOT" uv run --frozen python -m research.records.cli --at FIXED-COMMIT compare CANDIDATE-RUN CONTROL-RUN --analysis
 ```
 
-`report` verifies the seal, re-hashes the bytes it parses and derives gross and
-net closed PnL, commissions and funding (also per entry notional), taker share,
-the order funnel, holding time, daily-close drawdown dates, monthly account
-returns and per-instrument realized PnL. It reads no Dolt and never parses
-`account.csv`. A failed seal reports its status and problems with null
-economics. `compare --analysis` runs the unchanged formal compare first; both
-runs must be sealed with a Dolt-anchored manifest. It adds a fixed set of paired
-readings (closed-position decomposition and its bps, taker share, unrealized
-residual, open positions) to `metrics`, plus per-instrument realized PnL, monthly
-returns, the candidate's frozen `selection`, and a paired ISO-week interval of
+`report` verifies the seal, re-hashes the bytes it parses and splits closed
+PnL into fill price PnL, commissions and funding. It prints that split, the
+open-position count and the unrealized residual only when they reconcile to the
+audited `native_economics`. It reads no Dolt and never parses `account.csv`. A
+failed seal reports its status and problems with null economics. Descriptive
+statistics (win rates, holding time, order funnel, drawdowns, monthly or
+per-instrument contribution) are computed by the Agent from the verified seal,
+following `.claude/skills/native-report-analysis/SKILL.md`. `compare --analysis` runs the unchanged formal compare first; both
+runs must be sealed with a Dolt-anchored manifest. It adds the reconciled readings of
+both runs to `metrics`, the candidate's frozen `selection`, and a paired ISO-week interval of
 annualized relative growth only when the preregistered `primary_response` is
 `final_equity_usdt`; it cannot be combined with `--engineering-audit`. Both print one bounded JSON object (at most
 32 KiB) and report errors as structured JSON on stderr; any reading that cannot

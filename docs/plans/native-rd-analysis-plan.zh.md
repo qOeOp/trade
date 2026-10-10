@@ -1,6 +1,6 @@
 # 原生回测分析与改良比较实施计划
 
-状态：P0-A（`artifacts report`）与 P0-B1（`compare --analysis`）已实现；B2、P0-C、P1 未实现。日期：2026-10-10。第一版服务当前 R1、USDT 线性永续、固定本金原生账户；其他账户或合约类型在口径未核实前明确为不支持或证据不足。
+状态：P0-A（`artifacts report`）与 P0-B1（`compare --analysis`）已按信任边界核心实现，描述统计交给 Agent（`.claude/skills/native-report-analysis`）；B2、P0-C、P1 未实现。日期：2026-10-10。第一版服务当前 R1、USDT 线性永续、固定本金原生账户；其他账户或合约类型在口径未核实前明确为不支持或证据不足。
 
 审阅由独立子 Agent 对照代码、28 个封存 run、固定 `nautilus_trader==2.0.0rc3` 与 Dolt v132（`f8va2hf2e7bae13p08kfs5s8ne1sk3ud`）核实 65 条事实，再按原则与切片、账务与统计、拒绝边界、字段清单四个角度逐条反驳检验。本版吸收其结论与同日用户决定；被推翻或修正的初版说法不再保留为事实。
 
@@ -10,6 +10,7 @@
 - P0-B 本轮只做 B1（今天已合法的配对，零拒绝边界变化）。允许此前 candidate 作为新参考（B2）涉及拒绝边界，以后按下文边界表逐行授权。
 - 由成交加 Catalog MARK 推算旧 seal 的资金占用与逐品种逐日估值：暂不实施，P0-C 时作为与新增原生观察并列的候选方案再评估。P0-A 中旧 seal 的资本时序标为不可用。
 - 顺序：修订本计划 → P0-A/B1 输出字段独立审阅并记录 retain/drop/derive → P0-A → B1。
+- 同日下午按“能用 Agent 就不硬编码”原则收缩 P0：代码只保留封存核验、与 native_economics 对账的闭仓分解（价格盈亏、佣金、资金费、净值）与未实现残差、compare 结构化拒绝与崩溃修复、锁定预登记主响应的配对区间。其余描述统计由 Agent 依 skill 从核验后的封存计算并自检，下文研究问题表与阅读顺序中的这些读数据此理解为 Agent 的计算任务。
 
 ## 目标与交付形态
 
@@ -184,7 +185,7 @@ P0-C 原型闸门：
 
 | 阶段 | 实施内容 | 完成条件 | 新回测/新存储 |
 |---|---|---|---|
-| P0-A：现有证据的单 run 诊断 | `artifacts report`；读 manifest 核验后的 summary、audit、positions、fills、orders、returns_series | 现有 seal 无修改；零交易/失败 seal/开放仓/缺失不造零；26 个有 native_economics 的 seal 在 1e-6 内回到原生经济事实，B00-37 只有未实现残差不可用；每个闭仓在 1e-6 内满足 price − 佣金 + 资金费 = realized；输出 ≤ 32 KiB 且重复输出字节一致；README 与架构说明可发现 | 不需重跑；无 Dolt 新字段 |
+| P0-A：现有证据的单 run 诊断 | `artifacts report`；读 manifest 核验后的 summary、audit、positions、fills、returns_series，只输出对账通过的闭仓分解与残差；描述统计按 skill 由 Agent 计算 | 现有 seal 无修改；零交易/失败 seal/开放仓/缺失不造零；26 个有 native_economics 的 seal 在 1e-6 内回到原生经济事实，B00-37 只有未实现残差不可用；每个闭仓在 1e-6 内满足 price − 佣金 + 资金费 = realized；输出 ≤ 32 KiB 且重复输出字节一致；README 与架构说明可发现 | 不需重跑；无 Dolt 新字段 |
 | P0-B1：合法配对分析 | `compare --analysis`；结构化拒绝；null 差值；rev1 主响应区间；事前描述事实 | 合法配对成功且 ≤ 32 KiB（含最大谱系 C12-37/B03-37）；现有拒绝不变；历史配对不显示为事前已验证；`compare_paired_returns.py` 字节不变；台账版本不变 | 不需重跑；无 Dolt 新字段 |
 | P0-B2：此前 candidate 作参考 | 见 B2 边界表 | 逐行用户授权；独立契约与字段审阅；隔离 Dolt 测试 | 视审阅结论 |
 | P0-C：必要资本时序 | 存储/编码/批次 probe 闸门；共享 runner 原生观察；seal 纳入与 verify/restore/backup；派生占用报告 | native 观察开/关经济及交易一致；同 ts/缺价/空仓/首尾/部分成交正确；最小事实获独立审阅；旧 seal 仍可核验 | 需新 OCI 工程配对 |
