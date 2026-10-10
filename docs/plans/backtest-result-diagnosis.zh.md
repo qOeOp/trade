@@ -315,7 +315,7 @@ skill 写"从 `research.records.analysis.tables` 读表"。这对应三条准则
 | 4 | `compare_paired_returns.py`：`_interval` 移入 `analysis.py`，配方的运行 commit 写进 records README，8 个配方在该 commit 上全部原样重建，然后删 | 删代码 | 已做 |
 | 5 | `analysis.tables()` | 新公开接口 | 已做；28 个 seal 全部可读，闭仓计数与已实现 PnL 与对账一致 |
 | 6 | tier 几何检查 | 改审计边界 | 第二批：按用户决定直接删除 |
-| 7 | P0-C 资本时序 | 已计划 | 按原生分析计划的闸门 |
+| 7 | P0-C 资本时序 | 已计划 | 已实现：封存 `exposures.csv.gz`，见原生分析计划的“P0-C 实施记录” |
 
 第 4 项与原计划的差别：原计划写的是给 8 个 `recipe.json` 补 `shared_code_git`。配方按 README 用 `material retain` 存档，带哈希，改写磁盘上的配方文件会让它与存档字节不一致。所以沿用 records README 已有的做法：像"归档台账用 `9794ed307` 的 CLI 读取"一样，写明这些配方从 `3b3b4876b` 运行。实测 8 个配方在该 commit 上的输出与存档 JSON 逐键相同。
 

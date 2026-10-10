@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import ast
 import csv
+import gzip
 import hashlib
 import io
 import json
 import math
 import random
-from collections import Counter, OrderedDict
+from collections import Counter, OrderedDict, defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -48,11 +49,12 @@ _ECONOMICS = ("closed", "closed_trades", "open_positions", "unrealized_residual_
 # columns not named here stay strings.
 _LISTS = frozenset({"events", "adjustments", "commissions", "tags", "linked_order_ids", "venue_order_ids",
                     "trade_ids", "margins"})
-_MONEY = frozenset({"realized_pnl", "unrealized_pnl", "commission"})
+_MONEY = frozenset({"realized_pnl", "unrealized_pnl", "commission", "notional_value"})
 _DECIMALS = frozenset({"quantity", "filled_qty", "display_qty", "price", "trigger_price", "avg_px", "slippage",
                        "last_qty", "last_px", "peak_qty", "buy_qty", "sell_qty", "multiplier", "avg_px_open",
                        "avg_px_close", "realized_return", "total", "locked", "free"})
-_INTEGERS = frozenset({"expire_time_ns", "duration_ns"})
+_INTEGERS = frozenset({"expire_time_ns", "duration_ns", "ts_event_ns"})
+EXPOSURES = "exposures.csv.gz"
 _NANOSECONDS = frozenset({"ts_init", "ts_last"})  # integers in orders and positions, datetimes in fills
 _FLAGS = frozenset({"is_snapshot", "is_inverse", "is_reduce_only", "is_post_only", "is_quote_quantity",
                     "reconciliation", "reported"})
@@ -122,7 +124,7 @@ def pair(root: Path, candidate: dict, control: dict, selection: dict | None) -> 
     }
 
 
-def tables(root: Path, run_id: str, *, account: bool = False) -> dict:
+def tables(root: Path, run_id: str, *, account: bool = False, exposures: bool = False) -> dict:
     """Parsed native reports of one passed seal whose closed-position split reconciles.
 
     Reads only manifest-verified bytes and computes no statistics. Top-level money
@@ -136,9 +138,12 @@ def tables(root: Path, run_id: str, *, account: bool = False) -> dict:
     while open. Each fill carries the ``cycle_position_id`` of the
     position row whose events contain it. ``daily_returns`` is ``None`` with a
     limitation when the trade-window returns do not compound to final equity.
-    ``account`` adds account.csv, which can be very large.
+    ``account`` adds account.csv and ``exposures`` the exposure report; both can be
+    very large. Exposure rows hold each open position's native notional value and
+    unrealized PnL between input bar timestamps, tied to its ``cycle_position_id``;
+    seals recorded before that report have none.
     """
-    names = (*REPORT_FILES, "orders.csv", *(("account.csv",) if account else ()))
+    names = (*REPORT_FILES, "orders.csv", *((EXPOSURES,) if exposures else ()), *(("account.csv",) if account else ()))
     output, returns, parsed = _analyze(Path(root), run_id, names)
     needed = {"orders.csv", *(("account.csv",) if account else ())}
     if output["closed_trades"] is None or not needed <= parsed["reports"].keys():
@@ -158,6 +163,13 @@ def tables(root: Path, run_id: str, *, account: bool = False) -> dict:
     cycle_of = {event_id: row["position_id"] for row, cycle in zip(parsed["positions"], parsed["cycles"], strict=True)
                 for event_id in cycle["event_ids"]}
     reports = parsed["reports"]
+    limitations = list(output["limitations"])
+    exposure_rows = None
+    if EXPOSURES in reports:
+        exposure_rows = _exposures(run_id, reports[EXPOSURES], positions, parsed["summary"],
+                                   output["unrealized_residual_usdt"])
+    elif exposures:
+        limitations.append("No exposure report: open-position valuation over time was not recorded for this seal.")
     return {
         "run_id": run_id,
         "manifest_sha256": output["manifest_sha256"],
@@ -166,14 +178,70 @@ def tables(root: Path, run_id: str, *, account: bool = False) -> dict:
         "summary": parsed["summary"],
         "audit": parsed["audit"],
         "reconciled": {key: output[key] for key in ("native_economics", *_ECONOMICS)},
-        "limitations": output["limitations"],
+        "limitations": limitations,
         "orders": orders,
         "fills": [{**_typed(row), "cycle_position_id": cycle_of[row["event_id"]]} for row in parsed["fills"]],
         "positions": positions,
         "account": [_typed(row) for row in _rows(reports["account.csv"])] if account else None,
         "daily_returns": None if returns is None else [{"ts_event_ns": ts, "native_return": value}
                                                        for ts, value in returns],
+        "exposures": exposure_rows,
     }
+
+
+def _exposures(run_id: str, data: bytes, positions: list[dict], summary: dict, residual: str | None) -> list[dict]:
+    """Exposure rows on the input bar grid, each tied to the one cycle held then; refuse gaps or extras.
+
+    A row labelled T holds a cycle open after every event before the next bar
+    timestamp: opened before T + step and not closed until T + step or later.
+    """
+    def refuse(message):
+        raise RecordError(f"{run_id}: {message}", path=f"/{EXPOSURES}", write_status="not_written",
+                          next_actions=["Do not analyze capital use from this seal; report the exposure defect."])
+
+    step = int(summary["data_interval_minutes"]) * 60_000_000_000
+    first = _utc_ns(summary["input_start_utc"]) + step - 1_000_000  # bars are stamped 1 ms before each boundary
+    last = _utc_ns(summary["period_end_utc"]) - 1_000_000
+
+    def before(ns):  # grid timestamps strictly before ns
+        return min(max(0, -(-(ns - first) // step)), (last - first) // step + 1)
+
+    spans = defaultdict(list)
+    last_fill = None
+    for position in positions:
+        events = position.get("events") or []
+        if not events:
+            continue
+        opened = int(events[0]["ts_event"])
+        last_fill = max(last_fill or 0, max(int(event["ts_event"]) for event in events))
+        ended = position["ts_last"] if position["closed"] else last + 2 * step
+        pid = position["position_id"]
+        spans[pid[:-37] if position.get("is_snapshot") else pid].append((opened, ended, pid))
+    rows, counts = [], Counter()
+    for row in _rows(gzip.decompress(data)):
+        typed = _typed(row)
+        ts = typed["ts_event_ns"]
+        if not first <= ts <= last or (ts - first) % step:
+            refuse(f"exposure row at {ts} is off the input bar grid")
+        owners = [pid for opened, ended, pid in spans.get(typed["position_id"], []) if opened < ts + step <= ended]
+        if len(owners) != 1:
+            refuse(f"exposure row at {ts} for {typed['position_id']} matches {len(owners)} position cycles")
+        counts[owners[0]] += 1
+        rows.append({**typed, "cycle_position_id": owners[0]})
+    for cycles in spans.values():
+        for opened, ended, pid in cycles:
+            expected = before(ended - step + 1) - before(opened - step + 1)
+            if counts[pid] != expected:
+                refuse(f"exposure rows cover {counts[pid]} of {expected} timestamps of {pid}")
+    if residual is not None and (last_fill is None or last_fill <= last):
+        total = sum((row["unrealized_pnl"] for row in rows if row["ts_event_ns"] == last), Decimal(0))
+        if abs(total - Decimal(residual)) > TOLERANCE:
+            refuse(f"final exposure unrealized PnL {total} differs from the audited residual {residual}")
+    return rows
+
+
+def _utc_ns(text: str) -> int:
+    return (datetime.fromisoformat(text.replace("Z", "+00:00")) - EPOCH) // timedelta(microseconds=1) * 1000
 
 
 def _typed(row: dict) -> dict:
