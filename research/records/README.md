@@ -141,6 +141,19 @@ copied by this command and need their own recovery plan. Image bytes are also
 not copied: retain a digest-addressable registry backup or image archive and
 verify it on restoration. Report restoration alone is not replay recovery.
 
+Video source media live under the artifact root at `source_media/sha256/<sha256>.<ext>`, with
+their evidence bundles in `source_media/bundles/` (the `video-evidence` skill with
+`VIDEO_EVIDENCE_ROOT=$TRADE_RESEARCH_ARTIFACT_ROOT/source_media`); directories are `0700` and files
+`0600`. The name cannot collide with a run directory because run IDs contain no `_`. An attempt
+cites each media file by content address as a top-level `{"kind": "source_gate", "path":
+"artifact://source_media/sha256/<sha256>.<ext>", "sha256": ...}` ref, which `show` and `validate`
+re-hash (a mismatch fails) and the publish preflight reports when unavailable or mismatched (`compare`
+reads run audit refs only); the hash reads the whole file into memory. Small cited bundle files go
+through `material retain`. `artifacts backup` and `restore` copy runs only, so `source_media` needs its own copy:
+`rsync -a --ignore-existing` of `sha256/` and `rsync -a` of `bundles/` into the backup root's
+`source_media/`, then a hash loop over both copies (the skill's `custody.md`). Restore copies the
+files back the same way and checks each file's SHA-256 against its name.
+
 Schema v1 seals froze a Git commit's `strategies/r1/` source and ran it on the
 host; that execution mode is retired. `verify`, `report`, `backup` and `restore`
 still read v1 seals under their original source/hash contract. `register`

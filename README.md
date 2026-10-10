@@ -42,11 +42,12 @@ export is `docs-site/out`.
 ## Repository map
 
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and which skill to use.
-- [`.agents/skills/`](.agents/skills/): on-demand skills: `research-round` (with references and a regression eval) and `nautilus-report-analysis`; `.claude/skills` links here.
+- [`.agents/skills/`](.agents/skills/): on-demand skills: `research-round` (with references and a regression eval), `nautilus-report-analysis`, `research-sources` and `video-evidence`; `.claude/skills` links here.
 - [`backtest/r1/`](backtest/r1/): the shared `BacktestNode` replay, external-source loader, native report checks and historical receipts.
 - [`backtest/r1/runtime/`](backtest/r1/runtime/): image build inputs for Python, Nautilus, shared runner and auditor; strategy bodies are excluded.
 - [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, decision evidence and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
-- [`services/video-note-mcp/`](services/video-note-mcp/): a standalone local MCP that writes illustrated notes from public videos. It has its own `pyproject.toml` and `uv.lock`, shares no code with replay or records, and is not run by the root CI.
+- [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
+- [`services/video-note-mcp/`](services/video-note-mcp/): the earlier standalone video-note MCP, frozen in favour of the `video-evidence` skill until a user-approved comparison retires it. It has its own `pyproject.toml` and `uv.lock` and is not run by the root CI.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md) (English twin [`docs/architecture.md`](docs/architecture.md)): current product blueprint.
 - [`docs/plans/dolt-strategy-oci-migration.zh.md`](docs/plans/dolt-strategy-oci-migration.zh.md): source/runtime migration contract and its history.
 - [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): historical 37-instrument paired replay evidence.
@@ -54,7 +55,8 @@ export is `docs-site/out`.
 
 The vendored Nautilus source and the former backtest, market-data and
 strategy-authoring services were removed (#1458); `services/video-note-mcp/` was
-restored as an independent tool (#1468). CI runs the quality, documentation and
-PR-title workflows. Image builds use `pyproject.toml` and `uv.lock`; a change
-that should preserve strategy, dependency or data behavior needs a fresh paired
-native replay before claiming parity.
+restored as an independent tool (#1468) and is now frozen behind the
+`video-evidence` skill. CI runs the quality, documentation and PR-title
+workflows. Image builds use `pyproject.toml` and `uv.lock`; a change that should
+preserve strategy, dependency or data behavior needs a fresh paired native
+replay before claiming parity.

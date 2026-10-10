@@ -20,7 +20,8 @@ run that a decision cites goes through `artifacts run`, `verify`, `backup` and `
 
 A whole-strategy failure rejects the bundle, not any one part. State which layer the attempt tests:
 
-- **L1 definition**: the rule and the observable response it predicts.
+- **L1 definition**: the rule and the observable response it predicts. Claims taken from a video
+  follow [source-evidence.md](references/source-evidence.md).
 - **L2 implementation**: the code matches the rule with a causal clock, and there are enough events.
 - **L3 market response**: price after the event against a preregistered reference, and plan
   lifecycles ([l3-boundary.md](references/l3-boundary.md)).
