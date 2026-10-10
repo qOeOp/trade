@@ -6,7 +6,7 @@ description: Plans and closes one strategy research round in this repository (qu
 # Research round
 
 What a round commits to before it reads a result. Publication mechanics are in
-`research/records/README.md`; numbers from sealed reports follow the `native-report-analysis` skill.
+`research/records/README.md`; numbers from sealed reports follow the `nautilus-report-analysis` skill.
 
 Read prior records first (`find`, then `show <id> --brief`) for any claim you extend or combine. A
 run that a decision cites goes through `research.records.artifacts run`, `verify`, `backup` and

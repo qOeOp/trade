@@ -46,7 +46,7 @@ ledger: publication is append-only.
 
 - `research-round`: before running a backtest for a research question, publishing an attempt,
   choosing the next experiment, or claiming that a strategy improved, failed or generalized.
-- `native-report-analysis`: before computing any statistic from sealed native reports.
+- `nautilus-report-analysis`: before computing any statistic from sealed native reports.
 
 ## Nautilus and parity
 
