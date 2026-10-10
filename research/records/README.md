@@ -183,8 +183,11 @@ A read-only provenance audit lives outside Git with its README:
 `$HOME/.local/share/trade/research-audits/provenance/run.sh`. It runs `validate` from a detached
 origin/main worktree, so a relaxed local checkout cannot weaken it. It then checks that every
 commit after the bootstrap commits is one API publication, history is append-only, dates are
-monotonic and agree with the reflog, and seal, backup and cited commits are ancestors of HEAD.
-Results stay in its `results/`.
+monotonic and agree with the reflog or a saved reflog snapshot, and seal, backup and cited commits
+are ancestors of HEAD. It connects as a SELECT-only Dolt user created by `create-audit-user.sh` in
+the same directory. Results and reflog snapshots stay in its `results/`; keep them, because
+automatic GC clears the reflog. A `dolt backup restore` does not carry `data/.doltcfg/privileges.db`;
+copy it before the first start or rerun `create-audit-user.sh`.
 
 ## Back up and restore the record database
 
