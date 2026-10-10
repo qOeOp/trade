@@ -40,7 +40,7 @@ export is `docs-site/out`.
 
 - [`backtest/r1/`](backtest/r1/): the shared `BacktestNode` replay, external-source loader, native report checks and historical receipts.
 - [`backtest/r1/runtime/`](backtest/r1/runtime/): image build inputs for Python, Nautilus, shared runner and auditor; strategy bodies are excluded.
-- [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, explicit knowledge admission and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
+- [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, decision evidence and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md): current product blueprint.
 - [`docs/plans/dolt-strategy-oci-migration.zh.md`](docs/plans/dolt-strategy-oci-migration.zh.md): source/runtime migration contract and remaining scope.
 - [`docs/plans/nautilus-upstream-poc.zh.md`](docs/plans/nautilus-upstream-poc.zh.md): historical 37-instrument paired replay evidence.

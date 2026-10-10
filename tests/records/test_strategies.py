@@ -61,7 +61,7 @@ class MemoryAdapter:
         from tests.records.fixtures.relations import select_relations
         return select_relations(self.snapshots[commit or self.status()["commit"]][1].values(), **filters)
 
-    def publish(self, objects, relations, operation_id, expected_version, message):
+    def publish(self, objects, relations, operation_id, expected_version, message, *, validated_by=None):
         payload = canonical({"objects": objects, "relations": relations, "message": message})
         if operation_id in self.operations:
             prior_payload, prior = self.operations[operation_id]
@@ -142,14 +142,14 @@ class StrategyPolicyTests(unittest.TestCase):
         parent = self.publish(metadata("r1-parent"))
         attempt = {"id": "attempt:H1", "kind": "attempt", "revision": 1,
                    "body": {"attempt_id": "H1"}, "provenance": {}}
-        self.adapter.publish([attempt], [], "attempt", 1, "publish test attempt")
+        self.adapter.publish([attempt], [], "attempt", 1, "publish test attempt", validated_by="strategy fixture")
         child_meta = metadata("r1-child", parents=[{"strategy_id": "r1-parent", "revision": 1,
                                                    "difference": "Replace only the selector"}],
                               attempt_refs=[{"attempt_id": "H1", "revision": 1}])
         child = self.publish(child_meta, "child")
         self.publish(metadata("r1-parent", description="New parent scope"), "parent-later")
         attempt = dict(attempt, revision=2, body={"attempt_id": "H1", "note": "Later decision"})
-        self.adapter.publish([attempt], [], "attempt-later", 4, "later decision")
+        self.adapter.publish([attempt], [], "attempt-later", 4, "later decision", validated_by="strategy fixture")
         value = strategies.lineage(self.adapter, "r1-child")
         self.assertEqual(value["parents"][0]["strategy"]["binding"]["revision"], 1)
         self.assertEqual(value["attempt_refs"], [{"attempt_id": "H1", "revision": 1}])

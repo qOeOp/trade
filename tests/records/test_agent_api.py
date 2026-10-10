@@ -2,6 +2,7 @@
 
 import copy
 from contextlib import redirect_stderr, redirect_stdout
+import hashlib
 import io
 import json
 import os
@@ -57,6 +58,27 @@ class AgentAPIIntegrationTests(unittest.TestCase):
         if dry_run:
             args.append("--dry-run")
         return self.command(*args)
+
+    def test_material_retain_command_checks_then_publishes_evidence_once(self):
+        with tempfile.TemporaryDirectory(prefix="trade-retain-cli-", dir=Path.home()) as directory:
+            files = []
+            for name, raw in (("reader.py", b"print('reader')\n"), ("result.json", b'{"rows": 3}\n')):
+                path = Path(directory) / name
+                path.write_bytes(raw)
+                files += ["--file", str(path), hashlib.sha256(raw).hexdigest()]
+            args = ["material", "retain", *files, "--expected-version", "0", "--operation-id", "evidence-cli"]
+            code, stdout, stderr = self.command(*args, "--dry-run")
+            self.assertEqual((code, stderr), (0, ""))
+            checked = json.loads(stdout)
+            self.assertEqual((checked["write_status"], len(checked["evidence"])), ("not_written", 2))
+            self.assertEqual(self.store.adapter.status()["version"], 0)
+            code, stdout, stderr = self.command(*args)
+            self.assertEqual((code, stderr), (0, ""))
+            published = json.loads(stdout)
+            self.assertEqual(published["version"], 1)
+            for item in published["evidence"]:
+                code, stdout, _ = self.command("material", "show", item["id"], "--brief")
+                self.assertEqual((code, json.loads(stdout)["object"]["kind"]), (0, "material"))
 
     def test_feedback_allows_repair_and_preflight_never_writes(self):
         before = self.store.adapter.status()
@@ -115,7 +137,7 @@ class AgentAPIIntegrationTests(unittest.TestCase):
         bad.update(attempt_id="BAD-01", schema_version=999)
         result = self.store.adapter.publish(
             [{"id": "attempt:BAD-01", "kind": "attempt", "revision": 1, "body": bad, "provenance": {}}],
-            [], "synthetic-unsupported", 1)
+            [], "synthetic-unsupported", 1, validated_by="unsupported-version fixture")
         code, stdout, stderr = self.command("--at", result["commit"], "show", "TEST-01", "--brief")
         self.assertEqual((code, stderr), (0, ""))
         shown = json.loads(stdout)

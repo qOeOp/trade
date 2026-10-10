@@ -49,7 +49,7 @@ RAW_FIELDS = {
 }
 LIST_FIELDS = {
     "parents", "mechanism_refs", "evidence_refs", "evidence", "aliases", "per_coin_summary",
-    "relations", "resolved_references", "corrections", "incoming_repairs", "reference_status",
+    "relations", "incoming_repairs",
     "runs", "candidate_runs", "control_runs", "run_ids", "mechanism_sources", "lineage",
     "fields", "boundaries", "retained_research_decisions", "limitations", "findings", "integrity_findings",
     "decision_file_refs", "matches", "match_reasons", "next_actions", "coins",
@@ -140,14 +140,13 @@ def bounded_brief(payload, *, at, identity=None, revision=None, limit=BRIEF_LIMI
                 scalar_summary({key: coin[key] for key in ("coin", "instrument", "quantity", "counts",
                                                           "risk_size_skips") if key in coin})
                 for coin in body["per_coin"] if isinstance(coin, dict)]}}
-    for name in ("relations", "resolved_references"):
-        if isinstance(prepared.get(name), list):
-            edges = prepared[name]
-            for index, edge in enumerate(edges):
-                if isinstance(edge, dict):
-                    for key in set(edge.get("body", {})) - RELATION_BODY_FIELDS:
-                        omit(f"{name}[{index}].body.{key}")
-            prepared[name] = [relation_view(edge) for edge in edges]
+    if isinstance(prepared.get("relations"), list):
+        edges = prepared["relations"]
+        for index, edge in enumerate(edges):
+            if isinstance(edge, dict):
+                for key in set(edge.get("body", {})) - RELATION_BODY_FIELDS:
+                    omit(f"relations[{index}].body.{key}")
+        prepared["relations"] = [relation_view(edge) for edge in edges]
     result = project(prepared)
     full_read = {"command": command, "at": at}
     if identity is not None:

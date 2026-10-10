@@ -136,6 +136,17 @@ class ScopedRecordReads(unittest.TestCase):
         with self.assertRaisesRegex(RecordError, "four-cell recorded contracts differ"):
             self.store.selected_snapshot(attempt_ids=("F01",), include_runs=False)
 
+    def test_find_matches_all_text_words_and_reports_goal_and_revision(self):
+        from research.records.cli import _find
+        target = self.object("attempt:H18a")
+        target["body"]["hypothesis"] = "Retest of the broken level holds"
+        attempts, unreadable, _ = self.store.find_snapshot(text="BROKEN level", commit=self.adapter.commit)
+        self.assertEqual((set(attempts), unreadable), ({"H18a"}, []))
+        match = _find(None, None, attempts)[0]
+        self.assertEqual((match["revision"], match["goal_id"]), (1, target["body"]["goal_id"]))
+        self.assertEqual(self.store.find_snapshot(text="broken absent-word", commit=self.adapter.commit)[0], {})
+        self.assertEqual(self.store.find_snapshot(text="a" * 64, commit=self.adapter.commit)[0], {})
+
     def test_find_reports_bad_matching_candidates_and_keeps_good_matches(self):
         self.object("attempt:H27a")["body"]["schema_version"] = 999
         attempts, unreadable, storage = self.store.find_snapshot(mechanism="Synthetic", commit=self.adapter.commit)

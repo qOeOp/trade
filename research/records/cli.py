@@ -1,4 +1,4 @@
-"""Agent API for versioned research records, materials and native-run comparison.
+"""Agent API for versioned research records, evidence materials and native-run comparison.
 
 The records expose fixed research contracts, decisions and native evidence.
 This tool never runs a backtest or promotes development evidence into strategy
@@ -411,13 +411,16 @@ def _find(
     return [
         {
             "attempt_id": attempt["attempt_id"],
+            "revision": obj["revision"],
+            "goal_id": attempt.get("goal_id"),
             "question": attempt["question"],
             "mechanism": attempt["mechanism"],
             "decision": attempt["decision"],
             "purpose": attempt.get("purpose", "unknown"),
             **({"selection": attempt["contract"]["selection"]} if "selection" in attempt["contract"] else {}),
         }
-        for attempt in attempts.values()
+        for obj in attempts.values()
+        for attempt in (obj["body"],)
         if (not mechanism or mechanism.casefold() in attempt["mechanism"].casefold())
         and (not layer or layer == attempt["decision"]["layer"])
     ]
@@ -573,6 +576,8 @@ def main() -> int:
     find.add_argument("--purpose", choices=("research", "engineering", "demo", "unknown"))
     find.add_argument("--outcome", choices=("pending", "passed", "failed", "inconclusive"))
     find.add_argument("--family-id", help="read the preregistered selection family, including failures")
+    find.add_argument("--text", help="case-insensitive words that must all occur in the attempt or goal ID, "
+                      "question, mechanism, hypothesis, contract scope/plan/selection or decision scope/next action")
     find.add_argument(
         "--failure-layer", choices=("source", "data", "execution", "economics")
     )
@@ -593,24 +598,17 @@ def main() -> int:
     initialize.add_argument("--port", type=int, default=13326)
     for name in ("start", "stop", "status"):
         lifecycle.add_parser(name)
-    import_ = lifecycle.add_parser("import")
-    import_.add_argument("--dry-run", action="store_true")
-    import_.add_argument("--paths", nargs="+", required=True, help="explicit source materials to archive")
     backup = lifecycle.add_parser("backup")
     backup.add_argument("--destination", type=Path, required=True)
     materials = command.add_parser("material")
     actions = materials.add_subparsers(dest="action", required=True)
-    search = actions.add_parser("search")
-    search.add_argument("query")
-    search.add_argument("--purpose", choices=("knowledge", "research", "engineering", "demo", "source", "diagnostic", "pending", "unknown"))
-    search.add_argument("--outcome", choices=("pending", "passed", "failed", "inconclusive"))
-    search.add_argument("--view", choices=("knowledge", "research", "archive", "native_run_identity", "admitted_knowledge", "research_decision", "legacy_archive"))
-    admission = actions.add_parser("admit", help="publish an explicit Agent knowledge/retention decision")
-    admission.add_argument("--file", type=Path, required=True)
-    admission.add_argument("--expected-version", type=int, required=True)
-    admission.add_argument("--operation-id", required=True)
-    search.add_argument("--include-archive", action="store_true",
-                        help="also search unadmitted source material and retained audit metadata")
+    retain = actions.add_parser("retain", help="publish retained decision evidence originals as review_evidence materials")
+    retain.add_argument("--file", nargs=2, action="append", required=True, metavar=("PATH", "SHA256"),
+                        help="an original retained outside Git and /tmp, with its SHA-256; repeat for several files")
+    retain.add_argument("--expected-version", type=int, required=True)
+    retain.add_argument("--operation-id", required=True)
+    retain.add_argument("--origin", default="agent_review_evidence", help="short provenance label")
+    retain.add_argument("--dry-run", action="store_true", help="check the files and report material IDs without writing")
     for name in ("show", "restore"):
         action = actions.add_parser(name)
         action.add_argument("identity")
@@ -619,21 +617,6 @@ def main() -> int:
             action.add_argument("--brief", action="store_true")
         else:
             action.add_argument("--destination", type=Path, required=True)
-    review = actions.add_parser("review", help="review an immutable material import queue")
-    review_actions = review.add_subparsers(dest="review_action", required=True)
-    for name in ("status", "prepare"):
-        action = review_actions.add_parser(name)
-        action.add_argument("inventory_id")
-        action.add_argument("--revision", type=int, default=1)
-        action.add_argument("--source-at", required=True, help="exact original inventory Dolt commit")
-        if name == "status":
-            action.add_argument("--items", action="store_true")
-        else:
-            action.add_argument("--decisions", type=Path, help="Agent decisions and retained evidence manifest")
-            action.add_argument("--supplemental", type=Path, help="explicitly retained supplemental object DTOs")
-            action.add_argument("--destination", type=Path, required=True)
-    apply_review = review_actions.add_parser("apply")
-    apply_review.add_argument("--file", type=Path, required=True, help="frozen prepare payload; reuse on retry")
     publication = command.add_parser("publish")
     publications = publication.add_subparsers(dest="action", required=True)
     attempt = publications.add_parser("attempt")
@@ -711,8 +694,7 @@ def main() -> int:
             from research.records.ledger import material
             context = material(store.adapter, "show", at=fixed,
                                identity="attempt:" + args.attempt_id, revision=lineage["revision"])
-            output.update({key: context[key] for key in
-                           ("retention_decision", "corrections", "incoming_repairs", "reference_status")})
+            output["incoming_repairs"] = context["incoming_repairs"]
             if attempts[args.attempt_id]["registration"]["status"] == "preregistered":
                 initial, binding = store.registration_snapshot(args.attempt_id, at=fixed)
                 output["registration_receipt"] = binding
@@ -721,7 +703,8 @@ def main() -> int:
         elif args.command == "find":
             attempts, unreadable, snapshot_storage = store.find_snapshot(
                 mechanism=args.mechanism, layer=args.failure_layer, component=args.component,
-                commit=fixed, purpose=args.purpose, outcome=args.outcome, family_id=args.family_id)
+                commit=fixed, purpose=args.purpose, outcome=args.outcome, family_id=args.family_id,
+                text=args.text)
             output = _find(args.mechanism, args.failure_layer, attempts)
             output = {"matches": output, "unreadable": unreadable}
         else:

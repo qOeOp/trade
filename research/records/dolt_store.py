@@ -257,7 +257,7 @@ class DoltStore:
             raise RecordError("historical reads require an exact 32-character Dolt commit hash")
         return " AS OF %s", (commit,)
 
-    def list_objects(self, kind=None, commit=None, latest=True, *, paths=None):
+    def list_objects(self, kind=None, commit=None, latest=True):
         """Read at one native commit; optionally retain all revision rows."""
         suffix, params = self._as_of(commit)
         if latest:
@@ -283,14 +283,6 @@ class DoltStore:
             _text(kind, "object kind", 64)
             predicates.append(f"{kind_column}=%s")
             params += (kind,)
-        if paths is not None:
-            if isinstance(paths, str):
-                raise RecordError("object path filter must be a collection")
-            paths = tuple(_text(path, "object source path", 4096) for path in paths)
-            column = "current.provenance" if latest else "provenance"
-            predicates.append("JSON_UNQUOTE(JSON_EXTRACT(" + column + ",'$.path')) IN (" +
-                              ",".join(["%s"] * len(paths)) + ")" if paths else "FALSE")
-            params += paths
         where = " WHERE " + " AND ".join(predicates) if predicates else ""
         with self._connection() as conn:
             self._check_schema(conn)
@@ -311,29 +303,24 @@ class DoltStore:
             rows = self._sql(conn, query, params)[0]
         return self._object(rows[0]) if rows else None
 
-    def list_relations(self, commit=None, *, kinds=None, from_refs=None, to_refs=None,
-                       ids=None, scope_refs=None, include_body=True):
+    def list_relations(self, commit=None, *, kinds=None, from_refs=None, to_refs=None, include_body=True):
         """Filter existing relation columns at one snapshot.
 
         Endpoints are ``(id, revision)`` pairs; ``revision=None`` selects the
         identity across revisions. From/to selections are alternatives, while
-        kinds and relation IDs further restrict them. Retained scope references
-        also match existing body.scope.retained_research_decisions.object_ref
-        values. Empty selections return no rows. Index reads omit JSON without
-        joining away dangling endpoints.
+        kinds further restrict them. Empty selections return no rows. Index
+        reads omit JSON without joining away dangling endpoints.
         """
         suffix, params = self._as_of(commit)
         if type(include_body) is not bool:
             raise RecordError("include_body must be a boolean")
         predicates, endpoints = [], []
-        for column, values, limit in (("kind", kinds, 40), ("id", ids, 160)):
-            if values is None:
-                continue
-            if isinstance(values, str):
-                raise RecordError(f"relation {column} filter must be a collection")
-            values = tuple(_text(value, "relation " + column, limit) for value in values)
-            predicates.append(column + " IN (" + ",".join(["%s"] * len(values)) + ")" if values else "FALSE")
-            params += values
+        if kinds is not None:
+            if isinstance(kinds, str):
+                raise RecordError("relation kind filter must be a collection")
+            kinds = tuple(_text(value, "relation kind", 40) for value in kinds)
+            predicates.append("kind IN (" + ",".join(["%s"] * len(kinds)) + ")" if kinds else "FALSE")
+            params += kinds
         for side, references in (("from", from_refs), ("to", to_refs)):
             if references is None:
                 continue
@@ -350,19 +337,7 @@ class DoltStore:
                     params += (_revision(revision),)
                 selected.append("(" + predicate + ")")
             endpoints.extend(selected)
-        if scope_refs is not None:
-            for reference in scope_refs:
-                if isinstance(reference, str):
-                    _text(reference, "retained scope reference", 160)
-                elif isinstance(reference, dict) and set(reference) <= {"id", "revision"} and "id" in reference:
-                    _text(reference["id"], "retained scope object id", 160)
-                    if "revision" in reference:
-                        _revision(reference["revision"])
-                else:
-                    raise RecordError("retained scope reference must be an object ref or alias")
-                endpoints.append("JSON_CONTAINS(body,%s,'$.scope.retained_research_decisions')")
-                params += (_canonical({"object_ref": reference}),)
-        if from_refs is not None or to_refs is not None or scope_refs is not None:
+        if from_refs is not None or to_refs is not None:
             predicates.append("(" + " OR ".join(endpoints) + ")" if endpoints else "FALSE")
         where = " WHERE " + " AND ".join(predicates) if predicates else ""
         columns = "id,kind,from_id,from_revision,from_kind,to_id,to_revision,to_kind"
@@ -482,13 +457,16 @@ class DoltStore:
             (value["id"], value["kind"], value["from_id"], value["from_revision"], value["from_kind"],
              value["to_id"], value["to_revision"], value["to_kind"], _canonical(value["body"])))
 
-    def publish(self, objects, relations, operation_id, expected_version, message="publish research records"):
+    def publish(self, objects, relations, operation_id, expected_version, message="publish research records",
+                *, validated_by=None):
         """Append revisions atomically, or recover the original completed operation.
 
         Snapshot batches may include unchanged existing keys. A changed existing
         revision or relation is rejected; a correction requires a new key. The
         operation digest covers normalized sorted content and the human message,
         while expected_version is omitted so stale identical retries can recover.
+        Only a publication API that has checked its contract writes, naming
+        itself in ``validated_by``; a script cannot publish around it by mistake.
         """
         _text(operation_id, "operation_id", 160)
         if type(expected_version) is not int or expected_version < 0:
@@ -497,6 +475,14 @@ class DoltStore:
             raise RecordError("publication message must be a string")
         payload = {"objects": _normalized_objects(objects),
                    "relations": _normalized_relations(relations), "message": message}
+        if validated_by is None:
+            raise RecordError(
+                "raw store publication is refused; use a publication command",
+                code="RAW_RECORD_PUBLICATION", path="/validated_by",
+                expected="publish attempt, artifacts register, strategy publish or material retain",
+                next_actions=["Publish attempts with `publish attempt`, runs with `artifacts register`, strategies "
+                              "with `strategy publish` and evidence originals with `material retain`."],
+                write_status="not_written")
         digest = hashlib.sha256(_canonical(payload).encode()).hexdigest()
         native_message = f"research-records-operation:{operation_id}:{digest}"
         with self._connection(autocommit=False) as conn:
@@ -507,6 +493,15 @@ class DoltStore:
                 if prior:
                     conn.rollback()
                     return prior
+                if self._sql(conn, "SELECT * FROM dolt_status")[0]:
+                    # DOLT_COMMIT -A would otherwise commit stray SQL edits under this receipt.
+                    raise RecordError(
+                        "Dolt working set has unpublished SQL changes; resolve before publication",
+                        code="DIRTY_WORKING_SET", path="/expected_version",
+                        expected="a clean working set at the last published commit",
+                        next_actions=["Inspect `dolt_status` and the uncommitted rows; do not publish them under "
+                                      "another operation's receipt."],
+                        write_status="not_written")
                 observed, _ = self._read_head(conn)
                 if observed != expected_version:
                     raise ConflictError(

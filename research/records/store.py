@@ -271,6 +271,15 @@ class _SelectedRecords:
                                 "selected_revisions": {key: sorted(values) for key, values in revisions.items()}}
 
 
+def _searchable_text(body):
+    """Case-folded IDs and prose an Agent searches by; evidence hashes and payloads stay out."""
+    contract, decision = body.get("contract", {}), body.get("decision", {})
+    values = [body.get(name) for name in ("attempt_id", "goal_id", "question", "mechanism", "hypothesis")]
+    values += [contract.get("scope"), contract.get("plan"), decision.get("scope"), decision.get("next_action")]
+    values += [value for value in contract.get("selection", {}).values() if isinstance(value, str)]
+    return "\n".join(value for value in values if isinstance(value, str)).casefold()
+
+
 class DoltRecords:
     def __init__(self, config=None):
         self.adapter = DoltStore(configuration() if config is None else config)
@@ -309,7 +318,8 @@ class DoltRecords:
             roots.extend(reader.load(identity) for identity in sorted(run_ids))
         return reader.snapshot(roots)
 
-    def find_snapshot(self, *, mechanism=None, layer=None, component=None, commit=None, purpose=None, outcome=None, family_id=None):
+    def find_snapshot(self, *, mechanism=None, layer=None, component=None, commit=None, purpose=None, outcome=None,
+                      family_id=None, text=None):
         """Filter raw candidates first, then expose each matching read failure."""
         fixed = commit or self.adapter.status()["commit"]
         component_ids = None
@@ -333,11 +343,13 @@ class DoltRecords:
                 continue
             if family_id and family_id != body.get("contract", {}).get("selection", {}).get("family_id"):
                 continue
+            if text and not all(term in _searchable_text(body) for term in text.casefold().split()):
+                continue
             try:
                 reader = _SelectedRecords(self.adapter, fixed)
                 selected = reader.load(obj["id"])
                 reader.check_ancestry()
-                attempts[obj["id"].removeprefix("attempt:")] = selected["body"]
+                attempts[obj["id"].removeprefix("attempt:")] = selected
             except RecordError as exc:
                 unreadable.append({"id": obj["id"], "revision": obj["revision"],
                                    "schema_version": body.get("schema_version"), "error": str(exc)})
@@ -593,7 +605,8 @@ class DoltRecords:
                     "version": status["version"], "operation_id": operation_id,
                     "record": {"id": identity, "revision": obj["revision"]},
                     "objects": len(objects), "relations": len(related)}
-        result = self.adapter.publish(list(objects.values()), related, operation_id, expected_version, f"publish {identity}")
+        result = self.adapter.publish(list(objects.values()), related, operation_id, expected_version, f"publish {identity}",
+                                     validated_by="publish_record")
         if kind == "attempt" and body["registration"]["status"] == "preregistered":
             if obj["revision"] == 1:
                 receipt = {"id": identity, "revision": 1, "commit": result["commit"]}

@@ -10,17 +10,15 @@ import unittest
 
 
 class JsonEncodingTests(unittest.TestCase):
-    def test_json_read_write_and_review_plan_under_ascii_locale(self):
-        # Review plans require an external retained location. This temporary
+    def test_json_read_write_and_backend_config_under_ascii_locale(self):
+        # The backend config requires an external location. This temporary
         # test directory uses the home directory and is removed after the test.
         with tempfile.TemporaryDirectory(prefix="trade-json-encoding-", dir=Path.home()) as directory:
             script = textwrap.dedent(r'''
                 import json
                 import locale
-                from argparse import Namespace
                 from pathlib import Path
                 import sys
-                from types import SimpleNamespace
                 from unittest.mock import Mock, patch
 
                 from research.records.common import _read_json
@@ -51,17 +49,6 @@ class JsonEncodingTests(unittest.TestCase):
                 config = _read_json(config_file)
                 assert config_file.read_bytes() == (json.dumps(config, indent=2) + "\n").encode("utf-8")
 
-                plan = {**value, "operation_id": "fixture", "payload_sha256": "a" * 64,
-                        "base_commit": "b" * 32, "expected_version": 1, "counts": {}}
-                destination = root / "review.json"
-                args = Namespace(command="material", action="review", review_action="prepare", at=None,
-                                 inventory_id="inventory:fixture", revision=1, source_at="b" * 32,
-                                 decisions=None, supplemental=None, destination=destination)
-                with patch.object(ledger, "open_store", return_value=SimpleNamespace(adapter=adapter)), \
-                     patch("research.records.reviews.prepare", return_value=plan):
-                    ledger.command(args)
-                assert destination.read_bytes() == (json.dumps(plan, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-                assert _read_json(destination) == plan
                 print("utf8-json-roundtrip-ok")
             ''')
             environment = {**os.environ, "LC_ALL": "C", "LANG": "C", "PYTHONUTF8": "0",
