@@ -1,6 +1,6 @@
 # 原生回测分析与改良比较实施计划
 
-状态：P0-A（`artifacts report`）与 P0-B1（`compare --analysis`）已按信任边界核心实现，描述统计交给 Agent（`.agents/skills/nautilus-report-analysis`）；B2、P0-C、P1 未实现。日期：2026-10-10。第一版服务当前 R1、USDT 线性永续、固定本金原生账户；其他账户或合约类型在口径未核实前明确为不支持或证据不足。
+状态：P0-A（`artifacts report`）与 P0-B1（`compare --analysis`）已按信任边界核心实现，描述统计交给 Agent（`.agents/skills/nautilus-report-analysis`）；B2、P0-C 未实现。P1 的 HTML 改由 Agent 用原生 `create_tearsheet_from_stats` 离线生成，不写产品代码；`compare_paired_returns.py` 已删，区间函数并入 `analysis.py`，Agent 读表用 `analysis.tables()`（见 [回测结果的拆解与诊断](backtest-result-diagnosis.zh.md)）。日期：2026-10-10。第一版服务当前 R1、USDT 线性永续、固定本金原生账户；其他账户或合约类型在口径未核实前明确为不支持或证据不足。
 
 审阅由独立子 Agent 对照代码、28 个封存 run、固定 `nautilus_trader==2.0.0rc3` 与 Dolt v132（`f8va2hf2e7bae13p08kfs5s8ne1sk3ud`）核实 65 条事实，再按原则与切片、账务与统计、拒绝边界、字段清单四个角度逐条反驳检验。本版吸收其结论与同日用户决定；被推翻或修正的初版说法不再保留为事实。
 
@@ -33,7 +33,7 @@
 
 - [正式 compare](../../research/records/cli.py) 分别核验双方固定源码，允许不同策略源码，并要求共同输入、窗口、账户、成本、OCI/platform、Nautilus、有效配置及完整性。它与完成决定的契约要求永久 role 为 candidate/control（`cli.py:425`、`contracts.py:166`），两处均无负向测试。拒绝统一返回 `RECORD_ERROR`、`path=null`、`write_status=unknown`，不指出冲突字段。任一侧指标为 null 时 `cli.py:497` 的 `Decimal` 运算抛出未处理异常。
 - compared_with 在回测完成后的 register 阶段形成；register 只查自对照与独立等级暴露，不查对照角色。单独校验它不能证明参考事前选定。现有 27 个 attempt 的初始 revision 都没有可机器核验的参考声明，全部历史配对只能标为事前证据不足。
-- [compare_paired_returns.py](../../backtest/r1/checks/compare_paired_returns.py) 在第 62 行要求源码相同，按列表顺序比较 per_coin counts/quantity，且不检查有效配置、镜像、输入身份、成本、审计或 seal 哈希。counts 是 LAST/MARK/funding 输入条数，quantity 是登记的初始 trade_size；当前 sizing 为原生权益止损风险加名义上限，实际下单量只能从订单与成交读取。已有 8 个外部配方导入其私有函数。
+- [compare_paired_returns.py](https://github.com/qOeOp/trade/blob/3b3b4876b869bf0d7f54b74ee69f7f708dea59dd/backtest/r1/checks/compare_paired_returns.py)（2026-10-10 已删，其区间函数并入 `analysis.py`） 在第 62 行要求源码相同，按列表顺序比较 per_coin counts/quantity，且不检查有效配置、镜像、输入身份、成本、审计或 seal 哈希。counts 是 LAST/MARK/funding 输入条数，quantity 是登记的初始 trade_size；当前 sizing 为原生权益止损风险加名义上限，实际下单量只能从订单与成交读取。已有 8 个外部配方导入其私有函数。
 - 其 ISO 周块配对 bootstrap（5000 次、seed 20261008）作用于原生日 MTM 账户收益，可复用为配对区间方法。
 
 原生语义（固定 rc3）：

@@ -89,6 +89,7 @@ uv run --frozen python -m research.records.artifacts restore --root "$ARTIFACT_R
 - `report` verifies the seal and prints the closed-position PnL split (fill price, commissions,
   funding), open positions and unrealized residual only when they reconcile to the audited native
   economics. It reads no Dolt; a failed seal reports null economics.
-- Any other statistic follows the `nautilus-report-analysis` skill.
+- Any other statistic follows the `nautilus-report-analysis` skill, which loads the seal with
+  `research.records.analysis.tables()`.
 - `restore` recovers reports only, not the image or inputs.
 - Record commands resolve `artifact://` references through `TRADE_RESEARCH_ARTIFACT_ROOT`.

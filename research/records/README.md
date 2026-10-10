@@ -153,7 +153,10 @@ commits in plans written before the reset refer to that archive; read them in a
 separately recovered ledger (see the next section). The archive also holds
 material imports, import reviews and knowledge admissions, which current code
 no longer reads or writes; run the records CLI from Git commit `9794ed307` against
-the recovered archive to read them.
+the recovered archive to read them. External recipes that import the removed
+`backtest/r1/checks/compare_paired_returns.py` run from a checkout of commit
+`3b3b4876b` with `PYTHONPATH` set to it; all eight reproduced their retained
+outputs there on 2026-10-10.
 
 ```bash
 uv run --frozen python -m research.records.artifacts verify --root "$ARTIFACT_ROOT" --run-id RUN-ID

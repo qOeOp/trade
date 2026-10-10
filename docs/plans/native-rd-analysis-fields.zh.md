@@ -21,7 +21,7 @@
 | `manifest_sha256` | retain，沿用 verify 输出 | 与 Dolt run `artifact_manifest_ref` 对接 | `artifacts.verify` 返回值 |
 | `record_binding` | retain，沿用 manifest | P0-A 不读 Dolt，Agent 以它 `show --revision` 读冻结主响应 | manifest 原值 |
 | `summary_ref`、`audit_ref` | retain，沿用 run 记录形状 | 下钻原生统计；可直接作 evidence_refs 的 {path, sha256} | 文件缺失（失败 seal）时为 null |
-| `analysis.source_files_sha256` | retain，沿用 run 记录名称与形状 | 重建派生数值；seal 哈希只识别输入，不识别宿主侧生成器 | {仓库路径: sha256}，覆盖所有参与计算的模块（含被复用的 `compare_paired_returns.py`） |
+| `analysis.source_files_sha256` | retain，沿用 run 记录名称与形状 | 重建派生数值；seal 哈希只识别输入，不识别宿主侧生成器 | {仓库路径: sha256}，覆盖所有参与计算的模块（当时含被复用的 `compare_paired_returns.py`；2026-10-10 其区间函数并入 `analysis.py` 后只列 `analysis.py`） |
 | `analysis.dependency_lock_sha256` | retain，同名同定义、限定在 `analysis` 下 | 宿主 `uv.lock` 可能不同于封存镜像锁 | 宿主 `uv.lock` 字节的 sha256 |
 | `analysis.method`、`custody` | drop | 源码哈希已确定方法；custody 是保管位置属性，归档后自述会失真 | — |
 | `input_start_utc`、`period_start_utc`、`period_end_utc`、`data_interval_minutes` | retain，沿用 summary | 交易窗口与预热 | summary 原值；summary.json 本身 40.9 KB，超出上限，故做有界投影 |

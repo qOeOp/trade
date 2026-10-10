@@ -59,7 +59,7 @@ def _csv(columns, rows):
 
 
 def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, economics=True,
-          economics_override=None, final_equity=None, status="passed") -> Path:
+          economics_override=None, final_equity=None, status="passed", orders=",status,expire_time_ns\n") -> Path:
     seal = root / run_id
     reports = seal / "reports"
     reports.mkdir(parents=True)
@@ -74,7 +74,7 @@ def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, econ
     (reports / "fills.csv").write_text(
         _csv(["event_id", "commission"], [[event["event_id"], event["commission"]] for event in events])
         if events else ",client_order_id\n")
-    (reports / "orders.csv").write_text(",status,expire_time_ns\n")
+    (reports / "orders.csv").write_text(orders)
     (reports / "account.csv").write_text("ts_event,total,currency\n2026-01-01,1000,USDT\n")
     returns = [(START_NS + day * DAY, 0.0) for day in range(2)]
     returns += [(START_NS + (day + 2) * DAY, value) for day, value in enumerate(window)]
@@ -206,6 +206,52 @@ class SingleRunReportTests(unittest.TestCase):
             self.assertIsNone(analysis.difference(left, right), (left, right))
 
 
+class TablesTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+
+    def test_reconciled_rows_are_typed_and_fills_name_their_cycle(self):
+        orders = _csv(["client_order_id", "tags", "parent_order_id", "quantity", "ts_init", "is_reduce_only"],
+                      [["O-1", "['ENTRY']", "", "1", "1767225600000000000", "False"],
+                       ["O-2", "['STOP_LOSS']", "O-1", "1", "1767225600000000000", "True"]])
+        _seal(self.root, "R1", orders=orders)
+        result = analysis.tables(self.root, "R1", account=True)
+        self.assertEqual({fill["event_id"]: fill["cycle_position_id"] for fill in result["fills"]},
+                         {"e1": "AAA-1", "e2": "AAA-1", "e3": "AAA-1", "e4": "BBB-1", "e5": "BBB-1", "e6": "BBB-2"})
+        aaa = result["positions"][0]
+        self.assertEqual((aaa["closed"], aaa["price_pnl"], aaa["funding"], aaa["realized_pnl"]),
+                         (True, Decimal("12"), Decimal("0.5"), Decimal("12.389")))
+        self.assertEqual(aaa["commissions"], [Decimal("0.02"), Decimal("0.049"), Decimal("0.042")])
+        self.assertEqual(sum(row["price_pnl"] for row in result["positions"] if row["closed"]),
+                         Decimal(result["reconciled"]["closed"]["price_pnl_usdt"]))
+        self.assertIsNone(result["positions"][2]["price_pnl"])  # open: fill cash flow is not a PnL yet
+        self.assertEqual(sum(row["realized_pnl"] for row in result["positions"]),
+                         Decimal(result["reconciled"]["native_economics"]["reported_realized_pnl_usdt"]))
+        self.assertEqual(result["orders"][1], {"client_order_id": "O-2", "tags": ["STOP_LOSS"], "parent_order_id": "O-1",
+                                               "quantity": Decimal("1"), "ts_init": 1767225600000000000,
+                                               "is_reduce_only": True})
+        self.assertIsNone(result["orders"][0]["parent_order_id"])
+        self.assertEqual(result["account"][0]["total"], Decimal("1000"))
+        self.assertEqual([row["native_return"] for row in result["daily_returns"]], WINDOW_RETURNS)
+        self.assertEqual(result["reconciled"]["closed_trades"], 2)
+        self.assertIsNone(analysis.tables(self.root, "R1")["account"])
+
+    def test_seals_that_do_not_reconcile_or_pass_are_refused(self):
+        _seal(self.root, "BAD", economics_override={"reported_funding_usdt": "9.00000000"})
+        _seal(self.root, "FAILED", status="failed")
+        for run_id in ("BAD", "FAILED"):
+            with self.assertRaisesRegex(RecordError, "reports reconcile"):
+                analysis.tables(self.root, run_id)
+
+    def test_unexpected_cell_format_names_its_column(self):
+        _seal(self.root, "R1", orders=_csv(["client_order_id", "tags"], [["O-1", "['ENTRY'"]]))
+        with self.assertRaises(RecordError) as caught:
+            analysis.tables(self.root, "R1")
+        self.assertEqual(caught.exception.path, "/tags")
+
+
 class PairedAnalysisTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -232,7 +278,7 @@ class PairedAnalysisTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["closed_trades"], {"candidate": 2, "control": 2, "difference": "0"})
         self.assertEqual(result["metrics"]["closed.price_pnl_usdt"]["difference"], "0.00000000")
         self.assertIn(analysis.EX_ANTE_LIMITATION, result["limitations"])
-        self.assertIn("backtest/r1/checks/compare_paired_returns.py", result["analysis"]["source_files_sha256"])
+        self.assertEqual(list(result["analysis"]["source_files_sha256"]), ["research/records/analysis.py"])
 
     def test_other_primary_response_has_no_interval(self):
         result = analysis.pair(self.root, self.candidate, self.control, {"primary_response": "closed_trade_win_rate"})
@@ -330,6 +376,11 @@ class RealSealTests(unittest.TestCase):
                     self.assertIsNone(result["unrealized_residual_usdt"])
                 elif result["open_positions"] == 0:
                     self.assertEqual(Decimal(result["unrealized_residual_usdt"]), 0)
+                rows = analysis.tables(root, run_id)
+                self.assertEqual(sum(row["closed"] for row in rows["positions"]), result["closed_trades"])
+                self.assertEqual(sum(row["realized_pnl"] for row in rows["positions"] if row["closed"]),
+                                 Decimal(result["closed"]["reported_realized_pnl_usdt"]) if result["closed_trades"]
+                                 else 0)
 
 
 if __name__ == "__main__":
