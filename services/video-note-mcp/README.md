@@ -1,5 +1,10 @@
 # Video Note MCP
 
+> **Frozen.** Use the [`video-evidence` skill](../../.agents/skills/video-evidence/SKILL.md) and its
+> checker [`services/video-evidence`](../video-evidence/README.md) for research sources and general
+> video notes. This service gets no new features; its retirement waits for a comparison the user
+> approves ([decision record](../../docs/plans/video-evidence-refactor.zh.md)).
+
 Standalone local MCP for illustrated Chinese notes from public Bilibili and YouTube videos,
 or a public HTTPS video page/direct media link, of any subject.
 It uses complete speech transcription and actual video frames to produce an overview, content-derived

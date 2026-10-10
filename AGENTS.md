@@ -49,6 +49,8 @@ ledger: publication is append-only.
 - `nautilus-report-analysis`: before computing any statistic from sealed native reports.
 - `research-sources`: before searching papers or economic and positioning data outside this
   repository, or stating what prior work found.
+- `video-evidence`: before probing, downloading, transcribing or citing a video, or writing notes
+  from one.
 
 ## Nautilus and parity
 
