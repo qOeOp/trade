@@ -1,12 +1,16 @@
 ---
 name: research-round
-description: Plan and close one strategy research round in this repository (question, preregistered attempt, native run, decision, next experiment). Use before publishing an attempt, before choosing the next experiment, and before claiming that a strategy improved, failed or generalized.
+description: Plans and closes one strategy research round in this repository (question, preregistered attempt, native run, decision, next experiment). Use before running a backtest for a research question, before publishing an attempt, before choosing the next experiment, and before claiming that a strategy improved, failed or generalized.
 ---
 
 # Research round
 
 What a round commits to before it reads a result. Publication mechanics are in
 `research/records/README.md`; numbers from sealed reports follow the `nautilus-report-analysis` skill.
+
+Read prior records first (`find`, then `show <id> --brief`) for any claim you extend or combine. A
+run that a decision cites goes through `research.records.artifacts run`, `verify`, `backup` and
+`register`; direct `run_portfolio` output under `/tmp` is a diagnostic.
 
 ## Name the layer
 
@@ -32,8 +36,9 @@ A whole-strategy failure rejects the bundle, not any one part. State which layer
    diagnose first.
 4. Freeze the primary response, reference, window, cost model, outcome map and reader. Everything
    else is exploratory.
-5. Use one family per mechanism line for budget and stop; count selection pressure across the goal;
-   declare every unregistered replay that influenced a choice.
+5. Use one family per mechanism line for budget and stop; count selection pressure across the goal.
+   In the plan, list every replay you ran since the previous attempt that is not registered to an
+   attempt (command and output path), or write `Unregistered replays: none`.
 6. Treat windows before the model's training cutoff as knowledge-exposed: exploration and
    falsification only.
 7. Dry-run every write and fix what `read_preflight` or `pair_preflight` reports.
@@ -45,18 +50,24 @@ Write the plateau rule first, count every cell as a trial, and confirm only the 
 
 ## Progress and stopping
 
-After repeated economics failures, ask which layer failed, which explanations were excluded, which
-predictions were corroborated, and whether changes came from the mechanism or from inspected
-losers. Stopping is a valid result. If two checks in a row show neither exclusion nor
-corroboration, bring the question to the user.
+After three economics failures in a goal with no economics pass between them (decisions with layer
+`economics` and outcome `failed`, in publication order; decisions on other layers neither count nor
+reset), answer in the next attempt's plan, or in the third failure's `next_action` if you stop:
+which L4 part failed each time, which explanations were excluded, which predictions were
+corroborated, and whether changes came from the mechanism or from inspected losers. The count
+restarts after each check. Stopping is a valid result. If two checks in a row show neither
+exclusion nor corroboration, bring the question to the user.
 
 ## Evidence and review
 
-- Keep readers, results and conclusions outside Git and `/tmp`; publish them as `review_evidence`
-  material and cite their fixed IDs in `decision.basis.evidence_refs`. Another attempt's run is
+- Keep readers, results and conclusions outside Git and `/tmp`; publish them with
+  `material retain --file PATH SHA256 [--file ...]`, dry-run first, and cite the returned
+  `review_evidence:SHA256` IDs in `decision.basis.evidence_refs`. Another attempt's run is
   evidence, never `candidate_run_ref`.
-- Review independently before confirmation, knowledge admission or paper running
-  ([review.md](references/review.md)).
+- Review independently before confirmation ([review.md](references/review.md)).
+- When a workbench gap blocked a task, forced a workaround in more than one attempt, or cost a
+  rerun, record it as a product finding under `docs/plans/`: affected attempt IDs, the blocked task,
+  evidence (fixed IDs), iteration cost, workaround and the smallest shared capability needed.
 
 ## Do not
 
