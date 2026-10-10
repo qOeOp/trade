@@ -83,6 +83,20 @@ def _write_exposures(rows, path: Path) -> None:
         writer.writerows(rows)
 
 
+def _write_order_events(orders, path: Path) -> None:
+    """Export unchanged native history after replay, grouped by order ID.
+
+    Only each order's event order is causal. File order across different orders
+    is deterministic grouping, not the engine's global processing order.
+    """
+    with path.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as packed, \
+            io.TextIOWrapper(packed, encoding="utf-8", newline="\n") as text:
+        for order in sorted(orders, key=lambda value: str(value.client_order_id)):
+            for event in order.events():
+                text.write(json.dumps(event.to_dict(), ensure_ascii=False, sort_keys=True,
+                                      separators=(",", ":"), allow_nan=False) + "\n")
+
+
 def _capital_findings(observer, start_ns: int, end_ns: int) -> list[str]:
     """The observation valued every input timestamp and every open position in it."""
     findings = list(dict.fromkeys(observer.findings))
@@ -285,6 +299,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     if denied_or_rejected and not integrity_findings:
         integrity_findings.append("native orders were denied or rejected")
     _write_exposures(engine.observer.rows, args.output / "exposures.csv.gz")
+    _write_order_events(engine.cache.orders(), args.output / "order_events.jsonl.gz")
     for finding in _capital_findings(engine.observer, start, end):
         if finding not in integrity_findings:
             integrity_findings.append(finding)
