@@ -21,7 +21,8 @@ may define `key`, never hold a value.
 
 ```bash
 ENV="$(git rev-parse --path-format=absolute --git-common-dir)/../.env"
-key() { sed -n "s/^$1=//p" "$ENV" | tr -d '"'; }
+# No positional parameters here: the skill loader replaces them with the skill's arguments.
+key() { for n; do sed -n "s/^${n}=//p" "$ENV" | tr -d '"'; done; }
 curl -sS -H "Authorization: Bearer $(key OPENALEX_API_KEY)" \
   "https://api.openalex.org/works?filter=title_and_abstract.search:%22momentum%20crash%22&select=doi,display_name,publication_year&per-page=20" \
   | jq -c '.meta.count, (.results[] | [.publication_year, .display_name, .doi])'
