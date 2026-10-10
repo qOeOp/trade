@@ -57,14 +57,15 @@ media URL. Without exactly one record, they stay unknown and `not_truncated` rep
 
     cd "$W"; case $(jq -r .extractor_key "$B/probe/identity.json") in
       Generic | HTML5MediaEmbed) SRC=(--load-info-json probe.raw.json) ;; *) SRC=(-- "$URL") ;; esac
-    yt-dlp --ignore-config --no-plugin-dirs --no-playlist \
+    ulimit -f 2097152; yt-dlp --ignore-config --no-plugin-dirs --no-playlist \
       -f '(b[height>=?720][protocol=https])/(bv[height>=720][protocol=https]+ba[protocol=https])' \
       -S 'res:1080,vcodec:avc,acodec:m4a' -k --fixup never --write-info-json \
       --max-filesize 2G --no-progress -o 'source.%(ext)s' "${SRC[@]}" > download.log 2>&1
 
 The selector is atomic: one progressive file of at least 720p, else a 720p+ video part plus an audio
 part, else `Requested format is not available`; never the comma form `bv,ba`. `--fixup never` keeps
-the server bytes and `-k` keeps the parts. A generic download reads the probed formats and never
+the server bytes and `-k` keeps the parts. `ulimit -f` (KiB) stops any file at 2 GiB, also a stream of
+unknown length (`File too large`: stop). A generic download reads the probed formats and never
 re-extracts the page. yt-dlp's own retries resume a cut part with `Range`, which can join bytes from two
 CDN copies; the decode check in custody is what refuses such a file. Before any rerun, and after an interrupt
 (`pgrep -fl '[y]t-dlp|[f]fmpeg'`), delete `*.part` and `*.ytdl`. Then keep the bytes: [custody.md](custody.md).

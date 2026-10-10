@@ -12,7 +12,7 @@ projection, never the raw info JSON.
     jq -f "$A/receipt.jq" "$I" > "$S/receipt.json"
     jq -e -n --slurpfile i "$I" --slurpfile p "$B/probe/identity.json" '$i[0].id == $p[0].id' > /dev/null
     if grep -Eiq '[?&/;~,](ip|oi|mid|buvid|upsig|sig|expires?|exp|hmac|token)[=/~]|cookie' "$S/receipt.json"; then
-      echo "leak in receipt.json" >&2; exit 1; fi
+      echo "leak in receipt.json" >&2; rm -rf "$S"; exit 1; fi
     for F in $files; do
       sha=$(shasum -a 256 "$F" | cut -c1-64); dst="$ROOT/sha256/$sha.${F##*.}"
       if [ -e "$dst" ]; then echo "already held: $dst"
@@ -21,7 +21,7 @@ projection, never the raw info JSON.
       echo "$sha  $F" >> "$S/SHA256SUMS"
     done
     if [ -e .cookies.tmp ]; then awk -F'\t' 'NF == 7 && length($7) >= 8 {print $7}' .cookies.tmp > .cookie-values
-      if [ -s .cookie-values ] && grep -rlF -f .cookie-values "$S" "$B/probe"; then echo "cookie value kept" >&2; exit 1; fi; fi
+      if [ -s .cookie-values ] && grep -rlF -f .cookie-values "$S" "$B/probe"; then echo "cookie value kept" >&2; rm -rf "$S"; exit 1; fi; fi
     mv "$S" "$B/media" && rm -rf "$W"
 
 "already held" means the same bytes as an earlier source. A local file skips the download: check

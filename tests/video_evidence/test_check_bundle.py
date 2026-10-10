@@ -96,20 +96,20 @@ class CheckBundleTests(unittest.TestCase):
         segment = lambda start, end, text: {"start": start, "end": end, "text": text, "compression_ratio": 1.1,
                                             "words": [{"word": text, "start": start, "end": end, "probability": 0.9}]}
         (b / "asr/transcript.json").write_text(json.dumps({"language": "zh", "segments": [
-            segment(1.0, 2.0, "price 79.4"), segment(2.0, 3.5, "在四小时图上"), segment(3.5, 3.9, "不会")]}, ensure_ascii=False))
+            segment(1.0, 2.0, "price 52.8"), segment(2.0, 3.5, "在四小时图上"), segment(3.5, 3.9, "不会")]}, ensure_ascii=False))
         (b / "asr/run.json").write_text(json.dumps({
             "pcm_sha256": hashlib.sha256(pcm).hexdigest(), "detected_language": "zh", "versions": {"mlx-whisper": "0.4.3"},
             "model": {"repo": MODEL.split("@")[0], "revision": MODEL.split("@")[1], "weights_sha256": "1" * 64}, "argv": ARGV}))
         frame = cls.bracket[1]  # t = 1.5 s
-        claims = [{"quote": "79.4", "explicitness": "spoken", "evidence": {"segments": ["E001"], "frames": [
+        claims = [{"quote": "52.8", "explicitness": "spoken", "evidence": {"segments": ["E001"], "frames": [
                        {"media_sha256": cls.vsha, "pts": frame[1], "decoded_sha256": frame[2]}]}},
                   {"quote": "四小时", "explicitness": "spoken", "evidence": {"segments": ["E002"], "crops": [sha(b / "crops/c1.png")]}}]
         (b / "claims.json").write_text(json.dumps({"transcript_sha256": sha(b / "asr/transcript.json"), "claims": claims},
                                                   ensure_ascii=False))
         cls.generic = cls.variant(cls, lambda g: (
-            edit_json(g / "probe/identity.json", lambda d: (d.update(extractor_key="HTML5MediaEmbed", id="e9QiRzXx-1",
-                                                                     webpage_url="https://www.example.org/chart/e9QiRzXx/"), d.pop("duration"))),
-            edit_json(g / "media/receipt.json", lambda d: d.update(id="e9QiRzXx-1", media_url="https://cdn.example.org/1/a%20b.mp4")),
+            edit_json(g / "probe/identity.json", lambda d: (d.update(extractor_key="HTML5MediaEmbed", id="a1B2c3D4-1",
+                                                                     webpage_url="https://www.example.org/chart/a1B2c3D4/"), d.pop("duration"))),
+            edit_json(g / "media/receipt.json", lambda d: d.update(id="a1B2c3D4-1", media_url="https://cdn.example.org/1/a%20b.mp4")),
             (g / "probe/page.json").write_text(json.dumps({"created_at": "2025-06-09T04:15:43+00:00", "video": {
                 "video_filename": "https://cdn.example.org/1/a b.mp4?x=1", "duration": "PT13S"}, "related": [{"video": {
                     "video_filename": "https://cdn.example.org/1/other.mp4", "video_duration": 506.0}}]}))))
@@ -235,9 +235,9 @@ class CheckBundleTests(unittest.TestCase):
             "argv_is_recipe (abbreviated flag)": run_json(lambda d: d["argv"].extend(["--initial-p", "比特币十万", "--clip=0,30"])),
             "argv_is_recipe (output name)": run_json(lambda d: d["argv"].__setitem__(-3, "settings")),
             "engine_pinned": run_json(lambda d: d["versions"].update({"mlx-whisper": "0.4.4"})),
-            "quote_in_segments (decimal shift)": claim(0, lambda c: c.update(quote="7.94", asr_only=True)),
-            "quote_in_segments (sign and percent)": claim(0, lambda c: c.update(quote="price -79%4")),
-            "quote_in_segments (splice)": claim(0, lambda c: c.update(quote="不会 price 79.4", evidence={"segments": ["E003", "E001"]}, asr_only=True)),
+            "quote_in_segments (decimal shift)": claim(0, lambda c: c.update(quote="5.28", asr_only=True)),
+            "quote_in_segments (sign and percent)": claim(0, lambda c: c.update(quote="price -52%8")),
+            "quote_in_segments (splice)": claim(0, lambda c: c.update(quote="不会 price 52.8", evidence={"segments": ["E003", "E001"]}, asr_only=True)),
             "value_in_evidence": claim(1, lambda c: (c.update(value="100000", asr_only=True), c["evidence"].pop("crops"))),
             "sidecars_resolve": claim(0, lambda c: c["evidence"].update(sidecars=[{"sha256": sha(self.bundle / "probe/identity.json"), "json_path": ".id"}])),
             "flagged_span_limited": both(lambda b: edit_json(b / "asr/transcript.json", lambda d: d["segments"][0].update(compression_ratio=3.0)), rebind),
@@ -259,16 +259,17 @@ class CheckBundleTests(unittest.TestCase):
             "grid_covers_6s": drop_grid_bucket,
         }
         asr_only = lambda i, cited, **change: claim(i, lambda c: (c.update(change, asr_only=True), c["evidence"].pop(cited)))
-        more.update({  # the recheck of 2026-10-10: E001 says "price 79.4"; a number is compared as a whole token
-            "quote_in_segments (prefix of a number)": asr_only(0, "frames", quote="price 7", value="7"),
-            "quote_in_segments (suffix of a number)": asr_only(0, "frames", quote="9.4", value="9.4"),
-            "quote_in_segments (digit inside a decimal)": asr_only(0, "frames", quote="4"),
-            "quote_in_segments (prefix, the cut number said elsewhere)": both(speech(0, "price 79.4 or 7"),
-                                                                             asr_only(0, "frames", quote="price 7")),
-            "quote_in_segments (Chinese numeral cut)": both(speech(1, "在七十六点四附近"), asr_only(1, "crops", quote="六点四附近")),
-            "value_in_evidence (part of the quoted number)": asr_only(0, "frames", quote="price 79.4", value="9.4"),
+        more.update({  # the recheck of 2026-10-10: E001 says "price 52.8"; a number is compared as a whole token
+            "quote_in_segments (prefix of a number)": asr_only(0, "frames", quote="price 5", value="5"),
+            "quote_in_segments (suffix of a number)": asr_only(0, "frames", quote="2.8", value="2.8"),
+            "quote_in_segments (digit inside a decimal)": asr_only(0, "frames", quote="8"),
+            "quote_in_segments (prefix, the cut number said elsewhere)": both(speech(0, "price 52.8 or 5"),
+                                                                             asr_only(0, "frames", quote="price 5")),
+            "quote_in_segments (Chinese numeral cut)": both(speech(1, "在三十二点五附近"), asr_only(1, "crops", quote="二点五附近")),
+            "value_in_evidence (part of the quoted number)": asr_only(0, "frames", quote="price 52.8", value="2.8"),
+            "value_in_evidence (percent is not the number)": asr_only(0, "frames", quote="price 52.8", value="52.8%"),
             "value_in_evidence (digit inside a decimal)": claim(1, lambda c: c.update(
-                quote="在四小时图上", value="4", asr_only=True, evidence={"segments": ["E001", "E002"]})),
+                quote="在四小时图上", value="2", asr_only=True, evidence={"segments": ["E001", "E002"]})),
         })
         cases.update({name: (edit, None) for name, edit in more.items()})
         cases["one_stream_per_kind"] = (replace("media/SHA256SUMS", self.vsha, two_file.stem), two)
@@ -294,7 +295,7 @@ class CheckBundleTests(unittest.TestCase):
             "after media": self.variant(drop("asr", "frames", "crops", "claims.json")),
             "after asr": self.variant(drop("frames", "crops", "claims.json")),
             "asr-only whole numbers": self.variant(lambda b: edit_json(b / "claims.json", lambda d: (
-                whole(d["claims"][0], "frames", quote="price 79.4", value="79.4"),
+                whole(d["claims"][0], "frames", quote="price 52.8", value="52.80"),
                 whole(d["claims"][1], "crops", quote="四小时", value="四")))),
         }
         for name, result in zip(bundles, self.in_parallel([lambda b=b: self.failed(b) for b in bundles.values()])):

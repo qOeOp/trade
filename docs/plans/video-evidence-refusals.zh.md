@@ -10,9 +10,10 @@
 的失败检查：`receipt_matches_probe`（S7）、`max_side_pixels`（R1）、`hd_floor`（R2）、每个子进程的超时（P1）、
 `regular_files_only`（原 `no_symlink`）与不跟随链接的 `present`（L2）、严格 JSON（J1）、`frame_in_cited_span`（F7），
 并让检查器自己的 ffprobe/ffmpeg 保留 `-protocol_whitelist file,pipe` 并加容器白名单（D1），`sha()` 与 `pcm()` 改为
-流式哈希；2026-10-10 复核后又恢复 R3 `duration_ceiling`、T2 `engine_pinned`，并加 R4 的事后 `max_bytes`。必须发生在网络请求
+流式哈希；2026-10-10 复核后又恢复 R3 `duration_ceiling`、T2 `engine_pinned`，并加 R4 的事后 `max_bytes` 与下载配方的
+`ulimit -f`。必须发生在网络请求
 之前的预防仍是 skill 规则或固定旗标：旗标白名单、`host_check.jq`（补上 scheme、端口、userinfo、`.test/.invalid`）、
-cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR 评审时请用户确认。
+cookie 规则、本地文件 `[ ! -L ]`。第 4 节的 C 类已由用户 2026-10-10 全部授权、委托 Agent 逐条取舍。
 
 ## 1. 口径
 
@@ -23,7 +24,7 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 - 授权列：
   - **A**：用户 2026-10-10 已点名放宽的五项，即 DNS 固定、重定向拒绝、主机白名单、回环代理限制、请求预算。
   - **B**：新路径上不存在该载体，例如 MCP stdio、内部 LLM 作者、云 ASR、24 h 缓存仓、worker IPC、质量档位。新路径上没有可被这条拒绝保护的面，只需记入决策记录。
-  - **C**：新路径上同一个面还在，拒绝没有保留，也没有被完全替换，又不属于 A。仍为 C 的行列在第 4 节，等用户确认。
+  - **C**：新路径上同一个面还在，拒绝没有保留，也没有被完全替换，又不属于 A。C 类的取舍见第 4 节。
   - **—**：KEPT，或等价替换。
 
 ## 2. 拒绝表
@@ -81,7 +82,7 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 | R1 | `downloaded_media_invalid`：最大边超过 8192、像素超过 8192²、宽或高不为正（`MEDIA_SOURCE_MAX_SIDE`、`MEDIA_SOURCE_MAX_PIXELS`，application/resource_limits.py:7-8）；同一上限还在 `dimension_invalid` 中 | adapters/media_acquisition.py:74-89；adapters/local_import.py:29-34；adapters/source_acquisition.py:41-47；adapters/youtube_source.py:107-115；adapters/bilibili_source.py:122-137；adapters/media_ffmpeg.py:442-455 | 解码、PNG、ImageMagick 的内存与时间（像素炸弹） | KEPT | 检查器 `max_side_pixels:<name>`：同一次 ffprobe 读宽高，每边须在 1 到 8192 之间（像素上限随之不超过 8192²） | — |
 | R2 | HD_SOURCE_UNAVAILABLE `source_below_hd_floor`（最短边 <720，或像素 <1280×720）；`bilibili_hd_media_unavailable`（quality <64）；旧 YouTube 选择器还要求 `width>=720`、`height<=1920` | adapters/source_acquisition.py:41-47；adapters/youtube_source.py:107-115；adapters/bilibili_source.py:163-168；adapters/local_import.py:29-34；adapters/media_ffmpeg.py:449-455；application/note_validation.py:84-85；adapters/_ytdlp_worker.py:307-309；adapters/_youtube_worker.py:146-149 | 证据画面 720p 下限 | KEPT | 固定选择器 `height>=720` 原子化、不降级（渐进式 `height>=?720`）；检查器 `hd_floor:<name>` 沿用旧语义：最短边 ≥720 且像素 ≥1280×720；降 720p 须用户同意，确认后仍是失败检查，写成局限 | — |
 | R3 | 时长上限 `MAX_SOURCE_DURATION_MS` = 45 s × 128 = 96 分钟：`youtube_duration_invalid`、`source_duration_exceeds_supported_limit`、`SourceV1.duration_ms` 的 `le=` | domain/models.py:28-30, 64；adapters/_youtube_worker.py:82-88；adapters/bilibili_source.py:112-121 | 云 ASR 的 45 秒窗 × 128 段预算，间接限制总耗时与内存 | KEPT（事后，2026-10-10 审阅后恢复） | 检查器 `duration_ceiling:<name>`：每个身份文件最后一个包的时刻不超过 96 分钟；`sha()` 与 `pcm()` 仍是流式哈希。下载前不再拦，超长片在检查时失败 | — |
-| R4 | 下载字节：`_MediaBytesExceeded`（预计或已下载超过 2 GiB，跨重试累计）；声明的 `durl.size` 超过 2 GiB；`media_size_invalid`（1 ≤ size ≤ 2 GiB）；复制时的 `media_bytes_exceeded`、`media_file_invalid` | adapters/_ytdlp_worker.py:94-115, 313-315；adapters/bilibili_media_ytdlp.py:301-302；adapters/media_acquisition.py:90-91, 143-157 | 磁盘占用与托管体积 | REPLACED（部分） | 固定旗标 `--max-filesize 2G`，只看声明长度。长度未知的流、跨重试的累计量、本地文件都不封顶。`retain_file` 本身没有体积上限，靠 checker `no_media_or_large_file_in_bundle`（包内每个文件小于 8 MiB，且不等于任何媒体哈希）、版式白名单与 `png_plain` 防止把媒体误 retain 进 Dolt。2026-10-10 审阅后检查器加 `max_bytes:<name>`（每个身份文件不超过 2 GiB，事后） | C（下载过程中长度未知的流与跨重试累计仍不封顶，列在第 4 节） |
+| R4 | 下载字节：`_MediaBytesExceeded`（预计或已下载超过 2 GiB，跨重试累计）；声明的 `durl.size` 超过 2 GiB；`media_size_invalid`（1 ≤ size ≤ 2 GiB）；复制时的 `media_bytes_exceeded`、`media_file_invalid` | adapters/_ytdlp_worker.py:94-115, 313-315；adapters/bilibili_media_ytdlp.py:301-302；adapters/media_acquisition.py:90-91, 143-157 | 磁盘占用与托管体积 | REPLACED（部分） | 固定旗标 `--max-filesize 2G`，只看声明长度。长度未知的流、跨重试的累计量、本地文件都不封顶。`retain_file` 本身没有体积上限，靠 checker `no_media_or_large_file_in_bundle`（包内每个文件小于 8 MiB，且不等于任何媒体哈希）、版式白名单与 `png_plain` 防止把媒体误 retain 进 Dolt。2026-10-10 审阅后检查器加 `max_bytes:<name>`（每个身份文件不超过 2 GiB，事后）；下载配方以 `ulimit -f 2097152` 由内核在写入时封顶每个文件 2 GiB，长度未知的流同样被截停（实测 yt-dlp 报 `File too large`、退出 1） | —（第 4 节第 3 条） |
 | R5 | 时长一致：`media_access_restricted_preview`（实测比声明短 2 s 以上）；`media_duration_changed`（偏差超过 2 s 或 1.5 s，变长也拒）；`incomplete audio`（MLX 处理的音频时长偏差超过 2 s） | adapters/source_acquisition.py:48-52；adapters/media_ffmpeg.py:456-461；adapters/asr_mlx.py:88-89 | 拒预览截断，拒换片 | KEPT（变短）/ DROPPED（变长） | checker `not_truncated:<name>`（不短于声明 −1 s）加失败表「preview 不是来源」；`exact_size:<name>` 要求与声明 filesize 逐字节相等。变长不再拒：TradingView 实片 553.55 s 长于页面声明的 547 s，属正常。ASR 输入由 `pcm_recomputed` 绑定到整段音频 | — |
 | R6 | 必须有音轨：`downloaded_media_invalid`（无 audio stream） | adapters/media_acquisition.py:81-82 | 只有带音轨的完整视频能进入转写 | REPLACED | 选择器 `b`（音视频同在）或原子化的 `bv+ba` 对；checker `input_is_audio_identity_file` 要求 ASR 输入是 SHA256SUMS 里带音轨的身份文件 | — |
 
@@ -160,7 +161,7 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 | N4 | 作者预算：`transcript_bytes_exceeded`、`author_input_budget_exceeded`（48 KiB × 16 块）、`author_output_budget_exceeded`、`author_summary_budget_exceeded`（96 KiB） | adapters/direct_notes.py:100-101, 144-156, 203-208, 247 | DeepSeek 作者的载荷 | DROPPED | 内部作者退役，由调用方 Agent 写笔记 | B |
 | N5 | 模型客户端：`provider_key_missing`、`vision_request_too_large`（48 MiB）、`provider model identity is missing or changed`、`incomplete response`、`invalid content`（超过 128 KiB）、`provider_timeout`、`provider_response_invalid`、`vision_response_too_large`（256 KiB）、`provider_http_<status>`、`provider_transport_retries_exhausted`；`follow_redirects=False`、`trust_env=False` | adapters/model_client.py:40-180 | 云模型边界 | DROPPED | 同 N4 | B |
 | N6 | 模型配置：`model profile is invalid`、`model output settings are invalid`、`thinking budget is invalid` | config.py:41-49 | 配置合法 | DROPPED | 不再有模型 profile | B |
-| N7 | HTML 转义加 CSP（`default-src 'none'`，无脚本，无远程资源） | presentation/markdown.py:3, 29-42, 104, 137-145, 182-190 | 模型或来源文本不变成可执行标记 | REPLACED | `pandoc -f markdown-raw_html-yaml_metadata_block --lua-filter note.lua -s --embed-resources`，原始 HTML 与 YAML 元数据不读入，元数据只留标题；`note.md` 规定图片只用包内相对路径，不链接包外图片 | B（CSP） |
+| N7 | HTML 转义加 CSP（`default-src 'none'`，无脚本，无远程资源） | presentation/markdown.py:3, 29-42, 104, 137-145, 182-190 | 模型或来源文本不变成可执行标记 | REPLACED | `pandoc -f markdown-raw_html-yaml_metadata_block --lua-filter note.lua -s --embed-resources`，原始 HTML 与 YAML 元数据不读入，元数据只留标题，所有元素的属性清空（pandoc 会嵌入 `data-src`、`poster` 等属性指向的资源）；`note.md` 规定图片只用包内相对路径，不链接包外图片 | B（CSP） |
 | N8 | 发布原子性：`bundle collision`（不覆盖）、`bundle_publication_failed`、`asset bytes exceeded` | adapters/note_publisher.py:41-91 | 不覆盖已发布的笔记，失败不留半成品 | REPLACED | `note.md` 写在包内；阶段 `.stage-*` 完成后再 `mv`；规则「完成的阶段不重做」 | — |
 
 ### 2.12 24 h 缓存仓 artifact_store
@@ -230,23 +231,26 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 | bilibili-note.md:219-220 | 导入拒路径、符号链接、无关文件；满足同样的时长、音轨、HD 上限；作者与日期标为未知 | L1、L2、D2、R2、R6、S8 | REPLACED / KEPT |
 | bilibili-note.md:222-223 | 导入的转写必须覆盖全程，不得冒充 ASR 回执 | T5 | B（不再有转写导入；SKILL.md 规定更正放在单独标注的层） |
 
-## 4. 仍为 C 类、等用户确认的放宽
+## 4. C 类放宽的取舍（用户授权、Agent 选择）
 
-2026-10-10 审阅后，R3（96 分钟上限）与 T2（ASR 版本）在检查器里恢复为失败检查，R4 加了事后的 2 GiB 检查；
-下面几项仍需用户在 PR 评审时逐条确认，未确认前不得合并：
+用户 2026-10-10 答复：「不确定放宽是好还是不好，结合实际情况替我做选择，都授权」。Agent 逐条取舍如下：
 
-1. U1、U2：平台 URL 的其余文法限制（控制字符、长度、查询键白名单）。危害面由 URL 前的 `--`、引号和 `bash <<'SH'`
-   覆盖；通用页的 scheme、端口、userinfo、IP 字面量（含十六进制与尾点）与私有后缀由 `host_check.jq` 拦下，检查器
-   `public_https_host` 事后复核；`bundle` 拒绝不在 `[A-Za-z0-9_-]` 内的 ID。
-2. P2：子进程输出上限。检查器改为流式哈希，内存不随时长增长。
-3. R4 的下载过程部分：长度未知的流、跨重试累计量与本地大文件在下载时不再有字节上限（`--max-filesize 2G` 只看声明
-   长度）；单用户本机，harness 命令超时兜底，检查器事后 `max_bytes` 失败。
-4. P1 的配方侧：下载与 ASR 不再有程序内期限，改为后台运行加 harness 超时（检查器侧已保留）。
-5. C4：封闭失败回执改为逐字 `FAILED`（去掉查询串，ASR 命令里的家目录写成 `~`）。隐私方向改变；`FAILED` 可能经
-   `material retain` 进入只追加的 Dolt；检查器扫描其中的签名 URL、IP、cookie 头与本机家目录路径。
+1. U1、U2 平台 URL 的其余文法限制（控制字符、长度、查询键白名单）：**放宽**。危害面由 URL 前的 `--`、引号和
+   `bash <<'SH'` 覆盖；通用页的 scheme、端口、userinfo、IP 字面量（含十六进制与尾点）与私有后缀由 `host_check.jq`
+   拦下，检查器 `public_https_host` 事后复核；`bundle` 拒绝不在 `[A-Za-z0-9_-]` 内的 ID。
+2. P2 子进程输出上限：**放宽**。检查器改为流式哈希，内存不随时长增长。
+3. R4 下载过程中的字节上限：**恢复**。下载配方加 `ulimit -f 2097152`（bash 以 KiB 计，2 GiB），内核在写入时
+   截停任何超过 2 GiB 的文件，长度未知的流和跨重试累计同样受限；本机实测分块传输的无长度流在上限处以
+   `File too large` 失败、退出 1。成本一行，恶意通用页因此写不满磁盘。检查器事后 `max_bytes` 仍保留。
+4. P1 配方侧期限：**放宽**。下载与 ASR 改为后台运行加 harness 超时；检查器侧每个子进程仍有超时。
+5. C4 封闭失败回执改为逐字 `FAILED`（去掉查询串，家目录写成 `~`）：**放宽**。原文对诊断有价值（旧服务把 5 次
+   首轮失败的原因藏在封闭回执里）；检查器扫描其中的签名 URL、IP、cookie 头与本机家目录路径。
 6. 附带说明（属 A，后果需知）：E4、C3 使环境 `HTTP(S)_PROXY` 生效；E14 允许通用页转交其他提取器；X1 使 yt-dlp
    内部默认重试 10 次；通用页下载用 `--load-info-json` 读探测结果，不再二次提取页面，但下载中的重定向与 DNS 解析
    仍不检查。
+
+同一答复也授权了复核期间对新检查的两处改动：`has_grid` 只在存在 `frames/*` 时要求网格（放宽，使分阶段检查可过），
+引文与数值改为整数 token 比较（收紧）；数值比较保留 `%`（`12%` 不等于 `12`），小数末尾的 0 归一（`506.0` 等于 `506`）。
 
 ## 5. 落点总结
 
@@ -274,6 +278,6 @@ cookie 规则；内容不选择 URL、旗标、路径或下一步；同一命令
 4. `is_file()` 跟随符号链接：媒体与包内文件都拒绝链接（L2）。
 5. 非严格 `json.loads`：已改严格（J1）。
 6. `host_check.jq` 不管 scheme、端口、userinfo、`.test/.invalid`：已补（U3）。
-7. `--max-filesize` 只看声明长度：未改，列入第 4 节（R4）。
+7. `--max-filesize` 只看声明长度：下载配方加 `ulimit -f` 补上（第 4 节 R4）。
 8. 未给 `--proxy` 时读环境代理、默认重试 10 次：属 A 的后果，列入第 4 节。
 9. 原分辨率 PNG 在 4K 录屏上可能超过 8 MiB：`no_media_or_large_file_in_bundle` 会失败，届时由用户决定（F1）。

@@ -299,13 +299,15 @@ def norm(text):
 
 
 def numbers(text):
-    """Whole numbers, normalized: Arabic decimals (a trailing % dropped), Chinese-numeral runs, English number words."""
-    return {norm(t).rstrip("%") for t in NUMBER_TOKEN.findall(unicodedata.normalize("NFKC", str(text))) if NUMERAL.search(t)}
+    """Whole numbers, normalized: Arabic decimals (trailing fractional zeros dropped, so 506.0 is 506; a % is kept,
+    so 12% is not 12), Chinese-numeral runs, English number words."""
+    tokens = (norm(t) for t in NUMBER_TOKEN.findall(unicodedata.normalize("NFKC", str(text))) if NUMERAL.search(t))
+    return {re.sub(r"^(\d+)(?:\.0+|(\.\d*?[1-9])0+)(%?)$", r"\1\2\3", t) for t in tokens}
 
 
 def quoted(quote, texts):
     """The quote lies in the joined texts without cutting a number: each of its numbers is a whole number of one
-    text, and a digit at either end never continues into a digit or separator of the same text (79.4 is not 9.4)."""
+    text, and a digit at either end never continues into a digit or separator of the same text (52.8 is not 2.8)."""
     q, parts = norm(quote), [norm(t) for t in texts]
     s, bounds = "".join(parts), {sum(map(len, parts[:k])) for k in range(len(parts) + 1)}
     cut = lambda inner, outer, at: at not in bounds and inner.isdigit() and (outer.isdigit() or outer in ".,:/")

@@ -20,7 +20,7 @@ note reads the bundle; it is never evidence and the checker does not read it.
 
 HTML when wanted, outside the bundle (embedded frames would exceed the checker's 8 MiB file limit). Source
 text copied into the note is data: the reader ignores raw HTML and YAML metadata blocks, and the filter keeps
-only bundle images, https links and the title, so neither a title like `![](~/.ssh/id_ed25519)` nor a
+only bundle images, https links and the title and strips every attribute, so neither a title like `![](~/.ssh/id_ed25519)` nor a
 `css:` line embeds a local file or fetches a URL:
 
     cd "$B" && mkdir -p "$ROOT/notes" && pandoc -f markdown-raw_html-yaml_metadata_block --lua-filter "$A/note.lua" -s --embed-resources note.md -o "$ROOT/notes/$KEY.html"

@@ -30,9 +30,9 @@ run ASR and downloads in the background and poll for that file.
 - Media: `$ROOT/sha256/<sha256>.<ext>`, one file per byte sequence, mode 0600. Bundle `$ROOT/bundles/<KEY>`,
   laid out as in `services/video-evidence/README.md` (an allowlist: nothing else may sit in it). Scratch
   `W` holds raw yt-dlp JSON, page HTML, merged files and WAV: delete it after use and before you stop.
-- Build each stage in `$B/.stage-<name>` and `mv` it into place when complete; a failed stage keeps only
-  `<stage>/FAILED` (the verbatim error line, query strings removed, and the command). Before rerunning it,
-  report that text, then `rm -rf "$B/<stage>"` (a `mv` would nest the rerun). Report stages as done,
+- Build each stage in `$B/.stage-<name>` and `mv` it into place when complete; a failed stage keeps
+  `<stage>/FAILED` (verbatim error line without query strings, plus the command) beside what it wrote. To
+  rerun, report that text, then `rm -rf "$B/<stage>"` (a `mv` would nest the rerun). Report stages as done,
   `failed: <line>` or `skipped: <reason>`; never redo a done stage or call a later failure "unavailable".
 
 ## Stages

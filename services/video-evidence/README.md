@@ -77,7 +77,7 @@ Research claims add the keys in `research-round/references/source-evidence.md`.
   row and at least 3 rows sampled from the media hash, one decode recomputes the decoded-frame hash, the
   PNG pixels (rgb24) and each crop's pixels.
 - Claims: the bundle lists media; segments exist and a quote lies in consecutive ones without cutting a
-  number (numbers compare as whole tokens: 9.4 is not in 79.4); `transcript_sha256` binds them; frames
+  number (numbers compare as whole tokens: 2.8 is not in 52.8); `transcript_sha256` binds them; frames
   are grid rows by identity; crops exist; sidecars resolve in `probe/page.json`; `explicitness` is
   consistent; cited frames and crops lie in the cited speech span ±0.5 s unless `visible_only`; a quote
   or value with a numeral (Arabic, Chinese or English words) has an in-span frame or crop, a sidecar or
