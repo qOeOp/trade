@@ -153,19 +153,71 @@ class PublicationContractTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "SELECTION_CONTRACT_MISMATCH")
             body["comparison_family"][field] = body["contract"]["selection"][field]
 
-    def test_known_exposure_cannot_be_upgraded_by_manual_run_grade(self):
+    def _independent_case(self):
+        from datetime import datetime, timezone
+        binding = {"database": "research_records", "commit": "c" * 32, "strategy_id": "s", "revision": 1,
+                   "source_sha256": "a" * 64, "entry_class": "PublishedR1Strategy", "runtime_contract": "r1-native-v2"}
         initial = attempt(pending=True)
-        initial["contract"]["selection"]["known_exposure"]["status"] = "development_exposed"
-        run = {"attempt_id": "TEST-01", "run_id": "candidate", "control_run_id": None,
-               "evidence_grade": "independent"}
-        lookup = lambda id, rev: {"body": initial}
+        initial["contract"]["selection"]["known_exposure"] = {
+            "status": "development_exposed", "run_refs": [{"id": "run:developed", "revision": 1}]}
+        initial["strategy_binding"] = binding
+        run = {"attempt_id": "TEST-01", "run_id": "confirmation", "control_run_id": None,
+               "evidence_grade": "independent", "strategy_binding": dict(binding),
+               "window": {"input_start_utc": "2026-10-01T00:00:00Z",
+                          "trade_start_utc": "2026-10-10T00:05:00+00:00"}}
+        registered = datetime(2026, 10, 10, 0, 0, 0, 840000, tzinfo=timezone.utc)
+        return run, (lambda id, rev: {"body": initial}), (lambda identity: registered)
+
+    def test_confirmation_after_a_frozen_registration_may_be_independent(self):
+        run, lookup, registered_at = self._independent_case()
+        validate_publication_contract("run", run, object_lookup=lookup, registered_at=registered_at)
+        run["window"]["trade_start_utc"] = "2026-10-10T09:05:00+09:00"
+        validate_publication_contract("run", run, object_lookup=lookup, registered_at=registered_at)
+
+    def test_independent_grade_needs_frozen_strategy_later_window_and_snapshot(self):
+        cases = {
+            "window starts at registration": lambda run: run["window"].update(trade_start_utc="2026-10-10T09:00:00+09:00"),
+            "window starts before registration": lambda run: run["window"].update(trade_start_utc="2026-10-09T00:00:00+00:00"),
+            "no window": lambda run: run.pop("window"),
+            "naive window start": lambda run: run["window"].update(trade_start_utc="2026-10-10T00:05:00"),
+            "unparseable window start": lambda run: run["window"].update(trade_start_utc="soon"),
+            "no strategy binding": lambda run: run.pop("strategy_binding"),
+            "different strategy revision": lambda run: run["strategy_binding"].update(revision=2),
+        }
+        for name, change in cases.items():
+            run, lookup, registered_at = self._independent_case()
+            change(run)
+            with self.subTest(name), self.assertRaises(RecordError) as caught:
+                validate_publication_contract("run", run, object_lookup=lookup, registered_at=registered_at)
+            self.assertEqual(caught.exception.code, "EVIDENCE_EXPOSURE_CONTRADICTION")
+            self.assertEqual(caught.exception.write_status, "not_written")
+        run, lookup, registered_at = self._independent_case()
+        for missing in ({"object_lookup": lookup}, {"registered_at": registered_at}, {}):
+            with self.subTest(missing=sorted(missing)), self.assertRaises(RecordError) as caught:
+                validate_publication_contract("run", run, **missing)
+            self.assertEqual(caught.exception.code, "EVIDENCE_EXPOSURE_CONTRADICTION")
+
+    def test_invalid_registration_refuses_but_backend_errors_propagate(self):
+        run, lookup, _ = self._independent_case()
+
+        def retrospective(identity):
+            raise RecordError("initial attempt is not a pending Dolt preregistration")
+
+        def unavailable(identity):
+            raise RecordError("Dolt SQL error", code="DOLT_SQL_ERROR")
+
         with self.assertRaises(RecordError) as caught:
-            validate_publication_contract("run", run, object_lookup=lookup)
+            validate_publication_contract("run", run, object_lookup=lookup, registered_at=retrospective)
         self.assertEqual(caught.exception.code, "EVIDENCE_EXPOSURE_CONTRADICTION")
-        initial["contract"]["selection"]["known_exposure"]["status"] = "unexposed_declared"
-        run["evidence_grade"] = "unknown"
-        validate_publication_contract("run", run, object_lookup=lookup)
-        self.assertEqual(run["evidence_grade"], "unknown")
+        with self.assertRaises(RecordError) as caught:
+            validate_publication_contract("run", run, object_lookup=lookup, registered_at=unavailable)
+        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
+
+    def test_development_grades_do_not_need_registration_time(self):
+        run, lookup, _ = self._independent_case()
+        for grade in ("development_exposed", "unknown"):
+            run["evidence_grade"] = grade
+            validate_publication_contract("run", run, object_lookup=lookup)
 
     def test_source_failure_and_inconclusive_diagnostics_can_be_published(self):
         source = {"id": "section:source", "revision": 1}

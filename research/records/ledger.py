@@ -235,6 +235,25 @@ def command(args):
     if args.at:
         raise RecordError("cannot publish to a historical read snapshot")
     body = _read_json(args.file)
-    return store.publish_record("attempt", body, operation_id=args.operation_id, expected_version=args.expected_version,
-                                provenance={"origin": "agent_publication", "input_sha256": hashlib.sha256(args.file.read_bytes()).hexdigest()},
-                                dry_run=getattr(args, "dry_run", False))
+    findings = evidence_read_findings(body)
+    result = store.publish_record("attempt", body, operation_id=args.operation_id, expected_version=args.expected_version,
+                                  provenance={"origin": "agent_publication", "input_sha256": hashlib.sha256(args.file.read_bytes()).hexdigest()},
+                                  dry_run=getattr(args, "dry_run", False))
+    return {**result, **({"read_preflight": {"report_only": True, "findings": findings}} if findings else {})}
+
+
+def evidence_read_findings(body: dict) -> list[dict]:
+    """Report evidence paths that the formal show/compare readers cannot read now."""
+    from research.records.cli import _check_ref
+    findings = []
+    for index, ref in enumerate(body.get("evidence_refs", [])):
+        try:
+            status = _check_ref(ref)
+        except RecordError as exc:
+            findings.append({"path": f"/evidence_refs/{index}", "evidence_path": ref["path"],
+                             "status": "unreadable", "message": str(exc)})
+            continue
+        if status == "unavailable":
+            findings.append({"path": f"/evidence_refs/{index}", "evidence_path": ref["path"], "status": status,
+                             "message": "no file at this path for the formal reader"})
+    return findings

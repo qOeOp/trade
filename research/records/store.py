@@ -73,6 +73,57 @@ def paired_control_relations(adapter, commit, body):
                                   from_refs=((ref["id"], ref["revision"]),), include_body=False)
 
 
+def _registration_snapshot(adapter, attempt_id, binding=None, *, at=None):
+    """Read the first API registration, independently of later conclusions."""
+    identity = "attempt:" + attempt_id
+    if binding is not None:
+        if (not isinstance(binding, dict) or set(binding) != {"id", "revision", "commit"}
+                or binding["id"] != identity or type(binding["revision"]) is not int
+                or binding["revision"] != 1):
+            raise RecordError("registration binding must identify the first attempt revision")
+        if at is not None and at != binding["commit"]:
+            raise RecordError("registration binding conflicts with the requested snapshot")
+        fixed = binding["commit"]
+    else:
+        fixed = at or adapter.status()["commit"]
+    obj = adapter.get_object(identity, revision=1, commit=fixed)
+    if obj is None:
+        raise RecordError(f"missing initial Dolt registration: {identity}")
+    validate_record("attempt", obj["body"])
+    body = obj["body"]
+    if (obj["kind"] != "attempt" or obj["id"] != identity or body["attempt_id"] != attempt_id
+            or body["registration"]["status"] != "preregistered"
+            or body["decision"]["layer"] != "pending" or body["decision"]["outcome"] != "pending"):
+        raise RecordError(f"initial attempt is not a pending Dolt preregistration: {identity}")
+    operation = obj["provenance"].get("operation_id")
+    if not isinstance(operation, str) or not operation:
+        raise RecordError(f"initial registration lacks an API publication operation: {identity}")
+    context_id = "publication:" + hashlib.sha256(operation.encode()).hexdigest()
+    context = adapter.get_object(context_id, revision=1, commit=fixed)
+    if (context is None or context["kind"] != "publication"
+            or context["body"].get("record_id") != identity
+            or context["body"].get("record_revision") != 1
+            or context["provenance"].get("operation_id") != operation):
+        raise RecordError(f"initial registration lacks its fixed publication receipt: {identity}")
+    publication = adapter.operation_receipt(operation, commit=fixed)
+    if publication is None:
+        raise RecordError(f"initial registration operation is unavailable: {identity}")
+    receipt = {"id": identity, "revision": 1, "commit": publication["commit"]}
+    if binding is not None and binding != receipt:
+        raise RecordError("registration binding differs from the first committed publication")
+    original = adapter.get_object(identity, revision=1, commit=receipt["commit"])
+    if original is None or canonical(original) != canonical(obj):
+        raise RecordError("registration receipt does not contain the initial attempt")
+    return body, receipt
+
+
+
+def registration_time(adapter, attempt_id, commit):
+    """UTC commit time of an attempt's first API registration, read at one fixed snapshot."""
+    _, receipt = _registration_snapshot(adapter, attempt_id, at=commit)
+    return adapter.commit_time(receipt["commit"])
+
+
 class _SelectedRecords:
     """Validate one fixed dependency graph without interpreting unrelated rows."""
 
@@ -150,7 +201,8 @@ class _SelectedRecords:
             if body["control_run_id"]:
                 self.dependency(obj, "compared_with", "run:" + body["control_run_id"])
             from research.records.contracts import validate_publication_contract
-            validate_publication_contract("run", body, previous=obj, object_lookup=lambda id, rev: self.load(id, rev))
+            validate_publication_contract("run", body, previous=obj, object_lookup=lambda id, rev: self.load(id, rev),
+                                          registered_at=lambda identity: registration_time(self.adapter, identity, self.commit))
             return
         for ref in body["parents"] + body.get("mechanism_refs", []):
             self.dependency(obj, ref["relationship"], "attempt:" + ref["attempt_id"], detail=ref)
@@ -305,46 +357,7 @@ class DoltRecords:
 
     def registration_snapshot(self, attempt_id, binding=None, *, at=None):
         """Read the first API registration, independently of later conclusions."""
-        identity = "attempt:" + attempt_id
-        if binding is not None:
-            if (not isinstance(binding, dict) or set(binding) != {"id", "revision", "commit"}
-                    or binding["id"] != identity or type(binding["revision"]) is not int
-                    or binding["revision"] != 1):
-                raise RecordError("registration binding must identify the first attempt revision")
-            if at is not None and at != binding["commit"]:
-                raise RecordError("registration binding conflicts with the requested snapshot")
-            fixed = binding["commit"]
-        else:
-            fixed = at or self.adapter.status()["commit"]
-        obj = self.adapter.get_object(identity, revision=1, commit=fixed)
-        if obj is None:
-            raise RecordError(f"missing initial Dolt registration: {identity}")
-        validate_record("attempt", obj["body"])
-        body = obj["body"]
-        if (obj["kind"] != "attempt" or obj["id"] != identity or body["attempt_id"] != attempt_id
-                or body["registration"]["status"] != "preregistered"
-                or body["decision"]["layer"] != "pending" or body["decision"]["outcome"] != "pending"):
-            raise RecordError(f"initial attempt is not a pending Dolt preregistration: {identity}")
-        operation = obj["provenance"].get("operation_id")
-        if not isinstance(operation, str) or not operation:
-            raise RecordError(f"initial registration lacks an API publication operation: {identity}")
-        context_id = "publication:" + hashlib.sha256(operation.encode()).hexdigest()
-        context = self.adapter.get_object(context_id, revision=1, commit=fixed)
-        if (context is None or context["kind"] != "publication"
-                or context["body"].get("record_id") != identity
-                or context["body"].get("record_revision") != 1
-                or context["provenance"].get("operation_id") != operation):
-            raise RecordError(f"initial registration lacks its fixed publication receipt: {identity}")
-        publication = self.adapter.operation_receipt(operation, commit=fixed)
-        if publication is None:
-            raise RecordError(f"initial registration operation is unavailable: {identity}")
-        receipt = {"id": identity, "revision": 1, "commit": publication["commit"]}
-        if binding is not None and binding != receipt:
-            raise RecordError("registration binding differs from the first committed publication")
-        original = self.adapter.get_object(identity, revision=1, commit=receipt["commit"])
-        if original is None or canonical(original) != canonical(obj):
-            raise RecordError("registration receipt does not contain the initial attempt")
-        return body, receipt
+        return _registration_snapshot(self.adapter, attempt_id, binding, at=at)
 
     def _fixed_attempt_dependencies(self, previous, commit):
         """Carry the registered source revisions through later decisions."""
@@ -477,7 +490,8 @@ class DoltRecords:
         fixed_relations = paired_control_relations(self.adapter, base, body)
         lookup = lambda id, revision: self.adapter.get_object(id, revision=revision, commit=base)
         if retained is None:
-            validate_publication_contract(kind, body, previous=previous, object_lookup=lookup, relations=fixed_relations)
+            validate_publication_contract(kind, body, previous=previous, object_lookup=lookup, relations=fixed_relations,
+                                          registered_at=lambda identity: registration_time(self.adapter, identity, base))
         self.validate_dependencies(kind, body, commit=base, endpoint_revisions=bindings)
         objects, related = {identity: obj, context_id: context}, []
 

@@ -65,6 +65,17 @@ class BriefProjectionTests(unittest.TestCase):
         self.assertIn("summary.positions", result["omitted_fields"])
         self.assertIn("summary.other_detail", result["omitted_fields"])
 
+    def test_attempt_brief_keeps_sealed_evidence_status_and_inspected_runs(self):
+        payload = {"attempt_id": "D09",
+                   "selection": {"family_id": "f", "primary_response": "r",
+                                 "known_exposure": {"status": "development_exposed",
+                                                    "run_refs": [{"id": "run:C11-37", "revision": 1}]}},
+                   "evidence_status": [{"path": "artifact://C11-37/manifest.json", "status": "verified"}]}
+        result = bounded_brief(payload, at="fixed", identity="D09", command="show")
+        self.assertEqual(result["selection"]["known_exposure"]["run_refs"], [{"id": "run:C11-37", "revision": 1}])
+        self.assertEqual(result["evidence_status"][0]["status"], "verified")
+        self.assertNotIn("evidence_status", result["omitted_fields"])
+
 
 if __name__ == "__main__":
     unittest.main()

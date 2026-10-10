@@ -52,3 +52,13 @@
 - 最小共享能力建议：在一次固定快照读取内复用 `(id, revision, commit)` 对象与关系查询；全库验证对 DAG 节点只验证一次，保留逐路径循环检测和固定关系歧义检查。简要读取应在展开前应用深度或预算边界，不先生成整个祖先树再截断。继续使用现有字段，避免增加持久化缓存状态。尚未实施产品改动。
 - D09 收尾复现：`RD20261010-D09@2` 固定在 `f8va2hf2e7bae13p08kfs5s8ne1sk3ud`、v132。正式 `--at <commit> validate` 首次及一次重试均报相同 `DOLT_SQL_ERROR / Errno 49`，重试退出码为 2；全库校验尚未确认。决定及七份证据已经固定读回，错误后再次读取 D09 正常，台账 v132 干净，原生数据库备份及四套 seal 备份核验完成。这不证明祖先展开就是连接错误的唯一原因，也不把单条读回当全库通过。
 - 本次迭代成本与证据：两次未完成的全库读取，未重复发表决定或运行策略。证据保管在外部配方根 `research-recipes/20261010-native-economics-diagnostic/post-publication-validation.json`，SHA-256 `06745666e186975fc63347771dbc6eb2c6af56660a13a98ff4be588115bc076f`；用配置中的配方根定位，不绑定用户主目录。沿用上述最小共享能力建议，保持正式校验规则和风险拒绝边界。
+
+## 修复状态（2026-10-10）
+
+按用户"能用 Agent 就不硬编码"的原则，以下只修现有读写路径的缺陷，不新增规则或字段：
+
+- RDP01：`publish attempt`（含 `--dry-run`）对 `show`/`compare` 读不了的 `evidence_refs` 路径返回 `read_preflight`。第一版只报告；用户已同意确认不误拒后再改为写入时拒绝。
+- RDP02：简要视图保留 `evidence_status` 与 `selection.known_exposure.run_refs`。B00 的简要视图同时显示资料归档状态 `declared/no_fixed_archive_for_path` 和封存核验结果 `verified`。
+- RDP03：已由 #1490 的 `compare --analysis` 解决。
+- RDP05：`artifacts register` 新增 `--dry-run`；候选带对照时返回 `pair_preflight`，复用 `compare` 的同一组记录检查（抽成 `_check_pair_records`）。用 C09 当时的成本说明做 dry-run，写入前即报出 `/cost_model` 冲突与双方原文。第一版只报告。
+- RDP06：`_dolt_lineage` 在一次读取内只读每个固定祖先一次，`validate` 跨根共享。固定 v132 上 `show RD20261010-D09 --brief` 的连接数从 5,164 降到 402、耗时从 5.8 秒降到 1.3 秒，输出逐字节不变；`--at f8va2hf2e7bae13p08kfs5s8ne1sk3ud validate` 通过（27 attempts、27 runs，214 条连接，2.6 秒），此前两次因 `Errno 49` 失败。

@@ -53,6 +53,7 @@ LIST_FIELDS = {
     "runs", "candidate_runs", "control_runs", "run_ids", "mechanism_sources", "lineage",
     "fields", "boundaries", "retained_research_decisions", "limitations", "findings", "integrity_findings",
     "decision_file_refs", "matches", "match_reasons", "next_actions", "coins",
+    "evidence_status", "run_refs",
 }
 
 

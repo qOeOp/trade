@@ -244,6 +244,25 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         self.assertEqual(retained, original)
         self.assertEqual(retained_binding, binding)
 
+    def test_registration_time_is_the_native_commit_in_utc(self):
+        from datetime import datetime, timedelta, timezone
+        from research.records.store import registration_time
+        commit = self.prereg_binding["commit"]
+        registered = registration_time(self.store.adapter, self.prereg_id, commit)
+        self.assertEqual(registered.utcoffset(), timedelta(0))
+        self.assertLess(abs(datetime.now(timezone.utc) - registered), timedelta(minutes=10))
+
+    def test_failed_seal_cannot_be_registered_as_independent(self):
+        _, binding = artifacts._attempt_snapshot(self.prereg_id)
+        root, run_id = self._failed_seal(binding)
+        before = self.store.adapter.status()
+        with self.assertRaises(RecordError) as caught:
+            artifacts.register(root=root, run_id=run_id, role="diagnostic",
+                               cost_model="Synthetic record-binding registration fixture; no native replay or economics.",
+                               control_run_id=None, evidence_grade="independent")
+        self.assertEqual(caught.exception.code, "EVIDENCE_EXPOSURE_CONTRADICTION")
+        self.assertEqual(self.store.adapter.status(), before)
+
     def test_seal_registration_freezes_attempt_revision_and_retries_persistently(self):
         before_git = self._git_run_bytes()
         _, binding = artifacts._attempt_snapshot(self.prereg_id)
