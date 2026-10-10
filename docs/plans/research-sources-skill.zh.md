@@ -1,6 +1,7 @@
 # 研究来源检索：用一个 skill 统一，不建服务
 
-状态：已决定，随 `research-sources` skill 落地。日期 2026-10-10。
+状态：已决定，随 `research-sources` skill 落地；同日按质量评测精简为 5 个源（见"质量评测与精简"，
+它取代"接入范围"里的收录清单）。日期 2026-10-10。
 
 问题：论文检索（OpenAlex、Semantic Scholar、arXiv、CORE）和其他研究来源（FRED、Kaggle、Stack Exchange）
 能否统一成一个服务、能否拆成 skill；前提是先确认开源社区没有已经做得更好的现成项目。
@@ -10,6 +11,7 @@
 1. **统一入口是一个 skill，不是服务。** `.agents/skills/research-sources/`：SKILL.md 放路由表、
    检索与阅读规则，两份按需参考（`papers.md`、`data.md`）放各 API 的端点、限额和已知故障。
    Agent 用 `curl` + `jq` 直接调官方 API。零新增产品代码，也不引入第三方 MCP。
+   现行来源：论文用 OpenAlex、Crossref、Semantic Scholar；数据用 FRED/ALFRED、CFTC 持仓报告。
 2. **没有现成项目明显更好。** 唯一真正跨源统一的 openags/paper-search-mcp 有硬伤（见下表）；
    其余要么只覆盖单一来源，要么是不同问题（对本地 PDF 问答）。可借鉴的设计已吸收进 skill。
 3. **按"代码或 Agent"三条准则审过：**
@@ -77,7 +79,7 @@ SSRN 无公开 API 且条款禁止自动抓取，RePEc/IDEAS API 需邮件申请
 暂不加 `claude plugin eval` 用例：试用已覆盖本轮规则；若某条规则在后续使用中反复不被遵守，再按
 `research-round` 的做法补回归用例。
 
-## 接入范围（用户 10-10 定）
+## 接入范围（用户 10-10 定；收录清单已被"质量评测与精简"取代）
 
 - **第一档，免 key，已接入：** Crossref（DOI 元数据、`relation` 版本关系）、OpenCitations（S2 限流时的引用关系）、
   NBER 元数据 TSV（工作论文及其正式发表去向）、EconBiz（含 RePEc 记录）、Zenodo（复现包与数据集）、
@@ -116,6 +118,52 @@ SSRN 无公开 API 且条款禁止自动抓取，RePEc/IDEAS API 需邮件申请
 SOFR 次一工作日约 08:00 ET 发布、14:30 ET 前可修订；EDGAR 以 `acceptanceDateTime` 为公开时点。
 实测中的坑：CFTC 合约代码会在交易所之间迁移（同一代码先属 LMX 后属 Coinbase）；TGA 余额只在
 `open_today_bal` 列；EDGAR 不带联系 User-Agent 返回 403。
+
+## 质量评测与精简（用户 10-10 定）
+
+用户指出数据源不是越多越好，要求测一轮质量。方法：
+
+- 13 个本项目相关的主题查询（资金费率、永续定价、订单流不平衡、加密动量与因子、回测过拟合、
+  Deflated Sharpe、趋势跟踪、跨所套利、清算、做市、稳定币、动量崩溃），每源取前 10 条，按标题去重后
+  592 条；三个子 Agent 在不知来源的情况下按 0/1/2 判相关度（单一 LLM 评判，未做评判一致性检验）。
+- 15 篇公认论文作标准集：各源能否找到、有无摘要、给出的 PDF 链接能否真的下载（读前 1 KB 判 `%PDF`）。
+- 数据源逐个核对与 FRED 的重复度、序列连续性、来源可信度。
+
+论文源结果（"独有"指只有该源在前 10 中给出的相关条目，反映排序互补，不等于独家收录）：
+
+| 源 | 前10相关率 | 高相关条数 | 独有高相关 | 标准集前10召回 | 标准集找到 | 摘要 | 可靠性 |
+|---|---|---|---|---|---|---|---|
+| OpenAlex | 0.88 | 88 | 29 | 8/21 | 15/15 | 14/15 | 0.5 s，无错误 |
+| Crossref | 0.84 | 74 | 32 | 5/21 | 14/15 | 11/15 | 0.8 s，无错误 |
+| Semantic Scholar | 0.89 | 64 | 26 | 5/21 | 15/15 | 9/15 | 8 次 429，1/13 失败，均 11 s |
+| EconBiz | 0.80 | 56 | 20 | 6/21 | 15/15 | 无 | 加密主题 0/9、0/1、0/4 |
+| CORE | 0.68 | 45 | 15 | 5/21 | 11/15 | — | 全文 4/15 |
+| arXiv | 0.80 | 17 | 5 | 2/21 | 3/15 | — | 5/13 查询零结果 |
+| Zenodo | 0.12 | 5 | — | — | — | — | 多为垃圾或无关 |
+| Stack Exchange | 0.69 | 3 | — | — | — | — | 13 查询共 36 条，4 个零结果 |
+
+其他发现：
+
+- PDF 链接实测可下载：OpenAlex 7/11、Semantic Scholar 4/11、Unpaywall 4/10、arXiv 2/2、CORE 0/7；
+  Unpaywall 从未是唯一能下载的来源。15 篇里只有 7 篇有任何可下载 PDF。
+- 引用数：OpenCitations 系统性偏低（如 4 对 OpenAlex 25、0 对 5、43 对 104）；OpenAlex 的 `cites:`
+  过滤可替代。Semantic Scholar 的标题匹配有 2/15 落到错误版本（引用数 16、7）。
+- Crossref `relation` 版本关系在标准集上 0/15。NBER 版本在 OpenAlex 中全部可查，NBER 元数据文件的
+  DOI 列基本为空。
+- arXiv 新预印本进入 OpenAlex 的滞后：发布 4 天以上的全部已收录，最近 2–3 天约一半未收录。
+- 纽约联储 SOFR 与 FRED `SOFR` 逐日相同；逆回购余额从 2022 年峰值 2.55 万亿降到 3 亿，当前无信号，
+  FRED 有 `RRPONTSYD`。TGA 在 FRED 有周度 `WTREGEN`。
+- CFTC：CME 比特币 2023 年以来 197 周连续，仅节假日顺延；Coinbase 永续式合约 64 周历史，
+  持仓约 1,600 BTC，对比 CME 约 10.7 万 BTC。
+- EDGAR 只有季度公告、无资金流；Kaggle 加密数据多为 Binance 公开数据的个人转载，来源与许可证不明；
+  Academic Torrents 无加密行情数据。
+
+**决定：** 只保留 OpenAlex（主索引）、Crossref（第二排序源，Crossref 的 SSRN 摘要常补 OpenAlex 的缺）、
+Semantic Scholar（片段检索、相似论文、版本关联；限流时记为未检索）、FRED/ALFRED（宏观与流动性，替代
+纽约联储与财政部）、CFTC 持仓报告。移除 CORE、EconBiz、arXiv API（arXiv PDF 链接仍可用）、Zenodo、
+OpenCitations、Unpaywall、NBER 元数据文件、Crossref `relation` 用法、纽约联储、财政部 TGA、SEC EDGAR、
+Kaggle、Academic Torrents、Stack Exchange。skill 现在只用 `OPENALEX_API_KEY`、`SEMANTIC_SCHOLAR_API_KEY`、
+`FRED_API_KEY` 和只发给 Crossref 的 `RESEARCH_CONTACT_EMAIL`；`.env` 里其他研究 key 不再被 skill 使用。
 
 ## 安全
 
