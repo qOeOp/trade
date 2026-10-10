@@ -18,10 +18,12 @@ account. The published `nautilus_trader==2.0.0rc3` package owns data replay,
 orders, fills, funding settlement, risk, portfolio accounting and reports.
 No exchange trading credential is needed.
 
-For a registered experiment, follow the [source, preregistration and artifact
-guide](../../research/records/README.md). Its existing custody command exports
-a fixed Dolt source revision, executes this runner and the auditor in the same
-digest-pinned OCI image, and seals the result outside Git and `/tmp`.
+For a registered experiment, follow the [`research-round`
+skill](../../.agents/skills/research-round/SKILL.md) and its
+[seal reference](../../.agents/skills/research-round/references/seal.md). Its
+custody command exports a fixed Dolt source revision, executes this runner and
+the auditor in the same digest-pinned OCI image, and seals the result outside
+Git and `/tmp`.
 A direct host run below is a temporary diagnostic and uses the host environment.
 
 `--start`, `--end` and `--trade-start` require an explicit `Z` or UTC offset.
@@ -70,10 +72,13 @@ For another source or revision, export its binding and use its entry class and
 hash. `validate_replay_configuration` checks the source's signal, exit, warmup
 and sizing contract. `replay_diagnostics` supplies source-specific counters,
 while `replay_integrity_findings` supplies source-specific failure findings;
-the runner also rejects native denied/rejected orders. Use `--daily-warmup`
-only for a source requiring historical daily bars. H19a's source requires 25-bp
-total stop risk, a 5% coin notional cap and no daily warmup. Current runtime code
-imports no product strategy or historical variant module.
+the runner also rejects native denied/rejected orders. The full source
+contract is in the
+[strategy-authoring reference](../../.agents/skills/research-round/references/strategy-authoring.md).
+Use `--daily-warmup` only for a source requiring historical daily bars. H19a's
+source requires 25-bp total stop risk, a 5% coin notional cap and no daily
+warmup. Current runtime code imports no product strategy or historical variant
+module.
 
 The archived ledger retains the initial H19a `r1.broad-two-tier@1` source, with entry class
 `R1Strategy`, `r1-native-v1` and SHA-256
@@ -145,8 +150,8 @@ claiming those properties.
 D105 sealed the migration checks for five representative native pairs: H19a,
 H18a, R-1u, H04 staged exits and H29a. The full 37-instrument H19a pair also
 passed. This accepts those sampled implementation paths, not native parity for
-all 26 demo identities. The framework suite passed 199 tests, including real
-isolated Dolt integration. Strategy economics and qualification are unchanged.
+all 26 demo identities. At `537b74cbc` (#1488) the framework suite passed
+199 tests, including real isolated Dolt integration. Strategy economics and qualification are unchanged.
 
 Receipts in `receipts/` retain their original bytes and source identities.
 The `parity_receipts` paths in `receipts/evidence.json` are historical locators;

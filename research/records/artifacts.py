@@ -14,10 +14,9 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 import uuid
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from research.records.common import ROOT
 from research.records.common import RecordError
@@ -48,19 +47,6 @@ SOURCE_DIGEST_FILES = {
     "tiered_strategy_source_sha256": "tiered_retracement_strategy.py",
     "broad_swing_signal_source_sha256": "broad_swing_signal.py",
     "runner_source_sha256": "run_portfolio.py",
-}
-LEGACY_RUNNER = "strategies/r1/run_portfolio.py"
-LEGACY_AUDIT = "strategies/r1/audit_tiered_native.py"
-MODULE_RUNNER = "backtest/r1/run_portfolio.py"
-MODULE_AUDIT = "backtest/r1/checks/audit_tiered_native.py"
-MODULE_DIGEST_FILES = {
-    **{field: f"research/r1_variants/{name}" for field, name in SOURCE_DIGEST_FILES.items()
-       if field not in {"strategy_source_sha256", "runner_source_sha256"}},
-    **{f"{name}_strategy_source_sha256": f"research/r1_variants/{name}_strategy.py"
-       for name in ("brooks_confirmed", "failed_range_breakout", "gap_runner", "structural_support")},
-    **{f"{name}_source_sha256": f"backtest/r1/{name}.py"
-       for name in ("native_node", "node_strategy", "replay_inputs", "replay_util", "stop_entry")},
-    "runner_source_sha256": MODULE_RUNNER,
 }
 
 
@@ -190,138 +176,15 @@ def create_input_identity(
     return {"path": str(output), "sha256": _sha(output), "coins": len(rows)}
 
 
-def _git(*args: str) -> bytes:
-    result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, check=False)
-    if result.returncode:
-        raise ArtifactError(f"git {args[0]} failed: {result.stderr.decode().strip()}")
-    return result.stdout
-
-
-def _safe_source_path(value: str) -> str:
-    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_./-]+", value):
-        raise ArtifactError(f"unsafe frozen source path: {value!r}")
-    path = PurePosixPath(value)
-    if path.is_absolute() or any(part in {".", ".."} for part in path.parts) or path.as_posix() != value:
-        raise ArtifactError(f"unsafe frozen source path: {value!r}")
-    return value
-
-
-def _source_layout(paths: set[str]) -> str:
-    legacy = LEGACY_RUNNER in paths
-    module = MODULE_RUNNER in paths
-    if legacy and module:
-        raise ArtifactError("frozen source contains conflicting native R1 layouts")
-    if module:
-        if "strategies/r1.py" not in paths:
-            raise ArtifactError("module R1 layout has no standalone strategy source")
-        return "module"
-    if legacy:
-        return "legacy"
-    raise ArtifactError("source commit has no native R1 runner")
-
-
-def _snapshot_source(ref: str, stage: Path) -> str:
-    """Capture the known R1 source layout and dependency pins from one commit."""
-    commit = _git("rev-parse", "--verify", f"{ref}^{{commit}}").decode().strip()
-    entries = {}
-    for record in _git("ls-tree", "-r", "-z", commit).split(b"\0"):
-        if record:
-            metadata, name = record.decode().split("\t", 1)
-            entries[name] = metadata.split()[0]
-    layout = _source_layout(set(entries))
-    roots = ("backtest/r1/", "research/r1_variants/") if layout == "module" else ("strategies/r1/",)
-    paths = set()
-    for root in roots:
-        found = {name for name in entries if name.startswith(root) and name.endswith(".py")}
-        if not found:
-            raise ArtifactError(f"source commit has no R1 Python source root: {root}")
-        paths.update(found)
-    if layout == "module":
-        paths.add("strategies/r1.py")
-        if MODULE_AUDIT not in entries:
-            raise ArtifactError("module R1 layout has no native audit source")
-        paths.update(name for name in ("backtest/__init__.py", "research/__init__.py", "strategies/__init__.py")
-                     if name in entries)
-    paths.update(("pyproject.toml", "uv.lock"))
-    for name in sorted(paths):
-        _safe_source_path(name)
-        if entries.get(name) not in {"100644", "100755"}:
-            raise ArtifactError(f"frozen source is not a regular Git file: {name}")
-        target = stage / "source" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(_git("show", f"{commit}:{name}"))
-    return commit
-
-
-def _source_command(source: Path, *, audit: bool = False) -> list[str]:
-    paths = {path.relative_to(source).as_posix() for path in source.rglob("*.py")}
-    if _source_layout(paths) == "module":
-        module = "backtest.r1.checks.audit_tiered_native" if audit else "backtest.r1.run_portfolio"
-        return [sys.executable, "-m", module]
-    return [sys.executable, str(source / (LEGACY_AUDIT if audit else LEGACY_RUNNER))]
-
-
-def _absolute_runner_args(argv: list[str]) -> list[str]:
-    """Retain input locations when executing from the frozen source directory."""
-    options = {"--catalog-root", "--daily-root", "--quantity-csv", "--mark-root"}
-    result = list(argv)
-    for index, value in enumerate(argv):
-        if value in options and index + 1 < len(argv):
-            result[index + 1] = str(Path(argv[index + 1]).resolve())
-        elif value.split("=", 1)[0] in options and "=" in value:
-            option, path = value.split("=", 1)
-            result[index] = option + "=" + str(Path(path).resolve())
-    return result
-
-
-def _summary_source_files(
-    stage: Path, summary: dict | None, runner_args: list[str] | None = None,
-) -> dict[str, str]:
-    source = stage / "source"
+def _summary_source_files(stage: Path, summary: dict | None) -> dict[str, str]:
+    """Map a schema v1 seal's digests to the `strategies/r1/` files it froze from Git."""
+    source = stage / "source" / "strategies" / "r1"
     if summary is None:
-        if (source / MODULE_RUNNER).is_file():
-            # A failure before summary still has a frozen source identity.
-            # Record captured modules; no claim about executed rules is made.
-            paths = {path.relative_to(source).as_posix() for path in source.rglob("*.py")}
-            _source_layout(paths)
-            if runner_args is None:
-                raise ArtifactError("failed module R1 seal has no frozen runner arguments")
-            parser = argparse.ArgumentParser(add_help=False)
-            parser.add_argument("--signal-variant", default="daily-pivot")
-            requested, _ = parser.parse_known_args(runner_args)
-            strategy = "strategies/r1.py" if requested.signal_variant == "support-broad-two-tier-4h" else "research/r1_variants/strategy.py"
-            if strategy not in paths:
-                raise ArtifactError(f"failed module R1 seal has no requested strategy source: {strategy}")
-            files = {"strategy_source_sha256": strategy, **MODULE_DIGEST_FILES}
-            return {field: name for field, name in files.items() if name in paths}
-        # Preserve partial failed legacy seals used by historical registration.
+        # A failed legacy seal without a summary still has frozen source bytes.
         return {field: f"strategies/r1/{name}" for field, name in SOURCE_DIGEST_FILES.items()
-                if (source / "strategies" / "r1" / name).is_file()}
-    if "source_file_paths" not in summary:
-        if (source / MODULE_RUNNER).is_file() or (source / "strategies/r1.py").is_file():
-            raise ArtifactError("module R1 summary has no source_file_paths")
-        return {field: f"strategies/r1/{name}" for field, name in SOURCE_DIGEST_FILES.items()
-                if summary.get(field) is not None}
-    paths = {path.relative_to(source).as_posix() for path in source.rglob("*.py")}
-    if _source_layout(paths) != "module":
-        raise ArtifactError("source_file_paths disagrees with frozen source layout")
-    files = summary["source_file_paths"]
-    fields = {field for field, value in summary.items()
-              if field.endswith("_source_sha256") and value is not None}
-    if not isinstance(files, dict) or set(files) != fields:
-        raise ArtifactError("source_file_paths must name every non-null source digest exactly once")
-    if not {"strategy_source_sha256", "runner_source_sha256"}.issubset(fields):
-        raise ArtifactError("module R1 summary has no strategy or runner source digest")
-    if files.get("runner_source_sha256") != MODULE_RUNNER:
-        raise ArtifactError("source_file_paths differs from frozen native runner")
-    for field, name in files.items():
-        name = _safe_source_path(name)
-        if name not in paths or not (name == "strategies/r1.py" or name.startswith(("backtest/r1/", "research/r1_variants/"))):
-            raise ArtifactError(f"source_file_paths has no frozen R1 Python source: {field}: {name}")
-        allowed = {"strategies/r1.py", "research/r1_variants/strategy.py"} if field == "strategy_source_sha256" else {MODULE_DIGEST_FILES.get(field)}
-        if name not in allowed:
-            raise ArtifactError(f"source_file_paths disagrees with digest field: {field}: {name}")
-    return dict(files)
+                if (source / name).is_file()}
+    return {field: f"strategies/r1/{name}" for field, name in SOURCE_DIGEST_FILES.items()
+            if summary.get(field) is not None}
 
 
 def _check_source_summary(stage: Path, summary: dict) -> None:
@@ -461,36 +324,24 @@ def _attempt_snapshot(attempt_id: str, binding=None):
         raise ArtifactError(str(exc)) from exc
 
 
-def _attempt(attempt_id: str) -> dict:
-    return _attempt_snapshot(attempt_id)[0]
-
-
 def run(
     *,
     root: Path,
     run_id: str,
     attempt_id: str,
-    source_ref: str | None = None,
-    strategy_id: str | None = None,
-    strategy_revision: int | None = None,
-    source_at: str | None = None,
-    runtime: Path | None = None,
+    strategy_id: str,
+    strategy_revision: int,
+    source_at: str,
+    runtime: Path,
     input_identity: Path,
     runner_argv: list[str],
 ) -> dict:
     if not RUN_ID.fullmatch(run_id):
         raise ArtifactError("run ID must use letters, digits and hyphens")
-    modern = strategy_id is not None
-    if bool(source_ref) == modern:
-        raise ArtifactError("choose exactly one Git source_ref or Dolt strategy_id")
-    if modern and (strategy_revision is None or source_at is None or runtime is None):
-        raise ArtifactError("Dolt strategy run requires strategy_revision, source_at and runtime")
-    if not modern and any(value is not None for value in (strategy_revision, source_at, runtime)):
-        raise ArtifactError("Git source_ref cannot be combined with Dolt or OCI arguments")
     attempt, record_binding = _attempt_snapshot(attempt_id)
     replay = _runner_inputs(runner_argv)
-    prepared = _dolt_source(strategy_id, strategy_revision, source_at, runtime, runner_argv, replay) if modern else None
-    if modern and attempt.get("strategy_binding") != prepared[0]:
+    prepared = _dolt_source(strategy_id, strategy_revision, source_at, runtime, runner_argv, replay)
+    if attempt.get("strategy_binding") != prepared[0]:
         raise ArtifactError("preregistered attempt does not bind the requested frozen strategy")
     identity = _read_json(input_identity)
     identity_digest = _sha(input_identity)
@@ -512,37 +363,29 @@ def run(
     stage = staging / f"{run_id}-{uuid.uuid4().hex}"
     stage.mkdir(mode=0o700)
     try:
-        if modern:
-            from research.records.runtime import container_command
-            strategy_binding, source_bytes, runtime_identity, runtime_inspection, effective_args, mounts = prepared
-            frozen_source = stage / "source"
-            frozen_source.mkdir()
-            (frozen_source / "strategy.py").write_bytes(source_bytes)
-            if _sha(frozen_source / "strategy.py") != strategy_binding["source_sha256"]:
-                raise ArtifactError("resolved strategy bytes differ from Dolt binding")
-            _write_json(frozen_source / "binding.json", strategy_binding)
-            effective_config = runtime_inspection["effective_config"]
-            execution = {"runtime_identity": runtime_identity, "effective_config": effective_config,
-                         "effective_config_sha256": _config_sha(effective_config)}
-            _write_json(frozen_source / "execution.json", execution)
-            _write_json(stage / "runtime-inspection.json", runtime_inspection)
-        else:
-            commit = _snapshot_source(source_ref, stage)
+        from research.records.runtime import container_command
+        strategy_binding, source_bytes, runtime_identity, runtime_inspection, effective_args, mounts = prepared
+        frozen_source = stage / "source"
+        frozen_source.mkdir()
+        (frozen_source / "strategy.py").write_bytes(source_bytes)
+        if _sha(frozen_source / "strategy.py") != strategy_binding["source_sha256"]:
+            raise ArtifactError("resolved strategy bytes differ from Dolt binding")
+        _write_json(frozen_source / "binding.json", strategy_binding)
+        effective_config = runtime_inspection["effective_config"]
+        execution = {"runtime_identity": runtime_identity, "effective_config": effective_config,
+                     "effective_config_sha256": _config_sha(effective_config)}
+        _write_json(frozen_source / "execution.json", execution)
+        _write_json(stage / "runtime-inspection.json", runtime_inspection)
         shutil.copyfile(input_identity, stage / "input-identity.json")
         if _sha(stage / "input-identity.json") != identity_digest:
             raise ArtifactError("input identity changed during source capture")
         (stage / "reports").mkdir()
-        frozen_source = stage / "source"
-        if modern:
-            mounts += [(frozen_source, "/strategy", True), (stage / "reports", "/reports", False)]
-            native_command = container_command(runtime_identity, mounts, "backtest.r1.run_portfolio", [
-                *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", strategy_binding["entry_class"],
-                "--strategy-sha256", strategy_binding["source_sha256"], "--strategy-binding", "/strategy/binding.json",
-                "--execution-binding", "/strategy/execution.json", "--output", "/reports",
-            ])
-        else:
-            native_command = [*_source_command(frozen_source), *_absolute_runner_args(runner_argv),
-                              "--output", str(stage / "reports")]
+        mounts += [(frozen_source, "/strategy", True), (stage / "reports", "/reports", False)]
+        native_command = container_command(runtime_identity, mounts, "backtest.r1.run_portfolio", [
+            *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", strategy_binding["entry_class"],
+            "--strategy-sha256", strategy_binding["source_sha256"], "--strategy-binding", "/strategy/binding.json",
+            "--execution-binding", "/strategy/execution.json", "--output", "/reports",
+        ])
         with (
             (stage / "native.stdout.txt").open("wb") as out,
             (stage / "native.stderr.txt").open("wb") as err,
@@ -553,16 +396,10 @@ def run(
                 err.write(str(exc).encode())
                 native = subprocess.CompletedProcess(native_command, 127)
         audit_exit = None
-        if (modern or replay.signal_variant.startswith(
-            ("support-three-tier", "support-deep-two-tier", "support-broad-two-tier")
-        )) and all((stage / "reports" / name).is_file() for name in REPORTS):
-            if modern:
-                audit_command = container_command(runtime_identity, mounts, "backtest.r1.checks.audit_tiered_native", [
-                    "--run", "/reports", "--catalog-root", "/inputs/catalog", "--output", "/reports/audit.json",
-                ])
-            else:
-                audit_command = [*_source_command(frozen_source, audit=True), "--run", str(stage / "reports"),
-                                 "--catalog-root", str(replay.catalog_root.resolve()), "--output", str(stage / "reports" / "audit.json")]
+        if all((stage / "reports" / name).is_file() for name in REPORTS):
+            audit_command = container_command(runtime_identity, mounts, "backtest.r1.checks.audit_tiered_native", [
+                "--run", "/reports", "--catalog-root", "/inputs/catalog", "--output", "/reports/audit.json",
+            ])
             with (
                 (stage / "audit.stdout.txt").open("wb") as out,
                 (stage / "audit.stderr.txt").open("wb") as err,
@@ -611,28 +448,27 @@ def run(
         else:
             problems.append("independent native audit report missing")
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": run_id,
             "attempt_id": attempt_id,
             "record_binding": record_binding,
             "status": "passed" if not problems else "failed",
             "problems": problems,
-            "nautilus_version": runtime_inspection["nautilus_version"] if modern else importlib.metadata.version("nautilus_trader"),
-            "python_version": runtime_inspection["python_version"] if modern else sys.version.split()[0],
-            "dependency_lock_sha256": runtime_inspection["dependency_lock_sha256"] if modern else _sha(stage / "source" / "uv.lock"),
+            "nautilus_version": runtime_inspection["nautilus_version"],
+            "python_version": runtime_inspection["python_version"],
+            "dependency_lock_sha256": runtime_inspection["dependency_lock_sha256"],
             "input_identity_sha256": _sha(stage / "input-identity.json"),
             "input_catalogs_checked": checked_before,
             "runner_args": runner_argv,
             "native_exit_code": native.returncode,
             "audit_exit_code": audit_exit,
             "files": _files(stage),
+            "strategy_binding": strategy_binding,
+            "runtime_identity": runtime_identity,
+            "effective_runner_args": effective_args,
+            "effective_config": effective_config,
+            "effective_config_sha256": execution["effective_config_sha256"],
         }
-        if modern:
-            manifest.update(schema_version=2, strategy_binding=strategy_binding, runtime_identity=runtime_identity,
-                            effective_runner_args=effective_args, effective_config=effective_config,
-                            effective_config_sha256=execution["effective_config_sha256"])
-        else:
-            manifest["source_commit"] = commit
         _write_json(stage / "manifest.json", manifest)
         _private_tree(stage)
         _sync_tree(stage)
@@ -814,7 +650,7 @@ def register(
     summary_path = archive / "reports" / "summary.json"
     summary = _read_json(summary_path) if summary_path.is_file() else None
     modern = manifest["schema_version"] == 2
-    files = {} if modern else _summary_source_files(archive, summary, manifest.get("runner_args"))
+    files = {} if modern else _summary_source_files(archive, summary)
     record = {
         "schema_version": 1,
         "run_id": run_id,
@@ -910,17 +746,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     replay = commands.add_parser(
-        "run", help="execute frozen R1 source and seal evidence"
+        "run", help="execute a fixed Dolt strategy revision in the pinned OCI image and seal evidence"
     )
     replay.add_argument("--root", type=Path, required=True)
     replay.add_argument("--run-id", required=True)
     replay.add_argument("--attempt-id", required=True)
-    source = replay.add_mutually_exclusive_group(required=True)
-    source.add_argument("--source-ref", help="explicit historical frozen Git source reader")
-    source.add_argument("--strategy-id", help="published Dolt strategy identity")
-    replay.add_argument("--strategy-revision", type=int)
-    replay.add_argument("--source-at", help="exact Dolt commit containing the source revision")
-    replay.add_argument("--runtime", type=Path, help="immutable OCI runtime identity JSON")
+    replay.add_argument("--strategy-id", required=True, help="published Dolt strategy identity")
+    replay.add_argument("--strategy-revision", type=int, required=True)
+    replay.add_argument("--source-at", required=True, help="exact Dolt commit containing the source revision")
+    replay.add_argument("--runtime", type=Path, required=True, help="immutable OCI runtime identity JSON")
     replay.add_argument("--input-identity", type=Path, required=True)
     replay.add_argument("runner_args", nargs=argparse.REMAINDER)
     check = commands.add_parser("verify", help="rehash one sealed run")
@@ -972,7 +806,6 @@ def main() -> int:
                 root=args.root,
                 run_id=args.run_id,
                 attempt_id=args.attempt_id,
-                source_ref=args.source_ref,
                 strategy_id=args.strategy_id,
                 strategy_revision=args.strategy_revision,
                 source_at=args.source_at,

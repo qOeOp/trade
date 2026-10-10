@@ -80,6 +80,8 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
 | 低 ROI 的 CI | `quality.yml` 回执步骤只断言冻结字面量。删除时要保留 `assert not Path('strategies')` 和 `research/r1_variants` 这两条，它们是"策略正文不进 Git"唯一的 CI 守卫 |
 | md 侧 | `research/records/README.md` 716 行：约 85 行是归档台账历史，约 250–300 行与 skill、蓝图或代码拒绝重复，其余操作说明应拆成 skill 的按需参考。策略文件 API 分散在 5 份文档里（删除 `backtest/r1/AGENTS.md` 前是 6 份），缺一份 strategy-authoring 参考。这些 API 包括 `PublishedR1Strategy`、`r1-native-v2`、三个 hook、标量配置、`daily_warmup`，以及 rc3 止盈先于止损激活 |
 
+状态（2026-10-10）：已删除 `checks/compare.py`、`checks/compare_factorial.py`、`checks/readback_native_economics.py`。三者不在镜像里；代码、测试、CI、外部配方和 Dolt 记录都不引用。后两者对 v2 seal 抛 KeyError；`compare.py` 能读 v2，但没有调用者，已被 `compare_node.py` 取代。它们生成的结论固定在 `44e2293` 归档和 `backtest/r1/receipts/` 里，输入是 `/tmp` 临时报告，不需要重跑；字节保留在 `3b3b4876b`。CI 回执步骤已删，两条守卫改为 `tests/test_repository_layout.py`。`artifacts run --source-ref` 及 v1 module 布局处理已删；5 个 v1 seal（均为 `strategies/r1/` 布局、均无 `record_binding`）仍可 verify、report、backup、restore。
+
 ## 五、顺带发现的缺陷与陈旧陈述
 
 - **信任边界缺陷（准则 b）。** `audit_tiered_native.py:330-331`：当 `signal_variant` 属于 `TIER_RATIOS` 时，tier 审计会**替代**通用对账，而不是在其后追加。
@@ -88,16 +90,16 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
   - 与文档矛盾：模块 docstring 和两份 README 都说是"追加"，`test_native_audit.py:199-205` 却把替代行为锁死了。选哪条审计路径，由策略自己声明的标签决定。
   - 受影响的 seal：当前 artifact 根目录里的 `RD20261010-B00-37`（passed）；D103-OCI-37/PILOT、D105-01-DEMO/-37、D105-02-DEMO 和两个 CUSTODY-F01 验收 seal。
   - 修复要构建新镜像，并做一次工程配对重放。这属于收紧审计，按新 AGENTS.md 需要用户授权。
-  - 状态（2026-10-10）：用户已授权并完成修复，记为产品发现 RDP08。分支 `claude/fix-tier-audit-reconciliation`，镜像 `sha256:b6b94ccc…`；只读预检显示通用对账在 8 个受影响 seal 上全部通过；新镜像对 C11-P02、C11-37、B00-37 的工程重放与原 seal 一致，B00-37 现在产出 `native_economics`。
+  - 状态（2026-10-10）：用户已授权，修复已合并（#1494），记为产品发现 RDP08。镜像 `sha256:b6b94ccc…`；只读预检显示通用对账在 8 个受影响 seal 上全部通过；新镜像对 C11-P02、C11-37、B00-37 的工程重放与原 seal 一致，B00-37 现在产出 `native_economics`。
 - **schema 漂移。** `strategy_binding` 有三份定义，只有 attempt 那份不同：database 和 strategy_id 缺 pattern，revision 没有上限，entry_class 的约束形式也不同。`validate_binding` 要求与 Dolt 绑定精确相等，所以不可利用。
 - **撤回两条初判。**
   - `cli.py:297-299` 的 KeyError 在正常路径上走不到：artifact:// 引用会先由 `_check_ref` 抛出 RecordError，只有路径恰为 `<run_id>/manifest.json` 的非 artifact 引用能到达那里。
   - `check_lineage` 恒为 False 只是死分支，环检查由 `_dolt_lineage` 完成，不是缺陷。
-- **陈旧陈述（本次未改）。**
-  - `README.md:17-18` 仍写 `r1-native-v1`。
-  - `docs/architecture*.md` 用现在时描述已清空的演示台账，还称"清空待做"。
-  - 计划文档第 3 行仍写"尚未实现"。
-  - `handoffs/` 下较早的交接文件已过时。
+- **陈旧陈述（第十一节第 6 项已清理）。**
+  - `README.md` 写 `r1-native-v1`、"当前迁移切片是 H19a"、"并行产品服务已移除"（`services/video-note-mcp` 仍在），仓库地图缺 `.agents/skills`；
+  - `docs/architecture*.md` 用现在时描述已清空的演示台账，还称"清空待做"；
+  - 计划文档第 3 行仍写"尚未实现"；
+  - `handoffs/` 下较早的交接文件已过时，已删除。
 
 ## 六、"可观察或删除"规则
 
@@ -181,7 +183,7 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
   - 目前这条路只用来写证据材料，没有发现被用来写 attempt 或 run。
 - **skill 与接口之间没有测试。** skill 里 20 个可机检的引用中，有 3 个名称（4 处）无法从 `--help` 或 `contract` 的自描述里找到：`read_preflight`、`pair_preflight`、`review_evidence`。
 - **已改：** AGENTS.md 改为"attempt、run、策略只经 CLI 命令写入，不经底层适配器或直接 SQL；证据原文经 `material retain`"；skill 改用 `material retain`。
-- **用户决定（2026-10-10）：**
+- **用户决定（2026-10-10，第 1–3 项已由 #1497 实现）：**
   1. 新增 `material retain` 命令（带 `--dry-run`、expected-version、operation-id），推翻 RDP07 的"不新增命令"。
   2. 让底层适配器拒绝 attempt/run/strategy 对象，只允许经各自的发表接口写入（授权收紧）。
   3. `find` 输出 goal_id 与 revision，供进展检查使用。
@@ -206,21 +208,21 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
 | ledger start/stop | 保留 | 现役服务的启动入口 |
 | artifacts backup/restore | 保留 | 27/27 个已登记 run 有备份。顺带发现：瘦身稿曾漏掉"备份"一步，已补回 skill |
 
-- **规模：** 约 2.7k 行产品代码、约 2.2k 行测试。删除后可以去掉 `markdown-it-py` 依赖，但它会改变镜像输入，应等下一次有意的镜像重建时一并处理。
+- **规模：** 约 2.7k 行产品代码、约 2.2k 行测试。退役后没有代码再导入 `markdown-it-py`，它已随第十一节第 6 项移除（`uv.lock` 由 `24efe25b…` 变为 `e39cc248…`）。现镜像 `b6b94ccc…` 继续有效；下一次从 main 构建的镜像 digest 与 `dependency_lock_sha256` 会变，新候选仍只能与同一镜像上的对照配对。宿主锁与镜像锁之间没有比较。
 - **外部配方不受影响：** 11 个文件只引用要保留的模块，不引用任何退役候选。
-- **用户决定（2026-10-10）：按建议执行。**
+- **用户决定（2026-10-10）：按建议执行（已由 #1497 实现）。**
   1. 归档台账里的纠错、准入投影不再由现行代码读取；需要时用退役前的代码 commit 读取，在 README 里写明。
   2. 从蓝图和 skill 中移除"知识准入"。
   3. `material search` 改为 `find` 的文本匹配。
 
 ## 十一、后续工作（按顺序）
 
-1. **tier 审计缺陷：已修复，待合并**（[qOeOp/trade#1494](https://github.com/qOeOp/trade/pull/1494)，RDP08）。新候选只能与同一镜像上的对照配对，用新镜像前要先在新镜像上重跑所需对照。
-2. **补接口缺口：已实现，待合并**（[qOeOp/trade#1497](https://github.com/qOeOp/trade/pull/1497)）：`material retain`；底层适配器拒绝任何未声明发表接口的写入，并拒绝未提交的 SQL 改动；`find --text` 与 `revision`/`goal_id`。
-3. **让 research-round 自包含。** 把 README 的 "One research round" 和 seal/register 步骤拆成 skill 参考，新增 strategy-authoring 参考；README 只保留配置与恢复。
-4. **第 3 层评估。** 先做交接文件第 1 项的首批 5 个用例（4 个方法用例加 1 个触发用例），再做溯源审计配方，以及在固定 main worktree 上运行 `validate`。
-5. **退役：已实现，待合并**（同 #1497）：删除 materials、references、migration、reviews、retention、retrieval 及对应命令；`retain_file`/`original_bytes` 移到 `evidence.py`，待修复投影移到 `ledger.py`。归档台账用 commit `9794ed307` 的 CLI 读取。
-6. **清理文档。** 清理第五节列出的陈旧陈述；在蓝图里按本审计改写产品形态和第 2 层的措辞。
+1. **tier 审计缺陷：已合并**（[qOeOp/trade#1494](https://github.com/qOeOp/trade/pull/1494)，RDP08）。新候选只能与同一镜像上的对照配对，用新镜像前要先在新镜像上重跑所需对照。
+2. **补接口缺口：已合并**（[qOeOp/trade#1497](https://github.com/qOeOp/trade/pull/1497)）：`material retain`；底层适配器拒绝任何未声明发表接口的写入，并拒绝未提交的 SQL 改动；`find --text` 与 `revision`/`goal_id`。
+3. **让 research-round 自包含：已完成（[qOeOp/trade#1500](https://github.com/qOeOp/trade/pull/1500)）。** README 的 "One research round"、strategy source 与 seal/register 步骤拆成 skill 参考 `publish.md`、`seal.md` 与新增的 `strategy-authoring.md`；README 只保留配置、存储协议、访问保留与恢复。
+4. **第 3 层评估：部分完成。** [qOeOp/trade#1496](https://github.com/qOeOp/trade/pull/1496) 保留了回归用例 `evals/stability-before-freeze`（含 skill 触发检查）。它的评分标准放在 skill 目录内，只作回归用例；留出用例与答案键仍按第六节放 Git 外。交接文件第 1 项的首批 5 个用例（4 个方法用例加 1 个触发用例）、溯源审计配方，以及在固定 main worktree 上运行 `validate` 仍待做。
+5. **退役：已合并**（同 #1497）：删除 materials、references、migration、reviews、retention、retrieval 及对应命令；`retain_file`/`original_bytes` 移到 `evidence.py`，待修复投影移到 `ledger.py`。归档台账用 commit `9794ed307` 的 CLI 读取。
+6. **清理文档：已完成（[qOeOp/trade#1500](https://github.com/qOeOp/trade/pull/1500)）。** 清理第五节列出的陈旧陈述；蓝图按本审计改写产品形态与第 2 层措辞。同时删除：`quality.yml` 中只断言冻结字面量的回执步骤（守卫改为 `tests/test_repository_layout.py`）、对 v2 seal 已无用的 `backtest/r1/checks/{compare_factorial,readback_native_economics,compare}.py`、`artifacts run --source-ref` 宿主执行路径，以及不再使用的 `markdown-it-py` 依赖。
 7. **托管主体：** 等第一个 independent 或确认结论要依赖第 2 层时再做（第八节）。
 
 ## 来源

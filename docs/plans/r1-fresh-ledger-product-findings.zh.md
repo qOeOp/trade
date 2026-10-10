@@ -69,7 +69,7 @@
 - 受影响 attempt：`RD20261010-D09`（proof 操作 `rd-20261010-d09-proof`，v131）、`RD20261010-D10`（`rd-20261010-d10-proof`，v134）。
 - 被影响的 Agent 任务：把 reader、结果与结论原字节固定为 `review_evidence` 材料，再在 `decision.basis.evidence_refs` 中引用。两次都只能直接调用 `research.records.reviews.retain_file` 与存储适配器的 `publish`。
 - 迭代成本与 workaround：每次多写一段十几行的 Python；内容哈希与只读保管规则仍由 `retain_file` 执行，没有绕过校验。
-- 决定（用户 2026-10-10 "能用 Agent 就不硬编码"原则）：不新增命令，把用法写进 `research-round` skill；若出现第三类调用者或误用，再评估最小 CLI。
+- 决定：最初按用户 2026-10-10 "能用 Agent 就不硬编码"原则不新增命令；同日改为新增 `material retain`（#1497），见上文修复状态。`research.records.reviews` 已随 #1497 删除，`retain_file` 现在在 `research/records/evidence.py`。
 
 ## RDP08：分档审计替代了通用对账
 
