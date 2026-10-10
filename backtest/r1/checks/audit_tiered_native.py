@@ -326,10 +326,21 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
 
 
 def audit(run: Path, catalog_root: Path) -> dict:
+    """Run the generic reconciliation for every run; recognized tier shapes add their own gates."""
     summary = json.loads((run / "summary.json").read_text())
-    if summary["signal_variant"] in TIER_RATIOS:
-        return _audit_tiered(run, catalog_root)
-    return _generic_audit(run, summary)
+    result = _generic_audit(run, summary)
+    if summary.get("signal_variant") not in TIER_RATIOS:
+        return result
+    try:
+        tiered = _audit_tiered(run, catalog_root)
+    except Exception as error:  # Any tier failure is recorded and fails the run.
+        tiered = {"findings": [f"budgeted tier audit failed: {type(error).__name__}: {error}"]}
+    findings = [*result["findings"], *tiered.pop("findings")]
+    for name in ("run", "file_sha256", "passed"):
+        tiered.pop(name, None)
+    return {**result, **tiered,
+            "scope": result["scope"] + "; budgeted-tier bracket topology, geometry, quantity and risk",
+            "findings": findings, "passed": not findings}
 
 
 def _audit_tiered(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one native report audit.
@@ -337,8 +348,6 @@ def _audit_tiered(run: Path, catalog_root: Path) -> dict:  # noqa: C901 - one na
     confirmed = summary["signal_variant"] == "support-brooks-confirmed-4h"
     gap_runner = summary["signal_variant"] == "support-broad-gap-runner-4h"
     ratios = TIER_RATIOS.get(summary["signal_variant"])
-    if ratios is None and not confirmed:
-        raise ValueError("budgeted native tier replay required")
     if (
         summary["sizing"]["risk_budget_bps"] != 25
         or summary["sizing"]["coin_notional_cap_pct"] != 5
