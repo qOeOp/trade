@@ -179,6 +179,12 @@ uv run --frozen python -m research.records.artifacts restore --root "$ARTIFACT_R
   --destination /path/to/new/output
 ```
 
+A read-only provenance audit lives outside Git with its README:
+`$HOME/.local/share/trade/research-audits/provenance/run.sh`. It runs `validate` from a detached
+origin/main worktree, so a relaxed local checkout cannot weaken it, then checks that every ledger
+commit is one API publication, history is append-only, dates are monotonic and agree with the
+reflog, and seal, backup and cited commits are ancestors of HEAD. Results stay in its `results/`.
+
 ## Back up and restore the record database
 
 Database history needs its own backup in addition to sealed native reports.

@@ -11,7 +11,7 @@
 | 0 常驻规则 | 用户授权边界、何时写产品代码、不另造引擎、何时用哪个 skill、行为不变的改动先做配对重放 | 根 `AGENTS.md`，多数会话自动加载 | 只是提示；由第 3 层的对抗用例观察 |
 | 1 skill | 一轮研究的方法与确切命令（`research-round`），原生报告统计规则（`nautilus-report-analysis`），视频取证与笔记（`video-evidence`），按需加载 | `.agents/skills/` | 只是提示；由第 3 层的有/无 skill 对照观察 |
 | 2 契约与执行 | Dolt 发表 API 的拒绝、固定 digest 的 OCI 镜像、发布版 Nautilus、视频证据包检查器 | 原地：`research/records`、`backtest/r1`、镜像、`services/video-evidence` | 内容寻址身份让篡改可被发现，但不能阻止；拒绝只防误操作 |
-| 3 评估 | skill 案例重放、台账过程审计、溯源审计 | 回归用例在 `.agents/skills/*/evals/`；留出用例与答案键放 Git 外的私有目录 | 由不受被测会话控制的位置执行 |
+| 3 评估 | skill 案例重放、台账过程审计、溯源审计 | 回归用例在 `.agents/skills/*/evals/`；留出用例、答案键与溯源审计配方放 Git 外的私有目录，审计按 origin/main 的规则运行 | 由不受被测会话控制的位置执行 |
 
 第 2 层不是无法绕过的边界。本机只有一个用户，Agent 与 Dolt、artifact 根目录和 Docker 同属一个操作系统用户，能改宿主代码、直接写 SQL、在登记前拼装 seal 或自建镜像。代码保证两件事：Dolt commit、源码 SHA-256、镜像 manifest digest 与 seal manifest 哈希是内容寻址身份，登记后的改动可被发现；正常 API 路径上的拒绝防止误操作，包括先 pending 的预登记、启动时绑定、配对可比性，以及 `independent` 只给交易窗口晚于确认登记的运行。非 API 提交和日期倒序要靠第 3 层的溯源审计发现；以 API 形态伪造的新记录、双方用同一自建镜像的配对，目前都发现不了。只有独立的托管系统用户能让第 2 层变硬，等出现第一个 `independent` 结论或必须依赖第 2 层的结论时再做，见 [skill 产品形态审计](plans/skill-product-form-audit.zh.md)。视频证据包检查器 `services/video-evidence/check_bundle.py` 只读、不导入仓库代码，从媒体字节重算哈希、帧、裁剪与 ASR 输入，并核对引用；Agent 能改本地副本，所以只有审阅者从 `origin/main` 运行、`checker_git_blob` 一致的那次检查算数，见[视频取证改造](plans/video-evidence-refactor.zh.md)。
 

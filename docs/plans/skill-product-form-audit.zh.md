@@ -130,7 +130,7 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
 
 - **`claude plugin eval` 的局限。** 它在不加载项目配置的沙箱中运行，home 目录不可读；artifact 根目录只能经 `context.add_dirs` 只读带入；Dolt 服务连不上，台账只能由 scaffold 脚本带入文件快照；而且只能评估 Claude。适合做触发评测和纯方法用例。需要台账的用例，改用 `claude -p --output-format stream-json` 和 `codex exec --json`，在固定 commit 的克隆沙箱里运行。
 - **沙箱要放在不同路径。** Claude 自动记忆按仓库路径加载，里面有案例答案；`docs/plans/`、`handoffs/` 和 Dolt 台账里也有。records 代码需要真正的 `.git`，所以只能 `git clone`，不能 `git archive`。克隆后删除 `docs/plans` 和 `handoffs/` 只清理了工作树，`.git` 历史里仍读得到，所以评分时要把读取历史中的计划或交接文件记为泄漏。留出用例还要用切到该用例之前的台账快照。
-- **答案键与评分配方放在 Git 外的私有评估目录**，不要放进 skill 目录。
+- **答案键与评分配方。** 2026-10-10 实测：`claude plugin eval` 的沙箱拒绝被测会话读取插件目录下的 `evals/`（`references/` 可读），所以回归用例可连同评分标准放在 skill 的 `evals/` 下。留出用例与它们的答案键仍放 Git 外，只用于验收，不用于调 skill（第十二节）。
 - **会话记录至少保留一轮**，否则只在会话记录中可见的要求无法评估。Claude 本机的 jsonl 默认会被定期清理。
 
 ## 七、AGENTS.md 瘦身记录
@@ -220,10 +220,42 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
 1. **tier 审计缺陷：已合并**（[qOeOp/trade#1494](https://github.com/qOeOp/trade/pull/1494)，RDP08）。新候选只能与同一镜像上的对照配对，用新镜像前要先在新镜像上重跑所需对照。
 2. **补接口缺口：已合并**（[qOeOp/trade#1497](https://github.com/qOeOp/trade/pull/1497)）：`material retain`；底层适配器拒绝任何未声明发表接口的写入，并拒绝未提交的 SQL 改动；`find --text` 与 `revision`/`goal_id`。
 3. **让 research-round 自包含：已完成（[qOeOp/trade#1500](https://github.com/qOeOp/trade/pull/1500)）。** README 的 "One research round"、strategy source 与 seal/register 步骤拆成 skill 参考 `publish.md`、`seal.md` 与新增的 `strategy-authoring.md`；README 只保留配置、存储协议、访问保留与恢复。
-4. **第 3 层评估：部分完成。** [qOeOp/trade#1496](https://github.com/qOeOp/trade/pull/1496) 保留了回归用例 `evals/stability-before-freeze`（含 skill 触发检查）。它的评分标准放在 skill 目录内，只作回归用例；留出用例与答案键仍按第六节放 Git 外。交接文件第 1 项的首批 5 个用例（4 个方法用例加 1 个触发用例）、溯源审计配方，以及在固定 main worktree 上运行 `validate` 仍待做。
+4. **第 3 层评估：首批已完成（PR_PLACEHOLDER）。** 7 个回归用例、6 个留出用例、溯源审计配方，以及按 origin/main 规则运行的 `validate`，见第十二节。尚未做成配方的是台账过程审计（逐轮对照可观察规则审 Dolt 记录）。
 5. **退役：已合并**（同 #1497）：删除 materials、references、migration、reviews、retention、retrieval 及对应命令；`retain_file`/`original_bytes` 移到 `evidence.py`，待修复投影移到 `ledger.py`。归档台账用 commit `9794ed307` 的 CLI 读取。
 6. **清理文档：已完成（[qOeOp/trade#1500](https://github.com/qOeOp/trade/pull/1500)）。** 清理第五节列出的陈旧陈述；蓝图按本审计改写产品形态与第 2 层措辞。同时删除：`quality.yml` 中只断言冻结字面量的回执步骤（守卫改为 `tests/test_repository_layout.py`）、对 v2 seal 已无用的 `backtest/r1/checks/{compare_factorial,readback_native_economics,compare}.py`、`artifacts run --source-ref` 宿主执行路径，以及不再使用的 `markdown-it-py` 依赖。
 7. **托管主体：** 等第一个 independent 或确认结论要依赖第 2 层时再做（第八节）。
+
+
+## 十二、第 3 层首轮评测与审计（2026-10-10）
+
+**用例。** 回归用例在 `.agents/skills/research-round/evals/`：方法用例 5 个（`tags: [method]`：模糊方向、目标不可达的设计、已暴露窗口上的改善、价格触及不算盈亏、冻结前稳定性），触发用例 2 个（`tags: [trigger]`：该用时触发、不该用时不触发且仍答对）。每个用例都由独立审阅者对抗修订：合规与违规样例必须翻转判定，提示不泄题。留出用例 6 个在 `~/.local/share/trade/skill-evals/research-round/heldout/cases/`，与回归用例测同一规则、换结构和数字；`heldout/run.sh <40 位 commit> <OUT>` 从该提交导出 skill 再运行，OUT 只能在该评估根目录下。
+
+**运行方式**（结果目录放 Git 外，否则会写进 `evals/results/`）：
+
+```bash
+claude plugin eval .agents/skills/research-round --tag method --model claude-opus-5-5 \
+  --judge-model claude-sonnet-5-5 --runs 3 --no-publish --trust-plugin --output-dir OUT
+claude plugin eval .agents/skills/research-round --tag trigger --ablation none --model claude-opus-5-5 \
+  --judge-model claude-sonnet-5-5 --no-publish --trust-plugin --output-dir OUT
+```
+
+触发用例只跑加 skill 的一臂：不加 skill 时必然不触发，差值没有意义。评委固定为 Sonnet 5.5，三票两票通过。
+
+**首轮结果与修改。** 在 #1500 的 skill 上，加 skill / 不加 skill 各 3 次：模糊方向 3/3 对 1/3，冻结前稳定性 3/3 对 1/3，目标不可达 3/3 对 3/3，已暴露窗口 0/3 对 0/3，价格触及 0/3 对 0/3。逐题重判 16 个失败回答后，后两个用例是 skill 缺口，另有一次评委误判：
+
+- 已暴露窗口：加 skill 后模型拒绝"holdout"和"泛化"两个词，却把调参没用到的年份写成"部分证据""半个样本外""半独立检验""没看到过拟合"，并把冻结前已存在的数据当作"更有力的补充检验"。`Do not` 第一条两次改写，最后列出这些说法，并写明冻结时已存在的数据只能用来证伪。
+- 价格触及：加 skill 后模型引用了规则，仍"按你的口径"算出触及胜率，或把同一根 K 线两边都碰到的情形按先止损处理。`Do not` 末条补上"用户要粗略数、情景数或上限数也不算"和同根 K 线不排序（含先止损），`l3-boundary.md` 同步。
+- 评分标准：价格触及补两条豁免（给将来原生回放定的通过线、对选择偏差的定性说明）；冻结前稳定性写明"先冻结再检查"判不通过；已暴露窗口的豁免限定到对应子题。
+
+**最终结果**（skill 在 `a705530`）：方法用例加 skill 15/15，均值差值 +0.73；已暴露窗口 3/3 对 0/3（另一轮 5 次为 4/5 对 0/5），价格触及 3/3 对 0/3，冻结前稳定性 3/3 对 0/3，模糊方向 3/3 对 1/3，目标不可达 3/3 对 3/3。触发：该用时 5/5 触发；不该用时 3/3 未触发且答对。留出验收：HELDOUT_RESULT。全部评测花费约 22 美元（订阅额度内的估算值），结果在 `~/.local/share/trade/skill-evals/research-round/20261010-item4/`。
+
+**没有差值的规则。** 目标不可达用例两臂都通过：不加 skill 时模型也会做可行性算术并改写范围。暂留 `Before publishing` 第 2 条与 `feasibility.md`，因为该用例把 N、W、L 全给了；下一个用例改为要从源码的 sizing 和容量检查自行估计输入，若差值仍为 0，就删除这两处。
+
+**局限。** 每臂 3 次（已暴露窗口 5 次），单一被测模型与评委，判分有分歧；只评了 Claude，没评 Codex；都是纯方法用例，不读台账。回归用例已用于改写 skill，只有留出结果算验收。
+
+**溯源审计与 main 规则复核。** 配方在 `~/.local/share/trade/research-audits/provenance/`（同目录 README）。`run.sh` 把规则钉在固定路径的分离 origin/main worktree 上运行 `validate --at <台账 HEAD>`，再跑只读溯源审计四组 22 项：提交与 operations、API 消息一一对应；对象、关系、operations 只增不改；提交时间单调且与 reflog 一致；台账内引用、seal、备份与文档引用的提交都是 HEAD 的祖先。另列出各 worktree 中未进 main 的信任文件改动供用户查看。2026-10-10 对现役台账运行两次：v135（`e42banv478sf79k64i8n758ufpcp6j0o`）和其后有新发表的 v138（`0bnuhr5ulfrdcjrj62p7n2crgv44ddsv`，第二次以第一次的台账头为 `--verified-through`），`validate` 与 22 项检查都通过。负例都在一次性副本上做：原地改写、API 形态的删除、`--date` 回填、回退历史、审计期间的并发发表、GC 后的 reflog 缺口，都会被报出或要求重跑。查不出的是完全按 API 形态伪造的追加，以及没有更早锚点时的整段历史改写。脚本 SHA-256：`provenance_audit.py` `d4ac67c9…`，`run.sh` `d2ff1c42…`。
+
+**需要用户决定的两项加固（可选）。** Dolt 2.4.2 的只读事务只拦 DML，`CALL DOLT_*` 与 DDL 仍会执行，所以审计靠语句白名单防写；为审计单设只有 SELECT 权限的 Dolt 用户会更硬。sql-server 默认开启自动 GC，GC 会清空 reflog，审计用上一次通过结果的台账头（`--verified-through`）衔接；关闭自动 GC 是产品配置变更。两项都需要用户授权。
 
 ## 来源
 
