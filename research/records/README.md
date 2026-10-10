@@ -564,7 +564,7 @@ audited `native_economics`. It reads no Dolt and never parses `account.csv`. A
 failed seal reports its status and problems with null economics. Descriptive
 statistics (win rates, holding time, order funnel, drawdowns, monthly or
 per-instrument contribution) are computed by the Agent from the verified seal,
-following `.claude/skills/native-report-analysis/SKILL.md`. `compare --analysis` runs the unchanged formal compare first; both
+following `.agents/skills/native-report-analysis/SKILL.md`. `compare --analysis` runs the unchanged formal compare first; both
 runs must be sealed with a Dolt-anchored manifest. It adds the reconciled readings of
 both runs to `metrics`, the candidate's frozen `selection`, and a paired ISO-week interval of
 annualized relative growth only when the preregistered `primary_response` is

@@ -1,6 +1,6 @@
 # 原生回测分析与改良比较实施计划
 
-状态：P0-A（`artifacts report`）与 P0-B1（`compare --analysis`）已按信任边界核心实现，描述统计交给 Agent（`.claude/skills/native-report-analysis`）；B2、P0-C、P1 未实现。日期：2026-10-10。第一版服务当前 R1、USDT 线性永续、固定本金原生账户；其他账户或合约类型在口径未核实前明确为不支持或证据不足。
+状态：P0-A（`artifacts report`）与 P0-B1（`compare --analysis`）已按信任边界核心实现，描述统计交给 Agent（`.agents/skills/native-report-analysis`）；B2、P0-C、P1 未实现。日期：2026-10-10。第一版服务当前 R1、USDT 线性永续、固定本金原生账户；其他账户或合约类型在口径未核实前明确为不支持或证据不足。
 
 审阅由独立子 Agent 对照代码、28 个封存 run、固定 `nautilus_trader==2.0.0rc3` 与 Dolt v132（`f8va2hf2e7bae13p08kfs5s8ne1sk3ud`）核实 65 条事实，再按原则与切片、账务与统计、拒绝边界、字段清单四个角度逐条反驳检验。本版吸收其结论与同日用户决定；被推翻或修正的初版说法不再保留为事实。
 
