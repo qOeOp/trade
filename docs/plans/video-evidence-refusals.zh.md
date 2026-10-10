@@ -160,7 +160,7 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 | N4 | 作者预算：`transcript_bytes_exceeded`、`author_input_budget_exceeded`（48 KiB × 16 块）、`author_output_budget_exceeded`、`author_summary_budget_exceeded`（96 KiB） | adapters/direct_notes.py:100-101, 144-156, 203-208, 247 | DeepSeek 作者的载荷 | DROPPED | 内部作者退役，由调用方 Agent 写笔记 | B |
 | N5 | 模型客户端：`provider_key_missing`、`vision_request_too_large`（48 MiB）、`provider model identity is missing or changed`、`incomplete response`、`invalid content`（超过 128 KiB）、`provider_timeout`、`provider_response_invalid`、`vision_response_too_large`（256 KiB）、`provider_http_<status>`、`provider_transport_retries_exhausted`；`follow_redirects=False`、`trust_env=False` | adapters/model_client.py:40-180 | 云模型边界 | DROPPED | 同 N4 | B |
 | N6 | 模型配置：`model profile is invalid`、`model output settings are invalid`、`thinking budget is invalid` | config.py:41-49 | 配置合法 | DROPPED | 不再有模型 profile | B |
-| N7 | HTML 转义加 CSP（`default-src 'none'`，无脚本，无远程资源） | presentation/markdown.py:3, 29-42, 104, 137-145, 182-190 | 模型或来源文本不变成可执行标记 | REPLACED | `pandoc -f markdown-raw_html -s --embed-resources`，原始 HTML 不渲染；`note.md` 规定图片只用包内相对路径，不链接包外图片 | B（CSP） |
+| N7 | HTML 转义加 CSP（`default-src 'none'`，无脚本，无远程资源） | presentation/markdown.py:3, 29-42, 104, 137-145, 182-190 | 模型或来源文本不变成可执行标记 | REPLACED | `pandoc -f markdown-raw_html-yaml_metadata_block --lua-filter note.lua -s --embed-resources`，原始 HTML 与 YAML 元数据不读入，元数据只留标题；`note.md` 规定图片只用包内相对路径，不链接包外图片 | B（CSP） |
 | N8 | 发布原子性：`bundle collision`（不覆盖）、`bundle_publication_failed`、`asset bytes exceeded` | adapters/note_publisher.py:41-91 | 不覆盖已发布的笔记，失败不留半成品 | REPLACED | `note.md` 写在包内；阶段 `.stage-*` 完成后再 `mv`；规则「完成的阶段不重做」 | — |
 
 ### 2.12 24 h 缓存仓 artifact_store

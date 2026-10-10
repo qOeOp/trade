@@ -17,9 +17,9 @@
 - **出站拒绝在伤害研究。** 同主机的 googlevideo 302 被拒，doz72-I2LKM 因此丢失；S19、S24、S33、S42、S43 的首试
   失败原因被封闭回执掩盖。没有记录到任何被拦下的恶意请求。今天 stock yt-dlp 探测 doz72-I2LKM 选到 137+140。
 
-新形态：`.agents/skills/video-evidence/`（SKILL.md 90 行，5 份参考 25–85 行，资产 `env.sh`、`identity.jq`、
+新形态：`.agents/skills/video-evidence/`（SKILL.md 90 行，5 份参考 26–85 行，资产 `env.sh`、`identity.jq`、
 `receipt.jq`、`host_check.jq`、`page_record.py`、`note.lua`、`ocr.swift`，8 个回归评测），
-`services/video-evidence/check_bundle.py`（588 行、非空 521 行，只用标准库，只读，不导入仓库代码），
+`services/video-evidence/check_bundle.py`（605 行、非空 534 行，只用标准库，只读，不导入仓库代码），
 `research-round/references/source-evidence.md`（60 行）。检查器远超计划的 270 行与合规审阅给的约 300 行：三位挑战者、
 两份审阅与 2026-10-10 安全复核要求的检查都在里面（版式白名单、PNG 结构、argv 模板、引文与数值绑定、网格覆盖、
 泄漏扫描等）。**行数预算需用户确认**；可移出的只有 ASR 旗标启发式（约 20 行），但被标记段现在决定
@@ -33,7 +33,7 @@
 | HuangYincan/VideoNote-MCP（MIT，96★） | 不采用。默认不取帧（拼图 JPEG），优先字幕，无媒体哈希，2.6k 行服务端，内置逆向的平台代码和一个 GPL-3.0 文件。吸收「准备材料、由 Agent 写」「先探测不下载」 |
 | Let AI Read Video / video-watch、legal-skills 截图 skill | 吸收：Agent 点名要帧，独立的确定性程序校验时间、重算哈希、失败即拒 → 括号取帧配方加检查器重算 |
 | Backtthefuture/video-transcript、BiliSum、steipete/summarize、daymade 的失败表、VideoCaptioner、BiliNote | 吸收：身份绑定原始字节；按输出而非退出码判成功；只抽取的证据模式；逐字症状表；更正是单独一层；按需取帧但校验时间 |
-| Qwen3-ASR（mlx-qwen3-asr，Apache-2.0） | 基准上优于 Whisper large-v3，但未在本机验收集上测过；作为测量后再定的后续项（见下） |
+| Qwen3-ASR（mlx-qwen3-asr，Apache-2.0） | 本机验收集上数字更准，但 0.4.4 会静默丢语音，暂不切换（见文末「Qwen3-ASR 实测」） |
 
 ## 旧服务逐项处置
 
@@ -43,7 +43,7 @@
 | yt-dlp 再封装与 B 站私有端点：`_ytdlp_worker.py`、`bilibili_*`、`youtube_source.py`、`generic_source.py`、`media_acquisition.py`、`source_acquisition.py`、`subtitles.py`、`local_import.py` | 由 stock yt-dlp 提取器取代；html5 playurl 回落与 cookie 选项无真实使用者 | `acquire.md`、`custody.md` |
 | ASR：`asr_mlx.py`、`_mlx_worker.py`、`asr_siliconflow.py`、`audio_review.py`、`transcript_validation.py`、45 s 窗 | 直接调用钉版本的 mlx_whisper CLI；云 ASR 退出 | `transcribe.md`；检查器 `pcm_recomputed`、`schema_known`、`detected_language`、`argv_is_recipe`、`engine_pinned` |
 | 选帧：`media_ffmpeg.py`（48 帧上限、中文指代正则、medoid、记录请求时间而非真实 pts） | 由配方取代 | `frames.md`；检查器在真实 pts 重算 |
-| 内部作者与呈现：`direct_notes.py`、`model_client.py`、`note_*`、`create_note.py`、`presentation/*`、DeepSeek/SiliconFlow 配置 | 退役；调用方 Agent 写笔记，笔记不是证据 | `note.md`；pandoc 关闭原始 HTML |
+| 内部作者与呈现：`direct_notes.py`、`model_client.py`、`note_*`、`create_note.py`、`presentation/*`、DeepSeek/SiliconFlow 配置 | 退役；调用方 Agent 写笔记，笔记不是证据 | `note.md`；pandoc 关闭原始 HTML 与 YAML 元数据 |
 | 服务管道：`mcp_server.py`、`progress.py`、`operator_events.py`、`owned_tasks.py`、`subprocesses.py`、`artifact_store.py`（24 h TTL） | 退役；TTL 缓存与持久托管正相反 | 内容寻址 `sha256/`，检查器每个子进程带超时 |
 | `resource_limits.py` 的源上限 | 保留进检查器 | `max_side_pixels`、`hd_floor` |
 | 旧测试 7,102 行 | 随服务冻结；PR2 删除时在 PR 正文逐项对照新测试 | `tests/video_evidence`（CI）与 Git 外的回放 |
@@ -114,18 +114,13 @@ Last-Modified 不是发布时间，也没有使用者）；回执的 `declared {
 固定验收集：6 处画面核实的口播数字；2 段已找回的循环区间；2 个完整视频的字幕 OCR CER；对全部留存媒体跑检查器
 旗标。切换条件：数字与循环都更好、词级时间戳覆盖语音、重跑确定；切换要在检查器新增具名 schema。
 
-测量（2026-10-10，`skill-evals/video-evidence/qwen3-asr/results.json`；mlx-qwen3-asr 0.4.4，Qwen3-ASR-1.7B 与
-ForcedAligner-0.6B 钉 revision，权重 6.5 GB）：**暂不切换**。数字 Qwen 4/6、Whisper 2/6（扩展 9 处：5/9 对 3/9，
-但有 1 处 Qwen 退步）；两段循环两者都找回；字幕 CER 去掉语气词与数字写法后 Qwen 0.062、Whisper 0.074，原始
-0.134 对 0.079；fp16 重跑 10/10 字节相同，fp16 与 bf16 不同；速度相当。阻断原因：0.4.4 在 7–10 个 token 的模式
-重复两次时截断该块，46 个媒体中 4 个因真实重复丢 4.5–10 s 语音（`finish_reason=repetition`），钉住的版本没有
-关闭它的选项。另：两个引擎从未在同一个错误数值上一致，分歧本身可作待核信号。
+测量结果、阻断原因与切换条件见文末「Qwen3-ASR 实测（2026-10-10）」：**暂不切换**。
 
 ## CI 与 ffmpeg
 
 `quality.yml` 在单测前用 apt 安装 ffmpeg；作业跑在 `ubuntu-latest`（当前 24.04，ffmpeg 6.1），需要 ≥ 6.1：
 `-enc_time_base:v demux` 自 n6.1.1 起存在，本机 9.0.2 也接受；旧写法 `-1` 被 9.0.2 拒绝。单测用 13 s、1280×720 的
-lavfi 合成包，并行跑约 50 次检查器（4 个测试、48 个具名篡改子测试，本机约 6 s）；同一套测试对本 PR 第一版检查器
+lavfi 合成包，并行跑约 64 次检查器（5 个测试、55 个具名篡改子测试加 3 个分阶段通过子测试，本机约 7 s）；同一套测试对本 PR 第一版检查器
 运行时，3 个测试和 29 个子测试失败（FIFO 子测试在旧检查器上挂起，按超时计失败）。
 
 ## 规则 → 检查或评测
@@ -203,8 +198,8 @@ SHA-256 相同；独立转写逐字节相同；修订后的转写配方在 (1) �
 `one_stream_per_kind`。三个阻断项：来源 ID 变成路径使 `rm -rf` 删到 ROOT 外（`bundle` 只接受 `[A-Za-z0-9_-]`，
 直链 ID 改为 URL 哈希）；ID 被 `git grep` 当成选项执行命令（改 `-F -e`、`--text=`、`--`，实测不再执行）；审阅者
 重跑作者写的 argv（检查器要求配方 argv，审阅者按配方重建）。其余：引文与数值绑定、sidecar 解析、媒体经 PNG、
-伪 JSON 或嵌套 `check.json` 进入 Dolt（版式白名单、`png_plain`、严格解析）、pandoc 读本地文件或发请求（`note.lua`，
-实测 0 次嵌入、0 次请求）、签名路径与分享参数（投影规范化、扩大泄漏扫描）、私网主机绕过（尾点、十六进制、制表符）、
+伪 JSON 或嵌套 `check.json` 进入 Dolt（版式白名单、`png_plain`、严格解析）、pandoc 读本地文件或发请求（`note.lua`；
+首轮漏了 YAML 元数据块的 `css:`，二次复核修复，见下）、签名路径与分享参数（投影规范化、扩大泄漏扫描）、私网主机绕过（尾点、十六进制、制表符）、
 `PATH` 上的 ffmpeg 替身（`ffmpeg` 输出记可执行文件哈希，审阅者固定 `PATH`）、FIFO 挂起（先检查文件类型）、
 网格行越出目录、1e999 溢出。
 
@@ -220,8 +215,9 @@ SHA-256 相同；独立转写逐字节相同；修订后的转写配方在 (1) �
 
 **未解决**：
 
-1. 拒绝表第 4 节的 C 类放宽（U1/U2、P2、R4 下载过程、P1 配方侧、C4）需用户逐条确认，确认前不合并。
-2. 检查器 588 行（非空 521 行），超过计划与合规给的预算，需用户认可新的行数预算或指定删减。
+1. 拒绝表第 4 节其余 C 类放宽（U1/U2、P2、R4 下载过程、P1 配方侧、C4）须在 PR 中由用户逐条明确确认，答复记入
+   授权段；被否决的一项合并前恢复。确认前不合并。
+2. 检查器约 600 行（605 行，非空 534 行），超过计划与合规给的预算，等用户认可新的行数预算或指定删减。
 3. Ubuntu ffmpeg 6.1 上的单测只能由 PR 的首次 CI 验证。
 4. 两份含约 30 s 幻觉段的历史转写，需复核结论是否依赖它们。
 5. 有/无 skill 的评测对照（Claude 与 Codex 各 3 次）与授权边界类对抗留出用例未做。
@@ -236,3 +232,57 @@ SHA-256 相同；独立转写逐字节相同；修订后的转写配方在 (1) �
 3. 在固定 commit 的克隆沙箱里跑回归与留出评测（Claude 与 Codex，有/无 skill 各 3 次），无差别的非对抗规则删掉。
 4. 可选：把 `~/.claude/skills/video-evidence`、`~/.codex/skills/video-evidence` 软链到仓库副本，设
    `VIDEO_EVIDENCE_ROOT` 与 `MLX_VENV`；`~/.local/share/video-note-mcp` 下的缓存与笔记去留由用户另定。
+
+## 二次复核（2026-10-10）
+
+二次复核确认首轮修复成立（留出回放 38/38、选择器 8/8、安全样本 21/21），另有 3 个主要、5 个次要发现，已修：
+
+- `has_grid` 回归：只在存在 `frames/*` 目录时要求 `frames/grid`，媒体或 ASR 阶段后的分阶段检查可以通过。
+- `note.md` 的 YAML 元数据（`css:`）让 pandoc 嵌入本地文件、请求 URL：读入改为
+  `-f markdown-raw_html-yaml_metadata_block`，`note.lua` 的 `Meta` 只留 `title`。恶意笔记实测（`css:` 本地绝对路径、
+  `css: http://127.0.0.1:<port>/x.css`、标题内图片）：旧命令嵌入 1 次、请求 2 次；新命令 0 次嵌入、0 次请求，
+  两道防线单独启用时也都是 0；包内帧仍正常嵌入。
+- 引文与数值按子串匹配：`79.4` 里的 `9.4`、`price 7`、单个 `4` 都能通过。现按整数 token 比较（阿拉伯小数、中文数字串、
+  英文数词，末尾 `%` 不计）；引文两端是数字时不得紧邻同段的数字或小数分隔符；值与引文的每个数字都须等于所引证据
+  （逐段取 token）中的一个。
+- 次要：探测门槛拒绝后删除 `W`（原始 JSON 含签名 URL），停止时只留 `FAILED`；重跑失败阶段前先报告 `FAILED` 再
+  `rm -rf "$B/<stage>"`（`mv` 会嵌套）；审阅者重取页面只比 `media_url` 所在对象（URL、时长、`created_at`、作者）和所引
+  `json_path`；cookie 值检查移入托管主块；续传说明改为「yt-dlp 自身重试用 `Range` 续传，留存前的解码检查拒收拼接文件」。
+
+## Qwen3-ASR 实测（2026-10-10）
+
+候选：mlx-qwen3-asr 0.4.4（mlx 0.32.3，与基线同），Qwen/Qwen3-ASR-1.7B 与 Qwen/Qwen3-ForcedAligner-0.6B 钉
+revision、离线运行（无对齐器只有约 30 s 块级时间），权重约 6.5 GB，略超授权的约 4–5 GB。基线：第二轮 mlx_whisper
+命令，10 个媒体重跑与第二轮输出逐字节相同。
+
+| 检查 | Whisper | Qwen3-ASR |
+|---|---|---|
+| 6 处已核实的口播数字 | 2/6（旧 worker 1/6） | 4/6 |
+| 另加 3 处字幕核对，共 9 处 | 3/9 | 5/9 |
+| 两段已知循环区间 | 找回 | 找回，内容相同 |
+| 字幕 CER：原始 / 去语气词 / 去语气词与数字 | 7.9% / 7.4% / 7.4% | 13.4% / 8.3% / 6.2% |
+| 重跑一致（10 个文件） | 10/10 | 10/10 |
+| 速度 / 峰值内存 | 12.6× 实时 / 15.8 GiB | 13.7× / 12.0 GiB；bf16 15.9× / 7.8 GiB |
+
+Qwen 的错数有时是怪串（「七十多点四」），有 1 处把 Whisper 对的数字改错；两引擎在全部 125 个小数上分歧 6 次，
+从未一致地错。字幕用阿拉伯数字、去语气词，Qwen 写中文数字、留语气词，所以原始 CER 偏高；去掉后差约 1 个点，接近噪声。
+
+**阻断**：mlx-qwen3-asr 0.4.4 只要 7–10 个 token 的模式连续重复两次就停止解码该块；讲者为强调重复一句时，该约 30 s
+块的其余语音丢失，只有 `finish_reason: repetition` 和随后的空隙可见。46 个媒体中 4 个各丢 4.5–10 s 真实语音，违反
+「词级时间戳覆盖语音」。仅测试用、要求重复 3 次的补丁找回全部 4 段且不新增循环，但 0.4.4 没有这个选项，计划也
+排除自己维护补丁。
+
+**决定**：保留 Whisper（第二轮 mlx_whisper 命令），每个数字仍须帧核对；旧服务退役（PR2）不依赖 Qwen。
+
+**切换条件**：上游版本把重复截断改为 ≥3 次或提供开关时，重跑本集；没有提前停止的块且数字不低于 4/6 才切换。
+切换需要：检查器新的转写 schema（块的 `finish_reason`/`truncated`、逐字 segments、语言写作 `Chinese`；段 ID 用包内
+字幕分组，并加「数字字符之间不断段」规则，约 15 个 cue 把一个数字拆进两个 ID；循环旗标改为块非 `eos`、被截断或块文本
+压缩比 >2.4；数字检查用中文数字正则）、新的 `engine_pinned`/`argv_is_recipe` 钉版本与 argv、新的身份记录（包版本与
+wheel SHA-256、mlx/mlx-metal 版本、两个模型的 repo、revision 与权重 SHA-256、dtype、完整命令、`HF_HUB_OFFLINE=1`、
+ffmpeg 版本、audio.wav 的 SHA-256 与时长）；成功判定仍读输出文件（未知语言退出 0，混合输入退出 1 仍写出好文件）。
+
+**位置**：venv `~/.local/share/trade/research-analysis-envs/qwen3-asr-venv`（带哈希锁文件）；权重在
+`~/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-1.7B` 与 `models--Qwen--Qwen3-ForcedAligner-0.6B`；结果、环境、
+运行输出、对比报告、脚本与第二轮基线副本在 `~/.local/share/trade/skill-evals/video-evidence/qwen3-asr/`
+（`results.json`、`env/`、`runs/`、`report/`、`tools/`、`fixtures/round2/`）。不切换时 venv、6.5 GB 权重与 758 MB 可重建
+的 `inputs/` 音频可删，删不删由用户定。

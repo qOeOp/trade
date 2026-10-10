@@ -38,7 +38,7 @@ is cited as history; acquisition proceeds). The same bytes, ID or author restati
     hosts=$(jq -r -f "$A/host_check.jq" probe.raw.json 2>&1 || true)
     if [ "$gate" != true ] || [ -n "$hosts" ]; then printf 'gate: %s %s %s\nyt-dlp -J %s\n' "${gate:-no metadata}" "$hosts" \
       "$(grep -m1 ERROR probe.err | sed -E 's/[?#][^ ]*//g')" "${URL%%[?#]*}" > "$S/FAILED"; fi
-    mv "$S" "$B/probe"; test ! -e "$B/probe/FAILED"   # a refused gate stops here
+    mv "$S" "$B/probe"; [ ! -e "$B/probe/FAILED" ] || { rm -rf "$W"; exit 1; }   # a refused gate stops; raw JSON goes
 
 A playlist, channel or multi-part video fails the gate: list it (metadata only), pick one entry explicitly
 (Bilibili `?p=N`) and probe that; stop on live or upcoming. Never script repeated search or API calls (`412`).
@@ -65,11 +65,11 @@ media URL. Without exactly one record, they stay unknown and `not_truncated` rep
 The selector is atomic: one progressive file of at least 720p, else a 720p+ video part plus an audio
 part, else `Requested format is not available`; never the comma form `bv,ba`. `--fixup never` keeps
 the server bytes and `-k` keeps the parts. A generic download reads the probed formats and never
-re-extracts the page. Before any rerun, and after an interrupt (`pgrep -fl '[y]t-dlp|[f]fmpeg'`),
-delete `*.part` and `*.ytdl`: a resumed part can join bytes from two CDN copies. Then keep the bytes:
-[custody.md](custody.md).
+re-extracts the page. yt-dlp's own retries resume a cut part with `Range`, which can join bytes from two
+CDN copies; the decode check in custody is what refuses such a file. Before any rerun, and after an interrupt
+(`pgrep -fl '[y]t-dlp|[f]fmpeg'`), delete `*.part` and `*.ytdl`. Then keep the bytes: [custody.md](custody.md).
 
-## Failures (verbatim line, query strings removed, into `<stage>/FAILED`)
+## Failures (verbatim line, query strings removed, into `<stage>/FAILED`; to stop, `rm -rf "$W"`)
 
 | Symptom | Action |
 |---|---|

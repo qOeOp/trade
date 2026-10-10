@@ -258,6 +258,18 @@ class CheckBundleTests(unittest.TestCase):
             "has_grid": lambda b: (b / "frames/grid").rename(b / "frames/g"),
             "grid_covers_6s": drop_grid_bucket,
         }
+        asr_only = lambda i, cited, **change: claim(i, lambda c: (c.update(change, asr_only=True), c["evidence"].pop(cited)))
+        more.update({  # the recheck of 2026-10-10: E001 says "price 79.4"; a number is compared as a whole token
+            "quote_in_segments (prefix of a number)": asr_only(0, "frames", quote="price 7", value="7"),
+            "quote_in_segments (suffix of a number)": asr_only(0, "frames", quote="9.4", value="9.4"),
+            "quote_in_segments (digit inside a decimal)": asr_only(0, "frames", quote="4"),
+            "quote_in_segments (prefix, the cut number said elsewhere)": both(speech(0, "price 79.4 or 7"),
+                                                                             asr_only(0, "frames", quote="price 7")),
+            "quote_in_segments (Chinese numeral cut)": both(speech(1, "在七十六点四附近"), asr_only(1, "crops", quote="六点四附近")),
+            "value_in_evidence (part of the quoted number)": asr_only(0, "frames", quote="price 79.4", value="9.4"),
+            "value_in_evidence (digit inside a decimal)": claim(1, lambda c: c.update(
+                quote="在四小时图上", value="4", asr_only=True, evidence={"segments": ["E001", "E002"]})),
+        })
         cases.update({name: (edit, None) for name, edit in more.items()})
         cases["one_stream_per_kind"] = (replace("media/SHA256SUMS", self.vsha, two_file.stem), two)
         cases["not_truncated (header says 13 s, packets stop at 6 s)"] = (
@@ -274,6 +286,20 @@ class CheckBundleTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(rc, 1)
                 self.assertIn(name.split(" ")[0], failed)
+
+    def test_stage_by_stage_and_whole_numbers_pass(self):
+        drop = lambda *rels: lambda b: [shutil.rmtree(b / r) if (b / r).is_dir() else (b / r).unlink() for r in rels]
+        whole = lambda c, cited, **change: (c.update(change, asr_only=True), c["evidence"].pop(cited))
+        bundles = {  # ok means consistent, not complete: a stage is checked before the next one exists
+            "after media": self.variant(drop("asr", "frames", "crops", "claims.json")),
+            "after asr": self.variant(drop("frames", "crops", "claims.json")),
+            "asr-only whole numbers": self.variant(lambda b: edit_json(b / "claims.json", lambda d: (
+                whole(d["claims"][0], "frames", quote="price 79.4", value="79.4"),
+                whole(d["claims"][1], "crops", quote="四小时", value="四")))),
+        }
+        for name, result in zip(bundles, self.in_parallel([lambda b=b: self.failed(b) for b in bundles.values()])):
+            with self.subTest(name):
+                self.assertEqual(result, (0, set()))
 
     def test_restored_bundle_without_uncited_pngs(self):
         keep = {("grid", self.grid[3][0]), ("t0001500", self.bracket[1][0])}  # the crop parent and the cited frame

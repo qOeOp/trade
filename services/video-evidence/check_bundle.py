@@ -298,6 +298,22 @@ def norm(text):
     return "".join(kept)
 
 
+def numbers(text):
+    """Whole numbers, normalized: Arabic decimals (a trailing % dropped), Chinese-numeral runs, English number words."""
+    return {norm(t).rstrip("%") for t in NUMBER_TOKEN.findall(unicodedata.normalize("NFKC", str(text))) if NUMERAL.search(t)}
+
+
+def quoted(quote, texts):
+    """The quote lies in the joined texts without cutting a number: each of its numbers is a whole number of one
+    text, and a digit at either end never continues into a digit or separator of the same text (79.4 is not 9.4)."""
+    q, parts = norm(quote), [norm(t) for t in texts]
+    s, bounds = "".join(parts), {sum(map(len, parts[:k])) for k in range(len(parts) + 1)}
+    cut = lambda inner, outer, at: at not in bounds and inner.isdigit() and (outer.isdigit() or outer in ".,:/")
+    hits = [i for i in range(len(s) - len(q) + 1) if q and s.startswith(q, i)]
+    return numbers(quote) <= set().union(*map(numbers, texts)) and any(
+        not cut(q[0], s[i - 1:i], i) and not cut(q[-1], s[i + len(q):i + len(q) + 1], i + len(q)) for i in hits)
+
+
 def media_checks(b, a, docs):
     """Identity files listed in SHA256SUMS: bytes, container, streams, ceilings, completeness and declared size."""
     ident, receipt, page = (docs.get(k) for k in ("probe/identity.json", "media/receipt.json", "probe/page.json"))
@@ -378,9 +394,10 @@ def asr_checks(docs, audios):
 
 def frame_rows(b, a, vsha, videos):
     """frames/<dir>/grid.tsv rows: (n, num, den) -> {decoded, pngs, where}."""
-    rows = {}
-    check("frames", "has_grid", (b / "frames/grid").is_dir(), "frames/grid, the coverage grid")
-    for d in sorted(d for d in b.glob("frames/*") if d.is_dir()):
+    rows, dirs = {}, sorted(d for d in b.glob("frames/*") if d.is_dir())
+    if dirs:  # a bundle checked after its media or asr stage has no frames yet
+        check("frames", "has_grid", (b / "frames/grid").is_dir(), "frames/grid, the coverage grid")
+    for d in dirs:
         grid = [r.split("\t") for r in (d / "grid.tsv").read_text().splitlines() if r] if (d / "grid.tsv").is_file() else []
         check("frames", "has_grid_tsv:" + d.name, grid)
         absent = 0
@@ -469,18 +486,18 @@ def claims_checks(b, docs, segs, bad, rows, crops, vsha):
         for j in sorted(set(ids)):  # a quote lies inside one run of consecutive segments, in transcript order
             runs[-1:] = [runs[-1] + [j]] if runs and runs[-1][-1] == j - 1 else runs[-1:] + [[j]]
         if c.get("quote"):
-            check("cite", "quote_in_segments:" + where, any(norm(c["quote"]) in norm("".join(segs[j]["text"] for j in r))
+            check("cite", "quote_in_segments:" + where, any(quoted(c["quote"], [segs[j]["text"] for j in r])
                                                           for r in runs if all(0 <= j < len(segs) for j in r)))
         value = "" if c.get("value") is None else str(c["value"])
         if NUMERAL.search(f"{c.get('quote') or spoken} {value}"):
             by_frame = pts if mode == "visible_only" else inside
             check("cite", "number_has_frame_or_label:" + where, by_frame or side or c.get("asr_only") is True,
                   "an in-span frame or crop, a page sidecar, or asr_only")
-            tokens = [norm(t) for t in NUMBER_TOKEN.findall(value) if NUMERAL.search(t)]
-            if tokens and not by_frame:  # no picture confirms it: the number must be in the speech or the page data
-                texts = [norm(json.dumps(v, ensure_ascii=False)) for v in values if v is not MISSING]
-                texts += [norm(spoken)] if c.get("asr_only") is True else []
-                check("cite", "value_in_evidence:" + where, all(any(t in x for x in texts) for t in tokens), value)
+            tokens = numbers(value)
+            if tokens and not by_frame:  # no picture confirms it: each number is a whole number of the speech or page data
+                texts = [json.dumps(v, ensure_ascii=False) for v in values if v is not MISSING]
+                texts += [s["text"] for s in spans] if c.get("asr_only") is True else []
+                check("cite", "value_in_evidence:" + where, tokens <= set().union(*map(numbers, texts)), value)
         if bad & set(ids):
             flagged = [f"E{j + 1:03d}" for j in sorted(bad & set(ids))]
             out["flags"].setdefault("claims_citing_flagged", {})[where] = flagged

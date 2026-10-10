@@ -20,6 +20,8 @@ projection, never the raw info JSON.
         && mv -n "$ROOT/sha256/.stage-$sha" "$dst"; fi
       echo "$sha  $F" >> "$S/SHA256SUMS"
     done
+    if [ -e .cookies.tmp ]; then awk -F'\t' 'NF == 7 && length($7) >= 8 {print $7}' .cookies.tmp > .cookie-values
+      if [ -s .cookie-values ] && grep -rlF -f .cookie-values "$S" "$B/probe"; then echo "cookie value kept" >&2; exit 1; fi; fi
     mv "$S" "$B/media" && rm -rf "$W"
 
 "already held" means the same bytes as an earlier source. A local file skips the download: check
@@ -35,9 +37,6 @@ change to `claims.json`; the loop must print nothing:
     rsync -a --ignore-existing "$ROOT/sha256/" "$BK/sha256/" && rsync -a "$ROOT/bundles" "$BK/"
     for r in "$ROOT" "$BK"; do for f in "$r"/sha256/*.*; do echo "$(basename "${f%.*}")  $f" | shasum -a 256 -c --status || echo "BAD $f"; done; done
 
-Cookies: only a file the user supplied for this, only for Bilibili, passed as a temporary copy
-(`--cookies .cookies.tmp`; yt-dlp rewrites it); never record its path. Before `mv "$S" "$B/media"`, no
-cookie value may be in a kept file (values under 8 characters are too common to test):
-
-    awk -F'\t' 'NF == 7 && length($7) >= 8 {print $7}' .cookies.tmp > .cookie-values
-    if [ -s .cookie-values ] && grep -rlF -f .cookie-values "$S" "$B/probe"; then echo "cookie value kept" >&2; exit 1; fi
+Cookies: only a file the user supplied for this, only for Bilibili, passed as a temporary copy in `W`
+(`--cookies .cookies.tmp`; yt-dlp rewrites it); never record its path. The custody block above refuses a stage
+that holds one of its values (values under 8 characters are too common to test).

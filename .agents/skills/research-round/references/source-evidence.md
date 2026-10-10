@@ -49,12 +49,12 @@ A clean-context reviewer gets the attempt and claim IDs only, then:
 
 1. restores `check.json` and, with `material restore`, each file its `files` list names into an empty
    directory, refusing any path outside the checker README's layout; media come from the backup `sha256/`;
-2. runs `git show origin/main:services/video-evidence/check_bundle.py` (before its first merge, the PR
-   head) with `--restored` and `PATH=/usr/bin:/bin:/opt/homebrew/bin`; its `checker_git_blob` must equal
-   that file's `git rev-parse`;
-3. reruns the probe through `identity.jq` (and the page record) and compares with the retained files, then
-   reruns language detection and the transcript as video-evidence `transcribe.md` "Reviewer rerun" says:
-   the language must match and `transcript.json` be byte-identical, or no claim stands;
+2. runs `git show origin/main:services/video-evidence/check_bundle.py` (before its first merge, the PR head)
+   with `--restored` and `PATH=/usr/bin:/bin:/opt/homebrew/bin`; `checker_git_blob` equals its `git rev-parse`;
+3. reruns `identity.jq` on a new probe and `page_record.py` on the page, and compares `identity.json` and, in
+   `page.json`, the object holding `media_url` (URL, duration, `created_at`, author) and every cited `json_path`
+   (counters and related lists change); then reruns language detection and the transcript as video-evidence
+   `transcribe.md` "Reviewer rerun" says: same language and byte-identical `transcript.json`, or no claim stands;
 4. opens every cited frame and crop: does it show the value, are role and timeframe what the author
    said, is inference labeled `inferred`, is a restatement by the same author counted once? The
    decision records accepted and rejected claims.

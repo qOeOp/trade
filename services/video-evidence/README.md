@@ -25,7 +25,7 @@ another build). `"ok": true` says that what the bundle holds is consistent, not 
       media/receipt.json              allowlist projection of the download (assets/receipt.jq)
       media/SHA256SUMS                "<sha256>  <downloaded name>" per identity file
       asr/transcript.json, run.json   raw ASR output; {pcm_sha256, detected_language, versions, model, argv}
-      frames/<dir>/*.png, grid.tsv    file, pts n*num/den, decoded-frame SHA-256, PNG SHA-256 (grid/ required)
+      frames/<dir>/*.png, grid.tsv    file, pts n*num/den, decoded-frame SHA-256, PNG SHA-256 (grid/ once any)
       crops/*.png, crops.tsv          file, SHA-256, parent media, parent pts, parent decoded SHA-256, WxH+X+Y
       <stage>/FAILED                  the verbatim error line (query strings removed) and the command
       claims.json                     the claims below
@@ -71,16 +71,18 @@ Research claims add the keys in `research-round/references/source-evidence.md`.
   engine and model; `argv` exactly the recipe's with `detected_language`, which equals the transcript
   language; the input is the one audio identity file, whose 16 kHz mono PCM is recomputed against
   `pcm_sha256`.
-- Frames: `frames/grid` exists and has a row in every 6 s that holds a frame, plus the tail frame; every
-  directory binds the single video identity file; row shape, rows agreeing across directories and PNG
-  SHA-256. At every cited frame, crop parent, first and last grid row and at least 3 rows sampled from the
-  media hash, one decode recomputes the decoded-frame hash, the PNG pixels (rgb24) and each crop's pixels.
-- Claims: the bundle lists media; segments exist and a quote lies in consecutive ones; `transcript_sha256`
-  binds them; frames are grid rows by identity; crops exist; sidecars resolve in `probe/page.json`;
-  `explicitness` is consistent; cited frames and crops lie in the cited speech span ±0.5 s unless
-  `visible_only`; a quote or value with a numeral (Arabic, Chinese or English words) has an in-span frame
-  or crop, a sidecar or `asr_only`, and without a frame its value is in the sidecar or the speech; a claim
-  citing a flagged span records a limitation; an `exclusive_group` has 2+ claims.
+- Frames: once any frames directory exists, `frames/grid` does, with a row in every 6 s that holds a
+  frame and the tail frame; every directory binds the single video identity file; row shape, rows
+  agreeing across directories and PNG SHA-256. At every cited frame, crop parent, first and last grid
+  row and at least 3 rows sampled from the media hash, one decode recomputes the decoded-frame hash, the
+  PNG pixels (rgb24) and each crop's pixels.
+- Claims: the bundle lists media; segments exist and a quote lies in consecutive ones without cutting a
+  number (numbers compare as whole tokens: 9.4 is not in 79.4); `transcript_sha256` binds them; frames
+  are grid rows by identity; crops exist; sidecars resolve in `probe/page.json`; `explicitness` is
+  consistent; cited frames and crops lie in the cited speech span ±0.5 s unless `visible_only`; a quote
+  or value with a numeral (Arabic, Chinese or English words) has an in-span frame or crop, a sidecar or
+  `asr_only`, and without a frame each number of its value is a whole number of the sidecar or the
+  speech; a claim citing a flagged span records a limitation; an `exclusive_group` has 2+ claims.
 
 ## Flags (heuristics for a reader)
 
