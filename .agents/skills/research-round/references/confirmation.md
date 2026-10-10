@@ -5,8 +5,8 @@ frozen. Nothing needs to be collected in advance: a window is independent becaus
 attempt was published before the window began.
 
 1. **Freeze.** Pass review ([review.md](review.md)). Publish a pending confirmation attempt that binds
-   the frozen strategy and states in its plan the configuration, image, cost model, window length and
-   preregistered decision ranges. Exposure honestly lists the development runs.
+   the frozen strategy and states in its plan the freeze review's material ID, the configuration,
+   image, cost model, window length and preregistered decision ranges. Exposure honestly lists the development runs.
 2. **Wait** until the window has passed.
 3. **Build inputs** for that window with a data recipe and record their input identity.
 4. **Run once**, then `artifacts register --evidence-grade independent --dry-run`, then register for
@@ -16,4 +16,3 @@ attempt was published before the window began.
 
 Code checks only the strategy binding and the time order; review checks the rest. A used window is
 development-exposed afterwards. Data from before the attempt's publication is never independent.
-Paper running checks implementation, not statistics, and real money needs the user's authority.

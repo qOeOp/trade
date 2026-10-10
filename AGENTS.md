@@ -1,33 +1,67 @@
-# Project principles
+# Agent rules
 
-- Agent first: external Agents choose research questions and methods. Use native Nautilus APIs and scripts; do not build a parallel research workflow, strategy language, matching engine or trading ledger.
-- Strategy source is the primary product artifact. Keep each independent strategy's complete trading rules in one UTF-8 Python file; develop drafts in temporary directories and publish complete bytes, revisions and fixed derivation relations to Dolt. Export a fixed Dolt revision for execution rather than committing new strategy bodies to product Git. Bind each independent strategy to a fixed-capital native account. R1's 37 instruments form one strategy/account for the current replay.
-- A new registered run binds its exact Dolt strategy revision, source SHA-256, immutable OCI image manifest digest, platform and resolved configuration. The image owns Python, Nautilus, shared replay and audit code. Git maintains shared tooling, image build inputs, tests and historical evidence; a product Git commit is not the execution identity for this path.
-- Use `BacktestNode` to load funding from the existing Catalog. `backtest/r1/native_node.py` validates inputs and derives native MARK updates from the prepared MARK bars; Nautilus owns settlement, orders, fills, risk and account state.
-- Preserve causal clocks, native order protection, reproducible research evidence and data lineage. A strategy, dependency or data change requires a new paired replay before claiming parity.
-- Keep one current product blueprint in `docs/architecture.zh.md`. Record research/product findings under `docs/plans/`.
-- Repository Agent skills follow the Agent Skills standard and live once in `.agents/skills/` (read by Codex); `.claude/skills` is a relative symlink to it for Claude Code. Add or edit skills only under `.agents/skills/`; never keep a second copy.
-- During strategy R&D, keep hypotheses, results and next decisions in their attempt/run records; separately record material or recurring research-workbench gaps as product findings under `docs/plans/` with affected attempt IDs, blocked Agent task, evidence, iteration cost, workaround and smallest shared capability needed.
-- Research backtests are read-only. Real trading, production writes, or changing a refusal or risk boundary require explicit user authority. Do not use exchange trading credentials for research.
+External Agents choose research questions and methods. This repository supplies the skills, the
+contracts enforced by code (Dolt publication API, digest-pinned OCI runtime) and published Nautilus.
+Blueprint: `docs/architecture.zh.md` (English twin `docs/architecture.md`).
 
-## Research records and retained results
+## Needs the user's explicit authority
 
-- Before extending a prior hypothesis or combining strategy variants, search the Dolt research records with `uv run --frozen python -m research.records.cli` (`find`, `show <id> --brief`, then full `show` or `compare` for evidence); use `material search` and `material show` for source material and archived research notes. Fix an exact Dolt commit with `--at` when citing a record snapshot. For a new hypothesis, discover `contract attempt`, preflight with `publish attempt --dry-run`, then publish its pending v3 attempt directly to Dolt before inspecting the new result and bind the returned initial ID/revision/commit. Preserve the registered contract; changed intent requires a new attempt. Historical v2 remains readable. Follow `research/records/README.md` for the record contract.
-- Any new stored field requires an independent sub-agent review before implementation: identify its concrete consumer, independent fact and why existing fields or fixed relations cannot express it. Prefer derivation and existing relations; do not add mandatory prose to simulate content quality. Record retain/drop/derive decisions under `docs/plans/`.
-- Dolt is the single writer for complete current strategy source, research metadata and material revisions. Git owns maintained shared tools, image build inputs and retained historical evidence. Attempt/run registration exists only in Dolt; material imports cannot create these records, and there is no Git metadata backend or old-registration compatibility path. An unavailable Dolt backend must fail visibly. Keep the database, configuration, backups, retained images and artifacts outside Git and `/tmp`.
-- Automatic material import preserves original bytes, hashes and source locations. It may extract explicit links and typed references; ambiguous support, correction, refutation or downstream impact requires Agent review. Append-only revisions are enforced by the publication API, not a claim that an administrator cannot change SQL data.
-- Strategy drafts, exploratory scripts and derived reports default to `/tmp`; maintained shared tools belong in Git. Publish initial contracts and later decisions only to Dolt from temporary payloads. Keep no experiment receipt files in the product tree. A retained claim must explain its scope, decision value and evidence; verified rebuildable outputs are caches. Retain accessible strategy bytes, exact image bytes and canonical inputs for replay recovery; an image digest or report-only restore is insufficient. Freeze only the one-off generator/dependencies needed for a retained conclusion in an external recipe, reference canonical inputs once, and verify reconstruction before removing dependent evidence. Material import is archival custody, not knowledge admission; use `material admit` for reviewed claims and `--include-archive` for historical source searches. The fixed `research/records/history.json` locates old source bytes without returning historical scripts/results to the current product tree.
-- For a registered R1 tiered replay intended to inform a research decision, run the existing native runner through `uv run --frozen python -m research.records.artifacts run`, then verify, register and back up the sealed result as described in that guide. The artifact root is a configurable local directory outside Git and `/tmp`.
-- Direct `run_portfolio.py` outputs under `/tmp` are useful for diagnostics and historical replay; label them temporary rather than recoverable research evidence. The Agent still chooses the question, method and next experiment; a passed artifact audit is not strategy qualification.
+Stop and ask before any of these:
 
-## Using Nautilus APIs
+- Real trading, live venue connections or exchange trading credentials. Research never uses them.
+- Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
+  records, sealed artifacts, artifact or database backups, retained runtime images, canonical
+  Catalog inputs or historical receipts.
+- Changing (relaxing or tightening) a refusal, audit check, risk limit or research goal in code,
+  tests, configuration or a skill, including to get past a failing check.
 
-- Work against the version pinned in the selected runtime image (built from `pyproject.toml` and `uv.lock`, currently `nautilus_trader==2.0.0rc3`). Inspect that installed package and the runnable examples in `backtest/r1/` before assuming an API or behavior exists.
-- When more detail is needed, search version-matched official Nautilus documentation or source. Treat current-version pages and community examples as leads until their behavior is verified against the pinned local package.
-- Test uncertain API behavior with a small native probe. After changing a Strategy, data adapter, or Nautilus version, run the relevant native replay and inspect order integrity, fees, funding, and account results; rerun paired acceptance before claiming parity.
+Tests, demos and engineering trials write only to an isolated Dolt database, never the active
+ledger: publication is append-only.
 
-## Checks
+## Code or Agent
 
-- PR titles must use `type(scope): description` (or `type(scope)!: description` for a breaking change), with lowercase type and scope; for example, `research(r1): record D98 support failure`. Validate the actual title with `bash .github/scripts/validate-pr-title.sh "<title>"` before creating or editing a PR. Follow `.github/pull_request_template.md` for the body and report checks actually run.
+- Add product code (records, replay, shared tools) only for a trust boundary (otherwise the Agent
+  grades its own work), a fix to an existing defect, or something an Agent cannot do (atomic writes,
+  concurrency, permissions). Everything else is Agent work guided by a skill; strategy source and
+  `/tmp` scripts are Agent work, not product code.
+- Nautilus owns orders, fills, settlement, risk and account state. Do not build a parallel engine,
+  ledger, strategy language, scheduler or research workflow.
+- Before adding a stored field, get an independent sub-agent review (its consumer, the independent
+  fact, why existing fields, relations or derivation cannot express it) and record the decision
+  under `docs/plans/`.
 
-Run `uv sync --frozen`, `uv run --frozen python -m backtest.r1.run_portfolio --help`, and the paired replay described in `backtest/r1/README.md` when its inputs are available. Inspect native order integrity and account economics; a successful process exit alone is insufficient.
+## Where things go
+
+- By default, strategy drafts, exploratory scripts and derived reports go in `/tmp`; evidence a
+  decision cites is retained outside Git and `/tmp` (see `research-round`).
+- Complete strategy source (one UTF-8 file per independent strategy), research records and
+  decisions: Dolt. Write attempts, runs and strategies only through their `python -m
+  research.records.cli` / `research.records.artifacts` commands, never through the raw store
+  adapter or direct SQL (evidence materials: see `research-round`). No strategy bodies
+  or new experiment receipts in Git.
+- Product and workbench findings: `docs/plans/`. Skills: `.agents/skills/` only (`.claude/skills` is
+  a symlink to it).
+
+## Skills
+
+- `research-round`: before running a backtest for a research question, publishing an attempt,
+  choosing the next experiment, or claiming that a strategy improved, failed or generalized.
+- `native-report-analysis`: before computing any statistic from sealed native reports.
+
+## Nautilus and parity
+
+- Check Nautilus APIs against the version pinned in `uv.lock` and the code in `backtest/r1/`; probe
+  uncertain behavior natively. Registered runs execute the image, so a `backtest/r1` edit reaches
+  them only through a new image digest.
+- When a change should preserve behavior (strategy refactor, data adapter, dependency or Nautilus
+  version), run the paired native replay in `backtest/r1/README.md` before claiming parity. Inspect
+  causal clocks, order protection and integrity, fees, funding and account economics; a clean exit
+  or green tests is not parity. A research change to a strategy follows `research-round` instead.
+
+## Checks and PRs
+
+- Code changes: `uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'` (Dolt
+  integration tests skip unless `RESEARCH_DOLT_TEST_CONFIG` is set; see `research/records/README.md`).
+- PR titles are lowercase `type(scope): description` (`type(scope)!:` when breaking); check with
+  `bash .github/scripts/validate-pr-title.sh "<title>"`. The body follows
+  `.github/pull_request_template.md` and reports only checks actually run.

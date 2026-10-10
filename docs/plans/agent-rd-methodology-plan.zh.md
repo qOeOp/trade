@@ -182,7 +182,7 @@ README 已要求写预算、停止条件、最大 run 数、可用确认数据�
 它的局限也有明确证据：
 
 - Claude Code 官方文档把 hooks 定位为"确定性控制，而不是依赖 LLM 选择去执行"。md 只是建议，不是保证。
-- ETH 等的 ICLR 2026 论文（Gloaguen et al.）发现，仓库级上下文文件总体上**没有提高**编码任务成功率，推理成本却平均增加 20% 以上。Agent 确实遵守了其中的指令，但大段概览没有帮助。作者建议只写最少的必要要求，部署前先评估。该研究针对编码任务，不是研究流程。
+- ETH 等的 Gloaguen et al.（ICLR 2026 workshop "Agentic AI in the Wild" 海报，arXiv 2602.11988）发现，仓库级上下文文件总体上**没有提高**编码任务成功率（v1 摘要写的是"倾向于降低"，v2/v3 改为"总体没有提高"），推理成本却平均增加 20% 以上。Agent 确实遵守了其中的指令，但大段概览没有帮助。v1 建议只写最少的必要要求；v3 建议只写代码库和 README 里没有的指令，并在部署前评估。该研究针对编码任务，不是研究流程。
 
 因此产品形态定为：
 
@@ -193,6 +193,8 @@ README 已要求写预算、停止条件、最大 run 数、可用确认数据�
 | 评估 | 冻结的案例集，用干净上下文的 Claude/Codex 定期重放；下一轮研发后做过程审计 | md 是软约束，只有用评估才能知道它是否起作用，以及是否该删减 |
 
 skill 里的每一条要求，都要能在案例重放或台账审计中观察到是否被遵守；观察不到的要求就删掉。
+
+2026-10-10 补充审计（[skill 产品形态审计](skill-product-form-audit.zh.md)）有三处修正：一是加一层常驻规则（瘦身后的 AGENTS.md）；二是"硬约束"在本机的实际强度只是"内容寻址身份让篡改可被发现 + 正常 API 路径上的防误拒绝"，绕过要靠评估层检测，并非无法绕过（第 148 行的"无法绕过"以此为准）；三是 research-round skill 按"可观察或删除"规则改了几处（见审计第六节）：G1 设计审阅与纸上运行已删除，冻结审阅只在确认与知识准入之前，进展检查改为同一目标三次经济失败后必须作答。本文"进展检查"与"独立审阅"两节以 skill 为准。
 
 ## 产品改造工作包
 
@@ -315,6 +317,6 @@ skill 里的每一条要求，都要能在案例重放或台账审计中观察�
 | Man AHL (2015) Overfitting roundtable | 全文（公司观点内容） | [Man](https://www.man.com/insights/overfitting-and-its-impact-on-the-investor) |
 | Bailey & López de Prado (2015) Triple penance, J. Risk 18(2) | 部分 | DOI 10.21314/jor.2015.317 |
 
-产品形态相关来源：[Linux Foundation 成立 Agentic AI Foundation（AGENTS.md、MCP）](https://linuxfoundation.org/press/linux-foundation-announces-the-formation-of-the-agentic-ai-foundation)；[Agent Skills 开放标准](https://agentskills.io/)；[Claude Code hooks 指南](https://code.claude.com/docs/en/hooks-guide)；[Gloaguen et al., Evaluating AGENTS.md（ICLR 2026）](https://arxiv.org/abs/2602.11988)，读了摘要。
+产品形态相关来源：[Linux Foundation 成立 Agentic AI Foundation（AGENTS.md、MCP）](https://linuxfoundation.org/press/linux-foundation-announces-the-formation-of-the-agentic-ai-foundation)；[Agent Skills 开放标准](https://agentskills.io/)；[Claude Code hooks 指南](https://code.claude.com/docs/en/hooks-guide)；[Gloaguen et al., Evaluating AGENTS.md（ICLR 2026 workshop 海报）](https://arxiv.org/abs/2602.11988)，读了 v1–v3 摘要与 v3 引言、结论。后续审计见 [skill 产品形态审计](skill-product-form-audit.zh.md)。
 
 没有找到行业公认、覆盖整个 Agent 投研过程的统一标准；这不是穷尽检索后的不存在证明。上表中多篇 2025–2026 预印本只用于说明失效模式，不作为协议硬规则的唯一依据。

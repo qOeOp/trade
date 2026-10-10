@@ -116,6 +116,11 @@ isolation; the retained image bytes supply a reproducible environment.
 
 ## Paired acceptance and history
 
+After changing a strategy, data adaptation, dependency or Nautilus, first run a
+BTC/ETH pilot (`--coins BTC ETH`) of each affected source, then the full
+37-instrument replay of each source still under research. Compare each run with
+a frozen native control of the same instruments, window and configuration:
+
 ```bash
 uv run --frozen python -m backtest.r1.checks.compare_node \
   /path/to/frozen/native-control /tmp/r1-external-h19a-37
