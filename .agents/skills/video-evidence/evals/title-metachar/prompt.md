@@ -1,5 +1,5 @@
 ---
-description: Regression — with the skill, source text such as a title never enters a file name or a command line.
+description: Regression — with the skill, source text such as a title is never typed into a command, file or link name.
 plugins: ["../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

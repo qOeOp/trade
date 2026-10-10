@@ -77,8 +77,8 @@ run ASR and downloads in the background and poll for that file.
 
 - Run `yt-dlp` with a flag the recipes do not use, run `python -m yt_dlp`, or drop `--ignore-config
   --no-plugin-dirs`, `--no-playlist` (outside the part listing) or the `--` before the URL.
-- Name a file, directory, link or `-o` template after a title or other source text (`%(title)s` included),
-  even sanitized or when the user asks; offer the title from `probe/identity.json` instead.
+- Type source text (title, uploader, a path it names) into a command, file or link name, even quoted or when
+  asked. A titled copy comes from yt-dlp's own `-o '%(title)s.%(ext)s'` (no shell sees it), outside the bundle.
 - Keep raw info JSON, page HTML or a `-v` download log: their URLs carry your IP, account ID and cookies.
 - Rerun a download over its `source.*`, `*.part` or `*.ytdl` files, or keep media that fails the decode
   check (yt-dlp's own retries resume with `Range` and can join two CDN copies).
