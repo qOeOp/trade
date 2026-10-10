@@ -121,6 +121,13 @@ isolation; the retained image bytes supply a reproducible environment.
 
 ## Paired acceptance and history
 
+The runner also exports `order_events.jsonl.gz`: unchanged native event dictionaries
+from each cached order after replay. Orders are grouped by client order ID; events
+retain their native order within that order. File line order is not a global engine
+processing order. This report carries accepted, modified, canceled and expired
+history absent from terminal order rows. Existing seals include and hash it like
+other report files; older images may lack it.
+
 After changing a strategy, data adaptation, dependency or Nautilus, first run a
 BTC/ETH pilot (`--coins BTC ETH`) of each affected source, then the full
 37-instrument replay of each source still under research. Compare each run with
