@@ -524,12 +524,16 @@ and integrity checks passed, not that the strategy meets an economic goal.
 uv run --frozen python -m research.records.artifacts verify --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID
 uv run --frozen python -m research.records.artifacts backup --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID --backup-root /path/to/second/local/directory
 uv run --frozen python -m research.records.artifacts restore --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID --destination /path/to/new/empty/output
-uv run --frozen python -m research.records.artifacts register --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID --role diagnostic --cost-model 'frozen native fees and Catalog funding'
+uv run --frozen python -m research.records.artifacts register --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID --role diagnostic --cost-model 'COST-MODEL-TEXT'
 TRADE_RESEARCH_ARTIFACT_ROOT="$ARTIFACT_ROOT" uv run --frozen python -m research.records.cli validate
 ```
 
 `register` publishes a schema-checked Dolt run, binding the external manifest
 by SHA-256 and the source/runtime identities. It creates no Git `run.json`.
+For a candidate, read the fixed control's full recorded `cost_model`, confirm
+that both seals used the same native fees and funding, and only then reuse that
+text; `compare` refuses any textual difference and never treats an abbreviation
+as the same fee model.
 The record CLI resolves `artifact://` refs through
 `TRADE_RESEARCH_ARTIFACT_ROOT`. Failed execution can be registered as a diagnostic
 without a native summary. Full raw inputs remain in the source Catalog.
@@ -539,6 +543,36 @@ for two migrated runs, alongside the research control, data, account, costs and
 audit contracts. A legacy-versus-migrated comparison requires explicit
 `compare --engineering-audit`; it is an implementation comparison, not evidence
 that a different runtime or source is scientifically equivalent.
+
+Compare refusals keep their message text and add the refused field: `code`
+(`decision_pair_role_mismatch`, `decision_pair_integrity` or
+`decision_pair_incomparable`), a JSON-pointer `path`, `expected` (both recorded
+values for a field or role conflict, the registered control for an unregistered
+one, the required state for an audit refusal) and `write_status: not_written`.
+
+### Read one sealed run or a registered pair
+
+```bash
+uv run --frozen python -m research.records.artifacts report --root "$ARTIFACT_ROOT" --run-id MY-RUN-ID
+TRADE_RESEARCH_ARTIFACT_ROOT="$ARTIFACT_ROOT" uv run --frozen python -m research.records.cli --at FIXED-COMMIT compare CANDIDATE-RUN CONTROL-RUN --analysis
+```
+
+`report` verifies the seal, re-hashes the bytes it parses and splits closed
+PnL into fill price PnL, commissions and funding. It prints that split, the
+open-position count and the unrealized residual only when they reconcile to the
+audited `native_economics`. It reads no Dolt and never parses `account.csv`. A
+failed seal reports its status and problems with null economics. Descriptive
+statistics (win rates, holding time, order funnel, drawdowns, monthly or
+per-instrument contribution) are computed by the Agent from the verified seal,
+following `.claude/skills/native-report-analysis/SKILL.md`. `compare --analysis` runs the unchanged formal compare first; both
+runs must be sealed with a Dolt-anchored manifest. It adds the reconciled readings of
+both runs to `metrics`, the candidate's frozen `selection`, and a paired ISO-week interval of
+annualized relative growth only when the preregistered `primary_response` is
+`final_equity_usdt`; it cannot be combined with `--engineering-audit`. Both print one bounded JSON object (at most
+32 KiB) and report errors as structured JSON on stderr; any reading that cannot
+be derived is null with its reason in `limitations`. Output is a temporary derived read: cite the run, its manifest
+SHA-256 and the `analysis` source hashes, not the printed JSON. Definitions are
+in `docs/plans/native-rd-analysis-fields.zh.md`.
 
 `--source-ref` remains an explicit frozen historical source mode. It captures
 that Git commit's source paths and lockfile and runs the matching historical

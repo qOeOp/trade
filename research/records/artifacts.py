@@ -906,6 +906,11 @@ def main() -> int:
     check = commands.add_parser("verify", help="rehash one sealed run")
     check.add_argument("--root", type=Path, required=True)
     check.add_argument("--run-id", required=True)
+    diagnosis = commands.add_parser(
+        "report", help="diagnose one sealed run from its verified native reports (read-only, no Dolt)"
+    )
+    diagnosis.add_argument("--root", type=Path, required=True)
+    diagnosis.add_argument("--run-id", required=True)
     recovery = commands.add_parser("restore", help="restore native reports")
     recovery.add_argument("--root", type=Path, required=True)
     recovery.add_argument("--run-id", required=True)
@@ -955,6 +960,9 @@ def main() -> int:
             )
         elif args.command == "verify":
             result = verify(args.root, args.run_id)
+        elif args.command == "report":
+            from research.records.analysis import report
+            result = report(args.root, args.run_id)
         elif args.command == "register":
             result = register(
                 root=args.root,
@@ -977,6 +985,8 @@ def main() -> int:
         else:
             result = restore(args.root, args.run_id, args.destination)
     except (ArtifactError, RecordError, OSError, KeyError, ValueError) as exc:
+        if args.command == "report" and isinstance(exc, RecordError):
+            parser.exit(2, json.dumps({"error": exc.as_dict()}, ensure_ascii=False) + "\n")
         parser.exit(2, f"artifact custody error: {exc}\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 1 if args.command == "run" and result["status"] != "passed" else 0
