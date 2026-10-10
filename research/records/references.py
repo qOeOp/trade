@@ -287,6 +287,8 @@ def resolve_link(href, source_path, source_provenance, objects, *, root=ROOT, re
     ``repository_root`` is the original root used by absolute links, and must
     match on a complete path boundary. Supplemental objects are caller-retained
     payloads, not permission to search untracked files. No publication occurs.
+    A callable ``objects`` receives the normalized, checked path so callers can
+    load only that path's retained revisions at their fixed database snapshot.
     """
     requested_root = Path(root).absolute()
     root = requested_root.resolve()
@@ -363,7 +365,7 @@ def resolve_link(href, source_path, source_provenance, objects, *, root=ROOT, re
             return _result("unsafe", proof, reason="symlink_path")
     if line is not None and line < 1:
         return _result("unresolved", proof, reason="line_out_of_bounds")
-    supplied = list(objects)
+    supplied = list(objects(path) if callable(objects) else objects)
     additions = list(supplemental_objects)
     candidates = [obj for obj in supplied + additions if obj.get("kind") in {"material", "evidence_json", "attempt", "run"}
                   and obj.get("provenance", {}).get("path") == path]

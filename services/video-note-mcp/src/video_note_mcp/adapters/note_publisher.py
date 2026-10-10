@@ -32,7 +32,9 @@ class LocalNotePublisher:
     def publish(self, drafts: tuple[NoteDraft, ...]) -> PublishedNote:
         if not 1 <= len(drafts) <= 3:
             raise BilibiliNoteFailure("OUTPUT_INVALID", "bundle_count_invalid")
-        root = self.root.expanduser().absolute()
+        root = self.root.expanduser()
+        if not root.is_absolute():
+            raise BilibiliNoteFailure("OUTPUT_INVALID", "output_root_not_absolute")
         if any(p.is_symlink() for p in (root, *root.parents)):
             raise BilibiliNoteFailure("OUTPUT_INVALID", "output_root_symlink")
         root.mkdir(parents=True, exist_ok=True, mode=0o700)

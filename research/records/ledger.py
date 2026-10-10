@@ -12,7 +12,7 @@ import time
 
 import pymysql
 
-from research.records.common import ROOT, RecordError, _read_json
+from research.records.common import ROOT, RecordError, _is_temporary_path, _read_json
 from research.records.dolt_store import DoltStore, DOLT_VERSION
 from research.records.materials import scan
 from research.records.migration import original_bytes, publish
@@ -105,16 +105,18 @@ def stop(config):
 
 def initialize(binary, root=DEFAULT_ROOT, port=13326):
     root = Path(root).expanduser().resolve()
-    if root.is_relative_to(ROOT) or root.is_relative_to(Path("/tmp").resolve()):
-        raise RecordError("metadata database must be outside Git and /tmp")
+    if root.is_relative_to(ROOT.resolve()) or _is_temporary_path(root):
+        raise RecordError("metadata database must be outside Git and /tmp or the system temp directory")
     path = config_path()
+    if path.resolve().is_relative_to(ROOT.resolve()) or _is_temporary_path(path):
+        raise RecordError("backend config must be outside Git and /tmp or the system temp directory")
     config = {"root": str(root), "binary": str(Path(binary).resolve()), "host": "127.0.0.1", "port": port,
               "user": "root", "password": "", "database": "research_records", "dolt_version": DOLT_VERSION, "schema_version": 1}
     _binary(config)
     if path.exists() and _read_json(path) != config:
         raise RecordError(f"existing backend config differs: {path}; no implicit replacement")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path.write_text(json.dumps(config, indent=2) + "\n")
+    path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     path.chmod(0o600)
     start(config)
     return {"config": str(path), **DoltStore(config).initialize()}
@@ -122,8 +124,8 @@ def initialize(binary, root=DEFAULT_ROOT, port=13326):
 
 def backup(config, destination):
     destination = Path(destination).expanduser().resolve()
-    if destination.is_relative_to(ROOT) or destination.is_relative_to(Path("/tmp").resolve()) or destination.exists():
-        raise RecordError("native backup requires a new external directory outside Git and /tmp")
+    if destination.is_relative_to(ROOT.resolve()) or _is_temporary_path(destination) or destination.exists():
+        raise RecordError("native backup requires a new external directory outside Git and /tmp or the system temp directory")
     adapter = DoltStore(config)
     status = adapter.status()
     if status["dirty"]:
@@ -135,13 +137,14 @@ def backup(config, destination):
 
 
 def material(adapter, action, *, at=None, identity=None, revision=None, query=None, destination=None,
-             brief=False, include_archive=False):
+             brief=False, include_archive=False, purpose=None, outcome=None, view=None):
     fixed = at or adapter.status()["commit"]
     if action == "search":
         from research.records.retrieval import load_search, search
         objects, relations = load_search(adapter, fixed, include_archive=include_archive)
         return {"commit": fixed, **search(objects, relations, query,
-                                         include_archive=include_archive)}
+                                         include_archive=include_archive, purpose=purpose,
+                                         outcome=outcome, view=view)}
     obj = adapter.get_object(identity, revision=revision, commit=fixed)
     if obj is None:
         raise RecordError(f"unknown material revision: {identity}@{revision or 'latest'}")
@@ -157,21 +160,22 @@ def material(adapter, action, *, at=None, identity=None, revision=None, query=No
             os.fsync(target.fileno())
         return {"commit": fixed, "id": identity, "revision": obj["revision"], "destination": str(path),
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "bytes": len(raw)}
-    all_relations = adapter.list_relations(commit=fixed)
-    relations = [edge for edge in all_relations if
-                 (edge["from_id"], edge["from_revision"]) == (identity, obj["revision"]) or
-                 (edge["to_id"], edge["to_revision"]) == (identity, obj["revision"])]
-    from research.records.retrieval import admission_view, admissions, corrections, load_show, resolved_references
-    reader, correction_relations = load_show(adapter, fixed, obj, all_relations)
-    active = resolved_references(reader, obj, all_relations)
+    selected_ref = ((identity, obj["revision"]),)
+    relations = adapter.list_relations(commit=fixed, from_refs=selected_ref, to_refs=selected_ref)
+    from research.records.retrieval import (admission_view, admission_for, corrections, incoming_repairs,
+                                           load_show, reference_view, resolved_references)
+    reader, correction_relations = load_show(adapter, fixed, obj)
+    active = resolved_references(reader, obj, relations)
     correction = corrections(obj, list(reader.objects.values()), correction_relations)
-    decision = admission_view(admissions(list(reader.objects.values())).get((identity, obj["revision"])))
-    if brief:
-        obj = {**obj, "body": {key: value for key, value in obj["body"].items() if key not in ("text", "content_base64")},
-               "provenance": {key: value for key, value in obj["provenance"].items() if key != "raw_content_base64"}}
-    return {"commit": fixed, "object": obj, "relations": relations,
+    decision = admission_view(admission_for(adapter, fixed, obj))
+    result = {"commit": fixed, "object": obj, "relations": relations,
             "retention_decision": decision, "corrections": correction,
-            "resolved_references": active}
+            "incoming_repairs": incoming_repairs(obj, list(reader.objects.values()), correction_relations),
+            "reference_status": reference_view(obj, active), "resolved_references": active}
+    if brief:
+        from research.records.projections import bounded_brief
+        return bounded_brief(result, at=fixed, identity=identity, revision=obj["revision"])
+    return result
 
 
 def command(args):
@@ -210,10 +214,10 @@ def command(args):
                                       decisions=_read_json(args.decisions) if args.decisions else None,
                                       supplemental=_read_json(args.supplemental)["objects"] if args.supplemental else ())
             destination = args.destination.expanduser().resolve()
-            if destination.is_relative_to(ROOT) or destination.is_relative_to(Path("/tmp").resolve()):
-                raise RecordError("frozen review plan must be outside Git and /tmp")
+            if destination.is_relative_to(ROOT.resolve()) or _is_temporary_path(destination):
+                raise RecordError("frozen review plan must be outside Git and /tmp or the system temp directory")
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            with destination.open("x") as target:
+            with destination.open("x", encoding="utf-8") as target:
                 json.dump(payload, target, ensure_ascii=False, indent=2)
                 target.write("\n")
                 target.flush()
@@ -225,9 +229,12 @@ def command(args):
         return material(store.adapter, args.action, at=args.at, identity=getattr(args, "identity", None),
                         revision=getattr(args, "revision", None), query=getattr(args, "query", None),
                         destination=getattr(args, "destination", None), brief=getattr(args, "brief", False),
-                        include_archive=getattr(args, "include_archive", False))
+                        include_archive=getattr(args, "include_archive", False),
+                        purpose=getattr(args, "purpose", None), outcome=getattr(args, "outcome", None),
+                        view=getattr(args, "view", None))
     if args.at:
         raise RecordError("cannot publish to a historical read snapshot")
     body = _read_json(args.file)
     return store.publish_record("attempt", body, operation_id=args.operation_id, expected_version=args.expected_version,
-                                provenance={"origin": "agent_publication", "input_sha256": hashlib.sha256(args.file.read_bytes()).hexdigest()})
+                                provenance={"origin": "agent_publication", "input_sha256": hashlib.sha256(args.file.read_bytes()).hexdigest()},
+                                dry_run=getattr(args, "dry_run", False))

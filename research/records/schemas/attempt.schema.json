@@ -1,17 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Trade research attempt v2",
+  "title": "Trade research attempt v2 historical and v3 enriched contract",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "attempt_id", "goal_id", "kind", "question", "mechanism", "hypothesis", "parents", "code_parent", "contract", "registration", "decision", "evidence_refs"],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {
+      "enum": [2, 3],
+      "description": "v2 is retained for historical consumers; v3 records purpose, selection and known exposure before results."
+    },
     "attempt_id": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9-]+$"},
     "goal_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["source", "diagnostic", "strategy"]},
-    "question": {"type": "string", "minLength": 1},
-    "mechanism": {"type": "string", "minLength": 1},
-    "hypothesis": {"type": "string", "minLength": 1},
+    "kind": {
+      "enum": ["source", "diagnostic", "strategy"]
+    },
+    "question": {"type": "string", "minLength": 1, "description": "State the research question. Query prior decisions and corrections before extending an existing hypothesis."},
+    "mechanism": {"type": "string", "minLength": 1, "description": "Name the proposed mechanism in plain language; keep provenance and reuse limits in fixed source references."},
+    "hypothesis": {"type": "string", "minLength": 1, "description": "State what the evidence could falsify, without presuming the observed result."},
     "parents": {
       "type": "array",
       "items": {
@@ -20,14 +25,20 @@
         "required": ["attempt_id", "relationship", "difference"],
         "properties": {
           "attempt_id": {"type": "string"},
-          "relationship": {"enum": ["hypothesis_extension", "repair", "composition"]},
+          "relationship": {
+            "enum": ["hypothesis_extension", "repair", "composition"]
+          },
           "difference": {"type": "string", "minLength": 1}
         }
       }
     },
-    "code_parent": {"type": ["string", "null"]},
+    "code_parent": {
+      "type": ["string", "null"]
+    },
     "strategy_binding": {"$ref": "#/$defs/strategy_binding"},
-    "composition_mode": {"enum": ["dependent", "factorial"]},
+    "composition_mode": {
+      "enum": ["dependent", "factorial"]
+    },
     "comparison_family": {
       "type": "object",
       "additionalProperties": false,
@@ -79,16 +90,20 @@
       "additionalProperties": false,
       "required": ["scope", "plan"],
       "properties": {
-        "scope": {"type": "string", "minLength": 1},
-        "plan": {"type": "string", "minLength": 1}
-      }
+        "scope": {"type": "string", "minLength": 1, "description": "Bound the data, instruments, account and claim this attempt intends to address."},
+        "plan": {"type": "string", "minLength": 1, "description": "Explain the Agent-chosen method briefly. Cite fixed evidence instead of embedding raw event arrays or reports."},
+        "selection": {"$ref": "#/$defs/selection"}
+      },
+      "description": "The initial research plan is frozen. A changed question, source or selection intent requires a new attempt; later observations belong in decision evidence."
     },
     "registration": {
       "type": "object",
       "additionalProperties": false,
       "required": ["status"],
       "properties": {
-        "status": {"enum": ["preregistered", "retrospective"]}
+        "status": {
+          "enum": ["preregistered", "retrospective"]
+        }
       }
     },
     "decision": {
@@ -96,11 +111,17 @@
       "additionalProperties": false,
       "required": ["layer", "outcome", "scope", "next_action"],
       "properties": {
-        "layer": {"enum": ["source", "data", "execution", "economics", "pending"]},
-        "outcome": {"enum": ["passed", "failed", "inconclusive", "pending"]},
-        "scope": {"type": "string", "minLength": 1},
-        "next_action": {"type": "string", "minLength": 1}
-      }
+        "layer": {
+          "enum": ["source", "data", "execution", "economics", "pending"]
+        },
+        "outcome": {
+          "enum": ["passed", "failed", "inconclusive", "pending"]
+        },
+        "scope": {"type": "string", "minLength": 1, "description": "State what this evidence supports and what remains untested. Passed means only this stated layer passed."},
+        "next_action": {"type": "string", "minLength": 1, "description": "State the next research choice that follows from this bounded result, including failed and uncertain results."},
+        "basis": {"$ref": "#/$defs/decision_basis"}
+      },
+      "description": "Keep pending layer and outcome together until evidence exists. A completed v3 decision identifies the exact evidence used, separately from all later runs."
     },
     "evidence_refs": {
       "type": "array",
@@ -109,11 +130,20 @@
         "additionalProperties": false,
         "required": ["kind", "path", "sha256"],
         "properties": {
-          "kind": {"enum": ["ledger", "source_gate", "summary", "audit", "input_identity", "comparison"]},
+          "kind": {
+            "enum": ["ledger", "source_gate", "summary", "audit", "input_identity", "comparison"]
+          },
           "path": {"type": "string", "minLength": 1},
-          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+          "sha256": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{64}$"
+          }
         }
       }
+    },
+    "purpose": {
+      "enum": ["research", "engineering", "demo", "unknown"],
+      "description": "Declare research, engineering or demonstration use so queries can filter results. Choose unknown rather than inventing a purpose; an engineering pass is not economic validity."
     }
   },
   "$defs": {
@@ -128,8 +158,149 @@
         "revision": {"type": "integer", "minimum": 1},
         "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "entry_class": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
-        "runtime_contract": {"enum": ["r1-native-v1", "r1-native-v2"]}
+        "runtime_contract": {
+          "enum": ["r1-native-v1", "r1-native-v2"]
+        }
+      }
+    },
+    "fixed_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1}
+      },
+      "description": "Reference an existing object at an exact immutable revision. Query it at one fixed Dolt commit; an invented ID or latest alias is not evidence."
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family_id", "primary_response", "known_exposure"],
+      "properties": {
+        "family_id": {"type": "string", "minLength": 1, "description": "Group related selection attempts under one stable family ID. Query the whole family, including failures, before choosing a successor."},
+        "primary_response": {"type": "string", "minLength": 1, "description": "Declare the main observed response before results. Retain other metrics as diagnostics; do not switch the objective to the winning metric."},
+        "known_exposure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "run_refs"],
+          "properties": {
+            "status": {
+              "enum": ["development_exposed", "unknown", "unexposed_declared"],
+              "description": "Declare what was known before this registration. Unknown is valid; unexposed_declared is an Agent declaration, not independently verified holdout custody."
+            },
+            "run_refs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/fixed_ref"},
+              "description": "Bind runs already inspected before registration. Use an empty list when no fixed run exists; explain missing history or inspected windows in the existing plan and scope."
+            }
+          }
+        }
+      }
+    },
+    "decision_basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "evidence_refs"],
+      "description": "Identify the fixed runs or source objects actually used for this decision. Metrics remain owned by native reports. A descriptive observation is not comparative improvement or qualification.",
+      "properties": {
+        "mode": {
+          "enum": ["paired", "descriptive", "source"]
+        },
+        "candidate_run_ref": {"$ref": "#/$defs/fixed_ref", "description": "The fixed candidate revision registered to this attempt. In paired mode the control is derived from its unique compared_with relation; do not declare a second control."},
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/fixed_ref"},
+          "description": "Cite supporting objects by exact revision. A path in prose does not create a fixed evidence object."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {"const": "paired"}
+            }
+          },
+          "then": {
+            "required": ["candidate_run_ref"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {"const": "descriptive"}
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": ["candidate_run_ref"]
+              },
+              {
+                "properties": {
+                  "evidence_refs": {"minItems": 1}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {"const": "source"}
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence_refs": {"minItems": 1}
+            },
+            "not": {
+              "required": ["candidate_run_ref"]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "description": "A frozen initial plan and fixed-evidence decisions. New research prefers v3. Historical fields do not prove pre-result registration or independent validation.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {"const": 3}
+        }
+      },
+      "then": {
+        "required": ["purpose"],
+        "properties": {
+          "contract": {
+            "required": ["selection"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {"const": 3},
+          "decision": {
+            "properties": {
+              "outcome": {
+                "enum": ["passed", "failed", "inconclusive"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "required": ["basis"]
+          }
+        }
       }
     }
-  }
+  ]
 }

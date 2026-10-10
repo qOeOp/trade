@@ -37,10 +37,11 @@ class _Receipt(StrictModel):
 
 class MlxAsr:
     def __init__(self, python: str | None = None) -> None:
-        self._python = python or os.environ.get(
+        selected = python or os.environ.get(
             "BILIBILI_NOTE_MLX_PYTHON",
             str(Path.home() / ".local/share/bilibili-note-mcp/mlx-venv/bin/python"),
         )
+        self._python = str(Path(selected).expanduser()) if selected.startswith("~") else selected
         self._gate = asyncio.Semaphore(1)
 
     async def transcribe(

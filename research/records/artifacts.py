@@ -15,13 +15,13 @@ import shutil
 import stat
 import subprocess
 import sys
-import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from research.records.common import ROOT
 from research.records.common import RecordError
+from research.records.common import _is_temporary_path
 from research.records.common import _read_json
 from research.records.common import _validator
 
@@ -71,6 +71,8 @@ class ArtifactError(Exception):
 def _private_root(root: Path) -> Path:
     if root.is_symlink():
         raise ArtifactError(f"artifact root must not be a symlink: {root}")
+    if root.resolve().is_relative_to(ROOT.resolve()) or _is_temporary_path(root):
+        raise ArtifactError("artifact root must be outside Git and /tmp or the system temp directory")
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     info = root.stat()
     mode = stat.S_IMODE(info.st_mode)
@@ -423,7 +425,7 @@ def _files(stage: Path) -> dict[str, dict]:
 
 
 def _write_json(path: Path, value: dict, *, exclusive: bool = False) -> None:
-    with path.open("x" if exclusive else "w") as stream:
+    with path.open("x" if exclusive else "w", encoding="utf-8") as stream:
         json.dump(value, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
         stream.flush()
@@ -494,12 +496,6 @@ def run(
     identity_digest = _sha(input_identity)
     checked_before = _check_inputs(identity, replay)
     root = root.absolute()
-    if root.resolve().is_relative_to(ROOT) or root.resolve().is_relative_to(
-        Path(tempfile.gettempdir()).resolve()
-    ):
-        raise ArtifactError(
-            "artifact root must be outside Git and the system temp directory"
-        )
     root = _private_root(root)
     target = root / run_id
     if target.exists():

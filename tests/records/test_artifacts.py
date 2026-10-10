@@ -29,7 +29,7 @@ class FrozenSourceLayoutTests(unittest.TestCase):
     """Disposable Git fixtures; no native economics or Dolt writes are asserted."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(prefix="trade-artifact-test-", dir=Path.home())
         self.addCleanup(self.temp.cleanup)
         self.workspace = Path(self.temp.name)
         self.repo = self.workspace / "repo"
@@ -343,7 +343,7 @@ print(Path.cwd())
              patch.object(artifacts, "_check_inputs", return_value={"fixture": "no Catalog mutation"}), \
              patch.object(artifacts.importlib.metadata, "version", return_value="fixture-native-version"), \
              patch.object(artifacts.subprocess, "run", side_effect=process), \
-             patch.object(artifacts.tempfile, "gettempdir", return_value="/system-temp-fixture"):
+             patch("research.records.common.tempfile.gettempdir", return_value="/system-temp-fixture"):
             result = artifacts.run(root=root, run_id="fixture-run", attempt_id="fixture-attempt",
                                    source_ref=commit, input_identity=identity, runner_argv=[
                                        "--catalog-root", str(self.workspace / "minute"),
@@ -395,7 +395,7 @@ print(Path.cwd())
 
 class ArtifactCustodyTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(prefix="trade-artifact-test-", dir=Path.home())
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "archive"
         self.run_id = "fixture-1"
@@ -522,7 +522,7 @@ class DoltOciCustodyTests(unittest.TestCase):
     """Synthetic orchestration, including failures before a native summary exists."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(prefix="trade-artifact-test-", dir=Path.home())
         self.addCleanup(self.temp.cleanup)
         self.workspace = Path(self.temp.name)
         self.root = self.workspace / "seals"
@@ -577,7 +577,7 @@ class DoltOciCustodyTests(unittest.TestCase):
              patch.object(artifacts, "_dolt_source", return_value=prepared), \
              patch.object(artifacts, "_snapshot_source", side_effect=AssertionError("new source must not use Git")), \
              patch.object(artifacts.subprocess, "run", side_effect=execute) as calls, \
-             patch.object(artifacts.tempfile, "gettempdir", return_value="/system-temp-fixture"):
+             patch("research.records.common.tempfile.gettempdir", return_value="/system-temp-fixture"):
             result = artifacts.run(root=self.root, run_id="fixture-run", attempt_id="fixture-attempt", strategy_id="fixture",
                                    strategy_revision=1, source_at="a" * 32, runtime=self.workspace / "runtime.json",
                                    input_identity=self.input, runner_argv=self.argv)

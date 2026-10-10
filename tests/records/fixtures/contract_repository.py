@@ -6,6 +6,7 @@ the fixture neither copies historical run data nor executes a native replay.
 """
 
 from contextlib import ExitStack
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -23,6 +24,19 @@ OBSERVATIONS = (
     b"## S15 - repeated media read\nThe same media was processed again.\n\n"
     b"## S46 - source recheck\nC02 needs Agent interpretation, not an inferred correction.\n"
 )
+
+
+def v3_pending(body):
+    """Upgrade only a new synthetic preregistration, not retained history."""
+    result = copy.deepcopy(body)
+    result.update(schema_version=3, purpose="research")
+    result["registration"] = {"status": "preregistered"}
+    result["decision"].update(layer="pending", outcome="pending")
+    result["contract"]["selection"] = {
+        "family_id": result["goal_id"], "primary_response": "synthetic_fixture_response",
+        "known_exposure": {"status": "unknown", "run_refs": []},
+    }
+    return result
 
 
 class ContractRepository:

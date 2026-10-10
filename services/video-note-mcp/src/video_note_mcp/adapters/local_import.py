@@ -56,7 +56,7 @@ class LocalImport:
         configured = os.environ.get("BILIBILI_NOTE_IMPORT_DIR")
         if not configured:
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "import_directory_not_configured")
-        root = Path(configured)
+        root = Path(configured).expanduser()
         if (
             not root.is_absolute()
             or root.is_symlink()

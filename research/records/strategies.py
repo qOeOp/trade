@@ -232,14 +232,13 @@ def _edges(obj):
     return edges
 
 
-def _lineage(adapter, obj, fixed, relations, seen=frozenset()):
+def _lineage(adapter, obj, fixed, seen=frozenset()):
     _object_source(obj)
     key = (obj["id"], obj["revision"])
     if key in seen:
         raise RecordError(f"cycle in fixed strategy lineage: {key}")
-    actual = [edge for edge in relations if
-              (edge["from_id"], edge["from_revision"]) == key and
-              edge["kind"] in {"strategy_parent", "strategy_attempt"}]
+    actual = adapter.list_relations(commit=fixed, kinds=("strategy_parent", "strategy_attempt"),
+                                    from_refs=(key,))
     parents, attempts = [], []
     expected = _edges(obj)
     if len(actual) != len(expected):
@@ -259,7 +258,7 @@ def _lineage(adapter, obj, fixed, relations, seen=frozenset()):
             if target["body"]["family_id"] != obj["body"]["family_id"]:
                 raise RecordError("a strategy parent must belong to the declared family")
             parents.append({"difference": reference["difference"],
-                            "strategy": _lineage(adapter, target, fixed, relations, seen | {key})})
+                            "strategy": _lineage(adapter, target, fixed, seen | {key})})
         else:
             if target["body"].get("attempt_id") != reference["attempt_id"]:
                 raise RecordError("attempt identity differs from the fixed attempt object")
@@ -272,7 +271,7 @@ def _lineage(adapter, obj, fixed, relations, seen=frozenset()):
 def lineage(adapter, strategy_id, revision=None, at=None):
     value = resolve(adapter, strategy_id, revision, at)
     fixed = value["binding"]["commit"]
-    return _lineage(adapter, value["object"], fixed, adapter.list_relations(commit=fixed))
+    return _lineage(adapter, value["object"], fixed)
 
 
 def publish(adapter, metadata, source_path, operation_id, expected_version):
@@ -320,14 +319,13 @@ def publish(adapter, metadata, source_path, operation_id, expected_version):
                    "provenance": {"operation_id": operation_id}}
     _object_source(obj)
     relations = []
-    existing = adapter.list_relations(commit=fixed)
     for kind, target_id, target_revision, reference in _edges(obj):
         target = adapter.get_object(target_id, revision=target_revision, commit=fixed)
         expected_kind = "strategy" if kind == "strategy_parent" else "attempt"
         if target is None or target["kind"] != expected_kind:
             raise RecordError(f"fixed strategy endpoint is unavailable: {target_id}@{target_revision}")
         if kind == "strategy_parent":
-            _lineage(adapter, target, fixed, existing)
+            _lineage(adapter, target, fixed)
             if target["body"]["family_id"] != metadata["family_id"]:
                 raise RecordError("a strategy parent must belong to the declared family")
         elif target["body"].get("attempt_id") != reference["attempt_id"]:

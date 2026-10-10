@@ -7,10 +7,11 @@ The current `r1-native-v2` contract uses `PublishedR1Strategy` and ordinary
 Python definitions in that one file. Source owns configuration validation,
 replay diagnostics and integrity hooks; the shared runner transports scalar
 configuration and explicit daily warmup, without a strategy identity allowlist.
-The local Dolt demonstration dataset contains 26 migrated strategy identities
-and 27 source revisions, including the original H19a v1 revision. These are
-disposable framework R&D demos, not qualified product strategies; clearing the
-demo dataset has not been performed.
+The migration demonstration used 26 strategy identities and 27 source revisions,
+including the original H19a v1 revision. Those trial records were locally backed
+up and the active ledger reset on 2026-10-09. New research first publishes its
+complete source into the active ledger; historical publication commits belong
+to the archived database and require an explicit recovery environment.
 
 R1's 37 instruments share one 100,000 USDT Nautilus `BacktestNode` margin
 account. The published `nautilus_trader==2.0.0rc3` package owns data replay,
@@ -23,17 +24,27 @@ a fixed Dolt source revision, executes this runner and the auditor in the same
 digest-pinned OCI image, and seals the result outside Git and `/tmp`.
 A direct host run below is a temporary diagnostic and uses the host environment.
 
+`--start`, `--end` and `--trade-start` require an explicit `Z` or UTC offset.
+They must resolve to five-minute boundaries, with start < end and trade-start
+inside that interval. Time precision is limited to six fractional digits;
+fractional UTC offsets are rejected. The runner validates these values before
+loading inputs and never uses the host timezone to interpret them.
+
 ## Export and run H19a
 
 Use the exact Dolt commit returned by source publication as `SOURCE_AT`.
 Export refuses to overwrite an existing source or binding destination.
+This H19a example requires its source to have been published into the selected
+ledger. Set the returned revision too; do not reuse an archived commit or assume
+the old demo's revision number exists in a fresh database.
 
 ```bash
 uv sync --frozen
-SOURCE_AT=2ne4a6oj087g5thp4n3s27j79e1n260k
+SOURCE_AT=YOUR_SOURCE_PUBLICATION_COMMIT
+STRATEGY_REVISION=YOUR_SOURCE_REVISION
 STRATEGY_WORKDIR=$(mktemp -d /tmp/trade-h19a.XXXXXX)
 uv run --frozen python -m research.records.cli --at "$SOURCE_AT" \
-  strategy export r1.broad-two-tier --revision 2 \
+  strategy export r1.broad-two-tier --revision "$STRATEGY_REVISION" \
   --destination "$STRATEGY_WORKDIR/strategy.py" \
   --binding-output "$STRATEGY_WORKDIR/binding.json"
 R1_COINS=(BTC ETH BNB ADA XRP SOL DOGE LTC TRX LINK DOT AVAX BCH ETC XLM ATOM FIL NEAR UNI AAVE ICP APT ARB SUI OP INJ TIA SEI PEPE SHIB HBAR ALGO FET WLD IMX STX LDO)
@@ -53,7 +64,8 @@ uv run --frozen python -m backtest.r1.run_portfolio \
   --output /tmp/r1-external-h19a-37
 ```
 
-The example binds H19a v2 to its fixed publication commit and exact source hash.
+The example binds the H19a native-v2 source to the selected ledger's returned
+publication revision, fixed commit and exact source hash.
 For another source or revision, export its binding and use its entry class and
 hash. `validate_replay_configuration` checks the source's signal, exit, warmup
 and sizing contract. `replay_diagnostics` supplies source-specific counters,
@@ -63,11 +75,12 @@ only for a source requiring historical daily bars. H19a's source requires 25-bp
 total stop risk, a 5% coin notional cap and no daily warmup. Current runtime code
 imports no product strategy or historical variant module.
 
-The initial H19a `r1.broad-two-tier@1` source remains readable, with entry class
+The archived ledger retains the initial H19a `r1.broad-two-tier@1` source, with entry class
 `R1Strategy`, `r1-native-v1` and SHA-256
 `8b708592a27732311071b0b00d237001b6e6bb96725bcc3a842cf35ae2184b4a`.
 Execute that revision with its retained accepted v1 image; the current v2
-runner requires the new source hooks. Its earlier acceptance is preserved.
+runner requires the new source hooks. Recover the archive into a separate ledger
+to read that historical revision; the fresh active ledger starts without it.
 
 `--mark-root` optionally selects the derived MARK Catalog cache. The default
 cache is keyed by input Catalog path and interval under the temporary directory.
@@ -149,7 +162,7 @@ runtime identity, native reports and logs. `artifacts restore` restores the
 native reports; it does not provision the image or reconstruct the source Catalog.
 Full replay recovery also needs native Dolt history, accessible image bytes and
 canonical inputs. Retain images and database/artifact backups outside Git and
-`/tmp`. The first local migration uses
-`/Users/vx/.local/share/trade/strategy-migration/20261009`; a second directory on
-this machine proves local copy recovery only. See the
-[migration contract](../../docs/plans/dolt-strategy-oci-migration.zh.md).
+`/tmp`. A second directory on the same machine proves local copy recovery only.
+The first migration's custody locations and contract are recorded in the
+[migration record](../../docs/plans/dolt-strategy-oci-migration.zh.md); historical
+local addresses are not product dependency paths.

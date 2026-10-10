@@ -73,12 +73,15 @@ class ArtifactStore:
         max_entries: int = 256,
         ttl_seconds: int = 86400,
     ) -> None:
-        self.root = root or Path(
-            os.environ.get(
-                "BILIBILI_NOTE_ARTIFACT_DIR",
-                str(Path.home() / ".local/share/video-note-mcp/artifacts"),
+        self.root = (
+            root
+            or Path(
+                os.environ.get(
+                    "BILIBILI_NOTE_ARTIFACT_DIR",
+                    str(Path.home() / ".local/share/video-note-mcp/artifacts"),
+                )
             )
-        )
+        ).expanduser()
         self.max_bytes, self.max_entries, self.ttl_seconds = max_bytes, max_entries, ttl_seconds
 
     def _root(self) -> None:

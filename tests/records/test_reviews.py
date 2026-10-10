@@ -14,12 +14,14 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 import uuid
 
 from research.records import reviews
 from research.records.common import ROOT, RecordError, _read_json
 from research.records.dolt_store import ConflictError, DoltStore
 from research.records.ledger import material
+from tests.records.fixtures.contract_repository import v3_pending
 
 
 class ReviewIntegrationTests(unittest.TestCase):
@@ -144,12 +146,54 @@ class ReviewIntegrationTests(unittest.TestCase):
 
     def test_manual_closure_requires_retained_file_and_original_item_digest(self):
         before = self.adapter.status()
-        with self.assertRaisesRegex(RecordError, "retained original decision file"):
+        with self.assertRaisesRegex(RecordError, "retained original decision file") as failure:
             self._prepare(self._manual("resolved"))
+        self.assertEqual(failure.exception.code, "REVIEW_DECISION_FILE_REQUIRED")
+        self.assertEqual(failure.exception.path, "$.decisions[0].files")
+        self.assertEqual(failure.exception.write_status, "not_written")
+        self.assertTrue(any("actual review" in action for action in failure.exception.next_actions))
         mismatched = self._manual()
         mismatched["decisions"][0]["item_sha256"] = "0" * 64
         with self.assertRaisesRegex(RecordError, "mismatched manual review occurrence"):
             self._prepare(mismatched)
+        self.assertEqual(self.adapter.status(), before)
+
+    def test_missing_review_declarations_identify_field_and_require_actual_review(self):
+        before = self.adapter.status()
+        for field in ("reviewer", "rationale", "scope"):
+            manual = self._manual()
+            del manual["decisions"][0][field]
+            with self.subTest(field=field), self.assertRaises(RecordError) as failure:
+                self._prepare(manual)
+            self.assertEqual(failure.exception.code, "REVIEW_DECLARATION_REQUIRED")
+            self.assertEqual(failure.exception.path, "$.decisions[0]." + field)
+            self.assertEqual(failure.exception.write_status, "not_written")
+            self.assertTrue(any("do not invent" in action for action in failure.exception.next_actions))
+            self.assertEqual(self.adapter.status(), before)
+        original = self.fixture / "actual-review.txt"
+        original.write_bytes(b"Actual fixture review: occurrence zero is unavailable; no strategy claim.\n")
+        fixed = self._prepare(self._manual("unavailable", evidence_file=original))
+        publication = reviews.apply(self.adapter, fixed)
+        self.assertEqual(publication["review"]["counts"]["unavailable"], 1)
+
+    def test_original_file_failures_explain_custody_and_leave_database_unchanged(self):
+        original = self.fixture / "actual-review.txt"
+        original.write_bytes(b"Actual fixed fixture decision.\n")
+        before = self.adapter.status()
+        manual = self._manual("unavailable", evidence_file=original)
+        manual["decisions"][0]["files"][0]["sha256"] = "0" * 64
+        with self.assertRaises(RecordError) as failure:
+            self._prepare(manual)
+        self.assertEqual(failure.exception.code, "REVIEW_EVIDENCE_HASH_MISMATCH")
+        self.assertEqual(failure.exception.path, "$.decisions[0].files[0].sha256")
+        self.assertEqual(failure.exception.expected, hashlib.sha256(original.read_bytes()).hexdigest())
+        self.assertTrue(any("do not change only" in action for action in failure.exception.next_actions))
+        self.assertEqual(failure.exception.write_status, "not_written")
+        original.unlink()
+        with self.assertRaises(RecordError) as unreadable:
+            self._prepare(manual)
+        self.assertEqual(unreadable.exception.code, "REVIEW_EVIDENCE_UNREADABLE")
+        self.assertEqual(unreadable.exception.write_status, "not_written")
         self.assertEqual(self.adapter.status(), before)
 
     def test_missing_fixed_proof_and_resolution_edge_reject_entire_payload(self):
@@ -158,15 +202,83 @@ class ReviewIntegrationTests(unittest.TestCase):
         before = self.adapter.status()
         missing_proof = copy.deepcopy(payload)
         missing_proof["objects"] = [obj for obj in missing_proof["objects"] if obj["id"] != target["id"]]
-        with self.assertRaisesRegex(RecordError, "fixed proof is missing"):
+        with self.assertRaisesRegex(RecordError, "fixed proof is missing") as failure:
             reviews.apply(self.adapter, self._reseal(missing_proof))
+        self.assertEqual(failure.exception.code, "REVIEW_FIXED_PROOF_MISMATCH")
+        self.assertIn(".evidence_refs[", failure.exception.path)
+        self.assertEqual(failure.exception.write_status, "not_written")
+        self.assertTrue(any("do not remove" in action for action in failure.exception.next_actions))
         self.assertEqual(self.adapter.status(), before)
         missing_edge = copy.deepcopy(payload)
         removed = next(edge for edge in missing_edge["relations"] if edge["kind"] == "references_resolved")
         missing_edge["relations"] = [edge for edge in missing_edge["relations"] if edge["id"] != removed["id"]]
-        with self.assertRaisesRegex(RecordError, "closed review edge is absent"):
+        with self.assertRaisesRegex(RecordError, "closed review edge is absent") as edge_failure:
             reviews.apply(self.adapter, self._reseal(missing_edge))
+        self.assertEqual(edge_failure.exception.code, "REVIEW_EDGE_BINDING_MISMATCH")
+        self.assertTrue(edge_failure.exception.path.endswith(".edge_ids"))
+        self.assertEqual(edge_failure.exception.write_status, "not_written")
         self.assertEqual(self.adapter.status(), before)
+
+    def test_frozen_payload_and_original_bytes_refusals_are_actionable_and_retryable(self):
+        original = self.fixture / "actual-review.txt"
+        original.write_bytes(b"Actual retained review original.\n")
+        payload = self._prepare(self._manual("unavailable", evidence_file=original))
+        before = self.adapter.status()
+        for version in (2, True, 1.0, "1", None):
+            unsupported = copy.deepcopy(payload)
+            unsupported["schema_version"] = version
+            with self.subTest(version=version), patch.object(self.adapter, "get_object") as read, \
+                    patch.object(self.adapter, "publish") as publish, self.assertRaises(RecordError) as version_failure:
+                reviews.apply(self.adapter, self._reseal(unsupported))
+            self.assertEqual(version_failure.exception.code, "REVIEW_PAYLOAD_VERSION_UNSUPPORTED")
+            self.assertEqual(version_failure.exception.path, "$.schema_version")
+            self.assertEqual(version_failure.exception.write_status, "not_written")
+            read.assert_not_called()
+            publish.assert_not_called()
+        edited = copy.deepcopy(payload)
+        edited["expected_version"] += 1
+        with self.assertRaises(RecordError) as digest_failure:
+            reviews.apply(self.adapter, edited)
+        self.assertEqual(digest_failure.exception.code, "REVIEW_PAYLOAD_DIGEST_MISMATCH")
+        self.assertEqual(digest_failure.exception.path, "$.payload_sha256")
+        missing = copy.deepcopy(payload)
+        del missing["operation_id"]
+        with self.assertRaises(RecordError) as missing_failure:
+            reviews.apply(self.adapter, self._reseal(missing))
+        self.assertEqual(missing_failure.exception.code, "REVIEW_PAYLOAD_FIELD_REQUIRED")
+        self.assertEqual(missing_failure.exception.path, "$.operation_id")
+        for encoded in ("not-base64", 123, ["base64"]):
+            corrupted = copy.deepcopy(payload)
+            obj = next(obj for obj in corrupted["objects"] if obj["kind"] == "material")
+            obj["body"]["content_base64"] = encoded
+            with self.subTest(content_base64=encoded), self.assertRaises(RecordError) as bytes_failure:
+                reviews.apply(self.adapter, self._reseal(corrupted))
+            self.assertEqual(bytes_failure.exception.code, "REVIEW_ORIGINAL_BYTES_INVALID")
+            self.assertTrue(bytes_failure.exception.path.endswith(".body"))
+            self.assertEqual(bytes_failure.exception.write_status, "not_written")
+            self.assertEqual(self.adapter.status(), before)
+        for refusal in (version_failure, digest_failure, missing_failure, bytes_failure):
+            self.assertEqual(refusal.exception.write_status, "not_written")
+            self.assertTrue(refusal.exception.next_actions)
+        self.assertEqual(self.adapter.status(), before)
+        first = reviews.apply(self.adapter, payload)
+        self.assertEqual(reviews.apply(self.adapter, payload), dict(first, replayed=True))
+
+    def test_confirmed_publication_followup_read_failure_does_not_invite_new_write(self):
+        payload = self._prepare()
+        failure = RecordError("follow-up read fixture failure", code="REVIEW_FIXED_PROOF_MISMATCH",
+                              path="$.objects[0].body.evidence_refs", write_status="not_written")
+        with patch.object(reviews, "status", side_effect=failure), self.assertRaises(RecordError) as refused:
+            reviews.apply(self.adapter, payload)
+        committed = self.adapter.status()
+        self.assertEqual(refused.exception.write_status, "already_committed")
+        self.assertIn(payload["operation_id"], refused.exception.next_actions[0])
+        self.assertIn(committed["commit"], refused.exception.next_actions[0])
+        self.assertIn("do not create a new operation", refused.exception.next_actions[0])
+        recovered = reviews.apply(self.adapter, payload)
+        self.assertTrue(recovered["replayed"])
+        self.assertEqual(recovered["commit"], committed["commit"])
+        self.assertEqual(self.adapter.status(), committed)
 
     def test_rehashed_bad_item_digest_still_fails_original_occurrence_binding(self):
         payload = self._prepare()
@@ -221,6 +333,7 @@ class ReviewIntegrationTests(unittest.TestCase):
             "decision": {"layer": "pending", "outcome": "pending", "scope": "Synthetic only.",
                          "next_action": "Check the namespace boundary."}, "evidence_refs": [],
         }
+        attempt = v3_pending(attempt)
         store.publish_record("attempt", attempt, operation_id="review-registered-" + uuid.uuid4().hex,
                              expected_version=self.adapter.status()["version"])
         payload = self._prepare()
@@ -351,6 +464,42 @@ class ReviewIntegrationTests(unittest.TestCase):
         history = [edge for edge in current["relations"] if edge["kind"] == "references_resolved"]
         self.assertEqual(len(history), 2)
         self.assertEqual(material(self.adapter, "show", identity=self.source["id"], at=first["commit"]), old)
+
+    def test_inventory_operations_read_only_selected_review_and_evidence_closure(self):
+        noise = [{"id": "noise:source", "kind": "material", "revision": 1,
+                  "body": {"content_base64": "x" * 65536}, "provenance": {"path": "unrelated/report"}},
+                 {"id": "noise:target", "kind": "material", "revision": 1,
+                  "body": {"text": "y" * 65536}, "provenance": {"path": "unrelated/target"}},
+                 {"id": "review:unrelated", "kind": "review_decision", "revision": 1,
+                  "body": {"edge_ids": ["noise:missing"], "evidence_refs": [{"id": "noise:missing", "revision": 1}]},
+                  "provenance": {}}]
+        edges = [{"id": "noise:edge:" + str(index), "kind": ("corrects", "narrows", "refutes")[index % 3],
+                  "from_id": noise[0]["id"], "from_revision": 1, "from_kind": "material",
+                  "to_id": noise[1]["id"], "to_revision": 1, "to_kind": "material",
+                  "body": {"review_id": noise[2]["id"], "blob": "z" * 4096}} for index in range(100)]
+        seeded = self.adapter.publish(noise, edges, "scope-noise", self.adapter.status()["version"])
+        self.source_at = seeded["commit"]
+        original_sql = self.adapter._sql
+        reads = []
+
+        def selected_sql(connection, query, params=()):
+            result = original_sql(connection, query, params)
+            if query.startswith("SELECT id,kind,revision,body,provenance") or query.startswith("SELECT current.id,current.kind,current.revision,current.body,current.provenance"):
+                reads.extend(row[0] for row in result[0])
+            if query.startswith("SELECT id,kind,from_id,from_revision,from_kind,to_id,to_revision,to_kind"):
+                reads.extend(row[0] for row in result[0])
+            return result
+
+        with patch.object(self.adapter, "_sql", side_effect=selected_sql):
+            self.assertEqual(self._status()["counts"]["pending"], 2)
+            payload = self._prepare()
+            published = reviews.apply(self.adapter, payload)
+            self.assertEqual(published["review"]["counts"]["resolved"], 2)
+            repeated = self._prepare()
+            self.assertEqual(repeated["counts"], {"resolved": 2})
+            self.assertEqual(reviews.apply(self.adapter, payload), dict(published, replayed=True))
+        self.assertTrue(reads)
+        self.assertFalse(any(identity.startswith("noise:") or identity == noise[2]["id"] for identity in reads))
 
 
 if __name__ == "__main__":

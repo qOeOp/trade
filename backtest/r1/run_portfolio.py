@@ -7,8 +7,6 @@ import csv
 import hashlib
 import json
 import math
-from datetime import UTC
-from datetime import datetime
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -18,7 +16,7 @@ from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
 from backtest.r1.native_node import ACCOUNT_CONTRACT, run_native_node
-from backtest.r1.replay_util import _json_safe, _ns, _snapshot_equity_usdt
+from backtest.r1.replay_util import _json_safe, _ns, _snapshot_equity_usdt, _utc_datetime
 from backtest.r1.replay_inputs import read_instruments as _read_instruments
 from backtest.r1.strategy_loader import RUNTIME_CONTRACT, LoadedStrategy, load_strategy, _read_regular_file
 
@@ -71,6 +69,13 @@ def _orders_with_native_deadlines(engine, report):
     return result
 
 
+def _readable_empty_report(report, columns):
+    """Give a zero-row native report the headers its consumers already use."""
+    if not report.empty:
+        return report
+    return report.reindex(columns=list(dict.fromkeys([*report.columns, *columns])))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--catalog-root", type=Path, required=True)
@@ -78,9 +83,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quantity-csv", type=Path, required=True)
     parser.add_argument("--mark-root", type=Path)
     parser.add_argument("--coins", nargs="+", required=True)
-    parser.add_argument("--start", required=True)
-    parser.add_argument("--end", required=True)
-    parser.add_argument("--trade-start")
+    parser.add_argument("--start", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
+    parser.add_argument("--end", required=True, help="ISO-8601 datetime with explicit Z or UTC offset")
+    parser.add_argument("--trade-start", help="ISO-8601 datetime with explicit Z or UTC offset")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--strategy-file", type=Path, required=True)
     parser.add_argument("--strategy-class", required=True)
@@ -99,6 +104,21 @@ def parse_configuration(argv: list[str] | None = None):
     """Resolve runner defaults without executing source or opening research data."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    times = {}
+    for field in ("start", "end", "trade_start"):
+        value = getattr(args, field)
+        if value is None:
+            continue
+        try:
+            times[field] = _utc_datetime(value)
+        except ValueError as exc:
+            parser.error(f"--{field.replace('_', '-')}: {exc}")
+    start, end = times["start"], times["end"]
+    trade_start = times.get("trade_start", start)
+    if (not start < end or not start <= trade_start < end
+            or any(value.minute % 5 or value.second or value.microsecond
+                   for value in (start, end, trade_start))):
+        parser.error("replay needs a positive five-minute-aligned interval with trade-start inside it")
     if args.risk_budget_bps is not None and (
         not math.isfinite(args.risk_budget_bps) or not 0 < args.risk_budget_bps < 10_000
     ):
@@ -175,24 +195,9 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         args.strategy_file, args.strategy_class, args.strategy_sha256, args.strategy_binding,
     )
     validate_strategy_configuration(strategy, args)
-    start_dt = datetime.fromisoformat(args.start).astimezone(UTC)
-    end_dt = datetime.fromisoformat(args.end).astimezone(UTC)
-    trade_start_dt = (
-        datetime.fromisoformat(args.trade_start).astimezone(UTC)
-        if args.trade_start is not None
-        else start_dt
-    )
-    if (
-        not start_dt < end_dt
-        or not start_dt <= trade_start_dt < end_dt
-        or start_dt.minute % 5
-        or end_dt.minute % 5
-        or trade_start_dt.minute % 5
-        or start_dt.second
-        or end_dt.second
-        or trade_start_dt.second
-    ):
-        raise ValueError("replay needs a positive five-minute-aligned interval")
+    start_dt = _utc_datetime(args.start)
+    end_dt = _utc_datetime(args.end)
+    trade_start_dt = _utc_datetime(args.trade_start) if args.trade_start is not None else start_dt
     start, end = _ns(args.start), _ns(args.end)
     trade_start = _ns(trade_start_dt.isoformat())
     with args.quantity_csv.open(newline="") as stream:
@@ -226,10 +231,12 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
     args.output.mkdir(parents=True, exist_ok=True)
     reports = {
         "orders.csv": _orders_with_native_deadlines(
-            engine, engine.generate_orders_report()
+            engine, _readable_empty_report(engine.generate_orders_report(), ("status",))
         ),
-        "fills.csv": engine.generate_fills_report(),
-        "positions.csv": engine.generate_positions_report(),
+        "fills.csv": _readable_empty_report(engine.generate_fills_report(), ("client_order_id",)),
+        "positions.csv": _readable_empty_report(
+            engine.generate_positions_report(), ("ts_closed", "realized_pnl", "instrument_id")
+        ),
         "account.csv": engine.generate_account_report(venue=Venue("BINANCE")),
     }
     for name, report in reports.items():
