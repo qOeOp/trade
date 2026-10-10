@@ -74,15 +74,21 @@ reference date.
 - Useful mainly for official bulk files mirrored there (for example Crossref's public data file)
   and community dumps such as Reddit. Uploads are unreviewed and often unlicensed.
 - Every download needs the user's confirmation first, stating infohash, size, licence (or that
-  none is stated) and destination: BitTorrent publishes the machine's IP and payloads run to hundreds of GB.
-  Prefer the original publisher's copy.
+  none is stated) and destination: BitTorrent publishes the machine's IP, and payloads run to
+  hundreds of GB. Prefer the original publisher's copy.
 
-## Stack Exchange — practitioner Q&A
+## Stack Exchange — practitioner Q&A on method
 
-- `GET https://api.stackexchange.com/2.3/search/advanced?title=...&site=quant&key=$(key STACKEXCHANGE_KEY)`
-  (also `site=stats`, `site=stackoverflow`); responses are gzip, so use `curl --compressed`.
-  `q=` also matches bodies and drifts off topic; narrow with `title=` or `tagged=`.
-- `filter=withbody` adds bodies; `/questions/{ids}/answers?filter=withbody` for answers.
-  The key only raises the daily quota (`quota_remaining` is in every response); when a response
-  has `backoff`, wait that many seconds before the next call.
-- Answers are leads to a method or a reference, not evidence.
+- Sites: `quant` (finance methods, microstructure, backtest validation) and `stats` (statistics).
+  Others rarely help trading research.
+- Default: `GET https://api.stackexchange.com/2.3/search/excerpts?site=quant&q=...&sort=relevance&order=desc&pagesize=10&key=$(key STACKEXCHANGE_KEY)`
+  with `curl --compressed`. It returns questions and answers (`item_type`) with a highlighted
+  `excerpt` and the full `body`; project with `jq`. Narrow with `tagged=a;b`; `title=` is strict
+  and often returns nothing; `/similar` pads results with weak matches. Titles carry HTML
+  entities (decode with Python `html.unescape`).
+- Read a thread with `/questions/{id}/answers?site=quant&sort=votes&filter=withbody`.
+- Space calls at least 2 s apart. A burst gets the machine's IP banned for several minutes, and the
+  ban answers HTTP 429 with an HTML page, not JSON: stop using Stack Exchange for that session
+  rather than polling. Obey a JSON `backoff`; `quota_remaining` is in every response.
+- Answers are leads to a method or a paper (look the paper up in OpenAlex), not evidence. Content
+  is CC BY-SA: quote with the post link and author.

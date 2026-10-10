@@ -49,7 +49,8 @@ results.
 | Positioning in regulated crypto futures | CFTC Commitments of Traders |
 | US dollar liquidity | Treasury General Account, SOFR and reverse repo, FRED |
 | Filings, e.g. spot ETF trusts | SEC EDGAR |
-| Datasets, practitioner know-how | Kaggle, Stack Exchange: leads only |
+| How practitioners define or validate a method | Stack Exchange `quant` and `stats`: leads only |
+| Datasets | Kaggle: leads only |
 | Bulk corpora (e.g. Reddit dumps) | Academic Torrents catalogue; download only after the user confirms |
 
 ## Search

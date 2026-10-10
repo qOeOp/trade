@@ -99,6 +99,19 @@ SSRN 无公开 API 且条款禁止自动抓取，RePEc/IDEAS API 需邮件申请
   单个条目常有数十 GB 到数 TB。所以 skill 只读目录，任何下载都先向用户报告 infohash、大小、上传者、许可证和
   目标路径并等确认，优先找原发布方的副本。
 
+- **Stack Exchange API v2.3（用户 10-10 要求评审，决定保留并收窄）：** 在 6 个研究问题上对比 4 种检索方式
+  （`/search/advanced` 的 `q=` 和 `title=`、`/search/excerpts`、`/similar`），各站点 37 次调用：
+  - `quant`（2.4 万问题）和 `stats`（22 万）对方法类问题命中好：CPCV、PBO、Deflated Sharpe、订单流不平衡
+    的定义与计算都在前几条；回答常引论文，可转到 OpenAlex 查原文。
+  - `bitcoin` 站多为协议和消费者问题；Stack Overflow 的 `nautilus-trader` 标签 0 条；`economics`、`datascience`
+    未见增量。只保留 `quant` 和 `stats`。
+  - `/search/excerpts` 与 `q=` 排序几乎相同，但同时返回问题和回答，带命中片段，定为默认；`title=` 过严常返回 0；
+    `/similar` 会用弱相关结果凑满条数。
+  - 限流比文档严：间隔 0.3 秒连发 3 次就被封 IP 超过 5 分钟，封禁时返回 HTML 的 429 而不是 JSON，
+    读不到 `backoff`；间隔 2 秒连续 37 次全部成功。skill 规定间隔至少 2 秒，被封后当次会话停用，不轮询。
+  - 内容为 CC BY-SA，引用要附链接和作者；2024 年起数据转储需登录并同意不用于训练 LLM，本项目不需要转储。
+  - 官方 Stack Overflow MCP 每天 100 次且不含 quant 站，不用。
+
 数据源的时点规则写进 skill：CFTC 周二持仓、周五 15:30 ET 发布，遇假日顺延；TGA 次一工作日 16:00 ET 前发布；
 SOFR 次一工作日约 08:00 ET 发布、14:30 ET 前可修订；EDGAR 以 `acceptanceDateTime` 为公开时点。
 实测中的坑：CFTC 合约代码会在交易所之间迁移（同一代码先属 LMX 后属 Coinbase）；TGA 余额只在
