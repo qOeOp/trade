@@ -70,3 +70,14 @@
 - 被影响的 Agent 任务：把 reader、结果与结论原字节固定为 `review_evidence` 材料，再在 `decision.basis.evidence_refs` 中引用。两次都只能直接调用 `research.records.reviews.retain_file` 与存储适配器的 `publish`。
 - 迭代成本与 workaround：每次多写一段十几行的 Python；内容哈希与只读保管规则仍由 `retain_file` 执行，没有绕过校验。
 - 决定（用户 2026-10-10 "能用 Agent 就不硬编码"原则）：不新增命令，把用法写进 `research-round` skill；若出现第三类调用者或误用，再评估最小 CLI。
+
+## RDP08：分档审计替代了通用对账
+
+- 受影响 seal：`RD20261010-B00-37`（passed，`support-broad-two-tier-4h`）；验收根中的 D103-OCI-37/PILOT、D105-01-DEMO/-37、D105-02-DEMO 和两个 CUSTODY-F01。
+- 被影响的 Agent 任务：`artifacts report`、`compare --analysis` 和 `nautilus-report-analysis` 的自检都以 `native_economics` 为对账基准；这些 seal 上它为 null，未实现残差也只能置 null。
+- 原因：`audit_tiered_native.audit()` 在 `signal_variant` 属于分档形态时直接返回分档审计，通用对账（成交与订单匹配、手续费、资金费、账户余额与 summary 核对）没有运行。模块 docstring 和两份 README 都写的是"追加"。选择审计路径的标签由策略声明。分档审计的异常（风险设置不符、固定数量 sizing、缺合约）会让审计进程直接退出，seal 失败但不留原因。
+- 只读预检：通用对账对上述 8 个 seal 全部通过、0 条发现，并产出完整 `native_economics`，所以修复不会让任何已知 seal 改判。
+- 修复（用户 2026-10-10 授权）：通用对账始终运行，分档检查的发现与计数追加在后；分档审计抛出的任何异常都改记为发现。审计结果是原字段的超集，消费者只读 `passed`、`findings`、`native_economics`、`coverage_limits`，无需改动。顺带删去无用的 `replay_util.SOURCE_COMMIT` 与过时的 dockerignore 行。
+- 镜像：`localhost:15000/trade-r1-runtime@sha256:b6b94cccf855929b6d89f6d223fd44954f66a990a3ad101462c26a5df3dee35f`，身份 JSON、镜像 tar 与逐 run 工程验证结果在 `~/.local/share/trade/research-runtime/20261010-tier-audit-fix/`（被取代的第一版镜像在其 `superseded-122df245/` 下，未用于任何登记）。
+- 工程验证（不登记 Dolt）：在新镜像上用托管同一容器命令重放 C11-P02、C11-37、B00-37。三者 `compare_node` 与原 seal 一致、输入回执前后一致、审计通过且产出 `native_economics`；B00-37 的分档计数与原审计相同，`native_economics` 为期末余额 111358.27158633、手续费 971.32486250、资金费 46.21351633。订单、成交、持仓 CSV 的字节在旧镜像重跑同一 seal 时也会变（易变 ID），所以以 `compare_node` 为准。
+- 影响：已封存的 seal 不变，B00-37 的 `native_economics` 仍为 null。新候选只能与同一镜像上的对照配对，用新镜像前要在新镜像上重跑所需对照。

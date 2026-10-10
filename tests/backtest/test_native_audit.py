@@ -196,13 +196,45 @@ class NativeAuditTests(unittest.TestCase):
             values["orders"] = [row for row in values["orders"] if row["client_order_id"] != identity]
             self.assertFalse(self.check(values)["passed"])
 
-    def test_tier_dispatch_keeps_existing_specialized_audit(self):
-        values = reports()
+    def tier_check(self, values, tier):
         values["summary"]["signal_variant"] = "support-broad-two-tier-4h"
-        sentinel = {"passed": False, "findings": ["tier geometry failure"]}
-        with patch("backtest.r1.checks.audit_tiered_native._audit_tiered", return_value=sentinel) as specialized:
-            self.assertEqual(self.check(values), sentinel)
-            specialized.assert_called_once_with(self.root, self.root / "unused-catalog")
+        with patch("backtest.r1.checks.audit_tiered_native._audit_tiered", **tier) as specialized:
+            value = self.check(values)
+        specialized.assert_called_once_with(self.root, self.root / "unused-catalog")
+        return value
+
+    def test_tier_gates_add_to_generic_reconciliation(self):
+        clean = {"run": "x", "file_sha256": {}, "native_bundles": 1, "findings": [], "passed": True}
+        value = self.tier_check(reports(), {"return_value": clean})
+        self.assertTrue(value["passed"], value["findings"])
+        self.assertEqual(value["native_economics"]["fill_commissions_usdt"], "2")
+        self.assertEqual(value["native_bundles"], 1)
+        self.assertIn("budgeted-tier", value["scope"])
+        failed = {**clean, "findings": ["tier geometry failure"], "passed": False}
+        value = self.tier_check(reports(), {"return_value": failed})
+        self.assertFalse(value["passed"])
+        self.assertEqual(value["findings"], ["tier geometry failure"])
+        self.assertIsNotNone(value["native_economics"])
+
+    def test_tier_run_still_fails_generic_reconciliation(self):
+        values = reports()
+        values["orders"][0]["status"] = "DENIED"
+        clean = {"run": "x", "file_sha256": {}, "findings": [], "passed": True}
+        self.assertFalse(self.tier_check(values, {"return_value": clean})["passed"])
+
+    def test_tier_audit_error_is_a_finding(self):
+        value = self.tier_check(reports(), {"side_effect": AttributeError("no client_order_id column")})
+        self.assertFalse(value["passed"])
+        self.assertIn("budgeted tier audit failed: AttributeError", value["findings"][0])
+        self.assertIsNotNone(value["native_economics"])
+
+    def test_real_tier_audit_failure_keeps_generic_economics(self):
+        values = reports()
+        values["summary"]["signal_variant"] = "support-broad-two-tier-4h"  # No sizing block.
+        value = self.check(values)
+        self.assertFalse(value["passed"])
+        self.assertEqual(value["findings"], ["budgeted tier audit failed: KeyError: 'sizing'"])
+        self.assertEqual(value["native_economics"]["fill_commissions_usdt"], "2")
 
 
 if __name__ == "__main__":

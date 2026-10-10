@@ -9,9 +9,6 @@ from datetime import datetime
 from decimal import Decimal
 
 
-SOURCE_COMMIT = "0725a7b3f89902e27cd421a18b4b879a13268534"
-
-
 def _json_safe(value):
     if isinstance(value, dict):
         return {key: _json_safe(item) for key, item in value.items()}
