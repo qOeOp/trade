@@ -146,9 +146,10 @@ their evidence bundles in `source_media/bundles/` (the `video-evidence` skill wi
 `VIDEO_EVIDENCE_ROOT=$TRADE_RESEARCH_ARTIFACT_ROOT/source_media`); directories are `0700` and files
 `0600`. The name cannot collide with a run directory because run IDs contain no `_`. An attempt
 cites each media file by content address as a top-level `{"kind": "source_gate", "path":
-"artifact://source_media/sha256/<sha256>.<ext>", "sha256": ...}` ref, which `show`, `compare`,
-`validate` and the publish preflight re-hash; small cited bundle files go through `material
-retain`. `artifacts backup` and `restore` copy runs only, so `source_media` needs its own copy:
+"artifact://source_media/sha256/<sha256>.<ext>", "sha256": ...}` ref, which `show` and `validate`
+re-hash (a mismatch fails) and the publish preflight reports when unavailable or mismatched (`compare`
+reads run audit refs only); the hash reads the whole file into memory. Small cited bundle files go
+through `material retain`. `artifacts backup` and `restore` copy runs only, so `source_media` needs its own copy:
 `rsync -a --ignore-existing` of `sha256/` and `rsync -a` of `bundles/` into the backup root's
 `source_media/`, then a hash loop over both copies (the skill's `custody.md`). Restore copies the
 files back the same way and checks each file's SHA-256 against its name.

@@ -8,8 +8,9 @@
 
 普查时新路径上还有 11 处拒绝面既没保留也没被完全替换（C 类）。PR1 把其中能事后从字节重算的部分做成了检查器
 的失败检查：`receipt_matches_probe`（S7）、`max_side_pixels`（R1）、`hd_floor`（R2）、每个子进程的超时（P1）、
-`no_symlink` 与不跟随链接的 `present`（L2）、严格 JSON（J1）、`frame_in_cited_span`（F7），并让检查器自己的
-ffprobe/ffmpeg 保留 `-protocol_whitelist file,pipe`（D1），`sha()` 与 `pcm()` 改为流式哈希。必须发生在网络请求
+`regular_files_only`（原 `no_symlink`）与不跟随链接的 `present`（L2）、严格 JSON（J1）、`frame_in_cited_span`（F7），
+并让检查器自己的 ffprobe/ffmpeg 保留 `-protocol_whitelist file,pipe` 并加容器白名单（D1），`sha()` 与 `pcm()` 改为
+流式哈希；2026-10-10 复核后又恢复 R3 `duration_ceiling`、T2 `engine_pinned`，并加 R4 的事后 `max_bytes`。必须发生在网络请求
 之前的预防仍是 skill 规则或固定旗标：旗标白名单、`host_check.jq`（补上 scheme、端口、userinfo、`.test/.invalid`）、
 cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR 评审时请用户确认。
 
@@ -70,7 +71,7 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 | S6 | 通用路径「无鉴权」：无 cookie、无代理、URL 不带凭据（README.md:62-66 所说的 authentication） | adapters/_generic_worker.py:98-110；domain/generic_url.py:41-45 | 通用页不携带任何身份 | REPLACED | cookie 规则（仅 Bilibili、用户提供的文件、临时副本、留存前查泄漏）；旗标白名单不含通用页的 `--cookies`、`--cookies-from-browser`、`--netrc`、`--netrc-cmd`、`-u/-p`；URL userinfo 由 `host_check.jq` 打印并阻止下载 | — |
 | S7 | `youtube_identity_invalid`（id 须 11 字符）、`youtube_identity_changed`（提取到的 id 与 URL 不符）；`source_video_identity_changed`（bvid 与请求不符）；SOURCE_CHANGED `media_video_identity_changed`（媒体上游 id 或 P 与元数据不符）、`media_video_identity_invalid`、`generic_media_identity_changed`；`source_identity_invalid`、`youtube_part_identity_invalid`、`generic_source_identity_invalid`、`local_source_identity_invalid` | adapters/_youtube_worker.py:75-79；adapters/bilibili_source.py:91-93；adapters/source_acquisition.py:35-40；adapters/bilibili_media_ytdlp.py:329-332；adapters/generic_source.py:42-45；domain/models.py:68-112 | 下载到的字节确实属于探测或请求的那条视频 | KEPT | 检查器 `receipt_matches_probe`：`media/receipt.json` 与 `probe/identity.json` 的 `id`、`webpage_url` 必须相同；配方自检原始 info 与回执的 `webpage_url`、`format_id` 相同；`format_known` 要求每个身份文件名对应回执里的格式 | — |
 | S8 | `platform_metadata_required`（YouTube/Bilibili 必须有作者与发布时间）；`youtube_date_invalid`（date 须 8 位）；`youtube_title_invalid`、`youtube_author_invalid`；`source_owner_invalid`、`source_metadata_invalid`（pubdate 范围） | domain/models.py:98-99；adapters/youtube_source.py:116-120；adapters/_youtube_worker.py:89-93；adapters/bilibili_source.py:138-162 | 平台来源必须有作者与日期 | REPLACED（拒绝放宽为标注） | 规则：作者和日期只取平台元数据或页面结构化数据，不取标题；未知保持未知；`upload_date` 只精确到日 | —（只改标注，不扩大网络或文件面） |
-| S9 | 通用来源的 `uploader` 等于主机名时，作者置空 | adapters/_generic_worker.py:129-142 | 不把域名当作者。yt-dlp 通用提取器把 `uploader` 设为域名（`extractor/generic.py:1250`），直链的 `timestamp` 取自 HTTP `Last-Modified`（同文件 855 行） | KEPT | `assets/identity.jq` 对 `Generic`、`HTML5MediaEmbed` 删除 `uploader`、`timestamp`、`upload_date`、`release_timestamp`；直链（yt-dlp 标 `direct`）的 `Last-Modified` 改名 `http_last_modified`；作者与时间只取页面自己的结构化数据（`probe/page.json`） | — |
+| S9 | 通用来源的 `uploader` 等于主机名时，作者置空 | adapters/_generic_worker.py:129-142 | 不把域名当作者。yt-dlp 通用提取器把 `uploader` 设为域名（`extractor/generic.py:1250`），直链的 `timestamp` 取自 HTTP `Last-Modified`（同文件 855 行） | KEPT | `assets/identity.jq` 对 `Generic`、`HTML5MediaEmbed` 删除 `uploader`、`timestamp`、`upload_date`、`release_timestamp`；直链的 `Last-Modified` 不保留（不是发布时间）；作者与时间只取页面自己的结构化数据（`probe/page.json`，由 `assets/page_record.py` 取出） | — |
 | S10 | 标题 `_natural_text`（去首尾空白、无控制字符），title ≤500、author ≤200 | domain/models.py:32-38, 55-66 | 标题进入笔记或文件名时不带控制字符 | REPLACED | 固定 `-o 'source.%(ext)s'`；来源文本从不进入文件名或命令行，只经 jq 读取；eval `title-metachar` | — |
 
 ### 2.4 体积、像素、时长、高清下限
@@ -79,8 +80,8 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 |---|---|---|---|---|---|---|
 | R1 | `downloaded_media_invalid`：最大边超过 8192、像素超过 8192²、宽或高不为正（`MEDIA_SOURCE_MAX_SIDE`、`MEDIA_SOURCE_MAX_PIXELS`，application/resource_limits.py:7-8）；同一上限还在 `dimension_invalid` 中 | adapters/media_acquisition.py:74-89；adapters/local_import.py:29-34；adapters/source_acquisition.py:41-47；adapters/youtube_source.py:107-115；adapters/bilibili_source.py:122-137；adapters/media_ffmpeg.py:442-455 | 解码、PNG、ImageMagick 的内存与时间（像素炸弹） | KEPT | 检查器 `max_side_pixels:<name>`：同一次 ffprobe 读宽高，每边须在 1 到 8192 之间（像素上限随之不超过 8192²） | — |
 | R2 | HD_SOURCE_UNAVAILABLE `source_below_hd_floor`（最短边 <720，或像素 <1280×720）；`bilibili_hd_media_unavailable`（quality <64）；旧 YouTube 选择器还要求 `width>=720`、`height<=1920` | adapters/source_acquisition.py:41-47；adapters/youtube_source.py:107-115；adapters/bilibili_source.py:163-168；adapters/local_import.py:29-34；adapters/media_ffmpeg.py:449-455；application/note_validation.py:84-85；adapters/_ytdlp_worker.py:307-309；adapters/_youtube_worker.py:146-149 | 证据画面 720p 下限 | KEPT | 固定选择器 `height>=720` 原子化、不降级（渐进式 `height>=?720`）；检查器 `hd_floor:<name>` 沿用旧语义：最短边 ≥720 且像素 ≥1280×720；降 720p 须用户同意，确认后仍是失败检查，写成局限 | — |
-| R3 | 时长上限 `MAX_SOURCE_DURATION_MS` = 45 s × 128 = 96 分钟：`youtube_duration_invalid`、`source_duration_exceeds_supported_limit`、`SourceV1.duration_ms` 的 `le=` | domain/models.py:28-30, 64；adapters/_youtube_worker.py:82-88；adapters/bilibili_source.py:112-121 | 云 ASR 的 45 秒窗 × 128 段预算，间接限制总耗时与内存 | DROPPED | MLX 与网格抽帧没有段数限制，长片只是更耗时；检查器的 `sha()` 与 `pcm()` 改为流式哈希，不再整读进内存 | C（列名待确认） |
-| R4 | 下载字节：`_MediaBytesExceeded`（预计或已下载超过 2 GiB，跨重试累计）；声明的 `durl.size` 超过 2 GiB；`media_size_invalid`（1 ≤ size ≤ 2 GiB）；复制时的 `media_bytes_exceeded`、`media_file_invalid` | adapters/_ytdlp_worker.py:94-115, 313-315；adapters/bilibili_media_ytdlp.py:301-302；adapters/media_acquisition.py:90-91, 143-157 | 磁盘占用与托管体积 | REPLACED（部分） | 固定旗标 `--max-filesize 2G`，只看声明长度。长度未知的流、跨重试的累计量、本地文件都不封顶。`retain_file` 本身没有体积上限，靠 checker `no_media_or_large_file_in_bundle`（包内每个文件小于 8 MiB，且不等于任何媒体哈希）防止把媒体误 retain 进 Dolt | C（接受：单用户本机，harness 命令超时兜底） |
+| R3 | 时长上限 `MAX_SOURCE_DURATION_MS` = 45 s × 128 = 96 分钟：`youtube_duration_invalid`、`source_duration_exceeds_supported_limit`、`SourceV1.duration_ms` 的 `le=` | domain/models.py:28-30, 64；adapters/_youtube_worker.py:82-88；adapters/bilibili_source.py:112-121 | 云 ASR 的 45 秒窗 × 128 段预算，间接限制总耗时与内存 | KEPT（事后，2026-10-10 审阅后恢复） | 检查器 `duration_ceiling:<name>`：每个身份文件最后一个包的时刻不超过 96 分钟；`sha()` 与 `pcm()` 仍是流式哈希。下载前不再拦，超长片在检查时失败 | — |
+| R4 | 下载字节：`_MediaBytesExceeded`（预计或已下载超过 2 GiB，跨重试累计）；声明的 `durl.size` 超过 2 GiB；`media_size_invalid`（1 ≤ size ≤ 2 GiB）；复制时的 `media_bytes_exceeded`、`media_file_invalid` | adapters/_ytdlp_worker.py:94-115, 313-315；adapters/bilibili_media_ytdlp.py:301-302；adapters/media_acquisition.py:90-91, 143-157 | 磁盘占用与托管体积 | REPLACED（部分） | 固定旗标 `--max-filesize 2G`，只看声明长度。长度未知的流、跨重试的累计量、本地文件都不封顶。`retain_file` 本身没有体积上限，靠 checker `no_media_or_large_file_in_bundle`（包内每个文件小于 8 MiB，且不等于任何媒体哈希）、版式白名单与 `png_plain` 防止把媒体误 retain 进 Dolt。2026-10-10 审阅后检查器加 `max_bytes:<name>`（每个身份文件不超过 2 GiB，事后） | C（下载过程中长度未知的流与跨重试累计仍不封顶，列在第 4 节） |
 | R5 | 时长一致：`media_access_restricted_preview`（实测比声明短 2 s 以上）；`media_duration_changed`（偏差超过 2 s 或 1.5 s，变长也拒）；`incomplete audio`（MLX 处理的音频时长偏差超过 2 s） | adapters/source_acquisition.py:48-52；adapters/media_ffmpeg.py:456-461；adapters/asr_mlx.py:88-89 | 拒预览截断，拒换片 | KEPT（变短）/ DROPPED（变长） | checker `not_truncated:<name>`（不短于声明 −1 s）加失败表「preview 不是来源」；`exact_size:<name>` 要求与声明 filesize 逐字节相等。变长不再拒：TradingView 实片 553.55 s 长于页面声明的 547 s，属正常。ASR 输入由 `pcm_recomputed` 绑定到整段音频 | — |
 | R6 | 必须有音轨：`downloaded_media_invalid`（无 audio stream） | adapters/media_acquisition.py:81-82 | 只有带音轨的完整视频能进入转写 | REPLACED | 选择器 `b`（音视频同在）或原子化的 `bv+ba` 对；checker `input_is_audio_identity_file` 要求 ASR 输入是 SHA256SUMS 里带音轨的身份文件 | — |
 
@@ -97,10 +98,10 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 | # | 拒绝 | 位置 | 保护什么 | 处置 | 新落点或理由 | 授权 |
 |---|---|---|---|---|---|---|
 | L1 | `import_directory_not_configured`；INVALID_URL `import_filename_invalid`（根目录须绝对、不是符号链接（62 行）、是目录；文件名须匹配 `[\w .-]{1,180}\.(mp4\|webm)`，且不是 `.` 或 `..`） | adapters/local_import.py:55-67 | MCP 模型不能指定任意宿主路径；防路径穿越 | REPLACED | 路径只来自用户在对话中给出。SKILL.md 规定内容不得选择 URL、旗标、cookie、代理、路径。壳代理本来就能读用户指定的文件 | — |
-| L2 | 源文件不跟随符号链接、不读非常规文件：`O_NOFOLLOW` 加 `S_ISREG`，否则 `media_file_invalid` | adapters/media_acquisition.py:143-149；调用于 adapters/local_import.py:70、adapters/artifact_store.py:137 | 不跟随链接，不读 FIFO 或设备 | KEPT | 本地文件配方在复制前检查 `[ -f "$F" ] && [ ! -L "$F" ]`；检查器 `present:<name>` 要求媒体是常规文件且不是链接，`no_symlink` 拒绝包内任何链接 | — |
+| L2 | 源文件不跟随符号链接、不读非常规文件：`O_NOFOLLOW` 加 `S_ISREG`，否则 `media_file_invalid` | adapters/media_acquisition.py:143-149；调用于 adapters/local_import.py:70、adapters/artifact_store.py:137 | 不跟随链接，不读 FIFO 或设备 | KEPT | 本地文件配方在复制前检查 `[ -f "$F" ] && [ ! -L "$F" ]`；检查器 `present:<name>` 要求媒体是常规文件且不是链接，`regular_files_only` 在读取任何文件前拒绝包内的链接、FIFO 与设备 | — |
 | L3 | `import_file_unavailable` | adapters/local_import.py:68-72 | 复制失败要有具名原因 | REPLACED | 阶段 `FAILED` 逐字记录 | — |
 | L4 | 下载结果是符号链接时 `generic_media_invalid`；工作区须绝对、不是链接、是目录：`youtube_workspace_invalid`、`worker_workspace_invalid`、`generic_workspace_invalid` | adapters/generic_source.py:71-73；adapters/_youtube_worker.py:118-126；adapters/_ytdlp_worker.py:174-176；adapters/_generic_worker.py:95-97 | worker 写入的目录可信 | REPLACED | 每个来源新建空目录 `$ROOT/work/<key>/`；阶段先在 `.stage-<name>` 建好再 `mv`；checker `no_incomplete_stage`；结果文件由 L2 的链接检查覆盖 | — |
-| L5 | 输出根：`output_root_not_absolute`、`output_root_symlink`（任一祖先是链接）；缓存根 `artifact_root_invalid` | adapters/note_publisher.py:35-39；adapters/artifact_store.py:87-92 | 写入位置不被链接重定向 | REPLACED / DROPPED | `ROOT=${VIDEO_EVIDENCE_ROOT:-$HOME/.local/share/video-evidence}`，规则「不放 Git 或 /tmp」；`material retain` 拒绝 Git 与临时目录（`research/records/evidence.py:38-43`）。祖先链接检查不再做：单用户本机，根目录是用户自己设的 | B |
+| L5 | 输出根：`output_root_not_absolute`、`output_root_symlink`（任一祖先是链接）；缓存根 `artifact_root_invalid` | adapters/note_publisher.py:35-39；adapters/artifact_store.py:87-92 | 写入位置不被链接重定向 | REPLACED / DROPPED | `ROOT=${VIDEO_EVIDENCE_ROOT:-$HOME/.local/share/video-evidence}`，规则「不放 Git 或 /tmp」；`material retain` 拒绝本仓库内与临时目录中的路径（`research/records/evidence.py:38-43`）。祖先链接检查不再做：单用户本机，根目录是用户自己设的 | B |
 
 ### 2.7 子进程期限、输出上限、进程回收、并发
 
@@ -127,7 +128,7 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 | # | 拒绝 | 位置 | 保护什么 | 处置 | 新落点或理由 | 授权 |
 |---|---|---|---|---|---|---|
 | T1 | TRANSCRIPT_INCOMPLETE `local_asr_failed`：解码失败、worker 非零退出、回执不合 `_Receipt`（语言 1-32 字、1-4096 段、每段不超过 16000 字、时间非负） | adapters/asr_mlx.py:26-36, 73-98 | 失败或残缺的转写不被当成成功 | REPLACED | 输出门槛：`test -s transcript.json`，stdout 里没有 `^Skipping`，`.segments` 长度大于 0（mlx_whisper CLI 失败时也退出 0），否则写 `asr/FAILED`；checker `transcript_nonempty`、`run_identity`。段数与长度上限不再设 | — |
-| T2 | `MLX runtime version mismatch`（mlx-whisper 必须是 0.4.3） | adapters/_mlx_worker.py:18-19 | 引擎版本漂移 | REPLACED（失败即拒改为记录） | `transcribe.md` 安装配方钉版本；`run.json.versions` 记录实际版本；检查器 `run_identity` 只查字段存在。版本不符不再拒绝，因为 Qwen3-ASR 测量后可能换引擎 | C（列名待确认） |
+| T2 | `MLX runtime version mismatch`（mlx-whisper 必须是 0.4.3） | adapters/_mlx_worker.py:18-19 | 引擎版本漂移 | KEPT（2026-10-10 审阅后恢复） | 检查器 `engine_pinned`：`run.json` 的 `versions.mlx-whisper` 必须是 0.4.3、模型必须是钉住的 repo 与 revision；`argv_is_recipe` 要求 argv 与配方逐项相同。Qwen3-ASR 测量结论是暂不切换；换引擎要改检查器 | — |
 | T3 | 权重固定：`local_files_only=True`，revision `49e6aa28…` | adapters/_mlx_worker.py:21-25 | 不联网拉取未钉版本的权重 | KEPT | `HF_HUB_OFFLINE=1` 加绝对快照路径；`run.json.model {repo, revision, weights_sha256}` | — |
 | T4 | `invalid worker audio`（须单声道、16 kHz、s16）、`truncated worker audio` | adapters/_mlx_worker.py:26-36 | ASR 输入的格式与完整性 | KEPT | 固定 `ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le`；checker `pcm_recomputed` 用相同参数从音频身份文件重算 PCM 哈希 | — |
 | T5 | `transcript_coverage_incomplete`、`transcript_timeline_invalid`（空段、E-ID 次序、重叠、越界）、`transcript_bytes_exceeded`（2 MiB）、段数不超过 4096 | application/transcript_validation.py:7-35 | 转写覆盖完整，时间线自洽 | REPLACED（拒绝改为旗标） | E-ID 由段序派生，不存储；检查器只在 `flags` 下给出 `tail_gap_s`、`gaps_over_3s`、`loops`、`too_dense`、`too_sparse`、`empty_or_outside`、`repeats`、`numbers_to_verify` 与 `claims_citing_flagged`，从不决定 `ok`（阈值只按一位普通话作者调过）；`schema_known` 要求 Whisper 键齐全，不把缺失的 `compression_ratio` 当 0 | — |
@@ -167,7 +168,7 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 | # | 拒绝 | 位置 | 保护什么 | 处置 | 新落点或理由 | 授权 |
 |---|---|---|---|---|---|---|
 | A1 | ARTIFACT_UNAVAILABLE `artifact_expired`（24 h TTL）、`artifact_capacity_exceeded`（256 条、8 GiB）、`artifact_manifest_too_large`（8 MiB） | adapters/artifact_store.py:68-85, 111-132, 154-158, 182-186 | 有界缓存 | DROPPED（有意） | TTL 与持久托管正好相反。媒体按内容寻址存为 `$ROOT/sha256/<sha>.<ext>`，用 `rsync` 备份，再跑哈希循环（不一致打印 BAD） | B |
-| A2 | `artifact_store_invalid`（未知条目、链接、非常规文件、锁文件不是常规文件）、`artifact_store_busy`、`artifact_id_invalid`、`artifact_missing`、`artifact_digest_invalid`、`artifact_manifest_invalid`、`artifact_file_invalid`、`artifact_file_too_large`、`artifact_media_invalid`、`artifact_files_invalid`、`artifact_parent_mismatch`、`artifact_invalid` | adapters/artifact_store.py:40-64, 87-212, 236-240 | 读回时重新校验内容 | REPLACED | 复制后先 `shasum -a 256 -c` 再 `mv -n`；checker `present:`、`sha256:`；研究托管的 `artifact://source_media/sha256/…` 由 `show`、`compare`、`validate`、`publish --dry-run` 重算哈希（`research/records/cli.py` 的 `_check_ref`）；另见 L2 的链接检查 | — |
+| A2 | `artifact_store_invalid`（未知条目、链接、非常规文件、锁文件不是常规文件）、`artifact_store_busy`、`artifact_id_invalid`、`artifact_missing`、`artifact_digest_invalid`、`artifact_manifest_invalid`、`artifact_file_invalid`、`artifact_file_too_large`、`artifact_media_invalid`、`artifact_files_invalid`、`artifact_parent_mismatch`、`artifact_invalid` | adapters/artifact_store.py:40-64, 87-212, 236-240 | 读回时重新校验内容 | REPLACED | 复制后先 `shasum -a 256 -c` 再 `mv -n`；checker `present:`、`sha256:`；研究托管的 `artifact://source_media/sha256/…` 由 `show`、`validate` 重算哈希（不符即失败），发表预检只报告缺失或不符（`research/records/cli.py` 的 `_check_ref`，`ledger.evidence_read_findings`）；`compare` 只读运行的 audit 引用；另见 L2 的链接检查 | — |
 
 ### 2.13 严格 JSON、MCP 准入、IPC
 
@@ -231,29 +232,37 @@ cookie 规则、本地文件 `[ ! -L ]`。仍放宽的 C 类见第 4 节，PR �
 
 ## 4. 仍为 C 类、等用户确认的放宽
 
+2026-10-10 审阅后，R3（96 分钟上限）与 T2（ASR 版本）在检查器里恢复为失败检查，R4 加了事后的 2 GiB 检查；
+下面几项仍需用户在 PR 评审时逐条确认，未确认前不得合并：
+
 1. U1、U2：平台 URL 的其余文法限制（控制字符、长度、查询键白名单）。危害面由 URL 前的 `--`、引号和 `bash <<'SH'`
-   覆盖；通用页的 scheme、端口、userinfo 与私有后缀已由 `host_check.jq` 拦下。
-2. R3、P2：96 分钟时长上限与子进程输出上限。检查器改为流式哈希，内存不随时长增长。
-3. R4：长度未知的流、跨重试累计量与本地大文件不再有字节上限（`--max-filesize 2G` 只看声明长度）。单用户本机，
-   harness 命令超时兜底；`no_media_or_large_file_in_bundle` 防止把媒体误 retain 进 Dolt。
+   覆盖；通用页的 scheme、端口、userinfo、IP 字面量（含十六进制与尾点）与私有后缀由 `host_check.jq` 拦下，检查器
+   `public_https_host` 事后复核；`bundle` 拒绝不在 `[A-Za-z0-9_-]` 内的 ID。
+2. P2：子进程输出上限。检查器改为流式哈希，内存不随时长增长。
+3. R4 的下载过程部分：长度未知的流、跨重试累计量与本地大文件在下载时不再有字节上限（`--max-filesize 2G` 只看声明
+   长度）；单用户本机，harness 命令超时兜底，检查器事后 `max_bytes` 失败。
 4. P1 的配方侧：下载与 ASR 不再有程序内期限，改为后台运行加 harness 超时（检查器侧已保留）。
-5. C4：封闭失败回执改为逐字 `FAILED`（去掉查询串）。隐私方向改变；`FAILED` 可能经 `material retain` 进入只追加的
-   Dolt，检查器的泄漏扫描覆盖它，但不覆盖本机用户路径。
-6. T2：ASR 运行时版本不符从拒绝改为只记录（`run.json.versions`）。
-7. 附带说明（属 A，后果需知）：E4、C3 使环境 `HTTP(S)_PROXY` 生效；E14 允许通用页转交其他提取器；X1 使 yt-dlp
-   内部默认重试 10 次。
+5. C4：封闭失败回执改为逐字 `FAILED`（去掉查询串，ASR 命令里的家目录写成 `~`）。隐私方向改变；`FAILED` 可能经
+   `material retain` 进入只追加的 Dolt；检查器扫描其中的签名 URL、IP、cookie 头与本机家目录路径。
+6. 附带说明（属 A，后果需知）：E4、C3 使环境 `HTTP(S)_PROXY` 生效；E14 允许通用页转交其他提取器；X1 使 yt-dlp
+   内部默认重试 10 次；通用页下载用 `--load-info-json` 读探测结果，不再二次提取页面，但下载中的重定向与 DNS 解析
+   仍不检查。
 
 ## 5. 落点总结
 
-**检查器（事后能从字节重算、失败即拒）：** `receipt_matches_probe`、`format_known`、`exact_size`、`not_truncated`
-（无声明时报 `undeclared` 失败）、`max_side_pixels`、`hd_floor`、`container`、`no_symlink`、严格 `readable_json`、
-`frame_in_cited_span`、`number_has_frame_or_label`、`no_signed_url_or_cookie`、`no_media_or_large_file_in_bundle`，
-每个子进程 `timeout=600`，自身 ffprobe/ffmpeg 带 `-protocol_whitelist file,pipe`，`sha()` 与 `pcm()` 流式哈希。ASR
-质量启发式（循环、过密、过疏、空段、间隙、重复、待核数字）只作 `flags`，不决定 `ok`；笔记不再检查。
+**检查器（事后能从字节重算、失败即拒）：** `receipt_present`、`receipt_matches_probe`、`format_known`、`exact_size`、
+`not_truncated`（按解复用能读到的最后一个包；无声明时报 `undeclared` 失败）、`page_holds_media`、`max_side_pixels`、
+`hd_floor`、`max_bytes`、`duration_ceiling`、`one_stream_per_kind`、`container`、`regular_files_only`、`layout`、
+`png_plain`、`text_file`、严格 `readable_json`、`public_https_host`、`engine_pinned`、`argv_is_recipe`、`has_grid`、
+`grid_covers_6s`、`frame_in_cited_span`、`quote_in_segments`、`number_has_frame_or_label`、`value_in_evidence`、
+`sidecars_resolve`、`flagged_span_limited`、`claims_have_media`、`no_signed_url_or_cookie`、
+`no_media_or_large_file_in_bundle`；每个子进程 `timeout=600`，自身 ffprobe/ffmpeg 带 `-protocol_whitelist file,pipe`
+与容器白名单，`sha()` 与 `pcm()` 流式哈希。ASR 质量启发式只作 `flags`，但引用被标记段的 claim 必须写局限；笔记不检查。
 
 **skill 规则或固定旗标（预防发生在字节产生之前，检查器看不到）：** yt-dlp 旗标白名单与固定的
 `--ignore-config --no-plugin-dirs --no-playlist`、`--`、`-o 'source.%(ext)s'`、原子选择器、`-k --fixup never`、
-`--max-filesize 2G`；通用页下载前跑 `host_check.jq`；`identity.jq` 不把域名记成作者、不把 `Last-Modified` 记成发布时间；
+`--max-filesize 2G`；通用页下载前跑 `host_check.jq`、下载读 `--load-info-json`；`bundle` 校验 ID；下载前删除残片、不续传，
+留存前完整解码检查；`identity.jq` 规范化 `webpage_url`，不把域名记成作者、不保留 `Last-Modified`；pandoc 用 `note.lua`；
 cookie 规则；内容不选择 URL、旗标、路径或下一步；同一命令最多重跑两次，不换网络路径；长任务放后台轮询；中断后
 清理；一次只跑一个 MLX 任务；本地文件 `[ -f "$F" ] && [ ! -L "$F" ]`；笔记的章节、图片与 HTML 规则。
 

@@ -18,5 +18,8 @@ note reads the bundle; it is never evidence and the checker does not read it.
 - **Header**: title, channel or author, date with its granularity, duration, media SHA-256 and the
   ASR engine and model revision from `asr/run.json`.
 
-HTML when wanted (source text never renders as raw HTML):
-`pandoc -f markdown-raw_html -s --embed-resources note.md -o note.html`.
+HTML when wanted, outside the bundle (embedded frames would exceed the checker's 8 MiB file limit). Source
+text copied into the note is data: the filter keeps only bundle images and https links and drops raw HTML,
+so a title like `![](~/.ssh/id_ed25519)` neither embeds a local file nor fetches a URL:
+
+    cd "$B" && mkdir -p "$ROOT/notes" && pandoc -f markdown-raw_html --lua-filter "$A/note.lua" -s --embed-resources note.md -o "$ROOT/notes/$KEY.html"

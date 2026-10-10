@@ -16,4 +16,11 @@ fi
 REPO=${VIDEO_EVIDENCE_REPO:-$(git -C "$A" rev-parse --show-toplevel)}
 CHECK="$REPO/services/video-evidence/check_bundle.py"
 test -f "$CHECK" || { echo "checker not found at $CHECK; set VIDEO_EVIDENCE_REPO to a checkout" >&2; exit 1; }
-MLX_VENV=${MLX_VENV:-$HOME/.local/share/bilibili-note-mcp/mlx-venv}
+MLX_VENV=${MLX_VENV:-$HOME/.local/share/video-evidence/mlx-venv}
+# Before every identity-file input of ffmpeg or ffprobe: only these containers, only local files.
+FMT=(-protocol_whitelist file,pipe -format_whitelist mov,mp4,m4a,3gp,3g2,mj2,matroska,webm)
+# bundle <site>-<ID>: the only way a recipe names KEY, W (scratch) and B (bundle). Source text never becomes a path.
+bundle() {
+  [[ $1 =~ ^[a-z0-9]+-[A-Za-z0-9_-]{1,64}$ ]] || { echo "refused KEY (want <site>-<ID>, ID in [A-Za-z0-9_-]): $1" >&2; exit 1; }
+  KEY=$1; W="$ROOT/work/$KEY"; B="$ROOT/bundles/$KEY"
+}
