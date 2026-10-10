@@ -1,6 +1,6 @@
 # 回测结果的拆解与诊断：调研、设计与改进计划
 
-状态：调研、计划与第一批实施（同一 PR：skill 事实更正与评测、删 `compare_paired_returns.py`、新增 `analysis.tables()`；另三个死脚本已由 #1500 先行删除）。未写 Dolt、未跑新回测、未改镜像输入。日期 2026-10-10，代码基于 main `3b3b4876b`。
+状态：已实施两批。第一批（#1501）：skill 事实更正与评测、删 `compare_paired_returns.py`、新增 `analysis.tables()`；另三个死脚本已由 #1500 先行删除。第二批：把数据坑移出 skill，重建运行镜像 `ef67402d…`，见末节。未写 Dolt，未登记新回测（只做了不登记的工程重放）。日期 2026-10-10。
 
 范围：拿到一次封存回测（或一对合法配对）之后，Agent 怎样拆解和诊断结果；据此如何改进 `nautilus-report-analysis` skill、如何使用和封装 Nautilus 报告 API；报告相关代码哪些可删、是否应搬进 skill。遵循"能用 Agent 就不硬编码"：代码只用于信任边界、修现有缺陷、Agent 做不到的事。
 
@@ -314,18 +314,58 @@ skill 写"从 `research.records.analysis.tables` 读表"。这对应三条准则
 | 3 | 7 个评测用例，三组对照（不加 skill / 当前 skill / 加候选规则）；K1–K9 按增量决定写入 | 评测驱动 | 已做：写入 K3、K5，保留 2 个回归用例 |
 | 4 | `compare_paired_returns.py`：`_interval` 移入 `analysis.py`，配方的运行 commit 写进 records README，8 个配方在该 commit 上全部原样重建，然后删 | 删代码 | 已做 |
 | 5 | `analysis.tables()` | 新公开接口 | 已做；28 个 seal 全部可读，闭仓计数与已实现 PnL 与对账一致 |
-| 6 | tier 几何移入遗留策略 | 改审计边界 | 已授权，等下次重建镜像 |
+| 6 | tier 几何检查 | 改审计边界 | 第二批：按用户决定直接删除 |
 | 7 | P0-C 资本时序 | 已计划 | 按原生分析计划的闸门 |
 
 第 4 项与原计划的差别：原计划写的是给 8 个 `recipe.json` 补 `shared_code_git`。配方按 README 用 `material retain` 存档，带哈希，改写磁盘上的配方文件会让它与存档字节不一致。所以沿用 records README 已有的做法：像"归档台账用 `9794ed307` 的 CLI 读取"一样，写明这些配方从 `3b3b4876b` 运行。实测 8 个配方在该 commit 上的输出与存档 JSON 逐键相同。
 
-## 下次重建镜像时
+## 第二批（2026-10-10 晚）：把数据坑移出 skill
 
-下一次有意重建运行镜像（会改镜像输入、要新 digest 和工程配对重放）时，一并做：
+用户决定：
+- 这次就重建镜像，五项一起做：`tables()` 补列、skill 精简、评测、在 runner 源头修统计口径、给 Nautilus 上游报问题。
+- 共享审计里的分档几何检查**直接删除**，不移进旧策略。它只服务旧对照 `r1.broad-two-tier@1`（仅 B00-37 用过，Dolt 里另外 14 个策略都不走它），而该策略已无研究在用。这属于放宽审计边界，用户已授权。
 
-1. **`markdown-it-py` 随镜像消失。** #1500 已把它从 `pyproject.toml` 与 `uv.lock` 删除；现用镜像 `b6b94ccc…` 仍含它，下一次从 main 构建时自动去掉。重建后确认镜像里没有它。
-2. **tier 几何移入遗留策略。** `audit_tiered_native.py` 中按 `signal_variant` 硬编码的 tier 几何检查（约 270 行），移到使用这些变体的遗留策略自己的 `replay_integrity_findings`；通用对账保持不变。这属于改审计边界，用户已于 2026-10-10 授权，前提是与镜像重建一起做。
-3. 新镜像对受影响的对照做工程配对重放（`compare_node`），确认订单、成交、费用、资金费与账户一致后再用于新候选。
+依据：skill 里的 10 条数据坑写下第二天就有 3 条部分过时，文字过时不会报错；同一知识写成 `tables()` 的解析，有真实封存测试守着。所以坑按来源处理：
+- 格式坑交给 `tables()`；
+- 口径坑在 runner 源头消除；
+- 只有需要判断的记账语义留在 skill。
+
+| 改动 | 内容 |
+|---|---|
+| `tables()` | 闭仓行新增 `ts_closed_ns`（取 `ts_last`）与 `closing_order_tags`（平仓订单的 tags；无 tag 为空列表）。28 个 seal 上，每个闭仓行都找到了平仓订单，`ts_closed_ns` 与原生 `ts_closed` 相差不到 1 微秒 |
+| skill | 删去整段格式坑，改为"只用 `tables()`，它拒绝或报格式错就停下报告"；记账语义与两条已验证规则保留，补一句持仓时长用 `duration_ns`。正文 5.85 KB → 4.9 KB |
+| runner | summary 不再写 `stats_returns`、`stats_pnls`、`stats_general`。原因：含预热、按 252 天年化、混入快照与开放行、合并同纳秒平仓。需要时用原生统计类从封存复算；目标读数（收益、胜率、交易窗口 Sharpe 与回撤）不变 |
+| 审计 | 删除分档几何检查（312 行与 10 个硬编码变体名），所有运行走同一套通用对账。为兼容旧托管命令，`--catalog-root` 仍接受但不读取 |
+| `compare_node` | 验收时发现：零交易运行的 Sharpe 为空值，比较时崩溃。已修复，并补了测试 |
+| 上游 | [nautechsystems/nautilus_trader#5287](https://github.com/nautechsystems/nautilus_trader/issues/5287)：`ts_closed` 精度；[#5288](https://github.com/nautechsystems/nautilus_trader/issues/5288)：同刻开平的 NETTING 周期被合并成一条盈亏，根因是去重键 `(position.id, ts_opened)`，B00-37 上 507→500、C10-37 上 614→612。两者都在 rc3 复现，且确认 develop `010e1b1ca` 上代码未变 |
+
+**镜像。** `localhost:15000/trade-r1-runtime@sha256:ef67402d994ee14e7e281e1fc73652ca1a53ff74d2c1f5237fe64c47ddb16fda`，镜像内已无 `markdown-it-py`。身份 JSON、镜像 tar 与逐 run 验收结果在 `~/.local/share/trade/research-runtime/20261010-report-traps/`。第一版 `2f5196ab…` 带着上述 `compare_node` 缺陷，已被取代，存于 `superseded-2f5196ab/`，未用于任何登记。
+
+**工程验收（不登记 Dolt）。** 用托管同一容器命令，在新镜像上重放 7 个封存，结果：
+- 全部运行：退出码 0，输入回执前后一致；`compare_node` 与原 seal 一致（订单、成交、仓位、资金费、账户、日收益，以及 6 个 summary 读数）；新审计通过、0 条发现。
+- 对账字段（订单/成交/仓位计数、`native_economics`、`coverage_limits`）与原审计逐字段相同。
+- summary 除源码哈希与镜像身份外，只差被删的三组统计。
+
+| run | 原镜像 | 说明 |
+|---|---|---|
+| C11-P02、C11-37、B03-37 | `d6bbbde7` | 全部一致 |
+| E00-P02 | `d6bbbde7` | 零交易；`compare_node` 修复后一致 |
+| B00-37 | `5785c9a1` | 原审计在 #1494 之前，没有通用字段；分档计数等 8 个字段按预期消失。`native_economics` 与上一版镜像验收相同：期末余额 111358.27158633，手续费 971.32486250，资金费 46.21351633 |
+| B01-37、B02-37 | `5785c9a1` | 全部一致 |
+
+**影响。**
+- 新候选只能与同一镜像上的对照配对；改用新镜像前，要先在新镜像上重跑所需对照。
+- 已封存的 seal 不变，旧 summary 仍含 `stats_*`，skill 已注明不要引用。
+
+**评测（sonnet 评分）。** 三组：不加 skill、精简前的 skill、精简后的 skill，每组 3 次，加确定性的正则评分。
+
+| 用例 | 不加 skill | 精简前 | 精简后 |
+|---|---|---|---|
+| 入场标签 × 出场原因（LLM 评分） | 1/3 | 3/3 | 3/3 |
+| 原生统计与 tearsheet（正则：`calculate_from_returns`、`create_tearsheet_from_stats`、365） | 3/3、1/3、3/3 | 全部 3/3 | 全部 3/3 |
+| 读表（正则：`tables()`、`closing_order_tags`、`duration_ns`） | 全 0/3 | 3/3、0/3、3/3 | 全部 3/3 |
+
+"原生统计"一项的 LLM 评分出现过精简前 3/3、精简后 1/3。用同一评分标准另请一个 sonnet 子 Agent 复判，四个回答全部通过；差别只在精简后的回答完全依赖 `tables()` 给出交易窗口，没有再写手动过滤。所以这是评分标准第 2 条措辞不清，不是退化，已改写这一条。这一轮评测共 6.47 美元。
 
 不做：新的分析依赖、向量化反事实回测、自定义 tearsheet、runner 内新增统计、事件流持久化、为 MAE/MFE 写产品代码、学生化区间改代码（触发条件见上）。
 

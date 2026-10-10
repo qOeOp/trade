@@ -81,3 +81,4 @@
 - 镜像：`localhost:15000/trade-r1-runtime@sha256:b6b94cccf855929b6d89f6d223fd44954f66a990a3ad101462c26a5df3dee35f`，身份 JSON、镜像 tar 与逐 run 工程验证结果在 `~/.local/share/trade/research-runtime/20261010-tier-audit-fix/`（被取代的第一版镜像在其 `superseded-122df245/` 下，未用于任何登记）。
 - 工程验证（不登记 Dolt）：在新镜像上用托管同一容器命令重放 C11-P02、C11-37、B00-37。三者 `compare_node` 与原 seal 一致、输入回执前后一致、审计通过且产出 `native_economics`；B00-37 的分档计数与原审计相同，`native_economics` 为期末余额 111358.27158633、手续费 971.32486250、资金费 46.21351633。订单、成交、持仓 CSV 的字节在旧镜像重跑同一 seal 时也会变（易变 ID），所以以 `compare_node` 为准。
 - 影响：已封存的 seal 不变，B00-37 的 `native_economics` 仍为 null。新候选只能与同一镜像上的对照配对，用新镜像前要在新镜像上重跑所需对照。
+- 后续（2026-10-10 晚，用户授权）：分档几何检查已从共享审计删除，所有运行走同一套通用对账；当前镜像为 `localhost:15000/trade-r1-runtime@sha256:ef67402d994ee14e7e281e1fc73652ca1a53ff74d2c1f5237fe64c47ddb16fda`，见[回测结果的拆解与诊断](backtest-result-diagnosis.zh.md)第二批。
