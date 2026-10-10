@@ -1,13 +1,13 @@
 ---
 name: research-sources
-description: Search and read sources outside this repository - scholarly and working papers (OpenAlex, Semantic Scholar, arXiv, CORE), economic series (FRED/ALFRED), public datasets (Kaggle) and practitioner Q&A (Stack Exchange). Use before stating what prior work found or that none exists, when taking a hypothesis, method or parameter from the literature, and before using external data in research.
+description: Search and read sources outside this repository - scholarly and working papers (OpenAlex, Semantic Scholar, arXiv, CORE, Crossref, OpenCitations, NBER, EconBiz/RePEc, Zenodo), economic and positioning data (FRED/ALFRED, CFTC Commitments of Traders, Treasury and New York Fed liquidity, SEC EDGAR), public datasets and bulk corpora (Kaggle, Academic Torrents) and practitioner Q&A (Stack Exchange). Use before stating what prior work found or that none exists, when taking a hypothesis, method or parameter from the literature, and before using external data in research.
 ---
 
 # Research sources
 
 Call the official APIs with `curl` and cut every response with `jq` before reading it. Endpoints,
 limits and known failures: [papers.md](references/papers.md) for paper indexes,
-[data.md](references/data.md) for FRED, Kaggle and Stack Exchange.
+[data.md](references/data.md) for economic, positioning and filing data, datasets and Q&A.
 
 ## Keys
 
@@ -24,6 +24,12 @@ curl -sS -H "Authorization: Bearer $(key OPENALEX_API_KEY)" \
   | jq -c '.meta.count, (.results[] | [.publication_year, .display_name, .doi])'
 ```
 
+`RESEARCH_CONTACT_EMAIL` in the same file is the contact address that Crossref, Unpaywall and SEC
+EDGAR require; send it only to those, read it the same way, and keep it out of Git (the repository
+is public).
+
+To see which keys exist, list names only: `sed 's/=.*//' "$ENV"`.
+
 A missing key, 401, 403 or exhausted quota means the source was not searched, never that it has no
 results.
 
@@ -34,16 +40,24 @@ results.
 | Papers on a topic, including SSRN and other working papers | OpenAlex, then Semantic Scholar |
 | The newest preprints | arXiv by category, newest first |
 | Which paper states a specific claim | Semantic Scholar snippet search, then read that paper |
-| Follow-ups, predecessors, similar work | Semantic Scholar citations, references, recommendations |
-| Open full text | open-access locations, arXiv, CORE; otherwise the user |
+| Follow-ups, predecessors, similar work | Semantic Scholar; OpenCitations when it is throttled |
+| Versions of one paper, DOI metadata | OpenAlex DOI filter, Crossref `relation` |
+| Economics working papers (NBER, RePEc) | OpenAlex sources, NBER metadata files, EconBiz |
+| Replication code and data | Zenodo |
+| Open full text | arXiv, repository copies, Unpaywall; otherwise the user |
 | Economic or rate series | FRED, with the vintage known at the date being studied |
+| Positioning in regulated crypto futures | CFTC Commitments of Traders |
+| US dollar liquidity | Treasury General Account, SOFR and reverse repo, FRED |
+| Filings, e.g. spot ETF trusts | SEC EDGAR |
 | Datasets, practitioner know-how | Kaggle, Stack Exchange: leads only |
+| Bulk corpora (e.g. Reddit dumps) | Academic Torrents catalogue; download only after the user confirms |
 
 ## Search
 
 1. Before searching, write down the question and at least three phrasings (other names for the
-   mechanism, the academic and the trading term). Search at least two paper indexes.
-2. Keep a query log: source, query, filters, hit count, query date. Report absence as "not found by these
+   mechanism, the academic and the trading term). For a topic, search at least two of OpenAlex,
+   Semantic Scholar, arXiv and CORE; series files and repositories come on top.
+2. Keep a query log with the answer: source, query, filters, hit count, query date. Report absence as "not found by these
    queries", never as "no prior work".
 3. Merge results into works, keeping every source and ID a record came from. One work can carry
    several DOIs (preprint, working-paper series, journal) and slightly different titles: group by

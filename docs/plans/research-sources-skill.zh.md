@@ -67,7 +67,7 @@ SSRN 无公开 API 且条款禁止自动抓取，RePEc/IDEAS API 需邮件申请
   OpenAlex `search=` 噪声、arXiv 不加分类会混入物理和 CS、CORE 内嵌全文有时是另一篇文档、
   同一论文有 3 个 DOI 时按 DOI 合并失效、只拿到摘要时无处标注、对 HTML 跑了 pdftotext、
   Unpaywall 需要邮箱而 skill 没说用哪个、Stack Exchange `q=` 偏题。均已改进 skill；
-  Unpaywall 去掉（其数据已并入 OpenAlex 的 locations）。
+  Unpaywall 当时先去掉，用户给出联系邮箱后恢复（见"接入范围"）。
 - 第二轮（订单流不平衡 + FRED 历史版本，19 次调用）：key 规则、"仅摘要"标注、版本合并、
   FRED 当时已知值与现值对比都按规则做到；S2 退避到 45 秒那一档才通过。新暴露的问题均已修改：
   OpenAlex 可用 `filter=doi:a|b` 一次核对多个版本；S2 `externalIds` 不列 SSRN 副本；
@@ -76,6 +76,33 @@ SSRN 无公开 API 且条款禁止自动抓取，RePEc/IDEAS API 需邮件申请
 
 暂不加 `claude plugin eval` 用例：试用已覆盖本轮规则；若某条规则在后续使用中反复不被遵守，再按
 `research-round` 的做法补回归用例。
+
+## 接入范围（用户 10-10 定）
+
+- **第一档，免 key，已接入：** Crossref（DOI 元数据、`relation` 版本关系）、OpenCitations（S2 限流时的引用关系）、
+  NBER 元数据 TSV（工作论文及其正式发表去向）、EconBiz（含 RePEc 记录）、Zenodo（复现包与数据集）、
+  CFTC 持仓报告（CME 比特币/以太坊与 Coinbase 永续式合约，按交易者类别）、财政部 TGA 余额、
+  纽约联储 SOFR 与逆回购。
+- **第二档，需要联系邮箱，已接入：** Crossref polite 池、Unpaywall、SEC EDGAR。邮箱放在本机 `.env` 的
+  `RESEARCH_CONTACT_EMAIL`，不进 Git（仓库公开）。
+- **不申请任何新 key 或提额。** Semantic Scholar 继续靠退避；CORE 维持个人档。
+- **不接：** Google Scholar（无 API，robots 禁止）、BASE（需登记 IP，禁止未经许可的自动检索）、Sci-Hub、
+  Scopus/WoS/IEEE（付费）、生物医学各源、IACR、Asta（许可证限学术非商业）、RePEc IDEAS API 与批量数据
+  （无检索功能；排除商业用途）、IDEAS/EconPapers 检索页（robots）、Coin Metrics 社区版（CC BY-NC）、
+  DefiLlama Pro（付费）、Alpha Vantage、BEA/BLS（ALFRED 已有其历史版本）、CoinGecko（行情归市场数据线）。
+
+- **Academic Torrents（用户 10-10 加入 `.env`，已调查）：** 社区运营的科研数据 BitTorrent 目录，约 2,900 条。
+  没有加密行情、订单簿或资金费率数据；对本项目有用的只有 Crossref 官方公开数据文件的镜像和 Reddit 月度转储。
+  没有检索 API，按官方文档下载每晚重建的 `database.xml` 离线检索；条目详情 `apiv2/entry/{infohash}` 免 token。
+  `.env` 里的 token 实为账号登录 cookie（`uid=…;pass=…`），只有上传才需要，读取不用，skill 规定不用它。
+  上传无人审核，多数条目没有许可证，目录里还有已被 DMCA 下架却未标记的条目；BitTorrent 下载会公开本机 IP，
+  单个条目常有数十 GB 到数 TB。所以 skill 只读目录，任何下载都先向用户报告 infohash、大小、上传者、许可证和
+  目标路径并等确认，优先找原发布方的副本。
+
+数据源的时点规则写进 skill：CFTC 周二持仓、周五 15:30 ET 发布，遇假日顺延；TGA 次一工作日 16:00 ET 前发布；
+SOFR 次一工作日约 08:00 ET 发布、14:30 ET 前可修订；EDGAR 以 `acceptanceDateTime` 为公开时点。
+实测中的坑：CFTC 合约代码会在交易所之间迁移（同一代码先属 LMX 后属 Coinbase）；TGA 余额只在
+`open_today_bal` 列；EDGAR 不带联系 User-Agent 返回 403。
 
 ## 安全
 

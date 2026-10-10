@@ -67,10 +67,49 @@ Select fields and cap results in the request, then cut the response with `jq` be
   (`{title, yearPublished, doi, downloadUrl}`). The embedded text sometimes belongs to another
   document: check the title and authors appear in it before quoting.
 
+## Crossref — DOI metadata and version links
+
+- `GET https://api.crossref.org/works/{doi}` or `/works?query.bibliographic=...&filter=...&rows=&select=DOI,title,author,issued,type,relation`,
+  with `mailto=$(key RESEARCH_CONTACT_EMAIL)` (the polite pool, ten requests a second; check
+  `x-api-pool`). No key.
+- `filter=prefix:10.2139` is SSRN and `prefix:10.3386` NBER; add `from-pub-date:YYYY`. `relation`
+  carries `is-preprint-of` / `has-preprint` links when the depositor stated them; their absence
+  proves nothing.
+
+## OpenCitations — citation links without the throttle
+
+- `GET https://api.opencitations.net/index/v2/{citations|references|citation-count}/doi:{doi}`,
+  no key, about 180 requests a minute, one DOI per call. Each row lists `doi:`, `openalex:` and
+  `omid:` IDs in one string; split on spaces. Counts are strings and differ between indexes (often
+  well below OpenAlex `cited_by_count`), so name the source of every count.
+
+## Working-paper series
+
+- NBER: no API. Download the metadata once per session to a temporary directory from
+  `https://data.nber.org/nber_paper_chapter_metadata/tsv/`: `ref.tsv` (paper, author, title,
+  issue date; its `doi` column is mostly NULL), `published.tsv` (free-text citation of the later
+  journal version), `jel.tsv`; `abs.tsv` is large, so fetch it only when you need abstracts. Search
+  them with `rg` (titles hold stray quotes, so Python needs `csv.QUOTE_NONE`), then get journal
+  DOIs from OpenAlex or Crossref. NBER PDFs are free only to some readers; look for the author's or
+  SSRN version first.
+- RePEc and other economics catalogues: `GET https://api.econbiz.de/v1/search?q=...&size=`, no
+  key; `q=... source:repec` restricts to RePEc, `facets=source` counts by catalogue. Do not use the
+  IDEAS or EconPapers search pages (robots.txt) or RePEc bulk data (commercial use excluded).
+- SSRN: metadata only, through OpenAlex or Crossref; its pages refuse automated requests.
+
+## Zenodo — replication code and data
+
+- `GET https://zenodo.org/api/records?q=...&type=dataset&type=software&size=` (repeat `type`;
+  `type=dataset|software` silently returns nothing), no key, about 30 requests a minute.
+- Check `metadata.license` and `metadata.related_identifiers` (`isSupplementTo` names the paper,
+  but is often missing; then match the title in OpenAlex); files list `key` and `size`. Uploads are
+  unreviewed and include spam: a package is a lead to a paper's method, never a canonical input.
+
 ## Full text
 
 - Try the arXiv PDF and repository copies first: OpenAlex `locations[].pdf_url` (more than
-  `best_oa_location`), Semantic Scholar `openAccessPdf`, CORE `fullText` or `downloadUrl`.
+  `best_oa_location`), Semantic Scholar `openAccessPdf`, CORE `fullText` or `downloadUrl`, and
+  `https://api.unpaywall.org/v2/{doi}?email=$(key RESEARCH_CONTACT_EMAIL)` for a DOI.
   Working-paper series of central banks and research institutes are fine when they serve the file
   directly; publisher links usually answer with a bot check.
 - Download with `curl -sSL -o FILE -w '%{http_code} %{content_type}'` and run `pdftotext -layout`
