@@ -50,7 +50,7 @@
 | `max_consecutive_losing_closed` | retain | 连亏 | 亏损 = realized ≤ 0（winning_trades 的补集）；按 (ts_last, instrument_id, opening_order_id) 排序，因 snapshot ID 含随机 UUID |
 | `open_positions` | retain，沿用 METRIC_FIELDS 同义名 | 期末开放仓 | 零交易为 0，失败 seal 为 null |
 | `monthly_account_return_pct` | retain | 月度账户 MTM 贡献 | {"YYYY-MM": pct}，交易窗口内按 UTC 日初标签复利；首末月为部分月 |
-| `by_instrument` | retain，不复用 `per_coin` | 品种贡献；`per_coin` 已是 summary 中不同形状的输入计数表，复用会一名两义 | {columns: [instrument, closed_trades, reported_realized_pnl_usdt], rows}；行覆盖 summary.per_coin 全部品种并排序；realized 为闭仓 + 开放仓，合计等于 native realized，未实现残差不分配 |
+| `by_instrument` | retain，不复用 `per_coin` | 品种贡献；`per_coin` 已是 summary 中不同形状的输入计数表，复用会一名两义 | {columns: [instrument, closed_trades, reported_realized_pnl_usdt], rows}；行覆盖 summary.per_coin 全部品种并排序；无仓位行的品种 realized 为 0（可计算，避免配对差值缺项）；realized 为闭仓 + 开放仓，合计等于 native realized，未实现残差不分配 |
 | `gain/loss_concentration_top3_share` | derive | 可由 by_instrument 排序得到 | — |
 | `by_entry_side.{BUY, SELL}.{closed_trades, reported_realized_pnl_usdt}` | retain | 方向拆分；Long Ratio 只给比例 | 与 by_instrument 同口径；只有一个方向时为 null（否则重复合计） |
 | `limitations` | retain，沿用 summary 名称 | 缺口永不省略 | summary.limitations ∪ audit.coverage_limits ∪ 分析器原因 |
@@ -70,14 +70,14 @@
 | 既有 compare 键 | retain，不变 | `_compare` 原样执行 |
 | `role` 成对 | drop | B1 成功输出中恒为 [candidate, control]；B2 时再审 |
 | `strategy_binding` 成对 | retain，沿用 run 字段 | compare 输出缺少双方策略身份；legacy Git 保管 run 为 null |
-| `artifact_manifest_ref` 成对 | retain，沿用 run 字段 | 标明分析的封存字节；可与 P0-A `manifest_sha256` 对接 |
-| `selection` | retain，透传候选 attempt 的 contract.selection | 给出冻结的 primary_response、family_id 与 known_exposure，取代新增事前布尔值；契约跨 revision 冻结，用 compare 已载入的 revision |
+| `artifact_manifest_ref` 成对 | retain，沿用 run 字段 | 标明分析的封存字节；可与 P0-A `manifest_sha256` 对接。--analysis 要求双方都有 `artifact://<run>/manifest.json` 锚点且与封存一致，否则以 `decision_pair_integrity` 拒绝 |
+| `selection` | retain，透传候选 attempt 的 contract.selection | 给出冻结的 primary_response、family_id 与 known_exposure，取代新增事前布尔值；契约跨 revision 冻结，用 compare 已载入的 revision。已知上限：known_exposure.run_refs 随家族增长，约 190 条时配对输出会超过 32 KiB 并显式失败（当前最多 25 条），届时另行审阅有界表示 |
 | 事前布尔值（在 rev1 暴露内、rev1 父、起跑前已登记） | drop | 第三项不可派生（seal 无起跑时刻）；前两项已是固定关系，且都不能证明事前选定。改为一条固定 limitation：对照在结果后登记绑定，尚无可机器核验的事前参考声明 |
 | `metrics` 追加 P0-A 读数 | retain，沿用 {candidate, control, difference} 形状，键为 P0-A 键路径 | 固定集合：closed_trades；closed.{entry_notional_usdt, price_pnl_usdt, fill_commissions_usdt, reported_funding_usdt, reported_realized_pnl_usdt}；unrealized_residual_usdt；open_positions；closed_bps_of_entry_notional.{price_pnl, fill_commissions, reported_funding, reported_realized}；taker_fill_notional_share。不设单位列（单位在键名后缀） |
 | `metrics.*.difference` | retain，补 null 规则 | 任一侧为 None、布尔、非数值或非有限时为 null，否则不变；同时修复普通 compare 在 `cli.py:497` 的 `Decimal` 崩溃 |
 | `by_instrument` 成对 | retain，与 P0-A 同名 | {columns: [instrument, candidate_closed_trades, control_closed_trades, candidate_reported_realized_pnl_usdt, control_reported_realized_pnl_usdt, difference_reported_realized_pnl_usdt], rows}；全宇宙排序 |
 | `monthly_account_return_pct` 成对 | retain，与 P0-A 同名 | {"YYYY-MM": {candidate, control, difference}}；差值为描述性百分点 |
-| `paired_daily_returns` | retain，复用 `method`、`seed`、`draws`、`days`、`week_blocks` | 仅当 selection.primary_response 等于 `final_equity_usdt` 时计算，否则为 null 并写 limitation；seed 20261008、5000 次、ISO 周块 |
+| `paired_daily_returns` | retain，复用 `method`、`seed`、`draws`、`days`、`week_blocks` | 仅当 selection.primary_response 等于 `final_equity_usdt` 时计算，否则为 null 并写 limitation；任一侧日收益序列被单 run 核对拒绝或双方时间轴不同，也为 null 并写 limitation，不新增拒绝；seed 20261008、5000 次、ISO 周块 |
 | 区间口径 | 采用配对日对数收益差：`observed_annualized_relative_growth_pct`、`bootstrap_95pct_annualized_relative_growth_pct` | d_t = ln(1+r_c) − ln(1+r_b)，观测值 (exp(365·mean d) − 1)×100，即 (FE_c/FE_b)^(365/days) − 1；区间对重采样均值做同样变换。原口径（两个分别年化的差）与 `metrics.annualized_return_pct.difference` 数值相近但不同（C11/B03：−11.3087 对 −11.3305），同一输出出现两个“年化差”会误导，且区间受对照自身水平影响；新口径另起名称。C11/B03 复现值：−10.0992，[−41.8120, 36.8119] |
 | Sharpe365 次级区间 | drop | 非主响应的推断区间诱导换目标；C03/B02 的 Sharpe 区间不含 0 而主区间含 0 |
 | 配对相关、区间半宽、目标差距 | drop | 半宽对变换后的非对称区间有误导；attempt 契约没有可机读目标阈值（selection 只有 family_id、primary_response、known_exposure） |

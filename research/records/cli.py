@@ -12,9 +12,9 @@ import hashlib
 import json
 import os
 import subprocess
-from decimal import Decimal
 from pathlib import Path
 
+from research.records.analysis import entry
 from research.records.common import ROOT
 from research.records.common import RecordError
 from research.records.common import _check_commit
@@ -416,16 +416,43 @@ def _find(
     ]
 
 
+_PAIR_ROLE_ACTION = ("Use the candidate's registered control and fixed revisions, or describe the result "
+                     "without a paired improvement claim.")
+_PAIR_INTEGRITY_ACTION = ("Inspect the fixed audits, repair the execution and register a new run; retain the "
+                          "failed diagnostic result.")
+_PAIR_INCOMPARABLE_ACTION = ("Inspect the differing fields and register a comparable pair; use a descriptive "
+                             "engineering decision for an environment migration.")
+
+
+def _pair_refusal(message: str, code: str, path: str, expected, action: str) -> RecordError:
+    # Message text is the stable contract; the structured fields locate the refused fact.
+    return RecordError(message, code=code, path=path, expected=expected,
+                       next_actions=[action], write_status="not_written")
+
+
+def _sides(candidate: dict, control: dict, pointer: str) -> dict:
+    def value(run):
+        for part in pointer.strip("/").split("/"):
+            run = run.get(part) if isinstance(run, dict) else None
+        return run
+    return {pointer: {"candidate": value(candidate), "control": value(control)}}
+
+
 def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engineering_audit: bool = False) -> dict:
     if candidate_id not in runs or control_id not in runs:
-        raise RecordError("unknown candidate or control run")
+        raise _pair_refusal("unknown candidate or control run", "decision_pair_role_mismatch", "/control_run_id",
+                            runs[candidate_id]["control_run_id"] if candidate_id in runs else None, _PAIR_ROLE_ACTION)
     candidate, control = runs[candidate_id], runs[control_id]
     if candidate["control_run_id"] != control_id:
-        raise RecordError(f"{candidate_id}: {control_id} is not its registered control")
+        raise _pair_refusal(f"{candidate_id}: {control_id} is not its registered control",
+                            "decision_pair_role_mismatch", "/control_run_id", candidate["control_run_id"],
+                            _PAIR_ROLE_ACTION)
     if candidate["role"] != "candidate" or control["role"] != "control":
-        raise RecordError("incomparable runs: candidate/control roles disagree")
+        raise _pair_refusal("incomparable runs: candidate/control roles disagree", "decision_pair_role_mismatch",
+                            "/role", _sides(candidate, control, "/role"), _PAIR_ROLE_ACTION)
     if candidate["integrity"] != "passed" or control["integrity"] != "passed":
-        raise RecordError("incomparable runs: native integrity did not pass")
+        raise _pair_refusal("incomparable runs: native integrity did not pass", "decision_pair_integrity",
+                            "/integrity", _sides(candidate, control, "/integrity"), _PAIR_INTEGRITY_ACTION)
     fields = (
         "input_identity_sha256",
         "window",
@@ -436,7 +463,10 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engin
     mismatches = [field for field in fields if candidate[field] != control[field]
                   and not (engineering_audit and field == "nautilus_version")]
     if mismatches:
-        raise RecordError(f"incomparable runs: {', '.join(mismatches)}")
+        raise _pair_refusal(f"incomparable runs: {', '.join(mismatches)}", "decision_pair_incomparable",
+                            "/" + mismatches[0],
+                            {key: value for field in mismatches for key, value in _sides(candidate, control, "/" + field).items()},
+                            _PAIR_INCOMPARABLE_ACTION)
     modern = ["strategy_binding" in run for run in (candidate, control)]
     environment_changes = []
     if modern[0] != modern[1]:
@@ -446,25 +476,39 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engin
             if candidate["runtime_identity"][field] != control["runtime_identity"][field]:
                 environment_changes.append(field)
         if candidate["effective_config_sha256"] != control["effective_config_sha256"]:
-            raise RecordError("incomparable runs: effective configuration differs")
+            raise _pair_refusal("incomparable runs: effective configuration differs", "decision_pair_incomparable",
+                                "/effective_config_sha256", _sides(candidate, control, "/effective_config_sha256"),
+                                _PAIR_INCOMPARABLE_ACTION)
     if environment_changes and not engineering_audit:
-        raise RecordError("incomparable runs: " + ", ".join(environment_changes) + "; use --engineering-audit for an environment migration")
+        expected = {}
+        for change in environment_changes:
+            if change == "source_custody_backend":
+                expected["/strategy_binding"] = {"candidate": modern[0], "control": modern[1]}
+            else:
+                expected.update(_sides(candidate, control, "/runtime_identity/" + change))
+        raise _pair_refusal("incomparable runs: " + ", ".join(environment_changes) + "; use --engineering-audit for an environment migration",
+                            "decision_pair_incomparable", next(iter(expected)), expected,
+                            _PAIR_INCOMPARABLE_ACTION + " --engineering-audit is a migration read and cannot be combined with --analysis.")
     source_revision_status = [
         _check_source_revision(run) for run in (candidate, control)
     ]
     for run in (candidate, control):
         if _check_ref(run["audit_ref"]) != "verified":
-            raise RecordError(
-                f"incomparable runs: {run['run_id']} audit is unavailable"
-            )
+            raise _pair_refusal(f"incomparable runs: {run['run_id']} audit is unavailable", "decision_pair_integrity",
+                                "/audit_ref", "verified",
+                                "Restore the run's sealed reports from their verified backup and retry; do not compare without the audit.")
         audit = _read_evidence_json(run["audit_ref"])
         if not audit.get("passed") or audit.get("findings"):
-            raise RecordError(f"incomparable runs: {run['run_id']} audit did not pass")
+            raise _pair_refusal(f"incomparable runs: {run['run_id']} audit did not pass", "decision_pair_integrity",
+                                "/audit_ref", {"passed": True, "findings": []}, _PAIR_INTEGRITY_ACTION)
     left, right = _summary(candidate), _summary(control)
-    if {coin["instrument"] for coin in left["per_coin"]} != {
-        coin["instrument"] for coin in right["per_coin"]
-    }:
-        raise RecordError("incomparable runs: instrument universe differs")
+    left_universe = {coin["instrument"] for coin in left["per_coin"]}
+    right_universe = {coin["instrument"] for coin in right["per_coin"]}
+    if left_universe != right_universe:
+        raise _pair_refusal("incomparable runs: instrument universe differs", "decision_pair_incomparable",
+                            "/summary_ref", {"candidate_only": sorted(left_universe - right_universe),
+                                             "control_only": sorted(right_universe - left_universe)},
+                            _PAIR_INCOMPARABLE_ACTION)
     metrics = (
         "final_equity_usdt",
         "annualized_return_pct",
@@ -489,16 +533,7 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engin
         "source_revision_status": source_revision_status,
         "scope": ("engineering migration audit; not a paired research decision or strategy qualification"
                   if engineering_audit else "descriptive paired development read; not independent qualification"),
-        "metrics": {
-            metric: {
-                "candidate": left[metric],
-                "control": right[metric],
-                "difference": str(
-                    Decimal(str(left[metric])) - Decimal(str(right[metric]))
-                ),
-            }
-            for metric in metrics
-        },
+        "metrics": {metric: entry(left[metric], right[metric]) for metric in metrics},
     }
 
 
@@ -529,8 +564,11 @@ def main() -> int:
     compare = command.add_parser("compare")
     compare.add_argument("candidate_run")
     compare.add_argument("control_run")
-    compare.add_argument("--engineering-audit", action="store_true",
-                         help="explicitly compare legacy and migrated run custody for implementation parity")
+    compare_mode = compare.add_mutually_exclusive_group()
+    compare_mode.add_argument("--engineering-audit", action="store_true",
+                              help="explicitly compare legacy and migrated run custody for implementation parity")
+    compare_mode.add_argument("--analysis", action="store_true",
+                              help="add readings from both verified seals and the preregistered paired interval")
     ledger = command.add_parser("ledger", help="manage the local Dolt metadata store")
     lifecycle = ledger.add_subparsers(dest="action", required=True)
     initialize = lifecycle.add_parser("init")
@@ -677,8 +715,22 @@ def main() -> int:
                 run_ids=(args.candidate_run,), commit=fixed, include_runs=False)
             output = _compare(args.candidate_run, args.control_run, runs,
                               engineering_audit=args.engineering_audit)
+            if args.analysis:
+                from research.records.analysis import pair
+                candidate = runs[args.candidate_run]
+                attempt = attempts.get(candidate["attempt_id"], {})
+                root = os.environ.get("TRADE_RESEARCH_ARTIFACT_ROOT")
+                if not root:
+                    raise RecordError("TRADE_RESEARCH_ARTIFACT_ROOT is required", write_status="not_written")
+                readings = pair(Path(root), candidate, runs[args.control_run],
+                                attempt.get("contract", {}).get("selection"))
+                output["metrics"].update(readings.pop("metrics"))
+                output.update(readings)
         storage = snapshot_storage
         output = {"storage": storage, "matches": output} if isinstance(output, list) else {**output, "storage": storage}
+        if args.command == "compare" and args.analysis:
+            from research.records.analysis import check_size
+            check_size(output)
         if args.command == "show" and args.brief:
             from research.records.projections import bounded_brief
             output = bounded_brief(output, at=fixed, identity=args.attempt_id,

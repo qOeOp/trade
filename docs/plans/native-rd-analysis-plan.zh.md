@@ -1,6 +1,6 @@
 # 原生回测分析与改良比较实施计划
 
-状态：已审阅，P0-A 与 P0-B1 待实现。日期：2026-10-10。第一版服务当前 R1、USDT 线性永续、固定本金原生账户；其他账户或合约类型在口径未核实前明确为不支持或证据不足。
+状态：P0-A（`artifacts report`）与 P0-B1（`compare --analysis`）已实现；B2、P0-C、P1 未实现。日期：2026-10-10。第一版服务当前 R1、USDT 线性永续、固定本金原生账户；其他账户或合约类型在口径未核实前明确为不支持或证据不足。
 
 审阅由独立子 Agent 对照代码、28 个封存 run、固定 `nautilus_trader==2.0.0rc3` 与 Dolt v132（`f8va2hf2e7bae13p08kfs5s8ne1sk3ud`）核实 65 条事实，再按原则与切片、账务与统计、拒绝边界、字段清单四个角度逐条反驳检验。本版吸收其结论与同日用户决定；被推翻或修正的初版说法不再保留为事实。
 
@@ -23,7 +23,7 @@
 
 封存与入口：
 
-- [run_portfolio.py](../../backtest/r1/run_portfolio.py) 导出 orders、fills、positions、account、returns_series 和 summary；前四份来自原生 ReportProvider，returns_series 与 summary 由 runner 写出，`reports/audit.json` 由 `audit_tiered_native.py` 写出。[artifacts.py](../../research/records/artifacts.py) 有 run、verify、restore、backup、register、input-identity 子命令，没有 report/analyze。
+- [run_portfolio.py](../../backtest/r1/run_portfolio.py) 导出 orders、fills、positions、account、returns_series 和 summary；前四份来自原生 ReportProvider，returns_series 与 summary 由 runner 写出，`reports/audit.json` 由 `audit_tiered_native.py` 写出。[artifacts.py](../../research/records/artifacts.py) 实施前有 run、verify、restore、backup、register、input-identity 子命令，没有 report/analyze；P0-A 新增 `report`。
 - seal 要求实际文件集合与 manifest.files 完全一致（`verify`），旧 seal 不得追加报告；Dolt run 的 `artifact_manifest_ref` 锚定 manifest 哈希。报告集合不固定：E01-37 另封存了策略自写的 37 份 jsonl，“策略不导出”是约定而非强制边界。
 - 起跑时 `_attempt_snapshot` 把 attempt revision 1 及其初始发表 commit 作为 `record_binding` 写入 manifest；`binding_origin=sealed_start` 是 register 阶段写入 run provenance 的标签。起跑时只核对策略绑定，不读 evidence_refs 或 known_exposure；按初版设想在起跑时解析参考证据属于新行为。
 - 28 个 seal 分属两个 OCI（`5785c9a1…`、`d6bbbde7…` 各 14 个）。正式 compare 要求同一运行环境，验证配对必须取同一镜像内的 run。
@@ -197,7 +197,7 @@ P0-C 原型闸门：
 
 测试分三层：
 
-1. CI 合成夹具：零行报表、失败 seal（无 summary/audit）、开放仓、部分成交、NETTING snapshot 对、资金费正负、orders 列顺序置换、32 KiB 上限与重复输出一致；null 差值；compare 两处角色检查的负向测试；注入 `DOLT_SQL_ERROR` 时命令失败。
+1. CI 合成夹具：零行报表、失败 seal（无 summary/audit）、开放仓、部分成交、NETTING snapshot 对、资金费正负、orders 列顺序置换、32 KiB 上限与重复输出一致；null 差值；compare 两处角色检查的负向测试。分析不读 Dolt，compare 的 Dolt 错误沿既有路径原样失败。
 2. 真实 seal 套件：仅在设置 `TRADE_RESEARCH_ARTIFACT_ROOT` 时运行，按 run ID 寻址，不把数值写入 Git。28 个 seal 无异常；26 个 seal 的 realized、佣金、资金费合计在 1e-6 内等于 native_economics；returns_series 复利等于 final_equity；B00-37 只有未实现残差为 null、C06-P02 为 failed；B03/C10/C11/C12 与 D09 外部配方的固定结果一致。
 3. B2 只在隔离 Dolt 中测试。
 
