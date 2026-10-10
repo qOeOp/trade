@@ -291,9 +291,13 @@ class CheckBundleTests(unittest.TestCase):
     def test_stage_by_stage_and_whole_numbers_pass(self):
         drop = lambda *rels: lambda b: [shutil.rmtree(b / r) if (b / r).is_dir() else (b / r).unlink() for r in rels]
         whole = lambda c, cited, **change: (c.update(change, asr_only=True), c["evidence"].pop(cited))
+        failed_asr = lambda b: (drop("asr/transcript.json", "asr/run.json", "frames", "crops", "claims.json")(b), (b / "asr/FAILED").write_text(
+            "Skipping audio.wav due to RuntimeError: [metal::load_device] No Metal device available\n"  # as transcribe.md writes it
+            "mlx_whisper audio.wav --model ~/.cache/huggingface/hub/x --output-dir ~/v/bundles/youtube-x/.stage-asr\n"))
         bundles = {  # ok means consistent, not complete: a stage is checked before the next one exists
             "after media": self.variant(drop("asr", "frames", "crops", "claims.json")),
             "after asr": self.variant(drop("frames", "crops", "claims.json")),
+            "after a failed asr": self.variant(failed_asr),
             "asr-only whole numbers": self.variant(lambda b: edit_json(b / "claims.json", lambda d: (
                 whole(d["claims"][0], "frames", quote="price 52.8", value="52.80"),
                 whole(d["claims"][1], "crops", quote="四小时", value="四")))),
@@ -301,6 +305,11 @@ class CheckBundleTests(unittest.TestCase):
         for name, result in zip(bundles, self.in_parallel([lambda b=b: self.failed(b) for b in bundles.values()])):
             with self.subTest(name):
                 self.assertEqual(result, (0, set()))
+
+    def test_numbers_to_verify_lists_the_numeral_it_flagged(self):  # 一 before a unit (一小时) is a number, not an empty entry
+        bundle = self.variant(lambda b: (edit_json(b / "asr/transcript.json", lambda d: d["segments"][1].update(text="在一小时图上")), rebind(b)))
+        flags = json.loads(self.run_checker(bundle)[1])["flags"]
+        self.assertEqual(flags["numbers_to_verify"], [["E001", 1.0, ["52.8"]], ["E002", 2.0, ["一"]]])
 
     def test_restored_bundle_without_uncited_pngs(self):
         keep = {("grid", self.grid[3][0]), ("t0001500", self.bracket[1][0])}  # the crop parent and the cited frame

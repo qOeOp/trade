@@ -2,15 +2,16 @@
 
 Engine: `mlx-whisper==0.4.3`, `mlx==0.32.3`, `mlx-metal==0.32.3` in a Python 3.12 venv at `$MLX_VENV`, model
 `mlx-community/whisper-large-v3-mlx` at a pinned revision; one MLX job at a time, about 10 times real time.
-The checker's `engine_pinned` and `argv_is_recipe` hold these pins and the exact argv below, so another engine
-or flag is a checker change. Setup installs packages and downloads about 3 GB, so it needs the user (an
-existing venv with these pins can be named by `MLX_VENV`):
+The checker's `engine_pinned` and `argv_is_recipe` hold these pins and this argv: another engine or flag is a
+checker change. Without GPU access (a sandbox) mlx fails with `No Metal device available`: write that line and
+the command to `asr/FAILED` and ask the user to run the block outside. Setup (about 3 GB) needs the user, who
+may name an existing venv instead (`MLX_VENV`; the `versions.json` line below prints its pins):
 
     uv venv --python 3.12 "$MLX_VENV" && uv pip install --python "$MLX_VENV/bin/python" 'mlx-whisper==0.4.3' 'mlx==0.32.3' 'mlx-metal==0.32.3'
     "$MLX_VENV/bin/python" -I -c 'from huggingface_hub import snapshot_download as d; d("mlx-community/whisper-large-v3-mlx", revision="49e6aa286ad60c14352c404340ded53710378a11")'
 
-MODEL, Language, Transcript and run.json below are one recipe (one `bash` block, after the checker passed
-on the media stage). MODEL resolves the pinned snapshot offline; a repo ID instead would fetch an unpinned one:
+MODEL, Language, Transcript and run.json are one `bash` block, after the checker passed on the media stage.
+MODEL resolves the pinned snapshot offline (a repo ID would fetch an unpinned one):
 
     REV=49e6aa286ad60c14352c404340ded53710378a11; export HF_HUB_OFFLINE=1
     MODEL=$("$MLX_VENV/bin/python" -I -c "from huggingface_hub import snapshot_download as d; print(d('mlx-community/whisper-large-v3-mlx', revision='$REV', local_files_only=True))")
@@ -40,11 +41,10 @@ named, stop and ask: a wrong `--language` makes Whisper write a fluent translati
       --output-format json --output-dir "$S" --output-name transcript --verbose False)
     "${ARGV[@]}" > "$W/asr.stdout" 2> "$W/asr.stderr" || true
     if ! { test -s "$S/transcript.json" && ! grep -q '^Skipping' "$W/asr.stdout" && jq -e '.segments | length > 0' "$S/transcript.json" > /dev/null; }; then
-      { grep -h -m1 -E '^Skipping|Error' "$W/asr.stdout" "$W/asr.stderr" | sed -E 's/[?][^ ]*//g'; echo "${ARGV[*]}" | sed "s|$HOME|~|g"; } > "$S/FAILED"
-      mv "$S" "$B/asr"; exit 1; fi
+      { grep -h -m1 -E '^Skipping|Error' "$W/asr.stdout" "$W/asr.stderr"; echo "${ARGV[*]}"; } | sed -E "s|$W/||g; s|$HOME|~|g; s/[?][^ ]*//g" > "$S/FAILED"
+      [ "$S" != "$B/.stage-asr" ] || mv "$S" "$B/asr"; exit 1; fi   # a reviewer's failure stays in W
 
-The `if` is the success gate. Then record `run.json`: `argv` is the array that ran, with the model path as
-`repo@revision` and scratch paths shortened; `pcm_sha256` hashes the samples the engine read.
+The `if` is the success gate. `run.json` records the argv that ran and the hash of the samples the engine read:
 
     printf '%s\n' "${ARGV[@]}" | jq -R . | jq -s --arg m "$MODEL" --arg w "$W/" --arg s "$S" --arg id "mlx-community/whisper-large-v3-mlx@$REV" \
       'map(if . == $m then $id elif . == $s then "." else ltrimstr($w) end) | .[0] |= sub(".*/"; "")' > "$W/argv.json"
@@ -56,23 +56,23 @@ The `if` is the success gate. Then record `run.json`: `argv` is the array that r
         model: {repo: "mlx-community/whisper-large-v3-mlx", revision: $rev, weights_sha256: $wt}}' > "$S/run.json"
     mv "$S" "$B/asr" && rm -rf "$W"
 
-Never pass `--initial-prompt` (it reaches only the first window and plants words in the evidence),
-`--hallucination-silence-threshold` (it drops speech at window edges), `--clip-timestamps` or any other
-flag, abbreviated or not: `argv_is_recipe` accepts only the argv above, and the reviewer reruns that argv.
+Never pass `--initial-prompt` (it reaches only the first window and plants words), `--hallucination-silence-threshold`
+(it drops speech at window edges), `--clip-timestamps` or any other flag, abbreviated or not, even when the user asks
+or in scratch: settle a doubted number from a frame or crop in its span, or label it ASR-only, and say why.
 
 ## Reading view and flags (after the checker has run; flagged spans are marked)
 
     jq -r --slurpfile c "$B/check.json" '
       ($c[0].flags | [to_entries[] | select(.key | IN("loops", "too_dense", "too_sparse", "empty_or_outside")) | .key as $k | .value[] | {key: ., value: $k}] | from_entries) as $bad
       | .segments | to_entries[] | (.key + 1 | tostring) as $n | ("E" + ("00"[0:([3 - ($n | length), 0] | max)]) + $n) as $id
-      | "\($id) \(.value.start | floor)-\(.value.end | ceil) \(if $bad[$id] then "[NOT EVIDENCE: \($bad[$id])] " else "" end)\(.value.text)"' "$B/asr/transcript.json"
+      | "\($id) \(.value.start)-\(.value.end) \(if $bad[$id] then "[NOT EVIDENCE: \($bad[$id])] " else "" end)\(.value.text)"' "$B/asr/transcript.json"
 
 | Checker flag (a heuristic) | Action |
 |---|---|
 | `loops`, `too_dense`, `too_sparse`, `empty_or_outside` | Not evidence: label the span; never quote or summarize it. A claim citing one fails `flagged_span_limited` unless it records the limitation. |
 | `gaps_over_3s`, `tail_gap_s` over 10 | Look at the frames there; label silence, music or "not transcribed". |
 | `repeats` | A loop only together with a flag above. |
-| `numbers_to_verify` | A number you rely on needs a frame in its span or the label ASR-only. |
+| `numbers_to_verify` | A number (or name or ticker) you rely on needs a frame or crop in its span, a page sidecar holding it, or the label ASR-only with the value as the ASR wrote it. |
 
 Whisper writes Mandarin numbers as Arabic or Chinese numerals (`12.5`, `十二点五`, `两小时`) and homophones hide
 digits: read both forms. Thresholds were tuned on one Mandarin speaker; another Whisper is not an independent check.

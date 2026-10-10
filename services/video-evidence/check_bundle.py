@@ -282,7 +282,8 @@ def asr_flags(segs, dur):
         "too_dense": [i for i, s in enumerate(segs) if n(s["text"]) >= 6 and n(s["text"]) / max(s["end"] - s["start"], 0.1) > 20],
         "too_sparse": [i for i, s in enumerate(segs) if s["end"] - s["start"] > 8 and n(s["text"]) / (s["end"] - s["start"]) < 1.5],
         "empty_or_outside": [i for i, s in enumerate(segs) if n(s["text"]) == 0 or s["end"] <= s["start"] or s["end"] > dur + 0.5],
-        "numbers_to_verify": [[eid(i), s["start"], [t for t in NUMBER_TOKEN.findall(s["text"]) if NUMERAL.search(t)]]
+        "numbers_to_verify": [[eid(i), s["start"], [t[0] for t in NUMBER_TOKEN.finditer(s["text"])  # 一 counts before a unit
+                                                     if NUMERAL.search(t[0]) or NUMERAL.match(s["text"], t.start(), t.end() + 1)]]
                               for i, s in enumerate(segs) if NUMERAL.search(s["text"])],
     }
     return {k: ([eid(i) for i in v] if k in BAD_SPAN + ("repeats",) else v) for k, v in flags.items()}

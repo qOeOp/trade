@@ -3,21 +3,20 @@
 Needs `yt-dlp` with `yt-dlp-ejs` and `deno` (YouTube's JS solver), `ffmpeg`, `jq`, `curl` and `rsync`; the
 receipt records the yt-dlp version, and upgrading yt-dlp and yt-dlp-ejs (together) is the user's call.
 
-Run `yt-dlp` only with the flags these recipes use: always `--ignore-config --no-plugin-dirs` and `--no-playlist`
-(`--yes-playlist` only in the metadata-only part listing), the URL quoted after `--` (a generic download reads
-`--load-info-json` instead), never `python -m yt_dlp`. Any other flag needs the user, above all those that run
-programs or change how yt-dlp connects or what it trusts: `--exec`, `--use-postprocessor`, `--postprocessor-args`,
-`--netrc-cmd`, `--ffmpeg-location`, `--downloader`, `--downloader-args`, `--js-runtimes` with a path,
-`--config-locations`, `--plugin-dirs`, `--cookies-from-browser`, `--no-check-certificates`, `--prefer-insecure`,
-`--proxy`, `--enable-file-urls` and `--remote-components`.
+Run `yt-dlp` only with these recipes' flags (SKILL.md "Do not"). Any other flag needs the user, above all those
+that run programs or change how yt-dlp connects or what it trusts: `--exec`, `--use-postprocessor`,
+`--postprocessor-args`, `--netrc-cmd`, `--ffmpeg-location`, `--downloader`, `--downloader-args`, `--js-runtimes` with
+a path, `--config-locations`, `--plugin-dirs`, `--cookies-from-browser`, `--no-check-certificates`,
+`--prefer-insecure`, `--proxy`, `--enable-file-urls` and `--remote-components`.
 
 ## Name and dedupe before acquiring
 
 `ID` is the bare platform ID: a YouTube video ID, a Bilibili BV ID (`<BV>_p<N>` for one part of a
 multi-part video), a page's record ID taken from its URL before probing (a TradingView idea's), or for a
-direct file (site `direct`) `printf %s "${URL%%[?#]*}" | shasum -a 256 | cut -c1-16`. `bundle "<site>-<ID>"`
-(env.sh) refuses anything outside `[A-Za-z0-9_-]` and sets `KEY`, `W` and `B`: source text never becomes a
-path. Search every form a source has (IDs and a media file's name stem `STEM`), as fixed strings:
+direct file `printf %s "${URL%%[?#]*}" | shasum -a 256 | cut -c1-16`. `<site>` is `youtube`, `bilibili`, `direct`,
+`local` or a page's domain name (`tradingview`). `bundle "<site>-<ID>"` (env.sh) refuses anything outside
+`[A-Za-z0-9_-]` and sets `KEY`, `W` and `B`: source text never becomes a path, even when the user asks. Search
+every form a source has (IDs and a media file's name stem `STEM`), as fixed strings:
 
     for s in "$ID" ${STEM:+"$STEM"}; do ls -d -- "$ROOT"/bundles/*"$s"* 2>/dev/null || true
       grep -l -F -e "$s" -- "$ROOT"/bundles/*/media/receipt.json "$ROOT"/bundles/*/probe/page.json 2>/dev/null || true; done
@@ -27,6 +26,7 @@ path. Search every form a source has (IDs and a media file's name stem `STEM`), 
 
 A hit means the source is held or was used: reuse its bundle and records (a hit recording only a failed attempt
 is cited as history; acquisition proceeds). The same bytes, ID or author restating it is never independent support.
+If `find` cannot run, report `skipped: <its error line>` and go on; never put `UV_CACHE_DIR` or a venv in `$ROOT`.
 
 ## Probe and gate (metadata only)
 
@@ -37,7 +37,7 @@ is cited as history; acquisition proceeds). The same bytes, ID or author restati
       and ((.id | test("_p[0-9]+$") | not) or (.webpage_url | test("[?&]p=[0-9]+")))' "$S/identity.json" 2>&1 || true)
     hosts=$(jq -r -f "$A/host_check.jq" probe.raw.json 2>&1 || true)
     if [ "$gate" != true ] || [ -n "$hosts" ]; then printf 'gate: %s %s %s\nyt-dlp -J %s\n' "${gate:-no metadata}" "$hosts" \
-      "$(grep -m1 ERROR probe.err | sed -E 's/[?#][^ ]*//g')" "${URL%%[?#]*}" > "$S/FAILED"; fi
+      "$(grep -m1 ERROR probe.err | sed -E 's/[?#][^ ]*//g')" "${URL%%[?#]*}" | sed "s|$HOME|~|g" > "$S/FAILED"; fi
     mv "$S" "$B/probe"; [ ! -e "$B/probe/FAILED" ] || { rm -rf "$W"; exit 1; }   # a refused gate stops; raw JSON goes
 
 A playlist, channel or multi-part video fails the gate: list it (metadata only), pick one entry explicitly
@@ -65,17 +65,17 @@ media URL. Without exactly one record, they stay unknown and `not_truncated` rep
 The selector is atomic: one progressive file of at least 720p, else a 720p+ video part plus an audio
 part, else `Requested format is not available`; never the comma form `bv,ba`. `--fixup never` keeps
 the server bytes and `-k` keeps the parts. `ulimit -f` (KiB) stops any file at 2 GiB, also a stream of
-unknown length (`File too large`: stop). A generic download reads the probed formats and never
-re-extracts the page. yt-dlp's own retries resume a cut part with `Range`, which can join bytes from two
-CDN copies; the decode check in custody is what refuses such a file. Before any rerun, and after an interrupt
-(`pgrep -fl '[y]t-dlp|[f]fmpeg'`), delete `*.part` and `*.ytdl`. Then keep the bytes: [custody.md](custody.md).
+unknown length (`File too large`: stop). A generic download reads the probed formats, never the page again.
+yt-dlp's retries resume a cut part with `Range` and can join two CDN copies, so a completed download still
+needs custody's decode check. Before any rerun and after an interrupt (`pgrep -fl '[y]t-dlp|[f]fmpeg'`),
+`rm -f source.* *.part *.ytdl` in `W` (yt-dlp reuses a file it holds; `probe.raw.json` stays). Then: [custody.md](custody.md).
 
-## Failures (verbatim line, query strings removed, into `<stage>/FAILED`; to stop, `rm -rf "$W"`)
+## Failures (verbatim line, query strings removed, into `<stage>/FAILED`, a download's into `media/FAILED`; to stop, `rm -rf "$W"`)
 
 | Symptom | Action |
 |---|---|
 | YouTube `HTTP Error 403: Forbidden` | Rerun the same command at most twice, then ask the user. |
-| `Got error: ... more expected`, `Read timed out`, `Giving up after 10 retries` | The CDN cut the transfer: delete the partial files, wait a minute, rerun at most twice; then ask the user about the network path. |
+| `Got error: ... more expected`, `Read timed out`, `Giving up after 10 retries` | If yt-dlp still completed, custody's decode check decides. Otherwise, or when it fails, the CDN cut the transfer: clear `W` as above, wait a minute, rerun at most twice; then ask the user about the network path. |
 | `Requested format is not available` | `-F` with the fixed flags. Only storyboards or m3u8: the JS solver or a PO token, ask the user. Every real format below 720p: stop. |
 | `This video is unavailable`, `live stream recording is not available`, `only available for registered users` | Stop. |
 | `Unsupported URL` after `Falling back on generic information extractor` | Stop: the page holds no video. |

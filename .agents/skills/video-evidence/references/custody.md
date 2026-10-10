@@ -8,7 +8,7 @@ projection, never the raw info JSON.
     cd "$W"; S="$B/.stage-media"; mkdir "$S"; I="$W/source.info.json"; fids=$(jq -r .format_id "$I")
     if [[ $fids == *+* ]]; then files=$(for f in ${fids//+/ }; do ls source.f"$f".*; done); else files="source.$(jq -r .ext "$I")"; fi
     for F in $files; do err=$(ffmpeg -nostdin -v error "${FMT[@]}" -i "$F" -f null - 2>&1 | head -2 || true)
-      if [ -n "$err" ]; then printf 'decode: %s\n%s\n' "$err" "ffmpeg -i $F -f null -" > "$S/FAILED"; mv "$S" "$B/media"; exit 1; fi; done
+      if [ -n "$err" ]; then printf 'decode: %s\n%s\n' "$err" "ffmpeg -i $F -f null -" > "$S/FAILED"; rm -f source.*; mv "$S" "$B/media"; exit 1; fi; done
     jq -f "$A/receipt.jq" "$I" > "$S/receipt.json"
     jq -e -n --slurpfile i "$I" --slurpfile p "$B/probe/identity.json" '$i[0].id == $p[0].id' > /dev/null
     if grep -Eiq '[?&/;~,](ip|oi|mid|buvid|upsig|sig|expires?|exp|hmac|token)[=/~]|cookie' "$S/receipt.json"; then
@@ -40,3 +40,14 @@ change to `claims.json`; the loop must print nothing:
 Cookies: only a file the user supplied for this, only for Bilibili, passed as a temporary copy in `W`
 (`--cookies .cookies.tmp`; yt-dlp rewrites it); never record its path. The custody block above refuses a stage
 that holds one of its values (values under 8 characters are too common to test).
+
+Retained subset (what `--restored` checks and research retains), copied from `B` into an empty directory `R`;
+then run the checker on `R` with `--restored` and the backup's `sha256/`:
+
+    cd "$B"; mkdir -p "$W"; jq -r '.claims[].evidence.frames // [] | .[] | "\(.pts)\t\(.decoded_sha256)"' claims.json > "$W/keys"
+    [ ! -f crops/crops.tsv ] || cut -f4,5 crops/crops.tsv >> "$W/keys"   # crop parents
+    jq -r '.claims[].evidence.crops // [] | .[]' claims.json > "$W/crops"
+    { ls probe/*.json media/receipt.json media/SHA256SUMS asr/*.json claims.json check.json frames/grid/grid.tsv crops/crops.tsv 2> /dev/null || true
+      for d in frames/*/; do awk -F'\t' -v d="$d" 'NR == FNR {k[$0]; next} ($2 "\t" $3) in k {print d "grid.tsv"; print d $1}' "$W/keys" "${d}grid.tsv"; done
+      [ ! -f crops/crops.tsv ] || awk -F'\t' 'NR == FNR {c[$1]; next} $2 in c {print "crops/" $1}' "$W/crops" crops/crops.tsv
+    } | sort -u | rsync -a --files-from=- . "${R:?an empty directory}/"; rm -rf "$W"

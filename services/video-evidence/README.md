@@ -34,7 +34,8 @@ another build). `"ok": true` says that what the bundle holds is consistent, not 
 
 A retained bundle (`--restored`) is `probe/*.json`, `media/receipt.json`, `media/SHA256SUMS`,
 `asr/*.json`, `claims.json`, `check.json`, `frames/grid/grid.tsv` (coverage is checked from it), each cited
-directory's `grid.tsv` and cited PNGs, and the cited crops with `crops.tsv`; media come from the backup `sha256/`.
+directory's `grid.tsv` and cited PNGs (crop parents included), and the cited crops with `crops.tsv`; media come
+from the backup `sha256/`. The skill's `custody.md` copies this subset.
 
 ## Claims (`claims.json`)
 
@@ -88,8 +89,9 @@ Research claims add the keys in `research-round/references/source-evidence.md`.
 
 `tail_gap_s`, `gaps_over_3s`, `loops` (compression ratio over 2.4), `repeats`, `too_dense` (over 20
 characters/s), `too_sparse` (over 8 s at under 1.5 characters/s), `empty_or_outside`,
-`numbers_to_verify`, `claims_citing_flagged` and `png_not_retained`. The checker does not judge
-meaning (does the frame show the value, is the role right): the reviewer does.
+`numbers_to_verify` (each segment holding a numeral, with the numbers it holds; `一` before a unit is one),
+`claims_citing_flagged` and `png_not_retained`. The checker does not judge meaning (does the frame show the
+value, is the role right): the reviewer does.
 
 Tests: `tests/video_evidence/test_check_bundle.py` builds a synthetic bundle with the same ffmpeg and
 tampers with it once per check, including each finding of the 2026-10-10 review.

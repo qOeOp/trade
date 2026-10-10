@@ -30,9 +30,10 @@ The checker requires `frames/grid` once any frame exists, and a row in every 6 s
 
 ## Exact frames and brackets (one decode)
 
-`T` is the target time and `H` the half-width (one frame interval gives the frame on screen at `T`).
-Bracket at the end of every segment that points at the screen or narrates drawing or moving before
-citing what the screen shows; narrow a first appearance with repeated brackets. Each bound selects the first
+`T` is the target time and `H` the half-width: one frame interval, `1/fps` from `ffprobe -v error -select_streams v:0
+-show_entries stream=r_frame_rate -of csv=p=0 "$IN"` (30/1 gives 1/30), gives the frame on screen at `T`. Before citing
+what the screen shows, bracket the end of every segment that points at it or narrates drawing or moving; narrow a first
+appearance with repeated brackets (scene scores and equal hashes do not detect drawing). Each bound selects the first
 frame at or after it less 0.5 ms, printed with 9 decimals (awk's `print` keeps 6 digits and skips frames).
 
     NAME="t$(printf '%09.3f' "$T" | tr -d .)"; D="$B/.stage-$NAME"; mkdir "$D"
