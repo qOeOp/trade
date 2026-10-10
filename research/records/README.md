@@ -158,7 +158,10 @@ recovery environment to read them. The archived ledger also holds material
 imports, import reviews and knowledge admissions; the current code no longer
 reads or writes those kinds. To read their projections, recover the archive into
 a separate ledger and run the records CLI from Git commit `9794ed307`, which
-still contains that code. A fresh ledger first receives complete strategy source
+still contains that code. External recipes that import the removed
+`backtest/r1/checks/compare_paired_returns.py` run from a checkout of commit
+`3b3b4876b` with `PYTHONPATH` set to it; all eight reproduced their retained
+outputs there on 2026-10-10. A fresh ledger first receives complete strategy source
 and a pending v3 attempt through their publication entries. Bind the actual
 returned IDs, revisions and commits.
 
@@ -458,7 +461,12 @@ audited `native_economics`. It reads no Dolt and never parses `account.csv`. A
 failed seal reports its status and problems with null economics. Descriptive
 statistics (win rates, holding time, order funnel, drawdowns, monthly or
 per-instrument contribution) are computed by the Agent from the verified seal,
-following `.agents/skills/nautilus-report-analysis/SKILL.md`. `compare --analysis` runs the unchanged formal compare first; both
+following `.agents/skills/nautilus-report-analysis/SKILL.md`. Load the seal with
+`research.records.analysis.tables(root, run_id)`: it reads only verified bytes
+of a passed seal whose closed split reconciles, returns typed orders, fills,
+positions and trade-window daily returns, tags each fill with its position row,
+each row with its `funding` and each closed row with its reconciled `price_pnl`,
+and computes no statistics. `compare --analysis` runs the unchanged formal compare first; both
 runs must be sealed with a Dolt-anchored manifest. It adds the reconciled readings of
 both runs to `metrics`, the candidate's frozen `selection`, and a paired ISO-week interval of
 annualized relative growth only when the preregistered `primary_response` is

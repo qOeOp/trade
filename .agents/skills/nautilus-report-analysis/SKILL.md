@@ -1,6 +1,6 @@
 ---
 name: nautilus-report-analysis
-description: Derive descriptive statistics from sealed native Nautilus backtest reports (win rates, holding time, order funnel, drawdown dates, monthly or per-instrument contribution, cost mix) beyond the reconciled readings of `artifacts report` and `compare --analysis`. Use before computing any such number for a research decision.
+description: Derives descriptive statistics from sealed native Nautilus backtest reports (win rates, holding time, order funnel, drawdown dates, monthly or per-instrument contribution, cost mix) beyond the reconciled readings of `artifacts report` and `compare --analysis`. Use before computing any such number for a research decision.
 ---
 
 # Native report analysis
@@ -13,36 +13,58 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 
 ## Before computing
 
-1. Run `artifacts verify` (or `report`) on the run first, and read files only from that seal.
+1. Load the run with `research.records.analysis.tables(root, run_id)`. It verifies the seal, refuses
+   one whose closed split does not reconcile, and returns typed orders, fills, positions and
+   trade-window daily returns (`None` when they do not compound): top-level money as `Decimal`, list
+   cells as lists, each fill's `cycle_position_id`, each row's `funding`, and each closed row's
+   reconciled `price_pnl`. It computes no statistics. Read a raw report only for what it does not
+   return, and only from the verified seal.
 2. Cite the run ID, `manifest_sha256` and each parsed file's SHA-256 next to any derived number.
 3. State the population of every reading: closed cycles, open rows, all rows, or the account.
 4. Read instrument terms (currency, multiplier, `is_inverse`), fee rates and order-tag vocabulary from
-   the seal (`positions.csv`, `fills.csv`, `orders.csv`). Skip or label any reading whose terms differ
-   from what your formula assumes.
+   the seal. Skip or label any reading whose terms differ from what your formula assumes.
 
 ## Data traps in native reports
 
-- `positions.csv` mixes NETTING snapshot rows (`position_id` with a UUID suffix) with live rows.
-  Closed cycles are the rows with `ts_closed`; their count equals `summary.closed_trades`. Never pair
-  positions across runs by `position_id`.
+- `positions.csv` has one row per NETTING cycle: earlier cycles are snapshot rows (`is_snapshot`
+  true), the latest is the live row. Closed cycles are the rows with `ts_closed`; their count equals
+  `summary.closed_trades`. Keep snapshot rows. Never pair positions across runs by `position_id`.
 - Map fills to cycles through `positions.events[].event_id`, not `fills.position_id` (base ID only).
 - `ts_closed` carries float64 error when open rows exist. Use `ts_last` or `duration_ns`. Open rows
   have `duration_ns = 0`.
 - `realized_pnl` already includes commissions and funding. Gross = realized + commissions − funding
   (funding is positive when received). Funding also appears as `account.csv` balance changes: use one
   source, never both. `account.csv` `total` is cash, not MTM equity; do not parse it for equity.
-- Money cells are `"<decimal> <currency>"`; list cells are Python reprs (use `ast.literal_eval`). Parse
-  CSVs by column name: column order differs between images. Zero-row reports have reduced headers;
-  failed seals have no `summary.json` or `audit.json`.
+- In raw reports, money cells are `"<decimal> <currency>"` except `account.csv` `total`, `locked` and
+  `free`, which are plain numbers beside a `currency` column; list cells are Python reprs. Parse by
+  column name: column order differs between runs. Native zero-row reports have no columns (the runner
+  adds a few); failed seals have no `summary.json` or `audit.json`.
 - `returns_series.csv` starts at `input_start_utc` (warmup) and labels each day by its UTC start.
   Filter to `period_start_utc` and compound to reproduce `final_equity_usdt`.
 - Three win-rate populations differ: native `stats_pnls`, `summary.closed_trade_win_rate`, and
-  `positions.csv` rows. Name the one you use. Native `stats_returns` include warmup days.
+  `positions.csv` rows. Native `stats_pnls` counts snapshot and open rows, merges cycles of one
+  instrument that close in the same nanosecond, and its `PnL (total)` is the cash change without
+  unrealized PnL. Name the population you use. Native `stats_returns` include warmup days and
+  annualize over 252 days.
 - Maker/taker comes from fills only (unfilled orders also carry `liquidity_side`). Under a fixed
   maker/taker fee schedule, fee bps is linear in taker share: call a change a liquidity-mix shift, not
   efficiency.
-- Cancelled orders are often contingent children (brackets, OCO). Split the funnel by the strategy's
-  own `tags` and `contingency_type` before reading cancels as lost opportunities.
+- Many cancelled orders are contingent children. Separate children (`parent_order_id` set) from
+  entry parents first, since parents also carry `contingency_type`, then split by the strategy's own
+  `tags` before reading cancels as lost opportunities.
+
+## Readings
+
+- Read bracket or OCO results by entry tag × exit reason. The exit reason is the tag of the order
+  whose fill closed the cycle, never the sign of PnL or a price level.
+- Compute standard ratios with the `nautilus_trader.analysis` statistic classes (`SharpeRatio`,
+  `SortinoRatio`, `CalmarRatio`, `MaxDrawdown`, ...) through `calculate_from_returns` on the
+  trade-window daily returns as `{ts_event_ns: return}`, or `calculate_from_realized_pnls` on a named
+  population, annualizing over 365 days. The pinned version cannot register Python custom statistics;
+  check the installed package, not the latest online docs. Add no analysis dependency.
+- Build an HTML report with `nautilus_trader.analysis.create_tearsheet_from_stats(stats_pnls,
+  stats_returns, stats_general, returns, output_path=...)` fed with trade-window statistics, and write
+  it outside the seal.
 
 ## Self-checks before citing a derived number
 
