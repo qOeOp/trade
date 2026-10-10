@@ -1,5 +1,6 @@
 ---
 description: Regression — with the skill, a candidate whose gain sits in one period and a few instruments is not frozen before a stability check.
+tags: [method]
 plugins: ["../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
