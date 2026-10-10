@@ -129,11 +129,14 @@ def tables(root: Path, run_id: str, *, account: bool = False) -> dict:
     cells become ``Decimal`` in the run's single currency (nested event and
     adjustment dicts keep their raw strings), list cells become lists, flags become
     booleans and empty cells ``None``. Each position row also carries ``funding``
-    and, when closed, its reconciled fill price PnL (``price_pnl``; ``None`` while
-    open). Each fill carries the ``cycle_position_id`` of the position row whose
-    events contain it. ``daily_returns`` is ``None`` with a limitation when the
-    trade-window returns do not compound to final equity. ``account`` adds
-    account.csv, which can be very large.
+    and, when closed, its reconciled fill price PnL (``price_pnl``), its exact close
+    time (``ts_closed_ns``, from ``ts_last``; the native ``ts_closed`` passes through
+    float64) and the tags of the order that closed it (``closing_order_tags``, empty
+    for an untagged order, ``None`` if that order is absent); all three are ``None``
+    while open. Each fill carries the ``cycle_position_id`` of the
+    position row whose events contain it. ``daily_returns`` is ``None`` with a
+    limitation when the trade-window returns do not compound to final equity.
+    ``account`` adds account.csv, which can be very large.
     """
     names = (*REPORT_FILES, "orders.csv", *(("account.csv",) if account else ()))
     output, returns, parsed = _analyze(Path(root), run_id, names)
@@ -143,9 +146,15 @@ def tables(root: Path, run_id: str, *, account: bool = False) -> dict:
                           expected="`artifacts report` with non-null closed_trades",
                           next_actions=["Read the limitations from `artifacts report`; do not analyze this seal."],
                           write_status="not_written")
-    positions = [{**_typed(row), "closed": cycle["closed"], "funding": cycle["funding"],
-                  "price_pnl": cycle["price"] if cycle["closed"] else None}
-                 for row, cycle in zip(parsed["positions"], parsed["cycles"], strict=True)]
+    orders = [_typed(row) for row in _rows(parsed["reports"]["orders.csv"])]
+    tags_of = {order.get("client_order_id"): order.get("tags") or [] for order in orders}
+    positions = []
+    for row, cycle in zip(parsed["positions"], parsed["cycles"], strict=True):
+        typed, closed = _typed(row), cycle["closed"]
+        positions.append({**typed, "closed": closed, "funding": cycle["funding"],
+                          "price_pnl": cycle["price"] if closed else None,
+                          "ts_closed_ns": typed.get("ts_last") if closed else None,
+                          "closing_order_tags": tags_of.get(typed.get("closing_order_id")) if closed else None})
     cycle_of = {event_id: row["position_id"] for row, cycle in zip(parsed["positions"], parsed["cycles"], strict=True)
                 for event_id in cycle["event_ids"]}
     reports = parsed["reports"]
@@ -158,7 +167,7 @@ def tables(root: Path, run_id: str, *, account: bool = False) -> dict:
         "audit": parsed["audit"],
         "reconciled": {key: output[key] for key in ("native_economics", *_ECONOMICS)},
         "limitations": output["limitations"],
-        "orders": [_typed(row) for row in _rows(reports["orders.csv"])],
+        "orders": orders,
         "fills": [{**_typed(row), "cycle_position_id": cycle_of[row["event_id"]]} for row in parsed["fills"]],
         "positions": positions,
         "account": [_typed(row) for row in _rows(reports["account.csv"])] if account else None,

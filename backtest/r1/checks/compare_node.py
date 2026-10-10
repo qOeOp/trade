@@ -134,13 +134,16 @@ def compare(reference: Path, candidate: Path) -> dict:
             if name in VOLATILE
         )
         and results["funding_adjustments"]["exact_match"]
-        and all(
-            abs(Decimal(str(baseline[metric])) - Decimal(str(node[metric])))
-            <= Decimal("0.00000001")
-            for metric in metrics
-        )
+        and all(_metric_equal(baseline[metric], node[metric]) for metric in metrics)
     )
     return results
+
+
+def _metric_equal(left, right) -> bool:
+    """Equal within one hundred-millionth; an undefined reading (no trades) matches only itself."""
+    if left is None or right is None:
+        return left is right
+    return abs(Decimal(str(left)) - Decimal(str(right))) <= Decimal("0.00000001")
 
 
 if __name__ == "__main__":

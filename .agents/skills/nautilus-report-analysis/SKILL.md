@@ -13,39 +13,28 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 
 ## Before computing
 
-1. Load the run with `research.records.analysis.tables(root, run_id)`. It verifies the seal, refuses
-   one whose closed split does not reconcile, and returns typed orders, fills, positions and
-   trade-window daily returns (`None` when they do not compound): top-level money as `Decimal`, list
-   cells as lists, each fill's `cycle_position_id`, each row's `funding`, and each closed row's
-   reconciled `price_pnl`. It computes no statistics. Read a raw report only for what it does not
-   return, and only from the verified seal.
-2. Cite the run ID, `manifest_sha256` and each parsed file's SHA-256 next to any derived number.
+1. Load the run with `research.records.analysis.tables(root, run_id)` and never parse report CSVs
+   yourself. It verifies the seal, refuses one whose closed split does not reconcile, and returns
+   typed orders, fills, positions and trade-window daily returns, with each fill's
+   `cycle_position_id` and each closed row's reconciled `price_pnl`, exact `ts_closed_ns` and
+   `closing_order_tags`. Take holding time from `duration_ns`, never from the native `ts_closed`
+   text. If it refuses a seal or reports a format error, stop and report that.
+2. Cite the run ID, `manifest_sha256` and the `files_sha256` you used next to any derived number.
 3. State the population of every reading: closed cycles, open rows, all rows, or the account.
 4. Read instrument terms (currency, multiplier, `is_inverse`), fee rates and order-tag vocabulary from
    the seal. Skip or label any reading whose terms differ from what your formula assumes.
 
-## Data traps in native reports
+## Native semantics
 
-- `positions.csv` has one row per NETTING cycle: earlier cycles are snapshot rows (`is_snapshot`
-  true), the latest is the live row. Closed cycles are the rows with `ts_closed`; their count equals
-  `summary.closed_trades`. Keep snapshot rows. Never pair positions across runs by `position_id`.
-- Map fills to cycles through `positions.events[].event_id`, not `fills.position_id` (base ID only).
-- `ts_closed` carries float64 error when open rows exist. Use `ts_last` or `duration_ns`. Open rows
-  have `duration_ns = 0`.
-- `realized_pnl` already includes commissions and funding. Gross = realized + commissions − funding
-  (funding is positive when received). Funding also appears as `account.csv` balance changes: use one
-  source, never both. `account.csv` `total` is cash, not MTM equity; do not parse it for equity.
-- In raw reports, money cells are `"<decimal> <currency>"` except `account.csv` `total`, `locked` and
-  `free`, which are plain numbers beside a `currency` column; list cells are Python reprs. Parse by
-  column name: column order differs between runs. Native zero-row reports have no columns (the runner
-  adds a few); failed seals have no `summary.json` or `audit.json`.
-- `returns_series.csv` starts at `input_start_utc` (warmup) and labels each day by its UTC start.
-  Filter to `period_start_utc` and compound to reproduce `final_equity_usdt`.
-- Three win-rate populations differ: native `stats_pnls`, `summary.closed_trade_win_rate`, and
-  `positions.csv` rows. Native `stats_pnls` counts snapshot and open rows, merges cycles of one
-  instrument that close in the same nanosecond, and its `PnL (total)` is the cash change without
-  unrealized PnL. Name the population you use. Native `stats_returns` include warmup days and
-  annualize over 252 days.
+- Positions hold one row per NETTING cycle: earlier cycles are snapshot rows (`is_snapshot`), the
+  latest is the live row. Keep snapshot rows; closed cycles number `summary.closed_trades`. Never
+  pair positions across runs by `position_id`.
+- `realized_pnl` already includes commissions and funding; a closed row's `price_pnl` is its gross
+  fill result. Funding also appears as account balance changes: use one source, never both. The
+  account `total` is cash, not MTM equity.
+- `summary.closed_trade_win_rate` counts closed cycles with positive `realized_pnl`. Older summaries
+  also carry native `stats_returns`, `stats_pnls` and `stats_general`: warmup days, 252-day
+  annualization, snapshot and open rows, and same-nanosecond closes merged into one. Do not cite them.
 - Maker/taker comes from fills only (unfilled orders also carry `liquidity_side`). Under a fixed
   maker/taker fee schedule, fee bps is linear in taker share: call a change a liquidity-mix shift, not
   efficiency.
@@ -55,8 +44,9 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 
 ## Readings
 
-- Read bracket or OCO results by entry tag × exit reason. The exit reason is the tag of the order
-  whose fill closed the cycle, never the sign of PnL or a price level.
+- Read bracket or OCO results by entry tag × exit reason, where the exit reason is the closed row's
+  `closing_order_tags`, never the sign of PnL or a price level. An empty list is an untagged exit,
+  such as a market time or end-of-run close: name it from that order's type.
 - Compute standard ratios with the `nautilus_trader.analysis` statistic classes (`SharpeRatio`,
   `SortinoRatio`, `CalmarRatio`, `MaxDrawdown`, ...) through `calculate_from_returns` on the
   trade-window daily returns as `{ts_event_ns: return}`, or `calculate_from_realized_pnls` on a named
@@ -68,9 +58,8 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 
 ## Self-checks before citing a derived number
 
-- Per-instrument realized PnL over all rows sums to `native_economics.reported_realized_pnl_usdt`
-  within 1e-6; closed rows sum to `closed.reported_realized_pnl_usdt` from the report.
-- Compounded trade-window daily returns reproduce `final_equity_usdt`.
+- Sums over closed rows equal `reconciled.closed` from `tables()`; realized PnL over all rows equals
+  `native_economics.reported_realized_pnl_usdt`, within 1e-6.
 - For a number that drives a decision, keep the script with the attempt's evidence or have a second
   Agent recompute it independently from the same seal; disagreement means no claim.
 
@@ -79,5 +68,5 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 - Do not weight edge readings without naming the weighting (count vs. entry notional); never average
   `realized_return`.
 - Do not call a drawdown reduction better risk efficiency when exposure also fell.
-- Do not derive capital use from `account.csv` or re-value positions; seals without a native capital
-  time series cannot answer capital-use questions.
+- Do not derive capital use from the account report or re-value positions; seals without a native
+  capital time series cannot answer capital-use questions.

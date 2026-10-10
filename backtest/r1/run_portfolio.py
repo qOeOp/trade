@@ -312,9 +312,6 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         "native_max_drawdown_daily_close": MaxDrawdown().calculate_from_returns(
             eligible_returns,
         ),
-        "stats_returns": result.stats_returns,
-        "stats_pnls": result.stats_pnls,
-        "stats_general": result.stats_general,
         "data_interval_minutes": 5,
         "input_start_utc": args.start,
         "period_start_utc": trade_start_dt.isoformat(),

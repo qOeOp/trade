@@ -130,8 +130,7 @@ a frozen native control of the same instruments, window and configuration:
 uv run --frozen python -m backtest.r1.checks.compare_node \
   /path/to/frozen/native-control /tmp/r1-external-h19a-37
 uv run --frozen python -m backtest.r1.checks.audit_tiered_native \
-  --run /tmp/r1-external-h19a-37 --catalog-root /path/to/r1-minute-catalog \
-  --output /tmp/r1-external-h19a-audit.json
+  --run /tmp/r1-external-h19a-37 --output /tmp/r1-external-h19a-audit.json
 ```
 
 Check orders, fills, positions, fees, funding adjustments, account rows, returns
@@ -141,11 +140,14 @@ activates its native take-profit child before the stop child to avoid a
 synchronous sibling rejection; recheck this behavior before changing Nautilus.
 
 The native auditor checks report identities, links, final open-position
-protection and reported account economics for every v2 run. Recognized budgeted
-tier shapes receive additional geometry, quantity and risk checks. A generic
-audit does not prove a candidate's particular signal clock, staged-exit races
-or every source-specific risk invariant; add the relevant native probes before
-claiming those properties.
+protection and reported account economics for every v2 run, the same way for
+every strategy. It does not prove a candidate's particular signal clock, order
+geometry, staged-exit races or other source-specific invariants: the strategy
+checks those itself in `replay_integrity_findings`, or a native probe does before
+the property is claimed. Images before 2026-10-10's report-traps rebuild also
+ran budgeted-tier geometry gates for a fixed list of legacy signal variants; their
+sealed `audit.json` keeps those results. The `--catalog-root` argument is still
+accepted for older custody commands and is not read.
 
 D105 sealed the migration checks for five representative native pairs: H19a,
 H18a, R-1u, H04 staged exits and H29a. The full 37-instrument H19a pair also

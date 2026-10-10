@@ -13,6 +13,8 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
+
 from research.records import analysis, artifacts, cli
 from research.records.artifacts import _files, _sha
 from research.records.cli import _compare
@@ -25,7 +27,8 @@ DAY = 86_400_000_000_000
 START_NS = 1_767_225_600_000_000_000  # 2026-01-01T00:00:00Z
 WINDOW_RETURNS = [0.01, -0.02, 0.005, 0.0, 0.003, 0.004]
 POSITION_COLUMNS = ["position_id", "instrument_id", "entry", "multiplier", "is_inverse", "ts_closed",
-                    "realized_pnl", "commissions", "adjustments", "events"]
+                    "realized_pnl", "commissions", "adjustments", "events", "ts_last", "closing_order_id"]
+CLOSE_NS = 1_767_571_200_000_000_000  # 2026-01-05T00:00:00Z
 
 
 def _event(event_id, side, qty, px, commission):
@@ -67,7 +70,8 @@ def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, econ
     positions = [[cycle["position_id"], cycle["instrument_id"], "BUY", "1", "False",
                   "2026-01-05 00:00:00+00:00" if cycle["closed"] else "", f"{cycle['realized']} USDT",
                   repr([event["commission"] for event in cycle["events"]]),
-                  repr([_funding(amount) for amount in cycle["funding"]]), repr(cycle["events"])]
+                  repr([_funding(amount) for amount in cycle["funding"]]), repr(cycle["events"]),
+                  str(CLOSE_NS), f"{cycle['position_id']}-exit" if cycle["closed"] else ""]
                  for cycle in cycles]
     (reports / "positions.csv").write_text(_csv(POSITION_COLUMNS, positions) if cycles
                                            else ",ts_closed,realized_pnl,instrument_id\n")
@@ -215,7 +219,8 @@ class TablesTests(unittest.TestCase):
     def test_reconciled_rows_are_typed_and_fills_name_their_cycle(self):
         orders = _csv(["client_order_id", "tags", "parent_order_id", "quantity", "ts_init", "is_reduce_only"],
                       [["O-1", "['ENTRY']", "", "1", "1767225600000000000", "False"],
-                       ["O-2", "['STOP_LOSS']", "O-1", "1", "1767225600000000000", "True"]])
+                       ["O-2", "['STOP_LOSS']", "O-1", "1", "1767225600000000000", "True"],
+                       ["AAA-1-exit", "['TAKE_PROFIT']", "O-1", "2", "1767225600000000000", "True"]])
         _seal(self.root, "R1", orders=orders)
         result = analysis.tables(self.root, "R1", account=True)
         self.assertEqual({fill["event_id"]: fill["cycle_position_id"] for fill in result["fills"]},
@@ -227,6 +232,10 @@ class TablesTests(unittest.TestCase):
         self.assertEqual(sum(row["price_pnl"] for row in result["positions"] if row["closed"]),
                          Decimal(result["reconciled"]["closed"]["price_pnl_usdt"]))
         self.assertIsNone(result["positions"][2]["price_pnl"])  # open: fill cash flow is not a PnL yet
+        self.assertEqual((aaa["ts_closed_ns"], aaa["closing_order_tags"]), (CLOSE_NS, ["TAKE_PROFIT"]))
+        self.assertIsNone(result["positions"][1]["closing_order_tags"])  # its closing order is not in orders.csv
+        self.assertEqual((result["positions"][2]["ts_closed_ns"], result["positions"][2]["closing_order_tags"]),
+                         (None, None))
         self.assertEqual(sum(row["realized_pnl"] for row in result["positions"]),
                          Decimal(result["reconciled"]["native_economics"]["reported_realized_pnl_usdt"]))
         self.assertEqual(result["orders"][1], {"client_order_id": "O-2", "tags": ["STOP_LOSS"], "parent_order_id": "O-1",
@@ -378,6 +387,11 @@ class RealSealTests(unittest.TestCase):
                     self.assertEqual(Decimal(result["unrealized_residual_usdt"]), 0)
                 rows = analysis.tables(root, run_id)
                 self.assertEqual(sum(row["closed"] for row in rows["positions"]), result["closed_trades"])
+                for row in rows["positions"]:
+                    if row["closed"]:
+                        self.assertIsInstance(row["closing_order_tags"], list, row["position_id"])
+                        drift = abs(pd.Timestamp(row["ts_closed"]).value - row["ts_closed_ns"])
+                        self.assertLess(drift, 1_000, row["position_id"])
                 self.assertEqual(sum(row["realized_pnl"] for row in rows["positions"] if row["closed"]),
                                  Decimal(result["closed"]["reported_realized_pnl_usdt"]) if result["closed_trades"]
                                  else 0)
