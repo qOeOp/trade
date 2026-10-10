@@ -219,10 +219,10 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
 
 1. **tier 审计缺陷：已合并**（[qOeOp/trade#1494](https://github.com/qOeOp/trade/pull/1494)，RDP08）。新候选只能与同一镜像上的对照配对，用新镜像前要先在新镜像上重跑所需对照。
 2. **补接口缺口：已合并**（[qOeOp/trade#1497](https://github.com/qOeOp/trade/pull/1497)）：`material retain`；底层适配器拒绝任何未声明发表接口的写入，并拒绝未提交的 SQL 改动；`find --text` 与 `revision`/`goal_id`。
-3. **让 research-round 自包含：已完成（进行中）。** README 的 "One research round"、strategy source 与 seal/register 步骤拆成 skill 参考 `publish.md`、`seal.md` 与新增的 `strategy-authoring.md`；README 只保留配置、存储协议、访问保留与恢复。
+3. **让 research-round 自包含：已完成（[qOeOp/trade#1500](https://github.com/qOeOp/trade/pull/1500)）。** README 的 "One research round"、strategy source 与 seal/register 步骤拆成 skill 参考 `publish.md`、`seal.md` 与新增的 `strategy-authoring.md`；README 只保留配置、存储协议、访问保留与恢复。
 4. **第 3 层评估：部分完成。** [qOeOp/trade#1496](https://github.com/qOeOp/trade/pull/1496) 保留了回归用例 `evals/stability-before-freeze`（含 skill 触发检查）。它的评分标准放在 skill 目录内，只作回归用例；留出用例与答案键仍按第六节放 Git 外。交接文件第 1 项的首批 5 个用例（4 个方法用例加 1 个触发用例）、溯源审计配方，以及在固定 main worktree 上运行 `validate` 仍待做。
 5. **退役：已合并**（同 #1497）：删除 materials、references、migration、reviews、retention、retrieval 及对应命令；`retain_file`/`original_bytes` 移到 `evidence.py`，待修复投影移到 `ledger.py`。归档台账用 commit `9794ed307` 的 CLI 读取。
-6. **清理文档：已完成（进行中）。** 清理第五节列出的陈旧陈述；蓝图按本审计改写产品形态与第 2 层措辞。同时删除：`quality.yml` 中只断言冻结字面量的回执步骤（守卫改为 `tests/test_repository_layout.py`）、对 v2 seal 已无用的 `backtest/r1/checks/{compare_factorial,readback_native_economics,compare}.py`、`artifacts run --source-ref` 宿主执行路径，以及不再使用的 `markdown-it-py` 依赖。
+6. **清理文档：已完成（[qOeOp/trade#1500](https://github.com/qOeOp/trade/pull/1500)）。** 清理第五节列出的陈旧陈述；蓝图按本审计改写产品形态与第 2 层措辞。同时删除：`quality.yml` 中只断言冻结字面量的回执步骤（守卫改为 `tests/test_repository_layout.py`）、对 v2 seal 已无用的 `backtest/r1/checks/{compare_factorial,readback_native_economics,compare}.py`、`artifacts run --source-ref` 宿主执行路径，以及不再使用的 `markdown-it-py` 依赖。
 7. **托管主体：** 等第一个 independent 或确认结论要依赖第 2 层时再做（第八节）。
 
 ## 来源
