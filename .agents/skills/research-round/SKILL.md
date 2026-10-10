@@ -6,7 +6,7 @@ description: Plan and close one strategy research round in this repository (ques
 # Research round
 
 What a round commits to before it reads a result. Publication mechanics are in
-`research/records/README.md`; numbers from sealed reports follow the `native-report-analysis` skill.
+`research/records/README.md`; numbers from sealed reports follow the `nautilus-report-analysis` skill.
 
 ## Name the layer
 

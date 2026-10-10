@@ -5,7 +5,7 @@ manifest-verified native reports, splits closed-position PnL into fill price
 PnL, commissions and funding, and accepts that split only when it reconciles
 to the audited native economics. The paired interval is bound to the
 preregistered primary response. Descriptive statistics are left to the Agent
-(see the native-report-analysis skill). Names follow
+(see the nautilus-report-analysis skill). Names follow
 docs/plans/native-rd-analysis-fields.zh.md; a value that cannot be derived is
 null with its reason in ``limitations``.
 """
