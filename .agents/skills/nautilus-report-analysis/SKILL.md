@@ -1,5 +1,5 @@
 ---
-name: native-report-analysis
+name: nautilus-report-analysis
 description: Derive descriptive statistics from sealed native Nautilus backtest reports (win rates, holding time, order funnel, drawdown dates, monthly or per-instrument contribution, cost mix) beyond the reconciled readings of `artifacts report` and `compare --analysis`. Use before computing any such number for a research decision.
 ---
 
