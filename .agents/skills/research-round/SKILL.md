@@ -60,13 +60,11 @@ exclusion nor corroboration, bring the question to the user.
 
 ## Evidence and review
 
-- Keep readers, results and conclusions outside Git and `/tmp`; publish them as `review_evidence`
-  material and cite their fixed IDs in `decision.basis.evidence_refs`. Another attempt's run is
-  evidence, never `candidate_run_ref`. No command exists for this yet (RDP07): build the material
-  with `research.records.reviews.retain_file` and publish only that material through the store;
-  never publish attempt, run or strategy objects that way.
-- Review independently before confirmation or knowledge admission
-  ([review.md](references/review.md)).
+- Keep readers, results and conclusions outside Git and `/tmp`; publish them with
+  `material retain --file PATH SHA256 [--file ...]`, dry-run first, and cite the returned
+  `review_evidence:SHA256` IDs in `decision.basis.evidence_refs`. Another attempt's run is
+  evidence, never `candidate_run_ref`.
+- Review independently before confirmation ([review.md](references/review.md)).
 - When a workbench gap blocked a task, forced a workaround in more than one attempt, or cost a
   rerun, record it as a product finding under `docs/plans/`: affected attempt IDs, the blocked task,
   evidence (fixed IDs), iteration cost, workaround and the smallest shared capability needed.

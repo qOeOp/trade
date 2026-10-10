@@ -74,7 +74,7 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
 | 归属 | 内容 |
 |---|---|
 | 必须是代码（约 3.7k 行加 414 行 schema，另有镜像内的 runner 与 auditor） | 先 pending 后冻结的 v3 预登记；run 绑定 revision 1，且启动时绑定登记；independent 判定；配对可比性；从 seal 派生 run 记录；以 Dolt 为锚的 seal 核验；镜像身份与沙箱；策略精确绑定；带版本保护的原子幂等发表 |
-| 原判可退役，核对后必须保留 | `projections.py`：RDP02 修复与 32 KiB 上限。`history.py`：665 个历史证据文件只存在于 `44e2293`。`cli._dolt_lineage`：环与歧义检查，RDP06。`cli._check_ref`：RDP01 写前预检。`reviews.retain_file`：`review_evidence` 的唯一托管入口。`migration.original_bytes`。`ledger status/init`：前者是版本保护的读取端，后者保证不隐式替换台账 |
+| 原判可退役，核对后必须保留 | `projections.py`：RDP02 修复与 32 KiB 上限。`history.py`：665 个历史证据文件只存在于 `44e2293`。`cli._dolt_lineage`：环与歧义检查，RDP06。`cli._check_ref`：RDP01 写前预检。`retain_file`：`review_evidence` 的唯一托管入口；`original_bytes`（#1497 后两者都在 `evidence.py`）。`ledger status/init`：前者是版本保护的读取端，后者保证不隐式替换台账 |
 | 可退役候选（第十节清点后：约 2.7k 行产品代码、约 2.2k 行测试）。物料与准入曾是正式功能，需用户确认 | `materials.py`、`references.py` 全部；migration 的导入部分；reviews 的导入审阅队列；`retention.py`（需同时改蓝图与 skill）；retrieval 中只服务于纠错、准入、引用解析的投影与 search。保留 ledger start/stop（现役服务的启动入口，也是以后加固 Dolt 的落点）和 artifacts backup/restore（27 个已登记 run 全有备份）。前提：`ledger.py` 在模块顶层导入 materials，要先拆开，否则 `publish attempt` 会一起坏 |
 | 对当前 v2 seal 是死代码 | `checks/compare_factorial.py`、`checks/readback_native_economics.py`：遇到所有 v2 seal 都抛 KeyError。`checks/compare.py`：没有消费者。删除前要确认没有保留结论依赖它们重建，并改掉文档链接（`rd-experiment-native-evidence-plan.zh.md:11`） |
 | 低 ROI 的 CI | `quality.yml` 回执步骤只断言冻结字面量。删除时要保留 `assert not Path('strategies')` 和 `research/r1_variants` 这两条，它们是"策略正文不进 Git"唯一的 CI 守卫 |
@@ -117,7 +117,7 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
 | "declare every unregistered replay that influenced a choice" | 改为：在 plan 中列出自上一个 attempt 以来所有未登记的回放（命令与输出路径），没有就写 `Unregistered replays: none` | "影响了选择"是意图，任何评分都看不出来；显式写"none"才能区分"没有"和"漏写" |
 | 进展检查 "After repeated economics failures, ask…" | 改为：同一目标出现三次经济失败、中间没有经济通过时（其他层的决定既不计数也不清零），在下一个 attempt 的 plan 中作答；如果停止，就写在第三次失败的 `next_action` 里；每次检查后重新计数 | 原文没有记录位置，"repeated"无法计算；停止时没有下一个 attempt 可写 |
 | review.md 的 G1 设计审阅（可选） | 删除。其中"源码 diff 只改了声明的机制"一项移入冻结审阅清单 | 可选步骤不可能被违反；其余几项与"发表前"条目重复，后者可直接评分 |
-| "Retain the review as review_evidence when it matters" | 改为：冻结审阅保存为 `review_evidence`，并在受控步骤的记录处引用（确认 attempt 的 plan，或知识准入的 `evidence`） | "when it matters"无法评分；准入记录没有 `decision.basis` |
+| "Retain the review as review_evidence when it matters" | 改为：冻结审阅用 `material retain` 保存，并在确认 attempt 的 plan 中引用 | "when it matters"无法评分；知识准入已退役 |
 | 纸上运行（SKILL、review.md、confirmation.md） | 删除 | 产品没有纸上运行入口；实盘授权已写在 AGENTS.md。以后增加纸上运行时，要同时加回冻结审阅这道关 |
 | 产品发现模板（原在 AGENTS.md） | 移入 research-round，触发条件改为可判定：阻塞了任务、在多个 attempt 中被迫绕开，或导致重跑 | 只在研发收尾时用到；结果在 `docs/plans/` 中可见 |
 | 先读既有记录、决策引用的运行必须经 `artifacts run`（原在 AGENTS.md） | 移入 research-round 开头 | 原来常驻，瘦身后只剩 716 行的 README 里有 |
@@ -180,7 +180,7 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
   - D10 证据的期望哈希是用同一份字节自己算出来的，校验形同虚设。
   - 目前这条路只用来写证据材料，没有发现被用来写 attempt 或 run。
 - **skill 与接口之间没有测试。** skill 里 20 个可机检的引用中，有 3 个名称（4 处）无法从 `--help` 或 `contract` 的自描述里找到：`read_preflight`、`pair_preflight`、`review_evidence`。
-- **本次已改：** AGENTS.md 改为"attempt、run、策略只经 CLI 命令写入，不经底层适配器或直接 SQL"；skill 写明证据材料目前的唯一用法，并禁止用这条路写其他对象。
+- **已改：** AGENTS.md 改为"attempt、run、策略只经 CLI 命令写入，不经底层适配器或直接 SQL；证据原文经 `material retain`"；skill 改用 `material retain`。
 - **用户决定（2026-10-10）：**
   1. 新增 `material retain` 命令（带 `--dry-run`、expected-version、operation-id），推翻 RDP07 的"不新增命令"。
   2. 让底层适配器拒绝 attempt/run/strategy 对象，只允许经各自的发表接口写入（授权收紧）。
@@ -216,10 +216,10 @@ AGENTS.md 只是载体之一。也可以用 SessionStart hook 注入，但那要
 ## 十一、后续工作（按顺序）
 
 1. **tier 审计缺陷：已修复，待合并**（[qOeOp/trade#1494](https://github.com/qOeOp/trade/pull/1494)，RDP08）。新候选只能与同一镜像上的对照配对，用新镜像前要先在新镜像上重跑所需对照。
-2. **补接口缺口**（已决定，见第九节）：`material retain`、底层适配器的写入守卫、`find` 增加字段与文本匹配。
+2. **补接口缺口：已实现，待合并**（[qOeOp/trade#1497](https://github.com/qOeOp/trade/pull/1497)）：`material retain`；底层适配器拒绝任何未声明发表接口的写入，并拒绝未提交的 SQL 改动；`find --text` 与 `revision`/`goal_id`。
 3. **让 research-round 自包含。** 把 README 的 "One research round" 和 seal/register 步骤拆成 skill 参考，新增 strategy-authoring 参考；README 只保留配置与恢复。
 4. **第 3 层评估。** 先做交接文件第 1 项的首批 5 个用例（4 个方法用例加 1 个触发用例），再做溯源审计配方，以及在固定 main worktree 上运行 `validate`。
-5. **退役。** 按第十节执行（已决定），与第 2 项同一个 PR。
+5. **退役：已实现，待合并**（同 #1497）：删除 materials、references、migration、reviews、retention、retrieval 及对应命令；`retain_file`/`original_bytes` 移到 `evidence.py`，待修复投影移到 `ledger.py`。归档台账用 commit `9794ed307` 的 CLI 读取。
 6. **清理文档。** 清理第五节列出的陈旧陈述；在蓝图里按本审计改写产品形态和第 2 层的措辞。
 7. **托管主体：** 等第一个 independent 或确认结论要依赖第 2 层时再做（第八节）。
 

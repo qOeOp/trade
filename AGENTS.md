@@ -37,7 +37,7 @@ ledger: publication is append-only.
 - Complete strategy source (one UTF-8 file per independent strategy), research records and
   decisions: Dolt. Write attempts, runs and strategies only through their `python -m
   research.records.cli` / `research.records.artifacts` commands, never through the raw store
-  adapter or direct SQL (evidence materials: see `research-round`). No strategy bodies
+  adapter or direct SQL; evidence originals through `material retain`. No strategy bodies
   or new experiment receipts in Git.
 - Product and workbench findings: `docs/plans/`. Skills: `.agents/skills/` only (`.claude/skills` is
   a symlink to it).
