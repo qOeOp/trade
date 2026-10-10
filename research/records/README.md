@@ -367,7 +367,10 @@ reading a new result.
 
 The research Agent chooses the next question and the smallest experiment that
 can falsify it. The user supplies the research goal and risk boundaries, not
-instructions for every candidate. Before extending or combining hypotheses,
+instructions for every candidate. The `research-round` skill
+(`.agents/skills/research-round/`) lists what a plan commits to before a run:
+the layer tested, an outcome-to-action map with branches, target feasibility,
+the failure layer from the previous run, trial accounting and confirmation. Before extending or combining hypotheses,
 use `find`, then `show <id> --brief`; open full `show`, `compare`, and cited
 native reports where the decision depends on them. Name the precise prior
 claim supported or rejected, the hypothesis parent(s), any reused component,
@@ -533,7 +536,22 @@ by SHA-256 and the source/runtime identities. It creates no Git `run.json`.
 For a candidate, read the fixed control's full recorded `cost_model`, confirm
 that both seals used the same native fees and funding, and only then reuse that
 text; `compare` refuses any textual difference and never treats an abbreviation
-as the same fee model.
+as the same fee model. Run `register --dry-run` first: it validates the identical
+publication without writing and, for a candidate with a control, adds
+`pair_preflight` from the same record checks `compare` applies (role, integrity,
+input, window, account, cost model, Nautilus, runtime and effective
+configuration). The preflight only reports for now; it does not refuse the
+write. `publish attempt` likewise adds `read_preflight` for any `evidence_refs`
+path that `show` and `compare` cannot read.
+`--evidence-grade independent` is accepted only for a passed seal that executes
+the exact `strategy_binding` of its attempt's first registration and whose trade
+window (`period_start_utc`, warmup excluded) starts after that registration's
+native Dolt commit time. That data did not exist when the strategy was frozen.
+The commit time comes from the Dolt server clock, with the same administrator
+caveat as other API guarantees. Configuration, image and the window length are
+fixed in the confirmation attempt's plan and checked in review, not in code; see
+the `research-round` skill's confirmation reference. `show` and `compare` recheck
+the grade at read time; whole-ledger `validate` does not repeat run contracts.
 The record CLI resolves `artifact://` refs through
 `TRADE_RESEARCH_ARTIFACT_ROOT`. Failed execution can be registered as a diagnostic
 without a native summary. Full raw inputs remain in the source Catalog.

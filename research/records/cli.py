@@ -172,7 +172,12 @@ def _lineage(
     }
 
 
-def _dolt_lineage(adapter, identity, commit, revision=None, seen=frozenset()):
+def _dolt_lineage(adapter, identity, commit, revision=None, seen=frozenset(), cache=None):
+    # A shared fixed ancestor is read once per call; only completed subtrees are
+    # cached, so a cycle or a bad ancestor still fails on its first visit.
+    cache = {} if cache is None else cache
+    if revision is not None and (identity, revision) in cache:
+        return cache[identity, revision]
     obj = adapter.get_object("attempt:" + identity, revision=revision, commit=commit)
     if obj is None:
         raise RecordError(f"missing lineage revision: {identity}@{revision}")
@@ -199,10 +204,12 @@ def _dolt_lineage(adapter, identity, commit, revision=None, seen=frozenset()):
     for parent in body["parents"]:
         fixed = endpoint(parent["relationship"], parent["attempt_id"], parent)
         parents.append({"relationship": parent["relationship"], "difference": parent["difference"],
-                        "record": _dolt_lineage(adapter, parent["attempt_id"], commit, fixed, seen | {key})})
-    return {"attempt_id": identity, "revision": obj["revision"], "commit": commit,
-            "hypothesis": body["hypothesis"], "decision": body["decision"],
-            "composition_mode": body.get("composition_mode"), "mechanism_sources": sources, "parents": parents}
+                        "record": _dolt_lineage(adapter, parent["attempt_id"], commit, fixed, seen | {key}, cache)})
+    result = {"attempt_id": identity, "revision": obj["revision"], "commit": commit,
+              "hypothesis": body["hypothesis"], "decision": body["decision"],
+              "composition_mode": body.get("composition_mode"), "mechanism_sources": sources, "parents": parents}
+    cache[identity, obj["revision"]] = result
+    return result
 
 
 def _contract(kind):
@@ -438,7 +445,9 @@ def _sides(candidate: dict, control: dict, pointer: str) -> dict:
     return {pointer: {"candidate": value(candidate), "control": value(control)}}
 
 
-def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engineering_audit: bool = False) -> dict:
+def _check_pair_records(candidate_id: str, control_id: str, runs: dict[str, dict], *,
+                        engineering_audit: bool = False) -> list[str]:
+    """Refuse a pair from its run records alone; registration reuses this before writing."""
     if candidate_id not in runs or control_id not in runs:
         raise _pair_refusal("unknown candidate or control run", "decision_pair_role_mismatch", "/control_run_id",
                             runs[candidate_id]["control_run_id"] if candidate_id in runs else None, _PAIR_ROLE_ACTION)
@@ -489,6 +498,12 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engin
         raise _pair_refusal("incomparable runs: " + ", ".join(environment_changes) + "; use --engineering-audit for an environment migration",
                             "decision_pair_incomparable", next(iter(expected)), expected,
                             _PAIR_INCOMPARABLE_ACTION + " --engineering-audit is a migration read and cannot be combined with --analysis.")
+    return environment_changes
+
+
+def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engineering_audit: bool = False) -> dict:
+    environment_changes = _check_pair_records(candidate_id, control_id, runs, engineering_audit=engineering_audit)
+    candidate, control = runs[candidate_id], runs[control_id]
     source_revision_status = [
         _check_source_revision(run) for run in (candidate, control)
     ]
@@ -674,8 +689,9 @@ def main() -> int:
                 if body["registration"]["status"] == "preregistered"
             }
             if fixed:
+                lineage_cache = {}
                 for identity in attempts:
-                    _dolt_lineage(store.adapter, identity, fixed)
+                    _dolt_lineage(store.adapter, identity, fixed, cache=lineage_cache)
         elif args.command == "show":
             attempts, runs, snapshot_storage = store.selected_snapshot(
                 attempt_ids=(args.attempt_id,), commit=fixed,

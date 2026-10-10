@@ -1,5 +1,7 @@
 """Storage-independent research relationship and comparison contracts."""
 
+from datetime import datetime, timezone
+
 from research.records.common import RecordError
 
 
@@ -43,12 +45,51 @@ def publication_context_refs(body, *, relations=()):
     return refs + [("known_exposure", ref) for ref in exposure.get("run_refs", [])]
 
 
+_INDEPENDENT_ACTIONS = [
+    "Keep this run as development_exposed or unknown; do not erase exposure history.",
+    "For a confirmation, publish a new pending attempt that binds the frozen strategy before the window starts, "
+    "then run only on a trade window that begins after that publication.",
+]
+
+
+def _check_independent_run(body, object_lookup, registered_at):
+    """An independent grade needs a strategy frozen at registration and later market data."""
+    def refuse(reason):
+        _refuse("independent grade lacks a confirmation window after a frozen registration",
+                code="EVIDENCE_EXPOSURE_CONTRADICTION", path="/evidence_grade",
+                reason=reason, next_actions=_INDEPENDENT_ACTIONS)
+
+    if object_lookup is None or registered_at is None:
+        refuse("The registration snapshot needed to check independence is unavailable.")
+    initial = object_lookup("attempt:" + body["attempt_id"], 1)
+    binding = (initial or {}).get("body", {}).get("strategy_binding")
+    if binding is None or body.get("strategy_binding") != binding:
+        refuse("The run must execute the exact strategy binding of the attempt's first registration.")
+    raw = body.get("window", {}).get("trade_start_utc")
+    try:
+        start = datetime.fromisoformat(raw) if isinstance(raw, str) else None
+    except ValueError:
+        start = None
+    if start is None or start.utcoffset() is None:
+        refuse("The run needs a passed seal with a timezone-qualified trade window start.")
+    try:
+        registered = registered_at(body["attempt_id"])
+    except RecordError as exc:
+        if exc.code == "DOLT_SQL_ERROR":
+            raise
+        refuse(f"The attempt has no valid first API registration: {exc}")
+    if start.astimezone(timezone.utc) <= registered:
+        refuse(f"The trade window starts at {start.isoformat()}, not after the registration at "
+               f"{registered.isoformat()}; that data existed when the candidate was frozen.")
+
 def validate_publication_contract(kind, body, *, previous=None, object_lookup=None,
-                                  relations=()):
+                                  relations=(), registered_at=None):
     """Reject locally testable contradictions before the storage transaction.
 
     JSON Schema owns field shapes. ``object_lookup(id, revision)`` reads fixed
     endpoints from the publication snapshot; it never silently selects latest.
+    ``registered_at(attempt_id)`` returns the UTC commit time of the attempt's
+    first API registration; only an independent run grade needs it.
     The port separately checks the fixed-revision graph and frozen registration.
     No identity string here constitutes authenticated independent review.
     """
@@ -57,14 +98,8 @@ def validate_publication_contract(kind, body, *, previous=None, object_lookup=No
             _refuse("a run cannot be its own control", code="self_control",
                     path="/control_run_id", reason="A comparison needs a distinct recorded run.",
                     next_actions=["Query the intended control run and submit its ID, or use null for a diagnostic run."])
-        if body.get("evidence_grade") == "independent" and object_lookup is not None:
-            initial = object_lookup("attempt:" + body["attempt_id"], 1)
-            exposure = (initial or {}).get("body", {}).get("contract", {}).get("selection", {}).get("known_exposure", {})
-            if exposure.get("status") == "development_exposed" or exposure.get("run_refs"):
-                _refuse("independent grade contradicts registered result exposure",
-                        code="EVIDENCE_EXPOSURE_CONTRADICTION", path="/evidence_grade",
-                        reason="The initial contract already declares that results were inspected.",
-                        next_actions=["Keep this run as development_exposed or unknown. Register a genuinely isolated confirmation separately; do not erase exposure history."])
+        if body.get("evidence_grade") == "independent":
+            _check_independent_run(body, object_lookup, registered_at)
         return
     if kind != "attempt":
         return

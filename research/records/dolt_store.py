@@ -8,6 +8,7 @@ There is no Git fallback, server lifecycle management or automatic write retry.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import timezone
 import hashlib
 import json
 import re
@@ -415,6 +416,15 @@ class DoltStore:
             if len(commits) != 1:
                 raise RecordError(f"operation {operation_id} must bind to exactly one native commit")
             return {"operation_id": operation_id, "version": version, "commit": commits[0][0]}
+
+    def commit_time(self, commit):
+        """Return a native commit's UTC time; Dolt reports it as a naive UTC datetime."""
+        _text(commit, "commit", 64)
+        with self._connection() as conn:
+            rows = self._sql(conn, "SELECT date FROM dolt_log WHERE commit_hash=%s", (commit,))[0]
+        if len(rows) != 1:
+            raise RecordError(f"unknown native commit: {commit}")
+        return rows[0][0].replace(tzinfo=timezone.utc)
 
     def _operation_result(self, conn, operation_id, payload_sha256):
         rows = self._sql(conn,

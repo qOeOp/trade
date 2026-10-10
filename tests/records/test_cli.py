@@ -127,3 +127,51 @@ class ResearchRecordBoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FixedLineageReadTests(unittest.TestCase):
+    """A shared fixed ancestor is read once, while cycles still fail."""
+
+    class _Adapter:
+        def __init__(self, parents):
+            self.parents, self.reads = parents, []
+
+        def _ref(self, child, parent):
+            return {"attempt_id": parent, "relationship": "hypothesis_extension", "difference": child + " extends " + parent}
+
+        def get_object(self, identity, revision=None, commit=None):
+            self.reads.append(identity)
+            name = identity.removeprefix("attempt:")
+            body = {"hypothesis": name, "decision": {"layer": "economics", "outcome": "failed"},
+                    "parents": [self._ref(name, parent) for parent in self.parents[name]]}
+            return {"id": identity, "revision": 1, "body": body}
+
+        def list_relations(self, commit=None, from_refs=()):
+            ((identity, _),) = from_refs
+            self.reads.append(identity)
+            name = identity.removeprefix("attempt:")
+            return [{"kind": "hypothesis_extension", "to_id": "attempt:" + parent, "to_revision": 1,
+                     "body": {"reference": self._ref(name, parent)}} for parent in self.parents[name]]
+
+    def test_diamond_reads_shared_ancestor_once(self):
+        from research.records.cli import _dolt_lineage
+        adapter = self._Adapter({"D": ["B", "C"], "B": ["A"], "C": ["A"], "A": []})
+        lineage = _dolt_lineage(adapter, "D", "fixed")
+        self.assertEqual(adapter.reads.count("attempt:A"), 2)  # one object read, one relation read
+        left, right = (parent["record"]["parents"][0]["record"] for parent in lineage["parents"])
+        self.assertEqual(left, right)
+        self.assertEqual(left["attempt_id"], "A")
+
+    def test_shared_cache_spans_validation_roots(self):
+        from research.records.cli import _dolt_lineage
+        adapter = self._Adapter({"B": ["A"], "C": ["A"], "A": []})
+        cache = {}
+        _dolt_lineage(adapter, "B", "fixed", cache=cache)
+        _dolt_lineage(adapter, "C", "fixed", cache=cache)
+        self.assertEqual(adapter.reads.count("attempt:A"), 2)
+
+    def test_cycle_still_fails(self):
+        from research.records.cli import _dolt_lineage
+        adapter = self._Adapter({"A": ["B"], "B": ["A"]})
+        with self.assertRaisesRegex(RecordError, "cycle in fixed lineage"):
+            _dolt_lineage(adapter, "A", "fixed")

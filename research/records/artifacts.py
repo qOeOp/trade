@@ -795,6 +795,7 @@ def register(
     cost_model: str,
     control_run_id: str | None,
     evidence_grade: str,
+    dry_run: bool = False,
 ) -> dict:
     checked = verify(root, run_id)
     archive = root.resolve() / run_id
@@ -876,14 +877,33 @@ def register(
     errors = list(_validator("run").iter_errors(record))
     if errors:
         raise ArtifactError(f"generated run record is invalid: {errors[0].message}")
+    preflight = _pair_preflight(store, record) if role == "candidate" and control_run_id else None
     publication = store.publish_record(
         "run", record, operation_id=f"register:{run_id}:{checked['manifest_sha256']}",
         expected_version=store.adapter.status()["version"],
         provenance={"origin": "sealed_native_artifact", "manifest_sha256": checked["manifest_sha256"],
                     "record_binding": binding, "binding_origin": "sealed_start"},
         endpoint_revisions={binding["id"]: binding["revision"]},
+        dry_run=dry_run,
     )
-    return {"run_id": run_id, "record": f"run:{run_id}", **checked, "publication": publication}
+    return {"run_id": run_id, "record": f"run:{run_id}", **checked, "publication": publication,
+            **({"pair_preflight": preflight} if preflight else {})}
+
+
+def _pair_preflight(store, record: dict) -> dict:
+    """Report, before a later compare refuses it, whether this candidate pairs with its control."""
+    from research.records.cli import _check_pair_records
+    control = store.adapter.get_object("run:" + record["control_run_id"])
+    if control is None:
+        return {"status": "control_unavailable", "report_only": True}
+    try:
+        _check_pair_records(record["run_id"], record["control_run_id"],
+                            {record["run_id"]: record, record["control_run_id"]: control["body"]})
+    except RecordError as exc:
+        finding = exc.as_dict()
+        finding.pop("write_status", None)
+        return {"status": "incomparable", "report_only": True, "finding": finding}
+    return {"status": "comparable", "report_only": True}
 
 
 def main() -> int:
@@ -929,9 +949,11 @@ def main() -> int:
     record.add_argument("--control-run-id")
     record.add_argument(
         "--evidence-grade",
-        choices=("development_exposed", "unknown"),
+        choices=("development_exposed", "unknown", "independent"),
         default="development_exposed",
     )
+    record.add_argument("--dry-run", action="store_true",
+                        help="validate the identical registration and pair preflight without writing")
     identity = commands.add_parser(
         "input-identity", help="hash prepared Catalog inputs"
     )
@@ -971,6 +993,7 @@ def main() -> int:
                 cost_model=args.cost_model,
                 control_run_id=args.control_run_id,
                 evidence_grade=args.evidence_grade,
+                dry_run=args.dry_run,
             )
         elif args.command == "backup":
             result = backup(args.root, args.run_id, args.backup_root)
