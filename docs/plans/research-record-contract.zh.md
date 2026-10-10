@@ -1,10 +1,10 @@
 # 投研记录如何服务策略迭代（待验证设计）
 
-> 历史快照：本文保留 Git 侧录阶段的设计与验收背景，登记及元数据操作已由 Dolt v2 契约替代。现行操作以[研究记录指南](../../research/records/README.md)和[当前架构](../architecture.zh.md)为准。
+> 历史快照：本文保留 Git 侧录阶段的设计与验收背景，登记及元数据操作已由 Dolt v2 契约替代。现行操作以 [research-round skill](../../.agents/skills/research-round/SKILL.md) 和[当前架构](../architecture.zh.md)为准。
 
 ## 决策与证据边界
 
-本设计的消费者是**后继研究 Agent**。它要从旧研究中找可复用的机制和反例、选有效的经济对照、确定失败发生在哪一层，以及找到可以回退的实际源码。一次[隔离 Agent 对照试验](research-record-efficiency.zh.md)初步测到了正式运行身份识别的准确率差异，但没有测到决策质量或速度收益；**可用策略的产出率是否提高，目前没有证据**，需要后继的独立验证。现有[Git 记录与本机封存命令](../../research/records/README.md)收录七条事后回填的历史尝试与一条事前登记的 F01 尝试；[H18a 案例](research-record-h18a-case.zh.md)检验依赖式组件组合，[F01 四格案例](r1-factorial-line-cancel-result.zh.md)检验可开关组合。单机封存与恢复已用真实回放验收；异机备份与长期保管尚未完成。
+本设计的消费者是**后继研究 Agent**。它要从旧研究中找可复用的机制和反例、选有效的经济对照、确定失败发生在哪一层，以及找到可以回退的实际源码。一次[隔离 Agent 对照试验](research-record-efficiency.zh.md)初步测到了正式运行身份识别的准确率差异，但没有测到决策质量或速度收益；**可用策略的产出率是否提高，目前没有证据**，需要后继的独立验证。当时的[Git 记录与本机封存命令](https://github.com/qOeOp/trade/blob/c74579a807a6ae18354dcd4f0d1a923095627736/research/records/README.md)收录七条事后回填的历史尝试与一条事前登记的 F01 尝试；[H18a 案例](research-record-h18a-case.zh.md)检验依赖式组件组合，[F01 四格案例](r1-factorial-line-cancel-result.zh.md)检验可开关组合。单机封存与恢复已用真实回放验收；异机备份与长期保管尚未完成。
 
 外部依据与 Trade 的推断必须分开：
 

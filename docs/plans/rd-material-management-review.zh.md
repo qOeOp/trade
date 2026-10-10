@@ -1,6 +1,6 @@
 # RD 资料管理评审：长期迭代中的检索与准确使用
 
-评审日期：2026-10-09。代码与资料基线：`1b32849ca7ec6efd609b0a3bbbbd26bcd854103d`。M01–M06 保留迁移前的发现、验证及范围，不能据此当作迁移后的运行状态；M07 记录本轮 Dolt 接入与自动整理边界，M08 记录原导入队列的证据复核契约。当前蓝图以 [architecture.zh.md](../architecture.zh.md) 为准，操作以 [records README](../../research/records/README.md) 为准。
+评审日期：2026-10-09。代码与资料基线：`1b32849ca7ec6efd609b0a3bbbbd26bcd854103d`。M01–M06 保留迁移前的发现、验证及范围，不能据此当作迁移后的运行状态；M07 记录本轮 Dolt 接入与自动整理边界，M08 记录原导入队列的证据复核契约。当前蓝图以 [architecture.zh.md](../architecture.zh.md) 为准，操作以 [research-round skill](../../.agents/skills/research-round/SKILL.md) 为准，存储配置与恢复见 [records README](../../research/records/README.md)。
 
 ## 判定
 
@@ -54,7 +54,7 @@
 
 - **受影响尝试：** H15a、H18a、H19a、H25a–H27a、F01 及后续同年度研究。
 - **受阻任务：** 在换机器、换 Agent、历史变长后，准确恢复证据，辨认已暴露数据，并有界读取相关祖先。
-- **直接证据：** 15 个 run 中只有 1 个使用 `sealed_local`；[README](../../research/records/README.md)明确 schema 缺独立 falsifier、selection_rule、exposure 字段，预登记四问仍由 Agent 审查。每个 CLI 命令加载并 schema 校验全体记录，`_lineage` 递归展开全部祖先；纯内存 1,100 层单父链探针出现 `RecursionError`。后者证明深链限制，不是 10,000 条记录的完整性能基准，迭代总量也不等于父链深度。
+- **直接证据：** 15 个 run 中只有 1 个使用 `sealed_local`；[README](https://github.com/qOeOp/trade/blob/5b17f5b52e8d094e27ea2a25e8e2172dc0e526e3/research/records/README.md#L222-L225)明确 schema 缺独立 falsifier、selection_rule、exposure 字段，预登记四问仍由 Agent 审查。每个 CLI 命令加载并 schema 校验全体记录，`_lineage` 递归展开全部祖先；纯内存 1,100 层单父链探针出现 `RecursionError`。后者证明深链限制，不是 10,000 条记录的完整性能基准，迭代总量也不等于父链深度。
 - **迭代成本：** 若临时原生报告不可恢复，逐事件复核可能需要重跑；缺失暴露信息会增加证据等级判断成本。长链输出和重复祖先展开可能超出工具及上下文预算，尚未测得实际大规模耗时。
 - **现有绕行：** Git 时间线、人工登记暴露、临时 CSV、专用诊断；新 R1 决策性运行使用现有 artifacts 流程。
 - **最小共享能力：** 落实现有新运行封存与备份规则；结构化关键暴露引用和登记内容的机械可检查部分，内容质量仍由 Agent 判断。关系查询按局部、方向和深度有界读取，祖先去重；明确截断和完整性。正式灾备需独立故障域与恢复演练，不能用第二个本机目录替代。
@@ -95,7 +95,7 @@
 
 ## M05：策略组织依赖固定目录，清理尚缺版本化源码闭包
 
-以下保留迁移前的问题、证据与绕行快照；当前目录分工见[当前架构](../architecture.zh.md)，登记与元数据读写见[研究记录指南](../../research/records/README.md)。
+以下保留迁移前的问题、证据与绕行快照；当前目录分工见[当前架构](../architecture.zh.md)，登记与元数据读写见 [research-round 发表参考](../../.agents/skills/research-round/references/publish.md)。
 
 - **受影响尝试：** H19a；旧台账中的 H23a/H24a；已事后转录的 H25a–H27a。H23a/H24a 当前未转录为 attempt JSON，不能以产品目录整理补称事前结构化登记。
 - **受阻 Agent 任务：** 以简洁策略源码入口发现、修改和比较一个研究候选，同时准确保留实际执行依赖、旧证据与恢复能力。研究编号、逐币原生实例、独立产品策略及其账户身份需要分别读取。

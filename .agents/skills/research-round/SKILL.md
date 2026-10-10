@@ -5,12 +5,16 @@ description: Plans and closes one strategy research round in this repository (qu
 
 # Research round
 
-What a round commits to before it reads a result. Publication mechanics are in
-`research/records/README.md`; numbers from sealed reports follow the `nautilus-report-analysis` skill.
+What a round commits to before it reads a result. Exact commands are in
+[strategy-authoring.md](references/strategy-authoring.md) (strategy file contract, source
+publication and binding), [publish.md](references/publish.md) (reading records, the pending attempt,
+decisions, evidence and `compare`) and [seal.md](references/seal.md) (identities, `artifacts run`,
+`verify`, `backup`, `register` and `report`). Numbers from sealed reports follow the
+`nautilus-report-analysis` skill.
 
 Read prior records first (`find`, then `show <id> --brief`) for any claim you extend or combine. A
-run that a decision cites goes through `research.records.artifacts run`, `verify`, `backup` and
-`register`; direct `run_portfolio` output under `/tmp` is a diagnostic.
+run that a decision cites goes through `artifacts run`, `verify`, `backup` and `register`; direct
+`run_portfolio` output under `/tmp` is a diagnostic.
 
 ## Name the layer
 
@@ -41,7 +45,8 @@ A whole-strategy failure rejects the bundle, not any one part. State which layer
    attempt (command and output path), or write `Unregistered replays: none`.
 6. Treat windows before the model's training cutoff as knowledge-exposed: exploration and
    falsification only.
-7. Dry-run every write and fix what `read_preflight` or `pair_preflight` reports.
+7. Dry-run every write that has `--dry-run` (`publish attempt`, `material retain`,
+   `artifacts register`) and fix what `read_preflight` or `pair_preflight` reports.
 
 ## Robustness
 
@@ -61,9 +66,9 @@ exclusion nor corroboration, bring the question to the user.
 ## Evidence and review
 
 - Keep readers, results and conclusions outside Git and `/tmp`; publish them with
-  `material retain --file PATH SHA256 [--file ...]`, dry-run first, and cite the returned
-  `review_evidence:SHA256` IDs in `decision.basis.evidence_refs`. Another attempt's run is
-  evidence, never `candidate_run_ref`.
+  `material retain --file PATH SHA256 [--file ...]`, dry-run first
+  ([publish.md](references/publish.md)), and cite the returned `review_evidence:SHA256` IDs in
+  `decision.basis.evidence_refs`. Another attempt's run is evidence, never `candidate_run_ref`.
 - Review independently before confirmation ([review.md](references/review.md)).
 - When a workbench gap blocked a task, forced a workaround in more than one attempt, or cost a
   rerun, record it as a product finding under `docs/plans/`: affected attempt IDs, the blocked task,

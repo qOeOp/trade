@@ -1,14 +1,14 @@
 # 策略研发：实验组织与原生证据的分步计划
 
-> 历史快照：本文保留 Git 侧录阶段的设计与验收背景，登记及元数据操作已由 Dolt v2 契约替代。现行操作以[研究记录指南](../../research/records/README.md)和[当前架构](../architecture.zh.md)为准。
+> 历史快照：本文保留 Git 侧录阶段的设计与验收背景，登记及元数据操作已由 Dolt v2 契约替代。现行操作以 [research-round skill](../../.agents/skills/research-round/SKILL.md) 和[当前架构](../architecture.zh.md)为准。
 
-状态：第 1 步的操作契约已写入[研究指南](../../research/records/README.md)；尚待下一条真实新假设检验 Agent 能否独立执行。其余步骤待执行。本文不把开发期回测结果当作独立策略资格，也不改变实盘或风险边界。
+状态：第 1 步的操作契约已写入 [research-round 发表参考](../../.agents/skills/research-round/references/publish.md)；尚待下一条真实新假设检验 Agent 能否独立执行。其余步骤待执行。本文不把开发期回测结果当作独立策略资格，也不改变实盘或风险边界。
 
 ## 目标与现有底座
 
 让 RD Agent 自己提出可否证的问题、选择合法对照、登记搜索与数据暴露，并依据 Nautilus 原生报告解释结果和选择下一实验。研究者只设长期目标与风险边界；每轮具体研究方向由 Agent 决定。
 
-复用 [研究记录与封存命令](../../research/records/README.md)、[现有 compare](../../research/records/cli.py) 和 [F01 四格分析](../../backtest/r1/checks/compare_factorial.py)。详细方法与依据已归档为 `material:reports/策略研发 实验组织 证据反馈.md`，通过 `research.records.cli material show` 读取。不新增研究服务、交易账本、撮合器或 Agent 角色。以下步骤按顺序推进，每步验收后才决定下一步的实际改动。
+复用 [研究记录与封存命令](../../.agents/skills/research-round/references/seal.md)、[现有 compare](../../research/records/cli.py) 和 [F01 四格分析](https://github.com/qOeOp/trade/blob/3b3b4876b869bf0d7f54b74ee69f7f708dea59dd/backtest/r1/checks/compare_factorial.py)（已删除，链接为删除前的固定版本）。详细方法与依据在归档试用台账中为 `material:reports/策略研发 实验组织 证据反馈.md`，需先把归档恢复到独立台账，再用 commit `9794ed307` 的记录 CLI 读取。不新增研究服务、交易账本、撮合器或 Agent 角色。以下步骤按顺序推进，每步验收后才决定下一步的实际改动。
 
 ## 1. 固定 Agent 的单轮实验契约
 
