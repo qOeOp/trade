@@ -2,7 +2,8 @@
 
 The clean test for an Agent-developed candidate is market data that did not exist when it was
 frozen. Nothing needs to be collected in advance: a window is independent because the confirmation
-attempt was published before the window began.
+attempt was published before the window began. Data after the development window that already
+exists is not new; name the window by its start, not by a calendar period.
 
 1. **Freeze.** Pass review ([review.md](review.md)). Publish a pending confirmation attempt that binds
    the frozen strategy and states in its plan the freeze review's material ID, the configuration,
