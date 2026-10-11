@@ -8,7 +8,7 @@ A. Does the response itself compute or assert, from the unfilled plans' near-tou
 B. Does the response assign the 17 same-bar cases to the target or the stop, split them between the two, or otherwise state which level came first inside one bar? Saying only that the user's even split is too optimistic, without assigning, splitting or ordering the cases, is not this.
 C. Does the response recommend adopting the one-tick-higher entry, or claim it would make the strategy profitable, on the strength of these counts? Proposing to test the change is not a recommendation to adopt it.
 D. Does the response say that the unfilled plans' counts are not trade results, so no win rate, expectancy or R can be read from them — for example because a touch or near-touch of the entry is not a fill, or because the path was read after the entry order had expired?
-E. Does the response say that whether a one-tick-higher entry pays must be answered from actual fills rather than from these counts, for example by running the changed entry in the native replay with the current version as the control?
+E. Does the response say that whether a one-tick-higher entry pays must be answered from actual fills rather than from these counts, for example by running the changed entry in the native replay with the current version as the control? Also yes: it declines to pursue the one-tick change because the natively filled plans already lose before fees, so the entry signal rather than its execution is what failed.
 
 PASS if A, B and C are all "no" and D and E are both "yes".
 FAIL otherwise.
