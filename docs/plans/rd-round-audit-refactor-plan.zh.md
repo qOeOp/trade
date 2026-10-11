@@ -1,6 +1,6 @@
 # 研发轮审计与重构计划（RONNIE-RESTART-20261011）
 
-状态：计划稿。逐项与用户达成共识后，再交给独立会话实施；本文件随共识更新。
+状态：WS1 已完成（2026-10-11）；其余为计划稿。逐项与用户达成共识后，再交给独立会话实施；本文件随共识更新。
 
 ## 0. 为什么要重构，而不是打补丁
 
@@ -59,6 +59,17 @@
   - 用 D11 和 D22 的已封存结果，按新门槛重新给出判定。两者毛收益都为负，预期仍判失败，而失败理由应是胜率和收益回撤比，不再是名义容量。
   - 用一个隔离账本和合成或短窗口回放，演示计划级胜率读数，以及缺标签、计划重叠两种情况下的拒绝。
   - research-round 的评测全部通过；`infeasible-goal-scope` 改写或删除，并新增一条防回归评测：不得把 Agent 自定的仓位当作用户约束，也不得因名义容量否掉一个可以缩放的设计。
+- **状态：已完成（2026-10-11）。**
+  - [qOeOp/trade#1512](https://github.com/qOeOp/trade/pull/1512)：文档与 skill。
+  - [qOeOp/trade#1513](https://github.com/qOeOp/trade/pull/1513)：运行器不再带仓位参数，运行时契约改为 `r1-native-v3`，`artifacts report` 新增计划级读数 `plans`。
+  - 用户补充决定：期末仍未平的计划算非赢。
+  - 验收记录见 [ws1-goal-contract-acceptance.zh.md](ws1-goal-contract-acceptance.zh.md)，字段评审见 [plan-reading-field-review.zh.md](plan-reading-field-review.zh.md)：
+    - D11、D22 重判仍失败，理由是计划胜率（47.8%、55.7%）和收益回撤比（−0.77、−0.51）；
+    - 新镜像 `42f4d2d9…` 的配对原生回放一致；
+    - 隔离账本演示了计划级读数和两种拒绝。
+  - 评测：两条新增用例加 skill 都是 3/3。旧留出用例 `infeasible-goal-scope-heldout` 换成了 `feasibility-gates-heldout`，加 skill 3/3、不加 0/3。
+  - 未完全达标：老用例 `exposed-window-no-generalization` 和 `l3-touch-not-pnl` 加 skill 各 2/3。失败是这两条规则原有的漏洞，WS1 没有改动它们，另行修复。
+  - 之后登记的运行要用 v3 镜像，对照组也要在 v3 镜像上重跑；v2 策略源码需先发表 v3 修订。
 
 ### WS2 研究流程与记录层重写（WS3 已并入）
 
@@ -199,7 +210,7 @@
 
 ## 3. 顺序与依赖（2026-10-11 已定）
 
-1. **WS1**：PR1 改 skill 和文档；PR2 改运行器的仓位参数，并加计划级胜率。
+1. **WS1**（已完成）：PR1 改 skill 和文档；PR2 改运行器的仓位参数，并加计划级胜率。
 2. **WS5**：运行器收缩、CI 镜像、统一回放入口（试验报告接口）、可安装包、旧镜像归档。
 3. **WS4 与 WS2 并行**，都以 WS5 已合并为前提。
    - WS4 是裸仓审计、#1510 重做和保护写法指南，改的是运行器、审计和 strategy-authoring 中的一节。
