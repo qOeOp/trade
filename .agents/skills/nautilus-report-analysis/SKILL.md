@@ -41,6 +41,9 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 - Maker/taker comes from fills only (unfilled orders also carry `liquidity_side`). Under a fixed
   maker/taker fee schedule, fee bps is linear in taker share: call a change a liquidity-mix shift, not
   efficiency.
+- `order_events.jsonl.gz` holds every order's unchanged native events (accepted, updated,
+  canceled, expired, filled), grouped by order ID. Only one order's own event order is causal; line
+  order across orders is not the engine's processing order. Older seals may lack it.
 - Many cancelled orders are contingent children. Separate children (`parent_order_id` set) from
   entry parents first, since parents also carry `contingency_type`, then split by the strategy's own
   `tags` before reading cancels as lost opportunities.

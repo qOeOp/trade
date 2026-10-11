@@ -69,6 +69,11 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   OTO entry, OUO stop-market and limit-target children) via `self.submit_order_list(...)`; use GTD
   with `expire_time` for an entry lifetime. The generic audit fails unless every position still open
   at the end carries a stop-market and a limit exit for its full quantity.
+- Throughout the replay, the audit refuses a run in which a position is larger than its accepted
+  reduce-only stop orders on the closing side (stop-market, stop-limit or trailing stop) for longer
+  than one five-minute bar, and names the time, instrument, quantity and order IDs. A source with no
+  stop-loss by design sets the class attribute `USES_STOP_LOSS = False` (default `True`, any other
+  value is refused); its uncovered intervals are then reported, not refused.
 - The pinned Nautilus lists the stop first in the entry's `linked_order_ids` and activates children
   in that order, so an entry bar that reaches the stop gets the target rejected and fails the run.
   Rebuild the entry with the target first (edit `to_dict()`, then `type(entry).from_dict`);
@@ -78,6 +83,68 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   funding, or keep a private ledger.
 - Size from native state: `self.portfolio.equity(venue=...)`, instrument `multiplier`,
   `make_price`, `make_qty(value, round_down=True)`, `min_quantity`, `min_notional`.
+
+## Partial entries and expiry
+
+- Bar execution caps a fill at the bar's volume, so a limit entry can fill partly. The stop and
+  target activate at the first fill with the entry's full quantity; reduce-only caps them at the
+  position.
+- When a bracket entry ends, the pinned Nautilus venue cancels its stop and target even after a
+  partial fill, and the filled quantity is left unprotected. This holds for GTD expiry, for
+  `cancel_order` and for a modify down to the filled quantity, and neither `manage_contingent_orders`
+  nor `manage_gtd_expiry` changes it.
+- Re-protect in `on_order_expired` and `on_order_canceled`, as below. When an ended entry has fills
+  and the position is open, submit a reduce-only stop at the stop child's trigger and a reduce-only
+  limit at the target child's price, with the children's tags, for the shortfall. The shortfall is
+  the position minus the unfilled reduce-only stops that remain alive. A child is alive while its
+  entry is filled, or still working with a fill: children of an unfilled entry are dormant, and
+  children of an ended entry are being canceled.
+- The new orders are accepted at the same timestamp, so no bar passes uncovered. Tiers that end
+  together get one pair.
+- The pair is not linked, so cancel the plan's remaining orders when the position goes flat (for
+  example `self.cancel_all_orders(instrument_id)` in `on_position_closed`).
+- `tests/backtest/test_partial_entry_protection.py` replays this code natively: one tier filled 0.25
+  of 16.339 before its GTD expiry, and two tiers ending together. The bare bracket fails the audit;
+  this handler passes. Recheck after any Nautilus change.
+
+```python
+# from decimal import Decimal; from nautilus_trader.model import OrderSide, OrderStatus, OrderType
+def on_order_expired(self, event):
+    self.cover_filled_entry(event.client_order_id)
+
+def on_order_canceled(self, event):
+    self.cover_filled_entry(event.client_order_id)
+
+def cover_filled_entry(self, client_order_id):
+    entry = self.cache.order(client_order_id)
+    if entry.parent_order_id is not None or not entry.linked_order_ids or entry.filled_qty.as_decimal() == 0:
+        return
+    position = next(iter(self.cache.positions_open(instrument_id=entry.instrument_id, strategy_id=self.strategy_id)), None)
+    if position is None:
+        return
+    closing = OrderSide.SELL if position.is_long else OrderSide.BUY
+
+    def lives(order):
+        parent = self.cache.order(order.parent_order_id) if order.parent_order_id else None
+        return parent is None or (parent.filled_qty.as_decimal() > 0
+                                  and (parent.is_open or parent.status == OrderStatus.FILLED))
+
+    covered = sum((order.leaves_qty.as_decimal() for order in self.cache.orders_open(
+        instrument_id=entry.instrument_id, strategy_id=self.strategy_id)
+        if order.is_reduce_only and order.order_type == OrderType.STOP_MARKET and order.side == closing
+        and lives(order)), Decimal(0))
+    shortfall = position.quantity.as_decimal() - covered
+    if shortfall <= 0:
+        return
+    children = [self.cache.order(identity) for identity in entry.linked_order_ids]
+    stop = next(order for order in children if order.order_type == OrderType.STOP_MARKET)
+    target = next(order for order in children if order.order_type == OrderType.LIMIT)
+    quantity = self.cache.instrument(entry.instrument_id).make_qty(shortfall)
+    self.submit_order(self.order_factory.stop_market(
+        entry.instrument_id, closing, quantity, stop.trigger_price, reduce_only=True, tags=list(stop.tags)))
+    self.submit_order(self.order_factory.limit(
+        entry.instrument_id, closing, quantity, target.price, reduce_only=True, tags=list(target.tags)))
+```
 
 ## Plans and sizing
 

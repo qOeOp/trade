@@ -1,6 +1,9 @@
 """Audit native report integrity and reconcile reported economics for every native run.
 
-Strategy-specific geometry belongs in the strategy's own ``replay_integrity_findings``.
+Besides reconciling the reports, the audit replays the native order event history and refuses a
+run in which a position stays larger than its working reduce-only stop orders for more than one
+five-minute bar, unless the strategy declares ``USES_STOP_LOSS = False``. Strategy-specific geometry
+belongs in the strategy's own ``replay_integrity_findings``.
 """
 
 from __future__ import annotations
@@ -9,6 +12,7 @@ import argparse
 import ast
 from collections import Counter, defaultdict
 import csv
+import gzip
 import hashlib
 import json
 from decimal import Decimal
@@ -20,6 +24,13 @@ import pandas as pd
 
 TERMINAL = {"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"}
 OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
+ORDER_EVENTS = "order_events.jsonl.gz"
+BAR_NS = 5 * 60_000_000_000
+STOP_TYPES = {"STOP_MARKET", "STOP_LIMIT", "TRAILING_STOP_MARKET", "TRAILING_STOP_LIMIT"}
+ENDING_EVENTS = {"OrderCanceled": "CANCELED", "OrderExpired": "EXPIRED",
+                 "OrderDenied": "DENIED", "OrderRejected": "REJECTED"}
+PASSIVE_EVENTS = {"OrderSubmitted", "OrderEmulated", "OrderReleased", "OrderTriggered", "OrderPendingUpdate",
+                  "OrderPendingCancel", "OrderModifyRejected", "OrderCancelRejected"}
 
 
 def _sha(path: Path) -> str:
@@ -70,13 +81,170 @@ def _order_scope_matches(left: dict, right: dict) -> bool:
                  or left["account_id"] == right["account_id"]))
 
 
-def _generic_result(run, orders, fills, positions, findings, economics):
-    names = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv")
-    return {"run": str(run), "scope": "native report identity, links, final protection and reported economics",
-            "file_sha256": {name: _sha(run / name) for name in names},
+def _ns_utc(value: int) -> str:
+    return pd.Timestamp(value, tz="UTC").isoformat()
+
+
+def read_order_events(path: Path) -> list[dict]:
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        return [json.loads(line) for line in stream]
+
+
+def _event_report_findings(events: list[dict], orders: list[dict], fills: list[dict]) -> list[str]:
+    """The event history holds exactly the reported orders and fills."""
+    findings, history = [], defaultdict(list)
+    for event in events:
+        history[event["client_order_id"]].append(event)
+    reported = {row["client_order_id"]: row for row in orders}
+    if set(history) != set(reported):
+        findings.append("native order event history and orders report hold different orders")
+    for identity, order_events in history.items():
+        first, row = order_events[0], reported.get(identity)
+        if first["type"] != "OrderInitialized" or any(
+                event["type"] == "OrderInitialized" for event in order_events[1:]):
+            findings.append(f"native order event history does not start with one initialization: {identity}")
+            continue
+        if any(int(left["ts_event"]) > int(right["ts_event"]) for left, right in pairwise(order_events)):
+            findings.append(f"native order events are out of time order: {identity}")
+        if any((event["strategy_id"], event["instrument_id"]) != (first["strategy_id"], first["instrument_id"])
+               for event in order_events):
+            findings.append(f"native order events change scope: {identity}")
+        if row is None:
+            continue
+        quantity = _quantity(first["quantity"])
+        for event in order_events:
+            if event["type"] == "OrderUpdated" and event.get("quantity") is not None:
+                quantity = _quantity(event["quantity"])
+        filled = sum((_quantity(event["last_qty"]) for event in order_events if event["type"] == "OrderFilled"),
+                     Decimal(0))
+        ended = [ENDING_EVENTS[event["type"]] for event in order_events if event["type"] in ENDING_EVENTS]
+        status = row["status"]
+        if (quantity != _quantity(row["quantity"]) or filled != _quantity(row["filled_qty"])
+                or (first["strategy_id"], first["instrument_id"]) != (row["strategy_id"], row["instrument_id"])
+                or first["order_side"] != row["side"] or first["order_type"] != row["type"]
+                or (status in ENDING_EVENTS.values()) != bool(ended)
+                or (ended and ended[-1] != status)):
+            findings.append(f"native order event history differs from orders report: {identity}")
+    event_fills = {event["event_id"]: event for event in events if event["type"] == "OrderFilled"}
+    reported_fills = {row["event_id"]: row for row in fills}
+    if set(event_fills) != set(reported_fills) or any(
+            (event["client_order_id"], event["trade_id"], _quantity(event["last_qty"]), int(event["ts_event"]))
+            != (row["client_order_id"], row["trade_id"], _quantity(row["last_qty"]), pd.Timestamp(row["ts_event"]).value)
+            for event_id, event in event_fills.items() if (row := reported_fills.get(event_id)) is not None):
+        findings.append("native order event fills differ from fills report")
+    return findings
+
+
+def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
+    """Intervals longer than one bar in which a position exceeds its working reduce-only stops.
+
+    Events are applied one timestamp at a time and the state is read after each timestamp, so
+    nothing depends on the order of different orders' events within one nanosecond. A stop covers
+    its unfilled quantity from its acceptance until it is canceled, expired, rejected or filled.
+    """
+    orders, position, position_orders, position_ids = {}, defaultdict(Decimal), defaultdict(list), {}
+    previous_stops, uncovered, intervals = defaultdict(set), {}, []
+
+    def close(scope, end, open_at_end=False):
+        value = uncovered.pop(scope)
+        if end - value["start_ns"] > BAR_NS:
+            intervals.append({**value, "end_ns": end, "open_at_end": open_at_end})
+
+    timeline = defaultdict(list)
+    for event in events:
+        timeline[int(event["ts_event"])].append(event)
+    for timestamp in sorted(timeline):
+        touched = set()
+        for event in timeline[timestamp]:
+            kind, identity = event["type"], event["client_order_id"]
+            if kind == "OrderInitialized":
+                orders[identity] = {"scope": (event["strategy_id"], event["instrument_id"]),
+                                    "side": event["order_side"], "type": event["order_type"],
+                                    "reduce_only": event["reduce_only"] is True,
+                                    "quantity": _quantity(event["quantity"]), "filled": Decimal(0),
+                                    "accepted": False, "ended": False}
+            order = orders[identity]
+            scope = order["scope"]
+            touched.add(scope)
+            if kind == "OrderAccepted":
+                order["accepted"] = True
+            elif kind == "OrderUpdated":
+                if event.get("quantity") is not None:
+                    order["quantity"] = _quantity(event["quantity"])
+            elif kind == "OrderFilled":
+                if position[scope] == 0:
+                    position_orders[scope] = []
+                if identity not in position_orders[scope]:
+                    position_orders[scope].append(identity)
+                position_ids[scope] = event.get("position_id") or ""
+                quantity = _quantity(event["last_qty"])
+                order["filled"] += quantity
+                position[scope] += quantity if event["order_side"] == "BUY" else -quantity
+            elif kind in ENDING_EVENTS:
+                order["ended"] = True
+            elif kind not in PASSIVE_EVENTS | {"OrderInitialized"}:
+                raise ValueError(f"unknown native order event type {kind}")
+        for scope in sorted(touched):
+            held = position[scope]
+            closing = "SELL" if held > 0 else "BUY"
+            stops = {identity: order["quantity"] - order["filled"] for identity, order in orders.items()
+                     if order["scope"] == scope and order["accepted"] and not order["ended"]
+                     and order["reduce_only"] and order["type"] in STOP_TYPES and order["side"] == closing
+                     and order["filled"] < order["quantity"]} if held else {}
+            covered = sum(stops.values(), Decimal(0))
+            if held and covered < abs(held):
+                if scope not in uncovered:
+                    uncovered[scope] = {
+                        "strategy_id": scope[0], "instrument_id": scope[1],
+                        "position_id": position_ids.get(scope, ""), "start_ns": timestamp,
+                        "position_quantity": str(abs(held)), "stop_quantity": str(covered),
+                        "position_order_ids": list(position_orders[scope]),
+                        "ended_stop_order_ids": sorted(previous_stops[scope] - set(stops))}
+                elif abs(held) > Decimal(uncovered[scope]["position_quantity"]):
+                    uncovered[scope]["position_quantity"] = str(abs(held))
+            elif scope in uncovered:
+                close(scope, timestamp)
+            previous_stops[scope] = set(stops)
+    for scope in sorted(uncovered):
+        close(scope, end_ns, open_at_end=True)
+    return sorted(intervals, key=lambda value: (value["instrument_id"], value["strategy_id"], value["start_ns"]))
+
+
+def _protection(run: Path, orders: list[dict], fills: list[dict], summary: dict) -> tuple[list[str], dict]:
+    """Reconcile the order event history and refuse unprotected positions unless the source has no stop."""
+    path = run / ORDER_EVENTS
+    if not path.is_file():
+        return ["native order event history missing"], {}
+    events = read_order_events(path)
+    findings = _event_report_findings(events, orders, fills)
+    uses_stop_loss = summary.get("strategy_uses_stop_loss", True)
+    if type(uses_stop_loss) is not bool:
+        findings.append("summary strategy_uses_stop_loss is not a boolean")
+    intervals = uncovered_intervals(events, pd.Timestamp(summary["period_end_utc"]).value)
+    if uses_stop_loss is not False:
+        for value in intervals:
+            findings.append(
+                f"unprotected position {value['instrument_id']} ({value['strategy_id']}): "
+                f"{value['position_quantity']} held with {value['stop_quantity']} reduce-only stop from "
+                f"{_ns_utc(value['start_ns'])} to {'replay end' if value['open_at_end'] else _ns_utc(value['end_ns'])}; "
+                f"position orders {value['position_order_ids']}, ended stops {value['ended_stop_order_ids']}")
+    return findings, {"strategy_uses_stop_loss": uses_stop_loss, "native_order_events": len(events),
+                      "uncovered_intervals": intervals}
+
+
+def _generic_result(run, orders, fills, positions, findings, economics, protection=None):
+    names = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
+             ORDER_EVENTS)
+    return {"run": str(run),
+            "scope": "native report identity, links, protection history, final protection and reported economics",
+            "file_sha256": {name: _sha(run / name) for name in names if (run / name).is_file()},
             "native_orders": len(orders), "native_fills": len(fills), "native_positions": len(positions),
-            "native_economics": economics,
-            "coverage_limits": ["No strategy signal, target geometry or historical protection reconstruction",
+            "native_economics": economics, **(protection or {}),
+            "coverage_limits": ["No strategy signal or target geometry reconstruction",
+                                "Protection is the unfilled quantity of accepted reduce-only stop orders on the "
+                                "closing side; stop prices are not checked",
+                                "Events of one nanosecond are applied together; an uncovered interval of at most "
+                                "one five-minute bar is allowed",
                                 "Funding uses native reported adjustments; no rate-based settlement recalculation",
                                 "Per-timestamp funding reconciliation excludes timestamps with concurrent fills",
                                 "Final equity is reconciled to balance only when no position remains open"],
@@ -117,8 +285,10 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
         findings.append("runner or native orders reported integrity failure")
     if denied != summary["denied_orders"] or rejected != summary["rejected_orders"]:
         findings.append("native denied/rejected counts differ from summary")
-    economics = {}
+    economics, protection = {}, {}
     try:
+        protection_findings, protection = _protection(run, orders, fills, summary)
+        findings.extend(protection_findings)
         for row in orders:
             original, filled = _quantity(row["quantity"]), _quantity(row["filled_qty"])
             if original <= 0 or filled > original or row["side"] not in {"BUY", "SELL"}:
@@ -284,9 +454,9 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
                          "funding_adjustments": len(seen_adjustments),
                          "reported_funding_usdt": str(funding),
                          "funding_timestamps_with_concurrent_fills": len(set(funding_by_time) & fill_times)}
-    except (KeyError, TypeError, ValueError, ArithmeticError) as error:
+    except (KeyError, TypeError, ValueError, ArithmeticError, OSError, EOFError) as error:
         findings.append(f"invalid native report payload: {error}")
-    return _generic_result(run, orders, fills, positions, findings, economics)
+    return _generic_result(run, orders, fills, positions, findings, economics, protection)
 
 
 def audit(run: Path) -> dict:

@@ -3,6 +3,7 @@
 import copy
 import ast
 import csv
+import gzip
 import json
 from pathlib import Path
 import tempfile
@@ -10,7 +11,7 @@ import unittest
 
 import pandas as pd
 
-from backtest.checks.audit import audit
+from backtest.checks.audit import BAR_NS, audit, uncovered_intervals
 
 
 START = "2026-01-01 00:00:00+00:00"
@@ -53,14 +54,15 @@ def reports(open_position=False, short=False):
                 "sell_qty": "0" if open_position and not short else "1",
                 "ts_closed": "" if open_position else EXIT, "realized_pnl": "0 USDT" if open_position else "9 USDT"}
     orders = [order("entry", entry["order_side"])]
+    side = "BUY" if short else "SELL"
+    orders[0]["linked_order_ids"] = "['stop']"
     if open_position:
-        side = "BUY" if short else "SELL"
-        orders[0]["linked_order_ids"] = "['stop']"
         orders += [order("stop", side, "STOP_MARKET", status="ACCEPTED", parent_order_id="entry", is_reduce_only="True"),
                    order("first", side, quantity="0.5", status="ACCEPTED", is_reduce_only="True"),
                    order("last", side, quantity="0.5", status="ACCEPTED", is_reduce_only="True")]
     else:
-        orders.append(order("close", close["order_side"]))
+        orders += [order("stop", side, "STOP_MARKET", status="CANCELED", parent_order_id="entry", is_reduce_only="True"),
+                   order("close", close["order_side"])]
     accounts = [{"ts_event": START, "total": "100000", "locked": "0", "free": "100000",
                  "currency": "USDT", "base_currency": "USDT", "account_id": "BINANCE-001"},
                 {"ts_event": ENTRY, "total": "99999", "locked": "0", "free": "99999",
@@ -73,8 +75,34 @@ def reports(open_position=False, short=False):
     summary = {"signal_variant": "daily-pivot", "integrity_passed": True, "denied_orders": 0,
                "rejected_orders": 0, "closed_trades": 0 if open_position else 1,
                "winning_trades": 0 if open_position else 1, "starting_balance_usdt": "100000",
-               "final_equity_usdt": "100010" if open_position else "100009"}
+               "final_equity_usdt": "100010" if open_position else "100009", "period_end_utc": EXIT}
     return {"orders": orders, "fills": fills, "positions": [position], "account": accounts, "summary": summary}
+
+
+def order_events(values):
+    """A native event history matching the order and fill reports: accepted at submission, fills
+    as reported, and cancellation or expiry at the last fill."""
+    events, end = [], max(pd.Timestamp(row["ts_event"]).value for row in values["fills"])
+    for row in values["orders"]:
+        identity, at = row["client_order_id"], int(row["ts_init"])
+        scope = {name: row[name] for name in ("strategy_id", "instrument_id", "client_order_id")}
+        events += [{**scope, "type": "OrderInitialized", "event_id": identity + "-0", "ts_event": at,
+                    "order_side": row["side"], "order_type": row["type"], "quantity": row["quantity"],
+                    "reduce_only": row["is_reduce_only"] == "True"},
+                   {**scope, "type": "OrderSubmitted", "event_id": identity + "-1", "ts_event": at}]
+        if row["status"] in ("DENIED", "REJECTED"):
+            events.append({**scope, "type": "Order" + row["status"].title(), "event_id": identity + "-2",
+                           "ts_event": at})
+            continue
+        events.append({**scope, "type": "OrderAccepted", "event_id": identity + "-2", "ts_event": at})
+        events += [{**scope, "type": "OrderFilled", "event_id": value.get("event_id"), "trade_id": value["trade_id"],
+                    "order_side": value["order_side"], "last_qty": value["last_qty"],
+                    "position_id": "position-1", "ts_event": pd.Timestamp(value["ts_event"]).value}
+                   for value in values["fills"] if value["client_order_id"] == identity]
+        if row["status"] in ("CANCELED", "EXPIRED"):
+            events.append({**scope, "type": "Order" + row["status"].title(), "event_id": identity + "-3",
+                           "ts_event": end})
+    return events
 
 
 class NativeAuditTests(unittest.TestCase):
@@ -91,6 +119,10 @@ class NativeAuditTests(unittest.TestCase):
                 writer.writerows(values[name])
         (self.root / "summary.json").write_text(json.dumps(values["summary"]))
         (self.root / "returns_series.csv").write_text("ts_event_ns,native_return\n")
+        events = values["events"] if "events" in values else order_events(values)
+        if events is not None:
+            with gzip.open(self.root / "order_events.jsonl.gz", "wt", encoding="utf-8") as stream:
+                stream.writelines(json.dumps(event) + "\n" for event in events)
         return audit(self.root)
 
     def test_closed_native_economics_and_short_links_pass(self):
@@ -202,6 +234,121 @@ class NativeAuditTests(unittest.TestCase):
         self.assertTrue(value["passed"], value["findings"])
         self.assertEqual(value["native_economics"]["fill_commissions_usdt"], "2")
         self.assertNotIn("native_bundles", value)
+
+    def unprotected(self, delay="10min"):
+        """A long position closed after its stop was canceled ``delay`` after entry."""
+        values = reports()
+        values["fills"][-1]["ts_event"] = str(pd.Timestamp(ENTRY) + pd.Timedelta("1h"))
+        values["account"][-1]["ts_event"] = values["fills"][-1]["ts_event"]
+        values["positions"][0]["events"] = repr(
+            [{**value, "type": "OrderFilled", "ts_event": pd.Timestamp(value["ts_event"]).value}
+             for value in values["fills"]])
+        values["positions"][0]["ts_closed"] = values["fills"][-1]["ts_event"]
+        values["summary"]["period_end_utc"] = values["fills"][-1]["ts_event"]
+        events = order_events(values)
+        for event in events:
+            if event["client_order_id"] == "stop" and event["type"] == "OrderCanceled":
+                event["ts_event"] = pd.Timestamp(ENTRY).value + pd.Timedelta(delay).value
+        values["events"] = events
+        return values
+
+    def test_position_left_without_stop_longer_than_one_bar_is_refused(self):
+        value = self.check(self.unprotected())
+        self.assertFalse(value["passed"])
+        self.assertEqual(len(value["findings"]), 1, value["findings"])
+        finding = value["findings"][0]
+        for fact in ("BTCUSDT-PERP.BINANCE", "R1-BTC", "1 held with 0 reduce-only stop",
+                     "2026-01-01T00:15:00+00:00", "2026-01-01T01:05:00+00:00", "'entry'", "'stop'"):
+            self.assertIn(fact, finding)
+        interval, = value["uncovered_intervals"]
+        self.assertEqual((interval["position_quantity"], interval["stop_quantity"], interval["position_order_ids"],
+                          interval["ended_stop_order_ids"], interval["open_at_end"]),
+                         ("1", "0", ["entry"], ["stop"], False))
+
+    def test_declared_stopless_source_reports_without_refusal(self):
+        values = self.unprotected()
+        values["summary"]["strategy_uses_stop_loss"] = False
+        value = self.check(values)
+        self.assertTrue(value["passed"], value["findings"])
+        self.assertFalse(value["strategy_uses_stop_loss"])
+        self.assertEqual(len(value["uncovered_intervals"]), 1)
+        values["summary"]["strategy_uses_stop_loss"] = 0
+        self.assertFalse(self.check(values)["passed"])
+
+    def test_one_bar_without_stop_is_allowed(self):
+        value = self.check(self.unprotected(delay="55min"))
+        self.assertTrue(value["passed"], value["findings"])
+        self.assertEqual(value["uncovered_intervals"], [])
+
+    def test_missing_or_inconsistent_event_history_is_refused(self):
+        values = reports()
+        values["events"] = None
+        self.assertIn("native order event history missing", self.check(values)["findings"])
+        for change in (lambda events: events.pop(),
+                       lambda events: events[3].update(last_qty="0.5"),
+                       lambda events: events.append({**events[-1], "type": "OrderExpired", "event_id": "late"}),
+                       lambda events: events.append({**events[-1], "type": "OrderMystery", "event_id": "odd"})):
+            with self.subTest(change=change):
+                values = reports()
+                values["events"] = order_events(values)
+                change(values["events"])
+                self.assertFalse(self.check(values)["passed"])
+
+
+def event(kind, identity, at, **fields):
+    return {"type": kind, "client_order_id": identity, "strategy_id": "S", "instrument_id": "AAA",
+            "ts_event": at, **fields}
+
+
+def placed(identity, at, side, kind, quantity, reduce_only):
+    return [event("OrderInitialized", identity, at, order_side=side, order_type=kind, quantity=quantity,
+                  reduce_only=reduce_only),
+            event("OrderSubmitted", identity, at), event("OrderAccepted", identity, at)]
+
+
+def filled(identity, at, side, quantity):
+    return event("OrderFilled", identity, at, order_side=side, last_qty=quantity, position_id="P")
+
+
+class UncoveredIntervalTests(unittest.TestCase):
+    def test_partial_entry_after_expired_parent_and_canceled_child(self):
+        events = [*placed("entry", 0, "BUY", "LIMIT", "16.339", False),
+                  event("OrderInitialized", "stop", 0, order_side="SELL", order_type="STOP_MARKET",
+                        quantity="16.339", reduce_only=True),
+                  event("OrderSubmitted", "stop", 0), filled("entry", 5, "BUY", "0.250"),
+                  event("OrderAccepted", "stop", 5), event("OrderExpired", "entry", 100),
+                  event("OrderCanceled", "stop", 100)]
+        interval, = uncovered_intervals(events, 100 + 2 * BAR_NS)
+        self.assertEqual((interval["start_ns"], interval["end_ns"], interval["open_at_end"],
+                          interval["position_quantity"], interval["ended_stop_order_ids"]),
+                         (100, 100 + 2 * BAR_NS, True, "0.250", ["stop"]))
+        protected = events + placed("reprotect", 100, "SELL", "STOP_MARKET", "0.250", True)
+        self.assertEqual(uncovered_intervals(protected, 100 + 2 * BAR_NS), [])
+
+    def test_only_working_reduce_only_stops_on_the_closing_side_cover(self):
+        entry = [*placed("entry", 0, "SELL", "MARKET", "2", False), filled("entry", 0, "SELL", "2")]
+        for name, protection in (("plain stop", placed("x", 0, "BUY", "STOP_MARKET", "2", False)),
+                                 ("wrong side", placed("x", 0, "SELL", "STOP_MARKET", "2", True)),
+                                 ("target", placed("x", 0, "BUY", "LIMIT", "2", True)),
+                                 ("too small", placed("x", 0, "BUY", "STOP_MARKET", "1.5", True)),
+                                 ("not accepted", placed("x", 0, "BUY", "STOP_MARKET", "2", True)[:2])):
+            with self.subTest(name=name):
+                self.assertEqual(len(uncovered_intervals(entry + protection, 2 * BAR_NS)), 1)
+        covered = entry + placed("x", 0, "BUY", "TRAILING_STOP_MARKET", "1", True) + placed(
+            "y", 0, "BUY", "STOP_LIMIT", "1", True)
+        self.assertEqual(uncovered_intervals(covered, 2 * BAR_NS), [])
+
+    def test_growth_beyond_the_stop_and_a_shrunk_stop_are_uncovered(self):
+        base = [*placed("entry", 0, "BUY", "LIMIT", "2", False), filled("entry", 0, "BUY", "1"),
+                *placed("stop", 0, "SELL", "STOP_MARKET", "1", True)]
+        grown = base + [filled("entry", 10, "BUY", "1")]
+        interval, = uncovered_intervals(grown, 10 + BAR_NS + 1)
+        self.assertEqual((interval["start_ns"], interval["position_quantity"], interval["stop_quantity"],
+                          interval["ended_stop_order_ids"]), (10, "2", "1", []))
+        self.assertEqual(uncovered_intervals(grown, 10 + BAR_NS), [])
+        shrunk = base + [event("OrderUpdated", "stop", 10, quantity="0.5")]
+        self.assertEqual(len(uncovered_intervals(shrunk, 10 + BAR_NS + 1)), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

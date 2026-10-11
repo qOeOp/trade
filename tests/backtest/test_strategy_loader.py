@@ -192,11 +192,20 @@ class StrategyLoaderTests(unittest.TestCase):
     def test_missing_hooks_or_invalid_warmup_declaration_are_refused_before_inputs_load(self):
         for body, message in (("    def replay_diagnostics(self):\n        return {}\n", "replay_integrity_findings"),
                               ("    DAILY_WARMUP = 'yes'\n    def replay_diagnostics(self):\n        return {}\n"
-                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP")):
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP"),
+                              ("    USES_STOP_LOSS = 0\n    def replay_diagnostics(self):\n        return {}\n"
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "USES_STOP_LOSS")):
             self.source.write_text("from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n" + body)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 self.load(digest=digest)
+
+    def test_stop_loss_declaration_reaches_the_summary_identity(self):
+        self.assertIs(self.load().metadata()["strategy_uses_stop_loss"], True)
+        self.source.write_text(SOURCE.replace("class ProbeStrategy(Strategy):\n",
+                                              "class ProbeStrategy(Strategy):\n    USES_STOP_LOSS = False\n"))
+        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+        self.assertIs(loaded.metadata()["strategy_uses_stop_loss"], False)
 
     def test_runner_takes_no_strategy_parameter(self):
         # A variant is a new source revision; the runner cannot be configured into another strategy.

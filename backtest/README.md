@@ -10,8 +10,8 @@ replay or a probe with `docker run` or `python -m backtest.run` directly.
 |---|---|
 | `load.py` | Window parsing, the hash-checked strategy source, prepared inputs and the derived MARK Catalog |
 | `run.py` | Arguments, the fixed account, the `BacktestNode` run and `--describe` |
-| `report.py` | Native reports, `exposures.csv.gz` and `summary.json` |
-| `checks/audit.py` | Independent audit of every run's native reports |
+| `report.py` | Native reports, `order_events.jsonl.gz`, `exposures.csv.gz` and `summary.json` |
+| `checks/audit.py` | Independent audit of every run's native reports and stop protection |
 | `checks/compare.py` | Engineering parity between two runs |
 | `runtime/` | Image build inputs |
 
@@ -93,7 +93,15 @@ directory. A Nautilus probe is such a host script; it needs no `PYTHONPATH` and 
 ## Reports
 
 Besides the native orders, fills, positions, account and returns reports, the runner writes
-`exposures.csv.gz`. A row labelled with bar timestamp T holds a position open after every event
+`order_events.jsonl.gz` and `exposures.csv.gz`.
+
+`order_events.jsonl.gz` holds the unchanged `to_dict()` of every native event of every cached order,
+read after the replay: initialization, submission, acceptance, updates, fills, cancellation and
+expiry, which the terminal order rows lack. Orders are grouped by client order ID and keep their own
+event order; line order across orders is not the engine's processing order. The gzip header time
+is zero, so equal histories give equal bytes; event IDs are fresh UUIDs in every run.
+
+In `exposures.csv.gz`, a row labelled with bar timestamp T holds a position open after every event
 before the next bar timestamp, including fills stamped between bars, valued with the native
 `Position.notional_value` and `Position.unrealized_pnl` at T's MARK. An observer values the
 positions once the first MARK of the next timestamp shows that point reached, and the runner values
@@ -102,9 +110,17 @@ timer made a run with many resting orders more than ten times slower. Balances a
 repeated: use the latest account state before the next bar timestamp. A run fails integrity if a
 timestamp or an open position goes unvalued.
 
-The auditor checks report identities, links, final open-position protection and reported account
-economics, the same way for every strategy. It does not prove a source's signal clock, order
-geometry, staged-exit races or other source-specific invariants: the strategy checks those in
+The auditor checks report identities, links, stop protection throughout the replay, final
+open-position protection and reported account economics, the same way for every strategy. It first
+reconciles the order event history with the orders and fills reports, then applies each timestamp's
+events together and reads, per strategy and instrument, the position and the unfilled quantity of
+accepted reduce-only stop orders on the closing side (stop-market, stop-limit, trailing). A
+position larger than that for longer than one five-minute bar fails the run; `audit.json` lists each
+such interval in `uncovered_intervals` with its start, end, quantities, the orders filled into the
+position and the stops whose end uncovered it. A source declaring `USES_STOP_LOSS = False` (recorded
+as `strategy_uses_stop_loss` in `summary.json`) gets the same list without the refusal.
+
+The auditor does not prove a source's signal clock, order geometry, staged-exit races or other source-specific invariants: the strategy checks those in
 `replay_integrity_findings`, or a native probe does before the property is claimed. Seals from
 images before 2026-10-10 also ran budgeted-tier geometry gates for a fixed list of legacy signal
 variants; their sealed `audit.json` keeps those results.
