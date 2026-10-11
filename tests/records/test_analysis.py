@@ -169,6 +169,13 @@ class SingleRunReportTests(unittest.TestCase):
         self.assertEqual(readings, {key: sealed[key] for key in readings})
         self.assertIsNone(analysis.explored(seal, "failed")["closed"])
 
+    def test_an_exploration_with_incomplete_reports_gets_null_readings_not_an_error(self):
+        seal = _seal(self.root, "R1")
+        (seal / "reports" / "returns_series.csv").unlink()
+        readings = analysis.explored(seal, "passed")
+        self.assertIsNone(readings["closed"])
+        self.assertTrue(readings["limitations"][0].startswith("Readings are null:"))
+
     def test_zero_trade_reduced_headers_give_nulls_not_zeros(self):
         _seal(self.root, "R0", cycles=[], window=[0.0] * 6)
         result = analysis.report(self.root, "R0")

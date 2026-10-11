@@ -95,7 +95,8 @@ def explored(run_dir: Path, status: str) -> dict:
     keys = ("native_economics", *_ECONOMICS, "plans", "limitations")
     try:
         output, _, _ = _read({}, reports, status, (*REPORT_FILES, "orders.csv"))
-    except (KeyError, TypeError, ValueError) as exc:  # a run that stopped part way leaves incomplete reports
+    except (KeyError, TypeError, ValueError, SyntaxError, ArithmeticError, IndexError, csv.Error) as exc:
+        # a run that stopped part way leaves incomplete reports
         return {**dict.fromkeys(keys), "limitations": [
             f"Readings are null: the exploration's reports are incomplete ({type(exc).__name__}: {exc})"]}
     output = {key: output[key] for key in keys}
@@ -374,7 +375,7 @@ def _read(output: dict, reports: dict[str, bytes], status: str, names: tuple[str
         limitations.append(f"closed_by_year is null: {exc}")
     if "orders.csv" not in reports:
         if "orders.csv" in names:
-            limitations.append("plans is null: the seal has no orders.csv")
+            limitations.append("plans is null: the run has no orders.csv")
         return output, returns, parsed
     try:
         output["plans"] = _plans(_rows(reports["orders.csv"]), fills, positions, cycles)
