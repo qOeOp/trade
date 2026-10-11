@@ -93,6 +93,28 @@ class ScalingTests(unittest.TestCase):
             store.bar_rows(klines([(T0, "1", "1", "1", "1", "2")]), "X", "MARK")
 
 
+class ArchiveLookupTests(unittest.TestCase):
+    def test_an_append_fetches_known_names_and_skips_missing_months(self):
+        from research.market import binance
+
+        class Cache:
+            def __init__(self):
+                self.asked = []
+
+            def fetch(self, key):
+                self.asked.append(key)
+                if key.endswith("2026-10.zip"):
+                    raise FileNotFoundError(key)
+                return key
+
+        cache = Cache()
+        found = binance.monthly_archives(cache, "klines", "BTCUSDT", "1m", ["2026-09", "2026-10"])
+        self.assertEqual(found, {"2026-09": "data/futures/um/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2026-09.zip"})
+        self.assertEqual(len(cache.asked), 2)
+        funding = binance.monthly_archives(cache, "fundingRate", "BTCUSDT", None, ["2026-09"])
+        self.assertEqual(funding["2026-09"], "data/futures/um/monthly/fundingRate/BTCUSDT/BTCUSDT-fundingRate-2026-09.zip")
+
+
 class DerivationTests(unittest.TestCase):
     def test_open_high_low_skip_untraded_minutes(self):
         # ALGOUSDT 2025-10-26 21:10: the first minute did not trade and is filled at the prior close.

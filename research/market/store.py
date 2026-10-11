@@ -135,8 +135,8 @@ def series(cache: binance.Cache, symbol: str, price_type: str, start: int, end: 
     if start >= end:
         return _SCHEMA.empty_table(), []
     months = _months(start, end)
-    monthly = {binance.period(key): key for key in binance.archive_keys("monthly", kind, symbol, "1m")}
-    parts = [_kline_table(path) for path in cache.fetch_all([monthly[m] for m in months if m in monthly], 4)]
+    monthly = binance.monthly_archives(cache, kind, symbol, "1m", months)
+    parts = [_kline_table(path) for path in monthly.values()]
     daily = {}
 
     def add_days(days: set[date]) -> None:
@@ -326,7 +326,7 @@ def funding(cache: binance.Cache, symbol: str, after: int | None, start: int, en
     if start >= end:
         return []
     months = _months(start, end)
-    monthly = {binance.period(key): key for key in binance.archive_keys("monthly", "fundingRate", symbol, None)}
+    monthly = binance.monthly_archives(cache, "fundingRate", symbol, None, months)
     rows: dict[int, str] = {}
 
     def add(found) -> None:
@@ -335,9 +335,9 @@ def funding(cache: binance.Cache, symbol: str, after: int | None, start: int, en
                 raise _refuse(f"{symbol} funding: sources disagree at {time_ms}", "SOURCE_CONFLICT")
             rows.setdefault(time_ms, rate)
 
-    for path in cache.fetch_all([monthly[m] for m in months if m in monthly], 4):
+    for path in monthly.values():
         add(binance.funding_rows(path))
-    if trading or any(m not in monthly for m in months):
+    if any(m not in monthly for m in months):  # the open month, which has no archive yet
         tail = max([time_ms for time_ms in rows if time_ms < end], default=start - 1) + 1
         add(_rest(binance.rest_funding, symbol, tail, end, trading=trading))
     return sorted((time_ms, rate) for time_ms, rate in rows.items() if start <= time_ms < end)

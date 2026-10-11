@@ -123,6 +123,26 @@ def archive_keys(frequency: str, kind: str, symbol: str, interval: str | None, s
     return sorted(key for key in keys if key.endswith(".zip"))
 
 
+def monthly_archives(cache: "Cache", kind: str, symbol: str, interval: str | None, months: list[str]) -> dict:
+    """{month: verified local path} for the monthly archives that exist among `months`.
+
+    A few months (an append) are fetched by their known names, a missing one answering 404; many
+    months (a first import) are found with one listing instead of one request each.
+    """
+    stem = f"{UM}/monthly/{kind}/{symbol}/" + (f"{interval}/{symbol}-{interval}-" if interval else f"{symbol}-{kind}-")
+    if len(months) > 3:
+        keys = {period(key): key for key in archive_keys("monthly", kind, symbol, interval)}
+        wanted = [keys[month] for month in months if month in keys]
+        return dict(zip([period(key) for key in wanted], cache.fetch_all(wanted, 4)))
+    found = {}
+    for month in months:
+        try:
+            found[month] = cache.fetch(f"{stem}{month}.zip")
+        except FileNotFoundError:
+            continue
+    return found
+
+
 def period(key: str) -> str:
     """'YYYY-MM' or 'YYYY-MM-DD' from an archive key."""
     stem = key.rsplit("/", 1)[1].removesuffix(".zip")
