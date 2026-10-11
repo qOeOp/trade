@@ -1,0 +1,99 @@
+name: runtime-image
+
+# The native replay image is built here, never on a workstation. A main build moves the `main`
+# tag (the current runtime); a pull request build gets a `pr-N` tag for exploration and
+# engineering parity. Every image carries the commit it was built from in
+# org.opencontainers.image.revision.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/runtime-image.yml
+      - backtest/**/*.py
+      - backtest/**/Dockerfile*
+      - pyproject.toml
+      - uv.lock
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/runtime-image.yml
+      - backtest/**/*.py
+      - backtest/**/Dockerfile*
+      - pyproject.toml
+      - uv.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: runtime-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  image:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Name the image and its tags
+        id: names
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          image="ghcr.io/${OWNER,,}/trade-runtime"
+          tags="$image:sha-$REVISION"
+          if [ "$EVENT" = pull_request ]; then
+            tags="$tags,$image:pr-$PR_NUMBER"
+          elif [ "$REF" = refs/heads/main ]; then
+            tags="$tags,$image:main"
+          fi
+          {
+            echo "image=$image"
+            echo "tags=$tags"
+            echo "revision=$REVISION"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: backtest/r1/runtime/Dockerfile
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.names.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Report the pushed digest
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.names.outputs.tags }}
+          REVISION: ${{ steps.names.outputs.revision }}
+        run: |
+          {
+            echo "image: \`$IMAGE@$DIGEST\`"
+            echo
+            echo "revision: \`$REVISION\`"
+            echo
+            echo "tags: \`$TAGS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
