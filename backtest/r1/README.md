@@ -103,15 +103,15 @@ coverage. There is no second matching or account engine.
 The maintained build inputs live in `runtime/`; the image contains Python,
 Nautilus, locked dependencies, shared replay and the native auditor. Strategy
 bodies, Dolt configuration and research records are excluded from the image.
-Build and publish a single-platform image, then retain its actual manifest
-digest rather than its tag or Docker configuration ID:
-
-```bash
-docker build --platform linux/arm64 --provenance=false \
-  --file backtest/r1/runtime/Dockerfile \
-  --tag REGISTRY/trade-r1-runtime:BUILD-TAG .
-docker push REGISTRY/trade-r1-runtime:BUILD-TAG
-```
+The [`runtime-image`](../../.github/workflows/runtime-image.yml) workflow builds
+it on a native arm64 runner for `linux/arm64` only and pushes it to
+`ghcr.io/qoeop/trade-runtime`, labelled with the commit it was built from
+(`org.opencontainers.image.revision`). It runs only when a runtime input changes
+(`backtest/**/*.py`, the Dockerfile, `pyproject.toml`, `uv.lock`). A build on
+main also moves the `main` tag, the current runtime; a pull request build is
+tagged `pr-N`. Every build is tagged `sha-COMMIT`. Retain the pushed manifest
+digest from the job summary, not a tag or Docker configuration ID. Images are not
+built on a workstation.
 
 A runtime identity JSON contains exactly `image_ref` (registry path plus
 `@sha256:` manifest digest), matching `image_digest`, `platform` (`linux/arm64`
