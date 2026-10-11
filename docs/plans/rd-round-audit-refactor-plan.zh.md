@@ -1,6 +1,6 @@
 # 研发轮审计与重构计划（RONNIE-RESTART-20261011）
 
-状态：WS1 已完成（2026-10-11）；其余为计划稿。逐项与用户达成共识后，再交给独立会话实施；本文件随共识更新。
+状态：WS1、WS5 已完成（2026-10-11）；其余为计划稿。逐项与用户达成共识后，再交给独立会话实施；本文件随共识更新。
 
 ## 0. 为什么要重构，而不是打补丁
 
@@ -196,6 +196,18 @@
   - 用 PR 镜像做冻结写入会被拒；用落后的 checkout 做冻结写入会被拒。
   - 本轮 D05（选错镜像）、D23（变体配置）、D25（PYTHONPATH 和探针）这三类失败，在新结构下不可能再发生，或在第一步就被拦下。
   - 运行器拍平、合并后，经配对原生回放确认行为一致（订单、成交、费用、资金费、账户经济）。
+- **状态：已完成（2026-10-11）。**
+  - [qOeOp/trade#1520](https://github.com/qOeOp/trade/pull/1520)：`runtime-image` 工作流在 `ubuntu-24.04-arm` 上只构建 `linux/arm64`，推到 `ghcr.io/qoeop/trade-runtime`（随公开仓库已是公开包），带 `org.opencontainers.image.revision`；main 构建更新 `main` 标签，PR 构建打 `pr-N`，每次都打 `sha-COMMIT`；只在运行时输入变化时构建。
+  - [qOeOp/trade#1521](https://github.com/qOeOp/trade/pull/1521)：`artifacts run` 不传 `--runtime` 时拉取 `main` 并记录 digest，`--runtime` 改收镜像引用，手写身份 JSON 删除；新增 `--explore`（不封存、输出到 `/tmp`）；`research/records/trials.py` 的 `report_trial` 和 `hand_off_run` 是交给 WS2 的接口，目前只返回记录、探索时写 `trial.json`，封存托管未改；`register` 只收 main 构建的镜像，并核对镜像代码与该 commit 一致；项目改为可安装包。
+  - [qOeOp/trade#1522](https://github.com/qOeOp/trade/pull/1522)：运行时契约 `r1-native-v4`，运行器不再接受任何策略参数，日线预热由策略类的 `DAILY_WARMUP` 声明；`backtest/r1/` 拍平为 `backtest/{load,run,report}.py`，7 个模块 1,138 行、11 条内部依赖边变为 3 个模块 969 行、2 条边；`runtime.LAYOUTS` 按契约区分新旧布局；9 个回执移出，文档改链到 `5700ceb`。
+  - 验收：
+    - 配对原生回放（main 的 v3 镜像对 PR 的 v4 镜像，均走 `--explore`）BTC/ETH 和 37 币全年的订单、成交、持仓、账户行、收益、资金费、手续费和期末权益全部一致；37 币结果与封存的 D11-C37 逐行一致。
+    - 合并后 main 镜像（revision `2bd34033`）在不传 `--runtime` 时被选用，并通过 main 构建检查。
+    - 56 个已有封存全部能 verify；report 只有读取方 `uv.lock` 哈希不同。
+    - D23：变体参数在镜像身份探针处被拒，退出码 2，未生成输出、未报告试验。D25：仓库外脚本用 `uv run --project` 直接 import。D05：默认镜像即 main，非 main 镜像不能登记。
+  - 未完全达标：PR 镜像被拒只在真实镜像上调用了 `require_main_build`，以及 `register` 的单元测试；没有用 PR 镜像真实封存一次再登记。"用落后的 checkout 做冻结写入会被拒"随新鲜度检查移到 WS2。
+  - 已撤回：开工时做的旧镜像 `docker save` 归档（用户改为不归档后已删除）。本机 registry 在 CI 镜像上线前已停，未删除，重启策略改为 `no`。
+  - 之后：WS2 替换 `trials.py`，按 `LAYOUTS` 读新旧封存；WS4 在 `backtest/` 拍平结构上重做 #1510。
 
 ### WS6 来源取证（已并入 WS2）
 
@@ -205,7 +217,7 @@
 - **证据**：
   - S09 复核恢复失败，缺 82 个 PNG，多写了一个 revision。
   - S16 用了 23 分钟，S18 用了 18 分钟，结局都是 B。
-  - 04:36 仍在调用已退役的 video-note 服务（来自旧 worktree，WS5 的新鲜度检查会拦住这种情况）。
+  - 04:36 仍在调用已退役的 video-note 服务（来自旧 worktree，WS2 的新鲜度检查会拦住这种情况）。
   - 本轮的 fast 档误识别来自旧服务；main 上已钉住 whisper-large-v3。
 - **共识（2026-10-11）**：
   1. 视频原片不持久保存；派生证据（转写、全部帧、check.json、claims.json）整份存进 Dolt（WS2 的 evidence 表）。删掉"不得留存未引用帧"的规定，也不再逐个文件 material retain。
@@ -255,7 +267,7 @@
 ## 3. 顺序与依赖（2026-10-11 已定）
 
 1. **WS1**（已完成）：PR1 改 skill 和文档；PR2 改运行器的仓位参数，并加计划级胜率。
-2. **WS5**：运行器收缩、CI 镜像、统一回放入口（试验报告接口）、可安装包、旧镜像归档。
+2. **WS5**（已完成）：运行器收缩、CI 镜像、统一回放入口（试验报告接口）、可安装包；本机 registry 已停，旧镜像留到 WS7 删除。
 3. **WS4 与 WS2 并行**，都以 WS5 已合并为前提。
    - WS4 是裸仓审计、#1510 重做和保护写法指南，改的是运行器、审计和 strategy-authoring 中的一节。
    - WS2（含原 WS3、WS6）是记录层重写、归档清空和 skill 重写；重写 skill 时要保留 WS4 在 strategy-authoring 里加的那一节。
