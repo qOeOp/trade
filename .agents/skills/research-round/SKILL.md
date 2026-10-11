@@ -60,6 +60,10 @@ open ([hypotheses.md](references/hypotheses.md)).
   does not jump the queue, even when the user asks to set the others aside. Say so, with the
   order and why; you decide the order without approval.
 
+When no draft or open card is left, find the next starting point as `research-start` step 2 does
+(an extended frontier scan, or the user when nothing is left to scan or only finished strategies
+remain) before writing another card.
+
 ## After a failure: name the part first
 
 Before the next idea, name which part failed, from the readings (ledger value in brackets):

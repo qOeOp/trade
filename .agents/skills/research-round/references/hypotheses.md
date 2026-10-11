@@ -21,7 +21,9 @@ Write four things before any replay:
 2. **Falsifiable prediction**: a consequence of the rationale, other than "it makes money", that
    the same coarse replay can check, with the reading that refutes it.
 3. **Frontier gap**: which gap of the current frontier it targets (plan win rate, return to
-   drawdown, or both) and why the rationale should reach it.
+   drawdown, or both) and why the rationale should reach it. When the user chose to complement
+   finished strategies, name them: the coarse replay still reads the card alone, but its frontier
+   point and its freeze read one strategy file that trades it together with them on one account.
 4. **Excluded class on failure**: the class of strategies the failure would exclude, defined by
    the rationale and the signal, never by this card's parameters, window or coins. A class that
    only contains this card excludes nothing.
@@ -35,7 +37,7 @@ separately. Order drafts yourself by prior (the gap they target, prior evidence 
 ## Review before the coarse replay
 
 Give the card to an independent sub-agent with a clean context and nothing but the card, the
-census frontier and the knowledge list; it sees no replay result of this card. It rejects the card
+frontier and the knowledge list; it sees no replay result of this card. It rejects the card
 when:
 
 - the rationale is boilerplate or reads as written after the fact;

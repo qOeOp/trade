@@ -27,7 +27,21 @@ uv run --frozen python -m research.records.cli evidence export knowledge-MARKET-
 ```
 
 Also check the open round. Store a new version after every review verdict, coarse replay,
-exclusion, freeze and progress check.
+exclusion, freeze, progress check and scan.
+
+## Frontier scan
+
+The scan gives research its starting point when the list has no draft or open card
+(`research-start`, step 2). It replays baselines on the list's whole window and coin pool, each a
+plan-tagged discrete strategy with its parameters fixed before the run and never tuned:
+
+- the first scan: time-series trend, channel breakout, cross-sectional momentum, short-term
+  reversal and a perpetual-only funding signal, at most three variants each, plus equal-weight
+  holding as the zero reference; check each class's literature with `research-sources` first;
+- a later scan adds only classes the list neither covers nor excludes, found the same way.
+
+Record every baseline as a frontier point with `"stage": "scan"`; its trials count like any other.
+Ideas from earlier research, the user's included, are cards, never scan baselines.
 
 ## Format (`knowledge.json`)
 
@@ -37,7 +51,7 @@ exclusion, freeze and progress check.
  "window": {"start": "YYYY-MM-DDT00:00:00Z", "end": "YYYY-MM-DDT00:00:00Z"},
  "version": 1,
  "frontier": {
-   "points": [{"label": "...", "stage": "census|draft|open|freeze", "hypothesis": "H1",
+   "points": [{"label": "...", "stage": "scan|draft|open|freeze", "hypothesis": "H1",
                "goal_id": "...", "trial_id": 0, "run_id": null,
                "plans_closed": 0, "plan_win_rate": 0.0, "annual_return": 0.0, "max_drawdown": 0.0,
                "return_drawdown": 0.0, "price_pnl_usdt": "0", "commissions_usdt": "0",
@@ -61,7 +75,7 @@ exclusion, freeze and progress check.
                  "freezes": []}]}
 ```
 
-- A frontier point is any reading on the whole window and pool: census baselines, coarse replays,
+- A frontier point is any reading on the whole window and pool: scan baselines, coarse replays,
   explorations of open cards and freezes. Keep every point; the frontier is the upper-left edge of
   plan win rate against return to drawdown.
 - Numbers come from product readings (`readings` of an exploration, `artifacts report` of a stored
