@@ -101,7 +101,7 @@
   - D11–D25 手写了 18 个 reader、共 1774 行，反复出错：D07→D08 只差一行 sort key；D11 的读者断言"只会单笔全额成交"引出 D12–D14；D19 有 TypeError，D23 有 KeyError。
   - `audit_tiered_native.py:79` 写明 "No … historical protection reconstruction"。
   - **潜伏缺陷**：`D25-mechanics-ledger/fourth-result.json` 显示，母单部分成交后按 GTD 到期，止损和止盈随之被撤，已成交仓位没有保护。P1–P6 用同一套下单代码。已核查：D11-C37 和 D19-C37 的封存订单里没有"部分成交后到期/取消"的母单，两次经济失败没有被这个缺陷污染。
-  - 订单事件历史只在 draft PR [Wfchang666/trade#1510](https://github.com/Wfchang666/trade/pull/1510) 上。
+  - 订单事件历史只在 draft PR [qOeOp/trade#1510](https://github.com/qOeOp/trade/pull/1510) 上。
 - **重构方向**：
   - 原生审计在整段回放中检查保护覆盖和组合风险，限额由运行配置给出，不在 reader 里写死。
   - 订单事件历史进入产品：决定 #1510 是合并还是重做。
