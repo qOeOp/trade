@@ -88,6 +88,10 @@ uv run --frozen python -m research.records.artifacts restore --root "$ARTIFACT_R
 - `report` verifies the seal and prints the closed-position PnL split (fill price, commissions,
   funding), open positions and unrealized residual only when they reconcile to the audited native
   economics. It reads no Dolt; a failed seal reports null economics.
+- Its `plans` (`closed`, `wins`, `win_rate`, `open`) is the goal's plan win rate
+  ([feasibility.md](feasibility.md)). It is null, with the reason in `limitations`, when an order
+  lacks a plan tag or carries two, plans on one instrument overlap, or a position and a plan do
+  not map one to one ([strategy-authoring.md](strategy-authoring.md)).
 - Any other statistic follows the `nautilus-report-analysis` skill, which loads the seal with
   `research.records.analysis.tables()`.
 - `restore` recovers reports only, not the image or inputs.
