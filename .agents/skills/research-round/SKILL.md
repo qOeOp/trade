@@ -28,7 +28,9 @@ A whole-strategy failure rejects the bundle, not any one part. State which layer
 - **L4 net account**: fills, fees, funding and the goal's gates; name the failing part (gross edge,
   cost, frequency, plan win rate, return to drawdown or tail).
 - **L5 confirmation**: a frozen candidate on a window that begins after its pending confirmation
-  attempt is published ([confirmation.md](references/confirmation.md)).
+  attempt is published, not after the development window ends; name it by that start, never by a
+  calendar period, since today may be later than you assume
+  ([confirmation.md](references/confirmation.md)).
 
 ## Before publishing
 
@@ -79,14 +81,15 @@ exclusion nor corroboration, bring the question to the user.
 ## Do not
 
 - Relabel an inspected window as holdout, or call a development improvement generalization, also
-  for a single tuning step or as partial evidence. Development, pre-cutoff or already existing data,
-  including a window a tuning step skipped, can refute a change or leave it not refuted, never
-  confirm it: never call it half, quasi or semi out-of-sample, independent, or "no overfitting".
+  for a single tuning step or as partial evidence. Development, pre-cutoff or already existing
+  data, including a window a tuning step skipped or one after the development window, can refute a
+  change or leave it not refuted, never confirm it: never call it half, quasi or semi
+  out-of-sample, independent, or "no overfitting".
 - Add filters after inspecting losing trades and call the result a mechanism.
 - Change the user's goal (a target, the drawdown measure or the window) to rescue a result, or
   record your own sizing or risk plan as a user constraint.
-- Derive PnL, R multiples, win rates or expectancy from price touches, or compare touch rates with
-  a breakeven, even as a rough, scenario or upper-bound figure the user asks for; or resolve two
-  levels touched in one bar by any rule (stop-first or an even split included). Send the economic
-  question to a native replay and report its same-bar ambiguity first; citing which native child
-  filled is not ordering.
+- Derive PnL, R multiples, win rates or expectancy from price touches, or compare touch outcomes
+  with a breakeven in numbers or in words, even as a rough, scenario or upper-bound figure the
+  user asks for or a guess at how it would come out; or resolve two levels touched in one bar by
+  any rule (stop-first or an even split included). Send the economic question to a native replay
+  and report its same-bar ambiguity first; citing which native child filled is not ordering.
