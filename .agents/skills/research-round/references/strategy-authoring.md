@@ -107,7 +107,9 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
 
 Use the pinned package (`uv run --frozen python -c "import nautilus_trader;
 print(nautilus_trader.__version__)"`) and read signatures from it; upstream docs are leads until
-checked locally. Test uncertain order or event behavior with a small probe in a temporary directory:
+checked locally. Test uncertain order or event behavior with a small probe script in a temporary
+directory, run on the host with `uv run --frozen --project REPO python /tmp/RUNDIR/probe.py` (it
+imports `backtest` and `research`; no `PYTHONPATH`, no `docker run`):
 `BacktestEngine(BacktestEngineConfig())` plus one added `Strategy()` builds and inspects orders; add
 an instrument and bars to observe fills.
 
@@ -159,21 +161,18 @@ commit; the attempt and `--source-at` must use the same commit.
 
 ## Pilot, then full replay
 
-Run the exported revision on a pilot of two liquid instruments in `--coins`, then on the full
-instrument set with the same configuration. A run a decision cites goes through
-`research.records.artifacts run` ([seal.md](seal.md)), which supplies the strategy arguments
-itself. A direct run is a `/tmp` diagnostic: its window counts as inspected, and the next attempt's
-plan lists it under unregistered replays.
+Run the draft on a pilot of two liquid instruments in `--coins`, then on the full instrument set
+with the same configuration, through `artifacts run --explore` ([seal.md](seal.md)); it runs the
+current main image and reports the trial. A run a decision cites is sealed by `artifacts run`
+without `--explore`, which supplies the strategy arguments itself. Never run the replay with
+`docker run` or `python -m backtest...` directly.
 
 ```bash
-uv run --frozen python -m backtest.r1.run_portfolio \
-  --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS \
-  --strategy-sha256 SOURCE-SHA256 --strategy-binding /tmp/RUNDIR/binding.json \
+uv run --frozen python -m research.records.artifacts run --explore \
+  --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS --output /tmp/RUNDIR/pilot -- \
   --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
   --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END \
-  --signal-variant SIGNAL --exit-variant EXIT --output /tmp/RUNDIR/pilot
-uv run --frozen python -m backtest.r1.checks.audit_tiered_native \
-  --run /tmp/RUNDIR/pilot --catalog-root MINUTE-CATALOG --output /tmp/RUNDIR/pilot-audit.json
+  --signal-variant SIGNAL --exit-variant EXIT
 ```
 
 Add `--daily-warmup` only if the file requires it; times need `Z` or a UTC offset on five-minute

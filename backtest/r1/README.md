@@ -1,6 +1,7 @@
 # R1 native replay
 
-`python -m backtest.r1.run_portfolio` is the single R1 backtest entry. It loads
+`python -m backtest.r1.run_portfolio` is the R1 runner; every replay starts it
+through `research.records.artifacts run` in the CI-built image. It loads
 one complete external Strategy file after checking its exact SHA-256. Dolt owns
 published source revisions; working files can live in a temporary directory.
 The current `r1-native-v3` contract uses ordinary Python definitions in that one
@@ -24,8 +25,9 @@ skill](../../.agents/skills/research-round/SKILL.md) and its
 [seal reference](../../.agents/skills/research-round/references/seal.md). Its
 custody command exports a fixed Dolt source revision, executes this runner and
 the auditor in the same digest-pinned OCI image, and seals the result outside
-Git and `/tmp`.
-A direct host run below is a temporary diagnostic and uses the host environment.
+Git and `/tmp`. A draft runs with `artifacts run --explore`: the same image,
+runner and audit, reports in a new `/tmp` directory, nothing sealed. Each run,
+explored or sealed, reports one trial.
 
 `--start`, `--end` and `--trade-start` require an explicit `Z` or UTC offset.
 They must resolve to five-minute boundaries, with start < end and trade-start
@@ -47,32 +49,28 @@ commit or assume the old demo's revision number exists in a fresh database.
 uv sync --frozen
 SOURCE_AT=YOUR_SOURCE_PUBLICATION_COMMIT
 STRATEGY_REVISION=YOUR_SOURCE_REVISION
-STRATEGY_SHA256=YOUR_SOURCE_SHA256
 STRATEGY_WORKDIR=$(mktemp -d /tmp/trade-h19a.XXXXXX)
 uv run --frozen python -m research.records.cli --at "$SOURCE_AT" \
   strategy export r1.broad-two-tier --revision "$STRATEGY_REVISION" \
   --destination "$STRATEGY_WORKDIR/strategy.py" \
   --binding-output "$STRATEGY_WORKDIR/binding.json"
 R1_COINS=(BTC ETH BNB ADA XRP SOL DOGE LTC TRX LINK DOT AVAX BCH ETC XLM ATOM FIL NEAR UNI AAVE ICP APT ARB SUI OP INJ TIA SEI PEPE SHIB HBAR ALGO FET WLD IMX STX LDO)
-uv run --frozen python -m backtest.r1.run_portfolio \
+uv run --frozen python -m research.records.artifacts run --explore \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" \
   --strategy-class PublishedR1Strategy \
-  --strategy-sha256 "$STRATEGY_SHA256" \
-  --strategy-binding "$STRATEGY_WORKDIR/binding.json" \
+  --output "$STRATEGY_WORKDIR/r1-37" -- \
   --catalog-root /path/to/r1-minute-catalog \
   --daily-root /path/to/r1-daily-catalog \
   --quantity-csv /path/to/r1-minute-catalog/per_coin_stop_fix.csv \
   --coins "${R1_COINS[@]}" \
   --start 2025-10-07T00:00:00Z --trade-start 2025-10-17T00:00:00Z \
   --end 2026-10-07T08:30:00Z \
-  --signal-variant support-broad-two-tier-4h --exit-variant tier-target-b \
-  --output /tmp/r1-external-h19a-37
+  --signal-variant support-broad-two-tier-4h --exit-variant tier-target-b
 ```
 
-The example binds the source to the selected ledger's returned publication
-revision, fixed commit and exact source hash.
-For another source or revision, export its binding and use its entry class and
-hash. `validate_replay_configuration` checks the source's signal, exit and warmup
+Exploration hashes the file it runs; a sealed run binds the source to the
+selected ledger's returned publication revision, fixed commit and exact source
+hash. For another source or revision, export it and use its entry class. `validate_replay_configuration` checks the source's signal, exit and warmup
 contract; sizing is constants in the source. `replay_diagnostics` supplies source-specific counters,
 while `replay_integrity_findings` supplies source-specific failure findings;
 the runner also rejects native denied/rejected orders. The full source
@@ -111,16 +109,25 @@ it on a native arm64 runner for `linux/arm64` only and pushes it to
 main also moves the `main` tag, the current runtime; a pull request build is
 tagged `pr-N`. Every build is tagged `sha-COMMIT`. Retain the pushed manifest
 digest from the job summary, not a tag or Docker configuration ID. Images are not
-built on a workstation.
+built on a workstation, and there is no local registry or hand-written runtime
+identity.
 
-A runtime identity JSON contains exactly `image_ref` (registry path plus
-`@sha256:` manifest digest), matching `image_digest`, `platform` (`linux/arm64`
-or `linux/amd64`) and `runtime_contract: r1-native-v3`. Pull the digest reference
-before custody execution. Custody verifies the locally available manifest and
+`artifacts run` without `--runtime` pulls `main` and records the manifest
+digest it resolved; `--runtime` takes another CI tag or digest reference. The
+identity (`image_ref` with `@sha256:` digest, `image_digest`, `platform`,
+`runtime_contract`) is read from the image itself.
+Custody verifies the locally available manifest and
 platform, observes the image's actual runtime and resolved configuration, and
 runs with no network, a read-only root, read-only source/input mounts and one
 writable report mount. The same image performs the audit. A sandbox supplies
 isolation; the retained image bytes supply a reproducible environment.
+`artifacts register` accepts only an image whose revision label is on
+origin/main and whose observed runtime code equals that commit's bytes.
+
+The project is an installable package: `uv run --frozen --project REPO python
+SCRIPT` imports `backtest` and `research` from a script anywhere, and the image
+imports `backtest` from any directory. Probes need no `PYTHONPATH` and no
+`docker run`.
 
 ## Paired acceptance and history
 

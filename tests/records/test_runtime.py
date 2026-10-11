@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from research.records.common import RecordError
+from research.records import runtime
 from research.records.runtime import SOURCE_PATHS, container_command, inspect_runtime, validate_identity
 
 
@@ -74,6 +75,79 @@ class RuntimeIdentityTests(unittest.TestCase):
             self.assertIn(f"type=bind,source={path.resolve()},target=/inputs/catalog,readonly", command)
             with self.assertRaisesRegex(RecordError, "only the report"):
                 container_command(IDENTITY, [(path, "/product", False)], "fixture", [])
+
+
+class CurrentRuntimeTests(unittest.TestCase):
+    """The current runtime is the CI main tag; registration accepts only main builds of main's code."""
+
+    DIGEST = "sha256:" + "f" * 64
+    REVISION = "1" * 40
+
+    def image(self, repository=runtime.REPOSITORY, revision=REVISION):
+        return {"RepoDigests": [f"{repository}@{self.DIGEST}"], "Os": "linux", "Architecture": "arm64",
+                "Config": {"Labels": {runtime.CONTRACT_LABEL: "r1-native-v3", runtime.REVISION_LABEL: revision}}}
+
+    def docker(self, image):
+        def run(command, **kwargs):
+            if command[1] == "pull":
+                return subprocess.CompletedProcess(command, 0, "", "")
+            return subprocess.CompletedProcess(command, 0, json.dumps([image]), "")
+        return run
+
+    def test_default_reference_pulls_the_main_tag_and_pins_its_digest(self):
+        with patch("research.records.runtime.subprocess.run", side_effect=self.docker(self.image())) as calls:
+            identity = runtime.resolve()
+        self.assertEqual(calls.call_args_list[0].args[0], ["docker", "pull", "--quiet", runtime.CURRENT])
+        self.assertEqual(identity, {"image_ref": f"{runtime.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
+                                    "platform": "linux/arm64", "runtime_contract": "r1-native-v3"})
+
+    def test_local_digest_reference_is_not_pulled(self):
+        reference = f"{runtime.REPOSITORY}@{self.DIGEST}"
+        with patch("research.records.runtime.subprocess.run", side_effect=self.docker(self.image())) as calls:
+            self.assertEqual(runtime.resolve(reference)["image_ref"], reference)
+        self.assertNotIn("pull", [call.args[0][1] for call in calls.call_args_list])
+
+    def inspection(self, files):
+        return {"source_files_sha256": {field: hashlib.sha256(files[path]).hexdigest() for field, path in SOURCE_PATHS.items()},
+                "source_file_paths": SOURCE_PATHS.copy(),
+                "audit_source_sha256": hashlib.sha256(files[runtime.AUDIT_PATH]).hexdigest(),
+                "dependency_lock_sha256": hashlib.sha256(files["uv.lock"]).hexdigest()}
+
+    def check(self, image, on_main=True, files=None, inspection=None):
+        main = {path: path.encode() for path in [*SOURCE_PATHS.values(), runtime.AUDIT_PATH, "uv.lock"]}
+        files = files or main
+
+        def git(*argv):
+            if argv[0] == "merge-base":
+                return subprocess.CompletedProcess(argv, 0 if on_main else 1, b"", b"")
+            if argv[0] == "show":
+                return subprocess.CompletedProcess(argv, 0, files[argv[1].split(":", 1)[1]], b"")
+            return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+        identity = {"image_ref": image["RepoDigests"][0], "image_digest": self.DIGEST, "platform": "linux/arm64",
+                    "runtime_contract": "r1-native-v3"}
+        with patch("research.records.runtime.subprocess.run", side_effect=self.docker(image)), \
+             patch("research.records.runtime._git", side_effect=git):
+            return runtime.require_main_build(identity, inspection or self.inspection(main))
+
+    def test_main_build_of_main_code_is_accepted(self):
+        self.assertEqual(self.check(self.image()), self.REVISION)
+
+    def test_pull_request_image_is_refused(self):
+        with self.assertRaisesRegex(RecordError, "not on origin/main"):
+            self.check(self.image(), on_main=False)
+
+    def test_image_outside_the_ci_repository_or_without_revision_is_refused(self):
+        with self.assertRaisesRegex(RecordError, "CI image"):
+            self.check(self.image(repository="localhost:15000/trade-r1-runtime"))
+        with self.assertRaisesRegex(RecordError, "revision label"):
+            self.check(self.image(revision=None))
+
+    def test_relabelled_image_of_other_code_is_refused(self):
+        main = {path: path.encode() for path in [*SOURCE_PATHS.values(), runtime.AUDIT_PATH, "uv.lock"]}
+        other = self.inspection({**main, SOURCE_PATHS["runner_source_sha256"]: b"changed runner"})
+        with self.assertRaisesRegex(RecordError, "code differs"):
+            self.check(self.image(), inspection=other)
 
 
 class RuntimeComparisonTests(unittest.TestCase):

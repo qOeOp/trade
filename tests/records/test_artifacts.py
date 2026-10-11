@@ -73,7 +73,7 @@ class LegacySealTests(unittest.TestCase):
                     with self.assertRaisesRegex(ArtifactError, reason):
                         artifacts.run(root=root, run_id="fixture-run", attempt_id="fixture-attempt",
                                       strategy_id="fixture", strategy_revision=1, source_at="a" * 32,
-                                      runtime=self.workspace / "runtime.json",
+                                      runtime=None,
                                       input_identity=self.workspace / "missing.json", runner_argv=[])
                 processes.assert_not_called()
                 self.assertFalse(root.exists())
@@ -231,7 +231,8 @@ class DoltOciCustodyTests(unittest.TestCase):
                       "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},
                       "source_file_paths": SOURCE_PATHS.copy(),
                       "audit_source_sha256": "e" * 64, "platform": "linux/arm64",
-                      "effective_config": {"fixture": True}}
+                      "effective_config": {"coins": ["BTC"], "start": "2025-01-01T00:00:00Z",
+                                           "trade_start": "2025-01-02T00:00:00Z", "end": "2025-02-01T00:00:00Z"}}
         self.record_binding = {"id": "attempt:fixture-attempt", "revision": 1, "commit": "f" * 32}
         self.input = self.workspace / "input.json"
         self.input.write_text("{}")
@@ -272,7 +273,7 @@ class DoltOciCustodyTests(unittest.TestCase):
              patch.object(artifacts.subprocess, "run", side_effect=execute) as calls, \
              patch("research.records.common.tempfile.gettempdir", return_value="/system-temp-fixture"):
             result = artifacts.run(root=self.root, run_id="fixture-run", attempt_id="fixture-attempt", strategy_id="fixture",
-                                   strategy_revision=1, source_at="a" * 32, runtime=self.workspace / "runtime.json",
+                                   strategy_revision=1, source_at="a" * 32, runtime=None,
                                    input_identity=self.input, runner_argv=self.argv)
         return result, calls
 
@@ -294,6 +295,71 @@ class DoltOciCustodyTests(unittest.TestCase):
             self.assertIn("none", command)
             self.assertNotIn(str(artifacts.ROOT), command)
         self.assertTrue(verify(self.root, "fixture-run")["verified"])
+        self.assertNotIn("trial.json", manifest["files"])
+        self.assertEqual(result["trial"]["mode"], "sealed")
+        self.assertEqual(result["trial"]["run_id"], "fixture-run")
+        self.assertEqual(result["trial"]["strategy_source_sha256"], self.binding["source_sha256"])
+        self.assertEqual(result["trial"]["image_digest"], self.identity["image_digest"])
+        self.assertEqual(result["trial"]["coins"], ["BTC"])
+        self.assertEqual(result["hand_off"], {"mode": "sealed", "run_id": "fixture-run", "run_dir": str(archive),
+                                              "audit_passed": True, "audit_findings": []})
+
+    def test_registration_refuses_an_image_not_built_on_main_before_any_dolt_access(self):
+        self.run_fixture(passed=True)
+        refusal = RecordError("runtime image revision is not on origin/main")
+        with patch("research.records.runtime.require_main_build", side_effect=refusal) as check, \
+             patch("research.records.store.open_store") as store:
+            with self.assertRaisesRegex(ArtifactError, "not on origin/main"):
+                artifacts.register(root=self.root, run_id="fixture-run", role="candidate",
+                                   cost_model="Synthetic fixture only", control_run_id=None, evidence_grade="unknown")
+        self.assertEqual(check.call_args.args[0], self.identity)
+        self.assertEqual(check.call_args.args[1]["source_files_sha256"], self.probe["source_files_sha256"])
+        store.assert_not_called()
+
+    def test_exploration_replays_a_draft_into_temporary_output_and_reports_one_trial(self):
+        draft = self.workspace / "draft.py"
+        draft.write_bytes(self.source)
+        output = Path(tempfile.mkdtemp(prefix="trade-explore-test-")) / "run"
+        self.addCleanup(shutil.rmtree, output.parent)
+
+        def execute(command, **kwargs):
+            reports = kwargs["cwd"].parent / "reports"
+            if "backtest.r1.run_portfolio" in command:
+                for name in artifacts.REPORTS:
+                    (reports / name).write_text("{}\n")
+            else:
+                (reports / "audit.json").write_text(json.dumps({"passed": True, "findings": []}))
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch("research.records.runtime.resolve", return_value=self.identity) as resolve, \
+             patch("research.records.runtime.inspect_runtime", return_value=self.probe), \
+             patch.object(artifacts.subprocess, "run", side_effect=execute) as calls:
+            result = artifacts.explore(strategy_file=draft, strategy_class="FixtureStrategy", output=output,
+                                       runtime=None, runner_argv=self.argv)
+        resolve.assert_called_once_with(None)
+        self.assertEqual(result["status"], "passed")
+        trial = json.loads((output / "trial.json").read_text())
+        self.assertEqual(trial, result["trial"])
+        self.assertEqual((trial["mode"], trial["run_id"], trial["strategy_source_sha256"], trial["image_digest"]),
+                         ("explore", None, self.binding["source_sha256"], self.identity["image_digest"]))
+        self.assertEqual(trial["window"], {"start": "2025-01-01T00:00:00Z", "trade_start": "2025-01-02T00:00:00Z",
+                                           "end": "2025-02-01T00:00:00Z"})
+        self.assertTrue(result["hand_off"]["audit_passed"])
+        runner = calls.call_args_list[0].args[0]
+        self.assertIn(self.identity["image_ref"], runner)
+        self.assertIn("none", runner)
+        self.assertEqual(runner[runner.index("--strategy-sha256") + 1], self.binding["source_sha256"])
+        self.assertNotIn("--strategy-binding", runner)
+
+    def test_exploration_output_must_be_temporary_and_new(self):
+        draft = self.workspace / "draft.py"
+        draft.write_bytes(self.source)
+        with patch("research.records.runtime.resolve") as resolve:
+            for output, message in ((self.workspace / "persistent", "temp"), (Path(tempfile.gettempdir()), "exists")):
+                with self.subTest(output=output), self.assertRaisesRegex(ArtifactError, message):
+                    artifacts.explore(strategy_file=draft, strategy_class="FixtureStrategy", output=output,
+                                      runtime=None, runner_argv=self.argv)
+        resolve.assert_not_called()
 
     def test_failed_before_summary_registers_frozen_identity_without_economics(self):
         result, _ = self.run_fixture()
@@ -304,6 +370,7 @@ class DoltOciCustodyTests(unittest.TestCase):
         store.publish_record.return_value = {"commit": "fixture-published"}
         with patch("research.records.store.open_store", return_value=store), \
              patch.object(artifacts, "_attempt_snapshot", return_value=({}, self.record_binding)), \
+             patch("research.records.runtime.require_main_build", return_value="a" * 40), \
              patch("research.records.strategies.validate_binding", return_value={}):
             artifacts.register(root=self.root, run_id="fixture-run", role="diagnostic", cost_model="Synthetic fixture only",
                                control_run_id=None, evidence_grade="unknown")
@@ -340,7 +407,8 @@ class DoltOciCustodyTests(unittest.TestCase):
                                 publish_record=Mock(return_value={"commit": "c" * 32}))
         with patch("research.records.store.open_store", return_value=store):
             result, _ = self.run_fixture(snapshot=False, on_runner=runner_started)
-            with patch("research.records.strategies.validate_binding", return_value={}):
+            with patch("research.records.strategies.validate_binding", return_value={}), \
+                 patch("research.records.runtime.require_main_build", return_value="a" * 40):
                 artifacts.register(root=self.root, run_id="fixture-run", role="diagnostic",
                                    cost_model="Synthetic fixture; no native economics.",
                                    control_run_id=None, evidence_grade="unknown")
@@ -364,7 +432,7 @@ class DoltOciCustodyTests(unittest.TestCase):
              patch.object(artifacts, "_dolt_source", return_value=(self.binding,)):
             with self.assertRaisesRegex(ArtifactError, "preregistered attempt"):
                 artifacts.run(root=self.root, run_id="fixture-run", attempt_id="fixture-attempt", strategy_id="fixture",
-                              strategy_revision=1, source_at="a" * 32, runtime=Path("fixture"), input_identity=self.input, runner_argv=self.argv)
+                              strategy_revision=1, source_at="a" * 32, runtime=None, input_identity=self.input, runner_argv=self.argv)
 
 
 if __name__ == "__main__":

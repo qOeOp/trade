@@ -255,22 +255,119 @@ def _container_runner_args(argv: list[str], replay: argparse.Namespace) -> tuple
     return result, [(path, target, True) for path, target in replacements.values()]
 
 
-def _dolt_source(strategy_id: str, revision: int, at: str, runtime: Path,
+def _dolt_source(strategy_id: str, revision: int, at: str, runtime: str | None,
                  runner_args: list[str], replay: argparse.Namespace) -> tuple[dict, bytes, dict, dict, list[str], list]:
     from research.records.store import open_store
     from research.records.strategies import resolve
-    from research.records.runtime import inspect_runtime, validate_identity
+    from research.records.runtime import inspect_runtime, resolve as resolve_runtime
     store = open_store()
     if not hasattr(store, "adapter"):
         raise ArtifactError("strategy custody requires the Dolt source owner")
     resolved = resolve(store.adapter, strategy_id, revision, at)
     binding = resolved["binding"]
-    identity = validate_identity(_read_json(runtime))
+    identity = resolve_runtime(runtime)
     if binding["runtime_contract"] != identity["runtime_contract"]:
         raise ArtifactError("strategy and image runtime contracts differ")
     argv, mounts = _container_runner_args(runner_args, replay)
     observed = inspect_runtime(identity, argv)
     return binding, resolved["source_bytes"], identity, observed, argv, mounts
+
+
+def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str]) -> tuple[int, int | None]:
+    """Run the native replay, then the independent audit once its reports exist, in one pinned image."""
+    from research.records.runtime import container_command
+    native_command = container_command(identity, mounts, "backtest.r1.run_portfolio", runner_args)
+    with (
+        (workdir / "native.stdout.txt").open("wb") as out,
+        (workdir / "native.stderr.txt").open("wb") as err,
+    ):
+        try:
+            native = subprocess.run(native_command, cwd=workdir / "source", stdout=out, stderr=err).returncode
+        except OSError as exc:
+            err.write(str(exc).encode())
+            native = 127
+    audit_exit = None
+    if all((workdir / "reports" / name).is_file() for name in REPORTS):
+        audit_command = container_command(identity, mounts, "backtest.r1.checks.audit_tiered_native", [
+            "--run", "/reports", "--catalog-root", "/inputs/catalog", "--output", "/reports/audit.json",
+        ])
+        with (
+            (workdir / "audit.stdout.txt").open("wb") as out,
+            (workdir / "audit.stderr.txt").open("wb") as err,
+        ):
+            try:
+                audit_exit = subprocess.run(audit_command, cwd=workdir / "source", stdout=out, stderr=err).returncode
+            except OSError as exc:
+                err.write(str(exc).encode())
+                audit_exit = 127
+    return native, audit_exit
+
+
+def _audit_problems(workdir: Path, native_exit: int, audit_exit: int | None) -> tuple[list[str], dict | None]:
+    problems, audit = [], None
+    if native_exit:
+        problems.append(f"native runner exited {native_exit}")
+    if audit_exit is None:
+        problems.append("independent native audit unavailable")
+    elif audit_exit:
+        problems.append(f"independent native audit exited {audit_exit}")
+    audit_path = workdir / "reports" / "audit.json"
+    if audit_path.is_file():
+        try:
+            audit = _read_json(audit_path)
+            if not audit.get("passed") or audit.get("findings"):
+                problems.append("independent native audit found problems")
+        except RecordError as exc:
+            problems.append(str(exc))
+    else:
+        problems.append("independent native audit report missing")
+    return problems, audit
+
+
+def _trial(mode: str, source_sha256: str, identity: dict, inspection: dict, run_id=None, run_dir=None) -> dict:
+    from research.records.trials import report_trial
+    config = inspection["effective_config"]
+    return report_trial(mode=mode, strategy_source_sha256=source_sha256, coins=config["coins"],
+                        start=config["start"], trade_start=config["trade_start"], end=config["end"],
+                        image_digest=identity["image_digest"], run_id=run_id, run_dir=run_dir)
+
+
+def explore(*, strategy_file: Path, strategy_class: str, output: Path, runtime: str | None,
+            runner_argv: list[str]) -> dict:
+    """Replay a draft strategy file in the pinned image without custody, into a temporary directory.
+
+    The same image, sandbox, runner and audit as a sealed run; nothing is sealed or registered.
+    """
+    from research.records.runtime import inspect_runtime, resolve
+    from research.records.trials import hand_off_run
+    output = output.absolute()
+    if not _is_temporary_path(output):
+        raise ArtifactError("exploration output must be under /tmp or the system temp directory")
+    if output.exists():
+        raise ArtifactError(f"exploration output already exists: {output}")
+    if not strategy_class.isidentifier():
+        raise ArtifactError("strategy class must be one Python class name")
+    source = strategy_file.read_bytes()
+    source_sha256 = hashlib.sha256(source).hexdigest()
+    replay = _runner_inputs(runner_argv)
+    identity = resolve(runtime)
+    effective_args, mounts = _container_runner_args(runner_argv, replay)
+    inspection = inspect_runtime(identity, effective_args)
+    output.mkdir(mode=0o700, parents=True)
+    (output / "source").mkdir()
+    (output / "source" / "strategy.py").write_bytes(source)
+    (output / "reports").mkdir()
+    _write_json(output / "runtime-inspection.json", inspection)
+    trial = _trial("explore", source_sha256, identity, inspection, run_dir=output)
+    mounts += [(output / "source", "/strategy", True), (output / "reports", "/reports", False)]
+    native_exit, audit_exit = _replay(identity, mounts, output, [
+        *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", strategy_class,
+        "--strategy-sha256", source_sha256, "--output", "/reports",
+    ])
+    problems, audit = _audit_problems(output, native_exit, audit_exit)
+    return {"mode": "explore", "status": "passed" if not problems else "failed", "problems": problems,
+            "path": str(output), "runtime_identity": identity, "trial": trial,
+            "hand_off": hand_off_run(mode="explore", run_dir=output, audit=audit)}
 
 
 def _files(stage: Path) -> dict[str, dict]:
@@ -332,7 +429,7 @@ def run(
     strategy_id: str,
     strategy_revision: int,
     source_at: str,
-    runtime: Path,
+    runtime: str | None,
     input_identity: Path,
     runner_argv: list[str],
 ) -> dict:
@@ -363,7 +460,6 @@ def run(
     stage = staging / f"{run_id}-{uuid.uuid4().hex}"
     stage.mkdir(mode=0o700)
     try:
-        from research.records.runtime import container_command
         strategy_binding, source_bytes, runtime_identity, runtime_inspection, effective_args, mounts = prepared
         frozen_source = stage / "source"
         frozen_source.mkdir()
@@ -380,35 +476,13 @@ def run(
         if _sha(stage / "input-identity.json") != identity_digest:
             raise ArtifactError("input identity changed during source capture")
         (stage / "reports").mkdir()
+        trial = _trial("sealed", strategy_binding["source_sha256"], runtime_identity, runtime_inspection, run_id=run_id)
         mounts += [(frozen_source, "/strategy", True), (stage / "reports", "/reports", False)]
-        native_command = container_command(runtime_identity, mounts, "backtest.r1.run_portfolio", [
+        native_exit, audit_exit = _replay(runtime_identity, mounts, stage, [
             *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", strategy_binding["entry_class"],
             "--strategy-sha256", strategy_binding["source_sha256"], "--strategy-binding", "/strategy/binding.json",
             "--execution-binding", "/strategy/execution.json", "--output", "/reports",
         ])
-        with (
-            (stage / "native.stdout.txt").open("wb") as out,
-            (stage / "native.stderr.txt").open("wb") as err,
-        ):
-            try:
-                native = subprocess.run(native_command, cwd=frozen_source, stdout=out, stderr=err)
-            except OSError as exc:
-                err.write(str(exc).encode())
-                native = subprocess.CompletedProcess(native_command, 127)
-        audit_exit = None
-        if all((stage / "reports" / name).is_file() for name in REPORTS):
-            audit_command = container_command(runtime_identity, mounts, "backtest.r1.checks.audit_tiered_native", [
-                "--run", "/reports", "--catalog-root", "/inputs/catalog", "--output", "/reports/audit.json",
-            ])
-            with (
-                (stage / "audit.stdout.txt").open("wb") as out,
-                (stage / "audit.stderr.txt").open("wb") as err,
-            ):
-                try:
-                    audit_exit = subprocess.run(audit_command, cwd=frozen_source, stdout=out, stderr=err).returncode
-                except OSError as exc:
-                    err.write(str(exc).encode())
-                    audit_exit = 127
         problems = []
         try:
             checked_after = _check_inputs(identity, replay)
@@ -431,22 +505,8 @@ def run(
                 problems.append(str(exc))
             if not summary.get("integrity_passed"):
                 problems.append("native runner integrity failed")
-        if native.returncode:
-            problems.append(f"native runner exited {native.returncode}")
-        if audit_exit is None:
-            problems.append("independent native audit unavailable")
-        elif audit_exit:
-            problems.append(f"independent native audit exited {audit_exit}")
-        audit_path = stage / "reports" / "audit.json"
-        if audit_path.is_file():
-            try:
-                audit = _read_json(audit_path)
-                if not audit.get("passed") or audit.get("findings"):
-                    problems.append("independent native audit found problems")
-            except RecordError as exc:
-                problems.append(str(exc))
-        else:
-            problems.append("independent native audit report missing")
+        audit_problems, audit = _audit_problems(stage, native_exit, audit_exit)
+        problems.extend(audit_problems)
         manifest = {
             "schema_version": 2,
             "run_id": run_id,
@@ -460,7 +520,7 @@ def run(
             "input_identity_sha256": _sha(stage / "input-identity.json"),
             "input_catalogs_checked": checked_before,
             "runner_args": runner_argv,
-            "native_exit_code": native.returncode,
+            "native_exit_code": native_exit,
             "audit_exit_code": audit_exit,
             "files": _files(stage),
             "strategy_binding": strategy_binding,
@@ -480,12 +540,15 @@ def run(
             os.fsync(fd)
         finally:
             os.close(fd)
+        from research.records.trials import hand_off_run
         return {
             "run_id": run_id,
             "status": manifest["status"],
             "problems": problems,
             "manifest_sha256": _sha(target / "manifest.json"),
             "path": str(target),
+            "trial": trial,
+            "hand_off": hand_off_run(mode="sealed", run_dir=target, audit=audit, run_id=run_id),
         }
     finally:
         if stage.exists():
@@ -637,20 +700,25 @@ def register(
     archive = root.resolve() / run_id
     manifest = _read_json(archive / "manifest.json")
     attempt_id = manifest["attempt_id"]
-    from research.records.store import open_store
-    store = open_store()
-    if not hasattr(store, "adapter"):
-        raise ArtifactError("run registration requires the Dolt write owner")
     binding = manifest.get("record_binding")
     if binding is None:
         raise ArtifactError("seal has no start-time Dolt registration binding")
     if not isinstance(binding, dict) or binding.get("id") != "attempt:" + attempt_id:
         raise ArtifactError("seal record binding differs from its attempt")
+    if manifest["schema_version"] != 2:
+        raise ArtifactError("registration needs a seal run in a CI runtime image built on main")
+    from research.records.runtime import require_main_build
+    try:
+        require_main_build(manifest["runtime_identity"], _read_json(archive / "runtime-inspection.json"))
+    except RecordError as exc:
+        raise ArtifactError(str(exc)) from exc
+    from research.records.store import open_store
+    store = open_store()
+    if not hasattr(store, "adapter"):
+        raise ArtifactError("run registration requires the Dolt write owner")
     _attempt_snapshot(attempt_id, binding)
     summary_path = archive / "reports" / "summary.json"
     summary = _read_json(summary_path) if summary_path.is_file() else None
-    modern = manifest["schema_version"] == 2
-    files = {} if modern else _summary_source_files(archive, summary)
     record = {
         "schema_version": 1,
         "run_id": run_id,
@@ -659,14 +727,6 @@ def register(
         "nautilus_version": manifest.get("nautilus_version")
         or importlib.metadata.version("nautilus_trader"),
         "input_identity_sha256": manifest["input_identity_sha256"],
-        "source_files_sha256": {
-            field: (
-                summary[field]
-                if summary is not None
-                else _sha(archive / "source" / path)
-            )
-            for field, path in files.items()
-        },
         "cost_model": cost_model,
         "artifact_manifest_ref": {
             "path": f"artifact://{run_id}/manifest.json",
@@ -677,16 +737,13 @@ def register(
         "raw_reports": "sealed_local",
         "control_run_id": control_run_id,
     }
-    if modern:
-        from research.records.strategies import validate_binding
-        validate_binding(store.adapter, manifest["strategy_binding"])
-        inspection = _read_json(archive / "runtime-inspection.json")
-        record.update(strategy_binding=manifest["strategy_binding"], runtime_identity=manifest["runtime_identity"],
-                      effective_config_sha256=manifest["effective_config_sha256"],
-                      source_files_sha256={"strategy_source_sha256": manifest["strategy_binding"]["source_sha256"],
-                                           **inspection["source_files_sha256"]})
-    else:
-        record["source_revision"] = {"commit": manifest["source_commit"], "files": files}
+    from research.records.strategies import validate_binding
+    validate_binding(store.adapter, manifest["strategy_binding"])
+    inspection = _read_json(archive / "runtime-inspection.json")
+    record.update(strategy_binding=manifest["strategy_binding"], runtime_identity=manifest["runtime_identity"],
+                  effective_config_sha256=manifest["effective_config_sha256"],
+                  source_files_sha256={"strategy_source_sha256": manifest["strategy_binding"]["source_sha256"],
+                                       **inspection["source_files_sha256"]})
     if checked["status"] == "passed":
         if summary is None:
             raise ArtifactError("passed seal has no native summary")
@@ -746,16 +803,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     replay = commands.add_parser(
-        "run", help="execute a fixed Dolt strategy revision in the pinned OCI image and seal evidence"
+        "run", help="every native replay: seal a fixed Dolt strategy revision, or --explore a draft into /tmp"
     )
-    replay.add_argument("--root", type=Path, required=True)
-    replay.add_argument("--run-id", required=True)
-    replay.add_argument("--attempt-id", required=True)
-    replay.add_argument("--strategy-id", required=True, help="published Dolt strategy identity")
-    replay.add_argument("--strategy-revision", type=int, required=True)
-    replay.add_argument("--source-at", required=True, help="exact Dolt commit containing the source revision")
-    replay.add_argument("--runtime", type=Path, required=True, help="immutable OCI runtime identity JSON")
-    replay.add_argument("--input-identity", type=Path, required=True)
+    replay.add_argument("--runtime", help="CI runtime image reference (tag or digest); default: the current main image")
+    replay.add_argument("--explore", action="store_true",
+                        help="replay a draft --strategy-file into a temporary --output; nothing is sealed")
+    replay.add_argument("--strategy-file", type=Path)
+    replay.add_argument("--strategy-class")
+    replay.add_argument("--output", type=Path)
+    replay.add_argument("--root", type=Path)
+    replay.add_argument("--run-id")
+    replay.add_argument("--attempt-id")
+    replay.add_argument("--strategy-id", help="published Dolt strategy identity")
+    replay.add_argument("--strategy-revision", type=int)
+    replay.add_argument("--source-at", help="exact Dolt commit containing the source revision")
+    replay.add_argument("--input-identity", type=Path)
     replay.add_argument("runner_args", nargs=argparse.REMAINDER)
     check = commands.add_parser("verify", help="rehash one sealed run")
     check.add_argument("--root", type=Path, required=True)
@@ -797,22 +859,36 @@ def main() -> int:
     identity.add_argument("--coins", nargs="+", required=True)
     identity.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.command == "run":
+        explore_args, seal_args = ("strategy_file", "strategy_class", "output"), (
+            "root", "run_id", "attempt_id", "strategy_id", "strategy_revision", "source_at", "input_identity")
+        needed, refused = (explore_args, seal_args) if args.explore else (seal_args, explore_args)
+        missing = [name for name in needed if getattr(args, name) is None]
+        extra = [name for name in refused if getattr(args, name) is not None]
+        if missing or extra:
+            parser.error(f"run {'--explore ' if args.explore else ''}needs "
+                         + ", ".join("--" + name.replace("_", "-") for name in needed)
+                         + " and refuses " + ", ".join("--" + name.replace("_", "-") for name in refused))
     try:
         if args.command == "run":
             runner_args = args.runner_args
             if runner_args and runner_args[0] == "--":
                 runner_args = runner_args[1:]
-            result = run(
-                root=args.root,
-                run_id=args.run_id,
-                attempt_id=args.attempt_id,
-                strategy_id=args.strategy_id,
-                strategy_revision=args.strategy_revision,
-                source_at=args.source_at,
-                runtime=args.runtime,
-                input_identity=args.input_identity,
-                runner_argv=runner_args,
-            )
+            if args.explore:
+                result = explore(strategy_file=args.strategy_file, strategy_class=args.strategy_class,
+                                 output=args.output, runtime=args.runtime, runner_argv=runner_args)
+            else:
+                result = run(
+                    root=args.root,
+                    run_id=args.run_id,
+                    attempt_id=args.attempt_id,
+                    strategy_id=args.strategy_id,
+                    strategy_revision=args.strategy_revision,
+                    source_at=args.source_at,
+                    runtime=args.runtime,
+                    input_identity=args.input_identity,
+                    runner_argv=runner_args,
+                )
         elif args.command == "verify":
             result = verify(args.root, args.run_id)
         elif args.command == "report":
