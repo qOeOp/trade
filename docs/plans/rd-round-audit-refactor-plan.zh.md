@@ -134,25 +134,34 @@
   - 从树里删掉 `receipts/` 的 9 个历史回执，文档改用 commit 永久链接。
   - 6 个模块合并成"加载 / 运行 / 报告"三块，去掉 replay_util、node_strategy 这类转接层；以行数和依赖边减少为准，不改报告契约。
   - 试验日志（WS2 第 2 条）在这里实现：每次原生回放自动追加一行，包括策略源哈希、窗口、币种和时间。
+- **已定（2026-10-11，镜像与环境）**：
+  1. **镜像由 CI 构建，推到公开的 GHCR，只构建 linux/arm64**（用 GitHub 原生 arm64 runner）。
+     - 镜像带 OCI 标签 `org.opencontainers.image.revision`，即 Git commit。
+     - main 合并后构建的是正式镜像，并更新"当前"指针（例如 `main` 标签）。`artifacts run` 不传 `--runtime` 时，解析"当前"并记录 digest。
+     - PR 分支也由 CI 构建，打"非 main"标签，供探索和工程使用，例如运行器改动在合并前跑配对原生回放。
+     - 本机不再构建镜像，去掉本机 registry 和手写的运行时身份 JSON。
+  2. **冻结和确认只接受 main 构建的镜像**：镜像标签里的 commit 必须在 origin/main 上。探索和工程可以用任何 CI 镜像，试验日志照记。缺产品能力，就先合并再冻结。
+  3. **新鲜度检查**：冻结和确认写入前，CLI 检查自身代码是否包含 origin/main 的最新提交，落后就拒绝。这需要一次 git fetch。探索不拦。
+  4. **账本具名档案**：CLI 用 `--ledger NAME` 选择账本，去掉 `TRADE_RECORDS_CONFIG`。隔离账本的库名必须不同于活动账本，写入时校验。临时账本由启动它的命令负责关闭；`ledger status` 列出所有在跑的账本。
+  5. **所有原生回放走同一个入口**：`artifacts run` 增加轻量的探索模式，不封存、输出到 `/tmp`，但照样写试验日志。不再直接用 `docker run` 跑回放或探针。
+  6. **项目改为可安装的包**（`pyproject.toml` 去掉 `package = false`），镜像里同样可导入。仓库外的探索脚本用 `uv run --project` 就能 import，不再手补 PYTHONPATH。
+  7. **旧镜像保留**：本机 registry 里已有封存引用的镜像，先用 `docker save` 归档到私有目录并校验 digest，再停掉 registry。不删除任何镜像。
 - **根因**：
   - 没有"当前运行时"指针；`artifacts run` 只核对镜像 digest，不核对镜像代码来源。
+  - 镜像手工构建、推到端口不固定的本机 registry，运行时身份是手写 JSON。
   - 运行配置（如 `--exit-variant`）与策略源分离，封存前没有预检。
-  - 研究会话在落后的 worktree 上跑；读者脚本没有 `python -m` 入口；隔离账本只靠环境变量区分；进程用完不关。
+  - 研究会话在落后的 worktree 上跑；`package = false` 导致仓库外脚本 import 失败；隔离账本只靠环境变量区分；进程用完不关。
 - **证据**：
   - 同一份 BTC/ETH 回放跑了 4 次（4 个镜像），结果逐字段一致；D05 选到没有 exposures 输出的旧镜像。
-  - D07 之后的已登记运行用的镜像，是从 #1510 的 worktree 构建的（`order-history-derived-runtime.Dockerfile`）。
+  - D07 之后的已登记运行用的镜像，是从 #1510 的 worktree 构建的（`order-history-derived-runtime.Dockerfile`）；镜像仓库端口在 15000 和 64928 之间变过。
   - D23 照抄 P5 的 exit variant，照样走完封存才失败。
-  - PYTHONPATH 漏设出现在 D01、S06、D11，D25 的 3 个探针也失败；13336 端口的 Dolt 空跑 6 小时（已于 10-11 停掉）。
+  - PYTHONPATH 漏设出现在 D01、S06、D11，D25 的 3 个探针也失败（`docker run --entrypoint python` 时 `/opt/trade` 不在 `sys.path` 上）；13336 端口的 Dolt 空跑 6 小时（已于 10-11 停掉）。
   - Codex 用的 CLI 和 skill 来自 143b50357，缺少 #1505 的修补。
-- **重构方向**：
-  - 一个从 main 构建的当前运行时登记；已登记的研究运行只接受有来源记录的镜像。
-  - 策略在源码里声明自己的配置；封存前做预检。
-  - 研究会话开跑前检查自身是否基于最新 main。
-  - 账本使用具名档案（profile），不再只靠环境变量。
-- **待议**：
-  - 是否允许研究在未合并镜像上跑（作为工程用途）？边界在哪里？
-  - 开跑前的新鲜度检查放在 skill 里，还是放在 CLI 里？
-- **验收**：本轮 D05/D23 这类失败在预检阶段就被拦下。
+- **验收**：
+  - 合并到 main 后，CI 产出带 revision 标签的 arm64 镜像，`artifacts run` 不传 `--runtime` 就能用上它。
+  - 用 PR 镜像做冻结写入会被拒；用落后的 checkout 做冻结写入会被拒。
+  - 本轮 D05（选错镜像）、D23（变体配置）、D25（PYTHONPATH 和探针）这三类失败，在新结构下不可能再发生，或在第一步就被拦下。
+  - 运行器拍平、合并后，经配对原生回放确认行为一致（订单、成交、费用、资金费、账户经济）。
 
 ### WS6 来源取证
 
