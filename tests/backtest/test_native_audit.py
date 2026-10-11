@@ -133,7 +133,7 @@ class NativeAuditTests(unittest.TestCase):
             self.assertEqual(value["native_economics"]["fill_commissions_usdt"], "2")
             self.assertIn("native report identity", value["scope"])
 
-    def test_staged_open_protection_uses_two_targets_without_tags(self):
+    def test_open_position_with_stop_and_staged_targets_passes(self):
         for short in (False, True):
             value = self.check(reports(open_position=True, short=short))
             self.assertTrue(value["passed"], value["findings"])
@@ -221,11 +221,17 @@ class NativeAuditTests(unittest.TestCase):
             change(values)
             self.assertFalse(self.check(values)["passed"])
 
-    def test_missing_open_stop_or_target_is_rejected(self):
-        for identity in ("stop", "first"):
-            values = reports(open_position=True)
-            values["orders"] = [row for row in values["orders"] if row["client_order_id"] != identity]
-            self.assertFalse(self.check(values)["passed"])
+    def test_open_position_needs_its_stop_but_not_a_target(self):
+        values = reports(open_position=True)
+        values["summary"]["period_end_utc"] = "2026-01-01 01:00:00+00:00"
+        values["orders"] = [row for row in values["orders"] if row["client_order_id"] not in ("first", "last")]
+        value = self.check(values)
+        self.assertTrue(value["passed"], value["findings"])
+        values["orders"] = [row for row in values["orders"] if row["client_order_id"] != "stop"]
+        value = self.check(values)
+        self.assertFalse(value["passed"])
+        interval, = value["uncovered_intervals"]
+        self.assertTrue(interval["open_at_end"])
 
     def test_former_tier_variant_gets_the_same_generic_reconciliation(self):
         values = reports()

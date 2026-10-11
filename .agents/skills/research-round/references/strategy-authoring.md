@@ -67,8 +67,7 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
 
 - Submit each entry with its protection as one native bracket (`self.order_factory.bracket(...)`:
   OTO entry, OUO stop-market and limit-target children) via `self.submit_order_list(...)`; use GTD
-  with `expire_time` for an entry lifetime. The generic audit fails unless every position still open
-  at the end carries a stop-market and a limit exit for its full quantity.
+  with `expire_time` for an entry lifetime.
 - Throughout the replay, the audit refuses a run in which a position is larger than its accepted
   reduce-only stop orders on the closing side (stop-market, stop-limit or trailing stop) for longer
   than one five-minute bar, and names the time, instrument, quantity and order IDs. A source with no

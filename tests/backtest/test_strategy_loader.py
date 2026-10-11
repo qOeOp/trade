@@ -193,6 +193,8 @@ class StrategyLoaderTests(unittest.TestCase):
         for body, message in (("    def replay_diagnostics(self):\n        return {}\n", "replay_integrity_findings"),
                               ("    DAILY_WARMUP = 'yes'\n    def replay_diagnostics(self):\n        return {}\n"
                                "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP"),
+                              ("    DAILY_WARMUP = 1\n    def replay_diagnostics(self):\n        return {}\n"
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP"),
                               ("    USES_STOP_LOSS = 0\n    def replay_diagnostics(self):\n        return {}\n"
                                "    def replay_integrity_findings(self, failed=False):\n        return []\n", "USES_STOP_LOSS")):
             self.source.write_text("from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n" + body)

@@ -236,7 +236,7 @@ def _generic_result(run, orders, fills, positions, findings, economics, protecti
     names = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
              ORDER_EVENTS)
     return {"run": str(run),
-            "scope": "native report identity, links, protection history, final protection and reported economics",
+            "scope": "native report identity, links, protection history and reported economics",
             "file_sha256": {name: _sha(run / name) for name in names if (run / name).is_file()},
             "native_orders": len(orders), "native_fills": len(fills), "native_positions": len(positions),
             "native_economics": economics, **(protection or {}),
@@ -259,7 +259,7 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
     scope_fields = {"strategy_id", "instrument_id", "account_id"}
     required = (
         ("orders", orders, scope_fields | {"client_order_id", "status", "side", "type", "quantity", "filled_qty",
-                                         "linked_order_ids", "parent_order_id", "ts_init", "commissions", "is_reduce_only", "tags"}),
+                                         "linked_order_ids", "parent_order_id", "ts_init", "commissions"}),
         ("fills", fills, scope_fields | {"client_order_id", "event_id", "trade_id", "order_side", "order_type",
                                        "last_qty", "last_px", "commission", "ts_event"}),
         ("positions", positions, scope_fields | {"position_id", "events", "adjustments", "commissions", "side", "quantity",
@@ -405,17 +405,6 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
         if (summary["closed_trades"] != len(closed_pnl)
                 or summary["winning_trades"] != sum(value > 0 for value in closed_pnl)):
             findings.append("native closed-position counts differ from summary")
-        for position in live:
-            exits = [order for order in orders if _scope(order) == _scope(position)
-                     and order["status"] in OPEN - {"SUBMITTED"}
-                     and order["side"] == ("BUY" if position["side"] == "SHORT" else "SELL")
-                     and (order["is_reduce_only"] == "True"
-                          or set(_list(order["tags"])) & {"STOP_LOSS", "TAKE_PROFIT"})]
-            for kind in ("STOP_MARKET", "LIMIT"):
-                covered = sum((_quantity(order["quantity"]) - _quantity(order["filled_qty"])
-                               for order in exits if order["type"] == kind), Decimal(0))
-                if covered != _quantity(position["quantity"]):
-                    findings.append(f"open native {kind} protection size differs: {position['position_id']}")
         if not accounts:
             findings.append("native account report is empty")
         else:

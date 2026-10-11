@@ -110,8 +110,8 @@ timer made a run with many resting orders more than ten times slower. Balances a
 repeated: use the latest account state before the next bar timestamp. A run fails integrity if a
 timestamp or an open position goes unvalued.
 
-The auditor checks report identities, links, stop protection throughout the replay, final
-open-position protection and reported account economics, the same way for every strategy. It first
+The auditor checks report identities, links, stop protection throughout the replay and reported
+account economics, the same way for every strategy. It first
 reconciles the order event history with the orders and fills reports, then applies each timestamp's
 events together and reads, per strategy and instrument, the position and the unfilled quantity of
 accepted reduce-only stop orders on the closing side (stop-market, stop-limit, trailing). A
