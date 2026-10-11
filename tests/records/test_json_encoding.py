@@ -10,20 +10,16 @@ import unittest
 
 
 class JsonEncodingTests(unittest.TestCase):
-    def test_json_read_write_and_backend_config_under_ascii_locale(self):
-        # The backend config requires an external location. This temporary
-        # test directory uses the home directory and is removed after the test.
+    def test_json_read_write_under_ascii_locale(self):
         with tempfile.TemporaryDirectory(prefix="trade-json-encoding-", dir=Path.home()) as directory:
             script = textwrap.dedent(r'''
                 import json
                 import locale
                 from pathlib import Path
                 import sys
-                from unittest.mock import Mock, patch
-
+                
                 from research.records.common import _read_json
                 from research.records.artifacts import _write_json
-                from research.records import ledger
 
                 assert locale.getencoding().upper() in {"US-ASCII", "ANSI_X3.4-1968", "ASCII"}
                 root = Path(sys.argv[1])
@@ -37,17 +33,6 @@ class JsonEncodingTests(unittest.TestCase):
                 _write_json(output, value, exclusive=True)
                 assert output.read_bytes() == expected
                 assert _read_json(output) == value
-
-                config_file = root / "backend.json"
-                adapter = Mock()
-                adapter.initialize.return_value = {"initialized": True}
-                with patch.object(ledger, "config_path", return_value=config_file), \
-                     patch.object(ledger, "_binary", return_value=root / "dolt"), \
-                     patch.object(ledger, "start", return_value={"running": True}), \
-                     patch.object(ledger, "DoltStore", return_value=adapter):
-                    ledger.initialize(root / "dolt", root / "data-root")
-                config = _read_json(config_file)
-                assert config_file.read_bytes() == (json.dumps(config, indent=2) + "\n").encode("utf-8")
 
                 print("utf8-json-roundtrip-ok")
             ''')

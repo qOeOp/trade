@@ -14,13 +14,13 @@ from research.records import runtime
 from research.records.runtime import LAYOUTS, container_command, inspect_runtime, validate_identity
 
 
-SOURCE_PATHS = LAYOUTS["r1-native-v1"]["source_paths"]
-AUDIT_PATH = LAYOUTS["r1-native-v1"]["audit_path"]
+SOURCE_PATHS = LAYOUTS["r1-native-v4"]["source_paths"]
+AUDIT_PATH = LAYOUTS["r1-native-v4"]["audit_path"]
 
 
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64,
             "image_digest": "sha256:" + "a" * 64, "platform": "linux/arm64",
-            "runtime_contract": "r1-native-v1"}
+            "runtime_contract": "r1-native-v4"}
 
 
 class RuntimeIdentityTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class RuntimeIdentityTests(unittest.TestCase):
             validate_identity({**IDENTITY, "image_digest": "sha256:" + "b" * 64})
 
     def probe(self, **changes):
-        value = {"runtime_contract": "r1-native-v1", "nautilus_version": "fixture",
+        value = {"runtime_contract": "r1-native-v4", "nautilus_version": "fixture",
                  "python_version": "fixture", "dependency_lock_sha256": "b" * 64,
                  "audit_source_sha256": "c" * 64, "effective_config": {"fixture": True},
                  "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},
@@ -110,14 +110,14 @@ class RuntimeIdentityTests(unittest.TestCase):
 
 
 class CurrentRuntimeTests(unittest.TestCase):
-    """The current runtime is the CI main tag; registration accepts only main builds of main's code."""
+    """The current runtime is the CI main tag; freezes and confirmations accept only main builds of main's code."""
 
     DIGEST = "sha256:" + "f" * 64
     REVISION = "1" * 40
 
     def image(self, repository=runtime.REPOSITORY, revision=REVISION):
         return {"RepoDigests": [f"{repository}@{self.DIGEST}"], "Os": "linux", "Architecture": "arm64",
-                "Config": {"Labels": {runtime.CONTRACT_LABEL: "r1-native-v3", runtime.REVISION_LABEL: revision}}}
+                "Config": {"Labels": {runtime.CONTRACT_LABEL: "r1-native-v4", runtime.REVISION_LABEL: revision}}}
 
     def docker(self, image):
         def run(command, **kwargs):
@@ -131,7 +131,7 @@ class CurrentRuntimeTests(unittest.TestCase):
             identity = runtime.resolve()
         self.assertEqual(calls.call_args_list[0].args[0], ["docker", "pull", "--quiet", runtime.CURRENT])
         self.assertEqual(identity, {"image_ref": f"{runtime.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
-                                    "platform": "linux/arm64", "runtime_contract": "r1-native-v3"})
+                                    "platform": "linux/arm64", "runtime_contract": "r1-native-v4"})
 
     def test_local_digest_reference_is_not_pulled(self):
         reference = f"{runtime.REPOSITORY}@{self.DIGEST}"
@@ -157,7 +157,7 @@ class CurrentRuntimeTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, b"", b"")
 
         identity = {"image_ref": image["RepoDigests"][0], "image_digest": self.DIGEST, "platform": "linux/arm64",
-                    "runtime_contract": "r1-native-v3"}
+                    "runtime_contract": "r1-native-v4"}
         with patch("research.records.runtime.subprocess.run", side_effect=self.docker(image)), \
              patch("research.records.runtime._git", side_effect=git):
             return runtime.require_main_build(identity, inspection or self.inspection(main))
@@ -180,46 +180,6 @@ class CurrentRuntimeTests(unittest.TestCase):
         other = self.inspection({**main, SOURCE_PATHS["runner_source_sha256"]: b"changed runner"})
         with self.assertRaisesRegex(RecordError, "code differs"):
             self.check(self.image(), inspection=other)
-
-
-class RuntimeComparisonTests(unittest.TestCase):
-    def records(self, modern=True):
-        base = {"integrity": "passed", "input_identity_sha256": "a" * 64,
-                "window": {}, "account": {}, "cost_model": "synthetic fixture", "nautilus_version": "fixture",
-                "audit_ref": {"path": "synthetic"}, "raw_reports": "sealed_local", "evidence_grade": "unknown"}
-        if modern:
-            base.update(strategy_binding={"fixture": True}, runtime_identity=IDENTITY.copy(), effective_config_sha256="b" * 64)
-        return {"candidate": {**base, "run_id": "candidate", "role": "candidate", "control_run_id": "control"},
-                "control": {**base, "run_id": "control", "role": "control", "control_run_id": None}}
-
-    def test_normal_research_comparison_rejects_runtime_and_configuration_changes(self):
-        from research.records.cli import _compare
-        records = self.records()
-        records["candidate"]["runtime_identity"] = {**IDENTITY, "platform": "linux/amd64"}
-        with self.assertRaisesRegex(RecordError, "engineering-audit"):
-            _compare("candidate", "control", records)
-        records = self.records()
-        records["candidate"]["effective_config_sha256"] = "c" * 64
-        with self.assertRaisesRegex(RecordError, "configuration differs"):
-            _compare("candidate", "control", records)
-
-    def test_legacy_to_oci_comparison_requires_explicit_engineering_scope(self):
-        from research.records.cli import _compare
-        records = self.records()
-        for field in ("strategy_binding", "runtime_identity", "effective_config_sha256"):
-            records["control"].pop(field)
-        with self.assertRaisesRegex(RecordError, "source_custody_backend"):
-            _compare("candidate", "control", records)
-        summary = {"per_coin": [{"instrument": "BTC-fixture"}], "final_equity_usdt": "1",
-                   "annualized_return_pct": "0", "closed_trade_win_rate": "0",
-                   "native_sharpe_365": "0", "native_max_drawdown_daily_close": "0"}
-        with patch("research.records.cli._check_source_revision", return_value="verified"), \
-             patch("research.records.cli._check_ref", return_value="verified"), \
-             patch("research.records.cli._read_evidence_json", return_value={"passed": True, "findings": []}), \
-             patch("research.records.cli._summary", return_value=summary):
-            result = _compare("candidate", "control", records, engineering_audit=True)
-        self.assertEqual(result["comparability"], "engineering_environment_migration")
-        self.assertIn("not a paired research decision", result["scope"])
 
 
 if __name__ == "__main__":

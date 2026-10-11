@@ -2,22 +2,21 @@
 
 The clean test for an Agent-developed candidate is market data that did not exist when it was
 frozen. Nothing needs to be collected in advance: a window is independent because the confirmation
-attempt was published before the window began. Data after the development window that already
-exists is not new; name the window by its start, not by a calendar period.
+plan was registered and timestamped before the window began. Data after the development window that
+already exists is not new; name the window by its start, not by a calendar period.
 
-1. **Freeze.** Pass review ([review.md](review.md)). Publish a pending confirmation attempt that binds
-   the frozen strategy and states in its plan the freeze review's material ID, the configuration,
-   image, cost model, window length and preregistered decision ranges. Exposure honestly lists the
-   development runs. Then run the provenance audit
-   (`$HOME/.local/share/trade/research-audits/provenance/run.sh`) so the registration time is
-   witnessed before a garbage collection clears the reflog.
+1. **Plan.** After a passed freeze, register the window with `confirm plan`
+   ([records.md](records.md)). Its start must lie after the registration (server time) and after the
+   plan's RFC 3161 timestamp, which `confirm plan` requests at once (if it fails, run
+   `ledger witness` before the window starts, or the plan can never confirm). Choose its length
+   from the frozen run's plan frequency so that it can hold at least 100 closed plans.
 2. **Wait** until the window has passed.
-3. **Build inputs** for that window with a data recipe and record their input identity
-   (`artifacts input-identity`, [seal.md](seal.md)).
-4. **Run once**, then `artifacts register --evidence-grade independent --dry-run`, then register for
-   real. Register every sealed run of the attempt.
-5. **Decide** against the preregistered ranges. A short window can refute an obvious failure but
-   cannot establish a high return.
+3. **Build inputs** for that window and run the frozen revision once, sealed, on a main image, with
+   the frozen run's coins and account ([runs.md](runs.md)).
+4. **Judge** with `confirm verdict`. The product checks that the run uses the frozen source inside
+   the window, that the plan was timestamped before the window began, and judges it against the
+   user's three targets at the full drawdown budget with at least 100 closed plans.
 
-Code checks only the strategy binding and the time order; review checks the rest. A used window is
-development-exposed afterwards. Data from before the attempt's publication is never independent.
+One plan per freeze. A used window is development-exposed afterwards; data from before the plan's
+registration is never independent. A short window can refute an obvious failure but cannot
+establish a high return.

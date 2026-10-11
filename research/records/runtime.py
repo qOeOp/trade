@@ -15,16 +15,8 @@ from research.records.common import RecordError
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
-_LEGACY_PATHS = {f"{name}_source_sha256": f"backtest/r1/{name}.py"
-                 for name in ("runner", "native_node", "node_strategy", "replay_inputs", "replay_util", "strategy_loader")}
-_LEGACY_PATHS["runner_source_sha256"] = "backtest/r1/run_portfolio.py"
-# Where each contract's image keeps its runner, audit and identity probe. Sealed v1-v3 runs keep
-# the backtest/r1 layout they were made with; v4 is the flattened backtest package.
-_LEGACY = {"runner": "backtest.r1.run_portfolio", "audit": "backtest.r1.checks.audit_tiered_native",
-           "audit_args": ["--catalog-root", "/inputs/catalog"], "probe": "backtest.r1.runtime_identity",
-           "source_paths": _LEGACY_PATHS, "audit_path": "backtest/r1/checks/audit_tiered_native.py"}
+# Where the image keeps its runner, audit and identity probe.
 LAYOUTS = {
-    "r1-native-v1": _LEGACY, "r1-native-v2": _LEGACY, "r1-native-v3": _LEGACY,
     "r1-native-v4": {"runner": "backtest.run", "audit": "backtest.checks.audit", "audit_args": [],
                      "probe": "backtest.run",
                      "source_paths": {"runner_source_sha256": "backtest/run.py",
@@ -118,14 +110,14 @@ def _on_main(revision: str) -> bool:
 
 
 def require_main_build(identity: dict, inspection: dict) -> str:
-    """Research registration accepts only a CI image built from a commit on origin/main.
+    """Freezes and confirmations accept only a CI image built from a commit on origin/main.
 
     The revision label is bound to the manifest digest; the observed runtime code must also be
     that commit's bytes, so a relabelled image of other code is refused too.
     """
     identity = validate_identity(identity)
     if _repository(identity["image_ref"]) != REPOSITORY:
-        raise RecordError(f"registration needs a CI image from {REPOSITORY}, not {identity['image_ref']}",
+        raise RecordError(f"a freeze or confirmation needs a CI image from {REPOSITORY}, not {identity['image_ref']}",
                           code="RUNTIME_NOT_MAIN", write_status="not_written")
     try:
         image = _image(identity["image_ref"])
@@ -148,6 +140,13 @@ def require_main_build(identity: dict, inspection: dict) -> str:
             raise RecordError(f"runtime image code differs from {path} at its revision {revision}",
                               code="RUNTIME_NOT_MAIN", write_status="not_written")
     return revision
+
+
+def image_revision(identity: dict) -> str | None:
+    """The image's Git commit label, read from the local image (None when it carries none)."""
+    image = _image(validate_identity(identity)["image_ref"])
+    revision = ((image.get("Config") or {}).get("Labels") or {}).get(REVISION_LABEL)
+    return revision if isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision) else None
 
 
 def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:

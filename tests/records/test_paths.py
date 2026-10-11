@@ -1,21 +1,18 @@
 """All retained local paths exclude the same resolved temporary roots."""
 
-import hashlib
 import json
 import os
 from pathlib import Path
-import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from research.records import artifacts, evidence, ledger
-from research.records.common import ROOT, RecordError, _is_temporary_path
+from research.records.common import _is_temporary_path
 
 
-class RetainedPathTests(unittest.TestCase):
+class TemporaryPathTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="trade-path-test-", dir=Path.home())
         self.addCleanup(self.directory.cleanup)
@@ -37,53 +34,6 @@ class RetainedPathTests(unittest.TestCase):
         link = self.home / "temp-alias"
         link.symlink_to(self.system_temp, target_is_directory=True)
         self.assertTrue(_is_temporary_path(link / "proof.json"))
-
-    def test_all_custody_callers_reject_conventional_platform_and_linked_temp_paths(self):
-        alias = self.home / "temp-alias"
-        alias.symlink_to(self.system_temp, target_is_directory=True)
-        for parent in (Path("/tmp") / "trade-disallowed-path-fixture", self.system_temp, alias, ROOT):
-            target = parent / "new-retained-fixture"
-            with self.subTest(parent=parent):
-                with patch.object(ledger, "_binary") as binary:
-                    with self.assertRaisesRegex(RecordError, "outside Git and /tmp"):
-                        ledger.initialize("/unused-dolt", root=target)
-                    binary.assert_not_called()
-                with patch.object(ledger, "DoltStore") as store:
-                    with self.assertRaisesRegex(RecordError, "outside Git and /tmp"):
-                        ledger.backup({}, target)
-                    store.assert_not_called()
-                with self.assertRaisesRegex(RecordError, "outside Git and /tmp"):
-                    evidence.retain_file(target / "evidence.json", "a" * 64)
-                with self.assertRaisesRegex(artifacts.ArtifactError, "outside Git and /tmp"):
-                    artifacts._private_root(target)
-                self.assertFalse(target.exists())
-
-    def test_backend_config_is_checked_before_writing(self):
-        for parent in (Path("/tmp") / "trade-disallowed-path-fixture", self.system_temp, ROOT):
-            destination = parent / "new-config.json"
-            with self.subTest(parent=parent), patch.object(ledger, "config_path", return_value=destination), \
-                 patch.object(ledger, "_binary") as binary:
-                with self.assertRaisesRegex(RecordError, "backend config"):
-                    ledger.initialize("/unused-dolt", root=self.home / "database")
-                binary.assert_not_called()
-                self.assertFalse(destination.exists())
-
-    def test_normal_retained_home_evidence_passes_and_artifact_permissions_still_apply(self):
-        raw = b"retained source bytes\n"
-        retained = self.home / "evidence.json"
-        retained.write_bytes(raw)
-        digest = hashlib.sha256(raw).hexdigest()
-        self.assertEqual(evidence.retain_file(retained, digest)["body"]["sha256"], digest)
-        root = self.home / "archive"
-        self.assertEqual(artifacts._private_root(root), root.resolve())
-        self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
-        alias = self.home / "archive-alias"
-        alias.symlink_to(root, target_is_directory=True)
-        with self.assertRaisesRegex(artifacts.ArtifactError, "symlink"):
-            artifacts._private_root(alias)
-        root.chmod(0o755)
-        with self.assertRaisesRegex(artifacts.ArtifactError, "private"):
-            artifacts._private_root(root)
 
     def test_fresh_processes_honor_changed_tmpdir_without_losing_tmp_exclusion(self):
         script = """

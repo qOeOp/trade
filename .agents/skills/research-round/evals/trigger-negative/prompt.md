@@ -1,5 +1,5 @@
 ---
-description: Trigger negative — an upstream funding-settlement check on a sealed attempt's report, phrased in research vocabulary, does not invoke the skill and is still answered.
+description: Trigger negative — an upstream funding-settlement check on a stored run's report, phrased in research vocabulary, does not invoke the skill and is still answered.
 tags: [trigger]
 plugins: ["../.."]
 max_turns: 8
@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 我们在做加密永续策略研究。回测走 Nautilus 原生回放，输入是 5 分钟 K 线、标记价格更新和资金费率更新，资金费由 Nautilus 自己结算。
 
-上周一个 attempt 的候选回测已经封存，决定也已经发布。我回头翻它的原生报告时，看到 BTCUSDT 永续的一笔资金费：
+上周一次冻结用的回测已经入库，冻结判定也已经写了。我回头翻它的原生报告时，看到 BTCUSDT 永续的一笔资金费：
 
 - 持仓：多 0.5 BTC，开仓均价 62,000 USDT，08:00 UTC 结算时仍持有
 - 这次结算的资金费率：+0.0100%

@@ -1,38 +1,32 @@
-"""Every native replay reports one trial through a single interface (stored in Dolt by WS2)."""
+"""Every replay reports a well-formed trial before it starts."""
 
-import json
-import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import patch
 
-from research.records.trials import hand_off_run, report_trial
-
-
-TRIAL = {"strategy_source_sha256": "a" * 64, "coins": ["BTC", "ETH"], "start": "2025-01-01T00:00:00Z",
-         "trade_start": "2025-01-02T00:00:00Z", "end": "2025-02-01T00:00:00Z", "image_digest": "sha256:" + "b" * 64}
+from research.records.trials import report_trial
 
 
-class TrialReportTests(unittest.TestCase):
-    def test_exploration_trial_is_written_once_into_its_run_directory(self):
-        with tempfile.TemporaryDirectory() as folder:
-            trial = report_trial(mode="explore", run_dir=Path(folder), **TRIAL)
-            self.assertEqual(json.loads((Path(folder) / "trial.json").read_text()), trial)
-            with self.assertRaises(FileExistsError):
-                report_trial(mode="explore", run_dir=Path(folder), **TRIAL)
-        self.assertEqual(trial["window"], {"start": TRIAL["start"], "trade_start": TRIAL["trade_start"], "end": TRIAL["end"]})
-        self.assertIsNone(trial["run_id"])
+IMAGE = "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64
+GOOD = {"mode": "explore", "strategy_source_sha256": "a" * 64, "coins": ["BTC"], "start": "2026-01-01T00:00:00Z",
+        "trade_start": "2026-01-02T00:00:00Z", "end": "2026-02-01T00:00:00Z", "image_ref": IMAGE}
 
-    def test_incomplete_or_inconsistent_trials_are_refused(self):
-        for changes in ({"mode": "sealed"}, {"mode": "explore", "run_id": "RUN"}, {"mode": "other"},
-                        {"mode": "explore", "image_digest": "latest"}, {"mode": "explore", "coins": []},
-                        {"mode": "explore", "strategy_source_sha256": "draft"}):
-            with self.subTest(changes=changes), self.assertRaises(ValueError):
-                report_trial(**{**TRIAL, **changes})
 
-    def test_hand_off_carries_the_run_directory_and_audit_result(self):
-        handed = hand_off_run(mode="explore", run_dir=Path("/tmp/run"), audit={"passed": False, "findings": ["x"]})
-        self.assertEqual((handed["run_dir"], handed["audit_passed"], handed["audit_findings"]), ("/tmp/run", False, ["x"]))
-        self.assertFalse(hand_off_run(mode="sealed", run_dir=Path("/tmp/run"), audit=None, run_id="R")["audit_passed"])
+class TrialTests(unittest.TestCase):
+    def test_a_trial_is_written_with_a_fresh_operation_id(self):
+        with patch("research.records.records.report_trial", return_value={"trial_id": 7}) as write:
+            self.assertEqual(report_trial({"name": "x"}, **GOOD), 7)
+            report_trial({"name": "x"}, **GOOD)
+        first, second = (call.kwargs["op"] for call in write.call_args_list)
+        self.assertNotEqual(first, second)  # two replays of one draft are two trials
+        self.assertEqual(write.call_args.kwargs["source_sha256"], "a" * 64)
+
+    def test_incomplete_trials_are_refused_before_any_write(self):
+        with patch("research.records.records.report_trial") as write:
+            for change in ({"mode": "seal"}, {"strategy_source_sha256": "x"}, {"coins": []},
+                           {"image_ref": "ghcr.io/qoeop/trade-runtime:main"}):
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    report_trial({"name": "x"}, **{**GOOD, **change})
+        write.assert_not_called()
 
 
 if __name__ == "__main__":

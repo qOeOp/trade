@@ -1,9 +1,10 @@
 # Native replay
 
 Every native replay goes through `research.records.artifacts run`: `--explore` runs a draft into a
-new `/tmp` directory, and a run that a decision cites is sealed ([seal
-reference](../.agents/skills/research-round/references/seal.md)). Both execute `python -m
-backtest.run` and the native auditor in the same CI-built image and report one trial. Never start a
+new `/tmp` directory, and a published revision that a freeze or confirmation cites is sealed and
+stored in the research ledger ([runs
+reference](../.agents/skills/research-round/references/runs.md)). Both execute `python -m
+backtest.run` and the native auditor in the same CI-built image and write one trial row. Never start a
 replay or a probe with `docker run` or `python -m backtest.run` directly.
 
 | Path | Role |
@@ -45,10 +46,8 @@ read-only source Catalog, after a coverage check. There is no second matching or
 ```bash
 uv sync --frozen
 STRATEGY_WORKDIR=$(mktemp -d /tmp/trade-draft.XXXXXX)
-uv run --frozen python -m research.records.cli --at "$SOURCE_AT" \
-  strategy export STRATEGY-ID --revision "$STRATEGY_REVISION" \
-  --destination "$STRATEGY_WORKDIR/strategy.py" \
-  --binding-output "$STRATEGY_WORKDIR/binding.json"
+uv run --frozen python -m research.records.cli strategy export STRATEGY-ID@N \
+  --destination "$STRATEGY_WORKDIR/strategy.py"
 R1_COINS=(BTC ETH BNB ADA XRP SOL DOGE LTC TRX LINK DOT AVAX BCH ETC XLM ATOM FIL NEAR UNI AAVE ICP APT ARB SUI OP INJ TIA SEI PEPE SHIB HBAR ALGO FET WLD IMX STX LDO)
 uv run --frozen python -m research.records.artifacts run --explore \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" --strategy-class ENTRY-CLASS \
@@ -62,7 +61,7 @@ uv run --frozen python -m research.records.artifacts run --explore \
 ```
 
 A draft file needs no export. Exploration hashes the file it runs; a sealed run binds the source
-to the ledger's publication revision, fixed commit and exact source hash. `replay_diagnostics`
+to the ledger's revision, its commit and exact source hash. `replay_diagnostics`
 supplies source counters and `replay_integrity_findings` source failure findings; any finding or
 denied/rejected order fails the run.
 
@@ -83,8 +82,8 @@ hand-written runtime identity.
 `@sha256:` digest, `image_digest`, `platform`, `runtime_contract`) is read from the image, and
 `python -m backtest.run --describe` inside it reports its code hashes and the resolved
 configuration. Replay and audit run with no network, a read-only root, read-only source and input
-mounts and one writable report mount. `artifacts register` accepts only an image whose revision is
-on origin/main and whose observed code equals that commit's bytes.
+mounts and one writable report mount. A freeze or confirmation accepts only a run on an image
+whose revision is on origin/main and whose observed code equals that commit's bytes.
 
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
 `backtest` and `research` from a script anywhere, and the image imports `backtest` from any
@@ -151,10 +150,9 @@ avoid a synchronous sibling rejection; recheck this before changing Nautilus.
 
 ## History
 
-Seals from the `backtest/r1` layout (`r1-native-v1` to `v3`) keep their recorded contract names and
-still verify and report; `research.records.runtime.LAYOUTS` maps each contract to the runner,
-auditor and source paths its image used. Their images were built locally and remain in the local
-Docker image store until WS7; the v1 and v2 constructors received sizing arguments and the v1 to v3
+Seals from the `backtest/r1` layout (`r1-native-v1` to `v3`) are no longer read by current code;
+`research.records.runtime.LAYOUTS` knows only `r1-native-v4`. Their directories and locally built
+images remain until WS7; the v1 and v2 constructors received sizing arguments and the v1 to v3
 runners took signal, exit and warmup options that `r1-native-v4` refuses.
 
 The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
@@ -167,9 +165,9 @@ Exposed-year implementation acceptance is not independent strategy qualification
 
 ## Recovery boundaries
 
-Seals capture exported source, exact bindings, resolved configuration, observed runtime identity,
-native reports and logs. `artifacts restore` restores the native reports; it does not provision the
-image or reconstruct the source Catalog. Full replay recovery also needs native Dolt history, the
-image (pull its digest from GHCR) and canonical inputs. The first migration's custody locations and
+A stored run holds the revision's source, resolved configuration, observed runtime identity, input
+identity and the native reports, in the research ledger and its `dolt_backup` copy. It does not
+hold the image or the source Catalog: full replay recovery also needs the image (pull its digest
+from GHCR) and canonical inputs. The first migration's custody locations and
 contract are recorded in the [migration record](../docs/plans/dolt-strategy-oci-migration.zh.md);
 historical local addresses are not product dependency paths.

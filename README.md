@@ -24,16 +24,16 @@ sizing included; the runner takes no strategy parameter. Seals of
 
 ```bash
 uv sync --frozen
-uv run --frozen python -m research.records.cli strategy list
-uv run --frozen python -m research.records.cli strategy show r1.broad-two-tier --brief
+uv run --frozen python -m research.records.cli ledger status
+uv run --frozen python -m research.records.cli round status
 uv run --frozen python -m research.records.artifacts run --help
 ```
 
 Historical Catalog inputs remain outside Git. Research needs no exchange
-trading credential. Direct `/tmp` reports are temporary; registered artifacts,
-Dolt backups and retained image bytes belong in private external directories.
-New runs bind the Dolt strategy revision, actual image manifest digest,
-platform, inputs and resolved configuration.
+trading credential. Persistent research data lives only in the Dolt research
+ledger and its `dolt_backup` copy; `/tmp` reports are working copies. A stored
+run binds the strategy revision, actual image manifest digest, platform, inputs
+and resolved configuration.
 
 The documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/).
 Build the original Next.js/Fumadocs site locally with

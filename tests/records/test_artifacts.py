@@ -1,439 +1,202 @@
-"""Custody integrity and recovery boundaries using a small sealed fixture."""
+"""Replay orchestration: inputs, exploration and a sealed run stored in a throwaway ledger."""
 
-import contextlib
+from __future__ import annotations
+
+from argparse import Namespace
+import hashlib
 import json
+from pathlib import Path
 import shutil
-import stat
 import subprocess
 import tempfile
 import unittest
-from argparse import Namespace
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from research.records import artifacts
-from research.records.artifacts import ArtifactError
-from research.records.artifacts import _files
-from research.records.artifacts import _sha
-from research.records.artifacts import _check_inputs
-from research.records.artifacts import _private_root
-from research.records.artifacts import backup
-from research.records.artifacts import create_input_identity
-from research.records.artifacts import restore
-from research.records.artifacts import verify
-from research.records.common import RecordError
+from research.records import artifacts, ledger, records
+from research.records.artifacts import ArtifactError, _check_inputs, create_input_identity
+from research.records.runtime import LAYOUTS
+from tests.records.dolt import BINARY, SKIP, TemporaryLedger
+from tests.records.fixtures import reports
 
 
-class LegacySealTests(unittest.TestCase):
-    """Schema v1 seals stay verifiable; no new run starts without a valid registration."""
+SOURCE = b"from nautilus_trader.trading import Strategy\n\n\nclass Fixture(Strategy):\n    pass\n"
+REAL_RUN = subprocess.run
+IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64, "image_digest": "sha256:" + "b" * 64,
+            "platform": "linux/arm64", "runtime_contract": "r1-native-v4"}
 
+
+def probe(window: dict) -> dict:
+    paths = LAYOUTS["r1-native-v4"]["source_paths"]
+    return {"runtime_contract": "r1-native-v4", "nautilus_version": "fixture", "python_version": "fixture",
+            "dependency_lock_sha256": "c" * 64, "source_files_sha256": {field: "d" * 64 for field in paths},
+            "source_file_paths": dict(paths), "audit_source_sha256": "e" * 64, "platform": "linux/arm64",
+            "effective_config": {"coins": ["AAA", "BBB"], "start": window["start"], "trade_start": window["trade_start"],
+                                 "end": window["end"], "native_account": {"venue": "BINANCE"}}}
+
+
+class Workspace(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="trade-artifact-test-", dir=Path.home())
+        self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.workspace = Path(self.temp.name)
-        self.stage = self.workspace / "stage"
-        self.stage.mkdir()
+        for name in ("minute", "daily"):
+            (self.workspace / name).mkdir()
+        self.quantity = self.workspace / "quantity.csv"
+        self.quantity.write_text("fixture")
+        self.argv = ["--catalog-root", str(self.workspace / "minute"), "--daily-root", str(self.workspace / "daily"),
+                     "--quantity-csv", str(self.quantity), "--coins", "AAA", "BBB"]
 
-    def seal(self, summary):
-        reports = self.stage / "reports"
-        reports.mkdir()
-        (reports / "summary.json").write_text(json.dumps(summary))
-        manifest = {
-            "schema_version": 1, "run_id": "fixture", "attempt_id": "fixture-attempt",
-            "source_commit": "a" * 40, "input_identity_sha256": "a" * 64,
-            "status": "failed", "problems": ["Synthetic fixture, no native replay"],
-            "record_binding": {"id": "attempt:fixture-attempt", "commit": "fixture-fixed", "revision": 1},
-            "files": _files(self.stage),
-        }
-        (self.stage / "manifest.json").write_text(json.dumps(manifest))
-        root = self.workspace / "seals"
-        root.mkdir()
-        self.stage.rename(root / "fixture")
-        return root
-
-    def test_legacy_seal_keeps_original_summary_mapping_and_manifest_bytes(self):
-        source = self.stage / "source/strategies/r1/strategy.py"
-        source.parent.mkdir(parents=True)
-        source.write_text("# old frozen strategy\n")
-        root = self.seal({"strategy_source_sha256": _sha(source), "brooks_confirmed_strategy_source_sha256": "b" * 64})
-        manifest = root / "fixture/manifest.json"
-        before = manifest.read_bytes()
-        self.assertTrue(verify(root, "fixture")["verified"])
-        self.assertEqual(manifest.read_bytes(), before)
-
-    def test_invalid_registration_prevents_processes_and_artifact_creation(self):
-        root = self.workspace / "never-created-seals"
-        for reason in ("unknown registered attempt", "retrospective attempt has no preregistration",
-                       "registration is not an initial pending receipt"):
-            with self.subTest(reason=reason):
-                store = SimpleNamespace(registration_snapshot=Mock(side_effect=RecordError(reason)))
-                with patch("research.records.store.open_store", return_value=store), \
-                     patch.object(artifacts.subprocess, "run") as processes:
-                    with self.assertRaisesRegex(ArtifactError, reason):
-                        artifacts.run(root=root, run_id="fixture-run", attempt_id="fixture-attempt",
-                                      strategy_id="fixture", strategy_revision=1, source_at="a" * 32,
-                                      runtime=None,
-                                      input_identity=self.workspace / "missing.json", runner_argv=[])
-                processes.assert_not_called()
-                self.assertFalse(root.exists())
-
-    def test_history_reader_cannot_supply_a_registered_custody_start(self):
-        with patch("research.records.store.open_store", return_value=SimpleNamespace()):
-            with self.assertRaisesRegex(ArtifactError, "requires the Dolt metadata owner"):
-                artifacts._attempt_snapshot("fixture-attempt")
+    def native(self, *, passed=True, audit_passed=True, plans=120, wins=90, start=reports.START):
+        """A subprocess.run stand-in: the runner writes reconciling reports, the audit writes audit.json."""
+        def execute(command, **kwargs):
+            if command[0] != "docker":
+                return REAL_RUN(command, **kwargs)
+            out = kwargs["cwd"].parent / "reports"
+            if "backtest.run" in command and passed:
+                reports.write(out, plans=plans, wins=wins, start=start)
+                summary = json.loads((out / "summary.json").read_text())
+                summary["strategy_source_sha256"] = command[command.index("--strategy-sha256") + 1]
+                (out / "summary.json").write_text(json.dumps(summary))
+            if "backtest.checks.audit" in command:
+                (out / "audit.json").write_text(json.dumps({"passed": audit_passed,
+                                                            "findings": [] if audit_passed else ["naked position"]}))
+            return subprocess.CompletedProcess(command, 0 if passed else 23)
+        return execute
 
 
-class ArtifactCustodyTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="trade-artifact-test-", dir=Path.home())
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name) / "archive"
-        self.run_id = "fixture-1"
-        self.seal = self.root / self.run_id
-        reports = self.seal / "reports"
-        reports.mkdir(parents=True)
-        (reports / "orders.csv").write_text("order_id,status\na,FILLED\n")
-        manifest = {
-            "schema_version": 1,
-            "run_id": self.run_id,
-            "status": "failed",
-            "files": _files(self.seal),
-        }
-        (self.seal / "manifest.json").write_text(json.dumps(manifest))
-
-    def test_verify_and_restore_preserve_bytes(self):
-        self.assertTrue(verify(self.root, self.run_id)["verified"])
-        output = Path(self.temp.name) / "recovered" / "reports"
-        restore(self.root, self.run_id, output)
-        self.assertEqual(
-            _sha(output / "orders.csv"), _sha(self.seal / "reports" / "orders.csv")
-        )
-        with self.assertRaisesRegex(ArtifactError, "already exists"):
-            restore(self.root, self.run_id, output)
-
-    def test_backup_can_restore_without_primary(self):
-        backup_root = Path(self.temp.name) / "backup"
-        result = backup(self.root, self.run_id, backup_root)
-        self.assertTrue(result["same_device_as_primary"])
-        self.assertEqual(stat.S_IMODE(backup_root.stat().st_mode), 0o700)
-        self.assertEqual(
-            stat.S_IMODE(
-                (backup_root / self.run_id / "reports" / "orders.csv").stat().st_mode
-            ),
-            0o600,
-        )
-        self.assertEqual(
-            _sha(self.root / self.run_id / "manifest.json"),
-            _sha(backup_root / self.run_id / "manifest.json"),
-        )
-        shutil.rmtree(self.root / self.run_id)
-        output = Path(self.temp.name) / "from-backup"
-        restore(backup_root, self.run_id, output)
-        self.assertEqual(
-            (output / "orders.csv").read_text(), "order_id,status\na,FILLED\n"
-        )
-        self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
-        self.assertEqual(stat.S_IMODE((output / "orders.csv").stat().st_mode), 0o600)
-
-    def test_permissive_root_is_rejected(self):
-        self.root.chmod(0o755)
-        with self.assertRaisesRegex(ArtifactError, "private"):
-            _private_root(self.root)
-
-    def test_tampered_or_extra_file_is_rejected(self):
-        report = self.seal / "reports" / "orders.csv"
-        report.write_text("order_id,status\na,REJECTED\n")
-        with self.assertRaisesRegex(ArtifactError, "SHA-256 differs"):
-            verify(self.root, self.run_id)
-        report.write_text("order_id,status\na,FILLED\n")
-        (self.seal / "reports" / "extra.csv").write_text("not registered\n")
-        with self.assertRaisesRegex(ArtifactError, "file set"):
-            verify(self.root, self.run_id)
-
-    def test_manifest_run_id_is_bound_to_directory(self):
-        manifest = json.loads((self.seal / "manifest.json").read_text())
-        manifest["run_id"] = "another-run"
-        (self.seal / "manifest.json").write_text(json.dumps(manifest))
-        with self.assertRaisesRegex(ArtifactError, "identity mismatch"):
-            verify(self.root, self.run_id)
-
+class InputIdentityTests(Workspace):
     def test_new_input_identity_detects_catalog_mutation(self):
-        minute = Path(self.temp.name) / "minute" / "BTC" / "minute"
-        daily = Path(self.temp.name) / "daily" / "BTC" / "daily"
+        minute = self.workspace / "minute" / "BTC" / "minute"
+        daily = self.workspace / "daily" / "BTC" / "daily"
         minute.mkdir(parents=True)
         daily.mkdir(parents=True)
         (minute / "bars.parquet").write_bytes(b"minute")
         (daily / "bars.parquet").write_bytes(b"daily")
-        quantity = Path(self.temp.name) / "quantity.csv"
-        quantity.write_text("coin,quantity\nBTC,1\n")
-        output = Path(self.temp.name) / "identity.json"
-        create_input_identity(
-            catalog_root=minute.parents[1],
-            daily_root=daily.parents[1],
-            quantity_csv=quantity,
-            coins=["BTC"],
-            output=output,
-        )
-        replay = Namespace(
-            catalog_root=minute.parents[1],
-            daily_root=daily.parents[1],
-            quantity_csv=quantity,
-            coins=["BTC"],
-        )
+        output = self.workspace / "identity.json"
+        create_input_identity(catalog_root=self.workspace / "minute", daily_root=self.workspace / "daily",
+                              quantity_csv=self.quantity, coins=["BTC"], output=output)
+        replay = Namespace(catalog_root=self.workspace / "minute", daily_root=self.workspace / "daily",
+                           quantity_csv=self.quantity, coins=["BTC"])
         identity = json.loads(output.read_text())
         self.assertEqual(len(_check_inputs(identity, replay)), 1)
         (minute / "bars.parquet").write_bytes(b"changed")
         with self.assertRaisesRegex(ArtifactError, "bytes differ"):
             _check_inputs(identity, replay)
 
-    def test_registration_requires_sealed_start_binding_even_if_a_run_exists(self):
-        manifest_path = self.seal / "manifest.json"
-        manifest = json.loads(manifest_path.read_text())
-        manifest["attempt_id"] = "fixture-attempt"
-        manifest_path.write_text(json.dumps(manifest))
-        adapter = Mock()
-        # An old run_of edge cannot reconstruct a contract that the seal never
-        # captured before execution.
-        adapter.get_object.return_value = {"id": "run:" + self.run_id, "revision": 1}
-        adapter.list_relations.return_value = [{
-            "kind": "run_of", "from_id": "run:" + self.run_id,
-            "from_revision": 1, "to_id": "attempt:fixture-attempt", "to_revision": 1,
-        }]
-        with patch("research.records.store.open_store", return_value=SimpleNamespace(adapter=adapter)):
-            with self.assertRaisesRegex(ArtifactError, "no start-time Dolt registration binding"):
-                artifacts.register(root=self.root, run_id=self.run_id, role="diagnostic",
-                                   cost_model="Synthetic test; no native economics.",
-                                   control_run_id=None, evidence_grade="unknown")
-        adapter.get_object.assert_not_called()
-        adapter.list_relations.assert_not_called()
 
-
-class DoltOciCustodyTests(unittest.TestCase):
-    """Synthetic orchestration, including failures before a native summary exists."""
-
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="trade-artifact-test-", dir=Path.home())
-        self.addCleanup(self.temp.cleanup)
-        self.workspace = Path(self.temp.name)
-        self.root = self.workspace / "seals"
-        self.source = b"# synthetic complete strategy; no economics\n"
-        import hashlib
-        self.binding = {"database": "fixture", "commit": "a" * 32, "strategy_id": "fixture",
-                        "revision": 1, "source_sha256": hashlib.sha256(self.source).hexdigest(),
-                        "entry_class": "FixtureStrategy", "runtime_contract": "r1-native-v1"}
-        self.identity = {"image_ref": "registry.invalid/native@sha256:" + "b" * 64,
-                         "image_digest": "sha256:" + "b" * 64, "platform": "linux/arm64",
-                         "runtime_contract": "r1-native-v1"}
-        from research.records.runtime import LAYOUTS
-        SOURCE_PATHS = LAYOUTS["r1-native-v1"]["source_paths"]
-        self.probe = {"runtime_contract": "r1-native-v1", "nautilus_version": "fixture-native",
-                      "python_version": "fixture-python", "dependency_lock_sha256": "c" * 64,
-                      "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},
-                      "source_file_paths": SOURCE_PATHS.copy(),
-                      "audit_source_sha256": "e" * 64, "platform": "linux/arm64",
-                      "effective_config": {"coins": ["BTC"], "start": "2025-01-01T00:00:00Z",
-                                           "trade_start": "2025-01-02T00:00:00Z", "end": "2025-02-01T00:00:00Z"}}
-        self.record_binding = {"id": "attempt:fixture-attempt", "revision": 1, "commit": "f" * 32}
-        self.input = self.workspace / "input.json"
-        self.input.write_text("{}")
-        for name in ("minute", "daily"):
-            (self.workspace / name).mkdir()
-        self.quantity = self.workspace / "quantity.csv"
-        self.quantity.write_text("fixture")
-        self.argv = ["--catalog-root", str(self.workspace / "minute"), "--daily-root", str(self.workspace / "daily"),
-                     "--quantity-csv", str(self.quantity), "--coins", "BTC"]
-
-    def run_fixture(self, passed=False, source=None, snapshot=True, on_runner=None):
-        mounts = [(self.workspace / "minute", "/inputs/catalog", True),
-                  (self.workspace / "daily", "/inputs/daily", True), (self.quantity, "/inputs/quantity.csv", True)]
-        prepared = (self.binding, self.source if source is None else source, self.identity, self.probe,
-                    ["--catalog-root", "/inputs/catalog", "--daily-root", "/inputs/daily", "--quantity-csv", "/inputs/quantity.csv", "--coins", "BTC"], mounts)
-
-        def execute(command, **kwargs):
-            stage = kwargs["cwd"].parent
-            if "backtest.r1.run_portfolio" in command and on_runner is not None:
-                on_runner()
-            if "backtest.r1.run_portfolio" in command and passed:
-                summary = {"strategy_binding": self.binding, "runtime_identity": self.identity,
-                           "effective_config_sha256": artifacts._config_sha(self.probe["effective_config"]),
-                           "strategy_source_sha256": self.binding["source_sha256"],
-                           **self.probe["source_files_sha256"], "source_file_paths": self.probe["source_file_paths"],
-                           "integrity_passed": True}
-                (stage / "reports/summary.json").write_text(json.dumps(summary))
-                for name in artifacts.REPORTS[1:]:
-                    (stage / "reports" / name).write_text("synthetic reports; no native economics\n")
-            if "backtest.r1.checks.audit_tiered_native" in command:
-                (stage / "reports/audit.json").write_text(json.dumps({"passed": True, "findings": []}))
-            return subprocess.CompletedProcess(command, 0 if passed else 23)
-
-        start = patch.object(artifacts, "_attempt_snapshot", return_value=({"strategy_binding": self.binding}, self.record_binding))
-        with start if snapshot else contextlib.nullcontext(), \
-             patch.object(artifacts, "_check_inputs", return_value={"fixture": "unchanged"}), \
-             patch.object(artifacts, "_dolt_source", return_value=prepared), \
-             patch.object(artifacts.subprocess, "run", side_effect=execute) as calls, \
-             patch("research.records.common.tempfile.gettempdir", return_value="/system-temp-fixture"):
-            result = artifacts.run(root=self.root, run_id="fixture-run", attempt_id="fixture-attempt", strategy_id="fixture",
-                                   strategy_revision=1, source_at="a" * 32, runtime=None,
-                                   input_identity=self.input, runner_argv=self.argv)
-        return result, calls
-
-    def test_dolt_oci_seal_freezes_source_and_audits_same_digest(self):
-        result, calls = self.run_fixture(passed=True)
-        self.assertEqual(result["status"], "passed")
-        archive = self.root / "fixture-run"
-        manifest = json.loads((archive / "manifest.json").read_text())
-        self.assertEqual(manifest["schema_version"], 2)
-        self.assertNotIn("source_commit", manifest)
-        self.assertEqual((archive / "source/strategy.py").read_bytes(), self.source)
-        self.assertEqual(manifest["strategy_binding"], self.binding)
-        self.assertEqual(manifest["runtime_identity"], self.identity)
-        self.assertEqual(len(calls.call_args_list), 2)
-        for call in calls.call_args_list:
-            command = call.args[0]
-            self.assertIn(self.identity["image_ref"], command)
-            self.assertIn("--network", command)
-            self.assertIn("none", command)
-            self.assertNotIn(str(artifacts.ROOT), command)
-        self.assertTrue(verify(self.root, "fixture-run")["verified"])
-        self.assertNotIn("trial.json", manifest["files"])
-        self.assertEqual(result["trial"]["mode"], "sealed")
-        self.assertEqual(result["trial"]["run_id"], "fixture-run")
-        self.assertEqual(result["trial"]["strategy_source_sha256"], self.binding["source_sha256"])
-        self.assertEqual(result["trial"]["image_digest"], self.identity["image_digest"])
-        self.assertEqual(result["trial"]["coins"], ["BTC"])
-        self.assertEqual(result["hand_off"], {"mode": "sealed", "run_id": "fixture-run", "run_dir": str(archive),
-                                              "audit_passed": True, "audit_findings": []})
-
-    def test_registration_refuses_an_image_not_built_on_main_before_any_dolt_access(self):
-        self.run_fixture(passed=True)
-        refusal = RecordError("runtime image revision is not on origin/main")
-        with patch("research.records.runtime.require_main_build", side_effect=refusal) as check, \
-             patch("research.records.store.open_store") as store:
-            with self.assertRaisesRegex(ArtifactError, "not on origin/main"):
-                artifacts.register(root=self.root, run_id="fixture-run", role="candidate",
-                                   cost_model="Synthetic fixture only", control_run_id=None, evidence_grade="unknown")
-        self.assertEqual(check.call_args.args[0], self.identity)
-        self.assertEqual(check.call_args.args[1]["source_files_sha256"], self.probe["source_files_sha256"])
-        store.assert_not_called()
-
-    def test_exploration_replays_a_draft_into_temporary_output_and_reports_one_trial(self):
+class ExploreTests(Workspace):
+    def test_exploration_reports_one_trial_and_replays_in_the_pinned_sandbox(self):
         draft = self.workspace / "draft.py"
-        draft.write_bytes(self.source)
+        draft.write_bytes(SOURCE)
         output = Path(tempfile.mkdtemp(prefix="trade-explore-test-")) / "run"
         self.addCleanup(shutil.rmtree, output.parent)
-
-        def execute(command, **kwargs):
-            reports = kwargs["cwd"].parent / "reports"
-            if "backtest.r1.run_portfolio" in command:
-                for name in artifacts.REPORTS:
-                    (reports / name).write_text("{}\n")
-            else:
-                (reports / "audit.json").write_text(json.dumps({"passed": True, "findings": []}))
-            return subprocess.CompletedProcess(command, 0)
-
-        with patch("research.records.runtime.resolve", return_value=self.identity) as resolve, \
-             patch("research.records.runtime.inspect_runtime", return_value=self.probe), \
-             patch.object(artifacts.subprocess, "run", side_effect=execute) as calls:
-            result = artifacts.explore(strategy_file=draft, strategy_class="FixtureStrategy", output=output,
-                                       runtime=None, runner_argv=self.argv)
-        resolve.assert_called_once_with(None)
-        self.assertEqual(result["status"], "passed")
-        trial = json.loads((output / "trial.json").read_text())
-        self.assertEqual(trial, result["trial"])
-        self.assertEqual((trial["mode"], trial["run_id"], trial["strategy_source_sha256"], trial["image_digest"]),
-                         ("explore", None, self.binding["source_sha256"], self.identity["image_digest"]))
-        self.assertEqual(trial["window"], {"start": "2025-01-01T00:00:00Z", "trade_start": "2025-01-02T00:00:00Z",
-                                           "end": "2025-02-01T00:00:00Z"})
-        self.assertTrue(result["hand_off"]["audit_passed"])
+        window = reports.write(self.workspace / "window", plans=1)
+        with patch("research.records.runtime.resolve", return_value=IDENTITY), \
+             patch("research.records.runtime.inspect_runtime", return_value=probe(window)), \
+             patch("research.records.trials.report_trial", return_value=11) as trial, \
+             patch.object(artifacts.subprocess, "run", side_effect=self.native()) as calls:
+            result = artifacts.explore(ledger={"name": "x"}, strategy_file=draft, strategy_class="Fixture",
+                                       output=output, runtime=None, runner_argv=self.argv)
+        self.assertEqual((result["status"], result["trial_id"]), ("passed", 11))
+        self.assertEqual((result["readings"]["plans_closed"], result["readings"]["plan_win_rate"]), (120, 0.75))
+        self.assertEqual(trial.call_args.kwargs["mode"], "explore")
+        self.assertEqual(trial.call_args.kwargs["strategy_source_sha256"], hashlib.sha256(SOURCE).hexdigest())
         runner = calls.call_args_list[0].args[0]
-        self.assertIn(self.identity["image_ref"], runner)
-        self.assertIn("none", runner)
-        self.assertEqual(runner[runner.index("--strategy-sha256") + 1], self.binding["source_sha256"])
+        self.assertIn(IDENTITY["image_ref"], runner)
+        self.assertEqual(runner[runner.index("--network") + 1], "none")
         self.assertNotIn("--strategy-binding", runner)
+        self.assertTrue((output / "reports" / "orders.csv").is_file())
 
     def test_exploration_output_must_be_temporary_and_new(self):
         draft = self.workspace / "draft.py"
-        draft.write_bytes(self.source)
-        with patch("research.records.runtime.resolve") as resolve:
-            for output, message in ((self.workspace / "persistent", "temp"), (Path(tempfile.gettempdir()), "exists")):
+        draft.write_bytes(SOURCE)
+        with patch("research.records.runtime.resolve") as resolve, \
+             patch("research.records.trials.report_trial") as trial:
+            for output, message in ((Path.home() / "trade-explore-persistent", "temp"),
+                                    (Path(tempfile.gettempdir()), "exists")):
                 with self.subTest(output=output), self.assertRaisesRegex(ArtifactError, message):
-                    artifacts.explore(strategy_file=draft, strategy_class="FixtureStrategy", output=output,
-                                      runtime=None, runner_argv=self.argv)
+                    artifacts.explore(ledger={"name": "x"}, strategy_file=draft, strategy_class="Fixture",
+                                      output=output, runtime=None, runner_argv=self.argv)
         resolve.assert_not_called()
+        trial.assert_not_called()
 
-    def test_failed_before_summary_registers_frozen_identity_without_economics(self):
-        result, _ = self.run_fixture()
-        self.assertEqual(result["status"], "failed")
-        self.assertTrue(verify(self.root, "fixture-run")["verified"])
-        store = Mock()
-        store.adapter.status.return_value = {"version": "fixture-version"}
-        store.publish_record.return_value = {"commit": "fixture-published"}
-        with patch("research.records.store.open_store", return_value=store), \
-             patch.object(artifacts, "_attempt_snapshot", return_value=({}, self.record_binding)), \
-             patch("research.records.runtime.require_main_build", return_value="a" * 40), \
-             patch("research.records.strategies.validate_binding", return_value={}):
-            artifacts.register(root=self.root, run_id="fixture-run", role="diagnostic", cost_model="Synthetic fixture only",
-                               control_run_id=None, evidence_grade="unknown")
-        record = store.publish_record.call_args.args[1]
-        self.assertEqual(record["strategy_binding"], self.binding)
-        self.assertEqual(record["runtime_identity"], self.identity)
-        self.assertNotIn("source_revision", record)
-        self.assertNotIn("window", record)
-        self.assertNotIn("account", record)
-        self.assertNotIn("summary_ref", record)
-        self.assertIn("native runner exited 23", record["failure_reasons"])
 
-    def test_start_binding_precedes_execution_and_registration_reuses_it(self):
-        events = []
-        status = {"commit": self.record_binding["commit"], "version": 1}
+class ExplorationReadingTests(Workspace):
+    def test_an_exploration_directory_gets_the_same_readings_as_a_stored_run(self):
+        reports.write(self.workspace / "pilot" / "reports", plans=120, wins=90)
+        result = artifacts.report_directory(None, self.workspace / "pilot")
+        self.assertEqual((result["plans_closed"], result["plan_win_rate"], result["exploration"]), (120, 0.75, True))
+        self.assertAlmostEqual(result["return_drawdown"], result["annual_return"] / result["max_drawdown"])
+        with self.assertRaisesRegex(ArtifactError, "no native summary"):
+            artifacts.report_directory(None, self.workspace / "minute")
 
-        def registration_snapshot(attempt_id, fixed=None):
-            self.assertEqual(attempt_id, "fixture-attempt")
-            if fixed is None:
-                events.append("registration-before-run")
-            else:
-                self.assertEqual(fixed, self.record_binding)
-                events.append("verify-fixed-registration")
-            return {"strategy_binding": self.binding}, dict(self.record_binding)
 
-        def runner_started():
-            self.assertEqual(events, ["registration-before-run"])
-            events.append("runner")
-            # A later decision published during the run must not become its starting intent.
-            status.update(commit="b" * 32, version=2)
+@unittest.skipUnless(BINARY, SKIP)
+class SealedRunTests(Workspace):
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = TemporaryLedger("artifacts-test")
+        cls.profile = cls.fixture.profile
 
-        store = SimpleNamespace(adapter=SimpleNamespace(status=lambda: dict(status)),
-                                registration_snapshot=registration_snapshot,
-                                publish_record=Mock(return_value={"commit": "c" * 32}))
-        with patch("research.records.store.open_store", return_value=store):
-            result, _ = self.run_fixture(snapshot=False, on_runner=runner_started)
-            with patch("research.records.strategies.validate_binding", return_value={}), \
-                 patch("research.records.runtime.require_main_build", return_value="a" * 40):
-                artifacts.register(root=self.root, run_id="fixture-run", role="diagnostic",
-                                   cost_model="Synthetic fixture; no native economics.",
-                                   control_run_id=None, evidence_grade="unknown")
-        self.assertEqual(result["status"], "failed")
-        manifest = json.loads((self.root / "fixture-run/manifest.json").read_text())
-        self.assertEqual(manifest["record_binding"], self.record_binding)
-        self.assertEqual(events, ["registration-before-run", "runner", "verify-fixed-registration"])
-        publication = store.publish_record.call_args
-        self.assertEqual(publication.kwargs["provenance"]["record_binding"], self.record_binding)
-        self.assertEqual(publication.kwargs["provenance"]["binding_origin"], "sealed_start")
-        self.assertEqual(publication.kwargs["endpoint_revisions"], {"attempt:fixture-attempt": 1})
-        self.assertEqual(publication.kwargs["expected_version"], 2)
+    @classmethod
+    def tearDownClass(cls):
+        cls.fixture.close()
 
-    def test_resolved_byte_hash_mismatch_refuses_launch(self):
-        with self.assertRaisesRegex(ArtifactError, "resolved strategy bytes"):
-            self.run_fixture(source=b"changed bytes")
-        self.assertFalse((self.root / "fixture-run").exists())
+    def setUp(self):
+        super().setUp()
+        self.window = reports.write(self.workspace / "window", plans=120)
+        name = f"A{id(self)}"
+        ledger.open_round(self.profile, {"goal_id": name, "max_drawdown": 0.2, "min_annual_return": 0.05,
+                                         "min_plan_win_rate": 0.6, "drawdown_measure": "native_mark_equity_5m",
+                                         "window": {"start": self.window["trade_start"], "end": self.window["end"]},
+                                         "known_exposure": "none"})
+        self.addCleanup(ledger.close_round, self.profile)
+        records.publish_strategy(self.profile, source=SOURCE + name.encode(), strategy_id="fixture",
+                                 entry_class="Fixture", description="synthetic", parent=None, difference=None, op=None)
+        self.input = self.workspace / "input.json"
+        self.input.write_text("{}")
 
-    def test_preregistered_binding_and_source_authority_are_required(self):
-        with patch.object(artifacts, "_attempt_snapshot", return_value=({}, self.record_binding)), \
-             patch.object(artifacts, "_dolt_source", return_value=(self.binding,)):
-            with self.assertRaisesRegex(ArtifactError, "preregistered attempt"):
-                artifacts.run(root=self.root, run_id="fixture-run", attempt_id="fixture-attempt", strategy_id="fixture",
-                              strategy_revision=1, source_at="a" * 32, runtime=None, input_identity=self.input, runner_argv=self.argv)
+    def seal(self, execute):
+        workdirs = []
+        real = tempfile.mkdtemp
+
+        def mkdtemp(**kwargs):
+            workdirs.append(Path(real(**kwargs)))
+            return str(workdirs[-1])
+
+        with patch("research.records.runtime.resolve", return_value=IDENTITY), \
+             patch("research.records.runtime.inspect_runtime", return_value=probe(self.window)), \
+             patch("research.records.runtime.image_revision", return_value="a" * 40), \
+             patch.object(artifacts, "_check_inputs", return_value={"fixture": "unchanged"}), \
+             patch.object(artifacts.tempfile, "mkdtemp", side_effect=mkdtemp), \
+             patch.object(artifacts.subprocess, "run", side_effect=execute):
+            result = artifacts.run(ledger=self.profile, strategy="fixture@1", runtime=None,
+                                   input_identity=self.input, runner_argv=self.argv)
+        return result, workdirs[0]
+
+    def test_a_sealed_run_is_stored_whole_and_its_directory_removed(self):
+        result, workdir = self.seal(self.native())
+        self.assertEqual(result["status"], "passed")
+        self.assertFalse(workdir.exists())
+        report = records.run_report(self.profile, result["run_id"])
+        self.assertEqual((report["plans_closed"], report["plan_win_rate"], report["image_revision"]), (120, 0.75, "a" * 40))
+        frozen = records.freeze(self.profile, run_id=result["run_id"], source_bundle=None, failed_part=None, note="x",
+                                op=None, check_image=False, check_fresh=False)
+        self.assertEqual(frozen["result"], "passed")
+
+    def test_a_failed_replay_stores_only_its_reasons(self):
+        result, workdir = self.seal(self.native(passed=False))
+        self.assertEqual(result["status"], "invalid")
+        self.assertFalse(workdir.exists())
+        reasons = records.run_report(self.profile, result["run_id"])["failure_reasons"]
+        self.assertIn("native runner exited 23", reasons)
+        self.assertIn("native summary missing", reasons)
+
+    def test_an_audit_finding_makes_the_run_invalid(self):
+        result, _ = self.seal(self.native(audit_passed=False))
+        self.assertEqual(result["status"], "invalid")
+        self.assertIn("independent native audit found problems",
+                      records.run_report(self.profile, result["run_id"])["failure_reasons"])
 
 
 if __name__ == "__main__":

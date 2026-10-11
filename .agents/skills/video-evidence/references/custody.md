@@ -30,8 +30,8 @@ projection, never the raw info JSON.
 `{"_type": "video", "id": "<16 hex>", "extractor_key": "local", "webpage_url": "<origin the user gave, or
 unknown>"}`; only a local file has no receipt.
 
-Backup (research custody, or whenever `VIDEO_EVIDENCE_BACKUP` is set) after the last stage and after every
-change to `claims.json`; the loop must print nothing:
+Backup (whenever `VIDEO_EVIDENCE_BACKUP` is set; a research round stores the bundle in its ledger instead) after
+the last stage and after every change to `claims.json`; the loop must print nothing:
 
     BK=${VIDEO_EVIDENCE_BACKUP:?set VIDEO_EVIDENCE_BACKUP to a second directory}; mkdir -p "$BK/sha256"
     rsync -a --ignore-existing "$ROOT/sha256/" "$BK/sha256/" && rsync -a "$ROOT/bundles" "$BK/"
