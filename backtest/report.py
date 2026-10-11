@@ -222,7 +222,6 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
             {
                 "coin": row["coin"],
                 "instrument": str(row["instrument_id"]),
-                "quantity": row["quantity"],
                 "counts": row["counts"],
                 **diagnostics(strategies[row["coin"]]),
                 "positions": sum(positions["instrument_id"] == str(row["instrument_id"])),
@@ -232,7 +231,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         "limitations": [
             "Five-minute execution bars cannot resolve every intrabar order sequence",
             "Current contract terms approximate historical metadata",
-            "Fixed 2026 coin universe is backcast into 2025",
+            "Contracts are the ones passed in; pool membership is an input the strategy applies, not a runner rule",
             "Open-position valuation is sampled after each five-minute bar close; intrabar exposure and drawdown are not observed",
         ],
     }

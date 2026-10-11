@@ -38,9 +38,9 @@ class ProbeStrategy(Strategy):
     def replay_integrity_findings(self, orders_denied_or_rejected=False):
         return ['native order failure'] if orders_denied_or_rejected else []
 
-    def __init__(self, instrument_id, bar_type, trade_size, **kwargs):
+    def __init__(self, instrument_id, bar_type, **kwargs):
         super().__init__(StrategyConfig(strategy_id=kwargs["strategy_id"]))
-        self.received = (instrument_id, bar_type, trade_size, kwargs)
+        self.received = (instrument_id, bar_type, None, kwargs)
 '''
 
 
@@ -136,8 +136,8 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def configuration(self, extra=None):
         argv = [
-            "--catalog-root", "/inputs/catalog", "--daily-root", "/inputs/daily",
-            "--quantity-csv", "/inputs/quantity.csv", "--coins", "BTC", "ETH",
+            "--market-root", "/inputs/market", "--market-commit", "c" * 32, "--pool", "/inputs/pool.json",
+            "--symbols", "BTCUSDT", "ETHUSDT",
             "--start", "2025-10-07T00:00:00Z", "--end", "2026-10-07T08:30:00Z",
             "--output", "/reports", "--strategy-file", str(self.source),
             "--strategy-class", "ProbeStrategy", "--strategy-sha256", self.digest,
@@ -150,8 +150,8 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(effective["trade_start"], args.start)
         self.assertNotIn("risk_budget_bps", effective)
         self.assertNotIn("coin_notional_cap_pct", effective)
-        self.assertEqual(set(effective), {"runtime_contract", "catalog_root", "daily_root", "quantity_csv", "mark_root",
-                                          "coins", "start", "end", "trade_start", "native_account"})
+        self.assertEqual(set(effective), {"runtime_contract", "market_root", "market_commit", "pool", "symbols",
+                                          "start", "end", "trade_start", "native_account"})
         self.assertEqual(effective["native_account"]["starting_balance_usdt"], "100000")
         identity = {
             "image_ref": "example/runtime@sha256:" + "a" * 64,
@@ -229,8 +229,8 @@ class StrategyLoaderTests(unittest.TestCase):
         loaded = self.load()
         path = importable_strategy(loaded)
         config = StrategyInputs(
-            coin="BTC", instrument_id="BTCUSDT-PERP.BINANCE", trade_size="0.100",
-            trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC", daily_root="/unused",
+            instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
+            catalog_path="/unused", pool_membership=[[100, 200]],
         )
         engine = BacktestEngine(BacktestEngineConfig(
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
@@ -252,6 +252,7 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertNotIn("risk_budget_fraction", strategy.received[3])
         self.assertNotIn("max_coin_notional_fraction", strategy.received[3])
         self.assertNotIn("signal_variant", strategy.received[3])
+        self.assertEqual(strategy.received[3]["pool_membership"], ((100, 200),))
         self.assertEqual(str(strategy.config.strategy_id), "R1-BTC")
 
     def test_native_bridge_loads_daily_warmup_the_source_declares(self):
@@ -261,12 +262,12 @@ class StrategyLoaderTests(unittest.TestCase):
         module_name, class_name = wrapper_path.split(":")
         wrapper = getattr(importlib.import_module(module_name), class_name)
         config = StrategyInputs(
-            coin="BTC", instrument_id="BTCUSDT-PERP.BINANCE", trade_size="0.100",
-            trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC", daily_root="/inputs/daily",
+            instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
+            catalog_path="/inputs/market/BTCUSDT", pool_membership=[],
         )
         with patch("backtest.run.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
             strategy = wrapper(config)
-        warmup.assert_called_once_with(Path("/inputs/daily"), "BTC", InstrumentId.from_str(config.instrument_id), 100)
+        warmup.assert_called_once_with(Path("/inputs/market/BTCUSDT"), InstrumentId.from_str(config.instrument_id), 100)
         self.assertEqual(strategy.received[3]["historical_daily_bars"], ["canonical warmup"])
 
 
