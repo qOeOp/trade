@@ -52,7 +52,7 @@ uv run --frozen python -m research.records.artifacts run \
 - A failed execution seals a `failed` manifest: keep it as a diagnostic, with no invented account
   results. `passed` means custody and native integrity checks passed, not that the strategy meets a
   goal. The audit checks report identities, links, stop protection throughout the replay (from
-  `order_events.jsonl.gz`), end-of-run protection and reported economics
+  `order_events.jsonl.gz`) and reported economics
   ([strategy-authoring.md](strategy-authoring.md)). It does not prove a signal clock, staged-exit
   races or source-specific risk rules; add native checks before claiming them.
 

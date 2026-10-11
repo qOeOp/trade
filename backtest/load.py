@@ -171,7 +171,7 @@ def load_strategy(
     for name in ("replay_diagnostics", "replay_integrity_findings"):
         if not callable(getattr(strategy_class, name, None)):
             raise ValueError(f"{RUNTIME_CONTRACT} strategy requires {name}")
-    if getattr(strategy_class, "DAILY_WARMUP", False) not in (True, False):
+    if type(getattr(strategy_class, "DAILY_WARMUP", False)) is not bool:
         raise ValueError("strategy DAILY_WARMUP must be True or False")
     if type(getattr(strategy_class, "USES_STOP_LOSS", True)) is not bool:
         raise ValueError("strategy USES_STOP_LOSS must be True or False")
