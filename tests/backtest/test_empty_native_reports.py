@@ -6,7 +6,7 @@ import pandas as pd
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 
-from backtest.r1.run_portfolio import _readable_empty_report, _orders_with_native_deadlines
+from backtest.report import orders_with_native_deadlines, readable_empty_report
 
 
 class EmptyNativeReportsTests(unittest.TestCase):
@@ -15,13 +15,13 @@ class EmptyNativeReportsTests(unittest.TestCase):
             logging=LoggerConfig(stdout_level=LogLevel.OFF),
         ))
         self.addCleanup(engine.dispose)
-        orders = _orders_with_native_deadlines(engine, _readable_empty_report(
+        orders = orders_with_native_deadlines(engine.cache, readable_empty_report(
             engine.generate_orders_report(), ("status",),
         ))
-        positions = _readable_empty_report(
+        positions = readable_empty_report(
             engine.generate_positions_report(), ("ts_closed", "realized_pnl", "instrument_id"),
         )
-        fills = _readable_empty_report(engine.generate_fills_report(), ("client_order_id",))
+        fills = readable_empty_report(engine.generate_fills_report(), ("client_order_id",))
         for report in (orders, positions, fills):
             restored = pd.read_csv(io.StringIO(report.to_csv(index=True)))
             self.assertTrue(restored.empty)
@@ -32,7 +32,7 @@ class EmptyNativeReportsTests(unittest.TestCase):
 
     def test_populated_report_is_never_repaired(self):
         broken = pd.DataFrame([{"unexpected": "record"}])
-        result = _readable_empty_report(broken, ("status",))
+        result = readable_empty_report(broken, ("status",))
         self.assertIs(result, broken)
         with self.assertRaises(KeyError):
             result["status"]

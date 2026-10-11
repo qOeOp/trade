@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 0 常驻规则 | 用户授权边界、何时写产品代码、不另造引擎、何时用哪个 skill、行为不变的改动先做配对重放 | 根 `AGENTS.md`，多数会话自动加载 | 只是提示；由第 3 层的对抗用例观察 |
 | 1 skill | 一轮研究的方法与确切命令（`research-round`），原生报告统计规则（`nautilus-report-analysis`），视频取证与笔记（`video-evidence`），按需加载 | `.agents/skills/` | 只是提示；由第 3 层的有/无 skill 对照观察 |
-| 2 契约与执行 | Dolt 发表 API 的拒绝、固定 digest 的 OCI 镜像、发布版 Nautilus、视频证据包检查器 | 原地：`research/records`、`backtest/r1`、镜像、`services/video-evidence` | 内容寻址身份让篡改可被发现，但不能阻止；拒绝只防误操作 |
+| 2 契约与执行 | Dolt 发表 API 的拒绝、固定 digest 的 OCI 镜像、发布版 Nautilus、视频证据包检查器 | 原地：`research/records`、`backtest`、CI 构建的镜像、`services/video-evidence` | 内容寻址身份让篡改可被发现，但不能阻止；拒绝只防误操作 |
 | 3 评估 | skill 案例重放、台账过程审计、溯源审计 | 回归用例在 `.agents/skills/*/evals/`；留出用例、答案键与溯源审计配方放 Git 外的私有目录，审计按 origin/main 的规则运行 | 由不受被测会话控制的位置执行 |
 
 第 2 层不是无法绕过的边界。本机只有一个用户，Agent 与 Dolt、artifact 根目录和 Docker 同属一个操作系统用户，能改宿主代码、直接写 SQL、在登记前拼装 seal 或自建镜像。代码保证两件事：Dolt commit、源码 SHA-256、镜像 manifest digest 与 seal manifest 哈希是内容寻址身份，登记后的改动可被发现；正常 API 路径上的拒绝防止误操作，包括先 pending 的预登记、启动时绑定、配对可比性，以及 `independent` 只给交易窗口晚于确认登记的运行。非 API 提交和日期倒序要靠第 3 层的溯源审计发现；以 API 形态伪造的新记录、双方用同一自建镜像的配对，目前都发现不了。只有独立的托管系统用户能让第 2 层变硬，等出现第一个 `independent` 结论或必须依赖第 2 层的结论时再做，见 [skill 产品形态审计](plans/skill-product-form-audit.zh.md)。视频证据包检查器 `services/video-evidence/check_bundle.py` 只读、不导入仓库代码，从媒体字节重算哈希、帧、裁剪与 ASR 输入，并核对引用；Agent 能改本地副本，所以只有审阅者从 `origin/main` 运行、`checker_git_blob` 一致的那次检查算数，见[视频取证改造](plans/video-evidence-refactor.zh.md)。
@@ -53,13 +53,13 @@ R1 当前的 37 个合约在**同一个**初始 100,000 USDT 的原生保证金�
 
 ## 当前可运行切片
 
-唯一回放入口 `python -m backtest.r1.run_portfolio` 以原生 `BacktestNode` 回放现有 LAST K 线、资金费率和合约假设，并输出逐币与账户报告。当前 `r1-native-v3` 从固定 Dolt revision 加载完整策略；策略文件负责信号、仓位、下单、退出、配置约束及自身诊断，共享入口只传输配置、准备数据并读取原生事实，不传任何仓位参数。日线预热按明确配置加载。旧 `r1-native-v1`、`r1-native-v2` 来源绑定仍可读取，并由各自原固定镜像执行。资金费率直接从现有 Catalog 加载，由 Nautilus 结算。已有 MARK 数据存为 K 线，`backtest/r1/native_node.py` 将其收盘价写成原生 `MarkPriceUpdate` 派生 Catalog，复用时逐事件核对时间与价格。`backtest/r1/replay_inputs.py` 校验数据回执及资金费结算覆盖。此前 H18a/H19a 全年 37 币共享账户回放，以及覆盖全部信号族和分段退出的 16 组测试组合，已与原生旧入口做配对；其中两组保留原有订单完整性失败。运行方式和历史证据见 `backtest/r1/README.md` 与 `docs/plans/nautilus-upstream-poc.zh.md`。
+所有原生回放都走 `research.records.artifacts run`：`--explore` 把草稿的报告写进新的 `/tmp` 目录，决定引用的运行则封存；两者都报告一次试验。它在 CI 构建的镜像里执行 `python -m backtest.run` 和审计器；镜像只构建 `linux/arm64`，推到 `ghcr.io/qoeop/trade-runtime`，标签里带源码 commit。不传 `--runtime` 时拉取 `main` 标签并记录 digest；登记只接受由 origin/main 上的 commit 构建的镜像。运行器使用锁定在 `nautilus_trader==2.0.0rc3` 的原生 `BacktestNode`，只接收四样东西：策略引用、输入、窗口和固定账户。当前 `r1-native-v4` 加载一个完整源码文件；策略文件负责信号、仓位、下单、退出和自身诊断，运行器没有任何策略参数，变体就是新的修订。`r1-native-v1` 到 `v3` 的封存保留原合同名，仍可读取。资金费率直接从现有 Catalog 加载，由 Nautilus 结算。`backtest/load.py` 将已有 MARK K 线收盘价写成原生 `MarkPriceUpdate` 派生 Catalog，复用时逐事件核对，并校验资金费覆盖；`backtest/run.py` 构建 Node，`backtest/report.py` 写报告。运行方式和配对验收见 `backtest/README.md`，历史证据见 `docs/plans/nautilus-upstream-poc.zh.md`。
 
 固定版本为 `nautilus_trader==2.0.0rc3`。这是在同一数据、同一参数、同一共享账户上通过订单与经济结果配对的版本；升级前必须重新检查原生订单完整性及全年配对。当前合约元数据来自研究时保存的现行规则假设，不能据此声称历史逐日合约条款精确。历史研究数据留在外部 Catalog，不复制进 Git。研究脚本与已暴露年度结果可用于机制诊断；新候选的确认需独立的事前规则、配对与样本外/多重尝试处理。
 
 ## 扩展边界
 
-策略版本管理复用现有 Dolt 对象、追加 revision 与固定关系。一个独立策略对应一个完整源码文件；同一策略的新版本使用同一个 ID，衍生策略使用新 ID 并指向父策略的固定 revision，注明差异。迁移演示曾发表 26 个策略身份、27 个源码版本，均完成精确导出与谱系校验；五个代表样本和 H19a 全年 37 币完成原生配对，其余样本只验证了源码管理。公共回放、数据校验和验收工具归 `backtest/r1/` 与固定镜像，产品 Git 不新增策略草稿。旧冻结提交与封存证据按原身份解释。
+策略版本管理复用现有 Dolt 对象、追加 revision 与固定关系。一个独立策略对应一个完整源码文件；同一策略的新版本使用同一个 ID，衍生策略使用新 ID 并指向父策略的固定 revision，注明差异。迁移演示曾发表 26 个策略身份、27 个源码版本，均完成精确导出与谱系校验；五个代表样本和 H19a 全年 37 币完成原生配对，其余样本只验证了源码管理。公共回放、数据校验和验收工具归 `backtest/` 与 CI 构建的镜像，产品 Git 不新增策略草稿。旧冻结提交与封存证据按原身份解释。
 
 迁移演示的 RD、策略与台账数据是用于发现框架需求的试用样本，已于 2026-10-09 在本机备份后从现役台账移除；此后的研究在空台账中重新发表源码与预登记。现役台账承载真实研究记录，清空、重置或改写它需要用户明确授权。历史缺失允许标记后继续，不扩大恢复工作。正式研究所需的源码、镜像、输入和证据保留合同仍由具体 attempt/run 明确。
 

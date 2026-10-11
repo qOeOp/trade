@@ -3,6 +3,7 @@
 import json
 import hashlib
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +11,11 @@ from unittest.mock import patch
 
 from research.records.common import RecordError
 from research.records import runtime
-from research.records.runtime import SOURCE_PATHS, container_command, inspect_runtime, validate_identity
+from research.records.runtime import LAYOUTS, container_command, inspect_runtime, validate_identity
+
+
+SOURCE_PATHS = LAYOUTS["r1-native-v1"]["source_paths"]
+AUDIT_PATH = LAYOUTS["r1-native-v1"]["audit_path"]
 
 
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64,
@@ -64,6 +69,33 @@ class RuntimeIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(RecordError, "source digest"):
             self.inspect(probe=self.probe(source_files_sha256={field: "x" * 64 for field in SOURCE_PATHS}))
 
+    def test_current_contract_probe_is_the_runner_describing_itself(self):
+        identity = {**IDENTITY, "runtime_contract": "r1-native-v4"}
+        layout = LAYOUTS["r1-native-v4"]
+        probe = self.probe(runtime_contract="r1-native-v4", source_file_paths=layout["source_paths"].copy(),
+                           source_files_sha256={field: "d" * 64 for field in layout["source_paths"]})
+        actual = {"RepoDigests": [IDENTITY["image_ref"]], "Os": "linux", "Architecture": "arm64", "Id": "sha256:" + "e" * 64}
+        outputs = [subprocess.CompletedProcess([], 0, json.dumps([actual]), ""),
+                   subprocess.CompletedProcess([], 0, json.dumps(probe), "")]
+        with patch("research.records.runtime.subprocess.run", side_effect=outputs) as calls:
+            inspect_runtime(identity, ["--coins", "BTC"])
+        command = calls.call_args_list[1].args[0]
+        self.assertEqual(command[-5:], ["-m", "backtest.run", "--describe", "--coins", "BTC"])
+
+    def test_runner_describes_the_paths_custody_expects(self):
+        argv = ["--describe", "--catalog-root", "/c", "--daily-root", "/d", "--quantity-csv", "/q.csv",
+                "--coins", "BTC", "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z"]
+        described = json.loads(subprocess.run([sys.executable, "-m", "backtest.run", *argv], capture_output=True,
+                                              text=True, check=True).stdout)
+        layout = LAYOUTS[described["runtime_contract"]]
+        self.assertEqual(described["runtime_contract"], "r1-native-v4")
+        self.assertEqual(described["source_file_paths"], layout["source_paths"])
+        root = Path(__file__).resolve().parents[2]
+        for field, path in layout["source_paths"].items():
+            self.assertEqual(described["source_files_sha256"][field], hashlib.sha256((root / path).read_bytes()).hexdigest())
+        self.assertEqual(described["audit_source_sha256"], hashlib.sha256((root / layout["audit_path"]).read_bytes()).hexdigest())
+        self.assertEqual(described["effective_config"]["coins"], ["BTC"])
+
     def test_only_reports_are_writable(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)
@@ -110,11 +142,11 @@ class CurrentRuntimeTests(unittest.TestCase):
     def inspection(self, files):
         return {"source_files_sha256": {field: hashlib.sha256(files[path]).hexdigest() for field, path in SOURCE_PATHS.items()},
                 "source_file_paths": SOURCE_PATHS.copy(),
-                "audit_source_sha256": hashlib.sha256(files[runtime.AUDIT_PATH]).hexdigest(),
+                "audit_source_sha256": hashlib.sha256(files[AUDIT_PATH]).hexdigest(),
                 "dependency_lock_sha256": hashlib.sha256(files["uv.lock"]).hexdigest()}
 
     def check(self, image, on_main=True, files=None, inspection=None):
-        main = {path: path.encode() for path in [*SOURCE_PATHS.values(), runtime.AUDIT_PATH, "uv.lock"]}
+        main = {path: path.encode() for path in [*SOURCE_PATHS.values(), AUDIT_PATH, "uv.lock"]}
         files = files or main
 
         def git(*argv):
@@ -144,7 +176,7 @@ class CurrentRuntimeTests(unittest.TestCase):
             self.check(self.image(revision=None))
 
     def test_relabelled_image_of_other_code_is_refused(self):
-        main = {path: path.encode() for path in [*SOURCE_PATHS.values(), runtime.AUDIT_PATH, "uv.lock"]}
+        main = {path: path.encode() for path in [*SOURCE_PATHS.values(), AUDIT_PATH, "uv.lock"]}
         other = self.inspection({**main, SOURCE_PATHS["runner_source_sha256"]: b"changed runner"})
         with self.assertRaisesRegex(RecordError, "code differs"):
             self.check(self.image(), inspection=other)

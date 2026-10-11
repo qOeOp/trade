@@ -15,11 +15,24 @@ from research.records.common import RecordError
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
-CONTRACTS = {"r1-native-v1", "r1-native-v2", "r1-native-v3"}
-SOURCE_PATHS = {f"{name}_source_sha256": f"backtest/r1/{name}.py"
-                for name in ("runner", "native_node", "node_strategy", "replay_inputs", "replay_util", "strategy_loader")}
-SOURCE_PATHS["runner_source_sha256"] = "backtest/r1/run_portfolio.py"
-AUDIT_PATH = "backtest/r1/checks/audit_tiered_native.py"
+_LEGACY_PATHS = {f"{name}_source_sha256": f"backtest/r1/{name}.py"
+                 for name in ("runner", "native_node", "node_strategy", "replay_inputs", "replay_util", "strategy_loader")}
+_LEGACY_PATHS["runner_source_sha256"] = "backtest/r1/run_portfolio.py"
+# Where each contract's image keeps its runner, audit and identity probe. Sealed v1-v3 runs keep
+# the backtest/r1 layout they were made with; v4 is the flattened backtest package.
+_LEGACY = {"runner": "backtest.r1.run_portfolio", "audit": "backtest.r1.checks.audit_tiered_native",
+           "audit_args": ["--catalog-root", "/inputs/catalog"], "probe": "backtest.r1.runtime_identity",
+           "source_paths": _LEGACY_PATHS, "audit_path": "backtest/r1/checks/audit_tiered_native.py"}
+LAYOUTS = {
+    "r1-native-v1": _LEGACY, "r1-native-v2": _LEGACY, "r1-native-v3": _LEGACY,
+    "r1-native-v4": {"runner": "backtest.run", "audit": "backtest.checks.audit", "audit_args": [],
+                     "probe": "backtest.run",
+                     "source_paths": {"runner_source_sha256": "backtest/run.py",
+                                      "load_source_sha256": "backtest/load.py",
+                                      "report_source_sha256": "backtest/report.py"},
+                     "audit_path": "backtest/checks/audit.py"},
+}
+CONTRACTS = set(LAYOUTS)
 # CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
 REPOSITORY = "ghcr.io/qoeop/trade-runtime"
 CURRENT = REPOSITORY + ":main"
@@ -127,7 +140,7 @@ def require_main_build(identity: dict, inspection: dict) -> str:
         raise RecordError(f"runtime image revision {revision} is not on origin/main; merge first, then rerun "
                           "with the main image", code="RUNTIME_NOT_MAIN", write_status="not_written")
     expected = {path: inspection["source_files_sha256"][field] for field, path in inspection["source_file_paths"].items()}
-    expected[AUDIT_PATH] = inspection["audit_source_sha256"]
+    expected[LAYOUTS[identity["runtime_contract"]]["audit_path"]] = inspection["audit_source_sha256"]
     expected["uv.lock"] = inspection["dependency_lock_sha256"]
     for path, digest in expected.items():
         blob = _git("show", f"{revision}:{path}")
@@ -149,9 +162,10 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
             raise RecordError("actual image platform differs from runtime identity")
     except (ValueError, KeyError, TypeError) as exc:
         raise RecordError("invalid Docker image inspection") from exc
-    command = container_command(identity, [], "backtest.r1.runtime_identity", [
-        "--runner-args-json", json.dumps(runner_args, separators=(",", ":")),
-    ])
+    layout = LAYOUTS[identity["runtime_contract"]]
+    probe = (["--describe", *runner_args] if layout["probe"] == layout["runner"]
+             else ["--runner-args-json", json.dumps(runner_args, separators=(",", ":"))])
+    command = container_command(identity, [], layout["probe"], probe)
     observed = subprocess.run(command, capture_output=True, text=True, check=False)
     if observed.returncode:
         raise RecordError(f"runtime identity probe failed: {observed.stderr.strip()}")
@@ -168,13 +182,13 @@ def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
     hashes, paths = value["source_files_sha256"], value["source_file_paths"]
     if not isinstance(hashes, dict) or not hashes or not isinstance(paths, dict) or set(paths) != set(hashes):
         raise RecordError("image probe source paths and hashes disagree")
-    if paths != SOURCE_PATHS:
+    if paths != layout["source_paths"]:
         raise RecordError("image probe must describe all native runtime source paths")
     for field, digest in hashes.items():
         if not field.endswith("_source_sha256") or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise RecordError("invalid runtime source digest")
         path = paths[field]
-        if not isinstance(path, str) or not path.startswith("backtest/r1/") or ".." in Path(path).parts:
+        if not isinstance(path, str) or not path.startswith("backtest/") or ".." in Path(path).parts:
             raise RecordError("invalid runtime source path")
     if not re.fullmatch(r"[0-9a-f]{64}", value["dependency_lock_sha256"]):
         raise RecordError("invalid image dependency lock digest")

@@ -5,12 +5,11 @@ COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /opt/trade
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-cache --no-install-project
-COPY backtest/__init__.py ./backtest/__init__.py
-COPY backtest/r1/*.py ./backtest/r1/
-COPY backtest/r1/checks/__init__.py backtest/r1/checks/audit_tiered_native.py backtest/r1/checks/compare_node.py ./backtest/r1/checks/
+COPY backtest/__init__.py backtest/load.py backtest/run.py backtest/report.py ./backtest/
+COPY backtest/checks/__init__.py backtest/checks/audit.py backtest/checks/compare.py ./backtest/checks/
 # The image carries only the runtime package; this path entry makes it importable from any
 # directory or script, as the host's editable project install does.
 RUN echo /opt/trade > "$(/opt/trade/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/trade-runtime.pth"
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-LABEL org.opencontainers.image.title="Trade R1 native research runtime" trade.runtime.contract="r1-native-v3"
-CMD ["python", "-m", "backtest.r1.runtime_identity"]
+LABEL org.opencontainers.image.title="Trade native research runtime" trade.runtime.contract="r1-native-v4"
+CMD ["python", "-m", "backtest.run", "--help"]

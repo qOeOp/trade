@@ -12,14 +12,15 @@ orders, fills, risk, execution, portfolio accounting and reports.
 
 Install Python 3.14 and [uv](https://docs.astral.sh/uv/), configure the local
 Dolt store as described in the [research record guide](research/records/README.md)
-and export an exact strategy revision. Follow [R1 usage](backtest/r1/README.md)
-for a temporary host diagnostic, or the
+and export an exact strategy revision. Every replay runs through
+`artifacts run` in the CI-built image: see [native replay](backtest/README.md)
+for an exploration, or the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) for a
-preregistered run sealed in a fixed OCI image. The current `r1-native-v3`
-contract runs one complete source file whose native `Strategy` entry class
-supplies `validate_replay_configuration`, `replay_diagnostics` and
-`replay_integrity_findings`, and owns its sizing; `r1-native-v1` and
-`r1-native-v2` revisions run only in their original retained images.
+preregistered sealed run. The current `r1-native-v4` contract runs one
+complete source file whose native `Strategy` entry class supplies
+`replay_diagnostics` and `replay_integrity_findings` and holds every rule,
+sizing included; the runner takes no strategy parameter. Seals of
+`r1-native-v1` to `v3` remain readable.
 
 ```bash
 uv sync --frozen
@@ -43,8 +44,8 @@ export is `docs-site/out`.
 
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and which skill to use.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-round` (with references and a regression eval), `nautilus-report-analysis`, `research-sources` and `video-evidence`; `.claude/skills` links here.
-- [`backtest/r1/`](backtest/r1/): the shared `BacktestNode` replay, external-source loader, native report checks and historical receipts.
-- [`backtest/r1/runtime/`](backtest/r1/runtime/): image build inputs for Python, Nautilus, shared runner and auditor; strategy bodies are excluded.
+- [`backtest/`](backtest/): the native replay in three modules (`load`, `run`, `report`) and its checks (`checks/audit.py`, `checks/compare.py`).
+- [`backtest/runtime/`](backtest/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
 - [`research/records/`](research/records/): complete Dolt strategy revisions, research decisions, decision evidence and native artifact custody. [`history.json`](research/records/history.json) locates read-only historical source; Git is no metadata backend.
 - [`services/video-evidence/`](services/video-evidence/): the stdlib checker that recomputes a video evidence bundle's hashes, frames, ASR input and citations from the bytes; the trust boundary of the `video-evidence` skill, tested by the root CI.
 - [`docs/architecture.zh.md`](docs/architecture.zh.md) (English twin [`docs/architecture.md`](docs/architecture.md)): current product blueprint.

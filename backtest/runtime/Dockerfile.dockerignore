@@ -1,0 +1,12 @@
+**
+!pyproject.toml
+!uv.lock
+!backtest/
+!backtest/__init__.py
+!backtest/load.py
+!backtest/run.py
+!backtest/report.py
+!backtest/checks/
+!backtest/checks/__init__.py
+!backtest/checks/audit.py
+!backtest/checks/compare.py

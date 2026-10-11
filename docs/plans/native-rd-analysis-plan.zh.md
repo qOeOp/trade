@@ -24,7 +24,7 @@
 
 封存与入口：
 
-- [run_portfolio.py](../../backtest/r1/run_portfolio.py) 导出 orders、fills、positions、account、returns_series 和 summary；前四份来自原生 ReportProvider，returns_series 与 summary 由 runner 写出，`reports/audit.json` 由 `audit_tiered_native.py` 写出。[artifacts.py](../../research/records/artifacts.py) 实施前有 run、verify、restore、backup、register、input-identity 子命令，没有 report/analyze；P0-A 新增 `report`。
+- [run_portfolio.py](https://github.com/qOeOp/trade/blob/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/run_portfolio.py) 导出 orders、fills、positions、account、returns_series 和 summary；前四份来自原生 ReportProvider，returns_series 与 summary 由 runner 写出，`reports/audit.json` 由 `audit_tiered_native.py` 写出。[artifacts.py](../../research/records/artifacts.py) 实施前有 run、verify、restore、backup、register、input-identity 子命令，没有 report/analyze；P0-A 新增 `report`。
 - seal 要求实际文件集合与 manifest.files 完全一致（`verify`），旧 seal 不得追加报告；Dolt run 的 `artifact_manifest_ref` 锚定 manifest 哈希。报告集合不固定：E01-37 另封存了策略自写的 37 份 jsonl，“策略不导出”是约定而非强制边界。
 - 起跑时 `_attempt_snapshot` 把 attempt revision 1 及其初始发表 commit 作为 `record_binding` 写入 manifest；`binding_origin=sealed_start` 是 register 阶段写入 run provenance 的标签。起跑时只核对策略绑定，不读 evidence_refs 或 known_exposure；按初版设想在起跑时解析参考证据属于新行为。
 - 28 个 seal 分属两个 OCI（`5785c9a1…`、`d6bbbde7…` 各 14 个）。正式 compare 要求同一运行环境，验证配对必须取同一镜像内的 run。

@@ -297,8 +297,6 @@ def audit(run: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
-    # Older custody commands pass the input catalog; the generic audit does not read it.
-    parser.add_argument("--catalog-root", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     result = audit(args.run)

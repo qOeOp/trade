@@ -58,11 +58,11 @@ ledger: publication is append-only.
 
 ## Nautilus and parity
 
-- Check Nautilus APIs against the version pinned in `uv.lock` and the code in `backtest/r1/`; probe
-  uncertain behavior natively. Registered runs execute the image, so a `backtest/r1` edit reaches
-  them only through a new image digest.
+- Check Nautilus APIs against the version pinned in `uv.lock` and the code in `backtest/`; probe
+  uncertain behavior natively. Every replay executes a CI-built image, so a `backtest/` edit reaches
+  it only through a new image digest.
 - When a change should preserve behavior (strategy refactor, data adapter, dependency or Nautilus
-  version), run the paired native replay in `backtest/r1/README.md` before claiming parity. Inspect
+  version), run the paired native replay in `backtest/README.md` before claiming parity. Inspect
   causal clocks, order protection and integrity, fees, funding and account economics; a clean exit
   or green tests is not parity. A research change to a strategy follows `research-round` instead.
 

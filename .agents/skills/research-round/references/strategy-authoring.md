@@ -1,7 +1,7 @@
 # Strategy authoring
 
 What a strategy file must satisfy to run in the native replay. Code is the authority:
-`backtest/r1/{strategy_loader,node_strategy,native_node,run_portfolio}.py` for execution and
+`backtest/{load,run,report}.py` for execution and
 `research/records/strategies.py` for publication.
 
 ## One file, one account
@@ -13,34 +13,30 @@ What a strategy file must satisfy to run in the native replay. Code is the autho
   strategy modules. Under custody there is no network and `/reports` is the only writable host
   mount.
 - The replay creates one entry-class instance per instrument; all share one fixed-capital Nautilus
-  `MARGIN` account (`ACCOUNT_CONTRACT` in `native_node.py`). Another independent strategy is
+  `MARGIN` account (`ACCOUNT_CONTRACT` in `run.py`). Another independent strategy is
   another file and account, not a branch inside this one.
 
 ## Entry class and configuration
 
 - Define the entry class in this file as a subclass of `nautilus_trader.trading.Strategy`. The
   metadata `entry_class`, the exported binding and `--strategy-class` must agree. Runtime contract:
-  `r1-native-v3`.
+  `r1-native-v4`.
 - The constructor receives `instrument_id`, `daily_bar_type`, `trade_size` positionally, then
-  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5), `strategy_id` and
-  `signal_variant` by keyword (`_NodeConfigured.__init__` in `node_strategy.py`). Pass `StrategyConfig(strategy_id=strategy_id)`
-  to `Strategy.__init__`.
+  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5) and `strategy_id` by
+  keyword (`_Configured.__init__` in `run.py`). Pass `StrategyConfig(strategy_id=strategy_id)` to
+  `Strategy.__init__`.
 - `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL` without an aggregation source; subscribe
   to it with `@5-MINUTE-EXTERNAL` appended, or no daily bars arrive.
-- Besides `historical_daily_bars`, only scalars arrive: the signal label and a fixed quantity per
-  instrument. The exit label and the daily-warmup flag reach only `validate_replay_configuration`.
-  Every other parameter, sizing included, is a constant in the file.
-- Accept only the labels and values the file implements. A signal label listed in `TIER_RATIOS`
-  (`backtest/r1/checks/audit_tiered_native.py`) adds that tier shape's audit gates; give a new rule
-  its own label.
+- Besides `historical_daily_bars`, only a fixed quantity per instrument arrives. The runner has no
+  signal, exit, warmup or sizing option: every rule and parameter is in the file, and a variant is
+  a new revision of it.
+- Set the class attribute `DAILY_WARMUP = True` if the file needs historical daily bars; it
+  defaults to `False`, and any other value is refused.
 
 ## Required hooks
 
-The runner refuses a class missing any of them.
+The runner refuses a class missing either of them before any input loads.
 
-- `validate_replay_configuration(config)`: classmethod or staticmethod, called before inputs load
-  with the resolved configuration. Raise `ValueError` unless `signal_variant`, `exit_variant` and
-  `daily_warmup` are values the file implements.
 - `replay_diagnostics()`: per instance after the replay; a dict of plain JSON source counters. The
   keys `coin`, `instrument`, `quantity`, `counts` and `positions` are refused.
 - `replay_integrity_findings(orders_denied_or_rejected)`: per instance, with one bool that is true
@@ -60,9 +56,10 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   prior-bar indicator, update it after the decision.
 - Bars between `--start` and `--trade-start` are warm-up. Nothing blocks orders there; the file
   must not submit before `trade_start_ns`.
-- With `--daily-warmup`, `historical_daily_bars` holds at least 200 contiguous
+- With `DAILY_WARMUP = True`, `historical_daily_bars` holds at least 200 contiguous
   `-1-DAY-LAST-EXTERNAL` bars, the last stamped 1 ms before `--start`, so `--start` must be 00:00
-  UTC (otherwise the list is `[]`). The engine does not replay them; seed state from the list.
+  UTC or the replay fails; without it the list is `[]`. The engine does not replay them; seed state
+  from the list.
 - Matching uses 5-minute bars and the order inside one bar is unknown. Do not encode an intrabar
   path.
 
@@ -127,7 +124,7 @@ an instrument and bars to observe fills.
 
    ```json
    {"strategy_id": "NEW-ID", "family_id": "FAMILY-ID", "description": "Rule and non-claims.",
-    "entry_class": "EntryClass", "runtime_contract": "r1-native-v3", "status": "research",
+    "entry_class": "EntryClass", "runtime_contract": "r1-native-v4", "status": "research",
     "parents": [{"strategy_id": "PARENT-ID", "revision": 1, "difference": "What changed."}],
     "attempt_refs": []}
    ```
@@ -171,11 +168,10 @@ without `--explore`, which supplies the strategy arguments itself. Never run the
 uv run --frozen python -m research.records.artifacts run --explore \
   --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS --output /tmp/RUNDIR/pilot -- \
   --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END \
-  --signal-variant SIGNAL --exit-variant EXIT
+  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END
 ```
 
-Add `--daily-warmup` only if the file requires it; times need `Z` or a UTC offset on five-minute
+Times need `Z` or a UTC offset on five-minute
 boundaries. In the pilot, confirm every entry has its children, every order carries one plan tag
 and plans on one instrument do not overlap, no order precedes trade start, none was denied or
 rejected, and fills, fees, funding and account rows appear in the native reports. A
