@@ -98,7 +98,7 @@
   9. **只留不可重建的证据**：策略源（Dolt）、封存运行（含产品读数），另可附一份简短的探索笔记。手写 reader、日志、空 stderr 都不再留证。
   10. **取消写入仪式。** 不再强制 dry-run、写后回读、validate 和回执文件；写入本身原子且先校验，CLI 的返回就是回执。dry-run 保留为可选。
   11. **存储重新设计（2026-10-11，基于 Dolt 2.4.2 实测和需求盘点，取代原第 11–15 条）。**
-      - **新开一个干净的数据库，不导入旧账本。** 开发期旧数据不重要。旧数据目录原样留着、不再读取，也不在本次删除。"哪些窗口已被看过"这一事实仍要写进新 goal 的 material（一句声明，不导入旧记录）。
+      - **新开一个干净的数据库，不导入旧账本。** 开发期旧数据不重要，也不需要保留：旧账本在 WS7 统一删除，WS2 本身不删。"哪些窗口已被看过"这一事实仍要写进新 goal 的 material（一句声明，不导入旧记录）。
       - **轮次用分支和标签管理。** main 只放当前 schema。每个 goal 从 main 开一条 `round/<goal_id>` 分支，结束时打只读标签。"开新一轮"和"结束本轮"各是一条命令；写入只允许在活动分支上。schema 只在 main 上改，新一轮自动用上；旧标签用 `AS OF` 读当时的表结构，不依赖当前代码。
       - **有类型的表取代通用的 objects/relations JSON。** 表包括 goal、source_note、strategy_revision（源码字节仍存 Dolt）、run（产品读数是真实列，成本口径从封存读出，不由 Agent 填写）、trial、freeze、confirmation_plan、confirmation_verdict、correction、blob（只存元数据，字节在 0700 内容寻址目录）。约束和外键由数据库负责。
       - **只插入、不更新。** 并发控制只靠一行 `ledger_head`，每次写入都改它，后到者收到 1213 后重读或拒绝（实测：只比较分支头 hash 拦不住并发）。幂等用每行的 `op_id` 唯一键。去掉 `write_head` 版本号、`operations` 表、`publication` 对象和回执链。每次发表只开一个事务、只用一个连接；不使用 `dolt_commit('-am')` 去提交别人的改动。
@@ -163,7 +163,7 @@
   4. **账本具名档案**：已移到 WS2，原因同上。
   5. **所有原生回放走同一个入口**：`artifacts run` 增加轻量的探索模式，不封存、输出到 `/tmp`，但每次运行都在统一接口上报告一次，试验日志由 WS2 落进 Dolt。不再直接用 `docker run` 跑回放或探针。
   6. **项目改为可安装的包**（`pyproject.toml` 去掉 `package = false`），镜像里同样可导入。仓库外的探索脚本用 `uv run --project` 就能 import，不再手补 PYTHONPATH。
-  7. **旧镜像保留**：本机 registry 里已有封存引用的镜像，先用 `docker save` 归档到私有目录并校验 digest，再停掉 registry。不删除任何镜像。
+  7. **旧镜像**：CI 镜像上线后停掉本机 registry，不再 `docker save` 归档；旧镜像统一在 WS7 删除（用户 2026-10-11 授权）。
 - **根因**：
   - 没有"当前运行时"指针；`artifacts run` 只核对镜像 digest，不核对镜像代码来源。
   - 镜像手工构建、推到端口不固定的本机 registry，运行时身份是手写 JSON。
@@ -197,6 +197,30 @@
   3. goal 的来源笔记沿用 claims.json 格式，策略源里的规则引用 C 编号。
   4. 并入 WS2：重写 research-round 的 source-evidence.md 和托管规则。
 
+### WS7 旧数据清理（2026-10-11 授权）
+
+- **用户决定**：开发期旧数据不重要，不需要保留。授权删除下列四类，外加 skill 评测的旧输出：
+  1. **旧 Dolt 账本及全部副本**（约 3.5GB）：`records/`（含 869MB 测试残留库）、`records-backups`、`records-recovery`、`records-validation`、`research-ledger-backups`、`ledger-archives`、`order-history-engineering`、D25 隔离账本。
+  2. **旧封存运行及备份**（约 5.5GB）：`research-artifacts`（43 个运行）、`research-artifacts-backup`、`research-artifacts-acceptance`、`research-artifacts-acceptance-backup`、`research-artifacts-acceptance-restored`。
+  3. **旧研究产物和审计**（约 3.5GB）：
+     - `research/`、`research-audits`、`research-retention` 及其备份、`research-recipes` 及其备份、`research-diagnostics`；
+     - `validation`、`portability-validation`、`strategy-variant-migration`；
+     - `strategy-migration` 中除 `inputs` 以外的部分、`video-evidence-drafts-20261010`。
+     - 删除后，本计划文档里引用的证据路径会失效；结论以本文档的文字记录为准。
+  4. **旧镜像**：`research-runtime`（导出的镜像包，约 5.6GB）、本机 registry 容器，以及其中的 `trade-r1-runtime` 镜像。
+  5. **`skill-evals` 的历次运行输出**（约 9.7GB）。
+- **保留**：
+  - `catalogs/` 和 `strategy-migration/*/inputs`（市场数据，新研究的输入）；
+  - `ledger-probe/`（Dolt 二进制）；
+  - `research-analysis-envs`（ASR 等分析环境）；
+  - 新库及其备份、WS5 的 CI 镜像。
+- **时机**：WS1、WS5、WS4、WS2 全部合并，新库启用后执行。WS4 的验收要读 D11/D19 的旧封存和 D25 的探针结果；WS1 和 WS5 期间还要用到本机 registry。
+- **执行规则**：
+  - 先盘点：逐个目录确认属于授权类别，并且新系统（代码、配置、新库、CI）没有引用它；
+  - 列出清单和大小，报告给用户后再删；
+  - 不在授权清单里的目录（例如某个会话留下的临时演示目录）只列出，不删；
+  - 删除后报告释放的空间。
+
 ## 3. 顺序与依赖（2026-10-11 已定）
 
 1. **WS1**：PR1 改 skill 和文档；PR2 改运行器的仓位参数，并加计划级胜率。
@@ -205,6 +229,7 @@
    - WS4 是裸仓审计、#1510 重做和保护写法指南，改的是运行器、审计和 strategy-authoring 中的一节。
    - WS2（含原 WS3、WS6）是记录层重写、归档清空和 skill 重写；重写 skill 时要保留 WS4 在 strategy-authoring 里加的那一节。
 4. WS6 已并入 WS2。
+5. **WS7**：在以上各项都合并、新库启用之后执行。
 
 Codex 已停，端口耗尽不再紧急，所以连接修复不单独先做。
 
