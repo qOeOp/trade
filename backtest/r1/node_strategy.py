@@ -23,8 +23,6 @@ class NodeStrategyConfig:
     strategy_id: str
     signal_variant: str
     daily_root: str | None = None
-    risk_budget_fraction: float | None = None
-    max_coin_notional_fraction: float = 0.05
     daily_warmup: bool = False
 
 
@@ -48,8 +46,6 @@ class _NodeConfigured:
             execution_bar_minutes=5,
             strategy_id=StrategyId(config.strategy_id),
             signal_variant=config.signal_variant,
-            risk_budget_fraction=config.risk_budget_fraction,
-            max_coin_notional_fraction=config.max_coin_notional_fraction,
         )
         STRATEGIES[config.instrument_id] = self
 

@@ -20,21 +20,16 @@ What a strategy file must satisfy to run in the native replay. Code is the autho
 
 - Define the entry class in this file as a subclass of `nautilus_trader.trading.Strategy`. The
   metadata `entry_class`, the exported binding and `--strategy-class` must agree. Runtime contract:
-  `r1-native-v2`.
+  `r1-native-v3`.
 - The constructor receives `instrument_id`, `daily_bar_type`, `trade_size` positionally, then
-  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5), `strategy_id`,
-  `signal_variant`, `risk_budget_fraction`, `max_coin_notional_fraction` by keyword
-  (`_NodeConfigured.__init__` in `node_strategy.py`). Pass `StrategyConfig(strategy_id=strategy_id)`
+  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5), `strategy_id` and
+  `signal_variant` by keyword (`_NodeConfigured.__init__` in `node_strategy.py`). Pass `StrategyConfig(strategy_id=strategy_id)`
   to `Strategy.__init__`.
 - `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL` without an aggregation source; subscribe
   to it with `@5-MINUTE-EXTERNAL` appended, or no daily bars arrive.
-- Besides `historical_daily_bars`, only scalars arrive: signal label, risk budget (bps / 10000, or
-  `None`), coin notional cap (percent / 100) and a fixed quantity per instrument. The exit label and
-  the daily-warmup flag reach only `validate_replay_configuration`. Every other parameter, sizing
-  included, is a constant in the file.
-- Do not size from the risk budget or the coin notional cap. Leave `--risk-budget-bps` unset and
-  `--coin-notional-cap-pct` at its default, and accept only `None` and `5.0` for them in
-  `validate_replay_configuration`.
+- Besides `historical_daily_bars`, only scalars arrive: the signal label and a fixed quantity per
+  instrument. The exit label and the daily-warmup flag reach only `validate_replay_configuration`.
+  Every other parameter, sizing included, is a constant in the file.
 - Accept only the labels and values the file implements. A signal label listed in `TIER_RATIOS`
   (`backtest/r1/checks/audit_tiered_native.py`) adds that tier shape's audit gates; give a new rule
   its own label.
@@ -44,8 +39,8 @@ What a strategy file must satisfy to run in the native replay. Code is the autho
 The runner refuses a class missing any of them.
 
 - `validate_replay_configuration(config)`: classmethod or staticmethod, called before inputs load
-  with the resolved configuration. Raise `ValueError` unless `signal_variant`, `exit_variant`,
-  `daily_warmup`, `risk_budget_bps` and `coin_notional_cap_pct` are values the file implements.
+  with the resolved configuration. Raise `ValueError` unless `signal_variant`, `exit_variant` and
+  `daily_warmup` are values the file implements.
 - `replay_diagnostics()`: per instance after the replay; a dict of plain JSON source counters. The
   keys `coin`, `instrument`, `quantity`, `counts` and `positions` are refused.
 - `replay_integrity_findings(orders_denied_or_rejected)`: per instance, with one bool that is true
@@ -93,10 +88,12 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   any later order that changes or closes that position. Give every order exactly one tag
   `plan:PLAN-ID` (`entry_tags`, `sl_tags` and `tp_tags` on a bracket, `tags` otherwise), unique
   within the run, for example the instrument and the signal's bar timestamp. Other tags may sit
-  beside it. The plan reading refuses a run with any order lacking a plan tag.
+  beside it. The plan reading of `artifacts report` refuses a run with any order lacking a plan tag.
 - One instrument has at most one active plan at a time: from its first submitted order until its
-  position is flat and none of its orders is open. Do not submit a new plan for that instrument
-  before then; the plan reading refuses overlapping plans.
+  position is flat and none of its orders is open. A plan holds at most one position: when it goes
+  flat, cancel its remaining orders rather than let a leftover tier reopen it. Do not submit a new
+  plan for that instrument before then. The plan reading refuses overlapping plans, a position
+  holding fills of two plans and a plan with fills in two positions.
 - Sizing, per-plan risk, notional limits and leverage use are constants in this file, fixed with
   its source hash. They are your design variables ([feasibility.md](feasibility.md)): change them
   as a new revision, never record them as user constraints.
@@ -128,7 +125,7 @@ an instrument and bars to observe fills.
 
    ```json
    {"strategy_id": "NEW-ID", "family_id": "FAMILY-ID", "description": "Rule and non-claims.",
-    "entry_class": "EntryClass", "runtime_contract": "r1-native-v2", "status": "research",
+    "entry_class": "EntryClass", "runtime_contract": "r1-native-v3", "status": "research",
     "parents": [{"strategy_id": "PARENT-ID", "revision": 1, "difference": "What changed."}],
     "attempt_refs": []}
    ```

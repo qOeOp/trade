@@ -3,10 +3,11 @@
 `python -m backtest.r1.run_portfolio` is the single R1 backtest entry. It loads
 one complete external Strategy file after checking its exact SHA-256. Dolt owns
 published source revisions; working files can live in a temporary directory.
-The current `r1-native-v2` contract uses `PublishedR1Strategy` and ordinary
-Python definitions in that one file. Source owns configuration validation,
-replay diagnostics and integrity hooks; the shared runner transports scalar
-configuration and explicit daily warmup, without a strategy identity allowlist.
+The current `r1-native-v3` contract uses ordinary Python definitions in that one
+file. Source owns sizing, configuration validation, replay diagnostics and
+integrity hooks; the shared runner transports signal and exit labels and
+explicit daily warmup, with no sizing parameter and no strategy identity
+allowlist.
 The migration demonstration used 26 strategy identities and 27 source revisions,
 including the original H19a v1 revision. Those trial records were locally backed
 up and the active ledger reset on 2026-10-09. New research first publishes its
@@ -32,18 +33,21 @@ inside that interval. Time precision is limited to six fractional digits;
 fractional UTC offsets are rejected. The runner validates these values before
 loading inputs and never uses the host timezone to interpret them.
 
-## Export and run H19a
+## Export and run a source
 
 Use the exact Dolt commit returned by source publication as `SOURCE_AT`.
 Export refuses to overwrite an existing source or binding destination.
-This H19a example requires its source to have been published into the selected
-ledger. Set the returned revision too; do not reuse an archived commit or assume
-the old demo's revision number exists in a fresh database.
+The example names the H19a demo identity; it runs only once an `r1-native-v3`
+revision of it has been published into the selected ledger (the archived H19a
+revisions are `r1-native-v1`/`v2` and their source sizing came from the removed
+runner flags). Set the returned revision and hash; do not reuse an archived
+commit or assume the old demo's revision number exists in a fresh database.
 
 ```bash
 uv sync --frozen
 SOURCE_AT=YOUR_SOURCE_PUBLICATION_COMMIT
 STRATEGY_REVISION=YOUR_SOURCE_REVISION
+STRATEGY_SHA256=YOUR_SOURCE_SHA256
 STRATEGY_WORKDIR=$(mktemp -d /tmp/trade-h19a.XXXXXX)
 uv run --frozen python -m research.records.cli --at "$SOURCE_AT" \
   strategy export r1.broad-two-tier --revision "$STRATEGY_REVISION" \
@@ -53,7 +57,7 @@ R1_COINS=(BTC ETH BNB ADA XRP SOL DOGE LTC TRX LINK DOT AVAX BCH ETC XLM ATOM FI
 uv run --frozen python -m backtest.r1.run_portfolio \
   --strategy-file "$STRATEGY_WORKDIR/strategy.py" \
   --strategy-class PublishedR1Strategy \
-  --strategy-sha256 782c9af84c9d060144a76bf3ff8eb2cae260b7114f1b9cc375518f47bf3de33e \
+  --strategy-sha256 "$STRATEGY_SHA256" \
   --strategy-binding "$STRATEGY_WORKDIR/binding.json" \
   --catalog-root /path/to/r1-minute-catalog \
   --daily-root /path/to/r1-daily-catalog \
@@ -62,29 +66,28 @@ uv run --frozen python -m backtest.r1.run_portfolio \
   --start 2025-10-07T00:00:00Z --trade-start 2025-10-17T00:00:00Z \
   --end 2026-10-07T08:30:00Z \
   --signal-variant support-broad-two-tier-4h --exit-variant tier-target-b \
-  --risk-budget-bps 25 --coin-notional-cap-pct 5 \
   --output /tmp/r1-external-h19a-37
 ```
 
-The example binds the H19a native-v2 source to the selected ledger's returned
-publication revision, fixed commit and exact source hash.
+The example binds the source to the selected ledger's returned publication
+revision, fixed commit and exact source hash.
 For another source or revision, export its binding and use its entry class and
-hash. `validate_replay_configuration` checks the source's signal, exit, warmup
-and sizing contract. `replay_diagnostics` supplies source-specific counters,
+hash. `validate_replay_configuration` checks the source's signal, exit and warmup
+contract; sizing is constants in the source. `replay_diagnostics` supplies source-specific counters,
 while `replay_integrity_findings` supplies source-specific failure findings;
 the runner also rejects native denied/rejected orders. The full source
 contract is in the
 [strategy-authoring reference](../../.agents/skills/research-round/references/strategy-authoring.md).
-Use `--daily-warmup` only for a source requiring historical daily bars. H19a's
-source requires 25-bp total stop risk, a 5% coin notional cap and no daily
-warmup. Current runtime code imports no product strategy or historical variant
-module.
+Use `--daily-warmup` only for a source requiring historical daily bars.
+Current runtime code imports no product strategy or historical variant module.
 
 The archived ledger retains the initial H19a `r1.broad-two-tier@1` source, with entry class
 `R1Strategy`, `r1-native-v1` and SHA-256
 `8b708592a27732311071b0b00d237001b6e6bb96725bcc3a842cf35ae2184b4a`.
-Execute that revision with its retained accepted v1 image; the current v2
-runner requires the new source hooks. Recover the archive into a separate ledger
+Execute that revision with its retained accepted v1 image, and an
+`r1-native-v2` revision with a retained v2 image: the v2 constructor receives
+`risk_budget_fraction` and `max_coin_notional_fraction`, which the v3 runner no
+longer passes. Recover the archive into a separate ledger
 to read that historical revision; the fresh active ledger starts without it.
 
 `--mark-root` optionally selects the derived MARK Catalog cache. The default
@@ -112,7 +115,7 @@ docker push REGISTRY/trade-r1-runtime:BUILD-TAG
 
 A runtime identity JSON contains exactly `image_ref` (registry path plus
 `@sha256:` manifest digest), matching `image_digest`, `platform` (`linux/arm64`
-or `linux/amd64`) and `runtime_contract: r1-native-v2`. Pull the digest reference
+or `linux/amd64`) and `runtime_contract: r1-native-v3`. Pull the digest reference
 before custody execution. Custody verifies the locally available manifest and
 platform, observes the image's actual runtime and resolved configuration, and
 runs with no network, a read-only root, read-only source/input mounts and one
