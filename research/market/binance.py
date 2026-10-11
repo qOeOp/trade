@@ -9,13 +9,12 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import http.client
 import json
 from pathlib import Path
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import xml.etree.ElementTree as ElementTree
 import zipfile
 
@@ -38,30 +37,60 @@ class UnknownSymbol(SourceError):
     """REST does not know the symbol (HTTP 400): a contract removed from the exchange."""
 
 
-def get(url: str, *, attempts: int = 6) -> bytes:
+_LOCAL = threading.local()
+
+
+def _connection(host: str) -> http.client.HTTPSConnection:
+    """One kept-alive connection per thread and host: an import opens thousands of requests, and a
+    new socket for each exhausts the ephemeral ports (Errno 49)."""
+    pool = getattr(_LOCAL, "connections", None)
+    if pool is None:
+        pool = _LOCAL.connections = {}
+    if host not in pool:
+        pool[host] = http.client.HTTPSConnection(host, timeout=60)
+    return pool[host]
+
+
+def _drop(host: str) -> None:
+    connection = getattr(_LOCAL, "connections", {}).pop(host, None)
+    if connection is not None:
+        connection.close()
+
+
+def get(url: str, *, attempts: int = 8) -> bytes:
     """GET with backoff on throttling, server errors and dropped connections; 404 raises at once."""
+    parts = urllib.parse.urlsplit(url)
+    target = parts.path + (f"?{parts.query}" if parts.query else "")
     delay = 1.0
     for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "trade-market/1"}),
-                                        timeout=60) as response:
-                return response.read()
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                raise FileNotFoundError(url) from exc
-            if exc.code == 400 and url.startswith(REST):
-                raise UnknownSymbol(f"{url}: HTTP 400") from exc
-            if exc.code not in (403, 418, 429, 500, 502, 503, 504) or attempt == attempts - 1:
-                raise SourceError(f"{url}: HTTP {exc.code}") from exc
-            # 403 (WAF), 418 and 429 are Binance's rate limits: wait them out.
-            limited = exc.code in (403, 418, 429)
-            retry_after = exc.headers.get("Retry-After")
-            wait = float(retry_after) if retry_after and retry_after.isdigit() else (60.0 * 2 ** attempt if limited else delay)
-            time.sleep(max(delay, wait))
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            connection = _connection(parts.netloc)
+            connection.request("GET", target, headers={"User-Agent": "trade-market/1"})
+            response = connection.getresponse()
+            body = response.read()
+            status, headers = response.status, response.headers
+            if response.will_close:
+                _drop(parts.netloc)
+        except (OSError, http.client.HTTPException) as exc:
+            _drop(parts.netloc)
             if attempt == attempts - 1:
                 raise SourceError(f"{url}: {exc}") from exc
             time.sleep(delay)
+            delay = min(delay * 2, 60)
+            continue
+        if status == 200:
+            return body
+        if status == 404:
+            raise FileNotFoundError(url)
+        if status == 400 and url.startswith(REST):
+            raise UnknownSymbol(f"{url}: HTTP 400")
+        if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == attempts - 1:
+            raise SourceError(f"{url}: HTTP {status}")
+        # 403 (WAF), 418 and 429 are Binance's rate limits: wait them out.
+        retry_after = headers.get("Retry-After")
+        wait = (float(retry_after) if retry_after and retry_after.isdigit()
+                else 60.0 * 2 ** attempt if status in (403, 418, 429) else delay)
+        time.sleep(max(delay, wait))
         delay = min(delay * 2, 60)
     raise AssertionError("unreachable")
 
