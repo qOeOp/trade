@@ -153,7 +153,9 @@ def series(cache: binance.Cache, symbol: str, price_type: str, start: int, end: 
                              min(end, universe.day_ms(date.fromisoformat(m + "-01")) + 31 * DAY), DAY)
               if universe.ms_day(t).strftime("%Y-%m") == m})
     table = _merge(parts, start, end, label)
-    if not table.num_rows and trading and not resumed:
+    if not table.num_rows and (trading or resumed):
+        # No archive at all (Binance publishes no markPriceKlines for some symbols, e.g. non-ASCII
+        # ones, and none yet for a contract listed this month): public REST for the whole range.
         parts.append(_rest_table(_rest(binance.rest_klines, price_type, symbol, "1m", start, end, trading=trading)))
         table = _merge(parts, start, end, label)
     if not table.num_rows:
