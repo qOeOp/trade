@@ -30,8 +30,11 @@ What a strategy file must satisfy to run in the native replay. Code is the autho
   to it with `@5-MINUTE-EXTERNAL` appended, or no daily bars arrive.
 - Besides `historical_daily_bars`, only scalars arrive: signal label, risk budget (bps / 10000, or
   `None`), coin notional cap (percent / 100) and a fixed quantity per instrument. The exit label and
-  the daily-warmup flag reach only `validate_replay_configuration`. Every other parameter is a
-  constant in the file.
+  the daily-warmup flag reach only `validate_replay_configuration`. Every other parameter, sizing
+  included, is a constant in the file.
+- Do not size from the risk budget or the coin notional cap. Leave `--risk-budget-bps` unset and
+  `--coin-notional-cap-pct` at its default, and accept only `None` and `5.0` for them in
+  `validate_replay_configuration`.
 - Accept only the labels and values the file implements. A signal label listed in `TIER_RATIOS`
   (`backtest/r1/checks/audit_tiered_native.py`) adds that tier shape's audit gates; give a new rule
   its own label.
@@ -82,8 +85,26 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
   funding, or keep a private ledger.
 - Size from native state: `self.portfolio.equity(venue=...)`, instrument `multiplier`,
-  `make_price`, `make_qty(value, round_down=True)`, `min_quantity`, `min_notional`. The runner
-  passes the budget and cap; the file implements the sizing.
+  `make_price`, `make_qty(value, round_down=True)`, `min_quantity`, `min_notional`.
+
+## Plans and sizing
+
+- A plan is everything one signal submits: every entry tier with its shared stops and targets, and
+  any later order that changes or closes that position. Give every order exactly one tag
+  `plan:PLAN-ID` (`entry_tags`, `sl_tags` and `tp_tags` on a bracket, `tags` otherwise), unique
+  within the run, for example the instrument and the signal's bar timestamp. Other tags may sit
+  beside it. The plan reading refuses a run with any order lacking a plan tag.
+- One instrument has at most one active plan at a time: from its first submitted order until its
+  position is flat and none of its orders is open. Do not submit a new plan for that instrument
+  before then; the plan reading refuses overlapping plans.
+- Sizing, per-plan risk, notional limits and leverage use are constants in this file, fixed with
+  its source hash. They are your design variables ([feasibility.md](feasibility.md)): change them
+  as a new revision, never record them as user constraints.
+- Margin and leverage are Nautilus's: the account is `MARGIN` at the leverage in
+  `ACCOUNT_CONTRACT`, Nautilus denies an order the account cannot margin, and a denied order fails
+  the run. Do not add a separate notional cap to imitate it.
+- Set the largest order notional as a share of its bar's traded volume as a constant in the file,
+  and report that limit and the largest observed share in the decision.
 
 ## Verify Nautilus behavior
 
@@ -153,13 +174,13 @@ uv run --frozen python -m backtest.r1.run_portfolio \
   --strategy-sha256 SOURCE-SHA256 --strategy-binding /tmp/RUNDIR/binding.json \
   --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
   --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END \
-  --signal-variant SIGNAL --exit-variant EXIT --risk-budget-bps BPS --coin-notional-cap-pct PCT \
-  --output /tmp/RUNDIR/pilot
+  --signal-variant SIGNAL --exit-variant EXIT --output /tmp/RUNDIR/pilot
 uv run --frozen python -m backtest.r1.checks.audit_tiered_native \
   --run /tmp/RUNDIR/pilot --catalog-root MINUTE-CATALOG --output /tmp/RUNDIR/pilot-audit.json
 ```
 
 Add `--daily-warmup` only if the file requires it; times need `Z` or a UTC offset on five-minute
-boundaries. In the pilot, confirm every entry has its children, no order precedes trade start, none
-was denied or rejected, and fills, fees, funding and account rows appear in the native reports. A
+boundaries. In the pilot, confirm every entry has its children, every order carries one plan tag
+and plans on one instrument do not overlap, no order precedes trade start, none was denied or
+rejected, and fills, fees, funding and account rows appear in the native reports. A
 clean exit is not evidence.

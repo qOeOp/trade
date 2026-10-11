@@ -25,8 +25,8 @@ A whole-strategy failure rejects the bundle, not any one part. State which layer
 - **L2 implementation**: the code matches the rule with a causal clock, and there are enough events.
 - **L3 market response**: price after the event against a preregistered reference, and plan
   lifecycles ([l3-boundary.md](references/l3-boundary.md)).
-- **L4 net account**: fills, fees, funding and sizing; name the failing part (gross edge, cost,
-  frequency, size or tail).
+- **L4 net account**: fills, fees, funding and the goal's gates; name the failing part (gross edge,
+  cost, frequency, plan win rate, return to drawdown or tail).
 - **L5 confirmation**: a frozen candidate on a window that begins after its pending confirmation
   attempt is published ([confirmation.md](references/confirmation.md)).
 
@@ -34,9 +34,10 @@ A whole-strategy failure rejects the bundle, not any one part. State which layer
 
 1. Map outcomes to actions with at least two different actions. If every outcome leads to the same
    action, do not run.
-2. Check feasibility ([feasibility.md](references/feasibility.md)). If a fully working mechanism
-   cannot reach the goal within the risk limits, the primary response is a mechanism reading or a
-   local improvement, and the scope says so.
+2. Read the goal file and the gates in [feasibility.md](references/feasibility.md). The user owns
+   only the three targets in it; sizing, per-plan risk and notional limits are yours. Never reject
+   or narrow a design because a cap you chose binds, and never rescue a failed gate by sizing: size
+   moves return and drawdown together. Size last.
 3. After an economics failure, cite the failing part before the next candidate; if it is unknown,
    diagnose first.
 4. Freeze the primary response, reference, window, cost model, outcome map and reader. Everything
@@ -82,7 +83,8 @@ exclusion nor corroboration, bring the question to the user.
   including a window a tuning step skipped, can refute a change or leave it not refuted, never
   confirm it: never call it half, quasi or semi out-of-sample, independent, or "no overfitting".
 - Add filters after inspecting losing trades and call the result a mechanism.
-- Change the risk limits or the goal to rescue a result.
+- Change the user's goal (a target, the drawdown measure or the window) to rescue a result, or
+  record your own sizing or risk plan as a user constraint.
 - Derive PnL, R multiples, win rates or expectancy from price touches, or compare touch rates with
   a breakeven, even as a rough, scenario or upper-bound figure the user asks for; or resolve two
   levels touched in one bar by any rule (stop-first or an even split included). Send the economic
