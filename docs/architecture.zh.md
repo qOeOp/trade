@@ -53,7 +53,7 @@ R1 当前的 37 个合约在**同一个**初始 100,000 USDT 的原生保证金�
 
 ## 当前可运行切片
 
-唯一回放入口 `python -m backtest.r1.run_portfolio` 以原生 `BacktestNode` 回放现有 LAST K 线、资金费率和合约假设，并输出逐币与账户报告。当前 `r1-native-v2` 从固定 Dolt revision 加载完整策略；策略文件负责信号、仓位、下单、退出、配置约束及自身诊断，共享入口只传输配置、准备数据并读取原生事实。日线预热按明确配置加载。旧 `r1-native-v1` 来源绑定仍可读取，并由原固定镜像执行。资金费率直接从现有 Catalog 加载，由 Nautilus 结算。已有 MARK 数据存为 K 线，`backtest/r1/native_node.py` 将其收盘价写成原生 `MarkPriceUpdate` 派生 Catalog，复用时逐事件核对时间与价格。`backtest/r1/replay_inputs.py` 校验数据回执及资金费结算覆盖。此前 H18a/H19a 全年 37 币共享账户回放，以及覆盖全部信号族和分段退出的 16 组测试组合，已与原生旧入口做配对；其中两组保留原有订单完整性失败。运行方式和历史证据见 `backtest/r1/README.md` 与 `docs/plans/nautilus-upstream-poc.zh.md`。
+唯一回放入口 `python -m backtest.r1.run_portfolio` 以原生 `BacktestNode` 回放现有 LAST K 线、资金费率和合约假设，并输出逐币与账户报告。当前 `r1-native-v3` 从固定 Dolt revision 加载完整策略；策略文件负责信号、仓位、下单、退出、配置约束及自身诊断，共享入口只传输配置、准备数据并读取原生事实，不传任何仓位参数。日线预热按明确配置加载。旧 `r1-native-v1`、`r1-native-v2` 来源绑定仍可读取，并由各自原固定镜像执行。资金费率直接从现有 Catalog 加载，由 Nautilus 结算。已有 MARK 数据存为 K 线，`backtest/r1/native_node.py` 将其收盘价写成原生 `MarkPriceUpdate` 派生 Catalog，复用时逐事件核对时间与价格。`backtest/r1/replay_inputs.py` 校验数据回执及资金费结算覆盖。此前 H18a/H19a 全年 37 币共享账户回放，以及覆盖全部信号族和分段退出的 16 组测试组合，已与原生旧入口做配对；其中两组保留原有订单完整性失败。运行方式和历史证据见 `backtest/r1/README.md` 与 `docs/plans/nautilus-upstream-poc.zh.md`。
 
 固定版本为 `nautilus_trader==2.0.0rc3`。这是在同一数据、同一参数、同一共享账户上通过订单与经济结果配对的版本；升级前必须重新检查原生订单完整性及全年配对。当前合约元数据来自研究时保存的现行规则假设，不能据此声称历史逐日合约条款精确。历史研究数据留在外部 Catalog，不复制进 Git。研究脚本与已暴露年度结果可用于机制诊断；新候选的确认需独立的事前规则、配对与样本外/多重尝试处理。
 

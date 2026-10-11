@@ -319,12 +319,6 @@ def run_native_node(
                     "signal_variant": args.signal_variant,
                     "daily_root": str(args.daily_root),
                     "daily_warmup": args.daily_warmup,
-                    "risk_budget_fraction": (
-                        args.risk_budget_bps / 10_000
-                        if args.risk_budget_bps is not None
-                        else None
-                    ),
-                    "max_coin_notional_fraction": args.coin_notional_cap_pct / 100,
                 },
             ),
         )

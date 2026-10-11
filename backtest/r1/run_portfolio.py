@@ -8,7 +8,6 @@ import gzip
 import hashlib
 import io
 import json
-import math
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -117,8 +116,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--execution-binding", type=Path)
     parser.add_argument("--signal-variant", required=True)
     parser.add_argument("--exit-variant", required=True)
-    parser.add_argument("--risk-budget-bps", type=float)
-    parser.add_argument("--coin-notional-cap-pct", type=float, default=5.0)
     parser.add_argument("--daily-warmup", action="store_true")
     return parser
 
@@ -142,12 +139,6 @@ def parse_configuration(argv: list[str] | None = None):
             or any(value.minute % 5 or value.second or value.microsecond
                    for value in (start, end, trade_start))):
         parser.error("replay needs a positive five-minute-aligned interval with trade-start inside it")
-    if args.risk_budget_bps is not None and (
-        not math.isfinite(args.risk_budget_bps) or not 0 < args.risk_budget_bps < 10_000
-    ):
-        parser.error("risk budget must be finite and between 0 and 10000 bps")
-    if not math.isfinite(args.coin_notional_cap_pct) or not 0 < args.coin_notional_cap_pct <= 100:
-        parser.error("coin notional cap must be finite and between 0 and 100 percent")
     return args
 
 
@@ -165,8 +156,6 @@ def effective_configuration(args) -> dict:
         "trade_start": args.trade_start if args.trade_start is not None else args.start,
         "signal_variant": args.signal_variant,
         "exit_variant": args.exit_variant,
-        "risk_budget_bps": args.risk_budget_bps,
-        "coin_notional_cap_pct": args.coin_notional_cap_pct,
         "daily_warmup": args.daily_warmup,
         "native_account": ACCOUNT_CONTRACT.copy(),
     }
@@ -308,15 +297,7 @@ def main() -> None:  # noqa: C901 - CLI coordinates one shared-account replay li
         "account_model": f"one native BacktestNode margin account, 100000 USDT, {len(rows)} strategies sharing portfolio capital",
         "starting_balance_usdt": ACCOUNT_CONTRACT["starting_balance_usdt"],
         "native_risk_submit_rate": REPLAY_SUBMIT_RATE,
-        "sizing": (
-            {
-                "mode": "native_equity_stop_risk_with_notional_cap",
-                "risk_budget_bps": args.risk_budget_bps,
-                "coin_notional_cap_pct": args.coin_notional_cap_pct,
-            }
-            if args.risk_budget_bps is not None
-            else {"mode": "fixed_registered_quantity"}
-        ),
+        "sizing": {"mode": "strategy_source"},
         "final_equity_usdt": str(final_equity),
         "net_change_usdt": str(final_equity - Decimal(100_000)),
         "period_return_pct": float((final_equity / Decimal(100_000) - 1) * 100),

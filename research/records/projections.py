@@ -23,7 +23,7 @@ BODY_FIELDS = {
     "kind", "goal_id", "contract", "decision_file_refs", "item_key",
 }
 METRIC_FIELDS = {
-    "account_model", "annualized_return_pct", "closed_trade_win_rate", "closed_trades",
+    "account_model", "annualized_return_pct", "closed_trades",
     "data_interval_minutes", "denied_orders", "exit_variant", "final_equity_usdt",
     "input_start_utc", "integrity_findings", "integrity_passed", "native_max_drawdown_daily_close",
     "native_risk_submit_rate", "native_sharpe_252", "native_sharpe_365", "net_change_usdt",

@@ -7,7 +7,8 @@ description: Derives descriptive statistics from sealed native Nautilus backtest
 
 `artifacts report` and `compare --analysis` give only what you must not grade yourself: verified seal
 identity, the closed-position split reconciled to the audited `native_economics`, the unrealized
-residual, and the paired interval of the preregistered primary response. Compute everything else
+residual, the plan-level net win rate (`plans`) and the paired interval of the preregistered primary
+response. Compute everything else
 yourself from the sealed native reports, following the rules below. They hold for any strategy or
 venue; facts that depend on the run's configuration must be read from the seal, never assumed.
 
@@ -32,7 +33,9 @@ venue; facts that depend on the run's configuration must be read from the seal, 
 - `realized_pnl` already includes commissions and funding; a closed row's `price_pnl` is its gross
   fill result. Funding also appears as account balance changes: use one source, never both. The
   account `total` is cash, not MTM equity.
-- `summary.closed_trade_win_rate` counts closed cycles with positive `realized_pnl`. Older summaries
+- `summary.closed_trade_win_rate` counts closed cycles with positive `realized_pnl`: a descriptive
+  statistic, never the goal's win rate, which is the plan reading `plans` of `artifacts report`
+  (research-round `feasibility.md`). Older summaries
   also carry native `stats_returns`, `stats_pnls` and `stats_general`: warmup days, 252-day
   annualization, snapshot and open rows, and same-nanosecond closes merged into one. Do not cite them.
 - Maker/taker comes from fills only (unfilled orders also carry `liquidity_side`). Under a fixed

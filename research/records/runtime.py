@@ -14,7 +14,7 @@ from research.records.common import RecordError
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
-CONTRACTS = {"r1-native-v1", "r1-native-v2"}
+CONTRACTS = {"r1-native-v1", "r1-native-v2", "r1-native-v3"}
 SOURCE_PATHS = {f"{name}_source_sha256": f"backtest/r1/{name}.py"
                 for name in ("runner", "native_node", "node_strategy", "replay_inputs", "replay_util", "strategy_loader")}
 SOURCE_PATHS["runner_source_sha256"] = "backtest/r1/run_portfolio.py"

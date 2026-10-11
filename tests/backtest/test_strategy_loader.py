@@ -36,8 +36,8 @@ class ProbeStrategy(Strategy):
     def validate_replay_configuration(cls, config):
         if config['signal_variant'] != 'support-broad-two-tier-4h' or config['exit_variant'] != 'tier-target-b':
             raise ValueError('source configuration differs')
-        if config['risk_budget_bps'] != 25 or config['daily_warmup']:
-            raise ValueError('source sizing or warmup differs')
+        if config['daily_warmup']:
+            raise ValueError('source warmup differs')
 
     def replay_diagnostics(self):
         return {'signals': 1}
@@ -149,7 +149,6 @@ class StrategyLoaderTests(unittest.TestCase):
             "--output", "/reports", "--strategy-file", str(self.source),
             "--strategy-class", "ProbeStrategy", "--strategy-sha256", self.digest,
             "--signal-variant", "support-broad-two-tier-4h", "--exit-variant", "tier-target-b",
-            "--risk-budget-bps", "25",
         ]
         return parse_configuration(argv + (extra or []))
 
@@ -157,7 +156,8 @@ class StrategyLoaderTests(unittest.TestCase):
         args = self.configuration()
         effective = effective_configuration(args)
         self.assertEqual(effective["trade_start"], args.start)
-        self.assertEqual(effective["risk_budget_bps"], 25.0)
+        self.assertNotIn("risk_budget_bps", effective)
+        self.assertNotIn("coin_notional_cap_pct", effective)
         self.assertEqual(effective["native_account"]["starting_balance_usdt"], "100000")
         identity = {
             "image_ref": "example/runtime@sha256:" + "a" * 64,
@@ -195,24 +195,22 @@ class StrategyLoaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "runtime contract"):
             _execution_metadata(args)
 
-    def test_source_owns_variant_sizing_and_warmup_validation(self):
+    def test_source_owns_variant_and_warmup_validation(self):
         loaded = self.load()
         validate_strategy_configuration(loaded, self.configuration())
         for extra in (
             ["--signal-variant", "support-three-tier-line-cancel-4h"],
-            ["--exit-variant", "fixed-2r"], ["--risk-budget-bps", "26"],
-            ["--daily-warmup"],
+            ["--exit-variant", "fixed-2r"], ["--daily-warmup"],
         ):
             with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "source"):
                 validate_strategy_configuration(loaded, self.configuration(extra))
 
-    def test_nonfinite_and_invalid_transport_values_fail_visibly(self):
-        for extra in (["--risk-budget-bps", "nan"], ["--risk-budget-bps", "0"],
-                      ["--coin-notional-cap-pct", "inf"], ["--coin-notional-cap-pct", "101"]):
+    def test_runner_has_no_sizing_arguments(self):
+        for extra in (["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"]):
             with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()) as errors:
                 with self.assertRaises(SystemExit):
                     self.configuration(extra)
-                self.assertIn("error:", errors.getvalue())
+                self.assertIn("unrecognized arguments", errors.getvalue())
 
     def test_diagnostics_cannot_replace_native_facts(self):
         class InvalidDiagnostics:
@@ -228,7 +226,6 @@ class StrategyLoaderTests(unittest.TestCase):
             coin="BTC", instrument_id="BTCUSDT-PERP.BINANCE", trade_size="0.100",
             trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
             signal_variant="support-broad-two-tier-4h", daily_root="/unused",
-            risk_budget_fraction=0.0025, max_coin_notional_fraction=0.05,
         )
         engine = BacktestEngine(BacktestEngineConfig(
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
@@ -247,7 +244,8 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(strategy.received[0], InstrumentId.from_str(config.instrument_id))
         self.assertEqual(strategy.received[3]["historical_daily_bars"], [])
         self.assertEqual(strategy.received[3]["execution_bar_minutes"], 5)
-        self.assertEqual(strategy.received[3]["risk_budget_fraction"], 0.0025)
+        self.assertNotIn("risk_budget_fraction", strategy.received[3])
+        self.assertNotIn("max_coin_notional_fraction", strategy.received[3])
         self.assertEqual(str(strategy.config.strategy_id), "R1-BTC")
 
     def test_native_bridge_carries_explicit_daily_warmup(self):

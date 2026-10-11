@@ -48,9 +48,8 @@ can fail a design, and none replaces a gate.
    plan ID: all entry tiers and their shared stops and targets
    ([strategy-authoring.md](strategy-authoring.md)). It wins when its net result (fills, fees and
    funding) is above zero; breakeven, and a plan still open at the window end, are not wins. Take
-   it from the plan reading of `artifacts report`; a refused or missing reading is not a pass, so
-   until `artifacts report` gives one no design passes this gate. The closed-position win rate is
-   descriptive only.
+   it from `plans.win_rate` of `artifacts report`; a refused reading (`plans` null, reason in
+   `limitations`) is not a pass. The closed-position win rate is descriptive only.
 3. **Return to drawdown**: development annual return ÷ development drawdown (measured as
    `drawdown_measure` says) is at least `min_annual_return ÷ (max_drawdown × 2/3)`. The 2/3 leaves
    a margin because development data has been inspected (a 30% budget and a 15% return need 0.75).

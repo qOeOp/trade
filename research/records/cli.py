@@ -530,7 +530,6 @@ def _compare(candidate_id: str, control_id: str, runs: dict[str, dict], *, engin
     metrics = (
         "final_equity_usdt",
         "annualized_return_pct",
-        "closed_trade_win_rate",
         "native_sharpe_365",
         "native_max_drawdown_daily_close",
     )

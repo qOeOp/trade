@@ -15,11 +15,11 @@ Dolt store as described in the [research record guide](research/records/README.m
 and export an exact strategy revision. Follow [R1 usage](backtest/r1/README.md)
 for a temporary host diagnostic, or the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) for a
-preregistered run sealed in a fixed OCI image. The current `r1-native-v2`
+preregistered run sealed in a fixed OCI image. The current `r1-native-v3`
 contract runs one complete source file whose native `Strategy` entry class
 supplies `validate_replay_configuration`, `replay_diagnostics` and
-`replay_integrity_findings`; archived `r1-native-v1` revisions run only in their
-original retained image.
+`replay_integrity_findings`, and owns its sizing; `r1-native-v1` and
+`r1-native-v2` revisions run only in their original retained images.
 
 ```bash
 uv sync --frozen

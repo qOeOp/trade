@@ -65,7 +65,7 @@ def _csv(columns, rows):
 
 def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, economics=True,
           economics_override=None, final_equity=None, status="passed", orders=",status,expire_time_ns\n",
-          exposures=None) -> Path:
+          exposures=None, fill_orders=None) -> Path:
     seal = root / run_id
     reports = seal / "reports"
     reports.mkdir(parents=True)
@@ -79,7 +79,9 @@ def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, econ
     (reports / "positions.csv").write_text(_csv(POSITION_COLUMNS, positions) if cycles
                                            else ",ts_closed,realized_pnl,instrument_id\n")
     (reports / "fills.csv").write_text(
-        _csv(["event_id", "commission"], [[event["event_id"], event["commission"]] for event in events])
+        _csv(["event_id", "commission", "client_order_id"],
+             [[event["event_id"], event["commission"], (fill_orders or {}).get(event["event_id"], "")]
+              for event in events])
         if events else ",client_order_id\n")
     (reports / "orders.csv").write_text(orders)
     if exposures is not None:
@@ -267,6 +269,96 @@ class TablesTests(unittest.TestCase):
         with self.assertRaises(RecordError) as caught:
             analysis.tables(self.root, "R1")
         self.assertEqual(caught.exception.path, "/tags")
+
+
+# Plan P1 holds AAA-1 (a win), P2 holds BBB-1 (a loss) and P3 holds the open BBB-2; P3 starts
+# the nanosecond P2 ends.
+PLAN_FILLS = {"e1": "O-1", "e2": "O-2", "e3": "O-3", "e4": "O-4", "e5": "O-5", "e6": "O-6"}
+PLAN_ORDERS = [
+    ["O-1", AAA, "['plan:P1', 'ENTRY']", "FILLED", START_NS, START_NS],
+    ["O-2", AAA, "['plan:P1', 'ENTRY']", "FILLED", START_NS, START_NS + DAY],
+    ["O-3", AAA, "['plan:P1', 'TAKE_PROFIT']", "FILLED", START_NS, CLOSE_NS],
+    ["O-4", BBB, "['plan:P2', 'ENTRY']", "FILLED", START_NS, START_NS],
+    ["O-5", BBB, "['plan:P2', 'STOP_LOSS']", "FILLED", START_NS, CLOSE_NS],
+    ["O-6", BBB, "['plan:P3', 'ENTRY']", "FILLED", CLOSE_NS, CLOSE_NS],
+]
+
+
+def _plan_orders(edit=None):
+    rows = [list(row) for row in PLAN_ORDERS]
+    if edit:
+        edit(rows)
+    return _csv(["client_order_id", "instrument_id", "tags", "status", "ts_init", "ts_last"], rows)
+
+
+class PlanReadingTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+
+    def report(self, edit=None, cycles=CYCLES, fills=PLAN_FILLS):
+        run_id = f"R{len(list(self.root.iterdir()))}"
+        _seal(self.root, run_id, cycles=cycles, orders=_plan_orders(edit), fill_orders=fills)
+        return analysis.report(self.root, run_id)
+
+    def refusal(self, edit):
+        result = self.report(edit)
+        self.assertIsNone(result["plans"])
+        reasons = [item for item in result["limitations"] if item.startswith("plans is null: ")]
+        self.assertEqual(len(reasons), 1, result["limitations"])
+        return reasons[0]
+
+    def test_open_plans_count_as_non_wins(self):
+        self.assertEqual(self.report()["plans"], {"closed": 2, "wins": 1, "win_rate": 1 / 3, "open": 1})
+
+    def test_breakeven_is_not_a_win(self):
+        cycles = [{"position_id": "AAA-1", "instrument_id": AAA, "closed": True, "realized": "0.00000000",
+                   "funding": [], "events": [_event("e1", "BUY", "1", "100", "0.00000000"),
+                                             _event("e3", "SELL", "1", "100.1", "0.10000000")]}]
+        def entry_and_target_only(rows):
+            rows[:] = [rows[0], rows[2]]
+        result = self.report(entry_and_target_only, cycles=cycles, fills={"e1": "O-1", "e3": "O-3"})
+        self.assertEqual(result["plans"], {"closed": 1, "wins": 0, "win_rate": 0.0, "open": 0})
+
+    def test_every_order_needs_exactly_one_plan_tag(self):
+        def untagged(rows):
+            rows[1][2] = "['ENTRY']"
+        def doubled(rows):
+            rows[1][2] = "['plan:P1', 'plan:P4']"
+        self.assertIn("1 orders carry no plan tag (O-2)", self.refusal(untagged))
+        self.assertIn("1 orders carry more than one plan tag (O-2)", self.refusal(doubled))
+
+    def test_plans_on_one_instrument_must_not_overlap(self):
+        def early(rows):
+            rows[5][4] = CLOSE_NS - 1
+        def resting(rows):  # P2 leaves an unfilled order working past its close
+            rows.append(["O-7", BBB, "['plan:P2', 'ENTRY']", "ACCEPTED", START_NS, START_NS])
+        def after_open(rows):  # P3's position is still open at the end, so it lasts to the end of the run
+            rows.append(["O-9", BBB, "['plan:P4', 'ENTRY']", "CANCELED", CLOSE_NS + 10, CLOSE_NS + 20])
+        self.assertIn("plans P2 and P3 on BBBUSDT-PERP.BINANCE overlap", self.refusal(early))
+        self.assertIn("before P2 ends at the end of the run", self.refusal(resting))
+        self.assertIn("plans P3 and P4 on BBBUSDT-PERP.BINANCE overlap", self.refusal(after_open))
+
+    def test_a_plan_that_never_held_anything_overlaps_nothing(self):
+        for name in ("P0", "P9"):  # the verdict must not depend on how plans sort by name
+            def denied(rows):
+                rows.append(["O-9", BBB, f"['plan:{name}', 'ENTRY']", "DENIED", START_NS, START_NS])
+            with self.subTest(name=name):
+                self.assertEqual(self.report(denied)["plans"], {"closed": 2, "wins": 1, "win_rate": 1 / 3, "open": 1})
+
+    def test_a_fill_needs_its_order(self):
+        def lost(rows):
+            del rows[5]
+        self.assertIn("a fill of position cycle BBB-2 has no order in orders.csv", self.refusal(lost))
+
+    def test_a_cycle_holds_one_plan_and_a_plan_one_cycle(self):
+        def shared(rows):
+            rows[1][2] = "['plan:P4', 'ENTRY']"
+        def reentered(rows):
+            rows[5][2] = "['plan:P2', 'ENTRY']"
+        self.assertIn("position cycle AAA-1 holds fills of plans P1, P4", self.refusal(shared))
+        self.assertIn("plan P2 has fills in more than one position cycle", self.refusal(reentered))
 
 
 # Daily bar closes of the fixture grid, stamped 1 ms before each boundary.

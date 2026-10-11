@@ -35,9 +35,13 @@ EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 REPORT_FILES = ("summary.json", "audit.json", "fills.csv", "positions.csv", "returns_series.csv")
 # Readings added to compare ``metrics`` by --analysis, keyed by report key path.
 PAIR_READINGS = (
+    "plans.closed", "plans.win_rate",
     "closed_trades", "closed.price_pnl_usdt", "closed.fill_commissions_usdt", "closed.reported_funding_usdt",
     "closed.reported_realized_pnl_usdt", "open_positions", "unrealized_residual_usdt",
 )
+# One Nautilus order tag with this prefix names the order's trade plan (research-round strategy-authoring).
+PLAN_TAG = "plan:"
+_TERMINAL_ORDERS = frozenset({"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"})
 EX_ANTE_LIMITATION = ("The control was bound at registration after results; no machine-verifiable "
                       "ex-ante reference declaration exists.")
 PAIRED_METHOD = ("paired ISO-week bootstrap of daily log-return differences on already viewed native "
@@ -65,13 +69,13 @@ class _Unreconciled(Exception):
 
 
 def report(root: Path, run_id: str) -> dict:
-    """Reconciled economics of one sealed run, without reading Dolt."""
-    output, _, _ = _analyze(Path(root), run_id)
+    """Reconciled economics and the plan reading of one sealed run, without reading Dolt."""
+    output, _, _ = _analyze(Path(root), run_id, (*REPORT_FILES, "orders.csv"))
     output = {
         **{key: output[key] for key in ("run_id", "status", "problems", "manifest_sha256", "record_binding",
                                         "summary_ref", "audit_ref")},
         "analysis": _identity(("research/records/analysis.py",)),
-        **{key: output[key] for key in ("native_economics", *_ECONOMICS, "limitations")},
+        **{key: output[key] for key in ("native_economics", *_ECONOMICS, "plans", "limitations")},
     }
     check_size(output)
     return output
@@ -91,7 +95,7 @@ def pair(root: Path, candidate: dict, control: dict, selection: dict | None) -> 
                               expected=f"artifact://{run['run_id']}/manifest.json with its sha256",
                               next_actions=["Compare without --analysis, or register a sealed native run."],
                               write_status="not_written")
-        output, returns, _ = _analyze(Path(root), run["run_id"])
+        output, returns, _ = _analyze(Path(root), run["run_id"], (*REPORT_FILES, "orders.csv"))
         if anchor["sha256"] != output["manifest_sha256"]:
             raise RecordError(f"{run['run_id']}: sealed manifest differs from its Dolt anchor",
                               code="decision_pair_integrity", path="/artifact_manifest_ref",
@@ -315,7 +319,7 @@ def _analyze(root: Path, run_id: str, names: tuple[str, ...] = REPORT_FILES
         "run_id": run_id, "status": manifest["status"], "problems": manifest.get("problems", []),
         "manifest_sha256": checked["manifest_sha256"], "record_binding": manifest.get("record_binding"),
         "summary_ref": ref("summary.json"), "audit_ref": ref("audit.json"),
-        "native_economics": None, **dict.fromkeys(_ECONOMICS),
+        "native_economics": None, **dict.fromkeys(_ECONOMICS), "plans": None,
     }
     limitations = _unique(list((summary or {}).get("limitations", [])) + list((audit or {}).get("coverage_limits", [])))
     output["limitations"] = limitations
@@ -336,6 +340,15 @@ def _analyze(root: Path, run_id: str, names: tuple[str, ...] = REPORT_FILES
         parsed.update(positions=positions, fills=fills, cycles=cycles)
     except _Unreconciled as exc:
         limitations.append(f"Economic readings are null: {exc}")
+        return output, returns, parsed
+    if "orders.csv" not in reports:
+        if "orders.csv" in names:
+            limitations.append("plans is null: the seal has no orders.csv")
+        return output, returns, parsed
+    try:
+        output["plans"] = _plans(_rows(reports["orders.csv"]), fills, positions, cycles)
+    except _Unreconciled as exc:
+        limitations.append(f"plans is null: {exc}")
     return output, returns, parsed
 
 
@@ -431,6 +444,88 @@ def _cycles(positions: list[dict], fills: list[dict]) -> list[dict]:
     if events != Counter(row["event_id"] for row in fills if "event_id" in row) or any(n != 1 for n in events.values()):
         raise _Unreconciled("position events do not cover each native fill exactly once")
     return cycles
+
+
+def _plans(orders: list[dict], fills: list[dict], positions: list[dict], cycles: list[dict]) -> dict:
+    """Net win rate per trade plan, read only when the reports honour the plan contract.
+
+    Every order carries exactly one ``plan:`` tag; a plan's fills form at most one position
+    cycle and each cycle holds one plan's fills; on one instrument no plan starts (its first
+    ``ts_init``) before every earlier plan has ended (its last order event or cycle close; an
+    order still working or a cycle still open at the end lasts to the end of the run). A plan
+    wins when its cycle closed with realized PnL, which includes commissions and funding, above
+    zero; a breakeven plan and a plan still open at the end are not wins.
+    """
+    try:
+        return _plan_reading(orders, fills, positions, cycles)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise _Unreconciled(f"a native report lacks a value the plan reading needs ({type(exc).__name__}: {exc})") from exc
+
+
+def _plan_reading(orders: list[dict], fills: list[dict], positions: list[dict], cycles: list[dict]) -> dict:
+    def sample(items):
+        items = sorted(items)
+        return ", ".join(items[:5]) + (f" and {len(items) - 5} more" if len(items) > 5 else "")
+
+    plan_of, untagged, doubled = {}, [], []
+    for order in orders:
+        try:
+            tags = [tag for tag in _list(order.get("tags", "")) if str(tag).startswith(PLAN_TAG)]
+        except (SyntaxError, ValueError) as exc:
+            raise _Unreconciled(f"order {order.get('client_order_id')} has unreadable tags") from exc
+        if len(tags) == 1 and len(tags[0]) > len(PLAN_TAG):
+            plan_of[order["client_order_id"]] = tags[0][len(PLAN_TAG):]
+        else:
+            (doubled if tags else untagged).append(order["client_order_id"])
+    if untagged:
+        raise _Unreconciled(f"{len(untagged)} orders carry no plan tag ({sample(untagged)})")
+    if doubled:
+        raise _Unreconciled(f"{len(doubled)} orders carry more than one plan tag ({sample(doubled)})")
+    instrument, span = {}, {}
+    for order in orders:
+        plan = plan_of[order["client_order_id"]]
+        if instrument.setdefault(plan, order["instrument_id"]) != order["instrument_id"]:
+            raise _Unreconciled(f"plan {plan} has orders on {instrument[plan]} and {order['instrument_id']}")
+        start, end = span.get(plan, (int(order["ts_init"]), 0))
+        last = int(order["ts_last"]) if order["status"] in _TERMINAL_ORDERS else None
+        span[plan] = (min(start, int(order["ts_init"])), None if end is None or last is None else max(end, last))
+    order_of_event = {fill["event_id"]: fill.get("client_order_id") for fill in fills}
+    result = {}
+    for row, cycle in zip(positions, cycles, strict=True):
+        try:
+            owners = {plan_of[order_of_event[event_id]] for event_id in cycle["event_ids"]}
+        except KeyError as exc:
+            raise _Unreconciled(f"a fill of position cycle {row['position_id']} has no order in orders.csv") from exc
+        if not owners:
+            raise _Unreconciled(f"position cycle {row['position_id']} holds no fills")
+        if len(owners) != 1:
+            raise _Unreconciled(f"position cycle {row['position_id']} holds fills of plans {sample(owners)}")
+        plan, = owners
+        if plan in result:
+            raise _Unreconciled(f"plan {plan} has fills in more than one position cycle")
+        result[plan] = cycle
+        start, end = span[plan]
+        span[plan] = (start, max(end, int(row["ts_last"])) if cycle["closed"] and end is not None else None)
+    by_instrument = {}
+    for plan, (start, end) in span.items():
+        if end is not None and end <= start:
+            continue  # every order ended the moment it began: the plan never held anything
+        by_instrument.setdefault(instrument[plan], []).append((start, math.inf if end is None else end, plan))
+    for name, spans in by_instrument.items():
+        spans.sort()
+        latest = None  # (end, plan) of the latest-ending earlier plan
+        for start, end, plan in spans:
+            if latest is not None and start < latest[0]:
+                ends = "the end of the run" if latest[0] == math.inf else latest[0]
+                raise _Unreconciled(f"plans {latest[1]} and {plan} on {name} overlap: {plan} starts at {start}, "
+                                    f"before {latest[1]} ends at {ends}")
+            if latest is None or end > latest[0]:
+                latest = (end, plan)
+    closed = [cycle for cycle in result.values() if cycle["closed"]]
+    wins = sum(cycle["realized"] > 0 for cycle in closed)
+    counted = len(result)
+    return {"closed": len(closed), "wins": wins, "win_rate": wins / counted if counted else None,
+            "open": counted - len(closed)}
 
 
 def _economics(cycles: list[dict], fills: list[dict], summary: dict, economics: dict | None,
