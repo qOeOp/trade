@@ -334,8 +334,23 @@ class PlanReadingTests(unittest.TestCase):
             rows[5][4] = CLOSE_NS - 1
         def resting(rows):  # P2 leaves an unfilled order working past its close
             rows.append(["O-7", BBB, "['plan:P2', 'ENTRY']", "ACCEPTED", START_NS, START_NS])
+        def after_open(rows):  # P3's position is still open at the end, so it lasts to the end of the run
+            rows.append(["O-9", BBB, "['plan:P4', 'ENTRY']", "CANCELED", CLOSE_NS + 10, CLOSE_NS + 20])
         self.assertIn("plans P2 and P3 on BBBUSDT-PERP.BINANCE overlap", self.refusal(early))
         self.assertIn("before P2 ends at the end of the run", self.refusal(resting))
+        self.assertIn("plans P3 and P4 on BBBUSDT-PERP.BINANCE overlap", self.refusal(after_open))
+
+    def test_a_plan_that_never_held_anything_overlaps_nothing(self):
+        for name in ("P0", "P9"):  # the verdict must not depend on how plans sort by name
+            def denied(rows):
+                rows.append(["O-9", BBB, f"['plan:{name}', 'ENTRY']", "DENIED", START_NS, START_NS])
+            with self.subTest(name=name):
+                self.assertEqual(self.report(denied)["plans"], {"closed": 2, "wins": 1, "win_rate": 1 / 3, "open": 1})
+
+    def test_a_fill_needs_its_order(self):
+        def lost(rows):
+            del rows[5]
+        self.assertIn("a fill of position cycle BBB-2 has no order in orders.csv", self.refusal(lost))
 
     def test_a_cycle_holds_one_plan_and_a_plan_one_cycle(self):
         def shared(rows):

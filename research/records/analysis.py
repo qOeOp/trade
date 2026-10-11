@@ -341,11 +341,14 @@ def _analyze(root: Path, run_id: str, names: tuple[str, ...] = REPORT_FILES
     except _Unreconciled as exc:
         limitations.append(f"Economic readings are null: {exc}")
         return output, returns, parsed
-    if "orders.csv" in reports:
-        try:
-            output["plans"] = _plans(_rows(reports["orders.csv"]), fills, positions, cycles)
-        except _Unreconciled as exc:
-            limitations.append(f"plans is null: {exc}")
+    if "orders.csv" not in reports:
+        if "orders.csv" in names:
+            limitations.append("plans is null: the seal has no orders.csv")
+        return output, returns, parsed
+    try:
+        output["plans"] = _plans(_rows(reports["orders.csv"]), fills, positions, cycles)
+    except _Unreconciled as exc:
+        limitations.append(f"plans is null: {exc}")
     return output, returns, parsed
 
 
@@ -447,11 +450,19 @@ def _plans(orders: list[dict], fills: list[dict], positions: list[dict], cycles:
     """Net win rate per trade plan, read only when the reports honour the plan contract.
 
     Every order carries exactly one ``plan:`` tag; a plan's fills form at most one position
-    cycle and each cycle holds one plan's fills; on one instrument a plan starts (its first
-    ``ts_init``) no earlier than the previous plan ends (its last order event or cycle close).
-    A plan wins when its cycle closed with realized PnL, which includes commissions and
-    funding, above zero; a breakeven plan and a plan still open at the end are not wins.
+    cycle and each cycle holds one plan's fills; on one instrument no plan starts (its first
+    ``ts_init``) before every earlier plan has ended (its last order event or cycle close; an
+    order still working or a cycle still open at the end lasts to the end of the run). A plan
+    wins when its cycle closed with realized PnL, which includes commissions and funding, above
+    zero; a breakeven plan and a plan still open at the end are not wins.
     """
+    try:
+        return _plan_reading(orders, fills, positions, cycles)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise _Unreconciled(f"a native report lacks a value the plan reading needs ({type(exc).__name__}: {exc})") from exc
+
+
+def _plan_reading(orders: list[dict], fills: list[dict], positions: list[dict], cycles: list[dict]) -> dict:
     def sample(items):
         items = sorted(items)
         return ", ".join(items[:5]) + (f" and {len(items) - 5} more" if len(items) > 5 else "")
@@ -485,6 +496,8 @@ def _plans(orders: list[dict], fills: list[dict], positions: list[dict], cycles:
             owners = {plan_of[order_of_event[event_id]] for event_id in cycle["event_ids"]}
         except KeyError as exc:
             raise _Unreconciled(f"a fill of position cycle {row['position_id']} has no order in orders.csv") from exc
+        if not owners:
+            raise _Unreconciled(f"position cycle {row['position_id']} holds no fills")
         if len(owners) != 1:
             raise _Unreconciled(f"position cycle {row['position_id']} holds fills of plans {sample(owners)}")
         plan, = owners
@@ -495,13 +508,19 @@ def _plans(orders: list[dict], fills: list[dict], positions: list[dict], cycles:
         span[plan] = (start, max(end, int(row["ts_last"])) if cycle["closed"] and end is not None else None)
     by_instrument = {}
     for plan, (start, end) in span.items():
-        by_instrument.setdefault(instrument[plan], []).append((start, plan, end))
+        if end is not None and end <= start:
+            continue  # every order ended the moment it began: the plan never held anything
+        by_instrument.setdefault(instrument[plan], []).append((start, math.inf if end is None else end, plan))
     for name, spans in by_instrument.items():
         spans.sort()
-        for (_, plan, end), (start, later, _) in zip(spans, spans[1:]):
-            if end is None or start < end:
-                raise _Unreconciled(f"plans {plan} and {later} on {name} overlap: {later} starts at {start}, "
-                                    f"before {plan} ends at {'the end of the run' if end is None else end}")
+        latest = None  # (end, plan) of the latest-ending earlier plan
+        for start, end, plan in spans:
+            if latest is not None and start < latest[0]:
+                ends = "the end of the run" if latest[0] == math.inf else latest[0]
+                raise _Unreconciled(f"plans {latest[1]} and {plan} on {name} overlap: {plan} starts at {start}, "
+                                    f"before {latest[1]} ends at {ends}")
+            if latest is None or end > latest[0]:
+                latest = (end, plan)
     closed = [cycle for cycle in result.values() if cycle["closed"]]
     wins = sum(cycle["realized"] > 0 for cycle in closed)
     counted = len(result)

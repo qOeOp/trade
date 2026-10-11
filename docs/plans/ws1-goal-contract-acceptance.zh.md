@@ -89,4 +89,6 @@ attempt `WS1-PLAN-DEMO`（purpose `demo`）。三次托管运行都在新镜像�
 
 ## 4. 检查
 
+- 产品改动经独立子代理代码审查：无高危缺陷；修正了同一时刻开始的计划的重叠判定（与计划名排序无关、跳过空区间、比较此前最晚终点）、非预期字段缺失的拒绝原因、无 `orders.csv` 的原因，并补了期末未平计划之后再开计划、空区间计划、成交找不到订单三条测试。修正后重跑第 1、3 节的读数，结果不变。
+
 - `uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'`，并设置指向上述隔离 Dolt 的 `RESEARCH_DOLT_TEST_CONFIG`：221 个测试通过，1 个跳过（`RealSealTests` 需要外部封存根，已另行运行，见第 2 节）。
