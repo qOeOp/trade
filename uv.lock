@@ -312,7 +312,7 @@ wheels = [
 [[package]]
 name = "trade-research"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "jsonschema" },
     { name = "nautilus-trader", extra = ["visualization"] },

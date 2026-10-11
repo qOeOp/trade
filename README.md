@@ -25,7 +25,7 @@ supplies `validate_replay_configuration`, `replay_diagnostics` and
 uv sync --frozen
 uv run --frozen python -m research.records.cli strategy list
 uv run --frozen python -m research.records.cli strategy show r1.broad-two-tier --brief
-uv run --frozen python -m backtest.r1.run_portfolio --help
+uv run --frozen python -m research.records.artifacts run --help
 ```
 
 Historical Catalog inputs remain outside Git. Research needs no exchange

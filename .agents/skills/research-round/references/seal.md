@@ -1,6 +1,9 @@
 # Seal, register and read a native run
 
-A run that a decision cites goes through `artifacts run`, `verify`, `backup` and `register`.
+Every native replay goes through `artifacts run`: `--explore` for a draft (below), a seal for a run
+that a decision cites, followed by `verify`, `backup` and `register`. Each run reports one trial
+(strategy source hash, window, coins, image digest, mode); selection pressure is counted from them.
+Never start a replay or a probe with `docker run` or a direct runner command.
 `ARTIFACT_ROOT` is a private directory outside Git and `/tmp`, owned by you with mode `0700`, for
 example `$HOME/.local/share/trade/research-artifacts`. Use one persistent root for every run you may
 compare or cite: `show`, `compare` and `validate` resolve `artifact://` runs against the single
@@ -12,11 +15,13 @@ at start, and a seal without that binding can never be registered.
 
 - **Source.** `--strategy-id`, `--strategy-revision` and `--source-at` must equal `strategy_id`,
   `revision` and `commit` in the attempt's `strategy_binding`; anything else is refused.
-- **Runtime.** A JSON file with exactly `image_ref` (registry path plus `@sha256:` manifest digest),
-  the matching `image_digest`, `platform` (`linux/arm64` or `linux/amd64`) and a `runtime_contract`
-  equal to the strategy's. A tag or Docker configuration ID is not an identity. `docker pull` that
-  exact reference first; `run` refuses an absent or mismatched image. A candidate and its control
-  need the same image.
+- **Runtime.** CI builds every image (`ghcr.io/qoeop/trade-runtime`); none is built locally. Without
+  `--runtime`, `run` pulls the current main image (tag `main`) and records its manifest digest.
+  `--runtime` takes another CI reference, such as a pull request's `pr-N` tag or a digest from a
+  seal, for exploration or engineering. The image's contract label must equal the strategy's
+  `runtime_contract`. A candidate and its control need the same digest. `register` accepts only an
+  image whose `org.opencontainers.image.revision` is on origin/main and whose observed runtime code
+  equals that commit's: merge a missing product capability first, then rerun on the main image.
 - **Inputs.** For new input data, hash the prepared Catalogs and keep the JSON with its canonical
   input contract; the inputs stay in their Catalogs:
 
@@ -32,7 +37,7 @@ uv run --frozen python -m research.records.artifacts input-identity \
 uv run --frozen python -m research.records.artifacts run \
   --root "$ARTIFACT_ROOT" --run-id RUN-ID --attempt-id ATTEMPT-ID \
   --strategy-id STRATEGY-ID --strategy-revision REVISION --source-at BINDING-COMMIT \
-  --runtime /retained/runtime-identity.json --input-identity /retained/input-identity.json -- \
+  --input-identity /retained/input-identity.json -- \
   --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
   --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END \
   --signal-variant SIGNAL --exit-variant EXIT [--daily-warmup]
@@ -50,6 +55,24 @@ uv run --frozen python -m research.records.artifacts run \
   goal. The audit checks report identities, links, end-of-run protection and reported economics
   ([strategy-authoring.md](strategy-authoring.md)). It does not prove a signal clock, staged-exit
   races or source-specific risk rules; add native checks before claiming them.
+
+## Explore a draft
+
+```bash
+uv run --frozen python -m research.records.artifacts run --explore \
+  --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS --output /tmp/RUNDIR/pilot -- \
+  --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
+  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END \
+  --signal-variant SIGNAL --exit-variant EXIT [--daily-warmup]
+```
+
+- The same image, sandbox, runner and native audit as a seal; nothing is sealed or registered and
+  no Dolt is read. `--output` must be a new directory under `/tmp`; it receives `reports/`, the
+  logs, `runtime-inspection.json` and `trial.json`.
+- The trial counts toward selection pressure like a sealed run.
+- For a Nautilus behavior probe, run a script from `/tmp` on the host with
+  `uv run --frozen --project REPO python /tmp/RUNDIR/probe.py`; it imports `backtest` and `research`
+  without `PYTHONPATH`.
 
 ## Verify, back up and register
 

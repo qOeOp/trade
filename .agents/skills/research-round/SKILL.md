@@ -13,8 +13,8 @@ decisions, evidence and `compare`) and [seal.md](references/seal.md) (identities
 `nautilus-report-analysis` skill.
 
 Read prior records first (`find`, then `show <id> --brief`) for any claim you extend or combine. A
-run that a decision cites goes through `artifacts run`, `verify`, `backup` and `register`; direct
-`run_portfolio` output under `/tmp` is a diagnostic.
+run that a decision cites goes through `artifacts run`, `verify`, `backup` and `register`; every
+other replay is `artifacts run --explore` into `/tmp`, a diagnostic. Both report a trial.
 
 ## Name the layer
 

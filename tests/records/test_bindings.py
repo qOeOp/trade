@@ -127,24 +127,47 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
                 for path in (self.fixture.records / "runs").glob("*/run.json")}
 
     def _failed_seal(self, binding=None):
+        """A failed Dolt/OCI seal of a published source; no native replay was performed."""
+        from research.records import strategies
+        from research.records.runtime import SOURCE_PATHS
+        contract = "r1-native-v3"
         run_id = "BINDING-TEST-" + uuid.uuid4().hex
         root = self.workspace / "synthetic-seals"
         archive = root / run_id
-        source = archive / "source" / "strategies" / "r1" / "strategy.py"
-        source.parent.mkdir(parents=True)
-        source.write_bytes(subprocess.check_output(
-            ["git", "show", f"{self.git_commit}:strategies/r1/strategy.py"], cwd=self.fixture.root))
-        identity = archive / "input_identity.json"
-        identity.write_text(json.dumps({
+        (archive / "source").mkdir(parents=True)
+        source = archive / "source" / "strategy.py"
+        source.write_text("from nautilus_trader.trading import Strategy\n\n\nclass BindingFixture(Strategy):\n    pass\n")
+        published = strategies.publish(self.store.adapter, {
+            "strategy_id": "binding-fixture-" + uuid.uuid4().hex[:12], "family_id": "binding-fixture",
+            "description": "Synthetic record-binding fixture; never executed.", "entry_class": "BindingFixture",
+            "runtime_contract": contract, "status": "research"},
+            source, "binding-fixture-strategy-" + uuid.uuid4().hex, self.store.adapter.status()["version"])
+        strategy_binding = published["binding"]
+        (archive / "source" / "binding.json").write_text(json.dumps(strategy_binding))
+        identity = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
+                    "image_digest": "sha256:" + "a" * 64, "platform": "linux/arm64", "runtime_contract": contract}
+        config = {"coins": ["BTC"], "start": "2025-01-01T00:00:00Z", "trade_start": "2025-01-01T00:00:00Z",
+                  "end": "2025-01-02T00:00:00Z"}
+        config_sha = artifacts._config_sha(config)
+        (archive / "source" / "execution.json").write_text(json.dumps(
+            {"runtime_identity": identity, "effective_config": config, "effective_config_sha256": config_sha}))
+        paths = SOURCE_PATHS
+        inspection = {"runtime_contract": contract, "nautilus_version": "2.0.0rc3", "python_version": "fixture",
+                      "dependency_lock_sha256": "b" * 64, "source_files_sha256": {field: "c" * 64 for field in paths},
+                      "source_file_paths": dict(paths), "audit_source_sha256": "d" * 64, "effective_config": config,
+                      "effective_config_sha256": config_sha, "platform": "linux/arm64", "image_config_digest": "sha256:" + "e" * 64}
+        (archive / "runtime-inspection.json").write_text(json.dumps(inspection))
+        (archive / "input-identity.json").write_text(json.dumps({
             "nature": "Synthetic record-binding fixture; no catalog was loaded and no native run was performed."
         }))
         manifest = {
-            "schema_version": 1, "run_id": run_id, "attempt_id": self.prereg_id, "status": "failed",
-            "source_commit": self.git_commit, "nautilus_version": "2.0.0rc3",
-            "input_identity_sha256": hashlib.sha256(identity.read_bytes()).hexdigest(),
+            "schema_version": 2, "run_id": run_id, "attempt_id": self.prereg_id, "status": "failed",
+            "nautilus_version": "2.0.0rc3", "python_version": "fixture", "dependency_lock_sha256": "b" * 64,
+            "input_identity_sha256": artifacts._sha(archive / "input-identity.json"),
             "native_exit_code": None, "audit_exit_code": None,
             "problems": ["Synthetic diagnostic registration fixture; no native run or native failure is asserted."],
-            "files": artifacts._files(archive),
+            "files": artifacts._files(archive), "strategy_binding": strategy_binding, "runtime_identity": identity,
+            "effective_config": config, "effective_config_sha256": config_sha,
         }
         if binding is not None:
             manifest["record_binding"] = binding
@@ -153,12 +176,14 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         return root, run_id
 
     @staticmethod
-    def _register(root, run_id):
-        return artifacts.register(
-            root=root, run_id=run_id, role="diagnostic",
-            cost_model="Synthetic record-binding registration fixture; no native replay or economics.",
-            control_run_id=None, evidence_grade="unknown",
-        )
+    def _register(root, run_id, evidence_grade="unknown"):
+        # The main-build check is covered in test_runtime; this fixture's image is synthetic.
+        with patch("research.records.runtime.require_main_build", return_value="f" * 40):
+            return artifacts.register(
+                root=root, run_id=run_id, role="diagnostic",
+                cost_model="Synthetic record-binding registration fixture; no native replay or economics.",
+                control_run_id=None, evidence_grade=evidence_grade,
+            )
 
     def test_lineage_retains_original_component_and_parent_decisions(self):
         original = cli._dolt_lineage(self.store.adapter, "H18a", self.imported["commit"])
@@ -257,9 +282,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         root, run_id = self._failed_seal(binding)
         before = self.store.adapter.status()
         with self.assertRaises(RecordError) as caught:
-            artifacts.register(root=root, run_id=run_id, role="diagnostic",
-                               cost_model="Synthetic record-binding registration fixture; no native replay or economics.",
-                               control_run_id=None, evidence_grade="independent")
+            self._register(root, run_id, evidence_grade="independent")
         self.assertEqual(caught.exception.code, "EVIDENCE_EXPOSURE_CONTRADICTION")
         self.assertEqual(self.store.adapter.status(), before)
 
@@ -283,7 +306,8 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         self.assertEqual(len(edges), 1)
         self.assertEqual((edges[0]["to_id"], edges[0]["to_revision"]), ("attempt:" + self.prereg_id, 1))
         self.assertEqual(self.store.adapter.get_object("attempt:" + self.prereg_id)["revision"], 2)
-        self.assertEqual(cli._check_source_revision(record["body"]), "verified")
+        with patch.dict(os.environ, {"TRADE_RESEARCH_ARTIFACT_ROOT": str(root)}):
+            self.assertEqual(cli._check_source_revision(record["body"]), "verified_dolt_oci")
         self.assertEqual(self._git_run_bytes(), before_git)
         self.assertFalse((self.fixture.records / "runs" / run_id / "run.json").exists())
         before = self.store.adapter.status()

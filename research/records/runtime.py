@@ -9,6 +9,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from research.records.common import ROOT
 from research.records.common import RecordError
 
 
@@ -18,6 +19,12 @@ CONTRACTS = {"r1-native-v1", "r1-native-v2", "r1-native-v3"}
 SOURCE_PATHS = {f"{name}_source_sha256": f"backtest/r1/{name}.py"
                 for name in ("runner", "native_node", "node_strategy", "replay_inputs", "replay_util", "strategy_loader")}
 SOURCE_PATHS["runner_source_sha256"] = "backtest/r1/run_portfolio.py"
+AUDIT_PATH = "backtest/r1/checks/audit_tiered_native.py"
+# CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
+REPOSITORY = "ghcr.io/qoeop/trade-runtime"
+CURRENT = REPOSITORY + ":main"
+REVISION_LABEL = "org.opencontainers.image.revision"
+CONTRACT_LABEL = "trade.runtime.contract"
 
 
 def validate_identity(value: dict) -> dict:
@@ -38,20 +45,103 @@ def validate_identity(value: dict) -> dict:
     return dict(value)
 
 
+def _docker(*argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["docker", *argv], capture_output=True, text=True, check=False)
+
+
+def _image(reference: str) -> dict:
+    result = _docker("image", "inspect", reference)
+    if result.returncode:
+        raise RecordError(f"runtime image is unavailable: {result.stderr.strip()}")
+    try:
+        images = json.loads(result.stdout)
+        if len(images) != 1 or not isinstance(images[0], dict):
+            raise ValueError("expected exactly one image")
+        return images[0]
+    except (ValueError, TypeError) as exc:
+        raise RecordError("invalid Docker image inspection") from exc
+
+
+def _repository(reference: str) -> str:
+    name = reference.split("@", 1)[0]
+    slash = name.rfind("/")
+    return name[:slash + 1] + name[slash + 1:].split(":", 1)[0]
+
+
+def resolve(reference: str | None = None) -> dict:
+    """Pin an image reference, by default the current main runtime, to its manifest digest.
+
+    A tag is pulled every time, so `main` means the latest main build; a digest reference is
+    pulled only when it is not already local. The identity comes from the image itself.
+    """
+    reference = reference or CURRENT
+    if "@" not in reference or _docker("image", "inspect", reference).returncode:
+        pulled = _docker("pull", "--quiet", reference)
+        if pulled.returncode:
+            raise RecordError(f"cannot pull runtime image {reference}: {pulled.stderr.strip()}")
+    image = _image(reference)
+    repository = _repository(reference)
+    digests = [value for value in image.get("RepoDigests") or [] if value.split("@", 1)[0] == repository]
+    if len(set(digests)) != 1:
+        raise RecordError(f"runtime image {reference} has no single manifest digest in {repository}")
+    labels = (image.get("Config") or {}).get("Labels") or {}
+    return validate_identity({
+        "image_ref": digests[0], "image_digest": digests[0].split("@", 1)[1],
+        "platform": f"{image.get('Os')}/{image.get('Architecture')}",
+        "runtime_contract": labels.get(CONTRACT_LABEL),
+    })
+
+
+def _git(*argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *argv], cwd=ROOT, capture_output=True, check=False)
+
+
+def _on_main(revision: str) -> bool:
+    check = ("merge-base", "--is-ancestor", revision, "origin/main")
+    if _git(*check).returncode == 0:
+        return True
+    _git("fetch", "--quiet", "origin", "main")
+    return _git(*check).returncode == 0
+
+
+def require_main_build(identity: dict, inspection: dict) -> str:
+    """Research registration accepts only a CI image built from a commit on origin/main.
+
+    The revision label is bound to the manifest digest; the observed runtime code must also be
+    that commit's bytes, so a relabelled image of other code is refused too.
+    """
+    identity = validate_identity(identity)
+    if _repository(identity["image_ref"]) != REPOSITORY:
+        raise RecordError(f"registration needs a CI image from {REPOSITORY}, not {identity['image_ref']}",
+                          code="RUNTIME_NOT_MAIN", write_status="not_written")
+    try:
+        image = _image(identity["image_ref"])
+    except RecordError:
+        resolve(identity["image_ref"])
+        image = _image(identity["image_ref"])
+    revision = ((image.get("Config") or {}).get("Labels") or {}).get(REVISION_LABEL)
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise RecordError("runtime image has no commit revision label", code="RUNTIME_NOT_MAIN",
+                          write_status="not_written")
+    if not _on_main(revision):
+        raise RecordError(f"runtime image revision {revision} is not on origin/main; merge first, then rerun "
+                          "with the main image", code="RUNTIME_NOT_MAIN", write_status="not_written")
+    expected = {path: inspection["source_files_sha256"][field] for field, path in inspection["source_file_paths"].items()}
+    expected[AUDIT_PATH] = inspection["audit_source_sha256"]
+    expected["uv.lock"] = inspection["dependency_lock_sha256"]
+    for path, digest in expected.items():
+        blob = _git("show", f"{revision}:{path}")
+        if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != digest:
+            raise RecordError(f"runtime image code differs from {path} at its revision {revision}",
+                              code="RUNTIME_NOT_MAIN", write_status="not_written")
+    return revision
+
+
 def inspect_runtime(identity: dict, runner_args: list[str]) -> dict:
     """Check the local manifest identity and observe code hashes inside that image."""
     identity = validate_identity(identity)
-    result = subprocess.run(
-        ["docker", "image", "inspect", identity["image_ref"]],
-        capture_output=True, text=True, check=False,
-    )
-    if result.returncode:
-        raise RecordError(f"pinned runtime image is unavailable: {result.stderr.strip()}")
+    actual = _image(identity["image_ref"])
     try:
-        images = json.loads(result.stdout)
-        if len(images) != 1:
-            raise ValueError("expected exactly one image")
-        actual = images[0]
         if identity["image_ref"] not in actual.get("RepoDigests", []):
             raise RecordError("local image does not attest the requested manifest digest")
         platform = actual["Os"] + "/" + actual["Architecture"]
