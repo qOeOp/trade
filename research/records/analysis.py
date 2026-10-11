@@ -1,53 +1,38 @@
-"""Reconciled native economics of sealed native runs (linear USDT instruments).
+"""Product readings of a sealed native run, and typed report rows for descriptive analysis.
 
-This module keeps only what an Agent should not grade for itself: it reads
-manifest-verified native reports, splits closed-position PnL into fill price
-PnL, commissions and funding, and accepts that split only when it reconciles
-to the audited native economics. The paired interval is bound to the
-preregistered primary response. Descriptive statistics are left to the Agent
-(see the nautilus-report-analysis skill); ``tables`` hands it the same verified,
-parsed reports so it never re-parses native formats. Names follow
-docs/plans/native-rd-analysis-fields.zh.md; a value that cannot be derived is
-null with its reason in ``limitations``.
+This module keeps only what an Agent should not grade for itself: it splits closed-position PnL
+into fill price PnL, commissions and funding and accepts that split only when it reconciles to the
+audited native economics; it reads the plan-level net win rate under the plan contract; and it
+reads the native MARK equity drawdown on the trade window. `readings` runs once, when a sealed run
+is stored, and its values become real columns of the run row. Descriptive statistics are left to
+the Agent (the nautilus-report-analysis skill); `tables` hands it the stored, parsed reports so it
+never re-parses native formats. A value that cannot be derived is null with its reason in
+``limitations``.
 """
 
 from __future__ import annotations
 
 import ast
+import bisect
 import csv
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 import gzip
-import hashlib
 import io
 import json
 import math
-import random
-from collections import Counter, OrderedDict, defaultdict
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from research.records.common import ROOT, RecordError
+from research.records.common import RecordError
 
 
-OUTPUT_LIMIT = 32_768
 TOLERANCE = Decimal("0.000001")
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-REPORT_FILES = ("summary.json", "audit.json", "fills.csv", "positions.csv", "returns_series.csv")
-# Readings added to compare ``metrics`` by --analysis, keyed by report key path.
-PAIR_READINGS = (
-    "plans.closed", "plans.win_rate",
-    "closed_trades", "closed.price_pnl_usdt", "closed.fill_commissions_usdt", "closed.reported_funding_usdt",
-    "closed.reported_realized_pnl_usdt", "open_positions", "unrealized_residual_usdt",
-)
 # One Nautilus order tag with this prefix names the order's trade plan (research-round strategy-authoring).
 PLAN_TAG = "plan:"
 _TERMINAL_ORDERS = frozenset({"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"})
-EX_ANTE_LIMITATION = ("The control was bound at registration after results; no machine-verifiable "
-                      "ex-ante reference declaration exists.")
-PAIRED_METHOD = ("paired ISO-week bootstrap of daily log-return differences on already viewed native "
-                 "daily returns, reported as annualized relative growth; exploratory, unadjusted for prior tests")
-PAIRED_SEED = 20261008
-PAIRED_DRAWS = 5000
 _ECONOMICS = ("closed", "closed_by_year", "closed_trades", "open_positions", "unrealized_residual_usdt")
 # Native report cells by column name. Python reprs, "<decimal> <currency>" money and string flags;
 # columns not named here stay strings.
@@ -59,6 +44,8 @@ _DECIMALS = frozenset({"quantity", "filled_qty", "display_qty", "price", "trigge
                        "avg_px_close", "realized_return", "total", "locked", "free"})
 _INTEGERS = frozenset({"expire_time_ns", "duration_ns", "ts_event_ns"})
 EXPOSURES = "exposures.csv.gz"
+ORDER_EVENTS = "order_events.jsonl.gz"
+REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv")
 _NANOSECONDS = frozenset({"ts_init", "ts_last"})  # integers in orders and positions, datetimes in fills
 _FLAGS = frozenset({"is_snapshot", "is_inverse", "is_reduce_only", "is_post_only", "is_quote_quantity",
                     "reconciliation", "reported"})
@@ -68,163 +55,308 @@ class _Unreconciled(Exception):
     """Native facts outside the supported linear-USDT scope or failing a reconciliation."""
 
 
-def report(root: Path, run_id: str) -> dict:
-    """Reconciled economics and the plan reading of one sealed run, without reading Dolt."""
-    output, _, _ = _analyze(Path(root), run_id, (*REPORT_FILES, "orders.csv"))
-    output = {
-        **{key: output[key] for key in ("run_id", "status", "problems", "manifest_sha256", "record_binding",
-                                        "summary_ref", "audit_ref")},
-        "analysis": _identity(("research/records/analysis.py",)),
-        **{key: output[key] for key in ("native_economics", *_ECONOMICS, "plans", "limitations")},
-    }
-    check_size(output)
+@dataclass
+class Reports:
+    """One run's native reports: report rows as the native CSV strings, the exposure report as gzip bytes."""
+    summary: dict | None
+    audit: dict | None
+    orders: list[dict]
+    fills: list[dict]
+    positions: list[dict]
+    account: list[dict]
+    returns: list[tuple[int, float]]
+    exposures: bytes | None
+    order_events: list[dict] | None
+
+
+def load_dir(directory: Path) -> Reports:
+    """Parse a replay's report directory (before it is stored)."""
+    directory = Path(directory)
+
+    def text(name):
+        path = directory / name
+        return path.read_bytes() if path.is_file() else None
+
+    def rows(name):
+        data = text(name)
+        return _rows(data) if data is not None else []
+
+    summary, audit = text("summary.json"), text("audit.json")
+    events = text(ORDER_EVENTS)
+    return Reports(
+        summary=json.loads(summary) if summary else None, audit=json.loads(audit) if audit else None,
+        orders=rows("orders.csv"), fills=rows("fills.csv"), positions=rows("positions.csv"),
+        account=rows("account.csv"),
+        returns=[(int(row["ts_event_ns"]), float(row["native_return"])) for row in rows("returns_series.csv")],
+        exposures=text(EXPOSURES),
+        order_events=None if events is None else [json.loads(line) for line in gzip.decompress(events).splitlines()
+                                                  if line.strip()])
+
+
+def load_run(conn, run_id: int, *, account: bool = True, exposures: bool = True) -> Reports:
+    """Rebuild one stored run's reports from the ledger, row for row."""
+    from research.records import db
+    run = db.one(conn, "SELECT status, summary, audit" + (", exposures" if exposures else "")
+                 + " FROM run WHERE run_id = %s", (run_id,))
+    if run is None:
+        raise RecordError(f"unknown run {run_id}", code="UNKNOWN_RUN", write_status="not_written")
+
+    def raw(table):
+        return [json.loads(value) for (value,) in db.rows(conn, f"SELECT raw FROM {table} WHERE run_id = %s "
+                                                                "ORDER BY seq", (run_id,))]
+
+    return Reports(
+        summary=json.loads(run["summary"]) if run["summary"] else None,
+        audit=json.loads(run["audit"]) if run["audit"] else None,
+        orders=raw("run_order"), fills=raw("run_fill"), positions=raw("run_position"),
+        account=raw("run_account") if account else [],
+        returns=[(ts, value) for ts, value in db.rows(conn, "SELECT ts_event_ns, native_return FROM run_return "
+                                                            "WHERE run_id = %s ORDER BY ts_event_ns", (run_id,))],
+        exposures=run.get("exposures"), order_events=raw("run_order_event") or None)
+
+
+def readings(reports: Reports) -> dict:
+    """The product readings of one passed run: economics, plans and MARK drawdown, with limitations."""
+    summary, audit = reports.summary, reports.audit
+    limitations = _unique(list((summary or {}).get("limitations", [])) + list((audit or {}).get("coverage_limits", [])))
+    output = {"economics": None, "plans": None, "max_drawdown": None, "limitations": limitations}
+    if summary is None:
+        limitations.append("The run has no native summary; no readings.")
+        return output
+    native = (audit or {}).get("native_economics")
+    if native is None:
+        limitations.append("native_economics is absent from the audit; unrealized_residual_usdt is null "
+                           "and the decomposition is checked only against the run's own reports.")
+    _returns(reports.returns, summary, limitations)
+    try:
+        cycles = _cycles(reports.positions, reports.fills)
+        output["economics"] = _economics(cycles, reports.fills, summary, native, limitations)
+    except _Unreconciled as exc:
+        limitations.append(f"Economic readings are null: {exc}")
+        return output
+    output["economics"]["closed_by_year"] = closed_by_year(cycles, limitations)
+    try:
+        output["plans"] = _plans(reports.orders, reports.fills, reports.positions, cycles)
+    except _Unreconciled as exc:
+        limitations.append(f"plans is null: {exc}")
+    if reports.exposures is None:
+        limitations.append("max_drawdown is null: the run has no exposure report.")
+    else:
+        try:
+            typed = _typed_positions(reports.positions, cycles)
+            rows = _exposures(reports.exposures, typed, summary, output["economics"]["unrealized_residual_usdt"])
+            output["max_drawdown"] = _mark_drawdown(summary, reports.account, rows)
+        except (RecordError, _Unreconciled) as exc:
+            limitations.append(f"max_drawdown is null: {exc}")
     return output
 
 
 def explored(run_dir: Path, status: str) -> dict:
-    """The same reconciled readings for an exploration's unsealed reports, for direction only.
+    """The same readings for an exploration's unverified temporary reports, for direction only.
 
-    The reports are the explorer's own temporary output: nothing is hash-verified, so no
-    decision may cite these readings; a sealed run is read with ``report``.
+    Nothing here is checked against a stored copy, so no decision may cite these readings. When the
+    replay did not pass or its reports are incomplete, every reading is null with the reason.
     """
-    reports = {}
-    for name in (*REPORT_FILES, "orders.csv"):
-        path = Path(run_dir) / "reports" / name
-        if path.is_file():
-            reports[name] = path.read_bytes()
-    keys = ("native_economics", *_ECONOMICS, "plans", "limitations")
+    directory = Path(run_dir) / "reports"
+    nulls = {**dict.fromkeys(FLAT_KEYS), "closed_by_year": None}
+    missing = [name for name in REPORTS if not (directory / name).is_file()]
+    if missing:
+        return {**nulls, "reading_limitations": [
+            f"Readings are null: the exploration's reports are incomplete (missing {', '.join(missing)})"]}
+    if status != "passed":
+        return {**nulls, "reading_limitations": ["Readings are null: the exploration did not pass its checks."]}
     try:
-        output, _, _ = _read({}, reports, status, (*REPORT_FILES, "orders.csv"))
-    except (KeyError, TypeError, ValueError, SyntaxError, ArithmeticError, IndexError, csv.Error) as exc:
-        # a run that stopped part way leaves incomplete reports
-        return {**dict.fromkeys(keys), "limitations": [
+        reports = load_dir(directory)
+        return flat(reports.summary, readings(reports))
+    except (KeyError, TypeError, ValueError, SyntaxError, ArithmeticError, IndexError, csv.Error, RecordError) as exc:
+        return {**nulls, "reading_limitations": [
             f"Readings are null: the exploration's reports are incomplete ({type(exc).__name__}: {exc})"]}
-    output = {key: output[key] for key in keys}
-    check_size(output)
-    return output
 
 
-def pair(root: Path, candidate: dict, control: dict, selection: dict | None) -> dict:
-    """Readings that extend a passed formal compare, from both Dolt-anchored seals.
+FLAT_KEYS = ("final_equity_usdt", "annual_return", "max_drawdown", "return_drawdown", "plans_closed", "plans_won",
+             "plans_open", "plan_win_rate", "closed_positions", "open_positions", "realized_pnl_usdt",
+             "commissions_usdt", "funding_usdt", "price_pnl_usdt", "unrealized_usdt")
 
-    The returned ``metrics`` entries are added to the compare ``metrics`` object.
+
+def flat(summary: dict, values: dict) -> dict:
+    """Readings named like the run row's columns, plus ``closed_by_year``, for reports that are not stored."""
+    economics, plans = values.get("economics") or {}, values.get("plans") or {}
+    closed = economics.get("closed") or {}
+    annual = summary.get("annualized_return_pct")
+    annual = None if annual is None else annual / 100
+    counted = (plans.get("closed") or 0) + (plans.get("open") or 0)
+    drawdown = values.get("max_drawdown")
+    return {"final_equity_usdt": summary.get("final_equity_usdt"), "annual_return": annual, "max_drawdown": drawdown,
+            "return_drawdown": annual / drawdown if annual is not None and drawdown else None,
+            "plans_closed": plans.get("closed"), "plans_won": plans.get("wins"), "plans_open": plans.get("open"),
+            "plan_win_rate": plans.get("wins") / counted if plans and counted else None,
+            "closed_positions": economics.get("closed_trades"), "open_positions": economics.get("open_positions"),
+            "realized_pnl_usdt": closed.get("reported_realized_pnl_usdt"),
+            "commissions_usdt": closed.get("fill_commissions_usdt"), "funding_usdt": closed.get("reported_funding_usdt"),
+            "price_pnl_usdt": closed.get("price_pnl_usdt"), "unrealized_usdt": economics.get("unrealized_residual_usdt"),
+            "closed_by_year": economics.get("closed_by_year"), "reading_limitations": values.get("limitations", [])}
+
+
+def closed_by_year(cycles: list[dict], limitations: list[str]) -> dict | None:
+    """Closed-position fill price PnL, commissions and funding by the UTC year each cycle closed in.
+
+    A whole cycle, funding included, belongs to the year of its last event (``ts_last``), so the
+    years add up to the ``closed`` totals; a cycle open across a year end counts only in the year it
+    closed, and positions still open are left out as in ``closed``. The first and last years of a
+    window are partial. No closed cycle gives ``{}``; a closed row without an integer ``ts_last``
+    makes only this reading null.
     """
-    sides = []
-    for run in (candidate, control):
-        anchor = run.get("artifact_manifest_ref") or {}
-        if anchor.get("path") != f"artifact://{run['run_id']}/manifest.json" or not anchor.get("sha256"):
-            raise RecordError(f"{run['run_id']}: --analysis requires a Dolt-anchored sealed manifest",
-                              code="decision_pair_integrity", path="/artifact_manifest_ref",
-                              expected=f"artifact://{run['run_id']}/manifest.json with its sha256",
-                              next_actions=["Compare without --analysis, or register a sealed native run."],
-                              write_status="not_written")
-        output, returns, _ = _analyze(Path(root), run["run_id"], (*REPORT_FILES, "orders.csv"))
-        if anchor["sha256"] != output["manifest_sha256"]:
-            raise RecordError(f"{run['run_id']}: sealed manifest differs from its Dolt anchor",
-                              code="decision_pair_integrity", path="/artifact_manifest_ref",
-                              expected=anchor["sha256"], write_status="not_written")
-        sides.append((output, returns))
-    (left, left_returns), (right, right_returns) = sides
-    shared = set(left["limitations"]) & set(right["limitations"])
-    limitations = _unique([item for item in left["limitations"] if item in shared]
-                          + [f"{side['run_id']}: {item}" for side in (left, right)
-                             for item in side["limitations"] if item not in shared]
-                          + [EX_ANTE_LIMITATION])
-    paired = None
-    if not selection or selection.get("primary_response") != "final_equity_usdt":
-        limitations.append("paired_daily_returns is null: the candidate's preregistered primary_response "
-                           "is not final_equity_usdt")
-    elif left_returns is None or right_returns is None:
-        limitations.append("paired_daily_returns is null: a native daily return series is unavailable")
-    elif [ts for ts, _ in left_returns] != [ts for ts, _ in right_returns]:
-        limitations.append("paired_daily_returns is null: the native daily-return timelines differ")
-    else:
-        paired = _paired(left_returns, right_returns)
-    return {
-        "strategy_binding": [candidate.get("strategy_binding"), control.get("strategy_binding")],
-        "artifact_manifest_ref": [candidate.get("artifact_manifest_ref"), control.get("artifact_manifest_ref")],
-        "selection": selection,
-        "metrics": {name: entry(_path(left, name), _path(right, name)) for name in PAIR_READINGS},
-        "paired_daily_returns": paired,
-        "analysis": _identity(("research/records/analysis.py",)),
-        "limitations": limitations,
-    }
+    years: dict[str, dict] = {}
+    for cycle in cycles:
+        if not cycle["closed"]:
+            continue
+        try:
+            year = str((EPOCH + timedelta(microseconds=int(cycle["ts_last"]) // 1000)).year)
+        except (TypeError, ValueError):
+            limitations.append("closed_by_year is null: a closed position row has no integer ts_last")
+            return None
+        item = years.setdefault(year, {"closed_trades": 0, "price": Decimal(0), "commissions": Decimal(0),
+                                       "funding": Decimal(0)})
+        item["closed_trades"] += 1
+        for key in ("price", "commissions", "funding"):
+            item[key] += cycle[key]
+    return {year: {"closed_trades": item["closed_trades"], "price_pnl_usdt": _money(item["price"]),
+                   "fill_commissions_usdt": _money(item["commissions"]),
+                   "reported_funding_usdt": _money(item["funding"])}
+            for year, item in sorted(years.items())}
 
 
-def tables(root: Path, run_id: str, *, account: bool = False, exposures: bool = False) -> dict:
-    """Parsed native reports of one passed seal whose closed-position split reconciles.
+def stored_closed_by_year(conn, run_id: int) -> tuple[dict | None, list[str]]:
+    """``closed_by_year`` of a stored run, derived from its stored position and fill rows."""
+    reports = load_run(conn, run_id, account=False, exposures=False)
+    limitations: list[str] = []
+    try:
+        return closed_by_year(_cycles(reports.positions, reports.fills), limitations), limitations
+    except _Unreconciled as exc:
+        return None, [f"closed_by_year is null: {exc}"]
 
-    Reads only manifest-verified bytes and computes no statistics. Top-level money
-    cells become ``Decimal`` in the run's single currency (nested event and
-    adjustment dicts keep their raw strings), list cells become lists, flags become
-    booleans and empty cells ``None``. Each position row also carries ``funding``
-    and, when closed, its reconciled fill price PnL (``price_pnl``), its exact close
-    time (``ts_closed_ns``, from ``ts_last``; the native ``ts_closed`` passes through
-    float64) and the tags of the order that closed it (``closing_order_tags``, empty
-    for an untagged order, ``None`` if that order is absent); all three are ``None``
-    while open. Each fill carries the ``cycle_position_id`` of the
-    position row whose events contain it. ``daily_returns`` is ``None`` with a
-    limitation when the trade-window returns do not compound to final equity.
-    ``account`` adds account.csv and ``exposures`` the exposure report; both can be
-    very large. Exposure rows hold each open position's native notional value and
-    unrealized PnL between input bar timestamps, tied to its ``cycle_position_id``;
-    seals recorded before that report have none.
+
+def _mark_drawdown(summary: dict, account: list[dict], exposures: list[dict]) -> float:
+    """Largest fall of native MARK equity from its running peak on the trade window, as a fraction.
+
+    Equity at bar label T is the account `total` of the latest account state before the next bar
+    label plus the unrealized PnL of the exposure rows labelled T (none: flat). The peak starts at
+    the starting balance.
     """
-    names = (*REPORT_FILES, "orders.csv", *((EXPOSURES,) if exposures else ()), *(("account.csv",) if account else ()))
-    output, returns, parsed = _analyze(Path(root), run_id, names)
-    needed = {"orders.csv", *(("account.csv",) if account else ())}
-    if output["closed_trades"] is None or not needed <= parsed["reports"].keys():
-        raise RecordError(f"{run_id}: tables need a passed seal whose native reports reconcile",
-                          expected="`artifacts report` with non-null closed_trades",
-                          next_actions=["Read the limitations from `artifacts report`; do not analyze this seal."],
-                          write_status="not_written")
-    orders = [_typed(row) for row in _rows(parsed["reports"]["orders.csv"])]
+    step = int(summary["data_interval_minutes"]) * 60_000_000_000
+    start, end = _utc_ns(summary["period_start_utc"]), _utc_ns(summary["period_end_utc"])
+    unrealized = defaultdict(Decimal)
+    for row in exposures:
+        unrealized[row["ts_event_ns"]] += row["unrealized_pnl"]
+    offset = min(unrealized) % step if unrealized else step - 1_000_000
+    states = sorted((_utc_ns(row["ts_event"]), Decimal(row["total"])) for row in account)
+    times = [ts for ts, _ in states]
+    starting = Decimal(summary["starting_balance_usdt"])
+    peak, worst = starting, Decimal(0)
+    label = start - start % step + offset
+    if label < start:
+        label += step
+    while label < end:
+        index = bisect.bisect_left(times, label + step) - 1
+        equity = (states[index][1] if index >= 0 else starting) + unrealized.get(label, Decimal(0))
+        peak = max(peak, equity)
+        worst = max(worst, (peak - equity) / peak)
+        label += step
+    return float(worst)
+
+
+def _typed_positions(positions: list[dict], cycles: list[dict]) -> list[dict]:
+    return [{**_typed(row), "closed": cycle["closed"]} for row, cycle in zip(positions, cycles, strict=True)]
+
+
+def tables(run_id: int, *, ledger: str | None = None, at: str | None = None, account: bool = False,
+           exposures: bool = False) -> dict:
+    """Parsed native reports of one stored, passed run whose closed-position split reconciles.
+
+    Reads the ledger (the active round unless `at` names a branch or closing tag) and computes no
+    statistics. Top-level money cells become ``Decimal`` in the run's single currency (nested event
+    and adjustment dicts keep their raw strings), list cells become lists, flags become booleans and
+    empty cells ``None``. Each position row also carries ``funding`` and, when closed, its
+    reconciled fill price PnL (``price_pnl``), its exact close time (``ts_closed_ns``, from
+    ``ts_last``; the native ``ts_closed`` passes through float64) and the tags of the order that
+    closed it (``closing_order_tags``, empty for an untagged order, ``None`` if that order is
+    absent); all three are ``None`` while open. Each fill carries the ``cycle_position_id`` of the
+    position row whose events contain it. ``daily_returns`` is ``None`` with a limitation when the
+    trade-window returns do not compound to final equity. ``account`` adds the account rows and
+    ``exposures`` the exposure rows; both can be large. Exposure rows hold each open position's
+    native notional value and unrealized PnL between input bar timestamps, tied to its
+    ``cycle_position_id``. ``order_events`` is the native order event history when the run has it.
+    """
+    from research.records import db, ledger as ledgers
+    profile = ledgers.profile(ledger)
+    with db.reading(profile, at) as conn:
+        status = db.one(conn, "SELECT status FROM run WHERE run_id = %s", (run_id,))
+        if status is None or status["status"] != "passed":
+            raise RecordError(f"run {run_id}: tables need a stored run that passed its audit",
+                              code="RUN_NOT_PASSED", write_status="not_written")
+        reports = load_run(conn, run_id, account=account, exposures=exposures)
+        (commit,), = db.rows(conn, "SELECT DOLT_HASHOF('HEAD')")
+    return build_tables(reports, run_id=run_id, ledger_commit=commit, account=account, exposures=exposures)
+
+
+def build_tables(reports: Reports, *, run_id, ledger_commit: str | None, account: bool, exposures: bool) -> dict:
+    """The `tables` result from already loaded reports (see `tables`)."""
+    limitations = list((reports.summary or {}).get("limitations", []))
+    returns = _returns(reports.returns, reports.summary, limitations)
+    try:
+        cycles = _cycles(reports.positions, reports.fills)
+        economics = _economics(cycles, reports.fills, reports.summary, (reports.audit or {}).get("native_economics"),
+                               limitations)
+    except _Unreconciled as exc:
+        raise RecordError(f"run {run_id}: tables need native reports that reconcile ({exc})",
+                          code="RUN_UNRECONCILED", write_status="not_written",
+                          next_actions=["Read `artifacts report`; do not analyze this run."]) from exc
+    orders = [_typed(row) for row in reports.orders]
     tags_of = {order.get("client_order_id"): order.get("tags") or [] for order in orders}
     positions = []
-    for row, cycle in zip(parsed["positions"], parsed["cycles"], strict=True):
+    for row, cycle in zip(reports.positions, cycles, strict=True):
         typed, closed = _typed(row), cycle["closed"]
         positions.append({**typed, "closed": closed, "funding": cycle["funding"],
                           "price_pnl": cycle["price"] if closed else None,
                           "ts_closed_ns": typed.get("ts_last") if closed else None,
                           "closing_order_tags": tags_of.get(typed.get("closing_order_id")) if closed else None})
-    cycle_of = {event_id: row["position_id"] for row, cycle in zip(parsed["positions"], parsed["cycles"], strict=True)
+    cycle_of = {event_id: row["position_id"] for row, cycle in zip(reports.positions, cycles, strict=True)
                 for event_id in cycle["event_ids"]}
-    reports = parsed["reports"]
-    limitations = list(output["limitations"])
     exposure_rows = None
-    if EXPOSURES in reports:
-        exposure_rows = _exposures(run_id, reports[EXPOSURES], positions, parsed["summary"],
-                                   output["unrealized_residual_usdt"])
-    elif exposures:
-        limitations.append("No exposure report: open-position valuation over time was not recorded for this seal.")
+    if exposures:
+        if reports.exposures is None:
+            limitations.append("No exposure report: open-position valuation over time was not recorded for this run.")
+        else:
+            exposure_rows = _exposures(reports.exposures, positions, reports.summary,
+                                       economics["unrealized_residual_usdt"])
     return {
         "run_id": run_id,
-        "manifest_sha256": output["manifest_sha256"],
-        "files_sha256": {name: hashlib.sha256(data).hexdigest() for name, data in reports.items()},
+        "ledger_commit": ledger_commit,
         "currency": "USDT",
-        "summary": parsed["summary"],
-        "audit": parsed["audit"],
-        "reconciled": {key: output[key] for key in ("native_economics", *_ECONOMICS)},
+        "summary": reports.summary,
+        "audit": reports.audit,
+        "reconciled": {"native_economics": (reports.audit or {}).get("native_economics"), **economics},
         "limitations": limitations,
         "orders": orders,
-        "fills": [{**_typed(row), "cycle_position_id": cycle_of[row["event_id"]]} for row in parsed["fills"]],
+        "fills": [{**_typed(row), "cycle_position_id": cycle_of[row["event_id"]]} for row in reports.fills],
         "positions": positions,
-        "account": [_typed(row) for row in _rows(reports["account.csv"])] if account else None,
+        "account": [_typed(row) for row in reports.account] if account else None,
         "daily_returns": None if returns is None else [{"ts_event_ns": ts, "native_return": value}
                                                        for ts, value in returns],
         "exposures": exposure_rows,
+        "order_events": reports.order_events,
     }
 
 
-def _exposures(run_id: str, data: bytes, positions: list[dict], summary: dict, residual: str | None) -> list[dict]:
+def _exposures(data: bytes, positions: list[dict], summary: dict, residual: str | None) -> list[dict]:
     """Exposure rows on the input bar grid, each tied to the one cycle held then; refuse gaps or extras.
 
     A row labelled T holds a cycle open after every event before the next bar
     timestamp: opened before T + step and not closed until T + step or later.
     """
     def refuse(message):
-        raise RecordError(f"{run_id}: {message}", path=f"/{EXPOSURES}", write_status="not_written",
-                          next_actions=["Do not analyze capital use from this seal; report the exposure defect."])
+        raise RecordError(message, path=f"/{EXPOSURES}", write_status="not_written",
+                          next_actions=["Do not analyze capital use from this run; report the exposure defect."])
 
     step = int(summary["data_interval_minutes"]) * 60_000_000_000
     first = _utc_ns(summary["input_start_utc"]) + step - 1_000_000  # bars are stamped 1 ms before each boundary
@@ -299,118 +431,6 @@ def _typed(row: dict) -> dict:
     return result
 
 
-def entry(candidate, control) -> dict:
-    """Compare entry shape shared with ``compare`` metrics."""
-    return {"candidate": candidate, "control": control, "difference": difference(candidate, control)}
-
-
-def difference(candidate, control) -> str | None:
-    """Exact decimal difference, or null when either side is not a finite number."""
-    if any(value is None or isinstance(value, bool) for value in (candidate, control)):
-        return None
-    try:
-        left, right = Decimal(str(candidate)), Decimal(str(control))
-    except InvalidOperation:
-        return None
-    if not (left.is_finite() and right.is_finite()):
-        return None
-    return format(left - right, "f")
-
-
-def check_size(output: dict) -> None:
-    size = len(json.dumps(output, ensure_ascii=False, indent=2).encode())
-    if size > OUTPUT_LIMIT:
-        raise RecordError(f"analysis output is {size} bytes, above the {OUTPUT_LIMIT}-byte bound",
-                          expected=f"at most {OUTPUT_LIMIT} UTF-8 bytes at indent=2",
-                          next_actions=["Report this as an analyzer defect; do not truncate or drop readings to fit."],
-                          write_status="not_written")
-
-
-def _analyze(root: Path, run_id: str, names: tuple[str, ...] = REPORT_FILES
-             ) -> tuple[dict, list[tuple[int, float]] | None, dict]:
-    """Report output, accepted trade-window returns and the verified parsed rows behind them."""
-    checked, manifest, reports = _sealed(root, run_id, names)
-    files = manifest["files"]
-
-    def ref(name):
-        item = files.get(f"reports/{name}")
-        return None if item is None else {"path": f"artifact://{run_id}/reports/{name}", "sha256": item["sha256"]}
-
-    output = {
-        "run_id": run_id, "status": manifest["status"], "problems": manifest.get("problems", []),
-        "manifest_sha256": checked["manifest_sha256"], "record_binding": manifest.get("record_binding"),
-        "summary_ref": ref("summary.json"), "audit_ref": ref("audit.json"),
-    }
-    return _read(output, reports, manifest["status"], names)
-
-
-def _read(output: dict, reports: dict[str, bytes], status: str, names: tuple[str, ...]
-          ) -> tuple[dict, list[tuple[int, float]] | None, dict]:
-    summary = json.loads(reports["summary.json"]) if "summary.json" in reports else None
-    audit = json.loads(reports["audit.json"]) if "audit.json" in reports else None
-    output.update({"native_economics": None, **dict.fromkeys(_ECONOMICS), "plans": None})
-    limitations = _unique(list((summary or {}).get("limitations", [])) + list((audit or {}).get("coverage_limits", [])))
-    output["limitations"] = limitations
-    parsed = {"reports": reports, "summary": summary, "audit": audit}
-    if status != "passed" or summary is None:
-        limitations.append("The run did not pass; native economics are not read.")
-        return output, None, parsed
-    economics = (audit or {}).get("native_economics")
-    output["native_economics"] = economics
-    if economics is None:
-        limitations.append("native_economics is absent from the audit; unrealized_residual_usdt is null "
-                           "and the decomposition is checked only against the seal's own reports.")
-    returns = _returns(reports["returns_series.csv"], summary, limitations)
-    try:
-        positions, fills = _rows(reports["positions.csv"]), _rows(reports["fills.csv"])
-        cycles = _cycles(positions, fills)
-        output.update(_economics(cycles, fills, summary, economics, limitations))
-        parsed.update(positions=positions, fills=fills, cycles=cycles)
-    except _Unreconciled as exc:
-        limitations.append(f"Economic readings are null: {exc}")
-        return output, returns, parsed
-    try:
-        output["closed_by_year"] = _by_year(cycles)
-    except _Unreconciled as exc:
-        limitations.append(f"closed_by_year is null: {exc}")
-    if "orders.csv" not in reports:
-        if "orders.csv" in names:
-            limitations.append("plans is null: the run has no orders.csv")
-        return output, returns, parsed
-    try:
-        output["plans"] = _plans(_rows(reports["orders.csv"]), fills, positions, cycles)
-    except _Unreconciled as exc:
-        limitations.append(f"plans is null: {exc}")
-    return output, returns, parsed
-
-
-def _sealed(root: Path, run_id: str, names: tuple[str, ...] = REPORT_FILES) -> tuple[dict, dict, dict[str, bytes]]:
-    """Verify the seal, then parse only bytes re-hashed against its manifest."""
-    from research.records.artifacts import ArtifactError, verify
-    try:
-        checked = verify(root, run_id)
-    except (ArtifactError, RecordError, OSError, KeyError, ValueError) as exc:
-        raise RecordError(f"{run_id}: sealed report verification failed: {exc}", path=f"{root}/{run_id}",
-                          next_actions=["Check the run ID and artifact root, then restore an edited or missing seal "
-                                        "from its verified backup; do not analyze unsealed or edited reports."],
-                          write_status="not_written") from exc
-    path = root.resolve() / run_id
-    raw = (path / "manifest.json").read_bytes()
-    if hashlib.sha256(raw).hexdigest() != checked["manifest_sha256"]:
-        raise RecordError(f"{run_id}: manifest changed after verification", write_status="not_written")
-    manifest = json.loads(raw)
-    reports = {}
-    for name in names:
-        item = manifest["files"].get(f"reports/{name}")
-        if item is None:
-            continue
-        data = (path / "reports" / name).read_bytes()
-        if hashlib.sha256(data).hexdigest() != item["sha256"]:
-            raise RecordError(f"{run_id}: reports/{name} changed after verification", write_status="not_written")
-        reports[name] = data
-    return checked, manifest, reports
-
-
 def _rows(data: bytes) -> list[dict]:
     csv.field_size_limit(2**31 - 1)  # positions.events holds every fill of a cycle in one cell
     return list(csv.DictReader(io.StringIO(data.decode("utf-8"), newline="")))
@@ -436,11 +456,10 @@ def _unique(items: list[str]) -> list[str]:
     return list(dict.fromkeys(items))
 
 
-def _returns(data: bytes, summary: dict, limitations: list[str]) -> list[tuple[int, float]] | None:
+def _returns(returns: list[tuple[int, float]], summary: dict, limitations: list[str]) -> list[tuple[int, float]] | None:
     """Trade-window daily returns, accepted only when they compound to the native final equity."""
     start = datetime.fromisoformat(summary["period_start_utc"])
     start_ns = (start - EPOCH) // timedelta(microseconds=1) * 1000
-    returns = [(int(row["ts_event_ns"]), float(row["native_return"])) for row in _rows(data)]
     returns = [(ts, value) for ts, value in returns if ts >= start_ns]
     if not returns or any(value <= -1 for _, value in returns):
         limitations.append("The trade-window native daily return series is empty or invalid.")
@@ -596,75 +615,4 @@ def _economics(cycles: list[dict], fills: list[dict], summary: dict, economics: 
         "closed_trades": len(closed),
         "open_positions": len(opened),
         "unrealized_residual_usdt": _money(residual),
-    }
-
-
-def _by_year(cycles: list[dict]) -> dict:
-    """Closed-position fill price PnL, commissions and funding by the UTC year each cycle closed in.
-
-    A whole cycle, funding included, belongs to the year of its last event (``ts_last``), so the
-    years add up to the ``closed`` totals; a cycle open across a year end counts only in the year it
-    closed, and positions still open are left out as in ``closed``. The first and last years of a
-    window are partial. No closed cycle gives ``{}``.
-    """
-    years: dict[str, dict] = {}
-    for cycle in cycles:
-        if not cycle["closed"]:
-            continue
-        try:
-            year = str((EPOCH + timedelta(microseconds=int(cycle["ts_last"]) // 1000)).year)
-        except (TypeError, ValueError) as exc:
-            raise _Unreconciled("a closed position row has no integer ts_last") from exc
-        item = years.setdefault(year, {"closed_trades": 0, "price": Decimal(0), "commissions": Decimal(0),
-                                       "funding": Decimal(0)})
-        item["closed_trades"] += 1
-        for key in ("price", "commissions", "funding"):
-            item[key] += cycle[key]
-    return {year: {"closed_trades": item["closed_trades"], "price_pnl_usdt": _money(item["price"]),
-                   "fill_commissions_usdt": _money(item["commissions"]),
-                   "reported_funding_usdt": _money(item["funding"])}
-            for year, item in sorted(years.items())}
-
-
-def _identity(paths: tuple[str, ...]) -> dict:
-    return {
-        "source_files_sha256": {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in paths},
-        "dependency_lock_sha256": hashlib.sha256((ROOT / "uv.lock").read_bytes()).hexdigest(),
-    }
-
-
-def _path(output: dict, name: str):
-    value = output
-    for part in name.split("."):
-        if value is None:
-            return None
-        value = value.get(part)
-    return value
-
-
-def _interval(values: list[float]) -> list[float]:
-    ordered = sorted(values)
-    return [ordered[int((len(ordered) - 1) * q)] for q in (0.025, 0.975)]
-
-
-def _paired(candidate: list[tuple[int, float]], control: list[tuple[int, float]]) -> dict:
-    weeks: OrderedDict[tuple[int, int], list[float]] = OrderedDict()
-    for (ts, left), (_, right) in zip(candidate, control, strict=True):
-        iso = (EPOCH + timedelta(microseconds=ts // 1000)).isocalendar()
-        weeks.setdefault((iso.year, iso.week), []).append(math.log1p(left) - math.log1p(right))
-    blocks = list(weeks.values())
-
-    def growth(values):
-        return (math.exp(365 * sum(values) / len(values)) - 1) * 100
-
-    generator = random.Random(PAIRED_SEED)  # noqa: S311 - reproducible research resampling.
-    draws = [growth([value for _ in blocks for value in generator.choice(blocks)]) for _ in range(PAIRED_DRAWS)]
-    return {
-        "method": PAIRED_METHOD,
-        "seed": PAIRED_SEED,
-        "draws": PAIRED_DRAWS,
-        "days": len(candidate),
-        "week_blocks": len(blocks),
-        "observed_annualized_relative_growth_pct": growth([value for block in blocks for value in block]),
-        "bootstrap_95pct_annualized_relative_growth_pct": _interval(draws),
     }

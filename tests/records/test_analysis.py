@@ -17,11 +17,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from research.records import analysis, artifacts, cli
-from research.records.artifacts import _files, _sha
-from research.records.cli import _compare
+from research.records import analysis
 from research.records.common import RecordError
-from tests.records.fixtures.contract_repository import ContractRepository
 
 
 AAA, BBB = "AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"
@@ -64,7 +61,7 @@ def _csv(columns, rows):
 
 
 def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, economics=True,
-          economics_override=None, final_equity=None, status="passed", orders=",status,expire_time_ns\n",
+          economics_override=None, final_equity=None, orders=",status,expire_time_ns\n",
           exposures=None, fill_orders=None) -> Path:
     seal = root / run_id
     reports = seal / "reports"
@@ -110,11 +107,19 @@ def _seal(root: Path, run_id: str, *, cycles=CYCLES, window=WINDOW_RETURNS, econ
              **({"native_economics": native} if economics else {})}
     (reports / "summary.json").write_text(json.dumps(summary))
     (reports / "audit.json").write_text(json.dumps(audit))
-    manifest = {"schema_version": 1, "run_id": run_id, "status": status, "problems": [],
-                "native_exit_code": 0, "audit_exit_code": 0,
-                "record_binding": {"id": "attempt:A", "revision": 1, "commit": "c" * 32}, "files": _files(seal)}
-    (seal / "manifest.json").write_text(json.dumps(manifest))
     return seal
+
+
+def _report(root: Path, run_id: str) -> dict:
+    """The readings of one report directory, flattened like the run row's columns."""
+    output = analysis.readings(analysis.load_dir(root / run_id / "reports"))
+    return {**(output["economics"] or dict.fromkeys(analysis._ECONOMICS)), "plans": output["plans"],
+            "max_drawdown": output["max_drawdown"], "limitations": output["limitations"]}
+
+
+def _tables(root: Path, run_id: str, *, account=False, exposures=False) -> dict:
+    return analysis.build_tables(analysis.load_dir(root / run_id / "reports"), run_id=run_id, ledger_commit=None,
+                                 account=account, exposures=exposures)
 
 
 class SingleRunReportTests(unittest.TestCase):
@@ -125,12 +130,13 @@ class SingleRunReportTests(unittest.TestCase):
 
     def test_closed_decomposition_and_residual_reconcile_to_native_facts(self):
         _seal(self.root, "R1")
-        result = analysis.report(self.root, "R1")
+        result = _report(self.root, "R1")
         self.assertEqual(result["closed"], {
             "reported_realized_pnl_usdt": "7.24150000", "fill_commissions_usdt": "0.15850000",
             "reported_funding_usdt": "0.40000000", "price_pnl_usdt": "7.00000000"})
         self.assertEqual((result["closed_trades"], result["open_positions"]), (2, 1))
-        final_balance = Decimal(result["native_economics"]["final_balance_usdt"])
+        audit = json.loads((self.root / "R1/reports/audit.json").read_text())
+        final_balance = Decimal(audit["native_economics"]["final_balance_usdt"])
         self.assertEqual(Decimal(result["unrealized_residual_usdt"]) + final_balance,
                          Decimal(json.loads((self.root / "R1/reports/summary.json").read_text())["final_equity_usdt"]))
         self.assertIn("fixture limitation", result["limitations"])
@@ -141,7 +147,7 @@ class SingleRunReportTests(unittest.TestCase):
         cycles[0]["ts_last"] = START_NS - 1  # closes at the last nanosecond of 2025
         cycles[1]["ts_last"] = START_NS  # closes at 2026-01-01T00:00:00Z
         _seal(self.root, "R1", cycles=cycles)
-        result = analysis.report(self.root, "R1")
+        result = _report(self.root, "R1")
         self.assertEqual(result["closed_by_year"], {
             "2025": {"closed_trades": 1, "price_pnl_usdt": "12.00000000", "fill_commissions_usdt": "0.11100000",
                      "reported_funding_usdt": "0.50000000"},
@@ -152,67 +158,49 @@ class SingleRunReportTests(unittest.TestCase):
         cycles = copy.deepcopy(CYCLES)
         cycles[1]["ts_last"] = ""
         _seal(self.root, "R1", cycles=cycles)
-        result = analysis.report(self.root, "R1")
+        result = _report(self.root, "R1")
         self.assertIsNone(result["closed_by_year"])
         self.assertEqual(result["closed"]["price_pnl_usdt"], "7.00000000")
         self.assertTrue(any(item.startswith("closed_by_year is null:") for item in result["limitations"]))
 
     def test_no_closed_cycle_gives_an_empty_year_split(self):
         _seal(self.root, "R1", cycles=[CYCLES[2]])
-        self.assertEqual(analysis.report(self.root, "R1")["closed_by_year"], {})
+        self.assertEqual(_report(self.root, "R1")["closed_by_year"], {})
 
-    def test_an_exploration_gets_the_readings_of_a_seal_without_custody(self):
+    def test_an_exploration_gets_the_readings_of_a_stored_run(self):
         seal = _seal(self.root, "R1")
-        sealed = analysis.report(self.root, "R1")
-        (seal / "manifest.json").unlink()
+        stored = _report(self.root, "R1")
         readings = analysis.explored(seal, "passed")
-        self.assertEqual(readings, {key: sealed[key] for key in readings})
-        self.assertIsNone(analysis.explored(seal, "failed")["closed"])
+        self.assertEqual((readings["price_pnl_usdt"], readings["closed_by_year"], readings["closed_positions"]),
+                         (stored["closed"]["price_pnl_usdt"], stored["closed_by_year"], stored["closed_trades"]))
+        failed = analysis.explored(seal, "failed")
+        self.assertIsNone(failed["price_pnl_usdt"])
+        self.assertTrue(failed["reading_limitations"][0].startswith("Readings are null:"))
 
     def test_an_exploration_with_incomplete_reports_gets_null_readings_not_an_error(self):
         seal = _seal(self.root, "R1")
         (seal / "reports" / "returns_series.csv").unlink()
         readings = analysis.explored(seal, "passed")
-        self.assertIsNone(readings["closed"])
-        self.assertTrue(readings["limitations"][0].startswith("Readings are null:"))
+        self.assertIsNone(readings["price_pnl_usdt"])
+        self.assertTrue(readings["reading_limitations"][0].startswith("Readings are null:"))
 
     def test_zero_trade_reduced_headers_give_nulls_not_zeros(self):
         _seal(self.root, "R0", cycles=[], window=[0.0] * 6)
-        result = analysis.report(self.root, "R0")
+        result = _report(self.root, "R0")
         self.assertEqual(result["closed"], dict.fromkeys(result["closed"]))
         self.assertEqual((result["closed_trades"], result["open_positions"]), (0, 0))
         self.assertEqual(result["unrealized_residual_usdt"], "0.00000000")
         self.assertIn("No position closed: closed-position readings are null.", result["limitations"])
 
-    def test_failed_seal_reports_status_without_economics(self):
-        seal = self.root / "F"
-        (seal / "reports").mkdir(parents=True)
-        (seal / "reports" / "orders.csv").write_text(",expire_time_ns\n")
-        manifest = {"schema_version": 1, "run_id": "F", "status": "failed", "problems": ["native summary missing"],
-                    "files": _files(seal)}
-        (seal / "manifest.json").write_text(json.dumps(manifest))
-        result = analysis.report(self.root, "F")
-        self.assertEqual((result["status"], result["problems"]), ("failed", ["native summary missing"]))
-        self.assertIsNone(result["summary_ref"])
-        self.assertIsNone(result["closed"])
-        self.assertNotIn("native summary missing", result["limitations"])
-
-    def test_failed_seal_with_a_summary_still_reports_no_economics(self):
-        _seal(self.root, "F2", status="failed")
-        result = analysis.report(self.root, "F2")
-        self.assertIsNotNone(result["summary_ref"])
-        for key in ("native_economics", *analysis._ECONOMICS):
-            self.assertIsNone(result[key], key)
-
     def test_missing_native_economics_nulls_only_the_residual(self):
         _seal(self.root, "R1", economics=False)
-        result = analysis.report(self.root, "R1")
+        result = _report(self.root, "R1")
         self.assertIsNone(result["unrealized_residual_usdt"])
         self.assertEqual(result["closed"]["price_pnl_usdt"], "7.00000000")
 
     def test_economics_that_disagree_with_positions_are_not_reported(self):
         _seal(self.root, "R1", economics_override={"reported_funding_usdt": "9.00000000"})
-        result = analysis.report(self.root, "R1")
+        result = _report(self.root, "R1")
         for key in analysis._ECONOMICS:
             self.assertIsNone(result[key], key)
         self.assertTrue(any("native_economics" in item for item in result["limitations"]))
@@ -221,44 +209,14 @@ class SingleRunReportTests(unittest.TestCase):
         cycles = copy.deepcopy(CYCLES)
         cycles[0]["events"][2]["last_px"] = "104"
         _seal(self.root, "R1", cycles=cycles)
-        result = analysis.report(self.root, "R1")
+        result = _report(self.root, "R1")
         self.assertIsNone(result["closed"])
         self.assertTrue(any("do not equal its realized PnL" in item for item in result["limitations"]))
 
     def test_returns_that_do_not_compound_to_final_equity_are_flagged(self):
         _seal(self.root, "R1", final_equity="1500.00000000")
         self.assertIn("Trade-window native daily returns do not compound to final_equity_usdt.",
-                      analysis.report(self.root, "R1")["limitations"])
-
-    def test_edited_seal_is_refused(self):
-        seal = _seal(self.root, "R1")
-        (seal / "reports" / "fills.csv").write_text("event_id,commission\n")
-        with self.assertRaisesRegex(RecordError, "verification failed"):
-            analysis.report(self.root, "R1")
-
-    def test_report_errors_are_structured(self):
-        stderr = io.StringIO()
-        with patch("sys.argv", ["artifacts", "report", "--root", str(self.root), "--run-id", "MISSING"]), \
-                redirect_stderr(stderr), self.assertRaises(SystemExit) as caught:
-            artifacts.main()
-        self.assertEqual(caught.exception.code, 2)
-        error = json.loads(stderr.getvalue())["error"]
-        self.assertEqual(error["write_status"], "not_written")
-        self.assertIn("sealed report verification failed", error["message"])
-
-    def test_output_is_deterministic_and_bounded(self):
-        _seal(self.root, "R1")
-        first = json.dumps(analysis.report(self.root, "R1"), ensure_ascii=False, indent=2)
-        self.assertEqual(first, json.dumps(analysis.report(self.root, "R1"), ensure_ascii=False, indent=2))
-        with self.assertRaisesRegex(RecordError, "above the 32768-byte bound"):
-            analysis.check_size({"rows": ["x" * 100] * 400})
-
-    def test_difference_is_null_unless_both_sides_are_finite_numbers(self):
-        self.assertEqual(analysis.difference("1.5", 0.5), "1.0")
-        self.assertEqual(analysis.difference("1.00000000", "1.00000000"), "0.00000000")
-        for left, right in ((None, 1), (True, 1), ("nan", 1), ("x", 1), (1, float("inf"))):
-            self.assertIsNone(analysis.difference(left, right), (left, right))
-
+                      _report(self.root, "R1")["limitations"])
 
 class TablesTests(unittest.TestCase):
     def setUp(self):
@@ -272,7 +230,7 @@ class TablesTests(unittest.TestCase):
                        ["O-2", "['STOP_LOSS']", "O-1", "1", "1767225600000000000", "True"],
                        ["AAA-1-exit", "['TAKE_PROFIT']", "O-1", "2", "1767225600000000000", "True"]])
         _seal(self.root, "R1", orders=orders)
-        result = analysis.tables(self.root, "R1", account=True)
+        result = _tables(self.root, "R1", account=True)
         self.assertEqual({fill["event_id"]: fill["cycle_position_id"] for fill in result["fills"]},
                          {"e1": "AAA-1", "e2": "AAA-1", "e3": "AAA-1", "e4": "BBB-1", "e5": "BBB-1", "e6": "BBB-2"})
         aaa = result["positions"][0]
@@ -295,19 +253,17 @@ class TablesTests(unittest.TestCase):
         self.assertEqual(result["account"][0]["total"], Decimal("1000"))
         self.assertEqual([row["native_return"] for row in result["daily_returns"]], WINDOW_RETURNS)
         self.assertEqual(result["reconciled"]["closed_trades"], 2)
-        self.assertIsNone(analysis.tables(self.root, "R1")["account"])
+        self.assertIsNone(_tables(self.root, "R1")["account"])
 
-    def test_seals_that_do_not_reconcile_or_pass_are_refused(self):
+    def test_runs_that_do_not_reconcile_are_refused(self):
         _seal(self.root, "BAD", economics_override={"reported_funding_usdt": "9.00000000"})
-        _seal(self.root, "FAILED", status="failed")
-        for run_id in ("BAD", "FAILED"):
-            with self.assertRaisesRegex(RecordError, "reports reconcile"):
-                analysis.tables(self.root, run_id)
+        with self.assertRaisesRegex(RecordError, "reports that reconcile"):
+            _tables(self.root, "BAD")
 
     def test_unexpected_cell_format_names_its_column(self):
         _seal(self.root, "R1", orders=_csv(["client_order_id", "tags"], [["O-1", "['ENTRY'"]]))
         with self.assertRaises(RecordError) as caught:
-            analysis.tables(self.root, "R1")
+            _tables(self.root, "R1")
         self.assertEqual(caught.exception.path, "/tags")
 
 
@@ -340,7 +296,7 @@ class PlanReadingTests(unittest.TestCase):
     def report(self, edit=None, cycles=CYCLES, fills=PLAN_FILLS):
         run_id = f"R{len(list(self.root.iterdir()))}"
         _seal(self.root, run_id, cycles=cycles, orders=_plan_orders(edit), fill_orders=fills)
-        return analysis.report(self.root, run_id)
+        return _report(self.root, run_id)
 
     def refusal(self, edit):
         result = self.report(edit)
@@ -421,7 +377,7 @@ class ExposureTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         _seal(self.root, "PLAIN", cycles=_timed_cycles())
-        self.residual = analysis.report(self.root, "PLAIN")["unrealized_residual_usdt"]
+        self.residual = _report(self.root, "PLAIN")["unrealized_residual_usdt"]
 
     def rows(self, residual=None):
         rows = [[ts, "AAA-1", "200.00000000 USDT", "1.00000000 USDT"] for ts in GRID[0:3]]
@@ -431,7 +387,7 @@ class ExposureTests(unittest.TestCase):
 
     def test_rows_belong_to_the_cycle_open_at_each_bar_and_reconcile_the_residual(self):
         _seal(self.root, "R1", cycles=_timed_cycles(), exposures=self.rows())
-        rows = analysis.tables(self.root, "R1", exposures=True)["exposures"]
+        rows = _tables(self.root, "R1", exposures=True)["exposures"]
         self.assertEqual(Counter(row["cycle_position_id"] for row in rows), {"AAA-1": 3, "BBB-1": 1, "BBB-2": 4})
         self.assertEqual((rows[0]["ts_event_ns"], rows[0]["notional_value"]), (GRID[0], Decimal("200")))
 
@@ -442,7 +398,7 @@ class ExposureTests(unittest.TestCase):
             with self.subTest(name):
                 _seal(self.root, name, cycles=_timed_cycles(), exposures=edited)
                 with self.assertRaises(RecordError) as caught:
-                    analysis.tables(self.root, name, exposures=True)
+                    _tables(self.root, name, exposures=True)
                 self.assertEqual(caught.exception.path, "/exposures.csv.gz")
 
     def test_a_cycle_closed_between_bars_is_held_only_until_the_bar_before(self):
@@ -450,158 +406,50 @@ class ExposureTests(unittest.TestCase):
         cycles[0]["events"][2]["ts_event"] = cycles[0]["ts_last"] = GRID[2] + 1_000_000  # a boundary between bars
         rows = [row for row in self.rows() if not (row[1] == "AAA-1" and row[0] == GRID[2])]
         _seal(self.root, "R1", cycles=cycles, exposures=rows)
-        self.assertEqual(sum(row["cycle_position_id"] == "AAA-1" for row in analysis.tables(self.root, "R1", exposures=True)["exposures"]), 2)
+        self.assertEqual(sum(row["cycle_position_id"] == "AAA-1" for row in _tables(self.root, "R1", exposures=True)["exposures"]), 2)
         _seal(self.root, "R2", cycles=cycles, exposures=self.rows())
         with self.assertRaisesRegex(RecordError, "matches 0 position cycles"):
-            analysis.tables(self.root, "R2", exposures=True)
+            _tables(self.root, "R2", exposures=True)
 
     def test_final_unrealized_pnl_must_equal_the_audited_residual(self):
         _seal(self.root, "R1", cycles=_timed_cycles(), exposures=self.rows(residual="999"))
         with self.assertRaisesRegex(RecordError, "audited residual"):
-            analysis.tables(self.root, "R1", exposures=True)
+            _tables(self.root, "R1", exposures=True)
 
-    def test_seals_before_the_exposure_report_have_none(self):
-        result = analysis.tables(self.root, "PLAIN", exposures=True)
+    def test_runs_without_the_exposure_report_have_none(self):
+        result = _tables(self.root, "PLAIN", exposures=True)
         self.assertIsNone(result["exposures"])
-        self.assertIn("No exposure report: open-position valuation over time was not recorded for this seal.",
+        self.assertIn("No exposure report: open-position valuation over time was not recorded for this run.",
                       result["limitations"])
 
 
-class PairedAnalysisTests(unittest.TestCase):
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
-        self.candidate = self.record(_seal(self.root, "CAND"))
-        self.control = self.record(_seal(self.root, "CTRL", window=[0.004, -0.01, 0.0, 0.002, 0.001, 0.0]))
-
-    @staticmethod
-    def record(seal):
-        return {"run_id": seal.name, "strategy_binding": None,
-                "artifact_manifest_ref": {"path": f"artifact://{seal.name}/manifest.json",
-                                          "sha256": _sha(seal / "manifest.json")}}
-
-    def test_preregistered_final_equity_gets_annualized_relative_growth(self):
-        result = analysis.pair(self.root, self.candidate, self.control, {"primary_response": "final_equity_usdt"})
-        paired = result["paired_daily_returns"]
-        ratio = math.prod(1 + v for v in WINDOW_RETURNS) / math.prod(1 + v for v in [0.004, -0.01, 0, 0.002, 0.001, 0])
-        self.assertAlmostEqual(paired["observed_annualized_relative_growth_pct"], (ratio ** (365 / 6) - 1) * 100)
-        low, high = paired["bootstrap_95pct_annualized_relative_growth_pct"]
-        self.assertLessEqual(low, high)
-        # 2026-01-03..04 fall in ISO week 1 and 2026-01-05..08 in week 2.
-        self.assertEqual((paired["days"], paired["week_blocks"], paired["seed"]), (6, 2, 20261008))
-        self.assertEqual(result["metrics"]["closed_trades"], {"candidate": 2, "control": 2, "difference": "0"})
-        self.assertEqual(result["metrics"]["closed.price_pnl_usdt"]["difference"], "0.00000000")
-        self.assertIn(analysis.EX_ANTE_LIMITATION, result["limitations"])
-        self.assertEqual(list(result["analysis"]["source_files_sha256"]), ["research/records/analysis.py"])
-
-    def test_other_primary_response_has_no_interval(self):
-        result = analysis.pair(self.root, self.candidate, self.control, {"primary_response": "closed_trade_win_rate"})
-        self.assertIsNone(result["paired_daily_returns"])
-        self.assertTrue(any("primary_response" in item for item in result["limitations"]))
-
-    def test_seal_must_match_its_dolt_anchor(self):
-        self.control["artifact_manifest_ref"]["sha256"] = "0" * 64
-        with self.assertRaisesRegex(RecordError, "Dolt anchor"):
-            analysis.pair(self.root, self.candidate, self.control, None)
-        del self.control["artifact_manifest_ref"]
-        with self.assertRaisesRegex(RecordError, "Dolt-anchored sealed manifest"):
-            analysis.pair(self.root, self.candidate, self.control, None)
-
-    def test_rejected_or_misaligned_daily_returns_give_no_interval(self):
-        selection = {"primary_response": "final_equity_usdt"}
-        rejected = self.record(_seal(self.root, "BAD", final_equity="1500.00000000"))
-        result = analysis.pair(self.root, rejected, self.control, selection)
-        self.assertIsNone(result["paired_daily_returns"])
-        self.assertIn("paired_daily_returns is null: a native daily return series is unavailable", result["limitations"])
-        shorter = self.record(_seal(self.root, "SHORT", window=WINDOW_RETURNS[:5]))
-        result = analysis.pair(self.root, shorter, self.control, selection)
-        self.assertIsNone(result["paired_daily_returns"])
-        self.assertIn("paired_daily_returns is null: the native daily-return timelines differ", result["limitations"])
 
 
-class CompareRefusalTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.fixture = ContractRepository()
-        cls.addClassCleanup(cls.fixture.close)
-        cls.context = cls.fixture.patches()
-        cls.addClassCleanup(cls.context.close)
-        cls.attempts, cls.runs = cls.fixture.snapshot()
+class MarkDrawdownTests(unittest.TestCase):
+    """Equity at a bar label is the latest account total before the next label plus that label's unrealized PnL."""
 
-    def refusal(self, edit):
-        runs = copy.deepcopy(self.runs)
-        edit(runs["H19a-2026-10-08"], runs["H18a-paired-2026-10-08"])
-        with self.assertRaises(RecordError) as caught:
-            _compare("H19a-2026-10-08", "H18a-paired-2026-10-08", runs)
-        return caught.exception
+    SUMMARY = {"data_interval_minutes": 5, "period_start_utc": "2026-01-01T00:00:00+00:00",
+               "period_end_utc": "2026-01-01T00:30:00+00:00", "starting_balance_usdt": "1000"}
+    STEP = 300_000_000_000
+    FIRST = 1_767_225_600_000_000_000 + 300_000_000_000 - 1_000_000  # 00:04:59.999
 
-    def test_role_checks_refuse_with_the_recorded_roles(self):
-        error = self.refusal(lambda candidate, control: candidate.update(role="diagnostic"))
-        self.assertEqual(str(error), "incomparable runs: candidate/control roles disagree")
-        self.assertEqual((error.code, error.path, error.write_status),
-                         ("decision_pair_role_mismatch", "/role", "not_written"))
-        self.assertEqual(error.expected, {"/role": {"candidate": "diagnostic", "control": "control"}})
-        error = self.refusal(lambda candidate, control: control.update(role="candidate"))
-        self.assertEqual(error.expected["/role"]["control"], "candidate")
+    def exposure(self, index, unrealized):
+        return {"ts_event_ns": self.FIRST + index * self.STEP, "unrealized_pnl": Decimal(unrealized)}
 
-    def test_unregistered_control_names_the_registered_one(self):
-        error = self.refusal(lambda candidate, control: candidate.update(control_run_id="OTHER"))
-        self.assertEqual((error.code, error.path, error.expected), ("decision_pair_role_mismatch", "/control_run_id", "OTHER"))
+    def test_unrealized_loss_from_the_peak_is_the_drawdown(self):
+        account = [{"ts_event": "2026-01-01 00:00:00+00:00", "total": "1000"},
+                   {"ts_event": "2026-01-01 00:14:59.999000+00:00", "total": "1100"}]
+        rows = [self.exposure(0, "50"), self.exposure(1, "-100"), self.exposure(4, "-275")]
+        # Labels 0..5: 1050, 900, 1000 (+0, before the 1100 fill), 1100, 825, 1100; peak 1100 then 825.
+        self.assertAlmostEqual(analysis._mark_drawdown(self.SUMMARY, account, rows), 0.25)
 
-    def test_recorded_contract_mismatch_lists_both_values(self):
-        error = self.refusal(lambda candidate, control: candidate.update(cost_model="abbreviated costs"))
-        self.assertEqual(str(error), "incomparable runs: cost_model")
-        self.assertEqual((error.code, error.path), ("decision_pair_incomparable", "/cost_model"))
-        self.assertEqual(error.expected["/cost_model"]["candidate"], "abbreviated costs")
+    def test_an_account_change_at_the_next_label_belongs_to_that_label(self):
+        account = [{"ts_event": "2026-01-01 00:00:00+00:00", "total": "1000"},
+                   {"ts_event": "2026-01-01 00:09:59.999000+00:00", "total": "900"}]
+        rows = [self.exposure(1, "100")]
+        # Label 0 still sees 1000; label 1 sees the 900 total with +100 unrealized.
+        self.assertEqual(analysis._mark_drawdown(self.SUMMARY, account, rows), 0.1)
 
-    def test_integrity_refusal_is_structured(self):
-        error = self.refusal(lambda candidate, control: control.update(integrity="failed"))
-        self.assertEqual((error.code, error.path), ("decision_pair_integrity", "/integrity"))
-
-
-class CompareCommandTests(unittest.TestCase):
-    def test_analysis_cannot_be_combined_with_engineering_audit(self):
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with patch("sys.argv", ["records", "compare", "A", "B", "--analysis", "--engineering-audit"]), \
-                redirect_stdout(stdout), redirect_stderr(stderr), self.assertRaises(SystemExit) as caught:
-            cli.main()
-        self.assertEqual(caught.exception.code, 2)
-        self.assertIn("not allowed with argument", stderr.getvalue())
-
-
-@unittest.skipUnless(os.environ.get("TRADE_RESEARCH_ARTIFACT_ROOT"), "real sealed runs are external to Git")
-class RealSealTests(unittest.TestCase):
-    """Identities against the configured external seals; no seal values are stored in Git."""
-
-    def test_every_seal_reads_and_reconciles_to_its_own_native_facts(self):
-        root = Path(os.environ["TRADE_RESEARCH_ARTIFACT_ROOT"])
-        runs = sorted(path.name for path in root.iterdir() if (path / "manifest.json").is_file())
-        self.assertTrue(runs)
-        for run_id in runs:
-            with self.subTest(run_id=run_id):
-                result = analysis.report(root, run_id)
-                if result["status"] != "passed":
-                    self.assertIsNone(result["closed"])
-                    continue
-                self.assertIsNotNone(result["closed"], result["limitations"])
-                self.assertNotIn("Trade-window native daily returns do not compound to final_equity_usdt.",
-                                 result["limitations"])
-                if result["native_economics"] is None:
-                    self.assertIsNone(result["unrealized_residual_usdt"])
-                elif result["open_positions"] == 0:
-                    self.assertEqual(Decimal(result["unrealized_residual_usdt"]), 0)
-                rows = analysis.tables(root, run_id)
-                self.assertEqual(sum(row["closed"] for row in rows["positions"]), result["closed_trades"])
-                for row in rows["positions"]:
-                    if row["closed"]:
-                        self.assertIsInstance(row["closing_order_tags"], list, row["position_id"])
-                        drift = abs(pd.Timestamp(row["ts_closed"]).value - row["ts_closed_ns"])
-                        self.assertLess(drift, 1_000, row["position_id"])
-                self.assertEqual(sum(row["realized_pnl"] for row in rows["positions"] if row["closed"]),
-                                 Decimal(result["closed"]["reported_realized_pnl_usdt"]) if result["closed_trades"]
-                                 else 0)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_flat_account_without_exposure_has_no_drawdown(self):
+        self.assertEqual(analysis._mark_drawdown(self.SUMMARY, [{"ts_event": "2026-01-01 00:00:00+00:00",
+                                                                 "total": "1000"}], []), 0.0)

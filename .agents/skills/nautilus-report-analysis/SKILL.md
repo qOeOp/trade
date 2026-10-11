@@ -1,29 +1,29 @@
 ---
 name: nautilus-report-analysis
-description: Derives descriptive statistics from sealed native Nautilus backtest reports (win rates, holding time, order funnel, drawdown dates, monthly or per-instrument contribution, cost mix) beyond the reconciled readings of `artifacts report` and `compare --analysis`. Use before computing any such number for a research decision.
+description: Derives descriptive statistics from stored native Nautilus backtest reports (win rates, holding time, order funnel, drawdown dates, monthly or per-instrument contribution, cost mix) beyond the product readings of `artifacts report`. Use before computing any such number for a research decision.
 ---
 
 # Native report analysis
 
-`artifacts report` and `compare --analysis` give only what you must not grade yourself: verified seal
-identity, the closed-position split reconciled to the audited `native_economics`, the unrealized
-residual, the plan-level net win rate (`plans`) and the paired interval of the preregistered primary
-response. Compute everything else
-yourself from the sealed native reports, following the rules below. They hold for any strategy or
-venue; facts that depend on the run's configuration must be read from the seal, never assumed.
+`artifacts report` gives only what you must not grade yourself: the closed-position split
+reconciled to the audited `native_economics`, the unrealized residual, the plan-level net win rate,
+the native MARK drawdown and the return-to-drawdown ratio. Compute everything else yourself from
+the stored native reports, following the rules below. They hold for any strategy or
+venue; facts that depend on the run's configuration must be read from the run, never assumed.
 
 ## Before computing
 
-1. Load the run with `research.records.analysis.tables(root, run_id)` and never parse report CSVs
-   yourself. It verifies the seal, refuses one whose closed split does not reconcile, and returns
+1. Load the run with `research.records.analysis.tables(run_id)` (add `at="closed/GOAL-ID"` for a
+   closed round) and never parse report rows yourself. It reads the stored run, refuses one that
+   failed its audit or whose closed split does not reconcile, and returns
    typed orders, fills, positions and trade-window daily returns, with each fill's
    `cycle_position_id` and each closed row's reconciled `price_pnl`, exact `ts_closed_ns` and
    `closing_order_tags`. Take holding time from `duration_ns`, never from the native `ts_closed`
-   text. If it refuses a seal or reports a format error, stop and report that.
-2. Cite the run ID, `manifest_sha256` and the `files_sha256` you used next to any derived number.
+   text. If it refuses a run or reports a format error, stop and report that.
+2. Cite the run ID and the `ledger_commit` it returns next to any derived number.
 3. State the population of every reading: closed cycles, open rows, all rows, or the account.
 4. Read instrument terms (currency, multiplier, `is_inverse`), fee rates and order-tag vocabulary from
-   the seal. Skip or label any reading whose terms differ from what your formula assumes.
+   the run. Skip or label any reading whose terms differ from what your formula assumes.
 
 ## Native semantics
 
@@ -34,7 +34,7 @@ venue; facts that depend on the run's configuration must be read from the seal, 
   fill result. Funding also appears as account balance changes: use one source, never both. The
   account `total` is cash, not MTM equity.
 - `summary.closed_trade_win_rate` counts closed cycles with positive `realized_pnl`: a descriptive
-  statistic, never the goal's win rate, which is the plan reading `plans` of `artifacts report`
+  statistic, never the goal's win rate, which is the product's `plan_win_rate` of `artifacts report`
   (research-round `feasibility.md`). Older summaries
   also carry native `stats_returns`, `stats_pnls` and `stats_general`: warmup days, 252-day
   annualization, snapshot and open rows, and same-nanosecond closes merged into one. Do not cite them.
@@ -60,21 +60,22 @@ venue; facts that depend on the run's configuration must be read from the seal, 
   check the installed package, not the latest online docs. Add no analysis dependency.
 - Build an HTML report with `nautilus_trader.analysis.create_tearsheet_from_stats(stats_pnls,
   stats_returns, stats_general, returns, output_path=...)` fed with trade-window statistics, and write
-  it outside the seal.
+  it under `/tmp`.
 - Capital use comes from `tables(..., exposures=True)`: a row labelled with bar timestamp T holds
   a position open after every event before the next bar timestamp, valued at T's MARK (native
   `notional_value`, `unrealized_pnl`, `cycle_position_id`). A bar without rows held no position.
   Equity at T is the account `total` of the latest account state before the next bar timestamp plus
   T's unrealized PnL; margins also count resting orders. Average over the trade window's bars from
-  `period_start_utc`; a peak is a sampled peak. When `exposures` is `None`, the seal cannot answer
-  capital-use questions.
+  `period_start_utc`; a peak is a sampled peak. When `exposures` is `None`, the run cannot answer
+  capital-use questions. The goal's drawdown is the product's `max_drawdown`; never recompute it for a
+  gate.
 
 ## Self-checks before citing a derived number
 
 - Sums over closed rows equal `reconciled.closed` from `tables()`; realized PnL over all rows equals
   `native_economics.reported_realized_pnl_usdt`, within 1e-6.
-- For a number that drives a decision, keep the script with the attempt's evidence or have a second
-  Agent recompute it independently from the same seal; disagreement means no claim.
+- For a number that drives a decision, have a second Agent recompute it independently from the same
+  run; disagreement means no claim.
 
 ## Do not
 

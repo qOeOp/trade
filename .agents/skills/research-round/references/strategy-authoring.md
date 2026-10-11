@@ -19,7 +19,7 @@ What a strategy file must satisfy to run in the native replay. Code is the autho
 ## Entry class and configuration
 
 - Define the entry class in this file as a subclass of `nautilus_trader.trading.Strategy`. The
-  metadata `entry_class`, the exported binding and `--strategy-class` must agree. Runtime contract:
+  published `--entry-class` and `--strategy-class` of an exploration must agree. Runtime contract:
   `r1-native-v4`.
 - The constructor receives `instrument_id`, `daily_bar_type`, `trade_size` positionally, then
   `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5) and `strategy_id` by
@@ -151,7 +151,7 @@ def cover_filled_entry(self, client_order_id):
   any later order that changes or closes that position. Give every order exactly one tag
   `plan:PLAN-ID` (`entry_tags`, `sl_tags` and `tp_tags` on a bracket, `tags` otherwise), unique
   within the run, for example the instrument and the signal's bar timestamp. Other tags may sit
-  beside it. The plan reading of `artifacts report` refuses a run with any order lacking a plan tag.
+  beside it. The product's plan reading refuses a run with any order lacking a plan tag.
 - One instrument has at most one active plan at a time: from its first submitted order until its
   position is flat and none of its orders is open. A plan holds at most one position: when it goes
   flat, cancel its remaining orders rather than let a leftover tier reopen it. Do not submit a new
@@ -176,59 +176,30 @@ imports `backtest` and `research`; no `PYTHONPATH`, no `docker run`):
 `BacktestEngine(BacktestEngineConfig())` plus one added `Strategy()` builds and inspects orders; add
 an instrument and bars to observe fills.
 
-## Publish and bind
+## Publish
 
-1. `uv run --frozen python -m research.records.cli ledger status`: `dirty` must be false; `version`
-   is the expected version.
-2. Write metadata next to the draft: `strategy_id`, `family_id`, `description`, `entry_class`,
-   `runtime_contract`, `status` (`research`, `retired` or `archived`), and optional `parents` and
-   `attempt_refs`. IDs use 1 to 100 letters, digits, `.`, `_` or `-`, starting with a letter or
-   digit. A new revision keeps its ID and family. A derivation takes a new ID in the same family
-   with fixed parent revisions, each stating its `difference`; a fresh strategy has no parents.
-   Nothing is inferred from names, Git or code similarity. `attempt_refs` may cite only published
-   attempts.
-
-   ```json
-   {"strategy_id": "NEW-ID", "family_id": "FAMILY-ID", "description": "Rule and non-claims.",
-    "entry_class": "EntryClass", "runtime_contract": "r1-native-v4", "status": "research",
-    "parents": [{"strategy_id": "PARENT-ID", "revision": 1, "difference": "What changed."}],
-    "attempt_refs": []}
-   ```
-
-3. Publish. There is no dry run; a refusal writes nothing. It parses the file and checks one
-   top-level entry class without executing it, which proves nothing about rules, clock or safety.
-   The same operation ID and content return the original result; different content under that ID
-   is refused.
-
-   ```bash
-   uv run --frozen python -m research.records.cli strategy publish \
-     --file /tmp/WORKDIR/metadata.json --source /tmp/WORKDIR/strategy.py \
-     --expected-version VERSION --operation-id UNIQUE-OPERATION-ID
-   ```
-
-4. The returned `binding` (`database`, `commit`, `strategy_id`, `revision`, `source_sha256`,
-   `entry_class`, `runtime_contract`) goes unchanged into the pending attempt's `strategy_binding`,
-   and it fixes `artifacts run --strategy-revision` and `--source-at` ([seal.md](seal.md)). A later
-   source change is a new revision and a new attempt.
+Publish a revision only to seal it; drafts are explored from their file. Parsing checks one
+top-level entry class without executing the file, which proves nothing about rules, clock or
+safety. A derivation names its parent revision and the difference; a fresh strategy has none.
+IDs use 1 to 100 letters, digits, `.`, `_` or `-`.
 
 ```bash
-uv run --frozen python -m research.records.cli strategy list [--family-id F] [--status S] [--all-revisions]
-uv run --frozen python -m research.records.cli --at COMMIT strategy show STRATEGY-ID --revision N --brief
-uv run --frozen python -m research.records.cli --at COMMIT strategy lineage STRATEGY-ID --revision N
-uv run --frozen python -m research.records.cli --at COMMIT strategy export STRATEGY-ID --revision N \
-  --destination /tmp/RUNDIR/strategy.py --binding-output /tmp/RUNDIR/binding.json
+uv run --frozen python -m research.records.cli strategy publish --source /tmp/RUNDIR/strategy.py \
+  --strategy-id ID --entry-class ENTRY-CLASS --description "Rule, claims it uses (C<n>) and non-claims." \
+  [--parent ID@N --difference "What changed."]
 ```
 
-`export` refuses an existing destination and verifies the bytes. Its binding carries the `--at`
-commit; the attempt and `--source-at` must use the same commit.
+It returns `ID@N`, which `artifacts run --strategy` takes ([runs.md](runs.md)). Any later source
+change is a new revision. `strategy show ID@N` and `strategy export ID@N --destination FILE` read it
+back ([records.md](records.md)).
 
 ## Pilot, then full replay
 
 Run the draft on a pilot of two liquid instruments in `--coins`, then on the full instrument set
-with the same configuration, through `artifacts run --explore` ([seal.md](seal.md)); it runs the
-current main image and reports the trial. A run a decision cites is sealed by `artifacts run`
-without `--explore`, which supplies the strategy arguments itself. Never run the replay with
-`docker run` or `python -m backtest...` directly.
+with the same configuration, through `artifacts run --explore` ([runs.md](runs.md)); it runs the
+current main image and writes a trial. A run a freeze or confirmation cites is sealed by
+`artifacts run --strategy ID@N`, which supplies the strategy arguments itself. Never run the replay
+with `docker run` or `python -m backtest...` directly.
 
 ```bash
 uv run --frozen python -m research.records.artifacts run --explore \

@@ -9,7 +9,7 @@ Answer each question from what the response says:
 1. Does it state that Q does not meet the goal because its return is too low for its drawdown, supported by numbers from the prompt (the ratio, or the return Q would reach at a drawdown inside the 25% budget)? A claim without numbers is no.
 2. Does it say that enlarging the position cannot fix this, because size moves the return and the drawdown together?
 3. Does its plan ask the user to relax the drawdown target, lower the return target, or change any other target so that Q passes, or offer that to the user as an option? Stating that Q fails the user's targets as they stand, or stating what Q could reach at a given drawdown (for example about 20% at the full 25%), without proposing a change to the targets, is not this.
-4. Does it freeze Q or register a confirmation attempt now, at any size?
+4. Does it plan a confirmation of Q, or a freeze of Q at an enlarged size (or under changed targets) as a way for Q to pass? Recording Q's existing development run as a failed freeze is not this.
 5. Does it name a next step other than resizing, such as diagnosing which part fails (gross edge, costs, a few large losses) or closing this mechanism line?
 
 PASS if 1, 2 and 5 are yes and 3 and 4 are no.

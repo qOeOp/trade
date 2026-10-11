@@ -1,82 +1,73 @@
 ---
 name: research-round
-description: Plans and closes one strategy research round in this repository (question, preregistered attempt, native run, decision, next experiment). Use before running a backtest for a research question, before publishing an attempt, before choosing the next experiment, and before claiming that a strategy improved, failed or generalized.
+description: Plans and closes one strategy research round in this repository (goal, exploration, candidate freeze, confirmation, next experiment). Use before running a backtest for a research question, before freezing a candidate or registering a confirmation, before choosing the next experiment, and before claiming that a strategy improved, failed or generalized.
 ---
 
 # Research round
 
-What a round commits to before it reads a result. Exact commands are in
-[strategy-authoring.md](references/strategy-authoring.md) (strategy file contract, source
-publication and binding), [publish.md](references/publish.md) (reading records, the pending attempt,
-decisions, evidence and `compare`) and [seal.md](references/seal.md) (identities, `artifacts run`,
-`verify`, `backup`, `register` and `report`). Numbers from sealed reports follow the
-`nautilus-report-analysis` skill.
+One user goal is one round of the research ledger. Commands are in
+[records.md](references/records.md) (rounds, freezes, confirmations, reading the ledger),
+[runs.md](references/runs.md) (every native replay) and
+[strategy-authoring.md](references/strategy-authoring.md) (the strategy file contract). Numbers
+beyond the product readings follow the `nautilus-report-analysis` skill.
 
-Read prior records first (`find`, then `show <id> --brief`) for any claim you extend or combine. A
-run that a decision cites goes through `artifacts run`, `verify`, `backup` and `register`; every
-other replay is `artifacts run --explore` into `/tmp`, a diagnostic. Both report a trial.
+## What is recorded
 
-## Name the layer
+The ledger registers two things; everything else is unregistered exploration.
 
-A whole-strategy failure rejects the bundle, not any one part. State which layer the attempt tests:
+- **Candidate freeze**: one sealed development run of a fixed strategy revision, judged once, when
+  you stop developing that candidate or want to confirm it. The product computes the verdict from
+  the goal's gates and the run's readings, and counts the distinct strategy sources replayed on the
+  development window; you name the failed part when it fails. Freeze a failing candidate too: a
+  failed freeze is recorded like a passed one, and the stop rules count them.
+- **Confirmation**: only after a passed freeze, on data that does not exist yet: preregister the
+  window, wait, run once, then the product judges it ([confirmation.md](references/confirmation.md)).
 
-- **L1 definition**: the rule and the observable response it predicts. Claims taken from a video
-  follow [source-evidence.md](references/source-evidence.md).
-- **L2 implementation**: the code matches the rule with a causal clock, and there are enough events.
-- **L3 market response**: price after the event against a preregistered reference, and plan
-  lifecycles ([l3-boundary.md](references/l3-boundary.md)).
-- **L4 net account**: fills, fees, funding and the goal's gates; name the failing part (gross edge,
-  cost, frequency, plan win rate, return to drawdown or tail).
-- **L5 confirmation**: a frozen candidate on a window that begins after its pending confirmation
-  attempt is published, not after the development window ends; name it by that start, never by a
-  calendar period, since today may be later than you assume
-  ([confirmation.md](references/confirmation.md)).
+Source reading, definitions, debugging, event studies and pilots are exploration: no registration,
+no dry runs. Every native replay still writes a trial row automatically, and that is how selection
+pressure is counted. A verdict is never edited; a correction is a new record naming it.
 
-## Before publishing
+## Before any test
 
-1. Map outcomes to actions with at least two different actions. If every outcome leads to the same
-   action, do not run.
-2. Read the goal file and the gates in [feasibility.md](references/feasibility.md). The user owns
-   only the three targets in it; sizing, per-plan risk and notional limits are yours. Never reject
-   or narrow a design because a cap you chose binds, and never rescue a failed gate by sizing: size
-   moves return and drawdown together. Size last.
-3. After an economics failure, cite the failing part before the next candidate; if it is unknown,
-   diagnose first.
-4. Freeze the primary response, reference, window, cost model, outcome map and reader. Everything
-   else is exploratory.
-5. Use one family per mechanism line for budget and stop; count selection pressure across the goal.
-   In the plan, list every replay you ran since the previous attempt that is not registered to an
-   attempt (command and output path), or write `Unregistered replays: none`.
-6. Treat windows before the model's training cutoff as knowledge-exposed: exploration and
-   falsification only.
-7. Dry-run every write that has `--dry-run` (`publish attempt`, `material retain`,
-   `artifacts register`) and fix what `read_preflight` or `pair_preflight` reports.
+1. Before each test, an event study as much as a replay, write its possible outcomes and the
+   different action each leads to (at least two different actions). If every outcome leads to the
+   same action, do not run it.
+2. Read the goal and the gates in [feasibility.md](references/feasibility.md). The user owns only
+   the three targets; sizing, per-plan risk and notional limits are yours. Judge a design first by
+   the size-independent gates, with their numbers: closed plans, plan win rate, and return ÷
+   drawdown against `min_annual_return ÷ (2/3 × max_drawdown)`. Never reject or narrow a design
+   because a cap you chose binds, and never rescue a failed gate by sizing: size moves return and
+   drawdown together. When those gates pass, scale size once so the drawdown lands near 2/3 of the
+   budget, run that revision once and freeze it; no grid of sizes.
+3. A whole-strategy result judges that combination of definition, rules and sizing, never the idea
+   behind it or any one part. After a failed freeze, name its failed part (gross edge, cost,
+   frequency, tail or integrity) before the next candidate; if it is unknown, diagnose first.
+4. Treat windows before the model's training cutoff as knowledge-exposed: exploration and
+   falsification only. The goal's `known_exposure` lists windows earlier rounds inspected.
 
 ## Robustness
 
-At most one preregistered grid: one parameter at a time, the frozen center plus one step each side.
-Write the plateau rule first, count every cell as a trial, and confirm only the center.
+A grid is exploration and every cell is a trial. Change one parameter at a time around the center,
+write the plateau rule first, and freeze only the center.
 
 ## Progress and stopping
 
-After three economics failures in a goal with no economics pass between them (decisions with layer
-`economics` and outcome `failed`, in publication order; decisions on other layers neither count nor
-reset), answer in the next attempt's plan, or in the third failure's `next_action` if you stop:
-which L4 part failed each time, which explanations were excluded, which predictions were
-corroborated, and whether changes came from the mechanism or from inspected losers. The count
-restarts after each check. Stopping is a valid result. If two checks in a row show neither
-exclusion nor corroboration, bring the question to the user.
+`round status` gives the counters. Run a progress check after every third failed freeze, and also
+when more than 20 distinct strategy sources have been replayed since the last freeze. Answer in the
+next freeze's note, or to the user if you stop: which part failed each time, which explanations
+were excluded, which predictions were corroborated, and whether changes came from the mechanism or
+from inspected losers. Stopping is a valid result. If two checks in a row show neither exclusion
+nor corroboration, bring the question to the user.
 
-## Evidence and review
+## Evidence
 
-- Keep readers, results and conclusions outside Git and `/tmp`; publish them with
-  `material retain --file PATH SHA256 [--file ...]`, dry-run first
-  ([publish.md](references/publish.md)), and cite the returned `review_evidence:SHA256` IDs in
-  `decision.basis.evidence_refs`. Another attempt's run is evidence, never `candidate_run_ref`.
-- Review independently before confirmation ([review.md](references/review.md)).
-- When a workbench gap blocked a task, forced a workaround in more than one attempt, or cost a
-  rerun, record it as a product finding under `docs/plans/`: affected attempt IDs, the blocked task,
-  evidence (fixed IDs), iteration cost, workaround and the smallest shared capability needed.
+- Each goal has one source note in the claims format, stored as an evidence bundle
+  ([source-evidence.md](references/source-evidence.md)); a freeze cites it.
+- Strategy source and stored runs are the retained evidence. A short exploration note may be stored
+  as a bundle; readers, logs and scratch output stay in `/tmp`.
+- When a workbench gap blocked a task, forced a workaround more than once or cost a rerun, record it
+  as a product finding under `docs/plans/`: the blocked task, evidence (run and freeze IDs with the
+  ledger commit), iteration cost, workaround and the smallest shared capability needed.
 
 ## Do not
 
@@ -85,6 +76,8 @@ exclusion nor corroboration, bring the question to the user.
   data, including a window a tuning step skipped or one after the development window, can refute a
   change or leave it not refuted, never confirm it: never call it half, quasi or semi
   out-of-sample, independent, or "no overfitting".
+- Freeze a candidate whose result or improvement rests on one sub-period or a few instruments
+  before a stability check across sub-periods and instruments (for example leaving them out).
 - Add filters after inspecting losing trades and call the result a mechanism.
 - Change the user's goal (a target, the drawdown measure or the window) to rescue a result, or
   record your own sizing or risk plan as a user constraint.

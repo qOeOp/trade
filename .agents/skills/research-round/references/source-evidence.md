@@ -1,60 +1,44 @@
 # Source evidence
 
-A source claim is L1 evidence: what an author said or showed. It is checked apart from L2 (the code
-matches the rule) and L3/L4 (what the market and the native engine did); none stands in for another,
-and a source case is not an economic sample. Build each video source with the `video-evidence` skill,
-with `VIDEO_EVIDENCE_ROOT=$TRADE_RESEARCH_ARTIFACT_ROOT/source_media` and `VIDEO_EVIDENCE_BACKUP` set
-to `source_media` under the artifact backup root.
+A source tells you what an author said or showed; it fixes a rule, never a result. Whether the rule
+trades well is decided by native replays and confirmation, so a misread source can only make a
+candidate fail, not pass. Read sources at the start of a goal and keep one source note per goal.
 
-## Before reading content
+## Collect
 
-1. Choose sources from first-party catalogs or platform metadata at a fixed reference; titles are clues.
-2. Dedupe by the bare platform ID in every form (video-evidence `acquire.md`); a prior use is reused
-   and cited, never counted as new independent support.
-3. Probe metadata only, `material retain` `probe/identity.json` (dry run first; `--expected-version` is
-   the ledger's current version, and a wrong one is refused with the observed value), and publish the
-   pending attempt naming the bare ID and that `review_evidence:SHA256` in `contract.scope`.
+- Videos: build each bundle with the `video-evidence` skill, with `VIDEO_EVIDENCE_ROOT` set to a new
+  directory under `/tmp` and `VIDEO_EVIDENCE_TEMPORARY=1`. Media files are working copies: delete
+  them after the bundle is built. The bundle keeps the URL, the media SHA-256 and everything
+  derived from the media; to recheck, download again and compare the SHA-256 (a removed video can
+  no longer be rechecked).
+- Papers and data: follow the `research-sources` skill.
+- Dedupe by the bare platform ID in every form before acquiring (video-evidence `acquire.md`); a
+  source already in an earlier round's note is reused and cited, never counted as new support.
+- Run the local checker on every video bundle (`check_bundle.py`, written into `check.json`) and
+  name each failed check as a limitation. No clean-context review is required for research.
 
-## Claims (`claims.json` in the bundle; format in `services/video-evidence/README.md`)
+## Store
 
-One claim per asset, timeframe and statement, never merged; claim i is `C<i+1>`:
+Store each video bundle directory and the goal's note as evidence bundles in the open round:
 
-- `quote` (verbatim ASR), `value` (the number as shown or said, when it differs) and `evidence`:
-  `segments`, `frames` (identity objects), `crops` (SHA-256), `sidecars` (`[{sha256, json_path}]` into
-  `probe/page.json`, such as published drawing anchors, cited before pixels).
+```bash
+uv run --frozen python -m research.records.cli evidence add --bundle youtube-ID "$VIDEO_EVIDENCE_ROOT/bundles/youtube-ID"
+uv run --frozen python -m research.records.cli evidence add --bundle sources /tmp/RUNDIR/sources
+```
+
+The `sources` directory holds `claims.json` (the note) and may hold short supporting text. A freeze
+cites the note with `--source-bundle`. A later addition is a new bundle with a new name.
+
+## The note (`claims.json`, format in `services/video-evidence/README.md`)
+
+One claim per asset, timeframe and statement, never merged; claim i is `C<i+1>`. Besides the
+checker's fields (`quote`, `value`, `evidence`, `explicitness`, `asr_only`, `limitations`,
+`exclusive_group`), a research claim adds when the source states them:
+
+- `source`: the evidence bundle and, for a paper, its identifier;
 - `asset`, `timeframe`, `role` (support, resistance, line, zone, Fibonacci level, stop, target, ...),
-  `market` (spot, perpetual or unknown), `position` (existing position or new order) when it applies.
-- `seen`: `first_visible` (a bracket shows the appearance in this video) or `retrospective`.
-- `explicitness`: `spoken`, `visible_only` (any frame outside the cited speech span) or `inferred`.
-  Mutually exclusive conditional paths are separate claims sharing an `exclusive_group`.
-- `asr_only` when a number has no confirming frame; `limitations` for defects the bundle cannot show
-  (an unproven venue, an ambiguous referent) and for any cited span the checker flags.
+  `market` (spot, perpetual or unknown), `position` (existing position or new order);
+- `seen`: `first_visible` (a bracket shows the appearance in the video) or `retrospective`.
 
-Leave a key out when the source does not state it. The decision cites claims as
-`<claims review_evidence ID>:C<n>` and does not restate them; a rule derived from claims names their
-IDs and every choice the source left open, in the attempt plan or the strategy source.
-
-## Custody
-
-Cite media only by content address: each identity file is an attempt top-level evidence ref
-`{"kind": "source_gate", "path": "artifact://source_media/sha256/<sha>.<ext>", "sha256": "<sha>"}`,
-and `show <attempt> --brief` must report `evidence_status: verified`. Never cite a bundle path. Retain
-with `material retain` (dry run first) and cite the returned `review_evidence:SHA256` IDs in `decision.basis`
-(`mode: source`): the retained bundle listed in the checker README. Never retain media, uncited frames, sheets,
-notes, page HTML or raw info JSON; no ID may equal a media SHA-256. A `FAILED` file is a result.
-
-## Review (every source a decision relies on)
-
-A clean-context reviewer gets the attempt and claim IDs only, then:
-
-1. restores `check.json` and, with `material restore`, each file its `files` list names into an empty
-   directory, refusing any path outside the checker README's layout; media come from the backup `sha256/`;
-2. runs `git show origin/main:services/video-evidence/check_bundle.py` (before its first merge, the PR head)
-   with `--restored` and `PATH=/usr/bin:/bin:/opt/homebrew/bin`; `checker_git_blob` equals its `git rev-parse`;
-3. reruns `identity.jq` on a new probe and `page_record.py` on the page, and compares `identity.json` and, in
-   `page.json`, the media URL and duration, `created_at`, the author and every cited `json_path`
-   (counters and related lists change); then reruns language detection and the transcript as video-evidence
-   `transcribe.md` "Reviewer rerun" says: same language and byte-identical `transcript.json`, or no claim stands;
-4. opens every cited frame and crop: does it show the value, are role and timeframe what the author
-   said, is inference labeled `inferred`, is a restatement by the same author counted once? The
-   decision records accepted and rejected claims.
+Leave a key out when the source does not state it. Strategy source and freeze notes cite claims as
+`C<n>`; a rule derived from claims names them and every choice the source left open.

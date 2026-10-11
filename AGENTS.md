@@ -1,7 +1,7 @@
 # Agent rules
 
 External Agents choose research questions and methods. This repository supplies the skills, the
-contracts enforced by code (Dolt publication API, digest-pinned OCI runtime) and published Nautilus.
+contracts enforced by code (Dolt research ledger, digest-pinned OCI runtime) and published Nautilus.
 Blueprint: `docs/architecture.zh.md` (English twin `docs/architecture.md`).
 
 ## Needs the user's explicit authority
@@ -10,7 +10,7 @@ Stop and ask before any of these:
 
 - Real trading, live venue connections or exchange trading credentials. Research never uses them.
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
-  records, sealed artifacts, artifact or database backups, retained runtime images, canonical
+  records or stored runs, old sealed artifacts, database backups, retained runtime images, canonical
   Catalog inputs or historical receipts.
 - Changing (relaxing or tightening) a refusal or audit check in code, tests, configuration or a
   skill, or any of the user's three research targets (maximum drawdown, minimum annual return,
@@ -36,21 +36,22 @@ ledger: publication is append-only.
 
 ## Where things go
 
-- By default, strategy drafts, exploratory scripts and derived reports go in `/tmp`; evidence a
-  decision cites is retained outside Git and `/tmp` (see `research-round`).
-- Complete strategy source (one UTF-8 file per independent strategy), research records and
-  decisions: Dolt. Write attempts, runs and strategies only through their `python -m
-  research.records.cli` / `research.records.artifacts` commands, never through the raw store
-  adapter or direct SQL; evidence originals through `material retain`. No strategy bodies
-  or new experiment receipts in Git.
+- Persistent research data lives only in the Dolt ledger (and its `dolt_backup` copy): complete
+  strategy source (one UTF-8 file per independent strategy), stored runs with their native reports,
+  derived evidence, freezes and confirmations. Everything else (drafts, exploratory scripts,
+  replay outputs, media, derived reports) is a working copy in `/tmp`.
+- Write to the ledger only through `python -m research.records.cli` and
+  `research.records.artifacts run`, never with direct SQL or another account. No strategy bodies or
+  experiment receipts in Git.
 - Product and workbench findings: `docs/plans/`. Skills: `.agents/skills/` only (`.claude/skills` is
   a symlink to it).
 
 ## Skills
 
-- `research-round`: before running a backtest for a research question, publishing an attempt,
-  choosing the next experiment, or claiming that a strategy improved, failed or generalized.
-- `nautilus-report-analysis`: before computing any statistic from sealed native reports.
+- `research-round`: before running a backtest for a research question, freezing a candidate or
+  registering a confirmation, choosing the next experiment, or claiming that a strategy improved,
+  failed or generalized.
+- `nautilus-report-analysis`: before computing any statistic from stored native reports.
 - `research-sources`: before searching papers or economic and positioning data outside this
   repository, or stating what prior work found.
 - `video-evidence`: before probing, downloading, transcribing or citing a video, or writing notes
@@ -69,7 +70,8 @@ ledger: publication is append-only.
 ## Checks and PRs
 
 - Code changes: `uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'` (Dolt
-  integration tests skip unless `RESEARCH_DOLT_TEST_CONFIG` is set; see `research/records/README.md`).
+  integration tests start their own throwaway service and skip without a Dolt 2.4.2 binary in
+  `RESEARCH_DOLT_BINARY` or on PATH; see `research/records/README.md`).
 - PR titles are lowercase `type(scope): description` (`type(scope)!:` when breaking); check with
   `bash .github/scripts/validate-pr-title.sh "<title>"`. The body follows
   `.github/pull_request_template.md` and reports only checks actually run.

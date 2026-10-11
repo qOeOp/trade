@@ -20,13 +20,13 @@ every form a source has (IDs and a media file's name stem `STEM`), as fixed stri
 
     for s in "$ID" ${STEM:+"$STEM"}; do ls -d -- "$ROOT"/bundles/*"$s"* 2>/dev/null || true
       grep -l -F -e "$s" -- "$ROOT"/bundles/*/media/receipt.json "$ROOT"/bundles/*/probe/page.json 2>/dev/null || true; done
-    # research, from the repository root:
-    uv run --frozen python -m research.records.cli find --text="$ID"
-    git grep -n -F -e "$ID" "$(jq -r .git_commit research/records/history.json)" -- research/ || true
+    # research, from the repository root: the open round, then each earlier round's closing tag
+    uv run --frozen python -m research.records.cli ledger sql "SELECT DISTINCT bundle FROM evidence WHERE bundle LIKE '%$ID%'"
+    uv run --frozen python -m research.records.cli ledger sql --at closed/GOAL-ID "SELECT DISTINCT bundle FROM evidence WHERE bundle LIKE '%$ID%'"
 
-A hit means the source is held or was used: reuse its bundle and records (a hit recording only a failed attempt
-is cited as history; acquisition proceeds). The same bytes, ID or author restating it is never independent support.
-If `find` cannot run, report `skipped: <its error line>` and go on; never put `UV_CACHE_DIR` or a venv in `$ROOT`.
+A hit means the source is held or was used: reuse its bundle and records. The same bytes, ID or author restating
+it is never independent support. If the ledger cannot be read, report `skipped: <its error line>` and go on; never
+put `UV_CACHE_DIR` or a venv in `$ROOT`.
 
 ## Probe and gate (metadata only)
 

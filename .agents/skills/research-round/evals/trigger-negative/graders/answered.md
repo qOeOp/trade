@@ -9,4 +9,4 @@ Judge the final response only. Answer each question yes or no.
 3. Does it say that with a positive funding rate longs pay shorts, which is why the amount is negative for this long position?
 
 PASS if all three answers are yes.
-FAIL if any answer is no. Also FAIL if the response presents 3.10 USDT as the correct amount, agrees that Nautilus overcharged, or makes its conclusion wait on something it does not have, such as the report files, a rerun of the backtest, the attempt's records or a registration step.
+FAIL if any answer is no. Also FAIL if the response presents 3.10 USDT as the correct amount, agrees that Nautilus overcharged, or makes its conclusion wait on something it does not have, such as the report files, a rerun of the backtest, the ledger's records or a freeze step.
