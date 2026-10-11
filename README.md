@@ -16,7 +16,7 @@ and export an exact strategy revision. Every replay runs through
 `artifacts run` in the CI-built image: see [native replay](backtest/README.md)
 for an exploration, or the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) for a
-preregistered sealed run. The current `r1-native-v4` contract runs one
+preregistered sealed run. The current `r1-native-v5` contract runs one
 complete source file whose native `Strategy` entry class supplies
 `replay_diagnostics` and `replay_integrity_findings` and holds every rule,
 sizing included; the runner takes no strategy parameter. Seals of
@@ -29,7 +29,10 @@ uv run --frozen python -m research.records.cli round status
 uv run --frozen python -m research.records.artifacts run --help
 ```
 
-Historical Catalog inputs remain outside Git. Research needs no exchange
+Market data (Binance public USD-M perpetual data from 2020-01 and the monthly
+pool) lives in its own Dolt database beside the ledger
+([`research/market`](research/market/README.md)); a replay cites one commit of
+it. Research needs no exchange
 trading credential. Persistent research data lives only in the Dolt research
 ledger and its `dolt_backup` copy; `/tmp` reports are working copies. A stored
 run binds the strategy revision, actual image manifest digest, platform, inputs

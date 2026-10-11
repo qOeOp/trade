@@ -14,13 +14,13 @@ from research.records import runtime
 from research.records.runtime import LAYOUTS, container_command, inspect_runtime, validate_identity
 
 
-SOURCE_PATHS = LAYOUTS["r1-native-v4"]["source_paths"]
-AUDIT_PATH = LAYOUTS["r1-native-v4"]["audit_path"]
+SOURCE_PATHS = LAYOUTS["r1-native-v5"]["source_paths"]
+AUDIT_PATH = LAYOUTS["r1-native-v5"]["audit_path"]
 
 
 IDENTITY = {"image_ref": "registry.invalid/research/native@sha256:" + "a" * 64,
             "image_digest": "sha256:" + "a" * 64, "platform": "linux/arm64",
-            "runtime_contract": "r1-native-v4"}
+            "runtime_contract": "r1-native-v5"}
 
 
 class RuntimeIdentityTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class RuntimeIdentityTests(unittest.TestCase):
             validate_identity({**IDENTITY, "image_digest": "sha256:" + "b" * 64})
 
     def probe(self, **changes):
-        value = {"runtime_contract": "r1-native-v4", "nautilus_version": "fixture",
+        value = {"runtime_contract": "r1-native-v5", "nautilus_version": "fixture",
                  "python_version": "fixture", "dependency_lock_sha256": "b" * 64,
                  "audit_source_sha256": "c" * 64, "effective_config": {"fixture": True},
                  "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},
@@ -45,7 +45,7 @@ class RuntimeIdentityTests(unittest.TestCase):
         outputs = [subprocess.CompletedProcess([], 0, json.dumps([actual]), ""),
                    subprocess.CompletedProcess([], 0, json.dumps(probe or self.probe()), "")]
         with patch("research.records.runtime.subprocess.run", side_effect=outputs) as calls:
-            result = inspect_runtime(IDENTITY, ["--coins", "BTC"])
+            result = inspect_runtime(IDENTITY, ["--symbols", "BTCUSDT"])
         return result, calls
 
     def test_probe_observes_code_from_pinned_image_without_host_source_mount(self):
@@ -70,31 +70,31 @@ class RuntimeIdentityTests(unittest.TestCase):
             self.inspect(probe=self.probe(source_files_sha256={field: "x" * 64 for field in SOURCE_PATHS}))
 
     def test_current_contract_probe_is_the_runner_describing_itself(self):
-        identity = {**IDENTITY, "runtime_contract": "r1-native-v4"}
-        layout = LAYOUTS["r1-native-v4"]
-        probe = self.probe(runtime_contract="r1-native-v4", source_file_paths=layout["source_paths"].copy(),
+        identity = {**IDENTITY, "runtime_contract": "r1-native-v5"}
+        layout = LAYOUTS["r1-native-v5"]
+        probe = self.probe(runtime_contract="r1-native-v5", source_file_paths=layout["source_paths"].copy(),
                            source_files_sha256={field: "d" * 64 for field in layout["source_paths"]})
         actual = {"RepoDigests": [IDENTITY["image_ref"]], "Os": "linux", "Architecture": "arm64", "Id": "sha256:" + "e" * 64}
         outputs = [subprocess.CompletedProcess([], 0, json.dumps([actual]), ""),
                    subprocess.CompletedProcess([], 0, json.dumps(probe), "")]
         with patch("research.records.runtime.subprocess.run", side_effect=outputs) as calls:
-            inspect_runtime(identity, ["--coins", "BTC"])
+            inspect_runtime(identity, ["--symbols", "BTCUSDT"])
         command = calls.call_args_list[1].args[0]
-        self.assertEqual(command[-5:], ["-m", "backtest.run", "--describe", "--coins", "BTC"])
+        self.assertEqual(command[-5:], ["-m", "backtest.run", "--describe", "--symbols", "BTCUSDT"])
 
     def test_runner_describes_the_paths_custody_expects(self):
-        argv = ["--describe", "--catalog-root", "/c", "--daily-root", "/d", "--quantity-csv", "/q.csv",
-                "--coins", "BTC", "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z"]
+        argv = ["--describe", "--market-root", "/m", "--market-commit", "c" * 32,
+                "--symbols", "BTCUSDT", "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z"]
         described = json.loads(subprocess.run([sys.executable, "-m", "backtest.run", *argv], capture_output=True,
                                               text=True, check=True).stdout)
         layout = LAYOUTS[described["runtime_contract"]]
-        self.assertEqual(described["runtime_contract"], "r1-native-v4")
+        self.assertEqual(described["runtime_contract"], "r1-native-v5")
         self.assertEqual(described["source_file_paths"], layout["source_paths"])
         root = Path(__file__).resolve().parents[2]
         for field, path in layout["source_paths"].items():
             self.assertEqual(described["source_files_sha256"][field], hashlib.sha256((root / path).read_bytes()).hexdigest())
         self.assertEqual(described["audit_source_sha256"], hashlib.sha256((root / layout["audit_path"]).read_bytes()).hexdigest())
-        self.assertEqual(described["effective_config"]["coins"], ["BTC"])
+        self.assertEqual(described["effective_config"]["symbols"], ["BTCUSDT"])
 
     def test_only_reports_are_writable(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -117,7 +117,7 @@ class CurrentRuntimeTests(unittest.TestCase):
 
     def image(self, repository=runtime.REPOSITORY, revision=REVISION):
         return {"RepoDigests": [f"{repository}@{self.DIGEST}"], "Os": "linux", "Architecture": "arm64",
-                "Config": {"Labels": {runtime.CONTRACT_LABEL: "r1-native-v4", runtime.REVISION_LABEL: revision}}}
+                "Config": {"Labels": {runtime.CONTRACT_LABEL: "r1-native-v5", runtime.REVISION_LABEL: revision}}}
 
     def docker(self, image):
         def run(command, **kwargs):
@@ -131,7 +131,7 @@ class CurrentRuntimeTests(unittest.TestCase):
             identity = runtime.resolve()
         self.assertEqual(calls.call_args_list[0].args[0], ["docker", "pull", "--quiet", runtime.CURRENT])
         self.assertEqual(identity, {"image_ref": f"{runtime.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
-                                    "platform": "linux/arm64", "runtime_contract": "r1-native-v4"})
+                                    "platform": "linux/arm64", "runtime_contract": "r1-native-v5"})
 
     def test_local_digest_reference_is_not_pulled(self):
         reference = f"{runtime.REPOSITORY}@{self.DIGEST}"
@@ -157,7 +157,7 @@ class CurrentRuntimeTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, b"", b"")
 
         identity = {"image_ref": image["RepoDigests"][0], "image_digest": self.DIGEST, "platform": "linux/arm64",
-                    "runtime_contract": "r1-native-v4"}
+                    "runtime_contract": "r1-native-v5"}
         with patch("research.records.runtime.subprocess.run", side_effect=self.docker(image)), \
              patch("research.records.runtime._git", side_effect=git):
             return runtime.require_main_build(identity, inspection or self.inspection(main))

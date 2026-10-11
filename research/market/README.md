@@ -66,14 +66,13 @@ working set: a new import refuses until `--resume`, which continues from them an
 
 ## Export
 
-`research.market.export.export(profile, at=COMMIT, symbols=[...], start=MS, end=MS)` turns one
-commit into one Nautilus Catalog per contract for a replay window: 5-minute LAST bars, MARK price
-updates, funding updates and the daily LAST bars before the window, with `export.json` written last
-(counts, commit, window, precision, the assumed fees and margins). By default it reuses a cache
-under the temp directory (`trade-market-catalog/<commit>/<window>/`, an entry complete when its
-`export.json` exists); `fresh=True` exports into a new directory. The derivation (WS8a section 3):
-open, high and low over traded minutes only (all minutes when none traded), close the last
-minute's, volume the sum; weeks start Monday 00:00 UTC.
+`research.records.artifacts run` exports for every replay: the market commit (`--market`, default
+`main`) for the replay window, one Catalog per contract with 5-minute LAST bars, MARK price updates,
+funding updates and the daily LAST bars before the window. An exploration reuses the cache under the
+temp directory (`trade-market-catalog/<commit>/<window>/`, complete when `export.json` exists); a
+sealed run exports afresh into a directory of its own. The derivation (WS8a section 3): open, high
+and low over traded minutes only (all minutes when none traded), close the last minute's, volume
+the sum; weeks start Monday 00:00 UTC.
 
 ## Tests
 
