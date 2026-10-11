@@ -30,6 +30,8 @@ def _parser() -> argparse.ArgumentParser:
     init.add_argument("--port", type=int, default=13330)
     init.add_argument("--role", choices=("active", "isolated", "temporary"), default="isolated")
     init.add_argument("--backup-root", type=Path)
+    init.add_argument("--kind", choices=("research", "market"), default="research",
+                      help="the research ledger or the market database (see research/market/README.md)")
     for name in ("start", "stop", "backup"):
         ledger.add_parser(name)
     ledger.add_parser("status", help="every ledger profile and whether its service runs")
@@ -120,13 +122,14 @@ def run(args) -> dict:
     if args.command == "ledger":
         if args.action == "init":
             return ledger.init(name=args.name, database=args.database, service_root=args.service_root,
-                               binary=args.binary, port=args.port, role=args.role, backup_root=args.backup_root)
+                               binary=args.binary, port=args.port, role=args.role, backup_root=args.backup_root,
+                               of=args.kind)
         if args.action == "status":
             return ledger.status()
         if args.action == "temp":
             command = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
             raise SystemExit(ledger.temporary(args.name, command, args.binary, args.port))
-        value = ledger.profile(args.ledger)
+        value = ledger.profile(args.ledger, of=None if args.action in ("start", "stop", "backup") else "research")
         if args.action == "start":
             return ledger.start_service(Path(value["service"]))
         if args.action == "stop":
