@@ -12,8 +12,12 @@ Stop and ask before any of these:
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
   records, sealed artifacts, artifact or database backups, retained runtime images, canonical
   Catalog inputs or historical receipts.
-- Changing (relaxing or tightening) a refusal, audit check, risk limit or research goal in code,
-  tests, configuration or a skill, including to get past a failing check.
+- Changing (relaxing or tightening) a refusal or audit check in code, tests, configuration or a
+  skill, or any of the user's three research targets (maximum drawdown, minimum annual return,
+  minimum win rate), including to get past a failing check.
+
+Position size, per-plan risk and notional limits are the Agent's design variables, set in strategy
+source. Changing them needs no authority and never turns them into user constraints.
 
 Tests, demos and engineering trials write only to an isolated Dolt database, never the active
 ledger: publication is append-only.

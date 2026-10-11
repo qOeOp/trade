@@ -52,9 +52,10 @@ Scope and plan state:
 - the single mechanism, the native event that shows it activated, the observation that refutes it,
   and separate source, data, execution and economic stop conditions;
 - the legal comparison: a frozen control with the same strategy account, input identity,
-  instruments, window, capital, risk and cost assumptions and dependency revision; the primary net
-  account response; hard risk limits. Use a parent/child pair when B exists only with A, and
-  `00/10/01/11` only when both changes switch independently on one origin;
+  instruments, window, capital, sizing and cost assumptions and dependency revision; the primary
+  net account response; the goal file's `review_evidence` ID ([feasibility.md](feasibility.md)).
+  Use a parent/child pair when B exists only with A, and `00/10/01/11` only when both changes
+  switch independently on one origin;
 - the candidates considered, the selection rule, the maximum number of new runs, and the windows,
   metrics and results already seen; which data can still confirm independently, or `none`. Failed
   source or pilot gates stay in the candidate history.

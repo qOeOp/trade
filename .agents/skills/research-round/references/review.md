@@ -17,11 +17,13 @@ when asked whether a strategy will make money or to judge prose alone.
 
 - Does the conclusion stay within its window, instruments and layer?
 - How many source versions ran on the same window across the goal? Report effective trials and a
-  deflated Sharpe ratio as diagnostics, not gates.
+  deflated Sharpe ratio as diagnostics, not gates. The one sizing revision of
+  [feasibility.md](feasibility.md) is not a trial.
 - Does every decision cite the preregistered primary response, and does the configuration match the
   contract?
 - Does each source revision's diff from its code parent change only its attempt's declared
-  mechanism, with a causal clock?
+  mechanism, with a causal clock? The sizing revision may change only the constants that set or cap
+  size, each by its stated factor.
 - Did the preregistered grid show a plateau?
 - Which alternative explanations remain?
 

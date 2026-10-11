@@ -35,8 +35,7 @@ uv run --frozen python -m research.records.artifacts run \
   --runtime /retained/runtime-identity.json --input-identity /retained/input-identity.json -- \
   --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
   --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END \
-  --signal-variant SIGNAL --exit-variant EXIT [--risk-budget-bps BPS] \
-  [--coin-notional-cap-pct PCT] [--daily-warmup]
+  --signal-variant SIGNAL --exit-variant EXIT [--daily-warmup]
 ```
 
 - Arguments after `--` go to the replay runner. `run` supplies the strategy file, class, hash,
