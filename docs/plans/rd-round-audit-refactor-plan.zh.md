@@ -205,7 +205,12 @@
     - 合并后 main 镜像（revision `2bd34033`）在不传 `--runtime` 时被选用，并通过 main 构建检查。
     - 56 个已有封存全部能 verify；report 只有读取方 `uv.lock` 哈希不同。
     - D23：变体参数在镜像身份探针处被拒，退出码 2，未生成输出、未报告试验。D25：仓库外脚本用 `uv run --project` 直接 import。D05：默认镜像即 main，非 main 镜像不能登记。
-  - 未完全达标：PR 镜像被拒只在真实镜像上调用了 `require_main_build`，以及 `register` 的单元测试；没有用 PR 镜像真实封存一次再登记。"用落后的 checkout 做冻结写入会被拒"随新鲜度检查移到 WS2。
+  - PR 镜像登记被拒（2026-10-11 补做的端到端演示）：在临时隔离 Dolt 2.4.2 里用 CLI 发表 v4 策略和待定 attempt，再用 `artifacts run` 对同一源码各封存一次。
+    - 一次在 `pr-1522` 镜像（revision `f0903398`，不在 main 上），一次不传 `--runtime`（main 镜像 `0438768c…`），两次封存都通过并报告了 `sealed` 试验。
+    - `register` 拒绝 PR 镜像的封存（`runtime image revision f0903398… is not on origin/main`，退出码 2），账本版本和 commit 不变，`run:WS5-DEMO-PR` 不存在。
+    - main 镜像的封存登记成功，版本从 2 变 3，记录的 `runtime_identity` 是 main 的 digest。
+    - 演示用的库、封存目录和 worktree 用完即删。
+  - 不在本项："用落后的 checkout 做冻结写入会被拒"随新鲜度检查移到 WS2。
   - 已撤回：开工时做的旧镜像 `docker save` 归档（用户改为不归档后已删除）。本机 registry 在 CI 镜像上线前已停，未删除，重启策略改为 `no`。
   - 之后：WS2 替换 `trials.py`，按 `LAYOUTS` 读新旧封存；WS4 在 `backtest/` 拍平结构上重做 #1510。
 
