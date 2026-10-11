@@ -2,7 +2,8 @@
 
 A source tells you what an author said or showed; it fixes a rule, never a result. Whether the rule
 trades well is decided by native replays and confirmation, so a misread source can only make a
-candidate fail, not pass. Read sources at the start of a goal and keep one source note per goal.
+candidate fail, not pass. Read a source when a hypothesis card or a rule needs it, never as a first
+stage of a goal, and keep one source note per goal for the sources it relied on.
 
 ## Collect
 

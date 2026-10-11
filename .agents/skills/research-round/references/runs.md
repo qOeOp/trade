@@ -37,8 +37,9 @@ uv run --frozen python -m research.records.artifacts run --explore \
 ```
 
 `--output` receives `reports/`, the logs and `runtime-inspection.json`. The result carries
-`readings`: the same readings as `report` below, read from the unverified temporary reports, so use
-them to steer and never cite them in a decision; they are null with the reason when the replay did
+`readings`: the same readings as `report` below, read from the unverified temporary reports. Use
+them to steer and to judge a coarse replay ([hypotheses.md](hypotheses.md)), citing the trial ID;
+never cite them in a freeze or a confirmation. They are null with the reason when the replay did
 not pass or its reports are incomplete. For a Nautilus behavior
 probe, run a script from `/tmp` on the host with
 `uv run --frozen --project REPO python /tmp/RUNDIR/probe.py`; it imports `backtest` and `research`.

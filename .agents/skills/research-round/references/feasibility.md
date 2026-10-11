@@ -11,7 +11,8 @@ them. Changing a user target to rescue a result is forbidden; changing your own 
 ## Goal file
 
 Write the user's targets once per goal as this JSON file and open the round with it
-(`round open --goal`, [records.md](records.md)); it becomes the round's goal row. Nothing else goes
+(`round open --goal`, [records.md](records.md)); it becomes the round's goal row. The
+`research-start` skill asks the user for it. Nothing else goes
 in it: no sizing, risk plan, budget or constraints of your own.
 
 ```json

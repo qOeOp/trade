@@ -1,6 +1,6 @@
 ---
 name: research-round
-description: Plans and closes one strategy research round in this repository (goal, exploration, candidate freeze, confirmation, next experiment). Use before running a backtest for a research question, before freezing a candidate or registering a confirmation, before choosing the next experiment, and before claiming that a strategy improved, failed or generalized.
+description: Plans and closes one strategy research round in this repository (hypothesis cards, exploration, candidate freeze, confirmation, next experiment, progress check). Use before running a backtest for a research question, before freezing a candidate or registering a confirmation, before choosing the next experiment, and before claiming that a strategy improved, failed or generalized.
 ---
 
 # Research round
@@ -8,8 +8,10 @@ description: Plans and closes one strategy research round in this repository (go
 One user goal is one round of the research ledger. Commands are in
 [records.md](references/records.md) (rounds, freezes, confirmations, reading the ledger),
 [runs.md](references/runs.md) (every native replay) and
-[strategy-authoring.md](references/strategy-authoring.md) (the strategy file contract). Numbers
-beyond the product readings follow the `nautilus-report-analysis` skill.
+[strategy-authoring.md](references/strategy-authoring.md) (the strategy file contract). Ideas live
+as hypothesis cards ([hypotheses.md](references/hypotheses.md)) in the knowledge list
+([knowledge.md](references/knowledge.md)). Numbers beyond the product readings follow the
+`nautilus-report-analysis` skill. A new goal starts with the `research-start` skill.
 
 ## What is recorded
 
@@ -40,29 +42,72 @@ pressure is counted. A verdict is never edited; a correction is a new record nam
    drawdown together. When those gates pass, scale size once so the drawdown lands near 2/3 of the
    budget, run that revision once and freeze it; no grid of sizes.
 3. A whole-strategy result judges that combination of definition, rules and sizing, never the idea
-   behind it or any one part. After a failed freeze, name its failed part (gross edge, cost,
-   frequency, tail or integrity) before the next candidate; if it is unknown, diagnose first.
+   behind it or any one part; what a failure excludes is the class its card wrote before the run.
 4. Treat windows before the model's training cutoff as knowledge-exposed: exploration and
    falsification only. The goal's `known_exposure` lists windows earlier rounds inspected.
+
+## Hypotheses
+
+Every idea, including one in the user's prompt or a source the user names, is a hypothesis card in
+the knowledge list, never a task to carry out as given. A card needs an economic rationale, a
+falsifiable prediction, the frontier gap it targets and the class its failure excludes; an
+independent reviewer passes it before its one coarse replay, and the coarse replay decides draft →
+open ([hypotheses.md](references/hypotheses.md)).
+
+- The coarse replay runs a simple mechanical version. Reconstructing a source's rules, checking
+  fidelity or writing detailed rules waits until the card is open.
+- A card the user proposed is marked as theirs and takes its place by prior like any other; it
+  does not jump the queue, even when the user asks to set the others aside. Say so, with the
+  order and why; you decide the order without approval.
+
+When no draft or open card is left, find the next starting point as `research-start` step 2 does
+(an extended frontier scan, or the user when nothing is left to scan or only finished strategies
+remain) before writing another card.
+
+## After a failure: name the part first
+
+Before the next idea, name which part failed, from the readings (ledger value in brackets):
+
+| Part | Reading | Next |
+|---|---|---|
+| gross edge (`gross_edge`) | closed price PnL before fees ≤ 0, or above 0 only because of one year | a different signal; record the card's class as excluded; never tune execution or exits |
+| cost (`cost`) | positive before fees, eaten by commissions and funding | trade less often, use maker orders, hold longer, or avoid paying funding |
+| tail (`tail`) | a few losing plans take most of the profit, or drawdown over budget | change exits and stops, or size by volatility |
+| frequency (`frequency`) | plans pay but are too few, or the annual return is too low | more coins or timeframes, or looser entry conditions |
+| integrity | the audit judged the run invalid | fix the code; not an economic failure (`failed` + `integrity` only for a defect you found in a passed run) |
+
+If the part is unknown, diagnose it with `nautilus-report-analysis` before changing anything.
 
 ## Robustness
 
 A grid is exploration and every cell is a trial. Change one parameter at a time around the center,
 write the plateau rule first, and freeze only the center.
 
-## Progress and stopping
+## Progress check
 
-`round status` gives the counters. Run a progress check after every third failed freeze, and also
-when more than 20 distinct strategy sources have been replayed since the last freeze. Answer in the
-next freeze's note, or to the user if you stop: which part failed each time, which explanations
-were excluded, which predictions were corroborated, and whether changes came from the mechanism or
-from inspected losers. Stopping is a valid result. If two checks in a row show neither exclusion
-nor corroboration, bring the question to the user.
+Check when any of these holds: `round status` reports `progress_check_due` (every third failed
+freeze, or more than 20 distinct strategy sources replayed since the last freeze), or a fifth draft
+has closed since the last check (excluded, or rejected at review).
+
+1. For every frontier point compute the gap
+   `max(0, w - win) / w + max(0, r - rd) / r`, where `w` is the goal's `min_plan_win_rate`,
+   `r = min_annual_return / (2/3 × max_drawdown)`, `win` and `rd` the point's plan win rate and
+   return to drawdown (a zero target adds nothing). The frontier moved out when the smallest gap
+   is smaller than at the previous check of this goal.
+2. Count the classes excluded since the previous check.
+3. Record the check in the knowledge list. Development readings set the direction; they are not
+   evidence.
+
+When two checks in a row show neither an outward move nor a new excluded class, stop and bring the
+user the frontier chart (plan win rate against return to drawdown), the excluded classes, and your
+recommendation: whether the targets look reachable, which gate is stuck, and the next step (another
+source of hypotheses, more data, or a target the user may reconsider). Only the user changes a
+target. Stopping is a valid result.
 
 ## Evidence
 
-- Each goal has one source note in the claims format, stored as an evidence bundle
-  ([source-evidence.md](references/source-evidence.md)); a freeze cites it.
+- Sources a goal relied on go into one source note in the claims format, stored as an evidence
+  bundle ([source-evidence.md](references/source-evidence.md)); a freeze cites it.
 - Strategy source and stored runs are the retained evidence. A short exploration note may be stored
   as a bundle; readers, logs and scratch output stay in `/tmp`.
 - When a workbench gap blocked a task, forced a workaround more than once or cost a rerun, record it
