@@ -19,7 +19,7 @@ from research.records.dolt_store import ConflictError
 from research.records.store import canonical
 
 
-RUNTIME_CONTRACTS = {"r1-native-v1", "r1-native-v2", "r1-native-v3"}
+RUNTIME_CONTRACTS = {"r1-native-v1", "r1-native-v2", "r1-native-v3", "r1-native-v4"}
 STATUSES = {"research", "retired", "archived"}
 BINDING_FIELDS = {"database", "commit", "strategy_id", "revision", "source_sha256",
                   "entry_class", "runtime_contract"}

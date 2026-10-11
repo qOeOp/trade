@@ -48,7 +48,7 @@ H19a 已在此前收拢为完整单文件。迁移逻辑身份为 `r1.broad-two-
 Docker 加载无 tag 的归档后需要恢复 registry 引用并重新核对 digest，不能将 Docker 配置 ID 当作 manifest。
 这是本机恢复演练，尚未验证异机灾备。
 
-维护验收回执见 `backtest/r1/receipts/parity-dolt-oci-h19a.json`；原始报告位于
+维护验收回执见 [`backtest/r1/receipts/parity-dolt-oci-h19a.json`](https://github.com/qOeOp/trade/blob/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts/parity-dolt-oci-h19a.json)；原始报告位于
 `/Users/vx/.local/share/trade/research-artifacts-acceptance`，镜像、Dolt/报告备份与复建包位于上述外置迁移根。
 外置 `legacy-source.bundle` 保存包含原来源 commit 的完整 Git 历史。
 第二轮试用已将可获得完整规则的变体发表到 Dolt，见下文。

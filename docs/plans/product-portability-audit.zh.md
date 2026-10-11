@@ -35,7 +35,7 @@
 
 ## 应保留的固定路径与验证限制
 
-当前蓝图与回放 README 通过迁移记录定位首次迁移合同，不再重复个人保管地址；迁移记录保留实际历史来源。`backtest/r1/receipts/parity-dolt-oci-h19a.json` 中 localhost registry 是冻结的历史镜像来源。它不是当前代码的默认路径。固定证据保持原字节与哈希，迁移时验证镜像和来源的实际可访问性，不能全库替换路径。
+当前蓝图与回放 README 通过迁移记录定位首次迁移合同，不再重复个人保管地址；迁移记录保留实际历史来源。[`backtest/r1/receipts/parity-dolt-oci-h19a.json`](https://github.com/qOeOp/trade/blob/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts/parity-dolt-oci-h19a.json) 中 localhost registry 是冻结的历史镜像来源。它不是当前代码的默认路径。固定证据保持原字节与哈希，迁移时验证镜像和来源的实际可访问性，不能全库替换路径。
 
 容器内 `/opt/trade`、`/inputs`、`/reports` 是镜像/挂载合同；MARK 缓存使用系统临时目录且可通过 `--mark-root` 覆盖，属于可重建输出。它们没有特定用户名依赖，不能与持久化证据混为一谈。
 

@@ -10,7 +10,7 @@ import unittest
 
 import pandas as pd
 
-from backtest.r1.checks.audit_tiered_native import audit
+from backtest.checks.audit import audit
 
 
 START = "2026-01-01 00:00:00+00:00"

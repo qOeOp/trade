@@ -225,7 +225,8 @@ class DoltOciCustodyTests(unittest.TestCase):
         self.identity = {"image_ref": "registry.invalid/native@sha256:" + "b" * 64,
                          "image_digest": "sha256:" + "b" * 64, "platform": "linux/arm64",
                          "runtime_contract": "r1-native-v1"}
-        from research.records.runtime import SOURCE_PATHS
+        from research.records.runtime import LAYOUTS
+        SOURCE_PATHS = LAYOUTS["r1-native-v1"]["source_paths"]
         self.probe = {"runtime_contract": "r1-native-v1", "nautilus_version": "fixture-native",
                       "python_version": "fixture-python", "dependency_lock_sha256": "c" * 64,
                       "source_files_sha256": {field: "d" * 64 for field in SOURCE_PATHS},

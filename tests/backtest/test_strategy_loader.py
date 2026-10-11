@@ -1,4 +1,4 @@
-"""External strategy identity and the pinned native configuration bridge."""
+"""External strategy identity, the runner's four inputs and the native configuration bridge."""
 
 import contextlib
 import hashlib
@@ -16,12 +16,12 @@ from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.trading import Strategy
 
-from backtest.r1.node_strategy import STRATEGIES, NodeStrategyConfig, register_strategy
-from backtest.r1.run_portfolio import (
-    _source_metadata, _execution_metadata, _diagnostics, effective_configuration,
-    parse_configuration, validate_strategy_configuration,
+from backtest.load import RUNTIME_CONTRACT, load_strategy
+from backtest.report import diagnostics, runtime_source_metadata
+from backtest.run import (
+    STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, importable_strategy,
+    parse_configuration,
 )
-from backtest.r1.strategy_loader import RUNTIME_CONTRACT, load_strategy
 
 
 SOURCE = '''from dataclasses import dataclass
@@ -32,13 +32,6 @@ class NativeValue:
     value: int
 
 class ProbeStrategy(Strategy):
-    @classmethod
-    def validate_replay_configuration(cls, config):
-        if config['signal_variant'] != 'support-broad-two-tier-4h' or config['exit_variant'] != 'tier-target-b':
-            raise ValueError('source configuration differs')
-        if config['daily_warmup']:
-            raise ValueError('source warmup differs')
-
     def replay_diagnostics(self):
         return {'signals': 1}
 
@@ -133,7 +126,7 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_runtime_metadata_does_not_claim_git_strategy_authority(self):
         loaded = self.load(binding_path=self.binding_path)
-        metadata = _source_metadata(loaded)
+        metadata = {**loaded.metadata(), **runtime_source_metadata()}
         self.assertNotIn("source_commit", metadata)
         self.assertEqual(metadata["strategy_source_sha256"], self.digest)
         self.assertNotIn("strategy_source_sha256", metadata["source_file_paths"])
@@ -148,7 +141,6 @@ class StrategyLoaderTests(unittest.TestCase):
             "--start", "2025-10-07T00:00:00Z", "--end", "2026-10-07T08:30:00Z",
             "--output", "/reports", "--strategy-file", str(self.source),
             "--strategy-class", "ProbeStrategy", "--strategy-sha256", self.digest,
-            "--signal-variant", "support-broad-two-tier-4h", "--exit-variant", "tier-target-b",
         ]
         return parse_configuration(argv + (extra or []))
 
@@ -158,6 +150,8 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(effective["trade_start"], args.start)
         self.assertNotIn("risk_budget_bps", effective)
         self.assertNotIn("coin_notional_cap_pct", effective)
+        self.assertEqual(set(effective), {"runtime_contract", "catalog_root", "daily_root", "quantity_csv", "mark_root",
+                                          "coins", "start", "end", "trade_start", "native_account"})
         self.assertEqual(effective["native_account"]["starting_balance_usdt"], "100000")
         identity = {
             "image_ref": "example/runtime@sha256:" + "a" * 64,
@@ -175,7 +169,7 @@ class StrategyLoaderTests(unittest.TestCase):
         }
         execution.write_text(json.dumps(binding))
         args.execution_binding = execution
-        self.assertEqual(_execution_metadata(args), {
+        self.assertEqual(execution_metadata(args), {
             "runtime_identity": identity, "effective_config_sha256": digest,
         })
         # A valid hash of another experiment must still be rejected.
@@ -188,25 +182,26 @@ class StrategyLoaderTests(unittest.TestCase):
             **binding, "effective_config": changed, "effective_config_sha256": changed_digest,
         }))
         with self.assertRaisesRegex(ValueError, "actual resolved runner"):
-            _execution_metadata(args)
+            execution_metadata(args)
         execution.write_text(json.dumps({
             **binding, "runtime_identity": {**identity, "runtime_contract": "other"},
         }))
         with self.assertRaisesRegex(ValueError, "runtime contract"):
-            _execution_metadata(args)
+            execution_metadata(args)
 
-    def test_source_owns_variant_and_warmup_validation(self):
-        loaded = self.load()
-        validate_strategy_configuration(loaded, self.configuration())
-        for extra in (
-            ["--signal-variant", "support-three-tier-line-cancel-4h"],
-            ["--exit-variant", "fixed-2r"], ["--daily-warmup"],
-        ):
-            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "source"):
-                validate_strategy_configuration(loaded, self.configuration(extra))
+    def test_missing_hooks_or_invalid_warmup_declaration_are_refused_before_inputs_load(self):
+        for body, message in (("    def replay_diagnostics(self):\n        return {}\n", "replay_integrity_findings"),
+                              ("    DAILY_WARMUP = 'yes'\n    def replay_diagnostics(self):\n        return {}\n"
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP")):
+            self.source.write_text("from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n" + body)
+            digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                self.load(digest=digest)
 
-    def test_runner_has_no_sizing_arguments(self):
-        for extra in (["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"]):
+    def test_runner_takes_no_strategy_parameter(self):
+        # A variant is a new source revision; the runner cannot be configured into another strategy.
+        for extra in (["--signal-variant", "x"], ["--exit-variant", "x"], ["--daily-warmup"],
+                      ["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"]):
             with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()) as errors:
                 with self.assertRaises(SystemExit):
                     self.configuration(extra)
@@ -217,15 +212,14 @@ class StrategyLoaderTests(unittest.TestCase):
             def replay_diagnostics(self):
                 return {"positions": 0}
         with self.assertRaisesRegex(ValueError, "native report facts"):
-            _diagnostics(InvalidDiagnostics())
+            diagnostics(InvalidDiagnostics())
 
     def test_pinned_native_node_importable_bridge(self):
         loaded = self.load()
-        path = register_strategy(loaded)
-        config = NodeStrategyConfig(
+        path = importable_strategy(loaded)
+        config = StrategyInputs(
             coin="BTC", instrument_id="BTCUSDT-PERP.BINANCE", trade_size="0.100",
-            trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
-            signal_variant="support-broad-two-tier-4h", daily_root="/unused",
+            trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC", daily_root="/unused",
         )
         engine = BacktestEngine(BacktestEngineConfig(
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
@@ -235,7 +229,7 @@ class StrategyLoaderTests(unittest.TestCase):
         engine.add_strategy_from_config(
             ImportableStrategyConfig(
                 strategy_path=path,
-                config_path="backtest.r1.node_strategy:NodeStrategyConfig",
+                config_path="backtest.run:StrategyInputs",
                 config=config.__dict__,
             ),
         )
@@ -246,19 +240,20 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(strategy.received[3]["execution_bar_minutes"], 5)
         self.assertNotIn("risk_budget_fraction", strategy.received[3])
         self.assertNotIn("max_coin_notional_fraction", strategy.received[3])
+        self.assertNotIn("signal_variant", strategy.received[3])
         self.assertEqual(str(strategy.config.strategy_id), "R1-BTC")
 
-    def test_native_bridge_carries_explicit_daily_warmup(self):
-        loaded = self.load()
-        wrapper_path = register_strategy(loaded)
+    def test_native_bridge_loads_daily_warmup_the_source_declares(self):
+        self.source.write_text(SOURCE.replace("class ProbeStrategy(Strategy):\n", "class ProbeStrategy(Strategy):\n    DAILY_WARMUP = True\n"))
+        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
+        wrapper_path = importable_strategy(loaded)
         module_name, class_name = wrapper_path.split(":")
         wrapper = getattr(importlib.import_module(module_name), class_name)
-        config = NodeStrategyConfig(
+        config = StrategyInputs(
             coin="BTC", instrument_id="BTCUSDT-PERP.BINANCE", trade_size="0.100",
-            trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
-            signal_variant="daily-pivot", daily_root="/inputs/daily", daily_warmup=True,
+            trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC", daily_root="/inputs/daily",
         )
-        with patch("backtest.r1.node_strategy.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
+        with patch("backtest.run.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
             strategy = wrapper(config)
         warmup.assert_called_once_with(Path("/inputs/daily"), "BTC", InstrumentId.from_str(config.instrument_id), 100)
         self.assertEqual(strategy.received[3]["historical_daily_bars"], ["canonical warmup"])

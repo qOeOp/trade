@@ -129,7 +129,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
     def _failed_seal(self, binding=None):
         """A failed Dolt/OCI seal of a published source; no native replay was performed."""
         from research.records import strategies
-        from research.records.runtime import SOURCE_PATHS
+        from research.records.runtime import LAYOUTS
         contract = "r1-native-v3"
         run_id = "BINDING-TEST-" + uuid.uuid4().hex
         root = self.workspace / "synthetic-seals"
@@ -151,7 +151,7 @@ class DoltRecordBindingIntegrationTests(unittest.TestCase):
         config_sha = artifacts._config_sha(config)
         (archive / "source" / "execution.json").write_text(json.dumps(
             {"runtime_identity": identity, "effective_config": config, "effective_config_sha256": config_sha}))
-        paths = SOURCE_PATHS
+        paths = LAYOUTS[contract]["source_paths"]
         inspection = {"runtime_contract": contract, "nautilus_version": "2.0.0rc3", "python_version": "fixture",
                       "dependency_lock_sha256": "b" * 64, "source_files_sha256": {field: "c" * 64 for field in paths},
                       "source_file_paths": dict(paths), "audit_source_sha256": "d" * 64, "effective_config": config,

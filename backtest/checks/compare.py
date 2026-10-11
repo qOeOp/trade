@@ -1,4 +1,10 @@
-"""Compare a native BacktestNode replay with the existing BacktestEngine control."""
+"""Compare two native replays field by field for engineering parity.
+
+Use it when a change should preserve behavior (runner, image, dependency or Nautilus version):
+both runs use the same strategy source, inputs, window and account. Generated identifiers
+(UUIDs, venue order, trade and position IDs) are excluded; every other report column, every
+funding adjustment and the summary's account metrics must match.
+"""
 
 import argparse
 import ast

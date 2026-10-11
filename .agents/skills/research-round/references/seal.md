@@ -39,8 +39,7 @@ uv run --frozen python -m research.records.artifacts run \
   --strategy-id STRATEGY-ID --strategy-revision REVISION --source-at BINDING-COMMIT \
   --input-identity /retained/input-identity.json -- \
   --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END \
-  --signal-variant SIGNAL --exit-variant EXIT [--daily-warmup]
+  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END
 ```
 
 - Arguments after `--` go to the replay runner. `run` supplies the strategy file, class, hash,
@@ -62,8 +61,7 @@ uv run --frozen python -m research.records.artifacts run \
 uv run --frozen python -m research.records.artifacts run --explore \
   --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS --output /tmp/RUNDIR/pilot -- \
   --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END \
-  --signal-variant SIGNAL --exit-variant EXIT [--daily-warmup]
+  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END
 ```
 
 - The same image, sandbox, runner and native audit as a seal; nothing is sealed or registered and

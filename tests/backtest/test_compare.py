@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backtest.r1.checks.compare_node import compare
+from backtest.checks.compare import compare
 
 
 def _replay(root: Path, sharpe) -> Path:

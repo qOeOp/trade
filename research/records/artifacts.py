@@ -110,7 +110,6 @@ def _runner_inputs(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--daily-root", type=Path, required=True)
     parser.add_argument("--quantity-csv", type=Path, required=True)
     parser.add_argument("--coins", nargs="+", required=True)
-    parser.add_argument("--signal-variant", default="daily-pivot")
     if "--output" in argv:
         raise ArtifactError("the custody command owns --output")
     args, _ = parser.parse_known_args(argv)
@@ -235,7 +234,8 @@ def _container_runner_args(argv: list[str], replay: argparse.Namespace) -> tuple
     replacements = {"--catalog-root": (replay.catalog_root, "/inputs/catalog"),
                     "--daily-root": (replay.daily_root, "/inputs/daily"),
                     "--quantity-csv": (replay.quantity_csv, "/inputs/quantity.csv")}
-    denied = {"--strategy-file", "--strategy-class", "--strategy-sha256", "--strategy-binding", "--execution-binding", "--output"}
+    denied = {"--strategy-file", "--strategy-class", "--strategy-sha256", "--strategy-binding", "--execution-binding",
+              "--output", "--describe"}
     result = list(argv)
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--mark-root", type=Path)
@@ -275,8 +275,9 @@ def _dolt_source(strategy_id: str, revision: int, at: str, runtime: str | None,
 
 def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str]) -> tuple[int, int | None]:
     """Run the native replay, then the independent audit once its reports exist, in one pinned image."""
-    from research.records.runtime import container_command
-    native_command = container_command(identity, mounts, "backtest.r1.run_portfolio", runner_args)
+    from research.records.runtime import LAYOUTS, container_command
+    layout = LAYOUTS[identity["runtime_contract"]]
+    native_command = container_command(identity, mounts, layout["runner"], runner_args)
     with (
         (workdir / "native.stdout.txt").open("wb") as out,
         (workdir / "native.stderr.txt").open("wb") as err,
@@ -288,8 +289,8 @@ def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str])
             native = 127
     audit_exit = None
     if all((workdir / "reports" / name).is_file() for name in REPORTS):
-        audit_command = container_command(identity, mounts, "backtest.r1.checks.audit_tiered_native", [
-            "--run", "/reports", "--catalog-root", "/inputs/catalog", "--output", "/reports/audit.json",
+        audit_command = container_command(identity, mounts, layout["audit"], [
+            "--run", "/reports", *layout["audit_args"], "--output", "/reports/audit.json",
         ])
         with (
             (workdir / "audit.stdout.txt").open("wb") as out,
@@ -569,7 +570,7 @@ def verify(root: Path, run_id: str) -> dict:
     if actual != manifest["files"]:
         raise ArtifactError("sealed file set or SHA-256 differs from manifest")
     if manifest["schema_version"] == 2:
-        from research.records.runtime import SOURCE_PATHS, validate_identity
+        from research.records.runtime import LAYOUTS, validate_identity
         binding = _read_json(path / "source/binding.json")
         errors = list(_validator("strategy_binding").iter_errors(binding))
         if errors or binding != manifest.get("strategy_binding"):
@@ -589,7 +590,8 @@ def verify(root: Path, run_id: str) -> dict:
             raise ArtifactError("sealed image probe differs from execution contract")
         if binding["runtime_contract"] != runtime["runtime_contract"] or inspection["runtime_contract"] != runtime["runtime_contract"]:
             raise ArtifactError("sealed strategy and image contracts differ")
-        if inspection["source_file_paths"] != SOURCE_PATHS or set(inspection["source_files_sha256"]) != set(SOURCE_PATHS):
+        paths = LAYOUTS[runtime["runtime_contract"]]["source_paths"]
+        if inspection["source_file_paths"] != paths or set(inspection["source_files_sha256"]) != set(paths):
             raise ArtifactError("sealed image probe omits native runtime source identities")
         if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
                for value in [*inspection["source_files_sha256"].values(), inspection["audit_source_sha256"]]):
