@@ -65,12 +65,14 @@ class LoadedStrategy:
     entry_class: str
     strategy_class: type[Strategy]
     binding: dict | None
+    uses_stop_loss: bool = True
 
     def metadata(self) -> dict:
         identity = {
             "strategy_source_sha256": self.source_sha256,
             "strategy_entry_class": self.entry_class,
             "strategy_runtime_contract": RUNTIME_CONTRACT,
+            "strategy_uses_stop_loss": self.uses_stop_loss,
             "strategy_source": {
                 "path": str(self.source_path),
                 "sha256": self.source_sha256,
@@ -171,7 +173,10 @@ def load_strategy(
             raise ValueError(f"{RUNTIME_CONTRACT} strategy requires {name}")
     if getattr(strategy_class, "DAILY_WARMUP", False) not in (True, False):
         raise ValueError("strategy DAILY_WARMUP must be True or False")
-    return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class, binding)
+    if type(getattr(strategy_class, "USES_STOP_LOSS", True)) is not bool:
+        raise ValueError("strategy USES_STOP_LOSS must be True or False")
+    return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class, binding,
+                          getattr(strategy_class, "USES_STOP_LOSS", True))
 
 
 # Inputs

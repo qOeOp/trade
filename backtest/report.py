@@ -1,4 +1,4 @@
-"""Write one finished replay's native reports, exposures and summary."""
+"""Write one finished replay's native reports, order events, exposures and summary."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ RUNTIME_SOURCE_PATHS = {
 }
 AUDIT_PATH = "backtest/checks/audit.py"
 EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl")
+ORDER_EVENTS = "order_events.jsonl.gz"
 
 
 def runtime_source_metadata() -> dict:
@@ -88,6 +89,20 @@ def write_exposures(rows, path: Path) -> None:
         writer = csv.writer(text)
         writer.writerow(EXPOSURE_COLUMNS)
         writer.writerows(rows)
+
+
+def write_order_events(orders, path: Path) -> None:
+    """Write every cached order's unchanged native events as gzip JSON lines, grouped by order ID.
+
+    Only the order of one order's events is causal; the order across orders is a deterministic
+    grouping, not the engine's processing order.
+    """
+    with path.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as packed, \
+            io.TextIOWrapper(packed, encoding="utf-8", newline="\n") as text:
+        for order in sorted(orders, key=lambda value: str(value.client_order_id)):
+            for event in order.events():
+                text.write(json.dumps(event.to_dict(), ensure_ascii=False, sort_keys=True,
+                                      separators=(",", ":"), allow_nan=False) + "\n")
 
 
 def capital_findings(observer, expected_timestamps: int) -> list[str]:
@@ -156,6 +171,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
     if denied_or_rejected and not integrity_findings:
         integrity_findings.append("native orders were denied or rejected")
     write_exposures(replay.observer.rows, output / "exposures.csv.gz")
+    write_order_events(replay.cache.orders(), output / ORDER_EVENTS)
     for finding in capital_findings(replay.observer, expected_timestamps):
         if finding not in integrity_findings:
             integrity_findings.append(finding)
