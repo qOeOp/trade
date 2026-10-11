@@ -136,6 +136,39 @@ class SingleRunReportTests(unittest.TestCase):
         self.assertIn("fixture limitation", result["limitations"])
         self.assertIn("fixture coverage", result["limitations"])
 
+    def test_closed_cycles_split_by_the_utc_year_they_closed_in(self):
+        cycles = copy.deepcopy(CYCLES)
+        cycles[0]["ts_last"] = START_NS - 1  # closes at the last nanosecond of 2025
+        cycles[1]["ts_last"] = START_NS  # closes at 2026-01-01T00:00:00Z
+        _seal(self.root, "R1", cycles=cycles)
+        result = analysis.report(self.root, "R1")
+        self.assertEqual(result["closed_by_year"], {
+            "2025": {"closed_trades": 1, "price_pnl_usdt": "12.00000000", "fill_commissions_usdt": "0.11100000",
+                     "reported_funding_usdt": "0.50000000"},
+            "2026": {"closed_trades": 1, "price_pnl_usdt": "-5.00000000", "fill_commissions_usdt": "0.04750000",
+                     "reported_funding_usdt": "-0.10000000"}})
+
+    def test_a_close_without_an_integer_time_nulls_only_the_year_split(self):
+        cycles = copy.deepcopy(CYCLES)
+        cycles[1]["ts_last"] = ""
+        _seal(self.root, "R1", cycles=cycles)
+        result = analysis.report(self.root, "R1")
+        self.assertIsNone(result["closed_by_year"])
+        self.assertEqual(result["closed"]["price_pnl_usdt"], "7.00000000")
+        self.assertTrue(any(item.startswith("closed_by_year is null:") for item in result["limitations"]))
+
+    def test_no_closed_cycle_gives_an_empty_year_split(self):
+        _seal(self.root, "R1", cycles=[CYCLES[2]])
+        self.assertEqual(analysis.report(self.root, "R1")["closed_by_year"], {})
+
+    def test_an_exploration_gets_the_readings_of_a_seal_without_custody(self):
+        seal = _seal(self.root, "R1")
+        sealed = analysis.report(self.root, "R1")
+        (seal / "manifest.json").unlink()
+        readings = analysis.explored(seal, "passed")
+        self.assertEqual(readings, {key: sealed[key] for key in readings})
+        self.assertIsNone(analysis.explored(seal, "failed")["closed"])
+
     def test_zero_trade_reduced_headers_give_nulls_not_zeros(self):
         _seal(self.root, "R0", cycles=[], window=[0.0] * 6)
         result = analysis.report(self.root, "R0")

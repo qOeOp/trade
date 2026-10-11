@@ -366,8 +366,11 @@ def explore(*, strategy_file: Path, strategy_class: str, output: Path, runtime: 
         "--strategy-sha256", source_sha256, "--output", "/reports",
     ])
     problems, audit = _audit_problems(output, native_exit, audit_exit)
-    return {"mode": "explore", "status": "passed" if not problems else "failed", "problems": problems,
+    from research.records.analysis import explored
+    status = "passed" if not problems else "failed"
+    return {"mode": "explore", "status": status, "problems": problems,
             "path": str(output), "runtime_identity": identity, "trial": trial,
+            "readings": explored(output, status),
             "hand_off": hand_off_run(mode="explore", run_dir=output, audit=audit)}
 
 

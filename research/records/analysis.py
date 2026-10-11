@@ -48,7 +48,7 @@ PAIRED_METHOD = ("paired ISO-week bootstrap of daily log-return differences on a
                  "daily returns, reported as annualized relative growth; exploratory, unadjusted for prior tests")
 PAIRED_SEED = 20261008
 PAIRED_DRAWS = 5000
-_ECONOMICS = ("closed", "closed_trades", "open_positions", "unrealized_residual_usdt")
+_ECONOMICS = ("closed", "closed_by_year", "closed_trades", "open_positions", "unrealized_residual_usdt")
 # Native report cells by column name. Python reprs, "<decimal> <currency>" money and string flags;
 # columns not named here stay strings.
 _LISTS = frozenset({"events", "adjustments", "commissions", "tags", "linked_order_ids", "venue_order_ids",
@@ -77,6 +77,28 @@ def report(root: Path, run_id: str) -> dict:
         "analysis": _identity(("research/records/analysis.py",)),
         **{key: output[key] for key in ("native_economics", *_ECONOMICS, "plans", "limitations")},
     }
+    check_size(output)
+    return output
+
+
+def explored(run_dir: Path, status: str) -> dict:
+    """The same reconciled readings for an exploration's unsealed reports, for direction only.
+
+    The reports are the explorer's own temporary output: nothing is hash-verified, so no
+    decision may cite these readings; a sealed run is read with ``report``.
+    """
+    reports = {}
+    for name in (*REPORT_FILES, "orders.csv"):
+        path = Path(run_dir) / "reports" / name
+        if path.is_file():
+            reports[name] = path.read_bytes()
+    keys = ("native_economics", *_ECONOMICS, "plans", "limitations")
+    try:
+        output, _, _ = _read({}, reports, status, (*REPORT_FILES, "orders.csv"))
+    except (KeyError, TypeError, ValueError) as exc:  # a run that stopped part way leaves incomplete reports
+        return {**dict.fromkeys(keys), "limitations": [
+            f"Readings are null: the exploration's reports are incomplete ({type(exc).__name__}: {exc})"]}
+    output = {key: output[key] for key in keys}
     check_size(output)
     return output
 
@@ -313,19 +335,24 @@ def _analyze(root: Path, run_id: str, names: tuple[str, ...] = REPORT_FILES
         item = files.get(f"reports/{name}")
         return None if item is None else {"path": f"artifact://{run_id}/reports/{name}", "sha256": item["sha256"]}
 
-    summary = json.loads(reports["summary.json"]) if "summary.json" in reports else None
-    audit = json.loads(reports["audit.json"]) if "audit.json" in reports else None
     output = {
         "run_id": run_id, "status": manifest["status"], "problems": manifest.get("problems", []),
         "manifest_sha256": checked["manifest_sha256"], "record_binding": manifest.get("record_binding"),
         "summary_ref": ref("summary.json"), "audit_ref": ref("audit.json"),
-        "native_economics": None, **dict.fromkeys(_ECONOMICS), "plans": None,
     }
+    return _read(output, reports, manifest["status"], names)
+
+
+def _read(output: dict, reports: dict[str, bytes], status: str, names: tuple[str, ...]
+          ) -> tuple[dict, list[tuple[int, float]] | None, dict]:
+    summary = json.loads(reports["summary.json"]) if "summary.json" in reports else None
+    audit = json.loads(reports["audit.json"]) if "audit.json" in reports else None
+    output.update({"native_economics": None, **dict.fromkeys(_ECONOMICS), "plans": None})
     limitations = _unique(list((summary or {}).get("limitations", [])) + list((audit or {}).get("coverage_limits", [])))
     output["limitations"] = limitations
     parsed = {"reports": reports, "summary": summary, "audit": audit}
-    if manifest["status"] != "passed" or summary is None:
-        limitations.append("The seal did not pass; native economics are not read.")
+    if status != "passed" or summary is None:
+        limitations.append("The run did not pass; native economics are not read.")
         return output, None, parsed
     economics = (audit or {}).get("native_economics")
     output["native_economics"] = economics
@@ -341,6 +368,10 @@ def _analyze(root: Path, run_id: str, names: tuple[str, ...] = REPORT_FILES
     except _Unreconciled as exc:
         limitations.append(f"Economic readings are null: {exc}")
         return output, returns, parsed
+    try:
+        output["closed_by_year"] = _by_year(cycles)
+    except _Unreconciled as exc:
+        limitations.append(f"closed_by_year is null: {exc}")
     if "orders.csv" not in reports:
         if "orders.csv" in names:
             limitations.append("plans is null: the seal has no orders.csv")
@@ -439,7 +470,7 @@ def _cycles(positions: list[dict], fills: list[dict]) -> list[dict]:
             notional = Decimal(event["last_qty"]) * Decimal(event["last_px"]) * multiplier
             price += notional if event["order_side"] == "SELL" else -notional
         cycles.append({"closed": bool(row["ts_closed"]), "realized": _usdt(row["realized_pnl"]), "funding": funding,
-                       "price": price, "event_ids": event_ids,
+                       "price": price, "event_ids": event_ids, "ts_last": row.get("ts_last"),
                        "commissions": sum((_usdt(item) for item in _list(row["commissions"])), Decimal(0))})
     if events != Counter(row["event_id"] for row in fills if "event_id" in row) or any(n != 1 for n in events.values()):
         raise _Unreconciled("position events do not cover each native fill exactly once")
@@ -565,6 +596,33 @@ def _economics(cycles: list[dict], fills: list[dict], summary: dict, economics: 
         "open_positions": len(opened),
         "unrealized_residual_usdt": _money(residual),
     }
+
+
+def _by_year(cycles: list[dict]) -> dict:
+    """Closed-position fill price PnL, commissions and funding by the UTC year each cycle closed in.
+
+    A whole cycle, funding included, belongs to the year of its last event (``ts_last``), so the
+    years add up to the ``closed`` totals; a cycle open across a year end counts only in the year it
+    closed, and positions still open are left out as in ``closed``. The first and last years of a
+    window are partial. No closed cycle gives ``{}``.
+    """
+    years: dict[str, dict] = {}
+    for cycle in cycles:
+        if not cycle["closed"]:
+            continue
+        try:
+            year = str((EPOCH + timedelta(microseconds=int(cycle["ts_last"]) // 1000)).year)
+        except (TypeError, ValueError) as exc:
+            raise _Unreconciled("a closed position row has no integer ts_last") from exc
+        item = years.setdefault(year, {"closed_trades": 0, "price": Decimal(0), "commissions": Decimal(0),
+                                       "funding": Decimal(0)})
+        item["closed_trades"] += 1
+        for key in ("price", "commissions", "funding"):
+            item[key] += cycle[key]
+    return {year: {"closed_trades": item["closed_trades"], "price_pnl_usdt": _money(item["price"]),
+                   "fill_commissions_usdt": _money(item["commissions"]),
+                   "reported_funding_usdt": _money(item["funding"])}
+            for year, item in sorted(years.items())}
 
 
 def _identity(paths: tuple[str, ...]) -> dict:

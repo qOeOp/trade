@@ -69,6 +69,8 @@ uv run --frozen python -m research.records.artifacts run --explore \
   no Dolt is read. `--output` must be a new directory under `/tmp`; it receives `reports/`, the
   logs, `runtime-inspection.json` and `trial.json`.
 - The trial counts toward selection pressure like a sealed run.
+- Its `readings` are those of `report` below, read from the unverified temporary reports: use them
+  to steer, never cite them in a decision.
 - For a Nautilus behavior probe, run a script from `/tmp` on the host with
   `uv run --frozen --project REPO python /tmp/RUNDIR/probe.py`; it imports `backtest` and `research`
   without `PYTHONPATH`.
@@ -110,6 +112,8 @@ uv run --frozen python -m research.records.artifacts restore --root "$ARTIFACT_R
 - `report` verifies the seal and prints the closed-position PnL split (fill price, commissions,
   funding), open positions and unrealized residual only when they reconcile to the audited native
   economics. It reads no Dolt; a failed seal reports null economics.
+- Its `closed_by_year` splits the closed-position fill price PnL, commissions and funding by the UTC
+  year each position closed in.
 - Its `plans` (`closed`, `wins`, `win_rate`, `open`) is the goal's plan win rate
   ([feasibility.md](feasibility.md)). It is null, with the reason in `limitations`, when an order
   lacks a plan tag or carries two, plans on one instrument overlap, or a position and a plan do
