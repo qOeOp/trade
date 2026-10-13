@@ -89,11 +89,6 @@ def end_ns(episode):
                  or (e['type'] == 'InstrumentStatus' and e['action'] == 'CLOSE')), None)
 
 
-def opening_end_ns(episode):
-    return next((e['ts_event'] for e in episode['events']
-                 if e['type'] == 'InstrumentStatus' and e['action'] == 'PRE_CLOSE'), end_ns(episode))
-
-
 def project(bars, episode):
     """Only completed minutes belonging to this episode; raw market rows are untouched."""
     if episode is None:
@@ -105,14 +100,6 @@ def project(bars, episode):
     if high is not None:
         keep &= close_ns < high
     return {name: values[keep] for name, values in bars.items()}
-
-
-def opening_intervals(intervals, episode):
-    if episode is None:
-        return intervals
-    low, high = episode['start_ns'] or 0, opening_end_ns(episode)
-    return [(max(a, low), min(b, high) if high is not None else b) for a, b in intervals
-            if max(a, low) < (min(b, high) if high is not None else b)]
 
 
 def write_events(root, episode, start, end):
