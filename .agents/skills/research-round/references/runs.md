@@ -33,7 +33,7 @@ excluded from cross-export semantic hashing. Source hash, parent and change are 
 atomic binding. Each registered cell is attempted once, including invalid/interrupted attempts.
 
 Times need Z/explicit offset and one-minute alignment with `start <= trade-start < end`. Sealed
-candidate research covers the goal development window. Runtime `r1-native-v6` fixes execution to
+candidate research covers the goal development window. Runtime `r1-native-v7` fixes execution to
 one minute and passes `execution_bar_minutes=1` to the source; signal timeframe is source-owned.
 New backtest code requires a new CI digest. Main-image/fresh-checkout protections still apply to
 legacy freeze/confirmation, so an unmerged test branch cannot claim independent confirmation.
@@ -48,3 +48,23 @@ Product reports provide annual net account return, native MARK drawdown, net pla
 reconciled closed economics, fees/funding/open residual, closed-by-year and input/cost identities.
 Missing readings stay null with limitations. Extra statistics follow `nautilus-report-analysis`.
 Read/write evidence through CLI and use fixed `--at` refs for readback, audit, export and recovery.
+
+
+Original runner/auditor stdout, stderr, phase exits, source/hash and explicit structured runtime
+exceptions are appended under product-owned `trial-N-execution-start` / `trial-N-execution` bundles.
+Zero-byte logs have a captured-empty manifest; missing/not-started bytes have no content hash.
+Constructor/callback exceptions fail the new runner even if the native actor catches them; ordinary
+WARN messages are not text-matched into invalidity. Interruption remains a consumed attempt.
+SIGKILL cannot execute final capture: retain the printed original work directory and start receipt,
+state capture missing, and append explicitly labeled recovery evidence without replacing history.
+Old missing stderr stays missing; later probes cannot prove what an earlier process emitted.
+
+Each export receipt includes fixed-commit 1m LAST/MARK gaps/alignment, zero-volume counts, stored
+funding times, member months, first/last data proxies and listing/delisting uncertainty. Review the
+whole input interval: indicator warmup, entry membership and possible holdings beyond member exit.
+Use `research.market.cli coverage --at COMMIT --symbols ... --start START --end END` for read-only
+bounded coverage diagnosis. Review actual source indicator-ready timestamps separately; raw counts
+are insufficient. Missing/zero-volume minutes and no funding are facts, not automatic economic
+failure. Do not synthesize inputs, silently shrink symbols/windows, or call BTC/ETH full-pool proof.
+If a full-pool replay is blocked, retain the member/warmup/holding/funding cause and ask the user
+for scope selection; bounded engineering remains explicitly bounded.

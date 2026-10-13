@@ -250,10 +250,14 @@ def export_symbol(job: dict) -> dict:
     conn = db.connect(job["profile"], "reader")
     try:
         row = terms(conn, commit, symbol)
-        last = derive(fetch(conn, commit, symbol, "LAST", start, end), timeframe)
-        mark = derive(fetch(conn, commit, symbol, "MARK", start, end), timeframe)
+        raw_last = fetch(conn, commit, symbol, "LAST", start, end)
+        raw_mark = fetch(conn, commit, symbol, "MARK", start, end)
+        last = derive(raw_last, timeframe)
+        mark = derive(raw_mark, timeframe)
         daily = derive(fetch(conn, commit, symbol, "LAST", 0, start - start % DAY), "1d") if job["daily"] else None
         rates = funding(conn, commit, symbol, start, end)
+        from research.market.coverage import facts
+        coverage = facts(conn, commit, symbol, start, end, raw_last, raw_mark, rates)
     finally:
         conn.close()
     price_scale, volume_scale = job["scales"]
@@ -277,7 +281,7 @@ def export_symbol(job: dict) -> dict:
                                      price_scale, volume_scale)
     unmatched = int(len(np.setxor1d(last["ts_open"], mark["ts_open"])))
     receipt = {"symbol": symbol, "instrument_id": str(iid), "commit": commit, "timeframe": timeframe,
-               "start_ns": start * 1_000_000, "end_ns": end * 1_000_000, "counts": counts,
+               "start_ns": start * 1_000_000, "end_ns": end * 1_000_000, "counts": counts, "coverage": coverage,
                "first_bar_ns": int((last["ts_open"][0] + step - 1) * 1_000_000) if len(last["ts_open"]) else None,
                "last_bar_ns": int((last["ts_open"][-1] + step - 1) * 1_000_000) if len(last["ts_open"]) else None,
                "missing_buckets": int((end - start) // step - len(last["ts_open"])),
@@ -292,7 +296,8 @@ def export_symbol(job: dict) -> dict:
 
 def complete(path: Path) -> dict | None:
     try:
-        return json.loads((path / "export.json").read_text())
+        value = json.loads((path / "export.json").read_text())
+        return value if value.get("coverage", {}).get("format") == "market-coverage-v1" else None
     except (OSError, ValueError):
         return None
 

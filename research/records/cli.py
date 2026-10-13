@@ -84,6 +84,10 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("--destination", type=Path, required=True)
     restore.add_argument("--at")
 
+    review = commands.add_parser("source-review", help="retain Agent review of an original native engineering precheck")
+    review.add_argument("--bundle", required=True)
+    review.add_argument("--review", type=Path, required=True)
+
     hypotheses = commands.add_parser("hypothesis", help="locked registration and read-only comparison").add_subparsers(dest="action", required=True)
     register = hypotheses.add_parser("register")
     register.add_argument("--id", required=True, help="new immutable evidence bundle ID")
@@ -186,6 +190,9 @@ def run(args) -> dict:
             return records.add_evidence(value, args.bundle, args.paths, args.op_id)
         with db.reading(value, args.at) as conn:
             return records.export_evidence(conn, args.bundle, args.destination)
+    if args.command == "source-review":
+        from research.records.prechecks import review
+        return review(value, bundle=args.bundle, body=_read_json(args.review))
     if args.command == "candidate":
         from research.records.hypotheses import candidates
         return candidates(value, args.at)

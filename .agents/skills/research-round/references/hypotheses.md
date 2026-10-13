@@ -3,10 +3,11 @@
 `hypothesis register` stores a validated, immutable `research-plan.json` evidence bundle. Publish
 all grid revisions first. Their parent and `difference` must equal the registration's `parent` and
 `change`. A root has `parent: null` and `control_run: null`; a descendant names both independently.
-The parent requires registered integrity-passed evidence, irrespective of economics or significance.
+A fault or zero-activity parent remains a source lineage for repair/reassessment. A repair may
+set `control_run: null`; economics/comparison are then unavailable until a usable control exists.
 The comparison control is an already audited comparable run, not necessarily the parent.
 
-A plan has these required keys (the sole optional key is `retry_of`, a previously consumed registration bundle) (working JSON under `/tmp`):
+A plan has these required keys (`retry_of` names a previously consumed registration; `prechecks` is required for v7) (working JSON under `/tmp`):
 
 ```json
 {"parent":"ID@1", "control_run":1,
@@ -16,6 +17,7 @@ A plan has these required keys (the sole optional key is `retry_of`, a previousl
  "sources":["retained-source-bundle"],
  "metric":"annual_return",
  "grid":[{"strategy":"ID@2", "parameters":"Complete fixed setting."}],
+ "prechecks":{"ID@2":"EXACT-SOURCE-REVIEW-BUNDLE"},
  "conditions":"Source/parameter/input/window/runtime scope; repeated evidence limitations.",
  "comparison":{"method":"paired-circular-log-mean-v1", "block_days":7,
    "resamples":4999, "inner_resamples":199, "seed":20261013,

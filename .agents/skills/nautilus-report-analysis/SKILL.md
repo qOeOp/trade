@@ -15,7 +15,9 @@ venue; facts that depend on the run's configuration must be read from the run, n
 
 1. Load the run with `research.records.analysis.tables(run_id)` (add `at="closed/GOAL-ID"` for a
    closed round) and never parse report rows yourself. It reads the stored run, refuses one that
-   failed its audit or whose closed split does not reconcile, and returns
+   failed its audit, has zero real fills, lacks matching native records, has a retained source
+   failure, or whose closed split does not reconcile. Its current `availability` checker is
+   distinct from the historical audit verdict, and returns
    typed orders, fills, positions and trade-window daily returns, with each fill's
    `cycle_position_id` and each closed row's reconciled `price_pnl`, exact `ts_closed_ns` and
    `closing_order_tags`. Take holding time from `duration_ns`, never from the native `ts_closed`

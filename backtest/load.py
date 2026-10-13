@@ -20,7 +20,7 @@ from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
 
-RUNTIME_CONTRACT = "r1-native-v6"
+RUNTIME_CONTRACT = "r1-native-v7"
 BAR_INTERVAL_NS = 60_000_000_000
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 

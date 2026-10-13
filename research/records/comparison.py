@@ -124,6 +124,9 @@ def compare(profile, *, bundle, run_id, at=None):
             raise refuse('run is not bound to this preregistered grid', 'REGISTRATION_REQUIRED')
         check_comparable(candidate, execution)
         check_comparable(control, execution)
+        from research.records.availability import require
+        candidate_availability = require(conn, candidate)
+        control_availability = require(conn, control)
         values = []
         for run in (control, candidate):
             reports = load_run(conn, run['run_id'], account=False, exposures=False)
@@ -143,4 +146,4 @@ def compare(profile, *, bundle, run_id, at=None):
             'ledger_commit': commit, 'registered_at': registered_at.isoformat() + 'Z',
             'reader_revision': records.reader_revision(),
             'comparison_source_sha256': hashlib.sha256(__import__('pathlib').Path(__file__).read_bytes()).hexdigest(),
-            'evidence': result}
+            'availability': {'candidate': candidate_availability, 'control': control_availability}, 'evidence': result}

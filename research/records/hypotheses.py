@@ -46,7 +46,7 @@ def config_key(value):
 
 def validate(conn, body, execution, *, before_replay=False):
     require_schema(conn)
-    if not isinstance(body, dict) or set(body) not in (FIELDS, FIELDS | {'retry_of'}):
+    if not isinstance(body, dict) or not FIELDS <= set(body) or set(body) - FIELDS - {'retry_of', 'prechecks'}:
         raise refuse(f'plan has exactly {sorted(FIELDS)}')
     for key in ('change', 'rationale', 'prediction', 'conditions'):
         records._note(body[key])
@@ -65,22 +65,21 @@ def validate(conn, body, execution, *, before_replay=False):
     if not isinstance(grid, list) or not 1 <= len(grid) <= 5:
         raise refuse('grid needs one to five fixed source revisions')
     parent = records.strategy(conn, body['parent']) if body['parent'] is not None else None
-    if (parent is None) != (body['control_run'] is None):
-        raise refuse('root has neither parent nor control; a derived experiment names both independently')
+    if parent is None and body['control_run'] is not None:
+        raise refuse('root has no comparison control; repair descendants may explicitly have no usable control yet')
     goal = records.read_goal(conn)
     config = execution['effective_config']
     if (records._utc(config['trade_start'], 'trade_start'), records._utc(config['end'], 'end')) != (
             goal['window_start'], goal['window_end']):
         raise refuse('registration must cover the fixed development window', 'WINDOW_MISMATCH')
-    if parent:
-        if not db.one(conn, 'SELECT r.run_id FROM run r JOIN trial t ON t.trial_id = r.trial_id '
-                    'JOIN research_execution e ON e.trial_id = t.trial_id '
-                    "WHERE t.strategy_source_sha256 = %s AND r.status = 'passed'",
-                    (parent['source_sha256'],)):
-            raise refuse('research parent needs a registered replay that passed integrity, regardless of economics',
-                         'PARENT_NOT_VALID')
+    # Published exact source is lineage. Fault/zero-activity parents remain repairable;
+    # a separate audited economic control is checked when one is declared.
+    if body['control_run'] is not None:
         control = records._run_with_trial(conn, body['control_run'])
         check_comparable(control, execution)
+        if before_replay:
+            from research.records.availability import require
+            require(conn, control)
     seen = set()
     for cell in grid:
         if not isinstance(cell, dict) or set(cell) != {'strategy', 'parameters'}:
@@ -96,13 +95,24 @@ def validate(conn, body, execution, *, before_replay=False):
         if row['source_sha256'] in seen:
             raise refuse('duplicate source in grid')
         seen.add(row['source_sha256'])
-        if before_replay and db.one(conn, 'SELECT trial_id FROM trial WHERE strategy_source_sha256 = %s',
-                                     (row['source_sha256'],)):
-            retry = body.get('retry_of')
-            if not retry or not db.one(conn, 'SELECT trial_id FROM research_execution WHERE bundle = %s '
-                                      'AND strategy_source_sha256 = %s', (retry, row['source_sha256'])):
-                raise refuse('exposed source needs explicit retry_of its prior registered attempt; never backfill',
-                             'SOURCE_ALREADY_EXPOSED')
+        precheck_trial = None
+        if before_replay and execution['runtime']['runtime_contract'] == 'r1-native-v7':
+            from research.records.prechecks import require
+            refs = body.get('prechecks', {})
+            if not isinstance(refs, dict) or cell['strategy'] not in refs:
+                raise refuse('v7 registration needs exact-source native precheck reviews for every grid cell', 'SOURCE_PRECHECK_REQUIRED')
+            precheck_trial = require(conn, refs[cell['strategy']], row['source_sha256'], execution['runtime']['image_ref'])
+        if before_replay:
+            exposures = db.rows(conn, 'SELECT trial_id FROM trial WHERE strategy_source_sha256 = %s', (row['source_sha256'],))
+            # Only the exact predeclared engineering precheck is exempt, never an arbitrary
+            # explored/consumed trial. Retry records still name the previous registration.
+            other = [t for (t,) in exposures if t != precheck_trial]
+            if other:
+                retry = body.get('retry_of')
+                if not retry or not db.one(conn, 'SELECT trial_id FROM research_execution WHERE bundle = %s '
+                                          'AND strategy_source_sha256 = %s', (retry, row['source_sha256'])):
+                    raise refuse('exposed source needs explicit retry_of its prior registered attempt; never backfill',
+                                 'SOURCE_ALREADY_EXPOSED')
     return seen
 
 
@@ -202,7 +212,11 @@ def candidates(profile, at=None):
                                   'difference, description FROM strategy_revision ORDER BY strategy_id, revision')
         attempts = db.dicts(conn, 'SELECT e.*, r.run_id, r.status FROM research_execution e '
                                  'LEFT JOIN run r ON r.trial_id = e.trial_id ORDER BY e.trial_id')
+        from research.records.availability import assess, identity
+        for attempt in attempts:
+            attempt['availability'] = assess(conn, records._run_with_trial(conn, attempt['run_id'])) if attempt['run_id'] else {
+                'economic_evidence_available': False, 'reasons': ['unfinished'], 'checker': identity()}
     for row in revisions:
         row['attempts'] = [a for a in attempts if a['strategy_source_sha256'] == row['source_sha256']]
-        row['valid_evidence'] = any(a['status'] == 'passed' for a in row['attempts'])
+        row['valid_evidence'] = any(a.get('availability', {}).get('economic_evidence_available') for a in row['attempts'])
     return {'ledger_commit': commit, 'candidates': revisions, 'recommendation': 'Agent appends reasons in evidence bundles'}

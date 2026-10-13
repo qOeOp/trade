@@ -168,7 +168,8 @@ def explored(run_dir: Path, status: str) -> dict:
         return {**nulls, "reading_limitations": ["Readings are null: the exploration did not pass its checks."]}
     try:
         reports = load_dir(directory)
-        return flat(reports.summary, readings(reports))
+        from research.records.availability import directory_view, mask
+        return mask(flat(reports.summary, readings(reports)), directory_view(reports))
     except (KeyError, TypeError, ValueError, SyntaxError, ArithmeticError, IndexError, csv.Error, RecordError) as exc:
         return {**nulls, "reading_limitations": [
             f"Readings are null: the exploration's reports are incomplete ({type(exc).__name__}: {exc})"]}
@@ -295,9 +296,12 @@ def tables(run_id: int, *, ledger: str | None = None, at: str | None = None, acc
         if status is None or status["status"] != "passed":
             raise RecordError(f"run {run_id}: tables need a stored run that passed its audit",
                               code="RUN_NOT_PASSED", write_status="not_written")
+        from research.records.availability import require
+        from research.records.records import _run_with_trial
+        availability = require(conn, _run_with_trial(conn, run_id))
         reports = load_run(conn, run_id, account=account, exposures=exposures)
         (commit,), = db.rows(conn, "SELECT DOLT_HASHOF('HEAD')")
-    return build_tables(reports, run_id=run_id, ledger_commit=commit, account=account, exposures=exposures)
+    return {**build_tables(reports, run_id=run_id, ledger_commit=commit, account=account, exposures=exposures), "availability":availability}
 
 
 def build_tables(reports: Reports, *, run_id, ledger_commit: str | None, account: bool, exposures: bool) -> dict:

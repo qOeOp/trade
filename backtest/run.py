@@ -14,6 +14,8 @@ import hashlib
 import importlib.metadata
 import json
 import sys
+import traceback
+import functools
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -195,6 +197,36 @@ def execution_metadata(args) -> dict:
 # Node components. BacktestNode builds strategies and actors from importable paths, so the
 # instances it creates register themselves here for the report to read.
 
+RUNTIME_FAILURES: list[dict] = []
+FAILURE_OUTPUT: Path | None = None
+
+
+def _execution_failure(phase: str, exc: Exception, instance=None):
+    # Explicit Python exception facts, never severity matching arbitrary stderr text.
+    value = {"format": "runtime-failure-v1", "phase": phase, "exception_type": type(exc).__name__,
+             "message": str(exc), "traceback": traceback.format_exc()}
+    if instance is not None:
+        value["instrument_id"] = str(getattr(instance, "instrument_id", "unconstructed"))
+    RUNTIME_FAILURES.append(value)
+    if FAILURE_OUTPUT is not None:
+        FAILURE_OUTPUT.mkdir(parents=True, exist_ok=True)
+        with (FAILURE_OUTPUT / "runtime-errors.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, ensure_ascii=False) + "\n")
+            stream.flush()
+            __import__("os").fsync(stream.fileno())
+
+
+def _guard_callback(name, method):
+    @functools.wraps(method)
+    def guarded(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:
+            _execution_failure(name, exc, self)
+            raise
+    return guarded
+
+
 STRATEGIES: dict[str, Strategy] = {}
 OBSERVERS: list = []
 
@@ -217,18 +249,22 @@ class _Configured:
 
     def __init__(self, config: StrategyInputs):
         instrument_id = InstrumentId.from_str(config.instrument_id)
-        super().__init__(
-            instrument_id,
-            BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
-            trade_start_ns=config.trade_start_ns,
-            historical_daily_bars=(
-                warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
-                if getattr(type(self), "DAILY_WARMUP", False) else []
-            ),
-            execution_bar_minutes=1,
-            strategy_id=StrategyId(config.strategy_id),
-            pool_membership=tuple(tuple(interval) for interval in config.pool_membership),
-        )
+        try:
+            super().__init__(
+                instrument_id,
+                BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
+                trade_start_ns=config.trade_start_ns,
+                historical_daily_bars=(
+                    warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
+                    if getattr(type(self), "DAILY_WARMUP", False) else []
+                ),
+                execution_bar_minutes=1,
+                strategy_id=StrategyId(config.strategy_id),
+                pool_membership=tuple(tuple(interval) for interval in config.pool_membership),
+            )
+        except Exception as exc:
+            _execution_failure("constructor", exc)
+            raise
         STRATEGIES[config.instrument_id] = self
 
 
@@ -236,7 +272,14 @@ def importable_strategy(loaded: LoadedStrategy) -> str:
     """Give ImportableStrategyConfig a path resolving inside this exact process."""
     name = f"NodeExternal_{loaded.source_sha256}_{loaded.entry_class}"
     if name not in globals():
-        globals()[name] = type(name, (_Configured, loaded.strategy_class), {"__module__": __name__})
+        attributes = {"__module__": __name__}
+        # Cover user-defined callbacks across the Python MRO. Helpers invoked by
+        # them are captured by the outer callback, without changing native event flow.
+        for cls in reversed(loaded.strategy_class.__mro__):
+            for callback, method in vars(cls).items():
+                if callback.startswith("on_") and hasattr(method, "__code__"):
+                    attributes[callback] = _guard_callback(callback, method)
+        globals()[name] = type(name, (_Configured, loaded.strategy_class), attributes)
     return f"{__name__}:{name}"
 
 
@@ -411,6 +454,9 @@ def main(argv: list[str] | None = None) -> None:
     if args.describe:
         print(json.dumps(describe(args), sort_keys=True))
         return
+    global FAILURE_OUTPUT
+    FAILURE_OUTPUT = args.output
+    RUNTIME_FAILURES.clear()
     executed = execution_metadata(args)
     strategy = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256, args.strategy_binding)
     start_dt, end_dt = utc_datetime(args.start), utc_datetime(args.end)
@@ -429,6 +475,8 @@ def main(argv: list[str] | None = None) -> None:
               "trade_start_ns": trade_start}
     _, findings = report.write(args.output, finished, strategies, rows, identity, window, ACCOUNT_CONTRACT,
                                mark_timestamps(rows))
+    if RUNTIME_FAILURES:
+        raise RuntimeError("native source execution raised recorded callback/construction exceptions")
     if findings:
         raise RuntimeError("; ".join(findings))
 

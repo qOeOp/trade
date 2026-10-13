@@ -20,9 +20,9 @@ What a strategy file must satisfy to run in the native replay. Code is the autho
 
 - Define the entry class in this file as a subclass of `nautilus_trader.trading.Strategy`. The
   published `--entry-class` and `--strategy-class` of an exploration must agree. Runtime contract:
-  `r1-native-v6`.
+  `r1-native-v7`.
 - The constructor receives `instrument_id` and `daily_bar_type` positionally, then
-  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (5), `strategy_id` and
+  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (1), `strategy_id` and
   `pool_membership` by keyword (`_Configured.__init__` in `run.py`). Pass
   `StrategyConfig(strategy_id=strategy_id)` to `Strategy.__init__`.
 - `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL` without an aggregation source; subscribe
@@ -56,6 +56,10 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
   updates; no quotes, trades or books. Aggregate natively with
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL`; aggregated bars are stamped on
   close.
+- Decision and execution clocks must be distinct: a fill must occur strictly after the close
+  of the bar whose completed information caused the order. Defer the order to a later native
+  event, retain decision/order/fill timestamps, and inspect them after replay. Same-clock
+  completed-bar decision/fill is a causal defect even if the native account auditor passes.
 - Decide only from completed bars on the engine clock, never host time. When a rule reads a
   prior-bar indicator, update it after the decision.
 - Bars between `--start` and `--trade-start` are warm-up. Nothing blocks orders there; the file
@@ -72,7 +76,8 @@ Any finding or any denied or rejected order fails the run: `summary.json` is wri
 
 - Submit each entry with its protection as one native bracket (`self.order_factory.bracket(...)`:
   OTO entry, OUO stop-market and limit-target children) via `self.submit_order_list(...)`; use GTD
-  with `expire_time` for an entry lifetime.
+  with `expire_time` for an entry lifetime. In locked Nautilus 2.0.0rc3 this argument is an integer
+  UTC nanosecond timestamp, not `datetime`; probe the actual image API before research.
 - Throughout the replay, the audit refuses a run in which a position is larger than its accepted
   reduce-only stop orders on the closing side (stop-market, stop-limit or trailing stop) for longer
   than one one-minute bar, and names the time, instrument, quantity and order IDs. A source with no
@@ -218,3 +223,30 @@ boundaries. In the pilot, confirm every entry has its children, every order carr
 and plans on one instrument do not overlap, no order precedes trade start, none was denied or
 rejected, and fills, fees, funding and account rows appear in the native reports. A
 clean exit is not evidence.
+
+
+## Native engineering precheck before registration
+
+After publication, use `artifacts precheck --strategy ID@N --runtime IMAGE@sha256:DIGEST
+--market-profile PROFILE --market COMMIT --output /tmp/NEW-PRECHECK --` with the explicitly
+bounded symbols and input/trade/end window. The original trial purpose is recorded before native
+execution. It runs the exact bytes in the actual CI image and preserves original logs and reports.
+Compilation and exit status alone do not establish an executable or causal rule closure.
+
+Review constructor arguments, every reachable order-construction path and parameter type against
+locked Nautilus; inspect native rule triggers, source diagnostics and actual indicator-ready times.
+Cover paths the market sample did not reach with separate bounded engineering probes, clearly
+labeling them as probes rather than original run logs. Trace each decision's completed input close,
+order initialization, fill time and protection chronology; G checks account records and does not
+reconstruct your signal. Retain source counters/traces via the existing diagnostic hook or source
+files in the evidence bundle; do not add a strategy language or grading engine.
+
+Append `source-review --bundle BUNDLE --review /tmp/review.json` using exactly
+`trial_id`, `api`, `causal`, `activity`, `readiness`. Each item is `{status, note}` with status
+`passed`, `failed`, `unresolved` or `no_opportunity`; notes state concrete observations, clocks,
+indicator history/first-ready time, reachable/unreached paths and limitations. This is explicitly
+an Agent review separate from native account audit. Unknown implementation paths are unresolved;
+absence of a rule opportunity alone is not a source defect. Failed/unresolved prechecks require
+repair and a new exact-source precheck before research. Zero-fill no-opportunity prechecks may
+support a diagnostic research attempt, never economic improvement. Only this exact predeclared
+precheck is exempt from source-exposure refusal; arbitrary exploration cannot be relabeled later.

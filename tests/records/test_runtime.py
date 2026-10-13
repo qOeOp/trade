@@ -88,7 +88,7 @@ class RuntimeIdentityTests(unittest.TestCase):
         described = json.loads(subprocess.run([sys.executable, "-m", "backtest.run", *argv], capture_output=True,
                                               text=True, check=True).stdout)
         layout = LAYOUTS[described["runtime_contract"]]
-        self.assertEqual(described["runtime_contract"], "r1-native-v6")
+        self.assertEqual(described["runtime_contract"], "r1-native-v7")
         self.assertEqual(described["source_file_paths"], layout["source_paths"])
         root = Path(__file__).resolve().parents[2]
         for field, path in layout["source_paths"].items():

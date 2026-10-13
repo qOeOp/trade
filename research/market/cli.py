@@ -31,6 +31,11 @@ def _parser() -> argparse.ArgumentParser:
     pool = commands.add_parser("pool", help="the pool by month")
     pool.add_argument("--at", help="branch, tag or commit (default: main)")
     pool.add_argument("--month", help="YYYY-MM (default: every month)")
+    coverage = commands.add_parser("coverage", help="read-only input coverage facts, without economic eligibility grading")
+    coverage.add_argument("--at", required=True)
+    coverage.add_argument("--symbols", nargs="+", required=True)
+    coverage.add_argument("--start", required=True)
+    coverage.add_argument("--end", required=True)
     return parser
 
 
@@ -44,6 +49,10 @@ def run(args) -> dict:
                                 resume=args.resume, log=lambda line: print(line, file=sys.stderr, flush=True))
     if args.command == "status":
         return store.freshness(profile, args.at)
+    if args.command == "coverage":
+        from research.market.coverage import diagnose
+        from research.records.artifacts import _ms
+        return diagnose(profile, at=args.at, symbols=args.symbols, start=_ms(args.start), end=_ms(args.end))
     return store.read_pool(profile, args.at, args.month)
 
 

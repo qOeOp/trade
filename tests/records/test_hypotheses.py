@@ -78,6 +78,9 @@ class RegistrationTests(unittest.TestCase):
                           'input_identity': self.input_identity}
         source = self.root / 'source.md'; source.write_text('synthetic mechanism conjecture')
         records.add_evidence(self.profile, 'source', [source], None)
+        legacy = patch('research.records.records.CURRENT_CONTRACT', 'r1-native-v6')
+        legacy.start(); self.addCleanup(legacy.stop)
+        self.execution['runtime'] = {**IDENTITY, 'runtime_contract':'r1-native-v6'}
         self.publish('root')
         self.plan = {'parent': None, 'control_run': None, 'change': 'root template', 'rationale': 'synthetic',
                      'prediction': 'facts/repair decide different actions', 'sources': ['source'], 'metric': 'annual_return',
@@ -92,7 +95,7 @@ class RegistrationTests(unittest.TestCase):
         fake = {'identity': self.input_identity, 'root': self.root, 'pool_file': self.root / 'unused', 'symbols': ['AAA', 'BBB']}
         with patch('research.records.artifacts.market_inputs', return_value=fake), \
              patch('research.records.artifacts._cleanup'), \
-             patch('research.records.runtime.resolve', return_value=IDENTITY), \
+             patch('research.records.runtime.resolve', return_value=self.execution['runtime']), \
              patch('research.records.runtime.inspect_runtime', return_value=self.inspection):
             return hypotheses.register(self.profile, bundle=name, body=body or self.plan, runtime=None, market={}, at='c'*32,
                                        runner_argv=['--symbols', 'AAA', 'BBB', '--start', self.window['start'], '--end', self.window['end']])
@@ -156,7 +159,8 @@ class RegistrationTests(unittest.TestCase):
         with self.assertRaises(RecordError) as caught:
             self.register('H1', dict(self.plan, parent='root@1', control_run=1, change='fix',
                                     grid=[{'strategy':'child@1', 'parameters':'fixed'}]))
-        self.assertEqual(caught.exception.code, 'PARENT_NOT_VALID')
+        self.assertEqual(caught.exception.code, 'RUN_NOT_PASSED')
+        self.register('H1-repair', dict(self.plan, parent='root@1', control_run=None, change='fix', grid=[{'strategy':'child@1','parameters':'fixed'}]))
         self.register('repair', dict(self.plan, retry_of='H0', conditions='repeat invalid attempt, not independent'))
         self.assertEqual(first['files'].keys(), {'research-plan.json'})
 

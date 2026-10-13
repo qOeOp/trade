@@ -21,7 +21,7 @@ replay or a probe with `docker run` or `python -m backtest.run` directly.
 The runner takes the strategy reference, the inputs, the window and the account, nothing else.
 
 - **Strategy.** One complete source file, its entry class and SHA-256 (and, when sealed, its Dolt
-  binding). The `r1-native-v6` contract is in the [strategy-authoring
+  binding). The current `r1-native-v7` contract is in the [strategy-authoring
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source that needs daily warmup declares `DAILY_WARMUP = True`.
@@ -178,3 +178,8 @@ recovery needs the image (pull its digest from GHCR) and the market commit, whic
 turns into the same Catalogs. The first migration's custody locations and
 contract are recorded in the [migration record](../docs/plans/dolt-strategy-oci-migration.zh.md);
 historical local addresses are not product dependency paths.
+
+The v7 runner records explicit source constructor/callback exceptions in `runtime-errors.jsonl`
+and exits nonzero even if a native actor caught the exception. Ordinary WARN text is not an
+invalidity rule. Good-source behavior requires the paired native replay above; v6 remains readable
+as historical evidence. Original process logs are preserved by the host artifacts entry.

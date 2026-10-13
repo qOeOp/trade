@@ -18,7 +18,9 @@ actual constructor contract. Every replay follows [runs.md](references/runs.md).
 
 ## Before a research replay
 
-Publish the proposed exact source with its parent and difference, then preregister before replay.
+Publish the proposed exact source with its parent and difference, complete the native engineering
+precheck and exact-source review in [strategy-authoring.md](references/strategy-authoring.md), then
+preregister before the research replay. Precheck is not research or independent validation.
 Each hypothesis makes one actual rule change; a coupled entry/exit rule is one coupled action,
 without claiming independent component attribution. Separate the development parent from the fixed
 comparison control, with reasons for each. All registered grid cells derive from that parent.
@@ -38,7 +40,12 @@ evidence merely by repeating identical conditions.
 
 ## Feedback and continuation
 
-1. Read integrity first. Invalid or incomplete attempts provide reasons and repair evidence only,
+1. Read `availability` first: it is the current checker view, separate from retained `run.status`.
+   Real native fills with matching orders, position cycles and account records are required for
+   economic feedback. Zero fills are diagnostic only: distinguish no signal, not ready, no rule
+   opportunity, unfilled order, rejection and exception using original evidence. Never rank zero
+   fills above a losing control or compute p/CI for it. Zero fees/funding, low frequency, small
+   samples, losses and non-significance impose no economic exclusion. Read integrity next. Invalid or incomplete attempts provide reasons and repair evidence only,
    no economic feedback, comparison, rejection of a mechanism or positive reward.
 2. Read audited native account return, MARK drawdown, plan win rate, fees, funding and open exposure.
    Closed price P&L is a diagnostic, not account net profit. Derive additional statistics with

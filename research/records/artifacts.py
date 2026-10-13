@@ -50,7 +50,7 @@ def market_profile(path: Path | None, name: str | None = None) -> dict:
 
 def exporter_fingerprint() -> str:
     from research.records.common import ROOT
-    paths = ("research/market/export.py", "research/market/store.py", "research/market/universe.py",
+    paths = ("research/market/export.py", "research/market/coverage.py", "research/market/store.py", "research/market/universe.py",
              "research/records/artifacts.py", "uv.lock")
     manifest = {path: _sha(ROOT / path) for path in paths}
     return hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -185,11 +185,15 @@ def _cleanup(inputs: dict) -> None:
         shutil.rmtree(inputs["root"], ignore_errors=True)
 
 
-def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str]) -> tuple[int, int | None]:
+def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str], phases=None) -> tuple[int, int | None]:
     """Run the native replay, then the independent audit once its reports exist, in one pinned image."""
     from research.records.runtime import LAYOUTS, container_command
     layout = LAYOUTS[identity["runtime_contract"]]
+    phases = phases if phases is not None else {}
     native_command = container_command(identity, mounts, layout["runner"], runner_args)
+    phases["native"] = {"module": layout["runner"], "command": native_command, "state": "started", "exit_code": None}
+    phases["audit"] = None
+    _write_json(workdir / "process.json", phases)
     with (
         (workdir / "native.stdout.txt").open("wb") as out,
         (workdir / "native.stderr.txt").open("wb") as err,
@@ -199,11 +203,15 @@ def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str])
         except OSError as exc:
             err.write(str(exc).encode())
             native = 127
+    phases["native"].update(state="exited", exit_code=native)
+    _write_json(workdir / "process.json", phases)
     audit_exit = None
     if all((workdir / "reports" / name).is_file() for name in REPORTS):
         audit_command = container_command(identity, mounts, layout["audit"], [
             "--run", "/reports", *layout["audit_args"], "--output", "/reports/audit.json",
         ])
+        phases["audit"] = {"module": layout["audit"], "command": audit_command, "state": "started", "exit_code": None}
+        _write_json(workdir / "process.json", phases)
         with (
             (workdir / "audit.stdout.txt").open("wb") as out,
             (workdir / "audit.stderr.txt").open("wb") as err,
@@ -213,6 +221,8 @@ def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str])
             except OSError as exc:
                 err.write(str(exc).encode())
                 audit_exit = 127
+        phases["audit"].update(state="exited", exit_code=audit_exit)
+        _write_json(workdir / "process.json", phases)
     return native, audit_exit
 
 
@@ -234,6 +244,17 @@ def _audit_problems(workdir: Path, native_exit: int, audit_exit: int | None) -> 
             problems.append(str(exc))
     else:
         problems.append("independent native audit report missing")
+    runtime_errors = workdir / "reports" / "runtime-errors.jsonl"
+    if runtime_errors.is_file() and runtime_errors.stat().st_size:
+        try:
+            errors = [json.loads(line) for line in runtime_errors.read_bytes().splitlines() if line.strip()]
+            if errors:
+                if not all(item.get("format") == "runtime-failure-v1" for item in errors):
+                    problems.append("invalid structured runtime failure receipt")
+                else:
+                    problems.append("original native execution recorded callback/construction exceptions")
+        except (ValueError, TypeError):
+            problems.append("unreadable structured runtime failure receipt")
     return problems, audit
 
 
@@ -265,13 +286,38 @@ def _summary_problems(summary: dict | None, source_sha256: str, identity: dict, 
     return problems
 
 
-def _trial(ledger: dict, mode: str, source_sha256: str, identity: dict, inspection: dict, conn=None, registration=None) -> int:
+def _trial(ledger: dict, mode: str, source_sha256: str, identity: dict, inspection: dict, conn=None, registration=None, context=None) -> int:
     from research.records.trials import report_trial
     config = inspection["effective_config"]
     extra = {"registration": registration} if registration is not None else {}
+    if context is not None:
+        extra["execution_start"] = context
     return report_trial(ledger, mode=mode, strategy_source_sha256=source_sha256, coins=config["symbols"],
                         start=config["start"], trade_start=config["trade_start"], end=config["end"],
                         image_ref=identity["image_ref"], conn=conn, **extra)
+
+
+def _execute_capture(ledger, trial, identity, mounts, workdir, argv, *, conn=None, precheck=False):
+    from research.records.execution import capture
+    phases = {}
+    outcome = "interrupted"
+    try:
+        result = _replay(identity, mounts, workdir, argv, phases)
+        outcome = "completed"
+        return result
+    except BaseException as exc:
+        outcome = "interrupted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "host-failed"
+        raise
+    finally:
+        # Failed capture keeps the workspace and refuses further economic publication.
+        capture(ledger, trial_id=trial, workdir=workdir, phases=phases,
+                outcome=outcome, precheck=precheck, conn=conn)
+
+
+def _start_context(source_sha, identity, inspection, workdir, *, phase="replay"):
+    return {"phase": phase, "source_sha256": source_sha, "image_ref": identity["image_ref"],
+            "runtime": identity, "effective_config": inspection["effective_config"],
+            "workdir": str(workdir)}
 
 
 def explore(*, ledger: dict, market: dict, at: str | None, strategy_file: Path, strategy_class: str, output: Path,
@@ -296,21 +342,22 @@ def explore(*, ledger: dict, market: dict, at: str | None, strategy_file: Path, 
         _cleanup(inputs)
 
 
-def _explore(ledger, identity, inputs, source, source_sha256, strategy_class, output, runner_argv) -> dict:
+def _explore(ledger, identity, inputs, source, source_sha256, strategy_class, output, runner_argv, *, phase="replay") -> dict:
     from research.records.runtime import inspect_runtime
     effective_args, mounts = _container_runner_args(runner_argv, inputs)
     inspection = inspect_runtime(identity, effective_args)
-    trial = _trial(ledger, "explore", source_sha256, identity, inspection)
     output.mkdir(mode=0o700, parents=True)
     (output / "source").mkdir()
     (output / "source" / "strategy.py").write_bytes(source)
     (output / "reports").mkdir()
+    trial = _trial(ledger, "explore", source_sha256, identity, inspection,
+                   context=_start_context(source_sha256, identity, inspection, output, phase=phase))
     _write_json(output / "runtime-inspection.json", inspection)
     mounts += [(output / "source", "/strategy", True), (output / "reports", "/reports", False)]
-    native_exit, audit_exit = _replay(identity, mounts, output, [
+    native_exit, audit_exit = _execute_capture(ledger, trial, identity, mounts, output, [
         *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", strategy_class,
         "--strategy-sha256", source_sha256, "--output", "/reports",
-    ])
+    ], precheck=phase == "source-precheck")
     problems, _ = _audit_problems(output, native_exit, audit_exit)
     from research.records.analysis import explored
     status = "passed" if not problems else "failed"
@@ -318,6 +365,27 @@ def _explore(ledger, identity, inputs, source, source_sha256, strategy_class, ou
     return {"mode": "explore", "status": status, "problems": problems, "path": str(output),
             "image_ref": identity["image_ref"], "trial_id": trial, "market": inputs["identity"],
             "export": inputs["exported"], "readings": explored(output, status)}
+
+
+def precheck(*, ledger, market, at, strategy, runtime, runner_argv, output):
+    from research.records import db, records
+    from research.records.runtime import resolve
+    with db.reading(ledger) as conn:
+        revision = records.strategy(conn, strategy)
+    if not _is_temporary_path(output) or output.exists():
+        raise ArtifactError("precheck output must be a new temporary directory")
+    identity = resolve(runtime)
+    if revision["runtime_contract"] != identity["runtime_contract"]:
+        raise ArtifactError("precheck source and image runtime contracts differ")
+    inputs = market_inputs(market, at, _runner_inputs(runner_argv), fresh=True)
+    try:
+        result = _explore(ledger, identity, inputs, revision["source"], revision["source_sha256"],
+                          revision["entry_class"], output, runner_argv, phase="source-precheck")
+        return {**result, "phase":"source-precheck", "source_sha256":revision["source_sha256"],
+                "execution_bundle":f"trial-{result['trial_id']}-execution",
+                "scope":"engineering only; Agent must review rule/causal/indicator readiness separately"}
+    finally:
+        _cleanup(inputs)
 
 
 def run(*, ledger: dict, market: dict, at: str | None, strategy: str, runtime: str | None,
@@ -369,18 +437,23 @@ def _seal(ledger, conn, revision, strategy, runtime, inputs, runner_argv, hypoth
             "bundle": hypothesis, "execution": {"runtime": identity, "effective_config": config,
                                                    "input_identity": inputs["identity"]}}
         trial = _trial(ledger, "sealed", revision["source_sha256"], identity, inspection, conn=conn,
-                       registration=registration)
+                       registration=registration,
+                       context=_start_context(revision["source_sha256"], identity, inspection, workdir))
         mounts += [(source, "/strategy", True), (workdir / "reports", "/reports", False)]
-        native_exit, audit_exit = _replay(identity, mounts, workdir, [
+        native_exit, audit_exit = _execute_capture(ledger, trial, identity, mounts, workdir, [
             *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", revision["entry_class"],
             "--strategy-sha256", revision["source_sha256"], "--strategy-binding", "/strategy/binding.json",
             "--execution-binding", "/strategy/execution.json", "--output", "/reports",
-        ])
+        ], conn=conn)
         problems = []
         if export_fingerprint(inputs, semantic=False) != raw_input_hash:
             problems.append("exported inputs changed during replay")
-        from research.records.analysis import load_dir
-        reports = load_dir(workdir / "reports")
+        from research.records.analysis import load_dir, Reports
+        try:
+            reports = load_dir(workdir / "reports")
+        except (ValueError, KeyError, OSError, EOFError) as exc:
+            problems.append(f"native reports unreadable: {exc}")
+            reports = Reports(None, None, [], [], [], [], [], None, None)
         problems += _summary_problems(reports.summary, revision["source_sha256"], identity, _config_sha(config))
         audit_problems, _ = _audit_problems(workdir, native_exit, audit_exit)
         problems += [item for item in audit_problems if item not in problems]
@@ -416,7 +489,8 @@ def report_directory(ledger: dict | None, directory: Path) -> dict:
                 output["gates"] = gates(read_goal(conn), output, development=True)
         except RecordError:
             output["gates"] = None
-    return output
+    from research.records.availability import directory_view, mask
+    return mask(output, directory_view(reports))
 
 
 def main() -> int:
@@ -435,6 +509,14 @@ def main() -> int:
     replay.add_argument("--market", help="market database branch, tag or commit (default: main)")
     replay.add_argument("--market-ledger", help="market profile name (default: the active market database)")
     replay.add_argument("runner_args", nargs=argparse.REMAINDER)
+    check = commands.add_parser("precheck", help="exact-source native engineering check, not research feedback")
+    check.add_argument("--strategy", required=True)
+    check.add_argument("--runtime", required=True)
+    check.add_argument("--market", required=True)
+    check.add_argument("--market-profile", type=Path)
+    check.add_argument("--market-ledger")
+    check.add_argument("--output", type=Path, required=True)
+    check.add_argument("runner_args", nargs=argparse.REMAINDER)
     reading = commands.add_parser("report", help="a stored run's product readings, or an exploration's (--dir)")
     reading.add_argument("run_id", type=int, nargs="?")
     reading.add_argument("--at", help="branch or closing tag (default: the open round)")
@@ -459,7 +541,10 @@ def main() -> int:
         else:
             market = market_profile(args.market_profile, args.market_ledger)
             runner_args = args.runner_args[1:] if args.runner_args[:1] == ["--"] else args.runner_args
-            if args.explore:
+            if args.command == "precheck":
+                result = precheck(ledger=ledger, market=market, at=args.market, strategy=args.strategy,
+                                  runtime=args.runtime, runner_argv=runner_args, output=args.output)
+            elif args.explore:
                 result = explore(ledger=ledger, market=market, at=args.market, strategy_file=args.strategy_file,
                                  strategy_class=args.strategy_class, output=args.output, runtime=args.runtime,
                                  runner_argv=runner_args)
@@ -471,7 +556,7 @@ def main() -> int:
     except (ArtifactError, OSError, KeyError, ValueError) as exc:
         parser.exit(2, f"artifacts error: {exc}\n")
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
-    if args.command == "run":
+    if args.command in ("run", "precheck"):
         return 0 if result.get("status") == "passed" else 1
     return 0
 

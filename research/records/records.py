@@ -35,7 +35,7 @@ MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
 MEDIA_SUFFIXES = {".mp4", ".m4a", ".m4v", ".webm", ".mkv", ".mov", ".mp3", ".wav", ".aac", ".opus", ".flac"}
 MIN_PLANS = 100
 DRAWDOWN_MARGIN = Decimal(2) / Decimal(3)
-CURRENT_CONTRACT = "r1-native-v6"
+CURRENT_CONTRACT = "r1-native-v7"
 
 
 def _refuse(message, code="RECORD_REFUSED", **extra):
@@ -201,6 +201,9 @@ def strategy(conn, ref: str) -> dict:
 def add_evidence(profile: dict, bundle: str, paths: list[Path], op: str | None) -> dict:
     """Store a bundle's files (a directory is read recursively) as one insert-only evidence bundle."""
     _id(bundle, "bundle", BUNDLE)
+    from research.records.execution import RESERVED
+    if RESERVED.fullmatch(bundle):
+        raise _refuse("trial execution namespaces are reserved for original product capture", "EXECUTION_NAMESPACE")
     files = {}
     for given in paths:
         given = Path(given)
@@ -266,7 +269,7 @@ def export_evidence(conn, bundle: str, destination: Path) -> dict:
 # Trials and runs
 
 def report_trial(profile: dict, *, mode: str, source_sha256: str, image_ref: str, coins: list[str], start: str,
-                 trade_start: str, end: str, op: str, conn=None, registration=None) -> dict:
+                 trade_start: str, end: str, op: str, conn=None, registration=None, execution_start=None) -> dict:
     def insert(conn):
         if mode == "sealed" and not db.one(conn, "SELECT strategy_id FROM strategy_revision WHERE source_sha256 = %s",
                                            (source_sha256,)):
@@ -279,6 +282,9 @@ def report_trial(profile: dict, *, mode: str, source_sha256: str, image_ref: str
         if registration is not None:
             from research.records.hypotheses import bind
             bind(conn, registration, source_sha256=source_sha256, trial_id=trial_id)
+        if execution_start is not None:
+            from research.records.execution import start as start_execution
+            start_execution(conn, trial_id, execution_start, op)
         return {"trial_id": trial_id}
 
     return db.write(profile, kind="trial", op=op, table="trial", insert=insert,
@@ -509,7 +515,7 @@ def confirm_verdict(profile: dict, *, plan_id: int, run_id: int, failed_part: st
             raise _refuse(f"run {run_id} is not a sealed run of the frozen source", "NOT_FROZEN_SOURCE")
         if run["trade_start"] < plan["window_start"] or run["trade_end"] > plan["window_end"]:
             raise _refuse(f"run {run_id} trades outside the preregistered window", "WINDOW_MISMATCH")
-        same = ("symbols", "native_account") if json.loads(run["effective_config"]).get("runtime_contract") == "r1-native-v6" else ("coins", "native_account")
+        same = ("symbols", "native_account") if json.loads(run["effective_config"]).get("runtime_contract") in {"r1-native-v6", "r1-native-v7"} else ("coins", "native_account")
         left, right = json.loads(run["effective_config"]), json.loads(frozen["effective_config"])
         if any(left.get(key) != right.get(key) for key in same):
             raise _refuse(f"run {run_id} changes {[k for k in same if left.get(k) != right.get(k)]} from the freeze",
@@ -580,6 +586,13 @@ def round_status(profile: dict, at: str | None = None) -> dict:
                 "SUM(r.run_id IS NULL) AS unfinished_research_attempts FROM research_execution e "
                 "LEFT JOIN run r ON r.trial_id = e.trial_id")
             research_counts = {key: int(value or 0) for key, value in research_counts.items()}
+            from research.records.availability import assess, identity
+            completed = db.dicts(conn, "SELECT r.run_id FROM run r JOIN research_execution e ON e.trial_id = r.trial_id")
+            views = [assess(conn, _run_with_trial(conn, row["run_id"])) for row in completed]
+            research_counts["audit_passed_research_runs"] = research_counts.pop("valid_research_runs")
+            research_counts["valid_research_runs"] = sum(v["economic_evidence_available"] for v in views)
+            research_counts["diagnostic_only_research_runs"] = len(views) - research_counts["valid_research_runs"]
+            research_counts["availability_checker"] = identity()
     failed = [item for item in freezes if item["result"] == "failed"]
     return {
         "goal": {key: (str(value) if isinstance(value, (Decimal, datetime)) else value)
@@ -602,6 +615,8 @@ def run_report(profile: dict, run_id: int, at: str | None = None) -> dict:
         strategy_row = db.one(conn, "SELECT strategy_id, revision FROM strategy_revision WHERE source_sha256 = %s",
                               (run["strategy_source_sha256"],))
         goal = db.one(conn, "SELECT * FROM goal")
+        from research.records.availability import assess
+        available = assess(conn, run)
         by_year, by_year_limitations = (stored_closed_by_year(conn, run_id) if run["status"] == "passed"
                                         else (None, []))
     keys = ("run_id", "trial_id", "status", "image_revision", "runtime_contract", "nautilus_version",
@@ -627,7 +642,8 @@ def run_report(profile: dict, run_id: int, at: str | None = None) -> dict:
                   reading_limitations=json.loads(run["reading_limitations"]) + by_year_limitations,
                   cost_basis={"native_account": json.loads(run["effective_config"]).get("native_account"),
                               "observed_fee_rates": [{k: _plain(v) for k, v in row.items()} for row in cost]})
-    return output
+    from research.records.availability import mask
+    return mask(output, available)
 
 
 def _plain(value):

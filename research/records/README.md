@@ -133,3 +133,33 @@ cannot meet their main-image requirement.
 Market inputs come from a fixed WS8b Dolt market commit through the reader account. `--market-profile`
 selects an explicit market profile JSON independently of research `TRADE_LEDGER_HOME`. The actual
 minute contract and registration/run/compare examples are in the skill's [runs.md](../../.agents/skills/research-round/references/runs.md).
+
+## Current economic availability and original execution custody
+
+The shared `availability` view is distinct from immutable `run.status` and the original G account
+verdict. Report, candidate list, comparison, round counts and native-analysis tables apply it:
+real fills need matching orders, position cycles, audited economics and account records. Zero-fill
+runs remain diagnostic attempts with null economics and no comparison inference. No positive fee,
+funding amount, frequency, sample-size, return or significance cutoff is introduced. Retained
+identity-bound Agent source failures are disclosed separately from account audit; losses and
+non-significance never prevent descendants. An unusable parent may be repaired with no comparison
+control. Legacy missing original logs remain missing, with explicit applicability/reader identity.
+
+Current `r1-native-v7` adds fail-closed source callback/constructor exception capture while keeping
+one-minute native execution. Published sources receive an exact-source native engineering precheck
+and separately attributed Agent source/API/causal/activity/readiness review before registration.
+Only a predeclared exact precheck is exempt from source exposure; generic exploration is not.
+See the research-round authoring and hypothesis references for the CLI and JSON contract.
+
+Original runner/auditor stdout/stderr, source bytes, phase exits and structured exceptions are
+append-only product-owned evidence bundles tied to the original trial. Captured-empty, missing and
+not-started are distinct. The start receipt shares the atomic trial transaction. Normal failure or
+interruption captures in `finally`; hard process kill cannot promise final capture and preserves a
+missing final receipt and original working-directory location. Later probes do not replace original
+stderr. Existing schema-v2 tables suffice; no new columns or log service are added (review:
+[storage decision](../../docs/plans/p010-p013-storage-review.zh.md)).
+
+Every fresh market export includes read-only fixed-commit coverage facts for raw LAST/MARK minutes,
+alignment, zero volume, funding times and member months. First/last observations are data proxies,
+not authoritative listing/delisting dates. Actual indicator readiness remains source/Agent evidence;
+coverage does not synthesize data, choose windows or declare full-pool acceptance.

@@ -18,7 +18,7 @@ _IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 
 
 def report_trial(ledger: dict, *, mode: str, strategy_source_sha256: str, coins: list[str], start: str,
-                 trade_start: str, end: str, image_ref: str, conn=None, registration=None) -> int:
+                 trade_start: str, end: str, image_ref: str, conn=None, registration=None, execution_start=None) -> int:
     """Write one trial row; returns its ID. Refused when no round is open."""
     if mode not in MODES:
         raise ValueError(f"trial mode must be one of {MODES}")
@@ -30,6 +30,8 @@ def report_trial(ledger: dict, *, mode: str, strategy_source_sha256: str, coins:
         raise ValueError("trial needs its coins")
     import secrets
     extra = {"registration": registration} if registration is not None else {}
+    if execution_start is not None:
+        extra["execution_start"] = execution_start
     written = records.report_trial(ledger, mode=mode, source_sha256=strategy_source_sha256, image_ref=image_ref,
                                    coins=coins, start=start, trade_start=trade_start, end=end,
                                    op=f"trial:{secrets.token_hex(16)}", conn=conn, **extra)

@@ -22,12 +22,12 @@ from tests.records.fixtures import reports
 SOURCE = b"from nautilus_trader.trading import Strategy\n\n\nclass Fixture(Strategy):\n    pass\n"
 REAL_RUN = subprocess.run
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64, "image_digest": "sha256:" + "b" * 64,
-            "platform": "linux/arm64", "runtime_contract": "r1-native-v6"}
+            "platform": "linux/arm64", "runtime_contract": "r1-native-v7"}
 
 
 def probe(window: dict) -> dict:
-    paths = LAYOUTS["r1-native-v6"]["source_paths"]
-    return {"runtime_contract": "r1-native-v6", "nautilus_version": "fixture", "python_version": "fixture",
+    paths = LAYOUTS["r1-native-v7"]["source_paths"]
+    return {"runtime_contract": "r1-native-v7", "nautilus_version": "fixture", "python_version": "fixture",
             "dependency_lock_sha256": "c" * 64, "source_files_sha256": {field: "d" * 64 for field in paths},
             "source_file_paths": dict(paths), "audit_source_sha256": "e" * 64, "platform": "linux/arm64",
             "effective_config": {"symbols": ["AAAUSDT", "BBBUSDT"], "start": window["start"], "trade_start": window["trade_start"],
@@ -67,8 +67,9 @@ class Workspace(unittest.TestCase):
                 summary["strategy_source_sha256"] = command[command.index("--strategy-sha256") + 1]
                 (out / "summary.json").write_text(json.dumps(summary))
             if "backtest.checks.audit" in command:
-                (out / "audit.json").write_text(json.dumps({"passed": audit_passed,
-                                                            "findings": [] if audit_passed else ["naked position"]}))
+                native_audit = json.loads((out / "audit.json").read_text())
+                native_audit.update(passed=audit_passed, findings=[] if audit_passed else ["naked position"])
+                (out / "audit.json").write_text(json.dumps(native_audit))
             return subprocess.CompletedProcess(command, 0 if passed else 23)
         return execute
 
@@ -105,6 +106,7 @@ class ExploreTests(Workspace):
         with patch("research.records.runtime.resolve", return_value=IDENTITY), \
              patch("research.records.runtime.inspect_runtime", return_value=probe(window)), \
              patch("research.records.trials.report_trial", return_value=11) as trial, \
+             patch("research.records.execution.capture") as capture, \
              patch.object(artifacts, "market_inputs", return_value=self.inputs()), \
              patch.object(artifacts.subprocess, "run", side_effect=self.native()) as calls:
             result = artifacts.explore(ledger={"name": "x"}, market={}, at=None, strategy_file=draft,

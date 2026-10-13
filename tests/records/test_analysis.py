@@ -167,12 +167,12 @@ class SingleRunReportTests(unittest.TestCase):
         _seal(self.root, "R1", cycles=[CYCLES[2]])
         self.assertEqual(_report(self.root, "R1")["closed_by_year"], {})
 
-    def test_an_exploration_gets_the_readings_of_a_stored_run(self):
+    def test_incomplete_native_orders_and_account_are_diagnostic_only(self):
         seal = _seal(self.root, "R1")
         stored = _report(self.root, "R1")
         readings = analysis.explored(seal, "passed")
-        self.assertEqual((readings["price_pnl_usdt"], readings["closed_by_year"], readings["closed_positions"]),
-                         (stored["closed"]["price_pnl_usdt"], stored["closed_by_year"], stored["closed_trades"]))
+        self.assertIsNone(readings['price_pnl_usdt'])
+        self.assertFalse(readings['availability']['economic_evidence_available'])
         failed = analysis.explored(seal, "failed")
         self.assertIsNone(failed["price_pnl_usdt"])
         self.assertTrue(failed["reading_limitations"][0].startswith("Readings are null:"))
