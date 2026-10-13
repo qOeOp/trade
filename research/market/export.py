@@ -169,7 +169,9 @@ def build_instrument(symbol: str, row: dict, price_precision: int, *, native_id:
 
 def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step: int, price_precision: int,
                size_precision: int, price_scale: int, volume_scale: int) -> int:
+    from nautilus_trader.model import BarType
     from nautilus_trader.persistence import BarDataWrangler
+    iid = str(BarType.from_str(bar_type).instrument_id)
     ts = ((bars["ts_open"] + step - 1) * 1_000_000).astype(np.uint64)
     if len(ts) > 1 and not np.all(np.diff(ts.astype(np.int64)) > 0):
         raise RuntimeError(f"{bar_type}: unsorted export")
@@ -180,7 +182,7 @@ def write_bars(catalog, bar_type: str, bars: dict[str, np.ndarray], step: int, p
         table = pa.table({**{name: nautilus_raw(bars[name][part], price_scale) for name in ("open", "high", "low", "close")},
                           "volume": nautilus_raw(bars["volume"][part], volume_scale),
                           "ts_event": pa.array(ts[part]), "ts_init": pa.array(ts[part])}).replace_schema_metadata(
-            {"bar_type": bar_type, "instrument_id": bar_type.split("-")[0] + "-" + bar_type.split("-")[1],
+            {"bar_type": bar_type, "instrument_id": iid,
              "price_precision": str(price_precision), "size_precision": str(size_precision)})
         sink = pa.BufferOutputStream()
         with pa.ipc.new_stream(sink, table.schema) as writer:

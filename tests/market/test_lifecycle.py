@@ -115,3 +115,14 @@ class LifecycleInputsTests(unittest.TestCase):
         with self.assertRaises(RecordError):
             lifecycle.require_native_price(episode, instrument, 100_000_000_000, 300_000_000_000)
 
+    def test_native_bar_identity_preserves_episode_suffix(self):
+        from research.market.export import write_bars
+        bar_type = self.episode['instrument_id'] + '-1-MINUTE-LAST-EXTERNAL'
+        bars = {'ts_open': np.array([0]), 'volume': np.array([1]),
+                **{key: np.array([12345]) for key in ('open', 'high', 'low', 'close')}}
+        with tempfile.TemporaryDirectory() as root:
+            catalog = ParquetDataCatalog(root)
+            self.assertEqual(write_bars(catalog, bar_type, bars, 60_000, 5, 0, 5, 0), 1)
+            read = catalog.query_bars([bar_type])
+            self.assertEqual(str(read[0].bar_type.instrument_id), self.episode['instrument_id'])
+
