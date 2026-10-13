@@ -214,7 +214,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
         "native_max_drawdown_daily_close": MaxDrawdown().calculate_from_returns(
             eligible_returns,
         ),
-        "data_interval_minutes": 5,
+        "data_interval_minutes": 1,
         "input_start_utc": window["start"],
         "period_start_utc": trade_start_dt.isoformat(),
         "period_end_utc": window["end"],
@@ -222,7 +222,6 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
             {
                 "coin": row["coin"],
                 "instrument": str(row["instrument_id"]),
-                "quantity": row["quantity"],
                 "counts": row["counts"],
                 **diagnostics(strategies[row["coin"]]),
                 "positions": sum(positions["instrument_id"] == str(row["instrument_id"])),
@@ -230,10 +229,10 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
             for row in rows
         ],
         "limitations": [
-            "Five-minute execution bars cannot resolve every intrabar order sequence",
+            "One-minute execution bars cannot resolve every intrabar order sequence",
             "Current contract terms approximate historical metadata",
-            "Fixed 2026 coin universe is backcast into 2025",
-            "Open-position valuation is sampled after each five-minute bar close; intrabar exposure and drawdown are not observed",
+            "Contracts are the ones passed in; pool membership is an input the strategy applies, not a runner rule",
+            "Open-position valuation is sampled after each one-minute bar close; intrabar exposure and drawdown are not observed",
         ],
     }
     payload = json.dumps(json_safe(summary), indent=2, allow_nan=False)

@@ -19,8 +19,8 @@ uv run --frozen python -m research.records.cli round close
 ```
 
 The goal file is in [feasibility.md](feasibility.md). `round status` returns the goal, trial and run
-counts, every freeze with its latest result, `failed_freezes`,
-`distinct_sources_since_last_freeze` and `progress_check_due`.
+counts, every legacy target freeze, and registered valid/invalid/unfinished attempts.
+The Agent records review cadence and reasons; no product stop flag is inferred.
 
 ## Strategy revisions
 
@@ -39,7 +39,7 @@ nothing is inferred from names or code similarity.
 ## Freeze
 
 Freeze one sealed run of a published revision on the goal's development window
-([runs.md](runs.md)), after sizing ([feasibility.md](feasibility.md)):
+([runs.md](runs.md)), when a target snapshot is requested ([feasibility.md](feasibility.md)); this never gates research:
 
 ```bash
 uv run --frozen python -m research.records.cli freeze --run RUN-ID --source-bundle BUNDLE \
@@ -102,3 +102,12 @@ uv run --frozen python -m research.records.cli ledger export --at closed/GOAL-ID
 added (a modified or removed row is a finding). `ledger export` writes every table at one ref as
 Parquet. `ledger audit` checks a whole round (commit tests, append-only history, stored readings
 against a recomputation, freeze verdicts and trial counts, timestamps).
+
+## Continuous candidate operations
+
+Use [hypotheses.md](hypotheses.md) for the locked JSON and [runs.md](runs.md) for register/run/compare.
+`candidate list [--at REF]` returns complete source lineage, registered attempts and validity;
+`hypothesis compare --id BUNDLE --run RUN-ID [--at REF]` is read-only evidence, without adoption.
+Append its output and Agent diagnostic/recommendation/priority notes using existing `evidence add`.
+New ledgers use schema-v2; old schema-v1 records are read without migration. Research commands refuse
+schema-v1 rather than silently modifying its structure. Use a new isolated database for fixtures.

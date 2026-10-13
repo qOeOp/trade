@@ -1,8 +1,8 @@
 """The research records: goal, strategy revisions, evidence, trials, runs, freezes, confirmations.
 
-Only two research records are registered: a candidate freeze (written once) and a confirmation
-(preregistered plan, then verdict). Everything else is exploration, but every native replay writes
-a trial row and every sealed run is stored whole. Verdicts are computed here from the goal and the
+Continuous research preregisters hypotheses in evidence and binds every grid attempt atomically.
+Candidate identity is complete strategy source, lineage and replay evidence, regardless of economics.
+Legacy freezes and confirmations remain target snapshots, not research qualification. Verdicts are computed here from the goal and the
 product readings; the Agent names only the failed part and a bounded note. Nothing is edited.
 """
 
@@ -35,7 +35,7 @@ MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
 MEDIA_SUFFIXES = {".mp4", ".m4a", ".m4v", ".webm", ".mkv", ".mov", ".mp3", ".wav", ".aac", ".opus", ".flac"}
 MIN_PLANS = 100
 DRAWDOWN_MARGIN = Decimal(2) / Decimal(3)
-CURRENT_CONTRACT = "r1-native-v4"
+CURRENT_CONTRACT = "r1-native-v6"
 
 
 def _refuse(message, code="RECORD_REFUSED", **extra):
@@ -266,7 +266,7 @@ def export_evidence(conn, bundle: str, destination: Path) -> dict:
 # Trials and runs
 
 def report_trial(profile: dict, *, mode: str, source_sha256: str, image_ref: str, coins: list[str], start: str,
-                 trade_start: str, end: str, op: str, conn=None) -> dict:
+                 trade_start: str, end: str, op: str, conn=None, registration=None) -> dict:
     def insert(conn):
         if mode == "sealed" and not db.one(conn, "SELECT strategy_id FROM strategy_revision WHERE source_sha256 = %s",
                                            (source_sha256,)):
@@ -276,6 +276,9 @@ def report_trial(profile: dict, *, mode: str, source_sha256: str, image_ref: str
                 (mode, source_sha256, image_ref, json.dumps(list(coins)), _utc(start, "start"),
                  _utc(trade_start, "trade_start"), _utc(end, "end"), op))
         (trial_id,), = db.rows(conn, "SELECT LAST_INSERT_ID()")
+        if registration is not None:
+            from research.records.hypotheses import bind
+            bind(conn, registration, source_sha256=source_sha256, trial_id=trial_id)
         return {"trial_id": trial_id}
 
     return db.write(profile, kind="trial", op=op, table="trial", insert=insert,
@@ -506,7 +509,7 @@ def confirm_verdict(profile: dict, *, plan_id: int, run_id: int, failed_part: st
             raise _refuse(f"run {run_id} is not a sealed run of the frozen source", "NOT_FROZEN_SOURCE")
         if run["trade_start"] < plan["window_start"] or run["trade_end"] > plan["window_end"]:
             raise _refuse(f"run {run_id} trades outside the preregistered window", "WINDOW_MISMATCH")
-        same = ("coins", "native_account")
+        same = ("symbols", "native_account") if json.loads(run["effective_config"]).get("runtime_contract") == "r1-native-v6" else ("coins", "native_account")
         left, right = json.loads(run["effective_config"]), json.loads(frozen["effective_config"])
         if any(left.get(key) != right.get(key) for key in same):
             raise _refuse(f"run {run_id} changes {[k for k in same if left.get(k) != right.get(k)]} from the freeze",
@@ -557,7 +560,7 @@ def correct(profile: dict, *, freeze_id: int | None, verdict_id: int | None, res
 # Reads
 
 def round_status(profile: dict, at: str | None = None) -> dict:
-    """The goal and the counts the stop rules need, in one read."""
+    """The goal and factual counts; the Agent chooses review cadence and research actions."""
     with db.reading(profile, at) as conn:
         goal = read_goal(conn)
         counts = db.one(conn, "SELECT (SELECT COUNT(*) FROM trial) AS trials, "
@@ -570,6 +573,13 @@ def round_status(profile: dict, at: str | None = None) -> dict:
         last = freezes[-1]["created_at"] if freezes else None
         (since,), = db.rows(conn, "SELECT COUNT(DISTINCT strategy_source_sha256) FROM trial"
                                   + (" WHERE created_at > %s" if last else ""), (last,) if last else None)
+        research_counts = {}
+        if db.one(conn, "SELECT version FROM ledger_schema")["version"] == 2:
+            research_counts = db.one(conn, "SELECT COUNT(*) AS research_attempts, "
+                "SUM(r.status = 'passed') AS valid_research_runs, SUM(r.status = 'invalid') AS invalid_research_runs, "
+                "SUM(r.run_id IS NULL) AS unfinished_research_attempts FROM research_execution e "
+                "LEFT JOIN run r ON r.trial_id = e.trial_id")
+            research_counts = {key: int(value or 0) for key, value in research_counts.items()}
     failed = [item for item in freezes if item["result"] == "failed"]
     return {
         "goal": {key: (str(value) if isinstance(value, (Decimal, datetime)) else value)
@@ -578,8 +588,8 @@ def round_status(profile: dict, at: str | None = None) -> dict:
         "freezes": [{**item, "created_at": item["created_at"].isoformat() + "Z"} for item in freezes],
         "failed_freezes": len(failed),
         "distinct_sources_since_last_freeze": since,
-        "progress_check_due": (len(failed) > 0 and len(failed) % 3 == 0 and freezes[-1]["result"] == "failed")
-                              or since > 20,
+        **research_counts,
+        "review_cadence": "Agent records attempt/progress-based review reasons in evidence; no product stop rule",
     }
 
 
@@ -604,7 +614,7 @@ def run_report(profile: dict, run_id: int, at: str | None = None) -> dict:
         development = (run["trade_start"], run["trade_end"]) == (goal["window_start"], goal["window_end"])
         output["gates"] = {"development_window": development, **gates(goal, run, development=development)}
     output.update(strategy=f"{strategy_row['strategy_id']}@{strategy_row['revision']}" if strategy_row else None,
-                  coins=json.loads(run["coins"]), failure_reasons=json.loads(run["failure_reasons"] or "null"),
+                  coins=json.loads(run["coins"]), market=json.loads(run["input_identity"]), failure_reasons=json.loads(run["failure_reasons"] or "null"),
                   closed_by_year=by_year,
                   reading_limitations=json.loads(run["reading_limitations"]) + by_year_limitations,
                   cost_basis={"native_account": json.loads(run["effective_config"]).get("native_account"),

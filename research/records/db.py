@@ -19,7 +19,8 @@ import pymysql.cursors
 from research.records.common import RecordError
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+MARKET_SCHEMA_VERSION = 1
 DOLT_VERSION = "2.4.2"
 ROUND_PREFIX = "round/"
 CLOSED_PREFIX = "closed/"

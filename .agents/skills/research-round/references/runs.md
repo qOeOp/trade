@@ -1,87 +1,50 @@
-# Every native replay
+# Native runs through the official entry
 
-Every native replay goes through `artifacts run`, and each writes one trial row in the open round
-before it starts (strategy source hash, window, coins, image); without an open round it is refused.
-Never start a replay or a probe with `docker run` or a direct runner command.
+Every native replay uses `research.records.artifacts run`, writes a trial before starting and runs
+Nautilus plus its independent auditor inside a digest-pinned CI image. Complete candidate evidence
+uses published source and `--hypothesis`; unregistered exploration is temporary diagnostic evidence.
+An invalid or incomplete run has no economic feedback.
 
-- **Explore** a draft file into a new `/tmp` directory: reports stay there, nothing else is stored.
-- **Seal** a published revision: it replays in a temporary directory, is audited, and is then
-  stored whole in the ledger in one write (reports as typed rows, product readings as columns); the
-  directory is deleted. A run whose audit fails is stored with its reasons only, as `invalid`.
-  Seal only what a freeze or a confirmation will cite.
-
-## Runtime and inputs
-
-- CI builds every image (`ghcr.io/qoeop/trade-runtime`). Without `--runtime`, `run` pulls the
-  current main image (tag `main`) and records its digest; `--runtime` takes another CI reference,
-  such as a pull request's `pr-N` tag, for exploration or engineering. A freeze or confirmation
-  accepts only a run on an image built from a commit on origin/main: merge a missing product
-  capability first, then rerun on the main image.
-- The image's contract label must equal the revision's `runtime_contract`.
-- A sealed run takes an input identity of the prepared Catalogs (a working file under `/tmp`); the
-  trees are hashed before and after the replay and the identity is stored with the run:
+Research profile and read-only market profile are selected separately. `--market-profile` accepts
+an explicit JSON profile path so the market profile need not share `TRADE_LEDGER_HOME` with research.
+Pin `--market` to a Dolt commit. The export uses real 1m LAST bars, 1m MARK updates, stored funding
+and derived daily warmup. `--symbols` states a bounded engineering universe; `--universe pool` uses
+all members over the window. Pool membership is passed to source, not enforced as an economic audit.
+Inspect listings, gaps and assumptions; do not backfill missing minutes or silently hand-pick winners.
 
 ```bash
-uv run --frozen python -m research.records.artifacts input-identity \
-  --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --output /tmp/RUNDIR/input-identity.json
+uv run --frozen python -m research.records.cli --ledger RESEARCH hypothesis register \
+  --id H01 --plan /tmp/RUNDIR/plan.json --runtime IMAGE@sha256:DIGEST \
+  --market-profile /absolute/path/market.json --market MARKET-COMMIT -- \
+  --universe pool --start START --trade-start TRADE-START --end END
+uv run --frozen python -m research.records.artifacts --ledger RESEARCH run \
+  --hypothesis H01 --strategy ID@2 --runtime IMAGE@sha256:DIGEST \
+  --market-profile /absolute/path/market.json --market MARKET-COMMIT -- \
+  --universe pool --start START --trade-start TRADE-START --end END
+uv run --frozen python -m research.records.artifacts --ledger RESEARCH report RUN-ID
+uv run --frozen python -m research.records.cli --ledger RESEARCH hypothesis compare --id H01 --run RUN-ID
+uv run --frozen python -m research.records.cli --ledger RESEARCH candidate list
 ```
 
-## Explore
+The registration fixes runtime, effective configuration, market commit, universe, exact exported
+content and exporter identity. Each replay freshly exports and verifies the same identity; full
+raw tree hashes before/after execution detect mutation. Only `export.json` elapsed seconds are
+excluded from cross-export semantic hashing. Source hash, parent and change are rechecked before
+atomic binding. Each registered cell is attempted once, including invalid/interrupted attempts.
 
-```bash
-uv run --frozen python -m research.records.artifacts run --explore \
-  --strategy-file /tmp/RUNDIR/strategy.py --strategy-class ENTRY-CLASS --output /tmp/RUNDIR/pilot -- \
-  --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END
-```
+Times need Z/explicit offset and one-minute alignment with `start <= trade-start < end`. Sealed
+candidate research covers the goal development window. Runtime `r1-native-v6` fixes execution to
+one minute and passes `execution_bar_minutes=1` to the source; signal timeframe is source-owned.
+New backtest code requires a new CI digest. Main-image/fresh-checkout protections still apply to
+legacy freeze/confirmation, so an unmerged test branch cannot claim independent confirmation.
 
-`--output` receives `reports/`, the logs and `runtime-inspection.json`. The result carries
-`readings`: the same readings as `report` below, read from the unverified temporary reports. Use
-them to steer and to judge a coarse replay ([hypotheses.md](hypotheses.md)), citing the trial ID;
-never cite them in a freeze or a confirmation. They are null with the reason when the replay did
-not pass or its reports are incomplete. For a Nautilus behavior
-probe, run a script from `/tmp` on the host with
-`uv run --frozen --project REPO python /tmp/RUNDIR/probe.py`; it imports `backtest` and `research`.
+Exploration uses `--explore --strategy-file FILE --strategy-class CLASS --output /tmp/NEW-DIR`,
+plus the same runtime/market/window inputs. Never use it to bypass registration or claim fixed
+candidate comparisons. Host API probes may inspect the pinned installed library; replays still
+use artifacts. Runtime changes require native checks of orders, clocks, stops, fees, funding and
+account; a 1m behavior change is not parity with 5m.
 
-## Seal
-
-```bash
-uv run --frozen python -m research.records.artifacts run --strategy ID@N \
-  --input-identity /tmp/RUNDIR/input-identity.json -- \
-  --catalog-root MINUTE-CATALOG --daily-root DAILY-CATALOG --quantity-csv QUANTITIES.csv \
-  --coins COIN [COIN ...] --start START --trade-start TRADE-START --end END
-```
-
-- Arguments after `--` go to the runner; `run` supplies the strategy file, class, hash, bindings
-  and output itself and refuses those flags.
-- Times carry `Z` or an explicit UTC offset and fall on five-minute boundaries with
-  `start <= trade-start < end`; `start` to `trade-start` is warmup. A freeze needs
-  `trade-start`/`end` equal to the goal window.
-- `passed` means the native integrity checks and the audit passed, not that the strategy meets the
-  goal. The audit checks report identities, links, stop protection throughout the replay (from
-  `order_events.jsonl.gz`) and reported economics ([strategy-authoring.md](strategy-authoring.md));
-  it does not prove a signal clock, staged-exit races or source-specific rules.
-- It prints the `run_id`; a failure while storing keeps the directory and prints its path.
-
-## Read a run
-
-```bash
-uv run --frozen python -m research.records.artifacts report RUN-ID [--at closed/GOAL-ID]
-uv run --frozen python -m research.records.artifacts report --dir /tmp/RUNDIR/pilot
-```
-
-`--dir` reads an exploration's reports the same way and adds the open goal's gates; nothing is
-stored, so it is a reading for your next step, never for a freeze.
-
-- The readings: `plans_closed`, `plans_won`, `plans_open`, `plan_win_rate` (the goal's plan win
-  rate; null with the reason in `reading_limitations` when an order lacks a plan tag or carries
-  two, plans on one instrument overlap, or a position and a plan do not map one to one),
-  `annual_return`, `max_drawdown` (native MARK equity on the trade window) and `return_drawdown`;
-  the closed-position split (fill price, commissions, funding) only when it reconciles to the
-  audited native economics; `closed_by_year`, that split and the closed count by the UTC year each
-  position closed in (a whole cycle, funding included, counts in its closing year; open positions
-  are left out; `{}` without closes; null with the reason when a close time is missing); and
-  `cost_basis`: the account terms and the fee rates observed in fills.
-- Any other statistic follows the `nautilus-report-analysis` skill, which loads a stored run with
-  `research.records.analysis.tables(run_id)`.
+Product reports provide annual net account return, native MARK drawdown, net plan win rate,
+reconciled closed economics, fees/funding/open residual, closed-by-year and input/cost identities.
+Missing readings stay null with limitations. Extra statistics follow `nautilus-report-analysis`.
+Read/write evidence through CLI and use fixed `--at` refs for readback, audit, export and recovery.

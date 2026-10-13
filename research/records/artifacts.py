@@ -21,11 +21,6 @@ import tempfile
 from research.records.common import RecordError, _is_temporary_path, _read_json
 
 
-IDENTITY_ALGORITHM = (
-    "SHA-256 over each sorted relative POSIX path as 4-byte big-endian "
-    "length + path UTF-8 + SHA-256 of file bytes; tree digest is SHA-256 "
-    "of concatenated records"
-)
 REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv")
 
 
@@ -41,119 +36,153 @@ def _sha(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _tree(root: Path) -> tuple[str, int, int]:
-    if not root.is_dir():
-        raise ArtifactError(f"missing input Catalog: {root}")
+def market_profile(path: Path | None, name: str | None = None) -> dict:
+    from research.records import ledger
+    if path is None:
+        return ledger.profile(name, of="market")
+    if name is not None:
+        raise ArtifactError("choose --market-profile or --market-ledger, not both")
+    value = _read_json(path)
+    if ledger.kind(value) != "market":
+        raise ArtifactError("explicit profile must be a market database")
+    return value
+
+
+def exporter_fingerprint() -> str:
+    from research.records.common import ROOT
+    paths = ("research/market/export.py", "research/market/store.py", "research/market/universe.py",
+             "research/records/artifacts.py", "uv.lock")
+    manifest = {path: _sha(ROOT / path) for path in paths}
+    return hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def export_fingerprint(inputs: dict, *, semantic=True) -> str:
+    """Path-independent exported-byte custody. Only elapsed export seconds are volatile."""
     digest = hashlib.sha256()
-    count = size = 0
-    for path in sorted(root.rglob("*")):
+    paths = sorted(path for path in inputs["root"].rglob("*") if path.is_file() or path.is_symlink())
+    paths.append(inputs["pool_file"])
+    for path in paths:
         if path.is_symlink():
-            raise ArtifactError(f"input Catalog has a symlink: {path}")
-        if not path.is_file():
-            continue
-        name = path.relative_to(root).as_posix().encode()
-        digest.update(len(name).to_bytes(4, "big"))
-        digest.update(name)
-        digest.update(bytes.fromhex(_sha(path)))
-        count += 1
-        size += path.stat().st_size
-    return digest.hexdigest(), count, size
+            raise ArtifactError(f"export contains symlink {path}")
+        name = "pool.json" if path == inputs["pool_file"] else path.relative_to(inputs["root"]).as_posix()
+        data = path.read_bytes()
+        if semantic and path.name == "export.json":
+            receipt = json.loads(data)
+            receipt.pop("seconds", None)
+            data = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+        encoded = name.encode()
+        digest.update(len(encoded).to_bytes(4, "big"))
+        digest.update(encoded)
+        digest.update(hashlib.sha256(data).digest())
+    return digest.hexdigest()
 
 
 def _runner_inputs(argv: list[str]) -> argparse.Namespace:
+    """The replay's contracts and window; the market inputs themselves are this command's to supply."""
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--catalog-root", type=Path, required=True)
-    parser.add_argument("--daily-root", type=Path, required=True)
-    parser.add_argument("--quantity-csv", type=Path, required=True)
-    parser.add_argument("--coins", nargs="+", required=True)
-    if "--output" in argv:
-        raise ArtifactError("the custody command owns --output")
+    parser.add_argument("--symbols", nargs="+")
+    parser.add_argument("--universe", choices=("pool",))
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", required=True)
+    parser.add_argument("--trade-start")
+    for option in ("--output", "--market-root", "--market-commit", "--pool"):
+        if any(value.split("=", 1)[0] == option for value in argv):
+            raise ArtifactError(f"the run command owns {option}")
     args, _ = parser.parse_known_args(argv)
-    if len(args.coins) != len(set(args.coins)):
-        raise ArtifactError("duplicate replay coins")
+    if (args.symbols is None) == (args.universe is None):
+        raise ArtifactError("pass --symbols SYMBOL ... or --universe pool")
+    if args.symbols and len(args.symbols) != len(set(args.symbols)):
+        raise ArtifactError("duplicate replay symbols")
     return args
 
 
-def _check_inputs(identity: dict, replay: argparse.Namespace) -> dict:
-    if identity.get("digest_algorithm") != IDENTITY_ALGORITHM:
-        raise ArtifactError("unsupported input identity algorithm")
-    if _sha(replay.quantity_csv) != identity["quantity_csv_sha256"]:
-        raise ArtifactError("quantity CSV differs from input identity")
-    coins = {row["coin"]: row for row in identity["coins"]}
-    checked = {}
-    for coin in replay.coins:
-        if coin not in coins:
-            raise ArtifactError(f"{coin}: missing from input identity")
-        checked[coin] = {}
-        for label, root, leaf in (
-            ("minute_catalog", replay.catalog_root, "minute"),
-            ("daily_catalog", replay.daily_root, "daily"),
-        ):
-            actual = _tree(root / coin / leaf)
-            expected = coins[coin][label]
-            if actual != (expected["sha256"], expected["files"], expected["bytes"]):
-                raise ArtifactError(f"{coin}: {label} bytes differ from input identity")
-            checked[coin][label] = expected["sha256"]
-    return checked
+def _ms(value: str) -> int:
+    from backtest.load import ns
+    return ns(value) // 1_000_000
 
 
-def create_input_identity(
-    *,
-    catalog_root: Path,
-    daily_root: Path,
-    quantity_csv: Path,
-    coins: list[str],
-    output: Path,
-) -> dict:
-    if output.exists():
-        raise ArtifactError(f"input identity already exists: {output}")
-    if not coins or len(coins) != len(set(coins)):
-        raise ArtifactError("input identity needs unique coins")
-    rows = []
-    for coin in coins:
-        row = {"coin": coin}
-        for label, root, leaf in (
-            ("minute_catalog", catalog_root, "minute"),
-            ("daily_catalog", daily_root, "daily"),
-        ):
-            digest, count, size = _tree(root / coin / leaf)
-            row[label] = {"sha256": digest, "files": count, "bytes": size}
-        rows.append(row)
-    identity = {
-        "digest_algorithm": IDENTITY_ALGORITHM,
-        "minute_catalog_root": str(catalog_root.resolve()),
-        "daily_catalog_root": str(daily_root.resolve()),
-        "quantity_csv_sha256": _sha(quantity_csv),
-        "coins": rows,
-    }
-    output.parent.mkdir(parents=True, exist_ok=True)
-    _write_json(output, identity, exclusive=True)
-    return {"path": str(output), "sha256": _sha(output), "coins": len(rows)}
+def membership(pool_rows: list[tuple], end_month) -> dict[str, list[list[int]]]:
+    """Each contract's pool months as merged [start_ns, end_ns) intervals."""
+    from research.market import universe
+    found: dict[str, list[list[int]]] = {}
+    months = sorted({month for month, _ in pool_rows})
+    following = {month: (universe.day_ms(nxt) if nxt else universe.day_ms(end_month))
+                 for month, nxt in zip(months, [*months[1:], None])}
+    for month, symbol in sorted(pool_rows, key=lambda row: (row[1], row[0])):
+        start, end = universe.day_ms(month) * 1_000_000, following[month] * 1_000_000
+        intervals = found.setdefault(symbol, [])
+        if intervals and intervals[-1][1] == start:
+            intervals[-1][1] = end
+        else:
+            intervals.append([start, end])
+    return found
 
 
-def _container_runner_args(argv: list[str], replay: argparse.Namespace) -> tuple[list[str], list[tuple[Path, str, bool]]]:
-    replacements = {"--catalog-root": (replay.catalog_root, "/inputs/catalog"),
-                    "--daily-root": (replay.daily_root, "/inputs/daily"),
-                    "--quantity-csv": (replay.quantity_csv, "/inputs/quantity.csv")}
+def market_inputs(market: dict, at: str | None, replay: argparse.Namespace, *, fresh: bool) -> dict:
+    """Export the market commit for the replay window and write its pool membership file."""
+    from research.market import export, store, universe
+    from research.records import db
+    start, end = _ms(replay.start), _ms(replay.end)
+    trade_start = _ms(replay.trade_start) if replay.trade_start else start
+    conn = db.connect(market, "reader")
+    try:
+        commit = store.resolve(conn, at)
+        rule, = db.rows(conn, f"SELECT pool_rule FROM market_schema AS OF '{commit}'")[0]
+        pool_rows = db.rows(conn, f"SELECT month, symbol FROM pool AS OF '{commit}'")
+        (last_month,), = db.rows(conn, f"SELECT MAX(month) FROM pool AS OF '{commit}'")
+    finally:
+        conn.close()
+    if not pool_rows:
+        raise ArtifactError(f"market commit {commit} holds no pool")
+    following = (last_month.replace(year=last_month.year + 1, month=1) if last_month.month == 12
+                 else last_month.replace(month=last_month.month + 1))
+    members = membership(pool_rows, following)
+    if replay.universe == "pool":
+        symbols = sorted(symbol for symbol, intervals in members.items()
+                         if any(a < end * 1_000_000 and b > trade_start * 1_000_000 for a, b in intervals))
+    else:
+        symbols = list(replay.symbols)
+    exported = export.export(market, at=commit, symbols=symbols, start=start, end=end, timeframe="1m", fresh=fresh)
+    root = Path(exported["root"])
+    pool_file = Path(tempfile.mkdtemp(prefix="trade-pool-", dir="/tmp")) / "pool.json"
+    _write_json(pool_file, {"commit": commit, "pool_rule": rule,
+                            "membership": {symbol: members.get(symbol, []) for symbol in symbols}})
+    identity = {"market_database": market["database"], "market_commit": commit, "pool_rule": rule,
+                "universe": "pool" if replay.universe else "symbols", "symbols": symbols}
+    inputs = {"identity": identity, "root": root, "pool_file": pool_file, "fresh": fresh, "symbols": symbols,
+              "exported": {key: exported[key] for key in ("exported", "reused", "seconds")}}
+    if any(receipt.get("timeframe") != "1m" for receipt in exported["receipts"].values()):
+        raise ArtifactError("market export did not produce one-minute inputs")
+    identity["export_content_sha256"] = export_fingerprint(inputs)
+    identity["exporter_source_sha256"] = exporter_fingerprint()
+    return inputs
+
+
+def _container_runner_args(argv: list[str], inputs: dict) -> tuple[list[str], list[tuple[Path, str, bool]]]:
+    """Runner arguments with the market inputs in their container paths, and the read-only mounts."""
     denied = {"--strategy-file", "--strategy-class", "--strategy-sha256", "--strategy-binding", "--execution-binding",
               "--output", "--describe"}
-    result = list(argv)
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--mark-root", type=Path)
-    args, _ = parser.parse_known_args(argv)
-    if args.mark_root is not None:
-        replacements["--mark-root"] = (args.mark_root, "/inputs/mark")
-    for index, value in enumerate(argv):
+    result, skip = [], False
+    for value in argv:
         option = value.split("=", 1)[0]
         if option in denied:
-            raise ArtifactError(f"the custody command owns {option}")
-        if option in replacements:
-            target = replacements[option][1]
-            if "=" in value:
-                result[index] = option + "=" + target
-            elif index + 1 < len(result):
-                result[index + 1] = target
-    return result, [(path, target, True) for path, target in replacements.values()]
+            raise ArtifactError(f"the run command owns {option}")
+        if option in ("--universe", "--symbols"):
+            skip = "=" not in value
+            continue
+        if skip and not value.startswith("--"):
+            continue
+        skip = False
+        result.append(value)
+    result += ["--market-root", "/inputs/market", "--market-commit", inputs["identity"]["market_commit"],
+               "--pool", "/inputs/pool.json", "--symbols", *inputs["symbols"]]
+    return result, [(inputs["root"], "/inputs/market", True), (inputs["pool_file"], "/inputs/pool.json", True)]
+
+
+def _cleanup(inputs: dict) -> None:
+    shutil.rmtree(inputs["pool_file"].parent, ignore_errors=True)
+    if inputs["fresh"]:
+        shutil.rmtree(inputs["root"], ignore_errors=True)
 
 
 def _replay(identity: dict, mounts: list, workdir: Path, runner_args: list[str]) -> tuple[int, int | None]:
@@ -236,16 +265,17 @@ def _summary_problems(summary: dict | None, source_sha256: str, identity: dict, 
     return problems
 
 
-def _trial(ledger: dict, mode: str, source_sha256: str, identity: dict, inspection: dict, conn=None) -> int:
+def _trial(ledger: dict, mode: str, source_sha256: str, identity: dict, inspection: dict, conn=None, registration=None) -> int:
     from research.records.trials import report_trial
     config = inspection["effective_config"]
-    return report_trial(ledger, mode=mode, strategy_source_sha256=source_sha256, coins=config["coins"],
+    extra = {"registration": registration} if registration is not None else {}
+    return report_trial(ledger, mode=mode, strategy_source_sha256=source_sha256, coins=config["symbols"],
                         start=config["start"], trade_start=config["trade_start"], end=config["end"],
-                        image_ref=identity["image_ref"], conn=conn)
+                        image_ref=identity["image_ref"], conn=conn, **extra)
 
 
-def explore(*, ledger: dict, strategy_file: Path, strategy_class: str, output: Path, runtime: str | None,
-            runner_argv: list[str]) -> dict:
+def explore(*, ledger: dict, market: dict, at: str | None, strategy_file: Path, strategy_class: str, output: Path,
+            runtime: str | None, runner_argv: list[str]) -> dict:
     """Replay a draft strategy file in the pinned image into a new /tmp directory; report its trial."""
     from research.records.runtime import inspect_runtime, resolve
     output = output.absolute()
@@ -259,7 +289,16 @@ def explore(*, ledger: dict, strategy_file: Path, strategy_class: str, output: P
     source_sha256 = hashlib.sha256(source).hexdigest()
     replay = _runner_inputs(runner_argv)
     identity = resolve(runtime)
-    effective_args, mounts = _container_runner_args(runner_argv, replay)
+    inputs = market_inputs(market, at, replay, fresh=False)
+    try:
+        return _explore(ledger, identity, inputs, source, source_sha256, strategy_class, output, runner_argv)
+    finally:
+        _cleanup(inputs)
+
+
+def _explore(ledger, identity, inputs, source, source_sha256, strategy_class, output, runner_argv) -> dict:
+    from research.records.runtime import inspect_runtime
+    effective_args, mounts = _container_runner_args(runner_argv, inputs)
     inspection = inspect_runtime(identity, effective_args)
     trial = _trial(ledger, "explore", source_sha256, identity, inspection)
     output.mkdir(mode=0o700, parents=True)
@@ -277,19 +316,30 @@ def explore(*, ledger: dict, strategy_file: Path, strategy_class: str, output: P
     status = "passed" if not problems else "failed"
     # Read from the unverified temporary reports: to steer by, never to cite in a decision.
     return {"mode": "explore", "status": status, "problems": problems, "path": str(output),
-            "image_ref": identity["image_ref"], "trial_id": trial, "readings": explored(output, status)}
+            "image_ref": identity["image_ref"], "trial_id": trial, "market": inputs["identity"],
+            "export": inputs["exported"], "readings": explored(output, status)}
 
 
-def run(*, ledger: dict, strategy: str, runtime: str | None, input_identity: Path, runner_argv: list[str]) -> dict:
-    """Run a published revision in a temporary directory, audit it, store it in the ledger, delete the directory."""
+def run(*, ledger: dict, market: dict, at: str | None, strategy: str, runtime: str | None,
+        runner_argv: list[str], hypothesis: str | None = None) -> dict:
+    """Run a published revision in a temporary directory, audit it, store it in the ledger, delete the directory.
+
+    The market commit is exported afresh into a temporary directory for this run alone; the run's
+    input identity is that commit, the pool rule and the contracts.
+    """
     from research.records import db
     from research.records.records import strategy as read_strategy
     replay = _runner_inputs(runner_argv)
     with db.session(ledger) as conn:
-        return _seal(ledger, conn, read_strategy(conn, strategy), strategy, runtime, input_identity, runner_argv, replay)
+        revision = read_strategy(conn, strategy)
+        inputs = market_inputs(market, at, replay, fresh=True)
+        try:
+            return _seal(ledger, conn, revision, strategy, runtime, inputs, runner_argv, hypothesis)
+        finally:
+            _cleanup(inputs)
 
 
-def _seal(ledger, conn, revision, strategy, runtime, input_identity, runner_argv, replay) -> dict:
+def _seal(ledger, conn, revision, strategy, runtime, inputs, runner_argv, hypothesis) -> dict:
     from research.records import db
     from research.records.runtime import image_revision, inspect_runtime, resolve
     from research.records.trials import hand_off_run
@@ -297,10 +347,11 @@ def _seal(ledger, conn, revision, strategy, runtime, input_identity, runner_argv
     identity = resolve(runtime)
     if revision["runtime_contract"] != identity["runtime_contract"]:
         raise ArtifactError("strategy and image runtime contracts differ")
-    effective_args, mounts = _container_runner_args(runner_argv, replay)
+    effective_args, mounts = _container_runner_args(runner_argv, inputs)
     inspection = inspect_runtime(identity, effective_args)
-    identity_file = json.loads(Path(input_identity).read_text(encoding="utf-8"))
-    checked_before = _check_inputs(identity_file, replay)
+    raw_input_hash = export_fingerprint(inputs, semantic=False)
+    if export_fingerprint(inputs) != inputs["identity"]["export_content_sha256"]:
+        raise ArtifactError("export changed before execution")
     workdir = Path(tempfile.mkdtemp(prefix="trade-run-", dir="/tmp"))
     try:
         source = workdir / "source"
@@ -314,7 +365,11 @@ def _seal(ledger, conn, revision, strategy, runtime, input_identity, runner_argv
         _write_json(source / "execution.json", {"runtime_identity": identity, "effective_config": config,
                                                 "effective_config_sha256": _config_sha(config)})
         (workdir / "reports").mkdir()
-        trial = _trial(ledger, "sealed", revision["source_sha256"], identity, inspection, conn=conn)
+        registration = None if hypothesis is None else {
+            "bundle": hypothesis, "execution": {"runtime": identity, "effective_config": config,
+                                                   "input_identity": inputs["identity"]}}
+        trial = _trial(ledger, "sealed", revision["source_sha256"], identity, inspection, conn=conn,
+                       registration=registration)
         mounts += [(source, "/strategy", True), (workdir / "reports", "/reports", False)]
         native_exit, audit_exit = _replay(identity, mounts, workdir, [
             *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", revision["entry_class"],
@@ -322,11 +377,8 @@ def _seal(ledger, conn, revision, strategy, runtime, input_identity, runner_argv
             "--execution-binding", "/strategy/execution.json", "--output", "/reports",
         ])
         problems = []
-        try:
-            if _check_inputs(identity_file, replay) != checked_before:
-                problems.append("inputs changed during replay")
-        except (ArtifactError, OSError, KeyError) as exc:
-            problems.append(str(exc))
+        if export_fingerprint(inputs, semantic=False) != raw_input_hash:
+            problems.append("exported inputs changed during replay")
         from research.records.analysis import load_dir
         reports = load_dir(workdir / "reports")
         problems += _summary_problems(reports.summary, revision["source_sha256"], identity, _config_sha(config))
@@ -334,7 +386,7 @@ def _seal(ledger, conn, revision, strategy, runtime, input_identity, runner_argv
         problems += [item for item in audit_problems if item not in problems]
         stored = hand_off_run(ledger, trial_id=trial, reports=reports, problems=problems, inspection=inspection,
                               image_revision=image_revision(identity), effective_config=config,
-                              input_identity={**identity_file, "checked": checked_before}, conn=conn)
+                              input_identity=inputs["identity"], conn=conn)
     except BaseException:
         print(f"replay directory kept for diagnosis: {workdir}", file=sys.stderr)
         raise
@@ -378,22 +430,19 @@ def main() -> int:
     replay.add_argument("--strategy-class")
     replay.add_argument("--output", type=Path)
     replay.add_argument("--strategy", help="published revision ID@N")
-    replay.add_argument("--input-identity", type=Path)
+    replay.add_argument("--hypothesis", help="locked preregistration bundle for continuous research")
+    replay.add_argument("--market-profile", type=Path, help="explicit market profile JSON, independent of research profile home")
+    replay.add_argument("--market", help="market database branch, tag or commit (default: main)")
+    replay.add_argument("--market-ledger", help="market profile name (default: the active market database)")
     replay.add_argument("runner_args", nargs=argparse.REMAINDER)
     reading = commands.add_parser("report", help="a stored run's product readings, or an exploration's (--dir)")
     reading.add_argument("run_id", type=int, nargs="?")
     reading.add_argument("--at", help="branch or closing tag (default: the open round)")
     reading.add_argument("--dir", type=Path, help="an exploration's --output directory instead of a stored run")
-    identity = commands.add_parser("input-identity", help="hash prepared Catalog inputs")
-    identity.add_argument("--catalog-root", type=Path, required=True)
-    identity.add_argument("--daily-root", type=Path, required=True)
-    identity.add_argument("--quantity-csv", type=Path, required=True)
-    identity.add_argument("--coins", nargs="+", required=True)
-    identity.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "run":
-        explore_args, seal_args = ("strategy_file", "strategy_class", "output"), ("strategy", "input_identity")
-        needed, refused = (explore_args, seal_args) if args.explore else (seal_args, explore_args)
+        explore_args, seal_args = ("strategy_file", "strategy_class", "output"), ("strategy",)
+        needed, refused = (explore_args, (*seal_args, "hypothesis")) if args.explore else (seal_args, explore_args)
         missing = [name for name in needed if getattr(args, name) is None]
         extra = [name for name in refused if getattr(args, name) is not None]
         if missing or extra:
@@ -401,24 +450,22 @@ def main() -> int:
                          + ", ".join("--" + name.replace("_", "-") for name in needed)
                          + " and refuses " + ", ".join("--" + name.replace("_", "-") for name in refused))
     try:
-        if args.command == "input-identity":
-            result = create_input_identity(catalog_root=args.catalog_root, daily_root=args.daily_root,
-                                           quantity_csv=args.quantity_csv, coins=args.coins, output=args.output)
+        from research.records.ledger import profile
+        ledger = profile(args.ledger)
+        if args.command == "report":
+            if (args.run_id is None) == (args.dir is None):
+                parser.error("report needs a RUN-ID or --dir")
+            result = report(ledger, args.run_id, args.at) if args.dir is None else report_directory(ledger, args.dir)
         else:
-            from research.records.ledger import profile
-            ledger = profile(args.ledger)
-            if args.command == "report":
-                if (args.run_id is None) == (args.dir is None):
-                    parser.error("report needs a RUN-ID or --dir")
-                result = report(ledger, args.run_id, args.at) if args.dir is None else report_directory(ledger, args.dir)
+            market = market_profile(args.market_profile, args.market_ledger)
+            runner_args = args.runner_args[1:] if args.runner_args[:1] == ["--"] else args.runner_args
+            if args.explore:
+                result = explore(ledger=ledger, market=market, at=args.market, strategy_file=args.strategy_file,
+                                 strategy_class=args.strategy_class, output=args.output, runtime=args.runtime,
+                                 runner_argv=runner_args)
             else:
-                runner_args = args.runner_args[1:] if args.runner_args[:1] == ["--"] else args.runner_args
-                if args.explore:
-                    result = explore(ledger=ledger, strategy_file=args.strategy_file, strategy_class=args.strategy_class,
-                                     output=args.output, runtime=args.runtime, runner_argv=runner_args)
-                else:
-                    result = run(ledger=ledger, strategy=args.strategy, runtime=args.runtime,
-                                 input_identity=args.input_identity, runner_argv=runner_args)
+                result = run(ledger=ledger, market=market, at=args.market, strategy=args.strategy,
+                             runtime=args.runtime, runner_argv=runner_args, hypothesis=args.hypothesis)
     except RecordError as exc:
         parser.exit(2, json.dumps({"error": exc.as_dict()}, ensure_ascii=False, default=str) + "\n")
     except (ArtifactError, OSError, KeyError, ValueError) as exc:

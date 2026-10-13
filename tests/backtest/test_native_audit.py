@@ -282,7 +282,7 @@ class NativeAuditTests(unittest.TestCase):
         self.assertFalse(self.check(values)["passed"])
 
     def test_one_bar_without_stop_is_allowed(self):
-        value = self.check(self.unprotected(delay="55min"))
+        value = self.check(self.unprotected(delay="59min"))
         self.assertTrue(value["passed"], value["findings"])
         self.assertEqual(value["uncovered_intervals"], [])
 

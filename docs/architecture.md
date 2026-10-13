@@ -1,63 +1,77 @@
-# Current Architecture
+# Research architecture
 
-## Product form
+External Agents conduct continuous research within a route the user selects. Every complete
+single-file strategy revision is a candidate with exact source identity, development parent,
+actual rule change and replay evidence. Neither statistical significance nor target attainment
+creates a candidate or grants derivation rights. The user chooses a new route, recognition,
+independent validation and deployment; Agent recommendations and experiment priorities remain
+separate append-only reasoning.
 
-External Agents research source material, propose hypotheses, edit versioned native Nautilus `Strategy` source, run a local replay and inspect its evidence. A strategy is a first class artifact. Persistent research data lives only in Dolt and its backup copy: each complete single-file strategy and its revisions, a trial row for every native replay, stored runs with their native reports, evidence bundles, candidate freezes and confirmations. Agents develop drafts in temporary directories and export a fixed Dolt revision for execution. Git maintains the Agent rules and skills, shared tools, image build inputs, tests and historical evidence. An immutable OCI image supplies Python, Nautilus, native replay and audit code. The published Nautilus package owns matching, orders, risk, execution, portfolio and account calculations.
+## Boundaries
 
-The product has four layers, distinguished by where each guarantee comes from:
+| Owner | Responsibility |
+|---|---|
+| Agent / skills | Hypothesis, one actual rule change, mechanism diagnosis, conditional priority, recommendation over all comparable candidates, attempt/progress review cadence |
+| Records contracts | Immutable identities, preregistration before replay, atomic one-attempt grid binding, comparability, integrity, retained facts and counts |
+| Published Nautilus | Matching, orders, fills, fees, funding, risk, portfolio and account |
+| User | Selected research route, three targets, route changes, recognition/validation/deployment |
 
-| Layer | Content | Location | Guarantee |
-|---|---|---|---|
-| 0 Always-on rules | User authority boundaries, when to write product code, no parallel engine, which skill to use when, paired replay for behavior-preserving changes | Root `AGENTS.md`, loaded automatically by most sessions | Guidance only; observed by layer-3 adversarial cases |
-| 1 Skills | Method and exact commands for a research round (`research-round`); native report statistics (`nautilus-report-analysis`); video evidence and notes (`video-evidence`); loaded on demand | `.agents/skills/` | Guidance only; observed by layer-3 with/without-skill comparisons |
-| 2 Contracts and execution | Research ledger accounts and refusals, product-computed freeze and confirmation verdicts, digest-pinned OCI image, published Nautilus, the video evidence checker | In place: `research/records`, `backtest`, the CI-built image, `services/video-evidence` | Insert-only accounts and server-time stamps make changes leave traces, not impossible; refusals prevent mistakes |
-| 3 Evaluation | Skill case replay, `ledger audit`, external witness | Regression cases in `.agents/skills/*/evals/`; held-out cases and answer keys in a private directory outside Git; RFC 3161 timestamps of freeze and confirmation-plan commits from a public authority, stored in the ledger | Runs from, or is recorded in, a location the evaluated session does not control |
+Product code owns facts and trust/concurrency/permission boundaries. It has no optimizer, parallel
+engine, ledger, scheduler or binary development-adoption mechanism. Economic failure updates
+research priorities; low-priority actions remain reassessable. Research continues by default;
+optional user run limits pause execution and retain recovery state. Ten attempts is a fixture
+length, not a product stopping rule.
 
-Layer 2 is not an unbypassable boundary. On this single-user host the Agent runs as the same operating-system user as Dolt and Docker, so it can read the service's root password, edit the data directory or host code, or build its own image. The guarantee is that changes leave traces, not that they are impossible. On the normal path the writer account can only insert, branch control limits it to the open round, triggers set `created_at` to server time, and concurrent writes conflict instead of merging. The product, not the Agent, computes freeze and confirmation verdicts from the goal's gates and the run's stored readings and counts distinct strategy sources from trial rows; freezes and confirmations accept only runs on CI images built on origin/main. `ledger audit` checks a whole round: commit tests, append-only history, stored readings against a recomputation, verdicts, trial counts and witnesses. Freeze and confirmation-plan commits get an RFC 3161 timestamp from a public authority, stored in the ledger and verified offline, a plan before its window starts, so a backdated plan shows against its token. A timestamp proves that a record existed by then, not that it was the only one. A record forged with root access in API form before its witness, or a replay started outside `artifacts run` that leaves no trial row, is not currently detectable. Only a separate custodial operating-system user would harden layer 2; that waits until the first passed confirmation or a conclusion that must rely on layer 2. See the [skill product-form audit](plans/skill-product-form-audit.zh.md). The video evidence checker `services/video-evidence/check_bundle.py` writes nothing, imports no repository code, recomputes hashes, frames, crops and the ASR input from the media bytes and checks citations. Research rounds run only the local checker; elsewhere an Agent can edit a local copy, so only a clean-context reviewer's run from `origin/main` with a matching `checker_git_blob` counts (see the [video evidence decision](plans/video-evidence-refactor.zh.md)).
+## Production entry
 
-```mermaid
-flowchart LR
-  A[External Agent and temporary draft] --> Q[research.records CLI]
-  Q --> S[Strategy source exported at a fixed revision]
-  A --> R[artifacts run: native replay]
-  S --> R
-  G[Git shared tools and image build inputs] --> I[CI-built OCI image digest and platform]
-  I --> R
-  D[Historical Catalog and input identity] --> R
-  R --> T[Trial row for every replay]
-  R --> N[Published Nautilus package]
-  N --> E[Orders, fills, account and metrics]
-  E --> X["Exploration reports in /tmp"]
-  E --> U[Sealed run audited and stored whole]
-  T --> L[Dolt round branch]
-  U --> L
-  Q --> L
-  L --> F[Candidate freeze and confirmation verdicts]
-  F --> W[External witness]
-  F --> A
-  X --> A
-```
+`research.records.cli` publishes complete strategy bytes in `strategy_revision`, including parent
+and difference. `hypothesis register` validates and stores an immutable evidence contract with
+rationale/prediction, retained sources, one dimension, fixed grid and applicability conditions.
+Its comparison control is independent of its development parent. `artifacts run --hypothesis`
+checks the locked source, runtime, market/export identity and full execution configuration, then
+atomically inserts a trial and `research_execution` relation before invoking the native replay.
+Every registered grid point is consumed once, including invalid or interrupted attempts.
 
-R1 replays 37 contracts in one native 100,000 USDT margin account to expose capital competition within the strategy. Each independent strategy binds to its own fixed-capital native account. If several trading logics must share that capital, implement them as one composite Nautilus `Strategy` with one versioned source file and one account. That file contains the complete trading rules while genuinely shared runtime and data capabilities remain dependencies. Allocation, orders and exits are replayed together. For per-component attribution, the composite Strategy records a component identity with its orders and research evidence; native account equity remains the combined result. There is no external position ledger or parallel portfolio service.
+Sealed runs retain native reports and audited account readings in Dolt. Invalid attempts have
+reasons and no economic feedback. `candidate list` reads lineage and custody. `hypothesis compare`
+refuses incomparable/invalid runs and computes paired daily-log evidence in circular weekly
+blocks, a separate CAGR-difference interval, nested studentization and block sensitivity. Its p
+value is a null-model tail reading, not probability of strategy validity. Grid Bonferroni does not
+control the entire adaptive search; development improvement is not independent validation.
+Non-return inference is not defined by the present design. Agent diagnostic, priority and
+recommendation reasons are added through existing evidence bundles; they are not product scores.
 
-`research.records` is the research domain interface for Agents: `python -m research.records.cli` and `research.records.artifacts`. Persistent research data lives only in Dolt and its `dolt_backup` copy; drafts, exploratory scripts, replay outputs and derived reports are working copies in `/tmp`, and Git holds no strategy bodies or experiment receipts. One Dolt service can host several databases: the research ledger now, market data later. Each goal is a round, the branch `round/<goal_id>` from `main`, which holds only the schema; the round is tagged `closed/<goal_id>` at the end. Typed tables hold the goal, evidence bundles, strategy revisions with their source bytes, trials, runs, freezes, confirmation plans and verdicts, and corrections. `ledger sql` reads any branch or tag as the reader account, and `ledger export` writes every table at a branch or tag as Parquet.
+## Data and runtime
 
-Every native replay goes through `artifacts run` and first writes a trial row with its source hash, window, coins and image. `--explore` replays a draft into a new `/tmp` directory and stores nothing else. `--strategy ID@N` replays a published revision in a temporary directory, audits it, stores the whole run in Dolt in one write and deletes the directory: product readings as columns of `run`, native reports as `run_order`, `run_fill`, `run_position`, `run_account`, `run_return` and `run_order_event` rows, and exposures as a compressed blob. A run whose audit fails is stored as `invalid` with its reasons. Agents compute other statistics from a stored run following the `nautilus-report-analysis` skill.
+Research and market profiles are selected separately. WS8b market tables supply real 1m LAST/MARK
+and funding at a fixed Dolt commit through read-only access. `r1-native-v6` loads 1m execution bars,
+passes `execution_bar_minutes=1` to source and values capital at 1m MARK timestamps. A source's
+signal period can differ. Monthly pool membership is an input for the source to apply; historical
+terms, missing buckets and bar-order ambiguity remain reported limitations. New runner/auditor
+bytes require a new CI-built image digest. A 1m change is not parity with old 5m economics.
 
-Only two research records are registered; everything else is exploration. A candidate freeze cites one sealed run of a fixed revision on the goal's development window and is written once. The product computes its verdict (`passed`, `failed` or `invalid`) from the goal's gates and the run's readings and counts the distinct strategy sources from trial rows; the Agent names the failed part. A confirmation follows a passed freeze: its plan preregisters a future window and is timestamped by an RFC 3161 authority before the window starts, and after the window one sealed run receives a product-computed verdict. A verdict is never edited; a correction is a new record naming it. Freezes and confirmations accept only runs on CI images built on origin/main and are refused from a checkout that lacks origin/main.
+Source, input, runtime and exporter implementation identities are retained. Export content hashing
+includes Catalog bytes, pool content and semantic receipts excluding elapsed seconds; raw before/
+after hashing detects mutation during execution. Runtime Docker uses a read-only root, no network,
+read-only inputs and only a writable reports mount. Python/Nautilus versions remain pinned by
+`uv.lock`; native trading facts are never reconstructed by a host research script.
 
-The writer account has `SELECT` and `INSERT`, `UPDATE` only on `ledger_head` and `EXECUTE` only on the procedure `dolt_commit`; the reader account only selects; branch control limits the writer to the open round. Every write is one transaction that also updates the single `ledger_head` row, so a later concurrent writer gets error 1213 instead of a merge. Reads do not revalidate the ledger; `ledger audit` is the full check. Old ledgers and sealed artifact directories are outside this design and are deleted in WS7. The [`research-round` skill](../.agents/skills/research-round/SKILL.md) gives the operating steps; the [record guide](../research/records/README.md) covers the service, accounts, write protocol, backup and tests.
+## Custody and validation
 
-## Current runnable slice
+Persistent research facts live only in Dolt and its backup. Working copies live in `/tmp`; Git
+holds product code, skills and engineering findings, no strategy bodies or research receipts.
+Schema-v2 is initialized in new isolated research ledgers. Existing schema-v1 ledgers and old
+records are not migrated; their legacy read interfaces remain available. The writer can insert,
+update only `ledger_head`, and execute only `dolt_commit`; branch grants and one transaction prevent
+accidental concurrent merges. `ledger audit` checks append-only history, readings, registration
+bindings, legacy verdicts and witnesses. Same-system-user access cannot prevent deliberate
+root tampering, but changes leave traces.
 
-Every native replay goes through `research.records.artifacts run`: `--explore` writes a draft's reports to a new `/tmp` directory, a sealed run is stored in the ledger, and both write one trial row. It executes `python -m backtest.run` and the auditor in an image CI builds for `linux/arm64` and pushes to `ghcr.io/qoeop/trade-runtime`, labelled with its source commit; without `--runtime` it pulls the `main` tag and records the digest, and freezes and confirmations accept only images built from a commit on origin/main. The runner uses the published `BacktestNode` pinned to `nautilus_trader==2.0.0rc3` and takes four things: the strategy reference, the inputs, the window and the fixed account. The current `r1-native-v4` contract loads one complete source file; the source owns its signals, sizing, native orders, exits and diagnostics, and the runner has no strategy parameter, so a variant is a new revision. Only the `r1-native-v4` layout is known to current code; seals of `v1` to `v3` are not read. Nautilus loads funding directly from the existing Catalog and performs settlement. `backtest/load.py` converts existing MARK bars into a derived native `MarkPriceUpdate` Catalog, verifies every event on reuse and checks funding coverage; `backtest/run.py` builds the Node and `backtest/report.py` writes the reports. See `backtest/README.md` for usage and paired acceptance, and the [paired replay](plans/nautilus-upstream-poc.md) for historical evidence.
+Legacy freeze/confirmation interfaces retain their target gates, freshness, main-image and future-
+data timestamp protections. They are separate target snapshots and independent-validation paths,
+not qualifications for continuous candidate development. This unmerged test branch cannot use its
+image as a main-image confirmation. Validation remains user-initiated, preregistered, single-use;
+never relabel development or exposed historical data as independent.
 
-The pinned `nautilus_trader==2.0.0rc3` is the version whose orders and economics were paired on the same data, parameters and shared account; an upgrade must recheck native order integrity and the annual pairing. Current contract metadata comes from the rule assumptions saved during research and does not prove precise historical daily contract terms. Historical research data stays in the external Catalog and is not copied into Git. Research scripts and exposed annual results can serve mechanism diagnosis; confirming a new candidate needs independent preregistered rules, pairing and out-of-sample or multiple-attempt handling.
-
-## Extension boundaries
-
-Strategy version management is the ledger's `strategy_revision` table: append-only revisions with exact source bytes. Each independent strategy has one complete source file. A revision keeps its strategy ID; a derived strategy gets a new ID, a fixed parent revision and an explicit difference. Shared replay, validation and acceptance tools live in `backtest/` and the CI-built image; product Git receives no strategy drafts.
-
-The research ledger holds real research records: clearing, resetting or rewriting it, its rounds or its backup requires explicit user authority. The ledgers, sealed directories and backups from before the 2026-10-11 rewrite are not read by current code; WS7 deletes them, and the [ledger enablement record](plans/ws2-ledger-enablement.zh.md) states what earlier rounds exposed.
-
-Full replay recovery needs the ledger (its `dolt_backup` copy holds every branch and tag, so source, configuration, input identity and native reports together), the exact OCI image (pull its digest from GHCR) and canonical inputs. A backup in a second local directory does not prove recovery across independent failure domains; recovery on another host remains to be accepted. Nautilus continues to own trading facts. Live trading is a separate future delivery requiring user authorization and acceptance of its boundaries.
+See the [ledger guide](../research/records/README.md), [research-round skill](../.agents/skills/research-round/SKILL.md),
+[native contract](../backtest/README.md) and [implementation mapping](plans/rd-proposals-implementation.zh.md).

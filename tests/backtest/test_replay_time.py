@@ -13,8 +13,7 @@ from backtest.run import effective_configuration, parse_configuration
 
 
 ARGV = [
-    "--catalog-root", "/inputs/catalog", "--daily-root", "/inputs/daily",
-    "--quantity-csv", "/inputs/quantity.csv", "--coins", "BTC",
+    "--market-root", "/inputs/market", "--market-commit", "c" * 32, "--symbols", "BTCUSDT",
     "--start", "2025-01-01T00:00:00Z", "--end", "2025-01-02T00:00:00Z",
     "--trade-start", "2025-01-01T01:00:00Z", "--output", "/reports",
     "--strategy-file", "/unused.py", "--strategy-class", "Unused",
@@ -68,14 +67,14 @@ print(json.dumps({key: [config[key], _ns(config[key])] for key in ('start', 'end
             ["--end", "2024-12-31T00:00:00Z"],
             ["--trade-start", "2024-12-31T23:55:00Z"],
             ["--trade-start", "2025-01-02T00:00:00Z"],
-            ["--start", "2025-01-01T00:01:00Z"],
+            ["--start", "2025-01-01T00:01:01Z"],
             ["--end", "2025-01-02T00:00:01Z"],
             ["--trade-start", "2025-01-01T01:00:00.000001Z"],
         ):
             with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()) as errors:
                 with self.assertRaises(SystemExit):
                     parse_configuration(ARGV + extra)
-                self.assertIn("five-minute-aligned", errors.getvalue())
+                self.assertIn("one-minute-aligned", errors.getvalue())
 
     def test_time_precision_cannot_be_silently_truncated(self):
         for value in ("2025-01-01T00:00:00.000000001Z",
@@ -95,7 +94,7 @@ print(json.dumps({key: [config[key], _ns(config[key])] for key in ('start', 'end
         self.assertEqual(_ns("1970-01-01T00:00:00.123456Z"), 123456000)
 
     def test_default_trade_start_and_nanoseconds_use_the_same_parser(self):
-        args = parse_configuration([value for index, value in enumerate(ARGV) if index not in (12, 13)])
+        args = parse_configuration([value for index, value in enumerate(ARGV) if index not in (10, 11)])
         self.assertEqual(effective_configuration(args)["trade_start"], args.start)
         self.assertEqual(_ns("2025-01-01T09:00:00+09:00"), _ns("2025-01-01T00:00:00Z"))
         self.assertEqual(_ns("1970-01-01T00:00:00.000001Z"), 1000)

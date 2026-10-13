@@ -1,4 +1,4 @@
--- Research ledger schema, generation 1. Applied once on main by `ledger init`; every round branch
+-- Research ledger schema, generation 2 (new ledgers only). Applied once on main by `ledger init`; every round branch
 -- inherits it. Field review: docs/plans/ws2-ledger-field-review.zh.md.
 --
 -- Rules: insert only; every write also updates the single ledger_head row (concurrency guard,
@@ -97,6 +97,18 @@ CREATE TABLE trial (
   INDEX trial_source (strategy_source_sha256),
   INDEX trial_created (created_at),
   CHECK (input_start <= trade_start AND trade_start < trade_end)
+);
+
+-- Preregistered grid cell consumed by one attempted native replay, atomic with its trial.
+-- Reviewed in docs/plans/rd-proposals-storage-review.zh.md. Registration is existing evidence.
+CREATE TABLE research_execution (
+  bundle VARCHAR(160) NOT NULL,
+  strategy_source_sha256 CHAR(64) NOT NULL,
+  trial_id INT NOT NULL UNIQUE,
+  PRIMARY KEY (bundle, strategy_source_sha256),
+  FOREIGN KEY (bundle) REFERENCES evidence_bundle (bundle),
+  FOREIGN KEY (strategy_source_sha256) REFERENCES strategy_revision (source_sha256),
+  FOREIGN KEY (trial_id) REFERENCES trial (trial_id)
 );
 
 -- A sealed replay of a published strategy revision, stored whole after its audit.

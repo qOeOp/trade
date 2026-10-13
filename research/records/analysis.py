@@ -22,6 +22,7 @@ from decimal import Decimal
 import gzip
 import io
 import json
+import sys
 import math
 from pathlib import Path
 
@@ -433,6 +434,7 @@ def _typed(row: dict) -> dict:
 
 def _rows(data: bytes) -> list[dict]:
     csv.field_size_limit(2**31 - 1)  # positions.events holds every fill of a cycle in one cell
+    csv.field_size_limit(sys.maxsize)
     return list(csv.DictReader(io.StringIO(data.decode("utf-8"), newline="")))
 
 

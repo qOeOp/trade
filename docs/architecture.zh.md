@@ -1,63 +1,34 @@
-# Trade 当前架构
+# 研发架构
 
-## 产品形态
+外部 Agent 在用户选定路线内持续研究。每份完整的单文件策略版本都是研究候选，保留精确源码身份、研发父版本、实际规则改动和回放证据。显著性、目标达标和当前推荐不产生候选身份，也不授予派生资格。用户选择路线及认可、独立验证、部署；Agent 的推荐与下一实验排序分别追加记录。
 
-外部 Agent 直接研究市场资料、提出假设、编辑版本化 Nautilus `Strategy` 源码、调用本地回放入口并阅读证据。策略是第一等公民。持久研究数据只存在 Dolt 及其备份副本中：每个策略的完整单文件源码与版本、每次原生回放的试验行、连同原生报告一起保存的运行、证据包、候选冻结与确认。Agent 在临时目录开发，发表后从固定 Dolt revision 导出执行文件。Git 维护 Agent 规则与 skill、共享工具、镜像构建输入、测试和历史证据；固定 OCI 镜像提供 Python、Nautilus、原生回放与审计环境。撮合、风控执行、订单生命周期、组合与账户计算由发布版 Nautilus 提供。
+## 职责边界
 
-产品分四层，按保证从哪里来区分：
+| 归属 | 职责 |
+|---|---|
+| Agent / skills | 假设、唯一实际改动、机制诊断、条件优先级、综合所有可比候选推荐、按尝试与进展复盘 |
+| records 契约 | 不可改身份、登记先于回放、原子一次网格尝试绑定、可比性、完整性、原始事实与计数 |
+| 发布的 Nautilus | 撮合、订单、成交、费用、资金费、风险、组合和账户 |
+| 用户 | 研究路线、三个目标、改换路线、认可、验证、部署 |
 
-| 层 | 内容 | 位置 | 保证来自 |
-|---|---|---|---|
-| 0 常驻规则 | 用户授权边界、何时写产品代码、不另造引擎、何时用哪个 skill、行为不变的改动先做配对重放 | 根 `AGENTS.md`，多数会话自动加载 | 只是提示；由第 3 层的对抗用例观察 |
-| 1 skill | 一轮研究的方法与确切命令（`research-round`），原生报告统计规则（`nautilus-report-analysis`），视频取证与笔记（`video-evidence`），按需加载 | `.agents/skills/` | 只是提示；由第 3 层的有/无 skill 对照观察 |
-| 2 契约与执行 | 研究台账的账户与拒绝、由产品计算的冻结与确认裁决、固定 digest 的 OCI 镜像、发布版 Nautilus、视频证据包检查器 | 原地：`research/records`、`backtest`、CI 构建的镜像、`services/video-evidence` | 只能插入的账户与服务器时间戳让改动留下痕迹，但不能阻止；拒绝只防误操作 |
-| 3 评估 | skill 案例重放、`ledger audit`、外部见证 | 回归用例在 `.agents/skills/*/evals/`；留出用例与答案键放 Git 外的私有目录；冻结与确认计划提交的 RFC 3161 时间戳来自公共时间戳机构，存在台账里 | 在不受被测会话控制的位置执行或留档 |
+产品只承担事实及信任、并发、权限边界，不建优化器、平行引擎、账本、调度器或开发逐步采纳裁决。经济不利反馈调整研究优先级，低优先级动作保留重评机会。默认持续研究，可选用户运行限制只暂停执行并保留恢复状态。十轮是本次测试截取长度，不是产品停止规则。
 
-第 2 层不是无法绕过的边界。本机只有一个用户，Agent 与 Dolt 和 Docker 同属一个操作系统用户，能读到服务的 root 密码、改数据目录或宿主代码，也能自建镜像。保证是改动留下痕迹，而不是改动做不到。正常路径上，写入账户只能插入，分支控制把它限制在当前开着的一轮，触发器把 `created_at` 设为服务器时间，并发写入会冲突而不是合并。冻结与确认的裁决由产品而不是 Agent 根据目标闸门和运行已存的读数计算，不同策略源码数从试验行统计；冻结与确认只接受 origin/main 上构建的 CI 镜像所跑的运行。`ledger audit` 检查整轮：提交测试、只追加的历史、已存读数与重算的比对、裁决、试验计数和见证。冻结与确认计划的提交向公共时间戳机构申请 RFC 3161 时间戳，凭证存进台账、离线验证；计划在其窗口开始前盖戳，所以倒填日期的计划会与凭证对不上。时间戳只证明记录在那时已经存在，不证明它是唯一的一份。用 root 权限在见证之前以 API 形态伪造的记录、绕过 `artifacts run` 启动而不留试验行的回放，目前都发现不了。只有独立的托管系统用户能让第 2 层变硬，等出现第一个通过的确认或必须依赖第 2 层的结论时再做，见 [skill 产品形态审计](plans/skill-product-form-audit.zh.md)。视频证据包检查器 `services/video-evidence/check_bundle.py` 只读、不导入仓库代码，从媒体字节重算哈希、帧、裁剪与 ASR 输入，并核对引用。研究轮只运行本地检查器；其他场合 Agent 能改本地副本，所以只有干净上下文的审阅者从 `origin/main` 运行、`checker_git_blob` 一致的那次检查算数，见[视频取证改造](plans/video-evidence-refactor.zh.md)。
+## 生产入口
 
-```mermaid
-flowchart LR
-  A[外部 Agent 与临时策略文件] --> Q[research.records 命令行]
-  Q --> S[固定 revision 导出的策略源码]
-  A --> R[artifacts run 原生回放]
-  S --> R
-  G[Git 共享工具与镜像构建输入] --> I[CI 构建的 OCI 镜像 digest 与平台]
-  I --> R
-  D[历史 Catalog 与输入身份] --> R
-  R --> T[每次回放一行试验]
-  R --> N[发布版 Nautilus: Data / Risk / Execution / Portfolio]
-  N --> E[原生订单、成交、账户与指标报告]
-  E --> X["探索报告留在 /tmp"]
-  E --> U[封存运行经审计后整体存入]
-  T --> L[Dolt 研究轮分支]
-  U --> L
-  Q --> L
-  L --> F[候选冻结与确认裁决]
-  F --> W[外部见证]
-  F --> A
-  X --> A
-```
+`research.records.cli` 将完整源码、父版本、difference 存入 strategy_revision。`hypothesis register` 验证并保存不可改证据契约：经济理由与预测、留存佐证、一个比较维度、固定网格、适用条件。研发父版本与比较对照分开。`artifacts run --hypothesis` 核对登记中的源码、镜像、市场与导出内容身份及完整配置，然后在启动原生回放前原子写 trial 和 research_execution。登记每点只尝试一次，中断、无效同样消耗本次登记点。
 
-R1 当前的 37 个合约在**同一个**初始 100,000 USDT 的原生保证金账户内回放，才能观察同一策略的资金占用与跨币竞争。独立策略各绑定一个固定金额的原生账户。需要多个交易逻辑共同分配这笔资金时，将它们实现为**一个组合 Strategy**：一个版本化策略文件，在同一原生账户内做分配、下单与退出，并整体回测。策略文件包含完整交易规则；真正通用的运行与数据能力通过依赖复用。若需要逐子逻辑归因，组合 Strategy 应在自身订单与研究证据里保留子逻辑标识；原生账户净值仍以整个组合为准。当前不增加外置仓位账本或组合服务。
+封存运行在 Dolt 留存原始报告和审计账户读数。无效只留原因，不提供经济反馈。`candidate list` 读版本谱系与证据；`hypothesis compare` 拒绝无效或不可比报告，给出按日对数收益配对、周循环块的证据、另列 CAGR 差区间、嵌套学生化及块长敏感性。p 是零假设模型下的尾部读数，不是策略有效概率。当次网格 Bonferroni 不控制整个自适应研究；开发改善不是独立验证。非收益维度的推断尚未定义。Agent 的诊断、优先级与推荐理由使用既有 evidence bundle 追加，不成为产品评分。
 
-`research.records` 是 Agent 使用的研究领域接口：`python -m research.records.cli` 与 `research.records.artifacts`。持久研究数据只存在 Dolt 及其 `dolt_backup` 副本中；草稿、探索脚本、回放输出和派生报告是 `/tmp` 里的工作副本，Git 不保存策略正文或实验凭证。一个 Dolt 服务可以承载多个数据库：现在是研究台账，以后还有行情数据。每个目标是一轮研究，即从 `main` 分出的分支 `round/<goal_id>`，`main` 只放 schema；一轮结束时打上标签 `closed/<goal_id>`。类型化的表保存目标、证据包、带源码字节的策略修订、试验、运行、冻结、确认计划与裁决，以及更正。`ledger sql` 以只读账户读取任意分支或标签，`ledger export` 把某个分支或标签上的全部表写成 Parquet。
+## 数据与运行环境
 
-所有原生回放都走 `artifacts run`，启动前先写一行试验，记录源码哈希、窗口、币种和镜像。`--explore` 把草稿回放到新的 `/tmp` 目录，除此之外不存任何东西。`--strategy ID@N` 在临时目录回放已发表的修订，审计后一次写入把整个运行存进 Dolt，然后删除目录：产品读数是 `run` 的列，原生报告是 `run_order`、`run_fill`、`run_position`、`run_account`、`run_return` 与 `run_order_event` 的行，敞口是一个压缩 blob。审计不通过的运行连同原因存为 `invalid`。其他统计由 Agent 依 `nautilus-report-analysis` skill 从已存运行计算。
+研究 profile 与市场 profile 分别明确选择。WS8b market 表通过只读账户供应固定 Dolt commit 的真实 1m LAST/MARK 与资金费。r1-native-v6 加载一分钟撮合 bar，向策略传 execution_bar_minutes=1，并按一分钟 MARK 时钟估值；信号周期仍由源码定义。月度币池成员关系作为源码输入，历史条款近似、缺口和 bar 内排序歧义照实报告。新的运行器、审计器字节必须进入新的 CI 镜像摘要；一分钟变更不等于旧五分钟经济结果 parity。
 
-研究记录只登记两种，其余都是探索。候选冻结引用某个固定修订在目标开发窗口上的一次封存运行，只写一次。裁决（`passed`、`failed` 或 `invalid`）由产品根据目标闸门和运行读数计算，不同策略源码数从试验行统计；失败部位由 Agent 指明。确认跟在通过的冻结之后：计划预登记一个未来窗口，并在窗口开始前取得 RFC 3161 时间戳；窗口结束后，一次封存运行得到产品计算的裁决。裁决从不修改，更正是指向它的新记录。冻结与确认只接受 origin/main 上构建的 CI 镜像所跑的运行，缺少 origin/main 的检出会被拒绝。
+留存源码、输入、镜像和主机导出实现身份。导出内容指纹包含 Catalog、pool 正文和只去除耗时的语义 receipt；完整原始目录在回放前后核验未变。Docker 无网络、根文件系统只读、输入只读，只有 reports 挂载可写。uv.lock 固定 Python/Nautilus，主机脚本不重建交易事实。
 
-写入账户有 `SELECT` 和 `INSERT`，`UPDATE` 只限 `ledger_head`，`EXECUTE` 只限存储过程 `dolt_commit`；只读账户只能查询；分支控制把写入账户限制在当前开着的一轮。每次写入是一个事务，同时更新唯一的 `ledger_head` 行，所以并发时后到的写入得到错误 1213，而不是被合并。读取不重新校验台账，完整检查是 `ledger audit`。旧台账和封存产物目录不在本设计内，在 WS7 删除。操作步骤见 [`research-round` skill](../.agents/skills/research-round/SKILL.md)；服务、账户、写入协议、备份和测试见[研究记录指南](../research/records/README.md)。
+## 保管与验证
 
-## 当前可运行切片
+永久研究事实只在 Dolt 和备份，工作副本放 /tmp；Git 只收产品、skills 和工程发现，不收策略正文与研究回执。新隔离研究库初始化 schema-v2，不迁移活跃 schema-v1 或改写旧记录，保留旧只读入口。writer 只能插入、更新 ledger_head 和执行 dolt_commit；分支权限及统一事务防止意外并发合并。ledger audit 检查追加历史、读数、登记绑定、旧裁决与时间凭证。同系统用户不能防止蓄意 root 篡改，但更改留下痕迹。
 
-所有原生回放都走 `research.records.artifacts run`：`--explore` 把草稿的报告写进新的 `/tmp` 目录，封存的运行存进台账，两者都写一行试验。它在 CI 构建的镜像里执行 `python -m backtest.run` 和审计器；镜像只构建 `linux/arm64`，推到 `ghcr.io/qoeop/trade-runtime`，标签里带源码 commit。不传 `--runtime` 时拉取 `main` 标签并记录 digest；冻结与确认只接受由 origin/main 上的 commit 构建的镜像。运行器使用锁定在 `nautilus_trader==2.0.0rc3` 的原生 `BacktestNode`，只接收四样东西：策略引用、输入、窗口和固定账户。当前 `r1-native-v4` 加载一个完整源码文件；策略文件负责信号、仓位、下单、退出和自身诊断，运行器没有任何策略参数，变体就是新的修订。现行代码只认 `r1-native-v4` 的布局，不再读取 `v1` 到 `v3` 的封存。资金费率直接从现有 Catalog 加载，由 Nautilus 结算。`backtest/load.py` 将已有 MARK K 线收盘价写成原生 `MarkPriceUpdate` 派生 Catalog，复用时逐事件核对，并校验资金费覆盖；`backtest/run.py` 构建 Node，`backtest/report.py` 写报告。运行方式和配对验收见 `backtest/README.md`，历史证据见 `docs/plans/nautilus-upstream-poc.zh.md`。
+旧 freeze/confirmation 的目标、checkout 新鲜性、main 镜像和未来数据时间凭证保护保持原检查。这些是独立的目标快照与验证入口，不控制持续候选研发。本未合并测试分支镜像不能声称 main 镜像独立确认。验证仍由用户发起、事前登记、一次性执行，开发或已暴露历史数据不重新命名为独立证据。
 
-固定版本为 `nautilus_trader==2.0.0rc3`。这是在同一数据、同一参数、同一共享账户上通过订单与经济结果配对的版本；升级前必须重新检查原生订单完整性及全年配对。当前合约元数据来自研究时保存的现行规则假设，不能据此声称历史逐日合约条款精确。历史研究数据留在外部 Catalog，不复制进 Git。研究脚本与已暴露年度结果可用于机制诊断；新候选的确认需独立的事前规则、配对与样本外/多重尝试处理。
-
-## 扩展边界
-
-策略版本管理就是台账的 `strategy_revision` 表：只追加的修订，保存精确源码字节。一个独立策略对应一个完整源码文件；同一策略的新修订沿用同一个 ID，衍生策略使用新 ID，指向父策略的固定修订并注明差异。公共回放、校验和验收工具归 `backtest/` 与 CI 构建的镜像，产品 Git 不收策略草稿。
-
-研究台账承载真实研究记录：清空、重置或改写它、它的轮次或备份，都需要用户明确授权。2026-10-11 重写之前的旧台账、封存目录和备份不再被现行代码读取，由 WS7 删除；早先各轮暴露过什么，见[新库启用记录](plans/ws2-ledger-enablement.zh.md)。
-
-完整回放恢复需要台账（它的 `dolt_backup` 副本含全部分支和标签，源码、配置、输入身份和原生报告都在里面）、精确的 OCI 镜像（按 digest 从 GHCR 拉取）和规范输入。本机第二目录的备份不代表独立故障域灾备，异机恢复尚待验收。Nautilus 继续负责交易事实；实盘连接是后续独立交付，须另行取得用户授权并验收边界。
+见[账本指南](../research/records/README.md)、[research-round](../.agents/skills/research-round/SKILL.md)、[原生运行合同](../backtest/README.md)及[实现映射](plans/rd-proposals-implementation.zh.md)。

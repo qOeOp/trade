@@ -30,6 +30,7 @@ def _parser() -> argparse.ArgumentParser:
     init.add_argument("--port", type=int, default=13330)
     init.add_argument("--role", choices=("active", "isolated", "temporary"), default="isolated")
     init.add_argument("--backup-root", type=Path)
+    init.add_argument("--kind", choices=("research", "market"), default="research")
     for name in ("start", "stop", "backup"):
         ledger.add_parser(name)
     ledger.add_parser("status", help="every ledger profile and whether its service runs")
@@ -53,7 +54,7 @@ def _parser() -> argparse.ArgumentParser:
     opened = rounds.add_parser("open", help="branch round/<goal_id> from main and record the goal")
     opened.add_argument("--goal", type=Path, required=True)
     rounds.add_parser("close", help="tag the round closed/<goal_id> read-only")
-    status = rounds.add_parser("status", help="goal, counts and stop-rule counters")
+    status = rounds.add_parser("status", help="goal and factual attempt counts; review cadence is Agent-owned")
     status.add_argument("--at")
 
     strategy = commands.add_parser("strategy", help="strategy revisions").add_subparsers(dest="action", required=True)
@@ -82,6 +83,23 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("bundle")
     restore.add_argument("--destination", type=Path, required=True)
     restore.add_argument("--at")
+
+    hypotheses = commands.add_parser("hypothesis", help="locked registration and read-only comparison").add_subparsers(dest="action", required=True)
+    register = hypotheses.add_parser("register")
+    register.add_argument("--id", required=True, help="new immutable evidence bundle ID")
+    register.add_argument("--plan", type=Path, required=True)
+    register.add_argument("--runtime")
+    register.add_argument("--market", required=True, help="fixed market commit or ref")
+    register.add_argument("--market-ledger")
+    register.add_argument("--market-profile", type=Path)
+    register.add_argument("runner_args", nargs=argparse.REMAINDER)
+    compare = hypotheses.add_parser("compare")
+    compare.add_argument("--id", required=True)
+    compare.add_argument("--run", type=int, required=True)
+    compare.add_argument("--at")
+    candidates = commands.add_parser("candidate", help="source forest and replay custody").add_subparsers(dest="action", required=True)
+    listing = candidates.add_parser("list")
+    listing.add_argument("--at")
 
     freeze = commands.add_parser("freeze", help="freeze a candidate: its development run judged once against the goal")
     freeze.add_argument("--run", type=int, required=True)
@@ -120,13 +138,13 @@ def run(args) -> dict:
     if args.command == "ledger":
         if args.action == "init":
             return ledger.init(name=args.name, database=args.database, service_root=args.service_root,
-                               binary=args.binary, port=args.port, role=args.role, backup_root=args.backup_root)
+                               binary=args.binary, port=args.port, role=args.role, backup_root=args.backup_root, of=args.kind)
         if args.action == "status":
             return ledger.status()
         if args.action == "temp":
             command = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
             raise SystemExit(ledger.temporary(args.name, command, args.binary, args.port))
-        value = ledger.profile(args.ledger)
+        value = ledger.profile(args.ledger, of=None if args.action in ("start", "stop", "backup") else "research")
         if args.action == "start":
             return ledger.start_service(Path(value["service"]))
         if args.action == "stop":
@@ -168,6 +186,19 @@ def run(args) -> dict:
             return records.add_evidence(value, args.bundle, args.paths, args.op_id)
         with db.reading(value, args.at) as conn:
             return records.export_evidence(conn, args.bundle, args.destination)
+    if args.command == "candidate":
+        from research.records.hypotheses import candidates
+        return candidates(value, args.at)
+    if args.command == "hypothesis":
+        if args.action == "register":
+            from research.records.hypotheses import register
+            argv = args.runner_args[1:] if args.runner_args[:1] == ["--"] else args.runner_args
+            from research.records.artifacts import market_profile
+            return register(value, bundle=args.id, body=_read_json(args.plan), runtime=args.runtime,
+                            market=market_profile(args.market_profile, args.market_ledger), at=args.market,
+                            runner_argv=argv)
+        from research.records.comparison import compare
+        return compare(value, bundle=args.id, run_id=args.run, at=args.at)
     if args.command == "freeze":
         return records.freeze(value, run_id=args.run, source_bundle=args.source_bundle,
                               failed_part=args.failed_part, note=args.note, op=args.op_id)

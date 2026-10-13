@@ -40,7 +40,7 @@ def _free_port() -> int:
 class TemporaryLedger:
     """Start a service with one ledger named `name`; `close()` stops and deletes everything."""
 
-    def __init__(self, name: str = "test", *, role: str = "isolated"):
+    def __init__(self, name: str = "test", *, role: str = "isolated", of: str = "research"):
         existing = os.environ.get("TRADE_LEDGER_HOME")
         if any(value["role"] == "active" for value in ledger.profiles().values()) and existing:
             raise RuntimeError(f"TRADE_LEDGER_HOME={existing} holds an active ledger; refusing to run tests on it")
@@ -52,11 +52,11 @@ class TemporaryLedger:
             # An active-role fixture lives under /tmp too; only its private profile directory makes it active.
             with patch("research.records.ledger._is_temporary_path", return_value=False):
                 ledger.init(name=name, database=f"test_{name.replace('-', '_')}", service_root=self.root / "s",
-                            binary=BINARY, port=_free_port(), role=role, backup_root=self.root / "backup")
+                            binary=BINARY, port=_free_port(), role=role, backup_root=self.root / "backup", of=of)
         except BaseException:
             self.close()
             raise
-        self.profile = ledger.profile(name)
+        self.profile = ledger.profile(name, of=of)
 
     def admin(self):
         from research.records import db

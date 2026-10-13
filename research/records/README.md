@@ -11,9 +11,10 @@ its accounts, the write protocol, backup, tests and what the guarantees are.
 
 | Module | Holds |
 |---|---|
-| `schema.sql` | the one schema generation, applied on `main` by `ledger init` (field review: `docs/plans/ws2-ledger-field-review.zh.md`) |
+| `schema.sql` | schema-v2 for new research ledgers, applied on `main` by `ledger init` (field review: `docs/plans/ws2-ledger-field-review.zh.md`) |
 | `ledger.py` | profiles, the Dolt service lifecycle, rounds, status, backup, Parquet export, read-only SQL, temporary ledgers |
 | `db.py` | one connection per command, the single write transaction |
+| `hypotheses.py`, `comparison.py` | immutable evidence registration, atomic grid custody, candidate forest and read-only paired development comparison |
 | `records.py` | goal, strategy revisions, evidence, trials, run storage, freezes, confirmations, corrections |
 | `analysis.py` | product readings (reconciled economics, plan win rate, MARK drawdown; `closed_by_year` derived on read), exploration readings and `tables()` |
 | `artifacts.py`, `trials.py`, `runtime.py` | every native replay, its trial row and run storage, the pinned CI image |
@@ -65,7 +66,7 @@ timestamped under RFC 3161 by a public authority (DigiCert, else Sectigo; only t
 the machine), the token stored in the `witness` table and verified offline against the roots in
 `tsa-roots.pem` as of its own time. A timestamp shows that a record existed by then, not that it was
 the only one: a root user could register several plans on other branches and show the favourable
-one; the trial counts and stop rules, not the timestamp, bound that. Commit tests (`dolt_tests`, group
+one; the full trial history exposes selection pressure; no attempt counter terminates continuous research. Commit tests (`dolt_tests`, group
 `commit`) catch mistakes on the normal path and can be skipped with `--skip-verification`; they are
 not a trust boundary.
 
@@ -115,7 +116,20 @@ Integration tests start their own Dolt service under `/tmp` with their own profi
 it and delete it; they skip without a Dolt 2.4.2 binary (`RESEARCH_DOLT_BINARY` or `dolt` on PATH)
 and refuse to run when the profile directory in use holds an active ledger.
 
-## Not here
+## Continuous candidate entry
 
-Old ledgers, sealed artifact directories and their backups are outside this design and are deleted
-in WS7. Only the `r1-native-v4` runtime layout is known; seals of earlier contracts are not read.
+Complete strategy revisions remain candidates irrespective of economics, significance or recommendation.
+`hypothesis register` uses immutable evidence; `artifacts run --hypothesis` consumes a registered cell
+atomically with its trial. `candidate list` reads source lineage and replay evidence; `hypothesis compare`
+provides descriptive effect/interval/p evidence after identity/integrity checks. Invalid runs provide
+no economic feedback. Agent priorities, recommendations and review cadence use existing append-only
+notes. No product adoption state, scheduler or fixed-count stopping rule is added.
+
+Schema-v2 is for newly initialized isolated ledgers. This branch does not migrate active/old ledgers;
+legacy goal/run/freeze/confirmation reads remain. The legacy target freeze/confirmation checks are
+unchanged as independent interfaces and do not gate candidate development. A test-branch runtime
+cannot meet their main-image requirement.
+
+Market inputs come from a fixed WS8b Dolt market commit through the reader account. `--market-profile`
+selects an explicit market profile JSON independently of research `TRADE_LEDGER_HOME`. The actual
+minute contract and registration/run/compare examples are in the skill's [runs.md](../../.agents/skills/research-round/references/runs.md).

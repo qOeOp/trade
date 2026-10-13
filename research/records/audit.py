@@ -38,10 +38,28 @@ def audit(profile: dict, at: str | None) -> dict:
         failed_tests = [row for row in db.dicts(conn, "SELECT * FROM dolt_test_run('*')")
                         if row.get("status") != "PASS"]
         findings += [f"commit test {row.get('test_name')}: {row.get('message')}" for row in failed_tests]
-        for table in TABLES:
+        tables = TABLES + (("research_execution",) if db.one(conn, "SELECT version FROM ledger_schema")["version"] == 2 else ())
+        for table in tables:
             (changed,), = db.rows(conn, f"SELECT COUNT(*) FROM dolt_diff_{table} WHERE diff_type <> 'added'")
             if changed:
                 findings.append(f"{table}: {changed} rows were modified or removed after insertion")
+        if "research_execution" in tables:
+            from research.records.hypotheses import load, validate, check_comparable
+            from research.records.records import _run_with_trial
+            from research.records.common import RecordError
+            for item in db.dicts(conn, "SELECT e.*, t.created_at, t.strategy_source_sha256 AS actual_source "
+                    "FROM research_execution e JOIN trial t ON t.trial_id = e.trial_id"):
+                try:
+                    plan, registered_at = load(conn, item["bundle"])
+                    if item["created_at"] <= registered_at or item["actual_source"] != item["strategy_source_sha256"]:
+                        raise RecordError("registration order or trial source differs")
+                    if item["actual_source"] not in validate(conn, plan["body"], plan["execution"]):
+                        raise RecordError("trial source not in locked grid")
+                    row = db.one(conn, "SELECT run_id, status FROM run WHERE trial_id = %s", (item["trial_id"],))
+                    if row and row["status"] == "passed":
+                        check_comparable(_run_with_trial(conn, row["run_id"]), plan["execution"])
+                except (RecordError, ValueError, KeyError, TypeError) as exc:
+                    findings.append(f"research trial {item['trial_id']}: {exc}")
         goal = db.one(conn, "SELECT * FROM goal")
         runs = db.dicts(conn, "SELECT * FROM run WHERE status = 'passed' ORDER BY run_id")
         for run in runs:

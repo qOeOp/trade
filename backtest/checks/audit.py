@@ -2,7 +2,7 @@
 
 Besides reconciling the reports, the audit replays the native order event history and refuses a
 run in which a position stays larger than its working reduce-only stop orders for more than one
-five-minute bar, unless the strategy declares ``USES_STOP_LOSS = False``. Strategy-specific geometry
+execution bar, unless the strategy declares ``USES_STOP_LOSS = False``. Strategy-specific geometry
 belongs in the strategy's own ``replay_integrity_findings``.
 """
 
@@ -15,6 +15,7 @@ import csv
 import gzip
 import hashlib
 import json
+import sys
 from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
@@ -25,7 +26,7 @@ import pandas as pd
 TERMINAL = {"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"}
 OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
 ORDER_EVENTS = "order_events.jsonl.gz"
-BAR_NS = 5 * 60_000_000_000
+BAR_NS = 60_000_000_000
 STOP_TYPES = {"STOP_MARKET", "STOP_LIMIT", "TRAILING_STOP_MARKET", "TRAILING_STOP_LIMIT"}
 ENDING_EVENTS = {"OrderCanceled": "CANCELED", "OrderExpired": "EXPIRED",
                  "OrderDenied": "DENIED", "OrderRejected": "REJECTED"}
@@ -42,6 +43,7 @@ def _decimal(value) -> Decimal:
 
 
 def _rows(run: Path, name: str) -> list[dict]:
+    csv.field_size_limit(sys.maxsize)
     with (run / f"{name}.csv").open(newline="") as stream:
         return list(csv.DictReader(stream))
 
@@ -244,7 +246,7 @@ def _generic_result(run, orders, fills, positions, findings, economics, protecti
                                 "Protection is the unfilled quantity of accepted reduce-only stop orders on the "
                                 "closing side; stop prices are not checked",
                                 "Events of one nanosecond are applied together; an uncovered interval of at most "
-                                "one five-minute bar is allowed",
+                                "one execution bar is allowed",
                                 "Funding uses native reported adjustments; no rate-based settlement recalculation",
                                 "Per-timestamp funding reconciliation excludes timestamps with concurrent fills",
                                 "Final equity is reconciled to balance only when no position remains open"],

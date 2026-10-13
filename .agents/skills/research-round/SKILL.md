@@ -1,133 +1,86 @@
 ---
 name: research-round
-description: Plans and closes one strategy research round in this repository (hypothesis cards, exploration, candidate freeze, confirmation, next experiment, progress check). Use before running a backtest for a research question, before freezing a candidate or registering a confirmation, before choosing the next experiment, and before claiming that a strategy improved, failed or generalized.
+description: Preregister and advance continuous strategy research within the user's selected route, read candidate comparisons, append diagnosis and recommendations, or plan independent confirmation. Use before research replay, choosing the next experiment, or claiming improvement or generalization.
 ---
 
-# Research round
+# Continuous candidate research
 
-One user goal is one round of the research ledger. Commands are in
-[records.md](references/records.md) (rounds, freezes, confirmations, reading the ledger),
-[runs.md](references/runs.md) (every native replay) and
-[strategy-authoring.md](references/strategy-authoring.md) (the strategy file contract). Ideas live
-as hypothesis cards ([hypotheses.md](references/hypotheses.md)) in the knowledge list
-([knowledge.md](references/knowledge.md)). Numbers beyond the product readings follow the
-`nautilus-report-analysis` skill. A new goal starts with the `research-start` skill.
+The user chooses the research route and decides recognition, independent validation and deployment.
+Within that route, advance autonomously through complete candidates. A candidate is one exact source
+revision with a development parent, actual rule change and replay evidence. Significance, target
+attainment and recommendation never create its identity or grant permission to derive from it.
 
-## What is recorded
+Read the goal, candidate forest, fixed market commit and latest append-only knowledge/notes first.
+Use [records.md](references/records.md) for CLI and [hypotheses.md](references/hypotheses.md) for locked
+registration. Complete source stays in Dolt, working copies in `/tmp`. Keep one complete source file
+per independent strategy; use [strategy-authoring.md](references/strategy-authoring.md) and the image's
+actual constructor contract. Every replay follows [runs.md](references/runs.md).
 
-The ledger registers two things; everything else is unregistered exploration.
+## Before a research replay
 
-- **Candidate freeze**: one sealed development run of a fixed strategy revision, judged once, when
-  you stop developing that candidate or want to confirm it. The product computes the verdict from
-  the goal's gates and the run's readings, and counts the distinct strategy sources replayed on the
-  development window; you name the failed part when it fails. Freeze a failing candidate too: a
-  failed freeze is recorded like a passed one, and the stop rules count them.
-- **Confirmation**: only after a passed freeze, on data that does not exist yet: preregister the
-  window, wait, run once, then the product judges it ([confirmation.md](references/confirmation.md)).
+Publish the proposed exact source with its parent and difference, then preregister before replay.
+Each hypothesis makes one actual rule change; a coupled entry/exit rule is one coupled action,
+without claiming independent component attribution. Separate the development parent from the fixed
+comparison control, with reasons for each. All registered grid cells derive from that parent.
 
-Source reading, definitions, debugging, event studies and pilots are exploration: no registration,
-no dry runs. Every native replay still writes a trial row automatically, and that is how selection
-pressure is counted. A verdict is never edited; a correction is a new record naming it.
+Lock five things: economic reason (including prediction and proxies), retained source evidence,
+one comparison dimension, complete grid (up to five points), and applicable conditions. Conditions
+name source, actual change, parameters, inputs, window and runtime; they are never an excluded class.
+Explain how different possible results would change the next research action. Sources discovered
+later are appended as later evidence, not backfilled into the registration. For external sources use
+`research-sources` or `video-evidence`; conjectures are labeled and may have low priority.
 
-## Before any test
+Use `hypothesis register` and `artifacts run --hypothesis`; generic exploration is not registered
+candidate evidence. The product checks locked source, lineage, input/runtime/configuration and
+comparison conditions, and consumes each grid point atomically before replay. Failed or interrupted
+attempts remain attempts. A repair/retry requires a new registration and cannot become independent
+evidence merely by repeating identical conditions.
 
-1. Before each test, an event study as much as a replay, write its possible outcomes and the
-   different action each leads to (at least two different actions). If every outcome leads to the
-   same action, do not run it.
-2. Read the goal and the gates in [feasibility.md](references/feasibility.md). The user owns only
-   the three targets; sizing, per-plan risk and notional limits are yours. Judge a design first by
-   the size-independent gates, with their numbers: closed plans, plan win rate, and return ÷
-   drawdown against `min_annual_return ÷ (2/3 × max_drawdown)`. Never reject or narrow a design
-   because a cap you chose binds, and never rescue a failed gate by sizing: size moves return and
-   drawdown together. When those gates pass, scale size once so the drawdown lands near 2/3 of the
-   budget, run that revision once and freeze it; no grid of sizes.
-3. A whole-strategy result judges that combination of definition, rules and sizing, never the idea
-   behind it or any one part; what a failure excludes is the class its card wrote before the run.
-4. Treat windows before the model's training cutoff as knowledge-exposed: exploration and
-   falsification only. The goal's `known_exposure` lists windows earlier rounds inspected.
+## Feedback and continuation
 
-## Hypotheses
+1. Read integrity first. Invalid or incomplete attempts provide reasons and repair evidence only,
+   no economic feedback, comparison, rejection of a mechanism or positive reward.
+2. Read audited native account return, MARK drawdown, plan win rate, fees, funding and open exposure.
+   Closed price P&L is a diagnostic, not account net profit. Derive additional statistics with
+   `nautilus-report-analysis`.
+3. Read `hypothesis compare`: observed account effect, interval, p and conditions separately. The
+   implemented annual-return test pairs daily log returns in weekly circular blocks; it tests zero
+   mean log difference, not a minimum improvement or probability of strategy validity. Other metric
+   inference is currently undefined and must not reuse this p value. Review sample size, dependence,
+   detectable effect and block sensitivity. Grid Bonferroni is not full adaptive-search control.
+4. Append facts, unproven explanation and next falsifiable hypothesis with report/registration IDs
+   and ledger commits. Prior history is conditional evidence, never rewritten.
+5. Update the priority of specific next research actions using expected effect, uncertainty,
+   mechanism support, explored coverage, new information and execution cost. Bad gross edge can
+   favor a new signal, but execution/exits remain researchable. Non-significance, a losing parameter
+   or target failure does not close a mechanism, forbid the original grid or prevent valid descendants.
+   Retain low-priority actions and explain when to reassess them. Unmeasured directions are unknown,
+   never economically superior by default.
 
-Every idea, including one in the user's prompt or a source the user names, is a hypothesis card in
-the knowledge list, never a task to carry out as given. A card needs an economic rationale, a
-falsifiable prediction, the frontier gap it targets and the class its failure excludes; an
-independent reviewer passes it before its one coarse replay, and the coarse replay decides draft →
-open ([hypotheses.md](references/hypotheses.md)).
+## Recommendation and review
 
-- The coarse replay runs a simple mechanical version. Reconstructing a source's rules, checking
-  fidelity or writing detailed rules waits until the card is open.
-- A card the user proposed is marked as theirs and takes its place by prior like any other; it
-  does not jump the queue, even when the user asks to set the others aside. Say so, with the
-  order and why; you decide the order without approval.
+At a review or recommendation request, consider **all currently comparable candidates**, explain
+return/drawdown/Sharpe/win-rate/cost/mechanism/uncertainty tradeoffs, and append reasons to existing
+notes. Choose one or a set without waiting for future research to finish. Recommendation is distinct
+from the next experiment's parent and its research priority; neither implies independent validation
+or deployment authority. No Bayesian optimizer or Thompson scheduler is prescribed.
 
-When no draft or open card is left, find the next starting point as `research-start` step 2 does
-(an extended frontier scan, or the user when nothing is left to scan or only finished strategies
-remain) before writing another card.
+Research continues by default. Declare an attempt/progress-based review cadence and its reason in
+notes; counts trigger review, never a scientific exhaustion proof or fixed ten-attempt termination.
+Use `round status` factual counts to distinguish valid, invalid and unfinished attempts. Optional
+user execution limits pause execution with recovery information, not economic invalidity. Continue
+within the route when useful; to change the user's route, present diagnosis and options and await
+selection. There is no requirement to prove the old route has zero value; it remains reassessable.
 
-## After a failure: name the part first
+## Targets and independent validation
 
-Before the next idea, name which part failed, from the readings (ledger value in brackets):
+The user's three targets are unchanged; see [feasibility.md](references/feasibility.md). Sizing and
+risk are Agent design variables. Existing freeze/confirm commands are target snapshots with their
+own main-image, freshness and future-data protections; they do not gate continuous candidate work.
+Before an optional freeze snapshot, retain the stability check across sub-periods/instruments when the result rests on one period or a few instruments; it does not gate ongoing research. Only user-initiated confirmation follows [confirmation.md](references/confirmation.md).
+Development or knowledge-exposed data, including withheld historical slices the model could know,
+can refute or leave a mechanism unrefuted, never prove generalization. Preserve full search history.
 
-| Part | Reading | Next |
-|---|---|---|
-| gross edge (`gross_edge`) | closed price PnL before fees ≤ 0, or above 0 only because of one year | a different signal; record the card's class as excluded; never tune execution or exits |
-| cost (`cost`) | positive before fees, eaten by commissions and funding | trade less often, use maker orders, hold longer, or avoid paying funding |
-| tail (`tail`) | a few losing plans take most of the profit, or drawdown over budget | change exits and stops, or size by volatility |
-| frequency (`frequency`) | plans pay but are too few, or the annual return is too low | more coins or timeframes, or looser entry conditions |
-| integrity | the audit judged the run invalid | fix the code; not an economic failure (`failed` + `integrity` only for a defect you found in a passed run) |
-
-If the part is unknown, diagnose it with `nautilus-report-analysis` before changing anything.
-
-## Robustness
-
-A grid is exploration and every cell is a trial. Change one parameter at a time around the center,
-write the plateau rule first, and freeze only the center.
-
-## Progress check
-
-Check when any of these holds: `round status` reports `progress_check_due` (every third failed
-freeze, or more than 20 distinct strategy sources replayed since the last freeze), or a fifth draft
-has closed since the last check (excluded, or rejected at review).
-
-1. For every frontier point compute the gap
-   `max(0, w - win) / w + max(0, r - rd) / r`, where `w` is the goal's `min_plan_win_rate`,
-   `r = min_annual_return / (2/3 × max_drawdown)`, `win` and `rd` the point's plan win rate and
-   return to drawdown (a zero target adds nothing). The frontier moved out when the smallest gap
-   is smaller than at the previous check of this goal.
-2. Count the classes excluded since the previous check.
-3. Record the check in the knowledge list. Development readings set the direction; they are not
-   evidence.
-
-When two checks in a row show neither an outward move nor a new excluded class, stop and bring the
-user the frontier chart (plan win rate against return to drawdown), the excluded classes, and your
-recommendation: whether the targets look reachable, which gate is stuck, and the next step (another
-source of hypotheses, more data, or a target the user may reconsider). Only the user changes a
-target. Stopping is a valid result.
-
-## Evidence
-
-- Sources a goal relied on go into one source note in the claims format, stored as an evidence
-  bundle ([source-evidence.md](references/source-evidence.md)); a freeze cites it.
-- Strategy source and stored runs are the retained evidence. A short exploration note may be stored
-  as a bundle; readers, logs and scratch output stay in `/tmp`.
-- When a workbench gap blocked a task, forced a workaround more than once or cost a rerun, record it
-  as a product finding under `docs/plans/`: the blocked task, evidence (run and freeze IDs with the
-  ledger commit), iteration cost, workaround and the smallest shared capability needed.
-
-## Do not
-
-- Relabel an inspected window as holdout, or call a development improvement generalization, also
-  for a single tuning step or as partial evidence. Development, pre-cutoff or already existing
-  data, including a window a tuning step skipped or one after the development window, can refute a
-  change or leave it not refuted, never confirm it: never call it half, quasi or semi
-  out-of-sample, independent, or "no overfitting".
-- Freeze a candidate whose result or improvement rests on one sub-period or a few instruments
-  before a stability check across sub-periods and instruments (for example leaving them out).
-- Add filters after inspecting losing trades and call the result a mechanism.
-- Change the user's goal (a target, the drawdown measure or the window) to rescue a result, or
-  record your own sizing or risk plan as a user constraint.
-- Derive PnL, R multiples, win rates or expectancy from price touches, or compare touch outcomes
-  with a breakeven in numbers or in words, even as a rough, scenario or upper-bound figure the
-  user asks for or a guess at how it would come out; or resolve two levels touched in one bar by
-  any rule (stop-first or an even split included). Send the economic question to a native replay
-  and report its same-bar ambiguity first; citing which native child filled is not ordering.
+Never infer trades, P&L or winning plans from price touches or proxy counts. Native Nautilus owns
+orders, fills, fees, funding, account state and ambiguous intrabar matching. Do not manufacture
+ordering from same-bar levels. A clean exit or unit tests is not native parity or research evidence.

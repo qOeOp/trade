@@ -24,6 +24,7 @@ LAYOUTS = {
                                       "report_source_sha256": "backtest/report.py"},
                      "audit_path": "backtest/checks/audit.py"},
 }
+LAYOUTS["r1-native-v6"] = {**LAYOUTS["r1-native-v4"]}
 CONTRACTS = set(LAYOUTS)
 # CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
 REPOSITORY = "ghcr.io/qoeop/trade-runtime"

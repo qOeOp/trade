@@ -38,41 +38,18 @@ in it: no sizing, risk plan, budget or constraints of your own.
 Only the user changes the goal. Any change to a value, the drawdown measure or the window is a new
 goal with a new `goal_id` and a new round; the old round stays under its closing tag.
 
-## Gates
+## Goal readings and optional target snapshots
 
-Read on the development window from one native replay whose drawdown is at most
-`2/3 × max_drawdown`. Compounding lets a larger size inflate the return-to-drawdown ratio, so a
-reading at a larger size does not count. No notional cap, risk budget or pre-run capacity estimate
-can fail a design, and none replaces a gate.
+The three targets remain the user's values. Read `artifacts report` on integrity-passed native
+runs; missing readings remain null, never zero or a pass. MARK drawdown is sampled at the current
+runtime's one-minute MARK clock; the historical enum name `native_mark_equity_5m` is a storage
+compatibility name, not a claim of five-minute execution.
 
-1. **Sample**: at least 100 closed plans. With fewer, the gates are not read and the design has not
-   passed.
-2. **Plan win rate** above `min_plan_win_rate`. A plan is everything one signal submits under one
-   plan ID: all entry tiers and their shared stops and targets
-   ([strategy-authoring.md](strategy-authoring.md)). It wins when its net result (fills, fees and
-   funding) is above zero; breakeven, and a plan still open at the window end, are not wins. Take
-   it from the run's `plan_win_rate`; a refused reading (null, reason in `reading_limitations`) is
-   not a pass. The closed-position win rate is descriptive only.
-3. **Return to drawdown**: the run's `return_drawdown` (annual return ÷ MARK drawdown) is at least
-   `min_annual_return ÷ (max_drawdown × 2/3)`. The 2/3 leaves a margin because development data
-   has been inspected (a 30% budget and a 15% return need 0.75).
-4. **Annual return** at least `min_annual_return`, which only the sized revision reaches.
+Existing `gates()` and freeze/confirmation checks retain their target formulas, sample requirement
+and main-image protections. They are optional target snapshots, not candidate qualification,
+research exclusions or a stopping rule. Target failures do not forbid valid descendants or sizing,
+execution and exit research. Position size and per-plan risk are Agent variables in source.
+A size change is an explicit registered source change, with its effect and exposure explained;
+never change a user target or claim risk efficiency solely from reduced exposure.
 
-A freeze computes these gates itself; a failed gate is the reason the design fails the goal. Read
-them on explorations first (`artifacts report --dir`). Freeze each candidate once, when you stop
-developing it: a candidate that fails gates 1 to 3 is frozen as it is, as a failed freeze with its
-failed part; a candidate that passes them is sized first and its sized revision frozen. Never
-freeze at a size chosen to make the return gate pass while gates 1 to 3 fail.
-
-## Sizing, last
-
-Only after gates 1 to 3 pass in exploration:
-
-1. Multiply every constant that sets or caps size (per-plan risk, notional and portfolio caps) by
-   `(2/3 × max_drawdown) ÷ measured drawdown`, once, and publish that as a new revision.
-2. Seal it once on the development window and freeze that run. The freeze is the deciding check:
-   all four gates, no order denied for margin, and the largest order notional as a share of its
-   bar's traded volume within the limit the source sets; report that share in the freeze note.
-
-This is one scaling, not a grid. A freeze that misses a bound fails on that bound; another scaling
-is another source and another freeze.
+No freeze or independent confirmation is part of an engineering ten-attempt development fixture.
