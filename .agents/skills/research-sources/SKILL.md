@@ -1,6 +1,6 @@
 ---
 name: research-sources
-description: Search and read sources outside this repository - scholarly and working papers (OpenAlex, Crossref, Semantic Scholar), economic series (FRED/ALFRED) and positioning in regulated crypto futures (CFTC Commitments of Traders). Use before stating what prior work found or that none exists, when taking a hypothesis, method or parameter from the literature, and before using external data in research.
+description: Search and read sources outside this repository - scholarly and working papers (OpenAlex, Crossref, Semantic Scholar), economic series (FRED/ALFRED) and positioning in regulated crypto futures (CFTC Commitments of Traders). Use before stating what prior work found or that none exists, when taking a hypothesis, method or parameter from the literature, before proposing an economic research hypothesis, and before using external data in research.
 ---
 
 # Research sources
@@ -45,7 +45,8 @@ results.
 
 ## Search
 
-1. Before searching, write down the question and at least three phrasings (other names for the
+1. Before an economic hypothesis, inspect retained source notes and reuse applicable material with
+   its original identity and reading limits. Name the current mechanism gap. Before searching, write down the question and at least three phrasings (other names for the
    mechanism, the academic and the trading term). Search a topic in at least two of OpenAlex,
    Crossref and Semantic Scholar; they rank differently, and each surfaces relevant papers the
    others miss in their top results.
@@ -76,3 +77,28 @@ results.
    development data, never a holdout.
 7. Cite papers by DOI or arXiv ID. When a decision depends on a paper's content, retain the excerpt
    or file you read as evidence, as `research-round` describes.
+
+
+## Support and credible practice
+
+Before proposing an economic hypothesis, study relevant papers and check credible community
+practice for the mechanism gap. Prefer identifiable original authors, official research/platform
+material or inspectable code with stated conditions; retain the original post/docs/code location,
+date/version and what was actually inspected. Search snippets and a forum template are leads,
+not peer-reviewed empirical evidence. Community claims need their data, costs and validation
+conditions checked or marked unknown; popularity is not replication. Use official public access,
+reuse retained originals and report inaccessible sources without seeking new keys or login access.
+
+In the existing research rationale/sources/notes, separate external basis, fixed-run local diagnosis
+and Agent conjecture. For external evidence, record original location and applicable market,
+window, frequency, costs and validation; distinguish mechanism support, actual rule/parameter
+support and method-only support. A generic method paper cannot calibrate a trading threshold, and
+an attributed template cannot establish profitability. Unknown or unread conditions remain unknown.
+Conjectures supply a falsifier and unproven transfer assumptions. See research-round source-evidence.
+
+No supporting literature found by the logged queries still permits low-priority exploration when
+local information value warrants it. API errors or unreadable full text are retrieval limits, not
+zero literature. Do not rank by citation count, reject directions or grant advancement by sources.
+Materials obtained after registration go into a later bundle/note and cannot change the original
+source identity. Technical constructor/API/clock repair is engineering, not a market hypothesis
+requiring an empirical profitability paper.

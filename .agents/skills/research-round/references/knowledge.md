@@ -19,3 +19,13 @@ Record review cadence/reason and last reviewed attempt; research continues by de
 finite snapshot (for example ten attempts) is not a product stop rule. Optional user execution limits
 and interruption retain recovery state. A new market/window needs its own list and exposure record;
 old history still counts as search exposure. Switching the user's route waits for user selection.
+
+
+For each proposed economic hypothesis and subsequent update, trace the three bases in existing
+notes: external original/bundle/location and its mechanism/rule/parameter/method scope, fixed-run
+local diagnosis, and Agent conjecture/falsifier/unproven transfer. Retain reused-source identity,
+query range, reading extent and access limitations. Distinguish publication status and credible
+community practice; an internal note, template or method reference is not empirical rule support.
+Explain priority using applicability and local information value, never reference count. A no-paper
+or inaccessible-source direction remains reassessable. Date later sources as subsequent evidence;
+preserve the old registration's original source classification and never retroactively add backing.

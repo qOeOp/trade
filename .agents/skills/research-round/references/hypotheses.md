@@ -1,7 +1,7 @@
 # Hypothesis registration
 
-`hypothesis register` stores a validated, immutable `research-plan.json` evidence bundle. Publish
-all grid revisions first. Their parent and `difference` must equal the registration's `parent` and
+`hypothesis register` stores a validated, immutable `research-plan.json` evidence bundle. Study sources first,
+publish all grid revisions, then complete their native engineering prechecks before registration. Their parent and `difference` must equal the registration's `parent` and
 `change`. A root has `parent: null` and `control_run: null`; a descendant names both independently.
 A fault or zero-activity parent remains a source lineage for repair/reassessment. A repair may
 set `control_run: null`; economics/comparison are then unavailable until a usable control exists.
@@ -12,7 +12,7 @@ A plan has these required keys (`retry_of` names a previously consumed registrat
 ```json
 {"parent":"ID@1", "control_run":1,
  "change":"One actual rule change, identical to the published difference.",
- "rationale":"Mechanism, prior diagnostic facts, uncertainty and references.",
+ "rationale":"External basis with original location/conditions and support role; fixed-run local diagnosis; Agent conjecture with falsifier and unproven transfer. State source search/reading limits.",
  "prediction":"Falsifiable observation and different resulting actions.",
  "sources":["retained-source-bundle"],
  "metric":"annual_return",
@@ -37,3 +37,11 @@ hashes, not just links; conjectural mechanisms may be recorded explicitly instea
 Consumed cells, including interruption or invalid audit, are not executed again under the same
 registration. A new retry registration must set `retry_of` to the earlier bundle that actually consumed this exact source, and identify the previous attempt in its conditions and sources; repeated same-condition evidence is not independent. A generic unregistered trial cannot
 be backfilled into a registered result.
+
+
+Before proposing the economic change, research relevant papers and credible practice with
+research-sources; reuse applicable retained materials and search the mechanism gap. Sources may
+hold a local diagnostic or explicit conjecture, so the product does not infer paper backing merely
+from a nonempty sources list. Describe the three basis categories and support roles in rationale
+and existing notes. No paper is an exploration-priority consideration, not a registration refusal.
+Later materials are later evidence and cannot become prior support for this immutable plan.

@@ -16,6 +16,26 @@ registration. Complete source stays in Dolt, working copies in `/tmp`. Keep one 
 per independent strategy; use [strategy-authoring.md](references/strategy-authoring.md) and the image's
 actual constructor contract. Every replay follows [runs.md](references/runs.md).
 
+## Before proposing an economic hypothesis
+
+Follow `research-sources` to study relevant papers and check credible community practice first.
+Reuse retained material whose mechanism and conditions still apply; search the specific gap rather
+than reacquire everything. Retain search scope, reading extent and access limits. Engineering API,
+constructor and clock repairs use technical docs and native prechecks, without a profitability paper.
+
+Use [source-evidence.md](references/source-evidence.md) to distinguish **external basis**, **local
+diagnosis** and **Agent conjecture** in existing rationale/sources/notes. State original location,
+market/window/frequency/cost/validation conditions and whether a source supports a mechanism,
+a rule/parameter or only a method. Template attribution, community practice and a bootstrap paper
+cannot become empirical backing for an RSI threshold. Local facts cite fixed run/ledger/evidence;
+conjectures name a falsifier and what remains unproven when transferring to this market.
+
+No supporting paper still permits low-priority exploration when local information value warrants it;
+never score by reference count or impose a citation gate, economic exclusion or p-based promotion.
+Failed access is not absence of prior work. Later sources are appended as subsequent evidence,
+never relabeled as the original registration's prior support. Preserve provenance in the chain
+using [knowledge.md](references/knowledge.md).
+
 ## Before a research replay
 
 Publish the proposed exact source with its parent and difference, complete the native engineering

@@ -21,7 +21,10 @@ non-dominated group is a useful recommendation range, not a qualification bounda
 candidates outside it may be selected. A template starts a root without a parent. User-created
 artificial roots remain user-initiated. Preserve prior routes and their evidence for reassessment.
 The user selects the route; explicit authorization to choose a test template is sufficient and need
-not be requested again. Then advance hypotheses autonomously within that route.
+not be requested again. Then follow the research-round pre-hypothesis source study before proposing economic changes:
+reuse applicable retained papers/practice, search mechanism gaps, and distinguish external basis,
+local diagnosis and Agent conjecture. Engineering source repairs use technical/native evidence.
+Advance hypotheses autonomously within the selected route; absent papers do not close it.
 
 If no goal is supplied, gather only missing user values: maximum native MARK drawdown, minimum
 annual net return, minimum plan net win rate, market/development window and initial capital. Explain
