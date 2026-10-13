@@ -11,8 +11,8 @@
 | exact-source 预检及 Agent causal/readiness review | prereg/源码诊断 | G 账户审计明确不重建信号；代码只核对身份/原生事实，Agent 负责源码因果解释 |
 | coverage receipt | 登记/入口/诊断 | market commit 身份不能表达成员/暖机/持仓覆盖、缺口与实际就绪 |
 
-trial-<id>-execution-start 与 trial 同事务写入，明确 phase=source-precheck 或 replay。trial-<id>-execution 由执行入口捕获；通用 evidence add 禁止占用保留命名。写入与读取校验 trial、源码、镜像、用途和文件哈希。零字节日志只在 manifest 留 captured-empty/length=0/SHA256(empty)，不伪造占位内容；missing、not-started、capture-failed 分开。
-finally 尽力封存失败、中断与 invalid 的已有日志。宿主 SIGKILL 无法保证即时封存，开始回执留工作目录与缺失状态；恢复只追加 recovery bundle，原始封存不替换。后来的探针不能填成旧日志。
+trial-<id>-execution-start 与 trial 同事务写入，明确 phase=source-precheck 或 replay。trial-<id>-execution 由执行入口捕获；通用 evidence add 禁止占用保留命名。写入与读取校验 trial、源码、镜像、用途和文件哈希。零字节日志只在 manifest 留 captured-empty/length=0/SHA256(empty)，不伪造占位内容；missing 与 not-started 分开；捕获本身失败时保留工作目录和开始回执，不能从 missing 推断失败原因。
+finally 尽力封存失败、中断与 invalid 的已有日志。宿主 SIGKILL 无法保证即时封存，开始回执留工作目录与缺失状态；恢复材料只能以明确标注的普通证据 bundle 追加，不能补成原始封存；当前没有宿主 SIGKILL 自动恢复服务。后来的探针不能填成旧日志。
 
 P010 的实质活动只管经济证据，不增加频率、样本量、收益门槛。故障父源码可以派生修复，父版本与经济比较控制分开；不能把经济可用性接成版本资格。
 预检会产生同源码 trial，登记只承认启动前已固定 source-precheck 用途且身份匹配的预检；不豁免任意 exploration，防止事后把已见经济回放改称工程预检。

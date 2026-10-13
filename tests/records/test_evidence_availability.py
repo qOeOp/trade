@@ -85,3 +85,27 @@ class CurrentViewsTests(unittest.TestCase):
             self.assertEqual(logs['files']['native.stderr.txt']['state'],'captured-empty')
             self.assertEqual(execution.read(conn,attempt)['status'],'missing')
         with self.assertRaises(RecordError): records.add_evidence(self.profile,f'trial-{trial}-execution',[self.root/'note.md'],None)
+
+    def test_original_exploration_cannot_be_relabeled_as_precheck(self):
+        trial=self.precheck(phase='replay')
+        with self.assertRaises(RecordError) as caught:self.review(trial)
+        self.assertEqual(caught.exception.code,'SOURCE_REVIEW_INVALID')
+
+    def test_interruption_captures_original_partial_bytes_and_missing_phase(self):
+        from research.records.artifacts import _execute_capture
+        trial=self.precheck()
+        # Use another exact-source execution start; the existing capture remains immutable.
+        context={'source_sha256':self.source['source_sha256'],'image_ref':IDENTITY['image_ref'],'phase':'replay','workdir':str(self.root)}
+        attempt=records.report_trial(self.profile,mode='explore',source_sha256=self.source['source_sha256'],image_ref=IDENTITY['image_ref'],coins=['AAA'],start=self.window['start'],trade_start=self.window['trade_start'],end=self.window['end'],op='interrupted',execution_start=context)['trial_id']
+        (self.root/'native.stdout.txt').write_bytes(b'original partial stdout')
+        def interrupted(identity,mounts,workdir,argv,phases):
+            phases.update(native={'exit_code':None,'state':'started'},audit=None)
+            raise KeyboardInterrupt()
+        with patch('research.records.artifacts._replay',side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):_execute_capture(self.profile,attempt,IDENTITY,[],self.root,[])
+        with db.reading(self.profile) as conn:
+            capture=execution.read(conn,attempt)
+            self.assertEqual(capture['outcome'],'interrupted')
+            self.assertEqual(capture['files']['native.stdout.txt']['length'],len(b'original partial stdout'))
+            self.assertIsNone(capture['phases']['native']['exit_code'])
+            self.assertEqual(execution.read(conn,trial)['outcome'],'completed')

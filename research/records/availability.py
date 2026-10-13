@@ -37,7 +37,7 @@ def source_reviews(conn, run):
                 if item.get('source_sha256') != run['strategy_source_sha256'] or item.get('image_ref') != run['image_ref']:
                     continue
                 status = item['causal']['status']
-            elif item.get('run_id') == run['run_id'] and item.get('causal_status') == 'implementation_failure':
+            elif item.get('run_id') == run['run_id'] and (item.get('causal_status') == 'implementation_failure' or item.get('source_authoring_status') == 'invalid_same_clock_fill'):
                 # Resolve the retained receipt's historical run identity, rather than infer
                 # source from names or a post-hoc probe. AS OF never writes old branches.
                 prior = db.one(conn, 'SELECT t.strategy_source_sha256, t.image_ref FROM run AS OF %s r '

@@ -13,6 +13,8 @@ PATH = 'source-review.json'
 
 def review(profile, *, bundle, body):
     records._id(bundle, 'source review bundle', records.BUNDLE)
+    if execution.RESERVED.fullmatch(bundle):
+        raise RecordError('original execution namespace is product-owned', code='EXECUTION_NAMESPACE')
     if set(body) != {'trial_id', 'api', 'causal', 'activity', 'readiness'}:
         raise RecordError('review needs trial_id, api, causal, activity and readiness', code='SOURCE_REVIEW_INVALID')
     for name in ('api', 'causal', 'activity', 'readiness'):
@@ -39,11 +41,17 @@ def require(conn, bundle, source_sha, image):
     row = db.one(conn, 'SELECT content, sha256 FROM evidence WHERE bundle = %s AND path = %s', (bundle, PATH))
     if row is None or hashlib.sha256(row['content']).hexdigest() != row['sha256']:
         raise RecordError('missing or corrupt exact-source precheck review', code='SOURCE_PRECHECK_REQUIRED')
-    value = json.loads(row['content'])
+    try:
+        value = json.loads(row['content'])
+        if not isinstance(value, dict) or any(not isinstance(value.get(name),dict) or value[name].get('status') not in ('passed','failed','unresolved','no_opportunity') for name in ('api','causal','activity','readiness')) or not isinstance(value.get('trial_id'),int):
+            raise ValueError('source review structure invalid')
+    except (ValueError, TypeError) as exc:
+        raise RecordError(f'invalid source precheck review: {exc}', code='SOURCE_PRECHECK_REQUIRED') from exc
     if value.get('format') != 'source-review-v1' or (value.get('source_sha256'),value.get('image_ref')) != (source_sha,image):
         raise RecordError('source review differs from exact source/image', code='SOURCE_PRECHECK_REQUIRED')
     capture = execution.read(conn, value['trial_id'])
-    if (capture.get('phase') != 'source-precheck' or capture.get('outcome') != 'completed' or
+    if ((capture.get('source_sha256'),capture.get('image_ref')) != (source_sha,image) or
+            capture.get('phase') != 'source-precheck' or capture.get('outcome') != 'completed' or
             capture.get('runtime_failures') or set(capture.get('phases', {})) != {'native','audit'} or
             any(p is None or p.get('exit_code') != 0 for p in capture['phases'].values())):
         raise RecordError('native source precheck failed or is incomplete', code='SOURCE_PRECHECK_FAILED')

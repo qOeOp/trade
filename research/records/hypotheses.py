@@ -136,6 +136,9 @@ def register(profile, *, bundle, body, runtime, market, at, runner_argv):
     from research.records.artifacts import _runner_inputs, _container_runner_args, market_inputs, _cleanup
     from research.records.runtime import resolve, inspect_runtime
     records._id(bundle, 'hypothesis bundle', records.BUNDLE)
+    from research.records.execution import RESERVED
+    if RESERVED.fullmatch(bundle):
+        raise refuse('original execution namespace is product-owned', 'EXECUTION_NAMESPACE')
     replay = _runner_inputs(runner_argv)
     identity = resolve(runtime)
     inputs = market_inputs(market, at, replay, fresh=True)
@@ -190,6 +193,11 @@ def bind(conn, registration, *, source_sha256, trial_id):
         raise refuse('replay differs from preregistered runtime, input identity or effective configuration',
                      'EXECUTION_MISMATCH')
     sources = validate(conn, value['body'], actual)
+    if actual['runtime']['runtime_contract'] == 'r1-native-v7':
+        from research.records.prechecks import require
+        for cell in value['body']['grid']:
+            source = records.strategy(conn, cell['strategy'])
+            require(conn, value['body']['prechecks'][cell['strategy']], source['source_sha256'], actual['runtime']['image_ref'])
     if source_sha256 not in sources:
         raise refuse('source is outside the registered grid', 'SOURCE_MISMATCH')
     trial = db.one(conn, 'SELECT * FROM trial WHERE trial_id = %s', (trial_id,))

@@ -314,6 +314,18 @@ def _execute_capture(ledger, trial, identity, mounts, workdir, argv, *, conn=Non
                 outcome=outcome, precheck=precheck, conn=conn)
 
 
+def _input_coverage(workdir, inputs, inspection):
+    """Preserve original export receipts with the execution, before launch or cleanup."""
+    receipts = {}
+    for symbol in inputs['symbols']:
+        path = inputs['root'] / symbol / 'export.json'
+        receipts[symbol] = json.loads(path.read_bytes()) if path.is_file() else {'status':'missing'}
+    _write_json(workdir / 'input-coverage.json', {'format':'execution-input-coverage-v1',
+        'input_identity':inputs['identity'], 'effective_config':inspection['effective_config'],
+        'membership':json.loads(inputs['pool_file'].read_bytes()), 'export_receipts':receipts,
+        'scope':'entire supplied warmup/trading/potential holding interval; actual indicator readiness is source/Agent evidence'})
+
+
 def _start_context(source_sha, identity, inspection, workdir, *, phase="replay"):
     return {"phase": phase, "source_sha256": source_sha, "image_ref": identity["image_ref"],
             "runtime": identity, "effective_config": inspection["effective_config"],
@@ -350,9 +362,10 @@ def _explore(ledger, identity, inputs, source, source_sha256, strategy_class, ou
     (output / "source").mkdir()
     (output / "source" / "strategy.py").write_bytes(source)
     (output / "reports").mkdir()
+    _input_coverage(output, inputs, inspection)
+    _write_json(output / "runtime-inspection.json", inspection)
     trial = _trial(ledger, "explore", source_sha256, identity, inspection,
                    context=_start_context(source_sha256, identity, inspection, output, phase=phase))
-    _write_json(output / "runtime-inspection.json", inspection)
     mounts += [(output / "source", "/strategy", True), (output / "reports", "/reports", False)]
     native_exit, audit_exit = _execute_capture(ledger, trial, identity, mounts, output, [
         *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", strategy_class,
@@ -436,6 +449,7 @@ def _seal(ledger, conn, revision, strategy, runtime, inputs, runner_argv, hypoth
         registration = None if hypothesis is None else {
             "bundle": hypothesis, "execution": {"runtime": identity, "effective_config": config,
                                                    "input_identity": inputs["identity"]}}
+        _input_coverage(workdir, inputs, inspection)
         trial = _trial(ledger, "sealed", revision["source_sha256"], identity, inspection, conn=conn,
                        registration=registration,
                        context=_start_context(revision["source_sha256"], identity, inspection, workdir))

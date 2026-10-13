@@ -60,6 +60,15 @@ def audit(profile: dict, at: str | None) -> dict:
                         check_comparable(_run_with_trial(conn, row["run_id"]), plan["execution"])
                 except (RecordError, ValueError, KeyError, TypeError) as exc:
                     findings.append(f"research trial {item['trial_id']}: {exc}")
+        from research.records.execution import read as execution_capture
+        from research.records.common import RecordError
+        captures = []
+        for (trial_id,) in db.rows(conn, 'SELECT trial_id FROM trial ORDER BY trial_id'):
+            try:
+                receipt = execution_capture(conn, trial_id)
+                captures.append({'trial_id':trial_id, 'status':receipt['status'], 'phase':receipt.get('phase')})
+            except (RecordError, ValueError, KeyError, TypeError) as exc:
+                findings.append(f'execution capture {trial_id}: {exc}')
         goal = db.one(conn, "SELECT * FROM goal")
         runs = db.dicts(conn, "SELECT * FROM run WHERE status = 'passed' ORDER BY run_id")
         for run in runs:
@@ -108,4 +117,4 @@ def audit(profile: dict, at: str | None) -> dict:
                 findings.append(f"{kind} {record_id} (commit {commit}): {exc}")
         (head,), = db.rows(conn, "SELECT DOLT_HASHOF('HEAD')")
     return {"at": at or "open round", "commit": head, "runs_checked": len(runs), "freezes_checked": len(freezes),
-            "ok": not findings, "findings": findings}
+            "execution_captures": captures, "ok": not findings, "findings": findings}

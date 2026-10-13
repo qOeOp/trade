@@ -49,6 +49,11 @@ def _bundle(conn, name):
 def read(conn, trial_id):
     start_files = _bundle(conn, f'trial-{trial_id}-execution-start')
     files = _bundle(conn, f'trial-{trial_id}-execution')
+    trial = db.one(conn, 'SELECT * FROM trial WHERE trial_id = %s', (trial_id,))
+    if MANIFEST in start_files:
+        original = json.loads(start_files[MANIFEST])
+        if original.get('format') != 'execution-start-v1' or original.get('trial_id') != trial_id or original.get('source_sha256') != trial['strategy_source_sha256'] or original.get('image_ref') != trial['image_ref'] or original.get('phase') not in ('replay','source-precheck'):
+            raise RecordError('original execution start identity differs', code='EXECUTION_IDENTITY')
     if MANIFEST not in files:
         return {'status': 'missing', 'start': json.loads(start_files[MANIFEST]) if MANIFEST in start_files else None,
                 'reason': 'No original final execution capture; later probes cannot replace it.'}
@@ -72,6 +77,8 @@ def read(conn, trial_id):
             content = files.get(path)
             if content is None or len(content) != entry['length'] or hashlib.sha256(content).hexdigest() != entry['sha256']:
                 raise RecordError('execution capture file differs', code='EXECUTION_IDENTITY')
+    if 'strategy.py' in files and hashlib.sha256(files['strategy.py']).hexdigest() != trial['strategy_source_sha256']:
+        raise RecordError('captured source differs from original trial', code='EXECUTION_IDENTITY')
     value['status'] = 'captured'
     value['start'] = json.loads(start_files[MANIFEST]) if MANIFEST in start_files else None
     value['runtime_failures'] = [json.loads(line) for line in files.get('runtime-errors.jsonl', b'').splitlines() if line.strip()]
@@ -82,6 +89,7 @@ def capture(profile, *, trial_id, workdir, phases, outcome, precheck=False, conn
     """Store exact already-captured bytes, including exception and interruption evidence."""
     workdir = Path(workdir)
     names = {name: workdir / name for name in ('native.stdout.txt', 'native.stderr.txt', 'audit.stdout.txt', 'audit.stderr.txt')}
+    names['input-coverage.json'] = workdir / 'input-coverage.json'
     names['strategy.py'] = workdir / 'source' / 'strategy.py'
     names['runtime-errors.jsonl'] = workdir / 'reports' / 'runtime-errors.jsonl'
     names['summary.json'] = workdir / 'reports' / 'summary.json'

@@ -194,6 +194,10 @@ class SealedRunTests(Workspace):
         self.assertFalse(workdir.exists())
         report = records.run_report(self.profile, result["run_id"])
         self.assertEqual(report["market"]["market_commit"], "c" * 32)
+        from research.records import execution, db
+        with db.reading(self.profile) as conn:
+            capture=execution.read(conn,result['trial_id'])
+            self.assertEqual(capture['files']['input-coverage.json']['state'],'captured')
         self.assertEqual((report["plans_closed"], report["plan_win_rate"], report["image_revision"]), (120, 0.75, "a" * 40))
         frozen = records.freeze(self.profile, run_id=result["run_id"], source_bundle=None, failed_part=None, note="x",
                                 op=None, check_image=False, check_fresh=False)
