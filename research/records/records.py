@@ -308,6 +308,13 @@ def ingest_run(profile: dict, *, trial_id: int, reports, problems: list[str], in
     """Store one sealed run in one write: readings and report rows when it passed, else its reasons."""
     from research.records.analysis import readings
     status = "invalid" if problems else "passed"
+    if status == 'passed' and input_identity.get('lifecycle_bundle'):
+        from contextlib import nullcontext
+        from research.records.lifecycle import original_events
+        with (nullcontext(conn) if conn is not None else db.reading(profile)) as connection:
+            supplied = original_events(connection, trial_id, input_identity, reports.summary)
+        if reports.lifecycle_events != supplied:
+            raise _refuse('local lifecycle events differ from original execution capture', 'EXECUTION_IDENTITY')
     values = readings(reports) if status == "passed" else None
     limitations = values["limitations"] if values else list(problems)
     economics = (values or {}).get("economics") or {}

@@ -62,12 +62,23 @@ strategy instance. Missing market data alone never makes an episode inactive. Da
 cross identities. Opening membership ends at a supplied PRE_CLOSE event; the source must honor it,
 and PRE_CLOSE is not assumed to cancel working entries or enforce reduce-only matching. Exact native
 CONTRACT_EXPIRED events are loaded for Nautilus to settle, without a source-owned settlement.
+An `InstrumentStatus(CLOSE)` before the input window can identify an already inactive lifetime
+without inventing its historical settlement price. A CLOSE inside the input window requires the
+matching InstrumentClose at that time. The pinned rc3 rejects expiration fills outside its native
+instrument precision/tick; the exporter refuses such exact prices before replay, without rounding
+them or changing the initial tick from future settlement information.
 
 These supplied legal intervals are exogenous inputs, not proof of announcement-time knowledge.
 Historical settlement needs its exact authoritative price; minute LAST/MARK cannot substitute for
 Binance's final thirty-minute index average. Synthetic inputs may test engineering only. Existing
-plan-tag reading and native audit refusals remain in force, including any refusal of an untagged
-native expiration order. This optional adapter alone does not establish full-pool historical validity.
+source plan-tag, cycle and native audit checks remain in force. A native expiration closing fill can
+inherit its cycle's one tagged source plan only with matching original input, native order history,
+fill event IDs, instrument/strategy/account/position links, exact event price/time, and a full net
+reduction to flat. Ordinary, canceled, unfilled or ambiguous untagged orders still refuse. Native
+rows and tags remain unchanged; exact-source review must exclude imitation of native expiration
+names/tags because these fields do not authenticate the producer. Preregistration and replay also
+check that the exact-source precheck used the same immutable lifecycle bundle and market commit;
+its engineering window may differ. This adapter alone does not establish full-pool historical validity.
 
 ## Explore a source
 

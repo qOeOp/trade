@@ -26,3 +26,11 @@ v7 构造器不新增参数：每个 episode 仍接收原生 instrument_id、独
 真实价格缺证据也不以 LAST/MARK 替代：币安既有原公告规定结算使用最后30分钟的1800个每秒指数价格。工程人工事件只能证明工程行为，不能作为历史结算证据或十轮效果。未来结算 Price 不改变初始 instrument precision/tick；只有其生效时刻进入原生事件。完整证据与 manifest 在只读输入挂载内，不能声称对任意 source 的未来文件访问隔离，仍须精确源码因果审查。
 
 PRE_CLOSE 的原生语义需实际 CI 原生试验；不能假设它自动禁止非减仓，也不能用 HALT/PAUSE 冒充 close-only。原生关闭、旧工作订单及 source 的开仓范围分别检查。
+
+## rc3 实际能力边界
+
+独立 Agent 核对 PyPI 2.0.0rc3 对应官方源码 revision `648970ce64a304d93da0a29320cb6e19b905fa39` 与实际 CI 原生原件。其 expiration 的 `apply_fills` 仍以 instrument 的初始 precision/tick 整数网格过滤价格：人工八位价格产生了到期取消单和未平 LONG，即使 native/G 均退出0。后续人工可表示价格产生唯一到期 closing fill、FLAT0 及关闭回调。原件保留在隔离库，不改写第一次结果，不作为真实历史价格或经济反馈。
+
+adapter 只对实际输入窗内的结算核对原始精确价格是否能在既有网格表达；不舍入、不从未来价格修改初始 precision/tick。窗口前的权威 InstrumentStatus(CLOSE) 可表达已终止生命周期，无需发明不参与本次回放的历史结算价格；窗口内 CLOSE 需同一时刻的完整 InstrumentClose。结束时间仍由原生字典推导，不新增 end_ns 或第二份价格。
+
+只读归属从既有 Reports 内存对象读取已有事件，未增加任何 SQL/JSON 持久字段。load_run 先用 execution.read 校验原始 start/capture 身份、长度和哈希，再比对 run input_identity、source/runtime/summary；封存前核对本地事件与原始 capture 一致。旧无 lifecycle 输入的运行不追补事件；新输入捕获损坏或矛盾不能降级为空。计划归属保留其限定：字段不能认证生成者，精确源码审查必须排除仿造原生关闭单的路径。

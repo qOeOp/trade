@@ -67,7 +67,9 @@ def validate(body, commit, files):
                 if event['close_type'] != 'CONTRACT_EXPIRED' or native.close_price.as_double() <= 0:
                     raise RecordError('settlement requires an exact positive CONTRACT_EXPIRED price', code='LIFECYCLE_INPUT')
                 closes.append(native.ts_event)
-        if len(closes) > 1 or (closes and any(e['ts_event'] > closes[0] for e in episode['events'])):
+        endings = [e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose'
+                   or (e['type'] == 'InstrumentStatus' and e['action'] == 'CLOSE')]
+        if len(closes) > 1 or len(set(endings)) > 1 or (endings and any(e['ts_event'] > endings[0] for e in episode['events'])):
             raise RecordError('an expired identity cannot be reused for a later contract', code='LIFECYCLE_INPUT')
         by_symbol.setdefault(symbol, []).append(episode)
     for episodes in by_symbol.values():
@@ -83,7 +85,8 @@ def validate(body, commit, files):
 
 
 def end_ns(episode):
-    return next((e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose'), None)
+    return next((e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose'
+                 or (e['type'] == 'InstrumentStatus' and e['action'] == 'CLOSE')), None)
 
 
 def opening_end_ns(episode):
@@ -151,6 +154,25 @@ def write_events(root, episode, start, end):
         pq.write_table(table, folder / _ns_name(values[0].ts_init, values[-1].ts_init), compression='snappy')
         counts['instrument_close' if kind == 'InstrumentClose' else 'instrument_status'] = len(values)
     return counts
+
+
+def require_native_price(episode, instrument, start=0, end=None):
+    """rc3 normalizes expiration fills on the instrument's grid; never round or alter that grid."""
+    from nautilus_trader.model import InstrumentClose
+    endings = [e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentStatus' and e['action'] == 'CLOSE'
+               and start <= e['ts_init'] and (end is None or e['ts_init'] < end)]
+    settlements = [e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose']
+    if any(t not in settlements for t in endings):
+        raise RecordError('CLOSE inside the input window requires the exact native settlement event/price; '
+                          'status alone cannot settle a held position', code='LIFECYCLE_INPUT')
+    for e in episode['events']:
+        if e['type'] != 'InstrumentClose' or e['ts_init'] < start or (end is not None and e['ts_init'] >= end):
+            continue
+        price = InstrumentClose.from_dict(e).close_price
+        if (price.raw % (10 ** (16 - instrument.price_precision))
+                or price.raw % abs(instrument.price_increment.raw)):
+            raise RecordError('pinned rc3 cannot fill this exact settlement price on the exported instrument grid; '
+                              'do not round the price or change the initial tick to bypass it', code='LIFECYCLE_INPUT')
 
 
 def files_digest(files):

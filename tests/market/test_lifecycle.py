@@ -2,6 +2,7 @@
 import copy
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 from nautilus_trader.model import (InstrumentClose, InstrumentCloseType, InstrumentId,
@@ -93,4 +94,24 @@ class LifecycleInputsTests(unittest.TestCase):
         self.assertNotEqual(lifecycle.files_digest(self.files), lifecycle.files_digest(changed))
         with self.assertRaises(RecordError):
             lifecycle.validate(self.manifest, 'fixed', {**self.files, '../outside': b'x'})
+
+    def test_exact_settlement_must_fit_unchanged_native_grid(self):
+        instrument = SimpleNamespace(price_precision=7, price_increment=Price.from_str('0.0000100'))
+        for price in ('0.12345678', '0.1234567'):
+            episode = {**self.episode, 'events': [{**self.close, 'close_price': price}]}
+            with self.subTest(price=price), self.assertRaises(RecordError):
+                lifecycle.require_native_price(episode, instrument)
+        # Extra formatting zeros do not change the exact value and are not a reason to reject it.
+        lifecycle.require_native_price({**self.episode, 'events': [{**self.close, 'close_price': '0.12345000'}]}, instrument)
+
+    def test_prewindow_close_without_price_marks_inactive_but_never_settles_within_window(self):
+        status = {**self.status, 'action': 'CLOSE', 'ts_event': 180_000_000_000, 'ts_init': 180_000_000_000}
+        episode = {**self.episode, 'events': [status]}
+        manifest = {**self.manifest, 'episodes': [episode]}
+        lifecycle.validate(manifest, 'fixed', self.files)
+        self.assertFalse(episode_active(episode, 200_000_000_000, 300_000_000_000))
+        instrument = SimpleNamespace(price_precision=7, price_increment=Price.from_str('0.0000100'))
+        lifecycle.require_native_price(episode, instrument, 200_000_000_000, 300_000_000_000)
+        with self.assertRaises(RecordError):
+            lifecycle.require_native_price(episode, instrument, 100_000_000_000, 300_000_000_000)
 

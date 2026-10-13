@@ -68,6 +68,7 @@ class Reports:
     returns: list[tuple[int, float]]
     exposures: bytes | None
     order_events: list[dict] | None
+    lifecycle_events: tuple[dict, ...] = ()
 
 
 def load_dir(directory: Path) -> Reports:
@@ -83,21 +84,26 @@ def load_dir(directory: Path) -> Reports:
         return _rows(data) if data is not None else []
 
     summary, audit = text("summary.json"), text("audit.json")
+    parsed_summary = json.loads(summary) if summary else None
+    coverage_path = directory.parent / 'input-coverage.json'
+    from research.records.lifecycle import events as lifecycle_events
     events = text(ORDER_EVENTS)
     return Reports(
-        summary=json.loads(summary) if summary else None, audit=json.loads(audit) if audit else None,
+        summary=parsed_summary, audit=json.loads(audit) if audit else None,
         orders=rows("orders.csv"), fills=rows("fills.csv"), positions=rows("positions.csv"),
         account=rows("account.csv"),
         returns=[(int(row["ts_event_ns"]), float(row["native_return"])) for row in rows("returns_series.csv")],
         exposures=text(EXPOSURES),
         order_events=None if events is None else [json.loads(line) for line in gzip.decompress(events).splitlines()
-                                                  if line.strip()])
+                                                  if line.strip()],
+        lifecycle_events=lifecycle_events(json.loads(coverage_path.read_bytes()), parsed_summary)
+                         if coverage_path.is_file() and parsed_summary is not None else ())
 
 
 def load_run(conn, run_id: int, *, account: bool = True, exposures: bool = True) -> Reports:
     """Rebuild one stored run's reports from the ledger, row for row."""
     from research.records import db
-    run = db.one(conn, "SELECT status, summary, audit" + (", exposures" if exposures else "")
+    run = db.one(conn, "SELECT status, summary, audit, trial_id, input_identity" + (", exposures" if exposures else "")
                  + " FROM run WHERE run_id = %s", (run_id,))
     if run is None:
         raise RecordError(f"unknown run {run_id}", code="UNKNOWN_RUN", write_status="not_written")
@@ -106,14 +112,18 @@ def load_run(conn, run_id: int, *, account: bool = True, exposures: bool = True)
         return [json.loads(value) for (value,) in db.rows(conn, f"SELECT raw FROM {table} WHERE run_id = %s "
                                                                 "ORDER BY seq", (run_id,))]
 
+    from research.records.lifecycle import original_events
+    summary = json.loads(run['summary']) if run['summary'] else None
     return Reports(
-        summary=json.loads(run["summary"]) if run["summary"] else None,
+        summary=summary,
         audit=json.loads(run["audit"]) if run["audit"] else None,
         orders=raw("run_order"), fills=raw("run_fill"), positions=raw("run_position"),
         account=raw("run_account") if account else [],
         returns=[(ts, value) for ts, value in db.rows(conn, "SELECT ts_event_ns, native_return FROM run_return "
                                                             "WHERE run_id = %s ORDER BY ts_event_ns", (run_id,))],
-        exposures=run.get("exposures"), order_events=raw("run_order_event") or None)
+        exposures=run.get("exposures"), order_events=raw("run_order_event") or None,
+        lifecycle_events=original_events(conn, run['trial_id'], json.loads(run['input_identity']), summary)
+                         if run['status'] == 'passed' else ())
 
 
 def readings(reports: Reports) -> dict:
@@ -137,7 +147,8 @@ def readings(reports: Reports) -> dict:
         return output
     output["economics"]["closed_by_year"] = closed_by_year(cycles, limitations)
     try:
-        output["plans"] = _plans(reports.orders, reports.fills, reports.positions, cycles)
+        output['plans'] = _plans(reports.orders, reports.fills, reports.positions, cycles,
+                                  reports.order_events, reports.lifecycle_events)
     except _Unreconciled as exc:
         limitations.append(f"plans is null: {exc}")
     if reports.exposures is None:
@@ -503,10 +514,13 @@ def _cycles(positions: list[dict], fills: list[dict]) -> list[dict]:
     return cycles
 
 
-def _plans(orders: list[dict], fills: list[dict], positions: list[dict], cycles: list[dict]) -> dict:
+def _plans(orders: list[dict], fills: list[dict], positions: list[dict], cycles: list[dict],
+           order_events=None, lifecycle_events=()) -> dict:
     """Net win rate per trade plan, read only when the reports honour the plan contract.
 
-    Every order carries exactly one ``plan:`` tag; a plan's fills form at most one position
+    Every source order carries exactly one ``plan:`` tag; an exactly linked native expiration
+    closing fill can inherit that cycle's unique source plan without changing any native row.
+    A plan's fills form at most one position
     cycle and each cycle holds one plan's fills; on one instrument no plan starts (its first
     ``ts_init``) before every earlier plan has ended (its last order event or cycle close; an
     order still working or a cycle still open at the end lasts to the end of the run). A plan
@@ -514,12 +528,116 @@ def _plans(orders: list[dict], fills: list[dict], positions: list[dict], cycles:
     zero; a breakeven plan and a plan still open at the end are not wins.
     """
     try:
-        return _plan_reading(orders, fills, positions, cycles)
+        return _plan_reading(orders, fills, positions, cycles, order_events, lifecycle_events)
     except (KeyError, TypeError, ValueError) as exc:
         raise _Unreconciled(f"a native report lacks a value the plan reading needs ({type(exc).__name__}: {exc})") from exc
 
 
-def _plan_reading(orders: list[dict], fills: list[dict], positions: list[dict], cycles: list[dict]) -> dict:
+def _expiry_plan_owners(orders, fills, positions, cycles, plan_of, order_events, lifecycle_events):
+    """Pinned rc3's single-fill expiration close, inferred only from mutually linked native facts.
+
+    This does not authenticate the event producer: exact-source review must exclude imitation.
+    It never edits a row or exempts a canceled/no-fill/ambiguous/ordinary untagged order.
+    """
+    result = {}
+    if not order_events or not lifecycle_events:
+        return result
+    for order in orders:
+        oid = order['client_order_id']
+        if oid in plan_of:
+            continue
+        if (not oid.startswith('EXPIRATION-BINANCE-') or _list(order.get('tags', '')) != ['EXPIRATION_BINANCE_CLOSE']
+                or order.get('type') != 'MARKET' or order.get('is_reduce_only') != 'True'
+                or order.get('status') != 'FILLED'):
+            continue
+        history = [e for e in order_events if e.get('client_order_id') == oid]
+        closing = [f for f in fills if f.get('client_order_id') == oid]
+        supplied = [e for e in lifecycle_events if e['instrument_id'] == order['instrument_id']
+                    and e['ts_event'] == int(order['ts_init']) and e['close_type'] == 'CONTRACT_EXPIRED']
+        if (len(closing) != 1 or len(supplied) != 1
+                or [e.get('type') for e in history] != ['OrderInitialized', 'OrderAccepted', 'OrderFilled']):
+            continue
+        init, accepted, native_fill = history
+        fill, close = closing[0], supplied[0]
+        ts = close['ts_event']
+        owners = [(p, c) for p, c in zip(positions, cycles, strict=True) if fill['event_id'] in c['event_ids']]
+        if len(owners) != 1:
+            continue
+        position, cycle = owners[0]
+        position_events = _list(position['events'])
+        if (not cycle['closed'] or position.get('closing_order_id') != oid or not position_events
+                or position_events[-1] != native_fill or init.get('event_id') != order.get('init_id')
+                or init.get('tags') != ['EXPIRATION_BINANCE_CLOSE'] or init.get('reduce_only') is not True
+                or init.get('order_type') != 'MARKET' or init.get('order_side') != order['side']
+                or accepted.get('venue_order_id') != order.get('venue_order_id')
+                or int(order['ts_last']) != ts or _utc_ns(position['ts_closed']) != ts
+                or Decimal(order['quantity']) != Decimal(order['filled_qty'])
+                or Decimal(fill['last_qty']) != Decimal(order['quantity'])
+                or Decimal(init['quantity']) != Decimal(order['quantity'])
+                or Decimal(fill['last_px']) != Decimal(close['close_price'])
+                or native_fill.get('order_side') != order['side'] or native_fill.get('order_type') != order['type']
+                or Decimal(position['quantity']) != 0 or position.get('side') != 'FLAT'):
+            continue
+        if any(e.get('ts_event') != ts or e.get('ts_init') != ts for e in history):
+            continue
+        identity_keys = ('instrument_id', 'trader_id', 'strategy_id')
+        if any(any(e.get(k) != order.get(k) for k in identity_keys) for e in history):
+            continue
+        if any(fill.get(k) != order.get(k) or position.get(k) != order.get(k)
+               for k in (*identity_keys, 'account_id', 'position_id')):
+            continue
+        if any(e.get('account_id') != order.get('account_id') for e in (accepted, native_fill)):
+            continue
+        if any(native_fill.get(k) != fill.get(k) for k in ('event_id', 'client_order_id', 'venue_order_id',
+                                                          'trade_id', 'commission', 'currency', 'order_side',
+                                                          'order_type', 'liquidity_side', 'last_px', 'last_qty')):
+            continue
+        if any(_utc_ns(fill[k]) != ts for k in ('ts_event', 'ts_init')) or native_fill.get('position_id') != position['position_id']:
+            continue
+        signed = sum((Decimal(e['last_qty']) * (1 if e['order_side'] == 'BUY' else -1)
+                      for e in position_events[:-1]), Decimal(0))
+        if (signed == 0 or (signed > 0) != (order['side'] == 'SELL')
+                or abs(signed) != Decimal(fill['last_qty'])
+                or any(e['ts_event'] >= ts for e in position_events[:-1])):
+            continue
+        prior_orders = {f['client_order_id'] for f in fills if f['event_id'] in cycle['event_ids'] and f['client_order_id'] != oid}
+        if not prior_orders or any(key not in plan_of for key in prior_orders):
+            continue
+        orders_by_id = {o['client_order_id']: o for o in orders}
+        if len(orders_by_id) != len(orders):
+            continue
+        prior_valid = True
+        for event in position_events[:-1]:
+            native = [e for e in order_events if e.get('event_id') == event['event_id']]
+            csv = [f for f in fills if f['event_id'] == event['event_id']]
+            if len(native) != 1 or native[0] != event or len(csv) != 1:
+                prior_valid = False
+                break
+            source_order = orders_by_id.get(event['client_order_id'], {})
+            if (any(event.get(k) != position.get(k) or csv[0].get(k) != position.get(k)
+                    or source_order.get(k) != position.get(k) for k in (*identity_keys, 'account_id', 'position_id'))
+                    or event.get('order_side') != source_order.get('side')
+                    or event.get('order_type') != source_order.get('type')):
+                prior_valid = False
+                break
+            if any(event.get(k) != csv[0].get(k) for k in ('client_order_id', 'venue_order_id', 'trade_id',
+                                                          'commission', 'currency', 'order_side', 'order_type',
+                                                          'liquidity_side', 'last_px', 'last_qty')):
+                prior_valid = False
+                break
+            if any(_utc_ns(csv[0][k]) != event[k] for k in ('ts_event', 'ts_init')):
+                prior_valid = False
+                break
+        if not prior_valid:
+            continue
+        plans = {plan_of[key] for key in prior_orders}
+        if len(plans) == 1:
+            result[oid] = next(iter(plans))
+    return result
+
+
+def _plan_reading(orders: list[dict], fills: list[dict], positions: list[dict], cycles: list[dict],
+                  order_events=None, lifecycle_events=()) -> dict:
     def sample(items):
         items = sorted(items)
         return ", ".join(items[:5]) + (f" and {len(items) - 5} more" if len(items) > 5 else "")
@@ -534,6 +652,9 @@ def _plan_reading(orders: list[dict], fills: list[dict], positions: list[dict], 
             plan_of[order["client_order_id"]] = tags[0][len(PLAN_TAG):]
         else:
             (doubled if tags else untagged).append(order["client_order_id"])
+    inherited = _expiry_plan_owners(orders, fills, positions, cycles, plan_of, order_events, lifecycle_events)
+    plan_of.update(inherited)
+    untagged = [oid for oid in untagged if oid not in inherited]
     if untagged:
         raise _Unreconciled(f"{len(untagged)} orders carry no plan tag ({sample(untagged)})")
     if doubled:

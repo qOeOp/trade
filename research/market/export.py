@@ -281,6 +281,8 @@ def _export_episode(job: dict) -> dict:
     size_precision = decimals(row["size_increment"])
     native_id = episode['instrument_id'] if episode is not None else instrument_id(symbol)
     instrument = build_instrument(symbol, row, precision, native_id=native_id)
+    if episode is not None:
+        lifecycle.require_native_price(episode, instrument, start * 1_000_000, end * 1_000_000)
     catalog = ParquetDataCatalog(str(path))
     catalog.write_instruments([instrument])
     iid = InstrumentId.from_str(native_id)

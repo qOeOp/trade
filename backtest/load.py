@@ -241,7 +241,7 @@ def episode_membership(intervals, episode):
         return intervals
     low = episode['start_ns'] or 0
     ends = [e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose'
-            or (e['type'] == 'InstrumentStatus' and e['action'] == 'PRE_CLOSE')]
+            or (e['type'] == 'InstrumentStatus' and e['action'] in ('PRE_CLOSE', 'CLOSE'))]
     high = min(ends) if ends else None
     return tuple((max(a, low), min(b, high) if high is not None else b) for a, b in intervals
                  if max(a, low) < (min(b, high) if high is not None else b))
@@ -251,7 +251,8 @@ def episode_active(episode, start, end):
     """Legal lifetime intersects the input window; a missing bar never makes an episode inactive."""
     if episode is None:
         return True
-    ending = next((e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose'), None)
+    ending = next((e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose'
+                   or (e['type'] == 'InstrumentStatus' and e['action'] == 'CLOSE')), None)
     return (episode['start_ns'] or 0) < end and (ending is None or ending > start)
 
 
