@@ -50,7 +50,7 @@ def market_profile(path: Path | None, name: str | None = None) -> dict:
 
 def exporter_fingerprint() -> str:
     from research.records.common import ROOT
-    paths = ("research/market/export.py", "research/market/coverage.py", "research/market/store.py", "research/market/universe.py",
+    paths = ("research/market/export.py", "research/market/lifecycle.py", "research/market/coverage.py", "research/market/store.py", "research/market/universe.py",
              "research/records/artifacts.py", "uv.lock")
     manifest = {path: _sha(ROOT / path) for path in paths}
     return hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -82,6 +82,7 @@ def _runner_inputs(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--symbols", nargs="+")
     parser.add_argument("--universe", choices=("pool",))
+    parser.add_argument("--lifecycle-bundle", help="immutable research evidence holding lifecycle.json and originals")
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
     parser.add_argument("--trade-start")
@@ -118,7 +119,8 @@ def membership(pool_rows: list[tuple], end_month) -> dict[str, list[list[int]]]:
     return found
 
 
-def market_inputs(market: dict, at: str | None, replay: argparse.Namespace, *, fresh: bool) -> dict:
+def market_inputs(market: dict, at: str | None, replay: argparse.Namespace, *, fresh: bool,
+                  research_profile: dict | None = None) -> dict:
     """Export the market commit for the replay window and write its pool membership file."""
     from research.market import export, store, universe
     from research.records import db
@@ -142,7 +144,13 @@ def market_inputs(market: dict, at: str | None, replay: argparse.Namespace, *, f
                          if any(a < end * 1_000_000 and b > trade_start * 1_000_000 for a, b in intervals))
     else:
         symbols = list(replay.symbols)
-    exported = export.export(market, at=commit, symbols=symbols, start=start, end=end, timeframe="1m", fresh=fresh)
+    lifecycle_episodes, lifecycle_files = None, None
+    if replay.lifecycle_bundle:
+        from research.market.lifecycle import load
+        lifecycle_episodes, lifecycle_files = load(research_profile, replay.lifecycle_bundle, commit)
+    options = ({'lifecycle_episodes': lifecycle_episodes, 'lifecycle_files': lifecycle_files}
+               if lifecycle_files is not None else {})
+    exported = export.export(market, at=commit, symbols=symbols, start=start, end=end, timeframe="1m", fresh=fresh, **options)
     root = Path(exported["root"])
     pool_file = Path(tempfile.mkdtemp(prefix="trade-pool-", dir="/tmp")) / "pool.json"
     _write_json(pool_file, {"commit": commit, "pool_rule": rule,
@@ -155,6 +163,8 @@ def market_inputs(market: dict, at: str | None, replay: argparse.Namespace, *, f
         raise ArtifactError("market export did not produce one-minute inputs")
     identity["export_content_sha256"] = export_fingerprint(inputs)
     identity["exporter_source_sha256"] = exporter_fingerprint()
+    if replay.lifecycle_bundle:
+        identity['lifecycle_bundle'] = replay.lifecycle_bundle
     return inputs
 
 
@@ -163,8 +173,15 @@ def _container_runner_args(argv: list[str], inputs: dict) -> tuple[list[str], li
     denied = {"--strategy-file", "--strategy-class", "--strategy-sha256", "--strategy-binding", "--execution-binding",
               "--output", "--describe"}
     result, skip = [], False
+    lifecycle_skip = False
     for value in argv:
+        if lifecycle_skip:
+            lifecycle_skip = False
+            continue
         option = value.split("=", 1)[0]
+        if option == '--lifecycle-bundle':
+            lifecycle_skip = '=' not in value
+            continue
         if option in denied:
             raise ArtifactError(f"the run command owns {option}")
         if option in ("--universe", "--symbols"):
@@ -347,7 +364,7 @@ def explore(*, ledger: dict, market: dict, at: str | None, strategy_file: Path, 
     source_sha256 = hashlib.sha256(source).hexdigest()
     replay = _runner_inputs(runner_argv)
     identity = resolve(runtime)
-    inputs = market_inputs(market, at, replay, fresh=False)
+    inputs = market_inputs(market, at, replay, fresh=False, research_profile=ledger)
     try:
         return _explore(ledger, identity, inputs, source, source_sha256, strategy_class, output, runner_argv)
     finally:
@@ -390,7 +407,7 @@ def precheck(*, ledger, market, at, strategy, runtime, runner_argv, output):
     identity = resolve(runtime)
     if revision["runtime_contract"] != identity["runtime_contract"]:
         raise ArtifactError("precheck source and image runtime contracts differ")
-    inputs = market_inputs(market, at, _runner_inputs(runner_argv), fresh=True)
+    inputs = market_inputs(market, at, _runner_inputs(runner_argv), fresh=True, research_profile=ledger)
     try:
         result = _explore(ledger, identity, inputs, revision["source"], revision["source_sha256"],
                           revision["entry_class"], output, runner_argv, phase="source-precheck")
@@ -413,7 +430,7 @@ def run(*, ledger: dict, market: dict, at: str | None, strategy: str, runtime: s
     replay = _runner_inputs(runner_argv)
     with db.session(ledger) as conn:
         revision = read_strategy(conn, strategy)
-        inputs = market_inputs(market, at, replay, fresh=True)
+        inputs = market_inputs(market, at, replay, fresh=True, research_profile=ledger)
         try:
             return _seal(ledger, conn, revision, strategy, runtime, inputs, runner_argv, hypothesis)
         finally:

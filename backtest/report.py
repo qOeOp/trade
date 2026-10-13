@@ -162,6 +162,8 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
     orders = reports["orders.csv"]
     denied_or_rejected = bool(orders["status"].isin(("DENIED", "REJECTED")).any())
     for native_strategy in strategies.values():
+        if native_strategy is None:
+            continue
         findings = native_strategy.replay_integrity_findings(denied_or_rejected)
         if not isinstance(findings, list) or any(not isinstance(item, str) or not item for item in findings):
             raise ValueError("strategy integrity findings must be nonempty strings")
@@ -223,7 +225,7 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
                 "coin": row["coin"],
                 "instrument": str(row["instrument_id"]),
                 "counts": row["counts"],
-                **diagnostics(strategies[row["coin"]]),
+                **(diagnostics(strategies[row['coin']]) if strategies[row['coin']] is not None else {}),
                 "positions": sum(positions["instrument_id"] == str(row["instrument_id"])),
             }
             for row in rows

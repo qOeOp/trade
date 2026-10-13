@@ -37,7 +37,7 @@ def review(profile, *, bundle, body):
                     replay=lambda c,r: {'bundle':r['bundle']})
 
 
-def require(conn, bundle, source_sha, image):
+def require(conn, bundle, source_sha, image, input_identity=None):
     row = db.one(conn, 'SELECT content, sha256 FROM evidence WHERE bundle = %s AND path = %s', (bundle, PATH))
     if row is None or hashlib.sha256(row['content']).hexdigest() != row['sha256']:
         raise RecordError('missing or corrupt exact-source precheck review', code='SOURCE_PRECHECK_REQUIRED')
@@ -57,4 +57,16 @@ def require(conn, bundle, source_sha, image):
         raise RecordError('native source precheck failed or is incomplete', code='SOURCE_PRECHECK_FAILED')
     if any(value[name]['status'] not in ('passed','no_opportunity') for name in ('api','causal','activity','readiness')):
         raise RecordError('Agent source review failed or unresolved; repair before research', code='SOURCE_PRECHECK_FAILED')
+    if input_identity is not None:
+        files = execution._bundle(conn, f"trial-{value['trial_id']}-execution")
+        try:
+            original = json.loads(files.get('input-coverage.json', b'{}')).get('input_identity', {})
+            before, after = original.get('lifecycle_bundle'), input_identity.get('lifecycle_bundle')
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise RecordError('source precheck input identity is invalid', code='SOURCE_PRECHECK_REQUIRED') from exc
+        # Different windows are allowed; lifecycle evidence itself is immutable and must be identical.
+        if before is not None or after is not None:
+            if before != after or original.get('market_commit') != input_identity.get('market_commit'):
+                raise RecordError('source precheck differs from lifecycle bundle/fixed market commit',
+                                  code='SOURCE_PRECHECK_REQUIRED')
     return value['trial_id']

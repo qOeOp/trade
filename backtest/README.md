@@ -48,6 +48,27 @@ and the daily LAST bars before `--start`, all derived from the stored one-minute
 counts. A source declaring `DAILY_WARMUP = True` receives the unbroken run of daily bars that ends
 1 ms before `--start` (at least 200). There is no second matching or account engine.
 
+An optional `--lifecycle-bundle BUNDLE` after the artifacts command's `--` selects immutable research
+evidence containing `lifecycle.json` and retained source originals. The manifest is tied to the fixed
+market commit. It maps each symbol's chronological episodes to `SYMBOL-E1-PERP.BINANCE`, etc., with
+an authoritative `start_ns` (null for an initially unknown, left-censored lifetime), native
+`InstrumentStatus`/`InstrumentClose` dictionaries, and source file references. All bundle bytes join
+the existing export fingerprint. It does not modify the market or original pool.
+
+The export keeps the original raw coverage and scope, and projects only complete minutes inside each
+episode into a separate Catalog. The runner uses separate native instrument and strategy instances;
+an episode outside the input window remains in the receipts and per-instrument report without a
+strategy instance. Missing market data alone never makes an episode inactive. Daily warmup cannot
+cross identities. Opening membership ends at a supplied PRE_CLOSE event; the source must honor it,
+and PRE_CLOSE is not assumed to cancel working entries or enforce reduce-only matching. Exact native
+CONTRACT_EXPIRED events are loaded for Nautilus to settle, without a source-owned settlement.
+
+These supplied legal intervals are exogenous inputs, not proof of announcement-time knowledge.
+Historical settlement needs its exact authoritative price; minute LAST/MARK cannot substitute for
+Binance's final thirty-minute index average. Synthetic inputs may test engineering only. Existing
+plan-tag reading and native audit refusals remain in force, including any refusal of an untagged
+native expiration order. This optional adapter alone does not establish full-pool historical validity.
+
 ## Explore a source
 
 ```bash

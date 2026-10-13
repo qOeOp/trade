@@ -91,6 +91,27 @@ class CurrentViewsTests(unittest.TestCase):
         with self.assertRaises(RecordError) as caught:self.review(trial)
         self.assertEqual(caught.exception.code,'SOURCE_REVIEW_INVALID')
 
+    def test_lifecycle_registration_rejects_precheck_without_same_immutable_inputs(self):
+        trial = self.precheck(); self.review(trial)
+        self.inputs['lifecycle_bundle'] = 'life-a'
+        with self.assertRaises(RecordError) as caught:
+            self.register()
+        self.assertEqual(caught.exception.code, 'SOURCE_PRECHECK_REQUIRED')
+
+    def test_lifecycle_precheck_allows_other_window_but_rejects_other_bundle_or_commit(self):
+        self.inputs['lifecycle_bundle'] = 'life-a'
+        (self.root/'input-coverage.json').write_text(json.dumps({'input_identity': self.inputs,
+                                                              'effective_config': {'start': 'different engineering window'}}))
+        trial = self.precheck(); self.review(trial); self.register()
+        with db.reading(self.profile) as conn:
+            self.assertEqual(prechecks.require(conn, 'check', self.source['source_sha256'], IDENTITY['image_ref'],
+                                               self.inputs), trial)
+            for identity in ({**self.inputs, 'lifecycle_bundle': 'life-b'},
+                             {**self.inputs, 'market_commit': 'other'}, {'market_commit': 'c'*32}):
+                with self.subTest(identity=identity), self.assertRaises(RecordError) as caught:
+                    prechecks.require(conn, 'check', self.source['source_sha256'], IDENTITY['image_ref'], identity)
+                self.assertEqual(caught.exception.code, 'SOURCE_PRECHECK_REQUIRED')
+
     def test_interruption_captures_original_partial_bytes_and_missing_phase(self):
         from research.records.artifacts import _execute_capture
         trial=self.precheck()

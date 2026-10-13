@@ -146,7 +146,7 @@ def nautilus_raw(values: np.ndarray, scale: int) -> pa.Array:
     return pa.Array.from_buffers(pa.binary(16), len(decimal), [None, decimal.buffers()[1]], offset=decimal.offset)
 
 
-def build_instrument(symbol: str, row: dict, price_precision: int):
+def build_instrument(symbol: str, row: dict, price_precision: int, *, native_id: str | None = None):
     from nautilus_trader.model import CryptoPerpetual, Currency, InstrumentId, Money, Price, Quantity, Symbol
     usdt = Currency.from_str("USDT")
     base_currency = Currency.from_str(symbol.removesuffix("USDT"))
@@ -155,7 +155,7 @@ def build_instrument(symbol: str, row: dict, price_precision: int):
     size = row["size_increment"]
     optional = lambda key, kind: kind(row[key]) if row[key] is not None else None  # noqa: E731
     return CryptoPerpetual(
-        instrument_id=InstrumentId.from_str(instrument_id(symbol)), raw_symbol=Symbol(symbol),
+        instrument_id=InstrumentId.from_str(native_id or instrument_id(symbol)), raw_symbol=Symbol(symbol),
         base_currency=base_currency, quote_currency=usdt, settlement_currency=usdt, is_inverse=False,
         price_precision=price_precision, size_precision=decimals(size),
         price_increment=Price.from_str(increment), size_increment=Quantity.from_str(size), ts_event=0, ts_init=0,
@@ -236,7 +236,7 @@ def write_funding(root: Path, iid: str, rows: list[tuple[int, Decimal]]) -> int:
 
 # One contract
 
-def export_symbol(job: dict) -> dict:
+def _export_episode(job: dict) -> dict:
     """Write one contract's Catalog for the window into `job['path']`; returns its receipt."""
     from nautilus_trader.model import InstrumentId
     from nautilus_trader.persistence import ParquetDataCatalog
@@ -260,16 +260,30 @@ def export_symbol(job: dict) -> dict:
         coverage = facts(conn, commit, symbol, start, end, raw_last, raw_mark, rates)
     finally:
         conn.close()
+    episode = job.get('episode')
+    if episode is not None:
+        from research.market import lifecycle
+        last = derive(lifecycle.project(raw_last, episode), timeframe)
+        mark = derive(lifecycle.project(raw_mark, episode), timeframe)
+        low, high = episode['start_ns'] or 0, lifecycle.end_ns(episode)
+        if daily is not None:
+            keep = daily['ts_open'] * 1_000_000 >= low
+            if high is not None:
+                keep &= (daily['ts_open'] + DAY - 1) * 1_000_000 < high
+            daily = {name: values[keep] for name, values in daily.items()}
+        rates = [(t, rate) for t, rate in rates if t * 1_000_000 >= low
+                 and (high is None or t * 1_000_000 < high)]
     price_scale, volume_scale = job["scales"]
     exchange_precision = decimals(row["price_increment"])
     needed = max([needed_decimals(series[name], price_scale) for series in (last, daily) if series is not None
                   for name in ("open", "high", "low", "close")], default=0)
     precision = max(exchange_precision, needed)
     size_precision = decimals(row["size_increment"])
-    instrument = build_instrument(symbol, row, precision)
+    native_id = episode['instrument_id'] if episode is not None else instrument_id(symbol)
+    instrument = build_instrument(symbol, row, precision, native_id=native_id)
     catalog = ParquetDataCatalog(str(path))
     catalog.write_instruments([instrument])
-    iid = InstrumentId.from_str(instrument_id(symbol))
+    iid = InstrumentId.from_str(native_id)
     counts = {"last": write_bars(catalog, f"{iid}-{_bar_spec(timeframe)}-LAST-EXTERNAL", last, step, precision,
                                  max(size_precision, needed_decimals(last["volume"], volume_scale)),
                                  price_scale, volume_scale),
@@ -279,6 +293,9 @@ def export_symbol(job: dict) -> dict:
         counts["daily"] = write_bars(catalog, f"{iid}-1-DAY-LAST-EXTERNAL", daily, DAY, precision,
                                      max(size_precision, needed_decimals(daily["volume"], volume_scale)),
                                      price_scale, volume_scale)
+    if episode is not None:
+        from research.market.lifecycle import write_events
+        counts.update(write_events(path, episode, start * 1_000_000, end * 1_000_000))
     unmatched = int(len(np.setxor1d(last["ts_open"], mark["ts_open"])))
     receipt = {"symbol": symbol, "instrument_id": str(iid), "commit": commit, "timeframe": timeframe,
                "start_ns": start * 1_000_000, "end_ns": end * 1_000_000, "counts": counts, "coverage": coverage,
@@ -290,8 +307,31 @@ def export_symbol(job: dict) -> dict:
                "terms_source": row["terms_source"], "terms_observed_at": row["observed_at"],
                "historical_terms": "CURRENT_SNAPSHOT_APPROXIMATION", "assumed": ASSUMED,
                "seconds": round(time.monotonic() - started, 1)}
+    if episode is not None:
+        receipt['episode'] = episode
     (path / "export.json").write_text(json.dumps(receipt, indent=1))
     return receipt
+
+
+def export_symbol(job: dict) -> dict:
+    if 'episodes' not in job:
+        return _export_episode(job)
+    path = Path(job['path'])
+    path.mkdir(parents=True, exist_ok=True)
+    receipts = []
+    for index, episode in enumerate(job['episodes']):
+        receipt = _export_episode({**job, 'episode': episode, 'path': str(path / f'episode-{index + 1}')})
+        receipt.pop('seconds', None)
+        receipt['catalog_directory'] = f'episode-{index + 1}'
+        receipts.append(receipt)
+    # Original scope and raw coverage remain visible, including wholly inactive contracts.
+    value = {**receipts[0], 'episodes': receipts, 'seconds': 0.0}
+    value.pop('episode', None)
+    value.pop('catalog_directory', None)
+    value['counts'] = {key: sum(r['counts'].get(key, 0) for r in receipts)
+                       for key in {key for r in receipts for key in r['counts']}}
+    (path / 'export.json').write_text(json.dumps(value, indent=1))
+    return value
 
 
 def complete(path: Path) -> dict | None:
@@ -307,7 +347,8 @@ def default_cache() -> Path:
 
 
 def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end: int, timeframe: str = "1m",
-           daily: bool = True, root: Path | None = None, workers: int = 4, fresh: bool = False) -> dict:
+           daily: bool = True, root: Path | None = None, workers: int = 4, fresh: bool = False,
+           lifecycle_episodes: dict | None = None, lifecycle_files: dict | None = None) -> dict:
     """Export (or reuse from the cache) each contract's Catalog at one commit for [start, end) ms.
 
     Returns the window directory and the receipts. `fresh` exports into a new temporary directory
@@ -324,6 +365,9 @@ def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
         window = Path(root or default_cache()) / commit / f"{start}-{end}-{timeframe}{'-d' if daily else ''}"
+        if lifecycle_files is not None:
+            from research.market.lifecycle import files_digest
+            window = window.with_name(window.name + '-life-' + files_digest(lifecycle_files))
     receipts, jobs = {}, []
     for symbol in symbols:
         found = None if fresh else complete(window / symbol)
@@ -333,10 +377,17 @@ def export(profile: dict, *, at: str | None, symbols: list[str], start: int, end
             jobs.append({"symbol": symbol, "commit": commit, "start": start, "end": end, "timeframe": timeframe,
                          "daily": daily, "path": str(window / symbol), "profile": profile,
                          "scales": (price_scale, volume_scale)})
+            if lifecycle_episodes and symbol in lifecycle_episodes:
+                jobs[-1]['episodes'] = lifecycle_episodes[symbol]
     started = time.monotonic()
     if jobs:
         with ProcessPoolExecutor(min(workers, len(jobs))) as pool:
             for receipt in pool.map(export_symbol, jobs):
                 receipts[receipt["symbol"]] = receipt
+    if lifecycle_files is not None:
+        for name, content in lifecycle_files.items():
+            target = window / 'lifecycle-evidence' / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
     return {"commit": commit, "root": str(window), "exported": len(jobs), "reused": len(symbols) - len(jobs),
             "seconds": round(time.monotonic() - started, 1), "receipts": receipts}

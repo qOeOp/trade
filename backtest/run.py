@@ -48,6 +48,8 @@ from backtest.load import (
     BAR_INTERVAL_NS,
     RUNTIME_CONTRACT,
     LoadedStrategy,
+    episode_active,
+    episode_membership,
     load_strategy,
     mark_timestamps,
     ns,
@@ -374,6 +376,10 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
             BacktestDataConfig(data_type="Bar", catalog_path=str(row["catalog_path"]), instrument_id=instrument_id,
                                bar_types=[f"{instrument_id}-1-MINUTE-LAST-EXTERNAL"]),
         ])
+        for key, native_type in (('instrument_close', 'InstrumentClose'), ('instrument_status', 'InstrumentStatus')):
+            if row['counts'].get(key, 0):
+                data.append(BacktestDataConfig(data_type=native_type, catalog_path=str(row['catalog_path']),
+                                               instrument_id=instrument_id))
     account = ACCOUNT_CONTRACT
     config = BacktestRunConfig(
         venues=[
@@ -412,6 +418,8 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
     OBSERVERS.clear()
     strategy_path = importable_strategy(strategy)
     for row in rows:
+        if not episode_active(row['receipt'].get('episode'), ns(args.start), ns(args.end)):
+            continue
         node.add_strategy_from_config(
             config.id,
             ImportableStrategyConfig(
@@ -420,10 +428,11 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
                 config={
                     "instrument_id": str(row["instrument_id"]),
                     "trade_start_ns": trade_start,
-                    "input_start_ns": ns(args.start),
+                    "input_start_ns": max(ns(args.start), row['receipt'].get('episode', {}).get('start_ns') or 0),
                     "strategy_id": strategy_id(row["symbol"]),
                     "catalog_path": str(row["catalog_path"]),
-                    "pool_membership": [list(interval) for interval in pool[row["symbol"]]],
+                    "pool_membership": [list(interval) for interval in episode_membership(
+                        pool[row.get('source_symbol', row['symbol'])], row['receipt'].get('episode'))],
                 },
             ),
         )
@@ -441,7 +450,9 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
         raise RuntimeError(
             f"native data count differs from the export receipts: {result.iterations} != {expected_iterations}",
         )
-    strategies = {row["coin"]: STRATEGIES[str(row["instrument_id"])] for row in rows}
+    strategies = {row['coin']: (STRATEGIES[str(row['instrument_id'])]
+                               if episode_active(row['receipt'].get('episode'), ns(args.start), ns(args.end))
+                               else None) for row in rows}
     if len(OBSERVERS) != 1:
         raise RuntimeError("native capital observer did not start exactly once")
     finished = Replay(node, config.id, result, OBSERVERS[0])

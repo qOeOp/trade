@@ -210,17 +210,49 @@ def read_market(root: Path, symbols: list[str], commit: str, start: int, end: in
             raise RuntimeError(f"{symbol}: exported Catalog is not commit {commit} over the replay window")
         if receipt.get("historical_terms") != "CURRENT_SNAPSHOT_APPROXIMATION":
             raise RuntimeError(f"{symbol}: missing historical instrument assumption")
-        instrument_id = InstrumentId.from_str(receipt["instrument_id"])
-        instruments = ParquetDataCatalog(str(path)).instruments(instrument_ids=[str(instrument_id)])
-        if len(instruments) != 1 or instruments[0].quote_currency.code != "USDT":
-            raise RuntimeError(f"{symbol}: one Binance USDT instrument is required")
-        counts = {key: receipt["counts"][key] for key in ("last", "mark", "funding")}
-        rows.append({"symbol": symbol, "coin": coin(symbol), "catalog_path": path, "receipt": receipt,
-                     "instrument": instruments[0], "instrument_id": instrument_id, "counts": counts})
+        for index, item in enumerate(receipt.get('episodes', [receipt]), 1):
+            if ((item.get('commit'), item.get('start_ns'), item.get('end_ns'), item.get('timeframe'))
+                    != (commit, start, end, '1m') or item.get('historical_terms') != receipt['historical_terms']):
+                raise RuntimeError(f'{symbol}: episode differs from the original market scope')
+            if 'episodes' in receipt and item.get('catalog_directory') != f'episode-{index}':
+                raise RuntimeError(f'{symbol}: episode Catalog directory differs from its mapping')
+            catalog_path = path / item['catalog_directory'] if 'episodes' in receipt else path
+            instrument_id = InstrumentId.from_str(item['instrument_id'])
+            instruments = ParquetDataCatalog(str(catalog_path)).instruments(instrument_ids=[str(instrument_id)])
+            if len(instruments) != 1 or instruments[0].quote_currency.code != 'USDT':
+                raise RuntimeError(f'{symbol}: one Binance USDT instrument is required')
+            counts = {key: item['counts'][key] for key in ('last', 'mark', 'funding')}
+            counts.update({key: item['counts'][key] for key in ('instrument_close', 'instrument_status')
+                           if key in item['counts']})
+            # The public universe retains its original ticker; native state is per contract episode.
+            native_symbol = str(instrument_id.symbol).removesuffix('-PERP') if 'episode' in item else symbol
+            rows.append({'symbol': native_symbol, 'source_symbol': symbol, 'coin': coin(native_symbol),
+                         'catalog_path': catalog_path, 'receipt': item, 'instrument': instruments[0],
+                         'instrument_id': instrument_id, 'counts': counts})
     names = [row["coin"] for row in rows]
-    if len(set(names)) != len(names) or len({strategy_id(symbol) for symbol in symbols}) != len(symbols):
+    if len(set(names)) != len(names) or len({strategy_id(row['symbol']) for row in rows}) != len(rows):
         raise ValueError("contracts must have distinct names")
     return rows
+
+
+def episode_membership(intervals, episode):
+    """Intersect original membership with the supplied legal opening lifetime (not announcement PIT)."""
+    if episode is None:
+        return intervals
+    low = episode['start_ns'] or 0
+    ends = [e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose'
+            or (e['type'] == 'InstrumentStatus' and e['action'] == 'PRE_CLOSE')]
+    high = min(ends) if ends else None
+    return tuple((max(a, low), min(b, high) if high is not None else b) for a, b in intervals
+                 if max(a, low) < (min(b, high) if high is not None else b))
+
+
+def episode_active(episode, start, end):
+    """Legal lifetime intersects the input window; a missing bar never makes an episode inactive."""
+    if episode is None:
+        return True
+    ending = next((e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose'), None)
+    return (episode['start_ns'] or 0) < end and (ending is None or ending > start)
 
 
 def warmup_daily_bars(catalog_path: Path, instrument_id: InstrumentId, start: int):

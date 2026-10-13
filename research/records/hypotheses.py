@@ -101,7 +101,8 @@ def validate(conn, body, execution, *, before_replay=False):
             refs = body.get('prechecks', {})
             if not isinstance(refs, dict) or cell['strategy'] not in refs:
                 raise refuse('v7 registration needs exact-source native precheck reviews for every grid cell', 'SOURCE_PRECHECK_REQUIRED')
-            precheck_trial = require(conn, refs[cell['strategy']], row['source_sha256'], execution['runtime']['image_ref'])
+            precheck_trial = require(conn, refs[cell['strategy']], row['source_sha256'], execution['runtime']['image_ref'],
+                                     execution['input_identity'])
         if before_replay:
             exposures = db.rows(conn, 'SELECT trial_id FROM trial WHERE strategy_source_sha256 = %s', (row['source_sha256'],))
             # Only the exact predeclared engineering precheck is exempt, never an arbitrary
@@ -141,7 +142,7 @@ def register(profile, *, bundle, body, runtime, market, at, runner_argv):
         raise refuse('original execution namespace is product-owned', 'EXECUTION_NAMESPACE')
     replay = _runner_inputs(runner_argv)
     identity = resolve(runtime)
-    inputs = market_inputs(market, at, replay, fresh=True)
+    inputs = market_inputs(market, at, replay, fresh=True, research_profile=profile)
     try:
         args, _ = _container_runner_args(runner_argv, inputs)
         inspection = inspect_runtime(identity, args)
@@ -197,7 +198,8 @@ def bind(conn, registration, *, source_sha256, trial_id):
         from research.records.prechecks import require
         for cell in value['body']['grid']:
             source = records.strategy(conn, cell['strategy'])
-            require(conn, value['body']['prechecks'][cell['strategy']], source['source_sha256'], actual['runtime']['image_ref'])
+            require(conn, value['body']['prechecks'][cell['strategy']], source['source_sha256'], actual['runtime']['image_ref'],
+                    actual['input_identity'])
     if source_sha256 not in sources:
         raise refuse('source is outside the registered grid', 'SOURCE_MISMATCH')
     trial = db.one(conn, 'SELECT * FROM trial WHERE trial_id = %s', (trial_id,))
