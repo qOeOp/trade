@@ -33,6 +33,5 @@ A changed intent/source/grid is a new registration. The existing source notes ho
 hashes, not just links; conjectural mechanisms may be recorded explicitly instead of inventing papers.
 
 Consumed cells, including interruption or invalid audit, are not executed again under the same
-registration. A new retry registration must identify the previous attempt in its conditions and
-sources; repeated same-condition evidence is not independent. A generic unregistered trial cannot
+registration. A new retry registration must set `retry_of` to the earlier bundle that actually consumed this exact source, and identify the previous attempt in its conditions and sources; repeated same-condition evidence is not independent. A generic unregistered trial cannot
 be backfilled into a registered result.

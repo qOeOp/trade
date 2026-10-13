@@ -200,6 +200,9 @@ class SealedRunTests(Workspace):
     def test_a_failed_replay_stores_only_its_reasons(self):
         result, workdir = self.seal(self.native(passed=False))
         self.assertEqual(result["status"], "invalid")
+        report = records.run_report(self.profile, result["run_id"])
+        for key in ("annual_return", "final_equity_usdt", "max_drawdown", "plan_win_rate"):
+            self.assertIsNone(report[key], key)
         self.assertFalse(workdir.exists())
         reasons = records.run_report(self.profile, result["run_id"])["failure_reasons"]
         self.assertIn("native runner exited 23", reasons)
@@ -208,6 +211,9 @@ class SealedRunTests(Workspace):
     def test_an_audit_finding_makes_the_run_invalid(self):
         result, _ = self.seal(self.native(audit_passed=False))
         self.assertEqual(result["status"], "invalid")
+        report = records.run_report(self.profile, result["run_id"])
+        for key in ("annual_return", "final_equity_usdt", "max_drawdown", "plan_win_rate"):
+            self.assertIsNone(report[key], key)
         self.assertIn("independent native audit found problems",
                       records.run_report(self.profile, result["run_id"])["failure_reasons"])
 

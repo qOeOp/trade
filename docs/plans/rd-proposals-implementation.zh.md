@@ -38,11 +38,22 @@
 
 ## 当前验收
 
-- 完整规定 unittest：159 项通过，Dolt 2.4.2 可用，集成检查未跳过。
+- 完整规定 unittest：160 项通过，Dolt 2.4.2 可用，集成检查未跳过。
 - 已完成原子登记顺序、源码/配置不匹配拒绝、网格点消耗、invalid/unfinished 分计、经济目标失败不阻派生、父版本/比较控制分开等检查。
-- 原生一分钟与可恢复 CLI 工程 fixture 在新的 CI 摘要生成后验证；本记录后续追加实测结果。
+- 新 CI 镜像 `ghcr.io/qoeop/trade-runtime@sha256:8697e10d261481b0a2c9aebbc152d167c6cdfe3cc1b8149a5c570ad99b980c73`，构建 Git `667d4cef11cd21336b0b16cd0d99321c822966c5`；[workflow_dispatch 成功](https://github.com/qOeOp/trade/actions/runs/38371834207)，已拉取并经官方 artifacts 入口真实执行。
+- 隔离研究库 `rd_proposals_eng_fixture_20261013`，profile home `/Users/vx/.local/share/trade/rd-proposals-engineering-20261013/profiles`。BTCUSDT 工程窗口输入 2026-09-01..18，交易 09-03..18；每次 24,480 LAST、24,480 MARK、51 funding，source 观察间隔均 60,000,000,000 ns，constructor/config/summary 都为一分钟。
+- 两个审计 passed 的原生 run1/run2，分别封存于 `h11qluo5tec3hm2um0fvcimf002e5duj`、`n4q6qo1c8chphbcl9df0pr3s3dl9f6s9`；源码只放隔离 Dolt。只改工程数量 0.002→0.003，用于真实源码/订单数量、账户和比较接口检查，不是研发获利试验。原始账户、费用、资金费、持仓与订单证据保留在 run。
+- 两次独立 fresh export 的语义指纹相同；登记与运行身份核对成功，未放宽输入检查。第三版仅发布和登记，父版本 run2 的源码、比较控制 run1 分开；本次没有第三次回放。child 未满足旧最小改善幅度或工程兼容目标也不妨碍登记派生。
+- 官方 compare 返回效应、区间、p、学生化与敏感性；不输出采纳状态。真实 repeat 被 `GRID_ALREADY_ATTEMPTED` 拒绝，没有新增 trial。
+- ledger audit 两个运行核验通过，零发现；工程 fixture 通过既有 evidence 接口留存、关闭标签和 backup 后读回。原始回执与导出工作副本在 `/tmp/rd-proposals-engineering-20261013`。
+- 独立技能 forward check 验证：非显著候选可继续、负毛边际不禁执行出场、推荐与下一实验分开、尝试不强制终止、开发不称样本外；发现 `retry_of` 操作说明缺口，已修正。两个 skill 的 quick_validate 均通过。
+- 初始化实测暴露长数据库名生成超过32字符的账户、失败后 secured 状态丢失的既有缺陷；固定长名字散列账户、幂等安全初始化并及时保存配置，长名字集成检查通过。两份失败初始化库原样保留，未删除。
+- 修复官方 invalid report 从保留的原生 summary 暴露年化/账户结果的问题：原始 summary 仍保管，正式读数返回 null；invalid 比较仍拒绝。既有对账与验证检查没有放宽。
 - 本次不启动十轮策略研究，不 freeze 或 confirm，不改变用户三个目标。
 
 ## 保留的产品边界
 
 主机同系统用户的恶意 root 修改仍无法预防；ledger audit 留痕。旧目标 freeze/confirm 的 main 镜像、新鲜 checkout、未来数据时间凭证保护保持原检查；未合并测试镜像不能用于该入口的独立确认。新 schema-v2 不自动迁移旧 schema-v1。历史条款近似、市场缺口、1m bar 内次序和策略自行应用币池的边界照实保留。
+
+交付复核：完整规定测试 160 项通过（Dolt 集成未跳过）；compileall、runner help、skill quick_validate 和 diff 检查通过。镜像内 runner/load/report/audit/uv.lock 与 CI 构建提交逐一哈希一致。
+工程库关闭标签 `closed/RD-PROP-ENG-20261013`，关闭提交 `75u1fl8qqmpq875vimhga9ltoou3vdid`；关闭后 audit 零发现。24 份 evidence 文件与源码从固定标签导出逐字节/hash 读回一致；全部表导出 Parquet，`dolt_backup` 同步到隔离库备份目录。两个初始化失败库保留，不作为可用研究 fixture。市场固定提交读回不变。本次没有十轮研究、freeze、confirm、真实交易或 main 合并。

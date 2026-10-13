@@ -610,6 +610,14 @@ def run_report(profile: dict, run_id: int, at: str | None = None) -> dict:
             "commissions_usdt", "funding_usdt", "price_pnl_usdt", "unrealized_usdt", "image_ref", "trade_start",
             "trade_end", "created_at")
     output = {key: _plain(run[key]) for key in keys}
+    if run["status"] != "passed":
+        # Raw native summary is retained for diagnosis; an unaudited annual-return
+        # generated column must never become feedback through the official report.
+        for key in ("final_equity_usdt", "annual_return", "max_drawdown", "return_drawdown",
+                    "plans_closed", "plans_won", "plans_open", "plan_win_rate", "closed_positions",
+                    "open_positions", "realized_pnl_usdt", "commissions_usdt", "funding_usdt",
+                    "price_pnl_usdt", "unrealized_usdt"):
+            output[key] = None
     if goal is not None and run["status"] == "passed":
         development = (run["trade_start"], run["trade_end"]) == (goal["window_start"], goal["window_end"])
         output["gates"] = {"development_window": development, **gates(goal, run, development=development)}

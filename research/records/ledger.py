@@ -11,6 +11,7 @@ ones must use a database name no active profile uses.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import secrets
@@ -222,7 +223,7 @@ def _create_service(root: Path, binary: str, port: int) -> dict:
 def _secure_service(cursor) -> None:
     """Once per service, with a database selected: explicit branch grants and commit tests."""
     # Branch writes need an explicit grant; root keeps admin everywhere.
-    cursor.execute("INSERT INTO dolt_branch_control VALUES ('%', '%', 'root', 'localhost', 'admin')")
+    cursor.execute("INSERT IGNORE INTO dolt_branch_control VALUES ('%', '%', 'root', 'localhost', 'admin')")
     cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = '%' AND branch = '%' "
                    "AND user = '%' AND host = '%'")
     # Service-wide: every database on this service needs at least one test in this group.
@@ -263,7 +264,9 @@ def init(*, name: str, database: str, service_root: Path, binary: str, port: int
     start_service(service_root)
     if database in config["databases"]:
         raise _refuse(f"service {service_root} already holds {database}", "LEDGER_EXISTS")
-    accounts = {role_name: {"user": f"{database}_{role_name}", "password": secrets.token_urlsafe(24)}
+    accounts = {role_name: {"user": (f"{database}_{role_name}" if len(database) <= 25 else
+                                  f"{database[:16]}_{hashlib.sha256(database.encode()).hexdigest()[:7]}_{role_name}"),
+                            "password": secrets.token_urlsafe(24)}
                 for role_name in ("writer", "reader")}
     conn = _admin(config)
     try:
@@ -273,6 +276,7 @@ def init(*, name: str, database: str, service_root: Path, binary: str, port: int
             if not config.get("secured"):
                 _secure_service(cursor)
                 config["secured"] = True
+                _private_write(service_root / "service.json", config)
             schema = SCHEMA if of == "research" else MARKET_SCHEMA
             for statement in _statements(schema.read_text(encoding="utf-8")):
                 cursor.execute(statement)

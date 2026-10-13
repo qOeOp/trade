@@ -372,6 +372,23 @@ class LedgerTests(unittest.TestCase):
 
 @unittest.skipUnless(BINARY, SKIP)
 class LedgerProfileTests(unittest.TestCase):
+    def test_long_database_names_get_bounded_account_names_without_collision(self):
+        from tests.records.dolt import _free_port
+        fixture = TemporaryLedger("account-name-test")
+        self.addCleanup(fixture.close)
+        root = fixture.root / "long-name-service"
+        database = "research_candidate_engineering_20261013_a"
+        value = ledger.init(name="long-name", database=database, service_root=root, binary=BINARY,
+                            port=_free_port(), role="isolated", backup_root=None)
+        self.addCleanup(ledger.stop_service, root)
+        config = ledger.service(value["ledger"])
+        accounts = config["databases"][database]
+        self.assertTrue(config["secured"])
+        self.assertTrue(all(len(a["user"]) <= 32 for a in accounts.values()))
+        conn = db.connect(value["ledger"], "reader")
+        self.addCleanup(conn.close)
+        self.assertEqual(db.rows(conn, "SELECT version FROM ledger_schema"), [(2,)])
+
     def test_isolated_ledgers_may_not_reuse_the_active_database_name(self):
         fixture = TemporaryLedger("active-one", role="active")
         self.addCleanup(fixture.close)
