@@ -416,6 +416,28 @@ class ExposureTests(unittest.TestCase):
         with self.assertRaisesRegex(RecordError, "audited residual"):
             _tables(self.root, "R1", exposures=True)
 
+    def test_streamed_drawdown_consumes_and_validates_the_complete_exposure_tail(self):
+        _seal(self.root, 'stream', cycles=_timed_cycles(), exposures=self.rows())
+        reports = analysis.load_dir(self.root / 'stream' / 'reports')
+        cycles = analysis._cycles(reports.positions, reports.fills)
+        positions = analysis._typed_positions(reports.positions, cycles)
+        account = [{**row, 'ts_event': row['ts_event'] + 'T00:00:00Z'} for row in reports.account]
+        def drawdown(data):
+            return analysis._mark_drawdown(reports.summary, account,
+                analysis._iter_exposures(data, positions, reports.summary, self.residual))
+        expected = analysis._mark_drawdown(reports.summary, account,
+            analysis._exposures(reports.exposures, positions, reports.summary, self.residual))
+        self.assertEqual(drawdown(reports.exposures), expected)
+        for name, rows in (('last-gap', self.rows()[:-1]), ('last-residual', self.rows(residual='999')),
+                           ('last-invalid', self.rows() + [['bad', 'BBB-2', '1 USDT', '0 USDT']])):
+            with self.subTest(name=name):
+                data = gzip.compress(_csv(['ts_event_ns', 'position_id', 'notional_value', 'unrealized_pnl'],
+                                          rows).encode(), mtime=0)
+                with self.assertRaises(RecordError):
+                    drawdown(data)
+        with self.assertRaises(EOFError):
+            drawdown(reports.exposures[:-8])
+
     def test_runs_without_the_exposure_report_have_none(self):
         result = _tables(self.root, "PLAIN", exposures=True)
         self.assertIsNone(result["exposures"])

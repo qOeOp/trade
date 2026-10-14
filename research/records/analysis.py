@@ -162,7 +162,7 @@ def readings(reports: Reports) -> dict:
     else:
         try:
             typed = _typed_positions(reports.positions, cycles)
-            rows = _exposures(reports.exposures, typed, summary, output["economics"]["unrealized_residual_usdt"])
+            rows = _iter_exposures(reports.exposures, typed, summary, output["economics"]["unrealized_residual_usdt"])
             output["max_drawdown"] = _mark_drawdown(summary, reports.account, rows)
         except (RecordError, _Unreconciled) as exc:
             limitations.append(f"max_drawdown is null: {exc}")
@@ -371,6 +371,11 @@ def build_tables(reports: Reports, *, run_id, ledger_commit: str | None, account
 
 
 def _exposures(data: bytes, positions: list[dict], summary: dict, residual: str | None) -> list[dict]:
+    """Materialize the full validated table only when explicitly requested for analysis."""
+    return list(_iter_exposures(data, positions, summary, residual))
+
+
+def _iter_exposures(data: bytes, positions: list[dict], summary: dict, residual: str | None):
     """Exposure rows on the input bar grid, each tied to the one cycle held then; refuse gaps or extras.
 
     A row labelled T holds a cycle open after every event before the next bar
@@ -398,27 +403,30 @@ def _exposures(data: bytes, positions: list[dict], summary: dict, residual: str 
         ended = position["ts_last"] if position["closed"] else last + 2 * step
         pid = position["position_id"]
         spans[pid[:-37] if position.get("is_snapshot") else pid].append((opened, ended, pid))
-    rows, counts = [], Counter()
-    for row in _rows(gzip.decompress(data)):
-        typed = _typed(row)
-        ts = typed["ts_event_ns"]
-        if not first <= ts <= last or (ts - first) % step:
-            refuse(f"exposure row at {ts} is off the input bar grid")
-        owners = [pid for opened, ended, pid in spans.get(typed["position_id"], []) if opened < ts + step <= ended]
-        if len(owners) != 1:
-            refuse(f"exposure row at {ts} for {typed['position_id']} matches {len(owners)} position cycles")
-        counts[owners[0]] += 1
-        rows.append({**typed, "cycle_position_id": owners[0]})
+    counts, total = Counter(), Decimal(0)
+    csv.field_size_limit(sys.maxsize)
+    with gzip.GzipFile(fileobj=io.BytesIO(data), mode='rb') as packed, \
+            io.TextIOWrapper(packed, encoding='utf-8', newline='') as text:
+        for row in csv.DictReader(text):
+            typed = _typed(row)
+            ts = typed["ts_event_ns"]
+            if not first <= ts <= last or (ts - first) % step:
+                refuse(f"exposure row at {ts} is off the input bar grid")
+            owners = [pid for opened, ended, pid in spans.get(typed["position_id"], []) if opened < ts + step <= ended]
+            if len(owners) != 1:
+                refuse(f"exposure row at {ts} for {typed['position_id']} matches {len(owners)} position cycles")
+            counts[owners[0]] += 1
+            if ts == last:
+                total += typed['unrealized_pnl']
+            yield {**typed, "cycle_position_id": owners[0]}
     for cycles in spans.values():
         for opened, ended, pid in cycles:
             expected = before(ended - step + 1) - before(opened - step + 1)
             if counts[pid] != expected:
                 refuse(f"exposure rows cover {counts[pid]} of {expected} timestamps of {pid}")
     if residual is not None and (last_fill is None or last_fill <= last):
-        total = sum((row["unrealized_pnl"] for row in rows if row["ts_event_ns"] == last), Decimal(0))
         if abs(total - Decimal(residual)) > TOLERANCE:
             refuse(f"final exposure unrealized PnL {total} differs from the audited residual {residual}")
-    return rows
 
 
 def _utc_ns(text: str) -> int:

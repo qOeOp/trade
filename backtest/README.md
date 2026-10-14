@@ -63,8 +63,13 @@ cross identities. Opening membership ends at a supplied PRE_CLOSE event; the sou
 and PRE_CLOSE is not assumed to cancel working entries or enforce reduce-only matching. Exact native
 CONTRACT_EXPIRED events are loaded for Nautilus to settle, without a source-owned settlement.
 An `InstrumentStatus(CLOSE)` before the input window can identify an already inactive lifetime
-without inventing its historical settlement price. A CLOSE inside the input window requires the
-matching InstrumentClose at that time. The pinned rc3 rejects expiration fills outside its native
+without inventing its historical settlement price. For an unpriced CLOSE inside the window, the
+independent audit must prove from complete native order/fill/position history that every position
+was flat and every active, conditional or in-flight order had ended strictly before CLOSE. Orders
+or cancellations at the terminal clock are too late. No settlement price or settlement fill is
+manufactured. A source can close on the earlier PRE_CLOSE event, then verify native completion;
+PRE_CLOSE itself does not close positions or cancel orders. Otherwise historical automatic
+settlement requires the matching priced InstrumentClose. The pinned rc3 rejects expiration fills outside its native
 instrument precision/tick; the exporter refuses such exact prices before replay, without rounding
 them or changing the initial tick from future settlement information.
 
@@ -134,6 +139,11 @@ read after the replay: initialization, submission, acceptance, updates, fills, c
 expiry, which the terminal order rows lack. Orders are grouped by client order ID and keep their own
 event order; line order across orders is not the engine's processing order. The gzip header time
 is zero, so equal histories give equal bytes; event IDs are fresh UUIDs in every run.
+
+The capital observer streams the unchanged native valuations to `exposures.csv.gz`, completes the
+last sample after strategies stop and closes the file before reporting. It retains no annual list
+of valuation rows in memory. The default reader consumes and validates every compressed row before
+returning MARK drawdown; explicit exposure tables still return the complete validated table.
 
 In `exposures.csv.gz`, a row labelled with bar timestamp T holds a position open after every event
 before the next bar timestamp, including fills stamped between bars, valued with the native

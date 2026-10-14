@@ -55,3 +55,5 @@ adapter 只对实际输入窗内的结算核对原始精确价格是否能在既
 观察器是唯一写者，按原 `_value` 时钟、位置顺序和 Nautilus 原生估值逐行流式写出，finish 在组件停止后完成末采样并关闭压缩流；report 不覆盖文件。header、newline、encoding、gzip filename/mtime 不变，不逐行flush，要求与原完整列表写法字节一致。写入失败保留完整性 finding，flush/close失败原样传播为运行失败；中断的部分文件只能作失败原件。原精确采样计数、空仓/订单、费用/资金费、经济及封存检查不放宽。
 
 MARK去重从实际Parquet batch合并精确unique集合，内存为当前union加一个batch，不按日历推算、不删缺口。此次修复不证明全年可运行，需新CI及BTC/ETH、原210池短窗的原生配对，随后原全年验收。独立审查保留后续consumer风险：readings整体曝光解压和capture大小限制若再次阻断，不能截断输入或跳过消费者。
+
+后续 reader 的独立设计审查同样支持原样流式解析：逐行gzip/CSV按原类型读取并执行cycle/grid/count/residual核验；默认readings仅保留逐时钟精确Decimal汇总，耗尽生成器并验证EOF/CRC及尾部约束后才返回drawdown。显式 `tables(exposures=True)`仍返回完整验证list；不改变格式/检查/容差，没有新增存储字段。最后一行缺失、残值冲突、非法行及gzip截断均不得返回部分drawdown。原64MiB capture/evidence限额原样保留。
