@@ -139,6 +139,19 @@ class CurrentViewsTests(unittest.TestCase):
         with db.reading(self.profile) as conn:
             self.assertFalse(prechecks.engineering_exposure(conn, attempt, self.source['source_sha256']))
 
+    def test_engineering_precheck_requires_config_identity_trial_symbols_to_agree(self):
+        original = copy.deepcopy(self.inspection['effective_config'])
+        for symbols in (None, ['OTHERUSDT']):
+            with self.subTest(symbols=symbols):
+                self.inspection['effective_config'] = copy.deepcopy(original)
+                if symbols is None:
+                    self.inspection['effective_config'].pop('symbols', None)
+                else:
+                    self.inspection['effective_config']['symbols'] = symbols
+                trial = self.precheck(identity_files=True)
+                with db.reading(self.profile) as conn:
+                    self.assertFalse(prechecks.engineering_exposure(conn, trial, self.source['source_sha256']))
+
     def test_lifecycle_registration_rejects_precheck_without_same_immutable_inputs(self):
         trial = self.precheck(); self.review(trial)
         self.inputs['lifecycle_bundle'] = 'life-a'

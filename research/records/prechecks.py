@@ -99,6 +99,7 @@ def engineering_exposure(conn, trial_id, source_sha):
                 and bool(identity['market_commit'])
                 and config == capture['start']['effective_config']
                 and identity['market_commit'] == config['market_commit']
+                and config['symbols'] == identity['symbols']
                 and identity['symbols'] == json.loads(trial['coins'])
                 and all(records._utc(config[key], key) == trial[column] for key, column in
                         (('start', 'input_start'), ('trade_start', 'trade_start'), ('end', 'trade_end'))))
