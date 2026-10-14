@@ -25,6 +25,46 @@ BAR_INTERVAL_NS = 60_000_000_000
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
+def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
+    """Validate actual exported lifecycle counts/clocks, retaining both priced and unpriced ends."""
+    from nautilus_trader.model import InstrumentClose, InstrumentStatus
+    if not coverage.get('input_identity', {}).get('lifecycle_bundle'):
+        return ()
+    if coverage.get('format') != 'execution-input-coverage-v1' or summary is None:
+        raise ValueError('missing lifecycle execution coverage')
+    config = coverage['effective_config']
+    start, end = ns(config['start']), ns(config['end'])
+    if (ns(summary['input_start_utc']) != start or ns(summary['period_end_utc']) != end
+            or summary['market_commit'] != coverage['input_identity']['market_commit']):
+        raise ValueError('lifecycle coverage differs from native summary')
+    result = []
+    for symbol, receipt in coverage['export_receipts'].items():
+        for leaf in receipt.get('episodes', []):
+            episode = leaf['episode']
+            if episode['symbol'] != symbol or episode['instrument_id'] != leaf['instrument_id']:
+                raise ValueError('lifecycle episode differs from its native instrument')
+            actual = [e for e in episode['events'] if start <= e['ts_init'] < end]
+            for kind, count, native_type in (('InstrumentClose', 'instrument_close', InstrumentClose),
+                                              ('InstrumentStatus', 'instrument_status', InstrumentStatus)):
+                supplied = [e for e in actual if e['type'] == kind]
+                if len(supplied) != leaf['counts'].get(count, 0):
+                    raise ValueError('lifecycle events differ from actual export count')
+                for event in supplied:
+                    native = native_type.from_dict(event)
+                    if (str(native.instrument_id) != leaf['instrument_id'] or native.ts_event != native.ts_init
+                            or (kind == 'InstrumentClose' and (event['close_type'] != 'CONTRACT_EXPIRED'
+                                                               or native.close_price.as_double() <= 0))):
+                        raise ValueError('unsupported native lifecycle input')
+                    if kind == 'InstrumentClose' or event['action'] == 'CLOSE':
+                        result.append(event)
+            if any(e['type'] not in ('InstrumentClose', 'InstrumentStatus') for e in actual):
+                raise ValueError('unknown lifecycle input type')
+    keys = [(e['type'], e['instrument_id'], e['ts_event']) for e in result]
+    if len(set(keys)) != len(keys):
+        raise ValueError('ambiguous duplicate lifecycle events')
+    return tuple(result)
+
+
 # Window
 
 def utc_datetime(value: str) -> datetime:

@@ -1,42 +1,16 @@
 """Read original lifecycle inputs from execution custody, without storing a second fact."""
 import json
-from decimal import Decimal
 
 from research.records.common import RecordError
 
 
 def events(coverage, summary):
     """Local directory facts only; ledger callers additionally verify original execution identity."""
-    if not coverage.get('input_identity', {}).get('lifecycle_bundle'):
-        return ()
-    from backtest.load import ns
-    if coverage.get('format') != 'execution-input-coverage-v1' or summary is None:
-        raise RecordError('missing lifecycle execution coverage', code='EXECUTION_IDENTITY')
-    config = coverage['effective_config']
-    start, end = ns(config['start']), ns(config['end'])
-    if (ns(summary['input_start_utc']) != start or ns(summary['period_end_utc']) != end
-            or summary['market_commit'] != coverage['input_identity']['market_commit']):
-        raise RecordError('lifecycle coverage differs from native summary', code='EXECUTION_IDENTITY')
-    result = []
-    for symbol, receipt in coverage['export_receipts'].items():
-        for leaf in receipt.get('episodes', []):
-            episode = leaf['episode']
-            if episode['symbol'] != symbol or episode['instrument_id'] != leaf['instrument_id']:
-                raise RecordError('lifecycle episode differs from its native instrument', code='EXECUTION_IDENTITY')
-            supplied = [e for e in episode['events'] if e['type'] == 'InstrumentClose'
-                        and start <= e['ts_init'] < end]
-            if len(supplied) != leaf['counts']['instrument_close']:
-                raise RecordError('lifecycle events differ from actual export count', code='EXECUTION_IDENTITY')
-            for e in supplied:
-                if (e['instrument_id'] != leaf['instrument_id'] or e['ts_event'] != e['ts_init']
-                        or e['close_type'] != 'CONTRACT_EXPIRED' or not Decimal(e['close_price']).is_finite()
-                        or Decimal(e['close_price']) <= 0):
-                    raise RecordError('unsupported native expiration input', code='EXECUTION_IDENTITY')
-            result.extend(supplied)
-    keys = [(e['instrument_id'], e['ts_event']) for e in result]
-    if len(set(keys)) != len(keys):
-        raise RecordError('ambiguous duplicate expiration events', code='EXECUTION_IDENTITY')
-    return tuple(result)
+    from backtest.load import lifecycle_events
+    try:
+        return lifecycle_events(coverage, summary)
+    except (KeyError, TypeError, ValueError, ArithmeticError) as error:
+        raise RecordError(str(error), code='EXECUTION_IDENTITY') from error
 
 
 def original_events(conn, trial_id, input_identity, summary):

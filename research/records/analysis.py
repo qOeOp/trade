@@ -134,6 +134,12 @@ def readings(reports: Reports) -> dict:
     if summary is None:
         limitations.append("The run has no native summary; no readings.")
         return output
+    from backtest.checks.audit import lifecycle_findings
+    failures = lifecycle_findings(reports.lifecycle_events, reports.orders, reports.fills,
+                                  reports.positions, reports.order_events)
+    if failures:
+        limitations.extend(f'Economic readings are null: {failure}' for failure in failures)
+        return output
     native = (audit or {}).get("native_economics")
     if native is None:
         limitations.append("native_economics is absent from the audit; unrealized_residual_usdt is null "
@@ -552,7 +558,8 @@ def _expiry_plan_owners(orders, fills, positions, cycles, plan_of, order_events,
             continue
         history = [e for e in order_events if e.get('client_order_id') == oid]
         closing = [f for f in fills if f.get('client_order_id') == oid]
-        supplied = [e for e in lifecycle_events if e['instrument_id'] == order['instrument_id']
+        supplied = [e for e in lifecycle_events if e['type'] == 'InstrumentClose'
+                    and e['instrument_id'] == order['instrument_id']
                     and e['ts_event'] == int(order['ts_init']) and e['close_type'] == 'CONTRACT_EXPIRED']
         if (len(closing) != 1 or len(supplied) != 1
                 or [e.get('type') for e in history] != ['OrderInitialized', 'OrderAccepted', 'OrderFilled']):

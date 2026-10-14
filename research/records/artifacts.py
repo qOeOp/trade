@@ -383,7 +383,8 @@ def _explore(ledger, identity, inputs, source, source_sha256, strategy_class, ou
     _write_json(output / "runtime-inspection.json", inspection)
     trial = _trial(ledger, "explore", source_sha256, identity, inspection,
                    context=_start_context(source_sha256, identity, inspection, output, phase=phase))
-    mounts += [(output / "source", "/strategy", True), (output / "reports", "/reports", False)]
+    mounts += [(output / "source", "/strategy", True), (output / "reports", "/reports", False),
+               (output / "input-coverage.json", "/input-coverage.json", True)]
     native_exit, audit_exit = _execute_capture(ledger, trial, identity, mounts, output, [
         *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", strategy_class,
         "--strategy-sha256", source_sha256, "--output", "/reports",
@@ -470,7 +471,8 @@ def _seal(ledger, conn, revision, strategy, runtime, inputs, runner_argv, hypoth
         trial = _trial(ledger, "sealed", revision["source_sha256"], identity, inspection, conn=conn,
                        registration=registration,
                        context=_start_context(revision["source_sha256"], identity, inspection, workdir))
-        mounts += [(source, "/strategy", True), (workdir / "reports", "/reports", False)]
+        mounts += [(source, "/strategy", True), (workdir / "reports", "/reports", False),
+                   (workdir / "input-coverage.json", "/input-coverage.json", True)]
         native_exit, audit_exit = _execute_capture(ledger, trial, identity, mounts, workdir, [
             *effective_args, "--strategy-file", "/strategy/strategy.py", "--strategy-class", revision["entry_class"],
             "--strategy-sha256", revision["source_sha256"], "--strategy-binding", "/strategy/binding.json",

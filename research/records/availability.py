@@ -80,6 +80,11 @@ def native_reasons(reports):
             if len(orders) != len(reports.orders) or any(not fill.get('client_order_id') or fill['client_order_id'] not in orders for fill in reports.fills):
                 raise ValueError('native fills lack matching unique orders')
             cycles = _cycles(reports.positions, reports.fills)
+            from backtest.checks.audit import lifecycle_findings
+            failures = lifecycle_findings(reports.lifecycle_events, reports.orders, reports.fills,
+                                          reports.positions, reports.order_events)
+            if failures:
+                raise ValueError('; '.join(failures))
             _economics(cycles, reports.fills, reports.summary, native, [])
             limits = []
             if _returns(reports.returns, reports.summary, limits) is None:

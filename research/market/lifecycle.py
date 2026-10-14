@@ -146,12 +146,8 @@ def write_events(root, episode, start, end):
 def require_native_price(episode, instrument, start=0, end=None):
     """rc3 normalizes expiration fills on the instrument's grid; never round or alter that grid."""
     from nautilus_trader.model import InstrumentClose
-    endings = [e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentStatus' and e['action'] == 'CLOSE'
-               and start <= e['ts_init'] and (end is None or e['ts_init'] < end)]
-    settlements = [e['ts_event'] for e in episode['events'] if e['type'] == 'InstrumentClose']
-    if any(t not in settlements for t in endings):
-        raise RecordError('CLOSE inside the input window requires the exact native settlement event/price; '
-                          'status alone cannot settle a held position', code='LIFECYCLE_INPUT')
+    # An unpriced CLOSE supplies a terminal clock, never a settlement. The independent
+    # native report audit requires flat positions and no live orders strictly before it.
     for e in episode['events']:
         if e['type'] != 'InstrumentClose' or e['ts_init'] < start or (end is not None and e['ts_init'] >= end):
             continue

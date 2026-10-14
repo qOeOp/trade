@@ -137,6 +137,82 @@ def _event_report_findings(events: list[dict], orders: list[dict], fills: list[d
     return findings
 
 
+def lifecycle_findings(lifecycle, orders, fills, positions, events) -> list[str]:
+    """An unpriced native CLOSE can end only an already empty identity.
+
+    This reads native event history; it neither settles positions nor trusts source diagnostics.
+    Cancellations/fills at the terminal clock are too late. Dormant/conditional orders count.
+    """
+    priced = {(e['instrument_id'], e['ts_event']) for e in lifecycle if e['type'] == 'InstrumentClose'}
+    endings = [e for e in lifecycle if e['type'] == 'InstrumentStatus' and e['action'] == 'CLOSE'
+               and (e['instrument_id'], e['ts_event']) not in priced]
+    if not endings:
+        return []
+    findings = []
+    try:
+        if events is None:
+            raise ValueError('unpriced CLOSE requires original native order event history')
+        findings.extend(_event_report_findings(events, orders, fills))
+        # Final flatness alone cannot hide a position held at termination and closed later.
+        native_fills = {e['event_id']: e for e in events if e['type'] == 'OrderFilled'}
+        position_fills = Counter()
+        for position in positions:
+            for event in _list(position['events']):
+                if (native_fills.get(event['event_id']) != event
+                        or event['instrument_id'] != position['instrument_id']
+                        or event['strategy_id'] != position['strategy_id']
+                        or event['account_id'] != position['account_id']):
+                    raise ValueError('lifecycle position fills differ from native order history')
+                position_fills[event['event_id']] += 1
+        if position_fills != Counter({key: 1 for key in native_fills}):
+            raise ValueError('lifecycle position events do not cover native fills exactly once')
+        for ending in endings:
+            iid, terminal = ending['instrument_id'], int(ending['ts_event'])
+            history = [e for e in events if e['instrument_id'] == iid]
+            states, balances = {}, defaultdict(Decimal)
+            for event in sorted(history, key=lambda e: int(e['ts_event'])):
+                timestamp, kind, oid = int(event['ts_event']), event['type'], event['client_order_id']
+                if timestamp >= terminal:
+                    findings.append(f'unpriced CLOSE has an order event at or after termination: {iid} {oid}')
+                    continue
+                if kind not in {'OrderInitialized', 'OrderAccepted', 'OrderUpdated', 'OrderFilled'} | ENDING_EVENTS.keys() | PASSIVE_EVENTS:
+                    raise ValueError('unknown lifecycle native order event')
+                if kind == 'OrderInitialized':
+                    quantity = _quantity(event['quantity'])
+                    if quantity <= 0:
+                        raise ValueError('nonpositive lifecycle native order')
+                    states[oid] = {'quantity': quantity, 'filled': Decimal(0), 'ended': False, 'in_flight': False}
+                if oid not in states:
+                    raise ValueError('lifecycle order event lacks a prior initialization')
+                state = states[oid]
+                if kind in {'OrderPendingUpdate', 'OrderPendingCancel'}:
+                    state['in_flight'] = True
+                elif kind in {'OrderUpdated', 'OrderCancelRejected', 'OrderModifyRejected'} or kind in ENDING_EVENTS:
+                    state['in_flight'] = False
+                if kind == 'OrderUpdated' and event.get('quantity') is not None:
+                    state['quantity'] = _quantity(event['quantity'])
+                if kind == 'OrderFilled':
+                    if event['order_side'] not in {'BUY', 'SELL'}:
+                        raise ValueError('unknown lifecycle native fill side')
+                    quantity = _quantity(event['last_qty'])
+                    if quantity <= 0:
+                        raise ValueError('nonpositive lifecycle native fill')
+                    state['filled'] += quantity
+                    scope = tuple(event[k] for k in ('strategy_id', 'account_id', 'position_id'))
+                    balances[scope] += quantity if event['order_side'] == 'BUY' else -quantity
+                if kind in ENDING_EVENTS:
+                    state['ended'] = True
+            pending = [oid for oid, state in states.items() if state['in_flight'] or (not state['ended']
+                       and state['filled'] != state['quantity'])]
+            if pending:
+                findings.append(f'unpriced CLOSE has active/dormant orders before termination: {iid} {pending}')
+            if any(quantity != 0 for quantity in balances.values()):
+                findings.append(f'unpriced CLOSE has nonflat native positions before termination: {iid}')
+    except (KeyError, TypeError, ValueError, ArithmeticError) as error:
+        findings.append(f'invalid lifecycle native evidence: {error}')
+    return findings
+
+
 def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
     """Intervals longer than one bar in which a position exceeds its working reduce-only stops.
 
@@ -291,6 +367,16 @@ def _generic_audit(run: Path, summary: dict) -> dict:  # noqa: C901
     try:
         protection_findings, protection = _protection(run, orders, fills, summary)
         findings.extend(protection_findings)
+        coverage_path = run.parent / 'input-coverage.json'
+        if coverage_path.is_file():
+            from backtest.load import lifecycle_events
+            lifecycle = lifecycle_events(json.loads(coverage_path.read_bytes()), summary)
+            if lifecycle:
+                findings.extend(lifecycle_findings(lifecycle, orders, fills, positions,
+                                                 read_order_events(run / ORDER_EVENTS)))
+        elif any(row.get('counts', {}).get('instrument_status', 0)
+                 or row.get('counts', {}).get('instrument_close', 0) for row in summary.get('per_coin', [])):
+            findings.append('lifecycle native replay lacks original input coverage')
         for row in orders:
             original, filled = _quantity(row["quantity"]), _quantity(row["filled_qty"])
             if original <= 0 or filled > original or row["side"] not in {"BUY", "SELL"}:

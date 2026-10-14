@@ -104,7 +104,7 @@ class LifecycleInputsTests(unittest.TestCase):
         # Extra formatting zeros do not change the exact value and are not a reason to reject it.
         lifecycle.require_native_price({**self.episode, 'events': [{**self.close, 'close_price': '0.12345000'}]}, instrument)
 
-    def test_prewindow_close_without_price_marks_inactive_but_never_settles_within_window(self):
+    def test_unpriced_close_is_status_only_and_does_not_supply_a_settlement(self):
         status = {**self.status, 'action': 'CLOSE', 'ts_event': 180_000_000_000, 'ts_init': 180_000_000_000}
         episode = {**self.episode, 'events': [status]}
         manifest = {**self.manifest, 'episodes': [episode]}
@@ -112,8 +112,10 @@ class LifecycleInputsTests(unittest.TestCase):
         self.assertFalse(episode_active(episode, 200_000_000_000, 300_000_000_000))
         instrument = SimpleNamespace(price_precision=7, price_increment=Price.from_str('0.0000100'))
         lifecycle.require_native_price(episode, instrument, 200_000_000_000, 300_000_000_000)
-        with self.assertRaises(RecordError):
-            lifecycle.require_native_price(episode, instrument, 100_000_000_000, 300_000_000_000)
+        lifecycle.require_native_price(episode, instrument, 100_000_000_000, 300_000_000_000)
+        with tempfile.TemporaryDirectory() as root:
+            self.assertEqual(lifecycle.write_events(root, episode, 100_000_000_000, 300_000_000_000),
+                             {'instrument_close': 0, 'instrument_status': 1})
 
     def test_native_bar_identity_preserves_episode_suffix(self):
         from research.market.export import write_bars

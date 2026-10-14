@@ -110,6 +110,20 @@ class LifecycleCustodyTests(unittest.TestCase):
             with self.subTest(kind=kind), self.assertRaises(RecordError):
                 events(value, summary)
 
+    def test_unpriced_terminal_clock_and_status_count_are_original_input_facts(self):
+        from nautilus_trader.model import InstrumentId, InstrumentStatus, MarketStatusAction
+        _, coverage, summary, _ = self.facts()
+        leaf = coverage['export_receipts']['AIAUSDT']['episodes'][0]
+        close = leaf['episode']['events'][0]
+        status = InstrumentStatus(InstrumentId.from_str(close['instrument_id']), MarketStatusAction.CLOSE,
+                                  close['ts_event'], close['ts_init']).to_dict()
+        leaf['episode']['events'] = [status]
+        leaf['counts'] = {'instrument_close': 0, 'instrument_status': 1}
+        self.assertEqual(events(coverage, summary), (status,))
+        leaf['counts']['instrument_status'] = 0
+        with self.assertRaises(RecordError):
+            events(coverage, summary)
+
     def test_original_capture_is_required_and_identity_conflicts_do_not_downgrade_to_empty(self):
         identity, coverage, summary, capture = self.facts()
         def read(value, data, native_summary):

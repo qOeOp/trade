@@ -315,6 +315,11 @@ def ingest_run(profile: dict, *, trial_id: int, reports, problems: list[str], in
             supplied = original_events(connection, trial_id, input_identity, reports.summary)
         if reports.lifecycle_events != supplied:
             raise _refuse('local lifecycle events differ from original execution capture', 'EXECUTION_IDENTITY')
+        from backtest.checks.audit import lifecycle_findings
+        failures = lifecycle_findings(supplied, reports.orders, reports.fills, reports.positions, reports.order_events)
+        if failures:
+            problems = [*problems, *failures]
+            status = 'invalid'
     values = readings(reports) if status == "passed" else None
     limitations = values["limitations"] if values else list(problems)
     economics = (values or {}).get("economics") or {}
