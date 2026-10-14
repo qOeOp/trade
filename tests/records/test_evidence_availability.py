@@ -44,14 +44,24 @@ class CurrentViewsTests(unittest.TestCase):
         self.source=records.publish_strategy(self.profile, source=SOURCE+str(self.count).encode(), strategy_id='root',entry_class='Fixture',description='engineering',parent=None,difference=None,op=None)
         self.inspection=probe(self.window)
         self.inputs={'market_commit':'c'*32}
+        self.inspection['effective_config']['market_commit'] = self.inputs['market_commit']
         (self.root/'note.md').write_text('synthetic engineering mechanism conjecture')
         records.add_evidence(self.profile,'note',[self.root/'note.md'],None)
         self.plan={'parent':None,'control_run':None,'change':'root','rationale':'synthetic','prediction':'diagnostic only','sources':['note'],'metric':'annual_return','grid':[{'strategy':'root@1','parameters':'fixed'}],'conditions':'engineering','comparison':DESIGN}
         self.binding={'runtime':IDENTITY,'effective_config':self.inspection['effective_config'],'input_identity':self.inputs}
-    def precheck(self, *, failed=False, phase='source-precheck'):
+    def precheck(self, *, failed=False, phase='source-precheck', mode='explore', identity_files=False):
         sha=self.source['source_sha256']
         context={'source_sha256':sha,'image_ref':IDENTITY['image_ref'],'phase':phase,'runtime_contract':'r1-native-v7','workdir':str(self.root),'effective_config':self.inspection['effective_config']}
-        trial=records.report_trial(self.profile,mode='explore',source_sha256=sha,image_ref=IDENTITY['image_ref'],coins=['AAAUSDT','BBBUSDT'],start=self.window['start'],trade_start=self.window['trade_start'],end=self.window['end'],op=db.op_id('engineering',context),execution_start=context)['trial_id']
+        self.precheck_count = getattr(self, 'precheck_count', 0) + 1
+        trial=records.report_trial(self.profile,mode=mode,source_sha256=sha,image_ref=IDENTITY['image_ref'],coins=['AAAUSDT','BBBUSDT'],start=self.window['start'],trade_start=self.window['trade_start'],end=self.window['end'],op=db.op_id('engineering', {'context':context,'count':self.precheck_count}),execution_start=context)['trial_id']
+        if identity_files:
+            (self.root/'source').mkdir(exist_ok=True)
+            with db.reading(self.profile) as conn:
+                (self.root/'source/strategy.py').write_bytes(records.strategy(conn, 'root@1')['source'])
+            (self.root/'input-coverage.json').write_text(json.dumps({
+                'format':'execution-input-coverage-v1',
+                'input_identity':{**self.inputs,'symbols':['AAAUSDT','BBBUSDT']},
+                'effective_config':self.inspection['effective_config']}))
         (self.root/'reports').mkdir(exist_ok=True)
         for name in ('native.stdout.txt','native.stderr.txt','audit.stdout.txt','audit.stderr.txt'): (self.root/name).write_bytes(b'')
         execution.capture(self.profile,trial_id=trial,workdir=self.root,phases={'native':{'exit_code':1 if failed else 0},'audit':{'exit_code':0}},outcome='completed',precheck=True)
@@ -90,6 +100,44 @@ class CurrentViewsTests(unittest.TestCase):
         trial=self.precheck(phase='replay')
         with self.assertRaises(RecordError) as caught:self.review(trial)
         self.assertEqual(caught.exception.code,'SOURCE_REVIEW_INVALID')
+
+    def test_repeated_original_engineering_prechecks_do_not_become_research_attempts(self):
+        failed = self.precheck(failed=True, identity_files=True)
+        first = self.precheck(identity_files=True)
+        selected = self.precheck(identity_files=True)
+        self.review(selected)
+        self.register()
+        with db.reading(self.profile) as conn:
+            for trial in (failed, first):
+                self.assertTrue(prechecks.engineering_exposure(conn, trial, self.source['source_sha256']))
+            self.assertEqual(db.rows(conn, 'SELECT COUNT(*) FROM research_execution')[0][0], 0)
+
+    def test_arbitrary_sealed_and_missing_original_prechecks_remain_exposed(self):
+        for mode, phase, originals in (('explore','replay',True), ('sealed','source-precheck',True)):
+            with self.subTest(mode=mode, phase=phase, originals=originals):
+                self.precheck(mode=mode, phase=phase, identity_files=originals)
+        selected = self.precheck(identity_files=True); self.review(selected)
+        with self.assertRaises(RecordError) as caught:
+            self.register()
+        self.assertEqual(caught.exception.code, 'SOURCE_ALREADY_EXPOSED')
+
+    def test_missing_original_custody_cannot_be_replaced_by_a_later_precheck(self):
+        missing = self.precheck()
+        selected = self.precheck(identity_files=True); self.review(selected)
+        with db.reading(self.profile) as conn:
+            self.assertFalse(prechecks.engineering_exposure(conn, missing, self.source['source_sha256']))
+        with self.assertRaises(RecordError) as caught:
+            self.register()
+        self.assertEqual(caught.exception.code, 'SOURCE_ALREADY_EXPOSED')
+
+    def test_registered_attempt_is_not_an_engineering_precheck_exemption(self):
+        selected = self.precheck(identity_files=True); self.review(selected); self.register()
+        attempt = records.report_trial(self.profile, mode='sealed',source_sha256=self.source['source_sha256'],
+            image_ref=IDENTITY['image_ref'],coins=['AAAUSDT','BBBUSDT'],start=self.window['start'],
+            trade_start=self.window['trade_start'],end=self.window['end'],op='consumed',
+            registration={'bundle':'H0','execution':self.binding})['trial_id']
+        with db.reading(self.profile) as conn:
+            self.assertFalse(prechecks.engineering_exposure(conn, attempt, self.source['source_sha256']))
 
     def test_lifecycle_registration_rejects_precheck_without_same_immutable_inputs(self):
         trial = self.precheck(); self.review(trial)

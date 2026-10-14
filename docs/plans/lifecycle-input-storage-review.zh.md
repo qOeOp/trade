@@ -57,3 +57,11 @@ adapter 只对实际输入窗内的结算核对原始精确价格是否能在既
 MARK去重从实际Parquet batch合并精确unique集合，内存为当前union加一个batch，不按日历推算、不删缺口。此次修复不证明全年可运行，需新CI及BTC/ETH、原210池短窗的原生配对，随后原全年验收。独立审查保留后续consumer风险：readings整体曝光解压和capture大小限制若再次阻断，不能截断输入或跳过消费者。
 
 后续 reader 的独立设计审查同样支持原样流式解析：逐行gzip/CSV按原类型读取并执行cycle/grid/count/residual核验；默认readings仅保留逐时钟精确Decimal汇总，耗尽生成器并验证EOF/CRC及尾部约束后才返回drawdown。显式 `tables(exposures=True)`仍返回完整验证list；不改变格式/检查/容差，没有新增存储字段。最后一行缺失、残值冲突、非法行及gzip截断均不得返回部分drawdown。原64MiB capture/evidence限额原样保留。
+
+### 2026-10-14 工程预检登记分类授权
+
+用户明确批准两项：仅将具备完整原始凭据、未绑定正式research_execution的source-precheck工程重复单列为工程暴露；Docker内存从16GiB调整至96GiB并重启、恢复已有Jupyter。独立Agent `/root/native_source_review` 事先审查拒绝边界。
+
+注册仍由选定成功的exact-source review定资格；原native/audit成功、四项状态、生命周期输入绑定、每点一次、retry_of规则均不变。额外工程分类仅适用于mode=explore，开始/结束原件都source-precheck，有实际source/coverage hash及与trial窗口/合约和原始inspection配置相同的输入凭据，且无正式消耗关系。无法分类、缺失/冲突原件、普通explore、sealed或已消费研究仍阻断。没有新存储字段。所有预检重复、失败、窗口、runtime与可见信息继续披露；不能表述源码未暴露、回填正式登记或声称独立性。64MiB原限额未改。
+
+锁定sdist的 `crates/backtest/src/node.rs` 表明rc3多个data configs的streaming先load_and_merge_data完整Vec，再分chunk；chunk_size不保证多输入加载内存上界。这与两次Docker原始OOM和首次观测前零字节曝光相符，保留完整版本、账户和事件逻辑，只调整已授权本机资源，不改Nautilus包。

@@ -70,3 +70,37 @@ def require(conn, bundle, source_sha, image, input_identity=None):
                 raise RecordError('source precheck differs from lifecycle bundle/fixed market commit',
                                   code='SOURCE_PRECHECK_REQUIRED')
     return value['trial_id']
+
+
+def engineering_exposure(conn, trial_id, source_sha):
+    """Classify a retained original precheck; never erase its engineering/data exposure.
+
+    Failed or repeated prechecks cannot become registered economic attempts. Ordinary
+    exploration, sealed runs, consumed cells and uncertain original custody remain exposures
+    requiring the existing retry contract.
+    """
+    trial = db.one(conn, 'SELECT * FROM trial WHERE trial_id = %s', (trial_id,))
+    if (trial is None or trial['mode'] != 'explore' or trial['strategy_source_sha256'] != source_sha
+            or db.one(conn, 'SELECT trial_id FROM research_execution WHERE trial_id = %s', (trial_id,))):
+        return False
+    capture = execution.read(conn, trial_id)
+    if (capture.get('status') != 'captured' or capture.get('phase') != 'source-precheck'
+            or capture.get('start', {}).get('phase') != 'source-precheck'):
+        return False
+    files = execution._bundle(conn, f'trial-{trial_id}-execution')
+    if ('strategy.py' not in files or hashlib.sha256(files['strategy.py']).hexdigest() != source_sha
+            or 'input-coverage.json' not in files):
+        return False
+    try:
+        coverage = json.loads(files['input-coverage.json'])
+        config = coverage['effective_config']
+        identity = coverage['input_identity']
+        return (coverage.get('format') == 'execution-input-coverage-v1'
+                and bool(identity['market_commit'])
+                and config == capture['start']['effective_config']
+                and identity['market_commit'] == config['market_commit']
+                and identity['symbols'] == json.loads(trial['coins'])
+                and all(records._utc(config[key], key) == trial[column] for key, column in
+                        (('start', 'input_start'), ('trade_start', 'trade_start'), ('end', 'trade_end'))))
+    except (KeyError, TypeError, ValueError, RecordError):
+        return False

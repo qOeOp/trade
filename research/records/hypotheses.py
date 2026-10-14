@@ -105,9 +105,13 @@ def validate(conn, body, execution, *, before_replay=False):
                                      execution['input_identity'])
         if before_replay:
             exposures = db.rows(conn, 'SELECT trial_id FROM trial WHERE strategy_source_sha256 = %s', (row['source_sha256'],))
-            # Only the exact predeclared engineering precheck is exempt, never an arbitrary
-            # explored/consumed trial. Retry records still name the previous registration.
-            other = [t for (t,) in exposures if t != precheck_trial]
+            # The selected successful review still determines source qualification. Other
+            # original engineering prechecks remain disclosed exposure, not research cells;
+            # arbitrary exploration/sealed/consumed trials keep the retry contract.
+            from research.records.prechecks import engineering_exposure
+            other = [t for (t,) in exposures if t != precheck_trial and not
+                     (execution['runtime']['runtime_contract'] == 'r1-native-v7'
+                      and engineering_exposure(conn, t, row['source_sha256']))]
             if other:
                 retry = body.get('retry_of')
                 if not retry or not db.one(conn, 'SELECT trial_id FROM research_execution WHERE bundle = %s '
