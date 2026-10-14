@@ -62,6 +62,7 @@ class CurrentViewsTests(unittest.TestCase):
                 'format':'execution-input-coverage-v1',
                 'input_identity':{**self.inputs,'symbols':['AAAUSDT','BBBUSDT']},
                 'effective_config':self.inspection['effective_config']}))
+            (self.root/'runtime-inspection.json').write_text(json.dumps(self.inspection))
         (self.root/'reports').mkdir(exist_ok=True)
         for name in ('native.stdout.txt','native.stderr.txt','audit.stdout.txt','audit.stderr.txt'): (self.root/name).write_bytes(b'')
         execution.capture(self.profile,trial_id=trial,workdir=self.root,phases={'native':{'exit_code':1 if failed else 0},'audit':{'exit_code':0}},outcome='completed',precheck=True)
@@ -185,7 +186,12 @@ class CurrentViewsTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'EXECUTION_CAPTURE_LIMIT')
         with db.reading(self.profile) as conn:
             trial = db.rows(conn, 'SELECT MAX(trial_id) FROM trial')[0][0]
-        (self.root/'process.json').write_text(json.dumps({'native':{'exit_code':0},'audit':{'exit_code':1}}))
+        for name in execution.RECOVERY_ORIGINALS:
+            if name.startswith('reports/') and name != 'reports/runtime-errors.jsonl':
+                path = self.root/name
+                if not path.exists():path.write_bytes(b'original synthetic report')
+        (self.root/'process.json').write_text(json.dumps({'native':{'state':'exited','exit_code':0},
+                                                        'audit':{'state':'exited','exit_code':1}}))
         failure = self.root/'host.stderr.txt'
         failure.write_text(json.dumps({'error':{'code':'EXECUTION_CAPTURE_LIMIT'}}))
         recovered = execution.recover(self.profile, trial_id=trial, workdir=self.root, failure_file=failure)
@@ -200,6 +206,32 @@ class CurrentViewsTests(unittest.TestCase):
             self.review(trial)
         self.assertTrue(execution.recover(self.profile, trial_id=trial, workdir=self.root, failure_file=failure)['replayed'])
 
+    def test_recovery_missing_logs_reports_or_invalid_process_cannot_be_exempt(self):
+        self.large_original()
+        with patch.object(execution_files, 'ENGINEERING_BYTES', execution_files.ORDINARY_BYTES):
+            with self.assertRaises(RecordError):self.precheck(identity_files=True)
+        with db.reading(self.profile) as conn:trial=db.rows(conn,'SELECT MAX(trial_id) FROM trial')[0][0]
+        for name in execution.RECOVERY_ORIGINALS:
+            if name.startswith('reports/') and name != 'reports/runtime-errors.jsonl':
+                path=self.root/name
+                if not path.exists():path.write_bytes(b'original synthetic report')
+        good={'native':{'state':'exited','exit_code':0},'audit':{'state':'exited','exit_code':1}}
+        (self.root/'process.json').write_text(json.dumps(good))
+        failure=self.root/'host.stderr.txt';failure.write_text(json.dumps({'error':{'code':'EXECUTION_CAPTURE_LIMIT'}}))
+        for name in ('native.stderr.txt','audit.stdout.txt','reports/positions.csv'):
+            path=self.root/name;original=path.read_bytes();path.unlink()
+            with self.subTest(missing=name),self.assertRaises(RecordError):
+                execution.recover(self.profile,trial_id=trial,workdir=self.root,failure_file=failure)
+            path.write_bytes(original)
+        for process in ({}, {'native':[],'audit':None}, {'native':{'state':'exited','exit_code':False},'audit':None}):
+            (self.root/'process.json').write_text(json.dumps(process))
+            with self.subTest(process=process),self.assertRaises(RecordError):
+                execution.recover(self.profile,trial_id=trial,workdir=self.root,failure_file=failure)
+        with db.reading(self.profile) as conn:
+            self.assertIsNone(db.one(conn,'SELECT bundle FROM evidence_bundle WHERE bundle=%s',
+                                    (f'trial-{trial}-recovery-capture-limit',)))
+            self.assertFalse(prechecks.engineering_exposure(conn,trial,self.source['source_sha256']))
+
     def test_recovery_wrong_failure_or_identity_rolls_back(self):
         self.large_original()
         with patch.object(execution_files, 'ENGINEERING_BYTES', execution_files.ORDINARY_BYTES):
@@ -207,7 +239,7 @@ class CurrentViewsTests(unittest.TestCase):
                 self.precheck(identity_files=True)
         with db.reading(self.profile) as conn:
             trial = db.rows(conn, 'SELECT MAX(trial_id) FROM trial')[0][0]
-        (self.root/'process.json').write_text('{}')
+        (self.root/'process.json').write_text(json.dumps({'native':{'state':'exited','exit_code':1},'audit':None}))
         failure = self.root/'host.stderr.txt';failure.write_text(json.dumps({'error':{'code':'OTHER_ERROR'}}))
         with self.assertRaises(RecordError):
             execution.recover(self.profile, trial_id=trial, workdir=self.root, failure_file=failure)

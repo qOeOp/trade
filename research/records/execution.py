@@ -13,6 +13,36 @@ from research.records.common import RecordError
 
 RESERVED = re.compile(r'trial-[0-9]+-(?:execution(?:-start)?|recovery-.+)\Z')
 MANIFEST = 'execution.json'
+RECOVERY_ORIGINALS = ('native.stdout.txt', 'native.stderr.txt', 'audit.stdout.txt', 'audit.stderr.txt',
+                      'strategy.py', 'input-coverage.json', 'process.json', 'runtime-inspection.json',
+                      'reports/runtime-errors.jsonl', 'reports/audit.json',
+                      *('reports/' + name for name in ('summary.json', 'orders.csv', 'fills.csv', 'positions.csv',
+                         'account.csv', 'returns_series.csv', 'order_events.jsonl.gz', 'exposures.csv.gz')))
+
+
+def recovery_requirements(process):
+    """Only original typed phase facts determine which original files must exist."""
+    if not isinstance(process, dict) or set(process) != {'native', 'audit'}:
+        raise RecordError('recovery lacks original phase facts', code='EXECUTION_IDENTITY')
+    required = {'native.stdout.txt', 'native.stderr.txt', 'strategy.py', 'input-coverage.json',
+                'process.json', 'runtime-inspection.json', 'host-error.json'}
+    for phase in ('native', 'audit'):
+        value = process[phase]
+        if value is None and phase == 'audit':
+            continue
+        if (not isinstance(value, dict) or value.get('state') not in ('started', 'exited')
+                or (value['state'] == 'started' and value.get('exit_code') is not None)
+                or (value['state'] == 'exited' and type(value.get('exit_code')) is not int)):
+            raise RecordError('recovery phase facts are invalid', code='EXECUTION_IDENTITY')
+        if phase == 'audit':
+            required.update(('audit.stdout.txt', 'audit.stderr.txt'))
+        if value.get('exit_code') == 0:
+            if phase == 'native':
+                required.update(name for name in RECOVERY_ORIGINALS if name.startswith('reports/')
+                                and name not in ('reports/runtime-errors.jsonl', 'reports/audit.json'))
+            else:
+                required.add('reports/audit.json')
+    return required
 
 
 def encoded(value):
@@ -153,14 +183,21 @@ def recovery_read(conn, trial_id, bundle):
             or db.one(conn, 'SELECT trial_id FROM research_execution WHERE trial_id = %s', (trial_id,))
             or execution_files.physical_index(conn, f'trial-{trial_id}-execution')):
         raise RecordError('recovery differs from an unconsumed original engineering start', code='EXECUTION_IDENTITY')
+    files = _bundle(conn, bundle, {'strategy.py', 'input-coverage.json', 'host-error.json', 'process.json'})
+    try:
+        process = json.loads(files['process.json'])
+        required = recovery_requirements(process)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise RecordError('recovery lacks original process facts', code='EXECUTION_IDENTITY') from exc
+    if (not set(RECOVERY_ORIGINALS) <= set(value['files']) or any(
+            value['files'].get(name, {}).get('state') not in ('captured', 'captured-empty') for name in required)):
+        raise RecordError('recovery is missing phase-required original files', code='EXECUTION_IDENTITY')
     for name, entry in value['files'].items():
         if entry['state'] == 'captured':
             for _ in execution_files.iter_file(conn, bundle, name, entry):
                 pass
-    files = _bundle(conn, bundle, {'strategy.py', 'input-coverage.json', 'host-error.json', 'process.json'})
     try:
         failure = json.loads(files['host-error.json'])
-        json.loads(files['process.json'])  # Retain original phase facts, never infer successful exits.
         from research.records.prechecks import original_inputs_match
         valid = (failure['error']['code'] == 'EXECUTION_CAPTURE_LIMIT'
                  and sum(e['length'] or 0 for e in value['files'].values()) > execution_files.ORDINARY_BYTES
@@ -187,10 +224,22 @@ def recover(profile, *, trial_id, workdir, failure_file):
             raise RecordError('only original unconsumed engineering workdir may be recovered', code='EXECUTION_IDENTITY')
     names = {('strategy.py' if p.relative_to(workdir).as_posix() == 'source/strategy.py' else p.relative_to(workdir).as_posix()): p
              for p in workdir.rglob('*') if p.is_file()}
+    for name in RECOVERY_ORIGINALS:
+        names.setdefault(name, workdir / ('source/strategy.py' if name == 'strategy.py' else name))
     if 'host-error.json' in names:
         raise RecordError('recovery host error collides with original workdir', code='EXECUTION_IDENTITY')
     names['host-error.json'] = failure_file
     entries = execution_files.describe(names, execution_files.ENGINEERING_BYTES)
+    try:
+        process = json.loads((workdir / 'process.json').read_bytes())
+        required = recovery_requirements(process)
+    except (OSError, ValueError, TypeError) as exc:
+        raise RecordError('recovery needs original process phase facts', code='EXECUTION_IDENTITY') from exc
+    if any(entries[name]['state'] not in ('captured', 'captured-empty') for name in required):
+        raise RecordError('recovery is missing phase-required original files', code='EXECUTION_IDENTITY')
+    if process['audit'] is None:
+        for name in ('audit.stdout.txt', 'audit.stderr.txt', 'reports/audit.json'):
+            if entries[name]['state'] == 'missing':entries[name]['state'] = 'not-started'
     bundle = f'trial-{trial_id}-recovery-capture-limit'
     op = db.op_id('execution-recovery', {'trial': trial_id, 'files': entries})
     def insert(c):
