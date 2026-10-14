@@ -28,7 +28,19 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
     """Validate actual exported lifecycle counts/clocks, retaining both priced and unpriced ends."""
     from nautilus_trader.model import InstrumentClose, InstrumentStatus
+    native_counts = {}
+    for row in (summary or {}).get('per_coin', []):
+        counts = tuple(row.get('counts', {}).get(kind, 0)
+                       for kind in ('instrument_close', 'instrument_status'))
+        if any(type(count) is not int or count < 0 for count in counts):
+            raise ValueError('invalid native lifecycle count')
+        iid = row['instrument']
+        if iid in native_counts:
+            raise ValueError('duplicate native lifecycle instrument')
+        native_counts[iid] = counts
     if not coverage.get('input_identity', {}).get('lifecycle_bundle'):
+        if any(any(counts) for counts in native_counts.values()):
+            raise ValueError('native lifecycle inputs lack bundle identity')
         return ()
     if coverage.get('format') != 'execution-input-coverage-v1' or summary is None:
         raise ValueError('missing lifecycle execution coverage')
@@ -38,11 +50,18 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
             or summary['market_commit'] != coverage['input_identity']['market_commit']):
         raise ValueError('lifecycle coverage differs from native summary')
     result = []
+    represented = set()
     for symbol, receipt in coverage['export_receipts'].items():
         for leaf in receipt.get('episodes', []):
             episode = leaf['episode']
             if episode['symbol'] != symbol or episode['instrument_id'] != leaf['instrument_id']:
                 raise ValueError('lifecycle episode differs from its native instrument')
+            iid = leaf['instrument_id']
+            counts = tuple(leaf['counts'].get(kind, 0)
+                           for kind in ('instrument_close', 'instrument_status'))
+            if iid in represented or iid not in native_counts or counts != native_counts[iid]:
+                raise ValueError('lifecycle mapping differs from native instrument counts')
+            represented.add(iid)
             actual = [e for e in episode['events'] if start <= e['ts_init'] < end]
             for kind, count, native_type in (('InstrumentClose', 'instrument_close', InstrumentClose),
                                               ('InstrumentStatus', 'instrument_status', InstrumentStatus)):
@@ -59,6 +78,8 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
                         result.append(event)
             if any(e['type'] not in ('InstrumentClose', 'InstrumentStatus') for e in actual):
                 raise ValueError('unknown lifecycle input type')
+    if any(any(counts) and iid not in represented for iid, counts in native_counts.items()):
+        raise ValueError('native lifecycle inputs lack episode mapping')
     keys = [(e['type'], e['instrument_id'], e['ts_event']) for e in result]
     if len(set(keys)) != len(keys):
         raise ValueError('ambiguous duplicate lifecycle events')
@@ -226,7 +247,10 @@ def coin(symbol: str) -> str:
 
 def strategy_id(symbol: str) -> str:
     """Nautilus identifiers are ASCII; a non-ASCII coin is spelled by its UTF-8 bytes."""
-    name = coin(symbol)
+    episode = re.fullmatch(r'(.*USDT)-E([1-9][0-9]*)', symbol)
+    # Nautilus derives the order ID tag from the final hyphen-separated component.
+    # Keep each full native episode in that component, including any 1000 prefix.
+    name = f'{episode[1].removesuffix("USDT")}_E{episode[2]}' if episode else coin(symbol)
     return f"R1-{name}" if name.isascii() else "R1-X" + name.encode().hex().upper()
 
 

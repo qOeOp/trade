@@ -16,7 +16,7 @@ from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.trading import Strategy
 
-from backtest.load import RUNTIME_CONTRACT, load_strategy
+from backtest.load import RUNTIME_CONTRACT, load_strategy, strategy_id
 from backtest.report import diagnostics, runtime_source_metadata
 from backtest.run import (
     STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, importable_strategy,
@@ -45,6 +45,21 @@ class ProbeStrategy(Strategy):
 
 
 class StrategyLoaderTests(unittest.TestCase):
+    def test_native_episode_order_tags_are_unique_and_plain_ids_are_preserved(self):
+        from nautilus_trader.config import StrategyConfig
+        from nautilus_trader.model import StrategyId
+        symbols = ('BTCUSDT-E1', 'ETHUSDT-E1', 'AIAUSDT-E1', 'AIAUSDT-E2',
+                   'PEPEUSDT-E1', '1000PEPEUSDT-E1')
+        strategies = [Strategy(StrategyConfig(strategy_id=StrategyId(strategy_id(symbol)))) for symbol in symbols]
+        engine = BacktestEngine(BacktestEngineConfig(
+            logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
+        self.addCleanup(engine.dispose)
+        for strategy in strategies:
+            engine.add_strategy(strategy)
+        self.assertEqual(len({str(strategy.strategy_id).rsplit('-', 1)[-1] for strategy in strategies}), len(symbols))
+        self.assertEqual(strategy_id('BTCUSDT'), 'R1-BTC')
+        self.assertEqual(strategy_id('1000PEPEUSDT'), 'R1-PEPE')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

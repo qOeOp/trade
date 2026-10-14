@@ -92,6 +92,7 @@ class LifecycleCustodyTests(unittest.TestCase):
                     'effective_config': {'start': '2026-01-04T00:00:00Z', 'end': '2026-01-06T00:00:00Z'},
                     'export_receipts': {'AIAUSDT': {'episodes': [leaf]}}}
         summary = {'input_start_utc': '2026-01-04T00:00:00Z', 'period_end_utc': '2026-01-06T00:00:00Z',
+                   'per_coin': [{'instrument': event['instrument_id'], 'counts': leaf['counts'].copy()}],
                    'market_commit': 'fixed', 'strategy_source_sha256': 'source', 'runtime_identity': {'image_ref': 'image'}}
         capture = {'status': 'captured', 'trial_id': 3, 'source_sha256': 'source', 'image_ref': 'image',
                    'phase': 'replay', 'outcome': 'completed', 'runtime_failures': [],
@@ -119,10 +120,23 @@ class LifecycleCustodyTests(unittest.TestCase):
                                   close['ts_event'], close['ts_init']).to_dict()
         leaf['episode']['events'] = [status]
         leaf['counts'] = {'instrument_close': 0, 'instrument_status': 1}
+        summary['per_coin'][0]['counts'] = leaf['counts'].copy()
         self.assertEqual(events(coverage, summary), (status,))
         leaf['counts']['instrument_status'] = 0
         with self.assertRaises(RecordError):
             events(coverage, summary)
+
+    def test_native_lifecycle_counts_cannot_be_silently_dropped(self):
+        _, coverage, summary, _ = self.facts()
+        for kind in ('identity', 'episodes', 'native_count', 'native_instrument'):
+            value = copy.deepcopy(coverage)
+            native = copy.deepcopy(summary)
+            if kind == 'identity': value['input_identity'].pop('lifecycle_bundle')
+            if kind == 'episodes': value['export_receipts']['AIAUSDT'].pop('episodes')
+            if kind == 'native_count': native['per_coin'][0]['counts']['instrument_close'] = 2
+            if kind == 'native_instrument': native['per_coin'][0]['instrument'] = 'OTHER.BINANCE'
+            with self.subTest(kind=kind), self.assertRaises(RecordError):
+                events(value, native)
 
     def test_original_capture_is_required_and_identity_conflicts_do_not_downgrade_to_empty(self):
         identity, coverage, summary, capture = self.facts()
