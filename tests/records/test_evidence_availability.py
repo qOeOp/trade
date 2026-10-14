@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from research.records import availability, db, records, ledger, execution, prechecks, hypotheses, trials
+from research.records import availability, db, records, ledger, execution, execution_files, prechecks, hypotheses, trials
 from research.records.analysis import load_dir
 from research.records.common import RecordError
 from tests.records.dolt import BINARY, SKIP, TemporaryLedger
@@ -151,6 +151,78 @@ class CurrentViewsTests(unittest.TestCase):
                 trial = self.precheck(identity_files=True)
                 with db.reading(self.profile) as conn:
                     self.assertFalse(prechecks.engineering_exposure(conn, trial, self.source['source_sha256']))
+
+    def large_original(self):
+        (self.root/'reports').mkdir(exist_ok=True)
+        with (self.root/'reports/account.csv').open('wb') as stream:
+            stream.truncate(execution_files.ORDINARY_BYTES + 1)
+
+    def test_large_original_precheck_roundtrip_and_ordinary_limits(self):
+        self.large_original()
+        trial = self.precheck(identity_files=True)
+        with db.reading(self.profile) as conn:
+            original = execution.read(conn, trial)
+            self.assertEqual(original['format'], 'execution-capture-v2')
+            self.assertEqual(original['files']['account.csv']['length'], 64*1024*1024+1)
+            self.assertTrue(prechecks.engineering_exposure(conn, trial, self.source['source_sha256']))
+            destination = self.root/'restored'
+            exported = records.export_evidence(conn, f'trial-{trial}-execution', destination)
+            import hashlib
+            expected = hashlib.sha256((self.root/'reports/account.csv').read_bytes()).hexdigest()
+            self.assertEqual(exported['files']['account.csv'], expected)
+            self.assertEqual(hashlib.sha256((destination/'account.csv').read_bytes()).hexdigest(), expected)
+        with self.assertRaises(RecordError) as caught:
+            self.precheck(phase='replay', identity_files=True)
+        self.assertEqual(caught.exception.code, 'EXECUTION_CAPTURE_LIMIT')
+        with self.assertRaises(RecordError):
+            records.add_evidence(self.profile, 'oversized-agent-evidence', [self.root/'reports/account.csv'], None)
+
+    def test_capacity_recovery_is_explicit_exposure_never_original_success(self):
+        self.large_original()
+        with patch.object(execution_files, 'ENGINEERING_BYTES', execution_files.ORDINARY_BYTES):
+            with self.assertRaises(RecordError) as caught:
+                self.precheck(identity_files=True)
+        self.assertEqual(caught.exception.code, 'EXECUTION_CAPTURE_LIMIT')
+        with db.reading(self.profile) as conn:
+            trial = db.rows(conn, 'SELECT MAX(trial_id) FROM trial')[0][0]
+        (self.root/'process.json').write_text(json.dumps({'native':{'exit_code':0},'audit':{'exit_code':1}}))
+        failure = self.root/'host.stderr.txt'
+        failure.write_text(json.dumps({'error':{'code':'EXECUTION_CAPTURE_LIMIT'}}))
+        recovered = execution.recover(self.profile, trial_id=trial, workdir=self.root, failure_file=failure)
+        bundle = recovered['bundle']
+        with db.reading(self.profile) as conn:
+            self.assertEqual(execution.read(conn, trial)['status'], 'missing')
+            self.assertEqual(execution.recovery_read(conn, trial, bundle)['status'], 'recovered')
+            self.assertFalse(prechecks.engineering_exposure(conn, trial, self.source['source_sha256']))
+            self.assertTrue(prechecks.engineering_exposure(conn, trial, self.source['source_sha256'], [bundle]))
+            self.assertEqual(db.rows(conn, 'SELECT COUNT(*) FROM research_execution')[0][0], 0)
+        with self.assertRaises(RecordError):
+            self.review(trial)
+        self.assertTrue(execution.recover(self.profile, trial_id=trial, workdir=self.root, failure_file=failure)['replayed'])
+
+    def test_recovery_wrong_failure_or_identity_rolls_back(self):
+        self.large_original()
+        with patch.object(execution_files, 'ENGINEERING_BYTES', execution_files.ORDINARY_BYTES):
+            with self.assertRaises(RecordError):
+                self.precheck(identity_files=True)
+        with db.reading(self.profile) as conn:
+            trial = db.rows(conn, 'SELECT MAX(trial_id) FROM trial')[0][0]
+        (self.root/'process.json').write_text('{}')
+        failure = self.root/'host.stderr.txt';failure.write_text(json.dumps({'error':{'code':'OTHER_ERROR'}}))
+        with self.assertRaises(RecordError):
+            execution.recover(self.profile, trial_id=trial, workdir=self.root, failure_file=failure)
+        with db.reading(self.profile) as conn:
+            self.assertIsNone(db.one(conn, 'SELECT bundle FROM evidence_bundle WHERE bundle=%s',
+                                     (f'trial-{trial}-recovery-capture-limit',)))
+        failure.write_text(json.dumps({'error':{'code':'EXECUTION_CAPTURE_LIMIT'}}))
+        coverage = json.loads((self.root/'input-coverage.json').read_text())
+        coverage['input_identity']['symbols'] = ['WRONGUSDT']
+        (self.root/'input-coverage.json').write_text(json.dumps(coverage))
+        with self.assertRaises(RecordError):
+            execution.recover(self.profile, trial_id=trial, workdir=self.root, failure_file=failure)
+        with db.reading(self.profile) as conn:
+            self.assertIsNone(db.one(conn, 'SELECT bundle FROM evidence_bundle WHERE bundle=%s',
+                                     (f'trial-{trial}-recovery-capture-limit',)))
 
     def test_lifecycle_registration_rejects_precheck_without_same_immutable_inputs(self):
         trial = self.precheck(); self.review(trial)

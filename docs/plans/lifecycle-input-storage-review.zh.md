@@ -65,3 +65,19 @@ MARK去重从实际Parquet batch合并精确unique集合，内存为当前union�
 注册仍由选定成功的exact-source review定资格；原native/audit成功、四项状态、生命周期输入绑定、每点一次、retry_of规则均不变。额外工程分类仅适用于mode=explore，开始/结束原件都source-precheck，有实际source/coverage hash及与trial窗口/合约和原始inspection配置相同的输入凭据，且无正式消耗关系。无法分类、缺失/冲突原件、普通explore、sealed或已消费研究仍阻断。没有新存储字段。所有预检重复、失败、窗口、runtime与可见信息继续披露；不能表述源码未暴露、回填正式登记或声称独立性。64MiB原限额未改。
 
 锁定sdist的 `crates/backtest/src/node.rs` 表明rc3多个data configs的streaming先load_and_merge_data完整Vec，再分chunk；chunk_size不保证多输入加载内存上界。这与两次Docker原始OOM和首次观测前零字节曝光相符，保留完整版本、账户和事件逻辑，只调整已授权本机资源，不改Nautilus包。
+
+### 2026-10-14 全年原件容量及失败恢复授权
+
+trial27实际原native0/audit1，host原文EXECUTION_CAPTURE_LIMIT；报告约1.95GB，其中account.csv为1,518,487,052字节，exposures.csv.gz为363,610,807字节。512MiB简单上调不足，单account也超过1GiB SQL packet。用户明确批准：仅source-precheck工程capture与失败恢复，分块每块不超过64MiB、完整聚合不超过4GiB；普通replay64MiB及Agent evidence每文件64MiB不变。恢复单列工程暴露，不改变任何成功资格或经济/账户/空仓/订单审计。
+
+独立只读Agent `/root/native_source_review` 审查必要独立事实、消费者及表达：逻辑文件已有length/SHA/state保留；新增有序chunk路径是物理顺序与归属关系，无法由全文件SHA推导，块length/SHA复用evidence派生列；不新增SQL表/列。每块实际16MiB，全部原件与manifest经既有db.write一次原子提交，先stat限额再流hash及写时校验，原件改变/写失败不能留下完整capture。原source-precheck小bundle仍v1，大bundle明确v2，普通replay不得v2。
+
+完整read流式验证所有块、重组长度及全文件SHA，不一次materialize2GB。source/coverage消费者仅读取所需逻辑文件；官方evidence export按原文件名流式重组及验hash。缺、重复、乱序、跨文件/试验引用、额外未列块、长度或全SHA冲突均拒绝。Parquet ledger export另外按字节约束batch，避免20,000 blob行堆积溢出Arrow binary offsets；保留表字段与原byte值。
+
+失败恢复在已有保留trial-N-recovery-capture-limit namespace追加recovery.json、原host错误、process.json和原目录全部现存source/coverage/reports/logs，明确later recovery。trial27原start保持，original final仍missing，不补造trial27-execution。原process有0/1则原文保存，缺码保持未知，不升级成成功。工程额外暴露分类要求原source-precheck start、explore、未绑定research_execution、原source/config/market/symbol/window核验及实际容量错误和完整恢复，并由plan.sources显式引用；不自动挑最新恢复。selected precheck require永不接受恢复，必须新native/audit0和独立四项review。上述实现的容量/原件读回/损坏及backup/export实证继续分开验收，设置/schema不能代替大文件成功。
+
+### 2026-10-14 中文原合约的原生身份修复授权
+
+独立Agent复核与uv.lock一致的rc3源码：原NETTING推导instrument-strategy PositionId；cache.add_position_inner把position_oms key要求ASCII，中文键错误在写入Position/index之前返回，又被handle_position_update.unwrap_or_default静默吞掉。trial27四中文原合约30笔fills全无Position，且stderr为空，与该路径相符。显式ASCII PositionId被NETTING前置InvalidPositionId拒绝，不能作为源API逃生或自行补仓位。
+
+用户明确批准仅四中文原合约的确定ASCII native alias。校验只对非ASCII symbol额外接受 `X<完整原symbol UTF8大写HEX>USDT-E<chronological_index>-PERP.BINANCE`；原历史ID保持可读，ASCII原合约不改变，任意alias、错误episode和identity/event冲突仍拒绝。没有新SQL/JSON事实字段，复用既有episode.instrument_id映射。完整原symbol仍负责市场、pool、raw_symbol/base_currency、terms和覆盖；alias仅原生身份。保持USDT-E#结构使既有strategy_id生成唯一tag，不再产生E1碰撞。原bundle/failed native原件不改，另发布完整不可变输入bundle。短窗官方原生old/new修复对照及原210全年全部检查均须重新验收；不是经济或行为parity声明，版本/NETTING/账户/费用/资金费不变。

@@ -254,6 +254,10 @@ def export_evidence(conn, bundle: str, destination: Path) -> dict:
     destination = Path(destination)
     if destination.exists():
         raise _refuse(f"destination exists: {destination}")
+    from research.records import execution_files
+    chunked = execution_files.export(conn, bundle, destination)
+    if chunked is not None:
+        return chunked
     found = db.rows(conn, "SELECT path, content, sha256 FROM evidence WHERE bundle = %s", (bundle,))
     if not found:
         raise _refuse(f"unknown evidence bundle {bundle}", "UNKNOWN_BUNDLE")

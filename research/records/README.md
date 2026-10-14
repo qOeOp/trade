@@ -148,7 +148,9 @@ control. Legacy missing original logs remain missing, with explicit applicabilit
 Current `r1-native-v7` adds fail-closed source callback/constructor exception capture while keeping
 one-minute native execution. Published sources receive an exact-source native engineering precheck
 and separately attributed Agent source/API/causal/activity/readiness review before registration.
-Only a predeclared exact precheck is exempt from source exposure; generic exploration is not.
+The selected successful exact-source review establishes qualification. Other retained original,
+unconsumed engineering prechecks remain disclosed engineering exposure; generic exploration,
+sealed runs and consumed cells retain the explicit retry contract.
 See the research-round authoring and hypothesis references for the CLI and JSON contract.
 
 Original runner/auditor stdout/stderr, source bytes, phase exits and structured exceptions are
@@ -158,6 +160,15 @@ interruption captures in `finally`; hard process kill cannot promise final captu
 missing final receipt and original working-directory location. Later probes do not replace original
 stderr. Existing schema-v2 tables suffice; no new columns or log service are added (review:
 [storage decision](../../docs/plans/p010-p013-storage-review.zh.md)).
+
+Original engineering source-precheck captures have a 4 GiB aggregate bound and use bounded
+physical evidence chunks when above 64 MiB. Ordinary replay captures remain bounded at 64 MiB,
+as do individual Agent evidence files. Logical file bytes, names, lengths and SHA256 remain exact;
+`evidence export` reconstructs and verifies originals. Readers verify complete chunks in a stream.
+After a real engineering capacity refusal, `execution-recover --trial ID --workdir ORIGINAL
+--failure-file ORIGINAL-HOST-STDERR` appends explicitly later recovery. The original final capture
+stays missing. Only an explicitly named recovery source may classify this unconsumed original
+precheck as engineering exposure; recovery never qualifies a successful source review.
 
 Every fresh market export includes read-only fixed-commit coverage facts for raw LAST/MARK minutes,
 alignment, zero volume, funding times and member months. First/last observations are data proxies,

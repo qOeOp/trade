@@ -88,6 +88,11 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument("--bundle", required=True)
     review.add_argument("--review", type=Path, required=True)
 
+    recover = commands.add_parser('execution-recover', help='append original-byte recovery after engineering capture capacity failure')
+    recover.add_argument('--trial', type=int, required=True)
+    recover.add_argument('--workdir', type=Path, required=True)
+    recover.add_argument('--failure-file', type=Path, required=True)
+
     hypotheses = commands.add_parser("hypothesis", help="locked registration and read-only comparison").add_subparsers(dest="action", required=True)
     register = hypotheses.add_parser("register")
     register.add_argument("--id", required=True, help="new immutable evidence bundle ID")
@@ -193,6 +198,9 @@ def run(args) -> dict:
     if args.command == "source-review":
         from research.records.prechecks import review
         return review(value, bundle=args.bundle, body=_read_json(args.review))
+    if args.command == 'execution-recover':
+        from research.records.execution import recover
+        return recover(value, trial_id=args.trial, workdir=args.workdir, failure_file=args.failure_file)
     if args.command == "candidate":
         from research.records.hypotheses import candidates
         return candidates(value, args.at)

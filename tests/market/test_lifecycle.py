@@ -74,6 +74,27 @@ class LifecycleInputsTests(unittest.TestCase):
             lifecycle.validate({**manifest, 'episodes': [{**self.episode, 'events': [self.status]}, second]},
                                'fixed', self.files)
 
+    def test_unicode_internal_alias_is_exact_injective_and_preserves_original_symbol(self):
+        for symbol in ('币安人生USDT', '我踏马来了USDT', '牛来USDT', '龙虾USDT'):
+            alias = f'X{symbol.encode("utf-8").hex().upper()}USDT-E1-PERP.BINANCE'
+            for iid in (f'{symbol}-E1-PERP.BINANCE', alias):
+                manifest = copy.deepcopy(self.manifest)
+                episode = manifest['episodes'][0]
+                episode['symbol'], episode['instrument_id'] = symbol, iid
+                for event in episode['events']:event['instrument_id'] = iid
+                self.assertEqual(set(lifecycle.validate(manifest, 'fixed', self.files)), {symbol})
+            for bad in (alias.replace('-E1-', '-E2-'), 'XARBITRARYUSDT-E1-PERP.BINANCE', alias.lower()):
+                manifest = copy.deepcopy(self.manifest)
+                episode = manifest['episodes'][0]
+                episode['symbol'], episode['instrument_id'] = symbol, bad
+                for event in episode['events']:event['instrument_id'] = bad
+                with self.assertRaises(RecordError):lifecycle.validate(manifest, 'fixed', self.files)
+        manifest = copy.deepcopy(self.manifest)
+        iid = f'X{b"AIAUSDT".hex().upper()}USDT-E1-PERP.BINANCE'
+        manifest['episodes'][0]['instrument_id'] = iid
+        for event in manifest['episodes'][0]['events']:event['instrument_id'] = iid
+        with self.assertRaises(RecordError):lifecycle.validate(manifest, 'fixed', self.files)
+
     def test_events_before_window_are_not_replayed_and_expired_identity_is_inactive(self):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(lifecycle.write_events(root, self.episode, 200_000_000_000, 300_000_000_000),

@@ -58,7 +58,7 @@ def require(conn, bundle, source_sha, image, input_identity=None):
     if any(value[name]['status'] not in ('passed','no_opportunity') for name in ('api','causal','activity','readiness')):
         raise RecordError('Agent source review failed or unresolved; repair before research', code='SOURCE_PRECHECK_FAILED')
     if input_identity is not None:
-        files = execution._bundle(conn, f"trial-{value['trial_id']}-execution")
+        files = execution._bundle(conn, f"trial-{value['trial_id']}-execution", {'input-coverage.json'})
         try:
             original = json.loads(files.get('input-coverage.json', b'{}')).get('input_identity', {})
             before, after = original.get('lifecycle_bundle'), input_identity.get('lifecycle_bundle')
@@ -72,7 +72,27 @@ def require(conn, bundle, source_sha, image, input_identity=None):
     return value['trial_id']
 
 
-def engineering_exposure(conn, trial_id, source_sha):
+def original_inputs_match(trial, beginning, files, source_sha):
+    if ('strategy.py' not in files or hashlib.sha256(files['strategy.py']).hexdigest() != source_sha
+            or 'input-coverage.json' not in files):
+        return False
+    try:
+        coverage = json.loads(files['input-coverage.json'])
+        config = coverage['effective_config']
+        identity = coverage['input_identity']
+        return (coverage.get('format') == 'execution-input-coverage-v1'
+                and bool(identity['market_commit'])
+                and config == beginning['effective_config']
+                and identity['market_commit'] == config['market_commit']
+                and config['symbols'] == identity['symbols']
+                and identity['symbols'] == json.loads(trial['coins'])
+                and all(records._utc(config[key], key) == trial[column] for key, column in
+                        (('start', 'input_start'), ('trade_start', 'trade_start'), ('end', 'trade_end'))))
+    except (KeyError, TypeError, ValueError, RecordError):
+        return False
+
+
+def engineering_exposure(conn, trial_id, source_sha, recovery_sources=()):
     """Classify a retained original precheck; never erase its engineering/data exposure.
 
     Failed or repeated prechecks cannot become registered economic attempts. Ordinary
@@ -84,24 +104,14 @@ def engineering_exposure(conn, trial_id, source_sha):
             or db.one(conn, 'SELECT trial_id FROM research_execution WHERE trial_id = %s', (trial_id,))):
         return False
     capture = execution.read(conn, trial_id)
+    if capture.get('status') == 'missing':
+        bundle = f'trial-{trial_id}-recovery-capture-limit'
+        if bundle not in recovery_sources:
+            return False
+        execution.recovery_read(conn, trial_id, bundle)
+        return True
     if (capture.get('status') != 'captured' or capture.get('phase') != 'source-precheck'
             or capture.get('start', {}).get('phase') != 'source-precheck'):
         return False
-    files = execution._bundle(conn, f'trial-{trial_id}-execution')
-    if ('strategy.py' not in files or hashlib.sha256(files['strategy.py']).hexdigest() != source_sha
-            or 'input-coverage.json' not in files):
-        return False
-    try:
-        coverage = json.loads(files['input-coverage.json'])
-        config = coverage['effective_config']
-        identity = coverage['input_identity']
-        return (coverage.get('format') == 'execution-input-coverage-v1'
-                and bool(identity['market_commit'])
-                and config == capture['start']['effective_config']
-                and identity['market_commit'] == config['market_commit']
-                and config['symbols'] == identity['symbols']
-                and identity['symbols'] == json.loads(trial['coins'])
-                and all(records._utc(config[key], key) == trial[column] for key, column in
-                        (('start', 'input_start'), ('trade_start', 'trade_start'), ('end', 'trade_end'))))
-    except (KeyError, TypeError, ValueError, RecordError):
-        return False
+    files = execution._bundle(conn, f'trial-{trial_id}-execution', {'strategy.py', 'input-coverage.json'})
+    return original_inputs_match(trial, capture['start'], files, source_sha)

@@ -465,10 +465,23 @@ def export(value: dict, at: str, output: Path, *, batch: int = 20_000) -> dict:
                 schema = pa.schema([(column[0], kind) for column, kind in zip(cursor.description, types)])
                 count = 0
                 with pq.ParquetWriter(output / f"{table}.parquet", schema) as writer:
-                    while chunk := cursor.fetchmany(batch):
+                    chunk, bytes_in_batch = [], 0
+                    def emit():
                         arrays = [pa.array([_arrow_value(kind, item) for item in column], type=kind)
                                   for kind, column in zip(types, zip(*chunk))]
                         writer.write_table(pa.Table.from_arrays(arrays, schema=schema))
+                    while row := cursor.fetchone():
+                        row_bytes = sum(len(item) if isinstance(item, (str, bytes)) else 32 for item in row if item is not None)
+                        # Blob chunks are small individually; a row-count batch must not
+                        # accumulate gigabytes or exceed Arrow's binary offset range.
+                        if chunk and (len(chunk) >= batch or bytes_in_batch + row_bytes > 64 * 1024 * 1024):
+                            emit()
+                            count += len(chunk)
+                            chunk, bytes_in_batch = [], 0
+                        chunk.append(row)
+                        bytes_in_batch += row_bytes
+                    if chunk:
+                        emit()
                         count += len(chunk)
                 written[table] = count
     return {"at": at, "commit": commit, "output": str(output), "rows": written}

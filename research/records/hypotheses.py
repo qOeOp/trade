@@ -111,7 +111,7 @@ def validate(conn, body, execution, *, before_replay=False):
             from research.records.prechecks import engineering_exposure
             other = [t for (t,) in exposures if t != precheck_trial and not
                      (execution['runtime']['runtime_contract'] == 'r1-native-v7'
-                      and engineering_exposure(conn, t, row['source_sha256']))]
+                      and engineering_exposure(conn, t, row['source_sha256'], body['sources']))]
             if other:
                 retry = body.get('retry_of')
                 if not retry or not db.one(conn, 'SELECT trial_id FROM research_execution WHERE bundle = %s '

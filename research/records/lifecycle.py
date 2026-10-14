@@ -31,7 +31,7 @@ def original_events(conn, trial_id, input_identity, summary):
             or summary.get('strategy_source_sha256') != trial['strategy_source_sha256']
             or summary.get('runtime_identity', {}).get('image_ref') != trial['image_ref']):
         raise RecordError('lifecycle capture differs from run/source/runtime', code='EXECUTION_IDENTITY')
-    files = execution._bundle(conn, f'trial-{trial_id}-execution')
+    files = execution._bundle(conn, f'trial-{trial_id}-execution', {'input-coverage.json'})
     if 'input-coverage.json' not in files:
         raise RecordError('lifecycle run lacks original input coverage', code='EXECUTION_IDENTITY')
     coverage = json.loads(files['input-coverage.json'])

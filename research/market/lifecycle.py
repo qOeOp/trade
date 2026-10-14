@@ -75,7 +75,15 @@ def validate(body, commit, files):
     for episodes in by_symbol.values():
         episodes.sort(key=lambda e: e['start_ns'] or 0)
         for index, episode in enumerate(episodes, 1):
-            if episode['instrument_id'] != f"{episode['symbol']}-E{index}-PERP.BINANCE":
+            symbol = episode['symbol']
+            canonical = f'{symbol}-E{index}-PERP.BINANCE'
+            # rc3 NETTING validates the cache OMS key as ASCII even though native
+            # InstrumentId/PositionId accept UTF-8. Preserve the original venue symbol
+            # and terms; only its deterministic internal identity may use this alias.
+            aliases = {canonical}
+            if not symbol.isascii():
+                aliases.add(f'X{symbol.encode("utf-8").hex().upper()}USDT-E{index}-PERP.BINANCE')
+            if episode['instrument_id'] not in aliases:
                 raise RecordError('native episode identity must follow its chronological symbol mapping', code='LIFECYCLE_INPUT')
         for old, new in zip(episodes, episodes[1:]):
             ending = end_ns(old)
