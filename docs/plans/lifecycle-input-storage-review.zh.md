@@ -47,3 +47,11 @@ adapter 只对实际输入窗内的结算核对原始精确价格是否能在既
 实际 native summary 的逐实例 InstrumentStatus/InstrumentClose 计数必须与原始 coverage 的 episode 映射一致；有原生生命周期事件时，缺 bundle identity、缺 episode、计数不一致或重复实例均拒绝，不能降级成空事件。此修复落实用户已授权的严格终止前空仓检查，不增加存储字段。
 
 多合约生命周期实例保留唯一的原生策略订单 ID tag；单纯以 `-E1` 结尾会使 Nautilus 的默认 tag 在不同合约间冲突。无生命周期的既有策略 ID 保持原样；生命周期实例的最终 ID 段包含完整合约和批次，保留 1000 前缀以避免别名碰撞。
+
+### 2026-10-14 全年观测报告的资源修复设计
+
+独立只读 Agent `/root/native_source_review` 审查后支持：内部 `CapitalObserverConfig.exposure_path` 由既有 `args.output` 派生，仅把报告输出依赖传给 observer；消费者仍为现有原生曝光报告及其 reader，独立事实和持久字段仍为 `exposures.csv.gz`，无需新 SQL 或研究字段。既有 output 字段表达路径的事实，config 内部传递避免全局隐式依赖。
+
+观察器是唯一写者，按原 `_value` 时钟、位置顺序和 Nautilus 原生估值逐行流式写出，finish 在组件停止后完成末采样并关闭压缩流；report 不覆盖文件。header、newline、encoding、gzip filename/mtime 不变，不逐行flush，要求与原完整列表写法字节一致。写入失败保留完整性 finding，flush/close失败原样传播为运行失败；中断的部分文件只能作失败原件。原精确采样计数、空仓/订单、费用/资金费、经济及封存检查不放宽。
+
+MARK去重从实际Parquet batch合并精确unique集合，内存为当前union加一个batch，不按日历推算、不删缺口。此次修复不证明全年可运行，需新CI及BTC/ETH、原210池短窗的原生配对，随后原全年验收。独立审查保留后续consumer风险：readings整体曝光解压和capture大小限制若再次阻断，不能截断输入或跳过消费者。

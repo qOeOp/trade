@@ -288,6 +288,7 @@ def importable_strategy(loaded: LoadedStrategy) -> str:
 @dataclass
 class CapitalObserverConfig:
     instrument_ids: tuple[str, ...]
+    exposure_path: str
 
 
 class CapitalObserver(DataActor):
@@ -308,7 +309,9 @@ class CapitalObserver(DataActor):
     def __init__(self, config: CapitalObserverConfig):
         super().__init__(None)
         self.instrument_ids = [InstrumentId.from_str(value) for value in config.instrument_ids]
-        self.rows, self.timestamps, self.findings = [], 0, []
+        self.timestamps, self.findings = 0, []
+        self._exposure_stream = report.exposure_stream(Path(config.exposure_path))
+        self._exposure_writer = self._exposure_stream.__enter__()
         self._ts, self._marks = None, {}
         OBSERVERS.append(self)
 
@@ -328,9 +331,12 @@ class CapitalObserver(DataActor):
 
     def finish(self, cache) -> None:
         """Value the last timestamp after strategies stopped, including any closing fills."""
-        if self._ts is not None:
-            self._value(self._ts, cache)
-            self._ts = None
+        try:
+            if self._ts is not None:
+                self._value(self._ts, cache)
+                self._ts = None
+        finally:
+            self._exposure_stream.__exit__(None, None, None)
 
     def _value(self, ts: int, cache) -> None:
         self.timestamps += 1
@@ -339,8 +345,14 @@ class CapitalObserver(DataActor):
             if price is None or position.ts_last >= ts + BAR_INTERVAL_NS:
                 self.findings.append(f"capital observation cannot value {position.instrument_id} at {ts}")
                 continue
-            self.rows.append((ts, str(position.id), str(position.notional_value(price)),
-                              str(position.unrealized_pnl(price))))
+            try:
+                self._exposure_writer.writerow((ts, str(position.id), str(position.notional_value(price)),
+                                                str(position.unrealized_pnl(price))))
+            except Exception:
+                # Native actor dispatch may catch callback exceptions; preserve incomplete
+                # observation as an integrity failure even if later writes succeed.
+                self.findings.append(f'capital observation could not write exposure at {ts}')
+                raise
 
 
 class Replay:
@@ -441,7 +453,8 @@ def replay(rows: list[dict], args, trade_start: int, strategy: LoadedStrategy, p
         ImportableActorConfig(
             actor_path=f"{__name__}:CapitalObserver",
             config_path=f"{__name__}:CapitalObserverConfig",
-            config={"instrument_ids": tuple(str(row["instrument_id"]) for row in rows)},
+            config={"instrument_ids": tuple(str(row["instrument_id"]) for row in rows),
+                    "exposure_path": str(args.output / 'exposures.csv.gz')},
         ),
     )
     result = node.run()[0]

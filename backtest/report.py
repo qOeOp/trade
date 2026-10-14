@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import math
+from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -82,12 +83,19 @@ def readable_empty_report(report, columns):
     return report.reindex(columns=list(dict.fromkeys([*report.columns, *columns])))
 
 
-def write_exposures(rows, path: Path) -> None:
-    """Write the observed open-position valuations as gzip CSV with a fixed header time."""
+@contextmanager
+def exposure_stream(path: Path):
+    """One writer for unchanged native valuation rows, without retaining the annual history."""
     with path.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as packed, \
             io.TextIOWrapper(packed, encoding="utf-8", newline="") as text:
         writer = csv.writer(text)
         writer.writerow(EXPOSURE_COLUMNS)
+        yield writer
+
+
+def write_exposures(rows, path: Path) -> None:
+    """Write the observed open-position valuations as gzip CSV with a fixed header time."""
+    with exposure_stream(path) as writer:
         writer.writerows(rows)
 
 
@@ -172,7 +180,8 @@ def write(output: Path, replay, strategies: dict, rows: list[dict], identity: di
                 integrity_findings.append(finding)
     if denied_or_rejected and not integrity_findings:
         integrity_findings.append("native orders were denied or rejected")
-    write_exposures(replay.observer.rows, output / "exposures.csv.gz")
+    # The observer has sealed the same report after the final native sample.
+    # Rewriting it here would lose the streamed history.
     write_order_events(replay.cache.orders(), output / ORDER_EVENTS)
     for finding in capital_findings(replay.observer, expected_timestamps):
         if finding not in integrity_findings:

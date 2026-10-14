@@ -164,6 +164,8 @@ def replay(cover: bool, output: Path, tiers=(("103.00", "16.339"),)) -> dict:
                   "trade_start_dt": START, "end_dt": datetime.fromtimestamp(end, UTC),
                   "trade_start_ns": int(START.timestamp() * 1e9)}
         rows = [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "quantity": "16.339", "counts": {}}]
+        output.mkdir(parents=True, exist_ok=True)
+        report.write_exposures([], output / 'exposures.csv.gz')
         with contextlib.redirect_stdout(io.StringIO()):
             report.write(output, finished, {"AAA": strategy}, rows, {"strategy_uses_stop_loss": True}, window,
                          account, BARS)

@@ -338,6 +338,9 @@ def mark_timestamps(rows: list[dict]) -> int:
     """Distinct MARK update times over every contract: the timestamps the capital observer values."""
     import numpy as np
     import pyarrow.parquet as parquet
-    found = [parquet.read_table(path, columns=["ts_event"])["ts_event"].to_numpy()
-             for row in rows for path in sorted((row["catalog_path"] / "data").glob("mark_prices/**/*.parquet"))]
-    return len(np.unique(np.concatenate(found))) if found else 0
+    found = np.array([], dtype=np.uint64)
+    for row in rows:
+        for path in sorted((row['catalog_path'] / 'data').glob('mark_prices/**/*.parquet')):
+            for batch in parquet.ParquetFile(path).iter_batches(batch_size=65_536, columns=['ts_event']):
+                found = np.union1d(found, batch.column(0).to_numpy())
+    return len(found)
