@@ -1,9 +1,9 @@
-# A　总则：研发循环怎么转、代码／Agent／用户各决定什么、何时找用户、产品代码管到哪、保证到什么程度。
+# A　总则：研究循环怎么转、用户与 Agent 各决定什么、产品代码管到哪里。
 
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-本章是总纲。外部 Agent（Claude Code 等）经 skill 与命令行做策略研发；产品只提供 Dolt 研究账本 ledger（唯一持久状态）、按摘要钉死的运行环境 runtime image 与发布版 NautilusTrader 引擎 engine。本章定义循环的四种活动与无终点、三层决定权、何时找用户、代码与 skill 的分界及保证强弱。代码只强制信任边界，其余由 skill 指导、eval 校验。各步骤规格在 E 至 D 章，本章只写分工、时机与边界。
+本章是全书第一章，接在最前面的核心概念表之后，回答三件事：研究循环怎么转，用户、Agent 和代码各自决定什么，产品代码只管到哪里。各步骤的具体做法在后面各章展开。
 
 <Mermaid chart={"flowchart LR\n  subgraph A-1[\"A.1 说清循环怎么转\"]\n    direction TB\n    A-1-1[\"A.1.1 循环的步骤\"]\n  end\n  subgraph A-2[\"A.2 划清谁决定什么\"]\n    direction TB\n    A-2-2[\"A.2.2 Agent 决定的\"]\n    A-2-3[\"A.2.3 用户决定的\"]\n  end\n  subgraph A-4[\"A.4 划定产品代码的范围\"]\n    direction TB\n    A-4-1[\"A.4.1 代码只放什么\"]\n  end\n  A-1 --> A-2\n  A-2 --> A-4"} />
 
@@ -13,31 +13,31 @@
 
 <Step>
 
-入口：用户选定研究路线后进入迭代。
+入口：用户选定研究路线后，循环进入迭代。
 
 </Step>
 
 <Step>
 
-迭代：在同一路线内反复进行，到达 Agent 声明的复盘节奏时进入复盘。
+迭代：Agent 在路线内反复试验，到自定的复盘节奏就复盘。
 
 </Step>
 
 <Step>
 
-复盘：结束后默认回到迭代；Agent 判断需换路线时回到入口。
+复盘：结束后默认回到迭代；Agent 判断该换路线时回到入口。
 
 </Step>
 
 <Step>
 
-观察：与以上活动并行，用户随时可读，不改变循环走向。
+观察：用户随时读研究状态，不改变循环走向。
 
 </Step>
 
 <Step>
 
-各活动的产出都由 Agent 经命令行写入账本；数据只有这一个方向，账本是唯一持久状态。
+每项活动的产出都写进账本，账本是唯一的持久记录。
 
 </Step>
 
@@ -45,10 +45,10 @@
 
 ### A.1.1　循环的步骤 [#A-1-1]
 
-四步都是 skill 指导的 Agent 行为。输入是账本里的候选清单、运行绩效指标与研究状态视图 <Ref id="report.research_state" />；输出是写回账本的登记、证据包与判断。代码只在步骤之间强制登记先于回放并锁定网格点、完整性审计、实质活动与可比资格、检验结果，不决定下一步、不返回裁决。
+迭代里的每一步都是 skill 指导的 Agent 行为，代码只在步骤之间做检查，不决定下一步。
 
 <ul className="rd-rules">
-<li id="A-1-1-2"><span className="rd-rule-id">A.1.1.2</span> 路线内依次查来源、假设、发布、预检审查、登记、回放、反馈，步间不请批 <Ref id="rule:A.1.1.2">research-round · SKILL.md</Ref></li>
+<li id="A-1-1-2"><span className="rd-rule-id">A.1.1.2</span> 路线内提假设、写候选、原生预检、独立源码审查、登记、回放，步间不请批 <Ref id="rule:A.1.1.2">research-round · SKILL.md</Ref></li>
 </ul>
 
 ## A.2　划清谁决定什么 [#A-2]
@@ -57,37 +57,31 @@
 
 <Step>
 
-用户从 Agent 给出的推荐与选项中选研究路线 research line，或指定历史候选、模板、人造根；选定前 Agent 不登记、不回放。
+用户从 Agent 给的选项里选研究路线或起点候选；选定前 Agent 不登记、不回放。
 
 </Step>
 
 <Step>
 
-Agent 在路线内提假设 hypothesis、选研发父版本 parent 与比较对照 control、写源码（含仓位等设计变量）、登记并回放，不逐项请用户批准。
+Agent 在路线内提假设、选父版本和对照、写源码、登记并回放，不逐项请批。
 
 </Step>
 
 <Step>
 
-代码对运行做完整性审计与经济证据资格判定：无效只存原因，零成交或缺匹配记录只留诊断。
+代码审计运行、判定经济证据资格，对可比的两个运行给检验结果，不判通过或失败。
 
 </Step>
 
 <Step>
 
-代码对有资格的两侧运行给配对检验绩效指标 performance metrics：效应、区间、p 与登记时声明的检验条件，不返回通过或失败；账本不存分数、裁决或状态字段。
+Agent 读研究状态，追加研究优先级等判断，按节奏复盘并给综合推荐。
 
 </Step>
 
 <Step>
 
-Agent 经 <Ref id="report.research_state" /> 读登记 registration、运行 run 记录、绩效指标与当前判断，把研究优先级 research priority 等判断经 <Ref id="ledger.add_judgment" /> 追加到账本；按声明的复盘节奏复盘 review 并给综合推荐 recommendation，推荐候选与下一实验父版本分别说明。
-
-</Step>
-
-<Step>
-
-用户看报告判断认可、上线与是否发起样本外 out-of-sample 验证；凡属授权事项（实盘、破坏性写、改检查、改研究目标），Agent 停下等用户。
+用户看报告决定是否认可、是否发起样本外验证；遇到授权事项，Agent 停下等用户。
 
 </Step>
 
@@ -95,18 +89,18 @@ Agent 经 <Ref id="report.research_state" /> 读登记 registration、运行 run
 
 ### A.2.2　Agent 决定的 [#A-2-2]
 
-Agent 经研究状态视图读候选、绩效指标与当前判断，产出登记、策略源码，以及推荐与研究优先级等判断记录；代码只提供绩效指标与计数，不介入裁决。
+Agent 读研究状态，产出源码、登记和判断；代码只给绩效指标和计数，不做裁决。
 
 <ul className="rd-rules">
-<li id="A-2-2-1"><span className="rd-rule-id">A.2.2.1</span> 仓位、单笔风险与名义上限是你的设计变量，自定无需授权，勿说成用户约束 <Ref id="rule:A.2.2.1">research-round · SKILL.md</Ref></li>
+<li id="A-2-2-1"><span className="rd-rule-id">A.2.2.1</span> 仓位与风险上限由 Agent 自定，无需授权，也不算用户约束 <Ref id="rule:A.2.2.1">research-round · SKILL.md</Ref></li>
 </ul>
 
 ### A.2.3　用户决定的 [#A-2-3]
 
-用户的决定在产品之外做出，账本不含对应状态字段；skill 规定 Agent 在这些点停住等待，eval 校验。
+用户的决定在产品之外做出，账本不存这类状态；skill 规定 Agent 遇到这些事项要停下。
 
 <ul className="rd-rules">
-<li id="A-2-3-3"><span className="rd-rule-id">A.2.3.3</span> 遇实盘、破坏性写、改拒绝或审计检查、改研究目标，停下等用户授权 <Ref id="rule:A.2.3.3">research-round · SKILL.md</Ref></li>
+<li id="A-2-3-3"><span className="rd-rule-id">A.2.3.3</span> 实盘、删改已存记录、改检查或改回撤年化胜率要求前，须停下等用户授权 <Ref id="rule:A.2.3.3">research-round · SKILL.md</Ref></li>
 </ul>
 
 ## A.4　划定产品代码的范围 [#A-4]
@@ -115,31 +109,31 @@ Agent 经研究状态视图读候选、绩效指标与当前判断，产出登�
 
 <Step>
 
-提出一项要支持的行为，写明它的消费者与要解的阻断。
+想支持一项行为时，先写明谁用它、要解决什么阻断。
 
 </Step>
 
 <Step>
 
-信任边界或 Agent 做不到的事（原子写、并发、权限）进代码，由各包函数以拒绝码强制（A.4.1）。
+属于信任边界，或 Agent 做不到的事（原子写、并发、权限），写进代码。
 
 </Step>
 
 <Step>
 
-属于撮合、订单、成交、结算、风控、账户或保证金的交给引擎，代码只配置与读取，不建与引擎平行的系统。
+订单、成交、结算、风控和账户归引擎，代码只做配置和读取，不另建平行系统。
 
 </Step>
 
 <Step>
 
-其余进按需加载的 skill（A.4.3）；skill 指导的部分不产生账本裁决字段，代码也不设通过门槛、固定次数终止或按大类排除。
+其余写成 skill；skill 不在账本里产生裁决，代码也不设通过门槛。
 
 </Step>
 
 <Step>
 
-想加的代码先做价值验证（A.4.1.3）。
+加代码前先验证它确有价值。
 
 </Step>
 
@@ -147,36 +141,16 @@ Agent 经研究状态视图读候选、绩效指标与当前判断，产出登�
 
 ### A.4.1　代码只放什么 [#A-4-1]
 
-代码只放信任边界（不放进代码 Agent 就会自己给自己打分）与 Agent 做不到的账本写协议，加代码前的价值验证是 skill 指导的开发原则。
+代码只放信任边界，以及 Agent 做不到的账本写入保证。
 
-<Cap id="A.4.1.2" kind="code" tier="verified" tierLabel="已验证" title="账本写入的原子幂等、并发拒绝与最小权限由代码和 Dolt 实现">
+<Cap id="A.4.1.2" kind="code" tier="verified" tierLabel="已验证" title="账本写入的完整性、重试、并发和权限由代码保证">
 
-- 这些性质 Agent 无法靠自觉保证，由 ledger/db.py 与 cli/main.py 的六个函数和 Dolt 服务实现。
-- <Ref id="ledger.init" /> 建库并创建 writer 与 reader 两个账号。
-- writer 只能插入，只对固定研究 branch 有写权。
-- reader 只能读。
-- <Ref id="ledger.connect" /> 按角色取凭据并核模式版本。
-- <Ref id="ledger.write" /> 把一次写入放进单一事务提交。
-- 操作 ID 由操作种类与规范化载荷的哈希派生。
-- 同载荷重试返回原记录。
-- 并发写在 <Ref id="table:ledger_head" /> 单行上碰撞即回滚并拒绝（CONCURRENT_WRITE）。
-- 提交前跑 <Ref id="table:dolt_tests" /> 校验组。
-- <Ref id="ledger.read_as_of" /> 给按精确提交的只读连接。
-- <Ref id="cli.ledger_init" /> 与 <Ref id="cli.ledger_sql" /> 是初始化与只读查询的唯一入口。
-- 直接 SQL 写入被拒绝（WRITE_VIA_SQL）。
-- 服务端账号权限是第二道闸。
-- 管理权限只在初始化内部使用，不对外开放。
+- 每次写入放在一个事务里提交，要么全部成功，要么全部不生效。
+- 同样内容重试，只返回原来那条记录，不会重复写入。
+- 两个写入同时发生、互相碰撞时，后一方回滚并被拒绝。
+- 写账号只能追加，读账号只能读；绕过写入入口直接改库会被拒绝。
 
-**输入**　一次写入的操作种类与载荷，或初始化、只读查询请求。
-
-**输出**　已提交的账本记录（同载荷重试返回原记录）、按精确提交的只读连接，或拒绝。
-
-**强制**　代码与账本：ledger/db.py、cli/main.py 的六个函数负责单一事务、操作 ID 与校验组，Dolt 服务端 writer/reader 账号权限是第二道闸。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `CONCURRENT_WRITE` | 并发写在 ledger_head 单行上碰撞，事务回滚。 |
-| `WRITE_VIA_SQL` | 绕过 ledger.write 直接用 SQL 写入。 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.write">write</Ref> <Ref id="ledger.init">init</Ref> <Ref id="ledger.connect">connect</Ref></span></div>
 
 </Cap>
 

@@ -1,0 +1,96 @@
+# 核心概念
+
+<p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
+
+
+后面各章直接使用这些概念；每个概念后面链到它主要展开的章节。
+
+**研究循环**（research loop）　入口选路线、路线内反复迭代、按节奏复盘、用户随时观察的循环，没有终点。　[A 总则](/zh/docs/principles/)
+
+**信任边界**（trust boundary）　不交给代码强制，Agent 就会给自己的工作打分的地方；产品代码只放这类检查。　[A 总则](/zh/docs/principles/)
+
+**技能**（skill）　按需加载给 Agent 的书面工作规程；代码不强制，靠评测用例检查 Agent 是否照做。　[A 总则](/zh/docs/principles/)
+
+**账本**（ledger）　唯一持久保存研究记录的版本化数据库，只增不改，改口靠追加更正，另有一份备份。　[J 账本与运行环境](/zh/docs/ledger-runtime/)
+
+**引擎**（engine）　发布版 NautilusTrader，独占订单、成交、费用、资金费、持仓和账户这些交易事实。　[C 策略文件](/zh/docs/strategy-file/)
+
+**运行环境**（runtime image）　自动构建、按摘要钉死的隔离容器镜像，每次回放都在里面跑；换了它，旧比较要重建。　[J 账本与运行环境](/zh/docs/ledger-runtime/)
+
+**研究路线**（research line）　用户选定的一条研究方向：起点候选、开发窗口和钉住的市场数据版本；路线内由 Agent 自主推进。　[E 入口](/zh/docs/entry/)
+
+**候选**（candidate）　账本里一份完整策略源码的精确字节，以内容哈希为身份；改一个字节就是另一个候选。　[T 候选谱系](/zh/docs/lineage/)
+
+**研发父版本**（parent）　派生候选所基于的那个候选，附一句改动说明；它只定谱系位置，与成绩无关。　[T 候选谱系](/zh/docs/lineage/)
+
+**根**（root）　没有父版本、也不带比较对照的候选，是一棵谱系树的起点。　[T 候选谱系](/zh/docs/lineage/)
+
+**谱系**（lineage）　候选经父版本连成的树和森林；任何候选（含旧的、亏损的）都能再派生新枝。　[T 候选谱系](/zh/docs/lineage/)
+
+**策略库模板**（library template）　根的一种来源：照有公认一手出处的原版策略转写；另一种是用户提供信息源的人造根。　[L 策略库](/zh/docs/library/)
+
+**比较对照**（control）　与候选配对比较的一个已有运行，须可比且有经济证据资格；和父版本分开选。　[H 提假设](/zh/docs/hypothesis/)
+
+**策略文件**（strategy file）　一个候选的单文件源码：唯一入口类，全部规则和参数写在源码里，回放时不能从外部传参。　[C 策略文件](/zh/docs/strategy-file/)
+
+**职责与文件头**（duties and file header）　文件开头按模板逐项写明 27 项策略职责（如止损、仓位）的立场，供审查核对与代码一致。　[C 策略文件](/zh/docs/strategy-file/)
+
+**计划**（plan）　策略下单时用标签划出的一笔完整交易，从入场到平仓；计划胜率按它计数。　[C 策略文件](/zh/docs/strategy-file/)
+
+**止损覆盖**（stop-loss coverage）　声明设止损的策略，每个持仓都要有只减仓的止损单保护；出现裸仓，运行即无效。　[C 策略文件](/zh/docs/strategy-file/)
+
+**原生预检**（native precheck）　登记前用真实引擎和运行环境把候选短跑一次，确认工程上能跑；它不算经济证据。　[C 策略文件](/zh/docs/strategy-file/)
+
+**独立源码审查**（independent source review）　由没参与编写的 Agent 读源码和预检原件，按接口、因果、活动、就绪四项写结论入账。　[C 策略文件](/zh/docs/strategy-file/)
+
+**市场提交**（market commit）　交易所公开数据（1 分钟 K 线、资金费、合约条款）的一个不可变版本；登记钉住它，回放只读它。　[W 回放环境](/zh/docs/replay-environment/)
+
+**开发窗口**（development window）　研究路线规定的历史时段，研发回放都在这段里交易，前面另带一段预热数据。　[W 回放环境](/zh/docs/replay-environment/)
+
+**共同可交易范围**（universe）　按公开规则逐月算出的可交易合约名单，连同上市、下架等成员变化。　[W 回放环境](/zh/docs/replay-environment/)
+
+**回放**（replay）　在钉死的运行环境里，用引擎把一个候选放到固定数据、窗口和账户上模拟跑一遍。　[W 回放环境](/zh/docs/replay-environment/)
+
+**试验**（trial）　每次回放开始前先写进账本的一条记录，注明用途；失败、无效的也算进试验次数。　[H 提假设](/zh/docs/hypothesis/)
+
+**运行**（run）　一次研究或样本外回放结束后入账的结果，带原生报告和绩效指标，状态是通过或无效。　[G 完整性审计与证据资格](/zh/docs/audit/)
+
+**封存**（seal）　把回放的原生报告、日志和退出码原样存进账本并记下内容哈希，之后每次读出都核对。　[J 账本与运行环境](/zh/docs/ledger-runtime/)
+
+**原生报告**（native reports）　引擎原样写出的订单、成交、持仓、账户等报表和摘要，所有统计都从这里读。　[R 报告](/zh/docs/report/)
+
+**完整性审计**（integrity audit）　回放后由独立进程核对引擎记录是否自洽；任一项不符，运行即无效，只留原因、不进比较。　[G 完整性审计与证据资格](/zh/docs/audit/)
+
+**经济证据资格**（economic evidence availability）　读取时判定一个有效运行能不能当比较证据；不能的，绩效指标置空，只留诊断。　[G 完整性审计与证据资格](/zh/docs/audit/)
+
+**实质活动**（substantive activity）　运行里确实发生了交易，这是经济证据资格的前提；零成交的运行只算诊断。　[G 完整性审计与证据资格](/zh/docs/audit/)
+
+**绩效指标**（performance metrics）　产品为运行算的年化、夏普、最大回撤、计划胜率等数，附口径和局限，只呈现不裁决。　[R 报告](/zh/docs/report/)
+
+**假设**（hypothesis）　对父版本只改一处规则并预测效果的研究主张，写明理由、预测、来源、比较方式和网格。　[H 提假设](/zh/docs/hypothesis/)
+
+**证据包**（evidence bundle）　按包名入账的材料，如来源原件、审查结论、登记内容、路线记录；登记时按包名引用。　[H 提假设](/zh/docs/hypothesis/)
+
+**登记**（registration）　回放前把假设、网格、对照和检验条件锁进账本；锁定后不能改，要改就另行登记。　[H 提假设](/zh/docs/hypothesis/)
+
+**网格点**（grid point）　一次登记里列出的一到五个待试候选之一；每个网格点只回放一次，再试要另行登记。　[H 提假设](/zh/docs/hypothesis/)
+
+**检验条件**（comparison）　登记时声明的唯一比较维度，和显著性、最小改进、块长等检验数值，随登记锁定。　[H 提假设](/zh/docs/hypothesis/)
+
+**执行身份**（execution identity）　一次回放绑定的源码、运行环境、账户与撮合配置、输入数据这几样身份，由代码记下，不能手填。　[J 账本与运行环境](/zh/docs/ledger-runtime/)
+
+**可比资格**（comparability）　两个运行能配对比较的前提：运行环境、账户配置、输入数据都相同，且双方都有经济证据资格。　[V 比较证据](/zh/docs/comparison/)
+
+**检验结果**（test result）　候选与对照每日收益的配对检验结果：效应、区间、p 和稳健性数字，不判通过或失败。　[V 比较证据](/zh/docs/comparison/)
+
+**研究优先级**（research priority）　Agent 根据反馈排出的下一步研究动作，含选定的父版本和对照，写成一条判断。　[F 反馈与研究优先级](/zh/docs/feedback/)
+
+**复盘**（review）　未复盘的试验达到 Agent 自定的节奏时，回看全部可用候选并给出推荐，之后默认继续迭代。　[F 反馈与研究优先级](/zh/docs/feedback/)
+
+**综合推荐**（recommendation）　复盘时从全部有经济证据资格的候选里推荐一版或一批并说明取舍，和下一实验的父版本分开定。　[F 反馈与研究优先级](/zh/docs/feedback/)
+
+**判断记录**（judgment）　Agent 逐条追加的解释、优先级、推荐、复盘节奏等判断，只引用证据，不抄数字。　[E 入口](/zh/docs/entry/)
+
+**研究状态**（research state）　读取时把当前判断和账本事实（候选、计数、未复盘试验）拼成的视图，本身不另存。　[E 入口](/zh/docs/entry/)
+
+**样本外验证**（out-of-sample validation）　用户认可候选后发起，在登记之后才开始的新窗口上只回放一次并照实报告；它不属于研发循环。　[X 样本外验证：用户发起的一次性检验](/zh/docs/validation/)

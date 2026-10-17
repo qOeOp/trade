@@ -3,47 +3,41 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-交易所数据（exchange data）会追加新月份与生命周期事实，运行环境（runtime image）会升级，用户也可能扩展开发窗口。本章定义什么算变化、旧运行（run）与比较证据怎样保留并按身份查出受影响范围、怎样在新身份下重新产生比较证据。代码与账本（ledger）强制身份区分、只追加、登记先于回放、可比资格拒绝与配对重放（paired replay）逐条比较；重放顺序、范围与推荐更新由 skill 指导；窗口扩展由用户选。身份定义见 <Ref id="J.6.1.3" />，样本外验证归 X 章。
+本章回答：交易所数据追加、开发窗口扩展或运行环境升级之后，旧运行怎样原样保留、受影响范围怎样查出、比较证据怎样在新执行身份下重新建立。承接 W 章的回放环境、H 章的登记和 V 章的可比资格。
 
-<Mermaid chart={"flowchart LR\n  subgraph D-1[\"D.1 认定变化与受影响范围：什么算变了，旧记录怎么留\"]\n    direction TB\n    D-1-1[\"D.1.1 变化的种类\"]\n  end\n  subgraph D-2[\"D.2 恢复可比性：在新环境下重放对照与候选\"]\n    direction TB\n    D-2-2[\"D.2.2 重放范围与结果呈现\"]\n  end\n  subgraph D-3[\"D.3 运行环境变更：先证明引擎行为没变\"]\n    direction TB\n    D-3-1[\"D.3.1 旧新运行环境配对重放\"]\n    D-3-2[\"D.3.2 有意变更或证明不了时\"]\n  end\n  D-1 --> D-2\n  D-2 --> D-3"} />
+<Mermaid chart={"flowchart LR\n  subgraph D-1[\"D.1 认定变化：什么算变了，旧记录怎么留\"]\n    direction TB\n    D-1-1[\"D.1.1 变化的种类\"]\n  end\n  subgraph D-2[\"D.2 恢复可比性：在新环境下重放对照和候选\"]\n    direction TB\n    D-2-2[\"D.2.2 重放范围和结果呈现\"]\n  end\n  subgraph D-3[\"D.3 运行环境变更：先用配对重放证明引擎行为没变\"]\n    direction TB\n    D-3-1[\"D.3.1 旧、新运行环境配对重放\"]\n    D-3-2[\"D.3.2 有意变更或证明不了时\"]\n  end\n  D-1 --> D-2\n  D-2 --> D-3"} />
 
-## D.1　认定变化与受影响范围：什么算变了，旧记录怎么留 [#D-1]
+## D.1　认定变化：什么算变了，旧记录怎么留 [#D-1]
 
 <Steps>
 
 <Step>
 
-导入新月份或回放时，代码自动记下新的输入身份与执行身份。
+导入新月份或回放时，代码自动记下新的执行身份。
 
 </Step>
 
 <Step>
 
-新月份到达时，入口只报告可扩展范围与阻断；用户选定新数据合同后，写成新研究路线记录。
+新月份到达只报可扩展范围；用户选定窗口后，写成新的研究路线。
 
 </Step>
 
 <Step>
 
-按当前身份从账本只读查出受影响的运行、登记、比较证据与以它们为主体的判断。
+按当前执行身份，从账本只读查出受影响的运行、登记和判断记录。
 
 </Step>
 
 <Step>
 
-旧记录原样保留，可按账本提交或标签读回；评价变了只追加新证据包或新判断。
+旧记录原样保留并可读回，读回时按当前检查重判资格；评价变了，只追加新证据包或判断记录。
 
 </Step>
 
 <Step>
 
-读旧运行时由当前检查器重算资格并附检查身份；更正追加为指向原记录的新记录。
-
-</Step>
-
-<Step>
-
-在新身份下重新登记与重放，见 <Ref id="H.4.2.1" />。
+在新执行身份下另行登记，再回放。
 
 </Step>
 
@@ -51,156 +45,117 @@
 
 ### D.1.1　变化的种类 [#D-1-1]
 
-前两类变化由代码与存储自动区分，不靠人工申报；开发窗口扩展由用户选择，skill 指导。
+交易所数据和运行环境的变化由代码自动区分，开发窗口扩展由用户选。
 
 <ul className="rd-rules">
-<li id="D-1-1-3"><span className="rd-rule-id">D.1.1.3</span> 新月份到达只报可扩展范围与阻断，由用户选窗口，不自行改窗或重放 <Ref id="rule:D.1.1.3">research-start · references/readiness.md</Ref></li>
+<li id="D-1-1-3"><span className="rd-rule-id">D.1.1.3</span> 新月份只报可扩展范围和受阻原因，窗口由用户选 <Ref id="rule:D.1.1.3">research-start · references/readiness.md</Ref></li>
 </ul>
 
-## D.2　恢复可比性：在新环境下重放对照与候选 [#D-2]
+## D.2　恢复可比性：在新环境下重放对照和候选 [#D-2]
 
 <Steps>
 
 <Step>
 
-Agent 用 <Ref id="report.affected_runs" /> 按变化的运行环境、有效配置或输入身份查出受影响运行，并经 <Ref id="cli.research_state" /> 读当前路线的研究状态视图（<Ref id="report.research_state" />）。
+Agent 按变化的执行身份查出受影响运行，并读取当前研究状态。
 
 </Step>
 
 <Step>
 
-按 <Ref id="D.2.2.2" /> 排出重放范围，排序与理由经 <Ref id="cli.judgment_add" /> 记为一条 priority 判断。
+排出重放范围和顺序，写成一条研究优先级判断记录。
 
 </Step>
 
 <Step>
 
-按 D.2.1.2 在新身份下先重放对照、再重放候选，由 <Ref id="report.compare" /> 给出检验结果（效应、区间、p）。
+在新执行身份下先重放对照、再重放候选，得出检验结果。
 
 </Step>
 
 <Step>
 
-按 <Ref id="D.2.2.2" /> 记一条新的 recommendation 判断并告知用户。
+只按新身份下的可比证据追加综合推荐，并告诉用户。
 
 </Step>
 
 </Steps>
 
-### D.2.2　重放范围与结果呈现 [#D-2-2]
+### D.2.2　重放范围和结果呈现 [#D-2-2]
 
-由 skill 指导，从受影响运行与研究状态视图出发，记下重放的 priority 判断与新的 recommendation 判断。
+从受影响运行和研究状态出发，定下重放优先级和新的综合推荐。
 
 <ul className="rd-rules">
-<li id="D-2-2-2"><span className="rd-rule-id">D.2.2.2</span> 身份变化后先重放推荐候选及其对照，只按新身份可比证据推荐 <Ref id="rule:D.2.2.2">research-round · references/changes.md</Ref></li>
+<li id="D-2-2-2"><span className="rd-rule-id">D.2.2.2</span> 执行身份变了，先重放当前推荐候选和它的对照，只凭新的可比证据推荐 <Ref id="rule:D.2.2.2">research-round · references/changes.md</Ref></li>
 </ul>
 
-## D.3　运行环境变更：先证明引擎行为没变 [#D-3]
+## D.3　运行环境变更：先用配对重放证明引擎行为没变 [#D-3]
 
 <Steps>
 
 <Step>
 
-用 <Ref id="runtime.resolve" /> 把旧新运行环境（runtime image）各解析为清单摘要与身份，选定配对的源码、输入（市场提交、universe_rule、合约集）、窗口与账户条款。
+固定同一份源码、输入数据、窗口和账户，在旧、新运行环境各回放一次。
 
 </Step>
 
 <Step>
 
-在旧新运行环境各做一次探索回放（D.3.1.1）。
+逐条比较两份原生报告，判定引擎行为是否一致。
 
 </Step>
 
 <Step>
 
-逐条比较两份报告，得出 passed（<Ref id="D.3.1.2" />）。
+一致：结论只限于这组配对下引擎行为未变，新比较证据按 D.2 产生。
 
 </Step>
 
 <Step>
 
-passed=true：按 <Ref id="D.3.1.3" /> 限定结论，新比较证据按 D.2 产生。
+不一致或有意改变引擎行为：旧运行留作历史证据，受影响运行交给 D.2 重放。
 
 </Step>
 
 <Step>
 
-passed=false 或有意改变引擎行为：旧运行保留为历史条件证据，<Ref id="report.affected_runs" /> 按运行环境身份查出受影响运行，交 D.2 排序重放。
-
-</Step>
-
-<Step>
-
-运行契约变更：以旧候选为研发父版本发布适配候选，原生预检与独立源码审查通过后登记，按 D.2 重放。
+旧源码要适配新环境时，以旧候选为父版本派生新候选，预检和审查通过后登记重放。
 
 </Step>
 
 </Steps>
 
-### D.3.1　旧新运行环境配对重放 [#D-3-1]
+### D.3.1　旧、新运行环境配对重放 [#D-3-1]
 
-skill 组织 Agent 用固定的源码、输入、窗口与账户在两个运行环境各做一次探索回放，代码比较两份原生报告并输出结果字典。
+同一源码、输入、窗口和账户在两个运行环境各跑一次，由代码比对两份原生报告。
 
-<Cap id="D.3.1.2" kind="code" tier="verified" tierLabel="已验证" title="逐条比较两份原生报告，全部表、资金费与绩效指标一致才判 passed">
+<Cap id="D.3.1.2" kind="code" tier="verified" tierLabel="已验证" title="两份原生报告逐项一致，才算引擎行为没变">
 
-- 订单、成交、持仓（含快照行）、账户、日收益序列五张原生报告的全部非随机列逐字段字面相等。
-- 资金费调整逐条相等，不用容差。
-- 账户汇总绩效指标在 account_tolerance 内相等（容差为未校准示例值）。
-- 随机编号列（venue order id、trade id、position id、event id 及其派生列）按固定集合剔除，其余列都比。
-- 只有全部表、资金费与绩效指标都一致时 passed=true；程序正常退出、报告可读或单元测试通过都不算一致。
-- <Ref id="report.compare_runs" /> 按账本版本把两次封存运行（<Ref id="table:run" /> 及原生行表）导出为同布局目录，再调用同一比较器。
-- 导出前核对两运行的源码内容哈希、输入身份与有效配置相同。
-- 两函数都只读、不写账本，结果只表示行为是否一致，不产生任何研究绩效指标。
+- 订单、成交、持仓、账户、日收益五张报表，除引擎随机编号列外逐字段相等。
+- 资金费调整逐条相等，不留容差；账户汇总指标在小容差内相等。
+- 程序正常退出、报告能读或测试通过，都不算一致。
+- 比较只读、不写账本，也不产生绩效指标。
 
-**输入**　<Ref id="engine.compare_reports" /> 接收参照与待比较两个报告目录及账户绩效指标容差；<Ref id="report.compare_runs" /> 接收两次封存运行与账本版本。
-
-**输出**　比较器的结果字典，含 passed。
-
-**强制**　由代码强制：比较器逐条比较并只读账本。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `REPORT_DIR_MISSING` | 报告目录缺失或缺表 |
-| `REPORT_TABLE_UNREADABLE` | 报告表不可解析 |
-| `SAME_REPORT_DIRECTORY` | 两侧是同一目录 |
-| `INVALID_TOLERANCE` | 容差非法 |
-| `PAIR_INPUT_MISMATCH` | 两次封存运行的源码内容哈希、输入身份或有效配置不同 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.compare_reports">compare_reports</Ref> <Ref id="report.compare_runs">compare_runs</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="D-3-1-3"><span className="rd-rule-id">D.3.1.3</span> 配对通过只写该配对下引擎行为未变，适配差异不写成经济改善 <Ref id="rule:D.3.1.3">research-round · references/changes.md</Ref></li>
+<li id="D-3-1-3"><span className="rd-rule-id">D.3.1.3</span> 配对通过只说明引擎行为未变，不算经济改善 <Ref id="rule:D.3.1.3">research-round · references/changes.md</Ref></li>
 </ul>
 
 ### D.3.2　有意变更或证明不了时 [#D-3-2]
 
-代码保证旧身份可读回并只读地查出受影响运行，skill 指导契约适配候选的发布与重登记，然后进入 D.2 的重放。
+旧身份下的记录永久可读回；受影响运行只读查出后，交给 D.2 重放。
 
-<Cap id="D.3.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="有意变更或配对不成立时，旧运行原样保留且旧身份永久可读回">
+<Cap id="D.3.2.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="有意变更或配对不一致时，旧运行原样保留、永远可读回">
 
-- 适用于有意改变引擎行为（撮合周期、运行契约、引擎版本）、配对重放 passed=false 或无法进行。
-- 旧运行、绩效指标与比较证据一律原样保留，作为旧身份下的历史条件证据。
-- <Ref id="table:run" /> 的 runtime_inspection 及其生成列 runtime_contract、engine_version、dependency_lock_sha256 从不改写。
-- <Ref id="table:trial" /> 的 image_ref 与 image_digest 从不改写。
-- <Ref id="runtime.validate_identity" /> 的受支持运行契约集合只增不删，旧身份读回时仍能通过核对。
-- 旧镜像按摘要保留，可经 <Ref id="runtime.resolve" /> 解析拉取。
-- 删除保留的运行环境镜像属于须用户授权的破坏性写。
-- <Ref id="report.affected_runs" /> 以新身份为 current，按指定账本版本只读列出身份不同的封存运行及引用它们的登记、retry_of 链、样本外绑定与证据包。
-- 该查询不排序、不写标记。
-- 重放顺序与范围交 <Ref id="D.2.2.2" />，重放本身按 <Ref id="H.4.2.1" /> 与 D.2.1.2。
+- 适用于有意改变引擎行为，或配对重放不一致、无法进行时。
+- 旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。
+- 旧运行环境按摘要保留，读回时仍能核对；删除它须用户授权。
+- 受影响范围按新身份只读查出，不排序，也不打标记。
 
-**输入**　新运行环境身份（current）与指定账本版本。
-
-**输出**　身份不同的封存运行及引用它们的登记、retry_of 链、样本外绑定与证据包列表。
-
-**强制**　保留与读回由代码与账本只追加强制；影响查询由代码只读执行。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `INVALID_QUERY` | 影响查询非法 |
-| `LEDGER_VERSION_NOT_FOUND` | 指定账本版本不存在 |
-| `LEDGER_UNAVAILABLE` | 账本不可达 |
-| `RUN_IDENTITY_MISSING` | 运行缺运行环境身份 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.affected_runs">affected_runs</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref> <Ref id="runtime.resolve">resolve</Ref></span></div>
 
 </Cap>
 

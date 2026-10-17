@@ -1,8 +1,8 @@
 # R　报告：一次运行有哪些绩效指标、由谁算、按什么口径，检验结果、试验次数与跨候选汇总怎样呈现而不裁决。
 
-本章定义运行（run）的绩效指标（performance metrics）：有哪些、谁算、按什么口径，以及检验结果、试验（trial）计数与跨候选汇总怎样呈现。代码只算 Agent 不该自评的绩效指标：年化与夏普由引擎（engine）统计类写入原生摘要；计划胜率、标记价（mark price）回撤与对账后的利润来源拆分在封存（seal）时算一次。资金使用率与其余描述统计由 Agent 按 skill 自算，并注明总体、经独立复算。报告只呈现、不裁决：运行有效性归 G 章，比较检验归 V 章，绩效指标用法归 F 章，存储归 J 章。
+本章回答一次运行的绩效指标有哪些、谁来算、按什么口径，以及检验结果、试验次数和跨候选汇总怎样呈现。它承接 G 章：只有通过完整性审计、具备经济证据资格的运行才有绩效指标。报告只呈现，不裁决。
 
-<Mermaid chart={"flowchart LR\n  subgraph R-1[\"R.1 绩效指标分工：谁算、怎么保证可信\"]\n    direction TB\n    R-1-1[\"R.1.1 产品算的绩效指标\"]\n    R-1-2[\"R.1.2 Agent 自算的描述统计\"]\n    R-1-3[\"R.1.3 每个绩效指标附带什么\"]\n  end\n  subgraph R-2[\"R.2 四维与利润来源的口径\"]\n    direction TB\n    R-2-1[\"R.2.1 年化、夏普与计划胜率\"]\n    R-2-2[\"R.2.2 最大回撤\"]\n  end\n  subgraph R-3[\"R.3 资金使用率、持仓结构与容量\"]\n    direction TB\n    R-3-1[\"R.3.1 资金使用率\"]\n  end\n  subgraph R-4[\"R.4 检验结果与试验次数的呈现\"]\n    direction TB\n    R-4-1[\"R.4.1 检验结果的呈现\"]\n    R-4-2[\"R.4.2 试验次数与选择效应\"]\n  end\n  subgraph R-5[\"R.5 呈现：跨候选汇总与可读摘要\"]\n    direction TB\n    R-5-1[\"R.5.1 跨候选汇总\"]\n  end\n  R-1 --> R-2\n  R-2 --> R-3\n  R-3 --> R-4\n  R-4 --> R-5"} />
+<Mermaid chart={"flowchart LR\n  subgraph R-1[\"R.1 绩效指标分工：谁算、怎么保证可信\"]\n    direction TB\n    R-1-1[\"R.1.1 产品算的绩效指标\"]\n    R-1-2[\"R.1.2 Agent 自算的描述统计\"]\n    R-1-3[\"R.1.3 每个绩效指标附带什么\"]\n  end\n  subgraph R-2[\"R.2 年化、夏普、胜率、回撤与利润来源的口径\"]\n    direction TB\n    R-2-1[\"R.2.1 年化、夏普与计划胜率\"]\n    R-2-2[\"R.2.2 最大回撤\"]\n  end\n  subgraph R-3[\"R.3 资金使用率、持仓结构与容量\"]\n    direction TB\n    R-3-1[\"R.3.1 资金使用率\"]\n  end\n  subgraph R-4[\"R.4 检验结果与试验次数的呈现\"]\n    direction TB\n    R-4-1[\"R.4.1 检验结果的呈现\"]\n    R-4-2[\"R.4.2 试验次数与选择效应\"]\n  end\n  subgraph R-5[\"R.5 呈现：跨候选汇总与可读摘要\"]\n    direction TB\n    R-5-1[\"R.5.1 跨候选汇总\"]\n  end\n  R-1 --> R-2\n  R-2 --> R-3\n  R-3 --> R-4\n  R-4 --> R-5"} />
 
 ## R.1　绩效指标分工：谁算、怎么保证可信 [#R-1]
 
@@ -10,37 +10,31 @@
 
 <Step>
 
-回放结束，运行器经 <Ref id="engine.write_native_reports" /> 原样写出订单、成交、持仓、账户报告与敞口表，把声明的撮合与条款局限写入原生摘要，并经 <Ref id="engine.summary_statistics" /> 用引擎统计类把夏普写入摘要。
+回放结束，引擎原样写出原生报告，并在摘要里写入年化和夏普。
 
 </Step>
 
 <Step>
 
-封存时 <Ref id="ledger.ingest_run" /> 对有效运行调用 <Ref id="ledger.metrics" /> 算一次绩效指标，与 <Ref id="ledger.metrics_revision" /> 一起写入 run 行；无效运行的绩效指标列为空。
+封存时，代码对有效运行算一次其余绩效指标，存进账本。
 
 </Step>
 
 <Step>
 
-读回时 <Ref id="report.run_report" /> 读存储列，经 <Ref id="qualification.assess" /> 与 <Ref id="qualification.mask" /> 把无实质活动或不可比运行的绩效指标整体置空。
+读回时，没有经济证据资格的运行，绩效指标整体置空。
 
 </Step>
 
 <Step>
 
-报告随绩效指标附总体与样本量、观察费率与账户条款、metrics_revision 与检查身份、去重后的局限清单，以及读取时的账本提交。
+报告随绩效指标附总体、样本量、计算版本和局限清单。
 
 </Step>
 
 <Step>
 
-Agent 需要的其余描述统计只经 <Ref id="report.tables" /> 取类型化表自算，比率用引擎统计类。
-
-</Step>
-
-<Step>
-
-驱动决定的自算数由第二个 Agent 从同一运行独立复算，不一致不下结论。
+其余描述统计由 Agent 按 skill 自算，驱动决定的数须独立复算。
 
 </Step>
 
@@ -48,177 +42,119 @@ Agent 需要的其余描述统计只经 <Ref id="report.tables" /> 取类型化�
 
 ### R.1.1　产品算的绩效指标 [#R-1-1]
 
-代码强制：<Ref id="ledger.metrics" /> 产出绩效指标，<Ref id="ledger.economics" /> 拆分与对账，<Ref id="ledger.ingest_run" /> 封存时调用，<Ref id="report.run_report" /> 读回。
+代码只算 Agent 不该自评的绩效指标，封存时算一次，读回时按资格遮蔽。
 
 <Cap id="R.1.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="产品只算 Agent 不该自评的四类绩效指标">
 
-- 四类绩效指标：账户年化（annual return）、标记价（mark price）最大回撤、计划（plan）胜率、对账后的利润来源拆分（价格盈亏、手续费、资金费 funding）。
-- 每类绩效指标各自附总体与样本量、局限清单与指标计算版本。
-- 它不拒绝运行；某个绩效指标算不出时只置空该绩效指标并写原因。
-- 夏普不在此算：由运行器经 <Ref id="engine.summary_statistics" /> 用引擎统计类写入原生摘要，报告原样读出。
-- 其余描述统计（持仓时长、出场原因、资金使用率等）归 Agent 经 <Ref id="R.1.2.1" /> 自算。
-- 口径分别见 <Ref id="R.2.1.1">年化</Ref>、<Ref id="R.2.2.1">回撤</Ref>、<Ref id="R.2.1.3">计划胜率</Ref>、<Ref id="R.1.1.2">拆分</Ref>。
+- 四类：账户年化、标记价最大回撤、计划胜率、利润来源拆分。
+- 利润来源拆成价格盈亏、手续费、资金费三项。
+- 每类都附总体、样本量、局限清单和计算版本。
+- 某项算不出只置空该项并写原因，不拒绝运行。
 
-**输入**　<Ref id="ledger.metrics" />(reports) 接收 <Ref id="ledger.load_run" /> 组成的类型化原生报表。
-
-**输出**　四类绩效指标，各附总体、样本量、局限清单与指标计算版本；写入 run 行绩效指标列并由报告读出。
-
-**强制**　代码强制：绩效指标只有 <Ref id="ledger.metrics" /> 这一个产出函数。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.metrics">metrics</Ref> <Ref id="ledger.economics">economics</Ref> <Ref id="engine.summary_statistics">summary_statistics</Ref></span></div>
 
 </Cap>
 
-<Cap id="R.1.1.2" kind="code" tier="verified" tierLabel="已验证" title="绩效指标只从原生报告原始行算，拆分须与审计逐项对账">
+<Cap id="R.1.1.2" kind="code" tier="verified" tierLabel="已验证" title="利润来源拆分须逐项对账，对不上整体置空">
 
-1. 逐已平持仓周期核恒等式「价格盈亏−手续费＋资金费＝已实现盈亏」，容差为最小货币单位。
-2. 核周期手续费合计等于成交报告手续费合计。
-3. 核已平周期数等于原生摘要 closed_trades。
-4. 与完整性审计（<Ref id="engine.generic_audit" />）写出的账户经济数逐项对账。
-5. 任一不符即抛对应拒绝码，<Ref id="ledger.metrics" /> 把整个拆分置空并写原因，不部分给出。
+1. 逐个已平计划核：价格盈亏−手续费＋资金费＝已实现盈亏。
+2. 核各计划手续费合计与成交报表一致。
+3. 核已平计划数与原生摘要一致。
+4. 与完整性审计算出的账户经济数逐项对账。
+5. 任一不符，整个拆分置空并写原因，不给部分结果。
 
-- 绩效指标只从引擎报表导出的订单、成交、持仓（含快照行）、账户报告原始行算，不改写任何原生值。
-- 账户整体的手续费与资金费是另一总体，与闭仓拆分并列、不相加（见 <Ref id="R.1.1.2" />）。
-
-**输入**　订单、成交、持仓（含快照行）、账户报告原始行与完整性审计的账户经济数。
-
-**输出**　对账通过的利润来源拆分，或置空的拆分及原因。
-
-**强制**　代码强制：<Ref id="ledger.economics" /> 执行恒等式与对账检查。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `CYCLE_IDENTITY_FAILED` | 某已平持仓周期的价格盈亏−手续费＋资金费与已实现盈亏之差超过最小货币单位 |
-| `COMMISSION_MISMATCH` | 周期手续费合计不等于成交报告手续费合计 |
-| `CLOSED_COUNT_MISMATCH` | 已平周期数不等于原生摘要 closed_trades |
-| `AUDIT_ECONOMICS_MISMATCH` | 拆分与完整性审计写出的账户经济数不一致 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.economics">economics</Ref> <Ref id="ledger.cycles">cycles</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span></div>
 
 </Cap>
 
-<Cap id="R.1.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="绩效指标在封存时算一次，写成运行行的只读列">
+<Cap id="R.1.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="绩效指标在封存时算一次，之后只读不重算">
 
-- 绩效指标在封存时由 <Ref id="ledger.ingest_run" /> 调用 <Ref id="ledger.metrics" /> 算一次，写成 <Ref id="table:run" /> 行的列。
-- 同行写入 <Ref id="ledger.metrics_revision" />（指标计算代码的 Git 提交哈希）。
-- 写入后只读，任何读口都不重算覆盖。
-- 指标计算代码不在 Git 检出中即拒绝，不写占位版本。
-- 无效运行绩效指标列为空。
-- 重算核对由 <Ref id="report.review_all" /> 以 metrics_revision 指向的历史版本重跑同一函数比对，不一致报差异，不改写原值。
-- 绩效指标口径的变化只体现在之后封存的运行上。
+- 封存时算一次，连同计算代码的版本一起存进账本。
+- 写入后任何读取都不重算覆盖；无效运行不存指标。
+- 复核用当时的代码版本重算比对，不一致只报差异。
+- 口径改了，只影响之后封存的运行。
 
-**输入**　封存中的运行与指标计算代码所在的 Git 检出。
-
-**输出**　run 行上的绩效指标列与 metrics_revision。
-
-**强制**　代码与账本只追加（<Ref id="J.3.1.1" />）共同强制。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `NOT_A_CHECKOUT` | 指标计算代码不在 Git 检出中，无法取得 metrics_revision |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="ledger.metrics_revision">metrics_revision</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="report.review_all">review_all</Ref></span></div>
 
 </Cap>
 
-<Cap id="R.1.1.4" kind="code" tier="rehearsal" tierLabel="演练证据" title="算不出的绩效指标留空，无资格运行整体遮蔽绩效指标">
+<Cap id="R.1.1.4" kind="code" tier="rehearsal" tierLabel="演练证据" title="无经济证据资格的运行，绩效指标整体置空">
 
-- 算不出或对不上的绩效指标留 None 并写原因，不猜、不补占位、不用未审计的原生数字顶替。
-- 读回只读运行行存储的绩效指标列。
-- status 非 passed 的运行全部绩效指标为 None，只留失败原因与原生摘要引用。
-- 有效运行再经 <Ref id="qualification.assess" /> 求当前资格。
-- 无实质活动（substantive activity）或不可比（comparability）的运行由 <Ref id="qualification.mask" /> 整体置空绩效指标并附原因，只留诊断（判据见 <Ref id="G.4.1.1" />、<Ref id="G.4.1.2" />）。
-- run_report 只读，不写账本，不输出达标或采纳裁决。
+- 算不出或对不上的指标留空写原因，不猜、不补占位。
+- 无效运行只留失败原因和原生摘要引用。
+- 无实质活动或不可比的有效运行，指标整体置空只留诊断。
+- 读回只读存储值，不写账本，不给达标或采纳结论。
 
-**输入**　<Ref id="report.run_report" />(ledger, run_id, at)。
-
-**输出**　存储绩效指标（经资格遮蔽）、失败原因或遮蔽原因与诊断。
-
-**强制**　代码强制：<Ref id="report.run_report" /> 只读存储列并经资格视图遮蔽。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `RUN_NOT_FOUND` | run_id 不存在 |
-| `AS_OF_UNKNOWN` | at 指向的账本版本不存在 |
-| `LEDGER_CORRUPT` | 引用或内容哈希不一致 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="qualification.mask">mask</Ref> <Ref id="qualification.assess">assess</Ref></span></div>
 
 </Cap>
 
 ### R.1.2　Agent 自算的描述统计 [#R-1-2]
 
-skill 指导：Agent 只经 <Ref id="report.tables" /> 取经资格视图的类型化表自算，代码只提供读口与遮蔽、不校验自算结果。
+代码提供一个统一的读取入口，从封存的原生报告取表并注明账本版本；其余描述统计由 Agent 按 skill 自算，代码只做资格遮蔽、不校验结果。
 
 <ul className="rd-rules">
-<li id="R-1-2-1"><span className="rd-rule-id">R.1.2.1</span> 只从 tables() 取数并引用 ledger_commit，不重解析原生文件 <Ref id="rule:R.1.2.1">nautilus-report-analysis · SKILL.md</Ref></li>
-<li id="R-1-2-2"><span className="rd-rule-id">R.1.2.2</span> 比率用引擎统计类对交易窗口日收益算，按 365 天年化，不引第三方库 <Ref id="rule:R.1.2.2">nautilus-report-analysis · references/ratios.md</Ref></li>
-<li id="R-1-2-3"><span className="rd-rule-id">R.1.2.3</span> 自算数注明总体；闭仓合计须等对账量；驱动决定的数交第二 Agent 复算 <Ref id="rule:R.1.2.3">nautilus-report-analysis · SKILL.md</Ref></li>
+<li id="R-1-2-1"><span className="rd-rule-id">R.1.2.1</span> 只经读取入口取数并注明账本版本，不重解析原生文件 <Ref id="rule:R.1.2.1">nautilus-report-analysis · SKILL.md</Ref></li>
+<li id="R-1-2-2"><span className="rd-rule-id">R.1.2.2</span> 比率用引擎统计类对开发窗口日收益算，按 365 天年化 <Ref id="rule:R.1.2.2">nautilus-report-analysis · references/ratios.md</Ref></li>
+<li id="R-1-2-3"><span className="rd-rule-id">R.1.2.3</span> 自算数注明总体，驱动决定的数交第二个 Agent 复算 <Ref id="rule:R.1.2.3">nautilus-report-analysis · SKILL.md</Ref></li>
 </ul>
 
 ### R.1.3　每个绩效指标附带什么 [#R-1-3]
 
-代码强制：<Ref id="report.run_report" /> 随绩效指标输出附带信息，观察费率由账本视图 <Ref id="table:run_cost_basis" /> 从成交行派生。
+报告随绩效指标附上产生它的代码版本和完整局限清单。
 
-<Cap id="R.1.3.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="报告附指标计算版本与资格检查身份">
+<Cap id="R.1.3.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="报告附指标计算版本和资格判定所用的代码版本">
 
-- 报告附运行行存的 metrics_revision 与资格检查身份。
-- 检查身份含检查名、代码版本、检查器源码内容哈希。
-- 每个绩效指标与每个资格判定都能据此定位到产生它的代码。
-- metrics_revision 来自封存时（<Ref id="ledger.metrics_revision" />），检查身份来自读回时的当前检查（<Ref id="qualification.check_identity" />）。
-- 两者不同时并列输出，不互相替代。
+- 指标计算版本记于封存时，资格判定所用版本取自读回时。
+- 资格判定注明所用检查和它的代码版本。
+- 每个指标和资格判定都能据此找到产生它的代码。
+- 两个版本不同时并列输出，不互相替代。
 
-**输出**　metrics_revision 与检查身份。
-
-**强制**　代码强制：<Ref id="report.run_report" /> 同时输出两者。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="qualification.check_identity">check_identity</Ref> <Ref id="ledger.metrics_revision">metrics_revision</Ref></span></div>
 
 </Cap>
 
-<Cap id="R.1.3.4" kind="code" tier="rehearsal" tierLabel="演练证据" title="报告完整输出四类来源去重后的局限清单">
+<Cap id="R.1.3.4" kind="code" tier="rehearsal" tierLabel="演练证据" title="报告完整输出去重后的局限清单，不过滤">
 
-- 局限清单（limitations）合并四类来源：
-- 运行器在原生摘要里声明的撮合与条款局限。
-- 完整性审计写明的不查范围与覆盖局限。
-- 绩效指标自身的置空原因与价源采样说明。
-- 读回时资格视图的局限。
-- 前三类在封存时由 <Ref id="ledger.metrics" /> 合并存入运行行，第四类由 <Ref id="report.run_report" /> 读回时并入。
-- 去重后随报告完整输出，不省略、不按严重度过滤。
+- 合并四类：撮合与条款局限、审计不查范围、指标置空原因、资格局限。
+- 前三类封存时存进账本，资格局限在读回时并入。
+- 去重后完整输出，不省略、不按严重度过滤。
 
-**输出**　去重后的完整局限清单。
-
-**强制**　代码强制：封存时合并前三类，读回时并入第四类。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="ledger.metrics">metrics</Ref> <Ref id="engine.generic_result">generic_result</Ref></span></div>
 
 </Cap>
 
-## R.2　四维与利润来源的口径 [#R-2]
+## R.2　年化、夏普、胜率、回撤与利润来源的口径 [#R-2]
 
 <Steps>
 
 <Step>
 
-回放中 <Ref id="engine.capital_observer" /> 每根输入 K 线后按标记价估值未平持仓，写敞口表。
+回放中，按每根 K 线的标记价给未平持仓估值，记下敞口。
 
 </Step>
 
 <Step>
 
-回放结束 <Ref id="engine.summary_statistics" /> 从引擎组合日收益算出年化与夏普，写入原生摘要。
+回放结束，引擎从组合日收益算出年化和夏普，写入摘要。
 
 </Step>
 
 <Step>
 
-<Ref id="engine.write_native_reports" /> 把订单、成交、持仓、账户报告、敞口表与摘要原样写到报告目录。
+封存时，代码逐个重建已平计划，算计划胜率、回撤和利润拆分。
 
 </Step>
 
 <Step>
 
-封存时 <Ref id="ledger.metrics" /> 经 <Ref id="ledger.cycles" /> 重建持仓周期，再调 <Ref id="ledger.plan_metrics" />、<Ref id="ledger.mark_drawdown" />、<Ref id="ledger.economics" /> 与 `ledger.closed_by_year` 各算一次。
+某项对账失败只置空该项并写进局限，不改原生值、不判无效。
 
 </Step>
 
 <Step>
 
-任一绩效指标对账失败，经 <Ref id="ledger.unreconciled" /> 只置空该绩效指标并写入绩效指标局限，不改原生值、不判运行无效。
-
-</Step>
-
-<Step>
-
-绩效指标写成 <Ref id="table:run" /> 的列；<Ref id="report.run_report" /> 呈现时附总体、样本量与合并去重的局限。
+报告呈现时附总体、样本量和合并去重的局限。
 
 </Step>
 
@@ -226,94 +162,52 @@ skill 指导：Agent 只经 <Ref id="report.tables" /> 取经资格视图的类�
 
 ### R.2.1　年化、夏普与计划胜率 [#R-2-1]
 
-年化与夏普由运行器写入原生摘要，计划胜率由账本绩效指标在封存时算出，三者只覆盖交易窗口、不计预热段。
+年化与夏普由引擎写入原生摘要，计划胜率在封存时算，都只算开发窗口、不计预热段。
 
-<Cap id="R.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="年化按交易窗口天数复利折算，分母为初始权益">
+<Cap id="R.2.1.1" kind="code" tier="rehearsal" tierLabel="演练证据" title="年化按开发窗口天数复利折算，分母为初始权益">
 
-- 年化收益＝(期末权益÷初始权益)^(365÷交易窗口天数)−1。
-- 交易窗口是 <Ref id="engine.parse_window" /> 解析出的交易段 [trade_start, end)，预热段不计。
-- 交易窗口天数＝纳秒差÷一天，不取整。
-- 分母固定为账户初始权益；期末权益取引擎组合快照（含未实现盈亏）。
-- 运行器在 <Ref id="engine.summary_statistics" /> 内以 Decimal 算出，写入原生摘要的 annual_return。
-- <Ref id="table:run" /> 的 annual_return 列由封存的原生摘要派生，绩效指标层与 Agent 不另算。
-- 期末权益≤0 时年化留空，并在摘要 statistics_notes 写原因，运行不因此无效。
+- 年化＝(期末权益÷初始权益)^(365÷窗口天数)−1。
+- 窗口不含预热段，天数按实际时长算、不取整。
+- 期末权益取引擎组合快照，含未实现盈亏。
+- 期末权益不为正时年化留空写原因，运行不因此无效。
 
-**输入**　交易窗口起止、账户初始权益与引擎组合快照的期末权益。
-
-**输出**　原生摘要中的 annual_return，以及由它派生的 <Ref id="table:run" /> annual_return 列。
-
-**强制**　代码：运行器在容器内计算并写入原生摘要。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `TRADING_WINDOW_EMPTY` | 交易窗口不为正 |
-| `STARTING_BALANCE_NOT_POSITIVE` | 初始权益不为正 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.summary_statistics">summary_statistics</Ref> <Ref id="engine.parse_window">parse_window</Ref></span></div>
 
 </Cap>
 
-<Cap id="R.2.1.2" kind="code" tier="verified" tierLabel="已验证" title="夏普取交易窗口 UTC 日收益，按 365 天年化">
+<Cap id="R.2.1.2" kind="code" tier="verified" tierLabel="已验证" title="夏普取开发窗口逐日收益，按 365 天年化">
 
-1. 滤掉预热段的组合日收益，只留交易窗口内按 UTC 日一日一值的 mark-to-market 权益变化。
-2. 调用引擎统计类的 calculate_from_returns，按 365 天年化（加密永续全年交易）。
-3. 结果写入原生摘要的 sharpe_365。
+1. 去掉预热段，只留开发窗口内按 UTC 日一日一值的权益变化。
+2. 用引擎统计类算夏普，按 365 天年化（加密永续全年交易）。
+3. 结果写入原生摘要；序列为空或方差为零时留空写原因。
 
-- 序列为空或方差为零得非有限值时写 null，并在 statistics_notes 写原因，不以别的公式替代。
-- 产品与 Agent 都不另算正式夏普。
-- Agent 需要索提诺等其他比率时，按 `nautilus-report-analysis/SKILL.md#ratios` 用同一统计类与同一窗口自算，只作描述。
-
-**输入**　交易窗口内的组合日收益序列。
-
-**输出**　原生摘要中的 sharpe_365（或 null 与原因）。
-
-**强制**　代码：运行器在 <Ref id="engine.summary_statistics" /> 内调用引擎统计类计算。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.summary_statistics">summary_statistics</Ref></span></div>
 
 </Cap>
 
-<Cap id="R.2.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="计划胜率＝已平且含费盈利的计划÷全部计划，未平算非赢">
+<Cap id="R.2.1.3" kind="code" tier="rehearsal" tierLabel="演练证据" title="计划胜率＝已平且含费盈利的计划÷全部计划">
 
-- 统计单位是计划（plan，一个信号下的订单组），由 <Ref id="ledger.plan_metrics" /> 从订单报告标签读出。
-- 每张订单恰一个全回放唯一的计划标签；一个计划限一个合约；计划与 <Ref id="ledger.cycles" /> 重建的持仓周期一一对应。
-- 下架结算由引擎生成的无标签平仓单，经 <Ref id="ledger.expiry_plan_owners" /> 归回原计划。
-- 赢＝计划的持仓周期已平，且已实现盈亏（含手续费与资金费）大于零。
-- 分母＝已平加未平计划数，期末未平算非赢。
-- 标签不合规（缺标签、多标签、跨合约、与周期对不上）时，经 <Ref id="ledger.unreconciled" /> 置空胜率并把具名原因写进绩效指标局限，运行不判无效。
-- 只作描述统计，不作门槛。
+- 赢：计划已平仓，且含手续费和资金费的已实现盈亏大于零。
+- 分母含已平和未平计划，期末未平算非赢。
+- 每张订单恰有一个计划标签，一个计划只交易一个合约。
+- 标签不合规时胜率置空写原因，运行不判无效。
 
-**输入**　订单报告标签与重建的持仓周期。
-
-**输出**　封存时写进 <Ref id="table:run" /> 的已平计划数、赢计划数与胜率。
-
-**强制**　代码：账本绩效指标在封存时计算。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.plan_metrics">plan_metrics</Ref> <Ref id="ledger.cycles">cycles</Ref> <Ref id="ledger.expiry_plan_owners">expiry_plan_owners</Ref></span></div>
 
 </Cap>
 
 ### R.2.2　最大回撤 [#R-2-2]
 
-运行器逐 K 线写标记价敞口表，封存时账本绩效指标据此与账户状态算峰谷比例并标明价源与采样周期。
+最大回撤按逐根 K 线的标记价权益算，并标明价源与采样周期。
 
 <Cap id="R.2.2.1" kind="code" tier="verified" tierLabel="已验证" title="最大回撤取逐 K 线标记价权益相对峰值的最大跌幅">
 
-- 最大回撤＝交易窗口内 max((峰值−权益)÷峰值)，峰值从初始权益起，权益按逐 K 线标记价（mark price）计。
-- K 线标签 T 的权益＝下一标签之前最近一条账户状态 total（之前无行取初始权益）＋标签为 T 的全部敞口行按标记价的未实现盈亏之和（无行即空仓）。
-- 敞口由 <Ref id="engine.capital_observer" /> 产出：订阅引擎原生 MarkPriceUpdate，在每根输入 K 线时间戳后估值全部未平持仓，不加定时器。
-- 用标记价是因为衍生品场所以标记价做保证金、强平与未实现盈亏，只看已实现余额会低估回撤。
-- 缺标记价或估值时间戳数不符，由 <Ref id="engine.capital_findings" /> 计为完整性发现。
-- 敞口表写入失败时 capital_observer 先记为发现再抛 EXPOSURE_WRITE_FAILED，运行器非零退出。
-- <Ref id="ledger.mark_drawdown" /> 在封存时算一次，写入 <Ref id="table:run" />。
-- 其拒绝经 <Ref id="ledger.unreconciled" /> 只置空回撤并写原因。
+- 回撤＝窗口内（峰值−权益）÷峰值的最大值，峰值从初始权益起。
+- 权益＝账户余额＋按标记价估值的未平持仓盈亏。
+- 用标记价：场所按它算保证金和强平，只看余额会低估回撤。
+- 缺标记价或估值时点不齐，完整性审计不通过。
 
-**输入**　运行器敞口表与 <Ref id="table:run_account" /> 账户状态行。
-
-**输出**　<Ref id="table:run" /> 中的最大回撤。
-
-**强制**　代码：运行器产出敞口，账本绩效指标在封存时计算。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `EXPOSURE_WRITE_FAILED` | 回放中敞口表写入失败（运行器非零退出） |
-| `EXPOSURE_REPORT_MISSING` | 封存时敞口报告缺失 |
-| `EXPOSURE_GRID_MISMATCH` | 敞口标签不在 K 线网格上 |
-| `ACCOUNT_STATE_MISSING` | 账户状态报告无行 |
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.mark_drawdown">mark_drawdown</Ref> <Ref id="engine.capital_observer">capital_observer</Ref> <Ref id="engine.capital_findings">capital_findings</Ref></span></div>
 
 </Cap>
 
@@ -323,37 +217,31 @@ skill 指导：Agent 只经 <Ref id="report.tables" /> 取经资格视图的类�
 
 <Step>
 
-运行器把引擎敞口表随运行封存（<Ref id="engine.write_native_reports" />）；持仓估值未覆盖的时段计为完整性发现（<Ref id="engine.capital_findings" />），该运行不通过审计。
+回放把每根 K 线的持仓敞口随运行封存，估值缺口使审计不通过。
 
 </Step>
 
 <Step>
 
-Agent 调 <Ref id="report.tables" />（exposures=True, account=True）；读口按资格视图放行，敞口行不在输入 K 线网格、与持仓周期不一一对应或末根未实现盈亏不等于审计残差即拒绝。
+Agent 经读取入口取敞口和账户数据，敞口与持仓对不上即拒绝。
 
 </Step>
 
 <Step>
 
-Agent 按 `nautilus-report-analysis/SKILL.md#capital-utilisation` 算资金使用率：时间加权名义额、采样峰值、锁定保证金与在市时间。
+Agent 按 skill 算资金使用率：平均名义额、峰值、锁定保证金、在市时间。
 
 </Step>
 
 <Step>
 
-回撤取绩效指标 <Ref id="ledger.mark_drawdown" />，与资金使用率并列读（`nautilus-report-analysis/SKILL.md#drawdown-with-exposure`）。
+回撤取产品值，与资金使用率并列读；按需算持仓结构与容量。
 
 </Step>
 
 <Step>
 
-Agent 按需算持仓结构与容量，逐项注明总体与权重。
-
-</Step>
-
-<Step>
-
-驱动决定的绩效指标经 `nautilus-report-analysis/SKILL.md#self-checks` 自检并由第二个 Agent 复算后，才写进反馈与推荐理由。
+驱动决定的数先自检、经第二个 Agent 复算，才写进判断记录。
 
 </Step>
 
@@ -361,11 +249,11 @@ Agent 按需算持仓结构与容量，逐项注明总体与权重。
 
 ### R.3.1　资金使用率 [#R-3-1]
 
-skill 规定资金使用率的算法及其与回撤的联合解读；输入可信由 R.3 第1、2步的代码保证。
+skill 规定资金使用率怎么算、怎样和回撤一起读；输入可信由代码保证。
 
 <ul className="rd-rules">
-<li id="R-3-1-1"><span className="rd-rule-id">R.3.1.1</span> 资金使用四项只从 tables 敞口与账户行算，先于回撤读；无敞口表不答资金问题 <Ref id="rule:R.3.1.1">nautilus-report-analysis · references/capital.md</Ref></li>
-<li id="R-3-1-2"><span className="rd-rule-id">R.3.1.2</span> 回撤读产品值不重算，并列同运行资金使用率；敞口同降只写「敞口下降」 <Ref id="rule:R.3.1.2">nautilus-report-analysis · SKILL.md</Ref></li>
+<li id="R-3-1-1"><span className="rd-rule-id">R.3.1.1</span> 资金使用四项只经读取入口从敞口与账户数据算，缺敞口不答 <Ref id="rule:R.3.1.1">nautilus-report-analysis · references/capital.md</Ref></li>
+<li id="R-3-1-2"><span className="rd-rule-id">R.3.1.2</span> 回撤用产品值不重算，与同运行资金使用率并列读 <Ref id="rule:R.3.1.2">nautilus-report-analysis · SKILL.md</Ref></li>
 </ul>
 
 ## R.4　检验结果与试验次数的呈现 [#R-4]
@@ -374,31 +262,31 @@ skill 规定资金使用率的算法及其与回撤的联合解读；输入可�
 
 <Step>
 
-Agent 对已封存的登记网格点调用 <Ref id="cli.registration_compare" />；代码绑定登记与对照，核网格归属、可比性、双方资格与日钟，不符即按拒绝码返回。
+Agent 对登记的网格点请求比较，代码核可比资格，不符即拒绝。
 
 </Step>
 
 <Step>
 
-<Ref id="report.paired" /> 以块自助产出效应、区间、p、声明的检验条件、稳健性绩效指标与固定局限，附身份只读返回，不写账本、不裁决。
+代码给出检验结果和固定局限，只读，不写账本、不裁决。
 
 </Step>
 
 <Step>
 
-Agent 调用 <Ref id="cli.research_status" />；代码按账本版本只读统计全部试验、去重版本、研究尝试分类与样本外登记状态。
+Agent 读取研究状态，代码按账本版本统计全部试验和去重版本。
 
 </Step>
 
 <Step>
 
-Agent 按 skill 以去重版本数与全部试验数为两端自算折扣夏普范围。
+Agent 以两种试验计数为两端，自算按试验次数折扣的夏普范围。
 
 </Step>
 
 <Step>
 
-Agent 经 <Ref id="cli.judgment_add" />（<Ref id="ledger.add_judgment" />）写推荐判断，正文写明选择效应，只引用候选、登记包与账本提交；检验结果、计数与折扣夏普范围由 <Ref id="report.research_state" /> 与该提交读时取或重算，不写进判断。
+Agent 写推荐判断时说明选择效应，只引用证据，不抄数字。
 
 </Step>
 
@@ -406,59 +294,36 @@ Agent 经 <Ref id="cli.judgment_add" />（<Ref id="ledger.add_judgment" />）写
 
 ### R.4.1　检验结果的呈现 [#R-4-1]
 
-输出只读，没有裁决或资格结论字段。
+检验结果只读，不带通过、失败或资格结论。
 
-<Cap id="R.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="每份检验结果必附检验对象、原假设与局限句，不可关闭">
+<Cap id="R.4.1.2" kind="code" tier="rehearsal" tierLabel="演练证据" title="每份检验结果固定附检验对象、原假设和局限">
 
-- 检验对象：同一 UTC 日钟上配对的账户日收益，取对数差（候选减对照）。
-- 原假设：平均日对数差不大于 0（单侧）。
-- 局限：Bonferroni 只覆盖本次登记网格，不覆盖跨登记的搜索（搜索规模见 <Ref id="R.4.2.1" />）。
-- 局限：p 是零模型下的尾概率，不是策略有效的概率。
-- 局限：开发窗口内的比较不是独立验证（样本外见 <Ref id="X.2.1.1" />）。
-- 局限：块自助假定日差近似平稳、弱相关。
-- 局限：年化差区间是配对百分位证据，不检验最小改进。
-- 外层标准误退化时 p 与 Bonferroni p 留空；内层退化时学生化区间留空。
-- 退化情况写入局限，不以别的区间替代。
+- 检验对象：同日配对的候选与对照账户日收益对数差。
+- 原假设：平均日对数差不大于零（单侧）。
+- 局限：p 不是策略有效的概率；开发窗口内比较不是独立验证。
+- 局限：多重校正只覆盖本次登记网格，不覆盖跨登记搜索。
 
-**输出**　随检验结果返回的三项固定说明。
-
-**强制**　代码强制：<Ref id="report.paired" /> 固定附带且不可关闭；Agent 的解读规则见 `research-round/references/feedback.md#p-and-threshold`。
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref></span></div>
 
 </Cap>
 
 ### R.4.2　试验次数与选择效应 [#R-4-2]
 
-代码给出的计数是 Agent 自算折扣夏普的唯一输入，推荐时两者并列并说明选择效应。
+试验越多，最好成绩越可能来自运气，所以夏普要按试验次数打折扣，折扣只用代码给出的试验计数。
 
-<Cap id="R.4.2.1" kind="database" tier="verified" tierLabel="已验证" title="试验计数读取时由代码从账本行统计，不存列、不由 Agent 自数">
+<Cap id="R.4.2.1" kind="database" tier="verified" tierLabel="已验证" title="试验计数由代码读取时从账本统计，Agent 不自数">
 
-- 入口 <Ref id="cli.research_status" /> 调用 <Ref id="report.research_status" />，经只读账号读取。
-- 按账本提交或标签读取（Dolt `AS OF`，<Ref id="ledger.read_as_of" />），同一版本可复读历史计数。
-- 全部试验数：<Ref id="table:trial" /> 的全部行，purpose 为 explore、precheck、research、validation 的都计，失败、中断与未完成同样计。
-- 去重版本数：按源码内容哈希（content hash）去重；全部试验数与去重版本数都按开发窗口（development window）分列。
-- 研究尝试数：<Ref id="table:registration_attempt" /> 每个被消耗的网格点一行，左连 <Ref id="table:trial" /> 与 <Ref id="table:run" />。
-- 无运行行计未完成，status=invalid 计无效，status=passed 计审计通过。
-- 审计通过者再由 <Ref id="qualification.assess" /> 分为经济可用与仅诊断。
-- 样本外登记：已登记、已绑定、未绑定与无凭证数（<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />）。
-- 输出附账本提交、资格检查身份与指标计算版本。
-- 输出没有停止标志、目标、分数、排序或资格标记。
+- 全部试验都计，含失败、中断、未完成和无效的。
+- 另按源码内容哈希去重计版本数，两者按开发窗口分列。
+- 登记的网格点按结果分为未完成、无效、经济可用、仅诊断。
+- 可按任一账本版本复读；输出不含停止标志、分数或排序。
 
-**输入**　可选的账本提交或标签。
-
-**输出**　该账本版本下的三组计数及其身份信息。
-
-**强制**　代码与账本共同强制：试验行在子进程启动前写下，账本只追加，失败与中断的试验不会从计数里消失。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_VERSION_NOT_FOUND` | 版本不存在。 |
-| `LEDGER_UNAVAILABLE` | 账本不可达或只读账号连接失败。 |
-| `REFERENTIAL_GAP` | 引用的试验行不存在，或未完成、无效、经济可用、仅诊断四类之和不等于研究尝试数；列出缺口行，不静默少算。 |
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_status">research_status</Ref> <Ref id="table:trial">trial</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span></div>
 
 </Cap>
 
 <ul className="rd-rules">
-<li id="R-4-2-2"><span className="rd-rule-id">R.4.2.2</span> 折扣夏普取研究状态同窗口去重版本数与全部试验数各算一端，报范围并列次数 <Ref id="rule:R.4.2.2">nautilus-report-analysis · references/ratios.md</Ref></li>
+<li id="R-4-2-2"><span className="rd-rule-id">R.4.2.2</span> 按试验次数折扣的夏普以去重版本数和全部试验数各算一端 <Ref id="rule:R.4.2.2">nautilus-report-analysis · references/ratios.md</Ref></li>
 </ul>
 
 ## R.5　呈现：跨候选汇总与可读摘要 [#R-5]
@@ -467,31 +332,31 @@ Agent 经 <Ref id="cli.judgment_add" />（<Ref id="ledger.add_judgment" />）写
 
 <Step>
 
-在同一账本提交上读候选清单与研究计数（R.5.1.2）。
+在同一账本版本上读候选清单和研究计数。
 
 </Step>
 
 <Step>
 
-归列：经济证据可用的候选进入比较，其余候选分列（R.5.1.2）。
+有经济证据资格的候选进入比较，其余分列。
 
 </Step>
 
 <Step>
 
-按窗口与可交易范围算非劣候选集（R.5.1.1）。
+按窗口和可交易范围，找出没被别的候选全面压过的候选。
 
 </Step>
 
 <Step>
 
-读研究状态视图 <Ref id="report.research_state" />，作为可读摘要（R.5.2.1）。
+读研究状态，作为可读摘要。
 
 </Step>
 
 <Step>
 
-更正以新证据包追加入账，依赖被更正表述的判断以新判断取代（R.5.2.2）。
+更正以新证据包追加，依赖它的判断以新判断取代。
 
 </Step>
 
@@ -499,10 +364,10 @@ Agent 经 <Ref id="cli.judgment_add" />（<Ref id="ledger.add_judgment" />）写
 
 ### R.5.1　跨候选汇总 [#R-5-1]
 
-代码给出候选清单与研究计数（事实、身份、当前资格，不含分数、排序或裁决），skill 规定非劣集与分列呈现的口径。
+代码给出候选清单与计数事实，不含分数或排序；skill 规定汇总口径。
 
 <ul className="rd-rules">
-<li id="R-5-1-1"><span className="rd-rule-id">R.5.1.1</span> 非劣集只在同窗口同范围的可用运行上按四维求，不作门槛 <Ref id="rule:R.5.1.1">research-round · references/review.md</Ref></li>
+<li id="R-5-1-1"><span className="rd-rule-id">R.5.1.1</span> 只在同窗口同范围的可用运行上，按四项指标求未被全面压过的候选 <Ref id="rule:R.5.1.1">research-round · references/review.md</Ref></li>
 </ul>
 
 ## 待定事项 [#R-pending]
