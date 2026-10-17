@@ -3,328 +3,57 @@
 <p className="rd-translation-note">English translation pending: this page shows the Chinese source text.</p>
 
 
-从封存原生报告的类型化表自算描述统计：比率、出场拆分、资金使用率、持仓结构、容量、折扣夏普、非劣集；只算 Agent 可自算的绩效指标。
-
-**触发**　为研究决策计算绩效指标之外的任何统计前。
+从封存原生报告自算描述统计（比率、资金使用、回撤、出场原因、折扣夏普）前使用
 
 <Files>
 <Folder name="nautilus-report-analysis" defaultOpen>
-  <File name="nautilus-report-analysis/SKILL.md" />
+  <File name="SKILL.md" />
+  <File name="references/ratios.md" />
+  <File name="references/capital.md" />
+  <File name="references/exit-reasons.md" />
 </Folder>
 </Files>
 
-每个 skill 节与 eval 一条：内容或判据、关联章节与参考资料。
+## `SKILL.md` [#def-file-nautilus-report-analysis-SKILL-md]
 
-## 节
+**触发**　从任一运行的 tables() 自算任何数之前，或比较两次运行的单笔与回撤之前
 
-### 原生语义 [#def-nautilus-report-analysis-SKILL-md-native-semantics]
+全程不变量：只从 tables() 取数并引用 ledger_commit；自算数注明总体、闭仓合计等于对账量、驱动决定的数要由第二个 Agent 复算；跨运行只配对账户日收益；读回撤必须并列资金使用率。另附三个 references 文件的索引，写明何时读哪个
 
-`nautilus-report-analysis/SKILL.md`
+<ol className="rd-skill-rules">
+<li id="def-rule-R-1-2-1">只从 tables() 取数并引用 ledger_commit，不重解析原生文件 <span className="rd-rule-links"><Ref id="R.1.2.1">R.1.2.1</Ref></span><span className="rd-eval">eval <code>reads-through-tables</code>：所有自算数来自 tables() 并引用 ledger_commit；没有读原生文件，也没有直接查表；持仓时长用 duration_ns，出场用 closing_order_tags；没有覆盖或补填任何绩效指标</span></li>
+<li id="def-rule-R-1-2-3">自算数注明总体；闭仓合计须等对账量；驱动决定的数交第二 Agent 复算 <span className="rd-rule-links"><Ref id="R.1.2.3">R.1.2.3</Ref></span><span className="rd-eval">eval <code>derived-number-recomputed</code>：每个自算数注明总体与频率；闭仓合计等于 reconciled 对账量；驱动决定的数由第二个 Agent 在同一 ledger_commit 上复算，不一致时不下结论</span></li>
+<li id="def-rule-V-2-2-3">跨运行只配对账户日收益，不按时间或仓位编号配对单笔交易 <span className="rd-rule-links"><Ref id="V.2.2.3">V.2.2.3</Ref></span><span className="rd-eval">eval <code>no-cross-run-trade-pairing</code>：被要求逐笔对比两次运行时，说明两次运行的持仓周期没有一一对应，改为账户日收益配对与各自分布描述，不输出跨运行逐笔差值</span></li>
+<li id="def-rule-R-3-1-2">回撤读产品值不重算，并列同运行资金使用率；敞口同降只写「敞口下降」 <span className="rd-rule-links"><Ref id="R.3.1.2">R.3.1.2</Ref></span><span className="rd-eval">eval <code>drawdown-read-with-exposure</code>：输出把两者的资金使用率与回撤并列；结论写成敞口下降，不写成风险效率提高或风控改善；回撤取 ledger.mark_drawdown 的绩效指标，没有重算；净收益除以名义额如果出现，标为描述并写明分母，没有用来排序</span></li>
+</ol>
 
-持仓周期与仓位编号只在各自运行内有意义，不跨运行按编号、相近时间或方向配对单笔交易或仓位。跨运行比较只用账户日收益配对；单笔层面对每个运行分别做分布描述。
+## `references/ratios.md` [#def-file-nautilus-report-analysis-references-ratios-md]
 
-<div className="rd-meta">
+**触发**　计算夏普、索提诺、卡玛等比率（含子区间或滚动分布）或折扣夏普之前
 
-**关联章节**　<Ref id="V.2.2.3">V.2.2.3</Ref> <Ref id="C.2.1.2">C.2.1.2</Ref>
+比率用引擎统计类对交易窗口日收益计算，按 365 天年化；折扣夏普用 research_status 的两个计数各算一端，只报范围，并列原始次数、方差与天数
 
-</div>
+<ol className="rd-skill-rules">
+<li id="def-rule-R-1-2-2">比率用引擎统计类对交易窗口日收益算，按 365 天年化，不引第三方库 <span className="rd-rule-links"><Ref id="R.1.2.2">R.1.2.2</Ref></span><span className="rd-eval">eval <code>native-stats-and-tearsheet</code>：比率由引擎统计类对交易窗口日收益按 365 天年化得出；没有引入其他分析依赖；全程夏普与原生摘要一致，或说明了口径差异</span></li>
+<li id="def-rule-R-4-2-2">折扣夏普取研究状态同窗口去重版本数与全部试验数各算一端，报范围并列次数 <span className="rd-rule-links"><Ref id="R.4.2.2">R.4.2.2</Ref></span><span className="rd-eval">eval <code>dsr-uses-ledger-counts</code>：从 research status 读同一开发窗口的去重版本数与全部试验数，用日收益偏度与原始峰度自算；以两者为两端报范围并列原始次数；不自数次数，不报单值，不当门槛；引用账本提交</span></li>
+</ol>
 
-### 取数 [#def-nautilus-report-analysis-SKILL-md-before-computing]
+## `references/capital.md` [#def-file-nautilus-report-analysis-references-capital-md]
 
-`nautilus-report-analysis/SKILL.md`
+**触发**　读资金使用、回撤、持仓结构或容量之前
 
-描述统计只经 tables() 取类型化表（订单、成交、持仓周期、账户、交易窗口日收益、敞口），引用返回的 ledger_commit。不重解析原生文件，不手填或覆盖绩效指标，不为被资格视图置空的运行另取原始行补算。持仓时长用 duration_ns，出场原因读平仓订单标签。每个数写明它的总体。
+从 tables(exposures=True, account=True) 算四项资金使用率（时间加权名义额及其占权益比例、按 K 线采样的峰值、锁定保证金、在市时间），没有敞口表时写进局限；这四项是读回撤与持仓结构的语境
 
-<div className="rd-meta">
+<ol className="rd-skill-rules">
+<li id="def-rule-R-3-1-1">资金使用四项只从 tables 敞口与账户行算，先于回撤读；无敞口表不答资金问题 <span className="rd-rule-links"><Ref id="R.3.1.1">R.3.1.1</Ref></span><span className="rd-eval">eval <code>capital-use-four-readings</code>：给出四项：时间加权平均名义额（交易窗口全部 K 线，空仓根计零）及其占同刻权益的比例、标明按 K 线采样的峰值、取自账户行的锁定保证金、在市根数占比；没有重新估值仓位，也没有只凭账户报告推算；exposures 为空时不回答资金问题并写入局限。任一项缺失或口径不符即不通过</span></li>
+</ol>
 
-**关联章节**　<Ref id="R.1.2.1">R.1.2.1</Ref> <Ref id="A.4.3.1">A.4.3.1</Ref> <Ref id="V.1.2.2">V.1.2.2</Ref> <Ref id="F.1.2.2">F.1.2.2</Ref> <Ref id="F.1.3.2">F.1.3.2</Ref> <Ref id="R.1.2.2">R.1.2.2</Ref> <Ref id="R.1.2.3">R.1.2.3</Ref> <Ref id="R.3.1.1">R.3.1.1</Ref> <Ref id="R.3.2.1">R.3.2.1</Ref> <Ref id="R.3.2.2">R.3.2.2</Ref>
+## `references/exit-reasons.md` [#def-file-nautilus-report-analysis-references-exit-reasons-md]
 
-</div>
+**触发**　做入场计划标签 × 出场原因交叉表或拆贡献之前
 
-### 回撤与敞口一起读 [#def-nautilus-report-analysis-SKILL-md-drawdown-with-exposure]
+出场原因只读平仓订单（closing_order_id）的标签或订单类型；未平仓位单列一行；计划统计被置空时不出交叉表，只报原因
 
-`nautilus-report-analysis/SKILL.md`
-
-回撤只用产品的标记价最大回撤，不为比较或目标重算。回撤与同一运行的资金使用率并列呈现。回撤下降而平均名义额或在市时间也下降时，写「敞口下降」，不写风险效率提高；只有敞口相当时，才把回撤差异归因到规则。净收益除以平均名义额只作描述，须写明分母，不用来排序。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.3.1.2">R.3.1.2</Ref> <Ref id="R.2.2.2">R.2.2.2</Ref>
-
-</div>
-
-### 容量 [#def-nautilus-report-analysis-SKILL-md-capacity]
-
-`nautilus-report-analysis/SKILL.md`
-
-每笔成交名义额占它所在输入 K 线成交额（成交量乘收盘价）的比例，给最大值和超过源码上限的次数；零成交量 K 线上的成交单独列出。从候选源码原样读出单笔名义上限和成交量占比上限，没写的写「未设」。上限是源码的设计变量：只读出，不评判，不设合格线。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.3.2.2">R.3.2.2</Ref>
-
-</div>
-
-### 引用自算数前自检 [#def-nautilus-report-analysis-SKILL-md-self-checks]
-
-`nautilus-report-analysis/SKILL.md`
-
-引用前写明总体、权重与频率。涉及闭仓经济的合计须等于 tables() 的 reconciled 对账量，不等不引用。驱动决定的数由第二个 Agent 从同一运行、同一 ledger_commit 独立复算，不一致不下结论。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.1.2.3">R.1.2.3</Ref> <Ref id="R.3.2.1">R.3.2.1</Ref>
-
-</div>
-
-### 折扣夏普 [#def-nautilus-report-analysis-SKILL-md-deflated-sharpe]
-
-`nautilus-report-analysis/SKILL.md`
-
-- 计数只取 research status 中与该运行同一开发窗口的去重版本数与全部试验数；不自数，不剔除失败、中断或预检。
-- 经 tables() 取交易窗口账户日收益，算日夏普 SR、偏度、原始峰度（正态为 3）与天数 T；全部用日频，不先年化。
-- 试验间夏普方差 V 取同窗口全部经济证据可用研究运行的日夏普；不足两个时写明无法估计，不报 DSR。
-- 期望最大夏普 SR0 = √V·((1−γ)Φ⁻¹(1−1/N) + γΦ⁻¹(1−1/(N·e)))，γ 为欧拉常数，N=1 时 SR0=0；DSR = Φ((SR−SR0)·√(T−1) / √(1 − 偏度·SR + (峰度−1)/4·SR²))。
-- N 取去重版本数与全部试验数各算一次，报两端构成的范围，并列原始次数、V 与 T；不报单值，不当门槛或资格。
-- 代码计数之外的搜索暴露读 research state 的 search_exposures，在范围旁写明，不改两端。
-- 结果引用所依据的账本提交，可在该提交上重算；算过后记一条 search_exposure 判断，正文只引用运行与账本提交，不写 DSR 数值或计数。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="E.2.2.2">E.2.2.2</Ref> <Ref id="X.2.2.1">X.2.2.1</Ref> <Ref id="R.4.2.3">R.4.2.3</Ref>
-
-**依据**
-
-- [Bailey & López de Prado 2014](https://doi.org/10.3905/jpm.2014.40.5.094)　论文
-- [pypbo](https://github.com/esvhd/pypbo)　开源实现
-
-</div>
-
-### 持仓结构 [#def-nautilus-report-analysis-SKILL-md-position-structure]
-
-`nautilus-report-analysis/SKILL.md`
-
-从 tables() 的持仓、订单和敞口行算三组绩效指标：同时持仓数（每根 K 线上不同持仓周期的个数，给峰值和时间加权均值）；止损承诺（持仓与挂着的入场单全部触发止损时的合计损失占同刻权益的比例，止损价取自订单行，给峰值和均值）；盈亏集中度（盈利最多的少数几个合约占对账后闭仓净盈亏的份额，写明个数，并给出去掉它们后净盈亏的符号）。每项注明总体与权重，只作描述，不作门槛。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.3.2.1">R.3.2.1</Ref> <Ref id="F.1.3.1">F.1.3.1</Ref> <Ref id="X.1.1.2">X.1.1.2</Ref>
-
-</div>
-
-### 按入场标签×出场原因拆分 [#def-nautilus-report-analysis-SKILL-md-exit-reason-split]
-
-`nautilus-report-analysis/SKILL.md`
-
-经报告表取订单与持仓。行是入场计划标签，列是出场原因，每格给闭仓数与闭仓净盈亏（价格盈亏、手续费、资金费分列）；未平仓位单列一行。出场原因只读自持仓行平仓订单的标签或类型；下架结算生成的无标签平仓单，唯一对应时才归属，否则记未归属。不以盈亏符号或价格推断出场原因。计划统计为空时不出表，只报原因；合计须等于产品闭仓拆分。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="F.1.2.2">F.1.2.2</Ref> <Ref id="F.1.3.1">F.1.3.1</Ref>
-
-**依据**
-
-- [freqtrade — Backtesting：Exit reason stats table 与 Mixed tag stats table](https://www.freqtrade.io/en/stable/backtesting/)　开源实现
-- [NautilusTrader — Reports：Positions report](https://nautilustrader.io/docs/latest/concepts/reports/)　官方文档
-
-</div>
-
-### 标准比率 [#def-nautilus-report-analysis-SKILL-md-ratios]
-
-`nautilus-report-analysis/SKILL.md`
-
-夏普、索提诺、卡玛及子区间或滚动分布，用引擎统计类对 tables() 的交易窗口日收益（UTC 日钟，不含预热段）计算，按 365 天年化。不引入其他分析依赖。全程夏普以原生摘要为准，自算值不一致先查口径。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.1.2.2">R.1.2.2</Ref> <Ref id="R.2.1.2">R.2.1.2</Ref>
-
-**依据**
-
-- [NautilusTrader — Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)　官方文档
-- [Lo 2002](https://doi.org/10.2469/faj.v58.n4.2453)　论文
-
-</div>
-
-### 读报告的提醒 [#def-nautilus-report-analysis-SKILL-md-selection-reminders]
-
-`nautilus-report-analysis/SKILL.md`
-
-- 看过结果后才提的假设会让计入的试验数偏少，折扣因此偏松。
-- 推荐候选是从许多候选中挑出的最好者，绩效指标天然偏向运气好的一侧。
-- 有限年数里，不多的独立试验就能靠运气撞出好看的夏普。
-- 推荐理由并列折扣夏普范围与试验次数；单次比较的 p 或单个夏普不能作为唯一理由。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.4.2.3">R.4.2.3</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref> <Ref id="X.2.2.2">X.2.2.2</Ref>
-
-**依据**
-
-- [White 2000](https://doi.org/10.1111/1468-0262.00152)　论文
-- [Bailey, Borwein, López de Prado & Zhu 2016](https://doi.org/10.21314/JCF.2016.322)　论文
-
-</div>
-
-### 资金使用率 [#def-nautilus-report-analysis-SKILL-md-capital-utilisation]
-
-`nautilus-report-analysis/SKILL.md`
-
-资金使用只从 tables(run_id, exposures=True, account=True) 算。标为 T 的敞口行，是下一根 K 线之前全部事件后仍持有的仓位，按 T 的标记价估值；某根没有行即空仓。报告四项：交易窗口全部 K 线上的时间加权平均名义额（空仓计零）及其占权益的比例、采样峰值（标明是采样峰值）、锁定保证金（含挂单）、在市时间。权益(T) 等于下一根之前最近一条账户总额加 T 的未实现盈亏。不重估仓位，不只凭账户报告推算。exposures 为空则不回答资金使用问题，并写进绩效指标局限；tables 拒绝则报告缺陷，不分析该运行。从首个有效根起每个有效运行都读；仓位或资金预算改动后必读。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.3.1.1">R.3.1.1</Ref> <Ref id="E.3.2.1">E.3.2.1</Ref> <Ref id="V.4.2.4">V.4.2.4</Ref> <Ref id="F.1.2.1">F.1.2.1</Ref> <Ref id="X.1.1.2">X.1.1.2</Ref> <Ref id="C.1.4.2">C.1.4.2</Ref> <Ref id="R.3.1.2">R.3.1.2</Ref> <Ref id="R.3.2.1">R.3.2.1</Ref>
-
-</div>
-
-### 非劣候选集 [#def-nautilus-report-analysis-SKILL-md-pareto-range]
-
-`nautilus-report-analysis/SKILL.md`
-
-- 总体只含经济证据可用的运行（economic_evidence_available 为真），按开发窗口与共同可交易范围分组；跨组不比较。
-- 维度：账户年化、标记价回撤、夏普（引擎统计类）、计划胜率。A 支配 B＝四维都不差且至少一维更好；非劣集是不被支配者的集合。
-- 报出成员（strategy_id@revision）、每维数值、账本提交与总体规模。
-- 非劣集只描述推荐范围，不是资格，也不按单一指标排序；推荐可在集合外，但要写明取舍。
-- 仅诊断、无效、未完成的候选分列，不进入计算。
-- 驱动推荐的集合由第二个 Agent 独立复算，并提醒读者它是从许多候选里挑出来的。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.5.1.1">R.5.1.1</Ref> <Ref id="E.3.1.1">E.3.1.1</Ref> <Ref id="F.3.2.1">F.3.2.1</Ref>
-
-**依据**
-
-- [Deb et al. 2002](https://doi.org/10.1109/4235.996017)　论文
-- [Wiecki et al. 2016](https://doi.org/10.3905/joi.2016.25.3.069)　论文
-
-</div>
-
-## eval
-
-| eval | 验什么 |
-|---|---|
-| <Ref id="eval:nautilus-report-analysis/derived-number-recomputed">derived-number-recomputed</Ref> | 自算数注明总体并经独立复算 |
-| <Ref id="eval:nautilus-report-analysis/drawdown-read-with-exposure">drawdown-read-with-exposure</Ref> | Agent 读回撤时连同同一运行的敞口一起读，不把敞口下降说成风险效率提高（R.3.1.2）。 |
-| <Ref id="eval:nautilus-report-analysis/dsr-uses-ledger-counts">dsr-uses-ledger-counts</Ref> | Agent 计算折扣夏普时只用账本给出的试验计数，并以范围呈现 |
-| <Ref id="eval:nautilus-report-analysis/exit-reason-split">exit-reason-split</Ref> | 入场标签 × 平仓订单标签拆分（<Ref id="nautilus-report-analysis/SKILL.md#exit-reason-split" />） |
-| <Ref id="eval:nautilus-report-analysis/native-stats-and-tearsheet">native-stats-and-tearsheet</Ref> | 比率用引擎统计类对交易窗口日收益计算 |
-| <Ref id="eval:nautilus-report-analysis/no-cross-run-trade-pairing">no-cross-run-trade-pairing</Ref> | 不跨运行配对单笔交易或仓位 |
-| <Ref id="eval:nautilus-report-analysis/pareto-is-range-not-gate">pareto-is-range-not-gate</Ref> | 非劣候选集只作推荐范围的描述统计：总体限于经济证据可用的候选，按开发窗口与共同可交易范围分组，不当资格边界，也不按单一指标排序 |
-| <Ref id="eval:nautilus-report-analysis/reads-through-tables">reads-through-tables</Ref> | 描述统计只经 tables() 取数 |
-
-### `derived-number-recomputed` [#def-eval-nautilus-report-analysis-derived-number-recomputed]
-
-**验什么**　自算数注明总体并经独立复算
-
-**通过判据**　每个自算数注明总体与频率；闭仓合计等于 reconciled 对账量；驱动决定的数由第二个 Agent 在同一 ledger_commit 上复算，不一致时未下结论
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.1.2.3">R.1.2.3</Ref>
-
-</div>
-
-### `drawdown-read-with-exposure` [#def-eval-nautilus-report-analysis-drawdown-read-with-exposure]
-
-**验什么**　Agent 读回撤时连同同一运行的敞口一起读，不把敞口下降说成风险效率提高（R.3.1.2）。
-
-**通过判据**　给定两个有效运行，后者的标记价回撤与平均名义额同时下降。通过须同时满足：输出把两者的资金使用率与回撤并列；结论写成敞口下降，不写成风险效率提高或风控改善；回撤取绩效指标，没有重算；净收益除以名义额如果出现，标为描述并写明分母，没有用来排序。任一条不满足即不通过。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.3.1.2">R.3.1.2</Ref>
-
-</div>
-
-### `dsr-uses-ledger-counts` [#def-eval-nautilus-report-analysis-dsr-uses-ledger-counts]
-
-**验什么**　Agent 计算折扣夏普时只用账本给出的试验计数，并以范围呈现
-
-**通过判据**　从 research status 读同一开发窗口的去重版本数与全部试验数，用日收益偏度与原始峰度自算；以两者为两端报范围并列原始次数；不自数次数，不报单值，不当门槛；引用账本提交
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.4.2.2">R.4.2.2</Ref> <Ref id="G.1.2.1">G.1.2.1</Ref>
-
-**依据**
-
-- [Bailey & López de Prado 2014](https://doi.org/10.3905/jpm.2014.40.5.094)　论文
-- [pypbo](https://github.com/esvhd/pypbo)　开源实现
-
-</div>
-
-### `exit-reason-split` [#def-eval-nautilus-report-analysis-exit-reason-split]
-
-**验什么**　入场标签 × 平仓订单标签拆分（<Ref id="nautilus-report-analysis/SKILL.md#exit-reason-split" />）
-
-**通过判据**　按入场标签 × 平仓订单（closing_order_id）标签列表，未平仓位单列一行，合计等于产品闭仓拆分。用盈亏符号或价格水平判出场原因，即不通过。
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="F.1.2.2">F.1.2.2</Ref>
-
-**依据**
-
-- [freqtrade — Backtesting：Exit reason stats table 与 Mixed tag stats table](https://www.freqtrade.io/en/stable/backtesting/)　开源实现
-- [NautilusTrader — Reports：Positions report](https://nautilustrader.io/docs/latest/concepts/reports/)　官方文档
-
-</div>
-
-### `native-stats-and-tearsheet` [#def-eval-nautilus-report-analysis-native-stats-and-tearsheet]
-
-**验什么**　比率用引擎统计类对交易窗口日收益计算
-
-**通过判据**　比率由引擎统计类对交易窗口日收益按 365 天年化得出；未引入其他分析依赖；全程夏普与原生摘要一致或说明了口径差异
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.1.2.2">R.1.2.2</Ref>
-
-**依据**
-
-- [NautilusTrader — Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)　官方文档
-- [Lo 2002](https://doi.org/10.2469/faj.v58.n4.2453)　论文
-
-</div>
-
-### `no-cross-run-trade-pairing` [#def-eval-nautilus-report-analysis-no-cross-run-trade-pairing]
-
-**验什么**　不跨运行配对单笔交易或仓位
-
-**通过判据**　被要求逐笔对比两次运行时，说明两次运行的持仓周期没有一一对应，改为账户日收益配对与各自分布描述，不输出跨运行逐笔差值
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="V.2.2.3">V.2.2.3</Ref>
-
-</div>
-
-### `pareto-is-range-not-gate` [#def-eval-nautilus-report-analysis-pareto-is-range-not-gate]
-
-**验什么**　非劣候选集只作推荐范围的描述统计：总体限于经济证据可用的候选，按开发窗口与共同可交易范围分组，不当资格边界，也不按单一指标排序
-
-**通过判据**　回答在经济证据可用的候选上按四维给出非劣集及成员数值与账本提交；没有把集合外的候选称为不合格或剔除；没有按单一指标排序；仅诊断、无效、未完成的候选分列，不同列比较；集合外的推荐写明了取舍。任一条不满足即不通过
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.5.1.1">R.5.1.1</Ref>
-
-**依据**
-
-- [Deb et al. 2002](https://doi.org/10.1109/4235.996017)　论文
-- [Wiecki et al. 2016](https://doi.org/10.3905/joi.2016.25.3.069)　论文
-
-</div>
-
-### `reads-through-tables` [#def-eval-nautilus-report-analysis-reads-through-tables]
-
-**验什么**　描述统计只经 tables() 取数
-
-**通过判据**　所有自算数来自 tables() 并引用 ledger_commit；未读原生文件或直接查表；持仓时长用 duration_ns，出场用 closing_order_tags；未覆盖或补填任何绩效指标
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.1.2.1">R.1.2.1</Ref>
-
-</div>
+<ol className="rd-skill-rules">
+<li id="def-rule-F-1-2-2">出场原因只读平仓订单标签或类型，未平仓位单列，不按盈亏或价位推断 <span className="rd-rule-links"><Ref id="F.1.2.2">F.1.2.2</Ref></span><span className="rd-eval">eval <code>exit-reason-split</code>：按入场标签 × 平仓订单（closing_order_id）标签列表，未平仓位单列一行，合计等于产品闭仓拆分；用盈亏符号或价格水平判出场原因即不通过</span></li>
+</ol>

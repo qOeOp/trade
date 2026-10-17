@@ -5,88 +5,72 @@
 <p id="ref-1" className="rd-ref-head"><b>[1]</b> [Microsoft RD-Agent](https://github.com/microsoft/RD-Agent)</p>
 
 - <Ref id="A.1.1.2" />　以提假设、实现、运行、取反馈、再提假设的持续循环自动化量化研发，与本能力的迭代顺序相同
-- <Ref id="T.2.2.1" />　假设提出 → 实现 → 实验执行 → 反馈的循环，后续提案以前序结果为条件
 
-<p id="ref-18" className="rd-ref-head"><b>[18]</b> [Sigstore Rekor](https://docs.sigstore.dev/logging/overview/)</p>
-
-- <Ref id="A.5.2.2" />　只追加透明日志由审计者核验从未被改写或删除，篡改可发现而非被阻止
-
-<p id="ref-48" className="rd-ref-head"><b>[48]</b> [MLflow — Dataset Tracking：Dataset 带内容摘要（digest），经 log_input 随运行记录来源与摘要](https://mlflow.org/docs/latest/ml/dataset/)</p>
+<p id="ref-28" className="rd-ref-head"><b>[28]</b> [MLflow — Dataset Tracking：Dataset 带内容摘要（digest），经 log_input 随运行记录来源与摘要](https://mlflow.org/docs/latest/ml/dataset/)</p>
 
 - <Ref id="V.2.1.3" />　用随运行存储的输入摘要判断两次运行是否在同一数据上跑
 
-<p id="ref-53" className="rd-ref-head"><b>[53]</b> [arch — Time-series Bootstraps：CircularBlockBootstrap 固定块长、首尾衔接](https://bashtage.github.io/arch/bootstrap/timeseries-bootstraps.html)</p>
+<p id="ref-33" className="rd-ref-head"><b>[33]</b> [arch — Time-series Bootstraps：CircularBlockBootstrap 固定块长、首尾衔接](https://bashtage.github.io/arch/bootstrap/timeseries-bootstraps.html)</p>
 
 - <Ref id="V.3.2.1" />　循环块自助的参照实现与方法说明（只核对不依赖）
 
-<p id="ref-54" className="rd-ref-head"><b>[54]</b> [arch — Confidence Intervals：basic、percentile、studentized（嵌套自助）方法](https://bashtage.github.io/arch/bootstrap/confidence-intervals.html)</p>
+<p id="ref-34" className="rd-ref-head"><b>[34]</b> [arch — Confidence Intervals：basic、percentile、studentized（嵌套自助）方法](https://bashtage.github.io/arch/bootstrap/confidence-intervals.html)</p>
 
 - <Ref id="V.3.2.2" />　基本区间与嵌套学生化区间的参照定义（只核对不依赖）
 
-<p id="ref-58" className="rd-ref-head"><b>[58]</b> [statsmodels — multipletests：bonferroni／holm 校正返回校正后 p](https://www.statsmodels.org/stable/generated/statsmodels.stats.multitest.multipletests.html)</p>
+<p id="ref-38" className="rd-ref-head"><b>[38]</b> [statsmodels — multipletests：bonferroni／holm 校正返回校正后 p](https://www.statsmodels.org/stable/generated/statsmodels.stats.multitest.multipletests.html)</p>
 
 - <Ref id="V.3.2.3" />　Bonferroni 校正的参照实现（只核对不依赖）
 
-<p id="ref-63" className="rd-ref-head"><b>[63]</b> [freqtrade — Backtesting：Exit reason stats table 与 Mixed tag stats table](https://www.freqtrade.io/en/stable/backtesting/)</p>
+<p id="ref-43" className="rd-ref-head"><b>[43]</b> [freqtrade — Backtesting：Exit reason stats table 与 Mixed tag stats table](https://www.freqtrade.io/en/stable/backtesting/)</p>
 
 - <Ref id="F.1.2.2" />　回测结果先按出场原因列表，再按入场标签 × 出场原因交叉列表，用于定位哪类组合有效
 
-<p id="ref-69" className="rd-ref-head"><b>[69]</b> [Microsoft RD-Agent — rdagent/utils/workflow/loop.py（固定提交 484776c）](https://github.com/microsoft/RD-Agent/blob/484776c211e4fbbeef03e0ec00d6bbee7362a4f4/rdagent/utils/workflow/loop.py)</p>
+<p id="ref-46" className="rd-ref-head"><b>[46]</b> [Microsoft RD-Agent — rdagent/utils/workflow/loop.py（固定提交 484776c）](https://github.com/microsoft/RD-Agent/blob/484776c211e4fbbeef03e0ec00d6bbee7362a4f4/rdagent/utils/workflow/loop.py)</p>
 
 - <Ref id="F.3.1.2" />　loop_n 默认 None 时循环运行至出错或中断，不预设总轮数；轮数与时长上限只是可选运行限制
 
-<p id="ref-80" className="rd-ref-head"><b>[80]</b> [arch — confidence intervals / time-series bootstraps（bashtage/arch）](https://bashtage.github.io/arch/bootstrap/confidence-intervals.html)</p>
+<p id="ref-55" className="rd-ref-head"><b>[55]</b> [arch — confidence intervals / time-series bootstraps（bashtage/arch）](https://bashtage.github.io/arch/bootstrap/confidence-intervals.html)</p>
 
 - <Ref id="X.2.1.2" />　基本、百分位、学生化（嵌套）区间与循环块自助的方法说明，只核对不依赖
 
-<p id="ref-83" className="rd-ref-head"><b>[83]</b> [statsmodels — multipletests（method='holm'）](https://www.statsmodels.org/stable/generated/statsmodels.stats.multitest.multipletests.html)</p>
+<p id="ref-58" className="rd-ref-head"><b>[58]</b> [statsmodels — multipletests（method='holm'）](https://www.statsmodels.org/stable/generated/statsmodels.stats.multitest.multipletests.html)</p>
 
 - <Ref id="X.2.1.3" />　Holm 校正的参照实现，返回校正 p，只核对不依赖
 
-<p id="ref-89" className="rd-ref-head"><b>[89]</b> [freqtrade — lookahead-analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/)</p>
+<p id="ref-62" className="rd-ref-head"><b>[62]</b> [NautilusTrader 2.0.0rc3（uv.lock 钉死版本）— crates/common/src/factories/order.rs](https://github.com/nautechsystems/nautilus_trader/blob/v2.0.0rc3/crates/common/src/factories/order.rs)</p>
 
-- <Ref id="C.3.1.1" />　以全样本回放对照逐信号切片回放，比较指标列差异来检测前视偏差；未触发的信号不被核验
-
-<p id="ref-92" className="rd-ref-head"><b>[92]</b> [NautilusTrader 2.0.0rc3 — crates/execution/src/matching_engine/mod.rs](https://github.com/nautechsystems/nautilus_trader/blob/v2.0.0rc3/crates/execution/src/matching_engine/mod.rs)</p>
-
-- <Ref id="C.4.1.2" />　只减仓单在无仓位时撤销，apply_fills 把成交量封顶在剩余仓位；OUO 兄弟单随母单剩余量撤销或改量
-- <Ref id="C.4.2.1" />　expire_order 与 cancel_order 先 cancel_contingent_orders 撤子单（需 support_contingent_orders）
-
-<p id="ref-94" className="rd-ref-head"><b>[94]</b> [NautilusTrader 2.0.0rc3（uv.lock 钉死版本）— crates/common/src/factories/order.rs](https://github.com/nautechsystems/nautilus_trader/blob/v2.0.0rc3/crates/common/src/factories/order.rs)</p>
-
-- <Ref id="C.4.2.1" />　bracket 的入场单 contingency_type=Oto 且 linked_order_ids 指向止损与止盈；两子单 parent_order_id 指向入场、reduce_only=true、缺省 Ouo；参数含 time_in_force 与 expire_time
 - <Ref id="C.5.1.1" />　bracket 的入场单与两张子单各自接受标签参数（entry_tags、sl_tags、tp_tags），所以订单组的每张订单都能带同一个计划标签
 
-<p id="ref-95" className="rd-ref-head"><b>[95]</b> [binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）](https://github.com/binance/binance-public-data)</p>
+<p id="ref-63" className="rd-ref-head"><b>[63]</b> [binance-public-data — data.binance.vision 月/日归档（日归档次日发布，月归档每月首个周一发布）](https://github.com/binance/binance-public-data)</p>
 
 - <Ref id="W.1.1.1" />　同一数据以月、日两级归档发布，缺月用日归档补是其既定布局
 
-<p id="ref-97" className="rd-ref-head"><b>[97]</b> [binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验](https://github.com/binance/binance-public-data)</p>
+<p id="ref-65" className="rd-ref-head"><b>[65]</b> [binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验](https://github.com/binance/binance-public-data)</p>
 
 - <Ref id="W.1.1.2" />　交易所随归档发布 SHA-256 校验和，导入前核对即可发现损坏或篡改
 
-<p id="ref-105" className="rd-ref-head"><b>[105]</b> [QuantConnect Lean — Warm Up Periods（SetWarmUp 把开始日期提前；预热期内不能下单）](https://www.quantconnect.com/docs/v2/writing-algorithms/historical-data/warm-up-periods)</p>
+<p id="ref-73" className="rd-ref-head"><b>[73]</b> [QuantConnect Lean — Warm Up Periods（SetWarmUp 把开始日期提前；预热期内不能下单）](https://www.quantconnect.com/docs/v2/writing-algorithms/historical-data/warm-up-periods)</p>
 
 - <Ref id="W.2.1.4" />　预热数据先于算法开始日期供给且禁止交易，与此处预热段不计成绩的分段一致
 
-<p id="ref-106" className="rd-ref-head"><b>[106]</b> [freqtrade — Strategy startup period（startup_candle_count：回测多加载历史并在模拟交易前移除不稳定预热期）](https://www.freqtrade.io/en/stable/strategy-customization/)</p>
+<p id="ref-74" className="rd-ref-head"><b>[74]</b> [freqtrade — Strategy startup period（startup_candle_count：回测多加载历史并在模拟交易前移除不稳定预热期）](https://www.freqtrade.io/en/stable/strategy-customization/)</p>
 
 - <Ref id="W.2.1.4" />　预热段只用于指标初始化，回测成绩从请求时间段起算
 
-<p id="ref-110" className="rd-ref-head"><b>[110]</b> [nautilus_trader 2.0.0rc3（uv.lock 钉死）— BacktestVenueConfig 的 liquidation_enabled 未设时解析为 False、liquidation_trigger_ratio 1.0、liquidation_cancel_open_orders True](https://pypi.org/project/nautilus_trader/2.0.0rc3/)</p>
+<p id="ref-78" className="rd-ref-head"><b>[78]</b> [nautilus_trader 2.0.0rc3（uv.lock 钉死）— BacktestVenueConfig 的 liquidation_enabled 未设时解析为 False、liquidation_trigger_ratio 1.0、liquidation_cancel_open_orders True](https://pypi.org/project/nautilus_trader/2.0.0rc3/)</p>
 
 - <Ref id="W.4.2.1" />　钉死版本的场所配置以不模拟强平为缺省，运行器不开启即不建模
 
-<p id="ref-123" className="rd-ref-head"><b>[123]</b> [MLflow — Dataset Tracking（Dataset digest / log_input）](https://mlflow.org/docs/latest/ml/dataset/)</p>
+<p id="ref-91" className="rd-ref-head"><b>[91]</b> [MLflow — Dataset Tracking（Dataset digest / log_input）](https://mlflow.org/docs/latest/ml/dataset/)</p>
 
 - <Ref id="G.2.1.1" />　按数据内容与结构自动算摘要作为数据集指纹并随运行记录，用于识别输入是否相同
-- <Ref id="D.1.1.1" />　运行把输入数据集的内容摘要记为运行输入，数据内容变化即不同摘要
 
-<p id="ref-131" className="rd-ref-head"><b>[131]</b> [pypbo](https://github.com/esvhd/pypbo)</p>
+<p id="ref-103" className="rd-ref-head"><b>[103]</b> [pypbo](https://github.com/esvhd/pypbo)</p>
 
 - <Ref id="R.4.2.2" />　DSR、PSR、MinTRL、PBO 的参照实现，只核对不依赖
 
-<p id="ref-136" className="rd-ref-head"><b>[136]</b> [Sigstore Rekor — 只追加透明日志](https://docs.sigstore.dev/logging/overview/)</p>
+<p id="ref-106" className="rd-ref-head"><b>[106]</b> [Sigstore Rekor — 只追加透明日志](https://docs.sigstore.dev/logging/overview/)</p>
 
 - <Ref id="J.3.1.1" />　不可变、只追加的账本由审计者核对未被改写或删除；篡改可发现而非被阻止
 - <Ref id="J.3.1.4" />　审计者核对日志只追加；篡改可发现不可阻止
@@ -96,596 +80,446 @@
 <p id="ref-2" className="rd-ref-head"><b>[2]</b> [Yamada et al. 2025, arXiv:2504.08066](https://arxiv.org/abs/2504.08066)</p>
 
 - <Ref id="A.1.1.2" />　实验管理代理协调多阶段实验树搜索，每个节点的执行结果与评审反馈决定下一轮扩展哪些节点
-- <Ref id="T.2.2.1" />　实验以树形搜索组织，由实验管理代理按执行反馈在树上扩展节点
 
-<p id="ref-3" className="rd-ref-head"><b>[3]</b> [Wasserstein & Lazar 2016, doi:10.1080/00031305.2016.1154108](https://doi.org/10.1080/00031305.2016.1154108)</p>
-
-- <Ref id="A.2.1.2" />　美国统计学会关于 p 值的声明：科学结论与决策不应只建立在 p 值是否越过某阈值上；p 值不度量效应大小，须完整报告并与效应、不确定性一起呈现
-
-<p id="ref-4" className="rd-ref-head"><b>[4]</b> [Huang et al. 2023, arXiv:2310.01798](https://arxiv.org/abs/2310.01798)</p>
-
-- <Ref id="A.2.1.2" />　大模型在无外部反馈时不能可靠自我纠错；由此绩效指标与计数由代码算出，作为 Agent 之外的反馈，而非由 Agent 自判
-
-<p id="ref-16" className="rd-ref-head"><b>[16]</b> [Haber & Stornetta 1991, doi:10.1007/BF00196791](https://doi.org/10.1007/BF00196791)</p>
-
-- <Ref id="A.5.2.1" />　对文档哈希做可信时间戳并链接相邻请求，以证明存在与先后
-- <Ref id="X.1.2.1" />　可信第三方对文档摘要签发存在性时间戳，证明记录在该时刻已存在
-
-<p id="ref-21" className="rd-ref-head"><b>[21]</b> [Wiecki, Campbell, Lent & Stauth 2016, doi:10.3905/joi.2016.25.3.069](https://doi.org/10.3905/joi.2016.25.3.069)</p>
+<p id="ref-9" className="rd-ref-head"><b>[9]</b> [Wiecki, Campbell, Lent & Stauth 2016, doi:10.3905/joi.2016.25.3.069](https://doi.org/10.3905/joi.2016.25.3.069)</p>
 
 - <Ref id="E.3.2.1" />　大样本回测中样本内夏普对样本外表现几乎无预测力，需合并回撤、波动等多维回测特征；推荐不按单一指标
 - <Ref id="X.2.2.1" />　样本内夏普对样本外几乎无预测力；回撤、波动等多维绩效指标才有预测价值
 
-<p id="ref-22" className="rd-ref-head"><b>[22]</b> [Harvey, Liu & Zhu 2016, Review of Financial Studies, DOI 10.1093/rfs/hhv059](https://doi.org/10.1093/rfs/hhv059)</p>
-
-- <Ref id="L.1.1.1" />　对数百个已发表因子做多重检验校正，指出按常规显著性发表的结果多数可能为假：发表本身不构成在任何市场有效的证据
-
-<p id="ref-23" className="rd-ref-head"><b>[23]</b> [McLean & Pontiff 2016, Journal of Finance, DOI 10.1111/jofi.12365](https://doi.org/10.1111/jofi.12365)</p>
-
-- <Ref id="L.1.1.1" />　已发表的截面可预测性在样本外与发表后显著衰减，支持把出处只记为外部依据而非当前市场的实证
-
-<p id="ref-24" className="rd-ref-head"><b>[24]</b> [Brock, Lakonishok & LeBaron 1992, Journal of Finance, DOI 10.1111/j.1540-6261.1992.tb04681.x](https://doi.org/10.1111/j.1540-6261.1992.tb04681.x)</p>
-
-- <Ref id="L.1.1.1" />　给出移动平均与交易区间突破规则的原版定义、回看期与带宽参数，是均线交叉与通道突破类模板的一手出处例子
-
-<p id="ref-25" className="rd-ref-head"><b>[25]</b> [Moskowitz, Ooi & Pedersen 2012, Journal of Financial Economics, DOI 10.1016/j.jfineco.2011.11.003](https://doi.org/10.1016/j.jfineco.2011.11.003)</p>
-
-- <Ref id="L.1.1.1" />　给出单品种时序动量的原版规则（按过去收益符号开仓、按事前波动率缩放）与回看期、持有期扫描范围，是该模板的一手出处例子
-
-<p id="ref-28" className="rd-ref-head"><b>[28]</b> [Hou, Xue & Zhang 2020, Review of Financial Studies, DOI 10.1093/rfs/hhy131](https://doi.org/10.1093/rfs/hhy131)</p>
+<p id="ref-10" className="rd-ref-head"><b>[10]</b> [Hou, Xue & Zhang 2020, Review of Financial Studies, DOI 10.1093/rfs/hhy131](https://doi.org/10.1093/rfs/hhy131)</p>
 
 - <Ref id="L.1.2.1" />　按统一复现标准逐项复现 452 个已发表异象，复现不了的不计入结论，与「核实不了的模板不收」同构
 
-<p id="ref-29" className="rd-ref-head"><b>[29]</b> [Menkveld et al. 2024, Journal of Finance, DOI 10.1111/jofi.13337](https://doi.org/10.1111/jofi.13337)</p>
+<p id="ref-11" className="rd-ref-head"><b>[11]</b> [Menkveld et al. 2024, Journal of Finance, DOI 10.1111/jofi.13337](https://doi.org/10.1111/jofi.13337)</p>
 
 - <Ref id="L.1.2.1" />　同一假设交给多组研究者独立实现，结果显著离散，可复现性高者离散更小；由此要求实现选择与参数钉到出处而非研究者裁量
 
-<p id="ref-34" className="rd-ref-head"><b>[34]</b> [Rethlefsen et al. 2021, https://doi.org/10.1186/s13643-020-01542-z](https://doi.org/10.1186/s13643-020-01542-z)</p>
+<p id="ref-14" className="rd-ref-head"><b>[14]</b> [Rethlefsen et al. 2021, https://doi.org/10.1186/s13643-020-01542-z](https://doi.org/10.1186/s13643-020-01542-z)</p>
 
 - <Ref id="H.2.1.2" />　PRISMA-S 要求逐数据库原样报告检索式、过滤条件、最后运行日期与命中数，使检索各组成部分可复现
 
-<p id="ref-36" className="rd-ref-head"><b>[36]</b> [McLean & Pontiff 2016, https://doi.org/10.1111/jofi.12365](https://doi.org/10.1111/jofi.12365)</p>
+<p id="ref-16" className="rd-ref-head"><b>[16]</b> [McLean & Pontiff 2016, https://doi.org/10.1111/jofi.12365](https://doi.org/10.1111/jofi.12365)</p>
 
 - <Ref id="H.2.2.3" />　已发表的可预测性在发表后显著衰减，文献证明的是作者研究过的市场与窗口，不是当前市场的有效性
 
-<p id="ref-37" className="rd-ref-head"><b>[37]</b> [Chen, Lopez-Lira & Zimmermann 2022, arXiv:2212.10317](https://arxiv.org/abs/2212.10317)</p>
+<p id="ref-17" className="rd-ref-head"><b>[17]</b> [Chen, Lopez-Lira & Zimmermann 2022, arXiv:2212.10317](https://arxiv.org/abs/2212.10317)</p>
 
 - <Ref id="H.2.2.3" />　同行评审因子与数据挖掘因子样本外保留的可预测性相近，来源身份只能排序优先级，不能作门槛
 
-<p id="ref-38" className="rd-ref-head"><b>[38]</b> [Nosek et al. 2018, https://doi.org/10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)</p>
+<p id="ref-18" className="rd-ref-head"><b>[18]</b> [Nosek et al. 2018, https://doi.org/10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)</p>
 
 - <Ref id="H.3.1.1" />　预登记：观察结果前写定研究问题、预测与分析计划，区分验证性与探索性结论
 - <Ref id="H.4.1.1" />　预登记文件在分析前固定并带时间戳，之后不可改
 - <Ref id="H.4.1.3" />　预登记的时间戳先于数据分析是验证性结论的前提
-- <Ref id="F.2.3.1" />　预登记：分析前写定假设与计划并打时间戳，事后分析标为探索性
 
-<p id="ref-39" className="rd-ref-head"><b>[39]</b> [Arnott, Harvey & Markowitz 2019, https://doi.org/10.3905/jfds.2019.1.064](https://doi.org/10.3905/jfds.2019.1.064)</p>
+<p id="ref-19" className="rd-ref-head"><b>[19]</b> [Arnott, Harvey & Markowitz 2019, https://doi.org/10.3905/jfds.2019.1.064](https://doi.org/10.3905/jfds.2019.1.064)</p>
 
 - <Ref id="H.3.1.1" />　回测协议第一条：研究从事前经济假设出发，数据挖掘后再编经济故事几乎总是错的
 - <Ref id="H.3.3.1" />　记录全部试过的模型与参数，不事后改标
-- <Ref id="F.2.3.1" />　记录全部试过的模型与事前经济理由，不事后改标
 
-<p id="ref-42" className="rd-ref-head"><b>[42]</b> [Lakens 2017, https://doi.org/10.1177/1948550617697177](https://doi.org/10.1177/1948550617697177)</p>
+<p id="ref-22" className="rd-ref-head"><b>[22]</b> [Lakens 2017, https://doi.org/10.1177/1948550617697177](https://doi.org/10.1177/1948550617697177)</p>
 
 - <Ref id="H.3.2.2" />　等价界即最小关心效应须事前声明，并随结果一并报告，而非事后选择
 
-<p id="ref-43" className="rd-ref-head"><b>[43]</b> [Lakens et al. 2018, https://doi.org/10.1038/s41562-018-0311-x](https://doi.org/10.1038/s41562-018-0311-x)</p>
+<p id="ref-23" className="rd-ref-head"><b>[23]</b> [Lakens et al. 2018, https://doi.org/10.1038/s41562-018-0311-x](https://doi.org/10.1038/s41562-018-0311-x)</p>
 
 - <Ref id="H.3.2.2" />　显著性水平应按研究情境论证并声明，而非沿用默认常数
 
-<p id="ref-44" className="rd-ref-head"><b>[44]</b> [Bailey, Borwein, López de Prado & Zhu 2014, https://doi.org/10.1090/noti1105](https://doi.org/10.1090/noti1105)</p>
+<p id="ref-24" className="rd-ref-head"><b>[24]</b> [Bailey, Borwein, López de Prado & Zhu 2014, https://doi.org/10.1090/noti1105](https://doi.org/10.1090/noti1105)</p>
 
 - <Ref id="H.3.3.1" />　不报告试验次数的回测无法评估过拟合风险，过拟合概率随尝试的配置数增长，故网格须事前固定并计数
 
-<p id="ref-50" className="rd-ref-head"><b>[50]</b> [Künsch 1989, The Annals of Statistics](https://doi.org/10.1214/aos/1176347265)</p>
+<p id="ref-30" className="rd-ref-head"><b>[30]</b> [Künsch 1989, The Annals of Statistics](https://doi.org/10.1214/aos/1176347265)</p>
 
 - <Ref id="V.3.2.1" />　固定块长块自助在一般平稳序列上的理论基础
 
-<p id="ref-51" className="rd-ref-head"><b>[51]</b> [Politis & Romano 1994, Journal of the American Statistical Association](https://doi.org/10.1080/01621459.1994.10476870)</p>
+<p id="ref-31" className="rd-ref-head"><b>[31]</b> [Politis & Romano 1994, Journal of the American Statistical Association](https://doi.org/10.1080/01621459.1994.10476870)</p>
 
 - <Ref id="V.3.2.1" />　平稳自助：随机块长的块重抽保留相依结构；固定块长的循环块自助是与之并列的前驱方法
 
-<p id="ref-52" className="rd-ref-head"><b>[52]</b> [Ledoit & Wolf 2008, Journal of Empirical Finance](https://doi.org/10.1016/j.jempfin.2008.03.002)</p>
+<p id="ref-32" className="rd-ref-head"><b>[32]</b> [Ledoit & Wolf 2008, Journal of Empirical Finance](https://doi.org/10.1016/j.jempfin.2008.03.002)</p>
 
 - <Ref id="V.3.2.1" />　两策略表现差的循环块自助检验，两侧按配对共同重抽
 - <Ref id="V.3.2.2" />　两策略差的学生化循环块自助区间，内层估计标准误
 
-<p id="ref-55" className="rd-ref-head"><b>[55]</b> [Dunn 1961, Journal of the American Statistical Association](https://doi.org/10.1080/01621459.1961.10482090)</p>
+<p id="ref-35" className="rd-ref-head"><b>[35]</b> [Dunn 1961, Journal of the American Statistical Association](https://doi.org/10.1080/01621459.1961.10482090)</p>
 
 - <Ref id="V.3.2.3" />　Bonferroni 多重比较校正
 
-<p id="ref-56" className="rd-ref-head"><b>[56]</b> [White 2000, Econometrica](https://doi.org/10.1111/1468-0262.00152)</p>
+<p id="ref-36" className="rd-ref-head"><b>[36]</b> [White 2000, Econometrica](https://doi.org/10.1111/1468-0262.00152)</p>
 
 - <Ref id="V.3.2.3" />　多个规则同时与一个基准比较时「最好的只是运气」，须按比较族控制
 
-<p id="ref-57" className="rd-ref-head"><b>[57]</b> [Romano & Wolf 2005, Econometrica](https://doi.org/10.1111/j.1468-0262.2005.00615.x)</p>
+<p id="ref-37" className="rd-ref-head"><b>[37]</b> [Romano & Wolf 2005, Econometrica](https://doi.org/10.1111/j.1468-0262.2005.00615.x)</p>
 
 - <Ref id="V.3.2.3" />　数据窥探下的逐步多重检验：局部校正不等于全程控制
 
-<p id="ref-59" className="rd-ref-head"><b>[59]</b> [Politis & White 2004, Econometric Reviews（Patton, Politis & White 2009 更正）](https://doi.org/10.1081/ETC-120028836)</p>
+<p id="ref-39" className="rd-ref-head"><b>[39]</b> [Politis & White 2004, Econometric Reviews（Patton, Politis & White 2009 更正）](https://doi.org/10.1081/ETC-120028836)</p>
 
 - <Ref id="V.3.3.1" />　块长决定块自助推断的准确性并给出自动选块长方法；本产品以三档块长的敏感性呈现这一依赖
 
-<p id="ref-60" className="rd-ref-head"><b>[60]</b> [Lakens 2017, Social Psychological and Personality Science](https://doi.org/10.1177/1948550617697177)</p>
+<p id="ref-40" className="rd-ref-head"><b>[40]</b> [Lakens 2017, Social Psychological and Personality Science](https://doi.org/10.1177/1948550617697177)</p>
 
 - <Ref id="V.3.3.2" />　最小关心效应须事前声明并随结果一并报告，用于解读不显著结果
 
-<p id="ref-61" className="rd-ref-head"><b>[61]</b> [Bailey & López de Prado 2012, The Journal of Risk](https://doi.org/10.21314/JOR.2012.255)</p>
+<p id="ref-41" className="rd-ref-head"><b>[41]</b> [Bailey & López de Prado 2012, The Journal of Risk](https://doi.org/10.21314/JOR.2012.255)</p>
 
 - <Ref id="V.3.3.2" />　最短记录长度：给定置信度下短记录分辨不出小的真实效应（原文针对夏普比率，此处类比到平均日对数差）
 
-<p id="ref-62" className="rd-ref-head"><b>[62]</b> [Wasserstein & Lazar 2016, The American Statistician（ASA 关于 p 值的声明）](https://doi.org/10.1080/00031305.2016.1154108)</p>
+<p id="ref-42" className="rd-ref-head"><b>[42]</b> [Wasserstein & Lazar 2016, The American Statistician（ASA 关于 p 值的声明）](https://doi.org/10.1080/00031305.2016.1154108)</p>
 
 - <Ref id="V.4.2.3" />　p 值不度量假设为真的概率，也不度量效应大小或结果的重要性；结论不应只建立在是否越过某一门槛上，须完整报告
 
-<p id="ref-65" className="rd-ref-head"><b>[65]</b> [Snoek, Larochelle & Adams 2012, arXiv:1206.2944](https://arxiv.org/abs/1206.2944)</p>
+<p id="ref-45" className="rd-ref-head"><b>[45]</b> [Snoek, Larochelle & Adams 2012, arXiv:1206.2944](https://arxiv.org/abs/1206.2944)</p>
 
 - <Ref id="F.2.1.1" />　以预测均值、方差与试验耗时选下一候选（期望改进每秒）；本产品只借用排序依据，不运行该优化器
 
-<p id="ref-66" className="rd-ref-head"><b>[66]</b> [Wasserstein & Lazar 2016, https://doi.org/10.1080/00031305.2016.1154108](https://doi.org/10.1080/00031305.2016.1154108)</p>
-
-- <Ref id="F.2.1.2" />　p 值不度量假设为真的概率；科学结论不应只看是否过阈值
-
-<p id="ref-67" className="rd-ref-head"><b>[67]</b> [Amrhein, Greenland & McShane 2019, https://doi.org/10.1038/d41586-019-00857-9](https://doi.org/10.1038/d41586-019-00857-9)</p>
-
-- <Ref id="F.2.1.2" />　不显著不等于无效应，不能据此宣称机制无效
-
-<p id="ref-68" className="rd-ref-head"><b>[68]</b> [Greenland et al. 2016, https://doi.org/10.1007/s10654-016-0149-3](https://doi.org/10.1007/s10654-016-0149-3)</p>
-
-- <Ref id="F.2.1.2" />　非显著不证明无效；小样本下较大效应也可能不显著
-
-<p id="ref-70" className="rd-ref-head"><b>[70]</b> [Wiecki, Campbell, Lent & Stauth 2016, https://doi.org/10.3905/joi.2016.25.3.069](https://doi.org/10.3905/joi.2016.25.3.069)</p>
+<p id="ref-47" className="rd-ref-head"><b>[47]</b> [Wiecki, Campbell, Lent & Stauth 2016, https://doi.org/10.3905/joi.2016.25.3.069](https://doi.org/10.3905/joi.2016.25.3.069)</p>
 
 - <Ref id="F.3.2.1" />　样本内夏普对样本外几乎无预测力；评价须多维而非单看一个比率
 
-<p id="ref-72" className="rd-ref-head"><b>[72]</b> [Nosek, Ebersole, DeHaven & Mellor 2018, doi:10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)</p>
+<p id="ref-49" className="rd-ref-head"><b>[49]</b> [Haber & Stornetta 1991, doi:10.1007/BF00196791](https://doi.org/10.1007/BF00196791)</p>
+
+- <Ref id="X.1.2.1" />　可信第三方对文档摘要签发存在性时间戳，证明记录在该时刻已存在
+
+<p id="ref-50" className="rd-ref-head"><b>[50]</b> [Nosek, Ebersole, DeHaven & Mellor 2018, doi:10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)</p>
 
 - <Ref id="X.1.2.1" />　预登记：分析前写定假设与计划并留时间记录，区分验证性与探索性结果
 
-<p id="ref-74" className="rd-ref-head"><b>[74]</b> [Dwork, Feldman, Hardt, Pitassi, Reingold & Roth 2015, doi:10.1126/science.aaa9375](https://doi.org/10.1126/science.aaa9375)</p>
-
-- <Ref id="X.1.2.3" />　自适应数据分析下复用留出集的有效性有界；开发中反复看过的数据不能再当留出
-
-<p id="ref-75" className="rd-ref-head"><b>[75]</b> [McLean & Pontiff 2016, doi:10.1111/jofi.12365](https://doi.org/10.1111/jofi.12365)</p>
-
-- <Ref id="X.1.2.3" />　已发表的可预测性在发表后显著衰减；文献研究过的窗口对该机制已非样本外
-
-<p id="ref-77" className="rd-ref-head"><b>[77]</b> [Politis & Romano 1994, doi:10.1080/01621459.1994.10476870](https://doi.org/10.1080/01621459.1994.10476870)</p>
+<p id="ref-52" className="rd-ref-head"><b>[52]</b> [Politis & Romano 1994, doi:10.1080/01621459.1994.10476870](https://doi.org/10.1080/01621459.1994.10476870)</p>
 
 - <Ref id="X.2.1.2" />　块重抽保留日收益的相依结构
 
-<p id="ref-78" className="rd-ref-head"><b>[78]</b> [Ledoit & Wolf 2008, doi:10.1016/j.jempfin.2008.03.002](https://doi.org/10.1016/j.jempfin.2008.03.002)</p>
+<p id="ref-53" className="rd-ref-head"><b>[53]</b> [Ledoit & Wolf 2008, doi:10.1016/j.jempfin.2008.03.002](https://doi.org/10.1016/j.jempfin.2008.03.002)</p>
 
 - <Ref id="X.2.1.2" />　夏普检验用学生化循环块自助；百分位区间在厚尾下偏乐观
 
-<p id="ref-79" className="rd-ref-head"><b>[79]</b> [Lo 2002, doi:10.2469/faj.v58.n4.2453](https://doi.org/10.2469/faj.v58.n4.2453)</p>
+<p id="ref-54" className="rd-ref-head"><b>[54]</b> [Lo 2002, doi:10.2469/faj.v58.n4.2453](https://doi.org/10.2469/faj.v58.n4.2453)</p>
 
 - <Ref id="X.2.1.2" />　夏普估计量的标准误与序列相关校正；区间宽度随样本长度变化
 
-<p id="ref-81" className="rd-ref-head"><b>[81]</b> [Holm 1979, doi:10.2307/4615733](https://doi.org/10.2307/4615733)</p>
+<p id="ref-56" className="rd-ref-head"><b>[56]</b> [Holm 1979, doi:10.2307/4615733](https://doi.org/10.2307/4615733)</p>
 
 - <Ref id="X.2.1.3" />　逐步拒绝的 Bonferroni 程序控制族错误率
 
-<p id="ref-82" className="rd-ref-head"><b>[82]</b> [Romano & Wolf 2005, doi:10.1111/j.1468-0262.2005.00615.x](https://doi.org/10.1111/j.1468-0262.2005.00615.x)</p>
+<p id="ref-57" className="rd-ref-head"><b>[57]</b> [Romano & Wolf 2005, doi:10.1111/j.1468-0262.2005.00615.x](https://doi.org/10.1111/j.1468-0262.2005.00615.x)</p>
 
 - <Ref id="X.2.1.3" />　数据窥探下的逐步多重检验控制全族错误率
 
-<p id="ref-84" className="rd-ref-head"><b>[84]</b> [Bailey & López de Prado 2012, doi:10.21314/JOR.2012.255](https://doi.org/10.21314/JOR.2012.255)</p>
+<p id="ref-59" className="rd-ref-head"><b>[59]</b> [Bailey & López de Prado 2012, doi:10.21314/JOR.2012.255](https://doi.org/10.21314/JOR.2012.255)</p>
 
 - <Ref id="X.2.2.1" />　概率夏普与最短记录长度：短记录只能否定不能证实
 
-<p id="ref-100" className="rd-ref-head"><b>[100]</b> [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）](https://arxiv.org/abs/2212.06888)</p>
+<p id="ref-68" className="rd-ref-head"><b>[68]</b> [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888（Fundamentals of Perpetual Futures）](https://arxiv.org/abs/2212.06888)</p>
 
 - <Ref id="W.1.2.1" />　永续合约无到期、靠资金费锚定现货；资金费是独立于价格 K 线的经济事实，须单独存储
 
-<p id="ref-107" className="rd-ref-head"><b>[107]</b> [Brown, Goetzmann, Ibbotson & Ross 1992, Review of Financial Studies 5(4), doi:10.1093/rfs/5.4.553（Survivorship Bias in Performance Studies）](https://doi.org/10.1093/rfs/5.4.553)</p>
+<p id="ref-75" className="rd-ref-head"><b>[75]</b> [Brown, Goetzmann, Ibbotson & Ross 1992, Review of Financial Studies 5(4), doi:10.1093/rfs/5.4.553（Survivorship Bias in Performance Studies）](https://doi.org/10.1093/rfs/5.4.553)</p>
 
 - <Ref id="W.3.1.1" />　幸存者偏差：样本若只含存活到期末的成员，成绩被系统性高估；范围须收入后来消失的合约
 
-<p id="ref-119" className="rd-ref-head"><b>[119]</b> [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888](https://arxiv.org/abs/2212.06888)</p>
+<p id="ref-87" className="rd-ref-head"><b>[87]</b> [He, Manela, Ross & von Wachter 2022, arXiv:2212.06888](https://arxiv.org/abs/2212.06888)</p>
 
 - <Ref id="W.5.2.3" />　资金费是多空之间的周期性支付，锚定永续价格于现货；是利润来源拆分中独立的一项
 
-<p id="ref-121" className="rd-ref-head"><b>[121]</b> [Harvey & Liu 2015, 10.3905/jpm.2015.42.1.013](https://doi.org/10.3905/jpm.2015.42.1.013)</p>
+<p id="ref-89" className="rd-ref-head"><b>[89]</b> [Harvey & Liu 2015, 10.3905/jpm.2015.42.1.013](https://doi.org/10.3905/jpm.2015.42.1.013)</p>
 
 - <Ref id="G.1.2.1" />　按试验总次数（相关试验折算有效次数）折扣回测结果，失败与未报告的尝试同样计入次数
 
-<p id="ref-122" className="rd-ref-head"><b>[122]</b> [Harvey, Liu & Zhu 2016, 10.1093/rfs/hhv059](https://doi.org/10.1093/rfs/hhv059)</p>
+<p id="ref-90" className="rd-ref-head"><b>[90]</b> [Harvey, Liu & Zhu 2016, 10.1093/rfs/hhv059](https://doi.org/10.1093/rfs/hhv059)</p>
 
 - <Ref id="G.1.2.1" />　多重检验校正以全部尝试过的数量为基数，而非只算报告出来的
 
-<p id="ref-127" className="rd-ref-head"><b>[127]</b> [Lo 2002](https://doi.org/10.2469/faj.v58.n4.2453)</p>
+<p id="ref-99" className="rd-ref-head"><b>[99]</b> [Lo 2002](https://doi.org/10.2469/faj.v58.n4.2453)</p>
 
 - <Ref id="R.1.2.2" />　夏普估计量的标准误随样本长度收窄与年化换算
 
-<p id="ref-129" className="rd-ref-head"><b>[129]</b> [Harvey & Liu 2015](https://doi.org/10.3905/jpm.2015.42.1.013)</p>
+<p id="ref-101" className="rd-ref-head"><b>[101]</b> [Harvey & Liu 2015](https://doi.org/10.3905/jpm.2015.42.1.013)</p>
 
 - <Ref id="R.4.2.1" />　按试验总数折扣，失败与未报告的试验也计入
 
-<p id="ref-130" className="rd-ref-head"><b>[130]</b> [Bailey & López de Prado 2014](https://doi.org/10.3905/jpm.2014.40.5.094)</p>
+<p id="ref-102" className="rd-ref-head"><b>[102]</b> [Bailey & López de Prado 2014](https://doi.org/10.3905/jpm.2014.40.5.094)</p>
 
 - <Ref id="R.4.2.2" />　DSR 以试验数与方差推零效应下的期望最大夏普为基准，再按样本长度、偏度、峰度折扣
 
-<p id="ref-132" className="rd-ref-head"><b>[132]</b> [White 2000](https://doi.org/10.1111/1468-0262.00152)</p>
-
-- <Ref id="R.4.2.3" />　多规则与基准同时比较时，用自助检验「最优者」是否只是数据窥探
-
-<p id="ref-133" className="rd-ref-head"><b>[133]</b> [Bailey, Borwein, López de Prado & Zhu 2016](https://doi.org/10.21314/JCF.2016.322)</p>
-
-- <Ref id="R.4.2.3" />　回测过拟合概率：样本内最优配置样本外表现中位数以下的概率
-
-<p id="ref-134" className="rd-ref-head"><b>[134]</b> [Deb et al. 2002](https://doi.org/10.1109/4235.996017)</p>
+<p id="ref-104" className="rd-ref-head"><b>[104]</b> [Deb et al. 2002](https://doi.org/10.1109/4235.996017)</p>
 
 - <Ref id="R.5.1.1" />　快速非支配排序定义非劣集
 
-<p id="ref-135" className="rd-ref-head"><b>[135]</b> [Wiecki et al. 2016](https://doi.org/10.3905/joi.2016.25.3.069)</p>
+<p id="ref-105" className="rd-ref-head"><b>[105]</b> [Wiecki et al. 2016](https://doi.org/10.3905/joi.2016.25.3.069)</p>
 
 - <Ref id="R.5.1.1" />　样本内夏普对样本外几乎无预测力；回撤、波动等多特征合用更可靠
 
-<p id="ref-144" className="rd-ref-head"><b>[144]</b> [Nosek, Ebersole, DeHaven & Mellor 2018, https://doi.org/10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)</p>
+<p id="ref-114" className="rd-ref-head"><b>[114]</b> [Nosek, Ebersole, DeHaven & Mellor 2018, https://doi.org/10.1073/pnas.1708274114](https://doi.org/10.1073/pnas.1708274114)</p>
 
 - <Ref id="J.4.1.1" />　预登记在分析前写定计划并带时间戳，使事后更改可辨
 
-<p id="ref-148" className="rd-ref-head"><b>[148]</b> [Haber & Stornetta 1991, https://doi.org/10.1007/BF00196791](https://doi.org/10.1007/BF00196791)</p>
+<p id="ref-118" className="rd-ref-head"><b>[118]</b> [Haber & Stornetta 1991, https://doi.org/10.1007/BF00196791](https://doi.org/10.1007/BF00196791)</p>
 
 - <Ref id="J.4.2.2" />　可信第三方对文档哈希签发存在性时间戳
 
-<p id="ref-156" className="rd-ref-head"><b>[156]</b> [Sandve, Nekrutenko, Taylor & Hovig 2013, doi:10.1371/journal.pcbi.1003285](https://doi.org/10.1371/journal.pcbi.1003285)</p>
-
-- <Ref id="D.1.1.2" />　可复现研究要求记录每个程序的精确版本并把全部自写脚本置于版本控制；运行环境身份与指标计算版本随运行行存储是同一要求的实现
-
 ## 官方文档
 
-<p id="ref-5" className="rd-ref-head"><b>[5]</b> [Dolt — Transactions](https://www.dolthub.com/docs/concepts/dolt/sql/transaction)</p>
+<p id="ref-3" className="rd-ref-head"><b>[3]</b> [Dolt — Transactions](https://www.dolthub.com/docs/concepts/dolt/sql/transaction)</p>
 
 - <Ref id="A.4.1.2" />　两个写者写同一数据时一方提交、另一方回滚；事务内改动只对本会话可见
-- <Ref id="A.5.1.1" />　冲突写入一方回滚，拒绝由数据库强制而非约定
 - <Ref id="J.3.2.1" />　两个写者改同一数据时一方提交成功、另一方回滚；事务内改动只对本会话可见
 - <Ref id="J.3.2.2" />　冲突时一方提交成功另一方回滚
 
-<p id="ref-6" className="rd-ref-head"><b>[6]</b> [Dolt — Access management](https://www.dolthub.com/docs/sql-reference/server/access-management)</p>
+<p id="ref-4" className="rd-ref-head"><b>[4]</b> [Dolt — Access management](https://www.dolthub.com/docs/sql-reference/server/access-management)</p>
 
 - <Ref id="A.4.1.2" />　CREATE USER 与 GRANT 建最小权限账号，用户与授权持久化到特权文件
-- <Ref id="A.5.2.2" />　在数据库目录运行 dolt sql 始终以超级用户访问，即使丢失超级用户密码
 
-<p id="ref-7" className="rd-ref-head"><b>[7]</b> [Dolt — Branch permissions](https://www.dolthub.com/docs/sql-reference/server/branch-permissions)</p>
+<p id="ref-5" className="rd-ref-head"><b>[5]</b> [Dolt — Branch permissions](https://www.dolthub.com/docs/sql-reference/server/branch-permissions)</p>
 
 - <Ref id="A.4.1.2" />　dolt_branch_control 按库、分支、用户与主机授予 write，最具体匹配生效
-- <Ref id="A.5.2.2" />　branch control 权限只约束带用户名密码的 sql-server 会话，本地命令行操作不受约束
 - <Ref id="J.3.3.1" />　dolt_branch_control 按库、branch、用户、主机授 admin/write/merge/read，最长匹配的条目生效；只对带账号密码的 sql-server 连接生效
 
-<p id="ref-8" className="rd-ref-head"><b>[8]</b> [NautilusTrader — Architecture](https://nautilustrader.io/docs/latest/concepts/architecture/)</p>
+<p id="ref-6" className="rd-ref-head"><b>[6]</b> [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)</p>
 
-- <Ref id="A.4.2.2" />　ExecutionEngine 跟踪订单与持仓状态，RiskEngine 校验余额、数量、名义与只减仓，Portfolio 维护余额、净持仓、保证金与盈亏
-- <Ref id="A.5.1.1" />　订单、风控与账户状态由引擎组件持有，策略不能绕过
+- <Ref id="E.1.2.1" />　AS OF 接受提交哈希、分支名或其他引用（也接受时间戳），按精确版本读表；钉住提交即按该哈希读市场库
+- <Ref id="E.2.2.1" />　AS OF 接受提交哈希、标签或其他引用并支持时间戳，按精确版本读表
+- <Ref id="T.2.2.3" />　AS OF 按提交哈希、分支名、其他引用或时间戳读表，候选清单的 --at 据此回读历史谱系
 
-<p id="ref-9" className="rd-ref-head"><b>[9]</b> [NautilusTrader — Backtesting](https://nautilustrader.io/docs/latest/concepts/backtesting/)</p>
+<p id="ref-7" className="rd-ref-head"><b>[7]</b> [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
 
-- <Ref id="A.4.2.2" />　回测用与实盘相同的核心组件处理历史数据，BacktestNode 为高层配置入口
-- <Ref id="A.4.2.3" />　回测把历史数据流经同一套组件，不连接交易所
+- <Ref id="E.2.2.1" />　DOLT_TAG 建标签指向指定提交，dolt_tags 列出标签；里程碑按标签解析到其提交后读回
 
-<p id="ref-10" className="rd-ref-head"><b>[10]</b> [NautilusTrader — Accounts and margin](https://nautilustrader.io/docs/latest/concepts/backtesting/accounts-and-margin/)</p>
+<p id="ref-8" className="rd-ref-head"><b>[8]</b> [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)</p>
 
-- <Ref id="A.4.2.2" />　MARGIN 账户类型与保证金模型由模拟交易所执行，资金费结算先调整持仓与余额再被组合观察
-- <Ref id="G.3.2.2" />　资金费在结算边界同时调整持仓与对应账户余额，审计据此把持仓的 FUNDING 调整与账户总额变动逐时刻对账
-- <Ref id="G.3.2.3" />　资金费结算在同一时刻改持仓与余额，与成交落在同一时刻时余额变动不可分拆，故该时刻只能排除
-
-<p id="ref-11" className="rd-ref-head"><b>[11]</b> [Docker — none network driver](https://docs.docker.com/engine/network/drivers/none/)</p>
-
-- <Ref id="A.4.2.3" />　容器只创建回环设备，没有任何外部网络接口
-- <Ref id="J.5.2.2" />　--network none 只创建回环设备，完全隔离网络栈
-
-<p id="ref-12" className="rd-ref-head"><b>[12]</b> [OCI image-spec — Descriptor](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
-
-- <Ref id="A.5.1.1" />　digest 是内容的抗碰撞哈希标识，来自不可信来源的内容在消费前应按 digest 校验字节
-- <Ref id="A.5.2.1" />　镜像以 sha256 摘要作内容地址，改动内容即改变标识
-
-<p id="ref-13" className="rd-ref-head"><b>[13]</b> [Dolt — Storage engine](https://www.dolthub.com/docs/architecture/storage-engine)</p>
-
-- <Ref id="A.5.2.1" />　Prolly 树每个节点以内容哈希标识，根哈希相同即数据相同；版本按 Merkle DAG 组织，以根哈希标识
-
-<p id="ref-14" className="rd-ref-head"><b>[14]</b> [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)</p>
-
-- <Ref id="A.5.2.1" />　dolt_history_\<t> 给每行每提交的值与提交时间，dolt_diff_\<t> 按列给出相邻提交间的 from/to 值与变化类型
-- <Ref id="A.5.2.2" />　dolt_diff_\<t> 的 diff_type 与 from/to 列让任何非追加改动事后可见
 - <Ref id="E.2.2.1" />　dolt_history_\<table> 给每行每提交的值与提交时间，dolt_diff_\<table> 按列给 from/to 与 diff_type，可证明行从未被改写并定位改动
 - <Ref id="T.1.1.1" />　dolt_history_\<t> 给每行每提交的值与提交时间；dolt_diff_\<t> 按行给相邻提交间的 from/to 值与 diff_type（added/modified/removed）
-- <Ref id="T.2.1.2" />　dolt_history_\<t> 每行每版本带 commit_hash 与 commit_date；dolt_diff_\<t> 给 to_commit 与 to_commit_date，可证父行先于子行提交且未被修改
 - <Ref id="C.6.2.1" />　dolt_diff_\<t> 按相邻提交给出 from_/to_ 值与 diff_type（added/modified/removed）；dolt_history_\<t> 给出每行在每个提交的值；只追加对象的任何 modified/removed 都可见
 - <Ref id="J.3.1.1" />　dolt_diff_\<t> 带 diff_type 与 from_/to_ 列、dolt_history_\<t> 带 commit_hash 与 commit_date，每行的插入与改动可查
 - <Ref id="J.3.1.4" />　dolt_diff_\<t> 的 diff_type 区分 added / modified / removed
 
-<p id="ref-15" className="rd-ref-head"><b>[15]</b> [RFC 3161](https://www.rfc-editor.org/rfc/rfc3161)</p>
-
-- <Ref id="A.5.2.1" />　时间戳机构只对哈希签发含 genTime 的凭证，证明数据在该时刻前存在
-
-<p id="ref-17" className="rd-ref-head"><b>[17]</b> [Dolt — Commit verification](https://www.dolthub.com/blog/2026-02-12-commit-verification/)</p>
-
-- <Ref id="A.5.2.2" />　dolt_tests 在提交前运行并拒绝失败提交，但单次提交可用 --skip-verification 跳过
-
-<p id="ref-19" className="rd-ref-head"><b>[19]</b> [Dolt — Querying history](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)</p>
-
-- <Ref id="E.1.2.1" />　AS OF 接受提交哈希、分支名或其他引用（也接受时间戳），按精确版本读表；钉住提交即按该哈希读市场库
-- <Ref id="E.2.2.1" />　AS OF 接受提交哈希、标签或其他引用并支持时间戳，按精确版本读表
-- <Ref id="T.2.2.1" />　AS OF 接受提交哈希、分支名、其他引用或时间戳，按版本读表
-- <Ref id="T.2.2.3" />　AS OF 按提交哈希、分支名、其他引用或时间戳读表，候选清单的 --at 据此回读历史谱系
-- <Ref id="J.3.1.3" />　AS OF 接受提交哈希、branch 名或其他引用及时间戳，读该版本的表
-
-<p id="ref-20" className="rd-ref-head"><b>[20]</b> [Dolt — SQL procedures](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
-
-- <Ref id="E.2.2.1" />　DOLT_TAG 建标签指向指定提交，dolt_tags 列出标签；里程碑按标签解析到其提交后读回
-
-<p id="ref-26" className="rd-ref-head"><b>[26]</b> [TradingView — Built-in strategies（内置策略索引，含 Supertrend、Keltner Channels、Bollinger Bands、RSI、Channel BreakOut、Pivot Reversal 各自的说明页）](https://www.tradingview.com/support/folders/43000587406-built-in-strategies/)</p>
-
-- <Ref id="L.1.1.1" />　平台官方说明是模板规则与参数的可定位出处类型之一；索引页只列名单，入场规则与输入参数在各策略独立页面，默认值未必以文字给出，转写者须在页面内定位
-
-<p id="ref-27" className="rd-ref-head"><b>[27]</b> [QuantConnect — Dual Thrust Trading Algorithm 教程](https://www.quantconnect.com/tutorials/dual-thrust-trading-algorithm)</p>
-
-- <Ref id="L.1.1.1" />　写明原作者、区间定义、双向触发规则与默认参数，是可逐项核实的一手出处例子
-
-<p id="ref-30" className="rd-ref-head"><b>[30]</b> [Pro Git — Git Internals: Git Objects](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)</p>
+<p id="ref-12" className="rd-ref-head"><b>[12]</b> [Pro Git — Git Internals: Git Objects](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)</p>
 
 - <Ref id="T.1.1.1" />　内容寻址存储：对象键是内容字节（加头部）的 SHA-1 校验和，由内容唯一确定，可独立复算核对
 
-<p id="ref-31" className="rd-ref-head"><b>[31]</b> [OCI image-spec — descriptor](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
+<p id="ref-13" className="rd-ref-head"><b>[13]</b> [OCI image-spec — descriptor](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
 
 - <Ref id="T.1.1.1" />　digest 是被引用内容字节的抗碰撞哈希，作为内容地址，消费时应重算核对
 
-<p id="ref-32" className="rd-ref-head"><b>[32]</b> [Pro Git — Git Branching: Branches in a Nutshell](https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell)</p>
-
-- <Ref id="T.1.1.3" />　提交对象记父指针：初始提交零个父，普通提交一个父
-- <Ref id="T.2.1.2" />　提交对象保存指向直接前驱的父指针，历史由显式父指针构成而非推断
-
-<p id="ref-33" className="rd-ref-head"><b>[33]</b> [Git — git-branch 手册](https://git-scm.com/docs/git-branch)</p>
-
-- <Ref id="T.2.2.1" />　新分支头指向给定的 start-point，可为任一提交、分支名或标签，默认 HEAD
-
-<p id="ref-35" className="rd-ref-head"><b>[35]</b> [OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)](https://help.openalex.org/data/works/attributes/)</p>
+<p id="ref-15" className="rd-ref-head"><b>[15]</b> [OpenAlex — Works attributes (https://help.openalex.org/data/works/attributes/)](https://help.openalex.org/data/works/attributes/)</p>
 
 - <Ref id="H.2.1.2" />　同一工作可有多个 DOI 与多个来源副本，按工作合并并保留每个来源 ID，检索记录据此去重
 - <Ref id="H.2.3.2" />　工作对象带 is_retracted 布尔字段（据 Retraction Watch），并把同一工作的多个 DOI 与来源副本归到一个工作，可据此剔除撤稿并合并版本
 
-<p id="ref-40" className="rd-ref-head"><b>[40]</b> [Center for Open Science — Preregistration (https://www.cos.io/initiatives/prereg)](https://www.cos.io/initiatives/prereg)</p>
+<p id="ref-20" className="rd-ref-head"><b>[20]</b> [Center for Open Science — Preregistration (https://www.cos.io/initiatives/prereg)](https://www.cos.io/initiatives/prereg)</p>
 
 - <Ref id="H.3.1.1" />　研究前向登记处提交假设与分析计划，结果已知后新增或更改的分析标为探索性
 - <Ref id="H.3.3.1" />　分析计划在看到数据前写定，事后更改标为探索
 
-<p id="ref-41" className="rd-ref-head"><b>[41]</b> [QuantConnect — Research Guide (https://www.quantconnect.com/docs/v2/writing-algorithms/key-concepts/research-guide)](https://www.quantconnect.com/docs/v2/writing-algorithms/key-concepts/research-guide)</p>
+<p id="ref-21" className="rd-ref-head"><b>[21]</b> [QuantConnect — Research Guide (https://www.quantconnect.com/docs/v2/writing-algorithms/key-concepts/research-guide)](https://www.quantconnect.com/docs/v2/writing-algorithms/key-concepts/research-guide)</p>
 
 - <Ref id="H.3.1.1" />　以中心假设为起点做研究，不从测试结果反推假设；精调参数拟合回测噪声即过拟合
 
-<p id="ref-45" className="rd-ref-head"><b>[45]</b> [Dolt — System tables (https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)</p>
+<p id="ref-25" className="rd-ref-head"><b>[25]</b> [Dolt — System tables (https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables/)</p>
 
 - <Ref id="H.4.1.1" />　dolt_history_\<table> 给出每行在每次提交的值，dolt_diff_\<table> 列出每次变更，登记内容自写入后未被改可据此核对
 
-<p id="ref-46" className="rd-ref-head"><b>[46]</b> [Dolt — Transactions (https://www.dolthub.com/docs/concepts/dolt/sql/transaction/)](https://www.dolthub.com/docs/concepts/dolt/sql/transaction/)</p>
+<p id="ref-26" className="rd-ref-head"><b>[26]</b> [Dolt — Transactions (https://www.dolthub.com/docs/concepts/dolt/sql/transaction/)](https://www.dolthub.com/docs/concepts/dolt/sql/transaction/)</p>
 
 - <Ref id="H.4.1.3" />　回滚把整个数据库恢复到事务开始时的状态，事务内对多张表的写入要么一起提交要么一起撤销，试验行与绑定行同生同灭
 
-<p id="ref-47" className="rd-ref-head"><b>[47]</b> [OCI image-spec — descriptor：digest 以抗碰撞哈希唯一标识内容，取自不可信来源的内容应按 digest 校验](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
+<p id="ref-27" className="rd-ref-head"><b>[27]</b> [OCI image-spec — descriptor：digest 以抗碰撞哈希唯一标识内容，取自不可信来源的内容应按 digest 校验](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
 
 - <Ref id="V.2.1.1" />　镜像以内容地址摘要唯一标识，同摘要即同字节，运行环境身份据此可比
 
-<p id="ref-49" className="rd-ref-head"><b>[49]</b> [NautilusTrader — Portfolio：组合收益为逐日 MTM 权益百分比变化，快照覆盖至少两个 UTC 日期时每个日期取最后一份快照](https://nautilustrader.io/docs/latest/concepts/portfolio/)</p>
+<p id="ref-29" className="rd-ref-head"><b>[29]</b> [NautilusTrader — Portfolio：组合收益为逐日 MTM 权益百分比变化，快照覆盖至少两个 UTC 日期时每个日期取最后一份快照](https://nautilustrader.io/docs/latest/concepts/portfolio/)</p>
 
 - <Ref id="V.2.2.2" />　引擎按 UTC 日期产出一日一值的账户收益序列，是配对单位的原生来源
 
-<p id="ref-64" className="rd-ref-head"><b>[64]</b> [NautilusTrader — Reports：Positions report](https://nautilustrader.io/docs/latest/concepts/reports/)</p>
+<p id="ref-44" className="rd-ref-head"><b>[44]</b> [NautilusTrader — Reports：Positions report](https://nautilustrader.io/docs/latest/concepts/reports/)</p>
 
 - <Ref id="F.1.2.2" />　每个持仓行带 closing_order_id，出场原因可追溯到平仓订单而非盈亏符号
 
-<p id="ref-71" className="rd-ref-head"><b>[71]</b> [RFC 3161 — Internet X.509 PKI Time-Stamp Protocol（2001，更新于 RFC 5816）](https://www.rfc-editor.org/rfc/rfc3161)</p>
+<p id="ref-48" className="rd-ref-head"><b>[48]</b> [RFC 3161 — Internet X.509 PKI Time-Stamp Protocol（2001，更新于 RFC 5816）](https://www.rfc-editor.org/rfc/rfc3161)</p>
 
 - <Ref id="X.1.2.1" />　时间戳机构只对消息摘要签发含 genTime 的令牌，不查看被盖戳的数据；账本只送出提交哈希
 
-<p id="ref-73" className="rd-ref-head"><b>[73]</b> [Dolt — System tables（dolt_diff_\<t>、dolt_history_\<t>）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)</p>
+<p id="ref-51" className="rd-ref-head"><b>[51]</b> [Dolt — System tables（dolt_diff_\<t>、dolt_history_\<t>）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)</p>
 
 - <Ref id="X.1.2.1" />　每行变化记录 to_commit、to_commit_date 与 diff_type，把登记行绑定到一个提交
 
-<p id="ref-76" className="rd-ref-head"><b>[76]</b> [Center for Open Science — Preregistration](https://www.cos.io/initiatives/prereg)</p>
-
-- <Ref id="X.1.2.3" />　结果已知后改动或新增的分析须标为探索性；同一数据不能既生成又检验假设
-
-<p id="ref-85" className="rd-ref-head"><b>[85]</b> [NautilusTrader — Fill models](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-models/)</p>
+<p id="ref-60" className="rd-ref-head"><b>[60]</b> [NautilusTrader — Fill models](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-models/)</p>
 
 - <Ref id="X.2.2.1" />　回放成交由撮合模型假设决定（缺省触及即成交、无滑点），是模拟而非观测
 
-<p id="ref-86" className="rd-ref-head"><b>[86]</b> [NautilusTrader — Strategies](https://nautilustrader.io/docs/latest/concepts/strategies/)</p>
+<p id="ref-61" className="rd-ref-head"><b>[61]</b> [NautilusTrader — Strategies](https://nautilustrader.io/docs/latest/concepts/strategies/)</p>
 
 - <Ref id="C.1.1.1" />　策略是 Strategy 的子类，由 on_* 回调驱动；clock、cache、portfolio、order_factory 在策略注册到 trader 之后才可用
 - <Ref id="C.2.1.1" />　订单、仓位等执行对象存于 cache，账户与持仓信息由 portfolio 提供，建单经 order_factory；策略只读这些对象并响应 on_* 事件
-- <Ref id="C.2.1.2" />　订单与仓位经 self.cache 读取、账户状态经 self.portfolio 读取；策略以 on_order_event、on_position_event 等回调响应引擎事件
 
-<p id="ref-87" className="rd-ref-head"><b>[87]</b> [Binance — Delisting of futures contracts](https://www.binance.com/en/support/faq/delisting-of-futures-contracts-dd60dfbf654d4055aa6b217ea6d5ddba)</p>
-
-- <Ref id="C.1.4.3" />　停牌前 30 分钟只允许只减仓单；停牌时未平仓位按最后 30 分钟每秒指数价均值自动结算，结算费按 taker
-- <Ref id="G.3.3.3" />　停止交易前 30 分钟只能下只减仓单，持有到停止交易的仓位按最后 30 分钟每秒价格指数均价自动结算并收取费用；审计不复制该结算，故要求无价终止前归零
-
-<p id="ref-88" className="rd-ref-head"><b>[88]</b> [NautilusTrader — Execution](https://nautilustrader.io/docs/latest/concepts/execution)</p>
-
-- <Ref id="C.2.1.3" />　RiskEngine 提交前检查价格、数量、名义、GTD、只减仓与余额；保证金或余额不足以 INITIAL_MARGIN_EXCEEDS_FREE_BALANCE、NOTIONAL_EXCEEDS_FREE_BALANCE 等标准码产生 OrderDenied
-- <Ref id="G.3.2.4" />　RiskEngine 在提交前检查价格与数量精度、数量边界、GTD 未过期、只减仓不增仓、名义上限与可用余额或初始保证金，失败即产生带标准化原因码的 OrderDenied 事件
-
-<p id="ref-90" className="rd-ref-head"><b>[90]</b> [NautilusTrader — Bar execution](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/)</p>
-
-- <Ref id="C.3.1.1" />　K 线以收盘时刻为 ts_init，成形前不可见；on_bar 内提交的订单在该 K 线四点全部处理后才处理；K 线内顺序未知，O→H→L→C 是确定性启发而非真实序列
-
-<p id="ref-91" className="rd-ref-head"><b>[91]</b> [NautilusTrader — Orders](https://nautilustrader.io/docs/latest/concepts/orders/)</p>
-
-- <Ref id="C.4.1.2" />　只减仓单只能缩减既有仓位、不能开仓或加仓；模拟交易所在仓位归零时撤销它并随仓位缩量；GTD 以 expire_time 到期
-- <Ref id="G.3.2.1" />　订单状态模型从 INITIALIZED 经 SUBMITTED、ACCEPTED、PARTIALLY_FILLED 到 FILLED、CANCELED、EXPIRED、DENIED、REJECTED 等终态，审计按此判终态与事件一致
-- <Ref id="G.3.3.1" />　只减仓单只能减仓不能增仓或开仓，模拟交易所随持仓缩量并在持仓归零后撤销；止损类型为 STOP_MARKET、STOP_LIMIT、TRAILING_STOP_MARKET、TRAILING_STOP_LIMIT
-
-<p id="ref-93" className="rd-ref-head"><b>[93]</b> [NautilusTrader — Advanced orders](https://nautilustrader.io/docs/latest/concepts/orders/advanced/)</p>
-
-- <Ref id="C.4.2.1" />　bracket 缺省为 MARKET 入场＋LIMIT 止盈＋STOP_MARKET 止损；入场为 OTO，两子单只减仓且互为 OUO；撤销或到期母单即撤其持有的子单
-
-<p id="ref-96" className="rd-ref-head"><b>[96]</b> [Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price-Kline-Candlestick-Data)</p>
+<p id="ref-64" className="rd-ref-head"><b>[64]</b> [Binance USDⓈ-M Futures — Kline/Candlestick Data 与 Mark Price Kline/Candlestick Data（GET /fapi/v1/klines、/fapi/v1/markPriceKlines，interval 含 1m，按 startTime/endTime 取）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price-Kline-Candlestick-Data)</p>
 
 - <Ref id="W.1.1.1" />　公开接口按时间区间提供 1 分钟成交价与标记价 K 线，用于归档尚未发布的尾段
 
-<p id="ref-98" className="rd-ref-head"><b>[98]</b> [Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price-Kline-Candlestick-Data)</p>
+<p id="ref-66" className="rd-ref-head"><b>[66]</b> [Binance USDⓈ-M Futures — Mark Price Kline/Candlestick Data（GET /fapi/v1/markPriceKlines，与成交价 K 线分接口发布）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price-Kline-Candlestick-Data)</p>
 
 - <Ref id="W.1.2.1" />　交易所以独立接口发布标记价 K 线，库内按 price_type 与成交价 K 线分列
 
-<p id="ref-99" className="rd-ref-head"><b>[99]</b> [Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Get-Funding-Rate-History)</p>
+<p id="ref-67" className="rd-ref-head"><b>[67]</b> [Binance USDⓈ-M Futures — Get Funding Rate History（每条含 symbol、fundingRate、fundingTime）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Get-Funding-Rate-History)</p>
 
 - <Ref id="W.1.2.1" />　资金费以实际结算时刻逐笔发布，库表按 (symbol, funding_time) 原样存
 
-<p id="ref-101" className="rd-ref-head"><b>[101]</b> [Dolt — Querying history（AS OF 接提交哈希、分支或其他引用、时间戳，只返回已提交版本）](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)</p>
+<p id="ref-69" className="rd-ref-head"><b>[69]</b> [Dolt — Querying history（AS OF 接提交哈希、分支或其他引用、时间戳，只返回已提交版本）](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)</p>
 
 - <Ref id="W.1.3.2" />　按提交读表即可复现某次回放的输入，未提交改动不可见
 
-<p id="ref-102" className="rd-ref-head"><b>[102]</b> [Dolt — SQL procedures（DOLT_COMMIT 返回提交哈希；DOLT_TAG 为提交打只读标签）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
+<p id="ref-70" className="rd-ref-head"><b>[70]</b> [Dolt — SQL procedures（DOLT_COMMIT 返回提交哈希；DOLT_TAG 为提交打只读标签）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
 
 - <Ref id="W.1.3.2" />　一次导入一个提交，提交哈希即数据版本
 
-<p id="ref-103" className="rd-ref-head"><b>[103]</b> [NautilusTrader — Data（time_bars_timestamp_on_close 缺省 True：ts_event 为 K 线收盘时刻）](https://nautilustrader.io/docs/latest/concepts/data/)</p>
+<p id="ref-71" className="rd-ref-head"><b>[71]</b> [NautilusTrader — Data（time_bars_timestamp_on_close 缺省 True：ts_event 为 K 线收盘时刻）](https://nautilustrader.io/docs/latest/concepts/data/)</p>
 
 - <Ref id="W.2.1.3" />　引擎以收盘时刻为 K 线事件时间，策略在收盘前看不到该 K 线
 
-<p id="ref-104" className="rd-ref-head"><b>[104]</b> [NautilusTrader — Bar execution（ts_init 须为区间收盘，完整 K 线在形成前不可见）](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/)</p>
+<p id="ref-72" className="rd-ref-head"><b>[72]</b> [NautilusTrader — Bar execution（ts_init 须为区间收盘，完整 K 线在形成前不可见）](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/)</p>
 
 - <Ref id="W.2.1.3" />　外部 K 线的 ts_init 标在收盘，保证撮合与可见性在同一时钟
 
-<p id="ref-108" className="rd-ref-head"><b>[108]</b> [Binance USDⓈ-M Futures — Exchange Information（contractType、underlyingType、status、onboardDate、filters）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information)</p>
+<p id="ref-76" className="rd-ref-head"><b>[76]</b> [Binance USDⓈ-M Futures — Exchange Information（contractType、underlyingType、status、onboardDate、filters）](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information)</p>
 
 - <Ref id="W.3.1.1" />　交易所公开合约类型与标的类型字段，范围规则据此排除指数类与非币类永续
 
-<p id="ref-109" className="rd-ref-head"><b>[109]</b> [NautilusTrader — Backtest Accounts and Margin（账户类型 CASH/MARGIN/BETTING；MARGIN 缺省 LeveragedMarginModel；配置示例 oms_type=NETTING；starting_balances）](https://nautilustrader.io/docs/latest/concepts/backtesting/accounts-and-margin/)</p>
+<p id="ref-77" className="rd-ref-head"><b>[77]</b> [NautilusTrader — Backtest Accounts and Margin（账户类型 CASH/MARGIN/BETTING；MARGIN 缺省 LeveragedMarginModel；配置示例 oms_type=NETTING；starting_balances）](https://nautilustrader.io/docs/latest/concepts/backtesting/accounts-and-margin/)</p>
 
 - <Ref id="W.4.1.1" />　一个场所一个保证金账户、净额持仓，所有策略共享同一账户资金
 
-<p id="ref-111" className="rd-ref-head"><b>[111]</b> [NautilusTrader — Bar execution（bar_execution=True 且 L1_MBP 且外部聚合 K 线才撮合；取最细周期；ts_init 为收盘）](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/)</p>
+<p id="ref-79" className="rd-ref-head"><b>[79]</b> [NautilusTrader — Bar execution（bar_execution=True 且 L1_MBP 且外部聚合 K 线才撮合；取最细周期；ts_init 为收盘）](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/)</p>
 
 - <Ref id="W.5.1.1" />　引擎以最细周期的外部 K 线驱动撮合，无需盘口
 
-<p id="ref-112" className="rd-ref-head"><b>[112]</b> [NautilusTrader — Fill models（prob_fill_on_limit 缺省 1.0、prob_slippage 缺省 0.0；缺省 DefaultFillModel；MakerTakerFeeModel 可配）](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-models/)</p>
+<p id="ref-80" className="rd-ref-head"><b>[80]</b> [NautilusTrader — Fill models（prob_fill_on_limit 缺省 1.0、prob_slippage 缺省 0.0；缺省 DefaultFillModel；MakerTakerFeeModel 可配）](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-models/)</p>
 
 - <Ref id="W.5.1.2" />　引擎提供可配置的撮合与费用模型，缺省为触价即成交无滑点
 
-<p id="ref-113" className="rd-ref-head"><b>[113]</b> [NautilusTrader — Fill prices and matching（假设价格连续穿越触发价；市价类订单耗尽 L1 量后余量差一档）](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-prices-and-matching/)</p>
+<p id="ref-81" className="rd-ref-head"><b>[81]</b> [NautilusTrader — Fill prices and matching（假设价格连续穿越触发价；市价类订单耗尽 L1 量后余量差一档）](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-prices-and-matching/)</p>
 
 - <Ref id="W.5.1.2" />　引擎文档自述其成交规则基于假设，需更细数据才能复现跳空与路径
 
-<p id="ref-114" className="rd-ref-head"><b>[114]</b> [NautilusTrader — Bar execution（缺省顺序 Open→High→Low→Close；成交量均分到四点、余量归收盘；adaptive 顺序只是启发式）](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/)</p>
+<p id="ref-82" className="rd-ref-head"><b>[82]</b> [NautilusTrader — Bar execution（缺省顺序 Open→High→Low→Close；成交量均分到四点、余量归收盘；adaptive 顺序只是启发式）](https://nautilustrader.io/docs/latest/concepts/backtesting/bar-execution/)</p>
 
 - <Ref id="W.5.2.1" />　引擎以确定顺序与均分量模拟 K 线内成交，运行器保留固定顺序
 
-<p id="ref-115" className="rd-ref-head"><b>[115]</b> [NautilusTrader — Fill prices and matching（K 线开盘越过触发价按模拟市价成交；之后高低收穿过触发价按触发价成交）](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-prices-and-matching/)</p>
+<p id="ref-83" className="rd-ref-head"><b>[83]</b> [NautilusTrader — Fill prices and matching（K 线开盘越过触发价按模拟市价成交；之后高低收穿过触发价按触发价成交）](https://nautilustrader.io/docs/latest/concepts/backtesting/fill-prices-and-matching/)</p>
 
 - <Ref id="W.5.2.2" />　止损在成交价 K 线上触发并成交，是引擎原生规则
 
-<p id="ref-116" className="rd-ref-head"><b>[116]</b> [Binance USDⓈ-M Futures — New Order（同页 New Algo Order 条件单的 workingType 取 MARK_PRICE 或 CONTRACT_PRICE，缺省 CONTRACT_PRICE）](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)</p>
+<p id="ref-84" className="rd-ref-head"><b>[84]</b> [Binance USDⓈ-M Futures — New Order（同页 New Algo Order 条件单的 workingType 取 MARK_PRICE 或 CONTRACT_PRICE，缺省 CONTRACT_PRICE）](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)</p>
 
 - <Ref id="W.5.2.2" />　交易所支持按标记价触发条件单，回放只按成交价触发属已知差异
 
-<p id="ref-117" className="rd-ref-head"><b>[117]</b> [Binance — Introduction to Binance Futures Funding Rates（缺省每 8 小时；可调为 4 小时或 1 小时；正费率多头付空头；只有结算时刻持仓者收付）](https://www.binance.com/en/support/faq/detail/360033525031)</p>
+<p id="ref-85" className="rd-ref-head"><b>[85]</b> [Binance — Introduction to Binance Futures Funding Rates（缺省每 8 小时；可调为 4 小时或 1 小时；正费率多头付空头；只有结算时刻持仓者收付）](https://www.binance.com/en/support/faq/detail/360033525031)</p>
 
 - <Ref id="W.5.2.3" />　交易所资金费间隔随合约与时期变化，须按实际结算时刻记录
 
-<p id="ref-118" className="rd-ref-head"><b>[118]</b> [NautilusTrader — Backtest Accounts and Margin（回测在资金费边界按 FundingRateUpdate 结算；有 next_funding_ns 时在该时刻发出一次 FundingSettlement；结算调整持仓与对应账户余额；正费率多头付、空头收）](https://nautilustrader.io/docs/latest/concepts/backtesting/accounts-and-margin/)</p>
+<p id="ref-86" className="rd-ref-head"><b>[86]</b> [NautilusTrader — Backtest Accounts and Margin（回测在资金费边界按 FundingRateUpdate 结算；有 next_funding_ns 时在该时刻发出一次 FundingSettlement；结算调整持仓与对应账户余额；正费率多头付、空头收）](https://nautilustrader.io/docs/latest/concepts/backtesting/accounts-and-margin/)</p>
 
 - <Ref id="W.5.2.3" />　引擎以逐条资金费更新的 next_funding_ns 作为结算时刻，无需统一周期
 
-<p id="ref-120" className="rd-ref-head"><b>[120]</b> [OCI image-spec — descriptor（digest 字段）](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
+<p id="ref-88" className="rd-ref-head"><b>[88]</b> [OCI image-spec — descriptor（digest 字段）](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
 
 - <Ref id="G.1.1.4" />　以内容摘要作为唯一内容身份，来自不可信来源的内容消费前应按摘要核验字节；运行环境身份与源码身份都按此法钉死并核对
 
-<p id="ref-124" className="rd-ref-head"><b>[124]</b> [NautilusTrader — Python API backtest（BacktestResult）](https://nautilustrader.io/docs/python-api-latest/backtest.html)</p>
+<p id="ref-92" className="rd-ref-head"><b>[92]</b> [NautilusTrader — Python API backtest（BacktestResult）](https://nautilustrader.io/docs/python-api-latest/backtest.html)</p>
 
 - <Ref id="G.2.1.2" />　引擎结果对象公开 iterations 与 total_events 字段；运行器读 iterations 作为实际消费计数与回执总数比对（与回执总数的比对由运行器完成）
 
-<p id="ref-125" className="rd-ref-head"><b>[125]</b> [NautilusTrader — Reports](https://nautilustrader.io/docs/latest/concepts/reports/)</p>
+<p id="ref-93" className="rd-ref-head"><b>[93]</b> [NautilusTrader — Reports](https://nautilustrader.io/docs/latest/concepts/reports/)</p>
 
 - <Ref id="G.3.2.1" />　订单、成交、持仓、账户报表由引擎缓存生成；订单报表列含 client_order_id、status、filled_qty，成交报表列含 trade_id、last_qty、last_px、commission
 - <Ref id="G.3.2.2" />　持仓报表含 position_id、opening_order_id、closing_order_id、realized_pnl；账户报表含 total、locked、free
 - <Ref id="R.1.1.2" />　报表提供者导出订单、成交、持仓报表，持仓行带 opening_order_id、closing_order_id 与 realized_pnl
 - <Ref id="D.3.1.2" />　订单、成交（每成交一行）、持仓（含快照行，带 opening/closing order id 与 realized_pnl）、账户（每余额条目一行）报告为 DataFrame，是逐条比较的对象
 
-<p id="ref-126" className="rd-ref-head"><b>[126]</b> [NautilusTrader — Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)</p>
+<p id="ref-94" className="rd-ref-head"><b>[94]</b> [NautilusTrader — Orders](https://nautilustrader.io/docs/latest/concepts/orders/)</p>
+
+- <Ref id="G.3.2.1" />　订单状态模型从 INITIALIZED 经 SUBMITTED、ACCEPTED、PARTIALLY_FILLED 到 FILLED、CANCELED、EXPIRED、DENIED、REJECTED 等终态，审计按此判终态与事件一致
+- <Ref id="G.3.3.1" />　只减仓单只能减仓不能增仓或开仓，模拟交易所随持仓缩量并在持仓归零后撤销；止损类型为 STOP_MARKET、STOP_LIMIT、TRAILING_STOP_MARKET、TRAILING_STOP_LIMIT
+
+<p id="ref-95" className="rd-ref-head"><b>[95]</b> [NautilusTrader — Accounts and margin](https://nautilustrader.io/docs/latest/concepts/backtesting/accounts-and-margin/)</p>
+
+- <Ref id="G.3.2.2" />　资金费在结算边界同时调整持仓与对应账户余额，审计据此把持仓的 FUNDING 调整与账户总额变动逐时刻对账
+- <Ref id="G.3.2.3" />　资金费结算在同一时刻改持仓与余额，与成交落在同一时刻时余额变动不可分拆，故该时刻只能排除
+
+<p id="ref-96" className="rd-ref-head"><b>[96]</b> [NautilusTrader — Execution](https://nautilustrader.io/docs/latest/concepts/execution)</p>
+
+- <Ref id="G.3.2.4" />　RiskEngine 在提交前检查价格与数量精度、数量边界、GTD 未过期、只减仓不增仓、名义上限与可用余额或初始保证金，失败即产生带标准化原因码的 OrderDenied 事件
+
+<p id="ref-97" className="rd-ref-head"><b>[97]</b> [Binance — Delisting of futures contracts](https://www.binance.com/en/support/faq/delisting-of-futures-contracts-dd60dfbf654d4055aa6b217ea6d5ddba)</p>
+
+- <Ref id="G.3.3.3" />　停止交易前 30 分钟只能下只减仓单，持有到停止交易的仓位按最后 30 分钟每秒价格指数均价自动结算并收取费用；审计不复制该结算，故要求无价终止前归零
+
+<p id="ref-98" className="rd-ref-head"><b>[98]</b> [NautilusTrader — Portfolio](https://nautilustrader.io/docs/latest/concepts/portfolio/)</p>
 
 - <Ref id="R.1.2.2" />　统计类经 calculate_from_returns 算；组合收益为按 UTC 日期一日一值的 mark-to-market 权益变化
 - <Ref id="R.2.1.2" />　统计类经 calculate_from_returns 算；组合收益为按 UTC 日期一日一值的 mark-to-market 权益变化
 - <Ref id="R.2.2.1" />　持仓估值价源顺序以标记价优先（use_mark_prices 默认开）
 
-<p id="ref-128" className="rd-ref-head"><b>[128]</b> [NautilusTrader — MarkPriceUpdate](https://nautilustrader.io/docs/latest/concepts/data/mark_price_update/)</p>
+<p id="ref-100" className="rd-ref-head"><b>[100]</b> [NautilusTrader — MarkPriceUpdate](https://nautilustrader.io/docs/latest/concepts/data/mark_price_update/)</p>
 
 - <Ref id="R.2.2.1" />　衍生品场所以标记价做保证金、强平检查与未实现盈亏
 
-<p id="ref-137" className="rd-ref-head"><b>[137]</b> [W3C — PROV-DM（Derivation / Revision）](https://www.w3.org/TR/prov-dm/)</p>
+<p id="ref-107" className="rd-ref-head"><b>[107]</b> [W3C — PROV-DM（Derivation / Revision）](https://www.w3.org/TR/prov-dm/)</p>
 
 - <Ref id="J.3.1.2" />　修订是指向原实体的新实体，原实体不改写
 
-<p id="ref-138" className="rd-ref-head"><b>[138]</b> [Dolt — Commit verification](http://www.dolthub.com/blog/2026-02-12-commit-verification/)</p>
+<p id="ref-108" className="rd-ref-head"><b>[108]</b> [Dolt — Commit verification](http://www.dolthub.com/blog/2026-02-12-commit-verification/)</p>
 
 - <Ref id="J.3.1.4" />　dolt_tests 按验证组在每次 Dolt 提交前运行，失败即拒绝提交；--skip-verification 可绕过
 
-<p id="ref-139" className="rd-ref-head"><b>[139]</b> [Dolt — SQL procedures（DOLT_COMMIT）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
+<p id="ref-109" className="rd-ref-head"><b>[109]</b> [Dolt — SQL procedures（DOLT_COMMIT）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
 
 - <Ref id="J.3.2.1" />　DOLT_COMMIT 在事务内创建提交；带 --skip-verification 与 --date 选项
 
-<p id="ref-140" className="rd-ref-head"><b>[140]</b> [Dolt — Concurrency（DoltHub 博客）](https://www.dolthub.com/blog/2026-02-17-dolt-concurrency/)</p>
+<p id="ref-110" className="rd-ref-head"><b>[110]</b> [Dolt — Concurrency（DoltHub 博客）](https://www.dolthub.com/blog/2026-02-17-dolt-concurrency/)</p>
 
 - <Ref id="J.3.2.2" />　提交时三方合并：不同格合并，同格相同值合并，同格不同值冲突回滚
 
-<p id="ref-141" className="rd-ref-head"><b>[141]</b> [OCI — image-spec descriptor](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
+<p id="ref-111" className="rd-ref-head"><b>[111]</b> [OCI — image-spec descriptor](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
 
 - <Ref id="J.3.4.1" />　摘要是内容字节的抗碰撞哈希；来自不可信来源的内容在消费时应重算核对
 - <Ref id="J.5.1.2" />　digest 是内容地址，唯一标识精确字节
 
-<p id="ref-142" className="rd-ref-head"><b>[142]</b> [Dolt — Backups](https://www.dolthub.com/docs/sql-reference/server/backups)</p>
+<p id="ref-112" className="rd-ref-head"><b>[112]</b> [Dolt — Backups](https://www.dolthub.com/docs/sql-reference/server/backups)</p>
 
 - <Ref id="J.3.5.1" />　备份复制整个数据库状态，同步到已有备份是增量的；restore 到新目录
 
-<p id="ref-143" className="rd-ref-head"><b>[143]</b> [Dolt — SQL procedures（DOLT_BACKUP、DOLT_GC）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
+<p id="ref-113" className="rd-ref-head"><b>[113]</b> [Dolt — SQL procedures（DOLT_BACKUP、DOLT_GC）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
 
 - <Ref id="J.3.5.1" />　DOLT_BACKUP 支持 sync-url 与 restore；DOLT_GC 为显式调用的过程，不调用则不清理
 
-<p id="ref-145" className="rd-ref-head"><b>[145]</b> [Dolt — Supported statements](https://www.dolthub.com/docs/sql-reference/sql-support/supported-statements)</p>
+<p id="ref-115" className="rd-ref-head"><b>[115]</b> [Dolt — Supported statements](https://www.dolthub.com/docs/sql-reference/sql-support/supported-statements)</p>
 
 - <Ref id="J.4.1.1" />　CREATE TRIGGER 与 CHECK 约束受支持
 
-<p id="ref-146" className="rd-ref-head"><b>[146]</b> [Dolt — SQL procedures（DOLT_COMMIT --date）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
+<p id="ref-116" className="rd-ref-head"><b>[116]</b> [Dolt — SQL procedures（DOLT_COMMIT --date）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
 
 - <Ref id="J.4.1.1" />　提交日期可由 --date 指定，故不能作先后证据
 
-<p id="ref-147" className="rd-ref-head"><b>[147]</b> [IETF — RFC 3161 Time-Stamp Protocol](https://www.rfc-editor.org/rfc/rfc3161)</p>
+<p id="ref-117" className="rd-ref-head"><b>[117]</b> [IETF — RFC 3161 Time-Stamp Protocol](https://www.rfc-editor.org/rfc/rfc3161)</p>
 
 - <Ref id="J.4.2.2" />　机构只对消息摘要签发含 genTime 的令牌，证明数据在该时刻前存在
 
-<p id="ref-149" className="rd-ref-head"><b>[149]</b> [SLSA — Build track levels（v1.0）](https://slsa.dev/spec/v1.0/levels)</p>
+<p id="ref-119" className="rd-ref-head"><b>[119]</b> [SLSA — Build track levels（v1.0）](https://slsa.dev/spec/v1.0/levels)</p>
 
 - <Ref id="J.5.1.1" />　Build L2 以上要求在托管构建平台而非个人工作站构建，并签署来源
 
-<p id="ref-150" className="rd-ref-head"><b>[150]</b> [Docker — docker container run reference](https://docs.docker.com/reference/cli/docker/container/run/)</p>
+<p id="ref-120" className="rd-ref-head"><b>[120]</b> [Docker — docker container run reference](https://docs.docker.com/reference/cli/docker/container/run/)</p>
 
 - <Ref id="J.5.2.2" />　--read-only、--cap-drop、--security-opt no-new-privileges、--pids-limit、--tmpfs、--mount 的定义
 
-<p id="ref-151" className="rd-ref-head"><b>[151]</b> [Docker — Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)</p>
+<p id="ref-121" className="rd-ref-head"><b>[121]</b> [Docker — none network driver](https://docs.docker.com/engine/network/drivers/none/)</p>
+
+- <Ref id="J.5.2.2" />　--network none 只创建回环设备，完全隔离网络栈
+
+<p id="ref-122" className="rd-ref-head"><b>[122]</b> [Docker — Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)</p>
 
 - <Ref id="J.5.2.2" />　--mount type=bind 的 readonly 选项阻止容器写宿主目录
 
-<p id="ref-152" className="rd-ref-head"><b>[152]</b> [Dolt — System tables（dolt_diff_\<table>、dolt_history_\<table>）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)</p>
-
-- <Ref id="D.1.1.1" />　dolt_diff_\<t> 每行带 from_/to_ 列与 diff_type（added/modified/removed），可区分追加与修正；dolt_history_\<t> 给每行每提交的值
-
-<p id="ref-153" className="rd-ref-head"><b>[153]</b> [Dolt — Querying history（AS OF）](https://www.dolthub.com/docs/sql-reference/version-control/querying-history)</p>
-
-- <Ref id="D.1.1.1" />　AS OF \<commit|branch|timestamp> 按精确提交读表，只见已提交版本，可按市场提交导出复现
-
-<p id="ref-154" className="rd-ref-head"><b>[154]</b> [OCI image-spec — Descriptor（digest）](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)</p>
-
-- <Ref id="D.1.1.2" />　摘要是内容字节的抗碰撞哈希，内容变即摘要变，消费者可重算核验
-
-<p id="ref-155" className="rd-ref-head"><b>[155]</b> [OCI image-spec — Annotations（org.opencontainers.image.revision）](https://github.com/opencontainers/image-spec/blob/main/annotations.md)</p>
-
-- <Ref id="D.1.1.2" />　镜像以标准注解携带构建它的源码版本标识，运行环境变更可追到源码提交
-
-<p id="ref-157" className="rd-ref-head"><b>[157]</b> [NautilusTrader — Backtest execution flow](https://nautilustrader.io/docs/latest/concepts/backtesting/execution-flow/)</p>
-
-- <Ref id="D.3.1.1" />　每个时间戳先处理市场状态再调用策略回调，三阶段使挂单先于新单看到行情；相同回放数据每次产生相同 TradeId，使两次回放可逐条对齐
-
-<p id="ref-158" className="rd-ref-head"><b>[158]</b> [NautilusTrader — Backtest execution flow（use_random_ids、TradeId）](https://nautilustrader.io/docs/latest/concepts/backtesting/execution-flow/)</p>
+<p id="ref-123" className="rd-ref-head"><b>[123]</b> [NautilusTrader — Backtest execution flow（use_random_ids、TradeId）](https://nautilustrader.io/docs/latest/concepts/backtesting/execution-flow/)</p>
 
 - <Ref id="D.3.1.2" />　use_random_ids 决定 VenueOrderId 与 PositionId 的生成，TradeId 对相同回放数据确定；比较器据此排除随机编号列、比较其余列

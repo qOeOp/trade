@@ -44,46 +44,10 @@ cli.validation_registration 写一行 validation_registration，成一个账本�
 
 由 skill 指导，不经代码强制。
 
-<Cap id="X.1.1.1" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺一次由用户发起并走完登记、回放、报告的演练记录。" title="样本外验证只由用户发起，产品和研发循环都不自动触发">
-
-1. 用户在报告里认可某个候选（candidate）。
-2. Agent 询问是否做样本外验证，并说明它检验什么、不检验什么。
-3. Agent 停下，等用户指定。
-4. 结果出来后，Agent 找用户（<Ref id="A.3.2.2" />）。
-
-- 样本外验证是用户看报告后的判断（<Ref id="A.2.3.2" />），不是研发循环的必经步骤。
-- 它检验的是：在凭证之后才开始的市场窗口上，与开发报告同口径的绩效指标和一次性区间。
-- 它不检验的是：它不给裁决，也不证明实盘表现。
-- 产品不自动登记，也不自动回放。
-- 研发循环的任何步骤都不以样本外验证为前提。
-- 综合推荐（recommendation）不等于验证；推荐候选不会自动成为被验候选。
-
-**输入**　用户已认可的候选报告。
-
-**输出**　用户对是否发起样本外验证的答复。
-
-**强制**　由 skill 强制：<Ref id="research-round/references/validation.md#user-initiated" />，eval <Ref id="eval:research-round/validation-user-initiated" /> 校验。
-
-</Cap>
-
-<Cap id="X.1.1.2" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺窗口长度建议与事后区间分辨力的对照记录。" title="被验候选、窗口和范围由用户指定；Agent 先披露集中度与资金使用率，再建议窗口长度">
-
-1. Agent 披露该候选开发绩效指标的集中度：盈亏是否集中在某一年份、少数几天或少数合约（<Ref id="nautilus-report-analysis/SKILL.md#position-structure" />）。
-2. Agent 披露资金使用率（capital utilisation，<Ref id="nautilus-report-analysis/SKILL.md#capital-utilisation" />），并按 <Ref id="research-round/references/feedback.md#diagnosis-order" /> 的顺序引用每项绩效指标的身份。
-3. Agent 按候选在开发窗口（development window）的计划（plan）频率建议窗口长度，使一次性区间有分辨力。
-4. 用户指定被验候选（strategy_id@revision）、样本外窗口和共同可交易范围（universe，即范围规则 universe_rule）。
-
-- 被验候选不必是推荐候选。
-- 范围只是环境供给的成员名单，实际交易哪些合约仍由候选源码决定。
-- 窗口长度由用户选择，不是产品常数。
-
-**输入**　候选的开发绩效指标与研究状态。
-
-**输出**　用户的指定：候选 strategy_id@revision、窗口和共同可交易范围。
-
-**强制**　由 skill 强制：<Ref id="research-round/references/validation.md#choose-candidate-and-window" />，eval <Ref id="eval:research-round/concentration-disclosed-before-validation" /> 校验。
-
-</Cap>
+<ul className="rd-rules">
+<li id="X-1-1-1"><span className="rd-rule-id">X.1.1.1</span> 样本外验证只在用户指定后登记，不自行发起 <Ref id="rule:X.1.1.1">research-round · SKILL.md</Ref></li>
+<li id="X-1-1-2"><span className="rd-rule-id">X.1.1.2</span> 建议样本外窗口前，先披露盈亏集中度与资金使用率 <Ref id="rule:X.1.1.2">research-round · references/validation.md</Ref></li>
+</ul>
 
 ### X.1.2　登记与窗口准入 [#X-1-2]
 
@@ -140,24 +104,6 @@ cli.validation_registration 写一行 validation_registration，成一个账本�
 
 </Cap>
 
-<Cap id="X.1.2.3" kind="skill" tier="verified" tierLabel="已验证" title="已存在的数据不登记为样本外，只用于探索或反驳">
-
-- 开发窗口、开发窗口之外的历史时段、同期其他标的，在登记时都已存在，不登记为样本外。
-- 代码层面由 <Ref id="X.1.2.2" /> 的窗口起点规则挡住。
-- Agent 可以用这些数据做探索或反驳。
-- 结果只写「未被反驳」或「开发观察」，不写泛化、样本外、独立或无过拟合（用语见 <Ref id="research-round/references/validation.md#wording" />）。
-- 做过自适应搜索后，再用已暴露的数据不算独立检验。
-- 文献已研究过的窗口，对该机制也不算样本外。
-- 引用外部依据时，按 <Ref id="research-round/references/source-evidence.md#three-classes" /> 记下它的市场和窗口，以便判断。
-
-**输入**　登记时已存在的市场数据。
-
-**输出**　措辞为「未被反驳」或「开发观察」的探索、反驳结果。
-
-**强制**　由 skill 强制：<Ref id="research-round/references/validation.md#existing-data-not-oos" />，eval <Ref id="eval:research-round/exposed-window-no-generalization" /> 校验。
-
-</Cap>
-
 ### X.1.3　一次性与一致性 [#X-1-3]
 
 <Cap id="X.1.3.1" kind="database" tier="unverified" tierLabel="待验证" tierNote="缺一登记一回放与重试条件在账本上的实际拒绝记录。" title="一次登记只能绑定一次回放，绑定后登记即消耗">
@@ -172,7 +118,7 @@ cli.validation_registration 写一行 validation_registration，成一个账本�
 - 重试登记的准入沿用原登记的凭证时间。
 - 只有三种情况允许重试：原登记绑定的试验被中断且没有运行；运行无效；运行没有经济证据资格。
 - 结果有效但不好看，不是重试理由；也不得换窗口或范围重新登记（<Ref id="X.2.1.4" />）。
-- 相同源码在新身份下重放，另成一次登记（<Ref id="D.2.1.1" />）。
+- 相同源码在新身份下重放，另成一次登记（<Ref id="H.4.2.1" />）。
 - <Ref id="table:dolt_tests" /> 的提交校验核对两件事，作为留痕保证：绑定试验的源码与窗口符合登记；重试登记与原登记的候选和窗口相同。
 
 **输入**　登记 ID 与本次回放的试验行。
@@ -276,7 +222,7 @@ Agent 立即找用户，由用户看报告判断认不认可、上不上线。
 <Cap id="X.2.1.1" kind="code" tier="unverified" tierLabel="待验证" tierNote="缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。" title="样本外报告给出与开发报告同口径、经资格遮蔽的绩效指标，不含裁决">
 
 - 绩效指标从绑定的封存运行读出，与开发报告同口径。
-- 绩效指标包括年化（<Ref id="R.2.1.1" />）、标记价（mark price）回撤（<Ref id="R.2.2.1" />）、夏普（<Ref id="R.2.1.2" />）、计划胜率（<Ref id="R.2.1.3" />）、成本、利润来源拆分（价格盈亏、手续费、资金费，<Ref id="R.2.3.1" />）。
+- 绩效指标包括年化（<Ref id="R.2.1.1" />）、标记价（mark price）回撤（<Ref id="R.2.2.1" />）、夏普（<Ref id="R.2.1.2" />）、计划胜率（<Ref id="R.2.1.3" />）、成本、利润来源拆分（价格盈亏、手续费、资金费，<Ref id="R.1.1.2" />）。
 - 全部绩效指标经与开发报告同一的经济证据资格视图（<Ref id="G.4.2.3" />）遮蔽。
 - 资格不可用时绩效指标置空，只留原因与诊断，不拒绝出报告。
 - 资金使用率不由代码给，报告只给封存敞口表读口，由 Agent 按 <Ref id="R.3.1.1" /> 自算后并列。
@@ -347,66 +293,24 @@ Agent 立即找用户，由用户看报告判断认不认可、上不上线。
 
 </Cap>
 
-<Cap id="X.2.1.4" kind="skill" tier="unverified" tierLabel="待验证" tierNote="缺结果不利时 Agent 如实报告并找用户的演练记录。" title="样本外结果照实报告并立即找用户，由用户判断认可与上线">
-
-- 样本外结果无论好坏照实报告，绩效指标只作分析。
-- 认不认可、上不上线由用户看报告判断，报告出来即找用户。
-- Agent 不因结果不利换窗口或范围再登记。
-- Agent 不把同一候选的多次样本外登记挑着报（报告已列出同候选全部登记）。
-- Agent 不用开发窗口的绩效指标替代样本外绩效指标。
-- 只有修复运行环境缺陷时才以 retry_of 对同一窗口另登记，并说明缺陷。
-
-**输入**　样本外报告。
-
-**输出**　照实转述绩效指标并交给用户判断的报告消息。
-
-**强制**　代码只保证一次登记一次绑定（<Ref id="X.1.3.1" />）与窗口晚于凭证（<Ref id="X.1.2.2" />）；其余由 skill research-round 的 <Ref id="research-round/references/validation.md#report-as-is" /> 指导，评测用例 <Ref id="eval:research-round/one-window-no-rerun" /> 校验。
-
-</Cap>
+<ul className="rd-rules">
+<li id="X-2-1-4"><span className="rd-rule-id">X.2.1.4</span> 样本外结果照实立即报用户，结果不利不换窗口或范围再登记 <Ref id="rule:X.2.1.4">research-round · references/validation.md</Ref></li>
+</ul>
 
 ### X.2.2　读结果的边界与用语 [#X-2-2]
 
 由 skill 指导把样本外报告与开发报告写成给用户的结论段，写明物理边界并限定措辞。
 
-<Cap id="X.2.2.1" kind="skill" tier="verified" tierLabel="已验证" title="样本外绩效指标只是实盘上限，短窗口只能否定明显失败">
-
-- 样本外回放的成交仍由引擎按撮合模型模拟，缺省假设是限价触及即成交、无滑点。
-- 绩效指标只是实盘表现的上限，结论段须写明这一点。
-- 短窗口只能否定明显失败，不能证实高收益。
-- 夏普估计的标准误随窗口长度缩小；达到给定置信所需的最短记录长度随目标夏普与收益分布的偏度、峰度变化。
-- Agent 按 <Ref id="nautilus-report-analysis/SKILL.md#deflated-sharpe" /> 自算最短记录长度，并在结论段写出窗口长度与可分辨效应。
-- 正结果只写「未被否定」。
-- 样本内夏普对样本外几乎无预测力；结论不以单一维度下，回撤、成本、利润来源与资金使用率并列。
-
-**输入**　样本外报告与开发报告。
-
-**输出**　写明模拟成交上限、窗口长度与可分辨效应的结论段。
-
-**强制**　由 skill research-round 的 <Ref id="research-round/references/validation.md#limits" /> 指导，评测用例 <Ref id="eval:research-round/short-window-refutes-only" /> 校验。
-
-</Cap>
-
-<Cap id="X.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="开发窗口结果只叫改善，只有凭证后窗口的回放可称样本外">
-
-- 开发窗口（development window）内的比较改善只叫改善（improvement）或开发观察，推荐不等于验证。
-- 开发窗口结果不得写成泛化、样本外、独立或无过拟合。
-- 只有登记凭证之后窗口上的回放可以称样本外（out-of-sample），且只能照实给绩效指标或说「未被反驳」。
-- 推荐理由写进 recommendation 判断的正文（<Ref id="ledger.add_judgment" />），开发窗口内的改善在判断正文里同样按此措辞。
-- 已存在的数据不作样本外（<Ref id="research-round/references/validation.md#existing-data-not-oos" />）。
-
-**输入**　样本外报告与开发报告。
-
-**输出**　符合用语规则的结论段，以及 recommendation 判断中的推荐理由。
-
-**强制**　由 skill research-round 的 <Ref id="research-round/references/validation.md#wording" /> 指导，评测用例 <Ref id="eval:research-round/exposed-window-no-generalization" /> 校验。
-
-</Cap>
+<ul className="rd-rules">
+<li id="X-2-2-1"><span className="rd-rule-id">X.2.2.1</span> 样本外结论写明绩效只是实盘上限，并给窗口长度与可分辨效应 <Ref id="rule:X.2.2.1">research-round · references/validation.md</Ref></li>
+<li id="X-2-2-2"><span className="rd-rule-id">X.2.2.2</span> 只有凭证后窗口的回放称样本外，其余只说改善或未被反驳 <Ref id="rule:X.2.2.2">research-round · SKILL.md</Ref></li>
+</ul>
 
 ## 待定事项 [#X-pending]
 
 **待用户定**
 
-- **回溯窗口（开发暴露外的历史时段、同期其他标的）能否登记为降级的样本外**　只认凭证之后开始的窗口，已存在数据只作探索或反驳（<Ref id="X.1.2.3" />）；若允许降级登记，需另立准入规则与分级用语。
+- **回溯窗口（开发暴露外的历史时段、同期其他标的）能否登记为降级的样本外**　只认凭证之后开始的窗口，已存在数据只作探索或反驳（<Ref id="X.2.2.2" />）；若允许降级登记，需另立准入规则与分级用语。
 - **独立复读是否在本章留一句**　绩效指标由代码算，通则见 <Ref id="R.1.2.3" />；若用户要求，在 <Ref id="X.2.1.4" /> 加一句：样本外结论段由干净上下文的第二个 Agent 复读报告。
 - **数据被修正或运行环境变更后，进行中的样本外登记怎么办**　窗口数据已存在就不能再登记；修正数据只按 retry_of 重试使用；运行环境或账户条款不一致即拒绝绑定。是否作废登记、如何记录归 D 章。
 

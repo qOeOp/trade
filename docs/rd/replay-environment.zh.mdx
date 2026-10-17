@@ -1,6 +1,6 @@
 # W　回放环境：每次回放看到哪些交易所数据、哪个窗口、哪个共同可交易范围、怎样的账户与撮合，由谁固定。
 
-本章定义回放所处的环境：交易所数据 exchange data 的来源、拼接与按市场提交 market commit 版本化；开发窗口 development window 与预热；共同可交易范围 universe 的按月产出与生命周期事件；账户与条款固定为引擎 engine 配置；撮合与结算交给引擎。指标就绪声明由 skill 指导，其余由代码强制。选币、仓位与成员退出处置归策略源码（<Ref id="C.1.2.2" />），有效性归审计（<Ref id="G.2.2.1" />），绩效指标归报告（<Ref id="R.1.3.2" />）。
+本章定义回放所处的环境：交易所数据 exchange data 的来源、拼接与按市场提交 market commit 版本化；开发窗口 development window 与预热；共同可交易范围 universe 的按月产出与生命周期事件；账户与条款固定为引擎 engine 配置；撮合与结算交给引擎。指标就绪声明由 skill 指导，其余由代码强制。选币、仓位与成员退出处置归策略源码（<Ref id="H.1.1.3" />），有效性归审计（<Ref id="G.2.2.1" />），绩效指标归报告（R.1.3.2）。
 
 <Mermaid chart={"flowchart LR\n  subgraph W-1[\"W.1 供给交易所数据\"]\n    direction TB\n    W-1-1[\"W.1.1 来源与拼接\"]\n    W-1-2[\"W.1.2 数据内容\"]\n    W-1-3[\"W.1.3 缺口与版本\"]\n  end\n  subgraph W-2[\"W.2 划定窗口\"]\n    direction TB\n    W-2-1[\"W.2.1 窗口结构与边界\"]\n    W-2-2[\"W.2.2 预热与就绪\"]\n  end\n  subgraph W-3[\"W.3 产出共同可交易范围\"]\n    direction TB\n    W-3-1[\"W.3.1 范围规则\"]\n    W-3-2[\"W.3.2 成员变化与生命周期\"]\n    W-3-3[\"W.3.3 覆盖核验\"]\n  end\n  subgraph W-4[\"W.4 固定账户、条款与已知近似\"]\n    direction TB\n    W-4-1[\"W.4.1 账户结构与条款\"]\n    W-4-2[\"W.4.2 不建模与近似\"]\n  end\n  subgraph W-5[\"W.5 模拟撮合与结算\"]\n    direction TB\n    W-5-1[\"W.5.1 撮合输入与模型\"]\n    W-5-2[\"W.5.2 成交与结算规则\"]\n  end\n  W-1 --> W-2\n  W-2 --> W-3\n  W-3 --> W-4\n  W-4 --> W-5"} />
 
@@ -192,7 +192,7 @@ Agent 只决定登记钉住哪个提交；回放时 <Ref id="market.export_catal
 - 同月同内容重跑返回原提交。
 - 回放引用一个提交哈希作为输入身份的一部分，随登记 registration 锁定（<Ref id="registration.market_inputs" />）。
 - 导出一律 AS OF 该提交，之后的导入不改变早先运行读到的内容。
-- dolt_diff 读出任何 modified 或 removed 行即为改写（<Ref id="D.1.1.1" />）。
+- dolt_diff 读出任何 modified 或 removed 行即为改写（<Ref id="W.1.3.2" />）。
 
 **输入**　一个月份的本次导入数据与库内已存数据。
 
@@ -286,7 +286,7 @@ Agent 只决定登记钉住哪个提交；回放时 <Ref id="market.export_catal
 - 开发窗口是连续 UTC 日区间 [window_start, window_end)，整条路线共用。
 - 导出器只导出开发窗口及其预热所需的数据，运行器不读窗口外数据。
 - 核对只拒绝，不缩窗、不扩窗、不换提交。
-- 扩展或改变窗口由用户决定；新月份到达时 Agent 只报告可扩展范围（<Ref id="research-start/SKILL.md#window-extension" />）。
+- 扩展或改变窗口由用户决定；新月份到达时 Agent 只报告可扩展范围（`research-start/SKILL.md#window-extension`）。
 - 用户选定后写一条新路线记录。
 
 **输入**　起点候选 strategy_id@revision、开发窗口、市场提交引用与用户备注。
@@ -371,22 +371,9 @@ Agent 只决定登记钉住哪个提交；回放时 <Ref id="market.export_catal
 
 </Cap>
 
-<Cap id="W.2.2.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="改信号周期或指标长度须登记初始化条件并报告实际就绪时点">
-
-- 改变信号周期或指标长度的假设 hypothesis，在登记的适用条件里写明所需初始化条件：需要多长历史、首次可决策的条件（<Ref id="research-round/references/strategy-authoring.md#readiness-declaration" />）。
-- 原生预检与独立源码审查的就绪项 readiness 记录实际首次就绪时点。
-- 审查结论经 <Ref id="registration.record_review" /> 绑定源码哈希与运行环境身份，只追加入账。
-- 审查状态原样保留，unresolved 不改写为通过。
-- 原始输入条数不当作就绪证据。
-- 检验结果的解读写明两边首次就绪时点及其对差异的影响，未就绪期间的差异不归为机制效果。
-
-**输入**　登记时的初始化条件声明与独立源码审查结论。
-
-**输出**　账本中绑定源码哈希与运行环境身份的审查记录；绩效指标解读中的就绪时点说明。
-
-**强制**　skill 指导，<Ref id="eval:research-round/readiness-shift-not-mechanism" /> 校验；产品代码只记录审查，不推断就绪。
-
-</Cap>
+<ul className="rd-rules">
+<li id="W-2-2-2"><span className="rd-rule-id">W.2.2.2</span> 改周期或指标长度时登记初始化条件，解读写明两边首次就绪时点 <Ref id="rule:W.2.2.2">research-round · references/diagnosis.md</Ref></li>
+</ul>
 
 ## W.3　产出共同可交易范围 [#W-3]
 
@@ -497,7 +484,7 @@ market/universe.py 把交易所公开合约元数据与每日成交日线算成�
 5. 相交结果作为 universe_membership 经 <Ref id="engine.configure_strategy" /> 传给实例，不传任何规则参数。
 
 - 禁新仓不算终止，禁新仓后的持仓仍由实例平仓；缺 K 线不使片段失效。
-- 成员区间是输入不是审计：退出范围后不开新仓、旧仓旧单如何处置由源码按契约写明 <Ref id="C.1.4.3" />。
+- 成员区间是输入不是审计：退出范围后不开新仓、旧仓旧单如何处置由源码按契约写明 C.1.4.3。
 
 **输入**　成员文件与已校验的生命周期片段。
 
@@ -608,20 +595,9 @@ market/universe.py 把交易所公开合约元数据与每日成交日线算成�
 
 </Cap>
 
-<Cap id="W.3.3.2" kind="skill" tier="rehearsal" tierLabel="演练证据" title="缺口、零量、资金费缺失各自保留为事实并写未证原因，不删币、缩窗、补数">
-
-- Agent 读覆盖与生命周期回执（<Ref id="market.diagnose_coverage" />）时，把缺口、零成交量与资金费缺失各自保留为事实，分别写明尚未证实的原因。
-- 不默认视为经济失败，不静默删币、缩窗或补造数据。
-- 可继续运行的范围与阻断原因报告给用户，改变数据范围由用户选择。
-- 候选身份与研究路线有效性不因此改变 <Ref id="E.1.2.3" />。
-
-**输入**　覆盖回执与生命周期回执。
-
-**输出**　给用户的可运行范围与阻断原因报告。
-
-**强制**　skill 指导：<Ref id="research-start/SKILL.md#readiness-and-blockers">research-start 的就绪与阻断节</Ref>，eval <Ref id="eval:research-start/coverage-gap-not-economic-failure" /> 与 <Ref id="eval:research-start/blocked-run-reports-range" /> 校验。
-
-</Cap>
+<ul className="rd-rules">
+<li id="W-3-3-2"><span className="rd-rule-id">W.3.3.2</span> 覆盖缺口、零量与资金费缺失各记为事实并写未证原因，不判经济失败 <Ref id="rule:W.3.3.2">research-start · references/readiness.md</Ref></li>
+</ul>
 
 ## W.4　固定账户、条款与已知近似 [#W-4]
 
@@ -659,7 +635,7 @@ market/universe.py 把交易所公开合约元数据与每日成交日线算成�
 
 <Step>
 
-<Ref id="report.run_report" /> 把这些近似并入局限清单，不做修正；账户绩效指标口径见年化 <Ref id="R.2.1.1" />、标记价回撤 <Ref id="R.2.2.1" />、资金使用率 <Ref id="R.3.1.1" />、利润来源拆分 <Ref id="R.2.3.3" />。
+<Ref id="report.run_report" /> 把这些近似并入局限清单，不做修正；账户绩效指标口径见年化 <Ref id="R.2.1.1" />、标记价回撤 <Ref id="R.2.2.1" />、资金使用率 <Ref id="R.3.1.1" />、利润来源拆分 <Ref id="R.1.1.2" />。
 
 </Step>
 
@@ -702,7 +678,7 @@ market/universe.py 把交易所公开合约元数据与每日成交日线算成�
 - 账户常量与引擎合约都写进有效配置并进入其哈希（<Ref id="engine.effective_configuration" />），所有候选共用；策略源码不能改动其中任何一项。
 - 运行器命令行不接受任何账户或策略参数，由 <Ref id="engine.parse_configuration" /> 拒绝。
 - 有效配置哈希不同的两次运行不进入比较。
-- 仓位、单笔风险与名义上限是 Agent 在源码里设定的设计变量，不是环境条款（契约见 <Ref id="C.1.4.2" />）。
+- 仓位、单笔风险与名义上限是 Agent 在源码里设定的设计变量，不是环境条款（契约见 <Ref id="A.2.2.1" />）。
 - 报告读出资金使用率（<Ref id="R.3.1.1" />）。
 
 **输入**　无运行参数（账户为常量）；市场提交上的条款快照。
@@ -738,7 +714,7 @@ market/universe.py 把交易所公开合约元数据与每日成交日线算成�
 - 条款来源 exchange_info 为交易所公开快照；已下架合约为从成交推断的 inferred。
 - 窗口内不回溯条款的历史变化。
 - 装载时回执缺条款近似标记由 <Ref id="engine.read_market" /> 拒绝。
-- 报告按成交行对账实际费率（<Ref id="R.2.3.3" />）并把近似列为局限。
+- 报告按成交行对账实际费率（<Ref id="R.1.1.2" />）并把近似列为局限。
 
 **输入**　市场提交、合约名、由数据算出的价格精度。
 
@@ -840,7 +816,7 @@ market/universe.py 把交易所公开合约元数据与每日成交日线算成�
 - 运行器把这一撮合局限写入原生摘要（<Ref id="engine.write_native_reports" />）。
 - 报告把它并入局限清单（<Ref id="R.1.3.4" />）。
 - 保守化撮合属账户契约变更，只能经新的运行环境 runtime image（<Ref id="J.5.1.1" />）生效。
-- 生效后所有候选在新身份下重新登记并重放（<Ref id="D.2.1.1" />）。
+- 生效后所有候选在新身份下重新登记并重放（<Ref id="H.4.2.1" />）。
 
 **输出**　原生摘要中的撮合局限声明。
 
@@ -856,7 +832,7 @@ K 线内顺序与止损触发由账户契约的配置键固定，资金费由引
 
 - 引擎在每根 1 分钟成交价 K 线内按开、高、低、收的固定顺序处理挂单。
 - 运行器经 <Ref id="engine.account_contract" /> 固定 bar_adaptive_high_low_ordering=False：不启用自适应启发式，策略与运行器也不猜测价格路径。
-- 同一 K 线内括号单（<Ref id="C.4.2.1" />）的止损与止盈同时可触发时，先后只由这一顺序决定。
+- 同一 K 线内括号单（C.4.2.1）的止损与止盈同时可触发时，先后只由这一顺序决定。
 - K 线成交量由引擎均分到四个价格点，余量归收盘；低于最小步长时每点取最小量。
 
 **强制**　代码：运行器的引擎配置。
@@ -884,7 +860,7 @@ K 线内顺序与止损触发由账户契约的配置键固定，资金费由引
 - 正费率多头付、空头收；只有结算时刻持仓者收付。
 - 不假设统一的 8 小时周期，各合约、各时期的间隔可以不同。
 - 某段没有资金费记录时保留为覆盖事实（<Ref id="W.3.3.2" />），不补造。
-- 绩效指标把资金费作为独立利润来源计入闭仓拆分（<Ref id="R.2.3.1" />），并与账户整体手续费并列（<Ref id="R.2.3.3" />）。
+- 绩效指标把资金费作为独立利润来源计入闭仓拆分（<Ref id="R.1.1.2" />），并与账户整体手续费并列（<Ref id="R.1.1.2" />）。
 
 **输入**　市场库 <Ref id="table:funding" /> 中各合约的结算时刻与费率。
 
